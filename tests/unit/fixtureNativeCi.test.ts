@@ -2113,6 +2113,7 @@ describe('restored provider accounting qualification', () => {
         'lib/postgresql/17/bin/pg_dump',
         'share/postgresql/17/extension/pg_cron.control',
         'lib/postgresql/17/lib/pg_cron.so',
+        'lib/x86_64-linux-gnu/faketime/libfaketime.so.1',
       ]) {
         const file = join(temp, path);
         mkdirSync(dirname(file), { recursive: true });
@@ -2135,7 +2136,7 @@ describe('restored provider accounting qualification', () => {
           expect(output).toBe(''); // Complete PG17/pg_cron fixture needs no compiler package.
         else if (shard === 2)
           expect(output).toBe(
-            'INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev'
+            'INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev libfaketime'
           );
         else if (shard === 1)
           expect(output).toBe('INSTALL:postgresql-server-dev-17 build-essential');
@@ -2183,7 +2184,9 @@ describe('restored provider accounting qualification', () => {
             ['-c', prefix + '\nprintf "INSTALL:%s" "${pg_ci_build_packages[*]-}"'],
             { encoding: 'utf8', env: { ...process.env, PATH: '', PG_CI_SHARD: '2' } }
           )
-        ).toBe('INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev');
+        ).toBe(
+          'INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev libfaketime'
+        );
         writeFileSync(path, '', { mode: 0o755 });
       }
       rmSync(join(temp, 'lib/postgresql/17/lib/pg_cron.so'));
@@ -2196,7 +2199,9 @@ describe('restored provider accounting qualification', () => {
             env: { ...process.env, PATH: '', PG_CI_SHARD: '2' },
           }
         )
-      ).toBe('INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev');
+      ).toBe(
+        'INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev libfaketime'
+      );
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }

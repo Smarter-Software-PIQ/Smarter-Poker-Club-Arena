@@ -36,6 +36,36 @@ SHARE=("$ROOT"/supabase/migrations/*_a_standing_rake_share_replaces_the_woowoo_c
 test "${#SHARE[@]}" = 1
 test -f "${OUT_OF_BAND[0]}"
 test -f "${SHARE[0]}"
+# PINNED CLOCK (2026-10-31). 20261025030629 proves itself against now(): its
+# seven-day window must still contain the October 24 hands it was written
+# against. From 2026-10-31 ~22:00 UTC that window has moved past them and the
+# migration's own guard refuses ("the rule reports less than the cron wrote"),
+# turning every migration pull request red. The proof is about the state it was
+# installed into, so this block runs on a server whose clock starts at
+# 2026-10-25 03:30 UTC (21 minutes after production installed it) via
+# libfaketime. The rest of this script keeps the real clock.
+FAKETIME_LIB=""
+for candidate in /usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1 \
+  /usr/lib/aarch64-linux-gnu/faketime/libfaketime.so.1 \
+  /opt/homebrew/lib/faketime/libfaketime.1.dylib /usr/local/lib/faketime/libfaketime.1.dylib; do
+  [ -f "$candidate" ] && { FAKETIME_LIB="$candidate"; break; }
+done
+[ -n "$FAKETIME_LIB" ] || { echo 'FAIL: libfaketime is required to replay the dated rake-share proof (apt-get install faketime / brew install libfaketime)' >&2; exit 1; }
+# A relative offset, applied by preloading the library on pg_ctl and the
+# postmaster it starts. Not the `faketime` wrapper (it waits on the daemonised
+# postmaster) and not an '@' start time (every exec restarts that clock, so
+# pg_ctl -w sees a postmaster older than itself and waits for ever).
+PINNED_OFFSET=$(python3 -c 'import calendar,time; print("%+d" % (calendar.timegm((2026,10,25,3,30,0,0,0,0)) - int(time.time())))')
+"$PG_BIN/pg_ctl" -D "$WORK/data" -m fast -w stop >/dev/null
+if [ "$(uname -s)" = Darwin ]; then
+  DYLD_FORCE_FLAT_NAMESPACE=1 DYLD_INSERT_LIBRARIES="$FAKETIME_LIB" FAKETIME="$PINNED_OFFSET" FAKETIME_DONT_FAKE_MONOTONIC=1 \
+    "$PG_BIN/pg_ctl" -D "$WORK/data" -l "$WORK/postgres.log" -o "-k $WORK -c listen_addresses=''" -w start >/dev/null
+else
+  LD_PRELOAD="$FAKETIME_LIB" FAKETIME="$PINNED_OFFSET" FAKETIME_DONT_FAKE_MONOTONIC=1 \
+    "$PG_BIN/pg_ctl" -D "$WORK/data" -l "$WORK/postgres.log" -o "-k $WORK -c listen_addresses=''" -w start >/dev/null
+fi
+"${PSQL[@]}" -tAc "SELECT now() < '2026-10-26'::timestamptz" | grep -qx t \
+  || { echo 'FAIL: the pinned clock did not take effect' >&2; exit 1; }
 "${PSQL[@]}" -f "$FIXTURE/rake-share-out-of-band.sql" -f "${OUT_OF_BAND[0]}" -f "$FIXTURE/rake-share-lag.sql"
 # The cron trails the hands: before the fix KingFish's statistics miss hand D.
 if "${PSQL[@]}" -c "DO \$\$ BEGIN ASSERT (ca_player_rake_stats('47965354-0e56-43ef-931c-ddaab82af765')->>'rake_paid')::numeric=576.77, 'share lags the hands'; END \$\$;" > "$WORK/share-before.log" 2>&1; then
@@ -45,6 +75,9 @@ fi
 grep -q 'share lags the hands' "$WORK/share-before.log"
 "${PSQL[@]}" -f "${SHARE[0]}" -f "$FIXTURE/rake-share-assert.sql"
 echo 'PASS: the standing rake share replaces the cron; exact, immediate, funded club, ended rule, grants, fixed events kept and no cron writes the redemptions'
+"$PG_BIN/pg_ctl" -D "$WORK/data" -m fast -w stop >/dev/null
+"$PG_BIN/pg_ctl" -D "$WORK/data" -l "$WORK/postgres.log" \
+  -o "-k $WORK -c listen_addresses=''" -w start >/dev/null
 
 # Rake uses the same viewer-calendar population as the Stats overview.
 CALENDAR="$ROOT/scripts/ci/fixtures/rake-calendar"
