@@ -79,6 +79,69 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    // Review the added tournament gate exactly, then retain every existing job pin.
+    for (const tournamentStep of [
+      {
+        name: 'Add-ons wait for the last late-entry level at transition and purchase',
+        if: 'matrix.shard == 4',
+        env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+        run: 'python3 -B scripts/ci/test-addon-after-entry-levels.py',
+      },
+      {
+        name: 'Only highlighted tournaments may use ten-minute levels',
+        if: 'matrix.shard == 4',
+        env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+        run: 'python3 -B scripts/ci/test-highlighted-level-clock.py',
+      },
+    ]) {
+      const tournamentSteps = normalized.jobs.accounting_postgres.steps;
+      const tournamentIndex = tournamentSteps.findIndex(
+        (entry: Record<string, unknown>) => entry.name === tournamentStep.name
+      );
+      expect(tournamentIndex).toBeGreaterThanOrEqual(0);
+      expect(
+        tournamentSteps.filter(
+          (entry: Record<string, unknown>) => entry.name === tournamentStep.name
+        )
+      ).toHaveLength(1);
+      expect(tournamentSteps[tournamentIndex]).toStrictEqual(tournamentStep);
+      tournamentSteps.splice(tournamentIndex, 1);
+    }
+
+    const accounting = normalized.jobs.accounting_postgres;
+    expect(accounting.strategy).toEqual({
+      'fail-fast': false,
+      matrix: { shard: [1, 2, 3, 4, 5, 6, 7] },
+    });
+    expect(accounting.name).toBe(
+      'Accounting transactions (PostgreSQL 17) shard $' + '{{ matrix.shard }}/7'
+    );
+    accounting.strategy.matrix.shard = [1, 2, 3, 4];
+    accounting.name = 'Accounting transactions (PostgreSQL 17) shard $' + '{{ matrix.shard }}/4';
+    for (const [name, from, to] of [
+      ['Weekly recompute commits bounded parts and preserves real payouts', 2, 5],
+      ['Retain exact weekly recompute qualification', 2, 5],
+      ['Full weekly accounting activation, rollback and concurrent authority', 2, 6],
+      ['Preserve weekly accounting qualification evidence', 2, 6],
+      ['Certified V31 PostgreSQL 17 behavior gate', 4, 7],
+    ] as const) {
+      const selected = accounting.steps.filter((step: { name: string }) => step.name === name);
+      expect(selected).toHaveLength(1);
+      expect(selected[0].if.match(/matrix\.shard == \d/g)).toEqual(['matrix.shard == ' + to]);
+      selected[0].if = selected[0].if.replace('matrix.shard == ' + to, 'matrix.shard == ' + from);
+    }
+    const installers = accounting.steps.filter(
+      (step: { name: string }) =>
+        step.name === 'Install PostgreSQL 17 tools without a default database service'
+    );
+    expect(installers).toHaveLength(1);
+    expect(createHash('sha256').update(JSON.stringify(installers[0])).digest('hex')).toBe(
+      'b0961ac4782f86fbf4158a3eb0d3d3a6d650ae86d662a4bd4d73b552849d37dd'
+    );
+    const newInstallCase =
+      '  5|6|7)\n    # Isolated weekly recompute, full weekly activation and V31 use\n    # the common PG17 tools; no native compiler or fixture builder.\n    # The shared install/readiness check below retains pg_cron,\n    # including the full weekly activation fixture on shard 6.\n    ;;\n';
+    expect(installers[0].run.split(newInstallCase)).toHaveLength(2);
+    installers[0].run = installers[0].run.replace(newInstallCase, '');
     // Normalize only reviewed routing changes; the existing whole-job hashes
     // still enforce every command, assertion, timeout, artifact and ordering.
     const remappedSteps = [
@@ -100,7 +163,12 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
           ? `always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.diamond_sql_acceptance.outcome)`
           : previous;
       expect(selected[0].if).toBe(
-        oldCondition.replace(/matrix.shard == [34]/, 'matrix.shard == 2')
+        oldCondition.replace(
+          /matrix.shard == [34]/,
+          name === 'Backed payout discovery preserves every conservation term'
+            ? 'matrix.shard == 3'
+            : 'matrix.shard == 2'
+        )
       );
       selected[0].if = oldCondition;
     }
@@ -120,6 +188,42 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       );
       selected[0].if = previous;
     }
+    // Pin the entire reviewed producer and transfer pair before reconstructing
+    // the former browser shape. The historical job hash still protects every
+    // original build command, browser assertion, timeout and step ordering.
+    const browserBuild = normalized.jobs['css-beats-build'];
+    const browserJob = normalized.jobs['css-beats-e2e'];
+    const exactHash = (value: unknown) =>
+      createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    expect(exactHash(browserBuild)).toBe(
+      '1d75a0c1c211190a532d247c4f6009f2c876ffe0f0775465ab0732f4005462bc'
+    );
+    expect(browserJob.needs).toEqual(['changes', 'css-beats-build']);
+    browserJob.needs = 'changes';
+    const transferNames = ["Download this run's browser build", "Verify this run's browser build"];
+    for (const name of transferNames)
+      expect(browserJob.steps.filter((step: { name: string }) => step.name === name)).toHaveLength(
+        1
+      );
+    const transferStart = browserJob.steps.findIndex(
+      (step: { name: string }) => step.name === transferNames[0]
+    );
+    expect(
+      browserJob.steps
+        .slice(transferStart, transferStart + 2)
+        .map((step: { name: string }) => step.name)
+    ).toEqual(transferNames);
+    expect(exactHash(browserJob.steps.slice(transferStart, transferStart + 2))).toBe(
+      'ff193edb18cbf4c4ddc745ada4cac0d08e589b177afc226b5e40b0b647aadc15'
+    );
+    browserJob.steps.splice(transferStart, 2);
+    for (const name of ['Cache optimized dist media', 'Build this commit']) {
+      const selected = browserJob.steps.filter((step: { name: string }) => step.name === name);
+      expect(selected).toHaveLength(1);
+      expect(selected[0].if).toBe("needs.changes.outputs.server != 'true'");
+      delete selected[0].if;
+    }
+    delete normalized.jobs['css-beats-build'];
     normalizeFrameCoverAddition(normalized.jobs.accounting_postgres);
     normalizePostpaidQualityAddition(normalized.jobs.accounting_postgres);
     const formerClientRoute = '$' + '{{ ' + trusted + " && 'ca-linux-4core' || 'ubuntu-latest' }}";
@@ -168,7 +272,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       changes: 'f9d317d1503f4dc8a8945bb2b9238bcfa89b2ea551a970dd23ddb3d531f4a481',
       source_windows: 'a9830648dfc81b5558d0e9a45d75307210fa1535926da65e087f6647e1fa4189',
       stub_gate: '166528cc83e7d0c075c59b6facb1a6782f3e2eda6c334f9608b933319aca9c80',
-      fixture_native: '0df5b9e9f46fe331ce65fbdeaed5584c18e4756fddc7b4e3f417fc4694d2e2ff',
+      fixture_native: '8949ac7f86b74f267efb996eecddb67f8c59f93d3e40a8bc407530ec3b1644ec',
       typecheck: '07758ff6fff680beb77a9e38725eecc5776b94db14cdc3499783c049ce771750',
       typecheck_compile: '88a03bf85dc749608900101f598720ad93c957e5b5bf75791c589c9e25228168',
       unit_shards: 'a694772adb1e9b9c9cf9e8ff24d9a655deb26d18b5d1f191b120ac3b4516c474',
@@ -259,9 +363,38 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
   it('preserves every native qualification stage and cleanup requirement', () => {
     const normalized = structuredClone(native);
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
+    expect(normalized.on.workflow_call.inputs.connected_ui_observations.default).toBe(false);
+    expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read', actions: 'read' });
+    expect(ci.jobs.fixture_native.secrets).toBeUndefined();
+    const job = normalized.jobs['native-smoke'];
+    expect(job['timeout-minutes']).toBe('${{ inputs.connected_ui_observations && 120 || 55 }}');
+    const budget = new Function('inputs', `return (${job['timeout-minutes'].slice(3, -2)});`);
+    expect(budget({ connected_ui_observations: false })).toBe(55);
+    expect(budget({})).toBe(55);
+    expect(budget({ connected_ui_observations: true })).toBe(120);
+    const defaultSteps = job.steps.filter(
+      (step: { if?: string }) =>
+        !step.if ||
+        new Function(
+          'inputs',
+          'always',
+          `return (${step.if.replace(/^\$\{\{\s*|\s*\}\}$/g, '')});`
+        )({ connected_ui_observations: false }, () => true)
+    );
+    expect(defaultSteps).toHaveLength(8);
+    expect(defaultSteps.slice(2).map((step: { name: string }) => step.name)).toEqual([
+      'Native alert intake survives actual process death without duplicate queue submission',
+      'Install locked fixture test dependencies on the disposable CI runner',
+      'Compile the actual engine for isolated EV actors',
+      'Check financial route and fixture ownership boundaries',
+      'Build exact committed fixture and smoke native services',
+      'Preserve sanitized native smoke and cleanup observations',
+    ]);
+    // Whole reviewed native workflow identity now includes the guarded manual
+    // private-capture branch; every default stage and55m budget is asserted above.
     normalized.jobs['native-smoke']['runs-on'] = expression('ubuntu-24.04');
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
-      '9d89b70e835f0476c8b3d4abf5d5c11c07e7b77a83b5bd95aacfae472153c457'
+      '0cca7581c1985d4f2a7f040108ae80c4041740862d2881b96943266b95394e7f'
     );
   });
 });

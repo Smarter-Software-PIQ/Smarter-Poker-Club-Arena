@@ -22,10 +22,10 @@ import {
 } from '../../scripts/ci/classify-ci-changes.mjs';
 
 const root = resolve(__dirname, '../..');
-// accounting_postgres runs as four matrix shards (2026-09-26,
+// accounting_postgres runs as seven matrix shards (2026-09-26,
 // tests/ci-tells-the-truth-faster.law.test.ts). A suite step's only condition
 // is the one shard that runs it: never a bypass, never a failure suppression.
-const ONLY_ITS_SHARD = /^matrix\.shard == [1-4]$/;
+const ONLY_ITS_SHARD = /^matrix\.shard == [1-7]$/;
 const ci = parse(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8'));
 const native = parse(
   readFileSync(join(root, '.github/workflows/component-fixture-native-smoke.yml'), 'utf8')
@@ -1175,6 +1175,51 @@ describe('required CI owns native fixture verification', () => {
     );
   });
 
+  it('admits the connected mode only for its exact protected manual caller and keeps credentials capture-step-only', () => {
+    const source = 'a'.repeat(40);
+    const github = {
+      event_name: 'workflow_dispatch',
+      ref: 'refs/heads/main',
+      repository_id: '1132369872',
+      repository: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+      sha: source,
+      workflow_ref:
+        'Smarter-Software-PIQ/Smarter-Poker-Club-Arena/.github/workflows/schema-manifest-refresh.yml@refs/heads/main',
+    };
+    const inputs = { connected_ui_observations: true, source_sha: source };
+    const admit = new Function('inputs', 'github', `return (${native.jobs['native-smoke'].if});`);
+    expect(admit(inputs, github)).toBe(true);
+    for (const changed of [
+      { event_name: 'pull_request' },
+      { ref: 'refs/heads/unsafe' },
+      { repository_id: '42' },
+      { repository: 'another/repo' },
+      { sha: 'b'.repeat(40) },
+      { workflow_ref: github.workflow_ref.replace('schema-manifest-refresh', 'other') },
+    ])
+      expect(admit(inputs, { ...github, ...changed })).toBe(false);
+    expect(admit({ ...inputs, connected_ui_observations: false }, github)).toBe(false);
+    const steps = native.jobs['native-smoke'].steps;
+    const captures = steps.filter(
+      (step: { env?: Record<string, string> }) => step.env?.DATABASE_URL
+    );
+    expect(captures).toHaveLength(1);
+    expect(captures[0].if).toBe('inputs.connected_ui_observations');
+    expect(captures[0].run).toBe(
+      'node operations/release/fixture/schema-snapshot.mjs "$RUNNER_TEMP/isolated-schema-candidate"'
+    );
+    expect(native.jobs['native-smoke'].env).toBeUndefined();
+    expect(native.on.workflow_call.secrets).toEqual({ DATABASE_URL: { required: false } });
+    const uploaded = steps.find(
+      (step: { name?: string }) =>
+        step.name === 'Preserve only sanitized connected observation receipts'
+    );
+    expect(uploaded.with.path).not.toContain('schema.sql');
+    expect(uploaded.with.path).not.toContain('catalogue');
+    expect(uploaded.with.path).not.toContain('native-build.log');
+    expect(uploaded.with.path).toContain('private-cleanup.json');
+  });
+
   it('uses one exact-head native invocation on both ready and draft PRs with read-only permissions', () => {
     expect(ci.jobs.fixture_native.uses).toBe(
       './.github/workflows/component-fixture-native-smoke.yml'
@@ -1190,8 +1235,8 @@ describe('required CI owns native fixture verification', () => {
     expect(ci.jobs.fixture_native.if).not.toContain('draft');
     expect(native.jobs['native-smoke'].if).not.toContain('draft');
     expect(Object.keys(native.on)).toEqual(['workflow_call']);
-    expect(native.permissions).toEqual({ contents: 'read' });
-    expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read' });
+    expect(native.permissions).toEqual({ contents: 'read', actions: 'read' });
+    expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read', actions: 'read' });
     const checkout = native.jobs['native-smoke'].steps.find((s: { uses?: string }) =>
       s.uses?.startsWith('actions/checkout@')
     );
@@ -1202,9 +1247,9 @@ describe('required CI owns native fixture verification', () => {
     );
     expect(build.env.FIXTURE_SOURCE_SHA).toBe('${{ inputs.source_sha }}');
     expect(build.id).toBe('smoke');
-    expect(build.run.indexOf('python3 operations/release/ci/fixture-smoke.py')).toBeLessThan(
-      build.run.indexOf('echo "native_verified=true"')
-    );
+    const driver = build.run.indexOf('python3 -B operations/release/ci/fixture-smoke.py');
+    expect(driver).toBeGreaterThanOrEqual(0);
+    expect(driver).toBeLessThan(build.run.indexOf('echo "native_verified=true"'));
     expect(native.jobs['native-smoke'].outputs.native_verified).toBe(
       '${{ steps.smoke.outputs.native_verified }}'
     );
@@ -2077,7 +2122,7 @@ describe('restored provider accounting qualification', () => {
         .split('          # The hosted image')[0]
         .split('# The hosted image')[0]
         .replaceAll('/usr/', temp + '/');
-      for (const shard of [1, 2, 3, 4]) {
+      for (const shard of [1, 2, 3, 4, 5, 6, 7]) {
         const output = execFileSync(
           '/bin/bash',
           ['-c', prefix + '\nprintf "INSTALL:%s" "${pg_ci_build_packages[*]-}"'],
@@ -2086,7 +2131,9 @@ describe('restored provider accounting qualification', () => {
             env: { ...process.env, PATH: '', PG_CI_SHARD: String(shard) },
           }
         );
-        if (shard === 2)
+        if (shard >= 5)
+          expect(output).toBe(''); // Complete PG17/pg_cron fixture needs no compiler package.
+        else if (shard === 2)
           expect(output).toBe(
             'INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev'
           );
@@ -2100,7 +2147,7 @@ describe('restored provider accounting qualification', () => {
       }
       expect(() =>
         execFileSync('/bin/bash', ['-c', prefix], {
-          env: { ...process.env, PATH: '', PG_CI_SHARD: '5' },
+          env: { ...process.env, PATH: '', PG_CI_SHARD: '8' },
           stdio: 'pipe',
         })
       ).toThrow();
@@ -2169,7 +2216,7 @@ describe('restored provider accounting qualification', () => {
     const evidence = ci.jobs.accounting_postgres.steps.find(
       (step: { name?: string }) => step.name === 'Preserve weekly accounting qualification evidence'
     );
-    expect(evidence.if).toBe('always() && matrix.shard == 2');
+    expect(evidence.if).toBe('always() && matrix.shard == 6');
     expect(evidence.uses).toBe('actions/upload-artifact@v4');
     expect(evidence.with.path).toContain('${{ runner.temp }}/union-accounting-results');
     expect(evidence.with.path).toContain('${{ runner.temp }}/union-accounting-activation');

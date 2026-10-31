@@ -100,6 +100,21 @@ describe('MTT schedule upgrade', () => {
     expect(tournamentClockLine(stale, now)?.text).toBe('Late Reg Ends In 75:30');
     expect(tournamentClockLine(stale, now + 80 * 60000)).toBeNull();
   });
+  it('shows the level-only late-reg clock from the confirmed first-level start', () => {
+    const e = event('just-started', {
+      status: 'RUNNING',
+      started_at: new Date(now - 270000).toISOString(),
+      current_level: 0,
+      level_started_at: null,
+      late_reg_levels: 10,
+      late_reg_mins: 0,
+      blind_structure: JSON.stringify(Array.from({ length: 10 }, () => ({ durationMinutes: 8 }))),
+    });
+    expect(tournamentClockLine(e, now)?.text).toBe('Late Reg Ends In 75:30');
+    expect(tournamentClockLine({ ...e, raw: { ...e.raw, started_at: null } }, now)).toBeNull();
+    expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: 1 } }, now)).toBeNull();
+    expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: null } }, now)).toBeNull();
+  });
   it('shows no live countdown for terminal events or missing start clocks', () => {
     expect(tournamentClockLine(event('completed', { status: 'COMPLETED' }), now)).toBeNull();
     expect(tournamentClockLine(event('cancelled', { status: 'CANCELLED' }), now)).toBeNull();
@@ -124,7 +139,7 @@ describe('MTT schedule upgrade', () => {
     expect(ids()).toEqual(['top', 'late', 'soon', 'open', 'running']);
     const compactTop = document.querySelector('.compact-lobby tr[data-id="top"]')!;
     expect(compactTop.classList.contains('is-featured')).toBe(true);
-    expect(within(compactTop as HTMLElement).getByText('Top Event')).toBeTruthy();
+    expect(within(compactTop as HTMLElement).queryByText('Top Event')).toBeNull();
     const heading = document.querySelector('.lobby-table-wrap thead') as HTMLElement;
     fireEvent.click(document.querySelector('.compact-lobby thead th')!);
     expect(ids()).toEqual(['top', 'late', 'soon', 'open', 'running']);
@@ -140,5 +155,51 @@ describe('MTT schedule upgrade', () => {
     act(() => vi.advanceTimersByTime(2000));
     expect(document.querySelector('#lt-row-next')?.className).toContain('lt-row--starting_soon');
     expect(ids()).toEqual(['next', 'open']);
+  });
+  it('labels open late registration truthfully in both layouts, then changes to Running at closure', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    board([
+      event('late', {
+        status: 'RUNNING',
+        started_at: new Date(now - 60000).toISOString(),
+        late_reg_mins: 80,
+      }),
+    ]);
+    for (const row of document.querySelectorAll('tr[data-id="late"]')) {
+      expect(within(row as HTMLElement).getByText('Late Reg', { exact: true })).toBeTruthy();
+      expect(within(row as HTMLElement).queryByText('Running', { exact: true })).toBeNull();
+    }
+    vi.setSystemTime(now + 80 * 60000);
+    act(() => vi.advanceTimersByTime(1000));
+    for (const row of document.querySelectorAll('tr[data-id="late"]')) {
+      expect(within(row as HTMLElement).getByText('Running', { exact: true })).toBeTruthy();
+      expect(within(row as HTMLElement).queryByText('Late Reg', { exact: true })).toBeNull();
+    }
+  });
+  it.each([
+    ['satellite', 'is-satellite'],
+    ['freeroll', 'is-freeroll'],
+    ['mystery', 'is-bounty'],
+    ['pko', 'is-bounty'],
+    ['bounty', 'is-bounty'],
+    ['freezeout', 'is-freezeout'],
+    ['reentry', 'is-rebuy'],
+    ['turbo', 'is-turbo'],
+    ['hyper', 'is-hyper'],
+    ['deepstack', 'is-deepstack'],
+  ])('retains the %s schema in both layouts even with a large guarantee', (key, rowClass) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const entry = event('typed', { guaranteed_prize: 10000 });
+    entry.rules = [{ key, label: key, tip: key }];
+    board([entry]);
+    const rows = document.querySelectorAll('tr[data-id="typed"]');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row.classList.contains(rowClass)).toBe(true);
+    const compact = document.querySelector('.compact-lobby tr[data-id="typed"]')!;
+    const header = compact.previousElementSibling!;
+    expect(within(header as HTMLElement).getAllByText('10K Guarantee')).toHaveLength(1);
+    expect(within(compact as HTMLElement).queryByText('10K GTD')).toBeNull();
   });
 });

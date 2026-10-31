@@ -1,3 +1,5 @@
+import { earlyHeroCardsReady, type EarlyHeroCards } from '../utils/earlyHeroCards';
+import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
 import { autoTopUpRequest, type AutoTopUpRequest } from '../utils/autoTopUpRequest';
 import { tournamentTableLabel } from '../utils/tournamentTableLabel';
@@ -450,12 +452,10 @@ import {
   type LightningSnapshotFields,
 } from '../lightning/lightningHand';
 import {
-  lightningEarlyHeroCardsReady,
   lightningExitHoldMs,
   lightningHeroSeatFromRoster,
   lightningHoldsHeroDealSound,
   lightningParkedDealerSeat,
-  type LightningEarlyHeroCards,
 } from '../lightning/lightningTransitionMotion';
 import {
   detectLightningPlatform,
@@ -653,7 +653,7 @@ import {
 import { PreviousHandCard } from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
 import { reportError } from '../utils/errorReporter';
-import { submitTableDecision } from '../lib/tableActionDecision';
+import { submitTableDecision, tableDecisionIsReady } from '../lib/tableActionDecision';
 import { safeErrorMessage, shouldSurfaceError } from '../utils/safeErrorMessage';
 import { serverNow } from '../utils/serverClock';
 import { visibleTimeBankAllowance } from '../utils/timeBankAllowanceView';
@@ -7358,6 +7358,16 @@ function LiveTablePage({
    * clock costs them anything - it just never prompts them for a turn the
    * engine is already taking on their behalf.
    */
+  // Retention can keep a real actor visible while withholding its decision
+  // capability. Keep its existing clock running, but offer no unsendable input.
+  // The original retained-ready publication supplies a fresh authoritative token.
+  const heroDecisionReady = tableDecisionIsReady({
+    actionContext: tableState.actionContext,
+    allowContextless: Boolean(lightningRoom),
+    clientStateStale:
+      !tableState.players[tableState.heroSeat - 1] ||
+      tableState.players[tableState.heroSeat - 1]?.status === 'folded',
+  });
   const heroPromptedToAct = isHeroTurnContext && !suppressPanelForPreAction;
 
   /**
@@ -12109,7 +12119,10 @@ function LiveTablePage({
   // Subscribes directly to Postgres RLS-protected table to bypass public WebSocket leak
 
   // Callback for handling new hole cards
-  const lightningEarlyHeroCardsRef = useRef<LightningEarlyHeroCards | null>(null);
+  const earlyHeroCardsRef = useRef<EarlyHeroCards | null>(null);
+  useEffect(() => {
+    earlyHeroCardsRef.current = null;
+  }, [tableId, userId]);
   const handleHoleCardPayload = useCallback(
     (payload: any) => {
       if (isLightningObserverSnapshot(engineSnapshotRef.current)) return;
@@ -12121,6 +12134,17 @@ function LiveTablePage({
          next one is dealt. Do not "fix" this into a clear. */
       const row = payload.new;
       if (row && row.user_id === userId && row.cards) {
+        // A private frame may lead HAND_STARTED. Do not paint it onto the old
+        // board or lose it when that event clears the prior holding.
+        if (
+          row.table_id === tableId &&
+          Number(row.hand_number) > heroHandRef.current &&
+          heroHandRef.current > 0
+        ) {
+          earlyHeroCardsRef.current = { hand: Number(row.hand_number), row };
+          return;
+        }
+
         /* ═══ THE DOOR THAT HAD NO LOCK (Dan 2026-09-01) ═══════════════════
            Dan, on the screenshot: "I NEED YOU TO TELL ME HOW IT WAS EVEN
            POSSIBLE FOR TWO 9 OF HEARTS TO APPEAR AT THE SAME TIME."
@@ -12247,13 +12271,11 @@ function LiveTablePage({
             };
             // Hero was dealt into this hand → counts toward hands-played achievements.
             if (formattedCards.length >= 2) heroHandOutcomeRef.current.dealtIn = true;
-          } else if (lightningRoomRef.current) {
-            /* LIGHTNING TRANSITION, PHASE 3: cards that reach a Lightning room a
-               moment before the hero's roster row were dropped here, and the
-               recovery poll is off in Lightning, so nothing fetched them
-               again. They are kept and applied, through this same handler and
-               every guard on it, when the row arrives. */
-            lightningEarlyHeroCardsRef.current = { hand: dealtHandNumber, row };
+          } else {
+            // Keep the player's own delivery until the public roster catches
+            // up. Replaying through this handler retains every identity,
+            // hand and board guard without waiting on a recovery poll.
+            earlyHeroCardsRef.current = { hand: dealtHandNumber, row };
           }
           return { ...prev, players: updatedPlayers };
         });
@@ -12262,15 +12284,15 @@ function LiveTablePage({
     [userId, tableId, ambientSoundsAllowed]
   );
   useEffect(() => {
-    const decision = lightningEarlyHeroCardsReady({
-      early: lightningEarlyHeroCardsRef.current,
+    const decision = earlyHeroCardsReady({
+      early: earlyHeroCardsRef.current,
       handNumber: tableState.handNumber ?? 0,
       heroInRoster: tableState.players.some((p) => !!p && p.id === userId),
     });
     if (decision === 'wait') return;
-    const early = lightningEarlyHeroCardsRef.current;
-    lightningEarlyHeroCardsRef.current = null;
-    if (decision === 'apply' && early && lightningRoomRef.current) {
+    const early = earlyHeroCardsRef.current;
+    earlyHeroCardsRef.current = null;
+    if (decision === 'apply' && early) {
       handleHoleCardPayload({ new: early.row });
     }
   }, [tableState.players, tableState.handNumber, userId, handleHoleCardPayload]);
@@ -14490,7 +14512,7 @@ function LiveTablePage({
             tournamentRow?.addon_period_triggered === true &&
             tournamentRow.add_on_available === true &&
             tournamentRow.prize_pool_finalized !== true &&
-            ['REGISTERING', 'RUNNING'].includes(String(tournamentRow.status)) &&
+            tournamentAddOnEntryBoundaryPassed(tournamentRow, Date.now()) &&
             Number.isFinite(startsAt) &&
             Number.isFinite(endsAt) &&
             startsAt <= Date.now() &&
@@ -14520,7 +14542,7 @@ function LiveTablePage({
           const { data, error } = await supabase
             .from('tournaments')
             .select(
-              'add_on_available, addon_cost, addon_chips, buy_in_amount, starting_chips, status, addon_period_triggered, addon_period_started_at, addon_period_ends_at, prize_pool_finalized'
+              'add_on_available, addon_cost, addon_chips, buy_in_amount, starting_chips, status, addon_period_triggered, addon_period_started_at, addon_period_ends_at, prize_pool_finalized, current_level, late_reg_levels, rebuy_levels, late_reg_mins, started_at, addon_from_start'
             )
             .eq('id', table.tournament_id)
             .maybeSingle();
@@ -14694,7 +14716,7 @@ function LiveTablePage({
           const { data: tournData, error: tournError } = await supabase
             .from('tournaments')
             .select(
-              'name, format_contract, is_bounty, is_pko, is_mystery_bounty, mystery_bounty_stage, mystery_bounty_regular_pool_percent, bounty_amount, spin_multiplier, spin_locked_tiers, spin_reveal_at, prize_pool, buy_in_amount, buy_in_fee, max_players, starting_chips, status, blind_structure, current_level, level_started_at, started_at, variant, tournament_type, satellite_target_id, satellite_target, final_table_triggered, add_on_available, addon_cost, addon_chips, addon_period_triggered, addon_period_started_at, addon_period_ends_at, prize_pool_finalized, start_time, is_rebuy, is_reentry'
+              'name, format_contract, is_bounty, is_pko, is_mystery_bounty, mystery_bounty_stage, mystery_bounty_regular_pool_percent, bounty_amount, spin_multiplier, spin_locked_tiers, spin_reveal_at, prize_pool, buy_in_amount, buy_in_fee, max_players, starting_chips, status, blind_structure, current_level, level_started_at, started_at, variant, tournament_type, satellite_target_id, satellite_target, final_table_triggered, add_on_available, addon_cost, addon_chips, addon_period_triggered, addon_period_started_at, addon_period_ends_at, late_reg_levels, rebuy_levels, late_reg_mins, addon_from_start, prize_pool_finalized, start_time, is_rebuy, is_reentry'
             )
             .eq('id', table.tournament_id)
             .maybeSingle();
@@ -15780,9 +15802,9 @@ function LiveTablePage({
                   phase: 'counting_down',
                   breakEndsAtMs: null,
                 });
-              } else if (data?.type === 'ADDON_PERIOD_START') {
-                // Both live frames and reconnect recovery use one quote/deadline path.
-                void presentAddOnOffer((data.payload || {}) as Record<string, unknown>);
+              } else if (data?.type === 'ADDON_PERIOD_START' || data?.type === 'addon_break') {
+                // A live frame is an invalidation, never authority for an early offer.
+                void refreshPersistedAddOnOffer();
               } else if (data?.type === 'ADDON_PERIOD_END') {
                 addOnPresentationEpochRef.current += 1;
                 if (!addOnPurchasePendingRef.current)
@@ -23279,7 +23301,9 @@ function LiveTablePage({
       try {
         const { data, error } = await supabase
           .from('table_seats')
-          .select('user_id, occupancy_id, is_sitting_out, sit_out_at, leave_pending, stack')
+          .select(
+            'user_id, seat_number, occupancy_id, is_sitting_out, sit_out_at, leave_pending, stack'
+          )
           .eq('table_id', tableId)
           .is('left_at', null);
         if (cancelled) return;
@@ -23288,6 +23312,7 @@ function LiveTablePage({
         const rows = data as Array<{
           user_id: string;
           occupancy_id?: string;
+          seat_number?: number;
           is_sitting_out: boolean | null;
           sit_out_at: string | null;
           leave_pending: boolean | null;
@@ -23303,6 +23328,29 @@ function LiveTablePage({
         const heroRow = userId ? rows.find((r) => String(r.user_id) === String(userId)) : undefined;
         if (heroRow?.occupancy_id && userId) {
           setOwnSeatIdentity({ tableId, userId, occupancyId: heroRow.occupancy_id });
+        }
+        // The hand roster can omit a late entrant until the next deal. The
+        // committed physical seat still belongs to them now, so paint its
+        // existing waiting-seat presentation without claiming cards or a turn.
+        const physicalSeat = Number(heroRow?.seat_number);
+        if (
+          heroRow &&
+          !heroRow.leave_pending &&
+          !leftSeatPendingRef.current &&
+          Number.isInteger(physicalSeat) &&
+          physicalSeat > 0 &&
+          physicalSeat <= MAX_SUPPORTED_SEATS
+        ) {
+          heroSeatRef.current = physicalSeat;
+          setTableState((prev) =>
+            prev.heroSeat === physicalSeat
+              ? prev
+              : {
+                  ...prev,
+                  heroSeat: physicalSeat,
+                  maxPlayers: Math.max(prev.maxPlayers, physicalSeat),
+                }
+          );
         }
         if (heroRow?.leave_pending) {
           presentRemoteSeatExitRef.current();
@@ -24679,7 +24727,13 @@ function LiveTablePage({
       const staleHero =
         action !== 'fold' &&
         (!live.players[live.heroSeat - 1] || live.players[live.heroSeat - 1]?.status === 'folded');
-      if ((!lightningRoomRef.current && !live.actionContext) || staleHero) {
+      if (
+        !tableDecisionIsReady({
+          actionContext: live.actionContext,
+          allowContextless: Boolean(lightningRoomRef.current),
+          clientStateStale: staleHero,
+        })
+      ) {
         try {
           if (tableId) {
             await submitActionWithToast(tableId, userId, action, amount, 'panel-missing-decision');
@@ -24910,7 +24964,7 @@ function LiveTablePage({
        fields are 0, `0 === 0` made this true and the number keys armed a raise
        on a table where hero had no hand. That is the identical false-trigger the
        note on isHeroTurnContext documents. */
-    isHeroTurn: isHeroTurnContext,
+    isHeroTurn: isHeroTurnContext && heroDecisionReady,
     isSizingOpen: raiseIntent.open,
     isSpectator: !heroAtTable,
     isModalOpen:
@@ -28052,7 +28106,11 @@ function LiveTablePage({
                 stackPending: lightningWaitingSeat?.stack === null,
                 /* A Lightning player between hands is in the pool, not sitting
                    out, unless they asked to be (Dan 2026-10-24). */
-                status: lightningWaitingSeat ? lightningWaitingSeat.status : 'sitting_out',
+                status: lightningWaitingSeat
+                  ? lightningWaitingSeat.status
+                  : heroRowStack !== null && !heroSitsOutPerRow
+                    ? 'active'
+                    : 'sitting_out',
                 isHero: true,
                 showCards: false,
               } as any;
@@ -29409,6 +29467,7 @@ function LiveTablePage({
             tableState.currentPlayerSeat > 0 &&
             tableState.currentPlayerSeat === tableState.heroSeat &&
             tableState.isHandInProgress &&
+            heroDecisionReady &&
             /* "only after all cards are dealt out does the action start" —
                released by DealAnimation.onComplete, or by the 2.6s ceiling in
                beginDealHold if the animation never reports back. */

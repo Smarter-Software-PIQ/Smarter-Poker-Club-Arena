@@ -204,7 +204,14 @@ async function oracle() {
     assert.deepEqual(await observer.handFacts(hand), {
       count: 1,
       rows: [
-        { hand_number: 2, pot_size: '3.00', rake_amount: '0.00', action_count: 1, player_count: 2 },
+        {
+          hand_number: 2,
+          pot_size: '3.00',
+          rake_amount: '0.00',
+          action_count: 1,
+          player_count: 2,
+          public_actions: [],
+        },
       ],
       seat_count: 0,
     });
@@ -989,7 +996,7 @@ async function services() {
         extensions: 7,
         cron,
         safeupdate,
-        auth: '2.196.0',
+        auth: '2.197.0',
         mfa: 'aal2',
         ledger_attribution: 'banned-without-session',
         service_roles: { ...serviceRoles, auth_claim_helpers: 'service-owned-and-http-verified' },

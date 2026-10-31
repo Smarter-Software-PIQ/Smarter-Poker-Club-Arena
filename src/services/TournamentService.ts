@@ -1,4 +1,6 @@
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import { withTournamentRegistrationReadBoundary } from './TournamentRegistrationReadBoundary';
+import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { validateMttBlindStructure } from '../../server/src/domain/tournamentBlindContract';
 import {
   isUnlimitedMtt,
@@ -367,13 +369,15 @@ export function parseTournamentUnregisterResult(
   return { refundedChips, returnedTicketValue };
 }
 
-type TournamentUnregisterRpcCall = () => Promise<{ data: unknown; error: unknown }>;
+type TournamentUnregisterRpcCall = (
+  signal: AbortSignal
+) => PromiseLike<{ data: unknown; error: unknown }>;
 
 async function invokeTournamentUnregisterRpc(
   invoke: TournamentUnregisterRpcCall
 ): Promise<{ data: unknown; error: unknown }> {
   try {
-    return await invoke();
+    return await runWithRequestDeadline(invoke);
   } catch (error) {
     // Supabase normally resolves transport failures as `{ error }`, but a
     // rejected fetch is the same unknown-outcome class. Normalize both forms
@@ -786,7 +790,7 @@ class TournamentService {
     const { data: clubTournaments, error } = await supabase
       .from('tournaments')
       .select(
-        'id, name, club_id, union_id, game_type, variant, tournament_type, format_contract, buy_in_amount, buy_in_fee, starting_chips, max_players, min_players, current_players, status, prize_pool, guaranteed_prize, prize_pool_finalized, blind_structure, payout_structure, payout_depth_percent, payout_percent, late_reg_levels, late_reg_mins, start_time, started_at, ended_at, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, add_on_available, addon_cost, addon_chips, addon_levels, addon_period_started_at, addon_period_ends_at, is_bounty, bounty_amount, bounty_pool, bounty_pool_paid, is_pko, is_mystery_bounty, mystery_bounty_min, mystery_bounty_max, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent, is_multi_day, total_days, day_number, flight_number, spin_type, spin_multiplier, is_xmtt, total_rake, created_at, current_level, level_started_at, blind_level_state, short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new, hide_club_name, action_time_seconds, table_size, accelerated_mtt, addon_break_minutes, big_blind_ante, authorized_to_register, early_bird_enabled, early_bird_chips, bubble_protection, final_table_deal_enabled, restart_every_minutes, synchronized_breaks, on_break, break_started_at, break_ends_at, max_rebuys, max_reentries, is_pinned, satellite_seats, satellite_target_id, satellite_target, ' +
+        'id, name, club_id, union_id, game_type, variant, tournament_type, format_contract, buy_in_amount, buy_in_fee, starting_chips, max_players, min_players, current_players, status, prize_pool, guaranteed_prize, prize_pool_finalized, blind_structure, payout_structure, payout_depth_percent, payout_percent, late_reg_levels, late_reg_mins, start_time, started_at, ended_at, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, add_on_available, addon_cost, addon_chips, addon_levels, addon_from_start, addon_period_started_at, addon_period_ends_at, is_bounty, bounty_amount, bounty_pool, bounty_pool_paid, is_pko, is_mystery_bounty, mystery_bounty_min, mystery_bounty_max, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent, is_multi_day, total_days, day_number, flight_number, spin_type, spin_multiplier, is_xmtt, total_rake, created_at, current_level, level_started_at, blind_level_state, short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new, hide_club_name, action_time_seconds, table_size, accelerated_mtt, addon_break_minutes, big_blind_ante, authorized_to_register, early_bird_enabled, early_bird_chips, bubble_protection, final_table_deal_enabled, restart_every_minutes, synchronized_breaks, on_break, break_started_at, break_ends_at, max_rebuys, max_reentries, is_pinned, satellite_seats, satellite_target_id, satellite_target, ' +
           TOURNAMENT_ARENA_EMBED
       )
       .eq('club_id', resolvedId)
@@ -919,7 +923,7 @@ class TournamentService {
           const { data: xmttData, error: xmttErr } = await supabase
             .from('tournaments')
             .select(
-              'id, name, club_id, union_id, game_type, variant, tournament_type, format_contract, buy_in_amount, buy_in_fee, starting_chips, max_players, min_players, current_players, status, prize_pool, guaranteed_prize, prize_pool_finalized, blind_structure, payout_structure, payout_depth_percent, payout_percent, late_reg_levels, late_reg_mins, start_time, started_at, ended_at, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, add_on_available, addon_cost, addon_chips, addon_levels, addon_period_started_at, addon_period_ends_at, is_bounty, bounty_amount, bounty_pool, bounty_pool_paid, is_pko, is_mystery_bounty, mystery_bounty_min, mystery_bounty_max, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent, is_multi_day, total_days, day_number, flight_number, spin_type, spin_multiplier, is_xmtt, total_rake, created_at, current_level, level_started_at, blind_level_state, short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new, hide_club_name, action_time_seconds, table_size, accelerated_mtt, addon_break_minutes, big_blind_ante, authorized_to_register, early_bird_enabled, early_bird_chips, bubble_protection, final_table_deal_enabled, restart_every_minutes, synchronized_breaks, on_break, break_started_at, break_ends_at, max_rebuys, max_reentries, is_pinned, satellite_seats, satellite_target_id, satellite_target'
+              'id, name, club_id, union_id, game_type, variant, tournament_type, format_contract, buy_in_amount, buy_in_fee, starting_chips, max_players, min_players, current_players, status, prize_pool, guaranteed_prize, prize_pool_finalized, blind_structure, payout_structure, payout_depth_percent, payout_percent, late_reg_levels, late_reg_mins, start_time, started_at, ended_at, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, add_on_available, addon_cost, addon_chips, addon_levels, addon_from_start, addon_period_started_at, addon_period_ends_at, is_bounty, bounty_amount, bounty_pool, bounty_pool_paid, is_pko, is_mystery_bounty, mystery_bounty_min, mystery_bounty_max, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent, is_multi_day, total_days, day_number, flight_number, spin_type, spin_multiplier, is_xmtt, total_rake, created_at, current_level, level_started_at, blind_level_state, short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new, hide_club_name, action_time_seconds, table_size, accelerated_mtt, addon_break_minutes, big_blind_ante, authorized_to_register, early_bird_enabled, early_bird_chips, bubble_protection, final_table_deal_enabled, restart_every_minutes, synchronized_breaks, on_break, break_started_at, break_ends_at, max_rebuys, max_reentries, is_pinned, satellite_seats, satellite_target_id, satellite_target'
             )
             .eq('union_id', unionClub.union_id)
             // 2026-08-19: dropped `.eq('is_xmtt', true)`. Under the union
@@ -980,7 +984,7 @@ class TournamentService {
     let query = supabase
       .from('tournaments')
       .select(
-        'id, name, club_id, union_id, game_type, variant, tournament_type, format_contract, buy_in_amount, buy_in_fee, starting_chips, max_players, min_players, current_players, status, prize_pool, guaranteed_prize, prize_pool_finalized, blind_structure, payout_structure, payout_depth_percent, payout_percent, late_reg_levels, late_reg_mins, start_time, started_at, ended_at, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, add_on_available, addon_cost, addon_chips, addon_levels, addon_period_started_at, addon_period_ends_at, is_bounty, bounty_amount, bounty_pool, bounty_pool_paid, is_pko, is_mystery_bounty, mystery_bounty_min, mystery_bounty_max, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent, is_multi_day, total_days, day_number, flight_number, spin_type, spin_multiplier, is_xmtt, total_rake, created_at, current_level, level_started_at, blind_level_state, short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new, hide_club_name, action_time_seconds, table_size, accelerated_mtt, addon_break_minutes, big_blind_ante, authorized_to_register, early_bird_enabled, early_bird_chips, bubble_protection, final_table_deal_enabled, restart_every_minutes, synchronized_breaks, on_break, break_started_at, break_ends_at, max_rebuys, max_reentries, is_pinned, satellite_seats, satellite_target_id, satellite_target, ' +
+        'id, name, club_id, union_id, game_type, variant, tournament_type, format_contract, buy_in_amount, buy_in_fee, starting_chips, max_players, min_players, current_players, status, prize_pool, guaranteed_prize, prize_pool_finalized, blind_structure, payout_structure, payout_depth_percent, payout_percent, late_reg_levels, late_reg_mins, start_time, started_at, ended_at, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, add_on_available, addon_cost, addon_chips, addon_levels, addon_from_start, addon_period_started_at, addon_period_ends_at, is_bounty, bounty_amount, bounty_pool, bounty_pool_paid, is_pko, is_mystery_bounty, mystery_bounty_min, mystery_bounty_max, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent, is_multi_day, total_days, day_number, flight_number, spin_type, spin_multiplier, is_xmtt, total_rake, created_at, current_level, level_started_at, blind_level_state, short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new, hide_club_name, action_time_seconds, table_size, accelerated_mtt, addon_break_minutes, big_blind_ante, authorized_to_register, early_bird_enabled, early_bird_chips, bubble_protection, final_table_deal_enabled, restart_every_minutes, synchronized_breaks, on_break, break_started_at, break_ends_at, max_rebuys, max_reentries, is_pinned, satellite_seats, satellite_target_id, satellite_target, ' +
           TOURNAMENT_ARENA_EMBED
       )
       .eq('id', tournamentId);
@@ -1024,11 +1028,14 @@ class TournamentService {
    */
   async readTournamentUnitCents(tournamentId: string): Promise<number | null> {
     try {
-      const { data, error } = await supabase
-        .from('tournaments')
-        .select(TOURNAMENT_ARENA_EMBED)
-        .eq('id', tournamentId)
-        .maybeSingle();
+      const { data, error } = await withTournamentRegistrationReadBoundary((signal) =>
+        supabase
+          .from('tournaments')
+          .select(TOURNAMENT_ARENA_EMBED)
+          .eq('id', tournamentId)
+          .abortSignal(signal)
+          .maybeSingle()
+      );
       if (error) {
         reportError(error, 'TournamentService.readTournamentUnitCents', { tournamentId });
         return null;
@@ -1144,7 +1151,7 @@ class TournamentService {
     if (config.tableSize !== undefined) p.tableSize = clampInt(config.tableSize, 2, 10);
     if (config.acceleratedMtt !== undefined) p.acceleratedMtt = config.acceleratedMtt;
     if (config.addonBreakMinutes !== undefined) {
-      p.addonBreakMinutes = clampInt(config.addonBreakMinutes, 1, 10);
+      p.addonBreakMinutes = 1;
     }
     if (config.bigBlindAnte !== undefined) p.bigBlindAnte = config.bigBlindAnte;
     if (config.authorizedToRegister !== undefined) {
@@ -1453,9 +1460,13 @@ class TournamentService {
    * ownership could not be checked.
    */
   async findTournamentEntryTicket(tournamentId: string): Promise<TournamentEntryTicket | null> {
-    const { data, error } = await supabase.rpc('fn_find_tournament_entry_ticket', {
-      p_tournament_id: tournamentId,
-    });
+    const { data, error } = await withTournamentRegistrationReadBoundary((signal) =>
+      supabase
+        .rpc('fn_find_tournament_entry_ticket', {
+          p_tournament_id: tournamentId,
+        })
+        .abortSignal(signal)
+    ).catch((error) => ({ data: null, error }));
     if (error) {
       reportError(error, 'TournamentService.findTournamentEntryTicket', { tournamentId });
       throw new Error('Could Not Check For A Tournament Ticket. No Chips Were Charged.');
@@ -1508,7 +1519,9 @@ class TournamentService {
     if (authError || !auth.user || auth.user.id !== userId) {
       throw new Error('Sign In To The Correct Account Before Registering For A Tournament.');
     }
-    const tournament = await this.getTournament(tournamentId);
+    const tournament = await withTournamentRegistrationReadBoundary((signal) =>
+      this.getTournament(tournamentId, { throwOnError: true, signal })
+    );
     if (!tournament) throw new Error('Tournament not found');
 
     // Presence, not truthiness, selects the noncash rail. If a caller says it
@@ -1765,11 +1778,13 @@ class TournamentService {
       throw new Error('Sign In To The Correct Account Before Requesting A Refund.');
     return withTournamentUnregistrationIntent(userId, tournamentId, async (requestId) => {
       const result = await executeTournamentUnregisterRpc(
-        async () =>
-          supabase.rpc('fn_unregister_from_tournament', {
-            p_tournament_id: tournamentId,
-            p_request_id: requestId,
-          }),
+        (signal) =>
+          supabase
+            .rpc('fn_unregister_from_tournament', {
+              p_tournament_id: tournamentId,
+              p_request_id: requestId,
+            })
+            .abortSignal(signal),
         requestId,
         'TournamentService.unregisterPlayer_result_unconfirmed',
         { tournamentId, userId }
@@ -1800,11 +1815,13 @@ class TournamentService {
     }
     return withTournamentUnregistrationIntent(userId, 'seat:' + tableId, async (requestId) => {
       const result = await executeTournamentUnregisterRpc(
-        async () =>
-          supabase.rpc('fn_leave_seat_and_refund', {
-            p_table_id: tableId,
-            p_request_id: requestId,
-          }),
+        (signal) =>
+          supabase
+            .rpc('fn_leave_seat_and_refund', {
+              p_table_id: tableId,
+              p_request_id: requestId,
+            })
+            .abortSignal(signal),
         requestId,
         'TournamentService.leaveTournamentSeatAndRefund_result_unconfirmed',
         { tableId, userId }
@@ -2382,7 +2399,9 @@ class TournamentService {
         // now correctly says the player is funded; blocking here would prevent
         // the immutable receipt from returning that already-committed result.
         // The RPC owns replay and current eligibility under one transaction lock.
-        const tournament = await this.getTournament(tournamentId);
+        const tournament = await runWithRequestDeadline((signal) =>
+          this.getTournament(tournamentId, { throwOnError: true, signal })
+        );
         if (!tournament) throw new Error('Tournament not found');
 
         const rebuyChips = tournament.rebuy_chips || tournament.starting_chips;
@@ -2422,7 +2441,11 @@ class TournamentService {
         };
       },
       async (request) => {
-        const { data, error } = await supabase.rpc('process_tournament_rebuy', request);
+        // A deadline leaves the saved payload pending. A later explicit action
+        // reads the same receipt; it must never create another purchase.
+        const { data, error } = await runWithRequestDeadline((signal) =>
+          supabase.rpc('process_tournament_rebuy', request).abortSignal(signal)
+        );
         if (error) {
           reportError(error, 'TournamentService.Rebuy_RPC_outcome_unconfirmed');
           throw error;
@@ -2463,12 +2486,13 @@ class TournamentService {
     if (!tournament) return { allowed: false, reason: 'Tournament not found' };
 
     if (!tournament.add_on_available) return { allowed: false, reason: 'Add-ons not available' };
-    // Free Buy events open their durable add-on window as soon as the field is
-    // pre-seated, up to one minute before the advertised first hand. The
-    // server money door accepts that REGISTERING-with-live-seat phase; a
-    // stricter browser pre-check made the visible offer impossible to buy.
-    if (!['REGISTERING', 'RUNNING'].includes(String(tournament.status)))
-      return { allowed: false, reason: 'Tournament is not accepting add-ons' };
+    if (
+      !tournamentAddOnEntryBoundaryPassed(
+        tournament as unknown as Record<string, unknown>,
+        Date.now()
+      )
+    )
+      return { allowed: false, reason: 'Add-On Period Has Not Begun' };
     if (tournament.prize_pool_finalized)
       return { allowed: false, reason: 'The prize pool is finalized' };
 
@@ -2497,7 +2521,9 @@ class TournamentService {
         // reach the immutable receipt even though the window is now closed or
         // the add-on is now used. The RPC owns all eligibility under one lock;
         // canAddOn remains display guidance only.
-        const tournament = await this.getTournament(tournamentId);
+        const tournament = await runWithRequestDeadline((signal) =>
+          this.getTournament(tournamentId, { throwOnError: true, signal })
+        );
         if (!tournament) throw new Error('Tournament not found');
 
         const addonChips = tournament.addon_chips || tournament.starting_chips;
@@ -2531,7 +2557,11 @@ class TournamentService {
         };
       },
       async (request) => {
-        const { data, error } = await supabase.rpc('process_tournament_rebuy', request);
+        // A deadline leaves the saved payload pending. A later explicit action
+        // reads the same receipt; it must never create another purchase.
+        const { data, error } = await runWithRequestDeadline((signal) =>
+          supabase.rpc('process_tournament_rebuy', request).abortSignal(signal)
+        );
         if (error) {
           reportError(error, 'TournamentService.Addon_RPC_outcome_unconfirmed');
           throw error;

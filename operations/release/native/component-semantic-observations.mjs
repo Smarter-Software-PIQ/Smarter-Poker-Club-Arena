@@ -44,6 +44,17 @@ export async function verifyPersistedHand(db, tableId, cycle, userId) {
 }
 
 export async function schemaCatalogue(db) {
+  return withSchemaCatalogue(db, false);
+}
+
+// Private same-job schema qualification input. This is the exact original
+// catalogue encoding, not a second query or an observed-as-expected verdict.
+// Never upload this literal-bearing payload as a public artifact.
+export async function schemaCataloguePayload(db) {
+  return withSchemaCatalogue(db, true);
+}
+
+async function withSchemaCatalogue(db, includePayload) {
   // pg_get_* deparsers depend on search_path. Canonicalize it for producer and
   // bridge alike. The caller supplies an exclusive connection. A savepoint
   // preserves both session and SET LOCAL settings without committing the
@@ -59,7 +70,7 @@ export async function schemaCatalogue(db) {
   }
   try {
     await db.query('SET LOCAL search_path = pg_catalog');
-    return await canonicalSchemaCatalogue(db);
+    return await canonicalSchemaCatalogue(db, includePayload);
   } finally {
     if (ownsTransaction) await db.query('ROLLBACK');
     else {
@@ -68,12 +79,12 @@ export async function schemaCatalogue(db) {
     }
   }
 }
-async function canonicalSchemaCatalogue(db) {
+async function canonicalSchemaCatalogue(db, includePayload) {
   // Full definitions plus normalized ownership/effective ACLs. PUBLIC grants
   // remain visible; NOINHERIT is not evidence of observer isolation. Role names
   // replace OIDs and ACL entries sort independently of GRANT statement order.
   // This query is fixture-only; the result never contains role passwords.
-  const { rows } = await db.query(`WITH user_schemas AS (
+  const query = `WITH user_schemas AS (
       SELECT * FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema'
     ), acl_objects AS (
       SELECT 'routine:'||p.prokind::text AS kind,n.nspname AS schema_name,
@@ -149,8 +160,24 @@ async function canonicalSchemaCatalogue(db) {
     'rls',(SELECT coalesce(jsonb_agg(jsonb_build_array(n.nspname,c.relname,c.relrowsecurity,c.relforcerowsecurity)
       ORDER BY n.nspname,c.relname),'[]'::jsonb) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname IN ('public','auth') AND c.relkind IN ('r','p'))
-    )::text AS catalogue`);
-  return digest(rows[0].catalogue);
+    )::text AS catalogue`;
+  const { rows } = await db.query(
+    includePayload
+      ? `SELECT CASE WHEN pg_catalog.octet_length(catalogue) <= 33554432
+      THEN catalogue END AS catalogue FROM (${query}) bounded_catalogue`
+      : query
+  );
+  assert.ok(typeof rows[0]?.catalogue === 'string', 'SCHEMA_CATALOGUE_BYTES_REQUIRED');
+  const catalogueDigest = digest(rows[0].catalogue);
+  return includePayload
+    ? {
+        version: 1,
+        scope: 'complete-schema-catalogue',
+        encoding: 'postgres-jsonb-text-sha256/v1',
+        catalogue_text: rows[0].catalogue,
+        catalogue_digest: catalogueDigest,
+      }
+    : catalogueDigest;
 }
 
 // Called only by the private fixed-query bridge, never through oracle SQL.
@@ -204,7 +231,14 @@ export async function observeHandFacts(db, tableId, handNumber, spectatorId) {
     `SELECT count(*) OVER()::integer AS total, hand_number,
     pot_size::text,rake_amount::text,
     CASE WHEN jsonb_typeof(actions)='array' THEN jsonb_array_length(actions) END AS action_count,
-    CASE WHEN jsonb_typeof(players)='array' THEN jsonb_array_length(players) END AS player_count
+    CASE WHEN jsonb_typeof(players)='array' THEN jsonb_array_length(players) END AS player_count,
+    (SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'ordinal',a.ordinality,'user_id',a.value->>'userId','seat',a.value->'seat',
+      'action',a.value->>'action','amount',coalesce(a.value->'amount','0'::jsonb),
+      'street',a.value->>'stage','origin',a.value->>'origin') ORDER BY a.ordinality),'[]'::jsonb)
+     FROM (SELECT value,ordinality FROM jsonb_array_elements(actions) WITH ORDINALITY
+       WHERE value->>'action' IN ('raise','call','all_in','fold')
+       ORDER BY ordinality LIMIT 129) a) AS public_actions
     FROM public.hand_history WHERE table_id=$1 AND hand_number=$2 LIMIT 2`,
     [tableId, handNumber]
   );

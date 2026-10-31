@@ -1,12 +1,16 @@
-import { isReadOnlySpectatorSocketType } from './support/spectatorSocketRead';
+import {
+  isReadOnlySpectatorSocketType,
+  requestObserverForegroundProbe,
+} from './support/spectatorSocketRead';
 import { openLobbyGameSection } from './support/lobbyGameSections';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { expect, test, type WebSocketRoute } from '@playwright/test';
 import { formatPopupText } from '../../src/utils/popupStyle';
 import {
   CASH_SPECTATOR_ACTION,
   CASH_TABLE_CARD_SELECTOR,
   collectVisibleCashCandidates,
+  selectClassicCashCandidate,
 } from './support/cashTableCandidates';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
 
@@ -14,7 +18,7 @@ const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4
 const ENGINE_HOST = 'engine.smarter.poker';
 const MAIN_NAME = /\bmain(?:\s*\d+)?\b/i;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
-type CashTable = { id: string; name: string };
+type CashTable = { id: string; name: string; cluster_id?: unknown; cluster?: unknown };
 type RefusedWrite = { transport: 'http' | 'websocket'; operation: string; path: string };
 
 /** Refuse participation before a request can reach a real seat or chip pool. */
@@ -82,23 +86,6 @@ test('the published table explains controlled seat moves without moving a player
   const refusedSynthetic = { http: 0, websocket: 0 };
   let forwardedSyntheticUpstream = 0;
   const heroDiagnostics: string[] = [];
-  await context.addInitScript(() => {
-    // Retain only a native socket reference, never its URL/token/frame data.
-    // The probe below is a harmless PING, and must be refused by the proxy.
-    const send = WebSocket.prototype.send;
-    const sockets: { engine?: WebSocket } = {};
-    WebSocket.prototype.send = function (data) {
-      if (this.url.startsWith('wss://engine.smarter.poker/')) sockets.engine = this;
-      return send.call(this, data);
-    };
-    Object.defineProperty(window, '__a14ReadOnlySocketProbe', {
-      value: () => {
-        if (!sockets.engine || sockets.engine.readyState !== WebSocket.OPEN)
-          throw new Error('No live engine socket for refusal proof');
-        sockets.engine.send(JSON.stringify({ type: 'PING' }));
-      },
-    });
-  });
   page.on('console', (message) => {
     if (syntheticPhase && message.text().includes('TablePage.EngineHeroSeatNotRendered'))
       heroDiagnostics.push('TablePage.EngineHeroSeatNotRendered');
@@ -265,12 +252,22 @@ test('the published table explains controlled seat moves without moving a player
       candidates.length,
       'the reserved club needs an occupied cash spectator subject'
     ).toBeGreaterThan(0);
-    const source = candidates[0];
-    subjectTableId = source.id;
     const catalogueRead = await cashRead;
     if (catalogueRead.error || !catalogueRead.rows)
       throw new Error(`The cash catalogue was unreadable: ${catalogueRead.error}`);
     const catalogue = catalogueRead.rows;
+    const source = selectClassicCashCandidate(candidates, catalogue);
+    if (!source)
+      throw new Error(
+        'The classic hero proof needs a visible occupied cash table with an exact must_move cluster catalogue row.'
+      );
+    subjectTableId = source.id;
+    evidence.subjectMode = {
+      tableId: source.id,
+      clusterId: catalogue.find((table) => table.id === source.id)!.cluster_id,
+      clusterMode: 'must_move',
+      authority: 'existing tables catalogue cash_games foreign-key join',
+    };
     expect(observedViewerId, 'the page must use its reserved fixture identity').toBe(fixtureUserId);
     const main = catalogue.find((table) => table.id !== source.id && MAIN_NAME.test(table.name));
     const other = catalogue.find(
@@ -403,10 +400,48 @@ test('the published table explains controlled seat moves without moving a player
       `SEAT_MOVE_NOTICE_PROOF ${JSON.stringify({ ...evidence, refusedParticipationAttempts: writes })}`
     );
 
+    // Qualify the actual observer footer before the guarded synthetic hero.
+    // The full-table waiting-list control is taller than the Spectating label.
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Table Chat', exact: true })).toBeHidden();
+    await expect(page.locator('.toast')).toHaveCount(0, { timeout: 20_000 });
+    await page.evaluate(() => document.fonts.ready);
+    const observerFooter = await page.locator('.table-page').evaluate((table) => {
+      const footer = table.querySelector('.spectator-footer-bar')!.getBoundingClientRect();
+      const panels = [...table.querySelectorAll<HTMLElement>('.seat:not(.seat--empty) .seat__info')]
+        .filter(
+          (panel) => getComputedStyle(panel).visibility !== 'hidden' && panel.offsetHeight > 0
+        )
+        .map((panel) => ({
+          bottom: panel.getBoundingClientRect().bottom,
+          height: panel.offsetHeight,
+          width: panel.offsetWidth,
+        }));
+      return {
+        viewport: { width: innerWidth, height: innerHeight },
+        occupiedSeats: table.querySelectorAll('.seat:not(.seat--empty)').length,
+        waitingListControl: table.querySelector('.waitlist-cta') !== null,
+        footerTop: footer.top,
+        panels,
+      };
+    });
+    evidence.observerFooter = observerFooter;
+    const observerScreenshot = info.outputPath('mobile-live-table-observer-footer.png');
+    await page.screenshot({ path: observerScreenshot });
+    expect(observerFooter.panels.length).toBeGreaterThanOrEqual(2);
+    for (const panel of observerFooter.panels)
+      expect(
+        panel.bottom,
+        'the published observer panel must clear the actual footer'
+      ).toBeLessThanOrEqual(observerFooter.footerTop + 0.5);
+
     // A synthetic reserved-account identity tests the deployed diagnostic,
     // not an authoritative seat, natural gameplay or a financial receipt.
     await expect.poll(() => snapshotTemplate !== null).toBe(true);
     const template = snapshotTemplate! as Record<string, any>;
+    expect(template.tableId, 'the captured snapshot must belong to the selected subject').toBe(
+      source.id
+    );
     expect(
       template.state.lightning_observer,
       'a public Lightning observer cannot qualify a classic hero diagnostic'
@@ -438,8 +473,8 @@ test('the published table explains controlled seat moves without moving a player
       String(seat)
     );
     expect(heroDiagnostics).toEqual([]);
+    await page.evaluate(requestObserverForegroundProbe);
     await page.evaluate(async () => {
-      (window as unknown as { __a14ReadOnlySocketProbe: () => void }).__a14ReadOnlySocketProbe();
       // A nonread against a nonexistent static path proves the HTTP guard
       // without touching any money, seat, telemetry or backend mutation API.
       await fetch('/hub/club-arena/__a14_ui_only_refusal_probe__', {
@@ -451,6 +486,56 @@ test('the published table explains controlled seat moves without moving a player
     expect(refusedSynthetic.http).toBeGreaterThan(0);
     expect(forwardedSyntheticUpstream).toBe(0);
     expect(heroDiagnostics).toEqual([]);
+    // Verify equal sizing in the published client using its real mapped
+    // player rows. Synthetic input remains confined to this guarded browser.
+    await page.evaluate(() => document.fonts.ready);
+    const equalSeatSizing = await page
+      .locator('.table-page .seat:not(.seat--empty)')
+      .evaluateAll((seats) =>
+        seats.map((seat) => {
+          const size = (selector: string) => {
+            const element = seat.querySelector<HTMLElement>(selector);
+            if (!element) return null;
+            const visual = element.getBoundingClientRect();
+            // Compare the shared layout slots. Fold posture intentionally
+            // scales an avatar to 97%; gestures must keep playing in full.
+            // Retain visual bounds as evidence, without mistaking posture
+            // for a different hero/opponent size rule.
+            return {
+              width: element.offsetWidth,
+              height: element.offsetHeight,
+              visual: { width: visual.width, height: visual.height },
+            };
+          };
+          return {
+            hero: seat.classList.contains('seat--hero'),
+            avatar: size('.seat__avatar'),
+            panel: size('.seat__info'),
+            action: size('.seat__action'),
+          };
+        })
+      );
+    expect(equalSeatSizing.length).toBeGreaterThanOrEqual(2);
+    const heroSize = equalSeatSizing.find((seat) => seat.hero)!;
+    expect(heroSize).toBeTruthy();
+    for (const seat of equalSeatSizing)
+      for (const part of ['avatar', 'panel'] as const) {
+        expect(seat[part]).toBeTruthy();
+        expect(Math.abs(seat[part]!.width - heroSize[part]!.width)).toBeLessThan(1.5);
+        expect(Math.abs(seat[part]!.height - heroSize[part]!.height)).toBeLessThan(1.5);
+      }
+    const actions = equalSeatSizing.flatMap((seat) => (seat.action ? [seat.action] : []));
+    for (const action of actions) {
+      expect(Math.abs(action.width - actions[0].width)).toBeLessThan(1.5);
+      expect(Math.abs(action.height - actions[0].height)).toBeLessThan(1.5);
+    }
+    evidence.equalSeatSizing = equalSeatSizing;
+    const sizingScreenshot = info.outputPath('mobile-live-table-equal-seat-sizing.png');
+    await page.screenshot({ path: sizingScreenshot });
+    await info.attach('mobile-published-equal-seat-sizing', {
+      path: sizingScreenshot,
+      contentType: 'image/png',
+    });
     const afterSynthetic = await readBuild();
     expect(afterSynthetic).toEqual(evidence.before);
     evidence.heroDiagnostic = {
@@ -472,10 +557,13 @@ test('the published table explains controlled seat moves without moving a player
     try {
       if (syntheticPhase) await context.close();
     } finally {
+      const renderingReceipt = info.outputPath('mobile-live-table-seat-move-rendering.json');
+      await writeFile(
+        renderingReceipt,
+        JSON.stringify({ ...evidence, refusedParticipationAttempts: writes }, null, 2)
+      );
       await info.attach('mobile-live-table-seat-move-rendering', {
-        body: Buffer.from(
-          JSON.stringify({ ...evidence, refusedParticipationAttempts: writes }, null, 2)
-        ),
+        path: renderingReceipt,
         contentType: 'application/json',
       });
     }

@@ -20,7 +20,7 @@ import { warmTable } from '../../services/tableWarmup';
  * (cheap: one indexed query on table_seats every 12s, only while signed
  * in AND only while the tab is visible),
  * and the first time a seat appears at a table it has not already announced:
- *   • emits TABLE_SEATED, which MultiTablePage turns into an open table tab;
+ *   • emits TABLE_SEATED and navigates to the assigned game, selecting its tab;
  *   • if the player is already at the 4-table cap, MultiTablePage answers with
  *     TABLE_CAP_BLOCKED and this renders the large popup Dan asked for.
  *
@@ -37,6 +37,14 @@ import { masterBus } from '../../core/MasterBus';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { reportError } from '../../utils/errorReporter';
+import { usePlatformCapability } from '../../hooks/usePlatformCapability';
+import { MULTI_DAY_CAPABILITY } from '../../utils/multiDaySchedule';
+import { readTournamentStageView } from '../../services/TournamentStageService';
+import {
+  markTournamentEntered,
+  tournamentSeatNavigationOptions,
+  tournamentEntryNavigationKey,
+} from '../../utils/tournamentEntryNavigation';
 import './TournamentAutoSeat.css';
 
 /**
@@ -128,6 +136,7 @@ function renderTwoLineTitle(raw: string): ReactNode {
 
 export default function TournamentAutoSeat() {
   const { user } = useAuthUser();
+  const stageGate = usePlatformCapability(MULTI_DAY_CAPABILITY);
   const navigate = useNavigate();
   const location = useLocation();
   const activePokerTableId = useVisiblePokerTable();
@@ -144,6 +153,7 @@ export default function TournamentAutoSeat() {
   } | null>(null);
   const checkEpochRef = useRef(0);
   const pendingRef = useRef<Map<string, string>>(new Map()); // tableId -> tournament name
+  const enteredRef = useRef(new Set<string>());
 
   // MultiTablePage answers with this when the player is already at the cap.
   useMasterBusSubscription('TABLE_CAP_BLOCKED', (payload: { tableId?: string }) => {
@@ -239,6 +249,30 @@ export default function TournamentAutoSeat() {
         const joinedAt = row.joined_at ? new Date(row.joined_at as string).getTime() : 0;
         if (!joinedAt || joinedAt < freshFloor) continue;
 
+        // Only the initial admission selects the game. Rebalances keep their
+        // existing tab behavior, and a later multi-day resume remains opt-in.
+        const entryKey = tournamentEntryNavigationKey(user.id, t.tournament_id);
+        let enterGame = !enteredRef.current.has(entryKey);
+        try {
+          if (sessionStorage.getItem(entryKey)) enterGame = false;
+        } catch {
+          /* The in-memory guard still applies. */
+        }
+        if (enterGame) {
+          if (stageGate === 'loading' || stageGate === 'unknown') continue;
+          if (stageGate === 'available') {
+            const stage = await readTournamentStageView(t.tournament_id);
+            if (epoch !== checkEpochRef.current) return;
+            if (stage.status !== 'ok') {
+              reportError(new Error(stage.reason), 'TournamentAutoSeat.stage', {
+                tournamentId: t.tournament_id,
+              });
+              continue;
+            }
+            enterGame = (stage.view.currentStage?.stageNo ?? 1) <= 1;
+          }
+        }
+
         seenRef.current.add(tableId);
         writeSeen(seenRef.current);
         pendingRef.current.set(tableId, name);
@@ -246,13 +280,27 @@ export default function TournamentAutoSeat() {
         // Hand it to the multi-table layer: it opens a tab when there is room
         // and replies TABLE_CAP_BLOCKED when there is not.
         warmTable(tableId);
-        masterBus.emit('TABLE_SEATED', { tableId, seat: 0 });
+        const navigation = tournamentSeatNavigationOptions(user.id, t.tournament_id);
+        const origin = enterGame ? navigation.state.tournamentSeat.lobbyTabId : null;
+        masterBus.emit('TABLE_SEATED', {
+          tableId,
+          seat: 0,
+          ...(origin ? { registrationLobbyTabId: origin } : {}),
+        });
+        // Registration authorizes entering this game, including a seat that
+        // arrives at tournament start. Opening a background tab leaves the
+        // paid entrant in the lobby until another click.
+        if (enterGame) {
+          enteredRef.current.add(entryKey);
+          markTournamentEntered(user.id, t.tournament_id);
+          navigate(`/table/${tableId}`, navigation);
+        }
       }
       if (!visibleSeatAway) setBlindingOff(null);
     } catch (e) {
       reportError(e, 'TournamentAutoSeat.check');
     }
-  }, [user?.id, visibleTableId]);
+  }, [user?.id, visibleTableId, navigate, stageGate]);
 
   useEffect(() => {
     if (!user?.id) return undefined;
