@@ -87,7 +87,15 @@ function heldBoundary(source: ReturnType<typeof engine> | null) {
   const query: any = {
     select: () => query,
     eq: () => query,
-    in: async () => ({ data: [{ id: SOURCE }, { id: DESTINATION }], error: null }),
+    in: () => query,
+    order: () => query,
+    limit: () => query,
+    gt: () => query,
+    then: (resolve: any, reject: any) =>
+      Promise.resolve({ data: [{ id: SOURCE }, { id: DESTINATION }], error: null }).then(
+        resolve,
+        reject
+      ),
   };
   vi.spyOn(supabase, 'from').mockReturnValue(query);
   rpc.read.mockResolvedValue(CONTINUING);

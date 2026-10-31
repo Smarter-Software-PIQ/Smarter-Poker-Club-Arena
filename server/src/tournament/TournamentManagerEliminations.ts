@@ -5737,12 +5737,32 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
 
       if (this.satelliteQualifierBoundaryPending) {
         const generation = this.satelliteQualifierBoundaryGeneration;
-        const { data: tables, error } = await supabase
-          .from('tables')
-          .select('id')
-          .eq('tournament_id', this.tournamentId)
-          .in('status', ['running', 'waiting']);
-        if (error || !tables?.length) return 'pending';
+        const currentBoundary = () =>
+          this.isRunning() &&
+          !isMaintenanceFrozen() &&
+          this.eliminationMutationAllowed() &&
+          generation === this.satelliteQualifierBoundaryGeneration;
+        const inventory = await fetchAllRows<{ id: string }>(
+          (cursor, pageSize) => {
+            let query = supabase
+              .from('tables')
+              .select('id')
+              .eq('tournament_id', this.tournamentId)
+              .in('status', ['running', 'waiting'])
+              .order('id', { ascending: true })
+              .limit(pageSize);
+            if (cursor !== null) query = query.gt('id', cursor);
+            return query;
+          },
+          {
+            label: 'Tournament.satellite_boundary_tables',
+            pageAttempts: 1,
+            shouldContinue: currentBoundary,
+          }
+        );
+        if (!inventory.complete || !currentBoundary() || inventory.rows.length === 0)
+          return 'pending';
+        const tables = inventory.rows;
         const owned = tables.map((table: { id: string }) => ({
           tableId: table.id,
           engine: this.tableEngines.get(table.id),
