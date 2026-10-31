@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 271733,
-      "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+      "bytes": 272011,
+      "sha256": "f9525914bfdf2a10fa7820aab333529db17305968781d233d1dda612aadfc8a7"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -5864,6 +5864,18 @@
       }
     },
     "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "mysteryAwardPageOrderSourceAudit20261031": {
+    "scope": "Only adds isolated mystery award page-order qualification to accounting shard2; cash code, every cash assertion, native scheduler settings and historical verdicts unchanged.",
+    "previous": {
+      "bytes": 271733,
+      "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+    },
+    "current": {
+      "bytes": 272011,
+      "sha256": "f9525914bfdf2a10fa7820aab333529db17305968781d233d1dda612aadfc8a7"
+    },
     "historicalEvidenceRestamped": false
   }
 }
