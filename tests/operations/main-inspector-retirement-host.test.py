@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import signal
 from pathlib import Path
 import subprocess
@@ -659,6 +660,24 @@ sys.exit(0 if ok else 1)
         self.assertLess(owner, history)
         self.assertLess(history, action)
         self.assertLess(action, announcement)
+
+
+    def test_kernel_diagnostic_projection_is_closed_and_cannot_claim_authority(self):
+        base = {'ok': False, 'retryAllowed': False, 'reason': 'main_inspector_socket_unproved',
+                'entryStage': 'kernel', 'kernelReason': 'clients_before_grant'}
+        self.assertEqual(HOST.bounded_native_facts(base).get('kernelReason'), 'clients_before_grant')
+        source = (REPO / 'server/scripts/main-inspector-socket-qualification.mjs').read_text()
+        enum_source = source.split('const inspectorKernelReasons = new Set([', 1)[1].split(']);', 1)[0]
+        for detail in re.findall(r"'([a-z_]+)'", enum_source):
+            self.assertEqual(HOST.bounded_native_facts({**base, 'kernelReason': detail}).get('kernelReason'), detail)
+        for detail in ['PRIVATE /proc/1/fd/123', {'path': 'PRIVATE'}, ['clients_before_grant'], True, None]:
+            with self.subTest(detail=detail):
+                value = HOST.bounded_native_facts({**base, 'kernelReason': detail, 'rawError': 'PRIVATE'})
+                self.assertNotIn('kernelReason', value)
+                self.assertNotIn('PRIVATE', json.dumps(value))
+        for override in [{'entryStage': 'runtime'}, {'reason': 'deadline_exhausted'}]:
+            self.assertNotIn('kernelReason', HOST.bounded_native_facts({**base, **override}))
+
 
 
 if __name__ == '__main__':
