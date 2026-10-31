@@ -26,7 +26,7 @@ ARCHIVE_URL = 'https://ftp.postgresql.org/pub/source/v17.11/postgresql-17.11.tar
 PREFIX = 'postgresql-17.11/'
 BUILD_STAGE = 'INPUT'
 FIRST_FAILURE_STAGE = None
-STAGES = {'INPUT','DOWNLOAD','SOURCE_GUARDS','CONFIGURE','STOCK_BUILD','LIBPQ_INSTALL',
+STAGES = {'INPUT','DOWNLOAD','SOURCE_GUARDS','CONFIGURE','GENERATED_HEADERS','STOCK_BUILD','LIBPQ_INSTALL',
           'DIAGNOSTIC_BUILD','VERSION','SYNTHETIC_RUNTIME','SYNTHETIC_CLUSTER','SYNTHETIC_SEED',
           'SYNTHETIC_STOCK','SYNTHETIC_DIAGNOSTIC','SQL_EQUIVALENCE','SYNTHETIC_CLEANUP','OUTPUT','CLEANUP'}
 
@@ -151,6 +151,7 @@ def self_test(archive):
         else:
             require(False)
     closed_peer_handoff_check()
+    foreign_cleanup_check(archive.parent)
     saved = BUILD_STAGE, FIRST_FAILURE_STAGE
     try:
         BUILD_STAGE, FIRST_FAILURE_STAGE = 'CONFIGURE', None
@@ -161,7 +162,7 @@ def self_test(archive):
     finally:
         BUILD_STAGE, FIRST_FAILURE_STAGE = saved
     return {'source_inverse_exact': True, 'changed_source_refused': True,
-            'fixed_frame_boundaries_refuse': True, 'closed_peer_fd3_handoff': True, 'first_failure_stage_preserved': True}
+            'fixed_frame_boundaries_refuse': True, 'closed_peer_fd3_handoff': True, 'first_failure_stage_preserved': True, 'foreign_operation_preserved': True}
 
 
 def command(args, *, cwd, env, timeout=120, data=None):
@@ -411,17 +412,25 @@ def qualify(repo, work, output, env, stock_executable):
         shutil.rmtree(unix)
 
 
+def operation_identity():
+    run = os.environ.get('GITHUB_RUN_ID', '')
+    attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '')
+    require(re.fullmatch('[1-9][0-9]{0,19}', run) and re.fullmatch('[1-9][0-9]{0,5}', attempt))
+    return {'run_id': run, 'run_attempt': int(attempt)}
+
+
 def build(repo, output):
     global BUILD_STAGE
     require(sys.platform == 'linux' and os.geteuid() != 0 and os.environ.get('GITHUB_ACTIONS') == 'true')
     require('DATABASE_URL' not in os.environ)
+    operation = operation_identity()
     runner = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
     require(output.is_absolute() and output.parent.resolve() == runner and output.name == 'isolated-schema-native' and not output.exists())
     repo = repo.resolve(strict=True)
     source_sha = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
     require(re.fullmatch('[a-f0-9]{40}', source_sha))
     output.mkdir(mode=0o700)
-    ownership = {'version': 1, 'scope': 'isolated-native-dump-diagnostic',
+    ownership = {**operation, 'version': 1, 'scope': 'isolated-native-dump-diagnostic',
                  'owned_output': True, 'builder_uid': os.getuid(), 'control_sha': source_sha}
     (output / 'manifest.json').write_text(json.dumps(ownership) + '\n')
     (output / 'manifest.json').chmod(0o600)
@@ -450,6 +459,10 @@ def build(repo, output):
         helper = repo / 'operations/release/fixture/native-dump-diagnostic.c'
         BUILD_STAGE = 'CONFIGURE'
         command([str(source / 'configure'), '--with-ssl=openssl', '--without-readline', '--without-icu', '--without-zlib', '--prefix=' + str(output)], cwd=source, env=env, timeout=180)
+        # The explicit pg_dump target does not inherit top-level all's
+        # generated-header ordering. Complete it before parallel object builds.
+        BUILD_STAGE = 'GENERATED_HEADERS'
+        command(['make', '-C', 'src/backend', 'generated-headers'], cwd=source, env=env, timeout=120)
         BUILD_STAGE = 'STOCK_BUILD'
         command(['make', '-C', 'src/bin/pg_dump', '-j2', 'pg_dump'], cwd=source, env=env, timeout=420)
         stock_executable = work / 'stock-pg_dump'
@@ -502,6 +515,7 @@ def build(repo, output):
 def cleanup(output):
     global BUILD_STAGE
     BUILD_STAGE = 'CLEANUP'
+    operation = operation_identity()
     runner = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
     require(output.is_absolute() and output.parent.resolve() == runner and output.name == 'isolated-schema-native')
     if not output.exists():
@@ -514,6 +528,7 @@ def cleanup(output):
     manifest = json.loads(manifest_file.read_text())
     require(manifest.get('owned_output') is True and manifest.get('builder_uid') == os.getuid() and
             manifest.get('scope') == 'isolated-native-dump-diagnostic' and
+            manifest.get('run_id') == operation['run_id'] and manifest.get('run_attempt') == operation['run_attempt'] and
             re.fullmatch('[a-f0-9]{40}', manifest.get('control_sha', '')))
     # A previous interrupted build can leave only its own private Unix cluster.
     # Stop that exact declared data directory before removing the owned tree.
@@ -529,6 +544,32 @@ def cleanup(output):
             require(not (data / 'postmaster.pid').exists())
     shutil.rmtree(output)
     require(not output.exists())
+
+
+def foreign_cleanup_check(parent):
+    keys = ['RUNNER_TEMP', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT']
+    previous = {key: os.environ.get(key) for key in keys}
+    try:
+        with tempfile.TemporaryDirectory(prefix='native-owner-source-test-', dir=parent) as folder:
+            root = Path(folder).resolve()
+            output = root / 'isolated-schema-native'
+            output.mkdir(mode=0o700)
+            manifest = {'owned_output': True, 'builder_uid': os.getuid(),
+                        'scope': 'isolated-native-dump-diagnostic', 'control_sha': 'a' * 40,
+                        'run_id': '999', 'run_attempt': 1}
+            (output / 'manifest.json').write_text(json.dumps(manifest))
+            os.environ.update(RUNNER_TEMP=str(root), GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1')
+            try:
+                cleanup(output)
+            except RuntimeError:
+                pass
+            else:
+                require(False)
+            require(output.is_dir() and json.loads((output / 'manifest.json').read_text()) == manifest)
+    finally:
+        for key, value in previous.items():
+            if value is None: os.environ.pop(key, None)
+            else: os.environ[key] = value
 
 
 if __name__ == '__main__':

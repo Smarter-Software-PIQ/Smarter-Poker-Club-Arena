@@ -83,7 +83,8 @@ const capabilities=new WeakSet();
 const ARCHIVE_SHA='5367f6fb2ec97efe1eb2e0c7926bb33438e51b0bd3a9733b88498056a7dc9a7e';
 export async function verifyNativeDumpBinary(env) {
   const fail=()=>{throw new Error('ISOLATED_NATIVE_DUMP_BINARY_REFUSED');};
-  if(!path.isAbsolute(env.RUNNER_TEMP ?? '') || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? ''))fail();
+  if(!path.isAbsolute(env.RUNNER_TEMP ?? '') || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? '') ||
+    !/^[1-9][0-9]{0,19}$/.test(env.GITHUB_RUN_ID ?? '') || !/^[1-9][0-9]{0,5}$/.test(env.GITHUB_RUN_ATTEMPT ?? ''))fail();
   const root=path.join(await realpath(env.RUNNER_TEMP),'isolated-schema-native');
   const read=async(relative,maximum,executable=false)=>{
     const file=path.join(root,relative),details=await lstat(file);
@@ -96,6 +97,7 @@ export async function verifyNativeDumpBinary(env) {
   const sourceHash=async name=>digest(await readFile(fileURLToPath(new URL(name,import.meta.url))));
   if(manifest.version!==1 || manifest.scope!=='isolated-native-dump-diagnostic' ||
     manifest.source_version!=='17.11' || manifest.control_sha!==env.GITHUB_SHA ||
+    manifest.run_id!==env.GITHUB_RUN_ID || manifest.run_attempt!==Number(env.GITHUB_RUN_ATTEMPT) ||
     manifest.archive_sha256!==ARCHIVE_SHA ||
     manifest.builder_sha256!==await sourceHash('./native-dump-diagnostic.py') ||
     manifest.helper_sha256!==await sourceHash('./native-dump-diagnostic.c') ||

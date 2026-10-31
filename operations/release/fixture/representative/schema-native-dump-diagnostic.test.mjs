@@ -74,13 +74,13 @@ async function binaryFixture(run){
     await mkdir(path.join(output,'bin'),{recursive:true});await mkdir(path.join(output,'lib'));
     await writeFile(path.join(output,'bin/pg_dump'),binary,{mode:0o500});
     await writeFile(path.join(output,'lib/libpq.so.5'),library,{mode:0o500});
-    const manifest={version:1,scope:'isolated-native-dump-diagnostic',source_version:'17.11',control_sha:'a'.repeat(40),
+    const manifest={version:1,scope:'isolated-native-dump-diagnostic',source_version:'17.11',control_sha:'a'.repeat(40),run_id:'123',run_attempt:1,
       archive_sha256:'5367f6fb2ec97efe1eb2e0c7926bb33438e51b0bd3a9733b88498056a7dc9a7e',
       builder_sha256:hash(await readFile(new URL('../native-dump-diagnostic.py',import.meta.url))),
       helper_sha256:hash(await readFile(new URL('../native-dump-diagnostic.c',import.meta.url))),
       binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true}};
     const save=()=>writeFile(path.join(output,'manifest.json'),JSON.stringify(manifest),{mode:0o600});await save();
-    await run({root,output,manifest,save,env:{RUNNER_TEMP:root,GITHUB_SHA:'a'.repeat(40)}});
+    await run({root,output,manifest,save,env:{RUNNER_TEMP:root,GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
   }finally{await rm(root,{recursive:true,force:true});}
 }
 
@@ -90,6 +90,8 @@ test('only exact qualified owned native binary and source manifest creates an ex
     const old=manifest[key];manifest[key]='b'.repeat(old.length);await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest[key]=old;
   }
+  manifest.run_id='999';await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.run_id='123';
+  manifest.run_attempt=2;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.run_attempt=1;
   manifest.qualification.sql_bytes_equal=false;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);
   manifest.qualification.sql_bytes_equal=true;await save();
   await rm(path.join(output,'bin/pg_dump'));await symlink(path.join(output,'lib/libpq.so.5'),path.join(output,'bin/pg_dump'));

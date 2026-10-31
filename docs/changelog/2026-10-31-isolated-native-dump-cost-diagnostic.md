@@ -40,6 +40,8 @@ qualification compares stock and diagnostic schema output byte for byte after
 normalizing only the validated random restrict nonce. Roles, column ACLs, default
 privileges and definitions remain in that comparison. Exact fixed binary/library
 hashes and source identity must match a qualified owned manifest before execution.
+Build, execution and cleanup also bind the same GitHub run and attempt; an
+occupied foreign operation is retained after refusal.
 The provider removes its owned cluster, build scratch and tool on every outcome;
 an unknown cluster stop retains the owned recovery directory instead of deleting
 live data. No raw SQL or diagnostic stream is uploaded.
