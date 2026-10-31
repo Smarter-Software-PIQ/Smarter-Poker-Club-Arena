@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { deployExitPath } from '../../scripts/ci/record-engine-deploy-exit.mjs';
 import { refusalText } from '../../scripts/ci/check-engine-doors-exist.mjs';
+import { sliceYamlEntry } from '../helpers/sourceWindow';
 
 const deploy = readFileSync(
   resolve(__dirname, '../..', '.github/workflows/auto-deploy-hetzner.yml'),
@@ -75,7 +76,9 @@ describe('the release step always writes result=', () => {
   });
 
   it('every path that writes an outcome marks it written, so the trap stays quiet', () => {
-    expect(script).toMatch(/echo "result=superseded" >> "\$GITHUB_OUTPUT"[\s\S]*?RESULT_EMITTED=true/);
+    expect(script).toMatch(
+      /echo "result=superseded" >> "\$GITHUB_OUTPUT"[\s\S]*?RESULT_EMITTED=true/
+    );
     expect(script).toMatch(/echo "result=\$RESULT" >> "\$GITHUB_OUTPUT"\n\s*RESULT_EMITTED=true/);
     for (const stage of ['intake', 'observe', 'reattach', 'receipt'])
       expect(script).toContain(`RELEASE_STAGE=${stage}`);
@@ -83,7 +86,7 @@ describe('the release step always writes result=', () => {
 
   it('exposes the failed stage to the receipt', () => {
     expect(deploy).toContain("release_failure: ${{ steps.release.outputs.failed_stage || '' }}");
-    expect(deploy).toContain("needs.deploy.outputs.release_failure && format(");
+    expect(deploy).toContain('needs.deploy.outputs.release_failure && format(');
   });
 });
 
@@ -118,7 +121,12 @@ describe('the deploy job names its exit path', () => {
 
   it('names the first step that failed, not the skipped ones after it', () => {
     const r = run(script, {
-      STEP_OUTCOMES: outcomes({ prepare: 'failure', floor: 'skipped', release: 'skipped', verify: 'skipped' }),
+      STEP_OUTCOMES: outcomes({
+        prepare: 'failure',
+        floor: 'skipped',
+        release: 'skipped',
+        verify: 'skipped',
+      }),
       RELEASE_RESULT: '',
       RELEASE_FAILED_STAGE: '',
       VERIFIED: 'false',
@@ -156,8 +164,9 @@ describe('the deploy job names its exit path', () => {
   });
 
   it('runs on every exit of the job', () => {
-    const at = deploy.indexOf("      - name: Name this deploy job's exit path\n");
-    expect(deploy.slice(at, at + 200)).toContain('if: always()');
+    expect(sliceYamlEntry(deploy, "- name: Name this deploy job's exit path")).toContain(
+      'if: always()'
+    );
   });
 });
 
@@ -193,13 +202,17 @@ describe('the recorder writes one row for every exit path', () => {
         EXIT_OUTCOME: 'failure',
         EXIT_ERROR: 'release failed at observe (exit 70)',
       })
-    ).toEqual({ stage: 'release', outcome: 'failure', error: 'release failed at observe (exit 70)' });
+    ).toEqual({
+      stage: 'release',
+      outcome: 'failure',
+      error: 'release failed at observe (exit 70)',
+    });
   });
 
   it('is wired into the receipt job on always()', () => {
     const at = deploy.indexOf("      - name: Record this run's deploy exit path\n");
     expect(at).toBeGreaterThan(-1);
-    const step = deploy.slice(at, at + 1200);
+    const step = sliceYamlEntry(deploy, "- name: Record this run's deploy exit path");
     expect(step).toContain('if: always()');
     expect(step).toContain('node scripts/ci/record-engine-deploy-exit.mjs');
     expect(step).toContain("DOORS_REFUSAL: ${{ needs['engine-doors'].outputs.refusal }}");
@@ -218,6 +231,8 @@ describe('engine-doors names the missing function', () => {
   });
   it('and the job carries it to the receipt', () => {
     expect(deploy).toContain("refusal: ${{ steps.doors.outputs.refusal || '' }}");
-    expect(deploy).toContain("needs['engine-doors'].outputs.refusal || 'the refusal did not name itself'");
+    expect(deploy).toContain(
+      "needs['engine-doors'].outputs.refusal || 'the refusal did not name itself'"
+    );
   });
 });
