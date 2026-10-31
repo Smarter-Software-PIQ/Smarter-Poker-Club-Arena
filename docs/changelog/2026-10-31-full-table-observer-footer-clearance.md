@@ -6,4 +6,4 @@ The observer reserve includes the full readable panel, footer padding and gap, p
 
 A 320px regression failed by 21.47px before correction; native and normalized full-table footer-clearance assertions pass afterward.
 
-Validation: eight observer suites passed across two through nine seats, native/normalized phone widths, 768px portrait, safe areas, tournaments and dock states. 129 focused source/geometry/proof checks, TypeScript and the production Vite build passed.
+Validation: 24 observer profiles passed across two through nine seats, native/normalized phone widths, 768px portrait, safe areas, tournaments and dock states. 129 focused source/geometry/proof checks, TypeScript and the production Vite build passed. The viewport scenes are partitioned into native, normalized and safe-area profiles under the unchanged 60-second deadline; the actual painted footer artwork is served by the fixture, preserving every clearance assertion without a live asset lookup from its fake origin.
