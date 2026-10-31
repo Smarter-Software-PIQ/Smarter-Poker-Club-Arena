@@ -288,7 +288,7 @@ describe('nothing is left that nothing can reach', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('the grid keeps its rows, and the panel keeps its tags', () => {
   it('names both row groups, which the card layout strips the implicit role from', () => {
-    expect(TABLE_TSX).toContain('<thead role="rowgroup">');
+    expect(TABLE_TSX).toContain('<thead ref={desktopHeadingRef} role="rowgroup">');
     expect(TABLE_TSX).toContain('role="rowgroup"');
     expect(TABLE_TSX).toContain('<tbody ref={bodyRef} role="rowgroup">');
   });
