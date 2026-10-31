@@ -31,6 +31,19 @@ arm) requires one of these for an Omaha semi-bluff raise:
 This is the redraw definition the detector already uses. Both replayed hands
 now fold or call. The plo4/plo5 v70 matchups keep measuring it.
 
+Local paired-deal league, 3,000 pairs per arm, seed 2026103102, horse against
+horse:
+
+- PLO4: -1.05 +/- 1.12 bb/100 (98 divergent pairs);
+- PLO5: -0.09 +/- 1.25 bb/100 (79 divergent pairs);
+- zero illegal actions.
+
+Neither result is significant. Self-play cannot price the live population,
+where the situation measured -62 bb per hand. The gate ships as a defect fix:
+the branch was written for draws, and a hand with no draw is not one. The
+nightly matchups pool it. A pooled-significant negative result makes
+`league_layer_negative_pooled` say so, and the off arm is one flag away.
+
 ## The herd's saved opponent notes never loaded
 
 From 2026-10-28 to 2026-10-31 every worker boot reported
