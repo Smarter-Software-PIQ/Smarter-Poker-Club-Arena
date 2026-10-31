@@ -32,16 +32,23 @@ VALUES ('woowoo-half-earned-rake-20261024', 'a41434bb-8d0c-400a-8f0d-e8b3d65afed
 
 -- A: before the cutoff (never shared). B: after it, funded by a KINGS buy-in
 -- receipt. C: the next UTC day, funded through its rake attribution.
+-- C sits at the very end of its UTC day. The migration's proof compares the
+-- cron's DAY-granular split with the rule's TIMESTAMP-granular share over
+-- now() - 7 days; while that boundary fell inside C's day but after C (from
+-- 01:00 on 2026-11-01 for the rest of that day) every replay failed with
+-- "the rule reports less than the cron wrote". At 23:59:59.999998 the gap is
+-- two microseconds. B (23:00 on 10-24) had the same window on 10-31 23:00-24:00
+-- and is now permanently outside it.
 INSERT INTO public.ca_hand_facts VALUES
  ('69f2cefa-017d-49f3-ac3e-61505633747c','fade0000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-00000000000a',null,'2026-10-24 20:00:00+00',7.00,0.5),
  ('69f2cefa-017d-49f3-ac3e-61505633747c','fade0000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-00000000000b',null,'2026-10-24 23:00:00+00',89.48,0.5),
- ('69f2cefa-017d-49f3-ac3e-61505633747c','fade0000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-00000000000c',null,'2026-10-25 01:00:00+00',10.00,0.5);
+ ('69f2cefa-017d-49f3-ac3e-61505633747c','fade0000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-00000000000c',null,'2026-10-25 23:59:59.999998+00',10.00,0.5);
 INSERT INTO public.cash_participant_funding_receipts VALUES
  (gen_random_uuid(),'00000000-0000-0000-0000-0000000000b1','69f2cefa-017d-49f3-ac3e-61505633747c','2026-10-24 22:59:00+00','a41434bb-8d0c-400a-8f0d-e8b3d65afed4','buyin','2026-10-24 22:59:00+00');
 INSERT INTO public.rake_attributions(hand_id, player_id, club_id, rake_amount, created_at) VALUES
  ('00000000-0000-0000-0000-00000000000a','69f2cefa-017d-49f3-ac3e-61505633747c','a41434bb-8d0c-400a-8f0d-e8b3d65afed4',7.00,'2026-10-24 20:00:03+00'),
  ('00000000-0000-0000-0000-00000000000b','69f2cefa-017d-49f3-ac3e-61505633747c','a41434bb-8d0c-400a-8f0d-e8b3d65afed4',89.48,'2026-10-24 23:00:03+00'),
- ('00000000-0000-0000-0000-00000000000c','69f2cefa-017d-49f3-ac3e-61505633747c','a41434bb-8d0c-400a-8f0d-e8b3d65afed4',10.00,'2026-10-25 01:00:03+00');
+ ('00000000-0000-0000-0000-00000000000c','69f2cefa-017d-49f3-ac3e-61505633747c','a41434bb-8d0c-400a-8f0d-e8b3d65afed4',10.00,'2026-10-25 23:59:59.999999+00');
 INSERT INTO public.ca_club_rake_daily_user VALUES
  ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','69f2cefa-017d-49f3-ac3e-61505633747c','2026-10-24',700+8948),
  ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','69f2cefa-017d-49f3-ac3e-61505633747c','2026-10-25',1000);
