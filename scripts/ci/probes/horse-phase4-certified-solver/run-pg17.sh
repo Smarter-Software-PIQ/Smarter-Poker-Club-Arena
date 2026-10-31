@@ -28,6 +28,9 @@ PG17_BIN="$PG_BIN" python3 -B "$HERE/test-compactor-freeze-authority-ingress.py"
 PG17_BIN="$PG_BIN" python3 -B "$HERE/test-public215-seal-validation.py"
 PG17_BIN="$PG_BIN" python3 -B "$HERE/test-public215-source-vectors.py"
 PG17_BIN="$PG_BIN" python3 -B "$HERE/test-public215-seal-locks.py"
+PG17_BIN="$PG_BIN" python3 -B "$HERE/test-public215-seal-metrics.py"
+PG17_BIN="$PG_BIN" python3 -B "$HERE/test-public215-seal-revisions.py"
+PG17_BIN="$PG_BIN" python3 -B "$HERE/test-public215-seal-preparation.py"
 # The hosted parity reader admits only this runner's own private fixture socket.
 # Local runs retain their explicit external-SSD TMPDIR.
 WORK_ROOT="${TMPDIR:-/tmp}"
@@ -190,6 +193,8 @@ PUBLIC215_PSQL=("$PG_BIN/psql" -X -v ON_ERROR_STOP=1 -d "$PUBLIC215_DB")
 "${PUBLIC215_PSQL[@]}" -f "$HERE/public215-install-constraints-before.sql" \
  -f "$ROOT/supabase/migrations/20261029070812_public_hist215_models_bind_independent_exact_public_state.sql" \
  -f "$HERE/public215-install-constraints-after.sql"
+"${PUBLIC215_PSQL[@]}" -f "$ROOT/supabase/migrations/20261031215525_v31_model_validation_serializes_the_same_forest_once.sql" \
+ -f "$ROOT/supabase/migrations/20261031231748_public215_sealing_uses_bounded_input_bound_preparation.sql"
 node "$HERE/public215-declared-proofs.mjs" | "${PUBLIC215_PSQL[@]}"
 for fixture in public215-model.sql public215-physics.sql public215-metadata.sql public215-selection.sql public215-wtl-parity.sql public215-audit-cost.sql public215-admission.sql; do
  "${PUBLIC215_PSQL[@]}" -c "SET statement_timeout='240s';SET lock_timeout='1s';" -f "$HERE/$fixture"
