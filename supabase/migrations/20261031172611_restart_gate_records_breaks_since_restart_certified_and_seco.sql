@@ -14,11 +14,11 @@
 --    writes the consecutive-uncertified count with every break row, and a
 --    crash restart on the same build reads it back at boot.
 -- 2. engine_maintenance_break_faults accepts the second-break restart gate's
---    record: stage 'restart_gate', outcome 'force_parked' (a table still
+--    record: stage 'restart_gate', outcome 'straggler_reported' (a table still
 --    unparked for a break-scoped reason at a second consecutive uncertified
---    break, sent down the zombie-reaper path) or 'refusing_accounting_pending'
---    (the same table with accounting genuinely in flight: recorded, and it
---    keeps refusing the restart).
+--    break, reported by reason for the operator; never fenced automatically)
+--    or 'refusing_accounting_pending' (the same table with accounting
+--    genuinely in flight).
 --
 -- Small evidence tables, no foreign keys; one transaction, short lock_timeout
 -- (production DDL policy rules 1, 7 and 9).
@@ -43,6 +43,6 @@ ALTER TABLE public.engine_maintenance_break_faults
   DROP CONSTRAINT IF EXISTS engine_maintenance_break_faults_outcome_check;
 ALTER TABLE public.engine_maintenance_break_faults
   ADD CONSTRAINT engine_maintenance_break_faults_outcome_check
-  CHECK (outcome IN ('cancelled', 'held_without_restart', 'force_parked', 'refusing_accounting_pending'));
+  CHECK (outcome IN ('cancelled', 'held_without_restart', 'straggler_reported', 'refusing_accounting_pending'));
 
 COMMIT;

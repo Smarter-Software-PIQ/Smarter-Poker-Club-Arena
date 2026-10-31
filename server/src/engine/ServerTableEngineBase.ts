@@ -7069,7 +7069,7 @@ export abstract class ServerTableEngineBase {
   /**
    * Accounting genuinely in flight: a settlement write, or a time-bank debit
    * pending or of unknown outcome. The second-break restart gate (Phase 6)
-   * keeps refusing rather than force-parking a table for which this is true.
+   * records a table for which this is true as refusing_accounting_pending.
    */
   hasAccountingInFlight(): boolean {
     return (

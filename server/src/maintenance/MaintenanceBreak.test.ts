@@ -27,6 +27,7 @@ import {
   type PersistedMaintenanceBreak,
   type MaintenanceBreakOutcome,
   type MaintenanceBreakFault,
+  type MaintenanceBreakDeps,
 } from './MaintenanceBreak.js';
 
 /**
@@ -843,16 +844,17 @@ describe('the restart gate', () => {
 
   /**
    * THE SECOND BREAK (Phase 6, 2026-10-31). The last four breaks on eed06fe5
-   * ended gate_opened=false with 36/0/81/16 unparked tables, and nothing acted
-   * on a table that held two of them in a row.
+   * ended gate_opened=false with 36/0/81/16 unparked tables, and nothing named
+   * a table that held two of them in a row. Operator policy (2026-10-31):
+   * detect and alert, never fence live tables automatically.
    */
   function buildGate(engineCount = 2) {
     const engines = new Map<string, FakeEngine>();
     for (let i = 0; i < engineCount; i++) engines.set(`t${i}`, new FakeEngine());
     const outcomes: MaintenanceBreakOutcome[] = [];
     const faults: MaintenanceBreakFault[] = [];
-    const forced: Array<[string, string]> = [];
     const certifications: number[] = [];
+    const byReasonAtEnd: Array<Record<string, number>> = [];
     const mb = new MaintenanceBreak({
       engines: () => engines.entries() as any,
       isRunning: () => true,
@@ -864,16 +866,12 @@ describe('the restart gate', () => {
       recordFault: async (f) => {
         faults.push(f);
       },
-      forceParkForRestartGate: (tableId, reason) => {
-        forced.push([tableId, reason]);
-        // The zombie-reaper path fences the engine and takes it out of the
-        // fleet; its replacement is built parked.
-        engines.delete(tableId);
-        return true;
+      onRestartCertification: (n, byReason) => {
+        certifications.push(n);
+        byReasonAtEnd.push({ ...byReason });
       },
-      onRestartCertification: (n) => certifications.push(n),
     });
-    return { mb, engines, outcomes, faults, forced, certifications };
+    return { mb, engines, outcomes, faults, certifications, byReasonAtEnd };
   }
 
   async function runShutBreak(mb: MaintenanceBreak, engines: Map<string, FakeEngine>) {
@@ -884,32 +882,59 @@ describe('the restart gate', () => {
     await mb.beginCountdown();
   }
 
-  it('force-parks a table still unparked at a second consecutive uncertified break', async () => {
-    const { mb, engines, outcomes, faults, forced, certifications } = buildGate(2);
-    engines.get('t0')!.deal();
+  it('reports, by reason, a table still unparked at a second consecutive uncertified break, and never fences it', async () => {
+    const { mb, engines, outcomes, faults, certifications, byReasonAtEnd } = buildGate(2);
+    const t0 = engines.get('t0')!;
+    t0.deal();
     await runShutBreak(mb, engines);
     vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS + 1000);
     await mb.end();
     expect(outcomes[0].breaksSinceRestartCertified).toBe(1);
-    expect(forced, 'nothing is forced at the first shut break').toEqual([]);
+    expect(faults.filter((f) => f.stage === 'restart_gate'), 'nothing at the first shut break').toEqual([]);
 
     await runShutBreak(mb, engines);
     expect(mb.readyForRestart()).toBe(false);
-    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS + 1);
-    expect(forced).toEqual([['t0', 'cards_in_air']]);
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_REPORT_AFTER_MS + 1);
     await Promise.resolve();
     expect(faults.filter((f) => f.stage === 'restart_gate')).toEqual([
-      expect.objectContaining({ outcome: 'force_parked', error: 'table t0 reason cards_in_air' }),
+      expect.objectContaining({ outcome: 'straggler_reported', error: 'table t0 reason cards_in_air' }),
     ]);
-    expect(mb.readyForRestart(), 'the gate opens once the wedged table is gone').toBe(true);
+    // Detection only: the table is still in the fleet, still mid-hand, and
+    // still holds the gate shut. The operator decides.
+    expect(engines.get('t0')).toBe(t0);
+    expect(t0.handInFlight).toBe(true);
+    expect(mb.readyForRestart(), 'the gate stays shut; nothing was fenced').toBe(false);
+    expect(mb.snapshot().secondBreak).toMatchObject({
+      stragglersReported: 1,
+      refusingAccountingPending: 0,
+      byReason: { cards_in_air: 1 },
+    });
+    // One report per break: the gate does not come back for the same table.
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_REPORT_AFTER_MS * 3);
+    await Promise.resolve();
+    expect(faults.filter((f) => f.stage === 'restart_gate')).toHaveLength(1);
     vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS);
     await mb.end();
-    expect(outcomes[1].breaksSinceRestartCertified).toBe(0);
-    expect(certifications).toEqual([1, 0]);
+    expect(outcomes[1].breaksSinceRestartCertified).toBe(2);
+    expect(certifications).toEqual([1, 2]);
+    expect(byReasonAtEnd).toEqual([{}, { cards_in_air: 1 }]);
   });
 
-  it('keeps refusing, and records it, when the table has accounting in flight', async () => {
-    const { mb, engines, outcomes, faults, forced, certifications } = buildGate(2);
+  it('the dependency surface has no automatic force-park action', () => {
+    const deps: MaintenanceBreakDeps = {
+      engines: () => [],
+      isRunning: () => true,
+      emit: () => undefined,
+      store: new FakeStore(),
+      // @ts-expect-error operator policy: the restart gate never fences a live table
+      forceParkForRestartGate: () => true,
+    };
+    expect(deps).toBeDefined();
+    expect(MaintenanceBreak).not.toHaveProperty('SECOND_BREAK_FORCE_PARK_AFTER_MS');
+  });
+
+  it('records accounting-in-flight stragglers as refusing_accounting_pending', async () => {
+    const { mb, engines, outcomes, faults, certifications, byReasonAtEnd } = buildGate(2);
     const t0 = engines.get('t0')! as FakeEngine & Record<string, unknown>;
     t0.isMaintenanceStateDurable = () => false;
     t0.maintenanceDurabilityReason = () => 'accounting_pending';
@@ -918,9 +943,8 @@ describe('the restart gate', () => {
     await mb.end();
 
     await runShutBreak(mb, engines);
-    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS + 1);
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_REPORT_AFTER_MS + 1);
     await Promise.resolve();
-    expect(forced).toEqual([]);
     expect(faults.filter((f) => f.stage === 'restart_gate')).toEqual([
       expect.objectContaining({
         outcome: 'refusing_accounting_pending',
@@ -932,11 +956,15 @@ describe('the restart gate', () => {
     await mb.end();
     expect(outcomes[1].breaksSinceRestartCertified).toBe(2);
     expect(certifications).toEqual([1, 2]);
-    expect(mb.snapshot().secondBreak).toMatchObject({ refusingAccountingPending: 1, forceParked: 0 });
+    expect(byReasonAtEnd[1]).toEqual({ accounting_pending: 1 });
+    expect(mb.snapshot().secondBreak).toMatchObject({
+      refusingAccountingPending: 1,
+      stragglersReported: 0,
+    });
   });
 
-  it('a force_park reason is kept refusing when the engine says its accounting is in flight', async () => {
-    const { mb, engines, faults, forced } = buildGate(1);
+  it('a report reason is recorded as refusing_accounting_pending when the engine says its accounting is in flight', async () => {
+    const { mb, engines, faults } = buildGate(1);
     const t0 = engines.get('t0')! as FakeEngine & Record<string, unknown>;
     t0.deal();
     t0.hasAccountingInFlight = () => true;
@@ -944,14 +972,14 @@ describe('the restart gate', () => {
     vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS + 1000);
     await mb.end();
     await runShutBreak(mb, engines);
-    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS + 1);
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_REPORT_AFTER_MS + 1);
     await Promise.resolve();
-    expect(forced).toEqual([]);
-    expect(faults.map((f) => f.outcome)).toContain('refusing_accounting_pending');
+    const gate = faults.filter((f) => f.stage === 'restart_gate').map((f) => f.outcome);
+    expect(gate).toEqual(['refusing_accounting_pending']);
   });
 
-  it('does not force-park a table that was parked when the previous break ended', async () => {
-    const { mb, engines, forced } = buildGate(2);
+  it('does not report a table that was parked when the previous break ended', async () => {
+    const { mb, engines, faults } = buildGate(2);
     engines.get('t0')!.deal();
     await runShutBreak(mb, engines);
     vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS + 1000);
@@ -960,20 +988,21 @@ describe('the restart gate', () => {
     engines.get('t0')!.finishHand();
     engines.get('t1')!.deal();
     await runShutBreak(mb, engines);
-    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS + 1);
-    expect(forced).toEqual([]);
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_REPORT_AFTER_MS + 1);
+    await Promise.resolve();
+    expect(faults.filter((f) => f.stage === 'restart_gate')).toEqual([]);
   });
 
-  it('declares a second-break action for every break-scoped reason', () => {
+  it('declares a second-break record for every break-scoped reason, and none of them acts', () => {
     for (const [reason, bound] of Object.entries(MaintenanceBreak.UNPARKED_REASON_BOUNDS)) {
       if (bound.scope !== 'break') continue;
-      expect(['force_park', 'keep_refusing'], reason).toContain(bound.atSecondBreak);
+      expect(['report', 'keep_refusing'], reason).toContain(bound.atSecondBreak);
     }
     expect(MaintenanceBreak.UNPARKED_REASON_BOUNDS.accounting_pending).toMatchObject({
       atSecondBreak: 'keep_refusing',
     });
     expect(MaintenanceBreak.UNPARKED_REASON_BOUNDS.cards_in_air).toMatchObject({
-      atSecondBreak: 'force_park',
+      atSecondBreak: 'report',
     });
   });
 

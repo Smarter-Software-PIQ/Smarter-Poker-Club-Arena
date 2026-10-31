@@ -4339,36 +4339,16 @@ export class GameServer {
         this.requestPendingTournamentBountyRecovery();
       }
     },
-    /* THE SECOND BREAK (Phase 6, 2026-10-31). A table still unparked for a
-       'break'-scoped reason at a second consecutive uncertified break goes
-       down the zombie-reaper path: fence first (no further mutation), then the
-       owner rebuilds it - the tournament manager by identity-CAS for its own
-       tables, direct recovery for cash. The replacement is built parked. */
-    forceParkForRestartGate: (tableId, reason) => {
-      const engine = this.tableEngines.get(tableId);
-      if (!engine) return false;
-      reportError(
-        new Error(
-          `Restart gate: ${tableId} unparked (${reason}) at a second consecutive uncertified ` +
-            'break - force-parking through the zombie-reaper path'
-        ),
-        'GameServer.restart_gate_force_park',
-        { tableId, reason }
-      );
-      const detail = 'restart_gate_second_break:' + reason;
-      if (this.tournamentOwnedTables.has(tableId)) {
-        engine.fenceForEngineLeaseLoss('tournament_table_zombie:' + detail, true);
-      } else {
-        engine.fenceForEngineLeaseLoss('cash_table_zombie:' + detail, false);
-        void this.recoverDirectTableEngine(tableId, engine, 'zombie_engine').catch(
-          (recoveryError) =>
-            reportError(recoveryError, 'GameServer.zombie_engine_recovery_failed', { tableId })
-        );
-      }
-      return true;
-    },
-    onRestartCertification: (breaks) => {
+    /* THE SECOND BREAK (Phase 6, 2026-10-31). Detection only: operator policy
+       forbids fencing live tables automatically, so the stragglers a second
+       consecutive uncertified break still holds are reported by reason here
+       and in engine_maintenance_break_faults, and the operator decides. */
+    onRestartCertification: (breaks, stragglersByReason) => {
       if (breaks >= MaintenanceBreak.UNCERTIFIED_BREAKS_ALERT_AT) {
+        const byReason =
+          Object.entries(stragglersByReason)
+            .map(([reason, n]) => `${reason}=${n}`)
+            .join(',') || 'none';
         void raiseEngineAlert({
           alertname: 'ClubArenaRestartGateShut',
           severity: 'critical',
@@ -4378,10 +4358,14 @@ export class GameServer {
             'The engine cannot be replaced: every release waits for a break whose restart gate ' +
             'opens, and the last ' +
             breaks +
-            ' did not. Tables still unparked at a second consecutive break are force-parked ' +
-            'unless their accounting is in flight; engine_maintenance_break_faults stage ' +
-            "'restart_gate' names each one, and /health maintenance.unparkedReasons says why.",
-          labels: { breaks_since_restart_certified: String(breaks) },
+            ' did not. Tables still unparked at this second consecutive break, by reason: ' +
+            byReason +
+            '. Nothing is fenced automatically; engine_maintenance_break_faults stage ' +
+            "'restart_gate' names each one, and /health maintenance.secondBreak says why.",
+          labels: {
+            breaks_since_restart_certified: String(breaks),
+            second_break_stragglers_by_reason: byReason,
+          },
         }).catch(() => undefined);
       } else if (breaks === 0) {
         void resolveEngineAlert(

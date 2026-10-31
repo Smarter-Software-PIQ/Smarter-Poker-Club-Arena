@@ -118,8 +118,8 @@ export interface PausableTableEngine {
    * Accounting genuinely in flight for this table: a settlement write, a
    * time-bank debit pending or unconfirmed. Optional; absent is "no". Read
    * ONLY by the second-break restart gate (Phase 6): a table that is still
-   * unparked at a second consecutive uncertified break is force-parked unless
-   * this is true, in which case the refusal is recorded and kept.
+   * unparked at a second consecutive uncertified break is reported by reason,
+   * and this classifies the report as accounting in flight. Nothing is fenced.
    */
   hasAccountingInFlight?(): boolean;
   isRunning(): boolean;
@@ -213,12 +213,17 @@ export interface MaintenanceBreakFault {
    * `cancelled`: no break ran, and the fleet dealt through the window.
    * `held_without_restart`: the break ran to the hour on a row that was
    * already durable, but carried no restart certificate.
-   * `force_parked` / `refusing_accounting_pending` (stage restart_gate,
+   * `straggler_reported` / `refusing_accounting_pending` (stage restart_gate,
    * Phase 6): a table still unparked for a 'break'-scoped reason at a second
-   * consecutive uncertified break was force-parked through the zombie-reaper
-   * path, or was kept refusing because its accounting is genuinely in flight.
+   * consecutive uncertified break, reported by reason for the operator (it is
+   * never fenced automatically), or the same with its accounting genuinely in
+   * flight.
    */
-  outcome: 'cancelled' | 'held_without_restart' | 'force_parked' | 'refusing_accounting_pending';
+  outcome:
+    | 'cancelled'
+    | 'held_without_restart'
+    | 'straggler_reported'
+    | 'refusing_accounting_pending';
   error: string;
 }
 
@@ -284,18 +289,16 @@ export interface MaintenanceBreakDeps {
    */
   recordFault?: (fault: MaintenanceBreakFault) => Promise<void>;
   /**
-   * SECOND-BREAK FORCE PARK (Phase 6, 2026-10-31). Tear this table's engine
-   * down through the existing zombie-reaper path (fence, then the owner's
-   * rebuild) so it stops holding the restart certificate shut. True when the
-   * engine was handed to that path. Optional: without it the gate only records.
+   * Called at every break end with breaksSinceRestartCertified and this
+   * break's second-break stragglers counted by reason (empty when none).
+   * GameServer raises a critical operational alert at >=
+   * UNCERTIFIED_BREAKS_ALERT_AT and resolves it at zero. Detection only:
+   * operator policy (2026-10-31) forbids fencing live tables automatically.
    */
-  forceParkForRestartGate?: (tableId: string, reason: string) => boolean;
-  /**
-   * Called at every break end with breaksSinceRestartCertified. GameServer
-   * raises a critical operational alert at >= UNCERTIFIED_BREAKS_ALERT_AT and
-   * resolves it at zero.
-   */
-  onRestartCertification?: (breaksSinceRestartCertified: number) => void;
+  onRestartCertification?: (
+    breaksSinceRestartCertified: number,
+    secondBreakStragglersByReason: Readonly<Record<string, number>>
+  ) => void;
   /**
    * THE THAW (Dan 2026-09-01: "picks back up exactly as it was").
    *
@@ -325,13 +328,15 @@ export type UnparkedReasonBound =
       scope: 'break';
       never: 'break_uncertified';
       /**
-       * What happens to a table still reporting this reason at a SECOND
-       * consecutive uncertified break (Phase 6): 'force_park' through the
-       * zombie-reaper path, or 'keep_refusing' (recorded) because the reason
-       * is accounting genuinely in flight. A force_park reason is still kept
-       * refusing when the engine says its accounting is in flight.
+       * How a table still reporting this reason at a SECOND consecutive
+       * uncertified break is recorded (Phase 6): 'report' (a straggler,
+       * reported by reason for the operator) or 'keep_refusing' (accounting
+       * genuinely in flight). Neither acts on the table: operator policy
+       * (2026-10-31) is detect and alert, never fence live tables
+       * automatically. A 'report' reason is recorded as keep_refusing when
+       * the engine says its accounting is in flight.
        */
-      atSecondBreak: 'force_park' | 'keep_refusing';
+      atSecondBreak: 'report' | 'keep_refusing';
     }
   | { scope: 'lifetime'; boundMs: number; never: string; neverHoldsGate: boolean };
 
@@ -1356,7 +1361,7 @@ export class MaintenanceBreak {
 
     const stragglers = this.unparkedTables();
     this.unparkedAtCountdown = stragglers.length;
-    this.armSecondBreakEnforcement();
+    this.armSecondBreakReport();
     if (stragglers.length > this.peakUnparked) this.peakUnparked = stragglers.length;
     if (stragglers.length > 0) {
       // Not fatal, and deliberately not blocking. A table wedged mid-hand must
@@ -1557,7 +1562,7 @@ export class MaintenanceBreak {
     if (this.readyForRestartAtMs === null) {
       this.breaksSinceRestartCertified += 1;
       // The tables this uncertified break ended with are the ones the next
-      // break force-parks if they are still unparked (Phase 6). Read the
+      // break reports if they are still unparked (Phase 6). Read the
       // census once, live, before any table resumes.
       try {
         this.unparkedTables();
@@ -1573,7 +1578,9 @@ export class MaintenanceBreak {
     this.secondBreakTimer = null;
     outcome.breaksSinceRestartCertified = this.breaksSinceRestartCertified;
     try {
-      this.deps.onRestartCertification?.(this.breaksSinceRestartCertified);
+      this.deps.onRestartCertification?.(this.breaksSinceRestartCertified, {
+        ...this.secondBreakStragglersByReason,
+      });
     } catch (error) {
       console.warn('[MaintenanceBreak] restart certification observer threw', error);
     }
@@ -2025,7 +2032,7 @@ export class MaintenanceBreak {
    * "not yet".
    */
   static readonly UNPARKED_REASON_BOUNDS: Readonly<Record<string, UnparkedReasonBound>> = {
-    cards_in_air: { scope: 'break', never: 'break_uncertified', atSecondBreak: 'force_park' },
+    cards_in_air: { scope: 'break', never: 'break_uncertified', atSecondBreak: 'report' },
     accounting_unconfirmed: {
       scope: 'break',
       never: 'break_uncertified',
@@ -2035,9 +2042,9 @@ export class MaintenanceBreak {
     bank_park_write_incomplete: {
       scope: 'break',
       never: 'break_uncertified',
-      atSecondBreak: 'force_park',
+      atSecondBreak: 'report',
     },
-    unknown: { scope: 'break', never: 'break_uncertified', atSecondBreak: 'force_park' },
+    unknown: { scope: 'break', never: 'break_uncertified', atSecondBreak: 'report' },
     // No money and no hand: past the bound it stops deciding the fleet (#4909).
     f06_preparation_unresolved: {
       scope: 'lifetime',
@@ -2095,12 +2102,11 @@ export class MaintenanceBreak {
   static readonly UNCERTIFIED_BREAKS_ALERT_AT = 2;
   /**
    * How long into the countdown of a second consecutive uncertified break a
-   * table keeps to park on its own before the gate force-parks it (Phase 6).
-   * One minute of the five: a hand in the air at :55 that is going to finish
-   * has finished by :56, and a forced park at :56 still leaves the restart
-   * MIN_REMAINING_FOR_RESTART_MS of window.
+   * table keeps to park on its own before the gate reports it (Phase 6). One
+   * minute of the five: a hand in the air at :55 that is going to finish has
+   * finished by :56. One report per break; nothing recurs.
    */
-  static readonly SECOND_BREAK_FORCE_PARK_AFTER_MS = 60_000;
+  static readonly SECOND_BREAK_REPORT_AFTER_MS = 60_000;
   /** Tables the latest census found unparked for a 'break'-scoped reason. */
   private breakScopedUnparked: Map<string, string> = new Map();
   /**
@@ -2108,10 +2114,12 @@ export class MaintenanceBreak {
    * previous break ENDED uncertified. Empty after a certified break.
    */
   private unparkedAtLastUncertifiedBreak: Set<string> = new Set();
-  /** Tables the second-break gate already acted on this break (one action each). */
+  /** Tables the second-break gate already reported this break (one record each). */
   private secondBreakActed: Set<string> = new Set();
-  private secondBreakForceParked = 0;
+  private secondBreakStragglersReported = 0;
   private secondBreakRefusingAccounting = 0;
+  /** This break's second-break stragglers, counted by reason. */
+  private secondBreakStragglersByReason: Record<string, number> = {};
   private secondBreakTimer: NodeJS.Timeout | null = null;
 
   private noteBreakScoped(tableId: string, reason: string): void {
@@ -2121,14 +2129,17 @@ export class MaintenanceBreak {
   /**
    * THE SECOND BREAK (Phase 6, 2026-10-31). The last four breaks on eed06fe5
    * ended gate_opened=false with 36/0/81/16 unparked tables: a 'break'-scoped
-   * reason's "never" was the uncertified break, and nothing ever acted on a
+   * reason's "never" was the uncertified break, and nothing ever named a
    * table that was the reason for two of them in a row. Now a table that was
    * unparked when the previous break ended uncertified, and is STILL unparked
-   * for a 'break'-scoped reason SECOND_BREAK_FORCE_PARK_AFTER_MS into this
-   * countdown, is force-parked through the zombie-reaper path - unless its
-   * accounting is genuinely in flight, which is recorded and keeps refusing.
+   * for a 'break'-scoped reason SECOND_BREAK_REPORT_AFTER_MS into this
+   * countdown, is reported by reason (engine_maintenance_break_faults stage
+   * restart_gate, /health maintenance.secondBreak.byReason, and the
+   * ClubArenaRestartGateShut alert). DETECTION ONLY (operator policy
+   * 2026-10-31): no table is fenced, parked or rebuilt by this gate; the
+   * operator decides.
    */
-  private enforceSecondBreak(): void {
+  private reportSecondBreakStragglers(): void {
     if (this.phase !== 'counting_down' || this.unparkedAtLastUncertifiedBreak.size === 0) return;
     this.unparkedTables();
     const engines = new Map<string, PausableTableEngine>();
@@ -2141,62 +2152,48 @@ export class MaintenanceBreak {
       try {
         if (engines.get(tableId)?.hasAccountingInFlight?.()) accountingInFlight = true;
       } catch {
-        // An engine that cannot say is treated as holding money: refuse.
+        // An engine that cannot say is treated as holding money.
         accountingInFlight = true;
       }
       this.secondBreakActed.add(tableId);
-      if (accountingInFlight) {
-        this.secondBreakRefusingAccounting += 1;
-        console.error(
-          `[MaintenanceBreak] table ${tableId} is unparked (${reason}) at a second consecutive ` +
-            'uncertified break with accounting in flight; recorded, and it keeps refusing the restart.'
-        );
-        this.reportFault(
-          'restart_gate',
-          'refusing_accounting_pending',
-          new Error(`table ${tableId} reason ${reason}`),
-          this.announcedAt
-        );
-        continue;
-      }
-      let handed = false;
-      try {
-        handed = this.deps.forceParkForRestartGate?.(tableId, reason) ?? false;
-      } catch (error) {
-        console.error(`[MaintenanceBreak] force park of ${tableId} threw`, error);
-      }
-      if (handed) this.secondBreakForceParked += 1;
+      this.secondBreakStragglersByReason[reason] =
+        (this.secondBreakStragglersByReason[reason] ?? 0) + 1;
+      if (accountingInFlight) this.secondBreakRefusingAccounting += 1;
+      else this.secondBreakStragglersReported += 1;
       console.error(
         `[MaintenanceBreak] table ${tableId} is unparked (${reason}) at a second consecutive ` +
-          `uncertified break; ${handed ? 'force-parked through the zombie-reaper path' : 'force park unavailable'}.`
+          'uncertified break' +
+          (accountingInFlight ? ' with accounting in flight' : '') +
+          '; reported for the operator, not fenced.'
       );
       this.reportFault(
         'restart_gate',
-        'force_parked',
-        new Error(`table ${tableId} reason ${reason}${handed ? '' : ' (force park unavailable)'}`),
+        accountingInFlight ? 'refusing_accounting_pending' : 'straggler_reported',
+        new Error(`table ${tableId} reason ${reason}`),
         this.announcedAt
       );
     }
   }
 
-  private armSecondBreakEnforcement(): void {
+  private armSecondBreakReport(): void {
     if (this.secondBreakTimer) this.clearTimer(this.secondBreakTimer);
     this.secondBreakTimer = null;
     this.secondBreakActed = new Set();
+    this.secondBreakStragglersByReason = {};
     if (this.unparkedAtLastUncertifiedBreak.size === 0) return;
     const generation = this.lifecycleGeneration;
     const breakStartedAt = this.breakStartedAt;
     const delay = Math.max(
       0,
-      breakStartedAt + MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS - this.now()
+      breakStartedAt + MaintenanceBreak.SECOND_BREAK_REPORT_AFTER_MS - this.now()
     );
     this.secondBreakTimer = this.setTimer(() => {
       this.secondBreakTimer = null;
       if (!this.lifecycleIsCurrent(generation) || this.breakStartedAt !== breakStartedAt) return;
       try {
-        this.enforceSecondBreak();
+        this.reportSecondBreakStragglers();
       } catch (error) {
-        console.error('[MaintenanceBreak] second-break enforcement failed', error);
+        console.error('[MaintenanceBreak] second-break report failed', error);
       }
     }, delay);
   }
@@ -2978,11 +2975,13 @@ export class MaintenanceBreak {
       stoppedCustodyStuckTables: this.stoppedCustodyStuckTableCount,
       breaksSinceRestartCertified: this.breaksSinceRestartCertified,
       /* Phase 6: the second-break gate. Tables the previous uncertified break
-         ended with, and what this break did about the ones still unparked. */
+         ended with, and the ones still unparked, reported by reason (never
+         fenced automatically). */
       secondBreak: {
         carriedFromLastUncertifiedBreak: this.unparkedAtLastUncertifiedBreak.size,
-        forceParked: this.secondBreakForceParked,
+        stragglersReported: this.secondBreakStragglersReported,
         refusingAccountingPending: this.secondBreakRefusingAccounting,
+        byReason: { ...this.secondBreakStragglersByReason },
       },
       readyForRestart: this.readyForRestart(),
       reason: this.reason,
