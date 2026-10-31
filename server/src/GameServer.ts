@@ -314,6 +314,8 @@ import {
   RunningResumeCooldowns,
   awaitsFirstDeal,
   resumesHoldingASlot,
+  exhaustedOrphans,
+  ORPHAN_CLAIM_MAX_ATTEMPTS,
   selectOrphanClaims,
   selectRunningResumes,
 } from './tournamentResumeBudget.js';
@@ -3781,6 +3783,8 @@ export class GameServer {
   private readonly darkTournamentFirstSeenAtMs = new Map<string, number>();
   /** When each long-failing resume / repeat-dark event was last paged. */
   private readonly failingResumePagedAtMs = new Map<string, number>();
+  /** Orphans whose claim attempts ran out and have been alerted (once per streak). */
+  private readonly orphanClaimExhaustedAlerted = new Set<string>();
   private readonly darkAfterRebuildPagedAtMs = new Map<string, number>();
   static readonly DARK_TOURNAMENT_LIVE_MINUTES = 15;
   static readonly DARK_TOURNAMENT_REBUILD_EVERY_MS = 30 * 60 * 1000;
@@ -10568,23 +10572,29 @@ export class GameServer {
          */
         /* ORPHANS FIRST (Phase 6, 2026-10-31). A RUNNING tournament with no
            engine_tournament_leases row is held by nobody anywhere; the leader
-           claims it on this pass, ahead of the budget and its cooldown. The
-           lease table is read whole; an unreadable read yields NO orphans
-           (unknown is not "unleased"), so an outage cannot become a storm. */
+           claims it on this pass, ahead of the budget. The lease table is
+           read whole; an unreadable read yields NO orphans (unknown is not
+           "unleased"), so an outage cannot become a storm. A failed claim
+           waits out the same per-tournament cooldown as any resume, and after
+           ORPHAN_CLAIM_MAX_ATTEMPTS failures the orphan lane stops and raises
+           a financial alert instead (operator policy: no new repair loops). */
         const orphanClaims: typeof running = [];
         if (running.length > 0 && isLeader()) {
           const leased = await this.readTournamentLeaseRowIds();
           if (!this.directAdmissionIsCurrent(generation)) break;
           if (leased) {
-            orphanClaims.push(
-              ...selectOrphanClaims(running, {
-                hasLeaseRow: (id) => leased.has(id),
-                hasManager: (id) => this.tournamentEngines.has(id),
-                admissionInFlight: (id) =>
-                  this.tournamentManagerAdmissionOperations.has(id) ||
-                  this.tournamentManagerAdmissionRetryTimers.has(id),
-              })
-            );
+            const orphanAt = Date.now();
+            const orphanPass = {
+              hasLeaseRow: (id: string) => leased.has(id),
+              hasManager: (id: string) => this.tournamentEngines.has(id),
+              admissionInFlight: (id: string) =>
+                this.tournamentManagerAdmissionOperations.has(id) ||
+                this.tournamentManagerAdmissionRetryTimers.has(id),
+              coolingDown: (id: string) => this.tournamentResumeCooldowns.coolingDown(id, orphanAt),
+              failedAttempts: (id: string) => this.tournamentResumeCooldowns.failures(id),
+            };
+            orphanClaims.push(...selectOrphanClaims(running, orphanPass));
+            this.alertExhaustedOrphanClaims(exhaustedOrphans(running, orphanPass));
             if (orphanClaims.length > 0)
               console.warn(
                 `[GameServer] claiming ${orphanClaims.length} RUNNING tournament(s) with no lease row: ` +
@@ -12419,6 +12429,38 @@ export class GameServer {
       if (engine.isHeldByOperatorFloor()) return 'operator_floor_hold';
     }
     return null;
+  }
+
+  /**
+   * AN ORPHAN THE LANE GAVE UP ON IS PAGED, NOT RETRIED (Phase 6, operator
+   * policy 2026-10-31). One CRITICAL financial alert per RUNNING tournament
+   * with no lease row whose claim failed ORPHAN_CLAIM_MAX_ATTEMPTS times in a
+   * row; the set is pruned to the current exhausted ids, so a streak that ends
+   * (a manager, or the id leaves the board) and comes back alerts again.
+   */
+  private alertExhaustedOrphanClaims(exhausted: ReadonlyArray<{ id: string | number }>): void {
+    const live = new Set(exhausted.map((row) => String(row.id)));
+    for (const tournamentId of [...this.orphanClaimExhaustedAlerted]) {
+      if (!live.has(tournamentId)) this.orphanClaimExhaustedAlerted.delete(tournamentId);
+    }
+    for (const tournamentId of live) {
+      if (this.orphanClaimExhaustedAlerted.has(tournamentId)) continue;
+      this.orphanClaimExhaustedAlerted.add(tournamentId);
+      const failures = this.tournamentResumeCooldowns.failures(tournamentId);
+      void raiseFinancialAlert(
+        'critical',
+        'GameServer.tournament_orphan_claim_exhausted',
+        `Tournament ${tournamentId} is RUNNING with no engine_tournament_leases row and the leader's ` +
+          `orphan claim failed ${failures} time(s) (cap ${ORPHAN_CLAIM_MAX_ATTEMPTS}); the orphan lane ` +
+          'has stopped claiming it. Its players are seated with no dealer. Read the engine log for ' +
+          'its admission refusal',
+        { tournament_id: tournamentId, failures, max_attempts: ORPHAN_CLAIM_MAX_ATTEMPTS },
+        `tournament-orphan-claim-exhausted:${tournamentId}`,
+        tournamentId
+      ).catch((alertError) =>
+        reportError(alertError, 'GameServer.tournament_orphan_claim_alert_failed', { tournamentId })
+      );
+    }
   }
 
   /**
