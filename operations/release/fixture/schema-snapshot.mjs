@@ -76,13 +76,145 @@ export function dumpFailureKind(stderr) {
     ['QUERY_FAILED', /query failed/],
   ].find(([, pattern]) => pattern.test(diagnostic))?.[0] ?? 'UNKNOWN';
 }
+// Exact non-parameterized PG17 progress messages only. Names, OIDs, SQL and
+// arbitrary diagnostic lines never become receipt values. Locale is fixed C.
+const dumpProgressStages = new Map([
+  ['pg_dump: reading extensions', 'READING_EXTENSIONS'],
+  ['pg_dump: identifying extension members', 'IDENTIFYING_EXTENSION_MEMBERS'],
+  ['pg_dump: reading schemas', 'READING_SCHEMAS'],
+  ['pg_dump: reading user-defined tables', 'READING_USER_DEFINED_TABLES'],
+  ['pg_dump: reading user-defined functions', 'READING_USER_DEFINED_FUNCTIONS'],
+  ['pg_dump: reading user-defined types', 'READING_USER_DEFINED_TYPES'],
+  ['pg_dump: reading procedural languages', 'READING_PROCEDURAL_LANGUAGES'],
+  ['pg_dump: reading user-defined aggregate functions', 'READING_USER_DEFINED_AGGREGATE_FUNCTIONS'],
+  ['pg_dump: reading user-defined operators', 'READING_USER_DEFINED_OPERATORS'],
+  ['pg_dump: reading user-defined access methods', 'READING_USER_DEFINED_ACCESS_METHODS'],
+  ['pg_dump: reading user-defined operator classes', 'READING_USER_DEFINED_OPERATOR_CLASSES'],
+  ['pg_dump: reading user-defined operator families', 'READING_USER_DEFINED_OPERATOR_FAMILIES'],
+  ['pg_dump: reading user-defined text search parsers', 'READING_USER_DEFINED_TEXT_SEARCH_PARSERS'],
+  ['pg_dump: reading user-defined text search templates', 'READING_USER_DEFINED_TEXT_SEARCH_TEMPLATES'],
+  ['pg_dump: reading user-defined text search dictionaries', 'READING_USER_DEFINED_TEXT_SEARCH_DICTIONARIES'],
+  ['pg_dump: reading user-defined text search configurations', 'READING_USER_DEFINED_TEXT_SEARCH_CONFIGURATIONS'],
+  ['pg_dump: reading user-defined foreign-data wrappers', 'READING_USER_DEFINED_FOREIGN_DATA_WRAPPERS'],
+  ['pg_dump: reading user-defined foreign servers', 'READING_USER_DEFINED_FOREIGN_SERVERS'],
+  ['pg_dump: reading default privileges', 'READING_DEFAULT_PRIVILEGES'],
+  ['pg_dump: reading user-defined collations', 'READING_USER_DEFINED_COLLATIONS'],
+  ['pg_dump: reading user-defined conversions', 'READING_USER_DEFINED_CONVERSIONS'],
+  ['pg_dump: reading type casts', 'READING_TYPE_CASTS'],
+  ['pg_dump: reading transforms', 'READING_TRANSFORMS'],
+  ['pg_dump: reading table inheritance information', 'READING_TABLE_INHERITANCE_INFORMATION'],
+  ['pg_dump: reading event triggers', 'READING_EVENT_TRIGGERS'],
+  ['pg_dump: finding extension tables', 'FINDING_EXTENSION_TABLES'],
+  ['pg_dump: finding inheritance relationships', 'FINDING_INHERITANCE_RELATIONSHIPS'],
+  ['pg_dump: reading column info for interesting tables', 'READING_COLUMN_INFO_FOR_INTERESTING_TABLES'],
+  ['pg_dump: flagging inherited columns in subtables', 'FLAGGING_INHERITED_COLUMNS_IN_SUBTABLES'],
+  ['pg_dump: reading partitioning data', 'READING_PARTITIONING_DATA'],
+  ['pg_dump: reading indexes', 'READING_INDEXES'],
+  ['pg_dump: flagging indexes in partitioned tables', 'FLAGGING_INDEXES_IN_PARTITIONED_TABLES'],
+  ['pg_dump: reading extended statistics', 'READING_EXTENDED_STATISTICS'],
+  ['pg_dump: reading constraints', 'READING_CONSTRAINTS'],
+  ['pg_dump: reading triggers', 'READING_TRIGGERS'],
+  ['pg_dump: reading rewrite rules', 'READING_REWRITE_RULES'],
+  ['pg_dump: reading policies', 'READING_POLICIES'],
+  ['pg_dump: reading publications', 'READING_PUBLICATIONS'],
+  ['pg_dump: reading publication membership of tables', 'READING_PUBLICATION_MEMBERSHIP_OF_TABLES'],
+  ['pg_dump: reading publication membership of schemas', 'READING_PUBLICATION_MEMBERSHIP_OF_SCHEMAS'],
+  ['pg_dump: reading subscriptions', 'READING_SUBSCRIPTIONS'],
+  ['pg_dump: reading subscription membership of tables', 'READING_SUBSCRIPTION_MEMBERSHIP_OF_TABLES'],
+  ['pg_dump: saving database definition', 'SAVING_DATABASE_DEFINITION'],
+  ['pg_dump: reading large objects', 'READING_LARGE_OBJECTS'],
+  ['pg_dump: reading row-level security policies', 'READING_ROW_LEVEL_SECURITY_POLICIES'],
+  ['pg_dump: finding table default expressions', 'FINDING_TABLE_DEFAULT_EXPRESSIONS'],
+  ['pg_dump: finding table check constraints', 'FINDING_TABLE_CHECK_CONSTRAINTS'],
+  ['pg_dump: reading dependency data', 'READING_DEPENDENCY_DATA'],
+]);
+const dumpStageValues = new Set([...dumpProgressStages.values(), 'SETUP_COMPLETE',
+  'SAVING_ENCODING', 'SAVING_STANDARD_STRINGS', 'SAVING_SEARCH_PATH', 'UNKNOWN']);
+function searchPathProgressLine(line) {
+  const prefix='pg_dump: saving "search_path = ';
+  if(!line.startsWith(prefix) || !line.endsWith('"') || line.length>8192)return false;
+  const value=line.slice(prefix.length,-1);let at=0;
+  if(value.includes('\r') || value.includes('\n'))return false;
+  if(value==='')return true;
+  while(at<value.length){
+    if(value[at]==='"'){
+      at++;let closed=false;
+      while(at<value.length){
+        if(value[at++]!=='"')continue;
+        if(value[at]==='"'){at++;continue;}
+        closed=true;break;
+      }
+      if(!closed)return false;
+    }else{
+      if(!/[a-z_]/.test(value[at]))return false;
+      at++;while(at<value.length && /[a-z0-9_$]/.test(value[at]))at++;
+    }
+    if(at===value.length)return true;
+    if(value.slice(at,at+2)!==', ')return false;
+    at+=2;if(at===value.length)return false;
+  }
+  return false;
+}
+function dumpProgressLine(line) {
+  const setup = /^pg_dump: last built-in OID is (0|[1-9][0-9]{0,9})$/.exec(line);
+  if(setup && Number(setup[1]) <= 4294967295)return 'SETUP_COMPLETE';
+  if(/^pg_dump: saving encoding = [A-Z][A-Z0-9_]{0,31}$/.test(line))return 'SAVING_ENCODING';
+  if(/^pg_dump: saving "standard_conforming_strings = (?:on|off)"$/.test(line))return 'SAVING_STANDARD_STRINGS';
+  // fmtId() produces a comma-separated identifier list, or the empty path.
+  // Quoted identifiers can contain doubled quotes. Never retain their values.
+  if(searchPathProgressLine(line))return 'SAVING_SEARCH_PATH';
+  return dumpProgressStages.get(line) ?? null;
+}
+export function dumpProgressStage(stderr) {
+  let stage = 'UNKNOWN';
+  for (const line of stderr.split('\n')) {
+    // Official PG17 uint32 OID marker follows snapshot setup. Validate its
+    // complete fixed format but never retain or publish the numeric value.
+    const next = dumpProgressLine(line);
+    if (next) stage = next;
+  }
+  return stage;
+}
+
+function safePhaseEntries(value) {
+  if(!Array.isArray(value) || value.length>dumpStageValues.size)return [];
+  const seen=new Set();let previous=-1;
+  for(const item of value){
+    if(!item || !dumpStageValues.has(item.stage) || item.stage==='UNKNOWN' || seen.has(item.stage) ||
+      !Number.isSafeInteger(item.entered_at_ms) || item.entered_at_ms<0 || item.entered_at_ms<previous || item.entered_at_ms>45000)return [];
+    seen.add(item.stage);previous=item.entered_at_ms;
+  }
+  return value.map(({stage,entered_at_ms})=>({stage,entered_at_ms}));
+}
+
+export function createDumpProgress() {
+  let partial='',last='UNKNOWN';const entries=[],seen=new Set();
+  return {
+    push(bytes,elapsed){
+      requireCapture(Number.isSafeInteger(elapsed) && elapsed>=0 && elapsed<=45000);
+      partial+=bytes.toString('latin1');
+      requireCapture(partial.length<=65536);
+      const lines=partial.split('\n');partial=lines.pop();
+      for(const line of lines){
+        const stage=dumpProgressLine(line);if(!stage)continue;
+        last=stage;
+        if(!seen.has(stage)){seen.add(stage);entries.push({stage,entered_at_ms:elapsed});}
+      }
+    },
+    snapshot:()=>({last_stage:last,phase_entries:safePhaseEntries(entries)}),
+    clear(){partial='';entries.length=0;seen.clear();last='UNKNOWN';}
+  };
+}
+
 export function safeDumpDiagnostic(value) {
   const count = (number) => Number.isSafeInteger(number) && number >= 0 && number <= 1024 * 1024 * 1024 ? number : null;
   return { kind: dumpFailureKinds.has(value?.kind) ? value.kind : 'UNKNOWN',
     exit_code: Number.isInteger(value?.exit_code) && value.exit_code >= 0 && value.exit_code <= 255 ? value.exit_code : null,
     signal: ['SIGINT','SIGKILL','SIGTERM','SIGABRT','NONE'].includes(value?.signal) ? value.signal : 'UNKNOWN',
     elapsed_ms: count(value?.elapsed_ms), stdout_bytes: count(value?.stdout_bytes), stderr_bytes: count(value?.stderr_bytes),
-    ...(value?.cancellation ? {cancellation:safeCancellation(value.cancellation)} : {}) };
+    ...(value?.cancellation ? {cancellation:safeCancellation(value.cancellation)} : {}),
+    ...(Object.hasOwn(value ?? {}, 'last_stage') ? {last_stage:dumpStageValues.has(value.last_stage) ? value.last_stage : 'UNKNOWN'} : {}),
+    ...(Object.hasOwn(value ?? {}, 'phase_entries') ? {phase_entries:safePhaseEntries(value.phase_entries)} : {}) };
 }
 
 function safeCancellation(value) {
@@ -301,16 +433,18 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
   // Native pg_dump resets statement_timeout during startup. Its effective
   // bounds are this whole-export deadline and explicit table-lock wait below;
   // the Node catalogue connection retains its separate five-second queries.
-  const child = spawnProcess('pg_dump', ['--no-password','--schema-only','--format=plain',
+  const child = spawnProcess('pg_dump', ['--no-password','--verbose','--schema-only','--format=plain',
     '--quote-all-identifiers','--no-comments','--no-security-labels','--no-subscriptions',
     '--lock-wait-timeout=1000',`--snapshot=${snapshot}`], { env, stdio: ['ignore','pipe','pipe'] });
   let size = 0, stderrSize = 0, failed = false, failureKind = null;
   const chunks = [], stderrChunks = [];
+  const progress=createDumpProgress();
   const started = performance.now();
   const failure = (code, signal) => Object.assign(new Error('ISOLATED_SCHEMA_DUMP_FAILED'), {
     dumpDiagnostic: safeDumpDiagnostic({kind: failureKind ?? dumpFailureKind(Buffer.concat(stderrChunks).toString('utf8')),
       exit_code: code, signal: signal ?? 'NONE', elapsed_ms: Math.round(performance.now() - started),
-      stdout_bytes: size, stderr_bytes: stderrSize,cancellation:cancellation.facts()}) });
+      stdout_bytes: size, stderr_bytes: stderrSize,cancellation:cancellation.facts(),
+      ...progress.snapshot()}) });
   const cancellation=nativeCancellation(child,deadlineMs,reason=>{failed=true;failureKind ??= reason;});
   try {
     await new Promise((resolve, reject) => {
@@ -322,7 +456,11 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
       child.stderr.on('data', (bytes) => {
         stderrSize += bytes.length;
         if (stderrSize > 65536) cancellation.abort('STDERR_LIMIT');
-        else stderrChunks.push(bytes);
+        else {
+          stderrChunks.push(bytes);
+          const elapsed=Math.round(performance.now()-started);
+          if(elapsed<=45000)progress.push(bytes,elapsed);
+        }
       });
       child.once('error', () => { failed = true; failureKind ??= 'SPAWN'; });
       child.once('close', (code, signal) => {
@@ -333,7 +471,7 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
     const sql = Buffer.concat(chunks).toString('utf8');
     assertSchemaOnly(sql);
     return sql;
-  } finally { cancellation.clear(); delete env.PGPASSWORD; chunks.length = 0; stderrChunks.length = 0; }
+  } finally { cancellation.clear(); progress.clear(); delete env.PGPASSWORD; chunks.length = 0; stderrChunks.length = 0; }
 }
 
 export async function captureSchema({ output, env = process.env, Client, dump = dumpSnapshot,

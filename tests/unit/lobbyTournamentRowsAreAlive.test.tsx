@@ -109,7 +109,9 @@ describe('a tournament row says what makes it worth playing', () => {
       </MemoryRouter>
     );
     const list = screen.getByRole('table', { name: 'Games' });
-    expect(within(list).getByText('10K GTD')).toBeTruthy();
+    const heading = list.querySelector(`tr[data-tournament-heading="${entry.id}"]`)!;
+    expect(within(heading as HTMLElement).getByText('10K Guarantee')).toBeTruthy();
+    expect(heading.querySelector('strong')).toHaveTextContent('10K Guarantee');
     expect(within(list).getByText(/^Starts In /)).toBeTruthy();
   });
 });
