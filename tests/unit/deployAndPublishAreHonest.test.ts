@@ -119,9 +119,15 @@ describe('engine deployment reports what actually happened', () => {
     const expression = /^ {10}REASON: \$\{\{ (.+) \}\}$/m.exec(receipt)?.[1];
     expect(expression).toBeTruthy();
     const reason = new Function('needs', 'format', `return (${expression})`);
-    const format = (template: string, value: string) => template.replace('{0}', value);
-    const needs = (doors: string, result: string, outputs = {}) => ({
-      'engine-doors': { result: doors },
+    const format = (template: string, ...values: string[]) =>
+      values.reduce((text, value, i) => text.replace(`{${i}}`, value), template);
+    const needs = (
+      doors: string,
+      result: string,
+      outputs: Record<string, string> = {},
+      doorOutputs: Record<string, string> = {}
+    ) => ({
+      'engine-doors': { result: doors, outputs: doorOutputs },
       deploy: { result, outputs },
     });
     for (const doors of ['failure', 'cancelled', 'skipped']) {
@@ -129,6 +135,26 @@ describe('engine deployment reports what actually happened', () => {
       expect(actual).toContain('production database prerequisite');
       expect(actual).not.toMatch(/sealed|production still runs|identity could/);
     }
+    // Phase 6: the refused door names itself in the receipt.
+    expect(
+      reason(
+        needs('failure', 'skipped', {}, { refusal: 'missing database function fn_ca_x()' }),
+        format
+      )
+    ).toContain('missing database function fn_ca_x()');
+    expect(reason(needs('failure', 'skipped'), format)).toContain(
+      'the refusal did not name itself'
+    );
+    // Phase 6: a release step that failed names the stage it stopped at.
+    expect(
+      reason(
+        needs('success', 'failure', {
+          release_result: 'failed:observe',
+          release_failure: 'observe (exit 70)',
+        }),
+        format
+      )
+    ).toContain('failed at stage observe (exit 70)');
     expect(reason(needs('success', 'cancelled'), format)).toContain(
       'cancelled before a sealed release'
     );
