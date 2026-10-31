@@ -163,7 +163,14 @@ describe('a cash source call fits the engine patience', () => {
       'this.scheduleCatchUp(backlogRemains, generation);'
     );
     expect(run).toMatch(/if \(result === 'halted'\) \{\s*backlogRemains = true;/);
-    expect(SETTLER_CODE).toContain('}, haltedPageRetryDelayMs(this.consecutiveStalls));');
+    // 2026-10-31: the catch-up delay comes from catchUpDelayMs, which returns
+    // haltedPageRetryDelayMs for any stalled page; only a cycle that made
+    // progress while the watermark trails by more than an interval starts at once.
+    expect(SETTLER_CODE).toContain('}) ?? haltedPageRetryDelayMs(this.consecutiveStalls);');
+    expect(SETTLER_CODE).toMatch(
+      /input\.consecutiveStalls === 0 &&[\s\S]*?return 0;\s*return haltedPageRetryDelayMs\(input\.consecutiveStalls\);/
+    );
+    expect(SETTLER_CODE).toContain('}, delay);');
     expect(SETTLER_CODE).toContain(
       'if (pagesAcknowledged > 0 || !backlogRemains) this.consecutiveStalls = 0;'
     );
