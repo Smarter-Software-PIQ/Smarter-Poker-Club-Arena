@@ -19,3 +19,13 @@ behind publication 41244315990. Production locking remains intact. These
 source changes do not promise a fixed delivery time; normal final-candidate
 CI and publication supply the measured result. Repositories stay public and
 paid-runner selection is not introduced.
+
+Integrated qualification exposed a historical fixture clock dependency at
+23:00 UTC on October 31: its October 24 hand fell outside a rolling seven-day
+window while the captured daily cron total still included that date. The
+private initdb fixture now anchors only that historical cutover to October 25
+and restores PostgreSQL's native clock before calendar/downline checks.
+The connection, role and owned data-directory guards prevent applying the
+clock anchor to a connected database. Production migrations and every
+financial assertion remain unchanged. Focused PostgreSQL 17 qualification
+passed, including the subsequent real-clock calendar and downline scenarios.

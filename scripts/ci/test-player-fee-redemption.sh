@@ -36,6 +36,7 @@ SHARE=("$ROOT"/supabase/migrations/*_a_standing_rake_share_replaces_the_woowoo_c
 test "${#SHARE[@]}" = 1
 test -f "${OUT_OF_BAND[0]}"
 test -f "${SHARE[0]}"
+"${PSQL[@]}" -v fixture_data_directory="$WORK/data" -f "$FIXTURE/fixture-clock.sql"
 "${PSQL[@]}" -f "$FIXTURE/rake-share-out-of-band.sql" -f "${OUT_OF_BAND[0]}" -f "$FIXTURE/rake-share-lag.sql"
 # The cron trails the hands: before the fix KingFish's statistics miss hand D.
 if "${PSQL[@]}" -c "DO \$\$ BEGIN ASSERT (ca_player_rake_stats('47965354-0e56-43ef-931c-ddaab82af765')->>'rake_paid')::numeric=576.77, 'share lags the hands'; END \$\$;" > "$WORK/share-before.log" 2>&1; then
@@ -45,6 +46,9 @@ fi
 grep -q 'share lags the hands' "$WORK/share-before.log"
 "${PSQL[@]}" -f "${SHARE[0]}" -f "$FIXTURE/rake-share-assert.sql"
 echo 'PASS: the standing rake share replaces the cron; exact, immediate, funded club, ended rule, grants, fixed events kept and no cron writes the redemptions'
+
+# Restore the native clock before the separate current-calendar qualification.
+"${PSQL[@]}" -c "CREATE OR REPLACE FUNCTION pg_catalog.now() RETURNS timestamptz LANGUAGE internal STABLE PARALLEL SAFE AS 'now';"
 
 # Rake uses the same viewer-calendar population as the Stats overview.
 CALENDAR="$ROOT/scripts/ci/fixtures/rake-calendar"

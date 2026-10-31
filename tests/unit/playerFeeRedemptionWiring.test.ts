@@ -21,4 +21,23 @@ describe('the fee redemption runs with the maintained Data Console qualification
     expect(native).toContain('rake-share-assert.sql');
     expect(native).toContain('rake share regression unexpectedly passed before the migration');
   });
+  it('anchors only the isolated historical replay and restores the clock before calendar checks', () => {
+    const native = readFileSync('scripts/ci/test-player-fee-redemption.sh', 'utf8');
+    const clock = readFileSync(
+      'scripts/ci/fixtures/player-fee-redemption/fixture-clock.sql',
+      'utf8'
+    );
+    expect(native.indexOf('fixture-clock.sql')).toBeLessThan(
+      native.indexOf('-f "$FIXTURE/rake-share-out-of-band.sql"')
+    );
+    const restore = native.indexOf("LANGUAGE internal STABLE PARALLEL SAFE AS 'now'");
+    expect(restore).toBeGreaterThan(native.indexOf('-f "$FIXTURE/rake-share-assert.sql"'));
+    expect(restore).toBeLessThan(native.indexOf('CALENDAR='));
+    expect(clock).toContain("current_user <> 'fee_test'");
+    expect(clock).toContain('inet_server_addr() IS NOT NULL');
+    expect(clock).toContain(
+      "current_setting('data_directory') <> current_setting('fee_fixture.expected_data_directory')"
+    );
+    expect(clock).toContain("'2026-10-25 12:00:00+00'::timestamptz");
+  });
 });
