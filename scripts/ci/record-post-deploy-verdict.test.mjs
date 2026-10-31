@@ -597,3 +597,58 @@ test('a failing or non-verdict run settles no other episode', () => {
   const closed = { ...E951, investigation_status: 'verified_fixed' };
   assert.deepEqual(settleOtherEpisodes(greenRun('9003', R886), [{ episode: closed, history: { failedReleases: [], relate: FORK } }]), []);
 });
+
+// Phase 6 (2026-10-31): PostDeployVerificationIncomplete was filed 89x/day
+// reading as empty. Every firing names the verification, the run and the step.
+test('an incomplete verification names its workflow, run, release and steps', () => {
+  const out = decide(
+    {
+      workflow: 'Post-Deploy E2E',
+      source: 'club-arena.post-deploy-e2e',
+      alertName: 'PostDeployVerificationIncomplete',
+      runId: '41234',
+      runAttempt: '2',
+      runUrl: 'https://github.com/o/r/actions/runs/41234',
+      headSha: 'abcdef0123456789abcdef0123456789abcdef01',
+      gate: { name: GATE, result: 'success', shouldRun: 'true' },
+      lanes: [
+        { result: 'success', name: LANES[0] },
+        { result: 'failure', name: LANES[1] },
+        { result: 'skipped', name: LANES[2] },
+      ],
+    },
+    undefined
+  );
+  assert.equal(out.action, 'fire');
+  assert.equal(
+    out.payload.summary,
+    `Post-Deploy E2E run 41234/2 on abcdef01 did not complete verification (failed: ${LANES[1]}; skipped: ${LANES[2]})`
+  );
+  assert.match(out.payload.description, /Run: 41234\/2 https:\/\/github\.com\/o\/r\/actions\/runs\/41234/);
+  assert.match(out.payload.description, /Release: abcdef0123456789abcdef0123456789abcdef01/);
+  assert.match(out.payload.description, new RegExp(`Gate: ${GATE} ended success`));
+  assert.match(out.payload.description, new RegExp(`Failed steps: ${LANES[1]}`));
+  assert.match(out.payload.description, new RegExp(`Skipped steps: ${LANES[2]}`));
+  assert.deepEqual(out.payload.annotations, {
+    summary: out.payload.summary,
+    description: out.payload.description,
+  });
+});
+
+test('a gate that failed with everything below it skipped says nothing was verified', () => {
+  const out = decide(
+    {
+      workflow: 'Post-Deploy E2E',
+      source: 's',
+      alertName: 'PostDeployVerificationIncomplete',
+      runId: '7',
+      headSha: null,
+      gate: { name: GATE, result: 'failure', shouldRun: '' },
+      lanes: LANES.map((name) => ({ result: 'skipped', name })),
+    },
+    undefined
+  );
+  assert.equal(out.payload.nothing_verified, true);
+  assert.match(out.payload.summary, /^Post-Deploy E2E run 7 on an unnamed release did not complete verification \(failed: /);
+  assert.match(out.payload.description, /Nothing about production was verified/);
+});
