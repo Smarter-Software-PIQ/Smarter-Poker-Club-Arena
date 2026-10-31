@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { cleanup, fireEvent, render, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -50,6 +51,16 @@ function board(guarantee: number) {
   return { entry, onSelect, writers };
 }
 describe('tournament headers span their whole event frame', () => {
+  it('overrides the machine desktop row gap and paints the actual last visible cell', () => {
+    const css = readFileSync('src/components/lobby/LobbyTable.css', 'utf8');
+    expect(css).toMatch(
+      /\.club-lobby-machine \.lobby-table\.has-tournament-headings\s*\{\s*border-spacing: 0;/
+    );
+    expect(css.replace(/\s+/g, ' ')).toContain(
+      "[data-tournament-body='true'].is-featured > td[data-last-visible='true']"
+    );
+    expect(css).toMatch(/tr\.lt-event-gap > td\s*\{\s*height: 4px;\s*padding: 0;/);
+  });
   it('puts full title, snowflake and bold guarantee above the existing numeric columns in both layouts', () => {
     board(10000);
     for (const scope of ['.compact-lobby', '.lobby-table']) {
@@ -84,11 +95,15 @@ describe('tournament headers span their whole event frame', () => {
   it('tracks visible wide columns after responsive shedding without changing the compact span', () => {
     board(100);
     const wide = document.querySelector('.lobby-table')!;
-    const hidden = wide.querySelector('thead .lt-col-format') as HTMLElement;
-    hidden.style.display = 'none';
+    for (const cls of ['format', 'actions', 'leveltime', 'tlevel', 'tstack']) {
+      (wide.querySelector(`thead .lt-col-${cls}`) as HTMLElement).style.display = 'none';
+    }
     fireEvent.resize(window);
     expect(wide.querySelector('tr[data-tournament-heading] td')!.getAttribute('colspan')).toBe(
-      String(wide.querySelectorAll('thead th').length - 1)
+      String(wide.querySelectorAll('thead th').length - 5)
+    );
+    expect(wide.querySelector('tr[data-id] td[data-last-visible="true"]')?.className).toContain(
+      'lt-col-status'
     );
     expect(
       document
