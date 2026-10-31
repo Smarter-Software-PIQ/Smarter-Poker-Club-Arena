@@ -686,6 +686,19 @@
         "path": "server/release/activation-floor.json",
         "sha256": "21eacce7e04f15c5d61c11a96bae4fee9447e188a0437549b6714be2273b8d17"
       }
+    },
+    {
+      "id": "2026-10-31-horse-v63-v70-drained-next-55",
+      "ownerOrder": "Dan, directly in this horse-decision chat on 2026-10-31: at 12:07 America/Chicago \"YOU CAN DEPLOY AT THE NEXT :55 BREAK, YOU DO NOT HAVE TO WAIT UNTIL 4AM GET THAT DONE NOW\"; at 15:33 \"AUDIT AND IMPROVE THE HORSES OPENING RANGES IN BOTH TOURNAMENTS AND CASH GAMES ... MAKE SURE THEY ARE FULLY ACTIVATED AND LIVE WHEN YOU ARE DONE\"; and, asked how eed06fe5 should be replaced after its full-heap census could not fit, he chose \"Build a checkpoint-free cutover\". This NEW owner-ordered window carries protected main containing the Hold'em horse decision changes V63-V70 (#8851 #8874 #8875 #8885 #8892 #8893 #8902 and the V70 GTO opening ranges) and the drained-predecessor cutover #8986, whose witness migration 20261031212432 is installed and recorded. It does not reuse, extend or retarget the closed 2026-10-31-horse-v63-v69-next-55 window, the expired noon window, or the 2026-10-31-mtt-main-renewed-next-55 window, and it begins only after that window's 23:15Z expiry. The 23:20-05:20 UTC eligibility bounds are agent-selected, not timestamps quoted from Dan, end well before the 2026-11-01 03:58 Chicago daily notice, and expire without automatic extension. The contains anchor is a minimum only; actual protected source inclusion, exact-head qualification and compatible image/control are prerequisites, and nothing here certifies live behavior. Original bd11 owner typed retirement, where still applicable, remains a prerequisite; unknown outcomes stay UNKNOWN and are never replayed. Diamond remains closed. Authorizes ONE actual activation through the existing stage/receiver and original locked release transaction only, at Chicago minute 53 notice and minute 55 activation, preferably the first safe :55 at which eed06fe5's certificate opens with the strict drained witness quiet; a pass that refuses spends no extra authority. Preserve every original hand/controller/deck/bank/funded-seat binding, exact source/image/container/process identity, durable one-shot intent, 120s last-hand lead, actual hand-boundary drain, 300s durable database freeze and reservation-bound certificate, rolling one-window-per-hour seal, full 285s cutover/proof/rollback reserve, 245s post-checkpoint proof, 135s rollback, 40s checkpoint including 5s cleanup, 20s MAIN with full 5s remote-close reserve, and completed own-window healthy v3 thaw. No MAIN signal/kill, foreign Inspector close, forced hands, invented winners, chip/seat/balance edits, migration/payment replay, second publisher, watcher, timer or recurring repair. Preserve every historical window byte, order, expiry, witness and databaseWindow.",
+      "contains": "61229f0de1e9d9e6edf401e9d74f87afb2829de0",
+      "notBefore": "2026-10-31T23:20:00Z",
+      "notAfter": "2026-11-01T05:20:00Z",
+      "announceAtChicagoMinutes": [53],
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "0a36a811bca6bfc411284ddc9570f173cc3abc2d786f337edd2e1779c336bd59"
+      }
     }
   ],
   "databaseWindows": [
