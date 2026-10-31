@@ -4093,7 +4093,8 @@ function LiveTablePage({
         resolveTournamentLiveTable: (id) => tableService.resolveTournamentLiveTable(id),
         resolveCashGameTable: (id) => resolveCashGameLiveTable(id),
         readTableRow: async (id) => {
-          if (!isUUID(id)) return null;
+          // A Lightning pool session has no tables row to read.
+          if (lightningRoomRef.current || !isUUID(id)) return null;
           const { data, error } = await supabase
             .from('tables')
             .select('status, is_deleted')
