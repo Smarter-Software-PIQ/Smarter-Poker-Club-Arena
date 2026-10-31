@@ -2156,14 +2156,25 @@ export class GameServer {
    */
   private readonly memoryGovernor = new MemoryGovernor({
     sampleRssBytes: () => sampleProcessMemory().rssBytes,
+    processStartedAt: this.processStartedAt,
     onHandOff: (reason) => {
       reportError(new Error(`Engine memory hard ceiling: ${reason}`), 'GameServer.memory_hand_off');
       requestLeadershipHandOff(reason);
     },
-    onPressureChange: (level, rssMb) =>
+    // Detection only: observe mode, hardAction=alert, or the uptime guard.
+    onHardCeilingWithheld: (reason) =>
+      reportError(
+        new Error(`Engine memory hard ceiling (no action): ${reason}`),
+        'GameServer.memory_hard_ceiling_observed'
+      ),
+    onPressureChange: (level, rssMb, enforcing) =>
       console.warn(
         `[GameServer] memory governor -> ${level} (rss ${rssMb} MB); ` +
-          (level === 'normal' ? 'admitting new tables again' : 'new cash tables held')
+          (!enforcing
+            ? 'observe mode: no action taken'
+            : level === 'normal'
+              ? 'admitting new tables again'
+              : 'new cash tables held')
       ),
   });
   private tournamentEngines: Map<string, TournamentManager> = new Map();

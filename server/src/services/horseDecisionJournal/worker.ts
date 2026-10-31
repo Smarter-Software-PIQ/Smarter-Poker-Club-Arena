@@ -3,6 +3,7 @@ import { HorseDecisionJournalStore, horseJournalCapacityReason } from './store.j
 import { horseJournalFailureKind } from './failure.js';
 import {
   journalPressureRetentionSegments,
+  journalPressureTrimEnabled,
   memoryGovernorThresholds,
   memoryPressureLevel,
 } from '../../observability/memoryGovernor.js';
@@ -14,6 +15,9 @@ try {
     archive: workerData.archive,
   });
   const thresholds = memoryGovernorThresholds(process.env);
+  // Only an enforcing governor (MEMORY_GOVERNOR_MODE=enforce) may bound the
+  // ring; observe mode leaves the configured allocation alone.
+  const pressureTrimEnabled = journalPressureTrimEnabled(process.env);
   port.on('message', (message: unknown) => {
     if (message && typeof message === 'object' && 'type' in message && message.type === 'STOP') {
       store.close();
@@ -63,7 +67,7 @@ try {
       // MEMORY GOVERNOR (Phase 6): whole-process RSS is readable from this
       // thread, so the writer bounds its own ring while the process is over
       // the soft ceiling, with no message from the main thread to lose.
-      if (workerData.archive) {
+      if (workerData.archive && pressureTrimEnabled) {
         let rssMb = Number.NaN;
         try {
           rssMb = process.memoryUsage.rss() / 1e6;

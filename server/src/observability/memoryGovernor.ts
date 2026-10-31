@@ -30,6 +30,26 @@
  *    2026-10-17/19, so "a firing means growth again").
  *  MEMORY_SOFT_CEILING_MB / MEMORY_HARD_CEILING_MB override either directly.
  *
+ * MODE (2026-10-31 safety review, before first deploy). Production RSS was
+ * 8.85-9.49 GB in steady state on eed06fe5, i.e. ABOVE the 8192 MB fallback
+ * hard line, and there is one engine instance: a "hand-off" there is a
+ * process exit that the supervisor answers with a cold boot (~72 s to dealer
+ * ready, every table re-adopted), not a warm standby taking over. Enforcing
+ * on first deploy would therefore turn steady-state memory into a restart
+ * loop, and the soft hold would also refuse to re-adopt seated tables after
+ * each boot. So nothing acts until an operator opts in:
+ *
+ *  - MEMORY_GOVERNOR_MODE=observe (DEFAULT, and any unrecognised value):
+ *    sample, classify, publish on /health and report the first hard crossing
+ *    per process as an alert. Never holds a table, never trims the journal,
+ *    never hands off.
+ *  - MEMORY_GOVERNOR_MODE=enforce: the soft ceiling holds new tables and
+ *    bounds the journal ring. The hard ceiling still only ALERTS unless
+ *    MEMORY_GOVERNOR_HARD_ACTION=handoff is also set, and even then never
+ *    within MEMORY_GOVERNOR_HANDOFF_MIN_UPTIME_S (default 3600 s) of process
+ *    start, so a mis-set ceiling below boot RSS cannot loop faster than that.
+ *  - MEMORY_GOVERNOR_MODE=off: no sampling at all.
+ *
  * The threshold logic below is pure; the runtime singleton only samples and
  * dispatches.
  */
@@ -48,6 +68,48 @@ export const JOURNAL_PRESSURE_RETENTION_SHARE = 4;
 export const JOURNAL_PRESSURE_MIN_RING_SEGMENTS = 50_000;
 
 export type MemoryPressureLevel = 'normal' | 'soft' | 'hard';
+export type MemoryGovernorMode = 'off' | 'observe' | 'enforce';
+export type MemoryGovernorHardAction = 'alert' | 'handoff';
+export const MEMORY_GOVERNOR_DEFAULT_HANDOFF_MIN_UPTIME_S = 3600;
+
+export interface MemoryGovernorPolicy {
+  mode: MemoryGovernorMode;
+  /** What the hard ceiling does in enforce mode; observe/off never act. */
+  hardAction: MemoryGovernorHardAction;
+  /** No hand-off before the process has been up this long. */
+  handOffMinUptimeS: number;
+}
+
+/**
+ * The operator's opt-in. Observe-only unless MEMORY_GOVERNOR_MODE=enforce is
+ * set exactly; hand-off only with MEMORY_GOVERNOR_HARD_ACTION=handoff too.
+ */
+export function memoryGovernorPolicy(
+  env: Record<string, string | undefined> = process.env
+): MemoryGovernorPolicy {
+  const rawMode = (env.MEMORY_GOVERNOR_MODE ?? '').trim().toLowerCase();
+  const mode: MemoryGovernorMode =
+    rawMode === 'enforce' ? 'enforce' : rawMode === 'off' ? 'off' : 'observe';
+  const hardAction: MemoryGovernorHardAction =
+    mode === 'enforce' && (env.MEMORY_GOVERNOR_HARD_ACTION ?? '').trim().toLowerCase() === 'handoff'
+      ? 'handoff'
+      : 'alert';
+  const rawUptime = env.MEMORY_GOVERNOR_HANDOFF_MIN_UPTIME_S;
+  const parsedUptime =
+    rawUptime !== undefined && /^[0-9]+$/.test(rawUptime.trim()) ? Number(rawUptime.trim()) : null;
+  const handOffMinUptimeS =
+    parsedUptime !== null && Number.isSafeInteger(parsedUptime)
+      ? parsedUptime
+      : MEMORY_GOVERNOR_DEFAULT_HANDOFF_MIN_UPTIME_S;
+  return { mode, hardAction, handOffMinUptimeS };
+}
+
+/** Whether a journal writer may bound its ring: only an enforcing governor. */
+export function journalPressureTrimEnabled(
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  return memoryGovernorPolicy(env).mode === 'enforce';
+}
 
 export interface MemoryGovernorThresholds {
   limitMb: number | null;
@@ -169,16 +231,26 @@ export function stepMemoryGovernor(
 }
 
 export interface MemoryGovernorHealth {
+  /** off | observe | enforce: observe classifies and alerts, never acts. */
+  mode: MemoryGovernorMode;
+  /** alert | handoff: what the hard ceiling does when enforcing. */
+  hardAction: MemoryGovernorHardAction;
   level: MemoryPressureLevel;
   admittingNewTables: boolean;
   journalTrimRequested: boolean;
+  /** True once a hand-off was actually requested (enforce + handoff only). */
   handOffRequested: boolean;
+  /** True once the hard streak was reached, whether or not it acted. */
+  hardCeilingReached: boolean;
+  /** Hard streaks reached but not acted on (observe, alert, uptime guard). */
+  handOffsWithheld: number;
   hardStreak: number;
   rssMb: number | null;
   softCeilingMb: number;
   hardCeilingMb: number;
   limitMb: number | null;
   thresholdSource: MemoryGovernorThresholds['source'];
+  handOffMinUptimeS: number;
   lastSampleAt: string | null;
   /** When the current non-normal episode began, or null. */
   pressureSince: string | null;
@@ -188,27 +260,45 @@ export interface MemoryGovernorHealth {
 /**
  * Runtime holder. GameServer starts it on the leader; the cash admission
  * paths read admitsNewTables(); the hand-off callback is the leadership
- * module's authoritative shutdown.
+ * module's authoritative shutdown. Only MEMORY_GOVERNOR_MODE=enforce lets it
+ * act (see the MODE note at the top of this file).
  */
 export class MemoryGovernor {
   private state: MemoryGovernorState = { ...INITIAL_MEMORY_GOVERNOR_STATE };
   private thresholds: MemoryGovernorThresholds;
+  private readonly policy: MemoryGovernorPolicy;
   private lastRssMb: number | null = null;
   private lastSampleAt: number | null = null;
   private pressureSince: number | null = null;
   private softEpisodes = 0;
+  private handOffRequested = false;
+  private hardCeilingReached = false;
+  private handOffsWithheld = 0;
+  private uptimeGuardAlerted = false;
+  private readonly startedAt: number;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly options: {
       sampleRssBytes: () => number;
       onHandOff: (reason: string) => void;
-      onPressureChange?: (level: MemoryPressureLevel, rssMb: number) => void;
+      /** The hard ceiling was reached and NOT acted on (detection only). */
+      onHardCeilingWithheld?: (reason: string) => void;
+      onPressureChange?: (level: MemoryPressureLevel, rssMb: number, enforcing: boolean) => void;
       env?: Record<string, string | undefined>;
       now?: () => number;
+      /** Process start (ms epoch) for the hand-off uptime guard. */
+      processStartedAt?: number;
     }
   ) {
-    this.thresholds = memoryGovernorThresholds(options.env ?? process.env);
+    const env = options.env ?? process.env;
+    this.thresholds = memoryGovernorThresholds(env);
+    this.policy = memoryGovernorPolicy(env);
+    this.startedAt = options.processStartedAt ?? (options.now ?? Date.now)();
+  }
+
+  private get enforcing(): boolean {
+    return this.policy.mode === 'enforce';
   }
 
   sample(): MemoryGovernorDecision {
@@ -231,21 +321,51 @@ export class MemoryGovernor {
       this.pressureSince = null;
     }
     if (before !== decision.state.level)
-      this.options.onPressureChange?.(decision.state.level, this.lastRssMb ?? -1);
-    if (decision.requestHandOff)
-      this.options.onHandOff(
+      this.options.onPressureChange?.(decision.state.level, this.lastRssMb ?? -1, this.enforcing);
+    let requestHandOff = false;
+    if (decision.requestHandOff) {
+      this.hardCeilingReached = true;
+      const reason =
         `memory hard ceiling: rss ${this.lastRssMb} MB >= ${this.thresholds.hardMb} MB for ` +
-          `${MEMORY_GOVERNOR_HARD_CONSECUTIVE_SAMPLES} samples`
-      );
-    return decision;
+        `${MEMORY_GOVERNOR_HARD_CONSECUTIVE_SAMPLES} samples`;
+      const uptimeS = (now - this.startedAt) / 1000;
+      if (!this.enforcing || this.policy.hardAction !== 'handoff') {
+        this.handOffsWithheld++;
+        this.options.onHardCeilingWithheld?.(
+          `${reason}; mode=${this.policy.mode} hardAction=${this.policy.hardAction}: not acting`
+        );
+      } else if (uptimeS < this.policy.handOffMinUptimeS) {
+        // Withheld, and the latch is re-armed so the next sustained streak
+        // after the guard expires can still act.
+        // Alerted once per process, not every streak.
+        this.handOffsWithheld++;
+        this.state = { ...this.state, handOffRequested: false, hardStreak: 0 };
+        if (!this.uptimeGuardAlerted) {
+          this.uptimeGuardAlerted = true;
+          this.options.onHardCeilingWithheld?.(
+            `${reason}; uptime ${Math.floor(uptimeS)} s < ${this.policy.handOffMinUptimeS} s guard: not acting`
+          );
+        }
+      } else {
+        requestHandOff = true;
+        this.handOffRequested = true;
+        this.options.onHandOff(reason);
+      }
+    }
+    return {
+      state: this.state,
+      admitNewTables: this.enforcing ? decision.admitNewTables : true,
+      trimJournal: this.enforcing ? decision.trimJournal : false,
+      requestHandOff,
+    };
   }
 
   admitsNewTables(): boolean {
-    return this.state.level === 'normal';
+    return !this.enforcing || this.state.level === 'normal';
   }
 
   start(intervalMs = MEMORY_GOVERNOR_SAMPLE_MS): void {
-    if (this.timer) return;
+    if (this.timer || this.policy.mode === 'off') return;
     this.timer = setInterval(() => this.sample(), intervalMs);
     this.timer.unref?.();
   }
@@ -258,16 +378,21 @@ export class MemoryGovernor {
   health(): MemoryGovernorHealth {
     const iso = (t: number | null) => (t === null ? null : new Date(t).toISOString());
     return {
+      mode: this.policy.mode,
+      hardAction: this.policy.hardAction,
       level: this.state.level,
       admittingNewTables: this.admitsNewTables(),
-      journalTrimRequested: this.state.level !== 'normal',
-      handOffRequested: this.state.handOffRequested,
+      journalTrimRequested: this.enforcing && this.state.level !== 'normal',
+      handOffRequested: this.handOffRequested,
+      hardCeilingReached: this.hardCeilingReached,
+      handOffsWithheld: this.handOffsWithheld,
       hardStreak: this.state.hardStreak,
       rssMb: this.lastRssMb,
       softCeilingMb: this.thresholds.softMb,
       hardCeilingMb: this.thresholds.hardMb,
       limitMb: this.thresholds.limitMb,
       thresholdSource: this.thresholds.source,
+      handOffMinUptimeS: this.policy.handOffMinUptimeS,
       lastSampleAt: iso(this.lastSampleAt),
       pressureSince: iso(this.pressureSince),
       softEpisodes: this.softEpisodes,
