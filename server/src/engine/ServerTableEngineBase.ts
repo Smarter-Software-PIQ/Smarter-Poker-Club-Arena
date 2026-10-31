@@ -7040,6 +7040,19 @@ export abstract class ServerTableEngineBase {
     return (this.settlementInFlight?.size ?? 0) > 0;
   }
 
+  /**
+   * Accounting genuinely in flight: a settlement write, or a time-bank debit
+   * pending or of unknown outcome. The second-break restart gate (Phase 6)
+   * keeps refusing rather than force-parking a table for which this is true.
+   */
+  hasAccountingInFlight(): boolean {
+    return (
+      this.hasSettlementInFlight() ||
+      this.timeBankAccountingUnconfirmed ||
+      (this.timeBankAccountingPending?.size ?? 0) > 0
+    );
+  }
+
   /** Continuous age of the owned settlement; null after completion. */
   settlementAgeMs(): number | null {
     if (!this.hasSettlementInFlight() || this.settlementStartedAtMs === null) return null;

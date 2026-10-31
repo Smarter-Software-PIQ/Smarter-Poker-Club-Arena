@@ -840,6 +840,150 @@ describe('the restart gate', () => {
     await mb.end();
     expect(mb.snapshot().breaksSinceRestartCertified, 'a certified break resets it').toBe(0);
   });
+
+  /**
+   * THE SECOND BREAK (Phase 6, 2026-10-31). The last four breaks on eed06fe5
+   * ended gate_opened=false with 36/0/81/16 unparked tables, and nothing acted
+   * on a table that held two of them in a row.
+   */
+  function buildGate(engineCount = 2) {
+    const engines = new Map<string, FakeEngine>();
+    for (let i = 0; i < engineCount; i++) engines.set(`t${i}`, new FakeEngine());
+    const outcomes: MaintenanceBreakOutcome[] = [];
+    const faults: MaintenanceBreakFault[] = [];
+    const forced: Array<[string, string]> = [];
+    const certifications: number[] = [];
+    const mb = new MaintenanceBreak({
+      engines: () => engines.entries() as any,
+      isRunning: () => true,
+      emit: () => undefined,
+      store: new FakeStore(),
+      recordOutcome: async (o) => {
+        outcomes.push(o);
+      },
+      recordFault: async (f) => {
+        faults.push(f);
+      },
+      forceParkForRestartGate: (tableId, reason) => {
+        forced.push([tableId, reason]);
+        // The zombie-reaper path fences the engine and takes it out of the
+        // fleet; its replacement is built parked.
+        engines.delete(tableId);
+        return true;
+      },
+      onRestartCertification: (n) => certifications.push(n),
+    });
+    return { mb, engines, outcomes, faults, forced, certifications };
+  }
+
+  async function runShutBreak(mb: MaintenanceBreak, engines: Map<string, FakeEngine>) {
+    await mb.announceLastHand();
+    engines.forEach((e) => {
+      if (!e.handInFlight) e.park();
+    });
+    await mb.beginCountdown();
+  }
+
+  it('force-parks a table still unparked at a second consecutive uncertified break', async () => {
+    const { mb, engines, outcomes, faults, forced, certifications } = buildGate(2);
+    engines.get('t0')!.deal();
+    await runShutBreak(mb, engines);
+    vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS + 1000);
+    await mb.end();
+    expect(outcomes[0].breaksSinceRestartCertified).toBe(1);
+    expect(forced, 'nothing is forced at the first shut break').toEqual([]);
+
+    await runShutBreak(mb, engines);
+    expect(mb.readyForRestart()).toBe(false);
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS + 1);
+    expect(forced).toEqual([['t0', 'cards_in_air']]);
+    await Promise.resolve();
+    expect(faults.filter((f) => f.stage === 'restart_gate')).toEqual([
+      expect.objectContaining({ outcome: 'force_parked', error: 'table t0 reason cards_in_air' }),
+    ]);
+    expect(mb.readyForRestart(), 'the gate opens once the wedged table is gone').toBe(true);
+    vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS);
+    await mb.end();
+    expect(outcomes[1].breaksSinceRestartCertified).toBe(0);
+    expect(certifications).toEqual([1, 0]);
+  });
+
+  it('keeps refusing, and records it, when the table has accounting in flight', async () => {
+    const { mb, engines, outcomes, faults, forced, certifications } = buildGate(2);
+    const t0 = engines.get('t0')! as FakeEngine & Record<string, unknown>;
+    t0.isMaintenanceStateDurable = () => false;
+    t0.maintenanceDurabilityReason = () => 'accounting_pending';
+    await runShutBreak(mb, engines);
+    vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS + 1000);
+    await mb.end();
+
+    await runShutBreak(mb, engines);
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS + 1);
+    await Promise.resolve();
+    expect(forced).toEqual([]);
+    expect(faults.filter((f) => f.stage === 'restart_gate')).toEqual([
+      expect.objectContaining({
+        outcome: 'refusing_accounting_pending',
+        error: 'table t0 reason accounting_pending',
+      }),
+    ]);
+    expect(mb.readyForRestart()).toBe(false);
+    vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS);
+    await mb.end();
+    expect(outcomes[1].breaksSinceRestartCertified).toBe(2);
+    expect(certifications).toEqual([1, 2]);
+    expect(mb.snapshot().secondBreak).toMatchObject({ refusingAccountingPending: 1, forceParked: 0 });
+  });
+
+  it('a force_park reason is kept refusing when the engine says its accounting is in flight', async () => {
+    const { mb, engines, faults, forced } = buildGate(1);
+    const t0 = engines.get('t0')! as FakeEngine & Record<string, unknown>;
+    t0.deal();
+    t0.hasAccountingInFlight = () => true;
+    await runShutBreak(mb, engines);
+    vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS + 1000);
+    await mb.end();
+    await runShutBreak(mb, engines);
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS + 1);
+    await Promise.resolve();
+    expect(forced).toEqual([]);
+    expect(faults.map((f) => f.outcome)).toContain('refusing_accounting_pending');
+  });
+
+  it('does not force-park a table that was parked when the previous break ended', async () => {
+    const { mb, engines, forced } = buildGate(2);
+    engines.get('t0')!.deal();
+    await runShutBreak(mb, engines);
+    vi.advanceTimersByTime(MaintenanceBreak.BREAK_DURATION_MS + 1000);
+    await mb.end();
+    // t0 finishes; t1 is the new straggler at the second break.
+    engines.get('t0')!.finishHand();
+    engines.get('t1')!.deal();
+    await runShutBreak(mb, engines);
+    vi.advanceTimersByTime(MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS + 1);
+    expect(forced).toEqual([]);
+  });
+
+  it('declares a second-break action for every break-scoped reason', () => {
+    for (const [reason, bound] of Object.entries(MaintenanceBreak.UNPARKED_REASON_BOUNDS)) {
+      if (bound.scope !== 'break') continue;
+      expect(['force_park', 'keep_refusing'], reason).toContain(bound.atSecondBreak);
+    }
+    expect(MaintenanceBreak.UNPARKED_REASON_BOUNDS.accounting_pending).toMatchObject({
+      atSecondBreak: 'keep_refusing',
+    });
+    expect(MaintenanceBreak.UNPARKED_REASON_BOUNDS.cards_in_air).toMatchObject({
+      atSecondBreak: 'force_park',
+    });
+  });
+
+  it('restores the shut-break count only into a process that has not counted one', () => {
+    const { mb } = buildGate(1);
+    mb.restoreBreaksSinceRestartCertified(3);
+    expect(mb.breaksSinceRestartCertified_()).toBe(3);
+    mb.restoreBreaksSinceRestartCertified(7);
+    expect(mb.breaksSinceRestartCertified_()).toBe(3);
+  });
 });
 
 describe('the end of the break', () => {

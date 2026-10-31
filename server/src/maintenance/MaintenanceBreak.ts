@@ -114,6 +114,14 @@ export interface PausableTableEngine {
    * silently folded into the total.
    */
   maintenanceDurabilityReason?(): string | null;
+  /**
+   * Accounting genuinely in flight for this table: a settlement write, a
+   * time-bank debit pending or unconfirmed. Optional; absent is "no". Read
+   * ONLY by the second-break restart gate (Phase 6): a table that is still
+   * unparked at a second consecutive uncertified break is force-parked unless
+   * this is true, in which case the refusal is recorded and kept.
+   */
+  hasAccountingInFlight?(): boolean;
   isRunning(): boolean;
   /**
    * Cash or tournament. Optional: an engine that does not say is treated as
@@ -178,6 +186,12 @@ export interface MaintenanceBreakOutcome {
   readyForRestartAtMs: number | null;
   tablesResumed: number;
   thawOk: boolean | null;
+  /**
+   * Consecutive breaks, this one included, that ended with no restart
+   * certificate. Written to engine_maintenance_break_log so the fact that the
+   * engine cannot be replaced is in the database, not only on /metrics.
+   */
+  breaksSinceRestartCertified: number;
 }
 
 /**
@@ -194,13 +208,17 @@ export interface MaintenanceBreakFault {
   /** The :53 announcement instant that names the hour's break. */
   announcedAtMs: number;
   /** Which durable write could not be made. */
-  stage: 'announcement' | 'countdown' | 'adoption' | 'boot';
+  stage: 'announcement' | 'countdown' | 'adoption' | 'boot' | 'restart_gate';
   /**
    * `cancelled`: no break ran, and the fleet dealt through the window.
    * `held_without_restart`: the break ran to the hour on a row that was
    * already durable, but carried no restart certificate.
+   * `force_parked` / `refusing_accounting_pending` (stage restart_gate,
+   * Phase 6): a table still unparked for a 'break'-scoped reason at a second
+   * consecutive uncertified break was force-parked through the zombie-reaper
+   * path, or was kept refusing because its accounting is genuinely in flight.
    */
-  outcome: 'cancelled' | 'held_without_restart';
+  outcome: 'cancelled' | 'held_without_restart' | 'force_parked' | 'refusing_accounting_pending';
   error: string;
 }
 
@@ -266,6 +284,19 @@ export interface MaintenanceBreakDeps {
    */
   recordFault?: (fault: MaintenanceBreakFault) => Promise<void>;
   /**
+   * SECOND-BREAK FORCE PARK (Phase 6, 2026-10-31). Tear this table's engine
+   * down through the existing zombie-reaper path (fence, then the owner's
+   * rebuild) so it stops holding the restart certificate shut. True when the
+   * engine was handed to that path. Optional: without it the gate only records.
+   */
+  forceParkForRestartGate?: (tableId: string, reason: string) => boolean;
+  /**
+   * Called at every break end with breaksSinceRestartCertified. GameServer
+   * raises a critical operational alert at >= UNCERTIFIED_BREAKS_ALERT_AT and
+   * resolves it at zero.
+   */
+  onRestartCertification?: (breaksSinceRestartCertified: number) => void;
+  /**
    * THE THAW (Dan 2026-09-01: "picks back up exactly as it was").
    *
    * Called once, at the end of the break, BEFORE the first table resumes.
@@ -290,7 +321,18 @@ export interface MaintenanceBreakDeps {
 
 /** See MaintenanceBreak.UNPARKED_REASON_BOUNDS. */
 export type UnparkedReasonBound =
-  | { scope: 'break'; never: 'break_uncertified' }
+  | {
+      scope: 'break';
+      never: 'break_uncertified';
+      /**
+       * What happens to a table still reporting this reason at a SECOND
+       * consecutive uncertified break (Phase 6): 'force_park' through the
+       * zombie-reaper path, or 'keep_refusing' (recorded) because the reason
+       * is accounting genuinely in flight. A force_park reason is still kept
+       * refusing when the engine says its accounting is in flight.
+       */
+      atSecondBreak: 'force_park' | 'keep_refusing';
+    }
   | { scope: 'lifetime'; boundMs: number; never: string; neverHoldsGate: boolean };
 
 export class MaintenanceBreak {
@@ -504,9 +546,10 @@ export class MaintenanceBreak {
     this.lifecycleAbort.abort(new Error('Maintenance break lifecycle stopped'));
     this.lifecycleGeneration += 1;
     this.resumeToken += 1;
-    for (const t of [this.announceTimer, this.countdownTimer, this.endTimer]) {
+    for (const t of [this.announceTimer, this.countdownTimer, this.endTimer, this.secondBreakTimer]) {
       if (t) this.clearTimer(t);
     }
+    this.secondBreakTimer = null;
     for (const timer of this.resumeWaveTimers) this.clearTimer(timer);
     this.resumeWaveTimers.clear();
     this.announceTimer = null;
@@ -1313,6 +1356,7 @@ export class MaintenanceBreak {
 
     const stragglers = this.unparkedTables();
     this.unparkedAtCountdown = stragglers.length;
+    this.armSecondBreakEnforcement();
     if (stragglers.length > this.peakUnparked) this.peakUnparked = stragglers.length;
     if (stragglers.length > 0) {
       // Not fatal, and deliberately not blocking. A table wedged mid-hand must
@@ -1505,12 +1549,34 @@ export class MaintenanceBreak {
       readyForRestartAtMs: this.readyForRestartAtMs,
       tablesResumed: 0,
       thawOk,
+      breaksSinceRestartCertified: 0,
     };
     /* The one number that says whether the engine can still be replaced. A
        break that never certified is counted here the moment it ends, because
        the row that records the same fact in the database is read by nothing. */
-    if (this.readyForRestartAtMs === null) this.breaksSinceRestartCertified += 1;
-    else this.breaksSinceRestartCertified = 0;
+    if (this.readyForRestartAtMs === null) {
+      this.breaksSinceRestartCertified += 1;
+      // The tables this uncertified break ended with are the ones the next
+      // break force-parks if they are still unparked (Phase 6). Read the
+      // census once, live, before any table resumes.
+      try {
+        this.unparkedTables();
+      } catch {
+        /* the previous census stands */
+      }
+      this.unparkedAtLastUncertifiedBreak = new Set(this.breakScopedUnparked.keys());
+    } else {
+      this.breaksSinceRestartCertified = 0;
+      this.unparkedAtLastUncertifiedBreak = new Set();
+    }
+    if (this.secondBreakTimer) this.clearTimer(this.secondBreakTimer);
+    this.secondBreakTimer = null;
+    outcome.breaksSinceRestartCertified = this.breaksSinceRestartCertified;
+    try {
+      this.deps.onRestartCertification?.(this.breaksSinceRestartCertified);
+    } catch (error) {
+      console.warn('[MaintenanceBreak] restart certification observer threw', error);
+    }
     const completedState = this.releaseBoundaryOnly ? null : this.persistedState();
     const durableState = this.lastDurableState;
     const releasedByV3 = this.releaseBoundaryOnly || Boolean(this.deps.thaw);
@@ -1959,11 +2025,19 @@ export class MaintenanceBreak {
    * "not yet".
    */
   static readonly UNPARKED_REASON_BOUNDS: Readonly<Record<string, UnparkedReasonBound>> = {
-    cards_in_air: { scope: 'break', never: 'break_uncertified' },
-    accounting_unconfirmed: { scope: 'break', never: 'break_uncertified' },
-    accounting_pending: { scope: 'break', never: 'break_uncertified' },
-    bank_park_write_incomplete: { scope: 'break', never: 'break_uncertified' },
-    unknown: { scope: 'break', never: 'break_uncertified' },
+    cards_in_air: { scope: 'break', never: 'break_uncertified', atSecondBreak: 'force_park' },
+    accounting_unconfirmed: {
+      scope: 'break',
+      never: 'break_uncertified',
+      atSecondBreak: 'keep_refusing',
+    },
+    accounting_pending: { scope: 'break', never: 'break_uncertified', atSecondBreak: 'keep_refusing' },
+    bank_park_write_incomplete: {
+      scope: 'break',
+      never: 'break_uncertified',
+      atSecondBreak: 'force_park',
+    },
+    unknown: { scope: 'break', never: 'break_uncertified', atSecondBreak: 'force_park' },
     // No money and no hand: past the bound it stops deciding the fleet (#4909).
     f06_preparation_unresolved: {
       scope: 'lifetime',
@@ -2004,6 +2078,127 @@ export class MaintenanceBreak {
   /** Consecutive breaks that ended with no restart certificate. */
   breaksSinceRestartCertified_(): number {
     return this.breaksSinceRestartCertified;
+  }
+
+  /**
+   * Seed the counter from the durable break log at boot (Phase 6). Only the
+   * SAME engine build may inherit it: a process that crashed and came back on
+   * one build has not been replaced, so the shut gate is still shut; a new
+   * build got here through a certified cutover and starts at zero.
+   */
+  restoreBreaksSinceRestartCertified(n: number): void {
+    if (Number.isSafeInteger(n) && n > 0 && this.breaksSinceRestartCertified === 0)
+      this.breaksSinceRestartCertified = n;
+  }
+
+  /** Critical alert at this many consecutive uncertified breaks (Phase 6). */
+  static readonly UNCERTIFIED_BREAKS_ALERT_AT = 2;
+  /**
+   * How long into the countdown of a second consecutive uncertified break a
+   * table keeps to park on its own before the gate force-parks it (Phase 6).
+   * One minute of the five: a hand in the air at :55 that is going to finish
+   * has finished by :56, and a forced park at :56 still leaves the restart
+   * MIN_REMAINING_FOR_RESTART_MS of window.
+   */
+  static readonly SECOND_BREAK_FORCE_PARK_AFTER_MS = 60_000;
+  /** Tables the latest census found unparked for a 'break'-scoped reason. */
+  private breakScopedUnparked: Map<string, string> = new Map();
+  /**
+   * Tables that were still unparked for a 'break'-scoped reason when the
+   * previous break ENDED uncertified. Empty after a certified break.
+   */
+  private unparkedAtLastUncertifiedBreak: Set<string> = new Set();
+  /** Tables the second-break gate already acted on this break (one action each). */
+  private secondBreakActed: Set<string> = new Set();
+  private secondBreakForceParked = 0;
+  private secondBreakRefusingAccounting = 0;
+  private secondBreakTimer: NodeJS.Timeout | null = null;
+
+  private noteBreakScoped(tableId: string, reason: string): void {
+    this.breakScopedUnparked.set(tableId, reason);
+  }
+
+  /**
+   * THE SECOND BREAK (Phase 6, 2026-10-31). The last four breaks on eed06fe5
+   * ended gate_opened=false with 36/0/81/16 unparked tables: a 'break'-scoped
+   * reason's "never" was the uncertified break, and nothing ever acted on a
+   * table that was the reason for two of them in a row. Now a table that was
+   * unparked when the previous break ended uncertified, and is STILL unparked
+   * for a 'break'-scoped reason SECOND_BREAK_FORCE_PARK_AFTER_MS into this
+   * countdown, is force-parked through the zombie-reaper path - unless its
+   * accounting is genuinely in flight, which is recorded and keeps refusing.
+   */
+  private enforceSecondBreak(): void {
+    if (this.phase !== 'counting_down' || this.unparkedAtLastUncertifiedBreak.size === 0) return;
+    this.unparkedTables();
+    const engines = new Map<string, PausableTableEngine>();
+    for (const [id, engine] of this.deps.engines()) engines.set(id, engine);
+    for (const [tableId, reason] of this.breakScopedUnparked) {
+      if (!this.unparkedAtLastUncertifiedBreak.has(tableId)) continue;
+      if (this.secondBreakActed.has(tableId)) continue;
+      const bound = MaintenanceBreak.UNPARKED_REASON_BOUNDS[reason];
+      let accountingInFlight = !bound || bound.scope !== 'break' || bound.atSecondBreak === 'keep_refusing';
+      try {
+        if (engines.get(tableId)?.hasAccountingInFlight?.()) accountingInFlight = true;
+      } catch {
+        // An engine that cannot say is treated as holding money: refuse.
+        accountingInFlight = true;
+      }
+      this.secondBreakActed.add(tableId);
+      if (accountingInFlight) {
+        this.secondBreakRefusingAccounting += 1;
+        console.error(
+          `[MaintenanceBreak] table ${tableId} is unparked (${reason}) at a second consecutive ` +
+            'uncertified break with accounting in flight; recorded, and it keeps refusing the restart.'
+        );
+        this.reportFault(
+          'restart_gate',
+          'refusing_accounting_pending',
+          new Error(`table ${tableId} reason ${reason}`),
+          this.announcedAt
+        );
+        continue;
+      }
+      let handed = false;
+      try {
+        handed = this.deps.forceParkForRestartGate?.(tableId, reason) ?? false;
+      } catch (error) {
+        console.error(`[MaintenanceBreak] force park of ${tableId} threw`, error);
+      }
+      if (handed) this.secondBreakForceParked += 1;
+      console.error(
+        `[MaintenanceBreak] table ${tableId} is unparked (${reason}) at a second consecutive ` +
+          `uncertified break; ${handed ? 'force-parked through the zombie-reaper path' : 'force park unavailable'}.`
+      );
+      this.reportFault(
+        'restart_gate',
+        'force_parked',
+        new Error(`table ${tableId} reason ${reason}${handed ? '' : ' (force park unavailable)'}`),
+        this.announcedAt
+      );
+    }
+  }
+
+  private armSecondBreakEnforcement(): void {
+    if (this.secondBreakTimer) this.clearTimer(this.secondBreakTimer);
+    this.secondBreakTimer = null;
+    this.secondBreakActed = new Set();
+    if (this.unparkedAtLastUncertifiedBreak.size === 0) return;
+    const generation = this.lifecycleGeneration;
+    const breakStartedAt = this.breakStartedAt;
+    const delay = Math.max(
+      0,
+      breakStartedAt + MaintenanceBreak.SECOND_BREAK_FORCE_PARK_AFTER_MS - this.now()
+    );
+    this.secondBreakTimer = this.setTimer(() => {
+      this.secondBreakTimer = null;
+      if (!this.lifecycleIsCurrent(generation) || this.breakStartedAt !== breakStartedAt) return;
+      try {
+        this.enforceSecondBreak();
+      } catch (error) {
+        console.error('[MaintenanceBreak] second-break enforcement failed', error);
+      }
+    }, delay);
   }
 
   private f06UnresolvedSince: Map<string, number> = new Map();
@@ -2110,9 +2305,11 @@ export class MaintenanceBreak {
     const seenStoppedCustody = new Set<string>();
     let stuck = 0;
     let custodyStuck = 0;
-    const count = (reason: string) => {
+    const count = (reason: string): string => {
       reasons[reason] = (reasons[reason] ?? 0) + 1;
+      return reason;
     };
+    this.breakScopedUnparked = new Map();
     /* THE SAME BOUND, APPLIED TO THE OTHER BLOCKER CLASS (2026-09-21).
        The per-engine test below has been bounded since #4909, for the reason
        written above it: a fail-closed gate with no bound, on a resource the
@@ -2188,14 +2385,17 @@ export class MaintenanceBreak {
         if (!engine.isRunning()) continue;
         if (!engine.isBetweenHands()) {
           out.push(tableId);
-          count('cards_in_air');
+          this.noteBreakScoped(tableId, count('cards_in_air'));
           continue;
         }
         if (engine.isMaintenanceStateDurable?.() === false) {
           out.push(tableId);
           // The engine's own answer when it has one; an engine that only
           // publishes the boolean is counted, not guessed at.
-          count(engine.maintenanceDurabilityReason?.() ?? 'unknown');
+          this.noteBreakScoped(
+            tableId,
+            count(engine.maintenanceDurabilityReason?.() ?? 'unknown')
+          );
         }
       } catch {
         // Unreadable engines are not counted against the gate; an engine that
@@ -2777,6 +2977,13 @@ export class MaintenanceBreak {
          only says how many of those refusals this process will not resolve. */
       stoppedCustodyStuckTables: this.stoppedCustodyStuckTableCount,
       breaksSinceRestartCertified: this.breaksSinceRestartCertified,
+      /* Phase 6: the second-break gate. Tables the previous uncertified break
+         ended with, and what this break did about the ones still unparked. */
+      secondBreak: {
+        carriedFromLastUncertifiedBreak: this.unparkedAtLastUncertifiedBreak.size,
+        forceParked: this.secondBreakForceParked,
+        refusingAccountingPending: this.secondBreakRefusingAccounting,
+      },
       readyForRestart: this.readyForRestart(),
       reason: this.reason,
       resumeWaves: this.resumeWaves,

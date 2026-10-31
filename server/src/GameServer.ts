@@ -4212,6 +4212,30 @@ export class GameServer {
     );
   }
 
+  /**
+   * Seed MaintenanceBreak.breaksSinceRestartCertified from the newest
+   * engine_maintenance_break_log row, but only when that row was written by
+   * this same engine build (a crash restart, not a certified cutover).
+   * Best-effort: a failed read leaves the counter at zero, as before.
+   */
+  private async restoreBreaksSinceRestartCertified(): Promise<void> {
+    try {
+      const { data, error } = await supabase
+        .from('engine_maintenance_break_log')
+        .select('breaks_since_restart_certified, engine_version')
+        .order('break_started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data) return;
+      const row = data as { breaks_since_restart_certified?: number | null; engine_version?: string };
+      if (row.engine_version !== ENGINE_RELEASE_IDENTITY.version) return;
+      const n = Number(row.breaks_since_restart_certified ?? 0);
+      this.maintenanceBreak.restoreBreaksSinceRestartCertified(n);
+    } catch (error) {
+      console.warn('[GameServer] could not restore breaksSinceRestartCertified', error);
+    }
+  }
+
   private readonly maintenanceBreak: MaintenanceBreak = new MaintenanceBreak({
     onFinancialDrainChanged: () => {
       void this.weeklyPayoutPause
@@ -4286,6 +4310,8 @@ export class GameServer {
           tables_resumed: o.tablesResumed,
           thaw_ok: o.thawOk,
           engine_version: ENGINE_RELEASE_IDENTITY.version,
+          // Phase 6: the shut-gate count is in the database, not only /metrics.
+          breaks_since_restart_certified: o.breaksSinceRestartCertified,
         });
         if (error) throw new Error(error.message);
       } finally {
@@ -4294,6 +4320,58 @@ export class GameServer {
         // re-drive the durable queue now instead of polling throughout the
         // break or waiting for an unrelated tournament discovery pass.
         this.requestPendingTournamentBountyRecovery();
+      }
+    },
+    /* THE SECOND BREAK (Phase 6, 2026-10-31). A table still unparked for a
+       'break'-scoped reason at a second consecutive uncertified break goes
+       down the zombie-reaper path: fence first (no further mutation), then the
+       owner rebuilds it - the tournament manager by identity-CAS for its own
+       tables, direct recovery for cash. The replacement is built parked. */
+    forceParkForRestartGate: (tableId, reason) => {
+      const engine = this.tableEngines.get(tableId);
+      if (!engine) return false;
+      reportError(
+        new Error(
+          `Restart gate: ${tableId} unparked (${reason}) at a second consecutive uncertified ` +
+            'break - force-parking through the zombie-reaper path'
+        ),
+        'GameServer.restart_gate_force_park',
+        { tableId, reason }
+      );
+      const detail = 'restart_gate_second_break:' + reason;
+      if (this.tournamentOwnedTables.has(tableId)) {
+        engine.fenceForEngineLeaseLoss('tournament_table_zombie:' + detail, true);
+      } else {
+        engine.fenceForEngineLeaseLoss('cash_table_zombie:' + detail, false);
+        void this.recoverDirectTableEngine(tableId, engine, 'zombie_engine').catch(
+          (recoveryError) =>
+            reportError(recoveryError, 'GameServer.zombie_engine_recovery_failed', { tableId })
+        );
+      }
+      return true;
+    },
+    onRestartCertification: (breaks) => {
+      if (breaks >= MaintenanceBreak.UNCERTIFIED_BREAKS_ALERT_AT) {
+        void raiseEngineAlert({
+          alertname: 'ClubArenaRestartGateShut',
+          severity: 'critical',
+          component: 'club-arena-engine',
+          summary: `${breaks} consecutive maintenance breaks ended with no restart certificate`,
+          description:
+            'The engine cannot be replaced: every release waits for a break whose restart gate ' +
+            'opens, and the last ' +
+            breaks +
+            ' did not. Tables still unparked at a second consecutive break are force-parked ' +
+            'unless their accounting is in flight; engine_maintenance_break_faults stage ' +
+            "'restart_gate' names each one, and /health maintenance.unparkedReasons says why.",
+          labels: { breaks_since_restart_certified: String(breaks) },
+        }).catch(() => undefined);
+      } else if (breaks === 0) {
+        void resolveEngineAlert(
+          'ClubArenaRestartGateShut',
+          'club-arena-engine',
+          'A maintenance break certified a restart'
+        ).catch(() => undefined);
       }
     },
     // WHY A BREAK DID NOT RUN (2026-09-10): the 00:00 and 07:00 breaks were
@@ -4762,6 +4840,10 @@ export class GameServer {
       await this.startWeeklyPayout();
       await this.maintenanceBreak.start();
       endBreakAdoptionPhase();
+      // Phase 6: a crash restart on the SAME build has not been replaced, so
+      // the shut-gate count carries over from the durable break log. Not
+      // awaited: a slow read must not hold the boot.
+      void this.restoreBreaksSinceRestartCertified();
       if (!this.directAdmissionIsCurrent(generation)) return;
 
       // Subscribe before tournament discovery starts. Any action committed

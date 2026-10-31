@@ -162,6 +162,10 @@ function audit(
     if (b.scope === 'break') {
       if (b.never !== 'break_uncertified')
         violations.push(`${key}: a break reason's never is the uncertified break`);
+      // Phase 6: what a SECOND consecutive uncertified break does to a table
+      // still reporting it is declared, never implied.
+      if (b.atSecondBreak !== 'force_park' && b.atSecondBreak !== 'keep_refusing')
+        violations.push(`${key}: a break reason must declare atSecondBreak`);
       continue;
     }
     if (!Number.isSafeInteger(b.boundMs) || b.boundMs <= 0)
