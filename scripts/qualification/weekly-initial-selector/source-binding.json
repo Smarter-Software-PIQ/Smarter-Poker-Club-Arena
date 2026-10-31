@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 271733,
-      "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+      "bytes": 272011,
+      "sha256": "f9525914bfdf2a10fa7820aab333529db17305968781d233d1dda612aadfc8a7"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -1869,6 +1869,23 @@
         "current": {
           "bytes": 271733,
           "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+        }
+      }
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "mysteryAwardPageOrderSourceAudit20261031": {
+    "scope": "Adds the actual isolated mystery award paging regression to existing accounting shard2. Existing cases, admission, deadlines, qualification states and historical evidence are unchanged.",
+    "updatedCurrentBindings": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 271733,
+          "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+        },
+        "current": {
+          "bytes": 272011,
+          "sha256": "f9525914bfdf2a10fa7820aab333529db17305968781d233d1dda612aadfc8a7"
         }
       }
     },
