@@ -251,3 +251,7 @@ This repairs client ownership and response handling, not durable financial idemp
 A24 and A25 now share PR9013’s candidate; original PR9017 remains open until containing protected delivery is established. Their combined52 actual-service/panel assertions and compiler pass before protected-main915e4a1 integration; only the chronology conflicts, and both sides remain. No production source conflict or artwork change. Final integrated qualification follows.
 
 A24/A25 final integrated52 service/panel assertions and client compiler pass on protected-main915e4a1 integration. Source stays scoped to existing APIs and current viewer/club; no engine activation prerequisite. Normal push and hosted/publication/live checks remain required.
+
+## Owner update: hourly on-the-hour engine resets
+
+On2026-10-31, owner explicitly authorized an engine reset every hour on the hour until all MTT bugs/gaps/stubs/regressions are resolved. This supersedes the daily-only timing restriction for this assignment; it does not authorize bypassing qualified protected source, original operation ownership, hand drain, freeze/thaw, full rollback budget or live proof. Use the existing certified release transaction and do not duplicate the active recovery operation in chat01a190a0. No recurring release watcher or timer is introduced. Next top-of-hour opportunity is2026-11-01T00:00:00Z (October31 19:00America/Chicago), conditional on qualified readiness and the owning transaction.
