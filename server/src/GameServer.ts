@@ -204,6 +204,7 @@ import {
 } from './observability/engineInstruments.js';
 import { processMemoryHealth, sampleProcessMemory } from './observability/processMemory.js';
 import { MemoryGovernor } from './observability/memoryGovernor.js';
+import { recoverPendingPostCommitObligations } from './lightning/LightningPostCommitRecovery.js';
 import { clientConnectionPrometheusLines } from './observability/ClientConnectionEvents.js';
 import {
   planTableReopens,
@@ -4249,6 +4250,9 @@ export class GameServer {
       void this.refreshWeeklyPayout().catch((error) =>
         reportError(error, 'GameServer.weekly_payout_announcement_unknown')
       );
+      // Phase 6: committed hands' post-commit envelopes are drained BEFORE
+      // the freeze, not left waiting through it. Bounded, idempotent.
+      void recoverPendingPostCommitObligations('break_announcement');
     },
     financialPayoutActive: () => this.weeklyPayoutPause.snapshot() !== null,
     claimOperatorAnnouncement: async (announcedAt) => {
@@ -4845,6 +4849,9 @@ export class GameServer {
       // the shut-gate count carries over from the durable break log. Not
       // awaited: a slow read must not hold the boot.
       void this.restoreBreaksSinceRestartCertified();
+      // Phase 6: whatever a previous process committed but never finished
+      // (LightningHandHost gives up after its budget) is drained once now.
+      void recoverPendingPostCommitObligations('startup');
       if (!this.directAdmissionIsCurrent(generation)) return;
 
       // Subscribe before tournament discovery starts. Any action committed
