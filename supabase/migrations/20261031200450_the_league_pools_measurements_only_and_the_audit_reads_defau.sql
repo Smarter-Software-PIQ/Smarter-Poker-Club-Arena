@@ -233,4 +233,14 @@ begin
   return v;
 end $function$;
 
+-- Grants stated as production holds them (proacl read 2026-10-31), so the
+-- replacement cannot widen them: the audit and the tuner gate are engine
+-- (service_role) only; fn_league_pooled also keeps its signed-in reader.
+REVOKE ALL ON FUNCTION public.fn_audit_league_pooled_findings(date) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_audit_league_pooled_findings(date) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_horse_tuner_admitted_classes() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_horse_tuner_admitted_classes() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_league_pooled(date, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_league_pooled(date, integer) TO authenticated, service_role;
+
 COMMIT;
