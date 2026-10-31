@@ -1966,10 +1966,13 @@ for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9])
       [393, 852],
       [430, 932],
       [480, 975],
+      [604, 1310],
+      [768, 1024],
       [393, 852, 47, 34],
       [430, 932, 59, 34],
     ];
     const cases = viewports.map((viewport) => [spectatorSeats, ...viewport]);
+
     if (spectatorSeats === 6 || spectatorSeats >= 8)
       cases.push([spectatorSeats, 393, 852, 47, 34, 1], [spectatorSeats, 430, 932, 59, 34, 1]);
     for (const [seats, width, height, insetTop = 0, insetBottom = 0, tournament = 0] of cases) {
@@ -2021,6 +2024,30 @@ for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9])
       const plates = await page
         .locator('.seat__info')
         .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom));
+      if (Math.max(...plates) > footer!.y)
+        console.log(
+          'OBSERVER_FOOTER_DIAGNOSTIC',
+          JSON.stringify(
+            await page.evaluate(() => {
+              const boxes = (selector: string) =>
+                [...document.querySelectorAll<HTMLElement>(selector)].map((el) => ({
+                  cls: el.className,
+                  box: el.getBoundingClientRect().toJSON(),
+                  font: getComputedStyle(el).font,
+                  padding: getComputedStyle(el).padding,
+                }));
+              const root = getComputedStyle(document.documentElement);
+              return {
+                viewport: [innerWidth, innerHeight],
+                row: root.getPropertyValue('--sp-bottom-row-h'),
+                buttons: root.getPropertyValue('--sp-action-btn-h'),
+                boxes: boxes(
+                  '.table-page,.table-container,.table-scaler,.action-panel-wrapper,.spectator-footer-bar,.waitlist-cta,.seat__info'
+                ),
+              };
+            })
+          )
+        );
       expect(
         Math.max(...plates),
         `${width}px bottom observer seat clears the footer`

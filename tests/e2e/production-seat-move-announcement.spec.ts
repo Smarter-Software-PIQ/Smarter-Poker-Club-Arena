@@ -3,7 +3,7 @@ import {
   requestObserverForegroundProbe,
 } from './support/spectatorSocketRead';
 import { openLobbyGameSection } from './support/lobbyGameSections';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { expect, test, type WebSocketRoute } from '@playwright/test';
 import { formatPopupText } from '../../src/utils/popupStyle';
 import {
@@ -455,6 +455,7 @@ test('the published table explains controlled seat moves without moving a player
     // player rows. Synthetic input remains confined to this guarded browser.
     await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Table Chat', exact: true })).toBeHidden();
+    await expect(page.locator('.toast')).toHaveCount(0, { timeout: 20_000 });
     await page.evaluate(() => document.fonts.ready);
     const equalSeatSizing = await page
       .locator('.table-page .seat:not(.seat--empty)')
@@ -497,8 +498,10 @@ test('the published table explains controlled seat moves without moving a player
       expect(Math.abs(action.height - actions[0].height)).toBeLessThan(1.5);
     }
     evidence.equalSeatSizing = equalSeatSizing;
+    const sizingScreenshot = info.outputPath('mobile-live-table-equal-seat-sizing.png');
+    await page.screenshot({ path: sizingScreenshot });
     await info.attach('mobile-published-equal-seat-sizing', {
-      body: await page.screenshot(),
+      path: sizingScreenshot,
       contentType: 'image/png',
     });
     const afterSynthetic = await readBuild();
@@ -522,10 +525,13 @@ test('the published table explains controlled seat moves without moving a player
     try {
       if (syntheticPhase) await context.close();
     } finally {
+      const renderingReceipt = info.outputPath('mobile-live-table-seat-move-rendering.json');
+      await writeFile(
+        renderingReceipt,
+        JSON.stringify({ ...evidence, refusedParticipationAttempts: writes }, null, 2)
+      );
       await info.attach('mobile-live-table-seat-move-rendering', {
-        body: Buffer.from(
-          JSON.stringify({ ...evidence, refusedParticipationAttempts: writes }, null, 2)
-        ),
+        path: renderingReceipt,
         contentType: 'application/json',
       });
     }
