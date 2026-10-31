@@ -2172,7 +2172,7 @@ export interface HorseDecideOpts {
    *  on. Re-enable by default only after a recalibrated stratum resolves
    *  significant positive in the mirror and the human-field twin. */
   v62RiverBettorPolarity?: boolean;
-  /** V70 (2026-10-31) an Omaha semi-bluff RAISE needs a draw. The branch is
+  /** V71 (2026-10-31) an Omaha semi-bluff RAISE needs a draw. The branch is
    *  "semi-bluff raise with big draws", but its only Omaha draw test was
    *  `omahaDrawMod()`, which returned 0.7 for a hand with no draw at all, so
    *  top pair with nothing to come re-raised a bet as a "semi-bluff" whenever
@@ -2185,7 +2185,7 @@ export interface HorseDecideOpts {
    *  on (the default), an Omaha semi-bluff raise needs a flush draw, eight or
    *  more straight outs, or (hi-lo) a nut low draw; anything else calls or
    *  folds on the normal price. Explicit `false` is the league's off arm. */
-  v70OmahaSemiBluffNeedsDraw?: boolean;
+  v71OmahaSemiBluffNeedsDraw?: boolean;
   /** League calibration arm (2026-10-30): tournament call bar facing a
    *  single open is raised by this amount (0 < x <= 0.2); inert otherwise. */
   tournamentFlatBump?: number;
@@ -8008,10 +8008,10 @@ export class HorseLogic {
       if (!drawInfoCache) drawInfoCache = omahaDrawQuality(player.cards, board, vi.isHiLo);
       return drawInfoCache;
     };
-    // V70: an Omaha hand with no flush draw, under eight straight outs and
+    // V71: an Omaha hand with no flush draw, under eight straight outs and
     // (hi-lo) no nut low draw is not a semi-bluff.
-    const v70NoDrawRaise = (): boolean => {
-      if ((opts.v70OmahaSemiBluffNeedsDraw ?? true) === false) return false;
+    const v71NoDrawRaise = (): boolean => {
+      if ((opts.v71OmahaSemiBluffNeedsDraw ?? true) === false) return false;
       const d = drawInfo40();
       if (!d) return false;
       const noDraw =
@@ -8019,7 +8019,7 @@ export class HorseLogic {
         !d.dominatedFlushDraw &&
         d.straightOuts < 8 &&
         !(vi.isHiLo && d.nutLowDraw);
-      if (noDraw && tele15) noteFire('v70_omaha_semibluff_needs_draw');
+      if (noDraw && tele15) noteFire('v71_omaha_semibluff_needs_draw');
       return noDraw;
     };
 
@@ -10583,8 +10583,8 @@ export class HorseLogic {
       // it says: do not raise as a semi-bluff into a bet bigger than 0.85x
       // the pot.
       potFrac <= (pressure53 ? 1.0 : 0.85) &&
-      // V70: in Omaha a semi-bluff raise needs a draw (see the option note).
-      !v70NoDrawRaise() &&
+      // V71: in Omaha a semi-bluff raise needs a draw (see the option note).
+      !v71NoDrawRaise() &&
       fastRandom() <
         Math.min(
           pressure53 ? 0.6 : 1,
