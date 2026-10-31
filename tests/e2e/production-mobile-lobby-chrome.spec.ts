@@ -699,6 +699,7 @@ test.describe('the mobile lobby chrome on production', () => {
     );
     try {
       await page.context().setOffline(true);
+      const offlineStarted = await page.evaluate(() => performance.now());
       await all.click();
       await expect(all).toHaveAttribute('aria-pressed', 'true');
       // Known-offline browsers need not emit a failed HTTP request. The actual
@@ -711,6 +712,17 @@ test.describe('the mobile lobby chrome on production', () => {
           }, intentKey)
         )
         .toBe('all');
+      // Stay offline beyond the existing 500ms save debounce so this proves
+      // reconnect continuation rather than an ordinary timer firing online.
+      await expect
+        .poll(() =>
+          page.evaluate(
+            (started) => navigator.onLine === false && performance.now() - started >= 600,
+            offlineStarted
+          )
+        )
+        .toBe(true);
+      await expect(all).toHaveAttribute('aria-pressed', 'true');
     } finally {
       await page.context().setOffline(false);
     }
