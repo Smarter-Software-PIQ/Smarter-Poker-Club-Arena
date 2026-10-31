@@ -128,18 +128,82 @@ const dumpProgressStages = new Map([
   ['pg_dump: finding table check constraints', 'FINDING_TABLE_CHECK_CONSTRAINTS'],
   ['pg_dump: reading dependency data', 'READING_DEPENDENCY_DATA'],
 ]);
-const dumpStageValues = new Set([...dumpProgressStages.values(), 'SETUP_COMPLETE', 'UNKNOWN']);
+const dumpStageValues = new Set([...dumpProgressStages.values(), 'SETUP_COMPLETE',
+  'SAVING_ENCODING', 'SAVING_STANDARD_STRINGS', 'SAVING_SEARCH_PATH', 'UNKNOWN']);
+function searchPathProgressLine(line) {
+  const prefix='pg_dump: saving "search_path = ';
+  if(!line.startsWith(prefix) || !line.endsWith('"') || line.length>8192)return false;
+  const value=line.slice(prefix.length,-1);let at=0;
+  if(value.includes('\r') || value.includes('\n'))return false;
+  if(value==='')return true;
+  while(at<value.length){
+    if(value[at]==='"'){
+      at++;let closed=false;
+      while(at<value.length){
+        if(value[at++]!=='"')continue;
+        if(value[at]==='"'){at++;continue;}
+        closed=true;break;
+      }
+      if(!closed)return false;
+    }else{
+      if(!/[a-z_]/.test(value[at]))return false;
+      at++;while(at<value.length && /[a-z0-9_$]/.test(value[at]))at++;
+    }
+    if(at===value.length)return true;
+    if(value.slice(at,at+2)!==', ')return false;
+    at+=2;if(at===value.length)return false;
+  }
+  return false;
+}
+function dumpProgressLine(line) {
+  const setup = /^pg_dump: last built-in OID is (0|[1-9][0-9]{0,9})$/.exec(line);
+  if(setup && Number(setup[1]) <= 4294967295)return 'SETUP_COMPLETE';
+  if(/^pg_dump: saving encoding = [A-Z][A-Z0-9_]{0,31}$/.test(line))return 'SAVING_ENCODING';
+  if(/^pg_dump: saving "standard_conforming_strings = (?:on|off)"$/.test(line))return 'SAVING_STANDARD_STRINGS';
+  // fmtId() produces a comma-separated identifier list, or the empty path.
+  // Quoted identifiers can contain doubled quotes. Never retain their values.
+  if(searchPathProgressLine(line))return 'SAVING_SEARCH_PATH';
+  return dumpProgressStages.get(line) ?? null;
+}
 export function dumpProgressStage(stderr) {
   let stage = 'UNKNOWN';
   for (const line of stderr.split('\n')) {
     // Official PG17 uint32 OID marker follows snapshot setup. Validate its
     // complete fixed format but never retain or publish the numeric value.
-    const setup = /^pg_dump: last built-in OID is (0|[1-9][0-9]{0,9})$/.exec(line);
-    const next = dumpProgressStages.get(line) ??
-      (setup && Number(setup[1]) <= 4294967295 ? 'SETUP_COMPLETE' : null);
+    const next = dumpProgressLine(line);
     if (next) stage = next;
   }
   return stage;
+}
+
+function safePhaseEntries(value) {
+  if(!Array.isArray(value) || value.length>dumpStageValues.size)return [];
+  const seen=new Set();let previous=-1;
+  for(const item of value){
+    if(!item || !dumpStageValues.has(item.stage) || item.stage==='UNKNOWN' || seen.has(item.stage) ||
+      !Number.isSafeInteger(item.entered_at_ms) || item.entered_at_ms<0 || item.entered_at_ms<previous || item.entered_at_ms>45000)return [];
+    seen.add(item.stage);previous=item.entered_at_ms;
+  }
+  return value.map(({stage,entered_at_ms})=>({stage,entered_at_ms}));
+}
+
+export function createDumpProgress() {
+  let partial='',last='UNKNOWN';const entries=[],seen=new Set();
+  return {
+    push(bytes,elapsed){
+      requireCapture(Number.isSafeInteger(elapsed) && elapsed>=0 && elapsed<=45000);
+      partial+=bytes.toString('latin1');
+      requireCapture(partial.length<=65536);
+      const lines=partial.split('\n');partial=lines.pop();
+      for(const line of lines){
+        const stage=dumpProgressLine(line);if(!stage)continue;
+        last=stage;
+        if(!seen.has(stage)){seen.add(stage);entries.push({stage,entered_at_ms:elapsed});}
+      }
+    },
+    snapshot:()=>({last_stage:last,phase_entries:safePhaseEntries(entries)}),
+    clear(){partial='';entries.length=0;seen.clear();last='UNKNOWN';}
+  };
 }
 
 export function safeDumpDiagnostic(value) {
@@ -149,7 +213,8 @@ export function safeDumpDiagnostic(value) {
     signal: ['SIGINT','SIGKILL','SIGTERM','SIGABRT','NONE'].includes(value?.signal) ? value.signal : 'UNKNOWN',
     elapsed_ms: count(value?.elapsed_ms), stdout_bytes: count(value?.stdout_bytes), stderr_bytes: count(value?.stderr_bytes),
     ...(value?.cancellation ? {cancellation:safeCancellation(value.cancellation)} : {}),
-    ...(Object.hasOwn(value ?? {}, 'last_stage') ? {last_stage:dumpStageValues.has(value.last_stage) ? value.last_stage : 'UNKNOWN'} : {}) };
+    ...(Object.hasOwn(value ?? {}, 'last_stage') ? {last_stage:dumpStageValues.has(value.last_stage) ? value.last_stage : 'UNKNOWN'} : {}),
+    ...(Object.hasOwn(value ?? {}, 'phase_entries') ? {phase_entries:safePhaseEntries(value.phase_entries)} : {}) };
 }
 
 function safeCancellation(value) {
@@ -373,12 +438,13 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
     '--lock-wait-timeout=1000',`--snapshot=${snapshot}`], { env, stdio: ['ignore','pipe','pipe'] });
   let size = 0, stderrSize = 0, failed = false, failureKind = null;
   const chunks = [], stderrChunks = [];
+  const progress=createDumpProgress();
   const started = performance.now();
   const failure = (code, signal) => Object.assign(new Error('ISOLATED_SCHEMA_DUMP_FAILED'), {
     dumpDiagnostic: safeDumpDiagnostic({kind: failureKind ?? dumpFailureKind(Buffer.concat(stderrChunks).toString('utf8')),
       exit_code: code, signal: signal ?? 'NONE', elapsed_ms: Math.round(performance.now() - started),
       stdout_bytes: size, stderr_bytes: stderrSize,cancellation:cancellation.facts(),
-      last_stage:dumpProgressStage(Buffer.concat(stderrChunks).toString('utf8'))}) });
+      ...progress.snapshot()}) });
   const cancellation=nativeCancellation(child,deadlineMs,reason=>{failed=true;failureKind ??= reason;});
   try {
     await new Promise((resolve, reject) => {
@@ -390,7 +456,11 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
       child.stderr.on('data', (bytes) => {
         stderrSize += bytes.length;
         if (stderrSize > 65536) cancellation.abort('STDERR_LIMIT');
-        else stderrChunks.push(bytes);
+        else {
+          stderrChunks.push(bytes);
+          const elapsed=Math.round(performance.now()-started);
+          if(elapsed<=45000)progress.push(bytes,elapsed);
+        }
       });
       child.once('error', () => { failed = true; failureKind ??= 'SPAWN'; });
       child.once('close', (code, signal) => {
@@ -401,7 +471,7 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
     const sql = Buffer.concat(chunks).toString('utf8');
     assertSchemaOnly(sql);
     return sql;
-  } finally { cancellation.clear(); delete env.PGPASSWORD; chunks.length = 0; stderrChunks.length = 0; }
+  } finally { cancellation.clear(); progress.clear(); delete env.PGPASSWORD; chunks.length = 0; stderrChunks.length = 0; }
 }
 
 export async function captureSchema({ output, env = process.env, Client, dump = dumpSnapshot,
