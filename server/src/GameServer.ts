@@ -205,7 +205,12 @@ import {
 } from './observability/engineInstruments.js';
 import { processMemoryHealth, sampleProcessMemory } from './observability/processMemory.js';
 import { MemoryGovernor } from './observability/memoryGovernor.js';
-import { recoverPendingPostCommitObligations } from './lightning/LightningPostCommitRecovery.js';
+import {
+  pendingPostCommitObservation,
+  pendingPostCommitPrometheusLines,
+  readPendingPostCommitCount,
+  recoverPendingPostCommitObligations,
+} from './lightning/LightningPostCommitRecovery.js';
 import { clientConnectionPrometheusLines } from './observability/ClientConnectionEvents.js';
 import {
   planTableReopens,
@@ -4254,6 +4259,42 @@ export class GameServer {
     }
   }
 
+  /**
+   * PENDING POST-COMMIT OBLIGATIONS AT A BREAK ANNOUNCEMENT (Phase 6,
+   * 2026-10-31). Detection only: count what is still pending, publish it, and
+   * raise ClubArenaPostCommitObligationsPending when it is non-zero (resolve
+   * it at zero). Never drains; an unreadable count changes nothing.
+   */
+  private async alertOnPendingPostCommitObligations(): Promise<void> {
+    try {
+      const seen = await readPendingPostCommitCount('break_announcement');
+      if (seen.count === null) return;
+      if (seen.count > 0) {
+        const shown = `${seen.count}${seen.capped ? '+' : ''}`;
+        await raiseEngineAlert({
+          alertname: 'ClubArenaPostCommitObligationsPending',
+          severity: 'critical',
+          component: 'club-arena-engine',
+          summary: `${shown} committed hand(s) have post-commit obligations still pending at the break announcement`,
+          description:
+            'hand_atomic_commits rows with a post_commit_payload and no post_commit_completed_at, ' +
+            'committed more than 15 s ago. Nothing drains them on a timer (operator policy); the ' +
+            'startup pass drains once per process. /health lightningPostCommitPending and ' +
+            '/metrics poker_lightning_post_commit_pending carry the count.',
+          labels: { pending: shown },
+        });
+      } else {
+        await resolveEngineAlert(
+          'ClubArenaPostCommitObligationsPending',
+          'club-arena-engine',
+          'No post-commit obligations pending at the break announcement'
+        );
+      }
+    } catch (error) {
+      reportError(error, 'GameServer.post_commit_pending_alert_failed');
+    }
+  }
+
   private readonly maintenanceBreak: MaintenanceBreak = new MaintenanceBreak({
     onFinancialDrainChanged: () => {
       void this.weeklyPayoutPause
@@ -4266,9 +4307,10 @@ export class GameServer {
       void this.refreshWeeklyPayout().catch((error) =>
         reportError(error, 'GameServer.weekly_payout_announcement_unknown')
       );
-      // Phase 6: committed hands' post-commit envelopes are drained BEFORE
-      // the freeze, not left waiting through it. Bounded, idempotent.
-      void recoverPendingPostCommitObligations('break_announcement');
+      // Phase 6: committed hands' post-commit envelopes still pending at the
+      // announcement are COUNTED and alerted, not drained (operator policy:
+      // no new recurring repair loop). The startup pass is the only drain.
+      void this.alertOnPendingPostCommitObligations();
     },
     financialPayoutActive: () => this.weeklyPayoutPause.snapshot() !== null,
     claimOperatorAnnouncement: async (announcedAt) => {
@@ -4850,8 +4892,11 @@ export class GameServer {
       // awaited: a slow read must not hold the boot.
       void this.restoreBreaksSinceRestartCertified();
       // Phase 6: whatever a previous process committed but never finished
-      // (LightningHandHost gives up after its budget) is drained once now.
-      void recoverPendingPostCommitObligations('startup');
+      // (LightningHandHost gives up after its budget) is drained once now,
+      // then counted for /health and /metrics. One-shot; never recurs.
+      void recoverPendingPostCommitObligations('startup').then(() =>
+        readPendingPostCommitCount('startup')
+      );
       if (!this.directAdmissionIsCurrent(generation)) return;
 
       // Subscribe before tournament discovery starts. Any action committed
@@ -5989,6 +6034,10 @@ export class GameServer {
        * events that cannot resume.
        */
       tournamentResumesFailing: this.tournamentResumeCooldowns.size,
+      /* Phase 6: committed Lightning hands whose post-commit envelope is still
+         pending, as of the last count (startup or break announcement). Null
+         until the first count. Detection only. */
+      lightningPostCommitPending: pendingPostCommitObservation(),
       /* Managers that could not be stopped and still hold their slot, and the
          RUNNING tournaments nobody is dealing as a result. Before 2026-09-21
          the only hint either existed was that activeTournaments (472) quietly
@@ -6776,6 +6825,8 @@ export class GameServer {
     // Fleet-independent, so it rides with the freeze block: an empty fleet
     // still has a hand index that can fall behind.
     freeze.push(...this.statsHealth.prometheusLines());
+    // Phase 6: pending post-commit obligations at the last count.
+    freeze.push(...pendingPostCommitPrometheusLines());
 
     if (allLines.length === 0) {
       // Still emit freeze metrics: "no engines at all" is itself the loudest

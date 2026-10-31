@@ -1,6 +1,6 @@
 /**
- * PENDING POST-COMMIT OBLIGATIONS ARE DRAINED AT STARTUP AND BEFORE A FREEZE
- * (Phase 6, 2026-10-31).
+ * PENDING POST-COMMIT OBLIGATIONS ARE DRAINED ONCE AT STARTUP, AND COUNTED
+ * AND ALERTED AT A BREAK ANNOUNCEMENT (Phase 6, 2026-10-31).
  *
  * LightningHandHost.drainPostCommit retries a committed hand's post-commit
  * envelope for POST_COMMIT_BUDGET_MS and then gives up, filing
@@ -10,10 +10,12 @@
  * lease mid-drain) leaves exactly those rows behind, and a maintenance freeze
  * stops every money-moving write for five minutes on top of them.
  *
- * So the leader drains every pending envelope:
- *   - once at startup, before the hosts begin dealing new hands; and
- *   - at the break announcement, i.e. BEFORE the freeze, so nothing committed
- *     is left waiting through it.
+ * So the leader drains every pending envelope once at startup, before the
+ * hosts begin dealing new hands. That is the only drain: operator policy
+ * (2026-10-31) allows no new recurring repair loop, so at the break
+ * announcement the leader only COUNTS what is still pending
+ * (readPendingPostCommitCount), publishes it on /health and /metrics, and
+ * GameServer alerts when it is non-zero. The operator decides what to run.
  *
  * Idempotent by construction: fn_ca_process_hand_post_commit_obligations is
  * row-locked and receipt-protected, so a hand a live host is draining at the
@@ -149,4 +151,79 @@ export function recoverPendingPostCommitObligations(
       inFlight = null;
     });
   return inFlight;
+}
+
+/**
+ * DETECTION, NOT REPAIR (operator policy, 2026-10-31). How many committed
+ * envelopes older than MIN_AGE_MS are still pending, read with the same
+ * bounded scan as the drain (at most POST_COMMIT_PENDING_COUNT_CAP + 1 ids,
+ * so `capped` means "at least this many"). Never processes anything; never
+ * throws: an unreadable scan is count null.
+ */
+export const POST_COMMIT_PENDING_COUNT_CAP = 1_000;
+
+export interface PendingPostCommitObservation {
+  trigger: string;
+  /** Pending envelopes, or null when the scan could not be read. */
+  count: number | null;
+  /** The scan hit its cap: there are at least `count`. */
+  capped: boolean;
+  observedAtMs: number;
+}
+
+let lastObservation: PendingPostCommitObservation | null = null;
+
+/** The latest count, for /health and /metrics. Null until the first read. */
+export function pendingPostCommitObservation(): PendingPostCommitObservation | null {
+  return lastObservation;
+}
+
+export async function observePendingPostCommitObligations(
+  trigger: string,
+  deps: Pick<PostCommitRecoveryDeps, 'listPending' | 'now' | 'log'>,
+  options: { minAgeMs?: number; cap?: number } = {}
+): Promise<PendingPostCommitObservation> {
+  const now = deps.now ?? Date.now;
+  const log = deps.log ?? ((line: string) => console.log(line));
+  const cap = options.cap ?? POST_COMMIT_PENDING_COUNT_CAP;
+  const observedAtMs = now();
+  let observation: PendingPostCommitObservation;
+  try {
+    const ids = await deps.listPending(
+      new Date(observedAtMs - (options.minAgeMs ?? POST_COMMIT_RECOVERY_MIN_AGE_MS)),
+      cap + 1
+    );
+    const unique = new Set(ids).size;
+    observation = { trigger, count: Math.min(unique, cap), capped: unique > cap, observedAtMs };
+  } catch (error) {
+    log(`[PostCommitRecovery] ${trigger}: pending envelopes uncountable: ${describeError(error)}`);
+    observation = { trigger, count: null, capped: false, observedAtMs };
+  }
+  lastObservation = observation;
+  return observation;
+}
+
+/** The production count: the same reader the startup drain uses. */
+export function readPendingPostCommitCount(trigger: string): Promise<PendingPostCommitObservation> {
+  return observePendingPostCommitObligations(trigger, { listPending: listPendingPostCommitEnvelopes });
+}
+
+/** /metrics lines for the latest count; none until a count has been read. */
+export function pendingPostCommitPrometheusLines(
+  observation: PendingPostCommitObservation | null = lastObservation
+): string[] {
+  if (!observation || observation.count === null) return [];
+  return [
+    '# HELP poker_lightning_post_commit_pending Committed hands whose post-commit envelope is still pending (older than 15s) at the last count (startup, break announcement); detection only, nothing drains on a timer',
+    '# TYPE poker_lightning_post_commit_pending gauge',
+    `poker_lightning_post_commit_pending{trigger="${observation.trigger}",capped="${observation.capped ? 1 : 0}"} ${observation.count}`,
+    '# HELP poker_lightning_post_commit_pending_observed_at_seconds When that count was read',
+    '# TYPE poker_lightning_post_commit_pending_observed_at_seconds gauge',
+    `poker_lightning_post_commit_pending_observed_at_seconds ${Math.floor(observation.observedAtMs / 1000)}`,
+  ];
+}
+
+/** Test seam: forget the latest count. */
+export function resetPendingPostCommitObservationForTests(): void {
+  lastObservation = null;
 }
