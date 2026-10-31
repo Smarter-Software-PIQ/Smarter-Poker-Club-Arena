@@ -1,0 +1,9 @@
+# Compose the existing full-cardinality census qualification
+
+The previous 35M-object fixture invoked the addon directly. Replace that invocation with an external loopback CDP Runtime.evaluate of the exact maintained collectMarkedLegacyCensus function, including its nested node Inspector Session, native dispatch, prototype restoration and binding cleanup. The fixed synthetic five-class/eleven-match graph and ten-field retained ballast remain unchanged. No application imports, credentials, production state or game guard invocation are introduced.
+
+The existing candidate-image prewarm route retains one full-scale attempt,36GiB/no swap/cpu1/pids32,4000MiB old space/semi1,8GiB host margin, actual eight-times process reserve,20s native query,30s outer request and35s work plus5s disposable cleanup. Image packaging adds only the exact maintained collector and builtin-only composition driver. Receipt bindings include both files; results require verified remote close and strict timing/completeness. No alternate publisher or runner is added.
+
+The existing bounded native qualification case now exercises this same composition driver; its owner, detached closure, shared-base, proxy, foreign-realm and projection assertions remain. One small real native composition passed on pinned Node22.23.2/darwin-arm64. That proves only the isolated small path. The full35M composition is UNRUN: actual available Mac memory12.89GiB was insufficient, so no allocation was attempted. Existing two small actual EED guard cases passed separately and do not qualify the full-scale guard.
+
+Classification is synthetic-full-cardinality-census-phase-only. Actual production heap cardinality, graph topology and the cause of its outer request timeout remain unknown. There is no full EED/MAIN guard or production-equivalence claim, no CPP/runtime behavior change and no production operation.
