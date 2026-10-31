@@ -31,6 +31,7 @@ import {
   type SpinOwnerState,
 } from '../../services/SpinActivationService';
 import { useToast } from '../common/Toast';
+import { useUserStore } from '../../stores/useUserStore';
 import { compactChips, formatWalletChips } from '../../utils/format';
 import './SpinActivationPanel.css';
 
@@ -76,6 +77,13 @@ const chipsBack = (n: number | null | undefined) =>
   Math.floor(Number(n ?? 0) || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
 export default function SpinActivationPanel({ clubId }: Props) {
+  const viewerId = useUserStore((store) => store.user?.id);
+  return (
+    <OwnedSpinActivationPanel key={JSON.stringify([clubId, viewerId ?? null])} clubId={clubId} />
+  );
+}
+
+function OwnedSpinActivationPanel({ clubId }: Props) {
   const toast = useToast();
   const [state, setState] = useState<SpinOwnerState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,11 +99,17 @@ export default function SpinActivationPanel({ clubId }: Props) {
    */
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const mountedRef = useRef(false);
+  const readGenerationRef = useRef(0);
+  const operationInFlightRef = useRef(false);
   const load = useCallback(async () => {
+    const generation = ++readGenerationRef.current;
+    const isCurrent = () => mountedRef.current && generation === readGenerationRef.current;
     try {
       const res = await spinActivationApi.getState(clubId);
+      if (!isCurrent()) return;
       setState(res.state);
-      setRouteCanManage(Boolean(res.canManage));
+      setRouteCanManage(res.canManage === true);
       // Default the source wallet to the first one this owner actually has.
       const sources = SPIN_SEED_SOURCES[res.state?.owner_kind ?? 'club'];
       setWallet((w) => (sources.some((s) => s.value === w) ? w : sources[0].value));
@@ -103,14 +117,21 @@ export default function SpinActivationPanel({ clubId }: Props) {
     } catch (err) {
       // A viewer with no permission is a normal outcome, not an error worth
       // shouting about — the panel simply shows nothing it cannot prove.
+      if (!isCurrent()) return;
       setState(null);
+      setRouteCanManage(null);
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [clubId]);
 
   useEffect(() => {
+    mountedRef.current = true;
     void load();
+    return () => {
+      mountedRef.current = false;
+      readGenerationRef.current++;
+    };
   }, [load]);
 
   const required = requiredSeedForStake(maxStake);
@@ -143,23 +164,32 @@ export default function SpinActivationPanel({ clubId }: Props) {
      seeds the spin pool out of a real wallet; the key used to be minted
      inside the transport on every request, so a committed activation whose
      response was lost seeded the pool AGAIN on the next press. Keyed on what
-     is being bought (the seed and the ceiling), so a genuinely different
+     is being bought (the seed, ceiling and funding wallet), so a different
      activation gets its own key. Retired on success. */
-  const activateKeyRef = useRef<{ seed: number; stake: number; key: string } | null>(null);
+  const activateKeyRef = useRef<{
+    seed: number;
+    stake: number;
+    wallet: string;
+    key: string;
+  } | null>(null);
   const deactivateKeyRef = useRef<string | null>(null);
 
   const activate = async () => {
+    if (!canAct || operationInFlightRef.current || !mountedRef.current) return;
+    operationInFlightRef.current = true;
     setBusy(true);
     setActionError(null);
     try {
       if (
         !activateKeyRef.current ||
         activateKeyRef.current.seed !== stillNeeded ||
-        activateKeyRef.current.stake !== maxStake
+        activateKeyRef.current.stake !== maxStake ||
+        activateKeyRef.current.wallet !== wallet
       ) {
         activateKeyRef.current = {
           seed: stillNeeded,
           stake: maxStake,
+          wallet,
           key: crypto.randomUUID(),
         };
       }
@@ -170,24 +200,30 @@ export default function SpinActivationPanel({ clubId }: Props) {
         wallet,
         activateKeyRef.current.key
       );
+      if (!mountedRef.current) return;
       activateKeyRef.current = null;
       toast.success(`Spins Activated With A Seed Of ${chips(stillNeeded)} Chips`);
       await load();
     } catch (err) {
+      if (!mountedRef.current) return;
       const message = err instanceof Error ? err.message : 'Could Not Activate Spins';
       setActionError(message);
       toast.error(message);
     } finally {
-      setBusy(false);
+      operationInFlightRef.current = false;
+      if (mountedRef.current) setBusy(false);
     }
   };
 
   const deactivate = async () => {
+    if (!canAct || operationInFlightRef.current || !mountedRef.current) return;
+    operationInFlightRef.current = true;
     setBusy(true);
     setActionError(null);
     try {
       if (!deactivateKeyRef.current) deactivateKeyRef.current = crypto.randomUUID();
       const response = await spinActivationApi.deactivate(clubId, deactivateKeyRef.current);
+      if (!mountedRef.current) return;
       deactivateKeyRef.current = null;
       const returned = Number(response.result.seed_returned ?? 0);
       toast.success(
@@ -197,11 +233,13 @@ export default function SpinActivationPanel({ clubId }: Props) {
       );
       await load();
     } catch (err) {
+      if (!mountedRef.current) return;
       const message = err instanceof Error ? err.message : 'Could Not Deactivate Spins';
       setActionError(message);
       toast.error(message);
     } finally {
-      setBusy(false);
+      operationInFlightRef.current = false;
+      if (mountedRef.current) setBusy(false);
     }
   };
 

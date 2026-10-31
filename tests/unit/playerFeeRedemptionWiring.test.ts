@@ -24,23 +24,18 @@ describe('the fee redemption runs with the maintained Data Console qualification
 
   it('bounds the historical clock to the disposable cutover fixture and restores it before calendar checks', () => {
     const native = readFileSync('scripts/ci/test-player-fee-redemption.sh', 'utf8');
-    const clock = readFileSync(
-      'scripts/ci/fixtures/player-fee-redemption/historical-clock.sql',
-      'utf8'
-    );
-    expect(clock).toContain("current_user = 'fee_test'");
-    expect(clock).toContain("current_setting('listen_addresses') = ''");
-    expect(native.indexOf("pg_get_functiondef('pg_catalog.now()'::regprocedure)")).toBeLessThan(
-      native.indexOf('-f "$FIXTURE/historical-clock.sql"')
-    );
-    expect(native.indexOf('-f "$FIXTURE/historical-clock.sql"')).toBeLessThan(
-      native.indexOf('-f "$FIXTURE/fee-redemption-schema.sql"')
-    );
-    const restore = native.indexOf('-f "$WORK/restore-now.sql"');
+    expect(native).toContain("current_user = 'fee_test'");
+    expect(native).toContain("current_setting('listen_addresses') = ''");
+    const capture = native.indexOf("pg_get_functiondef('pg_catalog.now()'::regprocedure)");
+    const fixedClock = native.indexOf('CREATE OR REPLACE FUNCTION pg_catalog.now()');
+    expect(capture).toBeGreaterThan(0);
+    expect(capture).toBeLessThan(fixedClock);
+    expect(native.match(/pg_get_functiondef/g)).toHaveLength(1);
+    expect(fixedClock).toBeLessThan(native.indexOf('-f "$FIXTURE/rake-share-out-of-band.sql"'));
+    const restore = native.lastIndexOf('\nrestore_fixture_clock\n');
     expect(restore).toBeGreaterThan(native.indexOf('-f "$FIXTURE/rake-share-assert.sql"'));
     expect(restore).toBeLessThan(native.indexOf('-f "$CALENDAR/preimages.sql"'));
-    expect(native).toContain(
-      "ASSERT now() = transaction_timestamp(), 'native clock was not restored'"
-    );
+    expect(native).toContain("l.lanname = 'internal' AND p.prosrc = 'now'");
+    expect(native).toContain('restore_fixture_clock || true');
   });
 });
