@@ -21,4 +21,26 @@ describe('the fee redemption runs with the maintained Data Console qualification
     expect(native).toContain('rake-share-assert.sql');
     expect(native).toContain('rake share regression unexpectedly passed before the migration');
   });
+
+  it('bounds the historical clock to the disposable cutover fixture and restores it before calendar checks', () => {
+    const native = readFileSync('scripts/ci/test-player-fee-redemption.sh', 'utf8');
+    const clock = readFileSync(
+      'scripts/ci/fixtures/player-fee-redemption/historical-clock.sql',
+      'utf8'
+    );
+    expect(clock).toContain("current_user = 'fee_test'");
+    expect(clock).toContain("current_setting('listen_addresses') = ''");
+    expect(native.indexOf("pg_get_functiondef('pg_catalog.now()'::regprocedure)")).toBeLessThan(
+      native.indexOf('-f "$FIXTURE/historical-clock.sql"')
+    );
+    expect(native.indexOf('-f "$FIXTURE/historical-clock.sql"')).toBeLessThan(
+      native.indexOf('-f "$FIXTURE/fee-redemption-schema.sql"')
+    );
+    const restore = native.indexOf('-f "$WORK/restore-now.sql"');
+    expect(restore).toBeGreaterThan(native.indexOf('-f "$FIXTURE/rake-share-assert.sql"'));
+    expect(restore).toBeLessThan(native.indexOf('-f "$CALENDAR/preimages.sql"'));
+    expect(native).toContain(
+      "ASSERT now() = transaction_timestamp(), 'native clock was not restored'"
+    );
+  });
 });

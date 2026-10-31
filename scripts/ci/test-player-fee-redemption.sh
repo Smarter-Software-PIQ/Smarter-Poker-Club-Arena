@@ -15,6 +15,10 @@ trap cleanup EXIT
 "$PG_BIN/pg_ctl" -D "$WORK/data" -l "$WORK/postgres.log" \
   -o "-k $WORK -c listen_addresses=''" -w start >/dev/null
 PSQL=("$PG_BIN/psql" -X -q -h "$WORK" -U fee_test -d postgres -v ON_ERROR_STOP=1)
+# Preserve the native definition, then replay the historical fixture at its
+# declared clock. No production migration bytes or financial assertions change.
+"${PSQL[@]}" -Atc "SELECT pg_get_functiondef('pg_catalog.now()'::regprocedure)" > "$WORK/restore-now.sql"
+"${PSQL[@]}" -f "$FIXTURE/historical-clock.sql"
 "${PSQL[@]}" -f "$FIXTURE/fee-redemption-schema.sql" -f "$FIXTURE/fee-redemption-source-functions.sql"
 # The regression must demonstrably fail on the captured pre-fix reader.
 if "${PSQL[@]}" -c "DO \$\$ BEGIN ASSERT (SELECT cash_fees FROM ca_club_member_fee_totals('a41434bb-8d0c-400a-8f0d-e8b3d65afed4',null,null,'69f2cefa-017d-49f3-ac3e-61505633747c'))=373.06, 'redemption missing'; END \$\$;" > "$WORK/before.log" 2>&1; then
@@ -45,6 +49,14 @@ fi
 grep -q 'share lags the hands' "$WORK/share-before.log"
 "${PSQL[@]}" -f "${SHARE[0]}" -f "$FIXTURE/rake-share-assert.sql"
 echo 'PASS: the standing rake share replaces the cron; exact, immediate, funded club, ended rule, grants, fixed events kept and no cron writes the redemptions'
+
+# Later calendar qualification uses the actual transaction clock again.
+"${PSQL[@]}" -f "$WORK/restore-now.sql"
+"${PSQL[@]}" <<'SQL'
+DO $$ BEGIN
+  ASSERT now() = transaction_timestamp(), 'native clock was not restored';
+END $$;
+SQL
 
 # Rake uses the same viewer-calendar population as the Stats overview.
 CALENDAR="$ROOT/scripts/ci/fixtures/rake-calendar"
