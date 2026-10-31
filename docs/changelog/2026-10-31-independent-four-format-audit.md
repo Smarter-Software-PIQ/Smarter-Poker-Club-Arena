@@ -217,3 +217,11 @@ A18 client is split from protected main5b06a8a8b6ced71a349040fde73604ef168fad4d 
 ## Readback, 22:34 UTC
 
 Canonical policies freshly emitted/read2026-10-31T22:33:14.172Z, version2.9 and unchanged hashes above. Full repository AGENTS/CLAUDE/playbook/publishing/deploy paths, checkpoint and storage guide reread; portable canonical comparison passes; shared-capacity own disk5s1 has735GiB free. A18 client308a97c025eef737a232b7ca87c46e2edc386e04 passed normal push and is PR8998; hosted/publication/live proof pending. A06 exact2d19367 still has four executing checks and no observed failure. A17 PR8997 also remains in qualification. Server A18 submission proceeds separately from unchanged qualified source250e63fb8.
+
+## A19: complete pending-bust inventory before mystery activation
+
+A18 server a3d134c50e4c30f33f6f107baa0569c4949552f3 passed normal push:440 direct and2704 related server tests,5565 client contracts and631 importers. PR9000 owns that candidate; engine/live proof remains pending. Morning at22:35:36Z still had nine players and latesthand19:08:57Z. The existing engine owner reports the replacement image passed its35-million-object native qualification and awaits certified cutover; no activation claim.
+
+Eleven actual-method cases fail before A19: a1002-generation/1001-player pending board is truncated to1000, later-page and later-count failures remain invisible, malformed counts are accepted and withdrawn lifecycles still return counts. Existing keyset paging now reads the candidate board completely; deduplicated players use the established200-ID query bound with strict count evidence and lifecycle checks before and after awaits. Failure stays unknown before chest inventory is constructed. No SQL or new scheduled repair. Initial42 focused activation/count tests pass; final boundary cases, compiler and normal submission follow.
+
+A19 final45 focused tests pass, including empty, one-player and exact1000 boundaries; server TypeScript compilation passes. The exact source diff preserves the existing seed transaction and its unknown-result continuation. Normal pre-push and hosted/live qualification remain required.

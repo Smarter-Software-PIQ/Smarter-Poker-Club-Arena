@@ -72,7 +72,7 @@ import {
   spinBlindsForLevel,
 } from '../config/spinSpec.js';
 import { describeError, reportError } from '../services/errorReporter.js';
-import { selectInChunks } from '../services/supabase/chunkedIn.js';
+import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
 /**
  * THE TOURNAMENT CEILING IS THE DECK, NOT THE CASH SEAT LAW (2026-08-31).
@@ -5620,40 +5620,66 @@ export abstract class TournamentManagerBase {
    * regular half. `null` means it could not be read.
    */
   protected async readUnrecordedKnockoutCount(): Promise<number | null> {
-    const { data: pending, error: pendingErr } = await supabase
-      .from('tournament_knockout_candidates')
-      .select('eliminated_user_id')
-      .eq('tournament_id', this.tournamentId)
-      .eq('state', 'pending');
-    if (pendingErr || !pending) {
-      reportError(
-        pendingErr ?? new Error('pending knockout candidates unreadable'),
-        'Tournament.mystery_unrecorded_knockouts_unreadable'
+    const lifecycle = this.captureLifecycleToken();
+    const current = () => this.lifecycleIsCurrent(lifecycle);
+    if (!current()) return null;
+    try {
+      const pending = await fetchAllRows<{ id: string; eliminated_user_id: unknown }>(
+        (cursor, want) => {
+          let query = supabase
+            .from('tournament_knockout_candidates')
+            .select('id, eliminated_user_id')
+            .eq('tournament_id', this.tournamentId)
+            .eq('state', 'pending')
+            .order('id', { ascending: true })
+            .limit(want);
+          if (cursor !== null) query = query.gt('id', cursor);
+          return query;
+        },
+        {
+          label: 'Tournament.mystery_unrecorded_knockouts',
+          pageAttempts: 1,
+          shouldContinue: current,
+        }
       );
+      if (!pending.complete || !current()) return null;
+      const userIds = new Set<string>();
+      for (const row of pending.rows) {
+        if (typeof row.eliminated_user_id !== 'string' || row.eliminated_user_id.length === 0) {
+          throw new Error('Pending knockout player identity unreadable');
+        }
+        userIds.add(row.eliminated_user_id);
+      }
+      const ids = [...userIds];
+      let total = 0;
+      // Bound the URL independently of the result pages. One player can have
+      // multiple pending generations, but contributes to this count only once.
+      for (let at = 0; at < ids.length; at += IN_LIST_CHUNK) {
+        if (!current()) return null;
+        const batch = ids.slice(at, at + IN_LIST_CHUNK);
+        const { count, error } = await supabase
+          .from('tournament_players')
+          .select('*', { count: 'exact', head: true })
+          .eq('tournament_id', this.tournamentId)
+          .eq('status', 'playing')
+          .in('user_id', batch);
+        if (!current()) return null;
+        if (
+          error ||
+          typeof count !== 'number' ||
+          !Number.isSafeInteger(count) ||
+          count < 0 ||
+          count > batch.length
+        ) {
+          throw error ?? new Error('Unrecorded knockout count unreadable');
+        }
+        total += count;
+      }
+      return total;
+    } catch (error) {
+      reportError(error, 'Tournament.mystery_unrecorded_knockouts_unreadable');
       return null;
     }
-    const userIds = [
-      ...new Set(
-        (pending as Array<{ eliminated_user_id: unknown }>)
-          .map((r) => (r.eliminated_user_id == null ? '' : String(r.eliminated_user_id)))
-          .filter((id) => id.length > 0)
-      ),
-    ];
-    if (userIds.length === 0) return 0;
-    const { count, error } = await supabase
-      .from('tournament_players')
-      .select('*', { count: 'exact', head: true })
-      .eq('tournament_id', this.tournamentId)
-      .eq('status', 'playing')
-      .in('user_id', userIds);
-    if (error || count == null) {
-      reportError(
-        error ?? new Error('unrecorded knockout count unreadable'),
-        'Tournament.mystery_unrecorded_knockouts_unreadable'
-      );
-      return null;
-    }
-    return count;
   }
 
   /**
