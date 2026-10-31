@@ -8,6 +8,7 @@ not production custody or a maintenance certificate. Unknown cleanup is terminal
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -201,7 +202,7 @@ def cleanup(name, key, deadline):
 
 def validate_result(result, fixture_sha):
     require(result.get('schema') == 'legacy-native-scale-fixture/v1' and result.get('ok') is True and
-            result.get('qualification') == 'synthetic-cardinality-and-memory-only' and
+            result.get('qualification') == 'synthetic-full-cardinality-census-phase-only' and
             result.get('fixtureSHA256') == fixture_sha and result.get('count') == 35000000 and
             result.get('prototypeRestored') is True and result.get('matched') == 11 and
             result.get('node') == 'v22.23.2' and result.get('v8') == '12.4.254.21-node.56' and
@@ -209,6 +210,13 @@ def validate_result(result, fixture_sha):
             result.get('sourceSHA256') == 'cbd7279fc6595a31bd2044769d2ad85684d63713351acd0bb602dbfcdbdce31e' and
             re.fullmatch(r'[0-9a-f]{64}', result.get('binarySHA256', '')),
             'scale fixture identity or completeness refused')
+    transport = result.get('transport')
+    require(type(transport) is dict and set(transport) == {'ok', 'closed', 'outerMs'} and
+            type(transport['outerMs']) in (int, float) and 0 < transport['outerMs'] <= 30000 and
+            math.isfinite(transport['outerMs']) and transport['ok'] is True and transport['closed'] is True,
+            'composed census transport shape or measurements refused')
+    require(result.get('collectorSHA256') == digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()) and
+            result.get('compositionSHA256') == digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes()), 'composed census transport or source binding refused')
     before, attempt = result['before'], result['attempt']
     require(before['used'] >= 3913011648 and 32 * 1024 ** 2 + 772608 <= before['available'] <= 322107592 and
             before['process'] >= 8 * before['used'] + 32 * 1024 ** 2 and
@@ -234,7 +242,9 @@ def main(image, run_id, deadline):
     candidate = candidate_identity(image)
     fixture_sha = digest((ROOT / 'legacy-census-scale-fixture.mjs').read_bytes())
     binding = {'schema':'legacy-native-scale-binding/v1', 'image':image, 'fixtureSHA256':fixture_sha,
-               'controllerSHA256':digest(Path(__file__).read_bytes()), 'profile':PROFILE}
+               'controllerSHA256':digest(Path(__file__).read_bytes()), 'profile':PROFILE,
+               'collectorSHA256':digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+               'compositionSHA256':digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes())}
     key = digest(json.dumps(binding, sort_keys=True).encode())
     name = 'ca-native-scale-' + key[:32]
     secure_directory(STATE)
@@ -295,7 +305,7 @@ def main(image, run_id, deadline):
                         '--entrypoint', '/usr/bin/env', image, '-i', '/usr/local/bin/node',
                         '--max-old-space-size=4000', '--max-semi-space-size=1',
                         '/app/native/legacy-census/scale-fixture.mjs', fixture_sha,
-                        str(int((time.time() + 35) * 1000))]
+                        str(int((time.time() + 35) * 1000)), binding['collectorSHA256'], binding['compositionSHA256']]
                 execution = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output,
                                            stderr=output, timeout=max(0.1, 35-(time.monotonic()-started)),
                                            preexec_fn=cap_output)
