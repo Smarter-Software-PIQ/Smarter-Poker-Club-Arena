@@ -365,14 +365,12 @@ export function saveViewPrefs(
  * The sort a tab should show: the player's saved choice if they made one,
  * otherwise the tab's own default.
  *
- * THESE ARE THE DEFAULTS THAT WERE ALREADY IN FORCE, written down. The tab
- * buttons forced 'starting_soon' on MTT and 'recommended' on NLH/PLO, and the
- * page's initial state was 'starting_soon' — which is what ALL landed on and
- * what SPINS and HEADS UP inherited by never being reassigned. LIMIT is the
- * one that inherited whatever the previous tab happened to leave behind; it is
- * a cash tab, so it takes the cash default rather than a coin toss.
+ * Dan 2026-10-31: Spins, Sit N Go's and Satellites open by current Players,
+ * highest first. MTT keeps Recommended, as do cash variants. These defaults
+ * are read only when a player has not saved an explicit sort for this tab.
  */
 export function defaultSortForTab(tab: LobbyTabKey): LobbySortKey {
+  if (tab === 'SPIN' || tab === 'SNG' || tab === 'SATELLITE') return 'players';
   if (tab === 'MTT' || tab === 'HOLDEM' || tab === 'OMAHA' || tab === 'LIMIT' || tab === 'MIXED') {
     return 'recommended';
   }
