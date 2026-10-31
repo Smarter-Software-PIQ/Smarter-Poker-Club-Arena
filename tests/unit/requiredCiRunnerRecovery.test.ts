@@ -106,13 +106,31 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
         step.name === 'Install PostgreSQL 17 tools without a default database service'
     );
     expect(installers).toHaveLength(1);
+    // 2026-10-31: shard 2 also installs and checks libfaketime for the dated
+    // rake-share proof (scripts/ci/test-player-fee-redemption.sh).
     expect(createHash('sha256').update(JSON.stringify(installers[0])).digest('hex')).toBe(
-      'b0961ac4782f86fbf4158a3eb0d3d3a6d650ae86d662a4bd4d73b552849d37dd'
+      '680a96f69a7a97df9f2013b92aeaa26e054948d83f27f780ab16aee1e8a5b2a6'
     );
     const newInstallCase =
       '  5|6|7)\n    # Isolated weekly recompute, full weekly activation and V31 use\n    # the common PG17 tools; no native compiler or fixture builder.\n    # The shared install/readiness check below retains pg_cron,\n    # including the full weekly activation fixture on shard 6.\n    ;;\n';
     expect(installers[0].run.split(newInstallCase)).toHaveLength(2);
     installers[0].run = installers[0].run.replace(newInstallCase, '');
+    // Reviewed 2026-10-31 change: shard 2's libfaketime install and readiness
+    // check. Normalized back out so the whole-job hash below still binds
+    // every other command.
+    const fakeClockComment =
+      '    # libfaketime pins the clock for the dated 20261025030629 rake-share\n    # proof (scripts/ci/test-player-fee-redemption.sh).\n';
+    const fakeClockCheck =
+      '    if [[ ! -f /usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1 ]]; then pg_ci_build_tools_ready=false; fi\n';
+    for (const piece of [fakeClockComment, fakeClockCheck]) {
+      expect(installers[0].run.split(piece)).toHaveLength(2);
+      installers[0].run = installers[0].run.replace(piece, '');
+    }
+    expect(installers[0].run.split(' libcurl4-openssl-dev libfaketime)')).toHaveLength(2);
+    installers[0].run = installers[0].run.replace(
+      ' libcurl4-openssl-dev libfaketime)',
+      ' libcurl4-openssl-dev)'
+    );
     // Normalize only reviewed routing changes; the existing whole-job hashes
     // still enforce every command, assertion, timeout, artifact and ordering.
     const remappedSteps = [
