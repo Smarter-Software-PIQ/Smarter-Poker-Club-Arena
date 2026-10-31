@@ -2168,6 +2168,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 if (this.handForHandActive) {
                   this.handForHandActive = false;
                   this.stopHandForHandSync();
+                  if (!this.isOnBreak() && !this.successorDrainRequested) {
+                    for (const engine of this.tableEngines.values()) engine.resumeDealing();
+                  }
                   this.noteEliminationSweepStep('broadcast');
                   await this.broadcast('bubble_burst', {
                     playersRemaining: playingNow,
@@ -2175,9 +2178,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                     reason: 'satellite_has_no_awards',
                   });
                   if (sweepStopped()) return;
-                  if (!this.isOnBreak() && !this.successorDrainRequested) {
-                    for (const engine of this.tableEngines.values()) engine.resumeDealing();
-                  }
                 }
                 break handForHandStage;
               }
@@ -2230,13 +2230,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 console.log(
                   `[Tournament:${this.tournamentId.slice(0, 8)}] HAND-FOR-HAND - ${playingNow} players, paid through place ${payoutCount}`
                 );
-                this.noteEliminationSweepStep('broadcast');
-                await this.broadcast('hand_for_hand', {
-                  active: true,
-                  playersRemaining: playingNow,
-                  paidPositions: payoutCount,
-                });
-                if (sweepStopped()) return;
                 // A current break already parks these tables with its longer budget.
                 if (!this.isOnBreak()) {
                   for (const engine of this.tableEngines.values()) {
@@ -2245,6 +2238,15 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 }
                 // Start hand-for-hand sync check
                 this.startHandForHandSync();
+                // Gameplay custody is synchronous; announcement transport cannot
+                // leave fast tables dealing while the bubble waits for delivery.
+                this.noteEliminationSweepStep('broadcast');
+                await this.broadcast('hand_for_hand', {
+                  active: true,
+                  playersRemaining: playingNow,
+                  paidPositions: payoutCount,
+                });
+                if (sweepStopped()) return;
               }
             } else if (this.handForHandActive && playingNow <= payoutCount) {
               // Bubble burst — resume normal play
@@ -2253,9 +2255,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               console.log(
                 `[Tournament:${this.tournamentId.slice(0, 8)}] BUBBLE BURST - ${playingNow} players ITM`
               );
-              this.noteEliminationSweepStep('broadcast');
-              await this.broadcast('bubble_burst', { playersRemaining: playingNow });
-              if (sweepStopped()) return;
               // The bubble does not own an overlapping mystery activation.
               // Keep every table parked until its chest inventory is sealed.
               if (
@@ -2267,6 +2266,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                   engine.resumeDealing();
                 }
               }
+              this.noteEliminationSweepStep('broadcast');
+              await this.broadcast('bubble_burst', { playersRemaining: playingNow });
+              if (sweepStopped()) return;
             }
           }
         }
