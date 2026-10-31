@@ -104,7 +104,12 @@ describe('a satellite that has busted nobody is not asked again under the whole 
     const query: any = {
       select: () => query,
       eq: () => query,
-      in: async () => ({ data: [{ id: TABLE }], error: null }),
+      in: () => query,
+      order: () => query,
+      limit: () => query,
+      gt: () => query,
+      then: (resolve: any, reject: any) =>
+        Promise.resolve({ data: [{ id: TABLE }], error: null }).then(resolve, reject),
     };
     vi.spyOn(supabase, 'from').mockReturnValue(query);
     rpc.read.mockResolvedValue(continuing(14, 8));
