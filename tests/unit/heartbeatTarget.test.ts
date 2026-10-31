@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { sliceMethod } from '../helpers/sourceWindow';
 import {
   createHeartbeatRecoveryGuard,
   shouldAskTableRow,
@@ -89,8 +90,7 @@ describe('TablePage dead-table recovery wiring (2026-10-31)', () => {
   });
 
   it('never acts during a seat-first pre-start, a break, a paused table or a Lightning room', () => {
-    const start = page.indexOf('const driveDeadTable = () => {');
-    const body = page.slice(start, start + 600);
+    const body = sliceMethod(page, 'const driveDeadTable = () => {');
     for (const guard of [
       'seatFirstOpenRef.current',
       'maintenanceBreakRef.current.active',
@@ -102,8 +102,7 @@ describe('TablePage dead-table recovery wiring (2026-10-31)', () => {
   });
 
   it('an embedded table reports its successor to the container instead of navigating', () => {
-    const start = page.indexOf('deadTableFollowRef.current = (destination: string) => {');
-    const body = page.slice(start, start + 300);
+    const body = sliceMethod(page, 'deadTableFollowRef.current = (destination: string) => {');
     expect(body).toContain('onTableInfoUpdate?.({ movedToTableId: destination });');
     expect(page).toContain(
       "masterBus.emit('TABLE_MENU_ACTION', { tableId, action: 'CLOSE_TABLE_TAB' });"

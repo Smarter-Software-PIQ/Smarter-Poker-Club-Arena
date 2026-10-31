@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { sliceEnclosingBlock } from '../helpers/sourceWindow';
 import { reportClientWarning } from '../../src/utils/errorReporter';
 import { toSinkEvent } from '../../src/utils/clientErrorSink';
 
@@ -24,7 +25,7 @@ describe('pot_win_no_award_groups', () => {
     expect(call).toContain(`'${MESSAGE}'`);
     expect(call).toContain("code: 'POT_WIN_NO_AWARD_GROUPS'");
     // The synthesis that follows is unchanged.
-    expect(TABLE_PAGE.slice(at, at + 1200)).toContain(
+    expect(sliceEnclosingBlock(TABLE_PAGE, `'${SOURCE}'`)).toContain(
       'const fallbackShare = potAmount / (winnerIds.length || 1);'
     );
     // No ERROR report for this source remains.
