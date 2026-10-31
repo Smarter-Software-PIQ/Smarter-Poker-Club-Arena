@@ -1720,7 +1720,7 @@ export default function LobbyTable({
             .filter(({ cell }) => getComputedStyle(cell).display !== 'none')
         : [];
       setVisibleColumnCount(visible.length || columns.length);
-      setLastVisibleColumnIndex(visible.at(-1)?.index ?? columns.length - 1);
+      setLastVisibleColumnIndex(visible[visible.length - 1]?.index ?? columns.length - 1);
     };
     measure();
     window.addEventListener('resize', measure);
