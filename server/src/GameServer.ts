@@ -312,6 +312,7 @@ import {
   RunningResumeCooldowns,
   awaitsFirstDeal,
   resumesHoldingASlot,
+  selectOrphanClaims,
   selectRunningResumes,
 } from './tournamentResumeBudget.js';
 import { QuarantinedTournamentManagers } from './tournament/quarantinedTournamentManagers.js';
@@ -10431,6 +10432,37 @@ export class GameServer {
     );
   }
 
+  /**
+   * Every tournament id holding an engine_tournament_leases row, any holder,
+   * any heartbeat age. Null when the read is incomplete or fails: the orphan
+   * claim then claims nothing, because an unknown lease is not a missing one.
+   */
+  private async readTournamentLeaseRowIds(): Promise<Set<string> | null> {
+    try {
+      const page = await fetchAllRows<{ tournament_id: string }>(
+        (cursor, want) => {
+          let query = supabase
+            .from('engine_tournament_leases')
+            .select('tournament_id')
+            .order('tournament_id', { ascending: true })
+            .limit(want);
+          if (cursor) query = query.gt('tournament_id', cursor);
+          return query;
+        },
+        { label: 'GameServer.tournamentLeaseRows', maxRows: 50_000, idKey: 'tournament_id' }
+      );
+      if (
+        !page.complete ||
+        page.rows.some((row) => typeof row?.tournament_id !== 'string' || !row.tournament_id)
+      )
+        return null;
+      return new Set(page.rows.map((row) => row.tournament_id));
+    } catch (error) {
+      reportError(error, 'GameServer.tournament_lease_rows_unreadable');
+      return null;
+    }
+  }
+
   private async discoverRunningResumes(): Promise<void> {
     const generation = this.lifecycleGeneration;
     while (this.directAdmissionIsCurrent(generation)) {
@@ -10528,8 +10560,38 @@ export class GameServer {
          * head of events that cannot resume could hold every slot while no
          * younger event was ever adopted. See tournamentResumeBudget.ts.
          */
+        /* ORPHANS FIRST (Phase 6, 2026-10-31). A RUNNING tournament with no
+           engine_tournament_leases row is held by nobody anywhere; the leader
+           claims it on this pass, ahead of the budget and its cooldown. The
+           lease table is read whole; an unreadable read yields NO orphans
+           (unknown is not "unleased"), so an outage cannot become a storm. */
+        const orphanClaims: typeof running = [];
+        if (running.length > 0 && isLeader()) {
+          const leased = await this.readTournamentLeaseRowIds();
+          if (!this.directAdmissionIsCurrent(generation)) break;
+          if (leased) {
+            orphanClaims.push(
+              ...selectOrphanClaims(running, {
+                hasLeaseRow: (id) => leased.has(id),
+                hasManager: (id) => this.tournamentEngines.has(id),
+                admissionInFlight: (id) =>
+                  this.tournamentManagerAdmissionOperations.has(id) ||
+                  this.tournamentManagerAdmissionRetryTimers.has(id),
+              })
+            );
+            if (orphanClaims.length > 0)
+              console.warn(
+                `[GameServer] claiming ${orphanClaims.length} RUNNING tournament(s) with no lease row: ` +
+                  orphanClaims
+                    .slice(0, 5)
+                    .map((t) => String(t.id).slice(0, 8))
+                    .join(', ')
+              );
+          }
+        }
+        const orphanIds = new Set(orphanClaims.map((t) => String(t.id)));
         const selectedAt = Date.now();
-        const resumes = selectRunningResumes(running, {
+        const budgeted = selectRunningResumes(running, {
           hasManager: (id) => this.tournamentEngines.has(id),
           admissionInFlight: (id) =>
             this.tournamentManagerAdmissionOperations.has(id) ||
@@ -10553,6 +10615,10 @@ export class GameServer {
             this.tournamentManagerAdmissionRetryTimers.size,
           budget: this.tournamentResumeBudget,
         });
+        const resumes = [
+          ...orphanClaims,
+          ...budgeted.filter((t) => !orphanIds.has(String(t.id))),
+        ];
         for (const [index, tournament] of resumes.entries()) {
           if (!this.directAdmissionIsCurrent(generation)) break;
           if (index > 0) await this.sleep(TOURNAMENT_RESUME_STAGGER_MS);

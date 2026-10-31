@@ -143,6 +143,45 @@ export function selectRunningResumes<T extends { id: string | number }>(
   return picked;
 }
 
+/**
+ * AN ORPHAN IS CLAIMED ON THE NEXT TICK (Phase 6, 2026-10-31).
+ *
+ * A RUNNING tournament with NO engine_tournament_leases row at all is not a
+ * resume waiting its turn: nobody, on any instance, holds it, so no hand is
+ * dealt and no clock runs until somebody claims it. Waiting behind the AIMD
+ * budget or a failure cooldown is how "the oldest stranded since 2026-09-14"
+ * happened. So the leader claims every such orphan on its next pass, ahead of
+ * the budgeted resumes and without waiting out a cooldown, up to
+ * ORPHAN_CLAIMS_PER_TICK a pass (a bound, so a lease-table outage that makes
+ * everything LOOK orphaned cannot turn into a claim storm: an unreadable
+ * lease table yields no orphans at all, see the caller).
+ */
+export const ORPHAN_CLAIMS_PER_TICK = 16;
+
+export interface OrphanClaimPass {
+  hasManager(tournamentId: string): boolean;
+  admissionInFlight(tournamentId: string): boolean;
+  /** A lease row exists for this tournament (any holder, any age). */
+  hasLeaseRow(tournamentId: string): boolean;
+}
+
+/** RUNNING rows with no lease row and no local owner, board order, bounded. */
+export function selectOrphanClaims<T extends { id: string | number }>(
+  board: readonly T[],
+  pass: OrphanClaimPass,
+  cap = ORPHAN_CLAIMS_PER_TICK
+): T[] {
+  const picked: T[] = [];
+  for (const row of board) {
+    if (picked.length >= cap) break;
+    const tournamentId = String(row.id);
+    if (pass.hasLeaseRow(tournamentId)) continue;
+    if (pass.hasManager(tournamentId) || pass.admissionInFlight(tournamentId)) continue;
+    picked.push(row);
+  }
+  return picked;
+}
+
 /** The cooldown after an id's first resume that came back without a manager. */
 export const RESUME_COOLDOWN_FIRST_MS = 5_000;
 /** No cooldown is longer than this, however long the streak. */

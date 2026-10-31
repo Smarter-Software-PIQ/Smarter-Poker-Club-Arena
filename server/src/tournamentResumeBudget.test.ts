@@ -61,6 +61,9 @@ import {
   resumeCooldownMs,
   resumesHoldingASlot,
   selectRunningResumes,
+  ORPHAN_CLAIMS_PER_TICK,
+  selectOrphanClaims,
+  type OrphanClaimPass,
 } from './tournamentResumeBudget.js';
 import { blankNonCode, sliceEnclosingBlock, sliceMethod } from './testHelpers/sourceWindow.js';
 
@@ -456,5 +459,45 @@ describe('a resume that keeps failing is a financial incident, not a health numb
     cooldowns.recordFailure('c', 0);
     cooldowns.settle([{ id: 'c' }], () => true);
     expect(cooldowns.longStreaks(60 * 60_000, 10 * 60_000)).toEqual([]);
+  });
+});
+
+/**
+ * AN ORPHAN IS CLAIMED ON THE NEXT TICK (Phase 6, 2026-10-31): a RUNNING
+ * tournament with no engine_tournament_leases row is held by nobody.
+ */
+describe('selectOrphanClaims', () => {
+  const board = ['a', 'b', 'c', 'd'].map((id) => ({ id }));
+  const pass = (over: Partial<OrphanClaimPass> = {}): OrphanClaimPass => ({
+    hasManager: () => false,
+    admissionInFlight: () => false,
+    hasLeaseRow: () => false,
+    ...over,
+  });
+
+  it('claims every unleased, unowned RUNNING row in board order', () => {
+    const leased = new Set(['b']);
+    expect(
+      selectOrphanClaims(board, pass({ hasLeaseRow: (id) => leased.has(id) })).map((t) => t.id)
+    ).toEqual(['a', 'c', 'd']);
+  });
+
+  it('skips rows with a local manager or an admission already in flight', () => {
+    expect(
+      selectOrphanClaims(
+        board,
+        pass({ hasManager: (id) => id === 'a', admissionInFlight: (id) => id === 'c' })
+      ).map((t) => t.id)
+    ).toEqual(['b', 'd']);
+  });
+
+  it('is bounded per tick, so a lease-table outage cannot become a claim storm', () => {
+    const big = Array.from({ length: ORPHAN_CLAIMS_PER_TICK * 3 }, (_, i) => ({ id: `t${i}` }));
+    expect(selectOrphanClaims(big, pass())).toHaveLength(ORPHAN_CLAIMS_PER_TICK);
+  });
+
+  it('ignores the resume budget and cooldowns: it takes no such inputs', () => {
+    // The whole point: an orphan does not wait behind the AIMD budget.
+    expect(selectOrphanClaims(board, pass(), 2).map((t) => t.id)).toEqual(['a', 'b']);
   });
 });
