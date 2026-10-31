@@ -85,6 +85,8 @@ describe('tournament headers span their whole event frame', () => {
       );
       expect(declaration(css, spacer)).toContain('height: 4px;');
       expect(declaration(css, spacer)).toContain('padding: 0;');
+      expect(declaration(css, spacer)).toContain('background: #000;');
+      expect(declaration(css, spacer)).toContain('box-shadow: none;');
       expect(selectorWeight(spacer)).toBeGreaterThan(selectorWeight(owner));
     }
 

@@ -2346,6 +2346,8 @@ abbr.lt-variant[title] {
   max-height: 4px;
   padding: 0;
   border: 0;
+  background: #000;
+  box-shadow: none;
   line-height: 0;
   font-size: 0;
 }
