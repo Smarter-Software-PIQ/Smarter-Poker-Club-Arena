@@ -228,7 +228,9 @@ import type { TableStatus } from '../types.js';
 import { assertDiamondTable } from '../domain/DiamondCashBoundary.js';
 import {
   DiamondCashPolicyClosedError,
+  DiamondTournamentPolicyClosedError,
   type CashTablePolicyRefusal,
+  type TournamentTablePolicyRefusal,
 } from '../services/cashTablePlayEligibility.js';
 
 export type EngineLeaseAuthority =
@@ -509,6 +511,15 @@ export abstract class ServerTableEngineBase {
 
   getStartupPolicyRefusal(): Readonly<CashTablePolicyRefusal> | null {
     return this.startupPolicyRefusal;
+  }
+  private startupTournamentPolicyRefusal: Readonly<TournamentTablePolicyRefusal> | null = null;
+  /**
+   * A Diamond tournament table whose arena's tournaments are closed (owner
+   * decision, 2026-10-31). Published before ready=false so the manager retires
+   * the table quietly instead of retrying it into the same answer.
+   */
+  getStartupTournamentPolicyRefusal(): Readonly<TournamentTablePolicyRefusal> | null {
+    return this.startupTournamentPolicyRefusal;
   }
   /**
    * The retained-hand door refused this cash table's start from durable
@@ -4405,6 +4416,21 @@ export abstract class ServerTableEngineBase {
         // Publish the decision before ready=false can trigger a recovery retry.
         // The exact owner still has to join stop() and release this generation.
         this.startupPolicyRefusal = Object.freeze({
+          code: err.code,
+          tableId: err.tableId,
+          arenaId: err.arenaId,
+        });
+        this.fenceTerminalEngine('startup_policy_closed', false);
+        throw err;
+      }
+      if (
+        err instanceof DiamondTournamentPolicyClosedError &&
+        err.tableId === this.tableId &&
+        this.loopPhase === 'start_load_table'
+      ) {
+        // A closed Diamond arena is a decision, not a crash: no failed_to_start
+        // report, no watchdog kill. Published before ready=false.
+        this.startupTournamentPolicyRefusal = Object.freeze({
           code: err.code,
           tableId: err.tableId,
           arenaId: err.arenaId,
