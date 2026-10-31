@@ -234,6 +234,9 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
     native.command(['git', '-C', str(repo), 'diff', '--exit-code', 'HEAD'])
     provenance['control_tree'] = native.command(['git', '-C', str(repo), 'rev-parse', 'HEAD^{tree}']).stdout.decode().strip()
     controls_closure = ['operations/release/fixture/schema-snapshot.mjs',
+        'operations/release/fixture/schema-native-dump-diagnostic.mjs',
+        'operations/release/fixture/native-dump-diagnostic.py',
+        'operations/release/fixture/native-dump-diagnostic.c',
         'scripts/ci/certificates/supabase-prod-ca-2021.crt',
         'operations/release/fixture/schema-compose.mjs', 'operations/release/fixture/schema-application-hooks.mjs',
         'operations/release/fixture/current-application-roles.mjs',
