@@ -3,6 +3,7 @@ import {
   ORIGINAL_RECOVERY_TWENTY,
 } from './handlers/tournamentOriginalRecovery.js';
 import { mttPrizeShare } from './services/mttHorseArrivalPlan.js';
+import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
   createCompletedF06DiagnosticWindow,
@@ -6140,7 +6141,7 @@ export class GameServer {
         tables: tableLiveness.length,
         stalled: stalledTables.length,
         undealable: tableLiveness.filter((t) => t.dealable <= 0).length,
-        maxMsSinceProgress: tableLiveness.reduce((max, t) => Math.max(max, t.msSinceProgress), 0),
+        maxMsSinceProgress: fleetStallMaxMs(tableLiveness),
         dealableSeats: tableLiveness.reduce((sum, t) => sum + t.dealable, 0),
         /* `stalled` above cannot see these: a tournament table whose engine was
            registered and never started reports dealable 0, and every stall
@@ -6539,9 +6540,9 @@ export class GameServer {
        * fleet from paying the old price all over again, and the two counters
        * beside it mean the truncation is never silent (CLAUDE.md 10.86).
        */
-      '# HELP poker_fleet_table_stall_max_ms Milliseconds since the least-recently-progressed table made progress',
+      '# HELP poker_fleet_table_stall_max_ms Milliseconds since the least-recently-progressed table that should be dealing (two or more dealable seats, not paused by design inside its bound) made progress',
       '# TYPE poker_fleet_table_stall_max_ms gauge',
-      `poker_fleet_table_stall_max_ms ${liveness.reduce((max, t) => Math.max(max, t.msSinceProgress), 0)}`,
+      `poker_fleet_table_stall_max_ms ${fleetStallMaxMs(liveness)}`,
       '# HELP poker_fleet_tables_stalled Dealable tables (two or more seats that can be dealt) that have made no observable progress for at least 30s; a table below its deal minimum is waiting, not stalled',
       '# TYPE poker_fleet_tables_stalled gauge',
       `poker_fleet_tables_stalled ${liveness.filter((t) => t.dealable >= 2 && t.msSinceProgress >= STALL_SAMPLE_FLOOR_MS).length}`,
