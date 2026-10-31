@@ -147,7 +147,7 @@ beforeEach(() => {
     const result =
       h.pending ?? Promise.resolve(h.pages?.shift() ?? { data: h.rows.slice(), error: h.error });
     const builder: Record<string, unknown> = {};
-    for (const method of ['select', 'eq', 'in', 'order', 'limit', 'gt'])
+    for (const method of ['select', 'eq', 'in', 'order', 'limit', 'gt', 'abortSignal'])
       builder[method] = () => builder;
     builder.then = (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) =>
       result.then(resolve, reject);

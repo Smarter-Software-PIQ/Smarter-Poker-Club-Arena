@@ -6,7 +6,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PG_BIN="${PG_BIN:?Set PG_BIN to PostgreSQL 17 binaries}"
 WORK="$(mktemp -d "${FEE_REDEMPTION_SCRATCH:?Set an external SSD scratch path on macOS}/fee-redemption.XXXXXX")"
 FIXTURE="$ROOT/scripts/ci/fixtures/player-fee-redemption"
+restore_fixture_clock() {
+  if [ -f "$WORK/restore-now.sql" ]; then
+    "${PSQL[@]}" -f "$WORK/restore-now.sql"
+    rm "$WORK/restore-now.sql"
+  fi
+}
 cleanup() {
+  restore_fixture_clock || true
   "$PG_BIN/pg_ctl" -D "$WORK/data" -m immediate stop >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -15,10 +22,6 @@ trap cleanup EXIT
 "$PG_BIN/pg_ctl" -D "$WORK/data" -l "$WORK/postgres.log" \
   -o "-k $WORK -c listen_addresses=''" -w start >/dev/null
 PSQL=("$PG_BIN/psql" -X -q -h "$WORK" -U fee_test -d postgres -v ON_ERROR_STOP=1)
-# Preserve the native definition, then replay the historical fixture at its
-# declared clock. No production migration bytes or financial assertions change.
-"${PSQL[@]}" -Atc "SELECT pg_get_functiondef('pg_catalog.now()'::regprocedure)" > "$WORK/restore-now.sql"
-"${PSQL[@]}" -f "$FIXTURE/historical-clock.sql"
 "${PSQL[@]}" -f "$FIXTURE/fee-redemption-schema.sql" -f "$FIXTURE/fee-redemption-source-functions.sql"
 # The regression must demonstrably fail on the captured pre-fix reader.
 if "${PSQL[@]}" -c "DO \$\$ BEGIN ASSERT (SELECT cash_fees FROM ca_club_member_fee_totals('a41434bb-8d0c-400a-8f0d-e8b3d65afed4',null,null,'69f2cefa-017d-49f3-ac3e-61505633747c'))=373.06, 'redemption missing'; END \$\$;" > "$WORK/before.log" 2>&1; then
@@ -40,6 +43,15 @@ SHARE=("$ROOT"/supabase/migrations/*_a_standing_rake_share_replaces_the_woowoo_c
 test "${#SHARE[@]}" = 1
 test -f "${OUT_OF_BAND[0]}"
 test -f "${SHARE[0]}"
+# Replay the historical cutover at its recorded day, not a drifting seven-day
+# boundary. This changes only this disposable database's zero-argument clock;
+# the original builtin definition is restored normally and by the EXIT trap.
+"${PSQL[@]}" -At -c "SELECT pg_get_functiondef('pg_catalog.now()'::regprocedure)" > "$WORK/restore-now.sql"
+"${PSQL[@]}" <<'FIXTURE_CLOCK'
+DO $$ BEGIN ASSERT current_user = 'fee_test' AND current_setting('listen_addresses') = '', 'disposable fixture only'; END $$;
+CREATE OR REPLACE FUNCTION pg_catalog.now() RETURNS timestamptz LANGUAGE sql STABLE PARALLEL SAFE AS $$ SELECT timestamptz '2026-10-25 12:00:00+00' $$;
+DO $$ BEGIN ASSERT now() = timestamptz '2026-10-25 12:00:00+00', 'historical fixture clock not installed'; END $$;
+FIXTURE_CLOCK
 "${PSQL[@]}" -f "$FIXTURE/rake-share-out-of-band.sql" -f "${OUT_OF_BAND[0]}" -f "$FIXTURE/rake-share-lag.sql"
 # The cron trails the hands: before the fix KingFish's statistics miss hand D.
 if "${PSQL[@]}" -c "DO \$\$ BEGIN ASSERT (ca_player_rake_stats('47965354-0e56-43ef-931c-ddaab82af765')->>'rake_paid')::numeric=576.77, 'share lags the hands'; END \$\$;" > "$WORK/share-before.log" 2>&1; then
@@ -49,14 +61,11 @@ fi
 grep -q 'share lags the hands' "$WORK/share-before.log"
 "${PSQL[@]}" -f "${SHARE[0]}" -f "$FIXTURE/rake-share-assert.sql"
 echo 'PASS: the standing rake share replaces the cron; exact, immediate, funded club, ended rule, grants, fixed events kept and no cron writes the redemptions'
+restore_fixture_clock
+"${PSQL[@]}" <<'RESTORED_CLOCK'
+DO $$ BEGIN ASSERT (SELECT l.lanname = 'internal' AND p.prosrc = 'now' FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang WHERE p.oid = 'pg_catalog.now()'::regprocedure), 'builtin clock not restored'; END $$;
+RESTORED_CLOCK
 
-# Later calendar qualification uses the actual transaction clock again.
-"${PSQL[@]}" -f "$WORK/restore-now.sql"
-"${PSQL[@]}" <<'SQL'
-DO $$ BEGIN
-  ASSERT now() = transaction_timestamp(), 'native clock was not restored';
-END $$;
-SQL
 
 # Rake uses the same viewer-calendar population as the Stats overview.
 CALENDAR="$ROOT/scripts/ci/fixtures/rake-calendar"
