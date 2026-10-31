@@ -75,9 +75,24 @@ describe('the countdown follows certified release', () => {
     );
     const h = renderHook(() => useMaintenanceBreak());
     act(() => h.result.current.ingestMaintenanceEvent('MAINTENANCE_BREAK_ENDED', event()));
-    resolve({ maintenance: { presentation: event() } });
+    resolve({
+      maintenance: {
+        presentation: event(),
+        schedule: {
+          timeZone: 'America/Chicago',
+          startHour: null,
+          startMinute: 0,
+          durationMs: 300000,
+          nextAnnouncementAt: epoch + 1000,
+          hourlyCashFreeze: true,
+          frequency: 'phase1-hourly',
+          policyId: 'phase1-hourly-01a1944f',
+        },
+      },
+    });
     await flush();
     expect(h.result.current.maintenanceBreak.active).toBe(false);
+    expect(h.result.current.routineSchedule).toBe('unknown');
     act(() => h.result.current.ingestMaintenanceEvent('MAINTENANCE_BREAK', event()));
     expect(h.result.current.maintenanceBreak.active).toBe(false);
   });
@@ -125,4 +140,104 @@ describe('the countdown follows certified release', () => {
     await flush();
     expect(h.result.current.maintenanceBreak).toMatchObject({ active: true, phase: 'finalizing' });
   });
+});
+
+describe('routine notices use the existing serving health read', () => {
+  it('transitions old daily to hourly to daily only on observed reconnect health', async () => {
+    const daily = {
+      timeZone: 'America/Chicago',
+      startHour: 4,
+      startMinute: 0,
+      durationMs: 300000,
+      nextAnnouncementAt: epoch + 1000,
+      hourlyCashFreeze: false,
+    };
+    const presentation = event({ active: false, phase: 'idle' });
+    mocks.health.mockResolvedValue({ maintenance: { presentation, schedule: daily } });
+    const h = renderHook(() => useMaintenanceBreak());
+    expect(h.result.current.routineSchedule).toBe('unknown');
+    await flush();
+    expect(h.result.current.routineSchedule).toBe('daily');
+    mocks.health.mockResolvedValue({
+      maintenance: {
+        presentation,
+        schedule: {
+          ...daily,
+          startHour: null,
+          frequency: 'phase1-hourly',
+          policyId: 'phase1-hourly-01a1944f',
+          hourlyCashFreeze: true,
+        },
+      },
+    });
+    act(() => mocks.status?.('connected'));
+    await flush();
+    expect(h.result.current.routineSchedule).toBe('phase1-hourly');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(mocks.health).toHaveBeenCalledTimes(2);
+    expect(h.result.current.routineSchedule).toBe('phase1-hourly');
+    mocks.health.mockResolvedValue({
+      maintenance: {
+        presentation,
+        schedule: { ...daily, frequency: 'daily', policyId: 'phase1-hourly-01a1944f' },
+      },
+    });
+    act(() => window.dispatchEvent(new Event('online')));
+    await flush();
+    expect(h.result.current.routineSchedule).toBe('daily');
+    mocks.health.mockResolvedValue(null);
+    act(() =>
+      h.result.current.ingestMaintenanceEvent(
+        'MAINTENANCE_BREAK',
+        event({ reason: 'Held Break', break_id: epoch + 1 })
+      )
+    );
+    mocks.rpc.mockResolvedValue({
+      data: [{ phase: 'counting_down', break_ends_at: new Date(epoch + 120000).toISOString() }],
+    });
+    act(() => mocks.status?.('connected'));
+    await flush();
+    expect(h.result.current.routineSchedule).toBe('unknown');
+    expect(h.result.current.maintenanceBreak.reason).toBe('Held Break');
+    expect(mocks.health).toHaveBeenCalledTimes(4);
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
+});
+
+it('does not replace an accepted hourly schedule with later-requested but older health', async () => {
+  const schedule = {
+    timeZone: 'America/Chicago',
+    startHour: null,
+    startMinute: 0,
+    durationMs: 300000,
+    nextAnnouncementAt: epoch + 1000,
+    hourlyCashFreeze: true,
+    frequency: 'phase1-hourly',
+    policyId: 'phase1-hourly-01a1944f',
+  };
+  mocks.health.mockResolvedValue({
+    maintenance: { presentation: event({ timestamp: epoch }), schedule },
+  });
+  const h = renderHook(() => useMaintenanceBreak());
+  await flush();
+  expect(h.result.current.routineSchedule).toBe('phase1-hourly');
+  act(() =>
+    h.result.current.ingestMaintenanceEvent(
+      'MAINTENANCE_BREAK',
+      event({ timestamp: epoch + 2000, reason: 'Newer Event' })
+    )
+  );
+  mocks.health.mockResolvedValue({
+    maintenance: {
+      presentation: event({ timestamp: epoch + 1000, reason: 'Older Health' }),
+      schedule: { ...schedule, frequency: 'daily', startHour: 4, hourlyCashFreeze: false },
+    },
+  });
+  // This request starts after the event: the request revision guard alone cannot reject it.
+  act(() => mocks.status?.('connected'));
+  await flush();
+  expect(h.result.current.maintenanceBreak.reason).toBe('Newer Event');
+  expect(h.result.current.routineSchedule).toBe('phase1-hourly');
 });

@@ -2,6 +2,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { serverNow } from '../utils/serverClock';
+import {
+  observedMaintenanceSchedule,
+  type RoutineMaintenanceSchedule,
+} from '../utils/maintenanceSchedule';
 import { getServerStatus, type MaintenancePresentation } from '../services/GameServerAPI';
 import { engineChannelClient } from '../services/EngineStateClient';
 import { realtimeChannelService } from '../services/RealtimeChannelService';
@@ -19,7 +23,11 @@ const IDLE: MaintenanceBreakState = {
   reason: '',
 };
 const MAINTENANCE_WINDOW_MS = 7 * 60 * 1000;
-type ReadResult = { data: Record<string, unknown>; authoritative: boolean } | null;
+type ReadResult = {
+  data: Record<string, unknown>;
+  authoritative: boolean;
+  routineSchedule?: RoutineMaintenanceSchedule;
+} | null;
 let inFlight: Promise<ReadResult> | null = null;
 
 /** Coalesce simultaneous mounts; never cache a release decision across events. */
@@ -28,7 +36,11 @@ async function fetchBreakState(): Promise<ReadResult> {
   inFlight = (async () => {
     const health = await getServerStatus();
     if (health?.maintenance?.presentation) {
-      return { data: { ...health.maintenance.presentation }, authoritative: true };
+      return {
+        data: { ...health.maintenance.presentation },
+        authoritative: true,
+        routineSchedule: observedMaintenanceSchedule(health.maintenance.schedule),
+      };
     }
     try {
       const { data, error } = await supabase.rpc('fn_maintenance_break_state');
@@ -63,6 +75,7 @@ function instant(value: unknown): number | null {
 }
 
 export function useMaintenanceBreak(tableId?: string) {
+  const [routineSchedule, setRoutineSchedule] = useState<RoutineMaintenanceSchedule>('unknown');
   const [state, setState] = useState<MaintenanceBreakState>(IDLE);
   const stateRef = useRef(state);
   const revision = useRef(0);
@@ -72,11 +85,11 @@ export function useMaintenanceBreak(tableId?: string) {
     const breakId = instant(data.break_id ?? data.announced_at) ?? 0;
     const timestamp = instant(data.timestamp) ?? 0;
     const previous = lastEvent.current;
-    if (breakId && previous.breakId && breakId < previous.breakId) return;
-    if (timestamp && previous.timestamp && timestamp < previous.timestamp) return;
-    if (!authoritative && stateRef.current.active) return;
+    if (breakId && previous.breakId && breakId < previous.breakId) return false;
+    if (timestamp && previous.timestamp && timestamp < previous.timestamp) return false;
+    if (!authoritative && stateRef.current.active) return false;
     const active = data.active !== false && data.phase !== 'idle';
-    if (active && breakId && breakId <= closedBreakId.current) return;
+    if (active && breakId && breakId <= closedBreakId.current) return false;
     if (authoritative && !active && breakId)
       closedBreakId.current = Math.max(closedBreakId.current, breakId);
     if (authoritative) lastEvent.current = { breakId, timestamp };
@@ -104,6 +117,7 @@ export function useMaintenanceBreak(tableId?: string) {
       : IDLE;
     stateRef.current = next;
     setState(next);
+    return true;
   }, []);
 
   const ingestEvent = useCallback(
@@ -122,8 +136,14 @@ export function useMaintenanceBreak(tableId?: string) {
   const refreshFromDb = useCallback(async () => {
     const started = ++revision.current;
     const fetched = await fetchBreakState();
-    if (started !== revision.current || !fetched) return;
-    apply(fetched.data, fetched.authoritative);
+    if (started !== revision.current) return;
+    if (!fetched || !fetched.authoritative) {
+      setRoutineSchedule('unknown');
+      if (fetched) apply(fetched.data, false);
+      return;
+    }
+    if (apply(fetched.data, fetched.authoritative))
+      setRoutineSchedule(fetched.routineSchedule ?? 'unknown');
   }, [apply]);
 
   useEffect(() => {
@@ -179,6 +199,11 @@ export function useMaintenanceBreak(tableId?: string) {
     return () => clearTimeout(timer);
   }, [state.active, state.phase, state.breakEndsAtMs, refreshFromDb]);
 
-  return { maintenanceBreak: state, ingestMaintenanceEvent: ingestEvent, refreshFromDb };
+  return {
+    maintenanceBreak: state,
+    routineSchedule,
+    ingestMaintenanceEvent: ingestEvent,
+    refreshFromDb,
+  };
 }
 export default useMaintenanceBreak;
