@@ -9,12 +9,15 @@ host fact (seal, systemd units, /health, database witnesses) is scripted.
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -344,5 +347,33 @@ class CrashDrill(unittest.TestCase):
         self.assertIn('supervisor force=1 exact=1 held=1', events)
 
 
+def run_cases():
+    # Each case owns its subprocess environment, child PID, locks and temp tree.
+    # Separate results avoid concurrent mutation of unittest's result bookkeeping.
+    names = unittest.defaultTestLoader.getTestCaseNames(CrashDrill)
+
+    def run_case(name):
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=2).run(CrashDrill(name))
+        return name, result, stream.getvalue()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(run_case, names))
+    for _, _, output in results:
+        sys.stderr.write(output)
+    summary = {
+        'cases': [name for name, _, _ in results],
+        'testsRun': sum(result.testsRun for _, result, _ in results),
+        'failures': sum(len(result.failures) for _, result, _ in results),
+        'errors': sum(len(result.errors) for _, result, _ in results),
+        'skipped': sum(len(result.skipped) for _, result, _ in results),
+        'workers': 2,
+    }
+    print(json.dumps(summary))
+    return (summary['cases'] == names and len(names) == 8
+            and summary['testsRun'] == 8 and summary['skipped'] == 0
+            and all(result.wasSuccessful() for _, result, _ in results))
+
+
 if __name__ == '__main__':
-    unittest.main()
+    raise SystemExit(0 if run_cases() else 1)

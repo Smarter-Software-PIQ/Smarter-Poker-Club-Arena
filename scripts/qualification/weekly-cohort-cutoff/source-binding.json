@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 271733,
-      "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+      "bytes": 272042,
+      "sha256": "87a7288cfe92dcc026cc3a863ab6eccaa3c7ce5582fd059226d9a6b5ae905fa0"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -1894,5 +1894,23 @@
     },
     "execution_performed": false,
     "historicalEvidenceRestamped": false
+  },
+  "measuredShardThreeBalance20261031": {
+    "scope": "Source-only reassignment of three isolated suites from shard 3 to existing shards 2, 7 and 6. Commands, assertions, deadlines, artifacts, historical evidence and qualification state remain unchanged. Normal hosted qualification is pending.",
+    "updatedCurrentBindings": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 271733,
+          "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+        },
+        "current": {
+          "bytes": 272042,
+          "sha256": "87a7288cfe92dcc026cc3a863ab6eccaa3c7ce5582fd059226d9a6b5ae905fa0"
+        }
+      }
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

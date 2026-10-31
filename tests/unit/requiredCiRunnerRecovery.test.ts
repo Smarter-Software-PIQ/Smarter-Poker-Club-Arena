@@ -115,6 +115,23 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     installers[0].run = installers[0].run.replace(newInstallCase, '');
     // Normalize only reviewed routing changes; the existing whole-job hashes
     // still enforce every command, assertion, timeout, artifact and ordering.
+    for (const [name, shard] of [
+      [
+        'Lightning Phases 6 and 7 match every legal hand, explain every idle player and rotate the blinds fairly',
+        7,
+      ],
+      [
+        'Lightning Phase 12 keeps money and identity exact under load, stress and chaos (real concurrent backends, cancels, terminations and timeouts) and forms under surge',
+        6,
+      ],
+    ]) {
+      const selected = normalized.jobs.accounting_postgres.steps.filter(
+        (step: { name: string }) => step.name === name
+      );
+      expect(selected).toHaveLength(1);
+      expect(selected[0].if).toBe(`matrix.shard == ${shard}`);
+      selected[0].if = 'matrix.shard == 3';
+    }
     const remappedSteps = [
       ['Backed payout discovery preserves every conservation term', 'matrix.shard == 4'],
       ['Every Diamond SQL acceptance runner is listed', 'matrix.shard == 3'],
@@ -134,12 +151,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
           ? `always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.diamond_sql_acceptance.outcome)`
           : previous;
       expect(selected[0].if).toBe(
-        oldCondition.replace(
-          /matrix.shard == [34]/,
-          name === 'Backed payout discovery preserves every conservation term'
-            ? 'matrix.shard == 3'
-            : 'matrix.shard == 2'
-        )
+        oldCondition.replace(/matrix.shard == [34]/, 'matrix.shard == 2')
       );
       selected[0].if = oldCondition;
     }

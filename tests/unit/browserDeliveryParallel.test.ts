@@ -482,3 +482,29 @@ describe('one exact-run disposable browser artifact', () => {
     }
   });
 });
+
+describe('measured accounting shard balance preserves isolated suites', () => {
+  it('routes only the three independent suites and keeps the Phase 13 chain on shard 3', () => {
+    for (const [name, shard] of [
+      ['Backed payout discovery preserves every conservation term', 2],
+      [
+        'Lightning Phases 6 and 7 match every legal hand, explain every idle player and rotate the blinds fairly',
+        7,
+      ],
+      [
+        'Lightning Phase 12 keeps money and identity exact under load, stress and chaos (real concurrent backends, cancels, terminations and timeouts) and forms under surge',
+        6,
+      ],
+      [
+        'Lightning Phase 12 load, stress and chaos rig over the chain through Phase 13 (operator doors, remediation and the rollout drain applied twice)',
+        3,
+      ],
+    ]) {
+      const selected = ci.jobs.accounting_postgres.steps.filter(
+        (step: { name: string }) => step.name === name
+      );
+      expect(selected).toHaveLength(1);
+      expect(selected[0].if).toBe(`matrix.shard == ${shard}`);
+    }
+  });
+});

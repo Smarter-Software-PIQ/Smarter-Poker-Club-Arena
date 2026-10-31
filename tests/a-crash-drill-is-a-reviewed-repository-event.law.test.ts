@@ -158,7 +158,23 @@ describe('the crash drill route', () => {
       }
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toContain('Ran 8 tests');
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      cases: [
+        'test_a_different_durable_break_does_not_certify_recovery',
+        'test_a_restart_that_keeps_the_old_instance_is_not_recovery',
+        'test_leadership_before_delayed_break_adoption_is_not_a_false_failure',
+        'test_missing_break_adoption_exhausts_the_existing_budget_and_restores',
+        'test_missing_hand_progression_after_the_thaw_fails',
+        'test_no_supervisor_restart_is_a_failure_that_forces_the_sealed_runtime_back',
+        'test_passes_only_through_supervisor_restart_and_every_witness',
+        'test_refuses_with_nothing_mutated',
+      ],
+      testsRun: 8,
+      failures: 0,
+      errors: 0,
+      skipped: 0,
+      workers: 2,
+    });
   }, 620_000);
 
   it('witnesses leader, thaw and hand progression from the database', () => {

@@ -1445,6 +1445,10 @@ jobs:
     # This balances measured work; it is not a promised future duration.
     # tests/ci-tells-the-truth-faster.law.test.ts pins the split:
     # every suite step belongs to exactly one shard.
+    # Seven-shard measurement: 1380/814/1994/1214/757/710/764 seconds.
+    # Move independent payout (187s), matcher (315s), and base chaos (115s)
+    # from shard 3 to 2/7/6. Same commands and seven runners; the Phase 13
+    # chaos chain stays on 3. Measured work predicts a 1380s maximum, not a guarantee.
     strategy:
       fail-fast: false
       matrix:
@@ -1944,7 +1948,7 @@ jobs:
         run: python3 scripts/ci/test-certification-retirement-postgres.py
 
       - name: Backed payout discovery preserves every conservation term
-        if: matrix.shard == 3
+        if: matrix.shard == 2
         run: python3 scripts/ci/test-backed-payout-scan-postgres.py
 
       - name: Reserved cleanup finds immutable cash sources without a trailing-key scan
@@ -2187,7 +2191,7 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-lightning-remediation-two.sh
       - name: Lightning Phases 6 and 7 match every legal hand, explain every idle player and rotate the blinds fairly
-        if: matrix.shard == 3
+        if: matrix.shard == 7
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-lightning-phase6-matcher.sh
@@ -2237,7 +2241,7 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-lightning-phase12-operator-alerts.sh
       - name: Lightning Phase 12 keeps money and identity exact under load, stress and chaos (real concurrent backends, cancels, terminations and timeouts) and forms under surge
-        if: matrix.shard == 3
+        if: matrix.shard == 6
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
           LIGHTNING_CHAOS_PROFILE: ci
