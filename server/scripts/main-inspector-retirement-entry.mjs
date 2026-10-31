@@ -74,6 +74,9 @@ function retirementEntryFailure(error) {
       ? code
       : retirementEntryFallbacks[retirementEntryStage],
     entryStage: retirementEntryStage,
+    ...(retirementEntryStage === 'kernel' && mainInspectorKernelFailureReason(error)
+      ? { kernelReason: mainInspectorKernelFailureReason(error) }
+      : {}),
     retryAllowed: false,
   };
 }

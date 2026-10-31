@@ -180,6 +180,20 @@ def bounded_native_facts(value):
                             and value.get('entryStage') in entry_stages else None)
     result['stage'] = value.get('stage') if isinstance(value.get('stage'), str) and value.get('stage') in stages else None
     result['reason'] = value.get('reason') if isinstance(value.get('reason'), str) and value.get('reason') in reasons else None
+    kernel_reasons = {
+        'input_unproved', 'deadline_exhausted', 'read_budget_unproved', 'process_stat_unproved',
+        'namespace_unproved', 'members_bound', 'socket_metadata_shape', 'socket_rows_bound',
+        'required_process_missing', 'namespace_mismatch', 'listener_count', 'listener_binding',
+        'descriptor_census_unproved', 'descriptor_target_bound', 'listener_owner',
+        'clients_before_grant', 'owned_client_count', 'owned_client_binding',
+        'process_identity_changed', 'members_changed', 'socket_rows_changed',
+        'snapshots_changed', 'expected_binding_changed', 'metadata_disappeared',
+        'metadata_denied', 'kernel_io_unproved',
+    }
+    detail = value.get('kernelReason')
+    if (result['reason'] == 'main_inspector_socket_unproved' and result['entryStage'] == 'kernel'
+            and type(detail) is str and detail in kernel_reasons):
+        result['kernelReason'] = detail
     for name in ('closeRequested', 'closeAcknowledged', 'connectionClosed', 'listenerAbsent'):
         result[name] = value.get(name) if type(value.get(name)) is bool else None
     return result

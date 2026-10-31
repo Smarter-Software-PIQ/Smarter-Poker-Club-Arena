@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createConnection } from 'node:net';
 import { captureMainInspectorBinding } from '../../server/scripts/main-inspector-socket-qualification.mjs';
+import * as kernelQualification from '../../server/scripts/main-inspector-socket-qualification.mjs';
 
 const main = 777001;
 const header =
@@ -336,3 +337,102 @@ test(
     assert.equal((await once(probe, 'error'))[0].code, 'ECONNREFUSED');
   }
 );
+
+function closedReason(action) {
+  let refused;
+  assert.throws(action, (error) => {
+    refused = error;
+    return error.message === 'main_inspector_socket_unproved';
+  });
+  return kernelQualification.mainInspectorKernelFailureReason?.(refused) ?? null;
+}
+test('closed kernel refusal details distinguish causal negatives without changing admission', (t) => {
+  const f = fixture(t),
+    before = f.capture();
+  fs.appendFileSync(
+    join(f.root, String(main), 'net/tcp'),
+    row('0100007F:C001', '0100007F:240D', '04', 0)
+  );
+  assert.equal(
+    closedReason(() => f.capture()),
+    'clients_before_grant'
+  );
+  fs.writeFileSync(join(f.root, String(main), 'net/tcp'), header + listener);
+  assert.deepEqual(f.capture(), before);
+  assert.equal(
+    closedReason(() => f.capture({ expectedBinding: { ...before, startTicks: '12346' } })),
+    'expected_binding_changed'
+  );
+  fs.unlinkSync(join(f.root, String(main), 'net/tcp6'));
+  assert.equal(
+    closedReason(() => f.capture()),
+    'metadata_disappeared'
+  );
+});
+test('closed kernel diagnostics never accept caller-forged or private failure detail', () => {
+  const forged = new Error('main_inspector_socket_unproved');
+  Object.defineProperty(forged, 'kernelReason', {
+    get() {
+      throw new Error('PRIVATE /proc/secret');
+    },
+  });
+  assert.equal(kernelQualification.mainInspectorKernelFailureReason?.(forged) ?? null, null);
+  assert.equal(
+    kernelQualification.mainInspectorKernelFailureReason?.({
+      kernelReason: 'clients_before_grant',
+    }) ?? null,
+    null
+  );
+});
+
+test('the actual native failure projection preserves only its branded kernel enum', (t) => {
+  const f = fixture(t);
+  fs.unlinkSync(join(f.root, String(main), 'net/tcp6'));
+  let refused;
+  assert.throws(
+    () => f.capture(),
+    (error) => {
+      refused = error;
+      return true;
+    }
+  );
+  const entry = fs.readFileSync(
+    new URL('../../server/scripts/main-inspector-retirement-entry.mjs', import.meta.url),
+    'utf8'
+  );
+  const actualFailureFunction = entry.slice(
+    entry.indexOf('const retirementEntryReasonCodes = new Set(['),
+    entry.indexOf('\nsetTimeout(')
+  );
+  // Only the serializer is isolated here; no native runtime or transport is invoked.
+  const project = new Function(
+    'mainInspectorKernelFailureReason',
+    'retirementEntryStage',
+    'ownedMainInspectorDeadlineOutcome',
+    'error',
+    actualFailureFunction + '\nreturn retirementEntryFailure(error);'
+  );
+  const outcome = project(
+    kernelQualification.mainInspectorKernelFailureReason,
+    'kernel',
+    () => ({}),
+    refused
+  );
+  assert.deepEqual(outcome, {
+    ok: false,
+    reason: 'main_inspector_socket_unproved',
+    entryStage: 'kernel',
+    kernelReason: 'metadata_disappeared',
+    retryAllowed: false,
+  });
+  const forged = new Error('main_inspector_socket_unproved');
+  forged.kernelReason = 'PRIVATE /proc/1/fd/123';
+  const rejected = project(
+    kernelQualification.mainInspectorKernelFailureReason,
+    'kernel',
+    () => ({}),
+    forged
+  );
+  assert.equal(Object.hasOwn(rejected, 'kernelReason'), false);
+  assert.equal(JSON.stringify(rejected).includes('PRIVATE'), false);
+});
