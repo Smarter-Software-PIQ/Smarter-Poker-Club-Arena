@@ -30,3 +30,20 @@ export const HUMAN_FIELD_COMPONENT_SCENARIOS = Object.freeze([
 
 /** Prefix every human-field card's name carries, so a row says what it measured. */
 export const HUMAN_FIELD_NAME_PREFIX = 'human_';
+
+/**
+ * THE AGGRESSOR FIELD (2026-10-31). The second opponent population a league
+ * card may seat: the versioned V53 adversarial workload
+ * (V53PressurePopulation.ts), which raises, barrels and bluffs the way a
+ * credibly aggressive player does. It exists for one question the mirror and
+ * the human-calibrated field cannot ask: what V53 pressure is worth against
+ * the opponent it is built for. In hold'em V53 engages only on a read
+ * credibly outside the horse envelope (HorseOpponentExploit
+ * pressureTargetFoldMul), so a horse mirror is unchanged by construction and
+ * the calibrated field stays inside the envelope; v53_pressure dealt either
+ * way measured 0 divergent pairs. NOT a calibrated human population and not a
+ * market-profit estimate. NLH only here: the field's raise sizes follow the
+ * no-limit legal menu this harness builds for a non-horse seat.
+ */
+export const V53_PRESSURE_POPULATION_ID = 'v53_pressure_stress_v1' as const;
+export const V53_PRESSURE_FIELD_VARIANTS: readonly string[] = Object.freeze(['nlh']);

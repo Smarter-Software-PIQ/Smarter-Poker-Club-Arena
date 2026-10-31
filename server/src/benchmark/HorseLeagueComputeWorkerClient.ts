@@ -27,7 +27,10 @@ import { liveHorseDecisionWorkerStatus } from '../engine/horseDecision/lane.js';
 import { PHASE8_POLICY } from '../engine/HorseTournamentPostflop.js';
 import { horseDecisionSolverStoresAreValid } from '../engine/horseDecision/protocol.js';
 import type { LeagueMatchup, LeagueResult } from './HorseLeague.js';
-import { HUMAN_FIELD_COMPONENT_SCENARIOS } from './HorseLeagueHumanField.js';
+import {
+  HUMAN_FIELD_COMPONENT_SCENARIOS,
+  V53_PRESSURE_POPULATION_ID,
+} from './HorseLeagueHumanField.js';
 import {
   pairedConfidence99,
   tournamentPolicyFamily,
@@ -554,7 +557,12 @@ const LEAGUE_RESULT_KEYS = [
 const HUMAN_RESPONSE_ACTIONS = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
 
 function isHumanFieldLeagueEvidence(value: Record<string, unknown>): boolean {
-  if (value.opponentPopulation !== HUMAN_CALIBRATED_POPULATION_ID) return false;
+  // The human-calibrated field, or (2026-10-31) the V53 aggressor field.
+  if (
+    value.opponentPopulation !== HUMAN_CALIBRATED_POPULATION_ID &&
+    value.opponentPopulation !== V53_PRESSURE_POPULATION_ID
+  )
+    return false;
   const responses = value.humanResponses;
   if (!isRecord(responses) || Object.keys(responses).length > 64) return false;
   let decisions = 0;

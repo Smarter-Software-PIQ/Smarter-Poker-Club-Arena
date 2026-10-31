@@ -3880,7 +3880,12 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
     ['plo5', 'tournament', 'As Ad Ks Kd Qs', false, { action: 'raise', amount: 11 }],
     ['plo6', 'cash', 'As Ad Ks Kd Qs Jd', false, { action: 'raise', amount: 11 }],
     ['plo6', 'cash', 'Ah 7c 2s 3d 9h 5c', true, { action: 'fold', amount: null }],
-    ['plo6', 'cash', 'Qs Qh 4c 4d 8s 9c', false, { action: 'call', amount: 2 }],
+    // 2026-10-31: was { call, 2 }. That call was the V24 price defense's
+    // big-blind relief, which is default OFF in PLO6 cash since the league pooled
+    // plo6_v24_price negative (HorseLogic v24PloDefenseOn); pinned below.
+    // The PLO6 pack (shadow, unselected) reads that new fold as a call, so
+    // its receipt now says it would change the action; it applies nothing.
+    ['plo6', 'cash', 'Qs Qh 4c 4d 8s 9c', true, { action: 'fold', amount: null }],
     ['plo6', 'tournament', 'As Ad Ks Kd Qs Jd', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'Ah 7c Ks 9d', true, { action: 'fold', amount: null }],
@@ -3926,6 +3931,22 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
       expect(horseDecisionReceiptIsValid(structuredClone(live.decision), variant)).toBe(true);
     }
   );
+
+  it('the PLO6 Qs Qh 4c 4d 8s 9c call was the V24 price defense, now default off in PLO6 cash', async () => {
+    const base = omahaCash(611, 'plo6', 'Qs Qh 4c 4d 8s 9c');
+    const on = await decideThrough(
+      rekey({ ...base, opts: { ...base.opts, v24PloDefense: true } }),
+      undefined,
+      true
+    );
+    expect(act(on.decision)).toEqual({ action: 'call', amount: 2 });
+    const off = await decideThrough(
+      rekey({ ...base, opts: { ...base.opts, v24PloDefense: false } }),
+      undefined,
+      true
+    );
+    expect(act(off.decision)).toEqual({ action: 'fold', amount: null });
+  });
 
   it('a decision of another variant carries no Phase 11 authority', async () => {
     const live = await decideThrough(

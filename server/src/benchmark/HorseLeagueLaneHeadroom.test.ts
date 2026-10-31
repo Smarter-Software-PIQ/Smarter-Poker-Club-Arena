@@ -171,8 +171,11 @@ describe('runLeague stands down while the lane is busy', () => {
       () => calm-- > 0
     );
     expect(results).toHaveLength(1);
-    expect(upserts).toHaveLength(1);
-    const row = upserts[0];
+    // The refused batch (UNMEASURABLE_MATCHUPS) is written first, then the
+    // one measured row.
+    expect(upserts).toHaveLength(2);
+    expect(Array.isArray(upserts[0])).toBe(true);
+    const row = upserts[1];
     expect(row).toMatchObject({
       matchup: results[0].matchup,
       hands: 2,
@@ -200,6 +203,12 @@ describe('runLeague stands down while the lane is busy', () => {
     );
     expect(c.ready).not.toHaveBeenCalled();
     expect(c.runMatchup).not.toHaveBeenCalled();
+    // A refusal costs no compute, so it is said even on a night the lane
+    // never lets the card start.
+    expect(upserts).toHaveLength(1);
+    expect(
+      (upserts[0] as unknown as Array<{ status: string }>).every((r) => r.status === 'refused')
+    ).toBe(true);
   });
 
   it('stops the card the moment the lane gets busy, keeping what it measured', async () => {

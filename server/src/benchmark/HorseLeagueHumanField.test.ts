@@ -259,9 +259,11 @@ describe(
         expect(h.b).toEqual(m!.b);
         expect(m!.opponentPopulation).toBeUndefined();
       }
-      // Only human cards carry the prefix, and every one of them carries a field.
+      // Only human cards carry the prefix, and every one of them carries the
+      // human field. (2026-10-31: v53_pressure seats the V53 aggressor field
+      // under its own name; it is not a human-field twin.)
       for (const m of LEAGUE_MATCHUPS) {
-        expect(m.name.startsWith(HUMAN_FIELD_NAME_PREFIX)).toBe(m.opponentPopulation !== undefined);
+        expect(m.name.startsWith(HUMAN_FIELD_NAME_PREFIX)).toBe(m.opponentPopulation === HUMAN);
       }
     });
 
@@ -492,6 +494,10 @@ describe('the nightly runner sends the human cards and records their field', () 
     const mirrorRow = upserts.find((u) => u.matchup === 'mind_layer')!;
     expect(mirrorRow.config_a).toEqual({});
     expect(mirrorRow.config_b).toEqual({ mind: false });
-    expect(results.length).toBe(upserts.length);
+    // One row per measured card, plus one batch of refused rows written
+    // before the first hand (UNMEASURABLE_MATCHUPS).
+    const batches = upserts.filter((u) => Array.isArray(u));
+    expect(batches).toHaveLength(1);
+    expect(results.length).toBe(upserts.length - batches.length);
   }, 300_000);
 });

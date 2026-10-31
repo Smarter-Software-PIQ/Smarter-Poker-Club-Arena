@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { seedFastRandom, omahaMadeClass } from './HorseEval.js';
-import { LEAGUE_MATCHUPS } from '../benchmark/HorseLeague.js';
+import { LEAGUE_MATCHUPS, UNMEASURABLE_MATCHUPS } from '../benchmark/HorseLeague.js';
 import type { Card, SeatPlayer } from '../types.js';
 const cards = (s: string): Card[] =>
   s.split(' ').map(
@@ -114,13 +114,18 @@ describe('V55 Omaha river trips flat', () => {
       expect(decide(seed, true, 'plo4', 'turn')).toEqual(decide(seed, false, 'plo4', 'turn'));
     }
   });
-  it('keeps measurable default-off deep-cash arms and refuses the inert PLO6 card', () => {
-    expect(LEAGUE_MATCHUPS.some((m) => m.name === 'plo6_v55_river_trips_flat')).toBe(false);
-    for (const variant of ['plo4', 'plo5']) {
-      const matchup = LEAGUE_MATCHUPS.find((m) => m.name === `${variant}_v55_river_trips_flat`)!;
-      expect(matchup.a.v55OmahaRiverTripsFlat).toBe(true);
-      expect(matchup.b).toEqual({});
-      expect(matchup.stackBB).toBe(400);
+  it('reports every V55 card as refused, with its arms, instead of dealing an inert one', () => {
+    // 2026-10-31: 0 of 6,000 pairs diverged on PLO4 and PLO5 every night from
+    // 2026-10-27, and PLO6 never diverged. Retired into UNMEASURABLE_MATCHUPS
+    // so each run writes a refused row the audit reads, never deleted.
+    for (const variant of ['plo4', 'plo5', 'plo6']) {
+      const name = `${variant}_v55_river_trips_flat`;
+      expect(LEAGUE_MATCHUPS.some((m) => m.name === name)).toBe(false);
+      const refused = UNMEASURABLE_MATCHUPS.find((m) => m.name === name)!;
+      expect(refused.a.v55OmahaRiverTripsFlat).toBe(true);
+      expect(refused.b).toEqual({});
+      expect(refused.stackBB).toBe(400);
+      expect(refused.variant).toBe(variant);
     }
   });
 });
