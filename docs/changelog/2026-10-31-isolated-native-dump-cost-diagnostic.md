@@ -50,3 +50,10 @@ Focused source checks cover protocol limits/pairing/privacy, manifest and binary
 substitution, source inverse and malformed-record refusal. Actual provider build,
 native cost evidence, full-schema parity and all14 original connected cases plus
 the active owner's additional history case remain separate required observations.
+
+The first required provider build at23:57:38Z refused the official archive's
+literal top-level directory during SOURCE_GUARDS, before compilation or native
+fixtures. The shared validator now permits only that exact root when it is a
+directory. Whole pinned-archive validation and root-file/traversal/absolute/prefix
+negative cases join the existing source self-test; extraction safeguards remain.
+Actual native compilation and application acceptance remain pending.

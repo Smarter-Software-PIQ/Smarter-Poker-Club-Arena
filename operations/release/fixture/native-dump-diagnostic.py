@@ -118,6 +118,14 @@ def patch_files(originals):
     return patched
 
 
+def valid_source_member(member):
+    if Path(member.name).is_absolute() or '..' in Path(member.name).parts:
+        return False
+    if member.name == PREFIX.rstrip('/'):
+        return member.isdir()
+    return member.name.startswith(PREFIX) and (member.isfile() or member.isdir() or member.issym())
+
+
 def archive_sources(archive):
     require(digest(archive.read_bytes()) == ARCHIVE_SHA)
     with tarfile.open(archive, 'r:gz') as files:
@@ -127,6 +135,12 @@ def archive_sources(archive):
 def self_test(archive):
     global BUILD_STAGE, FIRST_FAILURE_STAGE
     originals = archive_sources(archive)
+    with tarfile.open(archive, 'r:gz') as files:
+        require(all(valid_source_member(member) for member in files.getmembers()))
+    root = tarfile.TarInfo(PREFIX.rstrip('/')); root.type = tarfile.DIRTYPE
+    require(valid_source_member(root))
+    for name in [PREFIX.rstrip('/'), PREFIX + '../outside', '/'+PREFIX+'outside', PREFIX.rstrip('/')+'-other/file']:
+        require(not valid_source_member(tarfile.TarInfo(name)))
     patched = patch_files(originals)
     require(set(patched) == set(SOURCE_HASHES))
     for name in originals:
@@ -162,7 +176,7 @@ def self_test(archive):
     finally:
         BUILD_STAGE, FIRST_FAILURE_STAGE = saved
     return {'source_inverse_exact': True, 'changed_source_refused': True,
-            'fixed_frame_boundaries_refuse': True, 'closed_peer_fd3_handoff': True, 'first_failure_stage_preserved': True, 'foreign_operation_preserved': True}
+            'fixed_frame_boundaries_refuse': True, 'closed_peer_fd3_handoff': True, 'first_failure_stage_preserved': True, 'foreign_operation_preserved': True, 'actual_archive_members_validated': True, 'archive_member_boundaries_refuse': True}
 
 
 def command(args, *, cwd, env, timeout=120, data=None):
@@ -452,8 +466,7 @@ def build(repo, output):
         originals = archive_sources(archive)
         patched = patch_files(originals)
         with tarfile.open(archive, 'r:gz') as files:
-            require(all(member.name.startswith(PREFIX) and not Path(member.name).is_absolute() and '..' not in Path(member.name).parts
-                        and (member.isfile() or member.isdir() or member.issym()) for member in files.getmembers()))
+            require(all(valid_source_member(member) for member in files.getmembers()))
             files.extractall(work, filter='data')
         source = work / 'postgresql-17.11'
         helper = repo / 'operations/release/fixture/native-dump-diagnostic.c'
