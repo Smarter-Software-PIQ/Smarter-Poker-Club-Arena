@@ -4,6 +4,7 @@ import {
   assertCases,
   assertPins,
   CASES,
+  CASE_PAIRS,
   COMPONENT_PATHS,
   RECOVERY_ACTION,
   RECOVERY_CASES,
@@ -22,8 +23,8 @@ const event = { action: 'verify-lobby-ui', client_payload: {} };
 const report = () => ({
   suites: [
     {
-      file: 'production-mobile-lobby-chrome.spec.ts',
-      specs: CASES.map((title) => ({
+      specs: CASE_PAIRS.map(([file, title]) => ({
+        file,
         title,
         ok: true,
         tests: [
@@ -65,13 +66,16 @@ describe('closed scoped lobby proof', () => {
     for (const payload of [null, [], { grep: 'anything' }])
       expect(() => admitDispatch(env, { ...event, client_payload: payload })).toThrow();
   });
-  it('requires exactly both cases once with no skips or retries', () => {
-    expect(assertCases(report())).toHaveLength(2);
+  it('requires exactly three file and title pairs once with no skips or retries', () => {
+    expect(assertCases(report())).toHaveLength(3);
     for (const change of [
       (r) => r.suites[0].specs.pop(),
       (r) => r.suites[0].specs.push(r.suites[0].specs[0]),
       (r) => (r.errors = ['failure']),
-      (r) => (r.suites[0].file = 'other.spec.ts'),
+      (r) => (r.suites[0].specs[0].file = 'other.spec.ts'),
+      (r) => (r.suites[0].specs[0].file = 'production-row-channel-owners.spec.ts'),
+      (r) => (r.suites[0].specs[2].file = 'production-mobile-lobby-chrome.spec.ts'),
+      (r) => r.suites[0].specs.push({ ...r.suites[0].specs[0], title: 'unrelated case' }),
       (r) => (r.suites[0].specs[0].tests[0].annotations = [{ type: 'skip' }]),
       (r) => (r.suites[0].specs[0].tests[0].results[0].retry = 1),
       (r) => (r.suites[0].specs[0].tests[0].results[0].status = 'skipped'),
@@ -162,7 +166,7 @@ describe('closed spectator and notification recovery proof', () => {
   });
 });
 
-it('runs only the two owned browser journeys with cleanup and no caller-selected code', async () => {
+it('keeps each closed mode limited to its owned browser journeys with cleanup', async () => {
   const { readFileSync } = await import('node:fs');
   const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
   expect(workflow).toContain('types: [verify-lobby-ui, verify-spectator-notifications]');
@@ -183,6 +187,10 @@ it('runs only the two owned browser journeys with cleanup and no caller-selected
   }
   expect(workflow).toContain("if: github.event.action == 'verify-lobby-ui'");
   expect(workflow).toContain("if: github.event.action == 'verify-spectator-notifications'");
+  expect(workflow).toContain('tests/e2e/production-row-channel-owners.spec.ts');
+  expect(workflow).toContain('timeout-minutes: 12');
+  expect(COMPONENT_PATHS).toContain('src/hooks/useMasterBusChannel.ts');
+  expect(COMPONENT_PATHS).toContain('src/core/MasterBus.ts');
   const browser = readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8');
   const journey = browser.slice(
     browser.indexOf("test('tournament Details stays inside"),

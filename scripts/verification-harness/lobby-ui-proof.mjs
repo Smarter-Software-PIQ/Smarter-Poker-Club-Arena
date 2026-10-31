@@ -14,11 +14,24 @@ export const COMPONENT_PATHS = [
   'src/pages/ClubHomePage.tsx',
   'src/components/lobby/lobbyViewPrefs.ts',
   'src/utils/tabSlots.ts',
+  'src/hooks/useMasterBusChannel.ts',
+  'src/core/MasterBus.ts',
 ];
-export const CASES = [
-  'the selected game list survives a cold return to the lobby',
-  'tournament Details stays inside the spectator table lobby tab',
+export const CASE_PAIRS = [
+  [
+    'production-mobile-lobby-chrome.spec.ts',
+    'the selected game list survives a cold return to the lobby',
+  ],
+  [
+    'production-mobile-lobby-chrome.spec.ts',
+    'tournament Details stays inside the spectator table lobby tab',
+  ],
+  [
+    'production-row-channel-owners.spec.ts',
+    'both club views keep receiving rows and one survives the other unmounting',
+  ],
 ];
+export const CASES = CASE_PAIRS.map(([, title]) => title);
 export const RECOVERY_ACTION = 'verify-spectator-notifications';
 export const RECOVERY_CASES = [
   { file: 'production-row-channel-owners.spec.ts', title: 'both club views keep receiving rows and one survives the other unmounting', project: 'chromium' },
@@ -32,7 +45,7 @@ export const RECOVERY_COMPONENT_PATHS = [
 ];
 function selection(action) {
   if (action === 'verify-lobby-ui')
-    return CASES.map((title) => ({ file: 'production-mobile-lobby-chrome.spec.ts', title, project: 'chromium' }));
+    return CASE_PAIRS.map(([file, title]) => ({ file, title, project: 'chromium' }));
   if (action === RECOVERY_ACTION) return RECOVERY_CASES;
   throw new Error('Unknown closed Lobby proof request.');
 }
@@ -69,7 +82,7 @@ export function assertCases(report, action = 'verify-lobby-ui') {
       const file = String(spec.file || suite.file || '').replaceAll('\\', '/');
       for (const test of spec.tests || []) {
         if (
-          !expected.some((entry) => file.endsWith(entry.file) && spec.title === entry.title && test.projectName === entry.project) ||
+          !expected.some((entry) => file.split('/').at(-1) === entry.file && spec.title === entry.title && test.projectName === entry.project) ||
           spec.ok !== true ||
           test.status !== 'expected' ||
           test.expectedStatus !== 'passed' ||
@@ -87,7 +100,7 @@ export function assertCases(report, action = 'verify-lobby-ui') {
   report.suites.forEach(visit);
   const keys = (entries) => entries.map((entry) => JSON.stringify(entry)).sort();
   if (JSON.stringify(keys(actual)) !== JSON.stringify(keys(expected.map((entry) => [entry.file, entry.title, entry.project]))))
-    throw new Error('Exactly the two admitted Lobby cases must execute.');
+    throw new Error('Exactly the admitted Lobby cases must execute.');
   return actual.map((entry) => entry[1]);
 }
 
@@ -284,7 +297,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       ) + '\n'
     );
     console.log(
-      'Both scoped Lobby cases passed once on the pinned live client; owned account cleanup verified.'
+      'All three scoped Lobby cases passed once on the pinned live client; owned account cleanup verified.'
     );
   } else
     throw new Error(
