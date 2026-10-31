@@ -1275,9 +1275,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'horse_mind_stats_scoped',
     'boot',
     'HorseMindPersistence (hydrateHorseMindScopedFromDb at boot, flushHorseMindScoped on the timer); HorseMind.readStats prefers it at 40 hands',
-    'V45: the same counters per (player, card family x table size) - a PLO6 VPIP no longer reads as an NLH VPIP',
-    'V45',
-    { dayColumn: 'updated_at', freshnessDays: 1 }
+    // NO DAILY FRESHNESS SINCE 2026-10-26. Live decisions moved to independent
+    // observer memory (2026-10-25-horse-observer-independent-memory) and the
+    // herd's persistent per-context reads to horse_exploit_profiles, which
+    // keeps the one-day freshness check above. Nothing feeds the process-wide
+    // scoped overlay any more, so its last write is 2026-10-26 01:01 UTC and a
+    // daily freshness expectation read that retirement as a critical outage
+    // every night (data_stale, audit 2026-10-30).
+    'V45: the same counters per (player, card family x table size); superseded on 2026-10-26 by horse_exploit_profiles for live per-context reads',
+    'V45'
   ),
   table(
     'horse_mind_pairs',

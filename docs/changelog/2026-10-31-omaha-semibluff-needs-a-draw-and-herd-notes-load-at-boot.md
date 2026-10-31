@@ -81,3 +81,20 @@ baseline rate by the day's variant hands. Measured on 2026-10-30:
 
 The PLO fold rise from 10-25 to 10-28 is real within format. `bet_fold_line`
 rose from 22 to 59 per 1,000, while NLH stayed flat.
+
+## The audit names a tournament start collapse, and stops expecting a retired store
+
+`fn_audit_tournament_results` now raises `tournament_starts_collapsed` when the
+day's starts fall below half the seven-day median. The finding carries the
+cancellations and the current `ca_tournament_start_hold` row (migration
+`20261031230756`). Read-only results:
+
+- 2026-10-30: 79 against 10,507, named.
+- 10-28, 10-29 and 10-31: quiet.
+
+`horse_mind_stats_scoped` no longer carries a daily freshness expectation in
+the data ledger. Since 2026-10-26 nothing feeds the process-wide scoped
+overlay, and the herd's persistent per-context reads live in
+`horse_exploit_profiles`, which keeps its own one-day freshness check. Before
+this change, the audit reported the retirement as a critical `data_stale`
+outage every night.
