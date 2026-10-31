@@ -5,34 +5,59 @@ const mock = vi.hoisted(() => ({
   from: vi.fn(),
   abort: vi.fn(),
   order: vi.fn(),
-  range: vi.fn(),
+  gt: vi.fn(),
+  limit: vi.fn(),
   select: vi.fn(),
 }));
 vi.mock('./supabase.js', () => ({ supabase: { from: mock.from } }));
-import { readHorsePooledPublicBootstrap } from './HorsePooledPublicBootstrap.js';
-const row = (n = 1) => ({
-  user_id: `90000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`,
-  variant: 'plo5',
+import {
+  HORSE_POOLED_BOOTSTRAP_CAPACITY,
+  readHorsePooledPublicBootstrap,
+} from './HorsePooledPublicBootstrap.js';
+
+const uid = (n: number) => `90000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
+const VARIANTS = ['nlh', 'plo4', 'plo5', 'plo6', 'plo8'] as const;
+const row = (n = 1, v = 0, hands = 40) => ({
+  user_id: uid(n),
+  variant: VARIANTS[v % VARIANTS.length],
   mode: 'cash',
   size: 'short',
   initialized: true,
-  observed_hands: 40,
+  observed_hands: hands,
   counters: freshExploitCounters(),
 });
+
+/** An in-memory table answering the keyset query exactly as PostgREST would. */
+function table(rows: ReturnType<typeof row>[]) {
+  const sorted = [...rows].sort((a, b) =>
+    a.user_id === b.user_id ? (a.variant < b.variant ? -1 : 1) : a.user_id < b.user_id ? -1 : 1
+  );
+  const calls: Array<string | null> = [];
+  const page = async (after: string | null) => {
+    calls.push(after);
+    const data = sorted.filter((r) => after === null || r.user_id > after).slice(0, 1000);
+    return { data, error: null };
+  };
+  return { page, calls, sorted };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   const query = {
     select: mock.select,
     order: mock.order,
-    range: mock.range,
+    gt: mock.gt,
+    limit: mock.limit,
     abortSignal: mock.abort,
   };
   mock.from.mockReturnValue(query);
   mock.select.mockReturnValue(query);
   mock.order.mockReturnValue(query);
-  mock.range.mockReturnValue(query);
+  mock.gt.mockReturnValue(query);
+  mock.limit.mockReturnValue(query);
 });
-it('reads only saved public columns and stamps original resolved availability before first decision', async () => {
+
+it('reads only saved public columns with observed hands, by keyset, before the first decision', async () => {
   const before = Date.now();
   mock.abort.mockResolvedValueOnce({ data: [row()], error: null });
   const result = await readHorsePooledPublicBootstrap();
@@ -42,38 +67,87 @@ it('reads only saved public columns and stamps original resolved availability be
   expect(mock.select).toHaveBeenCalledWith(
     'user_id,variant,mode,size,counters,observed_hands,initialized'
   );
-  expect(mock.range).toHaveBeenCalledWith(0, 999);
+  expect(mock.gt).toHaveBeenCalledWith('observed_hands', 0);
+  expect(mock.limit).toHaveBeenCalledWith(1000);
   expect(mock.abort).toHaveBeenCalledTimes(1);
 });
-it('joins bounded pages and refuses malformed, duplicate, over-limit and failed reads atomically', async () => {
-  const page = Array.from({ length: 1000 }, (_, i) => row(i + 1));
-  mock.abort
-    .mockResolvedValueOnce({ data: page, error: null })
-    .mockResolvedValueOnce({ data: [row(1001)], error: null });
-  expect((await readHorsePooledPublicBootstrap())?.profiles).toHaveLength(1001);
-  for (const data of [[{ ...row(), counters: {} }], [row(), row()]]) {
-    mock.abort.mockResolvedValueOnce({ data, error: null });
-    expect(await readHorsePooledPublicBootstrap()).toBeNull();
-  }
-  mock.abort.mockResolvedValueOnce({ data: null, error: { code: 'unavailable' } });
-  expect(await readHorsePooledPublicBootstrap()).toBeNull();
-  mock.abort.mockRejectedValueOnce(Error('transport'));
-  expect(await readHorsePooledPublicBootstrap()).toBeNull();
-  for (let i = 0; i < 33; i++)
-    mock.abort.mockResolvedValueOnce({
-      data: Array.from({ length: 1000 }, (_, j) => row(i * 1000 + j + 1)),
-      error: null,
-    });
-  expect(await readHorsePooledPublicBootstrap()).toBeNull();
+
+it('a player split across a page boundary is read whole, once', async () => {
+  // 990 single-row players, then one player with 30 rows straddling row 1,000.
+  const rows = [
+    ...Array.from({ length: 990 }, (_, i) => row(i + 1)),
+    // 5 variants x 2 modes x 3 sizes: thirty distinct rows for one player.
+    ...Array.from({ length: 30 }, (_, k) => ({
+      ...row(5000, k % 5),
+      mode: (['cash', 'tournament'] as const)[Math.floor(k / 5) % 2],
+      size: (['hu', 'short', 'full'] as const)[Math.floor(k / 10)],
+    })),
+  ];
+  const t = table(rows);
+  const snapshot = await readHorsePooledPublicBootstrap(t.page);
+  expect(snapshot?.profiles).toHaveLength(rows.length);
+  expect(t.calls).toEqual([null, uid(990)]);
 });
 
-it('loads the production-sized saved population above the old twenty-thousand ceiling', async () => {
-  for (let i = 0; i < 25; i++)
-    mock.abort.mockResolvedValueOnce({
-      data: Array.from({ length: i === 24 ? 369 : 1000 }, (_, j) => row(i * 1000 + j + 1)),
-      error: null,
-    });
-  const snapshot = await readHorsePooledPublicBootstrap();
-  expect(snapshot?.profiles).toHaveLength(24369);
+it('a profile inserted between pages neither duplicates nor skips (the offset failure)', async () => {
+  const rows = Array.from({ length: 1500 }, (_, i) => row(i * 2 + 2));
+  const t = table(rows);
+  let first = true;
+  const page = async (after: string | null) => {
+    const out = await t.page(after);
+    if (first) {
+      first = false;
+      // A new opponent arrives with an id that sorts before the next page.
+      t.sorted.unshift(row(1));
+      t.sorted.sort((a, b) => (a.user_id < b.user_id ? -1 : 1));
+    }
+    return out;
+  };
+  const snapshot = await readHorsePooledPublicBootstrap(page);
+  expect(snapshot?.profiles).toHaveLength(1500);
+  expect(new Set(snapshot!.profiles.map((p) => p.user_id)).size).toBe(1500);
+});
+
+it('loads the production population (29,816 rows on 2026-10-31) and the worker cache accepts it', async () => {
+  const rows = Array.from({ length: 29816 }, (_, i) => row(Math.floor(i / 5) + 1, i % 5));
+  const snapshot = await readHorsePooledPublicBootstrap(table(rows).page);
+  expect(snapshot?.profiles).toHaveLength(29816);
   expect(new PooledPublicProfiles().bootstrap(snapshot!)).toBe(true);
+});
+
+it('past the cache capacity it keeps the most-observed profiles instead of loading nothing', async () => {
+  const n = HORSE_POOLED_BOOTSTRAP_CAPACITY + 500;
+  const rows = Array.from({ length: n }, (_, i) => row(i + 1, 0, i < 500 ? 1 : 100));
+  const snapshot = await readHorsePooledPublicBootstrap(table(rows).page);
+  expect(snapshot?.profiles).toHaveLength(HORSE_POOLED_BOOTSTRAP_CAPACITY);
+  expect(snapshot!.profiles.every((p) => p.observed_hands === 100)).toBe(true);
+  expect(new PooledPublicProfiles().bootstrap(snapshot!)).toBe(true);
+});
+
+it('refuses malformed, duplicate, regressing, failed and over-budget reads atomically', async () => {
+  const ok = async () => ({ data: [row(1)], error: null });
+  expect(await readHorsePooledPublicBootstrap(ok)).not.toBeNull();
+  for (const data of [[{ ...row(), counters: {} }], [row(), row()]])
+    expect(await readHorsePooledPublicBootstrap(async () => ({ data, error: null }))).toBeNull();
+  expect(
+    await readHorsePooledPublicBootstrap(async () => ({ data: null, error: { code: 'x' } }))
+  ).toBeNull();
+  expect(
+    await readHorsePooledPublicBootstrap(async () => {
+      throw Error('transport');
+    })
+  ).toBeNull();
+  // A page that answers rows at or before the keyset is inconsistent.
+  let n = 0;
+  const regress = async () => ({
+    data: n++ === 0 ? Array.from({ length: 1000 }, (_, i) => row(i + 10)) : [row(1)],
+    error: null,
+  });
+  expect(await readHorsePooledPublicBootstrap(regress)).toBeNull();
+  // The budget aborts a read that never answers.
+  const hang = (_: string | null, signal: AbortSignal) =>
+    new Promise<{ data: unknown; error: unknown }>((_r, reject) =>
+      signal.addEventListener('abort', () => reject(signal.reason))
+    );
+  expect(await readHorsePooledPublicBootstrap(hang, 20)).toBeNull();
 });

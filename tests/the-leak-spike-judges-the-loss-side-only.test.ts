@@ -36,7 +36,7 @@ describe('the leak spike judges the loss side only', () => {
     }
   });
 
-  it('is the latest definition of fn_run_horse_daily_audit', () => {
+  it('the latest definition of fn_run_horse_daily_audit keeps the loss-side predicate', () => {
     const dir = path.join(ROOT, 'supabase/migrations');
     const defining = fs
       .readdirSync(dir)
@@ -47,6 +47,7 @@ describe('the leak spike judges the loss side only', () => {
         )
       )
       .sort();
-    expect(defining[defining.length - 1]).toBe(path.basename(FILE));
+    const latest = fs.readFileSync(path.join(dir, defining[defining.length - 1]), 'utf8');
+    expect(latest).toMatch(/and d\.tag not like '%\\_won'/);
   });
 });
