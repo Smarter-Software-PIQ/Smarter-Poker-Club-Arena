@@ -38,7 +38,7 @@ import { supabase } from '../services/supabase.js';
 import { type BalancerTable, type MoveInstruction } from '../engine/TableBalancer.js';
 import type { ServerTableEngine } from '../engine/ServerTableEngine.js';
 import { reportError } from '../services/errorReporter.js';
-import { selectInChunks } from '../services/supabase/chunkedIn.js';
+import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
 import { tableStateHub } from '../transport/TableStateHub.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
@@ -2317,22 +2317,37 @@ export class TournamentManager extends TournamentManagerEliminations {
     sourceId: string,
     breakId: string
   ): Promise<BalancerTable[] | null> {
-    const { data, error } = await supabase
-      .from('tables')
-      .select('id')
-      .eq('tournament_id', this.tournamentId)
-      .in('status', ['running', 'waiting', 'active'])
-      .or('is_deleted.is.null,is_deleted.eq.false');
-    if (!this.eliminationMutationAllowed()) {
+    const lifecycle = this.captureLifecycleToken();
+    const current = () => this.lifecycleIsCurrent(lifecycle) && this.eliminationMutationAllowed();
+    const result = await fetchAllRows<{ id: string }>(
+      (cursor, pageSize) => {
+        let query = supabase
+          .from('tables')
+          .select('id')
+          .eq('tournament_id', this.tournamentId)
+          .in('status', ['running', 'waiting', 'active'])
+          .or('is_deleted.is.null,is_deleted.eq.false')
+          .order('id', { ascending: true })
+          .limit(pageSize);
+        if (cursor !== null) query = query.gt('id', cursor);
+        return query;
+      },
+      { label: 'Tournament.breakDestinations', pageAttempts: 1, shouldContinue: current }
+    );
+    if (!current()) {
       this.destinationReadRefusal = 'mutation_not_allowed';
       return null;
     }
-    if (error || !data) {
-      this.destinationReadRefusal = `tables_unread:${error?.message ?? 'no data'}`;
+    if (!result.complete) {
+      this.destinationReadRefusal = 'tables_unread:incomplete';
       return null;
     }
-    const eligible = data.map((row) => String(row.id)).filter((id) => id !== sourceId);
+    const eligible = result.rows.map((row) => row.id).filter((id) => id !== sourceId);
     const board = await this.loadBalancerTables(eligible, 'breakReplacement', breakId);
+    if (!current()) {
+      this.destinationReadRefusal = 'mutation_not_allowed';
+      return null;
+    }
     if (!board)
       this.destinationReadRefusal = this.eliminationMutationAllowed()
         ? 'balancer_snapshot_incomplete'
@@ -3916,17 +3931,36 @@ export class TournamentManager extends TournamentManagerEliminations {
    * that many seats free. Unknown is null, never zero.
    */
   private async unbegunBreakDemand(): Promise<number | null> {
-    const sources = [...this.durableTournamentBreaks.values()]
-      .filter((state) => state.state === 'park_requested' && state.members.length === 0)
-      .map((state) => state.source_table_id);
-    if (sources.length === 0) return 0;
-    const { data, error } = await supabase
-      .from('table_seats')
-      .select('table_id')
-      .in('table_id', sources)
-      .is('left_at', null);
-    if (error || !data) return null;
-    return data.length;
+    const lifecycle = this.captureLifecycleToken();
+    const current = () => this.lifecycleIsCurrent(lifecycle) && this.eliminationMutationAllowed();
+    if (!current()) return null;
+    const sources = [
+      ...new Set(
+        [...this.durableTournamentBreaks.values()]
+          .filter((state) => state.state === 'park_requested' && state.members.length === 0)
+          .map((state) => state.source_table_id)
+      ),
+    ];
+    let demand = 0;
+    for (let offset = 0; offset < sources.length; offset += IN_LIST_CHUNK) {
+      if (!current()) return null;
+      const { count, error } = await supabase
+        .from('table_seats')
+        .select('id', { count: 'exact', head: true })
+        .in('table_id', sources.slice(offset, offset + IN_LIST_CHUNK))
+        .is('left_at', null);
+      if (
+        !current() ||
+        error ||
+        typeof count !== 'number' ||
+        !Number.isSafeInteger(count) ||
+        count < 0
+      )
+        return null;
+      demand += count;
+      if (!Number.isSafeInteger(demand)) return null;
+    }
+    return demand;
   }
 
   // A fresh balance preparation is one bounded progress unit: read the board

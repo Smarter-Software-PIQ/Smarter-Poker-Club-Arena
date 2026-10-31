@@ -39,6 +39,7 @@ function table(n: number, players: number): BalancerTable {
 function manager(board: BalancerTable[]) {
   const m: any = new TournamentManager(EVENT, {} as any, GENERATION, performance.now() + 60_000);
   m.running = true;
+  m.lifecycleEpoch.begin();
   m.eliminationSweepDeadlineAt = 0;
   m.eliminationMutationAllowed = () => true;
   m.requestUrgentEliminationSweepAfter = vi.fn();
@@ -365,7 +366,9 @@ describe('every short table breaks in one pass', () => {
         if (name !== 'table_seats') throw new Error(`unexpected table ${name}`);
         const rows = Array.from({ length: pendingPlayers }, () => ({ table_id: id(2099) }));
         return {
-          select: () => ({ in: () => ({ is: async () => ({ data: rows, error: null }) }) }),
+          select: () => ({
+            in: () => ({ is: async () => ({ data: null, count: rows.length, error: null }) }),
+          }),
         };
       }) as any);
       await m.checkTableBalance();
@@ -404,7 +407,9 @@ describe('every short table breaks in one pass', () => {
         if (name !== 'table_seats') throw new Error(`unexpected table ${name}`);
         const rows = Array.from({ length: pendingPlayers }, () => ({ table_id: id(2098) }));
         return {
-          select: () => ({ in: () => ({ is: async () => ({ data: rows, error: null }) }) }),
+          select: () => ({
+            in: () => ({ is: async () => ({ data: null, count: rows.length, error: null }) }),
+          }),
         };
       }) as any);
       await m.checkTableBalance();
