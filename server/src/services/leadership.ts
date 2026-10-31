@@ -168,6 +168,19 @@ function requestAuthoritativeShutdown(reason: string): void {
   }
 }
 
+/**
+ * A controlled drain + leader hand-off requested by this process itself (the
+ * memory governor's hard ceiling, Phase 6). It is the same once-only
+ * authoritative shutdown a lost lease takes: GameServer.stop() releases every
+ * table/tournament lease and the leadership row, the supervisor restarts the
+ * process, and a standby (if any) takes the lease. Being SIGKILLed by the
+ * kernel instead releases nothing and loses every in-flight hand.
+ */
+export function requestLeadershipHandOff(reason: string): void {
+  console.error(`[leadership] ${INSTANCE_ID} requesting controlled hand-off: ${reason}`);
+  requestAuthoritativeShutdown(`controlled hand-off: ${reason}`);
+}
+
 /** True unless we positively know another instance holds leadership. */
 /**
  * Called by GameServer.start() when it takes the standby early-return.

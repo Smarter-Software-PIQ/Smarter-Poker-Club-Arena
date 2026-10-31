@@ -202,7 +202,8 @@ import {
   leaseRenewalLoopRunning,
   leaseRenewalLoopRelaunchesTotal,
 } from './observability/engineInstruments.js';
-import { processMemoryHealth } from './observability/processMemory.js';
+import { processMemoryHealth, sampleProcessMemory } from './observability/processMemory.js';
+import { MemoryGovernor } from './observability/memoryGovernor.js';
 import { clientConnectionPrometheusLines } from './observability/ClientConnectionEvents.js';
 import {
   planTableReopens,
@@ -217,6 +218,7 @@ import {
   renewLeadership,
   LEADERSHIP_STALE_SECONDS,
   startLeadershipRenewal,
+  requestLeadershipHandOff,
   stopLeadershipRenewal,
   releaseLeadership,
   isLeader,
@@ -2141,6 +2143,26 @@ export class GameServer {
   private readonly processStartedAt: number = Date.now();
   /** Where boot time goes, phase by phase, published on /health as bootPhases. */
   private readonly bootTimeline = new BootPhaseTimeline();
+  /**
+   * MEMORY GOVERNOR (Phase 6, 2026-10-31). Over the soft RSS ceiling no NEW
+   * cash table engine is admitted (running tables and tournaments continue)
+   * and the Horse journal writers bound their archive ring; over the hard
+   * ceiling for three samples the process requests ONE controlled drain and
+   * leader hand-off instead of waiting for the kernel's SIGKILL. State is on
+   * /health as memoryGovernor. See observability/memoryGovernor.ts.
+   */
+  private readonly memoryGovernor = new MemoryGovernor({
+    sampleRssBytes: () => sampleProcessMemory().rssBytes,
+    onHandOff: (reason) => {
+      reportError(new Error(`Engine memory hard ceiling: ${reason}`), 'GameServer.memory_hand_off');
+      requestLeadershipHandOff(reason);
+    },
+    onPressureChange: (level, rssMb) =>
+      console.warn(
+        `[GameServer] memory governor -> ${level} (rss ${rssMb} MB); ` +
+          (level === 'normal' ? 'admitting new tables again' : 'new cash tables held')
+      ),
+  });
   private tournamentEngines: Map<string, TournamentManager> = new Map();
   /** Cursor for the existing bounded never-dealt candidate pass; no new timer. */
   private neverDealtCandidateCursor: string | null = null;
@@ -4472,6 +4494,7 @@ export class GameServer {
        was never sampled, which is exactly when it should be shedding load.
        Unref'd, so it can never hold the process open. */
     equityGovernor.startSampling();
+    this.memoryGovernor.start();
 
     console.log('═══════════════════════════════════════════════════════════════');
     console.log(' SMARTER POKER GAME SERVER - Starting...');
@@ -5017,6 +5040,7 @@ export class GameServer {
     // leak - but a stopped engine should not keep reading a loop it no
     // longer drives.
     equityGovernor.stopSampling();
+    this.memoryGovernor.stop();
     const stoppingGeneration = this.lifecycleGeneration;
     this.running = false;
     this.leaderBootComplete = false;
@@ -5924,6 +5948,9 @@ export class GameServer {
       // Unavailable /proc observations are null. The legacy arena field is
       // [heap] virtual extent, not RSS or allocation ownership.
       memory: processMemoryHealth(),
+      // Phase 6: what the process is DOING about that memory (soft: no new
+      // cash tables + journal ring bounded; hard: controlled hand-off).
+      memoryGovernor: this.memoryGovernor.health(),
       // The one process-wide FIFO that owns live HorseLogic state. Queue depth
       // and phase distinguish worker pressure/failure from main-loop pressure;
       // solver store counts prove the worker reached an authoritative READY.
@@ -8111,6 +8138,10 @@ export class GameServer {
 
           // Skip if already running
           if (this.tableEngines.has(row.table_id)) continue;
+          // MEMORY GOVERNOR (Phase 6): over the soft RSS ceiling no NEW table
+          // engine is built; running tables are untouched and the next sweep
+          // adopts this one as soon as pressure lifts.
+          if (!this.memoryGovernor.admitsNewTables()) break;
           // Held on a standing retained-hand refusal: not a start, not a
           // spent budget slot, not a log line (2026-09-29).
           if (this.retainedHandHeld(row.table_id)) continue;
@@ -13257,6 +13288,9 @@ export class GameServer {
 
     await this.awaitDirectTableLeaseRelease(tableId);
     if (!this.dealerAdmissionIsCurrent(generation)) return 'not_wakeable';
+    // MEMORY GOVERNOR (Phase 6): no new engine over the soft RSS ceiling.
+    // Retryable, so the bounded direct-recovery backoff asks again later.
+    if (!this.memoryGovernor.admitsNewTables()) return 'retryable_failure';
     // A table the retained-hand door refused is held, not rebuilt: no read,
     // no lease, no engine and no log until its recheck is due.
     if (this.retainedHandHeld(tableId)) return 'retained_hand_refused';
