@@ -6566,10 +6566,13 @@ export class GameServer {
       '# HELP poker_fleet_per_table_liveness_samples Per-table liveness samples this exposition carries',
       '# TYPE poker_fleet_per_table_liveness_samples gauge',
       `poker_fleet_per_table_liveness_samples ${stalledSamples.length + undealableSamples.length}`,
-      '# HELP poker_table_ms_since_progress Milliseconds since this table last made observable progress (stalled tables only)',
+      '# HELP poker_table_ms_since_progress Milliseconds since this table last made observable progress (stalled tables only); paused="1" marks a table stopped on purpose by a pause authority (hand-for-hand, break, deal hold)',
       '# TYPE poker_table_ms_since_progress gauge',
       ...stalledSamples.map(
-        (t) => `poker_table_ms_since_progress{table_id="${t.tableId}"} ${t.msSinceProgress}`
+        // 2026-10-31: the database stall watch reads this per-table line and
+        // cannot otherwise tell a hand-for-hand or break pause from a stall.
+        (t) =>
+          `poker_table_ms_since_progress{table_id="${t.tableId}",paused="${t.paused ? 1 : 0}"} ${t.msSinceProgress}`
       ),
       '# HELP poker_table_dealable_seats Seats able to be dealt into on this table (undealable tables only)',
       '# TYPE poker_table_dealable_seats gauge',
