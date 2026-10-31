@@ -77,7 +77,7 @@ vi.mock('../../src/stores/useUserStore', () => ({
   useUserStore: { getState: () => ({ user: null }) },
 }));
 vi.mock('../../src/services/RealtimeChannelService', () => ({ realtimeChannelService: {} }));
-vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
+vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn(), reportWarning: vi.fn() }));
 import { masterBus } from '../../src/core/MasterBus';
 import { supabase } from '../../src/lib/supabase';
 
