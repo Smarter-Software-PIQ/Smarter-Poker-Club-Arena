@@ -65,13 +65,13 @@ export function createNativeDumpDiagnostic() {
         else {partial+=char;if(partial.length>MAX_LINE)refuse('FD3_LIMIT');}
       }
     },
-    finish(){requireFrame(!retired && !closed && partial==='' && sequence>0);closed=true;},
+    finish({allowEmpty=false}={}){requireFrame(!retired && !closed && partial==='' && (sequence>0 || allowEmpty));closed=true;},
     snapshot(observedMs){
       requireFrame(!retired && Number.isSafeInteger(observedMs) && observedMs>=0 && observedMs<=45000);
       const open=span=>span?{type:span.type,started_at_us:span.us,
         unpaired_since_received_ms:Math.max(0,observedMs-span.receivedMs)}:null;
       return {version:1,records:sequence,bytes,stream_closed:closed,
-        pairs_complete:closed && !object && !query,
+        pairs_complete:closed && sequence>0 && !object && !query,
         types:Object.fromEntries(TYPES.map(type=>[type,{...buckets[type]}])),
         last_unpaired_object:open(object),last_unpaired_query:open(query)};
     },

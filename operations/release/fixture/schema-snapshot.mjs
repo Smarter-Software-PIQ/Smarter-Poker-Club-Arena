@@ -494,7 +494,9 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
       child.once('close', (code, signal) => {
         if(nativeCost && !protocolFailed){
           try{
-            nativeCost.finish();
+            // A failed client can stop before the first definition object,
+            // e.g. TLS or authentication. Preserve that real closed cause.
+            nativeCost.finish({allowEmpty:code!==0});
             if(code===0 && !nativeCost.snapshot(Math.min(45000,Math.round(performance.now()-started))).pairs_complete){failed=true;failureKind ??='FD3_PROTOCOL';}
           }catch{failed=true;failureKind ??='FD3_PROTOCOL';}
         }

@@ -26,6 +26,8 @@ transport and result transfer, not server CPU time. The public/Auth function
 count is a separately named catalogue population, not the native object total. An unmatched begin proves only that no matching end was
 observed; it is not a server cancellation acknowledgement. Malformed or oversized
 records refuse capture and cancel only the owned child through existing guards.
+A failed startup may have no object records; its real TLS/authentication cause
+remains distinct. Empty records can never qualify a successful export.
 
 The diagnostic client emits no stock verbose object names. Existing64KiB private
 error stderr,128MiB schema output,45-second total capture, finalization reserve,

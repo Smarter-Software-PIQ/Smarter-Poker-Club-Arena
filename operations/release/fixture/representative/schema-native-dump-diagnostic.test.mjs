@@ -121,3 +121,14 @@ test('instrumented dump consumes private fd3, retains query costs and refuses ma
     assert.equal(observed.args.includes('--verbose'),false);assert.equal(observed.options.stdio[3],'pipe');
   }
 }));
+
+test('zero-frame failed startup retains its real TLS cause while zero-frame success refuses',async()=>binaryFixture(async({env})=>{
+ const client=await verifyNativeDumpBinary(env);
+ for(const code of [0,1]){
+  const spawnProcess=()=>{const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.stdio=[null,child.stdout,child.stderr,new PassThrough()];child.kill=()=>true;
+   queueMicrotask(()=>{child.stdio[3].end();child.stdout.end();child.stderr.end('pg_dump: SSL error: certificate verify failed at private-host\n');child.emit('close',code,null);});return child;};
+  await assert.rejects(dumpSnapshot(databaseConfiguration('postgres://postgres:synthetic-only@db.kuklfnapbkmacvwxktbh.supabase.co:5432/postgres?sslmode=require'),'00000003-0000001B-1',{nativeClient:client,spawnProcess}),error=>{
+   assert.equal(error.dumpDiagnostic.kind,code===0?'FD3_PROTOCOL':'TLS_VERIFICATION');assert.equal(error.dumpDiagnostic.native_cost.pairs_complete,false);assert.equal(error.dumpDiagnostic.native_cost.records,0);assert.ok(!JSON.stringify(error).includes('private-host'));return true;
+  });
+ }
+}));
