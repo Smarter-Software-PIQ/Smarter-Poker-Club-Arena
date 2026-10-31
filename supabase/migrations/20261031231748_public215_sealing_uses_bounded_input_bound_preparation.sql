@@ -372,7 +372,7 @@ BEGIN
  'cell',jsonb_build_object('cell_id',c.cell_id,'cell_key_checksum',c.cell_key_checksum,'context',p.context,'preparation_offset',ordinal,'model_checksum',c.model_checksum,'template_checksum',c.template_checksum,'training_provenance_checksum',c.training_provenance_checksum,'model_build_receipt_checksum',c.model_build_receipt_checksum,'cell_payload_checksum',c.cell_payload_checksum,'lineage_checksum',c.lineage_checksum,'sql_physics_checksum',c.sql_physics_checksum,'source_rows',c.source_rows,'train_source_rows',c.train_source_rows,'holdout_source_rows',c.holdout_source_rows),
  'receipts',receipt_rows,'sources',source_versions,'journal',journal_rows,'audits',audit_rows);
 END $fn$;
-REVOKE ALL ON FUNCTION public.fn_gto_v31_seal_qualification_fingerprint(),public.fn_gto_v31_seal_preparation_guards(),public.fn_gto_v31_public215_seal_cell_binding(uuid,text)FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_gto_v31_seal_qualification_fingerprint(),public.fn_gto_v31_seal_preparation_guards(),public.fn_gto_v31_public215_seal_cell_binding(uuid,text) FROM PUBLIC,anon,authenticated,service_role;
 
 -- SOURCE DRAFT. Every caller holds the dataset parent lock first. Row locks
 -- are bounded to this offline dataset; no game/seat/money owner is touched.
@@ -466,9 +466,9 @@ BEGIN
  INSERT INTO public.gto_v31_seal_cell_preparations(dataset_id,cell_key_checksum,qualification_fingerprint,input_checksum,preparation_offset,context,input_binding,raw_metrics,receipt_checksum)VALUES(d.dataset_id,c.cell_key_checksum,fingerprint,input_sha,(binding#>>'{cell,preparation_offset}')::integer,c.public_template->'context',binding,raw,receipt);
  RETURN public.fn_gto_v31_public215_preseal_reply(binding,fingerprint,receipt,'prepared');
 END $fn$;
-REVOKE ALL ON FUNCTION public.fn_gto_v31_public215_lock_seal_inputs(uuid,text),public.fn_gto_v31_public215_preseal_reply(jsonb,text,text,text)FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.fn_gto_v31_prepare_seal_cell(uuid,text),public.fn_gto_v31_seal_cell_preparation_status(uuid,text)FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_gto_v31_prepare_seal_cell(uuid,text),public.fn_gto_v31_seal_cell_preparation_status(uuid,text)TO service_role;
+REVOKE ALL ON FUNCTION public.fn_gto_v31_public215_lock_seal_inputs(uuid,text),public.fn_gto_v31_public215_preseal_reply(jsonb,text,text,text) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_gto_v31_prepare_seal_cell(uuid,text),public.fn_gto_v31_seal_cell_preparation_status(uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_gto_v31_prepare_seal_cell(uuid,text),public.fn_gto_v31_seal_cell_preparation_status(uuid,text) TO service_role;
 
 -- SOURCE DRAFT. Called only after the original public coverage guards, while
 -- the original dataset FOR UPDATE is held. Original legacy path stays exact.
@@ -505,7 +505,7 @@ BEGIN
  IF cells<>107 OR cells<>jsonb_array_length(p_dataset.declared_coverage)OR public.fn_gto_v31_seal_qualification_fingerprint()IS DISTINCT FROM fingerprint THEN RAISE EXCEPTION 'prepared validation census/implementation changed';END IF;
  RETURN raws;
 END $fn$;
-REVOKE ALL ON FUNCTION public.fn_gto_v31_public215_assert_prepared_seal(public.gto_v31_datasets)FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_gto_v31_public215_assert_prepared_seal(public.gto_v31_datasets) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_gto_v31_seal_build_legacy_v31(p_dataset_id uuid)
  RETURNS text
@@ -1014,7 +1014,7 @@ BEGIN
  END IF;
  RETURN public.fn_gto_v31_seal_build_legacy_v31(p_dataset_id);
 END $fn$;
-REVOKE ALL ON FUNCTION public.fn_gto_v31_seal_build_legacy_v31(uuid),public.fn_gto_v31_public215_seal_prepared(uuid)FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_gto_v31_seal_build_legacy_v31(uuid),public.fn_gto_v31_public215_seal_prepared(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 DO $postflight$ BEGIN
  IF(SELECT count(*)FROM pg_temp.v31_preparation_function_preimages)<>8 OR EXISTS(SELECT 1 FROM pg_temp.v31_preparation_function_preimages old JOIN pg_proc p ON p.oid=old.oid WHERE(to_jsonb(p)-'prosrc')IS DISTINCT FROM old.metadata OR(p.proname<>'fn_gto_v31_seal_build'AND md5(p.prosrc)IS DISTINCT FROM old.body_md5))THEN RAISE EXCEPTION 'V31 existing function metadata or unchanged body differs';END IF;
