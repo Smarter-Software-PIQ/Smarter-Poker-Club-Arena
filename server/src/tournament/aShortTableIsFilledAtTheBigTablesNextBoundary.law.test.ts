@@ -52,6 +52,7 @@ function fakeEngine() {
 function manager(board: BalancerTable[]) {
   const m: any = new TournamentManager(EVENT, {} as any, GENERATION, performance.now() + 60_000);
   m.running = true;
+  m.lifecycleEpoch.begin();
   m.eliminationSweepDeadlineAt = 0;
   m.eliminationMutationAllowed = () => true;
   m.requestUrgentEliminationSweepAfter = vi.fn();

@@ -34,6 +34,7 @@ function fixture(count: number, readCost: number) {
   });
   const manager: any = new TournamentManager(event, server, lease, performance.now() + 60_000);
   Object.assign(manager, { running: true, eliminationSweepDeadlineAt: now + 5_000 });
+  manager.lifecycleEpoch.begin();
   manager.tableEngines.set(source, engine);
   manager.requestUrgentEliminationSweepAfter = vi.fn();
   // Retirement follows dispatch and has its own original-engine qualification.
@@ -90,6 +91,9 @@ function fixture(count: number, readCost: number) {
       },
       eq: () => query,
       neq: () => query,
+      order: () => query,
+      limit: () => query,
+      gt: () => query,
       or: () => query,
       is: () => query,
       in: (column: string, value: string[]) => {
