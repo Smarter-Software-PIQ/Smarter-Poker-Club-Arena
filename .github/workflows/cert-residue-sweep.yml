@@ -1,0 +1,51 @@
+name: Cert Residue Sweep
+
+# 2026-10-31: 429 PostDeploy / crest_cert reserved identities and three live
+# 'Crest Cert' clubs had leaked. Stale recovery refused outright above 20
+# accounts and ran only inside certification jobs, so once the backlog passed
+# 20 nothing could ever drain it. This sweep runs that recovery when an
+# operator starts it, bounded by time (STALE_CLEANUP_BUDGET_MS) rather than a
+# count, with the same 162-minute age floor and the same guarded doors:
+#   - cleanupStaleProductionE2EAccounts: each stale reserved identity, after
+#     retiring the certification clubs it owns;
+#   - cleanupStaleCertificationClubs: stale 'Crest Cert' clubs whose owner is
+#     gone or is a reserved certificate identity, through
+#     retireCertificationClubWithRetry.
+# A residue it cannot retire fails this run, loudly.
+
+# Operator policy (2026-10-31): no new automated production-deleting loop.
+# This sweep runs only when an operator starts it (Actions > Cert Residue
+# Sweep > Run workflow). The residue it would drain is reported by the
+# certification residue count instead of being retired on a timer.
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Never two sweeps at once, and never cancel one mid-retirement.
+  group: cert-residue-sweep
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # `pg` drives the long-budget retirement door when DATABASE_URL is set.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Sweep Stale Certification Accounts And Clubs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Per pass (accounts, then clubs): 2 x 22 minutes, plus the one
+          # retirement already in flight when a budget runs out, fits the
+          # 60-minute job. A backlog larger than one budget continues next hour.
+          STALE_CLEANUP_BUDGET_MS: '1320000'
+        run: node scripts/ci/production-e2e-account.mjs sweep-stale-residue

@@ -74,6 +74,43 @@ describe('TablePage heartbeat wiring', () => {
   });
 });
 
+describe('TablePage dead-table recovery wiring (2026-10-31)', () => {
+  const page = read('src/pages/TablePage.tsx');
+
+  it('a 404 beat and a closed row both drive the episode; a landed beat or socket ends it', () => {
+    expect(page).toContain('const deadTable = createDeadTableRecovery(');
+    expect(page).toContain('if (heartbeatRowClosedRef.current) driveDeadTable();');
+    expect(page.split('driveDeadTable();').length - 1).toBe(2);
+    expect(page).toContain('deadTable.onRunning();');
+    const connected = page.indexOf("if (engineWsStatus === 'connected') {");
+    expect(page.indexOf('deadTableRecoveryRef.current?.onRunning();', connected)).toBeGreaterThan(
+      connected
+    );
+  });
+
+  it('never acts during a seat-first pre-start, a break, a paused table or a Lightning room', () => {
+    const start = page.indexOf('const driveDeadTable = () => {');
+    const body = page.slice(start, start + 600);
+    for (const guard of [
+      'seatFirstOpenRef.current',
+      'maintenanceBreakRef.current.active',
+      'tablePausedToastShownRef.current',
+      'lightningRoomRef.current',
+    ])
+      expect(body).toContain(guard);
+    expect(body).toContain('verdictStillCurrent()');
+  });
+
+  it('an embedded table reports its successor to the container instead of navigating', () => {
+    const start = page.indexOf('deadTableFollowRef.current = (destination: string) => {');
+    const body = page.slice(start, start + 300);
+    expect(body).toContain('onTableInfoUpdate?.({ movedToTableId: destination });');
+    expect(page).toContain(
+      "masterBus.emit('TABLE_MENU_ACTION', { tableId, action: 'CLOSE_TABLE_TAB' });"
+    );
+  });
+});
+
 describe('heartbeat recovery wins over delayed failures', () => {
   it.each(['socket reconnect', 'successful heartbeat', 'effect cleanup'])(
     'rejects a late closed-row result after %s',

@@ -7,6 +7,7 @@ import { PLATFORM_FREEZE_POLL_MS } from '../../scripts/ci/platform-freeze-window
 
 import {
   cleanupProductionE2EAccount,
+  cleanupStaleCertificationClubs,
   cleanupStaleProductionE2EAccounts,
   createProductionE2EAccount,
   prepareProductionE2EStaffMembership,
@@ -185,7 +186,7 @@ describe('post-deploy production account', () => {
     }
   );
 
-  it('keeps the stale-account limit and refuses a too-young fixture from its inventory', async () => {
+  it('refuses a too-young fixture from its inventory', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'production-e2e-stale-bounds-'));
     const env = environment(directory);
     const row = {
@@ -193,11 +194,6 @@ describe('post-deploy production account', () => {
       email: 'ca-customization-cert-postdeploy-ledger@example.invalid',
       created_at: '2026-09-27T01:00:00Z',
     };
-    const tooMany = vi.fn(async () => Response.json(Array.from({ length: 21 }, () => row)));
-    await expect(
-      cleanupStaleProductionE2EAccounts({ environment: env, fetchImpl: tooMany })
-    ).rejects.toThrow('more than 20');
-    expect(tooMany).toHaveBeenCalledTimes(1);
     const young = vi.fn(async () => Response.json([row]));
     await expect(
       cleanupStaleProductionE2EAccounts({
@@ -2532,5 +2528,212 @@ describe('one refused stale identity no longer strands the others (2026-10-26)',
       'Refusing an invalid stale post-deploy account candidate.'
     );
     expect(model.calls).toEqual([]);
+  });
+});
+
+/* 2026-10-31 (Phase 5): 429 PostDeploy / crest_cert identities and three
+   'Crest Cert' clubs leaked. Stale recovery refused outright above 20 and ran
+   only inside cert jobs. It now drains, bounded by time; the hourly
+   cert-residue-sweep workflow runs it with the stale-club sweep. */
+describe('stale certification residue drains', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const NOW = Date.parse('2026-10-31T12:00:00.000Z');
+  const staleId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const staleRow = (n: number) => ({
+    id: staleId(n),
+    email: `ca-customization-cert-postdeploy-${n}-x@example.invalid`,
+    created_at: '2026-10-30T00:00:00.000Z',
+  });
+
+  function backlog(count: number, refuse: Set<string> = new Set()) {
+    const live = new Map(
+      Array.from({ length: count }, (_, i) => [staleId(i + 1), staleRow(i + 1)])
+    );
+    let inventoryReads = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/rest/v1/rpc/fn_ca_stale_certification_accounts')) {
+        inventoryReads += 1;
+        return Response.json([...live.values()]);
+      }
+      if (url.includes('/rest/v1/clubs?')) return Response.json([]);
+      if (url.includes('/rest/v1/rpc/cleanup_reserved_certification_account')) {
+        const id = JSON.parse(String(init?.body)).p_user_id as string;
+        if (refuse.has(id)) return Response.json({ success: false, reason: 'refused_for_test' });
+        live.delete(id);
+        return Response.json({ success: true });
+      }
+      if (url.includes('/auth/v1/admin/users/')) return new Response(null, { status: 404 });
+      return new Response('unexpected request', { status: 500 });
+    });
+    return { fetchMock, live, reads: () => inventoryReads };
+  }
+
+  it('drains a backlog far larger than one batch, never touching anything younger than the floor', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const env = environment(mkdtempSync(join(tmpdir(), 'production-e2e-drain-')));
+    const { fetchMock, live, reads } = backlog(429);
+    await expect(
+      cleanupStaleProductionE2EAccounts({ environment: env, fetchImpl: fetchMock, now: NOW })
+    ).resolves.toBe(429);
+    expect(live.size).toBe(0);
+    expect(reads()).toBeGreaterThan(1);
+    const inventoryCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes('fn_ca_stale_certification_accounts')
+    ) as unknown as [string, RequestInit];
+    expect(JSON.parse(String(inventoryCall[1].body))).toEqual({
+      p_before: new Date(NOW - STALE_ACCOUNT_AGE_MS).toISOString(),
+    });
+    expect(STALE_ACCOUNT_AGE_MS).toBe(162 * 60_000);
+  });
+
+  it('stops at its time budget without failing, and says how many remain', async () => {
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => void logs.push(String(line)));
+    const env = environment(mkdtempSync(join(tmpdir(), 'production-e2e-budget-')));
+    const { fetchMock, live } = backlog(50);
+    let t = 0;
+    await expect(
+      cleanupStaleProductionE2EAccounts({
+        environment: env,
+        fetchImpl: fetchMock,
+        now: NOW,
+        budgetMs: 10_000,
+        clock: () => (t += 1_000),
+      })
+    ).resolves.toBeLessThan(50);
+    expect(live.size).toBeGreaterThan(0);
+    expect(logs.some((line) => /remain for the next sweep/.test(line))).toBe(true);
+  });
+
+  it('tries a refused identity once, finishes the rest, then reports the refusal', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const env = environment(mkdtempSync(join(tmpdir(), 'production-e2e-refused-')));
+    const refused = new Set([staleId(3)]);
+    const { fetchMock, live } = backlog(30, refused);
+    await expect(
+      cleanupStaleProductionE2EAccounts({ environment: env, fetchImpl: fetchMock, now: NOW })
+    ).rejects.toThrow(/left 1 of 30/);
+    expect([...live.keys()]).toEqual([staleId(3)]);
+    const doorCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes('cleanup_reserved_certification_account') &&
+        JSON.parse(String((init as RequestInit).body)).p_user_id === staleId(3)
+    );
+    expect(doorCalls).toHaveLength(1);
+  });
+
+  it('retires a stale certification club whose owner is gone, and refuses one owned by a player', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const env = environment(mkdtempSync(join(tmpdir(), 'production-e2e-clubs-')));
+    const ORPHAN = '11111111-0000-4000-8000-000000000001';
+    const PLAYER_OWNED = '11111111-0000-4000-8000-000000000002';
+    const RETIRED = '11111111-0000-4000-8000-000000000003';
+    const retiredByDoor: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/rest/v1/clubs?')) {
+        expect(decodeURIComponent(url)).toContain('name.like."Crest Cert *"');
+        expect(decodeURIComponent(url)).toContain(
+          `created_at=lt.${new Date(NOW - STALE_ACCOUNT_AGE_MS).toISOString()}`
+        );
+        return Response.json([
+          {
+            id: ORPHAN,
+            name: 'Crest Cert 1a2b',
+            owner_id: 'gone-owner',
+            lifecycle_status: 'active',
+            created_at: '2026-10-30T00:00:00Z',
+          },
+          {
+            id: PLAYER_OWNED,
+            name: 'Crest Cert 3c4d',
+            owner_id: 'player',
+            lifecycle_status: 'active',
+            created_at: '2026-10-30T00:00:00Z',
+          },
+          {
+            id: RETIRED,
+            name: 'Crest Cert 5e6f',
+            owner_id: 'gone-owner',
+            lifecycle_status: 'retired',
+            created_at: '2026-10-30T00:00:00Z',
+          },
+        ]);
+      }
+      if (url.includes('/auth/v1/admin/users/gone-owner'))
+        return new Response(null, { status: 404 });
+      if (url.includes('/auth/v1/admin/users/player'))
+        return Response.json({ id: 'player', email: 'someone@gmail.com' });
+      if (url.includes('/rest/v1/rpc/fn_ca_retire_welcome_certification_club')) {
+        retiredByDoor.push(JSON.parse(String(init?.body)).p_club_id);
+        return Response.json({ success: true, chips_retired: 100000 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    });
+    await expect(
+      cleanupStaleCertificationClubs({ environment: env, fetchImpl: fetchMock, now: NOW })
+    ).rejects.toThrow(/left 1 of 2 club\(s\) unretired \(1 retired\)/);
+    expect(retiredByDoor).toEqual([ORPHAN]);
+  });
+
+  it('a run that exported its reserved account but lost the record exits non-zero', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'production-e2e-own-residue-'));
+    const env = environment(directory);
+    const email = 'ca-customization-cert-postdeploy-1-abc@example.invalid';
+    await expect(
+      cleanupProductionE2EAccount({ environment: env, expectedEmail: email })
+    ).rejects.toThrow(/fixture record is missing/);
+    // No account from this run (or a non-reserved secret account): still a no-op.
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await expect(cleanupProductionE2EAccount({ environment: env })).resolves.toBe(false);
+    await expect(
+      cleanupProductionE2EAccount({ environment: env, expectedEmail: 'daniel@example.com' })
+    ).resolves.toBe(false);
+  });
+
+  it('an earlier in-job cleanup leaves a receipt, so the always() step stays green', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const directory = mkdtempSync(join(tmpdir(), 'production-e2e-receipt-'));
+    const env = environment(directory);
+    const email = 'ca-customization-cert-postdeploy-2-def@example.invalid';
+    const path = join(directory, 'club-arena-production-e2e-account.json');
+    writeFileSync(path, JSON.stringify({ id: USER_ID, email }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/rest/v1/rpc/cleanup_reserved_certification_account'))
+        return Response.json({ success: true });
+      if (url.includes(`/auth/v1/admin/users/${USER_ID}`))
+        return new Response(null, { status: 404 });
+      return new Response('unexpected request', { status: 500 });
+    });
+    await expect(
+      cleanupProductionE2EAccount({ environment: env, fetchImpl: fetchMock })
+    ).resolves.toBe(true);
+    expect(existsSync(path)).toBe(false);
+    await expect(
+      cleanupProductionE2EAccount({ environment: env, expectedEmail: email })
+    ).resolves.toBe(false);
+  });
+
+  it('the sweep workflow is operator-started only and runs both helpers with the cert secrets', () => {
+    const sweep = readFileSync(
+      resolve(process.cwd(), '.github/workflows/cert-residue-sweep.yml'),
+      'utf8'
+    );
+    // Operator policy (2026-10-31): no new automated production-deleting loop.
+    expect(sweep).not.toMatch(/^\s*schedule:/m);
+    expect(sweep).toContain('workflow_dispatch:');
+    expect(sweep).toContain('node scripts/ci/production-e2e-account.mjs sweep-stale-residue');
+    for (const secret of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL'])
+      expect(sweep).toContain(`${secret}: \${{ secrets.${secret} }}`);
+    const script = readFileSync(
+      resolve(process.cwd(), 'scripts/ci/production-e2e-account.mjs'),
+      'utf8'
+    );
+    expect(script).toContain(
+      'for (const step of [cleanupStaleProductionE2EAccounts, cleanupStaleCertificationClubs])'
+    );
+    expect(script).not.toContain('STALE_ACCOUNT_LIMIT');
   });
 });

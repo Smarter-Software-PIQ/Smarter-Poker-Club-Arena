@@ -17,6 +17,11 @@
  *     goes in one request; on page hide the queue goes with `keepalive`;
  *   - it samples repeats: one event per dedupe key per minute, the rest are
  *     counted and carried as `occurrences` on the next one (or on page hide);
+ *   - it caps a noisy key: after 5 rows for one dedupe key in a page session
+ *     that key is aggregated locally and flushed as ONE row carrying the
+ *     accumulated `occurrences` at most every 5 minutes (2026-10-31: single
+ *     sessions were writing the same key ~60 times an hour, e.g.
+ *     resolveTournamentLiveTable_rpc_empty 1,680x and engine_refusal 1,100x);
  *   - it is bounded: 30 events a minute and 200 a page session, whatever the
  *     page does. The database enforces its own caps independently;
  *   - it scrubs before anything leaves the browser (emails, tokens, secrets),
@@ -73,6 +78,10 @@ export const SINK_LIMITS = {
   perMinute: 30,
   perSession: 200,
   repeatWindowMs: 60_000,
+  /** Rows one dedupe key may send in a page session before it is aggregated. */
+  perKeyBeforeAggregate: 5,
+  /** Once aggregated, at most one row per key per this window. */
+  aggregateWindowMs: 5 * 60_000,
   debounceMs: 2_000,
   maxKeys: 200,
 } as const;
@@ -221,13 +230,65 @@ export interface ClientErrorSink {
   stats(): { queued: number; sent: number; dropped: number; suppressed: number };
 }
 
+interface SeenKey {
+  lastSentAt: number;
+  suppressed: number;
+  last: SinkEvent;
+  /** Rows this key has sent this page session. */
+  sends: number;
+}
+
+/** The repeat window for a key: a minute, or five once it has sent its five rows. */
+function repeatWindowFor(entry: SeenKey): number {
+  return entry.sends >= SINK_LIMITS.perKeyBeforeAggregate
+    ? SINK_LIMITS.aggregateWindowMs
+    : SINK_LIMITS.repeatWindowMs;
+}
+
 export function createClientErrorSink(deps: SinkDeps): ClientErrorSink {
   const queue: SinkEvent[] = [];
-  const seen = new Map<string, { lastSentAt: number; suppressed: number; last: SinkEvent }>();
+  const seen = new Map<string, SeenKey>();
   const sentAt: number[] = [];
   let sent = 0;
   let dropped = 0;
   let timer: unknown = null;
+  let sweepTimer: unknown = null;
+  let sweepAt = Infinity;
+
+  /* An aggregated key's counts must reach the table even if the error stops
+     before the page is hidden: one timer, due when the earliest aggregated
+     key may send again. Keys under the cap keep the original carry-on-next
+     behaviour. */
+  const scheduleSweep = () => {
+    let due = Infinity;
+    for (const entry of seen.values()) {
+      if (entry.suppressed <= 0 || entry.sends < SINK_LIMITS.perKeyBeforeAggregate) continue;
+      due = Math.min(due, entry.lastSentAt + SINK_LIMITS.aggregateWindowMs);
+    }
+    if (due === Infinity || (sweepTimer !== null && sweepAt <= due)) return;
+    if (sweepTimer !== null) deps.clearTimer(sweepTimer);
+    sweepAt = due;
+    sweepTimer = deps.setTimer(sweep, Math.max(0, due - deps.now()));
+  };
+  function sweep(): void {
+    try {
+      sweepTimer = null;
+      sweepAt = Infinity;
+      const t = deps.now();
+      for (const [key, entry] of [...seen]) {
+        if (entry.suppressed <= 0 || entry.sends < SINK_LIMITS.perKeyBeforeAggregate) continue;
+        if (t - entry.lastSentAt < SINK_LIMITS.aggregateWindowMs) continue;
+        if (!withinRate(t)) break;
+        const event = { ...entry.last, at: t, occurrences: Math.min(10_000, entry.suppressed) };
+        seen.delete(key);
+        seen.set(key, { lastSentAt: t, suppressed: 0, last: event, sends: entry.sends + 1 });
+        admit(event, t);
+      }
+      scheduleSweep();
+    } catch {
+      /* best effort */
+    }
+  }
 
   const withinRate = (t: number): boolean => {
     while (sentAt.length && t - sentAt[0] >= 60_000) sentAt.shift();
@@ -251,9 +312,10 @@ export function createClientErrorSink(deps: SinkDeps): ClientErrorSink {
       const event = toSinkEvent(capture, deps);
       const key = event.dedupe_key;
       const prior = seen.get(key);
-      if (prior && t - prior.lastSentAt < SINK_LIMITS.repeatWindowMs) {
+      if (prior && t - prior.lastSentAt < repeatWindowFor(prior)) {
         prior.suppressed++;
         prior.last = event;
+        if (prior.sends >= SINK_LIMITS.perKeyBeforeAggregate) scheduleSweep();
         return;
       }
       if (!withinRate(t)) {
@@ -262,7 +324,7 @@ export function createClientErrorSink(deps: SinkDeps): ClientErrorSink {
           prior.suppressed++;
           prior.last = event;
         } else if (seen.size < SINK_LIMITS.maxKeys) {
-          seen.set(key, { lastSentAt: -Infinity, suppressed: 1, last: event });
+          seen.set(key, { lastSentAt: -Infinity, suppressed: 1, last: event, sends: 0 });
         } else {
           dropped++;
         }
@@ -270,7 +332,7 @@ export function createClientErrorSink(deps: SinkDeps): ClientErrorSink {
       }
       event.occurrences = Math.min(10_000, 1 + (prior?.suppressed ?? 0));
       seen.delete(key); // re-insert so Map order is least-recently-sent first
-      seen.set(key, { lastSentAt: t, suppressed: 0, last: event });
+      seen.set(key, { lastSentAt: t, suppressed: 0, last: event, sends: (prior?.sends ?? 0) + 1 });
       while (seen.size > SINK_LIMITS.maxKeys) {
         const oldest = seen.keys().next().value as string;
         seen.delete(oldest);
@@ -298,7 +360,7 @@ export function createClientErrorSink(deps: SinkDeps): ClientErrorSink {
             at: t,
             occurrences: Math.min(10_000, entry.suppressed),
           });
-          seen.set(key, { ...entry, suppressed: 0, lastSentAt: t });
+          seen.set(key, { ...entry, suppressed: 0, lastSentAt: t, sends: entry.sends + 1 });
         }
         // keepalive bodies share a 64 KiB budget per page: one batch, at most.
         if (queue.length) deps.send(queue.splice(0, SINK_LIMITS.batch), true);

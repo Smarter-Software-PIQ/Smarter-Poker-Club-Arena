@@ -49,6 +49,14 @@ export function adminActionReasonText(reason: string | undefined): string {
   );
 }
 
+/** Tournaments whose empty primary-table election was already reported this session. */
+const electedNothingReported = new Set<string>();
+
+/** Test-only. */
+export function __resetElectedNothingReportedForTests(): void {
+  electedNothingReported.clear();
+}
+
 class TableService {
   // ═══════════════════════════════════════════════════════════════════════════════
   // Table Operations
@@ -486,7 +494,12 @@ class TableService {
     });
     if (!error && typeof data === 'string' && data.length > 0) return data;
     if (error) reportError(error, 'TableService.resolveTournamentLiveTable_rpc');
-    else
+    else if (!electedNothingReported.has(tournamentId)) {
+      /* ONCE PER TOURNAMENT PER SESSION (2026-10-31). Callers poll this, and
+         an election that finds nothing keeps finding nothing: 1,680 ERROR
+         rows in 24 hours for a handful of tournaments. The first one is the
+         signal; the rest were the same sentence. */
+      electedNothingReported.add(tournamentId);
       /* THE SILENT CASE, WHICH IS THE DANGEROUS ONE (2026-08-28 audit).
          An RPC that SUCCEEDS and returns nothing is not the outage this
          fallback was written for — it means the election found no eligible
@@ -502,6 +515,7 @@ class TableService {
         ),
         'TableService.resolveTournamentLiveTable_rpc_empty'
       );
+    }
 
     const { data: tbls, error: qErr } = await supabase
       .from('tables')

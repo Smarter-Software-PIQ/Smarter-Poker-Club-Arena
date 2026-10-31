@@ -11,12 +11,14 @@ const f = vi.hoisted(() => ({
   reportError: vi.fn(),
   statuses: [] as Array<(status: string) => void>,
   payloads: [] as Array<(payload: unknown) => void>,
+  emit: vi.fn(),
 }));
 vi.mock('../../src/lib/subscribeRealtime', () => ({ subscribeRealtime: f.subscribeRealtime }));
 vi.mock('../../src/core/MasterBus', () => ({ masterBus: f }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: f.reportError }));
 import { useMasterBusChannel } from '../../src/hooks/useMasterBusChannel';
 import { __resetRealtimeTransportLossForTests } from '../../src/lib/realtimeTransportLoss';
+import { __resetRealtimeDegradationPolicyForTests } from '../../src/lib/realtimeDegradationPolicy';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -212,4 +214,95 @@ it('still files a row channel the server refused with a reason', () => {
     mismatch,
     'useMasterBusChannel.CHANNEL_ERROR.tables'
   );
+});
+
+/* 2026-10-31: one Member Management tab raised 15,302 "Live ... Connection
+   Could Not Be Established" toasts in six hours. A channel that keeps failing
+   is ONE degradation episode: one consumer notification, one toast, one
+   report, until SUBSCRIBED. Recovery attempts back off (immediate, then
+   1 s .. 30 s with jitter). */
+it('notifies and toasts once per degradation episode and backs off its recovery', () => {
+  vi.useFakeTimers();
+  try {
+    __resetRealtimeDegradationPolicyForTests();
+    const toasts = () => f.emit.mock.calls.filter(([event]) => event === 'SHOW_TOAST');
+    const onSubscriptionError = vi.fn();
+    const { unmount } = renderHook(() =>
+      useMasterBusChannel({
+        channelName: 'member-record-wallet-storm',
+        table: 'club_members',
+        filter: 'club_id=eq.test',
+        event: '*',
+        onPayload: vi.fn(),
+        onSubscriptionError,
+        degradedToast: 'The Live Wallet Connection Could Not Be Established.',
+      })
+    );
+    const factory = f.registerChannelFactory.mock.calls[0][1] as () => void;
+
+    // Failure 1, then many health-monitor ticks, each attempt failing.
+    act(() => {
+      f.statuses[0]('CHANNEL_ERROR');
+      f.statuses[0]('CLOSED');
+    });
+    act(() => factory()); // first retry is immediate
+    expect(f.statuses).toHaveLength(2);
+    act(() => f.statuses[1]('TIMED_OUT'));
+    act(() => factory()); // second retry waits 0.5 s .. 1 s
+    expect(f.statuses).toHaveLength(2);
+    act(() => factory()); // a pending retry absorbs further requests
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(f.statuses).toHaveLength(3);
+    for (let i = 3; i < 20; i++) {
+      act(() => f.statuses[i - 1]('CHANNEL_ERROR'));
+      act(() => factory());
+      act(() => vi.advanceTimersByTime(30_000));
+      expect(f.statuses).toHaveLength(i + 1);
+    }
+    expect(onSubscriptionError).toHaveBeenCalledTimes(1);
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0][1]).toMatchObject({
+      severity: 'critical',
+      message: 'The Live Wallet Connection Could Not Be Established.',
+    });
+    expect(f.reportError).toHaveBeenCalledTimes(1);
+
+    // Backoff is capped: the 20th consecutive failure still retries within 30 s.
+    act(() => f.statuses[19]('CHANNEL_ERROR'));
+    act(() => factory());
+    act(() => vi.advanceTimersByTime(14_999));
+    const before = f.statuses.length;
+    act(() => vi.advanceTimersByTime(15_001));
+    expect(f.statuses.length).toBe(before + 1);
+
+    // Recovery closes the episode; the next outage notifies and toasts again.
+    act(() => f.statuses.at(-1)!('SUBSCRIBED'));
+    act(() => factory()); // after SUBSCRIBED the next retry is immediate
+    expect(f.statuses.length).toBe(before + 2);
+    act(() => f.statuses.at(-1)!('CHANNEL_ERROR'));
+    expect(onSubscriptionError).toHaveBeenCalledTimes(2);
+    expect(toasts()).toHaveLength(2);
+    unmount();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('a remount inside the same outage does not toast the same channel again', () => {
+  __resetRealtimeDegradationPolicyForTests();
+  const toasts = () => f.emit.mock.calls.filter(([event]) => event === 'SHOW_TOAST');
+  const options = {
+    channelName: 'member-record-remount',
+    table: 'club_members',
+    filter: 'club_id=eq.test',
+    event: '*' as const,
+    onPayload: vi.fn(),
+    degradedToast: 'The Live Member Connection Could Not Be Established.',
+  };
+  const first = renderHook(() => useMasterBusChannel(options));
+  act(() => f.statuses[0]('CHANNEL_ERROR'));
+  first.unmount();
+  renderHook(() => useMasterBusChannel(options));
+  act(() => f.statuses[1]('CHANNEL_ERROR'));
+  expect(toasts()).toHaveLength(1);
 });

@@ -323,7 +323,7 @@ export default function MemberManagementPage() {
     onSubscriptionStatus: (status) => {
       if (status === 'SUBSCRIBED') authorityRefreshRef.current(true);
     },
-    onSubscriptionError: () => toast.error('The Live Wallet Connection Could Not Be Established.'),
+    degradedToast: 'The Live Wallet Connection Could Not Be Established.',
   });
   useMasterBusBroadcastChannel({
     channelName: resolvedClubId ? `club-roster-wallet:${resolvedClubId}` : null,
@@ -338,7 +338,7 @@ export default function MemberManagementPage() {
     onSubscriptionStatus: (status) => {
       if (status === 'SUBSCRIBED') authorityRefreshRef.current(true);
     },
-    onSubscriptionError: () => toast.error('The Live Wallet Connection Could Not Be Established.'),
+    degradedToast: 'The Live Wallet Connection Could Not Be Established.',
   });
 
   useMasterBusBroadcastChannel({
@@ -354,7 +354,7 @@ export default function MemberManagementPage() {
     onSubscriptionStatus: (status) => {
       if (status === 'SUBSCRIBED') authorityRefreshRef.current(true);
     },
-    onSubscriptionError: () => toast.error('The Live Member Connection Could Not Be Established.'),
+    degradedToast: 'The Live Member Connection Could Not Be Established.',
   });
   useMasterBusSubscriptions(['CLUB_UPDATED', 'MEMBER_ROLE_CHANGED', 'AGENT_UPDATED'], (payload) => {
     const change = payload as { clubId?: string; userId?: string } | null;

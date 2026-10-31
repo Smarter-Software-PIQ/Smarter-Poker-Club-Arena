@@ -686,7 +686,11 @@ describe('useMasterBusBroadcastChannel', () => {
     await act(async () => {
       window.dispatchEvent(new Event('online'));
     });
-    await waitFor(() => expect(onSubscriptionError).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.setAuth).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.onAuthStateChange).toHaveBeenCalledTimes(2));
+    // The second failure is the SAME degradation episode: the consumer was
+    // told once (src/lib/realtimeDegradationPolicy.ts, the 15,302-toast storm).
+    expect(onSubscriptionError).toHaveBeenCalledTimes(1);
 
     // Re-armed exactly once, and nothing fires until the next event.
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -759,17 +763,29 @@ describe('useMasterBusBroadcastChannel', () => {
     await waitFor(() => expect(mocks.subscriptionCallbacks).toHaveLength(1));
     const recover = mocks.registerChannelFactory.mock.calls[0][1] as () => void;
     act(() => mocks.subscriptionCallbacks[0]('CHANNEL_ERROR', refused));
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      act(() => recover());
-      await waitFor(() => expect(mocks.subscriptionCallbacks).toHaveLength(attempt + 1));
-      act(() => mocks.subscriptionCallbacks[attempt]('CHANNEL_ERROR', refused));
+    // Recovery attempts after the first back off (src/lib/realtimeDegradationPolicy.ts),
+    // so each attempt is given the 30 s cap to start.
+    vi.useFakeTimers();
+    try {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        await act(async () => {
+          recover();
+          await vi.advanceTimersByTimeAsync(30_000);
+        });
+        expect(mocks.subscriptionCallbacks).toHaveLength(attempt + 1);
+        act(() => mocks.subscriptionCallbacks[attempt]('CHANNEL_ERROR', refused));
+      }
+    } finally {
+      vi.useRealTimers();
     }
     expect(
       mocks.reportError.mock.calls.filter(
         ([, source]) => source === 'useMasterBusBroadcastChannel.CHANNEL_ERROR.appearance_changed'
       )
     ).toHaveLength(1);
-    expect(onSubscriptionError).toHaveBeenCalledTimes(4);
+    // One degradation episode: the consumer hears about it once, not per retry
+    // (the 15,302-toast storm, 2026-10-31).
+    expect(onSubscriptionError).toHaveBeenCalledTimes(1);
   });
 
   it('still files a channel-specific failure every time', async () => {

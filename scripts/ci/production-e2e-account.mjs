@@ -21,7 +21,29 @@ const PROFILE_ATTEMPTS = 24;
 // Recovery must never retire it while that job can still be running; preserve
 // the existing fourteen minutes of provider/clock headroom (148 + 14 = 162).
 export const STALE_ACCOUNT_AGE_MS = 162 * 60_000;
-const STALE_ACCOUNT_LIMIT = 20;
+/*
+ * STALE CLEANUP DRAINS, BOUNDED BY TIME, NOT BY COUNT (2026-10-31).
+ *
+ * This used to refuse outright when more than 20 stale accounts existed
+ * ("Refusing to clean more than 20 stale accounts at once"), and it ran only
+ * inside certification jobs. Once residue passed 20 the recovery could never
+ * run again, and the queue grew to 429 PostDeploy / crest_cert identities and
+ * three live 'Crest Cert' clubs. It now works through the inventory in
+ * batches until it is empty or its time budget is spent, re-reading the
+ * inventory between batches; the hourly Cert Residue Sweep workflow
+ * (.github/workflows/cert-residue-sweep.yml) gives it a long budget, and a
+ * certification job's own cleanup a short one. The 162-minute age floor
+ * (STALE_ACCOUNT_AGE_MS) is unchanged: nothing younger is ever a candidate.
+ */
+const STALE_ACCOUNT_BATCH = 20;
+export const STALE_CLEANUP_DEFAULT_BUDGET_MS = 6 * 60_000;
+function staleCleanupBudgetMs(environment, budgetMs) {
+  if (Number.isFinite(budgetMs) && budgetMs > 0) return budgetMs;
+  const fromEnvironment = Number(environment?.STALE_CLEANUP_BUDGET_MS);
+  return Number.isFinite(fromEnvironment) && fromEnvironment > 0
+    ? fromEnvironment
+    : STALE_CLEANUP_DEFAULT_BUDGET_MS;
+}
 const FRESH_SCHEDULE_CLAIM_RETRY_DELAYS_MS = Object.freeze([
   2_000, 4_000, 8_000, 16_000, 30_000, 60_000, 120_000, 90_000,
 ]);
@@ -141,6 +163,20 @@ function firstRunFixturePath(environment) {
   );
 }
 
+function removalReceiptPath(path) {
+  return `${path}.removed`;
+}
+
+/** Did a cleanup in this job already remove and verify `email`? */
+function removalReceiptNames(path, email) {
+  try {
+    const receipt = JSON.parse(readFileSync(removalReceiptPath(path), 'utf8'));
+    return receipt?.email === email;
+  } catch {
+    return false;
+  }
+}
+
 function reserved(email) {
   return (
     (email.startsWith(ACCOUNT_PREFIX) && email.endsWith(ACCOUNT_SUFFIX)) ||
@@ -226,10 +262,29 @@ export async function cleanupProductionE2EAccount({
   fetchImpl = fetch,
   wait = (milliseconds) => new Promise((done) => setTimeout(done, milliseconds)),
   record,
+  // The reserved email this job's `create` step exported (SP_EMAIL /
+  // FIRST_RUN_EMAIL). Passed by the CLI only.
+  expectedEmail,
 } = {}) {
   const path = fixturePath(environment);
   const account = record || (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null);
   if (!account) {
+    /* A RUN THAT CREATED AN ACCOUNT CANNOT CALL ITS LOSS A NO-OP (2026-10-31).
+       `create` exports the reserved email in the same breath as it writes the
+       record. If the email is here and the record is not, this job made an
+       identity it can no longer prove it removed: exit non-zero, so the run
+       says it may have left its own account behind (429 leaked identities
+       accumulated behind green runs). */
+    if (
+      expectedEmail &&
+      reserved(String(expectedEmail)) &&
+      !removalReceiptNames(path, expectedEmail)
+    ) {
+      throw new Error(
+        'This run created a reserved certification account but its fixture record is missing; ' +
+          'its removal cannot be verified (the hourly Cert Residue Sweep will recover it).'
+      );
+    }
     console.log('[production-e2e-account] no fixture record exists; cleanup is a no-op.');
     return false;
   }
@@ -327,7 +382,17 @@ export async function cleanupProductionE2EAccount({
         JSON.stringify(body).slice(0, 300)
     );
   }
-  if (!record && existsSync(path)) unlinkSync(path);
+  if (!record && existsSync(path)) {
+    // Leave a receipt where the record was, so a later cleanup of the same
+    // job (an in-script cleanup followed by the workflow's always() step)
+    // knows the identity it exported was removed and verified, not lost.
+    writeFileSync(
+      removalReceiptPath(path),
+      `${JSON.stringify({ id: account.id, email: account.email, removedAt: new Date().toISOString() })}\n`,
+      { mode: 0o600 }
+    );
+    unlinkSync(path);
+  }
   console.log(
     retained
       ? '[production-e2e-account] reserved ledger actor retained; Auth retirement verified.'
@@ -892,31 +957,36 @@ export async function cleanupStaleProductionE2EAccounts({
   fetchImpl = fetch,
   now = Date.now(),
   wait = (milliseconds) => new Promise((done) => setTimeout(done, milliseconds)),
+  budgetMs,
+  clock = () => Date.now(),
 } = {}) {
   const configuration = requireEnvironment(environment);
   const cutoff = new Date(now - STALE_ACCOUNT_AGE_MS).toISOString();
-  const accounts = await serviceRequest(
-    configuration,
-    '/rest/v1/rpc/fn_ca_stale_certification_accounts',
-    { method: 'POST', body: JSON.stringify({ p_before: cutoff }) },
-    fetchImpl
-  );
-  if (!Array.isArray(accounts)) throw new Error('Stale account query returned a non-array body.');
-  if (accounts.length > STALE_ACCOUNT_LIMIT) {
-    throw new Error(`Refusing to clean more than ${STALE_ACCOUNT_LIMIT} stale accounts at once.`);
-  }
-  // Every candidate is validated before any is touched: an invalid one means
-  // the inventory itself cannot be trusted, so nothing is recovered from it.
-  for (const account of accounts) {
-    if (
-      !account.id ||
-      !reserved(account.email || '') ||
-      !account.created_at ||
-      Date.parse(account.created_at) > Date.parse(cutoff)
-    ) {
-      throw new Error('Refusing an invalid stale post-deploy account candidate.');
+  const budget = staleCleanupBudgetMs(environment, budgetMs);
+  const startedAt = clock();
+  const outOfTime = () => clock() - startedAt >= budget;
+  const inventory = async () => {
+    const accounts = await serviceRequest(
+      configuration,
+      '/rest/v1/rpc/fn_ca_stale_certification_accounts',
+      { method: 'POST', body: JSON.stringify({ p_before: cutoff }) },
+      fetchImpl
+    );
+    if (!Array.isArray(accounts)) throw new Error('Stale account query returned a non-array body.');
+    // Every candidate is validated before any is touched: an invalid one means
+    // the inventory itself cannot be trusted, so nothing is recovered from it.
+    for (const account of accounts) {
+      if (
+        !account.id ||
+        !reserved(account.email || '') ||
+        !account.created_at ||
+        Date.parse(account.created_at) > Date.parse(cutoff)
+      ) {
+        throw new Error('Refusing an invalid stale post-deploy account candidate.');
+      }
     }
-  }
+    return accounts;
+  };
   // ONE REFUSED ACCOUNT NO LONGER STRANDS THE REST (2026-10-26). This loop
   // used to throw on the first account it could not recover. On 2026-10-26 the
   // oldest stale identity owned an already-retired fixture the door can never
@@ -925,58 +995,188 @@ export async function cleanupStaleProductionE2EAccounts({
   // Template with 21 tables and 12 registering tournaments, were never
   // reached. Each account is now recovered on its own; any that fails is still
   // reported, all together, after every other account has been tried.
+  //
+  // Every identity is attempted at most once per run: one that fails or is
+  // kept as an owner of record is still in the next inventory read, and must
+  // not be retried in a loop.
+  const attempted = new Set();
   const failures = [];
   const keptOwners = [];
   let recovered = 0;
-  for (const account of accounts) {
-    try {
-      // A certification run that died between creating its fixture clubs and
-      // retiring them leaves an identity that still owns a club, and the guarded
-      // account sweep refuses exactly that (CERTIFICATION_RETIREMENT_HAS_AUTHORITY_
-      // OR_CUSTODY). Refusing is right; wedging every later certificate on it is
-      // not. Retire the clubs this identity owns through the same guarded door the
-      // run itself uses, THEN sweep the identity. A club that is not a recognized
-      // fixture still throws here and is never retired.
-      const retainedRetiredClubs = [];
-      await retireProductionCreateClubFixtures({
-        environment,
-        fetchImpl,
-        wait,
-        record: account,
-        reason: 'stale-cert-recovery',
-        retainedRetiredClubs,
-      });
-      if (retainedRetiredClubs.length) {
-        // The identity stays as the owner of record of retired clubs that keep
-        // immutable history; the account door refuses any club owner, and a
-        // retired club with that history is never deleted. Nothing here is
-        // live: it is the recorded terminal state, named on every run.
-        keptOwners.push(account.id);
-        console.log(
-          `[production-e2e-account] kept stale identity ${account.id} as the owner of record of ` +
-            `retired fixture(s) ${retainedRetiredClubs.join(', ')}: they keep immutable history ` +
-            'and are never deleted.'
-        );
-        continue;
+  let seen = 0;
+  let remaining = 0;
+  for (;;) {
+    const pending = (await inventory()).filter((account) => !attempted.has(account.id));
+    if (!pending.length) break;
+    if (outOfTime()) {
+      remaining = pending.length;
+      break;
+    }
+    for (const account of pending.slice(0, STALE_ACCOUNT_BATCH)) {
+      if (outOfTime()) break;
+      attempted.add(account.id);
+      seen += 1;
+      try {
+        // A certification run that died between creating its fixture clubs and
+        // retiring them leaves an identity that still owns a club, and the guarded
+        // account sweep refuses exactly that (CERTIFICATION_RETIREMENT_HAS_AUTHORITY_
+        // OR_CUSTODY). Refusing is right; wedging every later certificate on it is
+        // not. Retire the clubs this identity owns through the same guarded door the
+        // run itself uses, THEN sweep the identity. A club that is not a recognized
+        // fixture still throws here and is never retired.
+        const retainedRetiredClubs = [];
+        await retireProductionCreateClubFixtures({
+          environment,
+          fetchImpl,
+          wait,
+          record: account,
+          reason: 'stale-cert-recovery',
+          retainedRetiredClubs,
+        });
+        if (retainedRetiredClubs.length) {
+          // The identity stays as the owner of record of retired clubs that keep
+          // immutable history; the account door refuses any club owner, and a
+          // retired club with that history is never deleted. Nothing here is
+          // live: it is the recorded terminal state, named on every run.
+          keptOwners.push(account.id);
+          console.log(
+            `[production-e2e-account] kept stale identity ${account.id} as the owner of record of ` +
+              `retired fixture(s) ${retainedRetiredClubs.join(', ')}: they keep immutable history ` +
+              'and are never deleted.'
+          );
+          continue;
+        }
+        await cleanupProductionE2EAccount({ environment, fetchImpl, wait, record: account });
+        recovered += 1;
+      } catch (error) {
+        failures.push(error);
       }
-      await cleanupProductionE2EAccount({ environment, fetchImpl, wait, record: account });
-      recovered += 1;
-    } catch (error) {
-      failures.push(error);
+    }
+    // The inventory is everything older than a FIXED cutoff, so it can only
+    // shrink: a pass that covered the whole of it leaves nothing to re-read.
+    if (pending.length <= STALE_ACCOUNT_BATCH) {
+      if (outOfTime()) remaining = pending.filter((account) => !attempted.has(account.id)).length;
+      break;
     }
   }
   if (recovered) {
     console.log(`[production-e2e-account] recovered ${recovered} stale account(s).`);
   }
+  if (remaining) {
+    // Not a failure: the hourly sweep continues from here. Said every time so
+    // a backlog is never silent.
+    console.log(
+      `[production-e2e-account] stale cleanup time budget (${Math.round(budget / 1000)}s) spent; ` +
+        `${remaining} stale account(s) remain for the next sweep.`
+    );
+  }
   if (failures.length) {
     throw new AggregateError(
       failures,
-      `Stale recovery left ${failures.length} of ${accounts.length} stale account(s) unrecovered ` +
+      `Stale recovery left ${failures.length} of ${seen} stale account(s) unrecovered ` +
         `(${recovered} recovered, ${keptOwners.length} kept as owners of retired history): ` +
         failures.map((error) => String(error?.message || error)).join('; ')
     );
   }
   return recovered;
+}
+
+/**
+ * A 'Crest Cert' club that outlived its run and is NOT reachable through a
+ * stale reserved identity (its owner was already removed, or is a legacy
+ * direct certificate identity the account sweep never lists) - 2026-10-31,
+ * three live 'Crest Cert' clubs. Same guards as every other path: the
+ * certification name prefix, the 162-minute age floor, an owner that is gone
+ * or inside the reserved certificate namespace, and the guarded retirement
+ * door (retireCertificationClubWithRetry), which re-proves the fixture itself
+ * and refuses any club with history.
+ */
+export async function cleanupStaleCertificationClubs({
+  environment = process.env,
+  fetchImpl = fetch,
+  now = Date.now(),
+  wait = (milliseconds) => new Promise((done) => setTimeout(done, milliseconds)),
+  budgetMs,
+  clock = () => Date.now(),
+  databaseClientFactory,
+} = {}) {
+  const configuration = requireEnvironment(environment);
+  const cutoff = new Date(now - STALE_ACCOUNT_AGE_MS).toISOString();
+  const budget = staleCleanupBudgetMs(environment, budgetMs);
+  const startedAt = clock();
+  // Built by hand rather than with URLSearchParams, which writes a space as
+  // '+'; the quoted PostgREST values below must arrive with their spaces.
+  const query = [
+    `select=${encodeURIComponent('id,name,owner_id,lifecycle_status,created_at')}`,
+    `created_at=${encodeURIComponent(`lt.${cutoff}`)}`,
+    `or=${encodeURIComponent('(name.like."Crest Cert *",name.like."Preset Crest Cert *")')}`,
+    'order=created_at.asc',
+  ].join('&');
+  const clubs = await serviceRequest(configuration, `/rest/v1/clubs?${query}`, {}, fetchImpl);
+  if (!Array.isArray(clubs))
+    throw new Error('Stale certification club query returned a non-array body.');
+  const candidates = clubs.filter(
+    (club) =>
+      CERTIFICATION_CLUB_NAME_PREFIXES.some((prefix) =>
+        String(club?.name || '').startsWith(prefix)
+      ) &&
+      club?.created_at &&
+      Date.parse(club.created_at) <= Date.parse(cutoff) &&
+      club.lifecycle_status !== 'retired'
+  );
+  const failures = [];
+  let retired = 0;
+  let remaining = 0;
+  for (const [index, club] of candidates.entries()) {
+    if (clock() - startedAt >= budget) {
+      remaining = candidates.length - index;
+      break;
+    }
+    try {
+      if (club.owner_id) {
+        const owner = await fetchImpl(
+          `${configuration.supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(club.owner_id)}`,
+          { headers: headers(configuration.serviceRoleKey) }
+        );
+        if (owner.status !== 404) {
+          const body = await responseBody(owner);
+          const user = body?.user || body;
+          if (owner.status !== 200 || !reserved(String(user?.email || ''))) {
+            throw new Error(
+              `Refusing to retire certification-named club ${club.id}: its owner is not a reserved certificate identity.`
+            );
+          }
+        }
+      }
+      await retireCertificationClubWithRetry({
+        configuration,
+        clubId: club.id,
+        reason: 'stale-cert-club-sweep',
+        fetchImpl,
+        wait,
+        environment,
+        databaseClientFactory,
+      });
+      retired += 1;
+      console.log(`[production-e2e-account] retired stale certification club ${club.id}.`);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (remaining) {
+    console.log(
+      `[production-e2e-account] stale club sweep time budget spent; ${remaining} club(s) remain for the next sweep.`
+    );
+  }
+  if (failures.length) {
+    throw new AggregateError(
+      failures,
+      `Stale certification club sweep left ${failures.length} of ${candidates.length} club(s) unretired ` +
+        `(${retired} retired): ` +
+        failures.map((error) => String(error?.message || error)).join('; ')
+    );
+  }
+  return retired;
 }
 
 /**
@@ -1619,15 +1819,38 @@ async function main() {
   if (command === 'cleanup-first-run')
     return cleanupProductionE2EAccount({
       environment: { ...process.env, E2E_TEST_ACCOUNT_FILE: firstRunFixturePath(process.env) },
+      expectedEmail: process.env.FIRST_RUN_EMAIL,
     });
   if (command === 'prepare-staff') return prepareProductionE2EStaffMembership();
   if (command === 'prepare-spectator') return prepareProductionE2ESpectatorMembership();
   if (command === 'prepare-lightning-staff') return prepareProductionE2ELightningMembership();
   if (command === 'prepare-template-staff') return prepareProductionE2ETemplateFixture();
   if (command === 'retire-create-clubs') return retireProductionCreateClubFixtures();
-  if (command === 'cleanup') return cleanupProductionE2EAccount();
+  if (command === 'cleanup')
+    return cleanupProductionE2EAccount({ expectedEmail: process.env.SP_EMAIL });
+  // The hourly Cert Residue Sweep (.github/workflows/cert-residue-sweep.yml):
+  // every stale reserved identity (with the fixtures it owns), then every
+  // stale certification-named club no identity sweep can reach. Both run even
+  // when the first fails; any failure exits non-zero.
+  if (command === 'sweep-stale-residue') {
+    const failures = [];
+    for (const step of [cleanupStaleProductionE2EAccounts, cleanupStaleCertificationClubs]) {
+      try {
+        await step();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length) {
+      throw new AggregateError(
+        failures,
+        failures.map((error) => String(error?.message || error)).join(' | ')
+      );
+    }
+    return true;
+  }
   throw new Error(
-    'Usage: production-e2e-account.mjs <create|create-first-run|cleanup-first-run|prepare-staff|prepare-spectator|prepare-lightning-staff|prepare-template-staff|retire-create-clubs|cleanup>'
+    'Usage: production-e2e-account.mjs <create|create-first-run|cleanup-first-run|prepare-staff|prepare-spectator|prepare-lightning-staff|prepare-template-staff|retire-create-clubs|cleanup|sweep-stale-residue>'
   );
 }
 
