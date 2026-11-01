@@ -315,6 +315,7 @@ case "$*" in
   *' fetch --no-tags '*) exit 0 ;;
   *" rev-parse --verify origin/main^{commit}") printf '%s\\n' '${targetSha}' ;;
   *' ls-tree '*' -- server/release/activation-floor.json') exit 0 ;;
+  *' ls-tree '*' -- server/src/maintenance/maintenanceSchedulePolicy.json') exit 0 ;;
   *" cat-file -e ${targetSha}:server/src/maintenance/maintenanceSchedulePolicy.json") exit 1 ;;
   *' cat-file -e '*) exit 0 ;;
   *' merge-base --is-ancestor '*) exit 0 ;;
