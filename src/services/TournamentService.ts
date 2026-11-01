@@ -2164,7 +2164,11 @@ class TournamentService {
       /* `blindLevelMinutes` matches on the row's own `level` field first and
          falls back to position, so a single-element array asked for level 1
          resolves to that element either way. */
-      const mins = blindLevelMinutes([level] as Parameters<typeof blindLevelMinutes>[0], 1);
+      const mins = blindLevelMinutes(
+        [level] as Parameters<typeof blindLevelMinutes>[0],
+        1,
+        Number(tournament.buy_in_amount)
+      );
       return mins > 0 ? mins : DEFAULT_LEVEL_MINUTES;
     };
 

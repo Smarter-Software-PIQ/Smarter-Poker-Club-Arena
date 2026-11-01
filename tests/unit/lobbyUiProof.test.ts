@@ -12,6 +12,10 @@ import {
   FAVORITE_ACTION,
   FAVORITE_CASES,
   FAVORITE_COMPONENT_PATHS,
+  HIGH_CLOCK_ACTION,
+  HIGH_CLOCK_CASES,
+  HIGH_CLOCK_COMPONENT_PATHS,
+  HIGH_CLOCK_ENGINE_PATHS,
   FILTER_ACTION,
   FILTER_CASES,
   FILTER_COMPONENT_PATHS,
@@ -185,6 +189,7 @@ it('keeps each closed mode limited to its owned browser journeys with cleanup', 
     'verify-spectator-notifications',
     'verify-tournament-favorites',
     'verify-lobby-filters',
+    'verify-high-buyin-clock',
   ]);
   expect(workflow).toContain('npx playwright install --with-deps chromium webkit');
   expect(readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8')).toContain(
@@ -400,5 +405,102 @@ describe('closed complete lobby filter proof', () => {
     expect(workflow).toContain('cleanupProductionE2EAccount() !== true');
     for (const mode of ['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION])
       expect(workflow).toContain(`if: github.event.action == '${mode}'`);
+  });
+});
+
+describe('closed high buy-in natural clock proof', () => {
+  const clockPin = () => ({
+    ...pin(),
+    action: HIGH_CLOCK_ACTION,
+    components: Object.fromEntries(HIGH_CLOCK_COMPONENT_PATHS.map((path) => [path, sha])),
+    engine: {
+      releaseSha: sha,
+      instanceId: 'owned-running-instance',
+      maintenanceActive: false,
+      components: Object.fromEntries(HIGH_CLOCK_ENGINE_PATHS.map((path) => [path, sha])),
+    },
+  });
+  const clockReport = () => ({
+    suites: [
+      {
+        specs: HIGH_CLOCK_CASES.map(({ file, title, project }) => ({
+          file,
+          title,
+          ok: true,
+          tests: [
+            {
+              projectName: project,
+              status: 'expected',
+              expectedStatus: 'passed',
+              results: [{ status: 'passed', retry: 0 }],
+            },
+          ],
+        })),
+      },
+    ],
+  });
+  it('admits only one fixed natural clock case with no caller-selected input', () => {
+    expect(() =>
+      admitDispatch(env, { action: HIGH_CLOCK_ACTION, client_payload: {} })
+    ).not.toThrow();
+    expect(() =>
+      admitDispatch(env, { action: HIGH_CLOCK_ACTION, client_payload: { tournamentId: sha } })
+    ).toThrow();
+    expect(assertCases(clockReport(), HIGH_CLOCK_ACTION)).toHaveLength(1);
+    for (const change of [
+      (r) => r.suites[0].specs.pop(),
+      (r) => r.suites[0].specs.push(r.suites[0].specs[0]),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].retry = 1),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].status = 'skipped'),
+    ]) {
+      const report = clockReport();
+      change(report);
+      expect(() => assertCases(report, HIGH_CLOCK_ACTION)).toThrow();
+    }
+  });
+  it('requires both protected component sets, stable engine instance and inactive maintenance', () => {
+    const cleanup = { verified: true, runId: '123' };
+    expect(() => assertPins(clockPin(), clockPin(), cleanup, HIGH_CLOCK_ACTION)).not.toThrow();
+    for (const change of [
+      (p) => (p.engine.releaseSha = 'b'.repeat(40)),
+      (p) => (p.engine.instanceId = 'replacement-instance'),
+      (p) => (p.engine.maintenanceActive = true),
+      (p) => delete p.engine.components[HIGH_CLOCK_ENGINE_PATHS[0]],
+      (p) => delete p.components[HIGH_CLOCK_COMPONENT_PATHS[0]],
+    ]) {
+      const after = clockPin();
+      change(after);
+      expect(() => assertPins(clockPin(), after, cleanup, HIGH_CLOCK_ACTION)).toThrow();
+    }
+    expect(() =>
+      assertPins(clockPin(), clockPin(), { verified: false, runId: '123' }, HIGH_CLOCK_ACTION)
+    ).toThrow();
+  });
+  it('runs only the fixed clock file while preserving the nine-case filter catalogue', async () => {
+    const { readFileSync } = await import('node:fs');
+    const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
+    const block = workflow.slice(
+      workflow.indexOf('- name: Verify only the high buy-in'),
+      workflow.indexOf('- name: Pin the published client after')
+    );
+    expect(block).toContain("if: github.event.action == 'verify-high-buyin-clock'");
+    expect(block).toContain('tests/e2e/production-high-buyin-clock.spec.ts');
+    expect(block).toContain('--project=chromium --workers=1 --retries=0 --trace=off');
+    expect(block).not.toContain('production-lobby-filter-audit.spec.ts');
+    expect(FILTER_CASES).toHaveLength(9);
+    const journey = readFileSync('tests/e2e/production-high-buyin-clock.spec.ts', 'utf8');
+    for (const contract of [
+      'journal.frames',
+      'duration_minutes',
+      '10 * 60_000',
+      "'SPIN'",
+      "'SNG'",
+      "'SATELLITE'",
+      "'MTT'",
+      'isReadOnlySpectatorSocketType',
+      'Open Full Tournament Lobby',
+      'spectator-footer-bar',
+    ])
+      expect(journey).toContain(contract);
   });
 });

@@ -1,0 +1,5 @@
+# High buy-in playable clock presentation
+
+The owner requires every playable blind level in tournaments with an entry price strictly above 25 to last 7-10 minutes. The shared client clock reader applies the same price boundary as the serving engine, including immutable booked Spin ladders, without rewriting their historical terms. Lobby remaining-time and level-based registration windows, tournament service state, and both Details renderers pass the actual entry price to that reader. Separate entry fees do not change the threshold; exactly 25 and breaks retain their existing presentation.
+
+This client component depends on the protected engine rule being installed first. The engine owns actual timer enforcement; a projected number alone is not evidence of adoption. Focused unit coverage preserves valid 7/8/9/10-minute clocks, caps longer levels, projects immutable short Spin clocks, preserves breaks and exactly-25 behavior, and refuses to invent a missing duration. Live qualification uses the existing read-only provider route and actual natural clock events.

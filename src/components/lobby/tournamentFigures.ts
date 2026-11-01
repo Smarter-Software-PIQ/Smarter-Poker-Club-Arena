@@ -97,11 +97,15 @@ export function tournamentBlinds(t: {
  * the seconds key last keeps the canonical spellings authoritative where a
  * row carries both.
  */
-export function blindLevelMinutes(levels: BlindLevel[], level: number): number {
+export function blindLevelMinutes(levels: BlindLevel[], level: number, buyIn = 0): number {
   const row = blindLevelAt(levels, level);
   const mins = Number(row?.duration_minutes ?? row?.durationMinutes ?? 0);
-  if (Number.isFinite(mins) && mins > 0) return mins;
   const secs = Number(row?.duration ?? 0);
-  if (Number.isFinite(secs) && secs > 0) return secs / 60;
-  return 0;
+  const minutes =
+    Number.isFinite(mins) && mins > 0 ? mins : Number.isFinite(secs) && secs > 0 ? secs / 60 : 0;
+  // Immutable funded Spin rules remain stored as booked. Display the same
+  // playable clock that the manager applies, without rewriting that receipt.
+  return Number.isFinite(buyIn) && buyIn > 25 && row?.isBreak !== true && minutes > 0
+    ? Math.min(10, Math.max(7, minutes))
+    : minutes;
 }
