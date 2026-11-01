@@ -65,6 +65,71 @@ export function connectionFailureCode(error) {
   return codes.size === 1 ? [...codes][0] : codes.size > 1 ? 'MULTIPLE_KNOWN_FAILURES' : 'UNKNOWN';
 }
 
+const catalogueKinds = new Set(['QUERY_CANCELLED','LOCK_NOT_AVAILABLE','PERMISSION_DENIED',
+  'CONNECTION_FAILURE','DRIVER_READ_TIMEOUT','PAYLOAD_REFUSED','UNKNOWN']);
+const catalogueQueries = new Set(['SAVEPOINT','SEARCH_PATH','SCHEMA_PAYLOAD','ROLLBACK_SAVEPOINT',
+  'RELEASE_SAVEPOINT','ROLE_PAYLOAD','TRANSACTION_BEGIN','TRANSACTION_ROLLBACK','UNKNOWN']);
+export function catalogueFailureKind(error) {
+  if (error?.code === '57014') return 'QUERY_CANCELLED';
+  if (error?.code === '55P03') return 'LOCK_NOT_AVAILABLE';
+  if (error?.code === '42501') return 'PERMISSION_DENIED';
+  if (connectionFailureCode(error) !== 'UNKNOWN') return 'CONNECTION_FAILURE';
+  // Exact installed pg Client's locally generated read-timeout marker only.
+  if (error instanceof Error && error.code === undefined && error.name === 'Error' &&
+    error.message === 'Query read timeout') return 'DRIVER_READ_TIMEOUT';
+  return 'UNKNOWN';
+}
+function catalogueQueryKind(sql) {
+  if (typeof sql !== 'string') return 'UNKNOWN';
+  if (/^SAVEPOINT catalogue_[a-f0-9]{32}$/.test(sql)) return 'SAVEPOINT';
+  if (sql === 'SET LOCAL search_path = pg_catalog') return 'SEARCH_PATH';
+  if (/^ROLLBACK TO SAVEPOINT catalogue_[a-f0-9]{32}$/.test(sql)) return 'ROLLBACK_SAVEPOINT';
+  if (/^RELEASE SAVEPOINT catalogue_[a-f0-9]{32}$/.test(sql)) return 'RELEASE_SAVEPOINT';
+  if (sql.startsWith('SELECT CASE WHEN pg_catalog.octet_length(catalogue) <= 33554432\n')) return 'SCHEMA_PAYLOAD';
+  if (sql.startsWith('SELECT CASE WHEN pg_catalog.octet_length(catalogue::text) <= 33554432\n')) return 'ROLE_PAYLOAD';
+  if (sql === 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY') return 'TRANSACTION_BEGIN';
+  if (sql === 'ROLLBACK') return 'TRANSACTION_ROLLBACK';
+  return 'UNKNOWN';
+}
+export function safeCatalogueDiagnostic(value) {
+  if (value?.version !== 1 || !['schema','roles'].includes(value.subphase) ||
+    !catalogueQueries.has(value.query) || !catalogueKinds.has(value.kind) ||
+    (value.elapsed_ms !== null && (!Number.isSafeInteger(value.elapsed_ms) || value.elapsed_ms < 0 || value.elapsed_ms > DEADLINE_MS))) return null;
+  return {version:1,subphase:value.subphase,query:value.query,kind:value.kind,elapsed_ms:value.elapsed_ms};
+}
+// This facade owns no connection, query text, result payload or retry. The
+// canonical producer receives the same arguments and performs its same cleanup.
+export function catalogueDiagnostics(db, now = () => performance.now()) {
+  let subphase = 'schema', first = null;
+  const record = (kind, query, started) => {
+    if (first) return;
+    const elapsed = now() - started;
+    first = {version:1,subphase,query,kind,
+      elapsed_ms:Number.isFinite(elapsed) && elapsed >= 0 && elapsed <= DEADLINE_MS ? Math.round(elapsed) : null};
+  };
+  return {
+    phase(value) { requireCapture(['schema','roles'].includes(value)); subphase = value; },
+    failed(error) { if (!first) record(catalogueFailureKind(error),'UNKNOWN',undefined); },
+    snapshot() { return first && safeCatalogueDiagnostic(first); },
+    db:{async query(...args) {
+      const query = catalogueQueryKind(args[0]), started = now();
+      try {
+        const result = await db.query(...args);
+        // Preserve the producer's existing payload assertion even if its
+        // finally savepoint query later masks it. Never retain any row value.
+        if ((query === 'SCHEMA_PAYLOAD' && typeof result?.rows?.[0]?.catalogue !== 'string') ||
+          (query === 'ROLE_PAYLOAD' && (!result?.rows?.[0]?.catalogue ||
+            typeof result.rows[0].catalogue !== 'object' || Array.isArray(result.rows[0].catalogue))))
+          record('PAYLOAD_REFUSED',query,started);
+        return result;
+      } catch (error) {
+        record(catalogueFailureKind(error),query,started);
+        throw error;
+      }
+    }}
+  };
+}
+
 const dumpFailureKinds = new Set(['DEADLINE', 'STDOUT_LIMIT', 'STDERR_LIMIT', 'SPAWN',
   'FD3_LIMIT','FD3_PROTOCOL',
   'STDIN', 'FACTS_REFUSED',
@@ -530,6 +595,7 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
   let nativeTransport = null;
   let nativeDumpClient = null;
   let definitionCounts = null;
+  const catalogueCause = catalogueDiagnostics(db);
   const deadlineAt = Date.now() + DEADLINE_MS;
   const timer = setTimeout(() => { transportFailed = true; void db.end().catch(() => {}); }, DEADLINE_MS);
   try {
@@ -543,10 +609,11 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
         .every((key) => facts[key] === 0));
     const snapshot = (await db.query('SELECT pg_export_snapshot() AS snapshot')).rows[0].snapshot;
     stage = 'catalogue';
-    const catalogue = await schemaCataloguePayload(db);
+    const catalogue = await schemaCataloguePayload(catalogueCause.db);
     definitionCounts=catalogueDefinitionCounts(catalogue);
     const catalogueDigest = catalogue.catalogue_digest;
-    const roleCatalogue = await captureRoleCatalogue(db);
+    catalogueCause.phase('roles');
+    const roleCatalogue = await captureRoleCatalogue(catalogueCause.db);
     stage = 'native-snapshot-transport';
     const nativeResult = await nativeCheck(config,snapshot,{deadlineMs:Math.min(5000,remainingDumpBudget(deadlineAt,Date.now()))});
     requireCapture(nativeResult?.status==='passed' && nativeResult.client_major===17 &&
@@ -605,6 +672,10 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
   } catch (error) {
     const safe = new Error(safeFailures.has(error?.message) ? error.message : 'ISOLATED_SCHEMA_CAPTURE_FAILED');
     safe.captureStage = stage;
+    if (stage === 'catalogue') {
+      catalogueCause.failed(error);
+      safe.catalogueDiagnostic = catalogueCause.snapshot();
+    }
     safe.connectionFailure = stage === 'connection' ? connectionFailureCode(error) : 'NOT_CONNECTION';
     safe.connectionRoute = config.host === 'db.kuklfnapbkmacvwxktbh.supabase.co' ? 'direct' : 'session-pooler';
     if (stage === 'schema-only-dump') safe.dumpDiagnostic = safeDumpDiagnostic(error?.dumpDiagnostic);
@@ -632,6 +703,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
         connection_failure: connectionFailures.has(error?.connectionFailure) ||
           ['MULTIPLE_KNOWN_FAILURES','UNKNOWN','NOT_CONNECTION'].includes(error?.connectionFailure)
           ? error.connectionFailure : 'UNKNOWN',
+        ...(error?.captureStage === 'catalogue' && safeCatalogueDiagnostic(error?.catalogueDiagnostic) ?
+          {catalogue_diagnostic:safeCatalogueDiagnostic(error.catalogueDiagnostic)} : {}),
         connection_route: ['direct','session-pooler'].includes(error?.connectionRoute) ? error.connectionRoute : 'UNKNOWN',
         ...(error?.captureStage === 'schema-only-dump' ? {dump_diagnostic: safeDumpDiagnostic(error?.dumpDiagnostic)} : {}),
         ...(error?.nativeTransport ? {native_transport: nativeTransportReceipt(error.nativeTransport.elapsed_ms)} : {}),
