@@ -233,8 +233,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       server: 'ubuntu-latest',
       verdict: 'ubuntu-latest',
       'css-beats-gate': 'ubuntu-latest',
-      'css-beats-e2e': 'ubuntu-latest',
-      'diamond-playfield-e2e': 'ubuntu-latest',
+      'css-beats-e2e': 'ubuntu-24.04',
+      'diamond-playfield-e2e': 'ubuntu-24.04',
     };
     // Assert each authorized route before normalizing just that field. The
     // exhaustive sectional fingerprints protect every command and financial gate.
