@@ -99,9 +99,11 @@ def transformations():
              '\tca_diag_init();\n\tConnectDatabase(fout, &dopt.cparams, false);'),
             (OBJECT_LOOP, DIAG_LOOP),
             ('static void help(const char *progname);',
-             '#include "native-dump-function-batch.c"\n\nstatic void help(const char *progname);'),
+             '#include "native-dump-function-batch.c"\n#include "native-dump-sequence-batch.c"\n\nstatic void help(const char *progname);'),
             ('\tres = ExecuteSqlQueryForSingleRow(fout, query->data);\n\n\tproretset =',
-             '\tres = ca_function_batch_result(fout, finfo);\n\n\tproretset ='),
+             '\tres = ca_function_batch_result(fout, finfo, query->data);\n\n\tproretset ='),
+            ('\t\t\t\t\t\t  fmtQualifiedDumpable(tbinfo));\n\t}\n\n\tres = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);\n\n\tif (PQntuples(res) != 1)\n\t\tpg_fatal(ngettext("query to get data of sequence',
+             '\t\t\t\t\t\t  fmtQualifiedDumpable(tbinfo));\n\t}\n\n\tres = ca_sequence_batch_result(fout, tbinfo, query->data);\n\n\tif (PQntuples(res) != 1)\n\t\tpg_fatal(ngettext("query to get data of sequence'),
         ],
         'src/bin/pg_dump/pg_backup_db.c': [
             ('static void\nnotice_processor(void *arg, const char *message)',
@@ -125,6 +127,12 @@ def patch_files(originals):
             expected = 2 if old == '\tres = PQexec(AH->connection, query);' else 1
             require(text.count(old) == expected and new not in text)
             text = text.replace(old, new)
+        if name == 'src/bin/pg_dump/pg_dump.c':
+            def sequence_data_reader(source):
+                start = source.index('\ndumpSequenceData(Archive *fout,')
+                end = source.index('\nstatic ', start + 1)
+                return source[start:end]
+            require(sequence_data_reader(text) == sequence_data_reader(original.decode('utf-8')))
         restored = text
         for old, new in reversed(transformations()[name]):
             restored = restored.replace(new, old)
@@ -191,7 +199,7 @@ def self_test(archive):
         require(FIRST_FAILURE_STAGE == 'CONFIGURE')
     finally:
         BUILD_STAGE, FIRST_FAILURE_STAGE = saved
-    return {'source_inverse_exact': True, 'changed_source_refused': True,
+    return {'sequence_data_reader_unchanged': True, 'source_inverse_exact': True, 'changed_source_refused': True,
             'fixed_frame_boundaries_refuse': True, 'closed_peer_fd3_handoff': True, 'first_failure_stage_preserved': True, 'foreign_operation_preserved': True, 'actual_archive_members_validated': True, 'archive_member_boundaries_refuse': True}
 
 
@@ -415,7 +423,7 @@ def qualify_batch_contract(repo, work, env):
     # Native isolated result-contract faults, not a database or production probe.
     directory = work / 'batch-contract'
     directory.mkdir()
-    for name in ['native-dump-function-batch.c', 'native-dump-function-batch-test.c']:
+    for name in ['native-dump-function-batch.c', 'native-dump-sequence-batch.c', 'native-dump-function-batch-test.c']:
         shutil.copyfile(repo / 'operations/release/fixture' / name, directory / name)
     executable = directory / 'contract'
     command(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
@@ -427,27 +435,38 @@ def qualify_batch_contract(repo, work, env):
     # only DO_FUNC requests share a fully drained metadata batch.
     for count in [0, 1, 127, 128, 129, 512, 513]:
         command([str(executable), 'mixed', str(count)], cwd=directory, env=env, timeout=5)
+    for mode in ['seq-valid', 'seq-mixed', 'seq-filter']:
+        for count in [0, 1, 127, 128, 129, 512, 513]:
+            command([str(executable), mode, str(count)], cwd=directory, env=env, timeout=5)
+    for mode in ['interleave-function-first', 'interleave-sequence-first']:
+        command([str(executable), mode, '257'], cwd=directory, env=env, timeout=5)
+    for mode in ['shared-bytes', 'shared-bytes-sequence-first', 'seq-partial']:
+        result = subprocess.run([str(executable), mode, '257'], cwd=directory, env=env,
+                                capture_output=True, timeout=5)
+        require(result.returncode == 23 and result.stdout == b'' and result.stderr == b'')
     partial = subprocess.run([str(executable), 'partial', '129'], cwd=directory,
                              env=env, capture_output=True, timeout=5)
     require(partial.returncode == 23 and partial.stdout == b'' and partial.stderr == b'')
-    for mode in ['send', 'extra', 'missing', 'status', 'rows', 'fields', 'name', 'bytes', 'order']:
+    for mode in ['send', 'extra', 'missing', 'status', 'rows', 'fields', 'name', 'bytes', 'order',
+                 'seq-send', 'seq-extra', 'seq-missing', 'seq-status', 'seq-rows', 'seq-fields', 'seq-name', 'seq-bytes', 'seq-order']:
         result = subprocess.run([str(executable), mode, '129'], cwd=directory, env=env,
                                 capture_output=True, timeout=5)
         require(result.returncode == 23 and result.stdout == b'' and result.stderr == b'')
-    process = subprocess.Popen([str(executable), 'interrupt', '129'], cwd=directory,
-                               env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        with selectors.DefaultSelector() as ready:
-            ready.register(process.stdout, selectors.EVENT_READ)
-            require(ready.select(timeout=5))
-            require(os.read(process.stdout.fileno(), 5) == b'WAIT\n')
-        process.send_signal(signal.SIGINT)
-        stdout, stderr = process.communicate(timeout=5)
-        require(process.returncode == -signal.SIGINT and stdout == b'' and stderr == b'')
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=5)
+    for mode in ['interrupt', 'seq-interrupt', 'partial-interrupt', 'seq-partial-interrupt']:
+        process = subprocess.Popen([str(executable), mode, '129'], cwd=directory,
+                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            with selectors.DefaultSelector() as ready:
+                ready.register(process.stdout, selectors.EVENT_READ)
+                require(ready.select(timeout=5))
+                require(os.read(process.stdout.fileno(), 5) == b'WAIT\n')
+            process.send_signal(signal.SIGINT)
+            stdout, stderr = process.communicate(timeout=5)
+            require(process.returncode == -signal.SIGINT and stdout == b'' and stderr == b'')
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
     shutil.rmtree(directory)
     return True
 
@@ -515,6 +534,36 @@ CREATE TYPE diagnostic_empty.zero_function_enum AS ENUM ('one','two');
 CREATE SCHEMA diagnostic_single;
 CREATE FUNCTION diagnostic_single.one() RETURNS integer LANGUAGE sql AS $$SELECT 1$$;
 """
+        # Sequence CONFIG only: no nextval/setval or sequence data is read.
+        sql += '\n'.join(f'CREATE SEQUENCE diagnostic_schema.seq_{i} AS integer START WITH {i+1} CACHE {i%3+1};' for i in range(129))
+        sql += '''
+CREATE TABLE diagnostic_schema.sequence_owner(
+ id bigint GENERATED ALWAYS AS IDENTITY (START WITH 10 INCREMENT BY 3 CACHE 5),
+ serial_id serial, label text);
+CREATE SEQUENCE diagnostic_schema.descending_seq AS smallint
+ INCREMENT BY -2 START WITH -1 MINVALUE -101 MAXVALUE -1 CACHE 3 CYCLE;
+CREATE SCHEMA diagnostic_sequence_single;
+CREATE UNLOGGED SEQUENCE diagnostic_sequence_single.unlogged_seq;
+CREATE TABLE "diagnostic Other".sequence_owner(id bigint);
+CREATE SEQUENCE "diagnostic Other"."Sequence With Space" AS bigint
+ START WITH 17 INCREMENT BY 4 MINVALUE 1 MAXVALUE 999 CACHE 7 NO CYCLE
+ OWNED BY "diagnostic Other".sequence_owner.id;
+REVOKE ALL ON SEQUENCE "diagnostic Other"."Sequence With Space" FROM PUBLIC;
+GRANT USAGE, SELECT ON SEQUENCE diagnostic_schema.seq_0 TO diagnostic_reader;
+GRANT USAGE ON SEQUENCE "diagnostic Other"."Sequence With Space" TO diagnostic_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA "diagnostic Other" GRANT USAGE ON SEQUENCES TO diagnostic_reader;
+CREATE SCHEMA diagnostic_sequence_first;
+CREATE SEQUENCE diagnostic_sequence_first.a_before;
+CREATE SEQUENCE diagnostic_sequence_first.b_after;
+CREATE FUNCTION diagnostic_sequence_first.depends() RETURNS oid LANGUAGE SQL
+RETURN 'diagnostic_sequence_first.a_before'::regclass::oid;
+CREATE SCHEMA diagnostic_function_first;
+CREATE SEQUENCE diagnostic_function_first.a_before;
+CREATE SEQUENCE diagnostic_function_first.b_after;
+CREATE FUNCTION diagnostic_function_first.free() RETURNS integer LANGUAGE SQL RETURN 1;
+CREATE FUNCTION diagnostic_function_first.depends() RETURNS oid LANGUAGE SQL
+RETURN 'diagnostic_function_first.a_before'::regclass::oid;
+'''
         BUILD_STAGE = 'SYNTHETIC_SEED'
         command(['node', str(runtime / 'query.mjs')], cwd=work, env=local, data=sql.encode())
         args = ['--no-password', '--schema-only', '--format=plain', '--quote-all-identifiers',
@@ -526,11 +575,20 @@ CREATE FUNCTION diagnostic_single.one() RETURNS integer LANGUAGE sql AS $$SELECT
         instrumented, count = diagnostic_dump(output / 'bin/pg_dump', args, dump_env, work)
         negative_native_fd(output / 'bin/pg_dump', args, dump_env, work)
         # Filter boundaries preserve zero/one-function and exact source-selected scope.
-        for schema in ['diagnostic_empty', 'diagnostic_single']:
+        for schema in ['diagnostic_empty', 'diagnostic_single', 'diagnostic_sequence_single',
+                       'diagnostic_sequence_first', 'diagnostic_function_first']:
             filtered_args = args + ['--schema=' + schema]
             filtered_stock = command([str(stock_executable), *filtered_args], cwd=work, env=dump_env, timeout=45)
             filtered, _ = diagnostic_dump(output / 'bin/pg_dump', filtered_args, dump_env, work)
             require(normalize_sql(filtered_stock) == normalize_sql(filtered))
+            if schema in ['diagnostic_sequence_first', 'diagnostic_function_first']:
+                prefix = ('"' + schema + '".').encode()
+                before = filtered_stock.index(b'CREATE SEQUENCE ' + prefix + b'"a_before"')
+                function = filtered_stock.index(b'CREATE FUNCTION ' + prefix + b'"depends"')
+                after = filtered_stock.index(b'CREATE SEQUENCE ' + prefix + b'"b_after"')
+                require(before < function < after)
+                if schema == 'diagnostic_function_first':
+                    require(filtered_stock.index(b'CREATE FUNCTION ' + prefix + b'"free"') < before)
         BUILD_STAGE = 'SQL_EQUIVALENCE'
         require(normalize_sql(stock) == normalize_sql(instrumented))
         # Parsed SQL-body dependencies force the actual stock definition order.
@@ -538,10 +596,16 @@ CREATE FUNCTION diagnostic_single.one() RETURNS integer LANGUAGE sql AS $$SELECT
         view = stock.index(b'CREATE VIEW "diagnostic Other"."read_ahead_view"')
         second = stock.index(b'CREATE FUNCTION "diagnostic Other"."read_ahead_second"')
         require(first < view < second)
+        require(stock.count(b'Type: SEQUENCE;') == 138 and b'OWNED BY' in stock and
+                b'GENERATED ALWAYS AS IDENTITY' in stock and b'CYCLE' in stock)
+        require(b'SELECT pg_catalog.setval(' not in stock)
         require(b'GRANT SELECT("id")' in stock and b'ALTER DEFAULT PRIVILEGES' in stock and b'CREATE FUNCTION' in stock)
         return {'passed': True, 'sql_bytes_equal': True, 'fd3_records_valid': True,
                 'fd3_record_count': count, 'server_major': 17, 'cluster_absent': True,
-                'synthetic_routine_count': 5510, 'function_batch_max': 128,
+                'synthetic_routine_count': 5513, 'function_batch_max': 128,
+                'synthetic_sequence_count': 138, 'sequence_metadata_sql_equal': True, 'metadata_interleaved_sql_equal': True,
+                'sequence_data_reader_unchanged': True, 'metadata_total_results_max': 128,
+                'metadata_total_bytes_max': 128 * 1024 * 1024,
                 'dependency_interleaved_sql_equal': True, 'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components'}
     except Exception as error:
         retain_first_failure(error)
@@ -621,6 +685,8 @@ def build(repo, output):
         shutil.copyfile(helper, source / 'src/bin/pg_dump/native-dump-diagnostic.c')
         batch_helper = repo / 'operations/release/fixture/native-dump-function-batch.c'
         shutil.copyfile(batch_helper, source / 'src/bin/pg_dump/native-dump-function-batch.c')
+        sequence_helper = repo / 'operations/release/fixture/native-dump-sequence-batch.c'
+        shutil.copyfile(sequence_helper, source / 'src/bin/pg_dump/native-dump-sequence-batch.c')
         BUILD_STAGE = 'DIAGNOSTIC_BUILD'
         command(['make', '-C', 'src/bin/pg_dump', '-j1', 'pg_dump'], cwd=source, env=env, timeout=120)
         (output / 'bin').mkdir(mode=0o700)
@@ -642,8 +708,9 @@ def build(repo, output):
                     'archive_sha256': ARCHIVE_SHA, 'control_sha': source_sha,
                     'builder_sha256': digest(Path(__file__).read_bytes()), 'helper_sha256': digest(helper.read_bytes()),
                     'function_batch_helper_sha256': digest(batch_helper.read_bytes()),
+                    'sequence_batch_helper_sha256': digest(sequence_helper.read_bytes()),
                     'function_batch_contract_sha256': digest((repo / 'operations/release/fixture/native-dump-function-batch-test.c').read_bytes()),
-                    'transport': 'bounded-stock-function-read-ahead-v2',
+                    'transport': 'bounded-stock-function-sequence-metadata-v3',
                     'binary_sha256': digest((output / 'bin/pg_dump').read_bytes()),
                     'libpq_sha256': digest((output / 'lib/libpq.so.5').read_bytes()), 'qualification': proof}
         # Keep only the two executable inputs and manifest for the capture.

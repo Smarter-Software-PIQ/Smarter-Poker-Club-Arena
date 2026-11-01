@@ -130,10 +130,17 @@ export async function verifyNativeDumpBinary(env) {
     manifest.builder_sha256!==await sourceHash('./native-dump-diagnostic.py') ||
     manifest.helper_sha256!==await sourceHash('./native-dump-diagnostic.c') ||
     manifest.function_batch_helper_sha256!==await sourceHash('./native-dump-function-batch.c') ||
+    manifest.sequence_batch_helper_sha256!==await sourceHash('./native-dump-sequence-batch.c') ||
     manifest.function_batch_contract_sha256!==await sourceHash('./native-dump-function-batch-test.c') ||
-    manifest.transport!=='bounded-stock-function-read-ahead-v2' ||
-    manifest.qualification?.synthetic_routine_count!==5510 ||
+    manifest.transport!=='bounded-stock-function-sequence-metadata-v3' ||
+    manifest.qualification?.synthetic_routine_count!==5513 ||
     manifest.qualification?.function_batch_max!==128 ||
+    manifest.qualification?.synthetic_sequence_count!==138 ||
+    manifest.qualification?.sequence_metadata_sql_equal!==true ||
+    manifest.qualification?.metadata_interleaved_sql_equal!==true ||
+    manifest.qualification?.sequence_data_reader_unchanged!==true ||
+    manifest.qualification?.metadata_total_results_max!==128 ||
+    manifest.qualification?.metadata_total_bytes_max!==128*1024*1024 ||
     manifest.qualification?.native_batch_result_faults_refused!==true ||
     manifest.qualification?.filtered_zero_one_equal!==true ||
     manifest.qualification?.dependency_interleaved_sql_equal!==true ||

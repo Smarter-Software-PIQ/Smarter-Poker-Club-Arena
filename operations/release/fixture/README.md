@@ -592,7 +592,7 @@ The PostgreSQL17.11 export client uses private fixed-enum cost logging and
 bounded DO_FUNC metadata read-ahead. This intentionally supersedes the earlier
 selected-nonfunction batch barrier: the next128 selected functions can be read
 across other selected object types, while stock rendering and all nonfunction
-readers, including aggregates, retain their original order and paths. The pinned
+renderers, including aggregates, retain their original order and paths. The pinned
 function SELECT reads the same exported catalog snapshot with the same secured
 search path and session state throughout the object loop. Function bodies and
 default expressions are deparsed, never executed by this reader.
@@ -619,7 +619,7 @@ cached per-function reads. The512KiB fixed-channel cap remains enforced.
 Before any capture credential is present, the existing reusable native job
 builds stock and changed clients from the same pinned upstream archive. Both direct pg_dump builds serialize overlapping recursive library prerequisites with one job, retaining their original420/120-second deadlines. It
 requires identical SQL output (apart from the existing random restrict nonce)
-on a private Unix-only database containing5510 functions/procedures with
+on a private Unix-only database containing5513 functions/procedures with
 mixed signatures, defaults, SQL bodies, PL/pgSQL and ACLs, plus zero/one-function
 schema filters. A composite type, SQL-body function, cross-schema view and another
 SQL-body function force dependency-interleaved stock definition order; a quoted
@@ -630,6 +630,35 @@ malformed/error/missing/extra results, ordinal mismatch, partial-cache cleanup a
 interruption. The versioned native capability refuses old consecutive-only or
 missing interleaved-parity qualification receipts. These checks do not certify production capture,
 full-schema restoration, connected tournament/RIT cases or live behavior.
+
+### Bounded sequence configuration metadata
+
+The pinned PG17 reader now batches only the original seven-column pg_sequence
+configuration SELECT for selected DO_TABLE sequence DEFINITION objects. The
+result is still consumed at the original dumpSequence render position, with its
+unchanged identity, ownership, ACL and CREATE/ALTER logic. The complete
+last_value/is_called sequence DATA reader is byte-identical and never batched.
+Older server branches retain their original single-reader behavior.
+
+Function and sequence metadata share one total128-result/128MiB bound. A live
+cache keeps exclusive ownership; the other reader executes its exact original
+single query and validates that result together with the remaining cache.
+Neither reader creates an independent second full cache. Results fully drain
+before another stock query runs; ordinal/OID, exact column shape, row count,
+error, byte-cap and partial-exit cleanup checks refuse incomplete input. TLS,
+snapshot,512KiB diagnostics and the original45-second capture deadline remain.
+
+Native qualification now compares complete stock/changed SQL for138 sequences,
+including129 ordinary definitions, identity, serial, descending smallint/cycle,
+quoted cross-schema OWNED BY/ACL and unlogged cases. Zero/one-sequence filters
+are compared too. Two filtered dependency cohorts force actual sequence/function/
+sequence and function/sequence/function/sequence definition orders, qualifying
+both exclusive-cache directions against stock SQL. The versioned capability requires the new helper hash,
+sequence SQL parity, unchanged DATA-reader proof and both aggregate cache caps.
+Compiled mixed-object contracts exercise both exclusive-cache directions,
+filtered metadata selection, shared-byte refusal and SIGINT before/after partial
+receipt. This remains candidate qualification, not evidence that any particular
+captured relation request was a sequence or that a future capture will finish.
 
 ### Bounded snapshot-reader overlap
 
