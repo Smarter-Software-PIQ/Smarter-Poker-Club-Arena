@@ -100,6 +100,26 @@ def exercise(e,db,root,service,activate,deactivate):
     _,state,_=e.sql(db,"SELECT jsonb_build_array(w.chip_balance,p.seeded_amount,p.is_active) FROM union_wallets w JOIN spin_bonus_pools p ON p.club_id=w.union_id WHERE w.union_id='"+union+"';",label='union-money-conserved')
     assert json.loads(state)==[10000,0,False],state
 
+    # A changed club mapping while waiting for the pool is a terminal state
+    # refusal, never custom40001 (PostgREST can replay that code indefinitely).
+    before=snapshot(e,db,'mapping-race-before')
+    left=sessions.Session(e,db);right=sessions.Session(e,db)
+    try:
+        left.query("BEGIN;SELECT 1 FROM spin_bonus_pools WHERE club_id='"+union+"' FOR UPDATE;")
+        right.send("BEGIN;SET LOCAL application_name='spin_owner_mapping_wait';"+service+"DO $$BEGIN BEGIN PERFORM "+union_call+";RAISE EXCEPTION 'changed mapping admitted';EXCEPTION WHEN SQLSTATE '55000' THEN IF SQLERRM<>'spin_owner_command_owner_changed' THEN RAISE;END IF;END;END$$;COMMIT;")
+        deadline=time.monotonic()+3
+        while time.monotonic()<deadline:
+            _,waiting,_=e.sql(db,"SELECT count(*) FROM pg_stat_activity WHERE application_name='spin_owner_mapping_wait' AND wait_event_type='Lock';",label='mapping-race-waits-for-pool')
+            if waiting.strip()=='1':break
+            time.sleep(.02)
+        else:raise AssertionError('owner command did not wait on the original pool')
+        left.query("SET LOCAL session_replication_role=replica;UPDATE clubs SET union_id=NULL WHERE id='"+child+"';COMMIT;")
+        right.read()
+    finally:left.close();right.close()
+    e.sql(db,"BEGIN;SET LOCAL session_replication_role=replica;UPDATE clubs SET union_id='"+union+"' WHERE id='"+child+"';COMMIT;",label='restore-synthetic-union-mapping')
+    assert snapshot(e,db,'mapping-race-money-and-receipts-unchanged')==before
+    e.report['races'].append({'case':'owner-mapping-change-refuses55000','passed':True})
+
     empty='a2000000-0000-4000-8000-000000000031'
     e.sql(db,"BEGIN;SET LOCAL session_replication_role=replica;INSERT INTO clubs(id,club_id,name,owner_id,chip_treasury) VALUES ('"+empty+"',998184,'Native Initially Empty','"+ACTOR+"',0);COMMIT;",label='synthetic-empty-owner')
     refused=activate.replace(CLUB,empty).replace('a3000000-0000-4000-8000-000000000001','a3000000-0000-4000-8000-000000000031')
