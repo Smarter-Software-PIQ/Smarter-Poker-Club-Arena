@@ -11762,7 +11762,8 @@ export class GameServer {
 
   async acknowledgeTournamentAbortBoundary(
     operationId: string,
-    tournamentId: string
+    tournamentId: string,
+    closureMode?: 'equal_share'
   ): Promise<unknown> {
     const { data, error } = await supabase.rpc('fn_ca_tournament_abort_stop_state', {
       p_operation_id: operationId,
@@ -11828,9 +11829,10 @@ export class GameServer {
       return {
         state: 'pending',
         operation_id: operationId,
+        tournament_id: tournamentId,
         reason: 'current_original_manager_unavailable',
       };
-    return manager.acknowledgeTournamentAbortBoundary(data);
+    return manager.acknowledgeTournamentAbortBoundary({ ...data, closureMode });
   }
 
   private async repairOrphanedTournamentSeats(): Promise<void> {
@@ -13531,6 +13533,19 @@ export class GameServer {
    */
   ownsTournamentTableEngine(tableId: string, engine: ServerTableEngine): boolean {
     return this.tableEngines.get(tableId) === engine && this.tournamentOwnedTables.has(tableId);
+  }
+
+  canCertifyTournamentTableAbsent(tournamentId: string, manager: object, tableId: string): boolean {
+    return (
+      this.tournamentEngines.get(tournamentId) === manager &&
+      !this.tournamentManagerLeaseReleaseOperations.has(tournamentId) &&
+      !this.tournamentManagerPendingLeaseReleases.has(tournamentId) &&
+      (this.tournamentDiagnosticRetirements.get(tournamentId)?.size ?? 0) === 0 &&
+      !this.tableEngines.has(tableId) &&
+      !this.tournamentOwnedTables.has(tableId) &&
+      !ServerTableEngine.hasProcessEngineForTable(tableId) &&
+      this.tournamentRetirementCustody.admissionAllowed(tableId)
+    );
   }
 
   private sleep(ms: number): Promise<void> {

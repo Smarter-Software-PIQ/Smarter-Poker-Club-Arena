@@ -9581,7 +9581,8 @@ export abstract class TournamentManagerBase {
    * Child managers add their own source registries below this boundary.
    */
   protected tournamentAbortSourcesMatch(
-    expected: readonly (readonly [string, ServerTableEngine])[]
+    expected: readonly (readonly [string, ServerTableEngine])[],
+    absent: ReadonlySet<string> = new Set()
   ): boolean {
     const byId = new Map(expected);
     for (const map of [
@@ -9594,7 +9595,7 @@ export abstract class TournamentManagerBase {
       for (const [id, engine] of this.drainedF06Originals)
         if (byId.get(id) !== engine) return false;
     for (const [id, engine] of this.tableEngineRecoveryExpected)
-      if (engine === null || byId.get(id) !== engine) return false;
+      if (engine === null ? !absent.has(id) : byId.get(id) !== engine) return false;
     return true;
   }
 
@@ -9670,23 +9671,43 @@ export abstract class TournamentManagerBase {
       throw new Error('operator_abort_withdrawn_for_original_recovery');
     if (
       fresh.current_generation !== request.current_generation ||
-      !isDeepStrictEqual(fresh.tables, request.tables) ||
+      !isDeepStrictEqual(
+        fresh.tables.map((table: AbortBoundaryRequest['tables'][number]) => [
+          table.table_id,
+          table.lifecycle,
+          table.required,
+        ]),
+        request.tables.map((table) => [table.table_id, table.lifecycle, table.required])
+      ) ||
       tailIdentity !== this.tournamentAbortOwnedTailIdentity()
     )
       return {
         state: 'pending',
         operation_id: request.operation_id,
+        tournament_id: this.tournamentId,
         reason: 'original_graph_changed_before_capture',
       };
     // Concurrent requests may have joined the same physical preflight.
     const concurrent = this.tournamentAbortBoundary as TournamentAbortBoundary | null;
     if (concurrent) {
-      if (concurrent.request.operation_id !== request.operation_id)
+      if (
+        concurrent.request.operation_id !== request.operation_id ||
+        concurrent.request.closureMode !== request.closureMode
+      )
         throw new Error('tournament_abort_operation_already_owned');
       return concurrent.run(true);
     }
     const originals = [...this.tableEngines.entries()];
     const required = request.tables.filter((table) => table.required);
+    const absent = new Set(
+      required
+        .filter((table) => !this.tableEngines.has(table.table_id))
+        .map((table) => table.table_id)
+    );
+    const absenceCurrent = () =>
+      [...absent].every((id) =>
+        this.gameServer.canCertifyTournamentTableAbsent(this.tournamentId, this, id)
+      );
     // No physical side effect or original-roster capture precedes a complete
     // graph. An accepted table move/start may still publish its original
     // outcome; the same durable request can observe that outcome afterward.
@@ -9694,21 +9715,29 @@ export abstract class TournamentManagerBase {
       this.lifecycleOperation !== null ||
       this.tableEngineStartJobs.size !== 0 ||
       !this.tournamentAbortBusinessTailsDrained() ||
-      !this.tournamentAbortSourcesMatch(originals) ||
+      !this.tournamentAbortSourcesMatch(originals, absent) ||
       required.length === 0 ||
-      required.length !== originals.length ||
-      required.some((table) => !this.tableEngines.has(table.table_id))
+      required.length !== originals.length + absent.size ||
+      originals.some(([id]) => !required.some((table) => table.table_id === id)) ||
+      !absenceCurrent() ||
+      required.some(
+        (table) =>
+          absent.has(table.table_id) &&
+          (!Number.isSafeInteger(table.durable_hand_number) || table.durable_hand_number! < 0)
+      )
     )
       return Promise.resolve({
         state: 'pending',
         operation_id: request.operation_id,
+        tournament_id: this.tournamentId,
         reason: 'original_graph_not_ready',
       });
     const current = () =>
       this.hasCurrentTournamentLeaseAuthority() &&
       this.tournamentAbortActuationAllowed() &&
       !this.stopFenceApplied &&
-      this.tournamentAbortSourcesMatch(originals) &&
+      this.tournamentAbortSourcesMatch(originals, absent) &&
+      absenceCurrent() &&
       this.tableEngines.size === originals.length &&
       originals.every(
         ([id, engine]) =>
@@ -9719,6 +9748,30 @@ export abstract class TournamentManagerBase {
       joinManagerTails: () => this.joinTournamentAbortManagerTails(false),
       joinRetiredManagerTails: () => this.joinTournamentAbortManagerTails(true),
       managerReadyToFence: () => this.tournamentAbortBusinessTailsDrained(),
+      captureAbsentTable: (table) => {
+        if (
+          !absent.has(table.table_id) ||
+          !current() ||
+          !this.shutdownDrainFenceApplied ||
+          this.running ||
+          this.lifecycleOperation !== null ||
+          this.tableEngineStartJobs.size !== 0 ||
+          this.tableEngineRunJobs.size !== 0 ||
+          this.lifecycleJobs.size !== 0 ||
+          this.eliminationSchedulerJobs.size !== 0 ||
+          this.lifecycleTimeouts.size !== 0 ||
+          this.lifecycleIntervals.size !== 0 ||
+          !this.tournamentAbortBusinessTailsDrained() ||
+          this.seatMoveQuarantineRefusal() !== null
+        )
+          return null;
+        return {
+          lifecycle: table.lifecycle,
+          hand_number: table.durable_hand_number!,
+          engine_id: null,
+          allocation_epoch: null,
+        };
+      },
       fenceManager: () => this.beginServerShutdownDrain(),
       managerDrained: () =>
         this.tournamentAbortBusinessTailsDrained() &&
@@ -9731,6 +9784,54 @@ export abstract class TournamentManagerBase {
         this.lifecycleTimeouts.size === 0 &&
         this.lifecycleIntervals.size === 0 &&
         this.seatMoveQuarantineRefusal() === null,
+      prepareAcknowledgement: async (tableId, handNumber, evidence) => {
+        if (request.closureMode !== 'equal_share') return;
+        const stopped = await supabase.rpc('fn_ca_tournament_abort_stop_state', {
+          p_operation_id: request.operation_id,
+          p_tournament_id: this.tournamentId,
+        });
+        if (
+          stopped.error ||
+          stopped.data?.ok !== true ||
+          stopped.data.operation_id !== request.operation_id ||
+          stopped.data.tournament_id !== this.tournamentId ||
+          stopped.data.current_generation !== request.current_generation ||
+          stopped.data.state === 'recovery' ||
+          stopped.data.state === 'settled' ||
+          !Array.isArray(stopped.data.tables) ||
+          !current()
+        )
+          throw new Error('tournament_abort_stopped_review_unknown');
+        const table = (stopped.data.tables as AbortBoundaryRequest['tables']).find(
+          (table) => table.table_id === tableId
+        );
+        if (
+          !table ||
+          table.lifecycle !== evidence.lifecycle ||
+          table.durable_hand_number !== handNumber
+        )
+          throw new Error('tournament_abort_stopped_hand_changed');
+        if (request.closureMode === 'equal_share' && table.cancellable_permit_id) {
+          if (!table.cancellable_hand_hash || !current())
+            throw new Error('tournament_abort_hand_review_unknown');
+          const cancelled = await supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {
+            p_operation_id: request.operation_id,
+            p_tournament_id: this.tournamentId,
+            p_table_id: tableId,
+            p_generation: request.current_generation,
+            p_permit_id: table.cancellable_permit_id,
+            p_expected_hash: table.cancellable_hand_hash,
+            p_evidence: evidence,
+          });
+          if (
+            cancelled.error ||
+            cancelled.data?.ok !== true ||
+            cancelled.data?.outcome !== 'aborted_unsettled'
+          )
+            throw new Error('tournament_abort_hand_disposition_unknown');
+          if (!current()) throw new Error('tournament_abort_owner_changed_after_disposition');
+        }
+      },
       acknowledge: async (tableId, handNumber, evidence) => {
         const { data, error } = await supabase.rpc('fn_ca_ack_tournament_abort_boundary', {
           p_operation_id: request.operation_id,

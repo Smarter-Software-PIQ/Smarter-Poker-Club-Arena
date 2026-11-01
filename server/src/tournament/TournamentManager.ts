@@ -2831,9 +2831,10 @@ export class TournamentManager extends TournamentManagerEliminations {
   }
 
   protected override tournamentAbortSourcesMatch(
-    expected: readonly (readonly [string, ServerTableEngine])[]
+    expected: readonly (readonly [string, ServerTableEngine])[],
+    absent: ReadonlySet<string> = new Set()
   ): boolean {
-    if (!super.tournamentAbortSourcesMatch(expected)) return false;
+    if (!super.tournamentAbortSourcesMatch(expected, absent)) return false;
     const byId = new Map(expected);
     const originals = new Set(byId.values());
     for (const engine of this.stoppedOriginalBreaks.values())

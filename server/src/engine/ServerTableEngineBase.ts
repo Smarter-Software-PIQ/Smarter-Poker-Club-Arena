@@ -1227,6 +1227,10 @@ export abstract class ServerTableEngineBase {
    * Every teardown path that touches a shared resource must check ownership.
    */
   private static liveEngines = new Map<string, ServerTableEngineBase>();
+  /** Read-only absence proof; a manager must separately join all accepted writers. */
+  static hasProcessEngineForTable(tableId: string): boolean {
+    return ServerTableEngineBase.liveEngines.has(tableId);
+  }
 
   private static claimCurrentEngine(tableId: string, engine: ServerTableEngineBase): boolean {
     const incumbent = ServerTableEngineBase.liveEngines.get(tableId);

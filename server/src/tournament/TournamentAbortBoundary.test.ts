@@ -43,6 +43,122 @@ function fixture() {
   return { owner, engine, deps, request };
 }
 describe('the explicit abort owner positively joins original writers', () => {
+  it('explicit equal share stops and joins originals before dispositions and ACKs', async () => {
+    const f = fixture();
+    const stop = deferred();
+    f.engine.parkForTournamentAbort.mockResolvedValue(false);
+    f.engine.retireTournamentAbortBoundary.mockReturnValue(stop.promise);
+    const order: string[] = [];
+    const owner = new TournamentAbortBoundary(
+      { ...f.request, closureMode: 'equal_share' },
+      [['table', f.engine]],
+      {
+        ...f.deps,
+        prepareAcknowledgement: async () => {
+          order.push('disposition');
+        },
+        acknowledge: async (_id, _hand, evidence) => {
+          order.push('ack');
+          expect(evidence).toMatchObject({
+            closure_mode: 'equal_share',
+            kind: 'tournament_abort_cancelled_boundary_v2',
+            parked_before_retirement: false,
+          });
+          return { ok: true };
+        },
+      }
+    );
+    const run = owner.run();
+    await vi.waitFor(() => expect(f.engine.retireTournamentAbortBoundary).toHaveBeenCalled());
+    expect(f.deps.fenceManager).toHaveBeenCalledOnce();
+    expect(f.engine.parkForTournamentAbort).not.toHaveBeenCalled();
+    expect(f.engine.prepareTournamentAbortBoundary).not.toHaveBeenCalled();
+    expect(order).toEqual([]);
+    stop.resolve();
+    expect(await run).toMatchObject({ state: 'acknowledged' });
+    expect(order).toEqual(['disposition', 'ack']);
+  });
+
+  it('disposes every stopped original before acknowledging any table', async () => {
+    const f = fixture();
+    const order: string[] = [];
+    const request = {
+      ...f.request,
+      closureMode: 'equal_share' as const,
+      tables: [...f.request.tables, { table_id: 'second', lifecycle: '23', required: true }],
+    };
+    const owner = new TournamentAbortBoundary(
+      request,
+      [
+        ['table', f.engine],
+        ['second', { ...f.engine }],
+      ],
+      {
+        ...f.deps,
+        prepareAcknowledgement: async (id) => {
+          order.push('dispose:' + id);
+        },
+        acknowledge: async (id) => {
+          order.push('ack:' + id);
+          return { ok: true };
+        },
+      }
+    );
+    expect(await owner.run()).toMatchObject({ state: 'acknowledged', tournament_id: 'tournament' });
+    expect(order).toEqual(['dispose:table', 'dispose:second', 'ack:table', 'ack:second']);
+  });
+  it('certifies genuine absence only after joined manager tails without inventing an engine', async () => {
+    const f = fixture();
+    const tail = deferred();
+    f.deps.joinRetiredManagerTails.mockReturnValueOnce(tail.promise);
+    const captureAbsentTable = vi.fn(() => ({
+      lifecycle: '23',
+      hand_number: 17,
+      engine_id: null,
+      allocation_epoch: null,
+    }));
+    const owner = new TournamentAbortBoundary(f.request, [], { ...f.deps, captureAbsentTable });
+    const run = owner.run();
+    await vi.waitFor(() => expect(f.deps.joinRetiredManagerTails).toHaveBeenCalled());
+    expect(captureAbsentTable).not.toHaveBeenCalled();
+    expect(f.deps.acknowledge).not.toHaveBeenCalled();
+    tail.resolve();
+    expect(await run).toMatchObject({ state: 'acknowledged' });
+    expect(f.deps.acknowledge).toHaveBeenCalledWith(
+      'table',
+      17,
+      expect.objectContaining({
+        kind: 'tournament_abort_absent_boundary_v2',
+        certificate_version: '2',
+        engine_id: null,
+        physical_engine_absent: true,
+        parked_before_retirement: false,
+        source_table_ids: ['table'],
+      })
+    );
+  });
+  it('refuses unknown absence and rechecks absence after every network await', async () => {
+    const f = fixture();
+    const request = {
+      ...f.request,
+      tables: [...f.request.tables, { table_id: 'second', lifecycle: '23', required: true }],
+    };
+    let valid = true;
+    const captureAbsentTable = vi.fn(() =>
+      valid ? { lifecycle: '23', hand_number: 17, engine_id: null, allocation_epoch: null } : null
+    );
+    f.deps.acknowledge.mockImplementation(async () => {
+      valid = false;
+      return { ok: true };
+    });
+    const owner = new TournamentAbortBoundary(request, [], { ...f.deps, captureAbsentTable });
+    expect(await owner.run()).toMatchObject({ state: 'pending', reason: 'boundary_changed' });
+    expect(f.deps.acknowledge).toHaveBeenCalledTimes(1);
+    expect(await owner.run()).toMatchObject({
+      state: 'pending',
+      reason: 'physical_writer_not_drained',
+    });
+  });
   it('joins duplicate requests while the accepted hand is still running', async () => {
     const f = fixture();
     const hand = deferred();
