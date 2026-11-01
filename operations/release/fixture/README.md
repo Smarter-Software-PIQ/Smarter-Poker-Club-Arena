@@ -688,3 +688,26 @@ must complete before rollback or private output. The first closed failure stage
 owns the receipt; failure cancels and drains the sibling, including native
 SIGINT/bounded SIGKILL handling. The original45-second whole-capture deadline,
 full catalogue/ACL/digest checks, schema output and diagnostic bounds remain.
+
+### Connected bootstrap file transport and closed failures
+
+The connected schema-preimage/preflight owner reads its fixed immutable output
+inside the original container namespace, using the same no-follow, regular-file,
+uid/gid, single-link, readonly-permission and stable-stat checks as mandatory
+service preimage capture. It does not use Docker archive copy for live tmpfs.
+The original128MiB export limit remains. A bounded foreground read validates a
+length/SHA256 envelope before creating an exclusive private0600 host file; the
+owner verifies the saved digest and fsyncs before ACK, then waits for normal
+shutdown. Partial, surplus, oversized, writable or altered input never receives
+an ACK. No role, extension, schema, tuple or image contract changes.
+
+Failure receipts retain a fixed START/READY/READ/COPY/ACK/WAIT phase, readiness,
+read/ACK completion and bounded container exit status. The existing closed native
+failure decoder admits only known fixture stages/fields, including current-role
+extension and genuine service-schema export; unknown fields and raw messages are
+refused. Only the already verified owned child's bounded diagnostic channel is
+filtered in memory; raw output is never returned or saved. Original failure facts
+survive cleanup failure, while incomplete cleanup remains visible and refuses
+success. Capture8's historical finer cause remains unknown because it lacked
+these phase facts. Linux native qualification and a changed connected capture
+remain required before any15-case claim.
