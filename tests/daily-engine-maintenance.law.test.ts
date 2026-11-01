@@ -517,7 +517,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
       check({ ...fixture, releaseWitness: { ...fixture.releaseWitness, sha256: 'f'.repeat(64) } })
     ).toBe(false);
   });
-  it('binds a witness to exact target bytes and full unserved history rather than a shared base', () => {
+  function witnessAdmissionFixture() {
     const witness = {
       path: 'supabase/migrations/20261028171228_fixture_rebuy.sql',
       sha256: createHash('sha256').update('fixture SQL\n').digest('hex'),
@@ -553,6 +553,10 @@ describe('daily routine admission uses the existing protected receiver only', ()
         undefined,
         { windows, ancestor, served, witness: mode }
       );
+    return { witness, doc, check };
+  }
+  it('binds a witness to the exact maintained bootstrap guard and refuses other paths', () => {
+    const { witness, doc, check } = witnessAdmissionFixture();
     // Only this exact maintained bootstrap source may be a non-migration
     // feature witness. Its bytes and unserved history keep the same once rule.
     const guardWitness = {
@@ -568,6 +572,9 @@ describe('daily routine admission uses the existing protected receiver only', ()
     expect(
       check('unserved', doc({ ...guardWitness, path: 'server/scripts/other-guard.mjs' }))
     ).toBe(false);
+  });
+  it('binds a witness to full unserved history and independent owner authority', () => {
+    const { doc, check } = witnessAdmissionFixture();
     // The peer has our shared base, but has never contained our actual feature.
     expect(check('unserved')).toBe(true);
     // A consumed specific order does not revoke an independent legacy order.
@@ -585,6 +592,9 @@ describe('daily routine admission uses the existing protected receiver only', ()
     ])
       expect(check(mode), mode).toBe(false);
     expect(check('unserved', doc(), false)).toBe(false);
+  });
+  it('binds a witness to a valid exact target shape', () => {
+    const { witness, doc, check } = witnessAdmissionFixture();
     for (const invalid of [
       null,
       {},
