@@ -247,9 +247,14 @@ describe('the route runs on the daily schedule that already exists', () => {
     expect(job.if).toContain("needs.detect.result == 'success'");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).toContain(
-      "github.event_name == 'schedule' || needs.detect.outputs.owner_window_id != ''"
+      "(github.event_name == 'schedule' && needs.detect.outputs.daily_migrations_allowed == 'true') || needs.detect.outputs.owner_window_id != ''"
     );
-    expect(stage.on.schedule).toEqual([{ cron: '30 8 * * *' }, { cron: '30 9 * * *' }]);
+    expect(stage.on.schedule).toEqual([{ cron: '30 * * * *' }]);
+    const admission = stage.jobs.detect.steps.find(
+      (step: { id?: string }) => step.id === 'admission'
+    );
+    expect(admission.run).toContain('daily = (local.hour, local.minute) == (3, 30)');
+    expect(admission.run).toContain("'daily_migrations_allowed=' + str(daily).lower()");
     expect(job.permissions).toEqual({ contents: 'read' });
     expect(job.concurrency['cancel-in-progress']).toBe(false);
     const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');

@@ -204,6 +204,7 @@ mapfile() {
 set -euo pipefail
 case "\${1:-}:\${2:-}" in
   pending-owner:) printf '%s\\n' none ;;
+  check-routine-owner:--run-id) printf '%s\\n' none ;;
   get:desired-sha) printf '%s\\n' '${sourceSha}' ;;
   get:high-water-sha)
     printf '%s\\n' '${sourceSha}'
@@ -314,6 +315,7 @@ case "$*" in
   *' fetch --no-tags '*) exit 0 ;;
   *" rev-parse --verify origin/main^{commit}") printf '%s\\n' '${targetSha}' ;;
   *' ls-tree '*' -- server/release/activation-floor.json') exit 0 ;;
+  *" cat-file -e ${targetSha}:server/src/maintenance/maintenanceSchedulePolicy.json") exit 1 ;;
   *' cat-file -e '*) exit 0 ;;
   *' merge-base --is-ancestor '*) exit 0 ;;
   *' log '*' -1 --format=%H -- '*) printf '%s\\n' '${targetSha}' ;;

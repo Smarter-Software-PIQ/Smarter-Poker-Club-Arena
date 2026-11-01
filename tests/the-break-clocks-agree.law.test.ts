@@ -540,12 +540,21 @@ describe('the break scorecard grades only what the break controls', () => {
   });
 });
 
-it('qualifies the global Phase1 cycle in isolated canonical state and actual shell admission', () => {
-  const result = spawnSync(
-    'python3',
-    [resolve(__dirname, 'operations/engine-hourly-maintenance.py')],
-    { encoding: 'utf8', timeout: 30_000 }
-  );
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stderr).toContain('Ran 16 tests');
-}, 35_000);
+// Four actual shell children each retain their 5s deadline. Allow a separate
+// 20s envelope for 16 isolated Git fixtures and canonical state/control work;
+// the outer test also allows 5s to collect the child result and finish teardown.
+const hourlyCycleQualificationTimeoutMs = 4 * 5_000 + 20_000;
+
+it(
+  'qualifies the global Phase1 cycle in isolated canonical state and actual shell admission',
+  () => {
+    const result = spawnSync(
+      'python3',
+      [resolve(__dirname, 'operations/engine-hourly-maintenance.py')],
+      { encoding: 'utf8', timeout: hourlyCycleQualificationTimeoutMs }
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain('Ran 16 tests');
+  },
+  hourlyCycleQualificationTimeoutMs + 5_000
+);
