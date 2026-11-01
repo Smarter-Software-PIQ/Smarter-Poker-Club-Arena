@@ -4219,7 +4219,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // and handCompletionHoldMs (which already budgets SHOWDOWN_READ_BASE_MS = 1400ms).
           // Awaiting WINNERS here serialized that 1400ms BEFORE HAND_COMPLETE and
           // BEFORE post_hand_hold on every retained hand, doubling the showdown wait.
-          if (original && event.type !== 'WINNERS') await handled;
+          // Likewise, CARDS_DEALT emits each seat's private `hole_cards` WS frame
+          // synchronously and queues `persistHoleCardsWithRetry` into a microtask batch
+          // (`scheduleHoleCardBatchFlush`) that is already tracked by
+          // `trackWeeklyPayoutOriginalWork(handled)`. Awaiting `handled` on each seat's
+          // CARDS_DEALT broke the microtask batch into N sequential DB round-trips and
+          // delayed seats 2..N hole cards and TURN_CHANGE by 1-2s after the deal animation.
+          if (original && event.type !== 'WINNERS' && event.type !== 'CARDS_DEALT') await handled;
           else
             void handled.catch((error) =>
               reportError(error, `ServerTableEngine.${this.tableId}.handleHandEvent_rejected`)

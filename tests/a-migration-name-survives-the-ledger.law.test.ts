@@ -53,6 +53,15 @@ describe('a new migration name survives the ledger', () => {
     expect(problems[0]).toMatch(/letter suffix/);
   });
 
+  it.each([
+    '2026110120481553_lightning_resolutions_funding_club_w1q28.sql',
+    '2026110120487766_lightning_resolutions_funding_club_w1q21.sql',
+    '2026110120481_short_stamp.sql',
+  ])('refuses the new filename %s that the production applier cannot install', (file) => {
+    const problems = namingProblems(`supabase/migrations/${file}`);
+    expect(problems.some((p: string) => /14 digits/.test(p))).toBe(true);
+  });
+
   it('judges only new work: a verified recording keeps the name production wrote', () => {
     const gate = read('scripts/ci/check-new-migration-version-collisions.mjs');
     expect(gate).toContain("from './recording-only.mjs'");

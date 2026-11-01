@@ -3049,10 +3049,18 @@ class FailedRoutineHistoricalTests(unittest.TestCase):
             generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
             generation.mkdir(parents=True)
             path = generation / 'engine-release-transaction.sh'
-            # This contract concerns the original loaded control, not today's mutable template.
-            path.write_bytes((ROOT / 'tests/fixtures/failed-custody-control/engine-release-transaction.raw.txt').read_bytes())
+            source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_bytes()
+            path.write_bytes(source)
             result = R.failed_custody_transaction(parent, R.time.monotonic() + 3)
-            self.assertEqual(result[0], R.FAILED_CUSTODY_TRANSACTION_SHA256)
+            # The byte reader hashes its input, which can advance on main.
+            # Historical qualification still requires the immutable original.
+            self.assertEqual(result[0], hashlib.sha256(source).hexdigest())
+            foreign = ('0' * 64, result[1])
+            with patch.object(R, 'bounded_journal') as command:
+                answer = R.failed_custody_historical((foreign, self.inputs()[1]), R.time.monotonic() + 10)
+            self.assertFalse(answer['sourceMatches'])
+            self.assertEqual(answer['status'], 'unknown')
+            command.assert_not_called()
             self.assertGreater(path.stat().st_size, R.MAX_BYTES)
             row = R.intake_record(parent, ('engine-control-generations', R.FAILED_CUSTODY_CONTROL, path.name), False, R.time.monotonic() + 3)[0]
             self.assertEqual(row['status'], 'unknown')

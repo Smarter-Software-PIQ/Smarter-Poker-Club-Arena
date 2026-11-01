@@ -30,18 +30,18 @@ export function mttPrizeShare(row: { buy_in_amount?: unknown; bounty_amount?: un
 }
 
 export function mttPrestartPlan(
-  field: number,
+  _field: number,
   maxPlayers: number | null,
   tournamentId: string,
   free = false
 ): number {
-  const boundedField = maxPlayers === null ? field : Math.min(field, maxPlayers);
   // A regular event builds a small opening field, regardless of guarantee.
   // The funded complete-field plan belongs to late registration.
   const desired = free
-    ? Math.ceil(boundedField * (0.4 + arrivalUnit(tournamentId, 'prestart-share') * 0.2))
-    : 12 + Math.floor(arrivalUnit(tournamentId, 'regular-prestart-field') * 17);
-  const goal = Math.min(boundedField, desired);
+    ? 120 + Math.floor(arrivalUnit(tournamentId, 'free-prestart-field') * 121)
+    : 32 + Math.floor(arrivalUnit(tournamentId, 'regular-prestart-field') * 17);
+  // Prestart attendance is independent of the guarantee; finite capacity still bounds it.
+  const goal = desired;
   return maxPlayers === null ? goal : Math.max(0, Math.min(maxPlayers - 1, goal));
 }
 
@@ -84,17 +84,27 @@ export function mttPrestartArrivalTarget(
   const opening = Math.min(
     total,
     free
-      ? 1 + Math.floor(arrivalUnit(tournamentId, 'free-opening') * 3)
+      ? Math.ceil(total * (0.6 + arrivalUnit(tournamentId, 'free-opening') * 0.2))
       : 3 + Math.floor(arrivalUnit(tournamentId, 'regular-opening') * 5)
   );
-  // mttArrivalTarget has its own random exponent. This extra convex warp
-  // keeps the combined exponent above one, so arrivals increase near start.
-  const exponent = free
-    ? 1.6 + arrivalUnit(tournamentId, 'free-prestart-shape') * 0.6
-    : 2.2 + arrivalUnit(tournamentId, 'regular-prestart-shape') * 0.8;
+  const remaining = total - opening;
+  if (!free) {
+    // One random instant in each equal time slice. Unlike a convex curve,
+    // this keeps the opening handful from sitting unchanged for many minutes.
+    const progress = Math.min(1, elapsed);
+    let arrived = 0;
+    while (arrived < remaining) {
+      const instant =
+        (arrived + arrivalUnit(tournamentId, `regular-prestart-entry:${arrived}`)) / remaining;
+      if (instant > progress) break;
+      arrived++;
+    }
+    return opening + arrived;
+  }
+  const exponent = 1.6 + arrivalUnit(tournamentId, 'free-prestart-shape') * 0.6;
   return (
     opening +
-    mttArrivalTarget(tournamentId, 'prestart', total - opening, Math.min(1, elapsed) ** exponent)
+    mttArrivalTarget(tournamentId, 'prestart', remaining, Math.min(1, elapsed) ** exponent)
   );
 }
 

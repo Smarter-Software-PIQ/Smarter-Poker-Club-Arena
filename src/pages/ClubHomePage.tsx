@@ -4403,7 +4403,14 @@ function ClubHomePageContent({
       try {
         // Signed-out visitors still reach the table route's existing AuthGuard.
         if (currentUserId) await prepareTableForEntry(tableId);
-        if (gameEntryScope.active) navigate(`/table/${tableId}`);
+        if (gameEntryScope.active) {
+          // Embedded lobbies stay mounted behind the selected table. Their
+          // body portal must close explicitly or it hides the successful View.
+          // Routed lobbies unmount on entry; closing them first can race their
+          // game-query sync against the table navigation.
+          if (clubIdOverride) setPanelOpen(false);
+          navigate(`/table/${tableId}`);
+        }
       } catch (error) {
         if (gameEntryScope.active) {
           reportError(error, 'ClubHomePage.prepareTableEntry', { tableId });
@@ -4414,7 +4421,7 @@ function ClubHomePageContent({
         setPreparingCashScope((scope) => (scope === gameEntryScope ? null : scope));
       }
     },
-    [currentUserId, gameEntryScope, navigate, toast]
+    [currentUserId, gameEntryScope, navigate, toast, clubIdOverride]
   );
 
   const handleJoinTable = useCallback(
