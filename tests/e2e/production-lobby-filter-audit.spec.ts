@@ -420,6 +420,46 @@ function independentMatch(
   );
 }
 
+/** The native lower glass is measured from the approved master, not the text wrapper. */
+async function assertRegistrationInkInsideFrame(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.locator('tr[data-kind][data-id]:visible').evaluateAll((rows) =>
+          rows.flatMap((row) => {
+            const frame = row.getBoundingClientRect();
+            const minimum = frame.top + frame.width * 0.003 - 1;
+            const maximum = frame.top + frame.width * 0.102 + 1;
+            return [...row.querySelectorAll('.lt-status,.lt-name__phase')].flatMap((label) => {
+              const box = label.getBoundingClientRect();
+              if (!box.width || !box.height) return [];
+              const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+              const failures: unknown[] = [];
+              while (walker.nextNode()) {
+                if (!walker.currentNode.textContent?.trim()) continue;
+                const range = document.createRange();
+                range.selectNodeContents(walker.currentNode);
+                for (const ink of range.getClientRects()) {
+                  if (ink.top < minimum || ink.bottom > maximum)
+                    failures.push({
+                      id: row.getAttribute('data-id'),
+                      text: label.textContent,
+                      top: ink.top - frame.top,
+                      bottom: ink.bottom - frame.top,
+                      minimum: minimum - frame.top,
+                      maximum: maximum - frame.top,
+                    });
+                }
+              }
+              return failures;
+            });
+          })
+        ),
+      { message: 'Registration labels and exact dates must stay inside the native chrome frame' }
+    )
+    .toEqual([]);
+}
+
 async function assertSort(page: Page, type: Tab, sort: string, raw: Map<string, Row>) {
   const cash = CASH.has(type);
   const effective =
@@ -843,6 +883,7 @@ for (const type of TYPES) {
     };
     try {
       await check('baseline');
+      await assertRegistrationInkInsideFrame(page);
       const availability = await h.rows.evaluateAll((elements) =>
         elements
           .filter(
@@ -1242,6 +1283,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   const countdown = page.getByRole('button', { name: 'Show Countdown', exact: true }).first();
   await expect(countdown.locator('time')).toHaveAttribute('datetime', /\d{4}-\d{2}-\d{2}T/);
   await expect(countdown).toContainText(/\d/);
+  await assertRegistrationInkInsideFrame(page);
   await testInfo.attach('lobby-exact-start-time-phone.png', {
     body: await page.screenshot(),
     contentType: 'image/png',
@@ -1388,6 +1430,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await expect(rail).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect(rail).toBeInViewport();
+  await assertRegistrationInkInsideFrame(page);
   await testInfo.attach('sticky-lobby-wide.png', {
     body: await page.screenshot(),
     contentType: 'image/png',
