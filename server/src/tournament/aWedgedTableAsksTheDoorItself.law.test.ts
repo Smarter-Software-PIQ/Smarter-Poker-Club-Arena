@@ -39,8 +39,8 @@
  * 1. THE REFUSAL IS MET IN `startManagedTableEngine`, so that is where the
  *    door is asked. That method reads the same state and throws
  *    `f06_engine_admission_unproven` every ~15 s for as long as the table is
- *    wedged. It now asks the door first and still refuses the attempt: the
- *    next admission re-reads what the door left and proves itself normally.
+ *    wedged. It asks the door first; an acknowledged decision permits one fresh
+ *    authoritative read before the same admission is proved normally.
  *    This is not a sweep, healer, backfill or repair job (CLAUDE.md 10.12) -
  *    it is this table's own live path, on the event already blocked, at the
  *    moment it is blocked.
@@ -120,15 +120,18 @@ describe('the table that is refused is the table that asks', () => {
     expect(ADMISSION_CODE).toContain('current()');
   });
 
-  it('it still refuses the attempt it asked during, and never deals on it', () => {
+  it('it re-proves an acknowledged decision and still refuses an unproven projection', () => {
     // The ask comes BEFORE the unproven throw and does not replace it: a
-    // projection that was unproven when it was read is unproven still.
+    // disposition cannot itself certify the next projection.
     const ask = ADMISSION_CODE.indexOf('this.decideAbandonedGeneration(');
     const refuse = ADMISSION_CODE.indexOf("throw new Error('f06_engine_admission_unproven')");
     expect(ask).toBeGreaterThan(-1);
     expect(refuse).toBeGreaterThan(ask);
     // And nothing in the asking block installs an allocator or an admission.
     const block = ADMISSION_CODE.slice(ask, refuse);
+    expect(block).toContain("ask === 'decided'");
+    expect(block).toContain("await supabase.rpc('fn_f06_hand_number_state'");
+    expect(block).toContain('state = data as typeof state');
     expect(block).not.toContain('installF06Allocator');
     expect(block).not.toContain('installF06HandAdmission');
   });
