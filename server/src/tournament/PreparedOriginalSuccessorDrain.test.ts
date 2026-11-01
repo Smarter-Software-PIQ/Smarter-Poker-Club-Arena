@@ -139,3 +139,44 @@ it('parkForTerminalCloseout accepts a durably prepared sequence-zero original pa
   engine.resumeDealing();
   await parked;
 });
+
+it('completes successor drain when an already-parked prepared original finishes its in-flight settlement', async () => {
+  const { manager, engine, handoff } = fixture();
+  let resolveSettlement!: () => void;
+  const settlement = new Promise<void>((resolve) => {
+    resolveSettlement = resolve;
+  });
+  engine.postHandTasksPromise = settlement;
+  engine.trackSettlementInFlight(settlement);
+  manager.requestSuccessorDrain();
+  const parked = engine.awaitPauseGate();
+  expect(engine.isPreparedOriginalParkedForSuccessor()).toBe(false);
+  expect(handoff).not.toHaveBeenCalled();
+
+  resolveSettlement();
+  await settlement;
+  await Promise.resolve();
+  expect(engine.isPreparedOriginalParkedForSuccessor()).toBe(true);
+  expect(handoff).toHaveBeenCalledTimes(1);
+
+  engine.running = false;
+  engine.resumeDealing();
+  await parked;
+});
+
+it('completes successor drain when pauseAfterHand(untilResumed) upgrades a table already parked on another pause owner', async () => {
+  const { manager, engine, handoff } = fixture();
+  engine.tournamentMovePauseOwners.add('move-owner');
+  const parked = engine.awaitPauseGate();
+  expect(engine.isPreparedOriginalParkedForSuccessor()).toBe(false);
+  expect(handoff).not.toHaveBeenCalled();
+
+  expect(manager.requestSuccessorDrain()).toBe(true);
+  expect(engine.isPreparedOriginalParkedForSuccessor()).toBe(true);
+  expect(handoff).toHaveBeenCalledTimes(1);
+
+  engine.running = false;
+  engine.tournamentMovePauseOwners.clear();
+  engine.resumeDealing();
+  await parked;
+});
