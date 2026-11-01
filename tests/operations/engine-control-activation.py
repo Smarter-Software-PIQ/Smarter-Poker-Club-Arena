@@ -92,25 +92,32 @@ fi
                 code += '\nGENERATION_DIR="$GENERATION_ROOT/$CONTROL_SHA"\n' + activation
                 return subprocess.run(['bash', '-c', code], text=True, capture_output=True, env=env)
 
-            # Undeclared interpreter bytecode in the active generation (the
-            # 2026-11-01 refusal) is shed; anything else in __pycache__ refuses.
+            # PR9167's filename-only deletion accepted b'bytecode' as a cache.
+            # Unknown artifacts must remain intact and refuse activation instead.
+            # The exact303d8 compiled-cache disposition is qualified separately by
+            # control-cache-quarantine.py; this synthetic generation is not it.
             cache = generations / shas[0] / '__pycache__'
             cache.mkdir()
-            (cache / 'helper.cpython-312.pyc').write_bytes(b'bytecode')
-            (cache / 'notes.txt').write_text('not bytecode')
-            result = install(shas[1])
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('holds something other than interpreter bytecode', result.stderr)
-            self.assertEqual(active.resolve(), generations / shas[0])
-            (cache / 'notes.txt').unlink()
-            (cache / 'nested').mkdir()
-            result = install(shas[1])
-            self.assertNotEqual(result.returncode, 0)
-            (cache / 'nested').rmdir()
+            bytecode = cache / 'helper.cpython-312.pyc'
+            bytecode.write_bytes(b'bytecode')
+            for extra in ('cache-only', 'notes.txt', 'nested'):
+                if extra == 'notes.txt': (cache / extra).write_text('not bytecode')
+                if extra == 'nested': (cache / extra).mkdir()
+                result = install(shas[1])
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('manifest or filesystem is invalid', result.stderr)
+                self.assertEqual(active.resolve(), generations / shas[0])
+                self.assertTrue(cache.is_dir())
+                self.assertEqual(bytecode.read_bytes(), b'bytecode')
+                if extra == 'notes.txt':
+                    self.assertEqual((cache / extra).read_text(), 'not bytecode')
+                    (cache / extra).unlink()  # Dispose only this isolated fixture.
+                if extra == 'nested':
+                    self.assertTrue((cache / extra).is_dir())
+                    (cache / extra).rmdir()
+            bytecode.unlink(); cache.rmdir()  # Original clean-generation fixture.
             result = install(shas[1])
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('removed undeclared interpreter bytecode', result.stdout)
-            self.assertFalse(cache.exists())
             self.assertEqual(active.resolve(), generations / shas[1], 'validated older canonical generation must activate the requested newer one')
             inode = active.lstat().st_ino
             result = install(shas[1])

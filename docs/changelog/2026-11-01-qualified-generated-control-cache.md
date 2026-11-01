@@ -1,0 +1,56 @@
+# Preserve one qualified generated control cache before strict admission
+
+The protected read of failed intake 41316608416-1 observed canonical control
+303d8cc7d38a97c3bcdc32a577b555232ad726bf with all 32 protected files exact and
+`__pycache__` as its sole extra directory. The installer now checks only that
+known generation under its existing engine/source locks before invoking its
+unchanged strict validator. Other generations and unknown entries remain refused.
+
+The packaged helper revalidates the exact manifest, protocol and every protected
+source hash against immutable Git with inherited Git routing removed, lazy fetch
+disabled and optional locks disabled. Only bounded regular, owned, non-writable
+Python caches matching the current CPython tag/magic, source header and exact
+marshal serialization of compiled protected source qualify. It never unmarshals
+or executes cache contents. Positive native fixtures use CPython's actual cache
+writer rather than manufacturing expected payloads.
+
+A Linux `renameat2(RENAME_NOREPLACE)` preserves the complete cache in a private,
+same-filesystem quarantine bound to the original control, owning run and entry
+hashes. Its durable intent precedes the rename. Exact postchecks precede the
+receipt and strict generation admission. An interrupted original run can verify
+its exact intent/archive and save the original disposition once; a saved receipt
+is returned unchanged. Unknown intents, recreated caches and prior refusals never
+start another move or overwrite evidence.
+
+Precommit races refuse without moving the cache. A root writer racing the final
+check/rename cannot be excluded absolutely: the atomic rename can preserve its
+changed cache, after which postchecks refuse and retain all moved bytes, intent
+and bounded difference evidence. No control activation follows that refusal.
+There is no rollback overwrite, unknown-file deletion, retry loop, lease, new
+freeze or engine signal. Mac qualification uses its native exclusive-rename
+primitive only for disposable files; required Linux CI must qualify the actual
+Linux primitive. Local source tests are not live installation proof.
+
+## Superseding the filename-only deletion in PR #9167
+
+PR #9167 merged as `45a2fe1e720a8c509e4b77769c2028d23ffd400b` while this fix was
+being qualified. Its filename-only `shed_interpreter_bytecode` path deleted data
+before manifest/source validation and accepted a synthetic `b'bytecode'` file.
+This change intentionally removes that helper/call and restores the strict
+validator byte-for-byte from protected `41551479`, preserving the rest of current
+main and both bytecode prevention fixes. The earlier changelog and commits remain
+historical evidence. Its synthetic activation fixture now proves unknown cache
+bytes and foreign entries are preserved and refuse activation; the separate
+compiled-cache suite proves the qualified, non-deleting disposition.
+
+## Offline historical-source qualification
+
+The first Linux qualification stopped before its eleven native cases: CI's
+blobless checkout lacked an old source blob and correctly refused lazy fetching.
+The isolated fixture now hydrates a checksum-pinned 298019-byte Git pack containing
+only the exact 32 old source blobs and strict baseline installer into its private
+objectstore. Actual blob IDs, SHA256 values, protected ancestry and the original
+strict source are still verified. A private metadata-only historical graph proves
+the original archive fails with absent blobs and the corrected bounded blob
+reader succeeds after that private hydration. Production Git reads still forbid lazy fetch and inherited routing;
+no network credentials, shared object writes or broad history hydration are added.
