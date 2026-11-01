@@ -1,9 +1,32 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const { getSession } = vi.hoisted(() => ({ getSession: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: { auth: { getSession } } }));
-import { spinActivationApi } from '../../src/services/SpinActivationService';
+import {
+  spinActivationApi,
+  SpinCommandRefusedError,
+} from '../../src/services/SpinActivationService';
 import { DEFAULT_REQUEST_DEADLINE_MS } from '../../src/utils/requestDeadline';
 const never = () => new Promise<any>(() => {});
+it.each([
+  [400, false, true, false, true],
+  [500, false, true, false, false],
+  [400, false, 'true', false, false],
+  [400, false, true, 'false', false],
+  [400, true, true, false, false],
+])(
+  'classifies only a canonical resolved refusal %s/%s/%s/%s',
+  async (status, success, requestResolved, ok, definite) => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ success, requestResolved, detail: { ok }, error: 'refused' }), {
+        status: Number(status),
+      })
+    );
+    const result = await spinActivationApi
+      .activate('club-a', 200, 1, 'chip_treasury', 'key')
+      .catch((error) => error);
+    expect(result instanceof SpinCommandRefusedError).toBe(definite);
+  }
+);
 beforeEach(() => {
   vi.useFakeTimers();
   getSession.mockResolvedValue({ data: { session: { access_token: 'synthetic-test-token' } } });

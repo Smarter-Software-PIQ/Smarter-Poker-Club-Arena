@@ -32,6 +32,11 @@ export const SPIN_BOARD_STAKES = [1, 2, 3, 5, 10, 20, 50, 100] as const;
 
 export type SpinOwnerKind = 'club' | 'union';
 
+/** A canonical terminal refusal, distinct from an unknown transport outcome. */
+export class SpinCommandRefusedError extends Error {
+  readonly requestResolved = true;
+}
+
 /** Wallets an owner can seed from, by what kind of owner they are. */
 export const SPIN_SEED_SOURCES: Record<SpinOwnerKind, { value: string; label: string }[]> = {
   club: [
@@ -119,6 +124,14 @@ async function call<T>(
     .catch(() => ({ success: false, error: `HTTP ${response.status}` }));
 
   if (!response.ok || data?.success !== true) {
+    if (
+      response.status === 400 &&
+      data?.success === false &&
+      data?.requestResolved === true &&
+      data?.detail?.ok === false
+    ) {
+      throw new SpinCommandRefusedError(data?.error || 'Spin command refused');
+    }
     throw new Error(data?.error || `Spin activation request failed (HTTP ${response.status})`);
   }
   return data as T;

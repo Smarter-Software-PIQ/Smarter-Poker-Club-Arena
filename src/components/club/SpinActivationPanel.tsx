@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   spinActivationApi,
+  SpinCommandRefusedError,
   requiredSeedForStake,
   SPIN_BOARD_STAKES,
   SPIN_SEED_SOURCES,
@@ -206,6 +207,7 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
       await load();
     } catch (err) {
       if (!mountedRef.current) return;
+      if (err instanceof SpinCommandRefusedError) activateKeyRef.current = null;
       const message = err instanceof Error ? err.message : 'Could Not Activate Spins';
       setActionError(message);
       toast.error(message);
@@ -234,6 +236,7 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
       await load();
     } catch (err) {
       if (!mountedRef.current) return;
+      if (err instanceof SpinCommandRefusedError) deactivateKeyRef.current = null;
       const message = err instanceof Error ? err.message : 'Could Not Deactivate Spins';
       setActionError(message);
       toast.error(message);

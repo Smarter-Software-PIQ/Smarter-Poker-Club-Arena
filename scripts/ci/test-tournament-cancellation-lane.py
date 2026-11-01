@@ -350,6 +350,22 @@ END $started_refusal$;
         assert recovery_report.get('passed') is True and recovery_report.get('status') == 'passed'
         assert len(recovery_report.get('cases', [])) == 27 and len(recovery_report.get('tool_cases', [])) == 3 and recovery_report.get('manual_control_cases') == 13
         e.report['original_recovery20'] = {'passed': True, 'cases': 27, 'tool_cases': 3, 'report': 'original-recovery20/recovery20-report.json'}
+        # The same required financial shard owns durable Spin management
+        # commands. Its independent cluster uses real wallet/ledger owners.
+        spin_driver = ROOT/'scripts/ci/test-spin-owner-command.py'
+        e.report['source_sha256'][str(spin_driver.relative_to(ROOT))] = hashlib.sha256(spin_driver.read_bytes()).hexdigest()
+        subprocess.run([
+            sys.executable, '-B', str(spin_driver),
+            '--evidence', str(out/'spin-owner-command'),
+            '--work-root', str(args.work_root.resolve()/'spin-owner-command'),
+            '--socket-root', str(args.socket_root.resolve()),
+            '--pg-bin', str(args.pg_bin.resolve()),
+        ], check=True, timeout=660)
+        spin_report = json.loads((out/'spin-owner-command/spin-owner-command-report.json').read_text())
+        assert spin_report.get('passed') is True and spin_report.get('status') == 'passed'
+        assert len(spin_report.get('races', [])) == 2
+        assert spin_report.get('cleanup') == {'stopped': True, 'removed': True}
+        e.report['spin_owner_command'] = {'passed': True, 'report': 'spin-owner-command/spin-owner-command-report.json'}
         e.report['scope']='nonblocking original exclusion, exact entry installation, retained real funded cancellation assertions'
         e.report['status']='passed';e.report['passed']=True
     finally:

@@ -22,6 +22,7 @@ vi.mock('../../src/stores/useUserStore', () => ({
   useUserStore: (select: any) => select({ user: { id: m.viewer } }),
 }));
 import SpinActivationPanel from '../../src/components/club/SpinActivationPanel';
+import { SpinCommandRefusedError } from '../../src/services/SpinActivationService';
 const answer = (owner: string, canManage: unknown = true) => ({
   canManage,
   state: {
@@ -48,6 +49,43 @@ const deferred = () => {
 beforeEach(() => {
   for (const mock of [m.getState, m.activate, m.deactivate, m.success, m.error]) mock.mockReset();
   m.viewer = 'viewer-a';
+});
+it.each(['activate', 'deactivate'] as const)(
+  'retires only a definite %s refusal key and preserves an uncertain one',
+  async (action) => {
+    const state = answer('club-a');
+    state.state.is_active = action === 'deactivate';
+    m.getState.mockResolvedValue(state);
+    m[action]
+      .mockRejectedValueOnce(new Error('unknown transport'))
+      .mockRejectedValueOnce(new SpinCommandRefusedError('canonical refusal'))
+      .mockRejectedValueOnce(new Error('unknown again'));
+    render(<SpinActivationPanel clubId="club-a" />);
+    const user = userEvent.setup();
+    const button = await screen.findByRole('button', {
+      name: action === 'activate' ? /Activate Spins/ : /Turn Spins Off/,
+    });
+    await user.click(button);
+    await waitFor(() => expect(button).not.toBeDisabled());
+    await user.click(button);
+    await waitFor(() => expect(button).not.toBeDisabled());
+    await user.click(button);
+    await waitFor(() => expect(m[action]).toHaveBeenCalledTimes(3));
+    const keys = m[action].mock.calls.map((args) => args[action === 'activate' ? 4 : 1]);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[2]).not.toBe(keys[1]);
+  }
+);
+it('reloads current active state after an old successful deactivation receipt', async () => {
+  const current = answer('club-a');
+  current.state.is_active = true;
+  m.getState.mockResolvedValue(current);
+  m.deactivate.mockResolvedValue({ result: { ok: true, seed_returned: 0 } });
+  render(<SpinActivationPanel clubId="club-a" />);
+  await userEvent.setup().click(await screen.findByRole('button', { name: /Turn Spins Off/ }));
+  await waitFor(() => expect(m.getState).toHaveBeenCalledTimes(2));
+  expect(await screen.findByRole('button', { name: /Turn Spins Off/ })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Activate Spins/ })).not.toBeInTheDocument();
 });
 it.each(['club', 'viewer'])(
   'removes the old permission and controls immediately on a %s change',
