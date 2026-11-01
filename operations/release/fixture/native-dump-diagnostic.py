@@ -26,6 +26,7 @@ ARCHIVE_URL = 'https://ftp.postgresql.org/pub/source/v17.11/postgresql-17.11.tar
 PREFIX = 'postgresql-17.11/'
 BUILD_STAGE = 'INPUT'
 FIRST_FAILURE_STAGE = None
+FIRST_COMMAND_FAILURE = None
 STAGES = {'INPUT','DOWNLOAD','SOURCE_GUARDS','CONFIGURE','GENERATED_HEADERS','STOCK_BUILD','LIBPQ_INSTALL',
           'DIAGNOSTIC_BUILD','VERSION','SYNTHETIC_RUNTIME','SYNTHETIC_CLUSTER','SYNTHETIC_SEED',
           'SYNTHETIC_STOCK','SYNTHETIC_DIAGNOSTIC','SQL_EQUIVALENCE','SYNTHETIC_CLEANUP','OUTPUT','CLEANUP'}
@@ -199,6 +200,7 @@ def command(args, *, cwd, env, timeout=120, data=None):
     output, errors = bytearray(), bytearray()
     selector = selectors.DefaultSelector()
     proc = None
+    failure_kind = 'SPAWN'
     try:
         with tempfile.TemporaryFile(dir=cwd) as incoming:
             if data is not None: incoming.write(data)
@@ -209,6 +211,7 @@ def command(args, *, cwd, env, timeout=120, data=None):
             for source, target in [(proc.stdout, output), (proc.stderr, errors)]:
                 os.set_blocking(source.fileno(), False)
                 selector.register(source, selectors.EVENT_READ, target)
+            failure_kind = 'DEADLINE'
             until = time.monotonic() + timeout
             while selector.get_map():
                 require(time.monotonic() < until)
@@ -218,9 +221,22 @@ def command(args, *, cwd, env, timeout=120, data=None):
                         selector.unregister(key.fileobj)
                         continue
                     key.data.extend(block)
-                    require(len(output) <= 8 * 1024 * 1024 and len(errors) <= 8 * 1024 * 1024)
-            require(proc.wait(timeout=max(0.1, until - time.monotonic())) == 0)
+                    if len(output) > 8 * 1024 * 1024 or len(errors) > 8 * 1024 * 1024:
+                        failure_kind = 'OUTPUT_LIMIT'
+                        require(False)
+            code = proc.wait(timeout=max(0.1, until - time.monotonic()))
+            failure_kind = 'EXIT_NONZERO'
+            require(code == 0)
             return bytes(output)
+    except Exception:
+        global FIRST_COMMAND_FAILURE
+        if FIRST_COMMAND_FAILURE is None:
+            code = proc.poll() if proc is not None else None
+            FIRST_COMMAND_FAILURE = {'kind': failure_kind,
+                'exit_code': code if type(code) is int and 0 <= code <= 255 else None,
+                'stdout_bytes': min(len(output), 8 * 1024 * 1024 + 65536),
+                'stderr_bytes': min(len(errors), 8 * 1024 * 1024 + 65536)}
+        raise
     finally:
         selector.close()
         if proc is not None and proc.poll() is None:
@@ -254,12 +270,24 @@ def validate_frames(data):
     obj = None
     query = None
     query_count = 0
-    for line in data.splitlines():
-        require(len(line) < 96)
-        match = re.fullmatch(rb'D1 ([1-9][0-9]{0,5}) ([OQ]) ([BE]) (FUNCTION|RELATION|TYPE|OTHER) (0|[1-9][0-9]{0,7})', line)
-        require(match is not None)
-        seq, level, boundary, group, elapsed = match.groups()
-        seq, elapsed = int(seq), int(elapsed)
+    def frames():
+        if data.startswith(b'D2'):
+            require(len(data) % 12 == 0)
+            groups = [b'FUNCTION', b'RELATION', b'TYPE', b'OTHER']
+            for offset in range(0, len(data), 12):
+                row = data[offset:offset + 12]
+                require(row[:2] == b'D2' and row[6] < 16 and row[11] == 10)
+                tag = row[6]
+                yield (int.from_bytes(row[2:6], 'big'), b'Q' if tag & 2 else b'O',
+                       b'E' if tag & 1 else b'B', groups[tag >> 2], int.from_bytes(row[7:11], 'big'))
+        else:
+            for line in data.splitlines():
+                require(len(line) < 96)
+                match = re.fullmatch(rb'D1 ([1-9][0-9]{0,5}) ([OQ]) ([BE]) (FUNCTION|RELATION|TYPE|OTHER) (0|[1-9][0-9]{0,7})', line)
+                require(match is not None)
+                seq, level, boundary, group, elapsed = match.groups()
+                yield (int(seq), level, boundary, group, int(elapsed))
+    for seq, level, boundary, group, elapsed in frames():
         require(seq == sequence + 1 and seq <= 100000 and previous <= elapsed <= 45000000)
         sequence, previous = seq, elapsed
         if level == b'O':
@@ -394,6 +422,7 @@ def qualify_batch_contract(repo, work, env):
              'native-dump-function-batch-test.c', '-o', str(executable)], cwd=directory, env=env)
     for count in [0, 1, 127, 128, 129, 5507]:
         command([str(executable), 'valid', str(count)], cwd=directory, env=env, timeout=5)
+    command([str(executable), 'excluded-boundary', '129'], cwd=directory, env=env, timeout=5)
     for mode in ['send', 'extra', 'missing', 'status', 'rows', 'fields', 'name', 'bytes', 'order']:
         result = subprocess.run([str(executable), mode, '129'], cwd=directory, env=env,
                                 capture_output=True, timeout=5)
@@ -548,8 +577,11 @@ def build(repo, output):
         # generated-header ordering. Complete it before parallel object builds.
         BUILD_STAGE = 'GENERATED_HEADERS'
         command(['make', '-C', 'src/backend', 'generated-headers'], cwd=source, env=env, timeout=120)
+        # Direct pg_dump has overlapping recursive port/common archive writers.
+        # Its parent src/Makefile serializes interdependent directories; keep
+        # the same ordering for both direct builds, within original deadlines.
         BUILD_STAGE = 'STOCK_BUILD'
-        command(['make', '-C', 'src/bin/pg_dump', '-j2', 'pg_dump'], cwd=source, env=env, timeout=420)
+        command(['make', '-C', 'src/bin/pg_dump', '-j1', 'pg_dump'], cwd=source, env=env, timeout=420)
         stock_executable = work / 'stock-pg_dump'
         shutil.copyfile(source / 'src/bin/pg_dump/pg_dump', stock_executable)
         stock_executable.chmod(0o700)
@@ -561,7 +593,7 @@ def build(repo, output):
         batch_helper = repo / 'operations/release/fixture/native-dump-function-batch.c'
         shutil.copyfile(batch_helper, source / 'src/bin/pg_dump/native-dump-function-batch.c')
         BUILD_STAGE = 'DIAGNOSTIC_BUILD'
-        command(['make', '-C', 'src/bin/pg_dump', '-j2', 'pg_dump'], cwd=source, env=env, timeout=120)
+        command(['make', '-C', 'src/bin/pg_dump', '-j1', 'pg_dump'], cwd=source, env=env, timeout=120)
         (output / 'bin').mkdir(mode=0o700)
         shutil.copyfile(source / 'src/bin/pg_dump/pg_dump', output / 'bin/pg_dump')
         (output / 'bin/pg_dump').chmod(0o500)
@@ -676,5 +708,6 @@ if __name__ == '__main__':
         print(json.dumps({'scope':'isolated-native-dump-diagnostic','status':'failed',
                           'stage':FIRST_FAILURE_STAGE if FIRST_FAILURE_STAGE is not None else
                             error.stage if isinstance(error, DiagnosticFailure) else 'UNKNOWN',
-                          'code':'ISOLATED_DUMP_DIAGNOSTIC_REFUSED'}), file=sys.stderr)
+                          'code':'ISOLATED_DUMP_DIAGNOSTIC_REFUSED',
+                          **({'command_failure': FIRST_COMMAND_FAILURE} if FIRST_COMMAND_FAILURE is not None else {})}), file=sys.stderr)
         sys.exit(1)

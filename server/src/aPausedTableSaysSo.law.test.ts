@@ -76,9 +76,15 @@ describe('a paused table says so', () => {
   });
 
   it('the felt says paused, once, before the closed-table verdict can count it', () => {
+    // The closed-table toast also appears earlier in the heartbeat's dead-table
+    // episode (2026-10-31), so the window ends at the FIRST one after the 4404 branch.
+    const effectStart = TABLE_PAGE.indexOf('if (engineLastError.code === 4404) {');
     const effect = TABLE_PAGE.slice(
-      TABLE_PAGE.indexOf('if (engineLastError.code === 4404) {'),
-      TABLE_PAGE.indexOf("heartbeatToastRef.current?.info?.('This Table Is No Longer Running');")
+      effectStart,
+      TABLE_PAGE.indexOf(
+        "heartbeatToastRef.current?.info?.('This Table Is No Longer Running');",
+        effectStart
+      )
     );
     const paused = effect.indexOf(
       'if (isTournamentTablePausedClose(engineLastError.code, engineLastError.reason)) {'

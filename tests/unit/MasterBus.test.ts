@@ -63,11 +63,45 @@ vi.mock('../../src/lib/supabase', () => ({
   },
 }));
 
+vi.mock('../../src/utils/errorReporter', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/utils/errorReporter')>()),
+  reportError: vi.fn(),
+  reportWarning: vi.fn(),
+}));
+
 import { masterBus } from '../../src/core/MasterBus';
+import { reportError, reportWarning } from '../../src/utils/errorReporter';
 import { supabase } from '../../src/lib/supabase';
 import type { MasterBusStatus, BusEvent } from '../../src/core/MasterBus';
 
 describe('MasterBus', () => {
+  /* 2026-10-31: MasterBus.Critical_channel_no_factory was filed as an ERROR
+     on every 30 s health tick for every dead shared `t-break-<id>` channel.
+     That channel is left for the Supabase client's own rejoin by design, so
+     it is a warning, once per key per outage. Hole cards stay an error. */
+  it('logs a dead t-break channel without a factory once, at warning level', () => {
+    vi.mocked(reportError).mockClear();
+    vi.mocked(reportWarning).mockClear();
+    const bus = masterBus as unknown as {
+      noteCriticalChannelWithoutFactory(key: string): void;
+      criticalDeadNoticed: Set<string>;
+    };
+    const tBreak = 't-break-11111111-2222-3333-4444-555555555555';
+    for (let tick = 0; tick < 5; tick++) bus.noteCriticalChannelWithoutFactory(tBreak);
+    expect(reportWarning).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reportWarning).mock.calls[0][1]).toBe('MasterBus.Critical_channel_no_factory');
+    expect(reportError).not.toHaveBeenCalled();
+    // Seen healthy again: the next outage is noted again.
+    bus.criticalDeadNoticed.delete(tBreak);
+    bus.noteCriticalChannelWithoutFactory(tBreak);
+    expect(reportWarning).toHaveBeenCalledTimes(2);
+
+    bus.noteCriticalChannelWithoutFactory('table-cards-secure-t1-u1');
+    bus.noteCriticalChannelWithoutFactory('table-cards-secure-t1-u1');
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reportError).mock.calls[0][1]).toBe('MasterBus.Critical_channel_no_factory');
+  });
+
   it('a retired admission cannot release the replacement registered channel', () => {
     const oldChannel = { on: vi.fn(), subscribe: vi.fn() };
     const replacement = { on: vi.fn(), subscribe: vi.fn() };

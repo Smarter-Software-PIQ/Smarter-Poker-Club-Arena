@@ -699,6 +699,19 @@
         "path": "server/release/activation-floor.json",
         "sha256": "0a36a811bca6bfc411284ddc9570f173cc3abc2d786f337edd2e1779c336bd59"
       }
+    },
+    {
+      "id": "2026-11-01-engine-crashloop-fix-daily-fallback",
+      "ownerOrder": "Dan, directly in this platform-health chat (session_01UxDLnGkMy6P1dzYLqDzBRr). On 2026-10-31 at 15:34 America/Chicago he wrote verbatim: \"NONE OF THESE ARE ON ME, THEY ARE ALL 100% YOURS TO TAKE CARE OF AND FINISH YOURSELF, HUMAN DOESN'T DO ANY OF THESE. FINISH UP ALL OF THESE NOW\". On 2026-11-01 at 00:05 America/Chicago he replied to the report that the engine crash-loop fix (#9057, ca8250444e) was waiting for the 04:00 daily window, quoting that item, with verbatim: \"FINISH UP ANY AND ALL REMAINING WORK\". At about 00:33 America/Chicago on 2026-11-01 he was asked directly whether to open an owner-ordered release window so the fix can install at the 01:55 or 02:55 CT break, with the 04:00 break kept as the fallback, and chose verbatim: \"Yes, open the window (Recommended)\". This NEW owner-ordered window implements that order for one purpose: make the merged engine fixes live tonight, at a strict drained hand boundary. Evidence it rests on: eed06fe5 restarted unplanned seven times in eleven hours (RSS about 10 GB at each crash), every release since 2026-10-29 failed, and the daily 03:30 Chicago preparation ran about six hours late on both 2026-10-30 and 2026-10-31, after the 04:00 break it was meant to stage. It contains the merge of #9095 (the drained-boundary witness no longer re-arms errexit, so an intake made during play waits instead of dying) and therefore also #9057. It is eligible 07:05-09:25 UTC, entirely after the 2026-11-01 end of daylight time: ONE actual activation at a Chicago :53 notice / :55 break (01:55 or 02:55 CST). The census does not fit, so only a strict drained boundary may cut over; a pass whose certificate does not open in time or whose witness is not quiet refuses cleanly and the break thaws on its own clock. If no pass activates, the floor expires at 09:25 UTC and the waiting request falls back to the routine 04:00 Chicago (10:00 UTC) daily break, which this window never overlaps. It is agent-selected timing within that order, not a heartbeat, timer, retry loop, automatic renewal or authority inferred from a missed deadline; an UNKNOWN or typed retirement grants nothing more. Diamond remains closed. Preserve the 120s last-hand lead, actual hand-boundary drain, 300s durable database freeze and reservation-bound certificate, rolling one-window-per-hour seal, full 285s cutover/proof/rollback reserve, 245s post-checkpoint proof, 135s rollback, 40s checkpoint including 5s cleanup, 20s MAIN with full 5s remote-close reserve, and completed own-window healthy v3 thaw. No MAIN signal/kill, foreign Inspector close, forced hands, invented winners, chip/seat/balance edits, migration/payment replay, second publisher, watcher, timer or recurring repair. Require sealed serving identity and natural committed-hand progress before claiming delivery; this source entry neither deploys nor certifies live behavior.",
+      "contains": "b6fd73bcd9094b9908f6b3e3aaeedba642daaff2",
+      "notBefore": "2026-11-01T07:05:00Z",
+      "notAfter": "2026-11-01T09:25:00Z",
+      "announceAtChicagoMinutes": [53],
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "24cc5dbdfd46117934fd82d832da146c1373f7676ef6b4447455be9c599ad4a7"
+      }
     }
   ],
   "databaseWindows": [

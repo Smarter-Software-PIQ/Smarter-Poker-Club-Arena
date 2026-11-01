@@ -1,0 +1,187 @@
+{
+  "observedAt": "2026-11-01T02:13Z",
+  "project": "kuklfnapbkmacvwxktbh",
+  "functions": [
+    {
+      "signature": "fn_can_manage_tournament_schedule(uuid,uuid,uuid)",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_can_manage_tournament_schedule(p_union_id uuid, p_club_id uuid, p_user_id uuid)\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nBEGIN\n  IF p_user_id IS NULL OR NOT EXISTS (\n    SELECT 1 FROM public.clubs c\n     WHERE c.id = p_club_id AND c.lifecycle_status = 'active'\n  ) THEN RETURN false; END IF;\n  IF p_union_id IS NOT NULL THEN\n    RETURN EXISTS (SELECT 1 FROM public.unions u WHERE u.id=p_union_id AND u.owner_id=p_user_id)\n        OR EXISTS (SELECT 1 FROM public.union_admins ua WHERE ua.union_id=p_union_id AND ua.user_id=p_user_id);\n  END IF;\n  RETURN public.is_club_admin(p_club_id,p_user_id);\nEND\n$function$\n",
+      "definition_md5": "ebbac47ab767485771fe95cc63589c03",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": ["search_path=public"]
+    },
+    {
+      "signature": "fn_upsert_tournament_schedule(jsonb)",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_upsert_tournament_schedule(p_schedule jsonb)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nDECLARE\n  v_uid       uuid := auth.uid();\n  v_id        uuid;\n  v_union_id  uuid;\n  v_club_id   uuid;\n  v_name      text;\n  v_days      integer[];\n  v_times     text[];\n  v_interval  integer;\n  v_config    jsonb;\n  v_active    boolean;\n  v_zone      text;\n  v_d         integer;\n  v_tm        text;\n  v_existing  record;\n  v_config_changed boolean := true;\n  v_refusal   text;\nBEGIN\n  IF v_uid IS NULL THEN\n    RETURN jsonb_build_object('error', 'not_authenticated');\n  END IF;\n  IF p_schedule IS NULL OR jsonb_typeof(p_schedule) <> 'object' THEN\n    RETURN jsonb_build_object('error', 'schedule_must_be_object');\n  END IF;\n\n  v_id       := NULLIF(p_schedule->>'id', '')::uuid;\n  v_union_id := NULLIF(p_schedule->>'unionId', '')::uuid;\n  v_club_id  := NULLIF(p_schedule->>'clubId', '')::uuid;\n  v_name     := NULLIF(trim(p_schedule->>'name'), '');\n  v_interval := NULLIF(p_schedule->>'intervalMinutes', '')::integer;\n  v_config   := p_schedule->'config';\n  v_active   := COALESCE((p_schedule->>'active')::boolean, true);\n  -- IANA zone of the wall-clock days/times; absent or null = UTC.\n  v_zone     := NULLIF(trim(p_schedule->>'timeZone'), '');\n\n  SELECT COALESCE(array_agg(value::integer), '{}')\n    INTO v_days FROM jsonb_array_elements_text(COALESCE(p_schedule->'daysOfWeek', '[]'::jsonb));\n  SELECT COALESCE(array_agg(value), '{}')\n    INTO v_times FROM jsonb_array_elements_text(COALESCE(p_schedule->'startTimesUtc', '[]'::jsonb));\n\n  IF v_id IS NOT NULL THEN\n    SELECT * INTO v_existing FROM public.tournament_schedules WHERE id = v_id FOR UPDATE;\n    IF NOT FOUND THEN\n      RETURN jsonb_build_object('error', 'schedule_not_found');\n    END IF;\n    IF NOT public.fn_can_manage_tournament_schedule(v_existing.union_id, v_existing.club_id, v_uid) THEN\n      RETURN jsonb_build_object('error', 'not_authorised');\n    END IF;\n    v_union_id := COALESCE(v_union_id, v_existing.union_id);\n    v_club_id  := COALESCE(v_club_id,  v_existing.club_id);\n    v_name     := COALESCE(v_name,     v_existing.name);\n    v_config   := COALESCE(v_config,   v_existing.config);\n    v_config_changed := v_config IS DISTINCT FROM v_existing.config;\n    IF p_schedule->'daysOfWeek' IS NULL THEN v_days := v_existing.days_of_week; END IF;\n    IF p_schedule->'startTimesUtc' IS NULL THEN v_times := v_existing.start_times_utc; END IF;\n    IF p_schedule->'intervalMinutes' IS NULL THEN v_interval := v_existing.interval_minutes; END IF;\n    IF NOT (p_schedule ? 'timeZone') THEN v_zone := v_existing.time_zone; END IF;\n  END IF;\n\n  IF v_club_id IS NULL THEN\n    RETURN jsonb_build_object('error', 'club_id_required');\n  END IF;\n  IF v_name IS NULL THEN\n    RETURN jsonb_build_object('error', 'name_required');\n  END IF;\n  IF v_config IS NULL OR jsonb_typeof(v_config) <> 'object' THEN\n    RETURN jsonb_build_object('error', 'config_must_be_object');\n  END IF;\n  IF array_length(v_days, 1) IS NULL THEN\n    RETURN jsonb_build_object('error', 'days_of_week_required');\n  END IF;\n  FOREACH v_d IN ARRAY v_days LOOP\n    IF v_d < 0 OR v_d > 6 THEN\n      RETURN jsonb_build_object('error', 'days_of_week_out_of_range', 'detail', v_d);\n    END IF;\n  END LOOP;\n  FOREACH v_tm IN ARRAY v_times LOOP\n    IF v_tm !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' THEN\n      RETURN jsonb_build_object('error', 'start_time_format_invalid', 'detail', v_tm);\n    END IF;\n  END LOOP;\n  IF array_length(v_times, 1) IS NULL AND v_interval IS NULL THEN\n    RETURN jsonb_build_object('error', 'start_times_or_interval_required');\n  END IF;\n  IF v_interval IS NOT NULL AND (v_interval < 5 OR v_interval > 1440) THEN\n    RETURN jsonb_build_object('error', 'interval_minutes_out_of_range');\n  END IF;\n  IF NOT public.fn_schedule_time_zone_is_known(v_zone) THEN\n    RETURN jsonb_build_object('error', 'time_zone_unknown', 'detail', v_zone);\n  END IF;\n\n  IF v_id IS NULL AND NOT public.fn_can_manage_tournament_schedule(v_union_id, v_club_id, v_uid) THEN\n    RETURN jsonb_build_object('error', 'not_authorised');\n  END IF;\n  -- Lock/read comparison preserves unchanged accepted schedules, including\n  -- enable/disable and metadata edits, without authoring another ignored break.\n  IF v_config_changed AND (\n    lower(COALESCE(v_config->>'type','mtt')) NOT IN ('sng','spin')\n    -- The scheduled writer promotes target-linked fixed labels to satellites.\n    -- Only its recognized target keys participate; unrelated type aliases do not.\n    OR public.fn_ca_is_new_mtt(jsonb_build_object(\n      'satellite_target_id',v_config->'satellite_target_id',\n      'satelliteTargetId',v_config->'satelliteTargetId',\n      'satellite_target',v_config->'satellite_target',\n      'satelliteTarget',v_config->'satelliteTarget'))\n  ) AND EXISTS (\n    SELECT 1 FROM jsonb_array_elements(CASE\n      WHEN jsonb_typeof(v_config->'blindStructure')='array' THEN v_config->'blindStructure'\n      ELSE '[]'::jsonb END) AS level_row\n    WHERE level_row->'isBreak'='true'::jsonb\n  ) THEN\n    RETURN jsonb_build_object('error','custom_level_breaks_not_supported');\n  END IF;\n\n  -- The creation rules, checked when the configuration is written rather than\n  -- first discovered by the spawner (20260924033701).\n  IF v_config_changed THEN\n    v_refusal := public.fn_tournament_config_refusal(v_config,'schedule');\n    IF v_refusal IS NOT NULL THEN\n      RETURN jsonb_build_object('error',v_refusal);\n    END IF;\n  END IF;\n\n  IF v_id IS NULL THEN\n    -- ca-commerce-admission: a NEW recurring schedule is a prospective owner\n    -- action (R2 4.3, D22). Shadow records and proceeds; enforced refuses\n    -- here, before the schedule is written.\n    DECLARE\n      v_ca_admission jsonb := public.fn_ca_commerce_admit('club', v_club_id, 'create_tournament', 'fn_upsert_tournament_schedule', NULL);\n    BEGIN\n      IF NOT COALESCE((v_ca_admission->>'allowed')::boolean, true) THEN\n        RETURN jsonb_build_object('error', 'operating_access_required',\n          'message', v_ca_admission->>'message', 'reason', v_ca_admission->>'reason');\n      END IF;\n    END;\n    INSERT INTO public.tournament_schedules\n      (union_id, club_id, name, description, active, days_of_week,\n       start_times_utc, interval_minutes, config, created_by, time_zone)\n    VALUES\n      (v_union_id, v_club_id, v_name, p_schedule->>'description', v_active, v_days,\n       v_times, v_interval, v_config, v_uid, v_zone)\n    RETURNING id INTO v_id;\n  ELSE\n    UPDATE public.tournament_schedules\n       SET union_id         = v_union_id,\n           club_id          = v_club_id,\n           name             = v_name,\n           description      = COALESCE(p_schedule->>'description', description),\n           active           = v_active,\n           days_of_week     = v_days,\n           start_times_utc  = v_times,\n           interval_minutes = v_interval,\n           config           = v_config,\n           time_zone        = v_zone,\n           updated_at       = now()\n     WHERE id = v_id;\n  END IF;\n\n  RETURN jsonb_build_object('ok', true, 'schedule_id', v_id);\nEND; $function$\n",
+      "definition_md5": "43602000c9c65c773bbfe96cd40b6e0f",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": ["search_path=public"]
+    },
+    {
+      "signature": "fn_tournament_config_refusal(jsonb,text)",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_tournament_config_refusal(p_config jsonb, p_surface text)\n RETURNS text\n LANGUAGE plpgsql\n STABLE\n SET search_path TO 'pg_catalog'\nAS $function$\nDECLARE\n  v_schedule boolean;\n  v_type     text;\n  v_short    boolean;\n  v_stack    numeric;\n  v_start    timestamptz;\n  v_target   jsonb;\n  v_ok       boolean;\n  v_total    numeric;\n  v_level    jsonb;\n  v_sb       numeric;\n  v_bb       numeric;\n  v_prev_sb  numeric;\n  v_prev_bb  numeric;\n  v_seen     boolean := false;\n  v_variant  text;\n  v_hole     int;\n  v_deck     int;\n  v_seats    numeric;\n  v_rebuy    boolean;\n  v_late     numeric;\n  v_late_min numeric;\n  v_buy_in   numeric;\nBEGIN\n  IF p_surface IS NULL OR p_surface NOT IN ('create', 'schedule') THEN\n    RAISE EXCEPTION 'fn_tournament_config_refusal: unknown surface %', p_surface\n      USING ERRCODE = '22023';\n  END IF;\n  IF p_config IS NULL OR jsonb_typeof(p_config) <> 'object' THEN\n    RETURN 'invalid_configuration';\n  END IF;\n  v_schedule := p_surface = 'schedule';\n\n  BEGIN\n    v_type := lower(COALESCE(NULLIF(btrim(p_config->>'type'), ''), 'mtt'));\n    IF v_schedule AND v_type IN ('hu_sng', 'heads_up') THEN v_type := 'sng'; END IF;\n    v_short := v_type IN ('sng', 'spin');\n\n    -- 1. Starting stack: a whole number above zero, for every format.\n    v_stack := NULLIF(p_config->>'startingStack', '')::numeric;\n    IF v_stack IS NOT NULL AND (v_stack <= 0 OR v_stack <> trunc(v_stack)) THEN\n      RETURN 'starting_stack_must_be_positive';\n    END IF;\n\n    -- 2. A start in the past is refused, never silently moved. Five minutes of\n    --    skew for a device clock that runs slow.\n    IF NOT v_schedule THEN\n      v_start := NULLIF(p_config->>'startTime', '')::timestamptz;\n      IF v_start IS NOT NULL AND v_start < now() - interval '5 minutes' THEN\n        RETURN 'start_time_in_past';\n      END IF;\n    END IF;\n\n    -- 3. A satellite names the event its seats go into.\n    IF v_type = 'satellite' THEN\n      IF v_schedule THEN\n        v_target := COALESCE(p_config->'satelliteTarget', p_config->'satellite_target');\n        -- COALESCE: with no target object every jsonb_typeof test is NULL, and\n        -- NOT NULL would wave the satellite through.\n        v_ok := COALESCE(\n                (jsonb_typeof(v_target) = 'string' AND btrim(v_target #>> '{}') <> '')\n             OR (jsonb_typeof(v_target) = 'object'\n                 AND COALESCE(NULLIF(v_target->>'tournamentId', ''), NULLIF(v_target->>'tournament_id', '')) IS NOT NULL),\n                false)\n             OR COALESCE(btrim(p_config->>'satelliteTargetId'), '') <> ''\n             OR COALESCE(btrim(p_config->>'satellite_target_id'), '') <> ''\n             OR COALESCE(btrim(p_config->>'satelliteTargetName'), '') <> '';\n      ELSE\n        v_ok := COALESCE(btrim(p_config->>'satelliteTargetId'), '') <> '';\n      END IF;\n      IF NOT v_ok THEN\n        RETURN 'satellite_target_required';\n      END IF;\n    END IF;\n\n    -- 4. Payouts add up to 100, within the governed creator's tolerance of 1.\n    IF jsonb_typeof(p_config->'payoutStructure') = 'array'\n       AND jsonb_array_length(p_config->'payoutStructure') > 0 THEN\n      SELECT COALESCE(SUM((e->>'percentage')::numeric), 0) INTO v_total\n        FROM jsonb_array_elements(p_config->'payoutStructure') e;\n      IF abs(v_total - 100) > 1 THEN\n        RETURN 'payouts_must_total_100';\n      END IF;\n    END IF;\n\n    -- 5. A Sit And Go or Spin ladder: positive durations, blinds never fall.\n    --    Break rows (a flag, or 0/0 blinds) do not take part. A new MTT ladder\n    --    is held to the fuller contract by tournaments_new_mtt_blind_contract.\n    IF v_short AND jsonb_typeof(p_config->'blindStructure') = 'array' THEN\n      FOR v_level IN SELECT value FROM jsonb_array_elements(p_config->'blindStructure') LOOP\n        IF jsonb_typeof(v_level) <> 'object' THEN\n          RETURN 'invalid_configuration';\n        END IF;\n        IF NULLIF(v_level->>'durationMinutes', '') IS NOT NULL\n           AND (v_level->>'durationMinutes')::numeric <= 0 THEN\n          RETURN 'blind_level_duration_invalid';\n        END IF;\n        v_sb := NULLIF(v_level->>'smallBlind', '')::numeric;\n        v_bb := NULLIF(v_level->>'bigBlind', '')::numeric;\n        CONTINUE WHEN COALESCE(v_level->>'isBreak', '') = 'true' OR (v_sb = 0 AND v_bb = 0);\n        IF v_seen AND (v_sb < v_prev_sb OR v_bb < v_prev_bb) THEN\n          RETURN 'blind_structure_must_not_decrease';\n        END IF;\n        v_prev_sb := v_sb;\n        v_prev_bb := v_bb;\n        v_seen := true;\n      END LOOP;\n    END IF;\n\n    -- 6. No more seats at a table than one deck can deal: the deck, less one\n    --    board, over the hole cards each seat takes (VariantRules.maxSeatsFor).\n    v_variant := lower(btrim(COALESCE(p_config->>'gameVariant', 'NLH')));\n    v_hole := CASE\n      WHEN v_variant IN ('plo4', 'plo8', 'flo8') THEN 4\n      WHEN v_variant = 'plo5' THEN 5\n      WHEN v_variant = 'plo6' THEN 6\n      WHEN v_variant = 'pineapple' THEN 3\n      ELSE 2 END;\n    v_deck := CASE WHEN v_variant LIKE 'short%' THEN 36 ELSE 52 END;\n    IF v_schedule AND v_type = 'spin' THEN\n      v_seats := 3;\n    ELSE\n      v_seats := round(NULLIF(p_config->>'tableSize', '')::numeric);\n      IF v_seats IS NULL THEN\n        v_seats := CASE\n          WHEN v_schedule AND v_short\n            THEN COALESCE(round(NULLIF(p_config->>'maxPlayers', '')::numeric), 2)\n          ELSE 9 END;\n      END IF;\n      v_seats := LEAST(10, GREATEST(2, v_seats));\n    END IF;\n    IF v_seats > (v_deck - 5) / v_hole THEN\n      RETURN 'table_size_exceeds_deck';\n    END IF;\n\n    -- 7. A rebuy or re-entry needs a late registration window to be sold in.\n    IF v_schedule THEN\n      v_rebuy := COALESCE(p_config->>'isRebuy', '') = 'true'\n              OR COALESCE(p_config->>'rebuy', '') = 'true'\n              OR COALESCE(p_config->>'isReentry', '') = 'true'\n              OR v_type IN ('rebuy', 'reentry', 'mtt_rebuy', 'mtt_reentry');\n      v_late := CASE\n        WHEN v_short THEN 0\n        WHEN NOT (p_config ? 'lateRegistrationLevels') THEN 8\n        ELSE COALESCE(NULLIF(p_config->>'lateRegistrationLevels', '')::numeric, 0) END;\n      v_late_min := 0;\n    ELSE\n      v_rebuy := COALESCE((p_config->>'isRebuy')::boolean, false)\n              OR COALESCE((p_config->>'isReentry')::boolean, false);\n      v_late := CASE WHEN v_short THEN 0\n        ELSE COALESCE(NULLIF(p_config->>'lateRegistrationLevels', '')::numeric, 0) END;\n      v_late_min := COALESCE(NULLIF(p_config->>'lateRegistrationMinutes', '')::numeric, 0);\n    END IF;\n    v_buy_in := COALESCE(NULLIF(p_config->>'buyIn', '')::numeric, 0);\n    IF v_rebuy\n       AND NOT (v_buy_in = 0 AND NOT v_short)   -- a Free Buy event has its own levels\n       AND v_late <= 0 AND v_late_min <= 0 THEN\n      RETURN 'rebuy_requires_late_registration';\n    END IF;\n  EXCEPTION\n    WHEN invalid_text_representation OR numeric_value_out_of_range\n      OR invalid_datetime_format OR datetime_field_overflow THEN\n      RETURN 'invalid_configuration';\n  END;\n\n  RETURN NULL;\nEND;\n$function$\n",
+      "definition_md5": "c1a376cb8d9a01b4ba9db181c7ab9e50",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": ["search_path=pg_catalog"]
+    },
+    {
+      "signature": "fn_schedule_time_zone_is_known(text)",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_schedule_time_zone_is_known(p_zone text)\n RETURNS boolean\n LANGUAGE sql\n STABLE\n SET search_path TO 'pg_catalog'\nAS $function$\n  SELECT p_zone IS NULL\n      OR ((p_zone IN ('UTC', 'GMT')\n           OR p_zone ~ '^[A-Z][A-Za-z]+/[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)?$')\n          AND EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names n WHERE n.name = p_zone))\n$function$\n",
+      "definition_md5": "0fe6c641a93674740394fd523f107faf",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": ["search_path=pg_catalog"]
+    }
+  ],
+  "relations": [
+    {
+      "relname": "tournament_schedules",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true
+        },
+        {
+          "name": "union_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "club_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true
+        },
+        {
+          "name": "days_of_week",
+          "type": "integer[]",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "start_times_utc",
+          "type": "text[]",
+          "default": "'{}'::text[]",
+          "notnull": true
+        },
+        {
+          "name": "interval_minutes",
+          "type": "integer",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "config",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true
+        },
+        {
+          "name": "time_zone",
+          "type": "text",
+          "default": null,
+          "notnull": false
+        }
+      ],
+      "constraints": ["PRIMARY KEY (id)", "CHECK (fn_schedule_time_zone_is_known(time_zone))"],
+      "triggers": [
+        "CREATE TRIGGER a00_tournament_schedules_chat_default BEFORE INSERT OR UPDATE OF config ON public.tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_schedule_chat_default()",
+        "CREATE TRIGGER a01_tournament_schedule_board_is_hard_coded BEFORE INSERT OR DELETE OR UPDATE ON public.tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_tournament_schedule_board_is_hard_coded()",
+        "CREATE TRIGGER aa_diamond_guarantee_copy BEFORE INSERT OR UPDATE OF name, description, config ON public.tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_ca_diamond_guarantee_copy_trigger()",
+        "CREATE TRIGGER tournament_schedule_level_clock_floor BEFORE INSERT OR UPDATE OF config ON public.tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_ca_schedule_level_clock_floor()",
+        "CREATE TRIGGER trg_guard_retired_club_mutation BEFORE INSERT OR DELETE OR UPDATE ON public.tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_guard_retired_club_mutation()",
+        "CREATE TRIGGER trg_union_member_schedule_stays_off BEFORE INSERT OR UPDATE OF active, club_id ON public.tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_ca_union_member_schedule_stays_off()"
+      ]
+    }
+  ],
+  "triggers": [
+    {
+      "signature": "fn_ca_diamond_guarantee_copy_trigger()",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_diamond_guarantee_copy_trigger()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nBEGIN\n IF NOT EXISTS(SELECT 1 FROM public.clubs c WHERE c.id=NEW.club_id AND c.asset='diamonds') THEN RETURN NEW; END IF;\n NEW.name:=public.fn_ca_diamond_guarantee_copy(NEW.name);\n NEW.description:=public.fn_ca_diamond_guarantee_copy(NEW.description);\n IF TG_TABLE_NAME='tournaments' THEN\n  NEW.short_description:=public.fn_ca_diamond_guarantee_copy(NEW.short_description);\n ELSE\n  NEW.config:=NEW.config\n   || CASE WHEN jsonb_typeof(NEW.config->'name')='string' THEN jsonb_build_object('name',public.fn_ca_diamond_guarantee_copy(NEW.config->>'name')) ELSE '{}'::jsonb END\n   || CASE WHEN jsonb_typeof(NEW.config->'shortDescription')='string' THEN jsonb_build_object('shortDescription',public.fn_ca_diamond_guarantee_copy(NEW.config->>'shortDescription')) ELSE '{}'::jsonb END\n   || CASE WHEN jsonb_typeof(NEW.config->'satelliteTargetName')='string' THEN jsonb_build_object('satelliteTargetName',public.fn_ca_diamond_guarantee_copy(NEW.config->>'satelliteTargetName')) ELSE '{}'::jsonb END;\n END IF;\n RETURN NEW;\nEND $function$\n",
+      "definition_md5": "8b3f65fe7205211ea57486ca5ff926f3"
+    },
+    {
+      "signature": "fn_ca_tournament_schedule_chat_default()",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_tournament_schedule_chat_default()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog'\nAS $function$\nBEGIN\n  -- TOURNAMENT CHAT IS OFF BY DEFAULT (2026-10-11). The spawner writes\n  -- ban_chat = asBool(config.banChat), so an MTT-family config that does not\n  -- say is given banChat true here. A Spin or a Sit N Go config, and any\n  -- config that says (true or false), is left exactly as written.\n  IF jsonb_typeof(NEW.config) = 'object'\n     AND COALESCE(NEW.config -> 'banChat', 'null'::jsonb) = 'null'::jsonb\n     AND NOT public.fn_ca_schedule_config_keeps_chat(NEW.config) THEN\n    NEW.config := jsonb_set(NEW.config, '{banChat}', 'true'::jsonb, true);\n  END IF;\n  RETURN NEW;\nEND\n$function$\n",
+      "definition_md5": "1fba531456c7d167683157582f78f8ad"
+    },
+    {
+      "signature": "fn_tournament_schedule_board_is_hard_coded()",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_tournament_schedule_board_is_hard_coded()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public'\nAS $function$\nBEGIN\n  IF COALESCE(auth.role(), '') IN ('authenticated', 'anon')\n     AND (\n       (TG_OP <> 'INSERT' AND (OLD.config->>'type' = 'fixed_board' OR OLD.config ? 'fixedBoard'))\n       OR (TG_OP <> 'DELETE' AND (NEW.config->>'type' = 'fixed_board' OR NEW.config ? 'fixedBoard'))\n     ) THEN\n    RAISE EXCEPTION 'This event is on the hard coded daily board. Its times are set by the engine and cannot be changed here.'\n      USING ERRCODE = '42501';\n  END IF;\n  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;\nEND;\n$function$\n",
+      "definition_md5": "a3c21621b4ccda762d938a13b58d7db1"
+    },
+    {
+      "signature": "fn_ca_union_member_schedule_stays_off()",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_union_member_schedule_stays_off()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nBEGIN\n  IF NEW.active AND EXISTS (SELECT 1 FROM public.union_clubs uc\n                             WHERE uc.club_id = NEW.club_id AND uc.club_id <> uc.union_id) THEN\n    RAISE EXCEPTION USING\n      ERRCODE = 'check_violation',\n      MESSAGE = 'A club in a union cannot run its own tournament schedule.',\n      HINT    = 'Club games stop when a club joins a union; the union runs the schedule.';\n  END IF;\n  RETURN NEW;\nEND\n$function$\n",
+      "definition_md5": "a81048d5f0e4f0bce8b5970f83a75b1a"
+    },
+    {
+      "signature": "fn_guard_retired_club_mutation()",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_guard_retired_club_mutation()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nDECLARE\n  v_club_id uuid;\n  v_old_club_id uuid;\n  v_maintenance boolean :=\n    auth.uid() IS NULL\n    AND coalesce(current_setting('app.club_retirement_maintenance', true), '') = 'on';\nBEGIN\n  IF v_maintenance THEN\n    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;\n    RETURN NEW;\n  END IF;\n\n  IF TG_OP = 'DELETE' THEN\n    IF TG_TABLE_NAME = 'unions' THEN\n      v_club_id := OLD.id;\n    ELSIF TG_TABLE_NAME = 'table_seats' THEN\n      SELECT t.club_id INTO v_club_id FROM public.tables t WHERE t.id = OLD.table_id;\n    ELSIF TG_TABLE_NAME IN ('tournament_players', 'tournament_escrow') THEN\n      SELECT t.club_id INTO v_club_id FROM public.tournaments t WHERE t.id = OLD.tournament_id;\n    ELSIF TG_TABLE_NAME = 'chip_escrow' THEN\n      SELECT cr.club_id INTO v_club_id FROM public.cashout_requests cr WHERE cr.id = OLD.cashout_request_id;\n    ELSIF TG_TABLE_NAME = 'credit_invoices' THEN\n      SELECT a.club_id INTO v_club_id FROM public.agents a WHERE a.id = OLD.agent_id;\n    ELSIF TG_TABLE_NAME = 'tournament_schedule_spawns' THEN\n      SELECT s.club_id INTO v_club_id FROM public.tournament_schedules s WHERE s.id = OLD.schedule_id;\n    ELSIF TG_TABLE_NAME = 'managed_game_schedules' THEN\n      IF OLD.game_kind = 'table' THEN\n        SELECT t.club_id INTO v_club_id FROM public.tables t WHERE t.id = OLD.game_id;\n      ELSE\n        SELECT t.club_id INTO v_club_id FROM public.tournaments t WHERE t.id = OLD.game_id;\n      END IF;\n    ELSIF TG_TABLE_NAME IN ('wheel_configs','diamond_game_configs') THEN\n      IF OLD.host_kind = 'club' THEN v_club_id := OLD.host_id; END IF;\n    ELSIF TG_TABLE_NAME = 'wheel_pools' THEN\n      SELECT c.host_id INTO v_club_id FROM public.wheel_configs c\n       WHERE c.host_id=OLD.host_id AND c.host_kind='club';\n    ELSIF TG_TABLE_NAME = 'diamond_game_pools' THEN\n      SELECT c.host_id INTO v_club_id FROM public.diamond_game_configs c\n       WHERE c.host_id=OLD.host_id AND c.game=OLD.game AND c.host_kind='club';\n    ELSE\n      v_club_id := OLD.club_id;\n    END IF;\n  ELSE\n    IF TG_TABLE_NAME = 'unions' THEN\n      v_club_id := NEW.id;\n    ELSIF TG_TABLE_NAME = 'table_seats' THEN\n      SELECT t.club_id INTO v_club_id FROM public.tables t WHERE t.id = NEW.table_id;\n    ELSIF TG_TABLE_NAME IN ('tournament_players', 'tournament_escrow') THEN\n      SELECT t.club_id INTO v_club_id FROM public.tournaments t WHERE t.id = NEW.tournament_id;\n    ELSIF TG_TABLE_NAME = 'chip_escrow' THEN\n      SELECT cr.club_id INTO v_club_id FROM public.cashout_requests cr WHERE cr.id = NEW.cashout_request_id;\n    ELSIF TG_TABLE_NAME = 'credit_invoices' THEN\n      SELECT a.club_id INTO v_club_id FROM public.agents a WHERE a.id = NEW.agent_id;\n    ELSIF TG_TABLE_NAME = 'tournament_schedule_spawns' THEN\n      SELECT s.club_id INTO v_club_id FROM public.tournament_schedules s WHERE s.id = NEW.schedule_id;\n    ELSIF TG_TABLE_NAME = 'managed_game_schedules' THEN\n      IF NEW.game_kind = 'table' THEN\n        SELECT t.club_id INTO v_club_id FROM public.tables t WHERE t.id = NEW.game_id;\n      ELSE\n        SELECT t.club_id INTO v_club_id FROM public.tournaments t WHERE t.id = NEW.game_id;\n      END IF;\n    ELSIF TG_TABLE_NAME IN ('wheel_configs','diamond_game_configs') THEN\n      IF NEW.host_kind = 'club' THEN v_club_id := NEW.host_id; END IF;\n    ELSIF TG_TABLE_NAME = 'wheel_pools' THEN\n      SELECT c.host_id INTO v_club_id FROM public.wheel_configs c\n       WHERE c.host_id=NEW.host_id AND c.host_kind='club';\n    ELSIF TG_TABLE_NAME = 'diamond_game_pools' THEN\n      SELECT c.host_id INTO v_club_id FROM public.diamond_game_configs c\n       WHERE c.host_id=NEW.host_id AND c.game=NEW.game AND c.host_kind='club';\n    ELSE\n      v_club_id := NEW.club_id;\n    END IF;\n\n    IF TG_OP = 'UPDATE' THEN\n      IF TG_TABLE_NAME = 'unions' THEN\n        v_old_club_id := OLD.id;\n      ELSIF TG_TABLE_NAME = 'table_seats' THEN\n        SELECT t.club_id INTO v_old_club_id FROM public.tables t WHERE t.id = OLD.table_id;\n      ELSIF TG_TABLE_NAME IN ('tournament_players', 'tournament_escrow') THEN\n        SELECT t.club_id INTO v_old_club_id FROM public.tournaments t WHERE t.id = OLD.tournament_id;\n      ELSIF TG_TABLE_NAME = 'chip_escrow' THEN\n        SELECT cr.club_id INTO v_old_club_id FROM public.cashout_requests cr WHERE cr.id = OLD.cashout_request_id;\n      ELSIF TG_TABLE_NAME = 'credit_invoices' THEN\n        SELECT a.club_id INTO v_old_club_id FROM public.agents a WHERE a.id = OLD.agent_id;\n      ELSIF TG_TABLE_NAME = 'tournament_schedule_spawns' THEN\n        SELECT s.club_id INTO v_old_club_id FROM public.tournament_schedules s WHERE s.id = OLD.schedule_id;\n      ELSIF TG_TABLE_NAME = 'managed_game_schedules' THEN\n        IF OLD.game_kind = 'table' THEN\n          SELECT t.club_id INTO v_old_club_id FROM public.tables t WHERE t.id = OLD.game_id;\n        ELSE\n          SELECT t.club_id INTO v_old_club_id FROM public.tournaments t WHERE t.id = OLD.game_id;\n        END IF;\n      ELSIF TG_TABLE_NAME IN ('wheel_configs','diamond_game_configs') THEN\n        IF OLD.host_kind = 'club' THEN v_old_club_id := OLD.host_id; END IF;\n      ELSIF TG_TABLE_NAME = 'wheel_pools' THEN\n        SELECT c.host_id INTO v_old_club_id FROM public.wheel_configs c\n         WHERE c.host_id=OLD.host_id AND c.host_kind='club';\n      ELSIF TG_TABLE_NAME = 'diamond_game_pools' THEN\n        SELECT c.host_id INTO v_old_club_id FROM public.diamond_game_configs c\n         WHERE c.host_id=OLD.host_id AND c.game=OLD.game AND c.host_kind='club';\n      ELSE\n        v_old_club_id := OLD.club_id;\n      END IF;\n    END IF;\n  END IF;\n\n  IF TG_TABLE_NAME = 'unions' AND v_club_id IS NOT NULL THEN\n    PERFORM pg_advisory_xact_lock(hashtextextended('cashier-hierarchy:' || v_club_id::text, 0));\n  END IF;\n\n  -- Lock both scopes in UUID order.  A writer that began just before retirement\n  -- waits here and then observes the committed retired lifecycle.\n  PERFORM 1\n    FROM public.clubs c\n   WHERE c.id IN (v_club_id, v_old_club_id)\n   ORDER BY c.id\n   FOR KEY SHARE;\n\n  -- These two owning stores have no club FK. Recheck after the shared\n  -- parent lock: cleanup may have deleted that parent while this writer waited.\n  IF TG_OP <> 'DELETE' AND TG_TABLE_NAME IN ('cash_games','tournament_schedules')\n     AND v_club_id IS NOT NULL\n     AND NOT EXISTS (SELECT 1 FROM public.clubs WHERE id=v_club_id) THEN\n    RAISE EXCEPTION 'CLUB_NOT_FOUND: game records require their owning club'\n      USING ERRCODE='23503';\n  END IF;\n\n  IF (v_club_id IS NOT NULL OR v_old_club_id IS NOT NULL) AND EXISTS (\n    SELECT 1 FROM public.clubs c\n     WHERE c.id IN (v_club_id, v_old_club_id) AND c.lifecycle_status = 'retired'\n  ) THEN\n    RAISE EXCEPTION 'CLUB_RETIRED: gameplay and cashier records are read-only'\n      USING ERRCODE = '55000';\n  END IF;\n\n  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;\n  RETURN NEW;\nEND\n$function$\n",
+      "definition_md5": "66b05912e3963815a560db03d54c74c9"
+    },
+    {
+      "signature": "fn_ca_schedule_level_clock_floor()",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_schedule_level_clock_floor()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nDECLARE v_structure text; v_floor numeric;\nBEGIN\n IF jsonb_typeof(NEW.config->'blindStructure')='array' THEN\n  v_floor:=CASE WHEN coalesce((NEW.config->>'acceleratedMtt')::boolean,false) THEN 10\n    WHEN upper(coalesce(NEW.config->>'blindPreset','STANDARD'))='STANDARD' THEN 8 ELSE 5 END;\n  v_structure:=public.fn_ca_minimum_tournament_levels((NEW.config->'blindStructure')::text,v_floor);\n  NEW.config:=jsonb_set(NEW.config,'{blindStructure}',v_structure::jsonb);\n END IF;\n RETURN NEW;\nEND $function$\n",
+      "definition_md5": "6f8415c3513bb2ce42d428448ffa08cc"
+    }
+  ],
+  "triggerDependencies": [
+    {
+      "signature": "fn_ca_schedule_config_keeps_chat(jsonb)",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_schedule_config_keeps_chat(p_config jsonb)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\n SET search_path TO 'pg_catalog'\nAS $function$\n  SELECT jsonb_typeof(p_config) = 'object'\n     AND lower(btrim(COALESCE(p_config ->> 'type', 'mtt'))) IN ('spin', 'sng', 'hu_sng', 'heads_up')\n     AND NOT (\n          btrim(CASE WHEN jsonb_typeof(p_config -> 'satellite_target_id') = 'string' THEN p_config ->> 'satellite_target_id' ELSE '' END) <> ''\n       OR btrim(CASE WHEN jsonb_typeof(p_config -> 'satelliteTargetId') = 'string' THEN p_config ->> 'satelliteTargetId' ELSE '' END) <> ''\n       OR EXISTS (\n            SELECT 1\n              FROM (VALUES (p_config -> 'satellite_target'), (p_config -> 'satelliteTarget')) AS t(v)\n             WHERE (jsonb_typeof(t.v) = 'string' AND btrim(t.v #>> '{}') <> '')\n                OR (jsonb_typeof(t.v) = 'object'\n                    AND (btrim(CASE WHEN jsonb_typeof(t.v -> 'tournamentId') = 'string' THEN t.v ->> 'tournamentId' ELSE '' END) <> ''\n                      OR btrim(CASE WHEN jsonb_typeof(t.v -> 'tournament_id') = 'string' THEN t.v ->> 'tournament_id' ELSE '' END) <> ''))))\n$function$\n",
+      "definition_md5": "5844807db9c5dc055694ed11ddb317b4"
+    },
+    {
+      "signature": "fn_ca_diamond_guarantee_copy(text)",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_diamond_guarantee_copy(p_text text)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE\n SET search_path TO 'pg_catalog'\nAS $function$ SELECT replace(p_text, 'Chip Guarantee', 'Diamond Guarantee') $function$\n",
+      "definition_md5": "4003d69bc76ca430bd347c1d9eaa3228"
+    },
+    {
+      "signature": "fn_ca_minimum_tournament_levels(text,numeric)",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_minimum_tournament_levels(p_structure text, p_floor numeric DEFAULT 5)\n RETURNS text\n LANGUAGE plpgsql\n IMMUTABLE\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nDECLARE v_levels jsonb; v_level jsonb; v_result jsonb:='[]'; v_minutes numeric; v_changed boolean:=false;\nBEGIN\n IF p_structure IS NULL OR btrim(p_structure)='' THEN RETURN p_structure; END IF;\n v_levels:=p_structure::jsonb;\n IF jsonb_typeof(v_levels)<>'array' THEN RAISE EXCEPTION 'Blind Structure Must Be An Array'; END IF;\n FOR v_level IN SELECT value FROM jsonb_array_elements(v_levels) LOOP\n  IF jsonb_typeof(v_level)<>'object' THEN RAISE EXCEPTION 'Every Blind Level Must Be An Object'; END IF;\n  IF NOT coalesce((v_level->>'isBreak')::boolean,false) THEN\n   v_minutes:=coalesce(nullif((v_level->>'durationMinutes')::numeric,0),nullif((v_level->>'duration_minutes')::numeric,0),nullif((v_level->>'duration')::numeric,0)/60);\n   IF v_minutes>0 AND v_minutes<greatest(5,p_floor) THEN\n    v_minutes:=greatest(5,p_floor);\n    v_level:=jsonb_set(v_level,'{durationMinutes}',to_jsonb(v_minutes));\n    IF v_level?'duration_minutes' THEN v_level:=jsonb_set(v_level,'{duration_minutes}',to_jsonb(v_minutes)); END IF;\n    IF v_level?'duration' THEN v_level:=jsonb_set(v_level,'{duration}',to_jsonb(v_minutes*60)); END IF;\n    v_changed:=true;\n   END IF;\n  END IF;\n  v_result:=v_result||jsonb_build_array(v_level);\n END LOOP;\n RETURN CASE WHEN v_changed THEN v_result::text ELSE p_structure END;\nEND $function$\n",
+      "definition_md5": "6778460634de60985ff947e16db22222"
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-10-31T23:20:00Z",
-  "activationAt": "2026-10-31T23:20:00Z",
-  "expiresAt": "2026-11-01T05:20:00Z",
+  "preparationAt": "2026-11-01T07:05:00Z",
+  "activationAt": "2026-11-01T07:05:00Z",
+  "expiresAt": "2026-11-01T09:25:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-10-31-horse-v63-v70-drained-next-55",
-  "clientPublicationAt": "2026-10-31T23:20:00Z"
+  "ownerWindowId": "2026-11-01-engine-crashloop-fix-daily-fallback",
+  "clientPublicationAt": "2026-11-01T07:05:00Z"
 }

@@ -82,6 +82,7 @@ import { useMasterBusSubscriptions } from '../../hooks/useMasterBusSubscription'
 import type { BusEventType } from '../../core/MasterBus';
 import { useVirtualScroll } from '../../hooks/useVirtualScroll';
 import RakeSnapshotPanel from '../../components/club/RakeSnapshotPanel';
+import ClubRakebackVerifiedSoFar from '../../components/club/ClubRakebackVerifiedSoFar';
 import type { RakeScope } from '../../services/ClubRakeSnapshotService';
 import type { ConsoleInk } from '../../components/console/SpadeConsole';
 import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
@@ -3129,6 +3130,8 @@ export default function ClubDataPage() {
             refreshToken={rakeRefreshKey}
           />
         )}
+
+        {clubUuid && <ClubRakebackVerifiedSoFar clubId={clubUuid} />}
 
         {/* ── Data integrity ─────────────────────────────────────────────── */}
         <SpadeConsole
