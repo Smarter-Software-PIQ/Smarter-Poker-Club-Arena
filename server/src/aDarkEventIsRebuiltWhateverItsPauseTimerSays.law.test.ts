@@ -50,6 +50,7 @@ vi.mock('./services/errorReporter.js', () => ({
 import { GameServer } from './GameServer.js';
 import { TournamentManager } from './tournament/TournamentManager.js';
 import { ServerTableEngine } from './engine/ServerTableEngine.js';
+import { DiamondTournamentPolicyClosedError } from './services/cashTablePlayEligibility.js';
 
 const SATELLITE = '61961519-ed97-43d8-b6e6-60dbe9b1b9db';
 const SOURCE = 'c01b0657-5754-4d8c-b73d-65278b62bdb1';
@@ -116,6 +117,24 @@ afterEach(() => {
 });
 
 describe('a dark event is rebuilt whatever its pause timer says', () => {
+  it('retains a field with positively closed admissions, then recovers an unknown admission', async () => {
+    const m = realManager({
+      tableEngines: new Map(),
+      tableAdmissionFailingSince: new Map([
+        [SOURCE, 0],
+        [LIVE, 0],
+      ]),
+    });
+    m.noteTableAdmissionRefusal(SOURCE, new DiamondTournamentPolicyClosedError(SOURCE, 'arena'));
+    m.noteTableAdmissionRefusal(LIVE, new DiamondTournamentPolicyClosedError(LIVE, 'arena'));
+    const s = server(m, realEngine({ running: false }));
+    db.rows = [DARK];
+    await s.rebuildManagersOfDarkTournaments();
+    expect(s.retireTournamentManagerInDiscovery).not.toHaveBeenCalled();
+    m.noteTableAdmissionRefusal(LIVE, new Error('settings read unavailable'));
+    await s.rebuildManagersOfDarkTournaments();
+    expect(s.retireTournamentManagerInDiscovery).toHaveBeenCalled();
+  });
   it('rebuilds satellite 61961519: a stopped source dealer and a boundary park the zombie reaper keeps resetting', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-12T00:18:00Z'));
