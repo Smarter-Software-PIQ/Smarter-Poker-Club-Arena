@@ -2181,6 +2181,18 @@ describe('every host mutation path obeys the durable release authority', () => {
     expect(result.stderr).toContain('Ran 1 test');
   });
 
+  it('quarantines only the exact generated cache without weakening generation admission', () => {
+    const result = spawnSync('python3', ['-B', 'tests/operations/control-cache-quarantine.py'], {
+      cwd: ROOT,
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain('Ran 11 tests');
+    expect(result.stderr).not.toContain('skipped=');
+  }, 65_000);
+
   it('activates one complete control-plane generation atomically under the engine lock', () => {
     const lock = installer.indexOf('flock -w 600 9');
     const sourceLock = installer.indexOf('flock -w 90 8', lock);

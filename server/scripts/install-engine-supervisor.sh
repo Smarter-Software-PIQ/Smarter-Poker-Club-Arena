@@ -64,6 +64,7 @@ REQUIRED_FILES=(
   install-engine-drill.sh
   retain-engine-images.sh
   install-engine-supervisor.sh
+  quarantine-generated-control-cache.py
 )
 CORE_FILES=(
   engine-supervisor.sh
@@ -148,6 +149,38 @@ PY
   done
 }
 
+quarantine_known_generated_cache() {
+  local sha="$1" helper
+  [ "$sha" = 303d8cc7d38a97c3bcdc32a577b555232ad726bf ] || return 0
+  [ -e "$GENERATION_ROOT/$sha/__pycache__" ] || [ -L "$GENERATION_ROOT/$sha/__pycache__" ] || \
+    [ -e "$CONTROL_PARENT/engine-control-cache-quarantine/$sha/$RUN_ID" ] || return 0
+  helper="$(dirname "$(readlink -e -- "${BASH_SOURCE[0]}")")/quarantine-generated-control-cache.py"
+  [ -f "$helper" ] && [ ! -L "$helper" ] || die 'qualified cache quarantine helper unavailable'
+  python3 -I -B - "$REPO_DIR" "$CONTROL_SHA" "$helper" <<'PY' \
+    || die 'qualified cache quarantine helper differs from protected source'
+import os, stat, subprocess, sys
+repo, sha, path = sys.argv[1:]
+fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+try:
+    before = os.fstat(fd)
+    assert stat.S_ISREG(before.st_mode) and before.st_uid == 0 and not before.st_mode & 0o022
+    assert 0 < before.st_size <= 65536
+    raw = os.read(fd, 65537)
+    after = os.fstat(fd)
+    identity = lambda s: (s.st_dev, s.st_ino, s.st_mode, s.st_uid, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+    assert len(raw) == before.st_size and identity(before) == identity(after)
+finally:
+    os.close(fd)
+env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+env.update(GIT_NO_REPLACE_OBJECTS='1', GIT_NO_LAZY_FETCH='1', GIT_OPTIONAL_LOCKS='0')
+result = subprocess.run(['git', '-C', repo, 'show', sha + ':server/scripts/quarantine-generated-control-cache.py'],
+    env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5, check=True)
+assert len(result.stdout) <= 65536 and raw == result.stdout
+PY
+  timeout --signal=TERM --kill-after=2s 30s python3 -I -B "$helper" --run-id "$RUN_ID" --control-sha "$CONTROL_SHA" \
+    || die 'active generated cache was not positively qualified; generation remains refused'
+}
+
 [ "$(id -u)" = 0 ] || die 'must run as root'
 [[ "$CONTROL_SHA" =~ ^[0-9a-f]{40}$ ]] \
   || die 'ENGINE_CONTROL_SHA must be one lowercase 40-hex commit'
@@ -200,6 +233,7 @@ if [ -L "$CONTROL_DIR" ] && [ -r "$CONTROL_DIR/control-sha" ]; then
     *) die 'active control generation is outside the managed generation root' ;;
   esac
   if [ "$ACTIVE_TARGET" = "$GENERATION_ROOT/$ACTIVE_CONTROL_SHA" ]; then
+    quarantine_known_generated_cache "$ACTIVE_CONTROL_SHA"
     validate_active_generation "$ACTIVE_CONTROL_SHA"
     ACTIVE_IS_CURRENT_GENERATION=1
   else
@@ -333,7 +367,7 @@ else
   done
   for script in engine-release-seal.py engine-release-database-proof.py \
     engine-release-inflight-hands.py engine-release-lightning-hold.py \
-    engine-release-activation-floor.py main-inspector-retirement.py legacy-census-scale-preflight.py; do
+    engine-release-activation-floor.py main-inspector-retirement.py legacy-census-scale-preflight.py quarantine-generated-control-cache.py; do
     python3 -c 'compile(open(__import__("sys").argv[1], encoding="utf-8").read(), __import__("sys").argv[1], "exec")' \
       "$GENERATION_STAGE/$script"
   done
