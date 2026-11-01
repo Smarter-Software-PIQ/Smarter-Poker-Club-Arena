@@ -164,6 +164,14 @@ test('native feasibility is PR-only and cannot change the manual Inspector route
   assert.match(native,/if: github\.event_name == 'pull_request'/);
   assert.match(native,/python3 tests\/fixtures\/engine-native-fault\/qualify\.py/);
   assert.match(native,/if-no-files-found: error/);
+  const resolvePerf=native.match(/dpkg-query --listfiles linux-perf \| python3 -c '([^']+)'/)?.[1];
+  assert.ok(resolvePerf,'resolve the current installed perf package, not a legacy kernel-tools directory');
+  for(const [input,expected] of [['/usr/bin/perf\n/usr/share/doc/linux-perf\n','/usr/bin/perf'],['/usr/lib/linux-tools/old/perf\n',null],['/usr/bin/perf\n/usr/bin/perf\n',null]]) {
+    const result=spawnSync('python3',['-c',resolvePerf],{input,encoding:'utf8'});
+    if(expected) {assert.equal(result.status,0);assert.equal(result.stdout.trim(),expected);}
+    else assert.notEqual(result.status,0,'missing or ambiguous package binary must refuse');
+  }
+
   const manual=workflow.split('  profile:\n')[1];
   assert.match(manual,/needs: verify/);
   assert.match(manual,/docker exec -i club-arena-engine node --input-type=module/);
