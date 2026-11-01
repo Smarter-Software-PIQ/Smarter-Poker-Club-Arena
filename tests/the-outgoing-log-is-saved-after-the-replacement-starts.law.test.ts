@@ -74,6 +74,7 @@ describe('engine-up starts the replacement before it saves the outgoing log', ()
       for (const dir of [bin, state, control]) mkdirSync(dir);
       mkdirSync(horses, { mode: 0o700 });
       const calls = join(state, 'docker.calls');
+      const loggerRelease = join(state, 'logger-release');
       const sha = 'a'.repeat(40);
       const image = `sha256:${'b'.repeat(64)}`;
       const outgoingId = '0123456789ab';
@@ -137,7 +138,15 @@ exit 0
 `
       );
       chmodSync(join(bin, 'docker'), 0o755);
-      writeFileSync(join(bin, 'logger'), `#!/usr/bin/env bash\ncat >> '${state}/logger.out'\n`);
+      writeFileSync(
+        join(bin, 'logger'),
+        `#!/usr/bin/env bash
+held=0
+while [ -d '${state}' ] && [ ! -e '${loggerRelease}' ] && [ "$held" -lt 300 ]; do sleep 0.1; held=$((held + 1)); done
+[ -d '${state}' ] || exit 0
+cat >> '${state}/logger.out'
+`
+      );
       chmodSync(join(bin, 'logger'), 0o755);
       // GNU timeout bounds the dump on the host and in CI; its bound is not
       // what this law is about, so a workstation without it gets a pass-through.
@@ -253,6 +262,22 @@ exit 0
         .join('');
       expect(contents).toContain(`the log of club-arena-engine-outgoing-${outgoingId}`);
       expect(contents).toContain(`the log of ${leftover}`);
+      // The Docker retirements and gzip files do not prove the asynchronous
+      // logger sink has copied its receipts. Hold that sink deliberately until
+      // both retirements are visible, then await both successful save messages
+      // inside the original shared deadline before reading its file.
+      expect(existsSync(loggerOut), 'logger sink stays gated after Docker retirement').toBe(false);
+      writeFileSync(loggerRelease, '');
+      const savedReceipts = () =>
+        existsSync(loggerOut)
+          ? readFileSync(loggerOut, 'utf8')
+              .split('\n')
+              .filter((line) => line.includes('[engine-up] saved the outgoing log to '))
+          : [];
+      while (savedReceipts().length < 2 && Date.now() < deadline) {
+        spawnSync('sleep', ['0.2']);
+      }
+      expect(savedReceipts(), readFileSync(calls, 'utf8')).toHaveLength(2);
       expect(readFileSync(join(state, 'logger.out'), 'utf8')).toContain(
         'saved the outgoing log to'
       );
@@ -261,6 +286,9 @@ exit 0
       // has measured 3.4 s on a busy runner, so 15 s carries no stopwatch risk.
       expect(elapsed, output).toBeLessThan(15_000);
     } finally {
+      if (existsSync(join(sandbox, 'state'))) {
+        writeFileSync(join(sandbox, 'state', 'logger-release'), '');
+      }
       rmSync(sandbox, { recursive: true, force: true });
     }
   }, 30_000);

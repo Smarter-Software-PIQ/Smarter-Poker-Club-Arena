@@ -14,6 +14,7 @@ const subtypeAllowed=(subtype,type)=>{
   if(subtype==='TYPE_METADATA')return type==='TYPE';
   return QUERY_SUBTYPES.includes(subtype);
 };
+const D5_TAGS=Object.freeze(Array.from({length:224},(_,tag)=>tag).filter(tag=>(tag&2)?subtypeAllowed(QUERY_SUBTYPES[tag>>>4],TYPES[(tag>>>2)&3]):(tag>>>4)===0));
 const MAX_BYTES=512*1024,MAX_LINE=96,MAX_US=45000000;
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const refuse=code=>{throw Object.assign(new Error('ISOLATED_NATIVE_DUMP_PROTOCOL_REFUSED'),{diagnosticKind:code});};
@@ -98,11 +99,21 @@ export function createNativeDumpDiagnostic() {
     const [,seq,kind,edge,type,us]=match;
     accept(Number(seq),kind,edge,type,Number(us),receivedMs);
   };
+  const d5Frame=receivedMs=>{
+    requireFrame(D5_TAGS.length===62 && !(binary[0]&128));
+    const packed=binary.readUIntBE(0,3),code=packed>>>17;
+    requireFrame(code<62 && binaryAt>=4 && binaryAt<=7);
+    let delta=0;
+    for(let i=3;i<binaryAt;i++)delta+=(binary[i]&127)*2**(7*(i-3));
+    requireFrame(!(binary[binaryAt-1]&128) && (binaryAt===4 || binary[binaryAt-1]!==0));
+    const tag=D5_TAGS[code],subtype=QUERY_SUBTYPES[tag>>>4];
+    accept(packed&131071,(tag&2)?'Q':'O',(tag&1)?'E':'B',TYPES[(tag>>>2)&3],lastUs+delta,receivedMs,subtype);
+  };
   const binaryFrame=receivedMs=>{
-    requireFrame(binary[0]===68 && binary[1]===(wire==='D3'?51:50) && binary[6]<(wire==='D3'?224:16) && binary[11]===10);
-    const tag=binary[6];
+    const d4=wire==='D4',tag=binary[d4?3:6];
+    requireFrame(d4?tag<224:(binary[0]===68 && binary[1]===(wire==='D3'?51:50) && tag<(wire==='D3'?224:16) && binary[11]===10));
     const subtype=QUERY_SUBTYPES[tag>>>4];requireFrame((tag&2)!==0 || subtype==='UNKNOWN');
-    accept(binary.readUInt32BE(2),(tag&2)?'Q':'O',(tag&1)?'E':'B',TYPES[(tag>>>2)&3],binary.readUInt32BE(7),receivedMs,subtype);
+    accept(d4?binary.readUIntBE(0,3):binary.readUInt32BE(2),(tag&2)?'Q':'O',(tag&1)?'E':'B',TYPES[(tag>>>2)&3],binary.readUInt32BE(d4?4:7),receivedMs,subtype);
   };
   const refuseLimit=kind=>{limit??={kind,observed_at_least:kind==='TOTAL_BYTES'?MAX_BYTES+1:MAX_LINE+1};refuse('FD3_LIMIT');};
   return {
@@ -115,12 +126,15 @@ export function createNativeDumpDiagnostic() {
         if(wire===null){
           partial+=String.fromCharCode(byte);
           if(partial.length===2){
-            wire=['D2','D3'].includes(partial)?partial:'D1';
-            if(wire!=='D1'){binary[0]=68;binary[1]=wire==='D3'?51:50;binaryAt=2;partial='';}
+            wire=['D2','D3','D4','D5'].includes(partial)?partial:'D1';
+            if(wire!=='D1'){if(wire!=='D4' && wire!=='D5'){binary[0]=68;binary[1]=wire==='D3'?51:50;binaryAt=2;}partial='';}
           }
-        }else if(wire==='D2' || wire==='D3'){
+        }else if(wire==='D5'){
           binary[binaryAt++]=byte;
-          if(binaryAt===12){binaryFrame(receivedMs);binaryAt=0;}
+          if(binaryAt>=4){requireFrame(binaryAt<=7);if(!(byte&128)){d5Frame(receivedMs);binaryAt=0;}else requireFrame(binaryAt<7);}
+        }else if(wire==='D2' || wire==='D3' || wire==='D4'){
+          binary[binaryAt++]=byte;
+          if(binaryAt===(wire==='D4'?8:12)){binaryFrame(receivedMs);binaryAt=0;}
         }else if(byte===10){frame(partial,receivedMs);partial='';}
         else {partial+=String.fromCharCode(byte);if(partial.length>MAX_LINE)refuseLimit('LINE_BYTES');}
       }
@@ -128,12 +142,12 @@ export function createNativeDumpDiagnostic() {
     finish({allowEmpty=false}={}){if(limit)refuse('FD3_LIMIT');requireFrame(!retired && !closed && partial==='' && binaryAt===0 && (sequence>0 || allowEmpty));closed=true;},
     snapshot(observedMs){
       requireFrame(!retired && Number.isSafeInteger(observedMs) && observedMs>=0 && observedMs<=45000);
-      const open=span=>span?{type:span.type,...(wire==='D3' && span.subtype?{subtype:span.subtype}:{}),started_at_us:span.us,
+      const open=span=>span?{type:span.type,...((wire==='D3' || wire==='D4' || wire==='D5') && span.subtype?{subtype:span.subtype}:{}),started_at_us:span.us,
         unpaired_since_received_ms:Math.max(0,observedMs-span.receivedMs)}:null;
-      return {version:wire==='D3'?3:2,object_scope:'effective-selected-components',query_scope:'actual-network-requests',records:sequence,bytes,stream_closed:closed,
+      return {version:(wire==='D3' || wire==='D4' || wire==='D5')?3:2,object_scope:'effective-selected-components',query_scope:'actual-network-requests',records:sequence,bytes,stream_closed:closed,
         pairs_complete:closed && sequence>0 && !object && !query,
         types:Object.fromEntries(TYPES.map(type=>[type,{...buckets[type]}])),
-        ...(wire==='D3'?{query_subtypes:Object.fromEntries(QUERY_SUBTYPES.map(subtype=>[subtype,{...subtypes[subtype]}]))}:{}),
+        ...((wire==='D3' || wire==='D4' || wire==='D5')?{query_subtypes:Object.fromEntries(QUERY_SUBTYPES.map(subtype=>[subtype,{...subtypes[subtype]}]))}:{}),
         last_unpaired_object:open(object),last_unpaired_query:open(query),...(limit?{limit:{...limit}}:{})};
     },
     clear(){partial='';binary.fill(0);object=null;query=null;retired=true;}
@@ -178,8 +192,11 @@ export async function verifyNativeDumpBinary(env) {
     manifest.qualification?.filtered_zero_one_equal!==true ||
     manifest.qualification?.dependency_interleaved_sql_equal!==true ||
     manifest.qualification?.diagnostic_object_scope!=='effective-selected-components' ||
-    manifest.qualification?.diagnostic_wire!=='D3-fixed12' ||
+    manifest.qualification?.diagnostic_wire!=='D5-absolute17-tag6-delta-uleb128' ||
     manifest.qualification?.query_subtypes_valid!==true ||
+    manifest.qualification?.absolute_event_ids_valid!==true ||
+    manifest.qualification?.diagnostic_full_record_capacity_valid!==true ||
+    manifest.qualification?.diagnostic_full_stream_bytes_max!==502769 ||
     manifest.binary_sha256!==digest(await read('bin/pg_dump',32*1024*1024,true)) ||
     manifest.libpq_sha256!==digest(await read('lib/libpq.so.5',16*1024*1024)) ||
     !['passed','sql_bytes_equal','fd3_records_valid','cluster_absent'].every(key=>manifest.qualification?.[key]===true))fail();

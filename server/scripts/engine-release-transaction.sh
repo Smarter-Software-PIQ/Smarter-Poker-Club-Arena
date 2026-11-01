@@ -498,8 +498,13 @@ except Exception: raise SystemExit(1)
 m=d.get("maintenance") if isinstance(d,dict) else None
 raise SystemExit(0 if isinstance(m,dict) and m.get("phase")=="last_hand" else 1)
 ' 2>/dev/null; then
-    [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
-    early_stamp="$(floor_reservation_stamp)" || return 0
+    if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
+      bind_phase1_window "$body" || return 0
+      early_stamp=$((PHASE1_WINDOW_START - 120000))
+    else
+      [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
+      early_stamp="$(floor_reservation_stamp)" || return 0
+    fi
     "$INFLIGHT_HANDS" --env-file "$ENV_FILE" --weekly-payout-only >&2 || return 0
     # Re-read after authoritative ownership: a stale announcement cannot be
     # turned into a pause by slow policy/database reads.
@@ -530,6 +535,23 @@ if m.get("phase") == "last_hand":
     stamp=int(os.environ.get("EARLY_HOLD_STAMP", "0"))
     floor_end=int(os.environ.get("ACTIVATION_FLOOR_END_EPOCH", "0"))
     p=m.get("presentation")
+    cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
+    if cycle:
+        start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0")); planned=start-120000
+        schedule=m.get("schedule")
+        hourly=isinstance(schedule,dict) and schedule.get("frequency")=="phase1-hourly" and schedule.get("policyId")=="phase1-hourly-01a1944f" and schedule.get("timeZone")=="America/Chicago" and schedule.get("startHour") is None and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is True
+        reason=m.get("reason")
+        if not (stamp in (0,planned) and reason in ("Deployment Recovery","Scheduled Engine Maintenance")
+                and (reason=="Deployment Recovery" or hourly) and d.get("running") is True
+                and "weeklyPayout" in d and d["weeklyPayout"] is None
+                and m.get("active") is True and m.get("durableConfirmed") is True
+                and isinstance(p,dict) and p.get("active") is True and p.get("phase")=="last_hand"
+                and p.get("reason")==reason and type(p.get("break_id")) is int and p["break_id"]==planned
+                and type(p.get("break_ends_at")) is int and p["break_ends_at"]==end
+                and type(p.get("scheduled_ends_at")) is int and p["scheduled_ends_at"]==end
+                and start>0 and planned/1000 <= time.time() < start/1000):
+            raise SystemExit(1)
+        raise SystemExit(0)
     if not (os.environ.get("ACTIVATION_FLOOR_OWNER_WINDOW") and stamp>0
             and d.get("running") is True and "weeklyPayout" in d and d["weeklyPayout"] is None
             and m.get("active") is True and m.get("durableConfirmed") is True
@@ -546,6 +568,13 @@ if m.get("phase") == "last_hand":
 if not (m.get("active") is True and m.get("phase") == "counting_down" and m.get("durableConfirmed") is True): raise SystemExit(1)
 local = datetime.now(ZoneInfo("America/Chicago"))
 daily = (local.hour == 3 and local.minute >= 58) or (local.hour == 4 and local.minute < 5)
+cycle = int(os.environ.get("PHASE1_CYCLE_START", "0"))
+if cycle:
+    schedule=m.get("schedule")
+    hourly=isinstance(schedule,dict) and schedule.get("frequency")=="phase1-hourly" and schedule.get("policyId")=="phase1-hourly-01a1944f" and schedule.get("timeZone")=="America/Chicago" and schedule.get("startHour") is None and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is True
+    start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or m.get("reason")=="Deployment Recovery")
+    if not daily: raise SystemExit(1)
 emergency = m.get("reason") == "Deployment Recovery"
 transition = os.environ.get("DAILY_TRANSITION") == "1" and m.get("schedule") is None and local.minute >= 55 and m.get("reason") == "Scheduled Engine Maintenance"
 floor_end = int(os.environ.get("ACTIVATION_FLOOR_END_EPOCH", "0"))
@@ -737,12 +766,123 @@ release_engine_lock() {
 # timezone or on the engine being reachable. Zero means a break is open NOW -
 # the wrap-around reading it replaced said the next break was an hour away at
 # :56, which is inside the break this transaction is trying to use.
+# Temporary hourly authority is immutable source, never a force input. A cycle
+# is global in the canonical seal and remains bound across request/invocation
+# retries. This function is called only while holding the existing engine lock.
+PHASE1_POLICY_OWNED=0
+PHASE1_CYCLE_START=0
+PHASE1_CYCLE_END=0
+PHASE1_WINDOW_START=0
+PHASE1_WINDOW_END=0
+phase1_custody_admission() {
+  local predecessor
+  predecessor="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 10s "$RELEASE_SEAL" get desired-sha)"     || die 'Phase1 sealed predecessor identity is unreadable'
+  if [ "$predecessor" = "$CHECKPOINT_EED_SHA" ]; then
+    legacy_census_fits || die 'Phase1 requires the full retained-owner checkpoint; census fit false or unknown before cycle reservation'
+  fi
+}
+
+initialise_phase1_cycle() {
+  [ "$LOCK_HELD" = 1 ] || die 'routine cycle requires the existing engine lock'
+  local prior_cycle
+  prior_cycle="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" check-routine-owner --run-id "$RUN_ID")" \
+    || die 'a prior routine cycle owner remains unresolved'
+  local policy active cycle fields status owner
+  timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \
+    git -C "$REPO_DIR" cat-file -e "$SHA^{commit}" || die 'routine policy target is unreadable'
+  if ! timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \
+    git -C "$REPO_DIR" cat-file -e "$SHA:server/src/maintenance/maintenanceSchedulePolicy.json" 2>/dev/null; then
+    return 0 # Historical source has the unchanged daily baseline.
+  fi
+  policy="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" schedule-policy --repo "$REPO_DIR" --sha "$SHA")" \
+    || die 'routine source policy is invalid'
+  active="$(printf '%s' "$policy" | python3 -c 'import json,sys; print(json.load(sys.stdin)["phase1Status"])')"
+  case "$active" in active|complete|off) ;; *) die 'routine policy status is invalid' ;; esac
+  PHASE1_POLICY_OWNED=1; export PHASE1_POLICY_OWNED
+  local foreign foreign_rc
+  if foreign="$(newer_release_in_flight any)"; then
+    die "routine cycle cannot compete with active runtime owner ${foreign%% *}"
+  else
+    foreign_rc=$?
+    [ "$foreign_rc" = 1 ] || die 'foreign runtime ownership is unreadable'
+  fi
+  phase1_custody_admission
+  if [ "$prior_cycle" = none ]; then
+    local fresh_health cause
+    fresh_health="$(legacy_entry_read curl -sS --max-time 5 http://127.0.0.1:8080/health)" || fresh_health='{}'
+    cause="$(recovery_window_reason "$fresh_health")"
+    if [ "${cause%% *}" = engine-degraded ]; then
+      # Preserve the pre-existing measured-emergency contract. This is not a
+      # scheduled same-SHA reset and cannot bypass a prior routine owner.
+      legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" current-cycle-policy \
+        --repo "$REPO_DIR" --sha "$SHA" --control-sha "$CONTROL_SHA" >/dev/null \
+        || die 'measured recovery source policy changed'
+      return 0
+    fi
+  fi
+  cycle="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" reserve-routine-cycle --repo "$REPO_DIR" --sha "$SHA" --control-sha "$CONTROL_SHA" --run-id "$RUN_ID")" \
+    || die 'routine cycle admission refused or unknown'
+  if [ "$(printf '%s' "$cycle" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')" = daily ]; then
+    PHASE1_CYCLE_START=0; PHASE1_CYCLE_END=0; PHASE1_WINDOW_START=0; PHASE1_WINDOW_END=0
+    export PHASE1_CYCLE_START PHASE1_CYCLE_END PHASE1_WINDOW_START PHASE1_WINDOW_END
+    return 0
+  fi
+  fields="$(printf '%s' "$cycle" | python3 -c 'import json,sys; c=json.load(sys.stdin); w=c.get("window") or {}; print(c["status"],c["runId"],c["startsAt"],c["endsAt"],w.get("startsAt",0),w.get("endsAt",0))')"
+  read -r status owner PHASE1_CYCLE_START PHASE1_CYCLE_END PHASE1_WINDOW_START PHASE1_WINDOW_END <<<"$fields"
+  if [ "$owner" != "$RUN_ID" ]; then
+    die "routine cycle already belongs to run $owner ($status); no duplicate reset"
+  fi
+  case "$status" in
+    reserved) ;;
+    committed|sealed) PHASE1_CYCLE_START=0; PHASE1_CYCLE_END=0 ;; # Original canonical replay.
+    *) die 'this routine cycle has a terminal refusal; no replay' ;;
+  esac
+  export PHASE1_CYCLE_START PHASE1_CYCLE_END PHASE1_WINDOW_START PHASE1_WINDOW_END
+}
+
+phase1_reset_required() {
+  [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || return 1
+  initialise_phase1_cycle
+  [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || return 1
+  local cycle_limit="${PHASE1_WINDOW_END:-0}"
+  [ "$cycle_limit" -gt 0 ] || cycle_limit=$(((PHASE1_CYCLE_START+360)*1000))
+  [ "$(date +%s%3N)" -lt "$cycle_limit" ] || die 'original routine cycle expired; no later cycle is authorized'
+  return 0
+}
+
+bind_phase1_window() {
+  [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || return 0
+  local body="$1" took=0 rc=0 bound
+  # No engine-lock traffic for idle/unrelated health. Only this cycle's actual
+  # announced00minute may enter the durable compare-and-swap below.
+  if ! printf '%s' "$body" | PHASE1_CYCLE_START="$PHASE1_CYCLE_START" python3 -c '
+import json,os,sys
+try:
+ h=json.load(sys.stdin); m=h.get("maintenance") or {}; p=m.get("presentation") or {}
+ stamp=p.get("break_id"); cycle=int(os.environ["PHASE1_CYCLE_START"])
+ ok=m.get("active") is True and m.get("phase") in ("last_hand","counting_down") and type(stamp) is int and cycle*1000 <= stamp+120000 < (cycle+60)*1000
+except Exception: ok=False
+raise SystemExit(0 if ok else 1)'; then return 1; fi
+  if [ "$LOCK_HELD" != 1 ]; then acquire_engine_lock 'routine window binding'; took=1; fi
+  source_target_is_current
+  bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID")" || rc=$?
+  if [ "$took" = 1 ]; then release_engine_lock; fi
+  [ "$rc" = 0 ] || return "$rc"
+  read -r PHASE1_WINDOW_START PHASE1_WINDOW_END <<<"$(printf '%s' "$bound" | python3 -c 'import json,sys; w=json.load(sys.stdin)["window"]; print(w["startsAt"],w["endsAt"])')"
+  export PHASE1_WINDOW_START PHASE1_WINDOW_END
+}
+
 seconds_to_next_break() {
   python3 - <<'DAILY'
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+import os
 now = datetime.now(timezone.utc)
 local = now.astimezone(ZoneInfo('America/Chicago'))
+cycle = int(os.environ.get('PHASE1_CYCLE_START', '0'))
+if cycle:
+    print(max(0, int(cycle-now.timestamp())))
+    raise SystemExit(0)
 start = local.replace(hour=4, minute=0, second=0, microsecond=0)
 if start <= local < start + timedelta(minutes=5):
     print(0)
@@ -1062,6 +1202,7 @@ raise SystemExit(0 if d["weeklyPayout"] is None else 1)
     *) return 1 ;;
   esac
   set +e
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then bind_phase1_window "$body" || return 1; fi
   verdict="$(printf '%s' "$body" | MIN_BREAK_MS="$minimum_ms" STRICT_RESTART_CERTIFICATE="${DRAINED_PREDECESSOR_CUTOVER:-0}" DAILY_TRANSITION="${DAILY_TRANSITION:-0}" ACTIVATION_FLOOR_END_EPOCH="${ACTIVATION_FLOOR_END_EPOCH:-0}" ACTIVATION_FLOOR_OWNER_WINDOW="${ACTIVATION_FLOOR_OWNER_WINDOW:-}" FLOOR_ANNOUNCED_AT="$floor_stamp" legacy_entry_read python3 -c '
 import json, sys
 d=json.load(sys.stdin); m=d.get("maintenance")
@@ -1073,6 +1214,14 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 local=datetime.now(ZoneInfo("America/Chicago"))
 daily=(local.hour==4 and local.minute<5)
+cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
+if cycle:
+    import time
+    schedule=m.get("schedule")
+    hourly=isinstance(schedule,dict) and schedule.get("frequency")=="phase1-hourly" and schedule.get("policyId")=="phase1-hourly-01a1944f" and schedule.get("timeZone")=="America/Chicago" and schedule.get("startHour") is None and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is True
+    start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or m.get("reason")=="Deployment Recovery")
+    if not daily: raise SystemExit(1)
 emergency=(m.get("reason")=="Deployment Recovery")
 transition=(os.environ.get("DAILY_TRANSITION")=="1" and m.get("schedule") is None and local.minute>=55 and m.get("reason")=="Scheduled Engine Maintenance")
 if not daily and not emergency and not transition: raise SystemExit(1)
@@ -1276,6 +1425,14 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 local=datetime.now(ZoneInfo("America/Chicago"))
 daily=(local.hour==4 and local.minute<5)
+cycle=int(os.environ.get("PHASE1_CYCLE_START", "0"))
+if cycle:
+    import time
+    schedule=m.get("schedule")
+    hourly=isinstance(schedule,dict) and schedule.get("frequency")=="phase1-hourly" and schedule.get("policyId")=="phase1-hourly-01a1944f" and schedule.get("timeZone")=="America/Chicago" and schedule.get("startHour") is None and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is True
+    start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or m.get("reason")=="Deployment Recovery")
+    if not daily: raise SystemExit(1)
 emergency=(m.get("reason")=="Deployment Recovery")
 transition=(os.environ.get("DAILY_TRANSITION")=="1" and m.get("schedule") is None and local.minute>=55 and m.get("reason")=="Scheduled Engine Maintenance")
 if not daily and not emergency and not transition: raise SystemExit(1)
@@ -1384,6 +1541,21 @@ note_missed_admission() {
 # Prints "<class> <detail>" for the first reason that applies, or nothing.
 recovery_window_reason() {
   local health="$1" degraded now past next_break last_admission
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
+    now="$(date +%s)"
+    if [ "$now" -ge $((PHASE1_CYCLE_START - 120)) ] && [ "$now" -lt $((PHASE1_CYCLE_START - 60)) ]; then
+      # First adoption only: a running old daily engine cannot announce00.
+      # Its existing durable recovery door consumes this one fixed58 timestamp.
+      if printf '%s' "$health" | python3 -c '
+import json,sys
+h=json.load(sys.stdin); m=h.get("maintenance") or {}; s=m.get("schedule") or {}
+raise SystemExit(0 if h.get("running") is True and s.get("frequency")!="phase1-hourly" and m.get("recoveryWindowProtocol")=="engine-recovery-window-v1" else 1)'; then
+        echo phase1-hourly
+        return 0
+      fi
+    fi
+  fi
+  [ "${PHASE1_CYCLE_START:-0}" = 0 ] || return 0
   degraded="$(printf '%s' "$health" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -1506,7 +1678,7 @@ print(v if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{40}", v) else "")
 # `urgent`; an owner-ordered window is presented to both as that cause.
 recovery_cause() {
   case "$1" in
-    owner-ordered) echo urgent ;;
+    owner-ordered|phase1-hourly) echo urgent ;;
     *) echo "$1" ;;
   esac
 }
@@ -1651,12 +1823,16 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
     fi
     return 0
   fi
-  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
+    reason="$(recovery_window_reason "$health")"
+  elif [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
     reason="$(owner_window_reason "$health")"
     [ "$reason" = "owner-ordered $ACTIVATION_FLOOR_OWNER_WINDOW" ] || reason=''
   else
     reason="$(recovery_window_reason "$health")"
-    [ -n "$reason" ] || reason="$(owner_window_reason "$health")"
+    if [ "${PHASE1_FLOOR_SELECTED:-0}" = 0 ]; then
+      [ -n "$reason" ] || reason="$(owner_window_reason "$health")"
+    fi
   fi
   # NO LOCK WITHOUT AN EMERGENCY (2026-10-04). The seal answers `unavailable`
   # to every reservation that names no cause, so a routine release (no
@@ -1665,14 +1841,14 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
   # releases for up to the whole lock wait and could end this one in `die`.
   # It waits for the scheduled break without touching the lock or the seal.
   case "${reason%% *}" in
-    engine-degraded|owner-ordered) ;;
+    engine-degraded|owner-ordered|phase1-hourly) ;;
     *) return 0 ;;
   esac
   cause_key="$RECOVERY_ADMISSION_MISSED:${reason%% *}"
   [ "$RECOVERY_CHECKED_CAUSE" != "$cause_key" ] || return 0
   acquire_engine_lock 'one recovery announcement'
   source_target_is_current
-  if EXACT_INSTANCE="$(exact_runtime_instance)"; then
+  if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then
     emit_already_released "$EXACT_INSTANCE"
   fi
   if [ -n "${SUPERSEDED_BY:-}" ] && newer="$(newer_release_in_flight)"; then
@@ -1691,21 +1867,26 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
     release_engine_lock
     return 0
   }
-  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
+    reason="$(recovery_window_reason "$health")"
+  elif [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
     reason="$(owner_window_reason "$health")"
     [ "$reason" = "owner-ordered $ACTIVATION_FLOOR_OWNER_WINDOW" ] || reason=''
   else
     reason="$(recovery_window_reason "$health")"
-    [ -n "$reason" ] || reason="$(owner_window_reason "$health")"
+    if [ "${PHASE1_FLOOR_SELECTED:-0}" = 0 ]; then
+      [ -n "$reason" ] || reason="$(owner_window_reason "$health")"
+    fi
   fi
   case "${reason%% *}" in
-    engine-degraded|owner-ordered) ;;
+    engine-degraded|owner-ordered|phase1-hourly) ;;
     *)
       release_engine_lock
       return 0
       ;;
   esac
   if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then refuse_foreign_floor_owner; fi
+  if [ "${PHASE1_POLICY_OWNED:-0}" = 1 ]; then phase1_custody_admission; fi
   # A closed listener does not resolve a prior unknown native close. On a
   # resumed invocation, require this run's durable completed receipt before
   # either announcing or considering a fresh attachment.
@@ -1733,7 +1914,7 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
     fi
   fi
   FLOOR_RESERVATION_FRESH=0
-  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
+  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
     [ "$FLOOR_DISPOSITION" != never-entered ] || FLOOR_RESERVATION_FRESH=1
     # The existing reservation/announcement is this fresh request's first
     # runtime-capable action. Persist ownership before any unknown outcome.
@@ -1742,6 +1923,9 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
   fi
   reserve_args=(--sha "$SHA" --run-id "$RUN_ID" --repo "$REPO_DIR")
   reserve_args+=(--cause "$(recovery_cause "${reason%% *}")")
+  if [ "${reason%% *}" = phase1-hourly ]; then
+    reserve_args+=(--scheduled-cycle-start "$PHASE1_CYCLE_START" --control-sha "$CONTROL_SHA")
+  fi
   reserve_args+=(--include-eligibility)
   if ! stamp="$(timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" reserve-recovery-window \
     "${reserve_args[@]}")"; then
@@ -1760,13 +1944,13 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
     # a blind sixty seconds can skip the owner's only permitted minute.
     # The next pass still rechecks owner minute, health, source and ownership.
     RECOVERY_NEXT_EVALUATION=$(( (BASH_REMATCH[1] + 999) / 1000 ))
-    if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then retire_unannounced_floor_entry; fi
+    if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
     release_engine_lock
     echo "[engine-release-transaction] off-cycle window wanted ($reason) but the seal's rolling-hour boundary has not elapsed; re-evaluate at $RECOVERY_NEXT_EVALUATION"
     return 0
   fi
   if [ "$stamp" = rate-limited ]; then
-    if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then retire_unannounced_floor_entry; fi
+    if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
     release_engine_lock
     RECOVERY_NEXT_EVALUATION=$(( $(date +%s) + RECOVERY_DEFER_SECONDS ))
     echo "[engine-release-transaction] off-cycle window wanted ($reason) but one was already announced in the last hour; waiting for the scheduled break"
@@ -1774,7 +1958,7 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
   fi
   RECOVERY_CHECKED_CAUSE="$cause_key"
   if [ "$stamp" = unavailable ]; then
-    if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then retire_unannounced_floor_entry; fi
+    if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
     release_engine_lock
     return 0
   fi
@@ -2387,7 +2571,7 @@ export ACTIVATION_FLOOR_OWNER_WINDOW=
 if [ "$FLOOR_DISPOSITION" = never-entered ] || [ "$FLOOR_DISPOSITION" = announced ]; then
   ACTIVATION_FLOOR_JSON="$(python3 "$CONTROL_DIR/engine-release-activation-floor.py" admit \
     --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" \
-    --deadline "$MUTATION_DEADLINE_EPOCH")" || die 'immutable daily activation intent refused'
+    --deadline "$MUTATION_DEADLINE_EPOCH" --request-root "$REQUEST_ROOT" --run-id "$RUN_ID")" || die 'immutable daily activation intent refused'
   # An announced owner whose window has since expired reads 'legacy' from a
   # fresh admit (an expired floor is no floor, 2026-10-30). Its announcement
   # was made under that window, so it ends here by name rather than carrying
@@ -2397,6 +2581,8 @@ if [ "$FLOOR_DISPOSITION" = never-entered ] || [ "$FLOOR_DISPOSITION" = announce
   fi
   ACTIVATION_FLOOR_END_EPOCH="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("expiresEpoch", 0))')"
   ACTIVATION_FLOOR_OWNER_WINDOW="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ownerWindowId") or "")')"
+  PHASE1_FLOOR_SELECTED="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(1 if json.load(sys.stdin).get("schema")=="engine-release-activation-floor/v3-phase1" else 0)')"
+  export PHASE1_FLOOR_SELECTED
 fi
 
 record_floor_runtime_entry() {
@@ -2408,6 +2594,11 @@ record_floor_runtime_entry() {
 
 # Duplicate certification and interrupted recovery retain their original owner.
 acquire_engine_lock 'duplicate certification'
+# Pure durable ownership read precedes any desired-runtime restoration. New
+# source policy/cycle admission still follows canonical committed-run replay.
+legacy_entry_read timeout --signal=TERM --kill-after=1s 15s \
+  "$RELEASE_SEAL" check-routine-owner --run-id "$RUN_ID" >/dev/null \
+  || die 'a prior routine cycle owner remains unresolved'
 refuse_foreign_floor_owner
 while :; do
   read_pending_owner
@@ -2481,7 +2672,8 @@ fi
 [ "$(date +%s)" -lt "$MUTATION_DEADLINE_EPOCH" ] \
   || die 'immutable release not-after epoch expired before new release mutation'
 source_target_is_current
-if EXACT_INSTANCE="$(exact_runtime_instance)"; then
+initialise_phase1_cycle
+if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then
   emit_already_released "$EXACT_INSTANCE"
 fi
 [ -z "${DRILL_MODE:-}" ] || drill_preconditions
@@ -2514,9 +2706,11 @@ NEXT_FRESHNESS_CHECK=$(( $(date +%s) + 60 ))
 # retains its original authority and is never blocked by a later expiry.
 ACTIVATION_FLOOR_JSON="$(python3 "$CONTROL_DIR/engine-release-activation-floor.py" admit \
   --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" \
-  --deadline "$MUTATION_DEADLINE_EPOCH")" || die 'immutable daily activation intent refused'
+  --deadline "$MUTATION_DEADLINE_EPOCH" --request-root "$REQUEST_ROOT" --run-id "$RUN_ID")" || die 'immutable daily activation intent refused'
 ACTIVATION_FLOOR_END_EPOCH="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("expiresEpoch",0))')"
 ACTIVATION_FLOOR_OWNER_WINDOW="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ownerWindowId") or "")')"
+PHASE1_FLOOR_SELECTED="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(1 if json.load(sys.stdin).get("schema")=="engine-release-activation-floor/v3-phase1" else 0)')"
+export PHASE1_FLOOR_SELECTED
 if [ "$ACTIVATION_FLOOR_END_EPOCH" -gt 0 ] && [ "$CERTIFICATE_DEADLINE" -gt "$ACTIVATION_FLOOR_END_EPOCH" ]; then
   CERTIFICATE_DEADLINE="$ACTIVATION_FLOOR_END_EPOCH"
 fi
@@ -2558,6 +2752,7 @@ fi
 # database witness must be readable now, or this refuses before notice too.
 DRAINED_PREDECESSOR_CUTOVER=0
 switch_to_drained_predecessor_cutover() {
+  [ "${PHASE1_POLICY_OWNED:-0}" = 0 ] || die 'Phase1 requires the full retained-owner checkpoint; an age-only drained boundary is not qualified'
   LEGACY_CHECKPOINT_REQUIRED=0
   DRAINED_PREDECESSOR_CUTOVER=1
   echo "[engine-release-transaction] the full-heap legacy census does not fit (or its heap is unreadable); it is refused and $CHECKPOINT_EED_SHA may be replaced only at a drained hand boundary, never by a checkpoint"
@@ -2614,6 +2809,11 @@ else
   echo "[engine-release-transaction] WARN: could not record that $SHA is waiting at the certificate; older releases will not stand aside for it" >&2
 fi
 while :; do
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
+    cycle_limit="${PHASE1_WINDOW_END:-0}"
+    [ "$cycle_limit" -gt 0 ] || cycle_limit=$(((PHASE1_CYCLE_START+360)*1000))
+    [ "$(date +%s%3N)" -lt "$cycle_limit" ] || die 'original routine cycle expired; no later hour is authorized'
+  fi
   [ "$(date +%s)" -lt "$CERTIFICATE_DEADLINE" ] \
     || die 'the engine did not present a restart certificate with enough proof time remaining'
   if [ "$(date +%s)" -ge "$NEXT_FRESHNESS_CHECK" ]; then
@@ -2717,7 +2917,7 @@ while :; do
   acquire_engine_lock 'maintenance cutover'
   if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ]; then legacy_entry_trace locked verified; fi
   source_target_is_current
-  if EXACT_INSTANCE="$(exact_runtime_instance)"; then
+  if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then
     LEGACY_ENTRY_DEADLINE_MS=0
     emit_already_released "$EXACT_INSTANCE"
   fi

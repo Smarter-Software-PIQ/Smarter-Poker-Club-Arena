@@ -510,7 +510,12 @@ def own_thaw(stamp, control=CANCEL_CONTROL):
     require(source_hash(helper) == hashes[helper.name])
     spec = importlib.util.spec_from_file_location('qualified_withdrawal_database_reader', helper)
     reader = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(reader)
+    original_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(reader)
+    finally:
+        sys.dont_write_bytecode = original_bytecode
     values = reader.read_fixed_env(Path('/opt/club-arena/server/.env'))
     require(values.get('SUPABASE_URL', '').rstrip('/') == 'https://kuklfnapbkmacvwxktbh.supabase.co'
             and bool(values.get('SUPABASE_SERVICE_ROLE_KEY')))
@@ -605,7 +610,13 @@ def announcement_evidence(request, after_stop=False, read_only=False):
     released_path = reqroot / (key + '.lightning-hold.json.released')
     released_raw = regular(released_path, 0o600)
     spec = importlib.util.spec_from_file_location('qualified_withdrawal_hold_reader', generation / 'engine-release-lightning-hold.py')
-    helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+    helper = importlib.util.module_from_spec(spec)
+    original_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(helper)
+    finally:
+        sys.dont_write_bytecode = original_bytecode
     released = helper.own_record(released_path, key)
     require(released is not None and released['phase'] == 'released')
     seal = generation / 'engine-release-seal.py'

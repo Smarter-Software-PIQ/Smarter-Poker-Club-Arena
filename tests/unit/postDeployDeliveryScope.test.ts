@@ -242,7 +242,7 @@ describe('post-publication verification belongs to its delivered component', () 
     }
   });
 
-  it.each(['workflow_run', 'repository_dispatch', 'mobile-current'])(
+  it.each(['workflow_run', 'repository_dispatch', 'mobile-current', 'tournament-current'])(
     'executes the maintained resolver and admission for %s with an older healthy live engine',
     (event) => {
       const cwd = mkdtempSync(join(tmpdir(), 'ca-post-deploy-scope-'));
@@ -288,7 +288,10 @@ describe('post-publication verification belongs to its delivered component', () 
         const common = {
           ...env,
           PATH: `${join(cwd, 'bin')}:${process.env.PATH}`,
-          EVENT_NAME: event === 'mobile-current' ? 'repository_dispatch' : event,
+          EVENT_NAME: ['mobile-current', 'tournament-current'].includes(event)
+            ? 'repository_dispatch'
+            : event,
+          TOURNAMENT_ONLY: event === 'tournament-current' ? 'true' : '',
           ENGINE_TRIGGER_SHA: event === 'repository_dispatch' ? pending : '',
           MOBILE_MULTIRUN_JSON: event === 'mobile-current' ? 'true' : 'false',
           ENGINE_TRIGGER_JSON: event === 'repository_dispatch' ? JSON.stringify(pending) : 'null',

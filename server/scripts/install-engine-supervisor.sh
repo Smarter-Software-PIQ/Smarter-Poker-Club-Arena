@@ -46,6 +46,7 @@ REQUIRED_FILES=(
   prewarm-engine-image.sh
   legacy-census-scale-preflight.py
   legacy-census-scale-fixture.mjs
+  legacy-census-scale-composition.mjs
   main-inspector-retirement.py
   main-inspector-retirement-entry.mjs
   main-inspector-socket-qualification.mjs

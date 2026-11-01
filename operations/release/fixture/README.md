@@ -605,10 +605,22 @@ failed or wrongly ordered results refuse capture without retry. Cached native
 results are cleared on normal/error process exit. The128MiB private metadata
 bound,512KiB diagnostic cap and original45-second whole-capture deadline remain.
 
-Diagnostic wire protocol D3 keeps the same fixed12-byte records, event count,
-512KiB cap and45-second clock bound. Its high tag nibble adds a closed query
-subtype; legacy D1/D2 remain independently decoded without inventing historical
-subtypes. Existing FUNCTION/RELATION/TYPE/OTHER counters and timings remain.
+Diagnostic wire protocol D5 emits one two-byte stream header. Each event keeps
+its absolute17-bit sequence number and a closed6-bit tag in three bytes, with a
+zero reserved top bit. The62 tags represent exactly8 object tags and54 query
+tags; codes62/63 refuse. A canonical one-to-four-byte unsigned LEB128 delta
+recovers the original absolute microsecond timestamp. Zero deltas use one byte;
+overlong encodings, gaps, reserved tags, partial records and clock overflow refuse.
+Legacy D1/D2/D3/D4 remain independently decoded without inventing historical subtypes.
+
+Every original event and fact is preserved within the same512KiB cap,
+100000-record bound and45-second clock bound. If N≤100000 and the sum of all
+nonnegative deltas is≤45000000, total bytes are bounded by
+2+4N+min(N,floor(45000000/128))+floor(45000000/16384)+floor(45000000/2097152),
+which is≤502769. Each extra varint byte requires a delta crossing its threshold;
+therefore the count at each threshold is bounded by that total divided by the
+threshold. Full capacity fits without dropping events or weakening absolute
+ordinal/pair checks. Existing FUNCTION/RELATION/TYPE/OTHER counters and timings remain.
 Version3 receipts additionally provide started/completed network-request counts,
 elapsed/max microseconds for UNKNOWN, FUNCTION_BATCH, FUNCTION_SINGLE, AGGREGATE,
 SEQUENCE_BATCH, SEQUENCE_SINGLE, COLUMN_ACL, VIEW_DEFINITION, PARTITION_KEY,
@@ -618,7 +630,7 @@ Raw function/sequence batch sites supply their fixed code. Singleton readers use
 strict pinned fixed-prefix classification; unsupported prefixes or incompatible
 object contexts stay UNKNOWN. No SQL, object identifiers, names or result rows
 enter the channel. Both independent decoders enforce subtype/type/pair bounds;
-the source-bound capability requires actual D3 native frames and subtype proof,
+the source-bound capability requires actual D5 native frames, absolute-event/capacity and subtype proof,
 so old manifests cannot certify the logger. Counts describe network requests,
 including a whole batch, rather than logical statements or cached object reads.
 

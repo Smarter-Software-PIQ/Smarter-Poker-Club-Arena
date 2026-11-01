@@ -83,6 +83,63 @@
     "access_objects": 1000,
     "roles": 8
   },
+  "cashDecisionBrowserSourceIdentity20261101": {
+    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
+    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
+    "execution_performed": false,
+    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
+    "pins": [
+      {
+        "file": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+      },
+      {
+        "file": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previous": "2cb1827ac44c5d5445d4f77d1bce5462b6f17a8bd9775ab77d9d986d7c1b37e7",
+        "current": "bdf2dc0ae1c2c3c02453fb2567e4fb72fed25566b325acdb79f28684027283ab"
+      },
+      {
+        "file": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "380ba9ee8b173d05c570837ccd23a3904b4b5c8c76d655e02bc7290f40a6f338",
+        "current": "236deea8e93bad16c402ee988f35416655d363c3827321506ac73f567f065bfe"
+      }
+    ]
+  },
+  "cashDecisionClosureProtectedMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 11f78015fa2598900df3556864763bc09502a7f1.",
+    "review": "Preserve both parents audit metadata and all historical financial qualification states. Compose current workflow, classifier, completion receipt and nested active source-binding identities from merged bytes. Frozen and historical qualifications are not restamped.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "ours": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
+        "incoming": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+      },
+      "tests/fixtures/legacy-fee-finality/source-binding.json": {
+        "ours": "bdf2dc0ae1c2c3c02453fb2567e4fb72fed25566b325acdb79f28684027283ab",
+        "incoming": "6edf61922ba828a8c4b4622068892f4ff275834aea5b0d50164c2dd77259a178",
+        "current": "5f793364b1bbbc3383ef6830d8ccd5885137ab1123563231dbdb5ffb45412ee3"
+      },
+      "server/src/tournament/completionSettlementReceipt.ts": {
+        "ours": "a59a97b5b0f76d5c54d01b1fe47f3284efb2fcbd3e7742bb4e9e1ac6f0207dd4",
+        "incoming": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
+        "current": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018"
+      },
+      "tests/fixtures/sep8-spin-custody/source-binding.json": {
+        "ours": "236deea8e93bad16c402ee988f35416655d363c3827321506ac73f567f065bfe",
+        "incoming": "510bc5aa50eeeb76b8264cc19ff6d7c2248c88f7dacf09471f576a1bc2a4e382",
+        "current": "37ee54fa74a0fbb8b047f9485ffa8b869693097544a434b1dfd4d664b2387c5f"
+      },
+      "tests/fixtures/earlybird-fee-custody/source-binding.json": {
+        "ours": "a000a18921bc2b309ee178e874cf88a778b29f63fbc58c8b0c557295fc141f69",
+        "incoming": "2e0506f37010f0c7ae060f63588717c28e866c87156d96ed250308d58de96bdd",
+        "current": "2e0506f37010f0c7ae060f63588717c28e866c87156d96ed250308d58de96bdd"
+      }
+    }
+  },
   "fixtures": {
     "schema.sql": "db0f5a5ea4a884b3715620c925ae7bb19b1a53c9c6716e97b769f42712674fd9",
     "policies.sql": "075254070c905c0bac70a9bc5a0b3e938b5262f0e1a186ee2a56127da0f77698",
@@ -516,7 +573,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "37ee54fa74a0fbb8b047f9485ffa8b869693097544a434b1dfd4d664b2387c5f",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "1a61514183e6c0f2ef2201256037bc16433a1424f340a51b0b0513dbb85bb1fa",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -556,7 +613,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "2e0506f37010f0c7ae060f63588717c28e866c87156d96ed250308d58de96bdd",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "78e5252704b1b6243cfe659dae46a2fc7980e959245550af963ed767dfd3be3f",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -6243,28 +6300,31 @@
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   },
-  "cashDecisionBrowserSourceIdentity20261101": {
-    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
-    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
-    "execution_performed": false,
-    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
-    "pins": [
-      {
-        "file": "scripts/ci/classify-ci-changes.mjs",
-        "previous": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
-        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+  "standardUbuntuCompatibility20261101": {
+    "scope": "Bind current runner assertion and child manifests; historical financial evidence and qualification statuses unchanged.",
+    "sourceChanges": {
+      "tests/unit/fixtureNativeCi.test.ts": {
+        "previous": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+        "current": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
       },
-      {
-        "file": "tests/fixtures/legacy-fee-finality/source-binding.json",
-        "previous": "2cb1827ac44c5d5445d4f77d1bce5462b6f17a8bd9775ab77d9d986d7c1b37e7",
-        "current": "bdf2dc0ae1c2c3c02453fb2567e4fb72fed25566b325acdb79f28684027283ab"
+      "tests/fixtures/earlybird-fee-custody/source-binding.json": {
+        "previous": "08ae9fc48547f69b8fa02be49fdfb7a1037932c367ae38cf309e2f2b8e82bf4c",
+        "current": "4f261ad86c75efe41773d7fc3f739a08ece92263c5a7f8ffb0a58f462ab5287a"
       },
-      {
-        "file": "tests/fixtures/sep8-spin-custody/source-binding.json",
-        "previous": "380ba9ee8b173d05c570837ccd23a3904b4b5c8c76d655e02bc7290f40a6f338",
-        "current": "236deea8e93bad16c402ee988f35416655d363c3827321506ac73f567f065bfe"
+      "tests/fixtures/sep8-spin-custody/source-binding.json": {
+        "previous": "05bc4b86a0f03f591e26005e4baff82e0ca225a7b97b363bef8e8eb77c12fc9d",
+        "current": "82f779820888df9ada576b5aa1418190c354bb6edb7a5804522223127577f92d"
       }
-    ]
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "protectedMainRunnerReconciliation20261101": {
+    "scope": "Preserve both source-identity histories and protected accounting shard2-only Ubuntu24.04 route; retain all supported browser pins. Only actual current CI/contract/nested binding identities change.",
+    "protectedMain": "38a1c453c2eac2515e55cd94b439702e1b35be7c",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   },
   "restamp_auditClosureBranchRecord": [
     {
@@ -7542,39 +7602,5 @@
   "closureSessionStatsIntegration20261101": {
     "reason": "Preserve both protected session-statistics and closure audit histories; active input hashes identify integrated source only. No historical qualification verdict changed.",
     "historicalEvidenceRestamped": false
-  },
-  "cashDecisionClosureProtectedMainMergeIdentity20261101": {
-    "scope": "Current source identity only for semantic integration with protected main 11f78015fa2598900df3556864763bc09502a7f1.",
-    "review": "Preserve both parents audit metadata and all historical financial qualification states. Compose current workflow, classifier, completion receipt and nested active source-binding identities from merged bytes. Frozen and historical qualifications are not restamped.",
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false,
-    "pins": {
-      "scripts/ci/classify-ci-changes.mjs": {
-        "ours": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
-        "incoming": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
-        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
-      },
-      "tests/fixtures/legacy-fee-finality/source-binding.json": {
-        "ours": "bdf2dc0ae1c2c3c02453fb2567e4fb72fed25566b325acdb79f28684027283ab",
-        "incoming": "6edf61922ba828a8c4b4622068892f4ff275834aea5b0d50164c2dd77259a178",
-        "current": "5f793364b1bbbc3383ef6830d8ccd5885137ab1123563231dbdb5ffb45412ee3"
-      },
-      "server/src/tournament/completionSettlementReceipt.ts": {
-        "ours": "a59a97b5b0f76d5c54d01b1fe47f3284efb2fcbd3e7742bb4e9e1ac6f0207dd4",
-        "incoming": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
-        "current": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018"
-      },
-      "tests/fixtures/sep8-spin-custody/source-binding.json": {
-        "ours": "236deea8e93bad16c402ee988f35416655d363c3827321506ac73f567f065bfe",
-        "incoming": "510bc5aa50eeeb76b8264cc19ff6d7c2248c88f7dacf09471f576a1bc2a4e382",
-        "current": "37ee54fa74a0fbb8b047f9485ffa8b869693097544a434b1dfd4d664b2387c5f"
-      },
-      "tests/fixtures/earlybird-fee-custody/source-binding.json": {
-        "ours": "a000a18921bc2b309ee178e874cf88a778b29f63fbc58c8b0c557295fc141f69",
-        "incoming": "2e0506f37010f0c7ae060f63588717c28e866c87156d96ed250308d58de96bdd",
-        "current": "2e0506f37010f0c7ae060f63588717c28e866c87156d96ed250308d58de96bdd"
-      }
-    }
   }
 }

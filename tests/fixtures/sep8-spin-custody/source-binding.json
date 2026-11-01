@@ -35,6 +35,38 @@
   "original_fees": "11.52",
   "raw_sources_per_event": 1,
   "recognized_contributors_per_event": 3,
+  "cashDecisionBrowserSourceIdentity20261101": {
+    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
+    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
+    "execution_performed": false,
+    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
+    "pins": [
+      {
+        "file": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+      }
+    ]
+  },
+  "cashDecisionClosureProtectedMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 11f78015fa2598900df3556864763bc09502a7f1.",
+    "review": "Preserve both parents audit metadata and all historical financial qualification states. Compose current workflow, classifier, completion receipt and nested active source-binding identities from merged bytes. Frozen and historical qualifications are not restamped.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "ours": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
+        "incoming": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+      },
+      "server/src/tournament/completionSettlementReceipt.ts": {
+        "ours": "a59a97b5b0f76d5c54d01b1fe47f3284efb2fcbd3e7742bb4e9e1ac6f0207dd4",
+        "incoming": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
+        "current": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018"
+      }
+    }
+  },
   "repository_files": {
     "scripts/ci/classify-ci-changes.mjs": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
@@ -1761,18 +1793,19 @@
     "currentSha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
     "historicalEvidenceRestamped": false
   },
-  "cashDecisionBrowserSourceIdentity20261101": {
-    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
-    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
+  "standardUbuntuCompatibility20261101": {
+    "scope": "Only four accounting standard-hosted OS assertions now pin ubuntu-24.04 after latest moved to unsupported Ubuntu26.04. No financial assertion or qualification status changed.",
+    "previousFixtureContractSha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+    "currentFixtureContractSha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2",
     "execution_performed": false,
-    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
-    "pins": [
-      {
-        "file": "scripts/ci/classify-ci-changes.mjs",
-        "previous": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
-        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
-      }
-    ]
+    "historicalEvidenceRestamped": false
+  },
+  "protectedMainRunnerReconciliation20261101": {
+    "scope": "Preserve both source-identity histories and protected accounting shard2-only Ubuntu24.04 route; retain all supported browser pins. Only actual current CI/contract/nested binding identities change.",
+    "protectedMain": "38a1c453c2eac2515e55cd94b439702e1b35be7c",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   },
   "closureMainIntegration20261101": {
     "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
@@ -1789,24 +1822,5 @@
   "closureSessionStatsIntegration20261101": {
     "reason": "Preserve both protected session-statistics and closure audit histories; active input hashes identify integrated source only. No historical qualification verdict changed.",
     "historicalEvidenceRestamped": false
-  },
-  "cashDecisionClosureProtectedMainMergeIdentity20261101": {
-    "scope": "Current source identity only for semantic integration with protected main 11f78015fa2598900df3556864763bc09502a7f1.",
-    "review": "Preserve both parents audit metadata and all historical financial qualification states. Compose current workflow, classifier, completion receipt and nested active source-binding identities from merged bytes. Frozen and historical qualifications are not restamped.",
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false,
-    "pins": {
-      "scripts/ci/classify-ci-changes.mjs": {
-        "ours": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
-        "incoming": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
-        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
-      },
-      "server/src/tournament/completionSettlementReceipt.ts": {
-        "ours": "a59a97b5b0f76d5c54d01b1fe47f3284efb2fcbd3e7742bb4e9e1ac6f0207dd4",
-        "incoming": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
-        "current": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018"
-      }
-    }
   }
 }

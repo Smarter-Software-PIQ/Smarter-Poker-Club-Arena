@@ -3484,9 +3484,13 @@ printf '%s\n' '[engine-release-transaction] FATAL: target is stale; protected ma
     expect(releaseUnit).toContain('recover %i \\${SERVICE_RESULT} \\${EXIT_CODE} \\${EXIT_STATUS}');
   });
 
-  it.each([false, true])(
-    'executes committed-run result reconstruction without restart fallthrough when positive qualification refuses=%s',
-    (refusePositive) => {
+  it.each([
+    [false, false],
+    [true, false],
+    [false, true],
+  ])(
+    'executes committed-run result reconstruction without restart fallthrough when positive qualification refuses=%s and foreign routine owner=%s',
+    (refusePositive, foreignRoutineOwner) => {
       const sandbox = mkdtempSync(join(tmpdir(), 'engine-committed-replay-'));
       try {
         const generation = join(sandbox, 'generation');
@@ -3494,6 +3498,7 @@ printf '%s\n' '[engine-release-transaction] FATAL: target is stale; protected ma
         const bin = join(sandbox, 'bin');
         const gitLog = join(sandbox, 'git.log');
         const replacementLog = join(sandbox, 'replacement.log');
+        const supervisorLog = join(sandbox, 'supervisor.log');
         const runKey = '991-2';
         const controlSha = C_SHA;
         const instanceId = '12345-deadbeef';
@@ -3532,6 +3537,7 @@ printf '%s\n' '[engine-release-transaction] FATAL: target is stale; protected ma
           `#!/usr/bin/env bash
 set -euo pipefail
 case "\${1:-}:\${2:-}" in
+  check-routine-owner:--run-id) [ "${foreignRoutineOwner ? 1 : 0}" = 0 ] || exit 1; echo none ;;
   pending-owner:) echo none ;;
   get:desired-sha) echo '${B_SHA}' ;;
   get:desired-image-id) echo '${B_IMAGE}' ;;
@@ -3547,7 +3553,10 @@ case "\${1:-}:\${2:-}" in
 esac
 `
         );
-        writeFileSync(join(generation, 'engine-supervisor.sh'), '#!/usr/bin/env bash\nexit 0\n');
+        writeFileSync(
+          join(generation, 'engine-supervisor.sh'),
+          `#!/usr/bin/env bash\nprintf supervisor >> '${supervisorLog}'\nexit 0\n`
+        );
         writeFileSync(
           join(generation, 'engine-release-database-proof.py'),
           '#!/usr/bin/env bash\nexit 0\n'
@@ -3626,6 +3635,17 @@ esac
             },
           }
         );
+        if (foreignRoutineOwner) {
+          expect(replay.status, `${replay.stdout}\n${replay.stderr}`).toBe(1);
+          expect(replay.stderr).toContain('a prior routine cycle owner remains unresolved');
+          expect(
+            existsSync(supervisorLog),
+            'foreign cycle reached desired-runtime restoration'
+          ).toBe(false);
+          expect(existsSync(replacementLog), 'foreign cycle invoked replacement/build').toBe(false);
+          expect(existsSync(gitLog), 'foreign cycle consulted mutable protected main').toBe(false);
+          return;
+        }
         expect(replay.status, `${replay.stdout}\n${replay.stderr}`).toBe(refusePositive ? 1 : 0);
         if (refusePositive) {
           expect(replay.stderr).toContain(

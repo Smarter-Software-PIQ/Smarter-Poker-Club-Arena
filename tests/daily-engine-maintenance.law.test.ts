@@ -1,6 +1,6 @@
 import { queuedDailyRelease } from '../scripts/ci/daily-engine-provenance.mjs';
 import { describe, expect, it } from 'vitest';
-import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -18,7 +18,7 @@ function admit(
   hour: string,
   message: string,
   health: string,
-  schedule = '30 8 * * *',
+  schedule = '30 * * * *',
   createdAt = '2026-10-21T08:30:01Z',
   owner?: { windows: string; ancestor: boolean; served?: boolean; witness?: string; floor?: string }
 ) {
@@ -33,6 +33,31 @@ function admit(
       if (owner.floor)
         writeFileSync(join(dir, 'server/release/activation-floor.json'), owner.floor);
     }
+    // Daily/owner-window authority remains independently qualified with the
+    // explicit completed/off source policy. The maintained helper reads its
+    // exact immutable Git bytes rather than inheriting today's active policy.
+    const policy = JSON.parse(
+      readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
+    );
+    policy.phase1Status = 'off';
+    policy.completionEvidence = 'isolated daily-admission fixture';
+    mkdirSync(join(dir, 'server/scripts'), { recursive: true });
+    writeFileSync(
+      join(dir, 'server/scripts/engine-release-seal.py'),
+      readFileSync(join(root, 'server/scripts/engine-release-seal.py'))
+    );
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'policy.json'), JSON.stringify(policy));
+    writeFileSync(
+      join(dir, 'bin/git'),
+      `#!/usr/bin/env bash
+set -eu
+[ "$1" = -C ] && [ "$2" = . ] && [ "$3" = show ]
+[ "$4" = '${'a'.repeat(40)}:server/src/maintenance/maintenanceSchedulePolicy.json' ]
+cat '${join(dir, 'policy.json')}'
+`
+    );
+    chmodSync(join(dir, 'bin/git'), 0o755);
     const result = spawnSync(
       'bash',
       [
@@ -80,6 +105,8 @@ function admit(
         cwd: dir,
         env: {
           ...process.env,
+          PATH: `${join(dir, 'bin')}:${process.env.PATH ?? ''}`,
+          GITHUB_SHA: 'a'.repeat(40),
           OWNER_ANCESTOR: owner?.ancestor ? '1' : '0',
           OWNER_SERVED: owner?.served ? '1' : '0',
           WITNESS_MODE: owner?.witness ?? 'unserved',
@@ -116,18 +143,18 @@ describe('daily routine admission uses the existing protected receiver only', ()
       admit('schedule', '03', 'routine', '{"liveness":"ok"}', '30 9 * * *', '2026-10-21T09:30:01Z')
     ).toBe(false);
     expect(
-      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 9 * * *', '2026-12-21T09:30:01Z')
+      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-12-21T09:30:01Z')
     ).toBe(true);
     expect(
-      admit('schedule', '03', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-12-21T08:30:01Z')
+      admit('schedule', '03', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-12-21T08:30:01Z')
     ).toBe(false);
     expect(
-      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-03-08T08:30:01Z')
+      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-03-08T08:30:01Z')
     ).toBe(true);
     expect(
-      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 9 * * *', '2026-11-01T09:30:01Z')
+      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-11-01T09:30:01Z')
     ).toBe(true);
-    expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', 'malformed')).toBe(
+    expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', 'malformed')).toBe(
       false
     );
     // A cron GitHub delivers hours late is judged by when it arrived
@@ -136,7 +163,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
       admit('schedule', '09', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-10-31T14:37:20Z')
     ).toBe(false);
     expect(
-      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-10-22T00:01:00Z')
+      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-10-22T00:01:00Z')
     ).toBe(false);
   });
   it('refuses commit urgency while retaining measured engine emergencies', () => {
@@ -500,7 +527,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
       check({ ...fixture, releaseWitness: { ...fixture.releaseWitness, sha256: 'f'.repeat(64) } })
     ).toBe(false);
   });
-  it('binds a witness to exact target bytes and full unserved history rather than a shared base', () => {
+  function witnessAdmissionFixture() {
     const witness = {
       path: 'supabase/migrations/20261028171228_fixture_rebuy.sql',
       sha256: createHash('sha256').update('fixture SQL\n').digest('hex'),
@@ -536,6 +563,10 @@ describe('daily routine admission uses the existing protected receiver only', ()
         undefined,
         { windows, ancestor, served, witness: mode }
       );
+    return { witness, doc, check };
+  }
+  it('binds a witness to the exact maintained bootstrap guard and refuses other paths', () => {
+    const { witness, doc, check } = witnessAdmissionFixture();
     // Only this exact maintained bootstrap source may be a non-migration
     // feature witness. Its bytes and unserved history keep the same once rule.
     const guardWitness = {
@@ -551,6 +582,9 @@ describe('daily routine admission uses the existing protected receiver only', ()
     expect(
       check('unserved', doc({ ...guardWitness, path: 'server/scripts/other-guard.mjs' }))
     ).toBe(false);
+  });
+  it('binds a witness to full unserved history and independent owner authority', () => {
+    const { doc, check } = witnessAdmissionFixture();
     // The peer has our shared base, but has never contained our actual feature.
     expect(check('unserved')).toBe(true);
     // A consumed specific order does not revoke an independent legacy order.
@@ -568,6 +602,9 @@ describe('daily routine admission uses the existing protected receiver only', ()
     ])
       expect(check(mode), mode).toBe(false);
     expect(check('unserved', doc(), false)).toBe(false);
+  });
+  it('binds a witness to a valid exact target shape', () => {
+    const { witness, doc, check } = witnessAdmissionFixture();
     for (const invalid of [
       null,
       {},

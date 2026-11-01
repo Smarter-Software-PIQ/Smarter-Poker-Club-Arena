@@ -73,7 +73,13 @@ describe('client delivery never inherits the engine activation window', () => {
       );
       execFileSync('bash', ['-c', detector.run], {
         cwd,
-        env: { ...env, BEFORE_SHA: before, AFTER_SHA: after, GITHUB_OUTPUT: output },
+        env: {
+          ...env,
+          BEFORE_SHA: before,
+          AFTER_SHA: after,
+          EVENT_NAME: 'push',
+          GITHUB_OUTPUT: output,
+        },
         timeout: 10000,
         stdio: 'pipe',
       });

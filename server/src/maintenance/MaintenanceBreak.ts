@@ -69,6 +69,8 @@
 import {
   scheduledMaintenanceAt,
   nextMaintenanceAnnouncement,
+  MAINTENANCE_FREQUENCY,
+  MAINTENANCE_POLICY_ID,
   MAINTENANCE_TIME_ZONE,
   MAINTENANCE_START_HOUR,
 } from './maintenanceSchedule.js';
@@ -491,6 +493,7 @@ export class MaintenanceBreak {
   private ownershipToken: string = randomUUID();
 
   private announceTimer: NodeJS.Timeout | null = null;
+  private scheduledAnnouncementAt = 0;
   private countdownTimer: NodeJS.Timeout | null = null;
   private endTimer: NodeJS.Timeout | null = null;
   private resumeWaveTimers = new Set<NodeJS.Timeout>();
@@ -551,7 +554,12 @@ export class MaintenanceBreak {
     this.lifecycleAbort.abort(new Error('Maintenance break lifecycle stopped'));
     this.lifecycleGeneration += 1;
     this.resumeToken += 1;
-    for (const t of [this.announceTimer, this.countdownTimer, this.endTimer, this.secondBreakTimer]) {
+    for (const t of [
+      this.announceTimer,
+      this.countdownTimer,
+      this.endTimer,
+      this.secondBreakTimer,
+    ]) {
       if (t) this.clearTimer(t);
     }
     this.secondBreakTimer = null;
@@ -988,21 +996,33 @@ export class MaintenanceBreak {
     if (!this.started || !this.deps.isRunning()) return;
     if (this.announceTimer) this.clearTimer(this.announceTimer);
 
-    const msUntil = this.msUntilNextAnnouncement();
+    const scheduledAnnouncementAt = nextMaintenanceAnnouncement(this.now());
+    this.scheduledAnnouncementAt = scheduledAnnouncementAt;
+    const msUntil = Math.max(0, scheduledAnnouncementAt - this.now());
     console.log(
       `[MaintenanceBreak] Next maintenance break announcement in ${Math.round(
         msUntil / 60000
-      )} minute(s); the routine break runs 04:00 to 04:05 America/Chicago.`
+      )} minute(s); the routine break runs ${MAINTENANCE_FREQUENCY === 'phase1-hourly' ? 'hourly00 to05 during Phase1' : '04:00 to04:05 daily'} America/Chicago.`
     );
 
     const generation = this.lifecycleGeneration;
     this.announceTimer = this.setTimer(() => {
       this.announceTimer = null;
+      this.scheduledAnnouncementAt = 0;
       if (!this.lifecycleIsCurrent(generation)) return;
       this.launchLifecycleJob(
         (async () => {
           try {
-            await this.announceLastHand();
+            const actualAnnouncementAt = this.now();
+            const intendedStartMinute = Math.floor(
+              (scheduledAnnouncementAt + MaintenanceBreak.LAST_HAND_LEAD_MS) / 60_000
+            );
+            if (
+              Math.floor((actualAnnouncementAt + MaintenanceBreak.LAST_HAND_LEAD_MS) / 60_000) !==
+              intendedStartMinute
+            )
+              throw new Error('scheduled_maintenance_announcement_expired');
+            await this.announceAt(actualAnnouncementAt);
           } finally {
             if (this.lifecycleIsCurrent(generation)) {
               // A storage failure cancels this break, but it must not cancel
@@ -1024,7 +1044,7 @@ export class MaintenanceBreak {
     // No armed daily schedule (not started, stopped, or a process whose
     // engine is not running) means there is no announcement to plan around.
     if (!this.started || !this.announceTimer) return Number.POSITIVE_INFINITY;
-    return this.msUntilNextAnnouncement();
+    return Math.max(0, this.scheduledAnnouncementAt - this.now());
   }
 
   private msUntilNextAnnouncement(): number {
@@ -1052,7 +1072,10 @@ export class MaintenanceBreak {
    * the loop cannot come back around until dealHand() resolves.
    */
   async announceLastHand(): Promise<void> {
-    const announcedAt = this.now();
+    await this.announceAt(this.now());
+  }
+
+  private async announceAt(announcedAt: number): Promise<void> {
     let operationId: string | null = null;
     try {
       if (this.deps.claimOperatorAnnouncement)
@@ -2038,7 +2061,11 @@ export class MaintenanceBreak {
       never: 'break_uncertified',
       atSecondBreak: 'keep_refusing',
     },
-    accounting_pending: { scope: 'break', never: 'break_uncertified', atSecondBreak: 'keep_refusing' },
+    accounting_pending: {
+      scope: 'break',
+      never: 'break_uncertified',
+      atSecondBreak: 'keep_refusing',
+    },
     bank_park_write_incomplete: {
       scope: 'break',
       never: 'break_uncertified',
@@ -2148,7 +2175,8 @@ export class MaintenanceBreak {
       if (!this.unparkedAtLastUncertifiedBreak.has(tableId)) continue;
       if (this.secondBreakActed.has(tableId)) continue;
       const bound = MaintenanceBreak.UNPARKED_REASON_BOUNDS[reason];
-      let accountingInFlight = !bound || bound.scope !== 'break' || bound.atSecondBreak === 'keep_refusing';
+      let accountingInFlight =
+        !bound || bound.scope !== 'break' || bound.atSecondBreak === 'keep_refusing';
       try {
         if (engines.get(tableId)?.hasAccountingInFlight?.()) accountingInFlight = true;
       } catch {
@@ -2389,10 +2417,7 @@ export class MaintenanceBreak {
           out.push(tableId);
           // The engine's own answer when it has one; an engine that only
           // publishes the boolean is counted, not guessed at.
-          this.noteBreakScoped(
-            tableId,
-            count(engine.maintenanceDurabilityReason?.() ?? 'unknown')
-          );
+          this.noteBreakScoped(tableId, count(engine.maintenanceDurabilityReason?.() ?? 'unknown'));
         }
       } catch {
         // Unreadable engines are not counted against the gate; an engine that
@@ -2934,11 +2959,16 @@ export class MaintenanceBreak {
       active: this.isActive(),
       schedule: {
         timeZone: MAINTENANCE_TIME_ZONE,
-        startHour: MAINTENANCE_START_HOUR,
+        startHour: MAINTENANCE_FREQUENCY === 'phase1-hourly' ? null : MAINTENANCE_START_HOUR,
+        frequency: MAINTENANCE_FREQUENCY,
+        policyId: MAINTENANCE_POLICY_ID,
         startMinute: MaintenanceBreak.BREAK_START_MINUTE,
         durationMs: MaintenanceBreak.BREAK_DURATION_MS,
-        nextAnnouncementAt: nextMaintenanceAnnouncement(this.now()),
-        hourlyCashFreeze: false,
+        nextAnnouncementAt:
+          this.announceTimer && this.scheduledAnnouncementAt > 0
+            ? this.scheduledAnnouncementAt
+            : nextMaintenanceAnnouncement(this.now()),
+        hourlyCashFreeze: MAINTENANCE_FREQUENCY === 'phase1-hourly',
       },
       recoveryWindowCauseRequired: true,
       recoveryWindowProtocol: this.deps.assertRecoveryWindowContract

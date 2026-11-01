@@ -2081,52 +2081,24 @@
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
   },
-  "mysteryAwardPageOrderSourceAudit20261031": {
-    "scope": "Adds the actual isolated mystery award paging regression to existing accounting shard2. Existing cases, admission, deadlines, qualification states and historical evidence are unchanged.",
-    "updatedCurrentBindings": {
+  "standardUbuntuCompatibility20261101": {
+    "scope": "Reuse only supported standard Ubuntu24.04 runner correction from57e8375; preserve this branch current CI commands, assertions and all historical evidence. Resolve source identity against actual integrated bytes, excluding unrelated shard/performance changes. Hosted validation pending.",
+    "upstreamCommit": "57e8375c17ab705b638649f9927b25a932f45891",
+    "sourceChanges": {
       ".github/workflows/ci.yml": {
         "previous": {
-          "bytes": 271733,
-          "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+          "bytes": 272197,
+          "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
         },
         "current": {
-          "bytes": 272011,
-          "sha256": "f9525914bfdf2a10fa7820aab333529db17305968781d233d1dda612aadfc8a7"
+          "bytes": 272192,
+          "sha256": "eee56621ab0b351bd63a42bb1fb425e20ede9d8360446df8f934d68057aa323b"
         }
       }
     },
     "execution_performed": false,
-    "historicalEvidenceRestamped": false
-  },
-  "mysteryPageTournamentTimingComposition20261031": {
-    "reason": "Combine the exact mystery page-order native gate with protected main add-on and highlighted-clock gates. Current workflow identity only; historical receipts and qualification states are preserved.",
-    "current": {
-      "bytes": 272475,
-      "sha256": "9fdc08b9d9dc17a1a8fcb5df7af381df999bb2eb41a3a6a6d7f20ec7f4fe9c46"
-    },
-    "historicalEvidenceRestamped": false
-  },
-  "browserRunnerCompatibility20261101": {
-    "reason": "Four browser-bearing CI jobs use standard hosted Ubuntu24.04 because locked Playwright1.58 refuses the advanced Ubuntu26.04 image. Reviewed diff changes only runner labels; exhaustive normalized workflow contracts preserve every command, permission, assertion, financial matrix and deadline. Current source identity only, no financial or live recertification.",
-    "previous": {
-      "bytes": 272475,
-      "sha256": "9fdc08b9d9dc17a1a8fcb5df7af381df999bb2eb41a3a6a6d7f20ec7f4fe9c46"
-    },
-    "current": {
-      "bytes": 272471,
-      "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
-    }
-  },
-  "nativeRunnerCompatibility20261101": {
-    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
-    "previous": {
-      "bytes": 272471,
-      "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
-    },
-    "current": {
-      "bytes": 272626,
-      "sha256": "1f1cdf41989904f94d3601910c48ea11ae80ce52c39a1140e9463648d80d2d29"
-    }
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   },
   "chromiumHostedImageCompatibility20261031": {
     "reason": "Only the three affected browser jobs (Diamond playfield, Production Build performance browser, CSS Beat) select proven free hosted Ubuntu24.04 because their locked browser installer refuses Ubuntu26.04. All matrices, commands, financial gates, assertions, deadlines and historical qualification receipts are preserved. Current source identity only.",
@@ -2154,21 +2126,34 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false
   },
-  "tournamentMainRunnerComposition20261101": {
-    "reason": "Combine reviewed protected main shard2-only accounting route and equivalent UTC fixture with mystery paging gate and live-e2e browser compatibility. Current bindings only; both historical audit records retained. No historical qualification state changed.",
-    "updates": {
-      ".github/workflows/ci.yml": {
-        "previous": {
-          "bytes": 272484,
-          "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
-        },
-        "current": {
-          "bytes": 272761,
-          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
-        }
-      }
+  "protectedMainRunnerReconciliation20261101": {
+    "scope": "Preserve both source-identity histories and protected accounting shard2-only Ubuntu24.04 route; retain all supported browser pins. Only actual current CI/contract/nested binding identities change.",
+    "protectedMain": "38a1c453c2eac2515e55cd94b439702e1b35be7c",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "browserRunnerCompatibility20261101": {
+    "reason": "Four browser-bearing CI jobs use standard hosted Ubuntu24.04 because locked Playwright1.58 refuses the advanced Ubuntu26.04 image. Reviewed diff changes only runner labels; exhaustive normalized workflow contracts preserve every command, permission, assertion, financial matrix and deadline. Current source identity only, no financial or live recertification.",
+    "previous": {
+      "bytes": 272475,
+      "sha256": "9fdc08b9d9dc17a1a8fcb5df7af381df999bb2eb41a3a6a6d7f20ec7f4fe9c46"
     },
-    "historicalEvidenceRestamped": false
+    "current": {
+      "bytes": 272471,
+      "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
+    }
+  },
+  "nativeRunnerCompatibility20261101": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272471,
+      "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
+    },
+    "current": {
+      "bytes": 272626,
+      "sha256": "1f1cdf41989904f94d3601910c48ea11ae80ce52c39a1140e9463648d80d2d29"
+    }
   },
   "equalShareMainIntegration20261101": {
     "reason": "Integrate protected main shard2-only accounting runner and three browser pins; preserve live-e2e Ubuntu24.04. Reviewed current source identity only; no financial SQL or historical qualification restamp.",
@@ -2185,6 +2170,47 @@
         }
       }
     ],
+    "historicalEvidenceRestamped": false
+  },
+  "mysteryAwardPageOrderSourceAudit20261031": {
+    "scope": "Adds the actual isolated mystery award paging regression to existing accounting shard2. Existing cases, admission, deadlines, qualification states and historical evidence are unchanged.",
+    "updatedCurrentBindings": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 271733,
+          "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+        },
+        "current": {
+          "bytes": 272011,
+          "sha256": "f9525914bfdf2a10fa7820aab333529db17305968781d233d1dda612aadfc8a7"
+        }
+      }
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "mysteryPageTournamentTimingComposition20261031": {
+    "reason": "Combine the exact mystery page-order native gate with protected main add-on and highlighted-clock gates. Current workflow identity only; historical receipts and qualification states are preserved.",
+    "current": {
+      "bytes": 272475,
+      "sha256": "9fdc08b9d9dc17a1a8fcb5df7af381df999bb2eb41a3a6a6d7f20ec7f4fe9c46"
+    },
+    "historicalEvidenceRestamped": false
+  },
+  "tournamentMainRunnerComposition20261101": {
+    "reason": "Combine reviewed protected main shard2-only accounting route and equivalent UTC fixture with mystery paging gate and live-e2e browser compatibility. Current bindings only; both historical audit records retained. No historical qualification state changed.",
+    "updates": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 272484,
+          "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+        },
+        "current": {
+          "bytes": 272761,
+          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+        }
+      }
+    },
     "historicalEvidenceRestamped": false
   },
   "browserRunnerCompatibility20261101FinancialBranchRecord": {

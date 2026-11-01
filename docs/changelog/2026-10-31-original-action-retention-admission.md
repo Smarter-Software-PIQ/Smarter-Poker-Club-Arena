@@ -1,0 +1,9 @@
+# An unchanged betting decision survives control retention
+
+Clock and presence checkpoints marked the original continuation lane unretained even when the controller's betting decision had not changed. The blanket input gate then removed the already-published action capability and rejected a timely fold, check, call, raise or all-in. With no accepted action, the original expiry clock could still force the player's fold.
+
+The engine now remembers only a decision returned after retention, bound to its exact continuation lane and controller incarnation. That same decision remains available during a healthy control-only checkpoint. A matching request enters the existing synchronous action path once, which cancels its expiry clock and captures the mutation in the original ordered continuation. The existing HTTP reservation still joins duplicates and withholds success until that mutation is retained. No new request, mutation retry, timer, clock credit, or cross-decision replay is introduced.
+
+New decisions, replacement lanes/controllers, lost leases, original recovery, and failed or closed lanes remain fenced. Closing a lane now releases outstanding acknowledgement waiters as an unknown outcome instead of leaving an HTTP request hanging.
+
+The affected regressions use the real hand controller, continuation lane, HTTP handler, idempotency reservation, and expiry timer. They cover all five legal action families, a completed baseline retention followed by a held control checkpoint, duplicate requests, unknown writes, owner changes, and an eight-second retention delay after a timely fold. Persistence is isolated in memory in these unit cases; actual browser-to-database saved-hand proof and exact serving adoption remain separate delivery requirements. The reported live refusal proves the retention gate fired, but its precise pending batch was not captured and is not labelled as a confirmed time-bank batch.
