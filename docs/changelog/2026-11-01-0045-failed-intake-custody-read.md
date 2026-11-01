@@ -34,3 +34,11 @@ provider dispatch or cleanup was performed by this source preparation.
 
 Policy receipt: canonical reader 2026-11-01T19:10:53.917Z, v2.9,
 manifest `7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52`.
+
+Follow-up review preserves service-only fields for services and reads only the
+five generic Unit properties for the path unit. The [systemd 255 D-Bus contract](https://www.freedesktop.org/software/systemd/man/255/org.freedesktop.systemd1.html)
+places MainPID and ExecMainStatus on Service, while path objects also expose the
+generic Unit interface. A real child regression supplies the five-property path
+reply without service fields. Missing generic fields remain unproved. The
+closed original-source pins are independently retained literals, so the required
+production reader tests also work in the existing shallow main checkout.

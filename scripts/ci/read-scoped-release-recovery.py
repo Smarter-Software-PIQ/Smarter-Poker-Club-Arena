@@ -1434,14 +1434,16 @@ def intake_record(root, components, private, deadline):
         for fd in reversed(fds): os.close(fd)
 
 
-def validate_intake_unit_properties(d):
-    if not isinstance(d,dict) or set(d)!={'LoadState','ActiveState','SubState','UnitFileState','Result','ExecMainStatus','MainPID','InvocationID'} or any(not isinstance(v,str) for v in d.values()): raise ValueError('Intake unit shape refused')
+def validate_intake_unit_properties(d, path_unit=False):
+    fields={'LoadState','ActiveState','SubState','UnitFileState','InvocationID'}
+    if not path_unit: fields|={'Result','ExecMainStatus','MainPID'}
+    if not isinstance(d,dict) or set(d)!=fields or any(not isinstance(v,str) for v in d.values()): raise ValueError('Intake unit shape refused')
     if (d['LoadState'] not in {'loaded','not-found','masked','error','bad-setting','stub','merged'}
                 or d['ActiveState'] not in {'active','activating','reloading','inactive','failed','deactivating'}
                 or d['SubState'] not in {'running','start','start-pre','start-post','exited','dead','failed','auto-restart','stop','stop-sigterm','stop-sigkill','stop-post','final-sigterm','final-sigkill','waiting'}
                 or d['UnitFileState'] not in {'enabled','enabled-runtime','disabled','static','indirect','masked','masked-runtime','generated','transient','linked','linked-runtime','alias',''}
-                or d['Result'] not in {'success','exit-code','signal','core-dump','timeout','watchdog','start-limit-hit','resources','protocol','dependency','oom-kill',''}
-                or not re.fullmatch('[0-9]{1,10}',d['MainPID']) or not re.fullmatch('[0-9]{1,3}',d['ExecMainStatus'])
+                or not path_unit and (d['Result'] not in {'success','exit-code','signal','core-dump','timeout','watchdog','start-limit-hit','resources','protocol','dependency','oom-kill',''}
+                or not re.fullmatch('[0-9]{1,10}',d['MainPID']) or not re.fullmatch('[0-9]{1,3}',d['ExecMainStatus']))
                 or not (d['InvocationID']=='' or re.fullmatch('[0-9a-f]{32}',d['InvocationID']))): raise ValueError('Intake unit values refused')
 
 
@@ -1449,6 +1451,9 @@ def intake_unit(unit, deadline):
     """Fixed systemctl show only: one second and 2KiB, including drainage."""
     args=['systemctl','show',unit,'--no-pager',
           '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID']
+    if unit.endswith('.path'):
+        args=['systemctl','show',unit,'--no-pager',
+              '--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID']
     process=None
     try:
         if deadline-time.monotonic()<2: raise ValueError('deadline')
@@ -1464,8 +1469,7 @@ def intake_unit(unit, deadline):
                 if len(raw)>2048: raise ValueError('size')
         if process.wait(timeout=max(.001,end-time.monotonic()))!=0: raise ValueError('command')
         d=unique_object([line.split('=',1) for line in raw.decode('ascii').splitlines()])
-        if set(d)!={'LoadState','ActiveState','SubState','UnitFileState','Result','ExecMainStatus','MainPID','InvocationID'}: raise ValueError('shape')
-        validate_intake_unit_properties(d)
+        validate_intake_unit_properties(d,path_unit=unit.endswith('.path'))
         return {'status':'observed','properties':d}
     except (OSError,ValueError,subprocess.SubprocessError):
         return {'status':'unknown','properties':None}
@@ -1576,12 +1580,12 @@ def validate_intake_reply(value, request):
             if key=='stageFiles' and row['status']=='present' and row['ownerQualified'] is not True: raise ValueError('Intake staged owner refused')
             if key=='stageFiles' and row['sourceMatches'] is not (row['sha256']==INTAKE_FILES[name] if row['status']=='present' else None): raise ValueError('Intake source match refused')
     if not isinstance(value['units'],dict) or set(value['units'])!=set(INTAKE_UNITS): raise ValueError('Intake unit export refused')
-    for row in value['units'].values():
+    for label,row in value['units'].items():
         if not isinstance(row,dict) or set(row)!={'status','properties'} or row['status'] not in {'observed','unknown'}: raise ValueError('Intake unit shape refused')
         if row['status']=='unknown':
             if row['properties'] is not None: raise ValueError('Intake unit unknown refused')
         else:
-            validate_intake_unit_properties(row['properties'])
+            validate_intake_unit_properties(row['properties'],path_unit=label=='intakePath')
     entry=value['activationEntry'];result=value['releaseResult']
     if entry is not None:
         if (not isinstance(entry,dict) or set(entry)!={'schema','phase','manifestSha256'}

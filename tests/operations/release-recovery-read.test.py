@@ -929,9 +929,9 @@ class ReaderTests(unittest.TestCase):
         lists = [node for node in ast.walk(tree) if isinstance(node, ast.List)
                  and node.elts and isinstance(node.elts[0], ast.Constant)
                  and node.elts[0].value == 'systemctl']
-        self.assertEqual(len(lists), 3)
+        self.assertEqual(len(lists), 4)
         self.assertTrue(all(node.elts[1].value == 'show' for node in lists))
-        self.assertEqual({node.elts[-1].value for node in lists}, {'--property=ActiveState,SubState,InvocationID', '--property=MainPID,ControlGroup,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID'})
+        self.assertEqual({node.elts[-1].value for node in lists}, {'--property=ActiveState,SubState,InvocationID', '--property=MainPID,ControlGroup,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID'})
         self.assertIn('--property=ActiveState,SubState,InvocationID', source)
 
     def witness_fixture(self):
@@ -2604,7 +2604,8 @@ class IntakeCustodyTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name);self.deadline=lambda:R.time.monotonic()+5
         self.unit={'status':'observed','properties':{'LoadState':'loaded','ActiveState':'failed','SubState':'failed','UnitFileState':'enabled','Result':'exit-code','ExecMainStatus':'1','MainPID':'0','InvocationID':'a'*32}}
-        self.patch=patch.object(R,'intake_unit',return_value=self.unit);self.patch.start();self.addCleanup(self.patch.stop)
+        self.path_unit={'status':'observed','properties':{k:v for k,v in self.unit['properties'].items() if k not in {'MainPID','ExecMainStatus','Result'}}}
+        self.patch=patch.object(R,'intake_unit',side_effect=lambda unit,deadline:self.path_unit if unit.endswith('.path') else self.unit);self.patch.start();self.addCleanup(self.patch.stop)
     def write(self, parts, raw, mode=0o600):
         p=self.root.joinpath(*parts);p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(raw);p.chmod(mode)
         if parts[0]=='control-staging': (self.root/'control-staging/41339482095-1').chmod(0o700)
@@ -2654,9 +2655,13 @@ class IntakeCustodyTests(unittest.TestCase):
         p.chmod(0o755);p.parent.chmod(0o775)
         self.assertEqual(self.read()['stageFiles'][name]['status'],'metadata_only')
         p.parent.chmod(0o755)
-        for name,expected in R.INTAKE_FILES.items():
-            raw=subprocess.check_output(['git','show',R.INTAKE_REQUEST['releaseSha']+':server/scripts/'+name],cwd=ROOT)
-            self.assertEqual(hashlib.sha256(raw).hexdigest(),expected)
+        # Independently retained hashes of the original 0045 Git blobs. The
+        # production reader's default-depth checkout need not retain old objects.
+        self.assertEqual(R.INTAKE_FILES,{
+            'engine-release-intake.sh':'b78e3de906d645173a28a89db76b16b0f68c5c0e3042ffd2f0e3e5a05c333abf',
+            'install-engine-intake.sh':'5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+            'install-engine-supervisor.sh':'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+            'quarantine-generated-control-cache.py':'fd35b78cd3d15c5222d7a80e0bd5c2a655c2980b2adbe0efb8aa21b3c81e77a4'})
     def test_intake_existing_floor_entry_shape_binding_and_no_creation(self):
         path=('engine-release-requests','41339482095-1.activation-entry')
         v={'schema':'engine-release-activation-floor/v3-phase1','runId':R.INTAKE_REQUEST['runKey'],'targetSha':R.INTAKE_REQUEST['releaseSha'],'controlSha':R.INTAKE_REQUEST['releaseSha'],'manifestSha256':'b'*64,'phase':'announcement'}
@@ -2698,6 +2703,12 @@ class IntakeCustodyTests(unittest.TestCase):
             p=original([R.sys.executable,'-c','import sys;sys.stdout.write('+repr(props)+')'],**kwargs);children.append(p);return p
         with patch.object(R.subprocess,'Popen',side_effect=child):
             self.assertEqual(R.intake_unit('club-arena-engine-intake-v1@41339482095-1.service',self.deadline()),self.unit)
+        path_props=''.join(k+'='+v+'\n' for k,v in self.path_unit['properties'].items())
+        def path_child(args,**kwargs):
+            self.assertEqual(args[-1],'--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID')
+            p=original([R.sys.executable,'-c','import sys;sys.stdout.write('+repr(path_props)+')'],**kwargs);children.append(p);return p
+        with patch.object(R.subprocess,'Popen',side_effect=path_child):
+            self.assertEqual(R.intake_unit('club-arena-engine-intake-v1@41339482095-1.path',self.deadline()),self.path_unit)
         def hung(args,**kwargs):
             p=original([R.sys.executable,'-c','import time;time.sleep(20)'],**kwargs);children.append(p);return p
         with patch.object(R.subprocess,'Popen',side_effect=hung):
