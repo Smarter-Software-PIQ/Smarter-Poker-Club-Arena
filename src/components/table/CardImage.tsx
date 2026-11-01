@@ -257,17 +257,31 @@ export function CardImage({
   // PERF PASS 2026-08-22: two-step fallback — WebP → PNG → text glyph. The
   // PNG step covers builds where WebP generation was skipped.
   const [fallbackStep, setFallbackStep] = useState<0 | 1 | 2>(0);
+  const [retryCount, setRetryCount] = useState(0);
   useEffect(() => {
     setFallbackStep(0);
+    setRetryCount(0);
   }, [imagePath]);
+  useEffect(() => {
+    if (fallbackStep < 2 || retryCount >= 3 || imagePath === null) return;
+    const timer = setTimeout(() => {
+      setRetryCount((c) => c + 1);
+      setFallbackStep(0);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [fallbackStep, retryCount, imagePath]);
   const imgError = fallbackStep >= 2;
   // AUDIT 2026-08-25: this read `fallbackStep === 1 ? png : webp`, so at step 2
   // - the give-up state - the src flipped BACK to the .webp that had already
   // 404'd. The <img> is still mounted (hidden with display:none so the box keeps
   // its size), so the browser re-requested a URL known to be dead every time the
   // fallback rendered. Once we have moved past the WebP it never comes back.
-  const effectivePath =
+  const baseEffectivePath =
     imagePath === null ? '' : fallbackStep >= 1 ? imagePath.replace(/\.webp$/, '.png') : imagePath;
+  const effectivePath =
+    baseEffectivePath && retryCount > 0 && !imgError
+      ? `${baseEffectivePath}?r=${retryCount}`
+      : baseEffectivePath;
 
   const classes = [
     'card-image',
@@ -307,13 +321,15 @@ export function CardImage({
     <div className={classes} data-face-deck={explicitFaceDeckId}>
       <img
         loading={loading}
-        decoding="async"
+        decoding={loading === 'eager' ? 'sync' : 'async'}
         src={effectivePath}
         alt={cardWords(card)}
         className="card-image__img"
         draggable={false}
         style={imgError ? { display: 'none' } : undefined}
-        onError={() => setFallbackStep((s) => (s === 0 && effectivePath.endsWith('.webp') ? 1 : 2))}
+        onError={() =>
+          setFallbackStep((s) => (s === 0 && baseEffectivePath.endsWith('.webp') ? 1 : 2))
+        }
       />
       {/* Paint the authoritative face immediately, beneath the artwork. A pending
           request or async decode must never leave a playable card blank. */}
@@ -341,8 +357,8 @@ export function CardImage({
               : SUIT_COLOR[card.suit] || '#000',
         }}
       >
-        <span style={{ fontSize: '0.7em', lineHeight: 1 }}>{card.rank}</span>
-        <span style={{ fontSize: '0.6em', lineHeight: 1 }}>{SUIT_CHAR[card.suit] || '?'}</span>
+        <span style={{ fontSize: '1.5em', lineHeight: 1 }}>{card.rank}</span>
+        <span style={{ fontSize: '1.35em', lineHeight: 1 }}>{SUIT_CHAR[card.suit] || '?'}</span>
       </div>
     </div>
   );
