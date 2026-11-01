@@ -288,6 +288,30 @@
   color: #45adff;
   white-space: normal;
 }
+/* Seats Available describes its own state. A redundant Status heading made
+   this two-line label taller than the painted glass. Center the unchanged
+   type in the native y0.3cqw..10.2cqw face, including the 44px row floor. */
+.has-premium-chassis
+  tbody
+  tr[data-id][data-kind='cash']
+  > td[data-label='Status']:has(.lt-status--open),
+.has-premium-chassis
+  tbody
+  tr[data-id]:is([data-kind='spin'], [data-kind='sng'])
+  > td[data-label='Status']:has(.lt-status--registering) {
+  padding-top: 0.3cqw !important;
+  padding-bottom: calc(max(44px, 11.6cqw) - 10.2cqw) !important;
+}
+.has-premium-chassis
+  tbody
+  tr[data-id][data-kind='cash']
+  > td[data-label='Status']:has(.lt-status--open)::before,
+.has-premium-chassis
+  tbody
+  tr[data-id]:is([data-kind='spin'], [data-kind='sng'])
+  > td[data-label='Status']:has(.lt-status--registering)::before {
+  content: none;
+}
 .has-premium-chassis .lt-seats {
   gap: 0;
 }
