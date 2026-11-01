@@ -2,8 +2,19 @@ import { defineConfig } from 'vitest/config';
 
 import { TEST_TIMEOUT_MS } from './src/testing/waitBudget';
 
+const requestedWorkers = process.env.VITEST_MAX_THREADS;
+const requestedForks =
+  requestedWorkers && /^[1-9]\d*$/.test(requestedWorkers) ? Number(requestedWorkers) : NaN;
+const forkBudget = Number.isSafeInteger(requestedForks) ? requestedForks : undefined;
+
 export default defineConfig({
   test: {
+    // Vitest 2 defaults to forks; VITEST_MAX_THREADS only limits its thread
+    // pools. Honor the existing explicit budget without changing unset runs.
+    // Native VITEST_MAX_FORKS / VITEST_MIN_FORKS retain Vitest's precedence.
+    ...(forkBudget === undefined
+      ? {}
+      : { poolOptions: { forks: { maxForks: forkBudget, minForks: 1 } } }),
     globals: false,
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/testing/horseRegression/**/*.test.mjs'],
