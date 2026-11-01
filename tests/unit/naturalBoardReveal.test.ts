@@ -366,7 +366,56 @@ it('retains an unknown empty observation and refuses duplicate or unbounded inte
   expect(() => naturalBoardRevealIntervalsEvidence([empty, empty, empty], 'table')).toThrow();
   const spec = readFileSync('tests/e2e/production-live-table-realtime.spec.ts', 'utf8');
   expect(spec).toMatch(
-    /finally \{\s*await stopBoardInterval\(\);\s*const boardEvidence = naturalBoardRevealIntervalsEvidence/
+    /finally \{\s*await stopBoardInterval\(\);[\s\S]*?const boardEvidence = naturalBoardRevealIntervalsEvidence/
   );
   expect(spec).toMatch(/await stopBoardInterval\(\);\s*await page\.reload/);
+});
+
+it('retains a delayed first sample gap without qualifying a finished first frame', () => {
+  installNaturalBoardReveal(10000);
+  frame();
+  frame();
+  add();
+  vi.advanceTimersByTime(400);
+  angle = 180;
+  currentTime = 350;
+  finished = true;
+  frame();
+  const receipts = window.__naturalBoardReveal!.stop();
+  expect(receipts[0].baselineFrames).toBe(2);
+  expect(receipts[0].frames[0].rafGapMs).toBe(416);
+  expect(receipts[0].frames[0].finished).toBe(true);
+  expect(
+    naturalBoardRevealEvidence(
+      receipts,
+      receipts.map((r) => wire(r)),
+      'table'
+    ).verdict
+  ).toBe('unknown');
+});
+
+it('captures and always retains both existing intervals in the shared MTT SPIN SNG path', () => {
+  const spec = readFileSync('tests/e2e/production-live-table-realtime.spec.ts', 'utf8');
+  const shared = spec.slice(
+    spec.indexOf('async function observeTournamentBoard('),
+    spec.indexOf("test.describe('production mobile")
+  );
+  expect(shared).toMatch(/page.evaluate\(installNaturalBoardReveal, observationDeadline\)/);
+  expect(shared.indexOf("await startBoardInterval('before-outage')")).toBeLessThan(
+    shared.indexOf('const progressStartedAt')
+  );
+  expect(shared).toMatch(
+    /await stopBoardInterval\(\);\s*try \{\s*await context.setOffline\(true\)/
+  );
+  expect(shared.indexOf("await startBoardInterval('after-reconnect')")).toBeGreaterThan(
+    shared.indexOf('const restoredAt')
+  );
+  expect(shared.indexOf("await startBoardInterval('after-reconnect')")).toBeLessThan(
+    shared.indexOf('const recoveredProgressStartedAt')
+  );
+  expect(shared).toMatch(
+    /finally \{\s*await stopBoardInterval\(\);[\s\S]*?const boardEvidence = naturalBoardRevealIntervalsEvidence/
+  );
+  expect(shared).toContain('mobile-live-table-${tag}-natural-board-reveal.json');
+  expect(shared).toMatch(/writeFileSync\(\s*boardEvidencePath,/);
 });
