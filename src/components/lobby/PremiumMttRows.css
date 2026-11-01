@@ -91,9 +91,6 @@
 .has-premium-chassis tbody tr.is-featured::after {
   display: none !important;
 }
-.has-premium-chassis tbody tr[data-lightning-format='true']::before {
-  filter: grayscale(1) brightness(1.35);
-}
 .has-premium-chassis tbody tr[data-game-heading] > td {
   position: relative;
   display: block;
@@ -586,11 +583,6 @@
   box-shadow: none !important;
 }
 
-.has-premium-chassis tbody tr[data-lightning-format='true'].is-cursor::before,
-.has-premium-chassis tbody tr[data-lightning-format='true'].is-selected::before {
-  filter: grayscale(1) brightness(1.5);
-}
-
 /* Four contiguous heading fields: the unlabeled favorite bay belongs to
    Status here, so it cannot punch a hole in the engraved header frame. */
 .club-home table.has-premium-chassis thead {
@@ -780,4 +772,31 @@
   inset: 0.4cqw auto 1.6cqw 6cqw;
   width: 23.5%;
   z-index: 1;
+}
+
+/* Reprint only the native exterior LED bays through a mask. The centre,
+   chrome material, icons and live white ink never receive a colour filter. */
+.has-premium-chassis tbody tr[data-led-color]::after {
+  display: block;
+  clip-path: none;
+  mask-image: linear-gradient(to right, #000 0% 5.5%, transparent 5.5% 94.5%, #000 94.5% 100%);
+  filter: none;
+}
+.has-premium-chassis tbody tr[data-led-sides='left']::after {
+  mask-image: linear-gradient(to right, #000 0% 5.5%, transparent 5.5% 100%);
+}
+.has-premium-chassis tbody tr[data-led-color='red']::after {
+  filter: hue-rotate(135deg);
+}
+.has-premium-chassis tbody tr[data-led-color='green']::after {
+  filter: hue-rotate(-75deg);
+}
+.has-premium-chassis tbody tr[data-led-color='yellow']::after {
+  filter: hue-rotate(-155deg);
+}
+.has-premium-chassis tbody tr[data-led-color='white']::after {
+  filter: grayscale(1) brightness(1.35);
+}
+.has-premium-chassis tbody tr[data-led-sides='none']::after {
+  display: none !important;
 }

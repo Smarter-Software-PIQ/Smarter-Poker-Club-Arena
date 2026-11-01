@@ -1,9 +1,11 @@
-# Live Lobby Filter Census And Bounded Interaction Proof
+# Consolidated Lobby Controls, Complete Headers And Exterior Lights
 
-The live filter audit must compare the board with the current independently observed club/union census. A frozen starting list incorrectly rejected a new PLO6 Spin and two NLH Sit & Gos created during the audit. Source-request scope and explicit format contracts now admit new rows; filter membership and lifecycle assertions remain strict.
+Favorites occupies one plate beside Find Your Game. The four category tabs and six status slots remain readable, with Filters beside Running. The compact rail appears only after the primary controls scroll above the header; viewport and header-size changes update that boundary.
 
-Each real click and native scroll has an explicit ten-second bound. Token-free action progress, source row fields, matching results and element/scroll geometry are saved before and after actions, so an interrupted browser run retains its diagnosis. The nine-case catalogue, full case limits, publication identity checks and isolated-account cleanup are unchanged. No production matcher or financial record changed.
+Phone and desktop schedules share four contiguous Game, Buy-In/Stakes, Players and Status headers. Continuous engraved perimeter and separator rules replace the empty favorite-column gap. The last visible heading maps to its body field by key, preserving the Status frame and full-width event titles. Game remains static; numeric sorting and keyboard handlers remain intact.
 
-Validation: the nine cases list correctly; source lint and diff checks pass. Published live acceptance remains pending; the previous run failed and cleanup verified retirement.
+The original artwork's exterior light strips identify variants and formats. Lightning is white; NLH/PLO4/FLH blue, Pineapple/PLO8/FLO8 yellow, 6+/PLO6 green and PLO5 red. Spins use red, Sit & Gos green and satellites yellow. Pinned full red frames and MTT subtype accents remain. Black interiors, chrome, icons and white titles are unchanged.
 
-Owner screenshot follow-up: consolidate the primary controls and reveal the compact rail only after the primary controls leave view. Keep Favorites available once, the four category tabs readable and Filters beside Running. Repair the existing table header with four contiguous fields and continuous engraved perimeter/separator rules; the former unlabeled favorite gap must not interrupt the header frame. Final source checks and live screenshots are pending these additions.
+The live filter audit compares strict membership with the current independently observed club/union census, including legitimate new tournaments created during a case. Bounded native interactions save token-free progress and geometry before and after actions, retaining diagnosis if interrupted. All nine cases, publication/component identity checks, case limits and isolated-account cleanup remain enforced.
+
+Focused source, compiler, schema and validator checks passed. Required final-head checks, publication and live acceptance remain pending; earlier failed live runs are retained in the task checkpoint. No financial records or engine runtime changed in this client delivery.

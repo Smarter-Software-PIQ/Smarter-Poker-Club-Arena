@@ -71,6 +71,16 @@ const publicRowFields = [
   'satellite_target_id',
   'is_satellite',
   'proof_board_census',
+  'name',
+  'is_featured',
+  'is_pinned',
+  'is_bounty',
+  'is_pko',
+  'is_mystery_bounty',
+  'is_rebuy',
+  'is_reentry',
+  'cluster_template',
+  'cluster_mode',
 ];
 function persistProgress(page: Page) {
   const output = test.info().outputPath('attachments', 'filter-action-progress.json');
@@ -466,6 +476,138 @@ function style(row: Row): string {
   )
     return 'straight_madness';
   return ['action', 'lightning'].includes(key) ? 'madness' : key;
+}
+type LedDecision = {
+  color: 'blue' | 'red' | 'green' | 'yellow' | 'white';
+  sides: 'both' | 'left' | 'none';
+};
+function expectedExteriorLed(row: Row, spec: GameFilterSpec, cash: boolean): LedDecision {
+  if (cash) {
+    const key = variant(row, true);
+    const template = text(row.cluster_template || object(row.cluster).template_name).toLowerCase();
+    const lightning =
+      Boolean(row.cluster_id) &&
+      ['action', 'madness', 'lightning'].includes(template) &&
+      !['short_deck', 'pineapple', 'plo8', 'flo8'].includes(key);
+    const colors: Record<string, LedDecision['color']> = {
+      nlh: 'blue',
+      flh: 'blue',
+      plo4: 'blue',
+      plo5: 'red',
+      plo6: 'green',
+      plo8: 'yellow',
+      flo8: 'yellow',
+      pineapple: 'yellow',
+      short_deck: 'green',
+    };
+    expect(
+      colors[key],
+      `Observed cash variant ${key} needs an independent LED palette`
+    ).toBeTruthy();
+    return { color: lightning ? 'white' : colors[key], sides: 'both' };
+  }
+  const contract = text(row.format_contract);
+  const mtt = ['mtt-v1', 'mtt-v2'].includes(contract);
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' });
+  const start = Date.parse(text(row.start_time));
+  if (
+    (row.is_pinned === true || row.is_featured === true) &&
+    Number.isFinite(start) &&
+    day.format(start) === day.format(Date.now())
+  )
+    return { color: 'red', sides: 'none' };
+  if (satellite(row) === true) return { color: 'yellow', sides: 'both' };
+  if (contract === 'spin-v1') return { color: 'red', sides: 'both' };
+  if (['sng-v1', 'seat-first-satellite-v1'].includes(contract))
+    return { color: 'green', sides: 'both' };
+  expect(mtt, 'Only a known observed tournament contract can select an LED palette').toBe(true);
+  if (
+    namedConvention(row) === 'freeroll' ||
+    number(row.buy_in_amount) + number(row.buy_in_fee) <= 0
+  )
+    return { color: 'blue', sides: 'both' };
+  const bounty = ['pko', 'mystery_bounty', 'bounty'].some(
+    (key) => feature(row, key, spec, false) === true
+  );
+  if (bounty) return { color: 'green', sides: 'left' };
+  const freezeout =
+    namedConvention(row) === 'freezeout' &&
+    !text(row.name).toLowerCase().includes('spin') &&
+    !['reentry', 'rebuy'].some((key) => feature(row, key, spec, false) === true);
+  return freezeout ? { color: 'white', sides: 'left' } : { color: 'blue', sides: 'both' };
+}
+async function assertExteriorLeds(
+  page: Page,
+  rawRows: Map<string, Row>,
+  spec: GameFilterSpec,
+  cash: boolean
+) {
+  const readings = await page
+    .locator(
+      '.has-premium-chassis:visible tbody tr[data-id]:visible, .has-premium-chassis:visible tbody tr[data-game-heading]:visible'
+    )
+    .evaluateAll((elements) =>
+      elements.map((element) => {
+        const before = getComputedStyle(element, '::before');
+        const after = getComputedStyle(element, '::after');
+        return {
+          id: element.getAttribute('data-id') || element.getAttribute('data-game-heading')!,
+          heading: element.hasAttribute('data-game-heading'),
+          beforeFilter: before.filter,
+          beforeArt: before.backgroundImage,
+          afterFilter: after.filter,
+          afterDisplay: after.display,
+          mask: after.maskImage || after.webkitMaskImage,
+          clip: after.clipPath,
+          actualColor: element.getAttribute('data-led-color'),
+          actualSides: element.getAttribute('data-led-sides'),
+        };
+      })
+    );
+  expect(readings.length).toBeGreaterThan(0);
+  const filters: Record<LedDecision['color'], string> = {
+    blue: 'none',
+    red: 'hue-rotate(135deg)',
+    green: 'hue-rotate(-75deg)',
+    yellow: 'hue-rotate(-155deg)',
+    white: 'grayscale(1) brightness(1.35)',
+  };
+  for (const reading of readings) {
+    const raw = rawRows.get(reading.id);
+    expect(raw, `LED ${reading.id} must have an independently observed raw source`).toBeTruthy();
+    const expected = expectedExteriorLed(raw!, spec, cash);
+    expect(reading.beforeFilter, 'The silver/black frame art must remain untinted').toBe('none');
+    expect(reading.actualColor, `Raw-source palette ${reading.id}`).toBe(expected.color);
+    expect(reading.actualSides, `Raw-source LED zones ${reading.id}`).toBe(expected.sides);
+    if (expected.sides === 'none') {
+      expect(reading.beforeArt).toContain('card-featured.png');
+      expect(reading.afterDisplay).toBe('none');
+    } else {
+      expect(reading.afterDisplay).not.toBe('none');
+      expect(reading.afterFilter).toBe(filters[expected.color]);
+      expect(reading.clip).toBe('none');
+      const mask = reading.mask
+        .replace(/rgba?\(([^)]+)\)/g, (_, channels: string) => {
+          const values = channels.split(',').map(Number);
+          return values.length === 4 && values[3] === 0 ? 'transparent' : 'opaque';
+        })
+        .replace(/\s+/g, '')
+        .replace('90deg', 'toright');
+      const both = [
+        'linear-gradient(toright,opaque0%5.5%,transparent5.5%94.5%,opaque94.5%100%)',
+        'linear-gradient(toright,opaque0%,opaque5.5%,transparent5.5%,transparent94.5%,opaque94.5%,opaque100%)',
+      ];
+      const left = [
+        'linear-gradient(toright,opaque0%5.5%,transparent5.5%100%)',
+        'linear-gradient(toright,opaque0%,opaque5.5%,transparent5.5%,transparent100%)',
+      ];
+      expect(
+        expected.sides === 'both' ? both : left,
+        'The colored overlay may paint only the exterior 5.5% rails, never the interior'
+      ).toContain(mask);
+    }
+  }
+  return readings;
 }
 function belongsToObservedFamily(row: Row, type: Tab): boolean {
   if (row.proof_board_census !== true) return false;
@@ -1208,6 +1350,20 @@ for (const type of TYPES) {
       ).toBe(true);
     }
     const evidence: unknown[] = [];
+    await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
+    await Promise.all(h.reads);
+    const ledReadings = await assertExteriorLeds(page, h.rawRows, spec, cash);
+    evidence.push({ control: 'raw-source-exterior-led-palette', ledReadings });
+    await h.rows.first().scrollIntoViewIfNeeded({ timeout: 10_000 });
+    await testInfo.attach(`lobby-led-${type.toLowerCase()}-phone.png`, {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await testInfo.attach(`lobby-led-${type.toLowerCase()}-phone.json`, {
+      body: Buffer.from(JSON.stringify(ledReadings)),
+      contentType: 'application/json',
+    });
+    sheet = await h.open();
     const currentCohort = () =>
       cash
         ? baseline

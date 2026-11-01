@@ -59,6 +59,7 @@ export type { LobbyRowContext } from './lobbyCardContext';
 import { featuredNow, startsOnDay } from '../../lib/featuredOnItsDay';
 import { prioritizeTournamentFavorites } from './tournamentFavoriteOrder';
 import { variantRank, UNLISTED_VARIANT_RANK } from './variantRank';
+import { lobbyLedAttributes } from './lobbyLedSchema';
 import { headingForOrder } from './lobbySortBridge';
 import './LobbyTable.css';
 import './LobbySortBar.css';
@@ -875,6 +876,7 @@ function TournamentHeadingRow({
     <tr
       className={`lt-tournament-header ${tournamentRowClasses(entry)}${entry.featured ? ' is-featured' : ''}`}
       data-game-heading={entry.id}
+      {...lobbyLedAttributes(entry)}
       data-cash-format={
         entry.kind === 'cash' && entry.game?.template
           ? cashTemplateKey(entry.game.template)
@@ -1667,6 +1669,7 @@ const LobbyRow = memo(function LobbyRow({
         data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
         className={`lt-row lt-row--${entry.status} ${tournamentRowClasses(entry)}${entry.featured ? ' is-featured' : ''}${selected ? ' is-selected' : ''}${cursor ? ' is-cursor' : ''}${mine ? ' is-mine' : ''}`}
         data-kind={entry.kind}
+        {...lobbyLedAttributes(entry)}
         data-lightning-format={isLightningCashRow(entry) ? 'true' : undefined}
         data-lightning={entry.kind === 'cash' && entry.game?.lightning ? 'on' : undefined}
         data-cash-format={
@@ -1935,7 +1938,7 @@ export default function LobbyTable({
   }, [liveEntries]);
   const columns = useMemo(() => columnsFor(category), [category]);
   const desktopHeadingRef = useRef<HTMLTableSectionElement>(null);
-  const [visibleColumnCount, setVisibleColumnCount] = useState(columns.length);
+  const [visibleColumnCount, setVisibleColumnCount] = useState(4);
   const [lastVisibleColumnIndex, setLastVisibleColumnIndex] = useState(columns.length - 1);
   useLayoutEffect(() => {
     const measure = () => {
@@ -1945,8 +1948,12 @@ export default function LobbyTable({
             .map((cell, index) => ({ cell, index }))
             .filter(({ cell }) => getComputedStyle(cell).display !== 'none')
         : [];
-      setVisibleColumnCount(visible.length || columns.length);
-      setLastVisibleColumnIndex(visible[visible.length - 1]?.index ?? columns.length - 1);
+      setVisibleColumnCount(visible.length || 4);
+      // Header fields no longer share the metadata cells' numeric indexes.
+      // Resolve the last field by its key so Status still closes the card.
+      const last = visible[visible.length - 1]?.cell.dataset.columnKey;
+      const bodyIndex = columns.findIndex((column) => column.key === last);
+      setLastVisibleColumnIndex(bodyIndex >= 0 ? bodyIndex : columns.length - 1);
     };
     measure();
     window.addEventListener('resize', measure);
@@ -2396,6 +2403,7 @@ export default function LobbyTable({
                 <tr
                   role="row"
                   data-testid="lobby-game-row"
+                  {...lobbyLedAttributes(entry)}
                   data-id={entry.id}
                   data-start-time={entry.startTime ?? undefined}
                   data-host-pinned={
@@ -2543,6 +2551,7 @@ export default function LobbyTable({
                 return (
                   <th
                     key={col.key}
+                    data-column-key={col.key}
                     className={`${col.className || ''}${col.sortable ? ' is-sortable' : ''}${active ? ' is-sorted' : ''}`}
                     /* A sortable column that is not the active sort announces
                      "none", which is what tells a screen reader it CAN be
