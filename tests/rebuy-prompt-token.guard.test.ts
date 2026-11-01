@@ -510,9 +510,11 @@ describe('every player rebuy prompt owns one required idempotency token', () => 
   });
 
   it('keeps one Tournament Page token through retries and retires it on success', () => {
-    expect(tournamentPage).toContain('const rebuyPromptTokenRef = useRef<string | null>(null)');
     expect(tournamentPage).toMatch(
-      /const beginRebuyPrompt = useCallback[\s\S]*?if \(rebuyPromptTokenRef\.current\)[\s\S]*?return rebuyPromptTokenRef\.current/
+      /const rebuyPromptTokenRef = useRef<\{\s*owner: typeof selectionOwner;\s*token: string;?\s*\} \| null>\(null\)/
+    );
+    expect(tournamentPage).toMatch(
+      /const beginRebuyPrompt = useCallback[\s\S]*?if \(rebuyPromptTokenRef\.current\?\.owner === selectionRef\.current\)[\s\S]*?return rebuyPromptTokenRef\.current\.token/
     );
     expect(tournamentPage).toMatch(
       /const clientToken = beginRebuyPrompt\(\);[\s\S]*?processRebuy\([\s\S]*?clientToken[\s\S]*?\)/

@@ -9,34 +9,69 @@
  * already prices its ladders through.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const state = vi.hoisted(() => ({
   rows: [] as unknown[],
+  register: vi.fn(),
+  owner: false,
+  rebuy: false,
+  addon: false,
+  playing: false,
+  tableReads: [] as Array<{ id: string; signal?: AbortSignal }>,
+  readTables: (_id: string, _signal?: AbortSignal): any => ({ data: [], error: null }),
   broadcasts: new Map<string, (payload: any) => void>(),
 }));
 
 /** Any supabase chain, awaited, answers "nothing": this page's side reads are not under test. */
-vi.mock('../../src/lib/supabase', () => {
-  const chain = (): unknown =>
-    new Proxy(() => undefined, {
-      get: (_target, prop) =>
-        prop === 'then'
-          ? (resolve: (value: unknown) => void) => resolve({ data: null, error: null })
-          : () => chain(),
-      apply: () => chain(),
-    });
-  return { supabase: chain() };
-});
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: {
+    from: (relation: string) => {
+      let id = '';
+      let signal: AbortSignal | undefined;
+      let projection = '';
+      const chain: any = new Proxy(
+        {},
+        {
+          get: (_target, prop) => {
+            if (prop === 'then')
+              return (resolve: any, reject: any) => {
+                let result: any = { data: null, error: null };
+                if (relation === 'club_members' && projection === 'role')
+                  result.data = state.owner ? { role: 'owner' } : null;
+                if (relation === 'tournament_players')
+                  result.data = state.playing ? { status: 'playing' } : null;
+                if (relation === 'tables') {
+                  state.tableReads.push({ id, signal });
+                  result = state.readTables(id, signal);
+                }
+                return Promise.resolve(result).then(resolve, reject);
+              };
+            return (...args: any[]) => {
+              if (prop === 'select') projection = args[0];
+              if (prop === 'eq' && args[0] === 'tournament_id') id = args[1];
+              if (prop === 'abortSignal') signal = args[0];
+              return chain;
+            };
+          },
+        }
+      );
+      return chain;
+    },
+  },
+}));
 vi.mock('../../src/services/TournamentService', () => ({
   tournamentService: {
     getTournaments: vi.fn(async () => state.rows),
     getTournament: vi.fn(async () => null),
     getCurrentLevelState: vi.fn(() => null),
-    canRebuy: vi.fn(() => false),
-    canAddOn: vi.fn(() => false),
-    quoteFromTournament: vi.fn(() => null),
+    canRebuy: vi.fn(async () => ({ allowed: state.rebuy })),
+    canAddOn: vi.fn(async () => ({ allowed: state.addon })),
+    quoteFromTournament: vi.fn(() => ({ totalCost: 10 })),
+    startTournament: vi.fn(),
+    processRebuy: vi.fn(),
+    processAddOn: vi.fn(),
   },
   tournamentUnregisterSuccessText: () => '',
 }));
@@ -97,7 +132,7 @@ vi.mock('../../src/components/tournament/MysteryBountyPanel', () => ({ default: 
 vi.mock('../../src/components/tournament/MysteryBountyChest', () => ({ default: () => null }));
 vi.mock('../../src/services/tournamentEventBridge', () => ({ relayTournamentEvent: vi.fn() }));
 vi.mock('../../src/hooks/useTournamentRegistration', () => ({
-  useTournamentRegistration: () => ({ register: vi.fn(), isRegistering: false }),
+  useTournamentRegistration: () => ({ register: state.register, isRegistering: false }),
 }));
 vi.mock('../../src/components/club/CreateTournamentModal', () => ({ default: () => null }));
 vi.mock('../../src/utils/observeTable', () => ({ openTableAsObserver: vi.fn() }));
@@ -106,7 +141,20 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 import TournamentPage from '../../src/pages/TournamentPage';
 import { tournamentService } from '../../src/services/TournamentService';
 
+beforeEach(() => {
+  vi.mocked(tournamentService.processRebuy).mockReset();
+  vi.mocked(tournamentService.processAddOn).mockReset();
+  vi.mocked(tournamentService.startTournament).mockReset();
+  state.owner = false;
+  state.rebuy = false;
+  state.addon = false;
+  state.playing = false;
+  state.tableReads = [];
+  state.readTables = () => ({ data: [], error: null });
+  state.register.mockReset();
+});
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   sessionStorage.clear();
   state.broadcasts.clear();
@@ -263,3 +311,230 @@ it.each(['same event', 'back to list', 'return to original event'])(
     }
   }
 );
+
+function mountActions(status = 'REGISTERING') {
+  const first = {
+    ...bountyEvent(CHIP_CLUB, false),
+    status,
+    format_contract: 'mtt-v1',
+    is_rebuy: true,
+    add_on_available: true,
+  };
+  state.rows = [first, { ...first, id: 't-2', name: 'Second Event' }];
+  const view = render(
+    <MemoryRouter initialEntries={['/clubs/club-1/tournaments/t-1']}>
+      <Routes>
+        <Route path="/clubs/:clubId/tournaments/:tournamentId" element={<TournamentPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+  return { first, view };
+}
+async function selectSecond() {
+  fireEvent.click(document.querySelectorAll('.tournament-card')[1]);
+  await waitFor(() =>
+    expect(document.querySelector('.tourn-detail')?.textContent).toContain('Second Event')
+  );
+}
+
+it.each(['register', 'start', 'rebuy', 'addon'])(
+  'a completed %s action cannot restore a retired selection',
+  async (action) => {
+    state.owner = true;
+    state.rebuy = true;
+    state.addon = true;
+    state.playing = action === 'rebuy' || action === 'addon';
+    let finish!: (value: any) => void;
+    const method =
+      action === 'start' ? 'startTournament' : action === 'rebuy' ? 'processRebuy' : 'processAddOn';
+    if (action !== 'register')
+      vi.mocked(tournamentService[method]).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }) as any
+      );
+    const { first } = mountActions(state.playing ? 'RUNNING' : 'REGISTERING');
+    vi.mocked(tournamentService.getTournament).mockResolvedValue({
+      ...first,
+      name: 'Retired Action Answer',
+    } as any);
+    const button = await screen.findByRole('button', {
+      name:
+        action === 'register'
+          ? /^Register/
+          : action === 'start'
+            ? 'Start Tournament'
+            : action === 'rebuy'
+              ? /^Rebuy/
+              : /^Add-On/,
+    });
+    fireEvent.click(button);
+    await selectSecond();
+    await act(async () => {
+      if (action === 'register') await state.register.mock.calls[0][1]();
+      else finish({ success: true, newStack: 100 });
+    });
+    expect(document.querySelector('.tourn-detail')?.textContent).toContain('Second Event');
+    expect(document.querySelector('.tourn-detail')?.textContent).not.toContain(
+      'Retired Action Answer'
+    );
+  }
+);
+
+it('does not invent a second entrant when realtime already advanced before registration completion', async () => {
+  const { first } = mountActions();
+  fireEvent.click(await screen.findByRole('button', { name: /^Register/ }));
+  const committed = { ...first, current_players: 5, prize_pool: 500, name: 'Authoritative Event' };
+  vi.mocked(tournamentService.getTournament).mockResolvedValue(committed as any);
+  await act(async () =>
+    state.broadcasts.get('t-break-t-1')!({ payload: { type: 'level_up', payload: {} } })
+  );
+  await waitFor(() =>
+    expect(document.querySelector('.tourn-detail')?.textContent).toContain('Authoritative Event')
+  );
+  await act(async () => {
+    await state.register.mock.calls[0][1]();
+  });
+  expect(document.querySelector('.tourn-detail')?.textContent).toContain('Authoritative Event');
+  expect(vi.mocked(tournamentService.getTournament)).toHaveBeenCalledTimes(2);
+  const entryRow = Array.from(document.querySelectorAll('.tourn-detail .tourn-row')).find((row) =>
+    row.textContent?.startsWith('Entries')
+  );
+  expect(entryRow?.querySelector('.tourn-value')?.textContent).toBe('5');
+});
+
+it('masks the previous table roster while the next event read is pending', async () => {
+  state.readTables = (id) =>
+    id === 't-1'
+      ? { data: [{ id: 'table-a', name: 'First Event Table' }], error: null }
+      : new Promise(() => {});
+  mountActions('RUNNING');
+  await screen.findByText('First Event Table');
+  await selectSecond();
+  expect(screen.queryByText('First Event Table')).toBeNull();
+  expect(screen.queryByText('Waiting For The First Deal.')).toBeNull();
+  expect(screen.getByText('Loading The Tables.')).toBeInTheDocument();
+});
+
+it.each(['return', 'unmount'])('retires registration ownership on %s', async (destination) => {
+  const { first, view } = mountActions();
+  fireEvent.click(await screen.findByRole('button', { name: /^Register/ }));
+  const completed = state.register.mock.calls[0][1];
+  await selectSecond();
+  if (destination === 'return') fireEvent.click(document.querySelectorAll('.tournament-card')[0]);
+  else view.unmount();
+  vi.mocked(tournamentService.getTournament).mockClear();
+  vi.mocked(tournamentService.getTournament).mockResolvedValue({
+    ...first,
+    name: 'Retired Registration',
+  } as any);
+  await act(async () => {
+    await completed();
+  });
+  expect(tournamentService.getTournament).not.toHaveBeenCalled();
+  expect(screen.queryByText('Retired Registration')).toBeNull();
+});
+
+it('bounds the read after a committed rebuy without repeating the purchase', async () => {
+  state.rebuy = true;
+  state.playing = true;
+  vi.mocked(tournamentService.processRebuy).mockResolvedValue({
+    success: true,
+    newStack: 100,
+  } as any);
+  let signal: AbortSignal | undefined;
+  vi.mocked(tournamentService.getTournament).mockImplementation((_id, options) => {
+    signal = options?.signal;
+    return new Promise(() => {});
+  });
+  mountActions('RUNNING');
+  const button = await screen.findByRole('button', { name: /^Rebuy/ });
+  vi.useFakeTimers();
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  expect(tournamentService.processRebuy).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12_000);
+  });
+  expect(signal?.aborted).toBe(true);
+  expect(tournamentService.processRebuy).toHaveBeenCalledTimes(1);
+  expect(document.querySelector('.tourn-detail')?.textContent).toContain('Head Hunter');
+  expect(screen.queryByRole('button', { name: 'Processing...' })).toBeNull();
+});
+
+it('ends an unanswered table read as unknown and aborts retired event reads', async () => {
+  state.readTables = () => new Promise(() => {});
+  vi.useFakeTimers();
+  const { view } = mountActions('RUNNING');
+  await act(async () => {});
+  expect(screen.getByText('Loading The Tables.')).toBeInTheDocument();
+  expect(state.tableReads).toHaveLength(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12_000);
+  });
+  expect(state.tableReads[0].signal?.aborted).toBe(true);
+  expect(screen.getByText('Table Availability Is Unknown.')).toBeInTheDocument();
+  expect(screen.queryByText('No Tables Running Yet.')).toBeNull();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(8_000);
+  });
+  expect(state.tableReads).toHaveLength(2);
+  view.unmount();
+  expect(state.tableReads[1].signal?.aborted).toBe(true);
+});
+
+it('a retired rebuy cannot clear the next offer token or its processing owner', async () => {
+  state.rebuy = true;
+  state.playing = true;
+  const finish: Array<(value: any) => void> = [];
+  vi.mocked(tournamentService.processRebuy).mockImplementation(
+    () => new Promise((resolve) => finish.push(resolve)) as any
+  );
+  mountActions('RUNNING');
+  fireEvent.click(await screen.findByRole('button', { name: /^Rebuy/ }));
+  await selectSecond();
+  fireEvent.click(await screen.findByRole('button', { name: /^Rebuy/ }));
+  expect(tournamentService.processRebuy).toHaveBeenCalledTimes(2);
+  const secondToken = vi.mocked(tournamentService.processRebuy).mock.calls[1][2];
+  await act(async () => {
+    finish[0]({ success: true, newStack: 100 });
+  });
+  expect(screen.getByRole('button', { name: /Processing/i })).toBeDisabled();
+  await act(async () => {
+    finish[1]({ success: false });
+  });
+  fireEvent.click(screen.getByRole('button', { name: /^Rebuy/ }));
+  expect(vi.mocked(tournamentService.processRebuy).mock.calls[2][2]).toBe(secondToken);
+  expect(secondToken).not.toBe(vi.mocked(tournamentService.processRebuy).mock.calls[0][2]);
+  await act(async () => {
+    finish[2]({ success: false });
+  });
+});
+
+it('keeps known same-event tables on failed refresh without restarting the read on each event update', async () => {
+  vi.useFakeTimers();
+  let reads = 0;
+  state.readTables = () =>
+    ++reads === 1
+      ? { data: [{ id: 'table-a', name: 'Known Table' }], error: null }
+      : { data: null, error: new Error('offline') };
+  const { first } = mountActions('RUNNING');
+  await act(async () => {});
+  expect(screen.getByText('Known Table')).toBeInTheDocument();
+  vi.mocked(tournamentService.getTournament).mockResolvedValue({
+    ...first,
+    current_level: 2,
+  } as any);
+  await act(async () =>
+    state.broadcasts.get('t-break-t-1')!({ payload: { type: 'level_up', payload: {} } })
+  );
+  expect(reads).toBe(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20_000);
+  });
+  expect(reads).toBe(2);
+  expect(screen.getByText('Known Table')).toBeInTheDocument();
+  expect(screen.getByText('Tables Could Not Be Refreshed.')).toBeInTheDocument();
+});
