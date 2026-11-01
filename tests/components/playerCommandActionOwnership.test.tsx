@@ -1062,7 +1062,14 @@ it('does not apply a delayed live stats response after a newer explicit range re
   await screen.findByText('River Shark');
   const pending = deferred<typeof memberDetail>();
   state.getMemberDetail.mockReturnValueOnce(pending.promise);
+  expect(state.recordChannel).toBeTruthy();
+  const readsBeforeLiveRefresh = state.getMemberDetail.mock.calls.length;
+  const originalRange = state.getMemberDetail.mock.calls.at(-1)?.[2];
   await act(async () => state.recordChannel?.onPayload({}));
+  await waitFor(() =>
+    expect(state.getMemberDetail).toHaveBeenCalledTimes(readsBeforeLiveRefresh + 1)
+  );
+  expect(state.getMemberDetail.mock.calls.at(-1)?.[2]).toEqual(originalRange);
   state.getMemberDetail.mockImplementation(async (_club, _member, activeRange) => ({
     ...memberDetail,
     identity: { ...memberDetail.identity, avatar_url: '/avatars/table/free_ninja@2x.webp' },

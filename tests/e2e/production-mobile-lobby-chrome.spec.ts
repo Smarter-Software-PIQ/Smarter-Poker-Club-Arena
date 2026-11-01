@@ -794,9 +794,7 @@ test.describe('the mobile lobby chrome on production', () => {
       });
       if (mode === 'cash') {
         await page.setViewportSize({ width: 1280, height: 900 });
-        const wideCashRows = page.locator(
-          '.lobby-table [data-testid="lobby-game-row"][data-kind="cash"][data-id]:visible'
-        );
+        const wideCashRows = page.locator('.lobby-table tr[data-kind="cash"][data-id]:visible');
         await expect(wideCashRows.first()).toBeVisible();
         await expect.poll(() => wideCashRows.evaluateAll(bodyInkFits)).toBe(true);
         expect(
