@@ -28,10 +28,13 @@ describe('browser qualification parallel delivery', () => {
       'publish-club-arena-transaction.yml',
     ]) {
       const workflow = YAML.parse(readFileSync('.github/workflows/' + file, 'utf8'));
-      const jobs = Object.values(workflow.jobs) as Array<Record<string, any>>;
-      expect(jobs.filter((job) => job['runs-on']).length).toBeGreaterThan(0);
-      for (const job of jobs.filter((job) => job['runs-on'])) {
-        expect(job['runs-on']).toBe('ubuntu-latest');
+      const jobs = Object.entries(workflow.jobs) as Array<[string, Record<string, any>]>;
+      expect(jobs.filter(([, job]) => job['runs-on']).length).toBeGreaterThan(0);
+      for (const [jobId, job] of jobs.filter(([, job]) => job['runs-on'])) {
+        const pinnedBrowser =
+          file === 'ci.yml' &&
+          ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(jobId);
+        expect(job['runs-on']).toBe(pinnedBrowser ? 'ubuntu-24.04' : 'ubuntu-latest');
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
     }
