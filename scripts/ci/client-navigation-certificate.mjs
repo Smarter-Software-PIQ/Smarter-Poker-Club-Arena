@@ -14,6 +14,28 @@ export function admitClientNavigation(payload) {
   return true;
 }
 
+export function admitKeepGamePages(payload) {
+  if (
+    !payload ||
+    payload.keep_game_pages !== true ||
+    Object.keys(payload).some((key) => key !== 'keep_game_pages')
+  ) {
+    throw new Error('keep_game_pages requires literal true and no other dispatch inputs');
+  }
+  return true;
+}
+
+const keepGamePages = 'tournament Details stays inside the spectator table lobby tab';
+export function assertKeepGamePagesReport(report) {
+  return assertExactReports(
+    [report],
+    [
+      ['production-mobile-lobby-chrome.spec.ts', keepGamePages, 'chromium'],
+      ['production-mobile-lobby-chrome.spec.ts', keepGamePages, 'webkit-footer'],
+    ]
+  );
+}
+
 const table = 'no surface scrolls sideways on a phone';
 const lobby = 'compact rows open details and filters stay at their original position';
 export function assertClientNavigationReports(tableReport, lobbyReport) {
@@ -22,6 +44,10 @@ export function assertClientNavigationReports(tableReport, lobbyReport) {
     ['production-mobile-lobby-chrome.spec.ts', lobby, 'chromium'],
     ['production-mobile-lobby-chrome.spec.ts', lobby, 'webkit-footer'],
   ];
+  return assertExactReports([tableReport, lobbyReport], expected);
+}
+
+function assertExactReports(reports, expected) {
   const actual = [];
   function visit(suite) {
     for (const spec of suite.specs ?? []) {
@@ -41,23 +67,26 @@ export function assertClientNavigationReports(tableReport, lobbyReport) {
     }
     for (const child of suite.suites ?? []) visit(child);
   }
-  for (const report of [tableReport, lobbyReport]) {
+  for (const report of reports) {
     if (!report || report.errors?.length)
       throw new Error('Navigation report missing or contains errors');
     visit(report);
   }
   const keys = (rows) => rows.map((row) => JSON.stringify(row)).sort();
   if (JSON.stringify(keys(actual)) !== JSON.stringify(keys(expected))) {
-    throw new Error(
-      'Navigation certificate requires exactly the phone overflow and two browser lobby cases'
-    );
+    throw new Error('Navigation certificate requires exactly its fixed browser cases');
   }
   return true;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === 'admit') {
-    admitClientNavigation(JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || 'null'));
+    const payload = JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || 'null');
+    if (payload && Object.hasOwn(payload, 'keep_game_pages')) admitKeepGamePages(payload);
+    else admitClientNavigation(payload);
+  } else if (process.argv[2] === 'keep-game-pages-reports' && process.argv.length === 4) {
+    assertKeepGamePagesReport(JSON.parse(readFileSync(process.argv[3], 'utf8')));
+    console.log('Exactly two keep-game-pages browser cases passed once without skips or retries.');
   } else if (process.argv[2] === 'reports' && process.argv.length === 5) {
     assertClientNavigationReports(
       ...process.argv.slice(3).map((file) => JSON.parse(readFileSync(file, 'utf8')))

@@ -8,6 +8,8 @@ import { useGameSessionLifecycle } from '../hooks/useGameSessionLifecycle';
 import {
   allInEquityBoardKey,
   allInEquityHandMatches,
+  visibleAllInEquities,
+  insuranceOfferEquity,
   validAllInEquityEntries,
 } from '../lib/allInEquityDisplay';
 import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
@@ -4072,6 +4074,7 @@ function LiveTablePage({
     let warned = false;
     let notRunningBeats = 0;
     let rowCheckInFlight = false;
+    let beatInFlight = false;
     let heartbeatAlive = true;
     heartbeatRowClosedRef.current = false;
     heartbeatRecoveryGuardRef.current.invalidate();
@@ -4164,104 +4167,110 @@ function LiveTablePage({
       if (heartbeatRowClosedRef.current) driveDeadTable();
       if (heartbeatRowClosedRef.current) return;
       if (!isNativeAppActive() || document.visibilityState === 'hidden') return;
-      /* PHASE 2 (2026-08-31): tell the engine whether this client has actually
-         PUT THE ACTION IN FRONT OF THE PLAYER, not merely that it is online.
+      if (beatInFlight) return;
+      beatInFlight = true;
+      try {
+        /* PHASE 2 (2026-08-31): tell the engine whether this client has actually
+           PUT THE ACTION IN FRONT OF THE PLAYER, not merely that it is online.
 
-         A heartbeat proves the app is running. It proved exactly that on
-         2026-08-31 while a player's own seat had been erased from his screen:
-         the beats landed every five seconds, the engine offered him turns
-         nobody could see, timed each one out, force-sat him out and took the
-         seat. From the server there was nothing to distinguish him from
-         somebody who had walked away.
+           A heartbeat proves the app is running. It proved exactly that on
+           2026-08-31 while a player's own seat had been erased from his screen:
+           the beats landed every five seconds, the engine offered him turns
+           nobody could see, timed each one out, force-sat him out and took the
+           seat. From the server there was nothing to distinguish him from
+           somebody who had walked away.
 
-         The flag is read from a ref the FELT writes as it renders, not
-         re-derived from state here. A second copy of the rule could drift
-         from the first and start claiming the bar is up when it is not - and
-         a false "the player can see this" is worse than silence, because it
-         tells the canary to relax about precisely the player it exists to
-         notice. */
-      const verdictIsCurrent = heartbeatRecoveryGuardRef.current.capture();
-      const res = await sendHeartbeat(tableId, {
-        turnRendered: heroActionRenderedRef.current,
-        // The engine will not stand up a busted seat whose owner is at the
-        // cashier (2026-09-04); this is how it knows.
-        rebuyPromptOpen: bustRebuyOpenRef.current,
-        autoTimeBank: autoTimeBankPreferenceRef.current,
-      });
-      if (!heartbeatAlive || !verdictIsCurrent()) return;
-      if (res?.success) {
-        heartbeatRecoveryGuardRef.current.invalidate();
-        heartbeatRowClosedRef.current = false;
-        // Silent recovery (Dan 2026-08-23). A "Reconnected" toast is only
-        // reassuring if the player was told something broke - and they no
-        // longer are. On its own it just announces a problem after the fact.
-        warned = false;
-        consecutiveMisses = 0;
-        notRunningBeats = 0;
-        deadTable.onRunning();
-        return;
-      }
-      /* The engine holds no game for this table. Ask the row ONCE per run of
-         404s (not per beat); only a row that says closed or deleted stops the
-         beat. A live or unreadable row keeps beating - an engine restart
-         re-claims its tables within minutes, and that is the beat that has
-         to land. */
-      if (res?.code === HEARTBEAT_TABLE_NOT_RUNNING) {
-        notRunningBeats += 1;
-        if (shouldAskTableRow(notRunningBeats) && !rowCheckInFlight && isUUID(tableId)) {
-          rowCheckInFlight = true;
-          void Promise.resolve(
-            supabase.from('tables').select('status, is_deleted').eq('id', tableId).maybeSingle()
-          )
-            .then(({ data, error }) => {
-              if (!heartbeatAlive || !verdictIsCurrent() || error) return;
-              if (tableRowSaysClosed(data as HeartbeatRowCheck | null)) {
-                heartbeatRowClosedRef.current = true;
-              }
-            })
-            .catch(() => undefined)
-            .finally(() => {
-              rowCheckInFlight = false;
-            });
+           The flag is read from a ref the FELT writes as it renders, not
+           re-derived from state here. A second copy of the rule could drift
+           from the first and start claiming the bar is up when it is not - and
+           a false "the player can see this" is worse than silence, because it
+           tells the canary to relax about precisely the player it exists to
+           notice. */
+        const verdictIsCurrent = heartbeatRecoveryGuardRef.current.capture();
+        const res = await sendHeartbeat(tableId, {
+          turnRendered: heroActionRenderedRef.current,
+          // The engine will not stand up a busted seat whose owner is at the
+          // cashier (2026-09-04); this is how it knows.
+          rebuyPromptOpen: bustRebuyOpenRef.current,
+          autoTimeBank: autoTimeBankPreferenceRef.current,
+        });
+        if (!heartbeatAlive || !verdictIsCurrent()) return;
+        if (res?.success) {
+          heartbeatRecoveryGuardRef.current.invalidate();
+          heartbeatRowClosedRef.current = false;
+          // Silent recovery (Dan 2026-08-23). A "Reconnected" toast is only
+          // reassuring if the player was told something broke - and they no
+          // longer are. On its own it just announces a problem after the fact.
+          warned = false;
+          consecutiveMisses = 0;
+          notRunningBeats = 0;
+          deadTable.onRunning();
+          return;
         }
-        driveDeadTable();
-      } else {
-        notRunningBeats = 0;
-      }
-      // A pre-start seat-first table has no engine game to heartbeat AT — the
-      // 404 is the expected answer until every seat is paid, not a miss. See
-      // seatFirstOpenRef above.
-      if (seatFirstOpenRef.current) return;
-      consecutiveMisses += 1;
-      /* TWO BEATS WITH NO ANSWER: ASK THE SOCKET TO PROVE ITSELF (2026-10-04).
-         The beat and the socket are two paths to one engine. When this path
-         goes silent - not refused, silent - the usual cause is a link that
-         died without closing, and the socket's own watchdog would take most
-         of a minute to notice while the felt sat frozen and looked live. The
-         probe is bounded and single-flight (EngineStateClient.probeLink); a
-         socket that answers it is left exactly as it was. Once per run of
-         misses, so a long outage asks one question. */
-      if (consecutiveMisses === 2 && res?.code === HEARTBEAT_NOT_DELIVERED) {
-        probeEngineLinkRef.current?.();
-      }
-      // Dan 2026-08-23: this used to raise its OWN "Connection lost" toast at
-      // 3 misses, which is why one outage produced two separate alarms - this
-      // one and the engine-WS watcher below - on every mounted table at once,
-      // including the ones you were not looking at.
-      //
-      // The heartbeat is the SECOND transport, not the game connection. When
-      // the link is genuinely down the engine socket is down too, and that
-      // watcher is the single voice that speaks. Losing only the heartbeat
-      // while the socket is fine is a partial failure the backoff ladder
-      // handles by itself and the player does not need to hear about it.
-      //
-      // The telemetry stays - that is what it was actually good for.
-      if (consecutiveMisses >= 3 && !warned) {
-        warned = true;
-        reportError(
-          new Error(`heartbeat missed ${consecutiveMisses}x`),
-          'TablePage.Heartbeat_lost'
-        );
+        /* The engine holds no game for this table. Ask the row ONCE per run of
+           404s (not per beat); only a row that says closed or deleted stops the
+           beat. A live or unreadable row keeps beating - an engine restart
+           re-claims its tables within minutes, and that is the beat that has
+           to land. */
+        if (res?.code === HEARTBEAT_TABLE_NOT_RUNNING) {
+          notRunningBeats += 1;
+          if (shouldAskTableRow(notRunningBeats) && !rowCheckInFlight && isUUID(tableId)) {
+            rowCheckInFlight = true;
+            void Promise.resolve(
+              supabase.from('tables').select('status, is_deleted').eq('id', tableId).maybeSingle()
+            )
+              .then(({ data, error }) => {
+                if (!heartbeatAlive || !verdictIsCurrent() || error) return;
+                if (tableRowSaysClosed(data as HeartbeatRowCheck | null)) {
+                  heartbeatRowClosedRef.current = true;
+                }
+              })
+              .catch(() => undefined)
+              .finally(() => {
+                rowCheckInFlight = false;
+              });
+          }
+          driveDeadTable();
+        } else {
+          notRunningBeats = 0;
+        }
+        // A pre-start seat-first table has no engine game to heartbeat AT — the
+        // 404 is the expected answer until every seat is paid, not a miss. See
+        // seatFirstOpenRef above.
+        if (seatFirstOpenRef.current) return;
+        consecutiveMisses += 1;
+        /* TWO BEATS WITH NO ANSWER: ASK THE SOCKET TO PROVE ITSELF (2026-10-04).
+           The beat and the socket are two paths to one engine. When this path
+           goes silent - not refused, silent - the usual cause is a link that
+           died without closing, and the socket's own watchdog would take most
+           of a minute to notice while the felt sat frozen and looked live. The
+           probe is bounded and single-flight (EngineStateClient.probeLink); a
+           socket that answers it is left exactly as it was. Once per run of
+           misses, so a long outage asks one question. */
+        if (consecutiveMisses === 2 && res?.code === HEARTBEAT_NOT_DELIVERED) {
+          probeEngineLinkRef.current?.();
+        }
+        // Dan 2026-08-23: this used to raise its OWN "Connection lost" toast at
+        // 3 misses, which is why one outage produced two separate alarms - this
+        // one and the engine-WS watcher below - on every mounted table at once,
+        // including the ones you were not looking at.
+        //
+        // The heartbeat is the SECOND transport, not the game connection. When
+        // the link is genuinely down the engine socket is down too, and that
+        // watcher is the single voice that speaks. Losing only the heartbeat
+        // while the socket is fine is a partial failure the backoff ladder
+        // handles by itself and the player does not need to hear about it.
+        //
+        // The telemetry stays - that is what it was actually good for.
+        if (consecutiveMisses >= 3 && !warned) {
+          warned = true;
+          reportError(
+            new Error(`heartbeat missed ${consecutiveMisses}x`),
+            'TablePage.Heartbeat_lost'
+          );
+        }
+      } finally {
+        beatInFlight = false;
       }
     };
     void beat();
@@ -4668,7 +4677,11 @@ function LiveTablePage({
       (live.heroSeat > 0 || heroSeatRef.current > 0) &&
       shouldHeartbeatOverHttp({ isLightningRoom: !!lightningRoomRef.current })
     ) {
-      void sendHeartbeat(tableId, { turnRendered: heroActionRenderedRef.current });
+      void sendHeartbeat(tableId, {
+        turnRendered: heroActionRenderedRef.current,
+        rebuyPromptOpen: bustRebuyOpenRef.current,
+        autoTimeBank: autoTimeBankPreferenceRef.current,
+      });
       const hero = live.players[live.heroSeat - 1];
       const blind =
         !!hero &&
@@ -5948,6 +5961,7 @@ function LiveTablePage({
      TOURNAMENT"). '' until the tournament row has been read. */
   const [tournamentEventName, setTournamentEventName] = useState('');
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
+  const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
   const [spinHeadsUpNote, setSpinHeadsUpNote] = useState(false);
   const spinPlayersRemaining = tableState.players.filter(
     (player) => player && String(player.status) !== 'eliminated'
@@ -9743,7 +9757,8 @@ function LiveTablePage({
       username: string;
       equity: number;
       seat: number;
-      boardKey?: string;
+      handNumber: number;
+      boardKey: string;
       exact?: boolean;
     }>
   >([]);
@@ -9766,6 +9781,7 @@ function LiveTablePage({
       const eq = allInEquities.find(
         (e) =>
           e.userId === pid &&
+          allInEquityHandMatches(tableState.handNumber ?? 0, e.handNumber) &&
           e.boardKey ===
             allInEquityBoardKey([
               tableState.communityCards,
@@ -9787,6 +9803,7 @@ function LiveTablePage({
     ritAcceptedIds,
     ritChooserId,
     tableState.players,
+    tableState.handNumber,
     tableState.communityCards,
     tableState.communityCards2,
     tableState.communityCards3,
@@ -9932,9 +9949,12 @@ function LiveTablePage({
   ]);
   // Until this street's exact answer arrives, never label it with the prior
   // street's chance. A viewer still squeezing keeps the intentional prior view.
-  const displayedEquities = squeezeHolding
-    ? heldEquities
-    : heldEquities.filter((e) => e.boardKey === undefined || e.boardKey === liveEquityBoardKey);
+  const displayedEquities = visibleAllInEquities(
+    heldEquities,
+    tableState.handNumber ?? 0,
+    liveEquityBoardKey,
+    squeezeHolding
+  );
 
   // FIX-232: Ref for cards_pre_sort to avoid stale closure in hole card callbacks
   const cardsPreSortRef = useRef(v8Settings.cards_pre_sort);
@@ -12960,10 +12980,19 @@ function LiveTablePage({
         // Find the offer for the current hero player
         const heroOffer = serverOffers.find((o: any) => o.playerId === userId);
         if (heroOffer) {
+          const equityPercent = insuranceOfferEquity(heroOffer.equity);
+          if (equityPercent === null) {
+            setInsuranceOffer(null);
+            setShowInsurance(false);
+            setInsuranceWaitingOn(null);
+            setDecisionDeadline((prev) => (prev?.kind === 'insurance' ? null : prev));
+            reportError(new Error('Invalid Insurance Equity'), 'TablePage.insurance_offer_equity');
+            return;
+          }
           // Map server offer format to InsuranceModal's InsuranceOffer format
           setInsuranceOffer({
             maxCoverage: heroOffer.fullInsuredAmount || heroOffer.insuredAmount || 0,
-            equityPercent: heroOffer.equity || 50,
+            equityPercent,
             premiumRate:
               heroOffer.fullPremium && heroOffer.fullInsuredAmount
                 ? heroOffer.fullPremium / heroOffer.fullInsuredAmount
@@ -13869,6 +13898,7 @@ function LiveTablePage({
           setAllInEquities(
             equities.map((e) => ({
               ...e,
+              handNumber: equityHand,
               boardKey,
               equity: e.equityRaw ?? e.equity,
               exact: handState.exact === true && e.equityRaw !== undefined,
@@ -15965,6 +15995,11 @@ function LiveTablePage({
                   const fmt = tournamentFormatRef.current;
                   const tid = fmt === 'mtt' ? tableStateRef.current.tournamentId : null;
                   const ftName = tableStateRef.current.tableName || 'Tournament';
+                  // The owner can receive an ambiguous transport reply after
+                  // delivery. Claim presentation before async roster reads so
+                  // replay cannot restart the celebration or duplicate its toast.
+                  if (!tid || finalTableAnnouncedRef.current.has(tid)) return;
+                  finalTableAnnouncedRef.current.add(tid);
                   if (tid) {
                     setTableState((prev) => ({ ...prev, isFinalTable: true }));
                     (async () => {

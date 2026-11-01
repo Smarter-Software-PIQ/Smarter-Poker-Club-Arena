@@ -1,0 +1,126 @@
+name: Published Session Hand Statistics Proof
+# Explicit finite verification only. No schedule, publisher, engine action or gameplay write.
+on:
+  repository_dispatch:
+    types: [run-session-hand-stats-proof]
+permissions:
+  contents: read
+jobs:
+  session-hand-stats-proof:
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-session-hand-stats-proof'
+    name: Exact published session hand statistics proof
+    # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    concurrency:
+      group: session-hand-stats-proof-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Admit only the fixed protected-main proof
+        id: admit
+        env:
+          HAND_STATS_PROOF_ACTION: ${{ github.event.action }}
+          HAND_STATS_PROOF_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/session-hand-stats-proof.mjs admit
+          git fetch --no-tags --filter=blob:none origin main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Install locked verifier dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Qualify the closed verifier and its refusal cases
+        run: node --test tests/operations/session-hand-stats-proof.test.mjs
+      - name: Require installed scoped account cleanup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/ci/await-certification-cleanup-safety.mjs
+      - name: Install Chromium only
+        timeout-minutes: 5
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
+      - name: Create the owned isolated account
+        id: account
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/ci/production-e2e-account.mjs create
+      - name: Prepare the reserved zero-balance spectator membership
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+        run: node scripts/ci/production-e2e-account.mjs prepare-spectator
+      - name: Pin both origins immediately before the one case
+        id: pin
+        run: |
+          set -euo pipefail
+          mkdir -p e2e-report/session-hand-stats
+          git fetch --no-tags --filter=blob:none origin main
+          SHA=$(node scripts/ci/session-hand-stats-proof.mjs pin e2e-report/session-hand-stats/before.json)
+          git cat-file -e "$SHA^{commit}"
+          git merge-base --is-ancestor "$SHA" origin/main
+          echo "LIVE_SHA=$SHA" >> "$GITHUB_ENV"
+      - name: Execute the six published hand-count surfaces
+        id: proof
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          E2E_HAND_STATS_PROOF: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/session-hand-stats/report.json
+        run: >-
+          npx playwright test tests/e2e/production-session-hand-stats.spec.ts
+          --project=chromium --workers=1 --retries=0 --reporter=line,json
+          --trace=off --output=test-results/session-hand-stats
+      - name: Require the same two origins immediately after the case
+        id: after_pin
+        if: always() && steps.pin.outcome == 'success'
+        run: node scripts/ci/session-hand-stats-proof.mjs pin e2e-report/session-hand-stats/after.json
+      - name: Verify cleanup of this exact isolated account
+        id: cleanup
+        if: always() && steps.admit.outcome == 'success'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          import { cleanupProductionE2EAccount } from './scripts/ci/production-e2e-account.mjs';
+          if (await cleanupProductionE2EAccount() !== true) throw new Error('Owned account cleanup did not verify retirement');
+          mkdirSync('e2e-report/session-hand-stats', { recursive: true });
+          writeFileSync('e2e-report/session-hand-stats/cleanup.json', JSON.stringify({ verified: true }));
+          NODE
+      - name: Require one first-attempt pass, exact release and actual cleanup
+        if: always()
+        env:
+          ACCOUNT_OUTCOME: ${{ steps.account.outcome }}
+          PROOF_OUTCOME: ${{ steps.proof.outcome }}
+          AFTER_PIN_OUTCOME: ${{ steps.after_pin.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+        run: >-
+          node scripts/ci/session-hand-stats-proof.mjs verify
+          e2e-report/session-hand-stats/report.json e2e-report/session-hand-stats/before.json
+          e2e-report/session-hand-stats/after.json e2e-report/session-hand-stats/cleanup.json
+      - name: Retain the one-case proof on every outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-hand-stats-proof
+          path: |
+            e2e-report/session-hand-stats/
+            test-results/session-hand-stats/
+          if-no-files-found: error
+          retention-days: 14

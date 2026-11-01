@@ -1,3 +1,4 @@
+import { DiamondTournamentPolicyClosedError } from '../services/cashTablePlayEligibility.js';
 import { ELIMINATION_SWEEP_STUCK_MS } from './eliminationLock.js';
 import { TournamentAbortBoundary, type AbortBoundaryRequest } from './TournamentAbortBoundary.js';
 import { noteTerminalFinishClub } from './terminalSettlementRpc.js';
@@ -73,7 +74,7 @@ import {
 } from '../config/spinSpec.js';
 import { describeError, reportError } from '../services/errorReporter.js';
 import { noteDiamondTournamentTableSkipped } from '../services/cashTablePlayEligibility.js';
-import { selectInChunks } from '../services/supabase/chunkedIn.js';
+import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
 /**
  * THE TOURNAMENT CEILING IS THE DECK, NOT THE CASH SEAT LAW (2026-08-31).
@@ -536,6 +537,7 @@ export abstract class TournamentManagerBase {
    * retried, rebuilt or restarted because of it.
    */
   private readonly tableAdmissionLastRefusal = new Map<string, string>();
+  private tableAdmissionPolicyClosure = new Map<string, true>();
   private readonly tableAdmissionPagedAt = new Map<string, number>();
   /**
    * A STALLED TABLE PAGES ITS REAL REFUSAL, AND A REPEATED REFUSAL READS AS
@@ -1759,6 +1761,7 @@ export abstract class TournamentManagerBase {
       manager.tableAdmissionRefusalStreak,
       manager.tableAdmissionRecoveryReason,
       manager.tableAdmissionPagedCode,
+      manager.tableAdmissionPolicyClosure,
     ] as Array<Map<string, unknown> | undefined>) {
       if (tableId === undefined) map?.clear();
       else map?.delete(tableId);
@@ -1801,6 +1804,11 @@ export abstract class TournamentManagerBase {
 
   /** Keep the last refusal a failing table's admission met (bounded text). */
   private noteTableAdmissionRefusal(tableId: string, error: unknown, now = Date.now()): void {
+    // Only the bound admission guard's explicit false is an intentional park.
+    // Unknown reads and later non-policy failures keep normal recovery behavior.
+    if (error instanceof DiamondTournamentPolicyClosedError && error.tableId === tableId)
+      (this.tableAdmissionPolicyClosure ??= new Map()).set(tableId, true);
+    else this.tableAdmissionPolicyClosure?.delete(tableId);
     const text = describeError(error).replace(/\s+/g, ' ').trim().slice(0, 400);
     if (!text) return;
     this.tableAdmissionLastRefusal?.set(tableId, text);
@@ -2436,6 +2444,9 @@ export abstract class TournamentManagerBase {
   }
 
   requestSuccessorForStuckTable(tableId: string): boolean {
+    // A successor sees the same closed policy. Keep the exact owner available
+    // for an explicit close/drain request instead of cycling its generation.
+    if (this.tableAdmissionPolicyClosure?.has(tableId)) return false;
     if (!this.tableEngines.has(tableId) && !this.tableAdmissionFailingSince.has(tableId))
       return false;
     const stuck = this.tableEngines.get(tableId);
@@ -2655,12 +2666,12 @@ export abstract class TournamentManagerBase {
       await resumeRetainedHandSubmission(tableId, INSTANCE_ID, leaseGeneration);
       if (!current() || !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId))
         throw new Error('f06_engine_admission_fenced');
-      const { data, error } = await supabase.rpc('fn_f06_hand_number_state', {
+      let { data, error } = await supabase.rpc('fn_f06_hand_number_state', {
         p_tournament_id: this.tournamentId,
         p_lease_generation: leaseGeneration,
         p_table_id: tableId,
       });
-      const state = data as {
+      let state = data as {
         ok?: boolean;
         table_id?: string;
         lifecycle?: string;
@@ -2751,8 +2762,9 @@ export abstract class TournamentManagerBase {
        * requested once.
        *
        * So ask it here, from the admission that is already being refused, and
-       * then refuse this attempt anyway: the next admission re-reads the state
-       * the door left and proves itself normally. This is not a sweep, a
+       * after an acknowledged decision re-read the authoritative state once
+       * and prove this same admission normally. Refused or unknown outcomes
+       * retain the original admission refusal. This is not a sweep, a
        * healer or a repair job (CLAUDE.md 10.12) - it is this table's own live
        * path deciding the thing that blocks this table, at the moment it is
        * blocked, through the platform's own idempotent door. The receipt is
@@ -2792,6 +2804,29 @@ export abstract class TournamentManagerBase {
               leaseGeneration
             );
             this.abandonedGenerationAskedAt.set(abandoned, { at: Date.now(), ask });
+            if (ask === 'decided') {
+              // The receipt decides custody, not the next dealer's projection.
+              // Re-read once under this same owner, then apply every ordinary
+              // admission check below to the authoritative post-disposition state.
+              if (
+                !current() ||
+                !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId)
+              )
+                throw new Error('f06_engine_admission_fenced');
+              const refreshed = await supabase.rpc('fn_f06_hand_number_state', {
+                p_tournament_id: this.tournamentId,
+                p_lease_generation: leaseGeneration,
+                p_table_id: tableId,
+              });
+              data = refreshed.data;
+              error = refreshed.error;
+              state = data as typeof state;
+              if (
+                !current() ||
+                !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId)
+              )
+                throw new Error('f06_engine_admission_fenced');
+            }
           }
         }
       }
@@ -3038,6 +3073,9 @@ export abstract class TournamentManagerBase {
     this.tableAdmissionFailingSince.delete(tableId);
     this.tableAdmissionLastRefusal?.delete(tableId);
     TournamentManagerBase.forgetTableAdmissionStreak(this, tableId);
+    // Retirement clears retry bookkeeping, not the policy that deliberately
+    // stopped this table. The whole-event dark-field reader must retain it.
+    (this.tableAdmissionPolicyClosure ??= new Map()).set(tableId, true);
   }
 
   /** The completed launch receipt survives dealer and manager replacement. */
@@ -3791,6 +3829,20 @@ export abstract class TournamentManagerBase {
    * resolves in seconds; fifteen minutes of one is the wedge).
    */
   deliberateDealingHold(nowMs: number): string | null {
+    // Whole-event rebuilds must observe the same positive policy as the
+    // per-table successor path. A mixed or unknown field still needs recovery.
+    if (this.tableAdmissionPolicyClosure?.size) {
+      const knownTables = new Set([
+        ...this.tableEngines.keys(),
+        ...this.tableAdmissionFailingSince.keys(),
+        ...this.tableAdmissionPolicyClosure.keys(),
+      ]);
+      if (
+        knownTables.size > 0 &&
+        [...knownTables].every((tableId) => this.tableAdmissionPolicyClosure.has(tableId))
+      )
+        return 'diamond_tournament_policy_closed';
+    }
     if (
       this.addOnBreakActive &&
       this.addOnBreakEndsAtMs > 0 &&
@@ -4126,27 +4178,8 @@ export abstract class TournamentManagerBase {
      * until beginBreakCountdown knows the real answer. A client that cannot
      * read a clock renders "Last Hand" rather than a wrong number.
      */
-    await this.broadcast('tournament_break', {
-      level: this.currentLevel,
-      phase: 'last_hand',
-      breakDurationMinutes: Math.round(breakDurationMs / 60000),
-      breakEndsAt: null,
-      synchronized: true,
-      nextLevel: nextLevel
-        ? {
-            smallBlind: nextLevel.smallBlind,
-            bigBlind: nextLevel.bigBlind,
-            ante: nextLevel.ante || 0,
-          }
-        : null,
-    });
-    if (
-      !this.lifecycleIsCurrent(lifecycle) ||
-      !this.onBreak ||
-      this.synchronizedBreakStartGeneration !== acceptedBreakGeneration
-    )
-      return;
-
+    // Gameplay custody precedes its announcement. A delayed transport must
+    // not leave the field dealing behind the already-persisted break.
     // 2026-08-18: the break screen is a full-screen opaque overlay
     // (TournamentBreakScreen.css: position fixed, inset 0, z-index 700), and
     // until now NOTHING stopped the tables underneath it. Every player sat
@@ -4159,6 +4192,7 @@ export abstract class TournamentManagerBase {
     // pauseAfterHand() is the same mechanism hand-for-hand already uses: the
     // current hand is played to the end and no new hand is dealt.
     for (const engine of this.tableEngines.values()) {
+      if (!this.lifecycleIsCurrent(lifecycle)) return;
       try {
         // Budget the pause for the WHOLE break: the last hand still has to
         // finish, then five minutes run on top of that. The engine's default
@@ -4174,6 +4208,28 @@ export abstract class TournamentManagerBase {
         reportError(err, 'TournamentManagerBase.pauseForBreak_pause_engine');
       }
     }
+
+    if (
+      !this.lifecycleIsCurrent(lifecycle) ||
+      !this.onBreak ||
+      this.synchronizedBreakStartGeneration !== acceptedBreakGeneration
+    )
+      return;
+
+    await this.broadcast('tournament_break', {
+      level: this.currentLevel,
+      phase: 'last_hand',
+      breakDurationMinutes: Math.round(breakDurationMs / 60000),
+      breakEndsAt: null,
+      synchronized: true,
+      nextLevel: nextLevel
+        ? {
+            smallBlind: nextLevel.smallBlind,
+            bigBlind: nextLevel.bigBlind,
+            ante: nextLevel.ante || 0,
+          }
+        : null,
+    });
   }
 
   /**
@@ -4752,7 +4808,9 @@ export abstract class TournamentManagerBase {
 
     console.log(`[Tournament:${this.tournamentId.slice(0, 8)}] BREAK ENDED - resuming play`);
 
-    await this.broadcast('break_ended', { level: this.currentLevel });
+    // Announce in the same order, but transport acknowledgement cannot hold
+    // gameplay after the durable break release has committed.
+    const announcement = this.broadcast('break_ended', { level: this.currentLevel });
     if (!lifecycle || !this.lifecycleIsCurrent(lifecycle)) return;
 
     /* Undo the pause taken in pauseForBreak only when no durable add-on break
@@ -4839,6 +4897,7 @@ export abstract class TournamentManagerBase {
     // parked. A field split into single-player tables cannot deal the next
     // hand that would otherwise wake this work; the break end is that edge.
     this.requestEliminationSweep('break_ended');
+    await announcement;
   }
 
   /**
@@ -5662,40 +5721,66 @@ export abstract class TournamentManagerBase {
    * regular half. `null` means it could not be read.
    */
   protected async readUnrecordedKnockoutCount(): Promise<number | null> {
-    const { data: pending, error: pendingErr } = await supabase
-      .from('tournament_knockout_candidates')
-      .select('eliminated_user_id')
-      .eq('tournament_id', this.tournamentId)
-      .eq('state', 'pending');
-    if (pendingErr || !pending) {
-      reportError(
-        pendingErr ?? new Error('pending knockout candidates unreadable'),
-        'Tournament.mystery_unrecorded_knockouts_unreadable'
+    const lifecycle = this.captureLifecycleToken();
+    const current = () => this.lifecycleIsCurrent(lifecycle);
+    if (!current()) return null;
+    try {
+      const pending = await fetchAllRows<{ id: string; eliminated_user_id: unknown }>(
+        (cursor, want) => {
+          let query = supabase
+            .from('tournament_knockout_candidates')
+            .select('id, eliminated_user_id')
+            .eq('tournament_id', this.tournamentId)
+            .eq('state', 'pending')
+            .order('id', { ascending: true })
+            .limit(want);
+          if (cursor !== null) query = query.gt('id', cursor);
+          return query;
+        },
+        {
+          label: 'Tournament.mystery_unrecorded_knockouts',
+          pageAttempts: 1,
+          shouldContinue: current,
+        }
       );
+      if (!pending.complete || !current()) return null;
+      const userIds = new Set<string>();
+      for (const row of pending.rows) {
+        if (typeof row.eliminated_user_id !== 'string' || row.eliminated_user_id.length === 0) {
+          throw new Error('Pending knockout player identity unreadable');
+        }
+        userIds.add(row.eliminated_user_id);
+      }
+      const ids = [...userIds];
+      let total = 0;
+      // Bound the URL independently of the result pages. One player can have
+      // multiple pending generations, but contributes to this count only once.
+      for (let at = 0; at < ids.length; at += IN_LIST_CHUNK) {
+        if (!current()) return null;
+        const batch = ids.slice(at, at + IN_LIST_CHUNK);
+        const { count, error } = await supabase
+          .from('tournament_players')
+          .select('*', { count: 'exact', head: true })
+          .eq('tournament_id', this.tournamentId)
+          .eq('status', 'playing')
+          .in('user_id', batch);
+        if (!current()) return null;
+        if (
+          error ||
+          typeof count !== 'number' ||
+          !Number.isSafeInteger(count) ||
+          count < 0 ||
+          count > batch.length
+        ) {
+          throw error ?? new Error('Unrecorded knockout count unreadable');
+        }
+        total += count;
+      }
+      return total;
+    } catch (error) {
+      reportError(error, 'Tournament.mystery_unrecorded_knockouts_unreadable');
       return null;
     }
-    const userIds = [
-      ...new Set(
-        (pending as Array<{ eliminated_user_id: unknown }>)
-          .map((r) => (r.eliminated_user_id == null ? '' : String(r.eliminated_user_id)))
-          .filter((id) => id.length > 0)
-      ),
-    ];
-    if (userIds.length === 0) return 0;
-    const { count, error } = await supabase
-      .from('tournament_players')
-      .select('*', { count: 'exact', head: true })
-      .eq('tournament_id', this.tournamentId)
-      .eq('status', 'playing')
-      .in('user_id', userIds);
-    if (error || count == null) {
-      reportError(
-        error ?? new Error('unrecorded knockout count unreadable'),
-        'Tournament.mystery_unrecorded_knockouts_unreadable'
-      );
-      return null;
-    }
-    return count;
   }
 
   /**
@@ -6738,6 +6823,14 @@ export abstract class TournamentManagerBase {
       noteTerminalFinishClub(this.tournamentId, tournament.club_id);
       await this.readTournamentClub(tournament.club_id, lifecycle);
       this.assertLifecycleCurrent(lifecycle);
+
+      // Establish the stage boundary before launch recovery, seating or dealers.
+      // An unreadable plan cannot authorize play past a possibly sealed day end.
+      await this.loadMultiDayPlan(tournament, lifecycle);
+      if (this.multiDayPlan?.kind === 'unknown') {
+        this.running = false;
+        return;
+      }
 
       this.prizePoolFinalized = tournament.prize_pool_finalized || false;
       this.tournamentEntryWindowClosed = this.prizePoolFinalized;
@@ -7843,9 +7936,6 @@ export abstract class TournamentManagerBase {
       }
       await this.drainTableEngineStartJobs();
       this.assertLifecycleCurrent(lifecycle);
-      // Multi-day: learn the stage plan before the level clock can reach a
-      // day's last level. No I/O for any format a plan cannot be sealed on.
-      await this.loadMultiDayPlan(tournament, lifecycle);
 
       /**
        * Start blind timer — AT THE ADVERTISED START, not at seating.
@@ -8225,6 +8315,10 @@ export abstract class TournamentManagerBase {
        * and the level clock below is never armed.
        */
       await this.loadMultiDayPlan(tournament, lifecycle);
+      if (this.multiDayPlan?.kind === 'unknown') {
+        this.running = false;
+        return;
+      }
       this.rearmStageEndPauseFromPlan();
       this.prizePoolFinalized = tournament.prize_pool_finalized || false;
       this.tournamentEntryWindowClosed = this.prizePoolFinalized;
@@ -8238,16 +8332,29 @@ export abstract class TournamentManagerBase {
       // Find existing tables. `first_button_seat` comes along so a Spin whose
       // button was drawn but never dealt keeps the seat it drew — see
       // restoreDrawnFirstButtons.
-      const { data: tables, error: tablesError } = await supabase
-        .from('tables')
-        .select('id, first_button_seat, small_blind, big_blind, ante, stakes')
-        .eq('tournament_id', this.tournamentId)
-        .in('status', ['running', 'waiting']);
+      const { rows: tables, complete: tablesComplete } = await fetchAllRows(
+        (cursor, limit) => {
+          let query = supabase
+            .from('tables')
+            .select('id, first_button_seat, small_blind, big_blind, ante, stakes')
+            .eq('tournament_id', this.tournamentId)
+            .in('status', ['running', 'waiting'])
+            .order('id', { ascending: true })
+            .limit(limit);
+          if (cursor) query = query.gt('id', cursor);
+          return query;
+        },
+        {
+          label: 'Tournament.resume_table_inventory',
+          shouldContinue: () => {
+            this.assertLifecycleCurrent(lifecycle);
+            return true;
+          },
+        }
+      );
       this.assertLifecycleCurrent(lifecycle);
-      if (tablesError)
-        throw new Error(`Tournament resume table inventory read failed: ${tablesError.message}`);
-      if (!Array.isArray(tables))
-        throw new Error('Tournament resume table inventory was unreadable');
+      if (!tablesComplete)
+        throw new Error('Tournament resume table inventory could not be read completely');
 
       /**
        * A DEAD GENERATION'S HAND IS DECIDED BEFORE THIS ONE ADOPTS THE CLOCK
@@ -8384,19 +8491,23 @@ export abstract class TournamentManagerBase {
           this.wireEliminationWake(engine);
           this.tableEngines.set(table.id, engine);
           this.prepareManagedTableEngineForPlay(engine);
+        }
+        // Restore the durable first button while every replacement is inert.
+        // Starting a dealer before this read can race its first hand and apply
+        // the original button to a later hand instead.
+        await this.restoreDrawnFirstButtons(
+          tables as Array<{ id: string; first_button_seat?: number | null }>
+        );
+        this.assertLifecycleCurrent(lifecycle);
+        for (const table of tables) {
+          const engine = this.tableEngines.get(table.id);
+          if (!engine) throw new Error('Tournament resumed dealer disappeared before admission');
           this.admitManagedTableEngine(table.id, engine);
           this.startManagedTableEngine(
             engine,
             `Tournament.${this.tournamentId.slice(0, 8)}.resume_table_error`
           );
         }
-        // Re-apply a button that was DRAWN but never dealt. Awaited before the
-        // first hand can plausibly land, and a no-op for every table that has
-        // already played one.
-        await this.restoreDrawnFirstButtons(
-          tables as Array<{ id: string; first_button_seat?: number | null }>
-        );
-        this.assertLifecycleCurrent(lifecycle);
       }
 
       // A resumed manager is not admitted until every table start it launched
@@ -9599,7 +9710,8 @@ export abstract class TournamentManagerBase {
    * Child managers add their own source registries below this boundary.
    */
   protected tournamentAbortSourcesMatch(
-    expected: readonly (readonly [string, ServerTableEngine])[]
+    expected: readonly (readonly [string, ServerTableEngine])[],
+    absent: ReadonlySet<string> = new Set()
   ): boolean {
     const byId = new Map(expected);
     for (const map of [
@@ -9612,7 +9724,7 @@ export abstract class TournamentManagerBase {
       for (const [id, engine] of this.drainedF06Originals)
         if (byId.get(id) !== engine) return false;
     for (const [id, engine] of this.tableEngineRecoveryExpected)
-      if (engine === null || byId.get(id) !== engine) return false;
+      if (engine === null ? !absent.has(id) : byId.get(id) !== engine) return false;
     return true;
   }
 
@@ -9688,23 +9800,43 @@ export abstract class TournamentManagerBase {
       throw new Error('operator_abort_withdrawn_for_original_recovery');
     if (
       fresh.current_generation !== request.current_generation ||
-      !isDeepStrictEqual(fresh.tables, request.tables) ||
+      !isDeepStrictEqual(
+        fresh.tables.map((table: AbortBoundaryRequest['tables'][number]) => [
+          table.table_id,
+          table.lifecycle,
+          table.required,
+        ]),
+        request.tables.map((table) => [table.table_id, table.lifecycle, table.required])
+      ) ||
       tailIdentity !== this.tournamentAbortOwnedTailIdentity()
     )
       return {
         state: 'pending',
         operation_id: request.operation_id,
+        tournament_id: this.tournamentId,
         reason: 'original_graph_changed_before_capture',
       };
     // Concurrent requests may have joined the same physical preflight.
     const concurrent = this.tournamentAbortBoundary as TournamentAbortBoundary | null;
     if (concurrent) {
-      if (concurrent.request.operation_id !== request.operation_id)
+      if (
+        concurrent.request.operation_id !== request.operation_id ||
+        concurrent.request.closureMode !== request.closureMode
+      )
         throw new Error('tournament_abort_operation_already_owned');
       return concurrent.run(true);
     }
     const originals = [...this.tableEngines.entries()];
     const required = request.tables.filter((table) => table.required);
+    const absent = new Set(
+      required
+        .filter((table) => !this.tableEngines.has(table.table_id))
+        .map((table) => table.table_id)
+    );
+    const absenceCurrent = () =>
+      [...absent].every((id) =>
+        this.gameServer.canCertifyTournamentTableAbsent(this.tournamentId, this, id)
+      );
     // No physical side effect or original-roster capture precedes a complete
     // graph. An accepted table move/start may still publish its original
     // outcome; the same durable request can observe that outcome afterward.
@@ -9712,21 +9844,29 @@ export abstract class TournamentManagerBase {
       this.lifecycleOperation !== null ||
       this.tableEngineStartJobs.size !== 0 ||
       !this.tournamentAbortBusinessTailsDrained() ||
-      !this.tournamentAbortSourcesMatch(originals) ||
+      !this.tournamentAbortSourcesMatch(originals, absent) ||
       required.length === 0 ||
-      required.length !== originals.length ||
-      required.some((table) => !this.tableEngines.has(table.table_id))
+      required.length !== originals.length + absent.size ||
+      originals.some(([id]) => !required.some((table) => table.table_id === id)) ||
+      !absenceCurrent() ||
+      required.some(
+        (table) =>
+          absent.has(table.table_id) &&
+          (!Number.isSafeInteger(table.durable_hand_number) || table.durable_hand_number! < 0)
+      )
     )
       return Promise.resolve({
         state: 'pending',
         operation_id: request.operation_id,
+        tournament_id: this.tournamentId,
         reason: 'original_graph_not_ready',
       });
     const current = () =>
       this.hasCurrentTournamentLeaseAuthority() &&
       this.tournamentAbortActuationAllowed() &&
       !this.stopFenceApplied &&
-      this.tournamentAbortSourcesMatch(originals) &&
+      this.tournamentAbortSourcesMatch(originals, absent) &&
+      absenceCurrent() &&
       this.tableEngines.size === originals.length &&
       originals.every(
         ([id, engine]) =>
@@ -9737,6 +9877,30 @@ export abstract class TournamentManagerBase {
       joinManagerTails: () => this.joinTournamentAbortManagerTails(false),
       joinRetiredManagerTails: () => this.joinTournamentAbortManagerTails(true),
       managerReadyToFence: () => this.tournamentAbortBusinessTailsDrained(),
+      captureAbsentTable: (table) => {
+        if (
+          !absent.has(table.table_id) ||
+          !current() ||
+          !this.shutdownDrainFenceApplied ||
+          this.running ||
+          this.lifecycleOperation !== null ||
+          this.tableEngineStartJobs.size !== 0 ||
+          this.tableEngineRunJobs.size !== 0 ||
+          this.lifecycleJobs.size !== 0 ||
+          this.eliminationSchedulerJobs.size !== 0 ||
+          this.lifecycleTimeouts.size !== 0 ||
+          this.lifecycleIntervals.size !== 0 ||
+          !this.tournamentAbortBusinessTailsDrained() ||
+          this.seatMoveQuarantineRefusal() !== null
+        )
+          return null;
+        return {
+          lifecycle: table.lifecycle,
+          hand_number: table.durable_hand_number!,
+          engine_id: null,
+          allocation_epoch: null,
+        };
+      },
       fenceManager: () => this.beginServerShutdownDrain(),
       managerDrained: () =>
         this.tournamentAbortBusinessTailsDrained() &&
@@ -9749,6 +9913,54 @@ export abstract class TournamentManagerBase {
         this.lifecycleTimeouts.size === 0 &&
         this.lifecycleIntervals.size === 0 &&
         this.seatMoveQuarantineRefusal() === null,
+      prepareAcknowledgement: async (tableId, handNumber, evidence) => {
+        if (request.closureMode !== 'equal_share') return;
+        const stopped = await supabase.rpc('fn_ca_tournament_abort_stop_state', {
+          p_operation_id: request.operation_id,
+          p_tournament_id: this.tournamentId,
+        });
+        if (
+          stopped.error ||
+          stopped.data?.ok !== true ||
+          stopped.data.operation_id !== request.operation_id ||
+          stopped.data.tournament_id !== this.tournamentId ||
+          stopped.data.current_generation !== request.current_generation ||
+          stopped.data.state === 'recovery' ||
+          stopped.data.state === 'settled' ||
+          !Array.isArray(stopped.data.tables) ||
+          !current()
+        )
+          throw new Error('tournament_abort_stopped_review_unknown');
+        const table = (stopped.data.tables as AbortBoundaryRequest['tables']).find(
+          (table) => table.table_id === tableId
+        );
+        if (
+          !table ||
+          table.lifecycle !== evidence.lifecycle ||
+          table.durable_hand_number !== handNumber
+        )
+          throw new Error('tournament_abort_stopped_hand_changed');
+        if (request.closureMode === 'equal_share' && table.cancellable_permit_id) {
+          if (!table.cancellable_hand_hash || !current())
+            throw new Error('tournament_abort_hand_review_unknown');
+          const cancelled = await supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {
+            p_operation_id: request.operation_id,
+            p_tournament_id: this.tournamentId,
+            p_table_id: tableId,
+            p_generation: request.current_generation,
+            p_permit_id: table.cancellable_permit_id,
+            p_expected_hash: table.cancellable_hand_hash,
+            p_evidence: evidence,
+          });
+          if (
+            cancelled.error ||
+            cancelled.data?.ok !== true ||
+            cancelled.data?.outcome !== 'aborted_unsettled'
+          )
+            throw new Error('tournament_abort_hand_disposition_unknown');
+          if (!current()) throw new Error('tournament_abort_owner_changed_after_disposition');
+        }
+      },
       acknowledge: async (tableId, handNumber, evidence) => {
         const { data, error } = await supabase.rpc('fn_ca_ack_tournament_abort_boundary', {
           p_operation_id: request.operation_id,
@@ -10211,16 +10423,16 @@ export abstract class TournamentManagerBase {
           .from('hand_history')
           .select('id', { count: 'exact', head: true })
           .eq('table_id', table.id);
-        if (error) {
+        if (error || typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
           // Unreadable history is UNKNOWN, and the safe unknown here is "it may
           // already have dealt" — re-forcing the button on a live table is the
           // damaging direction.
           console.warn(
-            `[Tournament:${this.tournamentId.slice(0, 8)}] Could not check hand history for table ${table.id.slice(0, 8)} (${error.message}) - leaving the drawn button alone`
+            `[Tournament:${this.tournamentId.slice(0, 8)}] Could not check hand history for table ${table.id.slice(0, 8)} (${error?.message ?? 'invalid hand count'}) - leaving the drawn button alone`
           );
           continue;
         }
-        if ((count || 0) > 0) {
+        if (count > 0) {
           await supabase.from('tables').update({ first_button_seat: null }).eq('id', table.id);
           continue;
         }
@@ -12840,8 +13052,15 @@ export abstract class TournamentManagerBase {
     }
 
     if (!alreadyRepriced) {
-      await this.recalculateEliminatedPrizes(finalPool);
+      const repriced = await this.recalculateEliminatedPrizes(finalPool);
       if (!this.lifecycleIsCurrent(lifecycle) || isMaintenanceFrozen()) return;
+      // A partial entitlement pass is not a completed tail. Preserve the
+      // existing bounded continuation and its original finalized pool.
+      if (!repriced) {
+        throw new Error(
+          `[Tournament:${this.tournamentId.slice(0, 8)}] Add-on entitlement reprice is incomplete`
+        );
+      }
     }
     const delivered = await this.broadcast('ADDON_PERIOD_END', {});
     if (!this.lifecycleIsCurrent(lifecycle) || isMaintenanceFrozen()) return;

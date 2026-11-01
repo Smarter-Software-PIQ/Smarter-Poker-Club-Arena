@@ -111,4 +111,21 @@ describe('supabaseConnectionWatchdog', () => {
     expect(wd.consecutiveFailures).toBe(0);
     expect(wd.isConnected).toBe(true);
   });
+
+  it('coalesces overlapping checkHealth calls into a single request', async () => {
+    let resolveFetch!: (value: { status: number; ok: boolean }) => void;
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const first = wd.checkHealth();
+    const second = wd.checkHealth();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFetch({ status: 200, ok: true });
+    await Promise.all([first, second]);
+    expect(wd.consecutiveFailures).toBe(0);
+  });
 });

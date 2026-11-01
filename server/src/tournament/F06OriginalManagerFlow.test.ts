@@ -1588,3 +1588,137 @@ it.each(['durable', 'legacy', 'changed hash', 'changed permit', 'changed evidenc
     }
   }
 );
+
+it.each([
+  'accepted',
+  'door refused',
+  'door unknown',
+  'fenced after disposition',
+  'fenced after read',
+  'read error',
+  'missing',
+  'still reserved',
+  'wrong table',
+  'invalid lifecycle',
+  'invalid high water',
+  'wrong candidate',
+])(
+  'acknowledged abandoned disposition re-proves actual admission in the same attempt: %s',
+  async (mode) => {
+    const f = await fixture('', 'committed');
+    delete f.manager.lifecycleEpoch.current;
+    f.manager.lifecycleEpoch.begin();
+    const replacement = new ServerTableEngine(source) as any;
+    Object.defineProperty(replacement, 'ready', { value: Promise.resolve(true) });
+    const start = vi.spyOn(replacement, 'start').mockResolvedValue(undefined);
+    const recovery = vi.spyOn(f.manager, 'recoverManagedTableEngine').mockResolvedValue(undefined);
+    vi.spyOn(continuationService, 'claimHandContinuation').mockResolvedValue(null);
+    vi.spyOn(continuationService, 'claimLegacyRiverContinuation').mockResolvedValue(null);
+    f.manager.tableEngines.set(source, replacement);
+    f.server.tableEngines.set(source, replacement);
+    const order: string[] = [];
+    let reads = 0;
+    const fresh = {
+      ok: true,
+      table_id: source,
+      lifecycle: '1',
+      can_reserve: true,
+      blocked_reason: null,
+      used_hand_number_max: '1000001',
+      next_hand_number_candidate: '1000002',
+      unresolved_permit: null,
+    };
+    const blocked = {
+      ...fresh,
+      can_reserve: false,
+      blocked_reason: 'hand_permit_unresolved',
+      next_hand_number_candidate: null,
+      unresolved_permit: {
+        ...f.permit.binding,
+        generation: id(50),
+        state: 'reserved',
+        evidence_id: null,
+      },
+    };
+    f.rpc.mockImplementation((async (name: string, args: any) => {
+      order.push(name);
+      if (name === 'fn_ca_resume_hand_submission') return { data: { found: false }, error: null };
+      if (name === 'fn_f06_abort_abandoned_generation') {
+        if (mode === 'door refused')
+          return { data: null, error: { code: '55000', message: 'F06_ABANDONED_ROSTER_CHANGED' } };
+        if (mode === 'door unknown') return { data: null, error: null };
+        if (mode === 'fenced after disposition') {
+          f.invalidate();
+          f.manager.lifecycleEpoch.abort();
+        }
+        return {
+          data: {
+            ok: true,
+            outcome: 'aborted_unsettled',
+            receipt_id: args.p_receipt_id,
+            tournament_id: event,
+            generation: id(50),
+            hands_aborted: 1,
+            never_started: 0,
+            credit: 0,
+          },
+          error: null,
+        };
+      }
+      if (name !== 'fn_f06_hand_number_state') throw new Error('Unexpected admission RPC ' + name);
+      expect(args).toEqual({
+        p_tournament_id: event,
+        p_lease_generation: lease,
+        p_table_id: source,
+      });
+      if (++reads === 1) return { data: blocked, error: null };
+      if (mode === 'fenced after read') {
+        f.invalidate();
+        f.manager.lifecycleEpoch.abort();
+      }
+      const data =
+        mode === 'missing'
+          ? null
+          : mode === 'still reserved'
+            ? blocked
+            : {
+                ...fresh,
+                ...(mode === 'wrong table' ? { table_id: destination } : {}),
+                ...(mode === 'invalid lifecycle' ? { lifecycle: '0' } : {}),
+                ...(mode === 'invalid high water' ? { used_hand_number_max: 'NaN' } : {}),
+                ...(mode === 'wrong candidate' ? { next_hand_number_candidate: '1000001' } : {}),
+              };
+      return { data, error: mode === 'read error' ? { message: 'unreadable' } : null };
+    }) as any);
+    // Keep unknown disposition bounded without changing production retry policy.
+    if (mode === 'door unknown')
+      vi.spyOn(f.manager, 'decideAbandonedGeneration').mockResolvedValue('undecided');
+    try {
+      f.manager.startManagedTableEngine(replacement, 'abandoned admission test');
+      await Promise.allSettled([
+        ...f.manager.tableEngineRunJobs,
+        ...f.manager.tableEngineStartJobs,
+      ]);
+      expect(start).toHaveBeenCalledTimes(mode === 'accepted' ? 1 : 0);
+      expect(recovery).toHaveBeenCalledTimes(
+        mode === 'accepted' || mode.startsWith('fenced after') ? 0 : 1
+      );
+      expect(reads).toBe(
+        ['door refused', 'door unknown', 'fenced after disposition'].includes(mode) ? 1 : 2
+      );
+      if (mode === 'accepted')
+        expect(order).toEqual([
+          'fn_ca_resume_hand_submission',
+          'fn_f06_hand_number_state',
+          'fn_f06_abort_abandoned_generation',
+          'fn_f06_hand_number_state',
+        ]);
+      expect(order).not.toContain('fn_f06_allocate_hand_number');
+      expect(order).not.toContain('fn_f06_begin_hand');
+    } finally {
+      f.engine.running = false;
+      f.engine.preciseTimer.dispose();
+      replacement.preciseTimer.dispose();
+    }
+  }
+);

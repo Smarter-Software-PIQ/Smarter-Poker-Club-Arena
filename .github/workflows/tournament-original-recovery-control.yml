@@ -1,13 +1,26 @@
-name: Explicit Original89 Operator Control
+name: Explicit Original Recovery And Tournament Closure Control
 on:
   workflow_dispatch:
     inputs:
       action:
         type: choice
-        options: [prepare, read, abort_read, abort_ack, abort_settle]
+        options:
+          [
+            prepare,
+            read,
+            abort_request,
+            abort_read,
+            abort_ack,
+            abort_settle,
+            equal_request,
+            equal_read,
+            equal_ack,
+            equal_preview,
+            equal_settle,
+          ]
         required: true
       tournament_id:
-        description: Exact original20 for recovery, exact other69 for original abort
+        description: Fixed reviewed170 for equal-share; historical abort settlement remains other69 only
         type: string
         required: true
       nonce:
@@ -27,7 +40,7 @@ on:
         type: string
         required: true
       expected_money_hash:
-        description: Required only for abort_settle, exact independently reviewed current money hash
+        description: Required for abort_settle, equal_preview or equal_settle, exact independently reviewed current money hash
         type: string
         required: false
 permissions:
@@ -48,6 +61,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Preserve exact operator intent before any request
+        env:
+          RECOVERY_ACTION: ${{ inputs.action }}
+          RECOVERY_EVENT: ${{ inputs.tournament_id }}
+          RECOVERY_NONCE: ${{ inputs.nonce }}
+          EXPECTED_ENGINE_SHA: ${{ inputs.expected_engine_sha }}
+          EXPECTED_INSTANCE: ${{ inputs.expected_instance }}
+          EXPECTED_GENERATION: ${{ inputs.expected_generation }}
+          EXPECTED_MONEY_HASH: ${{ inputs.expected_money_hash }}
+          RECOVERY_RECEIPT_PATH: ${{ runner.temp }}/original20-control/receipt.json
+          RECOVERY_INTENT_PATH: ${{ runner.temp }}/original20-control/intent.json
+        run: node .github/scripts/tournament-original-recovery-control.mjs intent
+      - uses: actions/upload-artifact@v4
+        with:
+          name: original20-control-intent-${{ github.run_id }}
+          path: ${{ runner.temp }}/original20-control/intent.json
+          if-no-files-found: error
+          retention-days: 7
       - name: One exact operator action and durable readback, never a release
         env:
           RECOVERY_ACTION: ${{ inputs.action }}
@@ -60,6 +91,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           RECOVERY_RECEIPT_PATH: ${{ runner.temp }}/original20-control/receipt.json
+          RECOVERY_INTENT_PATH: ${{ runner.temp }}/original20-control/intent.json
         run: node .github/scripts/tournament-original-recovery-control.mjs
       - uses: actions/upload-artifact@v4
         if: always()

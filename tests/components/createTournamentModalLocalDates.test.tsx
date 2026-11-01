@@ -33,6 +33,7 @@ vi.mock('../../src/services/TournamentService', async (original) => {
   return {
     ...actual,
     tournamentService: {
+      resumePendingTournamentCreation: vi.fn().mockResolvedValue(null),
       createTournament: mocks.create,
       buildRpcConfig: actual.tournamentService.buildRpcConfig.bind(actual.tournamentService),
     },
@@ -146,7 +147,8 @@ describe('the satellite-target read', () => {
       neq: vi.fn().mockReturnThis(),
       in: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: null, error: refusal }),
+      limit: vi.fn().mockReturnThis(),
+      abortSignal: vi.fn().mockResolvedValue({ data: null, error: refusal }),
     };
     vi.spyOn(supabase, 'from').mockReturnValue(query as never);
     mount();

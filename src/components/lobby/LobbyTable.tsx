@@ -472,7 +472,13 @@ function compactRowClass(entry: LobbyEntry): string | undefined {
   return cls.join(' ');
 }
 
-function SatelliteRowDestination({ entry }: { entry: LobbyEntry }) {
+function SatelliteRowDestination({
+  entry,
+  compact = false,
+}: {
+  entry: LobbyEntry;
+  compact?: boolean;
+}) {
   const row = entry.kind !== 'cash' ? (entry.raw as LobbyTournamentRow) : undefined;
   const destination = useSatelliteDestination(row?.satellite_target_id || row?.satellite_target);
   const label =
@@ -481,7 +487,13 @@ function SatelliteRowDestination({ entry }: { entry: LobbyEntry }) {
       ? 'Satellite Destination Unavailable'
       : undefined);
   return label ? (
-    <span className="compact-lobby__meta compact-lobby__destination">{label}</span>
+    <span
+      className="compact-lobby__meta compact-lobby__destination"
+      title={label}
+      aria-label={label}
+    >
+      {compact ? 'Satellite' : label}
+    </span>
   ) : null;
 }
 
@@ -931,7 +943,7 @@ const COL_NAME: ColumnDef = {
     return (
       <span className="lt-name lt-name--seatfirst" title={e.name}>
         <span className="lt-name__table">{e.variantLabel}</span>
-        <SatelliteRowDestination entry={e} />
+        <SatelliteRowDestination entry={e} compact />
         {e.kind === 'spin' && ctx.spinTopTierLive && <SpinTopTierBadge />}
         <LobbyFlagChips entry={e} />
         <PlayerStateChip entry={e} ctx={ctx} />
@@ -1021,7 +1033,7 @@ const COL_BUYIN: ColumnDef = {
   className: 'lt-col-num',
   sortable: true,
   sortValue: (e) => e.buyInValue,
-  render: (e) => <span className="lt-mono">{e.buyInLabel}</span>,
+  render: (e) => <CashStakesValue text={e.buyInLabel} />,
 };
 const COL_GTD: ColumnDef = {
   key: 'gtd',
@@ -1128,7 +1140,7 @@ const COL_COST: ColumnDef = {
     e.kind === 'cash' ? (
       <CashStakesValue text={e.stakesLabel} />
     ) : (
-      <span className="lt-mono">{e.buyInLabel}</span>
+      <CashStakesValue text={e.buyInLabel} />
     ),
 };
 
@@ -2381,7 +2393,7 @@ export default function LobbyTable({
                         )}
                       </span>
                       {entry.kind === 'mtt' && <LobbyFlagChips entry={entry} />}
-                      {entry.kind !== 'cash' && <SatelliteRowDestination entry={entry} />}
+                      {entry.kind !== 'cash' && <SatelliteRowDestination entry={entry} compact />}
                       {entry.kind !== 'cash' && <TournamentRowSignals entry={entry} />}
                       <PlayerStateChip entry={entry} ctx={rowCtx} />
                     </button>

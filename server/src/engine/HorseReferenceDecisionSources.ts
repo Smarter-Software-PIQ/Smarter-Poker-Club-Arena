@@ -53,6 +53,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'every preflop bar of the reference (open, 3-bet, 4-bet, call, isolation, push/fold) and the opponent-exploit preflop read',
     'src/engine/HorseTournamentPreflop.ts':
       'the Phase 6 tournament preflop atlas the bars shift by',
+    'src/engine/HorseNlhOpenSize.ts':
+      "the no-limit hold'em raise-first-in open size bands and the shared chip grid (Dan 2026-10-31)",
     'src/engine/AnteMath.ts': 'the ante orbit cost behind the M-zones',
     'src/engine/OmahaFlushBlocker.ts':
       'physical two-hole three-board nut-flush and straight-flush blockers consumed by the reference decision',

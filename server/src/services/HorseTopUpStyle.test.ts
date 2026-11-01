@@ -265,3 +265,86 @@ describe('cent-exact PLO5 refills', () => {
     ).toBe(8.03);
   });
 });
+
+describe('owner maximum 1/2 cash refill', () => {
+  const stake = { small_blind: 1, big_blind: 2 };
+  for (const variant of ['nlh', 'plo4', 'plo5', 'plo6', 'plo8']) {
+    it(`${variant} fills every positive cent gap independent of refill habit`, () => {
+      expect(horseSitsWithAutoTopUp('add-on-horse', variant, stake)).toBe(true);
+      for (const stack of [250, 399.99]) {
+        const wanted = horseAutoTopUpWanted({
+          userId: 'add-on-horse',
+          variant,
+          stack,
+          maxBuyIn: 400,
+          autoTopUp: false,
+          smallBlind: 1,
+          bigBlind: 2,
+        });
+        expect(wanted).toBe(stack === 250 ? 150 : 0.01);
+        expect(
+          cappedAutoTopUp({
+            userId: 'nit-1-2',
+            wanted,
+            wallet: 400,
+            investedThisTable: 100000,
+            smallBlind: 1,
+            bigBlind: 2,
+            minBuyIn: 200,
+            maxBuyIn: 400,
+          })
+        ).toBe(wanted);
+      }
+    });
+  }
+  it('never exceeds the wallet or maximum, invents unread funds, or prices fractional cents', () => {
+    const a = {
+      userId: 'nit-1-2',
+      wanted: 150,
+      wallet: 149.99,
+      investedThisTable: undefined,
+      smallBlind: 1,
+      bigBlind: 2,
+      minBuyIn: 200,
+      maxBuyIn: 400,
+    };
+    expect(cappedAutoTopUp(a)).toBe(0);
+    expect(cappedAutoTopUp({ ...a, wallet: undefined })).toBe(0);
+    expect(cappedAutoTopUp({ ...a, wallet: 400, wanted: 150.001 })).toBe(0);
+    expect(cappedAutoTopUp({ ...a, wallet: 400, wanted: 401 })).toBe(0);
+    expect(
+      horseAutoTopUpWanted({
+        userId: 'h',
+        variant: 'plo8',
+        stack: 1200,
+        maxBuyIn: 400,
+        smallBlind: 1,
+        bigBlind: 2,
+      })
+    ).toBe(0);
+  });
+  it('does not classify a tournament with matching blind numbers as maximum cash', async () => {
+    const { isMaximumHorseCashStake } = await import('./HorseBehavior.js');
+    expect(
+      isMaximumHorseCashStake({ small_blind: 1, big_blind: 2, tournament_id: 'tournament' })
+    ).toBe(false);
+    expect(isMaximumHorseCashStake({ small_blind: 1, big_blind: 2, is_tournament: true })).toBe(
+      false
+    );
+  });
+  it('retains reserve, exposure and sliver preferences at other stakes', () => {
+    expect(
+      cappedAutoTopUp({
+        userId: 'nit-1-2',
+        wanted: 0.01,
+        wallet: 40000,
+        investedThisTable: 100000,
+        smallBlind: 2,
+        bigBlind: 5,
+        minBuyIn: 250,
+        maxBuyIn: 1000,
+      })
+    ).toBe(0);
+    expect(horseSitsWithAutoTopUp('h', 'plo8', { small_blind: 2, big_blind: 5 })).toBe(false);
+  });
+});

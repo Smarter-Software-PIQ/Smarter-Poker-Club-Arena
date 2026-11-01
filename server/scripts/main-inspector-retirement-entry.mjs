@@ -1,6 +1,7 @@
 // Concatenated with maintained transport and kernel qualification by immutable control.
 import * as retirementFs from 'node:fs';
 import * as retirementHttp from 'node:http';
+import * as retirementNet from 'node:net';
 import { createHash as retirementHash } from 'node:crypto';
 const retirementDeadline = Number(process.argv[1]);
 // All receipt/exit time is inside the supplied native deadline, itself inside
@@ -74,6 +75,10 @@ function retirementEntryFailure(error) {
       ? code
       : retirementEntryFallbacks[retirementEntryStage],
     entryStage: retirementEntryStage,
+    ...(code === 'main_inspector_socket_unproved' &&
+    INSPECTOR_KERNEL_STEPS.includes(error?.kernelStep)
+      ? { kernelStep: error.kernelStep }
+      : {}),
     retryAllowed: false,
   };
 }
@@ -105,51 +110,110 @@ function retirementRuntime() {
 }
 async function retirementDiscover() {
   return new Promise((resolve, reject) => {
-    let body = '',
+    let response = Buffer.alloc(0),
+      headerEnd = -1,
+      contentLength,
       ended = false,
+      peerEnded = false,
+      settled = false,
       answer;
-    const request = retirementHttp.get(
-      {
-        host: '127.0.0.1',
-        port: 9229,
-        path: '/json/list',
-        agent: false,
-        headers: { Connection: 'close' },
-        timeout: Math.min(1000, retirementRemaining()),
-      },
-      (response) => {
-        response.setEncoding('utf8');
-        response.on('data', (chunk) => {
-          body += chunk;
-          if (Buffer.byteLength(body) > 16384)
-            request.destroy(new Error('retirement_discovery_bound'));
-        });
-        response.on('end', () => {
-          try {
-            const targets = JSON.parse(body);
-            if (
-              response.statusCode !== 200 ||
-              !Array.isArray(targets) ||
-              targets.length !== 1 ||
-              typeof targets[0].webSocketDebuggerUrl !== 'string' ||
-              !/^ws:\/\/127\.0\.0\.1:9229\/[0-9a-f-]{36}$/i.test(targets[0].webSocketDebuggerUrl)
-            )
-              throw new Error('retirement_endpoint');
-            answer = targets[0].webSocketDebuggerUrl;
-            ended = true;
-          } catch (error) {
-            reject(error);
-          }
-        });
+    // The HTTP client destroys its local socket when the body ends. Its close
+    // event can therefore precede MAIN consuming that FIN, leaving our peer in
+    // CLOSE_WAIT at the strict zero-client census. Keep this one owned stream
+    // readable after sending FIN and require the peer's FIN before local close.
+    const timeout = Math.min(1000, retirementRemaining());
+    const socket = retirementNet.createConnection({
+      host: '127.0.0.1',
+      port: 9229,
+      allowHalfOpen: true,
+    });
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(error);
+    };
+    socket.setTimeout(timeout);
+    socket.once('connect', () => {
+      try {
+        retirementRemaining();
+        socket.write(
+          'GET /json/list HTTP/1.1\r\nHost: 127.0.0.1:9229\r\nConnection: close\r\n\r\n'
+        );
+      } catch (error) {
+        fail(error);
       }
-    );
-    request.on('socket', (socket) =>
-      socket.once('close', () => {
-        if (ended) resolve(answer);
-      })
-    );
-    request.once('timeout', () => request.destroy(new Error('retirement_discovery_timeout')));
-    request.once('error', reject);
+    });
+    socket.on('data', (chunk) => {
+      try {
+        retirementRemaining();
+        response = Buffer.concat([response, chunk]);
+        if (response.length > 4096 + 16384) throw new Error('retirement_discovery_bound');
+        if (headerEnd < 0) {
+          headerEnd = response.indexOf('\r\n\r\n');
+          if (headerEnd < 0) {
+            if (response.length > 4096) throw new Error('retirement_discovery_bound');
+            return;
+          }
+          if (headerEnd + 4 > 4096) throw new Error('retirement_discovery_bound');
+          const headers = response.subarray(0, headerEnd);
+          if (
+            [...headers].some((byte) => byte > 0x7e || (byte < 0x20 && ![9, 10, 13].includes(byte)))
+          )
+            throw new Error('retirement_endpoint');
+          const lines = headers.toString('ascii').split('\r\n');
+          if (!/^HTTP\/1\.[01] 200(?: |$)/.test(lines.shift()))
+            throw new Error('retirement_endpoint');
+          let lengths = 0;
+          for (const line of lines) {
+            const colon = line.indexOf(':');
+            const name = line.slice(0, colon).toLowerCase();
+            const value = line.slice(colon + 1).trim();
+            if (colon < 1 || !/^[a-z][a-z0-9-]*$/.test(name) || name === 'transfer-encoding')
+              throw new Error('retirement_endpoint');
+            if (name === 'content-length') {
+              if (++lengths !== 1 || !/^[0-9]{1,5}$/.test(value))
+                throw new Error('retirement_endpoint');
+              contentLength = Number(value);
+            }
+          }
+          if (lengths !== 1 || contentLength > 16384) throw new Error('retirement_discovery_bound');
+        }
+        const length = response.length - headerEnd - 4;
+        if (length > contentLength) throw new Error('retirement_endpoint');
+        if (length < contentLength) return;
+        const targets = JSON.parse(response.subarray(headerEnd + 4).toString('utf8'));
+        if (
+          !Array.isArray(targets) ||
+          targets.length !== 1 ||
+          typeof targets[0].webSocketDebuggerUrl !== 'string' ||
+          !/^ws:\/\/127\.0\.0\.1:9229\/[0-9a-f-]{36}$/i.test(targets[0].webSocketDebuggerUrl)
+        )
+          throw new Error('retirement_endpoint');
+        answer = targets[0].webSocketDebuggerUrl;
+        ended = true;
+        socket.end();
+      } catch (error) {
+        fail(error);
+      }
+    });
+    socket.once('end', () => {
+      peerEnded = true;
+      if (!ended) fail(new Error('retirement_endpoint'));
+    });
+    socket.once('close', (hadError) => {
+      if (settled) return;
+      if (hadError || !ended || !peerEnded) return fail(new Error('retirement_endpoint'));
+      try {
+        retirementRemaining();
+        settled = true;
+        resolve(answer);
+      } catch (error) {
+        fail(error);
+      }
+    });
+    socket.once('timeout', () => fail(new Error('retirement_discovery_timeout')));
+    socket.once('error', fail);
   });
 }
 async function retirementEntry() {

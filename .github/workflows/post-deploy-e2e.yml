@@ -323,12 +323,13 @@ jobs:
       engine_trigger_sha: ${{ steps.origin.outputs.engine_trigger_sha }}
       client_navigation: ${{ steps.origin.outputs.client_navigation }}
       tournament_only: ${{ steps.origin.outputs.tournament_only }}
+      keep_game_pages: ${{ steps.origin.outputs.keep_game_pages }}
       natural_addon: ${{ steps.origin.outputs.natural_addon }}
       client_target_sha: ${{ steps.client-target.outputs.sha }}
       verification_sha: ${{ steps.client-target.outputs.verification_sha }}
     steps:
       - name: Checkout trusted publication verification
-        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null'))
+        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null'))
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -352,6 +353,7 @@ jobs:
           MOBILE_MULTIRUN_TARGET_JSON: ${{ toJSON(github.event.client_payload.mobile_multirun_target) }}
           CLIENT_NAVIGATION_JSON: ${{ toJSON(github.event.client_payload.client_navigation) }}
           CLIENT_NAVIGATION_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+          EVENT_ACTION: ${{ github.event.action }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = repository_dispatch ]; then
@@ -377,11 +379,14 @@ jobs:
                   throw new Error("Natural add-on observation requires one tournament UUID, exact engine SHA and no other mode.");'
               echo 'natural_addon=true' >> "$GITHUB_OUTPUT"
             fi
-            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && Object.hasOwn(p,"client_navigation") ? 0 : 1)'; then
-              [ "${CLIENT_NAVIGATION_JSON-null}" = true ] \
-                || { echo '::error::client_navigation must be literal true.'; exit 1; }
+            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && (Object.hasOwn(p,"client_navigation") || Object.hasOwn(p,"keep_game_pages")) ? 0 : 1)'; then
+              if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); process.exit(Object.hasOwn(p,"keep_game_pages") ? 0 : 1)'; then
+                [ "${EVENT_ACTION:-}" = run-post-deploy-e2e ] \
+                  || { echo '::error::keep_game_pages requires the existing post-deploy event.'; exit 1; }
+              fi
               node scripts/ci/client-navigation-certificate.mjs admit
               echo 'client_navigation=true' >> "$GITHUB_OUTPUT"
+              node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("keep_game_pages=" + (p.keep_game_pages === true));' >> "$GITHUB_OUTPUT"
               echo 'engine_trigger_sha=' >> "$GITHUB_OUTPUT"
               echo 'should_run=true' >> "$GITHUB_OUTPUT"
               exit 0
@@ -1421,7 +1426,7 @@ jobs:
           node "$RUNNER_TEMP/tournament-client-certificate.mjs" browser e2e-report/tournament-browser.json
 
       - name: Verify only the two client navigation repairs
-        if: needs.publication-gate.outputs.client_navigation == 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
+        if: needs.publication-gate.outputs.client_navigation == 'true' && needs.publication-gate.outputs.keep_game_pages != 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1445,6 +1450,29 @@ jobs:
           node "$RUNNER_TEMP/client-navigation-certificate.mjs" reports e2e-report/navigation-table.json e2e-report/navigation-lobby.json
           proof_rc=$?
           [ "$table_rc" -eq 0 ] && [ "$lobby_rc" -eq 0 ] && [ "$proof_rc" -eq 0 ]
+
+      # Fixed acceptance diagnosis for the original keep-game-pages journey.
+      # The deployed spec keeps its complete 120-second budget and assertions.
+      - name: Verify the existing keep-game-pages journey in both browsers
+        id: keep_game_pages
+        if: needs.publication-gate.outputs.keep_game_pages == 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+        run: |
+          set +e
+          mkdir -p e2e-report
+          PLAYWRIGHT_JSON_OUTPUT_NAME=e2e-report/keep-game-pages.json npx playwright test \
+            tests/e2e/production-mobile-lobby-chrome.spec.ts \
+            --grep '^.*tournament Details stays inside the spectator table lobby tab$' \
+            --project=chromium --project=webkit-footer --reporter=line,json --workers=1 --retries=0 \
+            --trace=retain-on-failure --output=test-results/keep-game-pages
+          browser_rc=$?
+          node "$RUNNER_TEMP/client-navigation-certificate.mjs" keep-game-pages-reports e2e-report/keep-game-pages.json
+          proof_rc=$?
+          [ "$browser_rc" -eq 0 ] && [ "$proof_rc" -eq 0 ]
 
       # THE RUN MUST NOT PASS BY NOT RUNNING.
       #

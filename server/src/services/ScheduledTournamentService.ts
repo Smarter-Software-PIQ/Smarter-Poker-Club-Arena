@@ -68,6 +68,7 @@ import {
   fixedFreeBuyRow,
   recurringMttRow,
   MTT_PUBLISH_LEAD_MS,
+  mttHorsePrestartWindowMs,
   satelliteSourceIsSupported,
   satelliteTargetIsDeliverable,
   type SatelliteTargetRow,
@@ -593,10 +594,17 @@ export function restartCloneStartMs(args: {
   startTimeMs: number | null;
   nowMs: number;
   guaranteedPrize: number;
+  /** A scheduled MTT must exist for its owner-defined signup window. */
+  prestartLeadMs?: number;
 }): number {
   const { restartMinutes, endedAtMs, startTimeMs, nowMs, guaranteedPrize } = args;
   const intervalMs = Math.max(0, restartMinutes) * 60 * 1000;
-  const floor = nowMs + restartLeadMsFor(guaranteedPrize);
+  const floor =
+    nowMs +
+    Math.max(
+      restartLeadMsFor(guaranteedPrize),
+      Number.isFinite(args.prestartLeadMs) ? Math.max(0, Number(args.prestartLeadMs)) : 0
+    );
   const anchorToStart =
     restartMinutes >= RESTART_ANCHOR_TO_START_FROM_MINUTES &&
     startTimeMs !== null &&
@@ -1182,7 +1190,7 @@ export class ScheduledTournamentService {
             t.prize_pool_finalized !== true &&
             startMs - nowMs > CONFORM_MIN_LEAD_MS;
           if (!movable) continue;
-          const { error: moveErr } = await supabase
+          const { data: moved, error: moveErr } = await supabase
             .from('tournaments')
             .update({
               start_time: plan.newStart.toISOString(),
@@ -1190,7 +1198,10 @@ export class ScheduledTournamentService {
             })
             .eq('id', t.id)
             .eq('start_time', t.start_time)
-            .in('status', ['ANNOUNCED', 'REGISTERING']);
+            .in('status', ['ANNOUNCED', 'REGISTERING'])
+            .is('prize_pool_finalized', t.prize_pool_finalized ?? null)
+            .select('id, start_time')
+            .maybeSingle();
           if (moveErr) {
             reportError(
               new Error(
@@ -1200,12 +1211,22 @@ export class ScheduledTournamentService {
             );
             continue;
           }
+          // A successful HTTP response can still mean the compare-and-set lost.
+          if (
+            !moved ||
+            moved.id !== t.id ||
+            Date.parse(String(moved.start_time)) !== plan.newStart.getTime()
+          )
+            continue;
         }
         // The key follows the event it spent — strictly after the move.
-        const { error: renameErr } = await supabase
+        const { data: renamed, error: renameErr } = await supabase
           .from('tournament_schedule_spawns')
           .update({ spawn_key: plan.newKey })
-          .eq('spawn_key', plan.oldKey);
+          .eq('spawn_key', plan.oldKey)
+          .eq('tournament_id', t.id)
+          .select('spawn_key, tournament_id')
+          .maybeSingle();
         if (renameErr) {
           reportError(
             new Error(
@@ -1215,6 +1236,8 @@ export class ScheduledTournamentService {
           );
           continue;
         }
+        if (!renamed || renamed.spawn_key !== plan.newKey || renamed.tournament_id !== t.id)
+          continue;
         claimedSet.delete(plan.oldKey);
         claimedSet.add(plan.newKey);
         console.log(
@@ -1661,18 +1684,15 @@ export class ScheduledTournamentService {
       );
     }
 
-    // Horse seeding — same money-correct path the recurring service uses,
-    // but ONLY for an event that is about to start. An event published a day
-    // ahead opens empty and stays open: seeding it now would lock horses out
-    // of today's games for a tournament that does not begin until tomorrow,
-    // and would also present a "full" board to the humans it is meant for.
-    // GameServer's past-start top-up fills any short field on the clock.
+    // Creation uses the same entry window as discovery and registration:
+    // free entries may build hours early; regular entries start an hour out.
+    // The registration owner bounds this seed to the event's random curve.
     const minPlayers = Number(row.min_players) || 3;
     const horsesRaw = Number((cfg as Record<string, unknown>).horsesToRegister);
     const horses =
       Number.isFinite(horsesRaw) && horsesRaw >= 0 ? Math.floor(horsesRaw) : minPlayers;
     const startsWithinMs = startTime.getTime() - Date.now();
-    const seedNow = horses > 0 && startsWithinMs <= HORSE_SEED_WITHIN_MS;
+    const seedNow = horses > 0 && startsWithinMs <= mttHorsePrestartWindowMs(row);
     let seeded = 0;
     if (seedNow) {
       seeded = await this.horseSeeder.topUpWithHorses(createdId, horses);
@@ -2585,9 +2605,9 @@ export class ScheduledTournamentService {
      * between 0.8 and 5.0 minutes before start; the four published at the
      * intended MTT_PUBLISH_LEAD_MS are not in the bleed.
      *
-     * So a clone that carries a guarantee gets the same lead a scheduled
-     * event gets. A clone with NO guarantee keeps the two-minute floor: it
-     * cannot overlay, and a fast restart is what keeps the board alive.
+     * November 1: every restarted MTT also preserves its signup window,
+     * including a zero-guarantee paid event (one hour) or free entry (hours).
+     * Other formats retain their existing restart rule.
      */
     const oldStartMs = old.start_time ? Date.parse(String(old.start_time)) : NaN;
     const startTime = new Date(
@@ -2597,6 +2617,7 @@ export class ScheduledTournamentService {
         startTimeMs: Number.isFinite(oldStartMs) ? oldStartMs : null,
         nowMs: Date.now(),
         guaranteedPrize: Number(old.guaranteed_prize) || 0,
+        prestartLeadMs: isPersistedUnlimitedMtt(old) ? mttHorsePrestartWindowMs(old) : undefined,
       })
     );
 

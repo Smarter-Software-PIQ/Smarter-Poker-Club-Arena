@@ -120,8 +120,8 @@ async function binaryFixture(run){
       helper_sha256:hash(await readFile(new URL('../native-dump-diagnostic.c',import.meta.url))),
       function_batch_helper_sha256:hash(await readFile(new URL('../native-dump-function-batch.c',import.meta.url))),
       function_batch_contract_sha256:hash(await readFile(new URL('../native-dump-function-batch-test.c',import.meta.url))),
-      transport:'consecutive-stock-function-executions-v1',
-      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5507,function_batch_max:128,native_batch_result_faults_refused:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components'}};
+      transport:'bounded-stock-function-read-ahead-v2',
+      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5510,function_batch_max:128,native_batch_result_faults_refused:true,dependency_interleaved_sql_equal:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components'}};
     const save=()=>writeFile(path.join(output,'manifest.json'),JSON.stringify(manifest),{mode:0o600});await save();
     await run({root,output,manifest,save,env:{RUNNER_TEMP:root,GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
   }finally{await rm(root,{recursive:true,force:true});}
@@ -133,12 +133,15 @@ test('only exact qualified owned native binary and source manifest creates an ex
     const old=manifest[key];manifest[key]='b'.repeat(old.length);await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest[key]=old;
   }
-  for(const [key,bad] of [['synthetic_routine_count',5506],['function_batch_max',129],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['diagnostic_object_scope','all-visits']]){
+  for(const [key,bad] of [['synthetic_routine_count',5509],['function_batch_max',129],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['dependency_interleaved_sql_equal',false],['diagnostic_object_scope','all-visits']]){
     const old=manifest.qualification[key];manifest.qualification[key]=bad;await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.qualification[key]=old;
   }
-  const oldTransport=manifest.transport;manifest.transport='logging-only';await save();
-  await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.transport=oldTransport;
+  const oldTransport=manifest.transport;
+  for(const transport of ['logging-only','consecutive-stock-function-executions-v1']){
+    manifest.transport=transport;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);
+  }
+  manifest.transport=oldTransport;
   manifest.run_id='999';await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.run_id='123';
   manifest.run_attempt=2;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.run_attempt=1;
   manifest.qualification.sql_bytes_equal=false;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);
@@ -299,4 +302,17 @@ assert commands==[(['make','-C','src/bin/pg_dump','-j1','pg_dump'],420),(['make'
 print('original bounded serialized stock and diagnostic target builds')`;
   const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000});
   assert.equal(result.status,0,result.stderr);
+});
+
+
+test('actual native C read-ahead preserves mixed-object consumption and all bounded refusals',()=>{
+  const script=`import importlib.util,os,tempfile
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('native','operations/release/fixture/native-dump-diagnostic.py')
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR') or os.environ['RUNNER_TEMP']) as folder:
+ assert m.qualify_batch_contract(Path.cwd(),Path(folder),dict(os.environ))
+print('bounded native read-ahead contract passed')`;
+  const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:15000});
+  assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'bounded native read-ahead contract passed');
 });

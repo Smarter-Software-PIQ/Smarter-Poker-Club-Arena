@@ -99,7 +99,9 @@ beforeEach(() => {
   access.mockResolvedValue({ allowed: true, unionId: null, reason: 'ok' });
   create = vi
     .spyOn(tournamentService, 'createTournament')
-    .mockResolvedValue({ id: 't-1' } as never);
+    .mockImplementation(
+      async (_club, _config, plan) => ({ id: 't-1', creationStagePlan: plan ?? null }) as never
+    );
   upsert = vi.spyOn(tournamentScheduleService, 'upsert').mockResolvedValue('s-1');
   try {
     localStorage.clear();
@@ -305,7 +307,7 @@ it('retains a retired initial acknowledgement without allowing a duplicate durin
   await start();
   expect(create).toHaveBeenCalledTimes(1);
   await act(async () => {
-    release({ id: 't-original' });
+    release({ id: 't-original', creationStagePlan: create.mock.calls[0][2] });
   });
   expect(seal).not.toHaveBeenCalled();
   expect(onExit).not.toHaveBeenCalled();
@@ -313,4 +315,28 @@ it('retains a retired initial acknowledgement without allowing a duplicate durin
   expect(create).toHaveBeenCalledTimes(1);
   expect(seal).toHaveBeenCalledWith('t-original', expect.any(Object));
   expect(onExit).toHaveBeenCalledWith('tournament_created');
+});
+
+it('resumes the original multi-day plan before validating the edited form', async () => {
+  const originalPlan = {
+    time_zone: 'UTC',
+    stages: [
+      { stage_no: 1, scheduled_start_utc: '2026-01-01T12:00:00.000Z', end_after_level: 10 },
+      { stage_no: 2, scheduled_start_utc: '2026-01-02T12:00:00.000Z', end_after_level: null },
+    ],
+  };
+  const resume = vi
+    .spyOn(tournamentService, 'resumePendingTournamentCreation')
+    .mockResolvedValue([{ id: 't-original', creationStagePlan: originalPlan }] as never);
+  try {
+    seal.mockResolvedValue({ ok: true });
+    verify.mockResolvedValue(true);
+    await openMultiDay();
+    await start();
+    expect(create).not.toHaveBeenCalled();
+    expect(seal).toHaveBeenCalledWith('t-original', originalPlan);
+    expect(onExit).toHaveBeenCalledWith('tournament_created');
+  } finally {
+    resume.mockRestore();
+  }
 });

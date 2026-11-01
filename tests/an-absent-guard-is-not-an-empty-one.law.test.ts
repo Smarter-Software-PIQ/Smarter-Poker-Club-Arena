@@ -202,6 +202,7 @@ async function runAudit(mode: Mode, deadline: number, auditScript = AUDIT) {
         );
       };
       const capture = (target: 'stdout' | 'stderr', chunk: Buffer) => {
+        if (failure || settled) return;
         if (target === 'stdout') stdout += chunk.toString();
         else stderr += chunk.toString();
         if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 1024 * 1024) {

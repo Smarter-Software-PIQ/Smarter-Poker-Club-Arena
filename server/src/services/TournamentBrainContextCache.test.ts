@@ -15,22 +15,51 @@ const h = vi.hoisted(() => {
   const from = vi.fn((table: string) => {
     calls.push(table);
     let requestedRange: string | null = null;
+    let cursor: { key: string; value: string } | null = null;
+    let requestedLimit = 1000;
     const result = async (): Promise<Result> => {
       const resolved = await ((requestedRange
         ? rangeResponses.get(`${table}:${requestedRange}`)
         : undefined) ??
         responses.get(table) ?? { data: [], error: null });
-      return table === 'tournament_players' && resolved.count === undefined
-        ? {
-            ...resolved,
-            count: Array.isArray(resolved.data) ? resolved.data.length : null,
-          }
-        : resolved;
+      if (!Array.isArray(resolved.data)) return resolved;
+      const identified = resolved.data.map((row: any, index: number) => ({
+        ...row,
+        id: row.id ?? `row-${String(index).padStart(6, '0')}`,
+      }));
+      const remaining = cursor
+        ? identified.filter((row: any) =>
+            cursor!.key === 'position'
+              ? row.position > Number(cursor!.value)
+              : row[cursor!.key] > cursor!.value
+          )
+        : identified;
+      const laterFailure = cursor ? rangeResponses.get(`${table}:after-first`) : undefined;
+      if (laterFailure) return await laterFailure;
+      const [from, to] = requestedRange
+        ? requestedRange.split('-').map(Number)
+        : [0, Math.min(requestedLimit, 1000) - 1];
+      return {
+        ...resolved,
+        count: resolved.count === undefined ? remaining.length : resolved.count,
+        data:
+          requestedRange && rangeResponses.has(`${table}:${requestedRange}`)
+            ? identified
+            : remaining.slice(from, to + 1),
+      };
     };
     const chain: Record<string, unknown> = {};
     for (const method of ['select', 'eq', 'order', 'limit', 'in']) {
       chain[method] = vi.fn(() => chain);
     }
+    chain.limit = vi.fn((limit: number) => {
+      requestedLimit = limit;
+      return chain;
+    });
+    chain.gt = vi.fn((key: string, value: string) => {
+      cursor = { key, value };
+      return chain;
+    });
     chain.range = vi.fn((from: number, to: number) => {
       requestedRange = `${from}-${to}`;
       return chain;
@@ -717,15 +746,7 @@ describe('TournamentBrainContext lifecycle cache', () => {
       status: 'active',
       current_bounty: 0,
     }));
-    h.rangeResponses.set('tournament_players:0-999', {
-      data: players.slice(0, 1_000),
-      error: null,
-      count: players.length,
-    });
-    h.rangeResponses.set('tournament_players:1000-1999', {
-      data: players.slice(1_000),
-      error: null,
-    });
+    h.responses.set('tournament_players', { data: players, error: null });
     h.responses.set('tournament_bounty_chests', { data: [], error: null });
     h.responses.set('tournament_satellite_entitlements', { data: [], error: null });
 
@@ -740,6 +761,157 @@ describe('TournamentBrainContext lifecycle cache', () => {
     expect(Object.keys(snapshot.context?.stackByUser ?? {})).toHaveLength(1_001);
     expect(snapshot.context?.stackByUser['player-1000']).toBe(1_000);
     expect(h.calls.filter((table) => table === 'tournament_players')).toHaveLength(2);
+  });
+
+  it('reads more than ten thousand entrants for an unlimited MTT', async () => {
+    successfulResponses();
+    h.admission.abi = 'unlimited-mtt-v2';
+    h.admission.cap = null;
+    h.responses.set('tournaments', {
+      data: { ...tournamentRow(), max_players: null },
+      error: null,
+    });
+    h.responses.set('tournament_players', {
+      data: Array.from({ length: 10001 }, (_, index) => ({
+        user_id: `player-${index}`,
+        chips: 1000,
+        status: 'active',
+      })),
+      error: null,
+    });
+    refreshTournamentBrainContext('t-unlimited-roster');
+    await settleRefresh();
+    expect(getTournamentBrainContextSnapshot('t-unlimited-roster').context?.entrants).toBe(10001);
+  });
+  it('reads every mystery chest beyond the REST response ceiling', async () => {
+    successfulResponses();
+    h.responses.set('tournaments', {
+      data: { ...tournamentRow(), is_mystery_bounty: true, mystery_bounty_stage: 'active' },
+      error: null,
+    });
+    h.responses.set('tournament_bounty_chests', {
+      data: Array.from({ length: 1001 }, (_, index) => ({
+        status: 'available',
+        amount_cents: index === 1000 ? 90000 : 100,
+      })),
+      error: null,
+    });
+    refreshTournamentBrainContext('t-all-chests');
+    await settleRefresh();
+    const context = getTournamentBrainContextSnapshot('t-all-chests').context;
+    expect(context?.mysteryChestsLeft).toBe(1001);
+    expect(context?.mysteryTopCents).toBe(90000);
+  });
+  it('reads the entire immutable satellite award depth', async () => {
+    successfulResponses();
+    h.responses.set('tournaments', {
+      data: {
+        ...tournamentRow(),
+        tournament_type: 'SATELLITE',
+        variant: 'satellite',
+        prize_pool_finalized: true,
+        satellite_seats: 1001,
+        satellite_target_id: 'target',
+      },
+      error: null,
+    });
+    h.responses.set('tournament_satellite_entitlements', {
+      data: Array.from({ length: 1001 }, (_, index) => ({
+        position: index + 1,
+        award_kind: 'seat_or_cash',
+        ticket_value: 10,
+        remainder_value: 0,
+      })),
+      error: null,
+    });
+    refreshTournamentBrainContext('t-all-entitlements');
+    await settleRefresh();
+    expect(getTournamentBrainContextSnapshot('t-all-entitlements').context?.satelliteSeats).toBe(
+      1001
+    );
+  });
+  it.each([
+    ['tournament_bounty_chests', 'mystery_bounty_inventory_unavailable'],
+    ['tournament_satellite_entitlements', 'satellite_entitlement_read_failed'],
+  ])('keeps a later %s page failure unknown', async (table, issue) => {
+    successfulResponses();
+    h.responses.set('tournaments', {
+      data: {
+        ...tournamentRow(),
+        tournament_type: 'SATELLITE',
+        variant: 'satellite',
+        prize_pool_finalized: true,
+        satellite_seats: 1001,
+        satellite_target_id: 'target',
+        is_mystery_bounty: true,
+        mystery_bounty_stage: 'active',
+      },
+      error: null,
+    });
+    h.responses.set(table, {
+      data: Array.from({ length: 1001 }, (_, index) => ({
+        position: index + 1,
+        award_kind: 'seat_or_cash',
+        ticket_value: 10,
+        remainder_value: 0,
+        status: 'available',
+        amount_cents: 100,
+      })),
+      error: null,
+    });
+    h.rangeResponses.set(`${table}:after-first`, {
+      data: null,
+      error: { message: 'later page unavailable' },
+    });
+    refreshTournamentBrainContext('t-partial-inventory');
+    await settleRefresh();
+    expect(getTournamentBrainContextSnapshot('t-partial-inventory').issues).toContain(issue);
+  });
+
+  it.each([null, 2])('refuses an unproved or short chest inventory count %s', async (count) => {
+    successfulResponses();
+    h.responses.set('tournaments', {
+      data: { ...tournamentRow(), is_mystery_bounty: true, mystery_bounty_stage: 'active' },
+      error: null,
+    });
+    h.responses.set('tournament_bounty_chests', {
+      data: [{ status: 'available', amount_cents: 100 }],
+      count,
+      error: null,
+    });
+    refreshTournamentBrainContext('t-unproved-chests');
+    await settleRefresh();
+    expect(getTournamentBrainContextSnapshot('t-unproved-chests').issues).toContain(
+      'mystery_bounty_inventory_unavailable'
+    );
+  });
+
+  it('admits no further inventory page after the owning refresh expires', async () => {
+    successfulResponses();
+    const rows = Array.from({ length: 2001 }, (_, index) => ({
+      id: `chest-${String(index).padStart(6, '0')}`,
+      status: 'available',
+      amount_cents: 100,
+    }));
+    h.responses.set('tournament_bounty_chests', { data: rows, error: null });
+    let finish!: (value: any) => void;
+    h.rangeResponses.set(
+      'tournament_bounty_chests:after-first',
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    refreshTournamentBrainContext('t-expired-inventory');
+    await settleRefresh();
+    expect(h.calls.filter((table) => table === 'tournament_bounty_chests')).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(5001);
+    expect(getTournamentBrainContextSnapshot('t-expired-inventory').issues).toContain(
+      'tournament_context_refresh_timed_out'
+    );
+    finish({ data: rows.slice(1000, 2000), count: 1001, error: null });
+    await settleRefresh();
+    expect(h.calls.filter((table) => table === 'tournament_bounty_chests')).toHaveLength(2);
+    expect(getTournamentBrainContextSnapshot('t-expired-inventory').context).toBeNull();
   });
 
   it('caches exact recovery affordability from each player funding club off the action clock', async () => {
