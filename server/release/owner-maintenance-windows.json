@@ -728,11 +728,12 @@
     },
     {
       "id": "2026-11-01-window-migration-20261101005048",
-      "ownerOrder": "Companion of owner window 2026-11-01-v74-door-unblock-and-window-migration, under the same verbatim order from Dan on 2026-11-01 at 07:30 America/Chicago: \"FIX ANY AND ALL BLOCKERS NOW AND FINISH THIS UP, PUSH AND PUBLISH EVERYTHING\". Names only daily-maintenance migration 20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql (#9054) for scripts/ci/install-window-migrations.mjs inside the first confirmed freeze of the same interval: one transaction, one attempt, 1s lock_timeout, the documented override recorded, and a refusal leaves it queued for the routine 04:00 Chicago installer. It carries authority, never requests a break, never replaces the engine and grants nothing after it expires.",
+      "ownerOrder": "Companion of owner window 2026-11-01-v74-door-unblock-and-window-migration, under the same verbatim order from Dan on 2026-11-01 at 07:30 America/Chicago: \"FIX ANY AND ALL BLOCKERS NOW AND FINISH THIS UP, PUSH AND PUBLISH EVERYTHING\". Names the two queued equal-share daily-maintenance migrations, in the version order the routine daily installer would use, 20261101004247_started_tournament_abort_supports_equal_share_settlement.sql (#9073; its fn_credit_and_log, cancellation-receipt and zero-chip-elimination preimages read equal in production at 13:50 UTC) and 20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql (#9054), for scripts/ci/install-window-migrations.mjs inside the first confirmed freeze of the same interval: one transaction per file, one attempt each, 1s lock_timeout, the documented override recorded, and the first refusal stops and leaves the rest queued for the routine 04:00 Chicago installer. It carries authority, never requests a break, never replaces the engine and grants nothing after it expires.",
       "contains": "4e9c32285477176df8e4afcef4e743d5fe961047",
       "notBefore": "2026-11-01T14:30:00Z",
       "notAfter": "2026-11-01T20:25:00Z",
       "migrations": [
+        "20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
         "20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql"
       ]
     }

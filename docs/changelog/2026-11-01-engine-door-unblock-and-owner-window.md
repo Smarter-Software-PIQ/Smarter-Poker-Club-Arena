@@ -28,8 +28,10 @@ ledger) and everything else merged since #9054 were stuck behind it.
   - `2026-11-01-v74-door-unblock-and-window-migration`: the floor-bound engine
     window (one activation at a Chicago :53 notice / :55 break; falls back to the
     04:00 Chicago daily break on 2026-11-02 10:00 UTC);
-  - `2026-11-01-window-migration-20261101005048`: its companion, naming only that
-    migration for the existing window installer inside the first confirmed freeze.
+  - `2026-11-01-window-migration-20261101005048`: its companion, naming the two
+    queued equal-share window migrations in version order (20261101004247 from
+    #9073, whose preimages read equal in production, then 20261101005048) for the
+    existing window installer inside the first confirmed freeze.
 - `server/release/activation-floor.json` selects the new window.
 - `tests/daily-engine-maintenance.law.test.ts` pins both entries, the floor and
   the historical bytes.

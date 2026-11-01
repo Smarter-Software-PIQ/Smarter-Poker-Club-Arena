@@ -1542,7 +1542,10 @@ it('binds the owner-ordered window that unblocks the engine door and installs it
     contains: entry.contains,
     notBefore: entry.notBefore,
     notAfter: entry.notAfter,
-    migrations: ['20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql'],
+    migrations: [
+      '20261101004247_started_tournament_abort_supports_equal_share_settlement.sql',
+      '20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql',
+    ],
   });
   expect(companion.ownerOrder).toContain('never requests a break');
   expect(entry.notBefore).toBe('2026-11-01T14:30:00Z');
