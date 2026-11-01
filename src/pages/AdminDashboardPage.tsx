@@ -439,21 +439,26 @@ function DashboardTab({ clubId }: { clubId: string }) {
   }, [load]);
 
   // ── Supabase Realtime — cross-user WebSocket updates ──
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
     if (!clubId) return;
     let isMounted = true;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
+    const channelKey = `admin-dashboard-${clubId}`;
 
     const setupRealtime = async () => {
       const resolvedId = await resolveClubUUID(clubId);
       if (!isMounted) return;
 
-      const channelKey = `admin-dashboard-${clubId}`;
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'tables', filter: `club_id=eq.${resolvedId}` },
-          () => load()
+          () => loadRef.current()
         )
         .on(
           'postgres_changes',
@@ -463,7 +468,7 @@ function DashboardTab({ clubId }: { clubId: string }) {
             table: 'club_members',
             filter: `club_id=eq.${resolvedId}`,
           },
-          () => load()
+          () => loadRef.current()
         )
         .on(
           'postgres_changes',
@@ -473,7 +478,7 @@ function DashboardTab({ clubId }: { clubId: string }) {
             table: 'cashout_requests',
             filter: `club_id=eq.${resolvedId}`,
           },
-          () => load()
+          () => loadRef.current()
         )
         .on(
           'postgres_changes',
@@ -483,7 +488,7 @@ function DashboardTab({ clubId }: { clubId: string }) {
             table: 'tournaments',
             filter: `club_id=eq.${resolvedId}`,
           },
-          () => load()
+          () => loadRef.current()
         )
         .on(
           'postgres_changes',
@@ -493,7 +498,7 @@ function DashboardTab({ clubId }: { clubId: string }) {
             table: 'settlement_periods',
             filter: `club_id=eq.${resolvedId}`,
           },
-          () => load()
+          () => loadRef.current()
         )
         .subscribe((status: string, err?: Error) => {
           if (status === 'CHANNEL_ERROR') {
@@ -505,13 +510,19 @@ function DashboardTab({ clubId }: { clubId: string }) {
         });
     };
 
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (isMounted) void setupRealtime();
+    });
     setupRealtime().catch((e) => console.warn('[AdminDashboardPage] Realtime setup failed:', e));
 
     return () => {
       isMounted = false;
-      masterBus.removeRegisteredChannel(`admin-dashboard-${clubId}`);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
-  }, [clubId, load]);
+  }, [clubId]);
 
   // ── Visibility Refresh — refresh on tab focus after 30s ──
   useVisibilityRefresh(load);
@@ -745,13 +756,20 @@ function AuditLogTab({ clubId }: { clubId: string }) {
   }, [page, load]);
 
   // ── Realtime: auto-refresh when new audit entries are inserted ──
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const loadTabRef = useRef(load);
+  loadTabRef.current = load;
+
   useEffect(() => {
     let cancelled = false;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
+    const channelKey = `audit-log-tab-${clubId}`;
     const setupChannel = async () => {
       const uuid = await resolveClubUUID(clubId);
       if (cancelled) return;
-      const channelKey = `audit-log-tab-${clubId}`;
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
@@ -763,7 +781,7 @@ function AuditLogTab({ clubId }: { clubId: string }) {
           },
           () => {
             // Reload current page to pick up the new entry
-            load(page);
+            loadTabRef.current(pageRef.current);
           }
         )
         .subscribe((status: string, err?: Error) => {
@@ -772,12 +790,18 @@ function AuditLogTab({ clubId }: { clubId: string }) {
           }
         });
     };
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (!cancelled) void setupChannel();
+    });
     setupChannel().catch((e) => console.warn('[AuditLogTab] Realtime setup failed:', e));
     return () => {
       cancelled = true;
-      masterBus.removeRegisteredChannel(`audit-log-tab-${clubId}`);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
-  }, [clubId, page, load]);
+  }, [clubId]);
 
   const typeColor = (t: string) => {
     if (t.includes('buyin') || t.includes('distribution')) return '#31A24C';

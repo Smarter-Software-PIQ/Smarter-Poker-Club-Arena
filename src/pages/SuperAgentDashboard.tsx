@@ -138,6 +138,7 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
 
       // Real-time updates for agent activity
       let isMounted = true;
+      let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
       const channelKey = `super-agent-live:${userId}:${clubId}`;
 
       const setupRealtime = async () => {
@@ -145,6 +146,7 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
         if (!isMounted) return;
 
         const channel = masterBus.getOrCreateChannel(channelKey);
+        acquiredChannel = channel;
         channel
           .on(
             'postgres_changes',
@@ -182,11 +184,17 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
           });
       };
 
+      masterBus.registerChannelFactory?.(channelKey, () => {
+        if (isMounted) void setupRealtime();
+      });
       setupRealtime().catch((e) => console.warn('[SuperAgentDashboard] Realtime setup failed:', e));
 
       return () => {
         isMounted = false;
-        masterBus.removeRegisteredChannel(channelKey);
+        masterBus.removeChannelFactory?.(channelKey);
+        if (acquiredChannel) {
+          masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+        }
       };
     }
   }, [clubId, userId]);

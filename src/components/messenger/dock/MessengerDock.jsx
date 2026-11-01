@@ -154,7 +154,8 @@ export default function MessengerDock({ services }) {
         })).then(() => { if (identity.current === actorId && generation.current === epoch) { loadedActor.current = actorId; setHydrated(actorId); } });
         void refresh(true);
 
-        const channel = supabase.channel(`messenger-dock:${actorId}`)
+        const instanceSuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        const channel = supabase.channel(`messenger-dock:${actorId}:${instanceSuffix}`)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'social_messages' }, payload => {
                 const message = payload.new;
                 if (identity.current !== actorId || generation.current !== epoch || message.sender_id === actorId || !dockId(message.id)) return;

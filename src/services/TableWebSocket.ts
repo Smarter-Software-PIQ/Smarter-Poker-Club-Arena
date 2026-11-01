@@ -109,11 +109,58 @@ export class TableWebSocket {
 
   private lastSequence = -1;
   private pendingEvents: GameEvent[] = [];
+  private cleanupWakeListeners: (() => void) | null = null;
 
   constructor(tableId: string, userId: string, username: string) {
     this.tableId = tableId;
     this.userId = userId;
     this.username = username;
+    this.attachWakeListeners();
+  }
+
+  private attachWakeListeners(): void {
+    if (typeof window === 'undefined' || this.cleanupWakeListeners) return;
+    const onWakeOrOnline = () => {
+      if (this.destroyed) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (!this.isConnected && !this.connectInFlight) {
+        this.reconnectAttempt = 0;
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
+        void this.connect();
+      }
+    };
+    window.addEventListener('online', onWakeOrOnline);
+    window.addEventListener('focus', onWakeOrOnline);
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        onWakeOrOnline();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+    this.cleanupWakeListeners = () => {
+      window.removeEventListener('online', onWakeOrOnline);
+      window.removeEventListener('focus', onWakeOrOnline);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
+      }
+    };
+  }
+
+  /**
+   * Update username in-place without tearing down or re-subscribing the live
+   * table channel when profile identity hydrates after mount.
+   */
+  setUsername(username: string): void {
+    if (!username || this.username === username) return;
+    this.username = username;
+    if (this.isConnected && this.channel && !this.destroyed) {
+      void this.updatePresence({});
+    }
   }
 
   /** The topic realtime-js registers `channel('table:<id>')` under. */
@@ -319,6 +366,8 @@ export class TableWebSocket {
 
   async disconnect(): Promise<void> {
     this.destroyed = true;
+    this.cleanupWakeListeners?.();
+    this.cleanupWakeListeners = null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -709,12 +758,14 @@ export function useTableWebSocket(
   username: string
 ): UseTableWebSocketResult {
   const wsRef = useRef<TableWebSocket | null>(null);
+  const usernameRef = useRef(username);
+  usernameRef.current = username;
   const [isConnected, setIsConnected] = useState(false);
   const [presence, setPresence] = useState<TablePresenceState | null>(null);
   const [lastEvent, setLastEvent] = useState<GameEvent | null>(null);
 
   useEffect(() => {
-    const ws = new TableWebSocket(tableId, userId, username);
+    const ws = new TableWebSocket(tableId, userId, usernameRef.current);
     wsRef.current = ws;
 
     // Set up handlers
@@ -732,7 +783,11 @@ export function useTableWebSocket(
       unsubConnection();
       ws.disconnect();
     };
-  }, [tableId, userId, username]);
+  }, [tableId, userId]);
+
+  useEffect(() => {
+    wsRef.current?.setUsername(username);
+  }, [username]);
 
   const sendAction = useCallback((action: string, data: Record<string, unknown>) => {
     return wsRef.current?.sendAction(action, data) ?? Promise.resolve(false);

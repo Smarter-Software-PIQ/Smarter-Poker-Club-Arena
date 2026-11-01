@@ -102,6 +102,49 @@ class PostgresSyncHooksService {
   private retryCount = 0;
   private static readonly MAX_RETRIES = 5;
   private static readonly BACKOFF_DELAYS = [2000, 4000, 8000, 16000, 30000];
+  private cleanupWakeListeners: (() => void) | null = null;
+
+  private attachWakeListeners(userId: string): void {
+    if (this.cleanupWakeListeners || typeof window === 'undefined') return;
+    const recoverIfNeeded = () => {
+      if (!this.initialized || this._userId !== userId) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      const state = (this.channel as unknown as { state?: string } | null)?.state;
+      const isLive = state === 'joined' || state === 'joining';
+      if (!this.channel || !isLive || this.retryCount >= PostgresSyncHooksService.MAX_RETRIES) {
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
+        if (this.channel) {
+          this.channel.unsubscribe();
+          supabase.removeChannel(this.channel);
+          this.channel = null;
+        }
+        this.initialized = false;
+        this.retryCount = 0;
+        this.init(userId, 0);
+      }
+    };
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        recoverIfNeeded();
+      }
+    };
+    window.addEventListener('online', recoverIfNeeded);
+    window.addEventListener('focus', recoverIfNeeded);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+    this.cleanupWakeListeners = () => {
+      window.removeEventListener('online', recoverIfNeeded);
+      window.removeEventListener('focus', recoverIfNeeded);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
+      }
+      this.cleanupWakeListeners = null;
+    };
+  }
 
   /**
    * Debounced emit — batches rapid-fire events into a single emission per key.
@@ -139,6 +182,7 @@ class PostgresSyncHooksService {
     this.initialized = true;
     this._userId = userId;
     this.retryCount = reconnectAttempt;
+    this.attachWakeListeners(userId);
     const generation = this.generation;
     const ownsSubscription = () =>
       this.initialized && this.generation === generation && this._userId === userId;
@@ -477,6 +521,9 @@ class PostgresSyncHooksService {
 
   destroy() {
     this.generation++;
+    if (this.cleanupWakeListeners) {
+      this.cleanupWakeListeners();
+    }
     this.admission?.abort();
     this.admission = null;
     this.lastSeenMemberships.clear();

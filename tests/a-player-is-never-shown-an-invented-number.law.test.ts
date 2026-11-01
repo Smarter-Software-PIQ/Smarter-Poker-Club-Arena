@@ -65,10 +65,13 @@ const ALLOWED: Record<string, Reason> = {
   'src/components/table/TournamentWinnerOverlay.tsx': 'animation',
   'src/components/tournament/CoinShower.tsx': 'animation',
   'src/components/wallet/WalletCashierModal.tsx': 'identifier', // uuid v4 fallback for an idempotency key
+  'src/components/bbj/BBJRecentHits.tsx': 'identifier', // per-instance realtime channel topic suffix
+  'src/components/messenger/dock/MessengerChat.jsx': 'identifier', // per-instance realtime channel topic suffix
+  'src/components/messenger/dock/MessengerDock.jsx': 'identifier', // per-instance realtime channel topic suffix
   'src/pages/CashierPage.tsx': 'identifier', // uuid v4 fallback for an idempotency key
   'src/pages/CashierTradePage.tsx': 'identifier', // uuid v4 fallback for an idempotency key
-  // src/pages/TablePage.tsx left 2026-10-05: its last Math.random() was the
-  // jitter on the browser horse-yield poll, removed with that poll.
+  'src/pages/MultiTablePage.tsx': 'identifier', // per-instance realtime channel topic suffix
+  'src/pages/TablePage.tsx': 'identifier', // per-instance realtime channel topic suffix
   'src/pages/tournament/TournamentDetails.tsx': 'identifier', // request key
 };
 
