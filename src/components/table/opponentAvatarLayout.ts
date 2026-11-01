@@ -1,9 +1,59 @@
 import { restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 /** Opponent artwork only: the hero, slot dimensions and table tokens stay owned
  * by their existing renderers. Image metadata never changes the source image. */
-type Alpha = { left: number; top: number; right: number; bottom: number; bands?: Alpha[] };
+type Alpha = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  bands?: Alpha[];
+  spans?: Alpha[];
+};
 type Box = { left: number; top: number; width: number; height: number };
-export type OpponentAvatarState = { key: string; shifts: WeakMap<HTMLElement, [number, number]> };
+export type OpponentAvatarState = {
+  key: string;
+  shifts: WeakMap<HTMLElement, [number, number]>;
+  lowerLaneKey?: string;
+};
+/** Nested wager proposals commit or restore all opponent anchors together. */
+export function opponentShiftTransaction(
+  seats: HTMLElement[],
+  shifts: WeakMap<HTMLElement, [number, number]>,
+  propose: () => boolean
+): boolean {
+  const saved = seats.map((seat) => ({
+    seat,
+    shift: shifts.get(seat),
+    styles: ['--sp-opponent-x', '--sp-opponent-y'].map((name) => ({
+      name,
+      value: seat.style.getPropertyValue(name),
+      priority: seat.style.getPropertyPriority(name),
+    })),
+  }));
+  let accepted = false;
+  try {
+    accepted = propose();
+    if (accepted)
+      for (const { seat, shift } of saved) {
+        if (!(shifts.get(seat) ?? shift)) continue;
+        shifts.set(seat, [
+          parseFloat(seat.style.getPropertyValue('--sp-opponent-x')) || 0,
+          parseFloat(seat.style.getPropertyValue('--sp-opponent-y')) || 0,
+        ]);
+      }
+    return accepted;
+  } finally {
+    if (!accepted)
+      for (const { seat, shift, styles } of saved) {
+        for (const { name, value, priority } of styles) {
+          if (value) seat.style.setProperty(name, value, priority);
+          else seat.style.removeProperty(name);
+        }
+        if (shift) shifts.set(seat, shift);
+        else shifts.delete(seat);
+      }
+  }
+}
 const metadata = new Map<string, Promise<Alpha | null>>();
 const box = (element: Element): Box => {
   const r = element.getBoundingClientRect();
@@ -109,7 +159,8 @@ export function jointOpponentShifts(
   bounds: Box,
   gap = 3,
   closeVerticalChains = false,
-  topLaneBottom?: number
+  topLaneBottom?: number,
+  lowerLane?: { top: number; bottom: number }
 ): Array<[number, number]> | null {
   if (
     items.every((item) =>
@@ -131,6 +182,25 @@ export function jointOpponentShifts(
     )
   )
     return items.map(() => [0, 0]);
+  const withinAuxiliaryLane = (item: (typeof items)[number], x: number, y: number) => {
+    if (topLaneBottom === undefined) return true;
+    const low = Math.min(...item.parts.map((p) => p.top));
+    const high = Math.max(...item.parts.map((p) => p.top + p.height));
+    const clamp =
+      item.side < 0
+        ? Math.max(0, bounds.left - Math.min(...item.parts.map((p) => p.left)))
+        : Math.max(
+            0,
+            Math.max(...item.parts.map((p) => p.left + p.width)) - bounds.left - bounds.width
+          );
+    return (
+      Math.abs(y) <= (high - low) / 2 &&
+      (!item.outwardOnly ||
+        x * item.side >= -clamp - 0.01 ||
+        high + y <= topLaneBottom ||
+        (lowerLane !== undefined && low + y >= lowerLane.top && high + y <= lowerLane.bottom))
+    );
+  };
   const options = items.map((item, index) =>
     opponentShiftCandidates(
       item.parts,
@@ -177,6 +247,12 @@ export function jointOpponentShifts(
         }
       }
     }
+    if (lowerLane)
+      items.forEach((item, i) => {
+        const low = Math.min(...item.parts.map((p) => p.top));
+        const high = Math.max(...item.parts.map((p) => p.top + p.height));
+        for (const y of [lowerLane.top - low, lowerLane.bottom - high]) seedYs[i].add(y);
+      });
     let ys = items.map(
       (item, i) =>
         new Set([
@@ -239,13 +315,22 @@ export function jointOpponentShifts(
         )
       ),
     ];
-    let anchors = new Set([bounds.left, bounds.left + bounds.width]);
+    let anchors = new Set([
+      bounds.left,
+      bounds.left + bounds.width,
+      ...(lowerLane
+        ? items.flatMap((item) => [
+            Math.min(...item.parts.map((p) => p.left)),
+            Math.max(...item.parts.map((p) => p.left + p.width)),
+          ])
+        : []),
+    ]);
     if (topLaneBottom !== undefined)
       for (let round = 0; round < 3; round++) {
         const next = new Set(anchors);
         for (const edge of anchors)
           for (const width of widths)
-            for (const x of [edge + width, edge - width])
+            for (const x of [edge + width + gap, edge - width - gap])
               if (x >= bounds.left && x <= bounds.left + bounds.width)
                 next.add(Math.round(x * 1e6) / 1e6);
         anchors = new Set([...next].slice(0, 256));
@@ -260,28 +345,12 @@ export function jointOpponentShifts(
       const extra = xs
         .flatMap((x) => [...ys[i]].map((y): [number, number] => [x, y]))
         .filter(([x, y]) => {
-          // Keep this last fallback local to its original chair. Searching
-          // distant rows consumes the finite budget on unnecessary movement.
-          if (
-            topLaneBottom !== undefined &&
-            Math.abs(y) >
-              (Math.max(...item.parts.map((p) => p.top + p.height)) -
-                Math.min(...item.parts.map((p) => p.top))) /
-                2
-          )
-            return false;
+          if (!withinAuxiliaryLane(item, x, y)) return false;
           if (
             item.side &&
             (item.parts[0].left + item.parts[0].width / 2 + x - bounds.left - bounds.width / 2) *
               item.side <
               0
-          )
-            return false;
-          if (
-            topLaneBottom !== undefined &&
-            item.outwardOnly &&
-            x * item.side < -0.01 &&
-            Math.max(...item.parts.map((p) => p.top + p.height + y)) > topLaneBottom
           )
             return false;
           return item.parts.every((part) => {
@@ -301,7 +370,7 @@ export function jointOpponentShifts(
           ? extra.filter((shift) => seedYs[i].has(shift[1]))
           : extra
               .filter(
-                ([x, y]) =>
+                ([, y]) =>
                   seedYs[i].has(y) ||
                   Math.abs(y - (bounds.top - Math.min(...item.parts.map((p) => p.top)))) < 0.002
               )
@@ -314,34 +383,35 @@ export function jointOpponentShifts(
                 )
               );
       const candidates = [...options[i], ...extra]
-        .filter(
-          ([x, y]) =>
-            topLaneBottom === undefined ||
-            ((!item.outwardOnly ||
-              x * item.side >= -0.01 ||
-              Math.max(...item.parts.map((p) => p.top + p.height + y)) <= topLaneBottom) &&
-              Math.abs(y) <=
-                (Math.max(...item.parts.map((p) => p.top + p.height)) -
-                  Math.min(...item.parts.map((p) => p.top))) /
-                  2)
-        )
+        .filter(([x, y]) => withinAuxiliaryLane(item, x, y))
         .sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1])
         .filter((shift) => {
-          const key = shift.join(':');
+          const key = lowerLane
+            ? `${Math.round(shift[0] * 64)}:${Math.round(shift[1] * 64)}`
+            : shift.join(':');
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
         });
       const seedKeys = new Set<string>();
       const uniqueSeeds = seeds.filter((shift) => {
-        const key = shift.join(':');
+        const key = lowerLane
+          ? `${Math.round(shift[0] * 64)}:${Math.round(shift[1] * 64)}`
+          : shift.join(':');
         if (seedKeys.has(key) || seedKeys.size >= 384) return false;
         seedKeys.add(key);
         return true;
       });
       options[i] = [
         ...candidates
-          .filter((shift) => !seedKeys.has(shift.join(':')))
+          .filter(
+            (shift) =>
+              !seedKeys.has(
+                lowerLane
+                  ? `${Math.round(shift[0] * 64)}:${Math.round(shift[1] * 64)}`
+                  : shift.join(':')
+              )
+          )
           .slice(0, Math.max(0, 384 - uniqueSeeds.length)),
         ...uniqueSeeds,
       ].sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1]);
@@ -408,10 +478,51 @@ export function jointOpponentShifts(
   return best;
 }
 
+export function opponentFitsLowerLane(
+  parts: Box[],
+  limits: { top: number; bottom: number },
+  heroParts: Box[] = []
+): boolean {
+  return (
+    parts.length > 0 &&
+    parts.every(
+      (part) =>
+        part.top >= limits.top &&
+        part.top + part.height <= limits.bottom &&
+        heroParts.every((hero) => !overlap(part, hero, 0))
+    )
+  );
+}
+
+/** Full endpoint envelope of the existing idle breath. Only peer contacts
+ * reserve this paint; permanent page/header and board geometry stays static. */
+export function opponentIdleEnvelope(parts: Box[], origin: [number, number], ratio: number): Box[] {
+  return parts.map((part) => {
+    const left = origin[0] + (part.left - origin[0]) * 1.008;
+    const top = origin[1] + (part.top - origin[1]) * 1.008 - 1.5 * ratio;
+    const right = left + part.width * 1.008;
+    const bottom = top + part.height * 1.008;
+    const x = Math.min(part.left, left),
+      y = Math.min(part.top, top);
+    return {
+      left: x,
+      top: y,
+      width: Math.max(part.left + part.width, right) - x,
+      height: Math.max(part.top + part.height, bottom) - y,
+    };
+  });
+}
+
 /** Push only directly intersecting neighbours in the requested direction.
  * This finite contact cascade is part of one wager-placement transaction. */
 export function pushOpponentChain(
-  items: Array<{ parts: Box[]; capBottom?: number }>,
+  items: Array<{
+    parts: Box[];
+    peerParts?: Box[];
+    capBottom?: number;
+    laneTop?: number;
+    laneBottom?: number;
+  }>,
   owner: number,
   deltaY: number,
   fixed: Box[],
@@ -422,7 +533,10 @@ export function pushOpponentChain(
   const shifts = items.map(() => 0);
   shifts[owner] = deltaY;
   const direction = Math.sign(deltaY);
-  const shifted = (i: number) => items[i].parts.map((p) => moved(p, 0, shifts[i]));
+  const shifted = (i: number, peers = false) =>
+    (peers ? (items[i].peerParts ?? items[i].parts) : items[i].parts).map((p) =>
+      moved(p, 0, shifts[i])
+    );
   const valid = (i: number) =>
     Math.abs(shifts[i]) <= (maximumMotion?.[i] ?? Infinity) &&
     shifted(i).every(
@@ -432,6 +546,8 @@ export function pushOpponentChain(
         p.top >= bounds.top &&
         p.top + p.height <= bounds.top + bounds.height &&
         (items[i].capBottom === undefined || p.top + p.height <= items[i].capBottom!) &&
+        (items[i].laneTop === undefined || p.top >= items[i].laneTop!) &&
+        (items[i].laneBottom === undefined || p.top + p.height <= items[i].laneBottom!) &&
         fixed.every((obstacle) => !overlap(p, obstacle, 0))
     );
   for (let step = 0; step < items.length * items.length * 4; step++) {
@@ -439,10 +555,10 @@ export function pushOpponentChain(
     let advanced = false;
     for (let i = 0; i < items.length && !advanced; i++) {
       if (!shifts[i]) continue;
-      const source = shifted(i);
+      const source = shifted(i, true);
       for (let k = 0; k < items.length; k++) {
         if (i === k) continue;
-        const target = shifted(k);
+        const target = shifted(k, true);
         let next = shifts[k];
         for (const p of source)
           for (let q = 0; q < target.length; q++) {
@@ -460,8 +576,11 @@ export function pushOpponentChain(
             if (k === owner) return null;
             const contact =
               direction > 0
-                ? p.top + p.height - items[k].parts[q].top + 0.001
-                : p.top - items[k].parts[q].top - items[k].parts[q].height - 0.001;
+                ? p.top + p.height - (items[k].peerParts ?? items[k].parts)[q].top + 0.001
+                : p.top -
+                  (items[k].peerParts ?? items[k].parts)[q].top -
+                  (items[k].peerParts ?? items[k].parts)[q].height -
+                  0.001;
             next = direction > 0 ? Math.max(next, contact) : Math.min(next, contact);
           }
         if (next !== shifts[k]) {
@@ -474,6 +593,34 @@ export function pushOpponentChain(
     if (!advanced) return shifts;
   }
   return null;
+}
+
+/** Noisy uploaded alpha must never create an unbounded precise-footprint
+ * cache. An excessive run count discards precision entirely, never pixels. */
+export function readOpponentAlphaSpans(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number
+): Alpha[] | undefined {
+  const spans: Alpha[] = [];
+  for (let y = 0; y < height; y++) {
+    let first = -1;
+    for (let x = 0; x <= width; x++) {
+      const painted = x < width && pixels[(y * width + x) * 4 + 3] > 12;
+      if (painted && first < 0) first = x;
+      if (!painted && first >= 0) {
+        if (spans.length === 4096) return undefined;
+        spans.push({
+          left: first / width,
+          right: x / width,
+          top: y / height,
+          bottom: (y + 1) / height,
+        });
+        first = -1;
+      }
+    }
+  }
+  return spans;
 }
 
 function alpha(image: HTMLImageElement): Promise<Alpha | null> {
@@ -505,6 +652,9 @@ function alpha(image: HTMLImageElement): Promise<Alpha | null> {
         right = Math.max(right, x + 1);
         bottom = Math.max(bottom, y + 1);
       }
+    // Keep decoded contiguous runs for wager narrow-phase queries only.
+    // The pod solver continues using its five bounded conservative strips.
+    const spans = readOpponentAlphaSpans(pixels, canvas.width, canvas.height);
     // The crown is narrower than the lower bust. Five conservative strips
     // retain every painted pixel while leaving its transparent corners free.
     // The small first strip matters where an unchanged name plate meets a crown.
@@ -530,6 +680,7 @@ function alpha(image: HTMLImageElement): Promise<Alpha | null> {
           right: right / canvas.width,
           bottom: bottom / canvas.height,
           bands,
+          spans,
         }
       : null;
   };
@@ -562,6 +713,22 @@ function alpha(image: HTMLImageElement): Promise<Alpha | null> {
   if (metadata.size >= 256) metadata.delete(metadata.keys().next().value!);
   metadata.set(source, pending);
   return pending;
+}
+
+/** Cached decoded spans preserve gaps between ears in wager narrow phases. */
+export function opponentPaintSpansTouch(
+  spans: Alpha[],
+  content: Box,
+  target: Box,
+  gap = 0
+): boolean {
+  const left = (target.left - gap - content.left) / content.width;
+  const right = (target.left + target.width + gap - content.left) / content.width;
+  const top = (target.top - gap - content.top) / content.height;
+  const bottom = (target.top + target.height + gap - content.top) / content.height;
+  return spans.some(
+    (span) => span.left < right && span.right > left && span.top < bottom && span.bottom > top
+  );
 }
 
 function subject(image: HTMLImageElement, a: Alpha, rendered: boolean, override?: Box): Box {
@@ -627,6 +794,73 @@ export function createOpponentAvatarLayout(
       .map((part) => subject(image, part, true, rect))
       .filter((part) => part.width > 0 && part.height > 0);
   };
+  const peerPaint = (image: HTMLImageElement) => {
+    const parts = paintedParts(image);
+    const wrap = image.closest<HTMLElement>('.seat__avatar-wrap');
+    const seat = image.closest<HTMLElement>('.seat');
+    if (
+      !wrap ||
+      !seat ||
+      getComputedStyle(wrap).getPropertyValue('--sp-avatar-rest-transform').trim()
+    )
+      return parts;
+    const ratio = tableRenderScale(scaler);
+    const origin = getComputedStyle(wrap).transformOrigin.split(/\s+/).map(parseFloat);
+    let x = origin[0] || 0,
+      y = origin[1] || 0;
+    let node: HTMLElement | null = wrap;
+    while (node && node !== seat) {
+      const parent = node.offsetParent as HTMLElement | null;
+      x += node.offsetLeft + (parent?.clientLeft || 0);
+      y += node.offsetTop + (parent?.clientTop || 0);
+      node = parent;
+    }
+    if (node !== seat) return parts;
+    const anchor = box(seat);
+    return opponentIdleEnvelope(parts, [anchor.left + x * ratio, anchor.top + y * ratio], ratio);
+  };
+  // Snapshot DOM geometry once for each finite wager-placement trial. The
+  // returned narrow-phase query only reads decoded runs and numeric boxes.
+  const preparePaintedTouch = (image: HTMLImageElement, permanent = true) => {
+    const fallback = permanent ? restingAvatarBox(image, tableRenderScale(scaler)) : box(image);
+    const refuse = (target: Box, gap = 0) => overlap(fallback, target, gap);
+    if (!permanent) return refuse;
+    const own = resolved.get(source(image));
+    if (!own) return refuse;
+    const wrap = image.closest<HTMLElement>('.seat__avatar-wrap');
+    const transforms = [
+      getComputedStyle(image).transform,
+      wrap ? getComputedStyle(wrap).getPropertyValue('--sp-avatar-rest-transform').trim() : '',
+    ];
+    const axisAligned = transforms.every((transform) => {
+      if (!transform || transform === 'none') return true;
+      const matrix = new DOMMatrix(transform);
+      return matrix.is2D && Math.abs(matrix.b) < 1e-8 && Math.abs(matrix.c) < 1e-8;
+    });
+    if (!axisAligned || !own.spans?.length || !image.closest('.seat__avatar--bust')) return refuse;
+    const content = subject(image, { left: 0, top: 0, right: 1, bottom: 1 }, true, fallback);
+    const spans = own.spans;
+    return (target: Box, gap = 0) => opponentPaintSpansTouch(spans, content, target, gap);
+  };
+  const lowerLaneLimits = (rounding = 0): { top: number; bottom: number } | null => {
+    const board = page.querySelector('.community-area');
+    const hero = images().find((image) => image.closest('.seat--hero'));
+    const heroParts = [
+      ...(hero ? paintedParts(hero) : []),
+      ...Array.from(
+        page.querySelectorAll(
+          '.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card'
+        )
+      )
+        .map(box)
+        .filter((part) => part.width > 0 && part.height > 0),
+    ];
+    if (!board || !heroParts.length) return null;
+    const boardBox = box(board);
+    const top = boardBox.top + boardBox.height + 3 + rounding;
+    const bottom = Math.min(...heroParts.map((part) => part.top)) - 3 - rounding;
+    return bottom > top ? { top, bottom } : null;
+  };
   const prepare = () => {
     spacingReady = false;
     const all = images().filter((image) => image.complete && image.naturalWidth > 0);
@@ -634,7 +868,9 @@ export function createOpponentAvatarLayout(
     if (!hero) {
       state.key = '';
       state.shifts = new WeakMap();
+      state.lowerLaneKey = undefined;
       scaler.querySelectorAll<HTMLElement>('.seat,.seat__avatar').forEach((element) => {
+        delete element.dataset.opponentLane;
         for (const name of ['--sp-opponent-art-scale', '--sp-opponent-x', '--sp-opponent-y'])
           element.style.removeProperty(name);
       });
@@ -678,11 +914,51 @@ export function createOpponentAvatarLayout(
       }
       scales.push(`${seat.dataset.playerId}:${image.currentSrc || image.src}:${value}`);
     }
+    if (state.lowerLaneKey) {
+      const limits = lowerLaneLimits();
+      const signature = limits ? `${limits.top}:${limits.bottom}` : '';
+      if (signature !== state.lowerLaneKey) {
+        const lowerSeats = Array.from(
+          scaler.querySelectorAll<HTMLElement>('.seat[data-opponent-lane="lower"]')
+        );
+        const heroParts = [
+          ...paintedParts(hero),
+          ...Array.from(
+            page.querySelectorAll(
+              '.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card'
+            )
+          )
+            .map(box)
+            .filter((part) => part.width > 0 && part.height > 0),
+        ];
+        const stillClear =
+          limits &&
+          lowerSeats.every((seat) => {
+            const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
+            const parts = [
+              ...(image ? paintedParts(image) : []),
+              ...Array.from(
+                seat.querySelectorAll(
+                  ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
+                )
+              )
+                .map(box)
+                .filter((part) => part.width > 0 && part.height > 0),
+            ];
+            return opponentFitsLowerLane(parts, limits, heroParts);
+          });
+        // A changed caption/board boundary does not move an already clear pod.
+        // Only an actual obstruction returns to the existing finite allocator.
+        if (!stillClear) state.key = '';
+        state.lowerLaneKey = stillClear && lowerSeats.length ? signature : undefined;
+      }
+    }
     const key = `${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${target.toFixed(2)}:${scales.join('|')}`;
     if (state.key !== key) {
       changed = true;
       state.key = key;
       state.shifts = new WeakMap();
+      state.lowerLaneKey = undefined;
       scaler
         .querySelectorAll<HTMLElement>('.seat:not(.seat--hero) > .seat__action')
         .forEach((action) => action.style.removeProperty('translate'));
@@ -748,7 +1024,7 @@ export function createOpponentAvatarLayout(
     };
     const fixed = Array.from(
       page.querySelectorAll(
-        '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.seat--hero .seat__info,.seat--hero .seat__cards .seat__card,.action-panel-wrapper,.tournament-hud'
+        '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card,.action-panel-wrapper,.tournament-hud'
       )
     )
       .map(box)
@@ -772,7 +1048,68 @@ export function createOpponentAvatarLayout(
           .filter((r) => r.width > 0 && r.height > 0),
       ];
     };
-    if (seats.every((seat) => state.shifts.has(seat))) return false;
+    // A late pot-amount paint may grow after the ring was cached. Move only
+    // an obstructed compact caption, inside its own unchanged character/plate
+    // extent; never turn the whole pot into an avatar-body exclusion.
+    const clearPotCaptions = () => {
+      const pots = Array.from(page.querySelectorAll('.pot-display,.pot-display__pile'))
+        .map(box)
+        .filter((p) => p.width > 0 && p.height > 0);
+      let movedCaption = false;
+      for (const seat of seats) {
+        const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
+        if (!action?.style.translate || !pots.some((pot) => overlap(box(action), pot, 0))) continue;
+        const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
+        const own = [
+          ...(image ? paintedParts(image) : []),
+          ...Array.from(seat.querySelectorAll(':scope > .seat__info')).map(box),
+        ].filter((p) => p.width > 0 && p.height > 0);
+        if (!own.length) continue;
+        const left = Math.max(bounds.left, Math.min(...own.map((p) => p.left)));
+        const top = Math.max(bounds.top, Math.min(...own.map((p) => p.top)));
+        const right = Math.min(
+          bounds.left + bounds.width,
+          Math.max(...own.map((p) => p.left + p.width))
+        );
+        const bottom = Math.min(
+          bounds.top + bounds.height,
+          Math.max(...own.map((p) => p.top + p.height))
+        );
+        const obstacles = [
+          ...fixed,
+          ...pots,
+          ...Array.from(page.querySelectorAll('.seat__cards--revealed .seat__card')).map(box),
+          ...seats
+            .filter((other) => other !== seat)
+            .flatMap((other) => {
+              const art = other.querySelector<HTMLImageElement>('.seat__avatar-img');
+              return [
+                ...(art ? peerPaint(art) : []),
+                ...Array.from(
+                  other.querySelectorAll(
+                    ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
+                  )
+                ).map(box),
+              ];
+            }),
+        ].filter((p) => p.width > 0 && p.height > 0);
+        const shift = opponentShiftCandidates(
+          [box(action)],
+          obstacles,
+          { left, top, width: right - left, height: bottom - top },
+          0,
+          false,
+          [],
+          0.5
+        )[0];
+        if (!shift) continue;
+        const current = action.style.translate.split(/\s+/).map(parseFloat);
+        action.style.translate = `${(current[0] || 0) + shift[0] / ratio}px ${(current[1] || 0) + shift[1] / ratio}px`;
+        movedCaption = true;
+      }
+      return movedCaption;
+    };
+    if (seats.every((seat) => state.shifts.has(seat))) return clearPotCaptions();
     // Retry a not-yet-fitted ring from its original captions, so a fallback
     // displacement is never compounded by another metadata/layout event.
     for (const seat of seats)
@@ -813,6 +1150,15 @@ export function createOpponentAvatarLayout(
       // join the top lane only with its whole pod above the unchanged board.
       shifts = jointOpponentShifts(describe(), fixed, bounds, 0, true, topLaneBottom);
     }
+    let lowerLane: { top: number; bottom: number } | undefined;
+    if (!shifts) {
+      // Broad characters can need the clear lane below the board. Preserve
+      // three pixels at both ends plus two CSS layout quanta for round-trip
+      // positioning. Hero, cards, table and panel sizes remain unchanged.
+      lowerLane = lowerLaneLimits(1 / 32) ?? undefined;
+      if (lowerLane)
+        shifts = jointOpponentShifts(describe(), fixed, bounds, 3, true, topLaneBottom, lowerLane);
+    }
     if (!shifts) {
       spacingReady = false;
       return false;
@@ -821,12 +1167,19 @@ export function createOpponentAvatarLayout(
     for (let i = 0; i < ordered.length; i++) {
       const seat = ordered[i].seat;
       const item = descriptions[i];
-      if (
-        item.outwardOnly &&
-        shifts[i][0] * item.side < -0.01 &&
-        Math.max(...item.parts.map((p) => p.top + p.height + shifts[i][1])) <= topLaneBottom
-      )
-        seat.dataset.opponentLane = 'cap';
+      const clamp =
+        item.side < 0
+          ? Math.max(0, bounds.left - Math.min(...item.parts.map((p) => p.left)))
+          : Math.max(
+              0,
+              Math.max(...item.parts.map((p) => p.left + p.width)) - bounds.left - bounds.width
+            );
+      const inward = item.outwardOnly && shifts[i][0] * item.side < -clamp - 0.01;
+      const high = Math.max(...item.parts.map((p) => p.top + p.height + shifts[i][1]));
+      const low = Math.min(...item.parts.map((p) => p.top + shifts[i][1]));
+      if (inward && high <= topLaneBottom) seat.dataset.opponentLane = 'cap';
+      else if (inward && lowerLane && low >= lowerLane.top && high <= lowerLane.bottom)
+        seat.dataset.opponentLane = 'lower';
       else delete seat.dataset.opponentLane;
       const local: [number, number] = [shifts[i][0] / ratio, shifts[i][1] / ratio];
       seat.style.setProperty('--sp-opponent-x', `${local[0]}px`);
@@ -834,7 +1187,10 @@ export function createOpponentAvatarLayout(
       state.shifts.set(seat, local);
       changed ||= Math.abs(local[0]) > 0.01 || Math.abs(local[1]) > 0.01;
     }
-    return changed;
+    const usedLowerLane = ordered.some(({ seat }) => seat.dataset.opponentLane === 'lower');
+    const currentLimits = usedLowerLane ? lowerLaneLimits() : null;
+    state.lowerLaneKey = currentLimits ? `${currentLimits.top}:${currentLimits.bottom}` : undefined;
+    return clearPotCaptions() || changed;
   };
   return {
     prepare,
@@ -872,7 +1228,7 @@ export function createOpponentAvatarLayout(
       const top = header ? box(header).top + box(header).height + 0.5 : pageBox.top + 0.5;
       const fixed = Array.from(
         page.querySelectorAll(
-          '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.seat--hero .seat__info,.seat--hero .seat__cards .seat__card,.action-panel-wrapper,.tournament-hud'
+          '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card,.action-panel-wrapper,.tournament-hud'
         )
       )
         .map(box)
@@ -884,8 +1240,18 @@ export function createOpponentAvatarLayout(
       );
       if (seats.some((other) => !state.shifts.has(other))) return false;
       const board = page.querySelector('.community-area');
+      const lowerLane = lowerLaneLimits();
+      if (!lowerLane && seats.some((other) => other.dataset.opponentLane === 'lower')) return false;
       const pods = seats.map((other) => ({
         parts: parts(other),
+        peerParts: (() => {
+          const image = other.querySelector<HTMLImageElement>('.seat__avatar-img');
+          const staticParts = parts(other);
+          const count = image ? paintedParts(image).length : 0;
+          return image ? [...peerPaint(image), ...staticParts.slice(count)] : staticParts;
+        })(),
+        laneTop: other.dataset.opponentLane === 'lower' ? lowerLane?.top : undefined,
+        laneBottom: other.dataset.opponentLane === 'lower' ? lowerLane?.bottom : undefined,
         capBottom:
           board &&
           (other.dataset.opponentLane === 'cap' ||
@@ -918,27 +1284,20 @@ export function createOpponentAvatarLayout(
       );
 
       if (!changes) return false;
-      const trials = seats.flatMap((other, i) => {
-        if (!changes[i]) return [];
-        const before = state.shifts.get(other)!;
-        const next: [number, number] = [before[0], before[1] + changes[i] / ratio];
-        return [{ other, before, next, previous: other.style.getPropertyValue('--sp-opponent-y') }];
+      return opponentShiftTransaction(seats, state.shifts, () => {
+        for (let i = 0; i < seats.length; i++) {
+          if (!changes[i]) continue;
+          const other = seats[i];
+          // Compose with an outer uncommitted proposal's actual position.
+          const current = parseFloat(other.style.getPropertyValue('--sp-opponent-y')) || 0;
+          other.style.setProperty('--sp-opponent-y', `${current + changes[i] / ratio}px`);
+        }
+        return accept();
       });
-      for (const trial of trials)
-        trial.other.style.setProperty('--sp-opponent-y', `${trial.next[1]}px`);
-      let accepted = false;
-      try {
-        accepted = accept();
-        if (accepted) for (const trial of trials) state.shifts.set(trial.other, trial.next);
-        return accepted;
-      } finally {
-        if (!accepted)
-          for (const trial of trials) {
-            if (trial.previous) trial.other.style.setProperty('--sp-opponent-y', trial.previous);
-            else trial.other.style.removeProperty('--sp-opponent-y');
-          }
-      }
     },
+    preparePaintedTouch,
+    paintedTouches: (image: HTMLImageElement, target: Box, gap = 0, permanent = true): boolean =>
+      preparePaintedTouch(image, permanent)(target, gap),
     paintedParts,
     paintedBox: (image: HTMLImageElement, permanent = false) => {
       const own = resolved.get(source(image));

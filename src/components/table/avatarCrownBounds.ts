@@ -224,7 +224,7 @@ export function paintedAvatarTop(image: HTMLImageElement): number {
  * image's static bust framing from layout coordinates instead. The visible
  * avatar keeps playing every animation; only its pod's baseline is stable.
  */
-export function avatarRestPose(image: HTMLImageElement): string {
+export function avatarRestPose(image: HTMLElement): string {
   const wrap = image.closest<HTMLElement>('.seat__avatar-wrap');
   return wrap ? getComputedStyle(wrap).getPropertyValue('--sp-avatar-rest-transform').trim() : '';
 }
@@ -266,7 +266,7 @@ export function restingAvatarTop(image: HTMLImageElement, scale: number): number
 }
 
 /** Permanent image rectangle for wager ownership, excluding compositor gestures. */
-export function restingAvatarBox(image: HTMLImageElement, scale: number): DOMRect {
+export function restingAvatarBox(image: HTMLElement, scale: number): DOMRect {
   const seat = image.closest<HTMLElement>('.seat');
   const wrap = image.closest<HTMLElement>('.seat__avatar-wrap');
   if (!seat || !wrap || !image.offsetWidth || !image.offsetHeight)

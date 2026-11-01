@@ -392,7 +392,23 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       for (let node: Element | null = image; node; node = node.parentElement) {
         const css = getComputedStyle(node);
         if (css.rotate && css.rotate !== 'none' && css.rotate !== '0deg') return true;
-        if (css.scale && css.scale !== 'none' && css.scale !== '1') return true;
+        const individualScale = (css.scale || 'none').trim();
+        const axes =
+          individualScale === 'none'
+            ? [1]
+            : individualScale
+                .split(/\s+/)
+                .map((axis) =>
+                  axis.endsWith('%') ? Number(axis.slice(0, -1)) / 100 : Number(axis)
+                );
+        if (
+          axes.length > 3 ||
+          axes.some((axis) => !Number.isFinite(axis) || axis <= 0) ||
+          (axes.length === 3 && axes[2] !== 1)
+        )
+          return true;
+        const sx = axes[0],
+          sy = axes[1] ?? sx;
         const matrix = new DOMMatrix(css.transform === 'none' ? undefined : css.transform);
         if (
           [
@@ -409,7 +425,11 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
           matrix.m44 !== 1
         )
           return true;
-        linear = new DOMMatrix([matrix.a, matrix.b, matrix.c, matrix.d, 0, 0]).multiply(linear);
+        // Individual scale composes outside transform. The actual image rectangle
+        // below supplies translation, including transform origins and translate.
+        linear = new DOMMatrix([sx, 0, 0, sy, 0, 0])
+          .multiply(new DOMMatrix([matrix.a, matrix.b, matrix.c, matrix.d, 0, 0]))
+          .multiply(linear);
       }
       const corners = [
         [0, 0],
