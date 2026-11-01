@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
 ENTRY_READ = SOURCE[SOURCE.index('legacy_entry_read() {'):SOURCE.index('legacy_entry_trace() {')]
 RECOVERY = SOURCE[SOURCE.index('RECOVERY_REQUESTED=0'):SOURCE.index('persist_break_deadline() {')]
+# Include the actual coordinator: legacy fixtures retain its default zero-cycle
+# branch, while the dedicated hourly fixture exercises nonzero ownership.
+RECOVERY = SOURCE[SOURCE.index('# Temporary hourly authority'):SOURCE.index('seconds_to_next_break() {')] + RECOVERY
 CERTIFICATE = SOURCE[SOURCE.index('maintenance_certificate() {'):SOURCE.index('# This is one optional event')]
 
 
@@ -632,7 +635,18 @@ class OwnerWitnessRealHistory(unittest.TestCase):
             self.assertEqual(Path(git('rev-parse', '--show-toplevel')).resolve(), repo.resolve())
             git('config', 'commit.gpgsign', 'false')
             (repo / 'base').write_text('shared protected base\n')
-            git('add', 'base'); git('commit', '-qm', 'fixture shared base')
+            # Execute the actual newly source-owned policy reader in this
+            # disposable Git history. OFF keeps the original owner-window
+            # selector under test, rather than admitting via hourly policy.
+            policy_path = repo / 'server/src/maintenance/maintenanceSchedulePolicy.json'
+            policy_path.parent.mkdir(parents=True)
+            policy = json.loads((ROOT / 'server/src/maintenance/maintenanceSchedulePolicy.json').read_text())
+            policy.update(phase1Status='off', completionEvidence='Isolated owner-witness daily-policy fixture')
+            policy_path.write_text(json.dumps(policy))
+            helper = repo / 'server/scripts/engine-release-seal.py'
+            helper.parent.mkdir(parents=True)
+            helper.write_bytes((ROOT / 'server/scripts/engine-release-seal.py').read_bytes())
+            git('add', '.'); git('commit', '-qm', 'fixture shared base')
             base = git('rev-parse', 'HEAD')
             path = 'supabase/migrations/20261028171228_fixture_rebuy.sql'
             witness = repo / path
@@ -679,7 +693,7 @@ class OwnerWitnessRealHistory(unittest.TestCase):
                             script = prefix + 'date() { printf 14; }\ncurl() { printf "%s" "$HEALTH"; }\n' + stage + '\ncat "$GITHUB_OUTPUT"\n'
                         result = subprocess.run(['bash', '-c', script], cwd=repo,
                             env={**env, 'REPO_DIR': tmp, 'SHA': target, 'HEALTH': health,
-                                 'EVENT_NAME': 'push', 'GITHUB_OUTPUT': str(output)},
+                                 'EVENT_NAME': 'push', 'GITHUB_SHA': target, 'GITHUB_OUTPUT': str(output)},
                             text=True, capture_output=True, timeout=15)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         admitted = ('owner-ordered fixture' if selector == 'host' else 'allowed=true') in result.stdout

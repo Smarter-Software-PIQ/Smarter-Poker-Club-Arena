@@ -25,8 +25,8 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '30 8 * * *'
-    - cron: '30 9 * * *'
+    # Temporary Phase1 owner order; the source policy restores daily admission.
+    - cron: '30 * * * *'
 
 permissions: {}
 
@@ -45,6 +45,7 @@ jobs:
       offer_reason: ${{ steps.change.outputs.offer_reason }}
       admission_allowed: ${{ steps.admission.outputs.allowed }}
       owner_window_id: ${{ steps.admission.outputs.owner_window_id }}
+      daily_migrations_allowed: ${{ steps.admission.outputs.daily_migrations_allowed }}
     steps:
       # Do not use push.paths here. GitHub only evaluates a bounded portion of
       # a very large diff for path filters, which can omit a real server change
@@ -79,6 +80,17 @@ jobs:
           set -euo pipefail
           allowed=false
           owner_window_id=''
+          POLICY=$(python3 server/scripts/engine-release-seal.py schedule-policy --repo . --sha "$GITHUB_SHA")
+          PHASE1_ACTIVE=$(printf '%s' "$POLICY" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin)["phase1Status"]=="active" else "false")')
+          PHASE1_RESTORING=false
+          if [ "$PHASE1_ACTIVE" = false ]; then
+            HEALTH=$(curl -fsS --max-time 15 -H 'Cache-Control:no-cache' https://engine.smarter.poker/health) || HEALTH='{}'
+            if printf '%s' "$HEALTH" | python3 server/scripts/engine-release-seal.py restoration-needed --repo . --sha "$GITHUB_SHA"; then
+              PHASE1_RESTORING=true
+            fi
+          fi
+          export PHASE1_ACTIVE PHASE1_RESTORING
+          echo 'daily_migrations_allowed=false' >> "$GITHUB_OUTPUT"
           if [ "$EVENT_NAME" = schedule ]; then
             # Admission belongs to the nominal scheduled instant, not when a
             # queued runner finally executes. A delayed 03:30 preparation may
@@ -89,21 +101,25 @@ jobs:
           from datetime import datetime, timezone
           from zoneinfo import ZoneInfo
           expression = os.environ["SCHEDULE_EXPRESSION"]
-          hours = {"30 8 * * *": 8, "30 9 * * *": 9}
-          if expression not in hours:
+          if expression != "30 * * * *":
               raise ValueError("unknown daily preparation schedule")
           created = datetime.fromisoformat(os.environ["RUN_CREATED_AT"].replace("Z", "+00:00"))
           if created.utcoffset() is None:
               raise ValueError("daily preparation run creation time has no timezone")
-          nominal = created.astimezone(timezone.utc).replace(hour=hours[expression], minute=30, second=0, microsecond=0)
+          nominal = created.astimezone(timezone.utc).replace(minute=30, second=0, microsecond=0)
           if nominal > created:
               raise ValueError("daily preparation nominal instant is after run creation")
           local = nominal.astimezone(ZoneInfo("America/Chicago"))
-          raise SystemExit(0 if (local.hour, local.minute) == (3, 30) else 1)
+          daily = (local.hour, local.minute) == (3, 30)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('daily_migrations_allowed=' + str(daily).lower() + '\n')
+          raise SystemExit(0 if daily or os.environ.get('PHASE1_ACTIVE') == 'true' or os.environ.get('PHASE1_RESTORING') == 'true' else 1)
           PYTHON
             then
               allowed=true
             fi
+          elif [ "$PHASE1_ACTIVE" = true ] || [ "$PHASE1_RESTORING" = true ]; then
+            allowed=true
           elif git log -1 --format=%B | grep -Eq '^Engine-Release: daily-maintenance-transition$'; then
             allowed=true
           elif [ -f server/release/owner-maintenance-windows.json ]; then
@@ -231,6 +247,7 @@ jobs:
           AFTER_SHA: ${{ github.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           ENGINE_HEALTH_URL: https://engine.smarter.poker/health
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           [[ "$AFTER_SHA" =~ ^[0-9a-f]{40}$ ]] \
@@ -296,6 +313,15 @@ jobs:
           # unreadable /health, or a served SHA outside protected main, offers
           # nothing on that basis and says so.
           OFFER_REASON=changed
+          SCHEDULED_CYCLE=false
+          if [ "$EVENT_NAME" = schedule ]; then
+            # A scheduled event has no push-before SHA. Always prove the actual
+            # protected live identity before offering a same-image reset.
+            RELEASE_REQUIRED=false
+            if python3 server/scripts/engine-release-seal.py schedule-policy --repo . --sha "$AFTER_SHA" | python3 -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin)["phase1Status"]=="active" else 1)'; then
+              SCHEDULED_CYCLE=true
+            fi
+          fi
           if [ "$RELEASE_REQUIRED" = false ]; then
             LIVE_SHA=''
             if [ -n "${ENGINE_HEALTH_URL:-}" ]; then
@@ -317,7 +343,15 @@ jobs:
               OFFER_REASON=unknown
               echo "::warning title=LIVE ENGINE RELEASE UNKNOWN::The live engine reports $LIVE_SHA, which is not in protected-main history at $AFTER_SHA."
             elif git merge-base --is-ancestor "$LATEST_REQUIRED" "$LIVE_SHA"; then
-              OFFER_REASON=current
+              if [ "$SCHEDULED_CYCLE" = true ]; then
+                RELEASE_REQUIRED=true
+                OFFER_REASON=scheduled-cycle
+                # Include the current protected policy and any newer server
+                # tests; never offer an older component behind a serving SHA.
+                TARGET_SHA="$AFTER_SHA"
+              else
+                OFFER_REASON=current
+              fi
             else
               OFFER_REASON=behind
               RELEASE_REQUIRED=true
@@ -349,7 +383,7 @@ jobs:
       always() &&
       ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
        (needs.detect.result == 'success' && needs.detect.outputs.admission_allowed == 'true' &&
-        (github.event_name == 'schedule' || needs.detect.outputs.owner_window_id != '')))
+        ((github.event_name == 'schedule' && needs.detect.outputs.daily_migrations_allowed == 'true') || needs.detect.outputs.owner_window_id != '')))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     concurrency:
@@ -434,7 +468,7 @@ jobs:
           set -euo pipefail
           [[ "$REF_SHA" =~ ^[0-9a-f]{40}$ ]] \
             || { echo "::error::Protected-main push did not provide one full lowercase commit SHA."; exit 1; }
-          if [ "$OFFER_REASON" != behind ]; then
+          if [ "$OFFER_REASON" != behind ] && [ "$OFFER_REASON" != scheduled-cycle ]; then
             echo "send=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

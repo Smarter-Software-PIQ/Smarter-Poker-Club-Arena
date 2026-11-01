@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
+import { spawnSync } from 'node:child_process';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 
@@ -133,8 +134,13 @@ describe('the socket clocks agree, and clear any proxy idle timeout', () => {
 describe('the break minute is the same minute everywhere', () => {
   const engineMinute = Number(ENGINE.match(/BREAK_START_MINUTE = (\d+)/)![1]);
 
-  it('routine maintenance parks at 04:00 Chicago', () => {
+  it('temporary Phase1 maintenance and restored daily maintenance both park on the hour', () => {
     expect(engineMinute).toBe(0);
+    const policy = JSON.parse(read('server/src/maintenance/maintenanceSchedulePolicy.json'));
+    expect(policy.policyId).toBe('phase1-hourly-01a1944f');
+    expect(policy.phase1Status).toBe('active');
+    expect(read('.github/workflows/stage-engine-release.yml')).toContain("cron: '30 * * * *'");
+    expect(RELEASE_TRANSACTION).toContain('PHASE1_CYCLE_START');
   });
 
   // Added 2026-09-12. The release transaction now decides whether a superseded
@@ -533,3 +539,13 @@ describe('the break scorecard grades only what the break controls', () => {
     ).toBe(false);
   });
 });
+
+it('qualifies the global Phase1 cycle in isolated canonical state and actual shell admission', () => {
+  const result = spawnSync(
+    'python3',
+    [resolve(__dirname, 'operations/engine-hourly-maintenance.py')],
+    { encoding: 'utf8', timeout: 30_000 }
+  );
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+  expect(result.stderr).toContain('Ran 16 tests');
+}, 35_000);

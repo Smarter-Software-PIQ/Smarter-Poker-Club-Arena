@@ -37,7 +37,22 @@ export const CERTIFICATE_LEAD_MS = 15 * 60_000;
 const BREAK_ANNOUNCED_SETTLE_MS = 30_000;
 
 /** Milliseconds from `wallMs` (UTC epoch) to the next :53:00 announcement. */
-export function msUntilNextAnnouncement(wallMs) {
+export function msUntilNextAnnouncement(wallMs, schedule) {
+  if (schedule?.frequency === 'phase1-hourly') {
+    if (schedule.timeZone !== 'America/Chicago' || schedule.policyId !== 'phase1-hourly-01a1944f' ||
+        schedule.startHour !== null || schedule.startMinute !== 0 || schedule.durationMs !== 300000 || schedule.hourlyCashFreeze !== true)
+      throw new Error('Observed hourly maintenance schedule is unproved.');
+    if (Number.isFinite(schedule.nextAnnouncementAt) && schedule.nextAnnouncementAt > 0)
+      return Math.max(0, schedule.nextAnnouncementAt-wallMs);
+    const hour = Math.floor(wallMs / 3_600_000) * 3_600_000;
+    let announcement = hour + 3_600_000 - LAST_HAND_LEAD_MINUTES * 60_000;
+    if (announcement <= wallMs) announcement += 3_600_000;
+    return announcement-wallMs;
+  }
+  if (schedule && (schedule.timeZone !== 'America/Chicago' || schedule.startHour !== 4 ||
+      schedule.startMinute !== 0 || schedule.durationMs !== 300000 || schedule.hourlyCashFreeze !== false ||
+      (schedule.frequency !== undefined && schedule.frequency !== 'daily')))
+    throw new Error('Observed maintenance schedule is unknown.');
   const day = 24 * 60 * 60_000;
   const chicago = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Chicago',
@@ -167,17 +182,8 @@ export async function awaitEngineGameplay(
   } = {}
 ) {
   if (!/^[0-9a-f]{40}$/.test(expected)) throw new Error('Expected one full engine SHA.');
-  if (wallClock) {
-    const untilBreak = msUntilNextAnnouncement(wallClock());
-    if (untilBreak < CERTIFICATE_LEAD_MS) {
-      report(
-        `Waiting ${Math.ceil((untilBreak + BREAK_ANNOUNCED_SETTLE_MS) / 1000)}s: the next scheduled break ` +
-          'is announced before a live-table certificate could finish, so it starts after that break.'
-      );
-      await pause(untilBreak + BREAK_ANNOUNCED_SETTLE_MS);
-    }
-  }
-  const deadline = now() + GAMEPLAY_WAIT_MS;
+  let scheduleChecked = !wallClock;
+  let deadline = now() + GAMEPLAY_WAIT_MS;
   let announced = false;
   let silence = null;
   const wait = (why) => {
@@ -209,6 +215,19 @@ export async function awaitEngineGameplay(
         throw new Error(
           `Production engine ${health.releaseSha} has not reached required ${expected}; this run cannot begin certification.`
         );
+      }
+      if (!scheduleChecked) {
+        const untilBreak = msUntilNextAnnouncement(wallClock(), health.maintenance?.schedule);
+        scheduleChecked = true;
+        if (untilBreak < CERTIFICATE_LEAD_MS) {
+          report(`Waiting ${Math.ceil((untilBreak + BREAK_ANNOUNCED_SETTLE_MS) / 1000)}s: the next observed scheduled break is announced before certification could finish; certification starts after that break.`);
+          const before = now();
+          await pause(untilBreak + BREAK_ANNOUNCED_SETTLE_MS);
+          // This is the existing pre-certificate wait, outside the unchanged
+          // twelve-minute resumed-gameplay allowance. Re-read after sleeping.
+          deadline += Math.max(0, now()-before);
+          continue;
+        }
       }
       if (health.running !== true || health.liveness !== 'ok') {
         wait('the exact engine is up but not yet running with healthy liveness');
