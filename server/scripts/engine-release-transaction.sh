@@ -355,6 +355,54 @@ if [ -e "$DRILL_FILE" ] || [ -L "$DRILL_FILE" ]; then
     || die 'engine drill reason must be 12 to 128 printable characters'
   echo "[engine-release-transaction] ENGINE DRILL $DRILL_MODE of $SHA under run $RUN_ID: $DRILL_REASON"
 fi
+# A DOOR A QUEUED WINDOW MIGRATION SUPPLIES (2026-11-01)
+# ──────────────────────────────────────────────────────
+# The receiver's door check admits a build whose missing database function is
+# created by a queued "-- @install-window: daily-maintenance" migration, which
+# only the window installer creates, inside the daily 04:00 America/Chicago
+# freeze. It does not waive the door; it carries it here, bound to this run key
+# by the deploy job before the request existed: $RUN_ID.window-doors, one root
+# 0600 record, schema line, target SHA, then "<function> <version>" lines.
+# The installer and this transaction start on the same confirmed freeze and do
+# not wait for each other (measured: installs commit 18-28 s into the break,
+# and on 2026-10-28 the predecessor reported ready for restart at 09:00:23.8
+# against an install at 09:00:24.7), so a single read before the replacement
+# would race. The proof therefore sits where the order is guaranteed and the
+# budget already exists: the final database proof before the seal, which
+# polls inside the unchanged break-proof budget and ends before the 135 s
+# rollback reserve - i.e. after the installer's last possible commit (it
+# starts with >=150 s left and commits inside 8 s) and before the thaw (90 s).
+# A missing function there refuses the seal and the existing recovery restores
+# the sealed predecessor inside the reserve. Every ceiling is unchanged. Two
+# further refusals keep the requirement on the daily route only, both before
+# any mutation: no off-cycle recovery window is ever requested for such a
+# release, and any break other than the daily 04:00 one is declined.
+WINDOW_DOORS_FILE="$REQUEST_ROOT/$RUN_ID.window-doors"
+WINDOW_DOOR_NAMES=''
+WINDOW_DOOR_ARGS=()
+if [ -e "$WINDOW_DOORS_FILE" ] || [ -L "$WINDOW_DOORS_FILE" ]; then
+  [ -f "$WINDOW_DOORS_FILE" ] && [ ! -L "$WINDOW_DOORS_FILE" ] \
+    || die 'window-doors record is not a regular file'
+  [ "$(stat -c '%u:%a' "$WINDOW_DOORS_FILE")" = '0:600' ] \
+    || die 'window-doors record ownership or mode is invalid'
+  mapfile -t WINDOW_DOOR_LINES < "$WINDOW_DOORS_FILE" || die 'window-doors record is unreadable'
+  [ "${#WINDOW_DOOR_LINES[@]}" -ge 3 ] && [ "${#WINDOW_DOOR_LINES[@]}" -le 34 ] \
+    || die 'window-doors record has an invalid line count'
+  [ "${WINDOW_DOOR_LINES[0]}" = engine-window-doors-v1 ] || die 'window-doors record schema is unknown'
+  [ "${WINDOW_DOOR_LINES[1]}" = "$SHA" ] || die 'window-doors record names a different target'
+  for WINDOW_DOOR_LINE in "${WINDOW_DOOR_LINES[@]:2}"; do
+    [[ "$WINDOW_DOOR_LINE" =~ ^([a-z_][a-z0-9_]{0,62})\ ([0-9]{14})$ ]] \
+      || die 'window-doors record has an invalid door line'
+    case " $WINDOW_DOOR_NAMES " in
+      *" ${BASH_REMATCH[1]} "*) die 'window-doors record names a door twice' ;;
+    esac
+    WINDOW_DOOR_NAMES="${WINDOW_DOOR_NAMES:+$WINDOW_DOOR_NAMES }${BASH_REMATCH[1]}"
+    WINDOW_DOOR_ARGS+=(--require-function "${BASH_REMATCH[1]}")
+  done
+  [ -z "${DRILL_MODE:-}" ] || die 'an engine drill never carries window doors'
+  echo "[engine-release-transaction] window doors carried to the daily freeze: $WINDOW_DOOR_NAMES; the seal requires each to exist after the window installer commits"
+fi
+
 # Only a rollback drill prepares the seal's audited rollback mode; a roll
 # forward is an ordinary deploy of the high-water.
 SEAL_MODE=deploy
@@ -1618,6 +1666,10 @@ request_recovery_window() {
   # A drill is planned work: it waits for a scheduled break and never spends
   # the hour's one off-cycle window that a real emergency may need.
   [ -z "${DRILL_MODE:-}" ] || return 0
+  # A release carrying window doors can be sealed only in the daily freeze
+  # whose window installer creates them; an off-cycle window would park every
+  # table for a cutover that must refuse its seal.
+  [ -z "${WINDOW_DOOR_NAMES:-}" ] || return 0
   now="$(date +%s)"
   # The engine owner checks overlap with the actual daily announcement.
   # Hourly tournament breaks do not restrict emergency global maintenance.
@@ -2675,6 +2727,16 @@ while :; do
     bounded_sleep 5
     continue
   fi
+  # Window doors exist only after the daily installer's freeze; decline any
+  # other certified break (an emergency or transition window someone else
+  # opened) before the lock, the prepare or any mutation. Same daily predicate
+  # maintenance_certificate uses.
+  if [ -n "${WINDOW_DOOR_NAMES:-}" ] \
+    && ! python3 -c 'from datetime import datetime; from zoneinfo import ZoneInfo; l=datetime.now(ZoneInfo("America/Chicago")); raise SystemExit(0 if (l.hour==4 and l.minute<5) else 1)'; then
+    echo "[engine-release-transaction] this break is not the daily 04:00 America/Chicago freeze, and only that freeze installs window doors $WINDOW_DOOR_NAMES; declining it before mutation"
+    bounded_sleep 15
+    continue
+  fi
 
   if [ "$LEGACY_CHECKPOINT_REQUIRED" != 1 ] && NEWER_WAITING="$(newer_release_awaiting_certificate)"; then
     if [ "$BREAK_DEFERRED_TO" != "$NEWER_WAITING" ]; then
@@ -3033,9 +3095,12 @@ BREAK_PROOF_REMAINING="$(break_proof_seconds)" \
 [ "$DB_TIMEOUT" -le 60 ] || DB_TIMEOUT=60
 [ "$DB_TIMEOUT" -ge 17 ] || die 'insufficient maintenance-break budget for final database proof'
 DB_TIMEOUT=$((DB_TIMEOUT - 2))
+# Carried window doors (see WINDOW_DOORS_FILE) are proved inside this same
+# bounded poll, before its leader witness, so the leader stays the last read.
 timeout --signal=TERM --kill-after=1s "${DB_TIMEOUT}s" \
   "$DATABASE_PROOF" --env-file "$ENV_FILE" --sha "$SHA" --instance-id "$CANDIDATE_INSTANCE" \
-  --timeout-seconds "$DB_TIMEOUT" --poll-seconds 5 --max-heartbeat-age-seconds 15
+  --timeout-seconds "$DB_TIMEOUT" --poll-seconds 5 --max-heartbeat-age-seconds 15 \
+  ${WINDOW_DOOR_ARGS[@]+"${WINDOW_DOOR_ARGS[@]}"}
 assert_time_remaining
 assert_break_proof_time
 

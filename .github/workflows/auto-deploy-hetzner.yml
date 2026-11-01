@@ -232,8 +232,13 @@ jobs:
       contents: read
     # Phase 6: a refused door names itself in the deploy receipt's reason
     # (e.g. "missing database function fn_x()"), not only in a job log.
+    # A door a queued daily-maintenance migration supplies (2026-11-01) is not
+    # refused; it is carried, as name@version,..., to the deploy job, which
+    # binds it to the run key before the durable intake so the host
+    # transaction proves each one exists before it seals.
     outputs:
       refusal: ${{ steps.doors.outputs.refusal || '' }}
+      window_doors: ${{ steps.doors.outputs.window_doors || '' }}
     steps:
       - name: Checkout the requested immutable commit
         uses: actions/checkout@v4
@@ -286,6 +291,7 @@ jobs:
       CONTROL_SHA: ${{ github.sha }}
       RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
       RUN_ACTOR: ${{ github.actor }}
+      WINDOW_DOORS: ${{ needs['engine-doors'].outputs.window_doors || '' }}
 
     steps:
       - name: Establish one absolute deploy-job deadline
@@ -563,6 +569,11 @@ jobs:
           DISPATCH_FINALIZE_RESERVE_SECONDS=15
           ACTOR_B64="$(printf '%s' "$RUN_ACTOR" | base64 -w 0)"
           [[ "$ACTOR_B64" =~ ^[A-Za-z0-9+/]*={0,2}$ ]]
+          # The doors the door job carried to the daily freeze. Empty, or
+          # name@version pairs; anything else is refused before any SSH.
+          [ -z "$WINDOW_DOORS" ] \
+            || [[ "$WINDOW_DOORS" =~ ^[a-z_][a-z0-9_]{0,62}@[0-9]{14}(,[a-z_][a-z0-9_]{0,62}@[0-9]{14}){0,31}$ ]] \
+            || { echo '::error::the carried window doors are malformed'; exit 1; }
           # A release that stood down because protected main moved is not a broken
           # build, and until 2026-09-12 both were recorded as "release ended
           # without complete production proof". Fourteen consecutive stand-downs
@@ -592,7 +603,7 @@ jobs:
             transport_timeout=$((remaining - 5))
             [ "$transport_timeout" -le 360 ] || transport_timeout=360
             timeout --signal=TERM --kill-after=5s "${transport_timeout}s" \
-              "$HSSH" "TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' ACTOR_B64='$ACTOR_B64' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' GIT_NO_REPLACE_OBJECTS=1 bash -se" <<'REMOTE'
+              "$HSSH" "TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' ACTOR_B64='$ACTOR_B64' NOT_AFTER_EPOCH='$RELEASE_DISPATCH_DEADLINE_EPOCH' WINDOW_DOORS='$WINDOW_DOORS' GIT_NO_REPLACE_OBJECTS=1 bash -se" <<'REMOTE'
           set -euo pipefail
           export GIT_NO_REPLACE_OBJECTS=1
           STAGE="/var/lib/club-arena/control-staging/$RUN_KEY"
@@ -600,6 +611,38 @@ jobs:
           [[ "$NOT_AFTER_EPOCH" =~ ^[1-9][0-9]*$ ]]
           python3 "$STAGE/server/scripts/engine-release-activation-floor.py" admit \
             --repo /opt/club-arena --target "$TARGET_SHA" --control "$CONTROL_SHA" --deadline "$NOT_AFTER_EPOCH"
+          # A DOOR A QUEUED WINDOW MIGRATION SUPPLIES (2026-11-01). Bind the
+          # carried doors to this run key BEFORE the request exists, exactly as
+          # install-engine-drill.sh binds a drill: the transaction reads the
+          # record when it starts, so a request without it would already be an
+          # ordinary release. A reattach finds the same bytes; a different
+          # record, or a request already on disk without one, is refused.
+          REQUEST_ROOT=/var/lib/club-arena/engine-release-requests
+          WINDOW_DOORS_FILE="$REQUEST_ROOT/$RUN_KEY.window-doors"
+          if [ -n "$WINDOW_DOORS" ]; then
+            [[ "$WINDOW_DOORS" =~ ^[a-z_][a-z0-9_]{0,62}@[0-9]{14}(,[a-z_][a-z0-9_]{0,62}@[0-9]{14}){0,31}$ ]]
+            install -d -m 0700 "$REQUEST_ROOT"
+            if { [ -e "$REQUEST_ROOT/$RUN_KEY.request" ] || [ -e "$REQUEST_ROOT/$RUN_KEY.intent" ]; } \
+              && [ ! -e "$WINDOW_DOORS_FILE" ]; then
+              echo 'this run key already has a release request and no window-doors record' >&2
+              exit 1
+            fi
+            WINDOW_DOORS_TMP="$REQUEST_ROOT/.$RUN_KEY.window-doors.$$"
+            ( umask 077
+              { printf 'engine-window-doors-v1\n%s\n' "$TARGET_SHA"
+                printf '%s\n' "$WINDOW_DOORS" | tr ',' '\n' | tr '@' ' '; } > "$WINDOW_DOORS_TMP" )
+            sync "$WINDOW_DOORS_TMP"
+            if ! ln -- "$WINDOW_DOORS_TMP" "$WINDOW_DOORS_FILE" 2>/dev/null; then
+              cmp -s "$WINDOW_DOORS_TMP" "$WINDOW_DOORS_FILE" \
+                || { rm -f -- "$WINDOW_DOORS_TMP"; echo 'this run key is already bound to different window doors' >&2; exit 1; }
+            fi
+            rm -f -- "$WINDOW_DOORS_TMP"
+            sync "$REQUEST_ROOT"
+            echo "ENGINE_WINDOW_DOORS_BOUND=$WINDOW_DOORS"
+          elif [ -e "$WINDOW_DOORS_FILE" ]; then
+            echo 'this run key carries a window-doors record its door job did not produce' >&2
+            exit 1
+          fi
           "$STAGE/server/scripts/install-engine-intake.sh" \
             --target-sha "$TARGET_SHA" --control-sha "$CONTROL_SHA" \
             --run-id "$RUN_KEY" --actor "$ACTOR" \

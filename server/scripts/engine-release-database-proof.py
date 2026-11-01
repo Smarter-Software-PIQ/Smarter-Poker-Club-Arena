@@ -308,6 +308,49 @@ def verify_mixed_custody_contract(payload: object) -> None:
         raise ValueError("installed mixed-custody contract differs from qualification")
 
 
+# A DOOR A QUEUED WINDOW MIGRATION SUPPLIES (2026-11-01). The transaction may
+# carry database functions the receiver admitted only because a queued
+# daily-maintenance migration creates them inside this same freeze. This is the
+# read that proves the window installer did: one STABLE catalog RPC
+# (migration 20261101134516), GET so PostgREST runs it read-only, bounded.
+DOOR_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+MAX_REQUIRED_FUNCTIONS = 32
+MISSING_FUNCTIONS_RPC = "fn_ca_engine_release_missing_functions"
+
+
+def read_missing_functions(
+    base_url: str, service_key: str, names: list[str], socket_timeout_seconds: float
+) -> list[str]:
+    query = urlencode({"p_names": "{" + ",".join(names) + "}"})
+    request = Request(
+        f"{base_url}/rest/v1/rpc/{MISSING_FUNCTIONS_RPC}?{query}",
+        headers={
+            "apikey": service_key,
+            "authorization": f"Bearer {service_key}",
+            "accept": "application/json",
+            "cache-control": "no-cache, no-store",
+        },
+        method="GET",
+    )
+    opener = build_opener(HTTPSHandler(context=ssl.create_default_context()), RefuseRedirects())
+    with opener.open(request, timeout=socket_timeout_seconds) as response:
+        payload = response.read(16385)
+    if len(payload) > 16384:
+        raise ValueError("missing-function response exceeds its bounded contract")
+    return verify_missing_functions(json.loads(payload.decode("utf-8")), names)
+
+
+def verify_missing_functions(payload: object, names: list[str]) -> list[str]:
+    # The answer must be a list of names drawn from the question. Anything
+    # else - null, an object, an unasked name - is unreadable, never "none
+    # missing" (CLAUDE.md 10.86 rule 2).
+    if not isinstance(payload, list) or not all(isinstance(n, str) for n in payload):
+        raise ValueError("missing-function response is not a list of names")
+    if not set(payload) <= set(names):
+        raise ValueError("missing-function response names a function it was not asked about")
+    return sorted(set(payload))
+
+
 def die(message: str) -> NoReturn:
     print(f"[engine-release-database-proof] FATAL: {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -394,6 +437,7 @@ def main() -> None:
     parser.add_argument("--timeout-seconds", type=int, default=240)
     parser.add_argument("--poll-seconds", type=int, default=10)
     parser.add_argument("--max-heartbeat-age-seconds", type=int, default=60)
+    parser.add_argument("--require-function", action="append", default=[])
     args = parser.parse_args()
 
     target_sha = str(args.sha).lower()
@@ -411,6 +455,15 @@ def main() -> None:
         or not 1 <= args.max_heartbeat_age_seconds <= 60
     ):
         die("proof timing is outside the bounded contract")
+    required = list(args.require_function)
+    if required and (args.mixed_custody_contract or args.instance_id is None):
+        die("required functions belong only to an elected-leader proof")
+    if (
+        len(required) > MAX_REQUIRED_FUNCTIONS
+        or len(set(required)) != len(required)
+        or not all(DOOR_NAME_RE.fullmatch(name) for name in required)
+    ):
+        die("required function names are outside the bounded contract")
 
     values = read_fixed_env(Path(args.env_file))
     base_url = values.get("SUPABASE_URL", "").rstrip("/")
@@ -436,9 +489,24 @@ def main() -> None:
     last_version = "unreadable"
     last_instance = "unreadable"
     last_age: float | None = None
+    # Until every required function is seen the doors are UNPROVED; once seen
+    # they are not re-read, so the leader witness stays the last read before
+    # the seal. "unreadable" and "missing" are reported apart.
+    doors_pending = sorted(required)
+    doors_state = "missing" if required else "none required"
+
+    def refuse_doors() -> NoReturn:
+        die(
+            f"carried window doors never proved; state={doors_state} "
+            f"missing={','.join(doors_pending)}; the window installer did not create them "
+            "inside this freeze, so this candidate may not be sealed"
+        )
+
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
+            if doors_pending:
+                refuse_doors()
             age_text = "unknown" if last_age is None else f"{last_age:.0f}s"
             die(
                 f"elected leader never proved {expected}; "
@@ -446,6 +514,31 @@ def main() -> None:
                 f"heartbeat_age={age_text}"
             )
         attempt += 1
+        if doors_pending:
+            try:
+                doors_pending = read_missing_functions(
+                    base_url, service_key, doors_pending, min(10.0, remaining)
+                )
+                doors_state = "missing"
+                print(
+                    f"[engine-release-database-proof] attempt {attempt}: "
+                    f"carried window doors missing={','.join(doors_pending) or 'none'}"
+                )
+            except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+                doors_state = "unreadable"
+                print(
+                    f"[engine-release-database-proof] attempt {attempt}: "
+                    f"carried window doors unreadable ({type(exc).__name__})"
+                )
+            if doors_pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    refuse_doors()
+                time.sleep(min(float(args.poll_seconds), remaining))
+                continue
+            print("[engine-release-database-proof] every carried window door exists")
+            # Re-enter the loop: its deadline check, then the leader read.
+            continue
         try:
             version, leader_instance, age = read_leader(
                 base_url, service_key, min(15.0, remaining)

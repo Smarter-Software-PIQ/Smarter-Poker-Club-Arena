@@ -232,6 +232,14 @@ DRILL_FILE="$REQUEST_ROOT/$RUN_ID.drill"
   || { echo '[engine-release-recover] FATAL: refusing unsafe drill-record cleanup' >&2; exit 1; }
 bounded_recovery_command 10 rm -f -- "$DRILL_FILE"
 fsync_directory "$REQUEST_ROOT"
+# Carried window doors (auto-deploy-hetzner.yml binds them) are retired on the
+# same rule: after the request, never before it, so a replay can never find
+# the request without the doors its seal requires.
+WINDOW_DOORS_FILE="$REQUEST_ROOT/$RUN_ID.window-doors"
+[[ "$WINDOW_DOORS_FILE" =~ ^"$REQUEST_ROOT"/[1-9][0-9]*(-[1-9][0-9]*)?\.window-doors$ ]] \
+  || { echo '[engine-release-recover] FATAL: refusing unsafe window-doors cleanup' >&2; exit 1; }
+bounded_recovery_command 10 rm -f -- "$WINDOW_DOORS_FILE"
+fsync_directory "$REQUEST_ROOT"
 
 # This exact per-attempt unit remains enabled until pin, intent, request, and
 # lease are durably gone. A crash before request deletion replays the same

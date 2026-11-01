@@ -45,8 +45,34 @@
  * be inferred from pg_proc name presence, and unknown history is a refusal.
  * This is a read-only gate in this existing job, before durable host intake.
  *
+ * A DOOR A QUEUED WINDOW MIGRATION SUPPLIES (2026-11-01). A missing door is
+ * not refused when, and only when, all of these hold:
+ *   (a) a migration in this target tree that declares
+ *       "-- @install-window: daily-maintenance" (and is not SUPERSEDED BY a
+ *       file in the tree) creates it in schema public, and production's
+ *       schema_migrations does not record that migration yet: it is QUEUED,
+ *       and only the window installer inside the 04:00 America/Chicago freeze
+ *       can create it (CLAUDE.md section 2 rule 10);
+ *   (b) the target does not carry a still-live owner-window activation floor,
+ *       so its cutover is the routine daily freeze the installer runs in (the
+ *       host transaction re-checks the actual break, below);
+ *   (c) this is not a rollback.
+ * Before this, such a build could never ship: this check runs ~25 minutes
+ * before the freeze that installs its door, so it failed every daily release
+ * from #9054 onward (fn_ca_cancel_tournament_abort_unsettled_hand, created by
+ * the window migration 20261101005048). The requirement is not waived, it is
+ * carried: the step output `window_doors` (name@version,...) is bound by the
+ * deploy job to the run key as $REQUEST_ROOT/<run>.window-doors before the
+ * durable intake, and engine-release-transaction.sh refuses any break that is
+ * not the daily 04:00 freeze and refuses the SEAL unless every carried
+ * function exists after the window installer has committed (the final
+ * database proof, engine-release-database-proof.py --require-function). A
+ * missing door with a recorded (installed) supplier is still refused: the
+ * window cannot create it again.
+ *
  * Usage:  node scripts/ci/check-engine-doors-exist.mjs
- * Exit:   0 proved / generic unreadable / generic rollback;
+ * Exit:   0 proved / doors carried to the daily freeze / generic unreadable /
+ *         generic rollback;
  *         1 missing door or unproved continuation prerequisite
  */
 import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -54,10 +80,115 @@ import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { declaresMaintenanceWindow } from './maintenance-window-migrations.mjs';
+import { supersededBy } from './check-migrations-are-live.mjs';
 
 const ROOT = process.cwd();
 const SCAN_ROOT = join(ROOT, 'server', 'src');
 const ALLOWLIST = join(ROOT, 'scripts', 'ci', 'engine-doors.allowlist.json');
+const MIGRATIONS_DIR = join(ROOT, 'supabase', 'migrations');
+const ACTIVATION_FLOOR = join(ROOT, 'server', 'release', 'activation-floor.json');
+const OWNER_FLOOR_SCHEMA = 'engine-release-activation-floor/v2-owner-window';
+// The host record carries at most this many doors; the transaction refuses more.
+export const MAX_WINDOW_DOORS = 32;
+const DOOR_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
+// Test seam, honoured only with the live fixture: the clock the owner-window
+// floor is read against.
+const nowMs = () =>
+  process.env.ENGINE_DOORS_LIVE_FIXTURE && process.env.ENGINE_DOORS_NOW_MS
+    ? Number(process.env.ENGINE_DOORS_NOW_MS)
+    : Date.now();
+
+/** SQL with `--` comments removed, so a commented-out CREATE is not a supplier. */
+const uncommentedSql = (sql) => String(sql).replace(/--[^\n]*/g, ' ');
+const CREATED_PUBLIC_FUNCTION =
+  /\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?public"?\s*\.\s*)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s*\(/gi;
+
+/** The schema-public function names one migration's SQL creates. */
+export function publicFunctionsCreatedBy(sql) {
+  const names = new Set();
+  for (const m of uncommentedSql(sql).matchAll(CREATED_PUBLIC_FUNCTION)) names.add(m[1]);
+  return names;
+}
+
+/**
+ * door name -> the window migrations in this tree that create it, oldest
+ * first. Only files that declare the daily-maintenance window and are not
+ * superseded qualify: those, and only those, are what install-window-
+ * migrations.mjs would send inside the freeze.
+ */
+export function windowSuppliers(names, dir = MIGRATIONS_DIR) {
+  const wanted = new Set(names);
+  const out = new Map();
+  if (wanted.size === 0 || !existsSync(dir)) return out;
+  const files = readdirSync(dir);
+  for (const file of files.filter((f) => /^\d{14}_[a-z0-9_]+\.sql$/.test(f)).sort()) {
+    const sql = readFileSync(join(dir, file), 'utf8');
+    if (!declaresMaintenanceWindow(sql) || supersededBy(sql, files)) continue;
+    for (const name of publicFunctionsCreatedBy(sql)) {
+      if (!wanted.has(name)) continue;
+      const list = out.get(name) ?? [];
+      list.push({ file, version: file.slice(0, 14), slug: file.slice(15, -4) });
+      out.set(name, list);
+    }
+  }
+  return out;
+}
+
+/** Same three keys the window installer reads "recorded" by. */
+export function isRecorded(supplier, rows) {
+  return rows.some(
+    (r) =>
+      r.version === supplier.version ||
+      r.name === supplier.slug ||
+      r.name === supplier.slug.slice(0, 55)
+  );
+}
+
+/**
+ * A still-live owner-window floor moves this target's cutover off the daily
+ * freeze, where no window installer runs for it. Unreadable is not "absent".
+ */
+export function liveOwnerWindowFloor(path = ACTIVATION_FLOOR, nowMs = Date.now()) {
+  if (!existsSync(path)) return null;
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return 'the activation floor is unreadable';
+  }
+  if (!doc || doc.schema !== OWNER_FLOOR_SCHEMA) return null;
+  const expires = Date.parse(String(doc.expiresAt));
+  if (!Number.isFinite(expires)) return 'the owner-window activation floor has no readable expiry';
+  return expires > nowMs ? `owner window ${doc.ownerWindowId} is live until ${doc.expiresAt}` : null;
+}
+
+/**
+ * Splits the missing doors into the ones a queued window migration supplies
+ * (carried to the daily freeze) and the ones nothing will supply (refused).
+ */
+export function classifyMissing({ missing, suppliers, recorded, ownerWindow, rollback }) {
+  // Unreadable history is not "nothing recorded" (CLAUDE.md 10.86): refuse.
+  if (!Array.isArray(recorded)) return { carried: [], refused: [...missing] };
+  const carried = [];
+  const refused = [];
+  for (const name of missing) {
+    const queued = (suppliers.get(name) ?? []).filter((s) => !isRecorded(s, recorded));
+    if (!rollback && !ownerWindow && queued.length > 0 && DOOR_NAME.test(name))
+      carried.push({ name, version: queued[0].version, file: queued[0].file });
+    else refused.push(name);
+  }
+  if (carried.length > MAX_WINDOW_DOORS) return { carried: [], refused: [...missing] };
+  return { carried, refused };
+}
+
+/** The step output and host record body: name@version,... in name order. */
+export function windowDoorsValue(carried) {
+  return [...carried]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((d) => `${d.name}@${d.version}`)
+    .join(',');
+}
 
 /** Removes // and /* *\/ comments so a JSDoc example is not a call site. */
 export function stripComments(src) {
@@ -205,19 +336,22 @@ function continuationRequirements() {
   }));
 }
 
-async function liveFunctions(names, requirements) {
+async function liveFunctions(names, requirements, suppliers = []) {
   // Test seam: a JSON array of the function names "production" has, so the
   // law test can run the real script end to end without a database.
   const fixture = process.env.ENGINE_DOORS_LIVE_FIXTURE;
   if (fixture) {
     const migrationFixture = process.env.ENGINE_DOORS_MIGRATIONS_FIXTURE;
     const checkpointFixture = process.env.ENGINE_DOORS_CHECKPOINT_FIXTURE;
+    const windowFixture = process.env.ENGINE_DOORS_WINDOW_HISTORY_FIXTURE;
     return {
       found: new Set(JSON.parse(readFileSync(fixture, 'utf8'))),
       migrations: migrationFixture ? JSON.parse(readFileSync(migrationFixture, 'utf8')) : [],
       checkpointFunctions: checkpointFixture
         ? JSON.parse(readFileSync(checkpointFixture, 'utf8'))
         : [],
+      // Absent fixture = production records none of the window suppliers.
+      windowHistory: windowFixture ? JSON.parse(readFileSync(windowFixture, 'utf8')) : [],
     };
   }
   const url = process.env.DATABASE_URL;
@@ -273,7 +407,27 @@ async function liveFunctions(names, requirements) {
         )
       ));
     }
-    return { found: new Set(rows.map((r) => r.proname)), migrations, checkpointFunctions };
+    // Which window suppliers production has already recorded, by the same
+    // three keys the window installer reads "recorded" by. Only asked when a
+    // window migration in this tree creates a door this build calls.
+    let windowHistory = [];
+    if (suppliers.length) {
+      ({ rows: windowHistory } = await client.query(
+        `SELECT version, name FROM supabase_migrations.schema_migrations
+          WHERE version = ANY($1::text[]) OR name = ANY($2::text[]) OR name = ANY($3::text[])`,
+        [
+          suppliers.map((s) => s.version),
+          suppliers.map((s) => s.slug),
+          suppliers.map((s) => s.slug.slice(0, 55)),
+        ]
+      ));
+    }
+    return {
+      found: new Set(rows.map((r) => r.proname)),
+      migrations,
+      checkpointFunctions,
+      windowHistory,
+    };
   } catch (err) {
     return { unreadable: `production could not be asked: ${err?.message || err}` };
   } finally {
@@ -328,7 +482,8 @@ async function main() {
   const requirements = continuationRequirements();
   const allow = existsSync(ALLOWLIST) ? JSON.parse(readFileSync(ALLOWLIST, 'utf8')) : {};
   const rollback = process.env.ROLLBACK_REQUESTED === 'true';
-  const live = await liveFunctions(names, requirements);
+  const suppliers = windowSuppliers(names);
+  const live = await liveFunctions(names, requirements, [...suppliers.values()].flat());
   if (live.unreadable && (continuationTarget || retainedCheckpointTarget || mttDepthTarget)) {
     console.log(
       `::error title=CONTINUATION PREREQUISITES UNCHECKED::${live.unreadable}. Exact target migration histories and any selected frozen-checkpoint custody contract must be proved before this target enters Hetzner.`
@@ -411,8 +566,37 @@ async function main() {
     );
     return 0;
   }
+  let ownerWindow = null;
+  if (!rollback) {
+    ownerWindow = liveOwnerWindowFloor(ACTIVATION_FLOOR, nowMs());
+  }
+  const { carried, refused } = classifyMissing({
+    missing,
+    suppliers,
+    recorded: Array.isArray(live.windowHistory) ? live.windowHistory : null,
+    ownerWindow,
+    rollback,
+  });
+  for (const door of carried) {
+    console.log(
+      `::notice title=DOOR SUPPLIED BY A QUEUED WINDOW MIGRATION::${door.name}() is created by ${door.file}, which declares the daily-maintenance window and is not yet recorded in production. It is installed inside the 04:00 America/Chicago freeze this release cuts over in, so the requirement is carried to the host: the transaction refuses any other break and refuses the seal unless ${door.name}() exists after the window installer commits.`
+    );
+  }
+  if (refused.length === 0) {
+    const value = windowDoorsValue(carried);
+    const out = process.env.GITHUB_OUTPUT;
+    if (out) appendFileSync(out, `window_doors=${value}\n`);
+    console.log(
+      `OK - ${names.length - carried.length} of ${names.length} database functions exist in production; ${carried.length} are carried to the daily freeze that installs them (${value}).`
+    );
+    return 0;
+  }
+  if (ownerWindow && carried.length === 0 && missing.some((n) => (suppliers.get(n) ?? []).length))
+    console.log(
+      `::error title=NO DAILY FREEZE FOR A WINDOW DOOR::${ownerWindow}; a door a queued window migration supplies can only ship through the routine 04:00 America/Chicago freeze.`
+    );
   const level = rollback ? 'warning' : 'error';
-  for (const name of missing) {
+  for (const name of refused) {
     console.log(
       `::${level} title=MISSING DATABASE DOOR::${name}() is called by ${doors.get(name).join(', ')} and does not exist in production. Apply its migration before this build ships.`
     );
@@ -424,9 +608,9 @@ async function main() {
     return 0;
   }
   console.log(
-    `${missing.length} of ${names.length} database functions this build calls are missing in production. Nothing was deployed.`
+    `${refused.length} of ${names.length} database functions this build calls are missing in production and nothing queued will supply them. Nothing was deployed.`
   );
-  emitRefusal('missing', missing);
+  emitRefusal('missing', refused);
   return 1;
 }
 
