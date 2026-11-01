@@ -731,43 +731,45 @@ exec "$@"
     expect(readFileSync(mutationLog, 'utf8')).toBe('');
   });
 
-  it('restores desired instead of accepting a reboot-persistent pending candidate', () => {
-    runSeal([
-      'bootstrap-running',
-      '--container',
-      'club-arena-engine',
-      ...auditArgs('152', 'bootstrap existing production'),
-    ]);
-    const prepared = runSeal([
-      'prepare',
-      '--sha',
-      B_SHA,
-      '--image',
-      'candidate-ref',
-      '--mode',
-      'deploy',
-      '--repo',
-      sandbox,
-      ...auditArgs('153', 'normal deployment from origin main'),
-    ]);
-    authorize('candidate-ref', prepared.stdout);
+  it(
+    'restores desired instead of accepting a reboot-persistent pending candidate',
+    () => {
+      runSeal([
+        'bootstrap-running',
+        '--container',
+        'club-arena-engine',
+        ...auditArgs('152', 'bootstrap existing production'),
+      ]);
+      const prepared = runSeal([
+        'prepare',
+        '--sha',
+        B_SHA,
+        '--image',
+        'candidate-ref',
+        '--mode',
+        'deploy',
+        '--repo',
+        sandbox,
+        ...auditArgs('153', 'normal deployment from origin main'),
+      ]);
+      authorize('candidate-ref', prepared.stdout);
 
-    const mutationLog = join(sandbox, 'pending-policy-mutations.log');
-    const autohealState = join(sandbox, 'autoheal-state');
-    const containerState = join(sandbox, 'engine-state');
-    const switched = join(sandbox, 'desired-runtime');
-    const upScript = join(sandbox, 'engine-up-stub.sh');
-    writeFileSync(mutationLog, '');
-    writeFileSync(autohealState, 'exited\n');
-    writeFileSync(containerState, 'running\n');
-    writeFileSync(
-      upScript,
-      '#!/usr/bin/env bash\nprintf \'engine-up %s\\n\' "$IMAGE" >> "$FAKE_MUTATION_LOG"\ntouch "$FAKE_SWITCHED"\n'
-    );
-    chmodSync(upScript, 0o755);
-    writeFileSync(
-      join(bin, 'docker'),
-      `#!/usr/bin/env bash
+      const mutationLog = join(sandbox, 'pending-policy-mutations.log');
+      const autohealState = join(sandbox, 'autoheal-state');
+      const containerState = join(sandbox, 'engine-state');
+      const switched = join(sandbox, 'desired-runtime');
+      const upScript = join(sandbox, 'engine-up-stub.sh');
+      writeFileSync(mutationLog, '');
+      writeFileSync(autohealState, 'exited\n');
+      writeFileSync(containerState, 'running\n');
+      writeFileSync(
+        upScript,
+        '#!/usr/bin/env bash\nprintf \'engine-up %s\\n\' "$IMAGE" >> "$FAKE_MUTATION_LOG"\ntouch "$FAKE_SWITCHED"\n'
+      );
+      chmodSync(upScript, 0o755);
+      writeFileSync(
+        join(bin, 'docker'),
+        `#!/usr/bin/env bash
 set -eo pipefail
 if [ "$1" = info ]; then exit 0; fi
 kind="$1"; action="$2"; shift 2
@@ -816,96 +818,101 @@ fi
 printf 'docker %s %s %s\\n' "$kind" "$action" "$*" >> "$FAKE_MUTATION_LOG"
 exit 0
 `
-    );
-    chmodSync(join(bin, 'docker'), 0o755);
-    writeFileSync(join(bin, 'logger'), '#!/usr/bin/env bash\nexit 0\n');
-    chmodSync(join(bin, 'logger'), 0o755);
-    writeFileSync(join(bin, 'flock'), '#!/usr/bin/env bash\nexit 0\n');
-    chmodSync(join(bin, 'flock'), 0o755);
-    writeFileSync(
-      join(bin, 'timeout'),
-      `#!/usr/bin/env bash
+      );
+      chmodSync(join(bin, 'docker'), 0o755);
+      writeFileSync(join(bin, 'logger'), '#!/usr/bin/env bash\nexit 0\n');
+      chmodSync(join(bin, 'logger'), 0o755);
+      writeFileSync(join(bin, 'flock'), '#!/usr/bin/env bash\nexit 0\n');
+      chmodSync(join(bin, 'flock'), 0o755);
+      writeFileSync(
+        join(bin, 'timeout'),
+        `#!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   case "$1" in --signal=*|--kill-after=*|[0-9]*s) shift ;; *) break ;; esac
 done
 exec "$@"
 `
-    );
-    chmodSync(join(bin, 'timeout'), 0o755);
-    writeFileSync(
-      join(bin, 'curl'),
-      `#!/usr/bin/env bash
+      );
+      chmodSync(join(bin, 'timeout'), 0o755);
+      writeFileSync(
+        join(bin, 'curl'),
+        `#!/usr/bin/env bash
 printf '%s\\n%s' '{"running":true,"releaseSha":"${A_SHA}","liveness":"ok","instanceId":"12345-deadbeef"}' '200'
 `
-    );
-    chmodSync(join(bin, 'curl'), 0o755);
+      );
+      chmodSync(join(bin, 'curl'), 0o755);
 
-    const supervisorEnv: NodeJS.ProcessEnv = {
-      ...baseEnv,
-      CONTAINER: 'club-arena-engine',
-      ENGINE_RELEASE_SEAL: sealScript,
-      FAKE_AUTOHEAL_STATE: autohealState,
-      FAKE_CONTAINER_STATE: containerState,
-      FAKE_MUTATION_LOG: mutationLog,
-      FAKE_SWITCHED: switched,
-      IMAGE_REPO: 'club-arena-engine',
-      LOCK_FILE: join(sandbox, 'engine-up.lock'),
-      UP_SCRIPT: upScript,
-      ENGINE_SUPERVISOR_LOCK_HELD: '1',
-      ENGINE_SUPERVISOR_FORCE_DESIRED: '1',
-      ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH: '1',
-      ENGINE_RECOVERY_DEADLINE_EPOCH: String(Math.floor(Date.now() / 1000) + 20),
-      ENGINE_URL: 'https://engine.example.invalid',
-    };
-    const supervisor = spawnSync('bash', [resolve(ROOT, 'server/scripts/engine-supervisor.sh')], {
-      encoding: 'utf8',
-      env: supervisorEnv,
-    });
-    expect(supervisor.status, supervisor.stderr).toBe(0);
-    expect(supervisor.stdout).toContain('restoring exact sealed desired release');
-    const mutations = readFileSync(mutationLog, 'utf8');
-    expect(mutations).toContain(`engine-up ${A_IMAGE}`);
-    expect(mutations).not.toContain('update --restart no');
-
-    writeFileSync(containerState, 'exited\n');
-    writeFileSync(mutationLog, '');
-    const stoppedDesiredRecovery = spawnSync(
-      'bash',
-      [resolve(ROOT, 'server/scripts/engine-supervisor.sh')],
-      {
+      const supervisorEnv: NodeJS.ProcessEnv = {
+        ...baseEnv,
+        CONTAINER: 'club-arena-engine',
+        ENGINE_RELEASE_SEAL: sealScript,
+        FAKE_AUTOHEAL_STATE: autohealState,
+        FAKE_CONTAINER_STATE: containerState,
+        FAKE_MUTATION_LOG: mutationLog,
+        FAKE_SWITCHED: switched,
+        IMAGE_REPO: 'club-arena-engine',
+        LOCK_FILE: join(sandbox, 'engine-up.lock'),
+        UP_SCRIPT: upScript,
+        ENGINE_SUPERVISOR_LOCK_HELD: '1',
+        ENGINE_SUPERVISOR_FORCE_DESIRED: '1',
+        ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH: '1',
+        ENGINE_RECOVERY_DEADLINE_EPOCH: String(Math.floor(Date.now() / 1000) + 20),
+        ENGINE_URL: 'https://engine.example.invalid',
+      };
+      const supervisor = spawnSync('bash', [resolve(ROOT, 'server/scripts/engine-supervisor.sh')], {
         encoding: 'utf8',
-        env: {
-          ...supervisorEnv,
-          ENGINE_RECOVERY_DEADLINE_EPOCH: String(Math.floor(Date.now() / 1000) + 20),
-        },
-      }
-    );
-    expect(stoppedDesiredRecovery.status, stoppedDesiredRecovery.stderr).toBe(0);
-    expect(stoppedDesiredRecovery.stdout).toContain(
-      'is live and exact locally and publicly as 12345-deadbeef'
-    );
-    expect(readFileSync(mutationLog, 'utf8')).toContain('docker start club-arena-engine');
-    expect(readFileSync(mutationLog, 'utf8')).not.toContain('engine-up');
+        env: supervisorEnv,
+      });
+      expect(supervisor.status, supervisor.stderr).toBe(0);
+      expect(supervisor.stdout).toContain('restoring exact sealed desired release');
+      const mutations = readFileSync(mutationLog, 'utf8');
+      expect(mutations).toContain(`engine-up ${A_IMAGE}`);
+      expect(mutations).not.toContain('update --restart no');
 
-    rmSync(switched, { force: true });
-    writeFileSync(containerState, 'running\n');
-    writeFileSync(mutationLog, '');
-    writeFileSync(upScript, '#!/usr/bin/env bash\nexit 42\n');
-    chmodSync(upScript, 0o755);
-    const failedRecovery = spawnSync(
-      'bash',
-      [resolve(ROOT, 'server/scripts/engine-supervisor.sh')],
-      {
-        encoding: 'utf8',
-        env: {
-          ...supervisorEnv,
-          ENGINE_RECOVERY_DEADLINE_EPOCH: String(Math.floor(Date.now() / 1000) + 20),
-        },
-      }
-    );
-    expect(failedRecovery.status).toBe(1);
-    expect(failedRecovery.stdout).toContain('exact sealed desired release could not be restored');
-  }, 15_000);
+      writeFileSync(containerState, 'exited\n');
+      writeFileSync(mutationLog, '');
+      const stoppedDesiredRecovery = spawnSync(
+        'bash',
+        [resolve(ROOT, 'server/scripts/engine-supervisor.sh')],
+        {
+          encoding: 'utf8',
+          env: {
+            ...supervisorEnv,
+            ENGINE_RECOVERY_DEADLINE_EPOCH: String(Math.floor(Date.now() / 1000) + 20),
+          },
+        }
+      );
+      expect(stoppedDesiredRecovery.status, stoppedDesiredRecovery.stderr).toBe(0);
+      expect(stoppedDesiredRecovery.stdout).toContain(
+        'is live and exact locally and publicly as 12345-deadbeef'
+      );
+      expect(readFileSync(mutationLog, 'utf8')).toContain('docker start club-arena-engine');
+      expect(readFileSync(mutationLog, 'utf8')).not.toContain('engine-up');
+
+      rmSync(switched, { force: true });
+      writeFileSync(containerState, 'running\n');
+      writeFileSync(mutationLog, '');
+      writeFileSync(upScript, '#!/usr/bin/env bash\nexit 42\n');
+      chmodSync(upScript, 0o755);
+      const failedRecovery = spawnSync(
+        'bash',
+        [resolve(ROOT, 'server/scripts/engine-supervisor.sh')],
+        {
+          encoding: 'utf8',
+          env: {
+            ...supervisorEnv,
+            ENGINE_RECOVERY_DEADLINE_EPOCH: String(Math.floor(Date.now() / 1000) + 20),
+          },
+        }
+      );
+      expect(failedRecovery.status).toBe(1);
+      expect(failedRecovery.stdout).toContain('exact sealed desired release could not be restored');
+      // Three sequential supervisors each retain their real 20s deadline. The
+      // parent also needs the existing 15s fixture/assertion allowance; a 15s
+      // total can expire before even one permitted child budget has elapsed.
+    },
+    3 * 20_000 + 15_000
+  );
 
   it('expires a prepared token at its TTL boundary before it can authorize a start', () => {
     runSeal([
