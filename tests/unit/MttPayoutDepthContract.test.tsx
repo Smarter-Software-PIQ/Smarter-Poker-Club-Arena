@@ -1,3 +1,4 @@
+import { installScheduleCreateFixture, scheduleReceipt } from '../helpers/scheduleCreateFixture';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
@@ -12,6 +13,8 @@ import { MTT_PAYOUT_DEPTH_REQUIRED } from '../../server/src/tournament/mttPayout
 import { tournamentScheduleService } from '../../src/services/TournamentScheduleService';
 import { supabase } from '../../src/lib/supabase';
 import { payoutEngine } from '../../src/services/PayoutEngine';
+
+installScheduleCreateFixture();
 
 afterEach(() => {
   cleanup();
@@ -174,7 +177,9 @@ describe('manual MTT paid depth reaches the database creation contract', () => {
     async (choice, percent) => {
       const rpc = vi
         .spyOn(supabase, 'rpc')
-        .mockResolvedValue({ data: { ok: true, schedule_id: 'schedule' }, error: null } as never);
+        .mockImplementation(
+          (_name, args) => scheduleReceipt(args, '00000000-0000-4000-8000-0000000000b1') as never
+        );
       const config = tournamentService.buildRpcConfig(
         buildTournamentConfig({ ...draft, payoutStructure: choice }, 'nlh')
       );
@@ -190,7 +195,7 @@ describe('manual MTT paid depth reaches the database creation contract', () => {
         config,
       });
       expect(rpc).toHaveBeenCalledWith(
-        'fn_upsert_tournament_schedule',
+        'fn_create_tournament_schedule_request',
         expect.objectContaining({
           p_schedule: expect.objectContaining({
             config: expect.objectContaining({

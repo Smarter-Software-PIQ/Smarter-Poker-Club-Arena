@@ -262,6 +262,133 @@ class Withdrawal(unittest.TestCase):
 
 
 class AnnouncedCancellation(unittest.TestCase):
+    def test_e9_source_profile_is_exact_and_pinned_source_bytes_match(self):
+        request = {'runKey':'41283363258-1','releaseSha':'e9f00025bd4e2670ed9d1b5714ef94135bcf0224',
+                   'controlSha':'303d8cc7d38a97c3bcdc32a577b555232ad726bf','desiredSha':'c'*40,
+                   'instanceId':'1-1234abcd','mode':'cancel_expired_announcement'}
+        profile = module.cancellation_profile(request)
+        self.assertEqual(profile['deadline'], '1793528863')
+        for name, expected in profile['hashes'].items():
+            raw = subprocess.check_output(['git','show',request['controlSha']+':server/scripts/'+name],cwd=ROOT)
+            self.assertEqual(module.digest(raw), expected, name)
+        raw = subprocess.check_output(['git','show',request['releaseSha']+':server/release/activation-floor.json'],cwd=ROOT)
+        self.assertEqual(module.digest(raw), profile['manifest'])
+        raw = subprocess.check_output(['git','show',request['controlSha']+':server/scripts/engine-release-unit-wrapper.sh'],cwd=ROOT)
+        self.assertEqual(module.digest(raw), profile['wrapper'])
+        for field in ['runKey','releaseSha','controlSha']:
+            changed = request | {field: '41283363258-2' if field=='runKey' else 'a'*40}
+            with self.assertRaises(ValueError): module.cancellation_profile(changed)
+
+    def e9_request(self):
+        return {'runKey':'41283363258-1','releaseSha':'e9f00025bd4e2670ed9d1b5714ef94135bcf0224',
+                'controlSha':'303d8cc7d38a97c3bcdc32a577b555232ad726bf','desiredSha':'c'*40,
+                'instanceId':'1-1234abcd','mode':'cancel_expired_announcement'}
+
+    def test_e9_real_announcement_custody_refuses_all_changed_or_unknown_facts(self):
+        for failure in [None,'target','control','run','deadline','unexpired','runtime','manifest','checkpoint','retirement','hold','pending','source','thaw','disposition','reservation']:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request=self.e9_request(); profile=module.cancellation_profile(request); key=request['runKey']
+                root=Path(folder); state=root/'state';state.mkdir(); parent=root/'parent';parent.mkdir()
+                generation=parent/'engine-control-generations'/request['controlSha'];generation.mkdir(parents=True)
+                reqroot=state/'engine-release-requests';reqroot.mkdir()
+                deadline='1793528864' if failure=='deadline' else profile['deadline']
+                raw='\n'.join([request['releaseSha'],'url','actor',str(generation),request['controlSha'],deadline])+'\n'
+                for suffix in ['request','intent']:(reqroot/(key+'.'+suffix)).write_text(raw)
+                entry={'schema':'engine-release-activation-floor/v2-owner-window','runId':key,'targetSha':request['releaseSha'],
+                       'controlSha':request['controlSha'],'manifestSha256':profile['manifest'],'phase':'announcement'}
+                if failure=='runtime':entry['phase']='runtime'
+                if failure=='manifest':entry['manifestSha256']='0'*64
+                (reqroot/(key+'.activation-entry')).write_text(json.dumps(entry))
+                (reqroot/(key+'.lightning-hold.json.released')).write_text('released')
+                (generation/'engine-release-lightning-hold.py').write_text("def own_record(path,key):return {'phase':'released'}\n")
+                stamp=1793518000000
+                (state/('engine-recovery-window-'+key+'.json')).write_text(json.dumps({'runId':key,'sha':request['releaseSha'],'announcedAt':stamp,'cause':'urgent'}))
+                pins=state/'engine-release-generation-pins';pins.mkdir();(pins/(key+'.generation')).write_text(str(generation)+'\n'+request['controlSha']+'\n')
+                suffix={'checkpoint':'legacy-checkpoint-intent','retirement':'main-inspector-retirement-intent','hold':'lightning-hold.json'}.get(failure)
+                if suffix:(reqroot/(key+'.'+suffix)).write_text('present')
+                def command(args,timeout=5):
+                    if 'disposition' in args:return 'entered' if failure=='disposition' else 'announced'
+                    if 'reservation' in args:return str(stamp+1 if failure=='reservation' else stamp)
+                    if 'pending-owner' in args:return 'other' if failure=='pending' else 'none'
+                    return request['desiredSha']
+                patches.enter_context(patch.object(module,'ROOT',state));patches.enter_context(patch.object(module,'PARENT',parent))
+                patches.enter_context(patch.object(module,'regular',side_effect=lambda p,mode=None:Path(p).read_text()))
+                patches.enter_context(patch.object(module,'source_hash',side_effect=lambda p:'0'*64 if failure=='source' else profile['wrapper'] if p.name=='engine-release-unit-wrapper-v1.sh' else profile['hashes'][p.name]))
+                patches.enter_context(patch.object(module,'command',side_effect=command))
+                thaw_read=patches.enter_context(patch.object(module,'own_thaw',side_effect=ValueError('incomplete') if failure=='thaw' else None,return_value={'verified':True}))
+                patches.enter_context(patch.object(module.time,'time',return_value=int(profile['deadline'])+(-1 if failure=='unexpired' else 1)))
+                if failure in ['target','control','run']:
+                    field={'target':'releaseSha','control':'controlSha','run':'runKey'}[failure]
+                    request[field]='41283363258-2' if field=='runKey' else 'a'*40
+                if failure is not None:
+                    with self.assertRaises(ValueError):module.announcement_evidence(request)
+                else:
+                    proof=module.announcement_evidence(request);self.assertEqual(proof['thaw'],{'verified':True})
+                    thaw_read.assert_called_once_with(stamp,request['controlSha'])
+                    self.assertEqual(proof['entryHash'],module.digest((reqroot/(key+'.activation-entry')).read_bytes()))
+
+    def test_e9_mask_only_empty_retry_retires_once_without_signalling(self):
+        for race in [False,True]:
+            with self.subTest(race=race), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request,control,state,entry,reservation,units=self.harness(folder,patches,self.e9_request())
+                evidence=module.announcement_evidence(request);marker='engine-release-requests/'+request['runKey']+'.awaiting-certificate'
+                evidence['originals'].pop(marker);(state/marker).unlink();snapshot=module.unit_snapshot.side_effect
+                def retry_snapshot(unit,service_context=False):
+                    row=snapshot(unit)
+                    if unit==units[0] and not control['stopped']:
+                        row.update(MainPID='0',SubState='auto-restart',ControlGroup='')
+                        if race and any(cmd[:2]==['systemctl','daemon-reload'] for cmd in control['commands']):row.update(MainPID='22',InvocationID='e'*32,SubState='start')
+                    if service_context:row.update(Slice='system-fixture.slice',ControlPID='0')
+                    return row
+                with patch.object(module,'unit_snapshot',side_effect=retry_snapshot),patch.object(module,'empty_retry_admission'), \
+                     patch.object(module,'prove_unit_empty',side_effect=lambda unit,bindings=None:retry_snapshot(unit)), \
+                     patch.object(module,'configured_service_cgroup',side_effect=lambda unit,context:'/system.slice/'+unit):
+                    # Mask acknowledgment may be lost/race; never stop a successor.
+                    with patch.object(module.time,'monotonic',side_effect=[0,1000,2000,3000,4000,5000]), self.assertRaises(ValueError):module.cancel_announced(request)
+                    self.assertEqual(control['stopCount'],0)
+                    self.assertTrue((state/'engine-release-cancellations'/(request['runKey']+'.intent.json')).exists())
+                    control['stopped']=True
+                    answer=module.cancel_announced(request);again=module.cancel_announced(request)
+                    self.assertEqual(answer,again);self.assertEqual(answer['stopDisposition'],'not-needed-already-quiescent')
+                    self.assertTrue(answer['originalTerminalEdgesRetired']);self.assertEqual(control['stopCount'],0)
+                    self.assertTrue(entry.exists());self.assertTrue(reservation.exists())
+                    self.assertFalse(any(cmd[:2]==['systemctl','stop'] for cmd in control['commands']))
+
+    def test_e9_live_invocation_refuses_before_mask_or_stop(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder,ExitStack() as patches:
+            request,control,state,_,_,units=self.harness(folder,patches,self.e9_request())
+            with self.assertRaises(ValueError):module.cancel_announced(request)
+            self.assertEqual(control['stopCount'],0)
+            self.assertFalse(any((module.SYSTEMD/unit).exists() for unit in units))
+
+    def test_e9_unproved_empty_admission_cannot_create_masks_or_issue_stop(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder,ExitStack() as patches:
+            request,control,state,_,_,units=self.harness(folder,patches,self.e9_request())
+            snapshot=module.unit_snapshot.side_effect
+            def empty_snapshot(unit,service_context=False):
+                row=snapshot(unit)
+                if unit==units[0]:row.update(MainPID='0',SubState='auto-restart')
+                return row
+            with patch.object(module,'unit_snapshot',side_effect=empty_snapshot), \
+                 patch.object(module,'empty_retry_admission',side_effect=ValueError('native evidence unavailable')):
+                with self.assertRaises(ValueError):module.cancel_announced(request)
+            self.assertEqual(control['stopCount'],0)
+            self.assertFalse(any((module.SYSTEMD/unit).exists() for unit in units))
+            self.assertFalse((state/'engine-release-cancellations'/(request['runKey']+'.intent.json')).exists())
+
+    def test_e9_empty_retry_requires_native_empty_contract_and_marker_absence(self):
+        key='41283363258-1'; unit=module.cancel_units(key)[0]
+        state={'MainPID':'0','ActiveState':'activating','SubState':'auto-restart'}
+        config='Type=oneshot\nRestart=on-failure\nRestartUSec=30s'
+        with patch.object(module,'command',return_value=config), patch.object(module,'prove_unit_empty',return_value=state) as native:
+            module.empty_retry_admission(unit,state,key,{'originals':{}})
+            native.assert_called_once_with(unit)
+            for changed in [state|{'MainPID':'12'},state|{'SubState':'start'},state|{'ActiveState':'failed'}]:
+                with self.assertRaises(ValueError): module.empty_retry_admission(unit,changed,key,{'originals':{}})
+            with self.assertRaises(ValueError): module.empty_retry_admission(unit,state,key,{'originals':{'engine-release-requests/'+key+'.awaiting-certificate':'hash'}})
+        with patch.object(module,'command',return_value=config), patch.object(module,'prove_unit_empty',side_effect=ValueError('unknown')), self.assertRaises(ValueError):
+            module.empty_retry_admission(unit,state,key,{'originals':{}})
+
     def test_child_recovery_is_only_admitted_for_expired_markerless_original(self):
         key = '41177442979-1'
         generation = module.PARENT / 'engine-control-generations' / module.CANCEL_CONTROL
@@ -343,7 +470,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 with self.assertRaises(ValueError): module.save_once(path, {'value': 2})
                 self.assertEqual(json.loads(path.read_text()), {'value': 1})
 
-    def harness(self, folder, patches):
+    def harness(self, folder, patches, selected=None):
         root = Path(folder); state = root / 'state'; state.mkdir()
         systemd = root / 'systemd'; systemd.mkdir(); (systemd / 'multi-user.target.wants').mkdir()
         proc = root / 'proc'; proc.mkdir(); parent = root / 'control'; parent.mkdir()
@@ -351,13 +478,14 @@ class AnnouncedCancellation(unittest.TestCase):
         request = {'runKey': '41177442979-1', 'releaseSha': module.CANCEL_CONTROL,
                    'controlSha': module.CANCEL_CONTROL, 'desiredSha': 'c' * 40,
                    'instanceId': '1-1234abcd', 'mode': 'cancel_expired_announcement'}
+        if selected is not None: request = selected
         key = request['runKey']; units = module.cancel_units(key); group = '/system.slice/' + units[0]
         original = {'MainPID': '12', 'InvocationID': 'f' * 32, 'ActiveState': 'activating',
                     'SubState': 'start', 'Result': 'success', 'ExecMainCode': '0', 'ExecMainStatus': '0', 'ControlGroup': group}
         ended = original | {'MainPID': '0', 'ActiveState': 'failed', 'SubState': 'failed',
                             'Result': 'exit-code', 'ExecMainCode': '1', 'ExecMainStatus': '75', 'ControlGroup': ''}
         idle = ended | {'Result': 'success', 'ExecMainStatus': '0'}
-        generation = parent / 'engine-control-generations' / module.CANCEL_CONTROL
+        generation = parent / 'engine-control-generations' / request['controlSha']
         processes = {12: {'pid': 12, 'parent': 1, 'start': '100', 'argv': ['bash', str(parent / 'engine-release-unit-wrapper-v1.sh'), 'start', key]},
                      13: {'pid': 13, 'parent': 12, 'start': '101', 'argv': ['bash', str(generation / 'engine-release-transaction.sh'), '--run-id', key]}}
         for pid in [12, 13, 14]:

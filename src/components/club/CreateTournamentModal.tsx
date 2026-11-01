@@ -28,6 +28,7 @@ import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
 import { supabase } from '../../lib/supabase';
 import { resolveClubUUID } from '../../utils/clubIdResolver';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { digitsOnly, isWholeBuyIn, money, rakeRateFor, splitBuyIn } from '../../utils/buyIn';
 import { freeBuyConfig, FREE_BUY_HELPER } from '../../utils/freeBuy';
 import { tournamentScheduleService } from '../../services/TournamentScheduleService';
@@ -202,6 +203,10 @@ export default function CreateTournamentModal({
   const [satelliteTargets, setSatelliteTargets] = useState<{ id: string; name: string }[]>([]);
   /* A failed target read is not "no upcoming tournaments": say which it was. */
   const [satelliteTargetsFailed, setSatelliteTargetsFailed] = useState(false);
+  const [satelliteTargetsClubId, setSatelliteTargetsClubId] = useState<string | null>(null);
+  const currentSatelliteTargets = satelliteTargetsClubId === clubId ? satelliteTargets : [];
+  const currentSatelliteTargetId = satelliteTargetsClubId === clubId ? satelliteTargetId : '';
+  const currentSatelliteTargetsFailed = satelliteTargetsClubId === clubId && satelliteTargetsFailed;
 
   // ── Auto Satellite Generation (for Main Events) ──
   const [generateSatellites, setGenerateSatellites] = useState(false);
@@ -251,13 +256,22 @@ export default function CreateTournamentModal({
   // Keep an acknowledged schedule when the subsequent one-off fails. An
   // explicit retry edits that same row; an unanswered create supplies no id.
   const scheduleScope = useMemo(() => ({ clubId, unionId }), [clubId, unionId]);
+  const currentSubmitScope = useRef(scheduleScope);
+  currentSubmitScope.current = scheduleScope;
+  const submitGeneration = useRef(0);
+  useEffect(() => {
+    submittingRef.current = false;
+    setIsSubmitting(false);
+  }, [scheduleScope]);
   const savedSchedule = useRef<{ scope: object; id: string } | null>(null);
   /** False once unmounted: onSuccess() closes this modal from inside submit. */
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
+    submitGeneration.current += 1;
     return () => {
       isMountedRef.current = false;
+      submitGeneration.current += 1;
     };
   }, []);
   const [rebuyChips, setRebuyChips] = useState('');
@@ -510,19 +524,31 @@ export default function CreateTournamentModal({
   useEffect(() => {
     if (!isSatellite) return;
     let alive = true;
+    const controller = new AbortController();
+    setSatelliteTargets([]);
+    setSatelliteTargetId('');
+    setSatelliteTargetsFailed(false);
+    setSatelliteTargetsClubId(null);
     (async () => {
       try {
-        const resolved = await resolveClubUUID(clubId);
-        const { data, error } = await supabase
-          .from('tournaments')
-          .select(
-            'id, name, tournament_type, status, start_time, variant, is_bounty, is_pko, is_mystery_bounty, is_premium_spin'
-          )
-          .eq('club_id', resolved)
-          .neq('tournament_type', 'satellite')
-          .in('status', ['registering', 'scheduled', 'upcoming', 'announced', 'pending', 'open'])
-          .order('start_time', { ascending: true })
-          .limit(50);
+        const resolved = await runWithRequestDeadline((signal) => resolveClubUUID(clubId, signal), {
+          signal: controller.signal,
+        });
+        const { data, error } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .from('tournaments')
+              .select(
+                'id, name, tournament_type, status, start_time, variant, is_bounty, is_pko, is_mystery_bounty, is_premium_spin'
+              )
+              .eq('club_id', resolved)
+              .neq('tournament_type', 'SATELLITE')
+              .in('status', ['ANNOUNCED', 'REGISTERING'])
+              .order('start_time', { ascending: true })
+              .limit(50)
+              .abortSignal(signal),
+          { signal: controller.signal }
+        );
         /* A refused read is not an empty club: reported, and the picker says
            it could not load rather than "No Upcoming Tournaments". */
         if (error) throw error;
@@ -538,19 +564,23 @@ export default function CreateTournamentModal({
             typeof t.is_mystery_bounty === 'boolean' &&
             t.is_premium_spin === false &&
             String(t.variant ?? '').toLowerCase() !== 'spin' &&
-            String(t.tournament_type ?? '').toUpperCase() !== 'SPIN'
+            !['SPIN', 'SATELLITE'].includes(String(t.tournament_type ?? '').toUpperCase())
         );
         if (alive) {
           setSatelliteTargets(deliverable.map((t: any) => ({ id: t.id, name: t.name })));
           setSatelliteTargetsFailed(false);
+          setSatelliteTargetsClubId(clubId);
         }
       } catch (e) {
+        if (!alive) return;
         reportError(e, 'CreateTournamentModal.loadSatelliteTargets');
-        if (alive) setSatelliteTargetsFailed(true);
+        setSatelliteTargetsFailed(true);
+        setSatelliteTargetsClubId(clubId);
       }
     })();
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [isSatellite, clubId]);
 
@@ -672,29 +702,45 @@ export default function CreateTournamentModal({
     /* A REF, BEFORE ANYTHING IS AWAITED. `isSubmitting` is state and does not
        change until React re-renders, so two submits in the same tick - a
        double tap, or Enter held down - both got through and created two
-       tournaments, and createTournament carries no idempotency key. */
+       tournaments. The durable request identity also survives a lost reply. */
     if (submittingRef.current) return;
     submittingRef.current = true;
     setIsSubmitting(true);
+    const generation = submitGeneration.current;
+    const isCurrent = () =>
+      isMountedRef.current &&
+      currentSubmitScope.current === scheduleScope &&
+      submitGeneration.current === generation;
 
-    /* A SCHEDULED start in the past creates a tournament that can never begin.
+    try {
+      const resumed = await tournamentService.resumePendingTournamentCreation(clubId);
+      if (!isCurrent()) return;
+      if (resumed) {
+        toast.success('The Original Tournament Request Is Complete.');
+        onSuccess();
+        return;
+      }
+      /* A SCHEDULED start in the past creates a tournament that can never begin.
        coreValid only checks the two date strings are non-empty, so an owner
        picking yesterday got no feedback at all. A minute of slack, for a form
        filled in while the clock moves: the shared rule every surface uses. */
-    if (startTimeMode === 'scheduled') {
-      const startsAt = new Date(joinLocalStart(scheduledDate, scheduledTime)).getTime();
-      if (!Number.isFinite(startsAt) || startTimeIsPast(startsAt)) {
-        toast.error(TOURNAMENT_CREATE_ERRORS.start_time_in_past);
-        submittingRef.current = false;
-        setIsSubmitting(false);
-        return;
+      if (startTimeMode === 'scheduled') {
+        const startsAt = new Date(joinLocalStart(scheduledDate, scheduledTime)).getTime();
+        if (!Number.isFinite(startsAt) || startTimeIsPast(startsAt)) {
+          toast.error(TOURNAMENT_CREATE_ERRORS.start_time_in_past);
+          submittingRef.current = false;
+          setIsSubmitting(false);
+          return;
+        }
       }
-    }
 
-    try {
       // ── Satellite validation: without a target it silently becomes a cash
       // payout, defeating the point (winners should earn seats). ──
-      if (isSatellite && !satelliteTargetId) {
+      if (
+        isSatellite &&
+        (!currentSatelliteTargetId ||
+          !currentSatelliteTargets.some((target) => target.id === currentSatelliteTargetId))
+      ) {
         toast.error(TOURNAMENT_CREATE_ERRORS.satellite_target_required);
         submittingRef.current = false;
         setIsSubmitting(false);
@@ -870,9 +916,9 @@ export default function CreateTournamentModal({
         addOnFromStart: mttEntryRules === 'free_buy',
         guaranteedPrize: Math.max(0, Math.round(Number(guaranteedPrize)) || 0),
         satelliteTarget:
-          isSatellite && satelliteTargetId
+          isSatellite && currentSatelliteTargetId
             ? {
-                tournamentId: satelliteTargetId,
+                tournamentId: currentSatelliteTargetId,
                 seatsAwarded: Math.max(1, parseInt(satelliteSeats) || 1),
               }
             : undefined,
@@ -959,6 +1005,7 @@ export default function CreateTournamentModal({
       // owner chose "Schedule only". ──
       if (effectiveScheduleEnabled) {
         const resolvedClubId = await resolveClubUUID(clubId);
+        if (!isCurrent()) return;
         const rpcConfig = tournamentService.buildRpcConfig(tournamentConfig);
         delete rpcConfig.startTime;
         rpcConfig.recurrenceCadence = effectiveCadence;
@@ -983,6 +1030,7 @@ export default function CreateTournamentModal({
           active: true,
           config: rpcConfig,
         });
+        if (!isCurrent()) return;
         savedSchedule.current = { scope: scheduleScope, id: scheduleId };
         toast.success(
           repeatsWeekly ? 'Saved. This Event Repeats Every Week.' : 'Recurring schedule saved.'
@@ -990,7 +1038,7 @@ export default function CreateTournamentModal({
       }
 
       if (!effectiveScheduleEnabled || effectiveStartTimeMode !== 'schedule_only') {
-        const mainTournament = await tournamentService.createTournament(clubId, tournamentConfig);
+        const satellites: import('../../services/TournamentService').TournamentConfig[] = [];
 
         // Auto Satellite Generation
         // Satellites can only feed an event whose seat they can deliver, so a
@@ -1006,20 +1054,28 @@ export default function CreateTournamentModal({
           const satSeats = Math.max(1, parseInt(genSatSeats) || 1);
 
           for (let i = 0; i < satCount; i++) {
-            await tournamentService.createTournament(clubId, {
+            satellites.push({
               ...tournamentConfig,
               name: `Satellite to ${tournamentConfig.name}${satCount > 1 ? ` #${i + 1}` : ''}`,
               type: 'satellite',
               buyIn: satBuyIn,
               guaranteedPrize: 0,
               satelliteTarget: {
-                tournamentId: mainTournament.id,
+                tournamentId: '', // The original main receipt binds this before submission.
                 seatsAwarded: satSeats,
               },
             });
           }
+          await tournamentService.createTournamentWithSatellites(
+            clubId,
+            tournamentConfig,
+            satellites
+          );
+          if (!isCurrent()) return;
           toast.success(`Main Event and ${satCount} Satellite(s) Created`);
         } else {
+          await tournamentService.createTournament(clubId, tournamentConfig);
+          if (!isCurrent()) return;
           toast.success('Tournament created');
         }
       }
@@ -1027,12 +1083,12 @@ export default function CreateTournamentModal({
       onSuccess();
     } catch (error: any) {
       reportError(error, 'CreateTournamentModal.Failed_to_create_tournament');
-      toast.error(error?.message || 'Failed to create tournament');
+      if (isCurrent()) toast.error(error?.message || 'Failed to create tournament');
     } finally {
-      submittingRef.current = false;
+      if (isCurrent()) submittingRef.current = false;
       /* onSuccess() unmounts this modal, so a bare setState here wrote to a
          torn-down component on the happy path. */
-      if (isMountedRef.current) setIsSubmitting(false);
+      if (isCurrent()) setIsSubmitting(false);
     }
   };
 
@@ -1494,7 +1550,7 @@ export default function CreateTournamentModal({
                     aria-invalid={!buyInValid}
                     value={buyIn}
                     onChange={(e) => setBuyIn(digitsOnly(e.target.value))}
-                    min={1}
+                    min={mttEntryRules === 'free_buy' ? 0 : 1}
                     step={1}
                     inputMode="numeric"
                   />
@@ -1579,22 +1635,24 @@ export default function CreateTournamentModal({
                     <select
                       id="tournament-satellite-target"
                       className={styles.select}
-                      value={satelliteTargetId}
+                      value={currentSatelliteTargetId}
                       onChange={(e) => setSatelliteTargetId(e.target.value)}
                     >
                       <option value="">Select Target Tournament…</option>
-                      {satelliteTargets.map((t) => (
+                      {currentSatelliteTargets.map((t) => (
                         <option key={t.id} value={t.id}>
                           {titleCase(t.name)}
                         </option>
                       ))}
                     </select>
                     <span className={styles.helperText}>
-                      {satelliteTargetsFailed
+                      {currentSatelliteTargetsFailed
                         ? 'Target Tournaments Could Not Be Loaded. Close And Reopen To Try Again.'
-                        : satelliteTargets.length === 0
-                          ? 'No Upcoming Tournaments To Feed Into - Create One First.'
-                          : 'Winners Earn A Seat Into This Tournament.'}
+                        : satelliteTargetsClubId !== clubId
+                          ? 'Loading Target Tournaments…'
+                          : currentSatelliteTargets.length === 0
+                            ? 'No Upcoming Tournaments To Feed Into - Create One First.'
+                            : 'Winners Earn A Seat Into This Tournament.'}
                     </span>
                   </div>
                 </div>

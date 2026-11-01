@@ -414,4 +414,29 @@ describe('Player Command resilience wiring', () => {
     expect(CSS).toContain('@media (min-width: 721px) and (max-height: 820px)');
     expect(CSS).not.toContain('.members-hero');
   });
+
+  it('retries server-terminated 57014/55P03 statement timeouts up to twice in getRosterPage and readMemberRpc', () => {
+    expect(SERVICE).toContain(
+      'retry < 2 && error && !attemptSignal.aborted && isServerTerminatedRosterTimeout(error)'
+    );
+    expect(
+      isServerTerminatedRosterTimeout({
+        code: '57014',
+        message: 'canceling statement due to statement timeout',
+      })
+    ).toBe(true);
+    expect(
+      isServerTerminatedRosterTimeout({
+        code: '55P03',
+        message: 'canceling statement due to lock timeout',
+      })
+    ).toBe(true);
+    expect(
+      isTransientRosterReadError({
+        code: '57014',
+        message: 'canceling statement due to statement timeout',
+      })
+    ).toBe(true);
+    expect(isTransientRosterReadError({ code: '42501', message: 'permission denied' })).toBe(false);
+  });
 });

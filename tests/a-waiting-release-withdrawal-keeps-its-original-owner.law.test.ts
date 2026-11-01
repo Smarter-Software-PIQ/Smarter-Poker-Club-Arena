@@ -16,7 +16,7 @@ it('qualifies exact waiting attempt admission and its original terminal signal b
     }
   );
   expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stderr).toContain('Ran 37 tests');
+  expect(result.stderr).toContain('Ran 43 tests');
 }, 75000);
 
 it('keeps the revoked off-cycle owner order closed', () => {

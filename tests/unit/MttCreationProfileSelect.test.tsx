@@ -1,3 +1,4 @@
+import { installScheduleCreateFixture, scheduleReceipt } from '../helpers/scheduleCreateFixture';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +13,8 @@ import { tournamentScheduleService } from '../../src/services/TournamentSchedule
 import { supabase } from '../../src/lib/supabase';
 import { describeStoredMttStructure } from '../../server/src/tournament/mttStructureDescription';
 import { validateMttBlindStructure } from '../../server/src/domain/tournamentBlindContract';
+
+installScheduleCreateFixture();
 
 afterEach(() => {
   cleanup();
@@ -161,7 +164,9 @@ describe('engine MTT setup presets reach actual creation', () => {
   it('retains the selected structure through the actual saved-schedule service', async () => {
     const rpc = vi
       .spyOn(supabase, 'rpc')
-      .mockResolvedValue({ data: { ok: true, schedule_id: 'schedule' }, error: null } as never);
+      .mockImplementation(
+        (_name, args) => scheduleReceipt(args, '00000000-0000-4000-8000-0000000000b1') as never
+      );
     render(<Form />);
     const config = selectAndSave('turbo');
     delete config.startTime;
@@ -176,7 +181,7 @@ describe('engine MTT setup presets reach actual creation', () => {
       config,
     });
     expect(rpc).toHaveBeenCalledWith(
-      'fn_upsert_tournament_schedule',
+      'fn_create_tournament_schedule_request',
       expect.objectContaining({
         p_schedule: expect.objectContaining({
           config: { ...config, maxPlayers: null, max_players: null },

@@ -40,14 +40,42 @@ async function readMemberRpc(
   parameters: Record<string, unknown>,
   signal?: AbortSignal
 ): Promise<unknown> {
-  const { runRosterReadWithRetry } = await import('../utils/rosterReadReliability');
+  const { computeRosterRetryDelay, isServerTerminatedRosterTimeout, runRosterReadWithRetry } =
+    await import('../utils/rosterReadReliability');
   return runRosterReadWithRetry(
     async (attemptSignal) => {
-      let request = supabase.rpc(name, parameters);
-      if (name === 'ca_club_member_detail' || name === 'ca_club_member_statistics') {
-        request = request.setHeader('x-client-info', 'club-arena-member-results/2');
+      const executeRpc = async () => {
+        let request = supabase.rpc(name, parameters);
+        if (name === 'ca_club_member_detail' || name === 'ca_club_member_statistics') {
+          request = request.setHeader('x-client-info', 'club-arena-member-results/2');
+        }
+        return await request.abortSignal(attemptSignal);
+      };
+      let { data, error } = await executeRpc();
+      for (
+        let retry = 0;
+        retry < 2 && error && !attemptSignal.aborted && isServerTerminatedRosterTimeout(error);
+        retry += 1
+      ) {
+        const delayMs = computeRosterRetryDelay(retry, 500, 1_500);
+        await new Promise<void>((resolve, reject) => {
+          if (attemptSignal.aborted) {
+            reject(new DOMException('The roster request was superseded.', 'AbortError'));
+            return;
+          }
+          const timer = setTimeout(() => {
+            attemptSignal.removeEventListener('abort', onAbort);
+            resolve();
+          }, delayMs);
+          const onAbort = () => {
+            clearTimeout(timer);
+            attemptSignal.removeEventListener('abort', onAbort);
+            reject(new DOMException('The roster request was superseded.', 'AbortError'));
+          };
+          attemptSignal.addEventListener('abort', onAbort, { once: true });
+        });
+        ({ data, error } = await executeRpc());
       }
-      const { data, error } = await request.abortSignal(attemptSignal);
       if (error) throw error;
       return data;
     },
@@ -533,11 +561,15 @@ export const ClubRosterService = {
           return await request;
         };
         let { data, error } = await executeRpc();
-        if (error && !attemptSignal.aborted && isServerTerminatedRosterTimeout(error)) {
+        for (
+          let retry = 0;
+          retry < 2 && error && !attemptSignal.aborted && isServerTerminatedRosterTimeout(error);
+          retry += 1
+        ) {
           // SQLSTATE 57014/55P03 means Postgres itself already canceled the
           // statement at its role statement_timeout (8s), so no abandoned query
-          // remains running on the server. Retry once within the 40s window.
-          const delayMs = computeRosterRetryDelay(0, 350, 800);
+          // remains running on the server. Retry up to twice within the 40s window.
+          const delayMs = computeRosterRetryDelay(retry, 500, 1_500);
           await new Promise<void>((resolve, reject) => {
             if (attemptSignal.aborted) {
               reject(new DOMException('The roster request was superseded.', 'AbortError'));

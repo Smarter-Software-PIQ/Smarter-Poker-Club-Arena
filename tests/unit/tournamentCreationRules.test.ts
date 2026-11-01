@@ -1,3 +1,10 @@
+import {
+  mockTournamentCreateReply,
+  prepareTournamentCreateFixture,
+} from '../helpers/tournamentCreateFixture';
+import { scheduleRpcResponse } from '../helpers/scheduleCreateFixture';
+import { installScheduleCreateFixture, scheduleReceipt } from '../helpers/scheduleCreateFixture';
+installScheduleCreateFixture();
 /**
  * TOURNAMENT CREATION RULES: ONE LIST, EVERY SURFACE (20260924033701)
  *
@@ -390,32 +397,27 @@ describe('surface: TournamentService.buildRpcConfig and createTournament', () =>
   });
 
   it('refuses before the round trip, with the refusal sentence', async () => {
+    prepareTournamentCreateFixture();
     const rpc = vi.spyOn(supabase, 'rpc');
     await expect(
       tournamentService.createTournament('club', { ...mtt, type: 'satellite' })
     ).rejects.toThrow(TOURNAMENT_CREATE_ERRORS.satellite_target_required);
-    expect(rpc).not.toHaveBeenCalledWith('fn_create_tournament', expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith('fn_create_tournament_request', expect.anything());
   });
 
   it('turns a server refusal code into its sentence, including the ones it used to drop', async () => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: { success: false, error: 'satellite_requires_scheduled_mtt_config' },
-      error: null,
-    } as never);
+    mockTournamentCreateReply({ success: false, error: 'satellite_requires_scheduled_mtt_config' });
     await expect(tournamentService.createTournament('club', mtt)).rejects.toThrow(
       TOURNAMENT_CREATE_ERRORS.satellite_requires_scheduled_mtt_config
     );
   });
 
   it('turns a database error into its specific sentence', async () => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: null,
-      error: {
-        code: '23514',
-        message:
-          'tournament guard: 5 paid places for 2 seats - more places than players who can enter',
-      },
-    } as never);
+    mockTournamentCreateReply(null, {
+      code: '23514',
+      message:
+        'tournament guard: 5 paid places for 2 seats - more places than players who can enter',
+    });
     await expect(tournamentService.createTournament('club', mtt)).rejects.toThrow(
       TOURNAMENT_CREATE_ERRORS.more_paid_places_than_players
     );
@@ -533,24 +535,29 @@ describe('surface: TournamentScheduleService.upsert', () => {
     await expect(tournamentScheduleService.upsert(draft(config))).rejects.toThrow(
       TOURNAMENT_CREATE_ERRORS[code]
     );
-    expect(rpc).not.toHaveBeenCalledWith('fn_upsert_tournament_schedule', expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith(
+      'fn_create_tournament_schedule_request',
+      expect.anything()
+    );
   });
 
   it('sends an acceptable schedule, and reads a server refusal with the creation sentences', async () => {
-    const rpc = vi
-      .spyOn(supabase, 'rpc')
-      .mockResolvedValue({ data: { error: 'table_size_exceeds_deck' }, error: null } as never);
+    const rpc = vi.spyOn(supabase, 'rpc').mockReturnValue(
+      scheduleRpcResponse({
+        data: { error: 'table_size_exceeds_deck' },
+        error: null,
+      } as never) as never
+    );
     await expect(
       tournamentScheduleService.upsert(draft({ type: 'satellite', satelliteTargetName: 'Sunday' }))
     ).rejects.toThrow(TOURNAMENT_CREATE_ERRORS.table_size_exceeds_deck);
-    expect(rpc).toHaveBeenCalledWith('fn_upsert_tournament_schedule', expect.anything());
+    expect(rpc).toHaveBeenCalledWith('fn_create_tournament_schedule_request', expect.anything());
   });
 
   it('does not check a start time the spawner owns', async () => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: { ok: true, schedule_id: 'schedule' },
-      error: null,
-    } as never);
+    vi.spyOn(supabase, 'rpc').mockImplementation(
+      (_name, args) => scheduleReceipt(args, 'schedule') as never
+    );
     await expect(
       tournamentScheduleService.upsert(draft({ type: 'mtt', startTime: '2020-01-01T00:00:00Z' }))
     ).resolves.toBe('schedule');

@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installScheduleCreateFixture, scheduleReceipt } from '../helpers/scheduleCreateFixture';
+installScheduleCreateFixture();
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock('../../src/services/TournamentService', async (original) => {
@@ -7,6 +9,7 @@ vi.mock('../../src/services/TournamentService', async (original) => {
   return {
     ...actual,
     tournamentService: {
+      resumePendingTournamentCreation: vi.fn().mockResolvedValue(null),
       createTournament: mocks.create,
       buildRpcConfig: actual.tournamentService.buildRpcConfig.bind(actual.tournamentService),
     },
@@ -360,7 +363,8 @@ describe('club profile selection preserves operator terms', () => {
       neq: vi.fn().mockReturnThis(),
       in: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [target], error: null }),
+      limit: vi.fn().mockReturnThis(),
+      abortSignal: vi.fn().mockResolvedValue({ data: [target], error: null }),
     };
     vi.spyOn(supabase, 'from').mockReturnValue(query as never);
     const { container } = mountDraft('satellite');
@@ -381,10 +385,11 @@ describe('club profile selection preserves operator terms', () => {
   });
 
   it('saves the selected profile through the actual schedule serializer and service', async () => {
-    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: { ok: true, schedule_id: 'synthetic-schedule' },
-      error: null,
-    } as never);
+    const rpc = vi
+      .spyOn(supabase, 'rpc')
+      .mockImplementation(
+        (_name, args: any) => scheduleReceipt(args, 'synthetic-schedule') as never
+      );
     const { container } = mountDraft();
     chooseProfile('hyper');
     // The one recurrence control replaced the "Repeats Weekly" checkbox; Weekly
@@ -392,10 +397,10 @@ describe('club profile selection preserves operator terms', () => {
     fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'weekly' } });
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() =>
-      expect(rpc).toHaveBeenCalledWith('fn_upsert_tournament_schedule', expect.any(Object))
+      expect(rpc).toHaveBeenCalledWith('fn_create_tournament_schedule_request', expect.any(Object))
     );
     const schedule = (
-      rpc.mock.calls.find(([name]) => name === 'fn_upsert_tournament_schedule')![1] as any
+      rpc.mock.calls.find(([name]) => name === 'fn_create_tournament_schedule_request')![1] as any
     ).p_schedule;
     expect(schedule.config).toMatchObject({
       startingStack: 1000,
@@ -472,10 +477,11 @@ function selectFreeBuy() {
 
 describe('creator controls describe the committed purchase and mystery contracts', () => {
   it('offers only supported mystery settings in both one-off and recurring payloads', async () => {
-    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: { ok: true, schedule_id: 'synthetic-mystery-schedule' },
-      error: null,
-    } as never);
+    const rpc = vi
+      .spyOn(supabase, 'rpc')
+      .mockImplementation(
+        (_name, args: any) => scheduleReceipt(args, 'synthetic-mystery-schedule') as never
+      );
     const { container } = mountDraft('mystery_bounty');
     expect(screen.queryByText(/Min Multiplier/)).toBeNull();
     expect(screen.queryByText(/Max Multiplier/)).toBeNull();
@@ -512,10 +518,10 @@ describe('creator controls describe the committed purchase and mystery contracts
     fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'weekly' } });
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() =>
-      expect(rpc).toHaveBeenCalledWith('fn_upsert_tournament_schedule', expect.any(Object))
+      expect(rpc).toHaveBeenCalledWith('fn_create_tournament_schedule_request', expect.any(Object))
     );
     const schedule = (
-      rpc.mock.calls.find(([name]) => name === 'fn_upsert_tournament_schedule')![1] as any
+      rpc.mock.calls.find(([name]) => name === 'fn_create_tournament_schedule_request')![1] as any
     ).p_schedule;
     expect(schedule.config).toMatchObject({
       mysteryBountyProfile: 'jackpot',
