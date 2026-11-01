@@ -102,13 +102,14 @@ export function TournamentRankingHost() {
    * FILLS IN a missing place — it can never overwrite one the exit already
    * carried, which is the authoritative one when it exists.
    */
-  const placeFilledRef = useRef<string | null>(null);
+  const reportUserId = payload?.tournament?.userId ?? readLocalSession()?.userId;
+  const finishSequence = payload?.tournament?.finishSequence;
+  const finishPlace = payload?.tournament?.finishPlace;
+  const satelliteQualification = Boolean(payload?.tournament?.satelliteQualification);
   useEffect(() => {
-    const t = payload?.tournament;
-    if (!tournamentId || !t) return;
-    if (t.finishPlace != null || t.satelliteQualification) return; // recorded result is already known
-    if (placeFilledRef.current === tournamentId) return; // one fill per card
-    placeFilledRef.current = tournamentId;
+    if (!tournamentId) return;
+    if (finishPlace != null || satelliteQualification) return; // recorded result is already known
+    if (!reportUserId || reportUserId !== readLocalSession()?.userId) return;
 
     let cancelled = false;
     (async () => {
@@ -125,7 +126,7 @@ export function TournamentRankingHost() {
              same prose-matching trap the source pins in this repo are written
              around.) */
           const uid = readLocalSession()?.userId;
-          if (!uid) return;
+          if (!uid || uid !== reportUserId) return;
           const { data, error } = await supabase
             .from('tournament_players')
             .select('position, prize')
@@ -137,7 +138,12 @@ export function TournamentRankingHost() {
           if (place > 0) {
             if (cancelled) return;
             setPayload((prev) =>
-              prev && prev.tournament && prev.tournament.finishPlace == null
+              prev &&
+              prev.tournament &&
+              prev.tournament.finishPlace == null &&
+              prev.tournament.tournamentId === tournamentId &&
+              (prev.tournament.userId ?? reportUserId) === reportUserId &&
+              prev.tournament.finishSequence === finishSequence
                 ? {
                     ...prev,
                     tournament: {
@@ -166,7 +172,7 @@ export function TournamentRankingHost() {
     return () => {
       cancelled = true;
     };
-  }, [tournamentId, payload?.tournament]);
+  }, [tournamentId, reportUserId, finishSequence, finishPlace, satelliteQualification]);
 
   const playAgain = useCallback(() => {
     const requested = payload?.tournament;
@@ -282,6 +288,7 @@ export function TournamentRankingHost() {
   return (
     <Suspense fallback={null}>
       <TournamentRankingCard
+        key={JSON.stringify([reportUserId, tournamentId, finishSequence])}
         result={payload.tournament}
         tableName={payload.tableName}
         /* The payload has always carried these; the card simply never asked for
