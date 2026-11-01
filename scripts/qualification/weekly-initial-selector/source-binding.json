@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272626,
-      "sha256": "1f1cdf41989904f94d3601910c48ea11ae80ce52c39a1140e9463648d80d2d29"
+      "bytes": 272761,
+      "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -1965,5 +1965,47 @@
       "bytes": 272626,
       "sha256": "1f1cdf41989904f94d3601910c48ea11ae80ce52c39a1140e9463648d80d2d29"
     }
+  },
+  "chromiumHostedImageCompatibility20261031": {
+    "reason": "Only the three affected browser jobs (Diamond playfield, Production Build performance browser, CSS Beat) select proven free hosted Ubuntu24.04 because their locked browser installer refuses Ubuntu26.04. All matrices, commands, financial gates, assertions, deadlines and historical qualification receipts are preserved. Current source identity only.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "pgNetHostedImageCompatibility20261031": {
+    "reason": "Only accounting shard2 selects proven free hosted Ubuntu24.04 for unchanged pinned pg_net0.19.5 native compilation; all other accounting shards retain ubuntu-latest. Every matrix case, command, deadline, source/library pin and financial assertion remains unchanged. Current source identity only.",
+    "previous": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "current": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "tournamentMainRunnerComposition20261101": {
+    "reason": "Combine reviewed protected main shard2-only accounting route and equivalent UTC fixture with mystery paging gate and live-e2e browser compatibility. Current bindings only; both historical audit records retained. No historical qualification state changed.",
+    "updates": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 272484,
+          "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+        },
+        "current": {
+          "bytes": 272761,
+          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+        }
+      }
+    },
+    "historicalEvidenceRestamped": false
   }
 }
