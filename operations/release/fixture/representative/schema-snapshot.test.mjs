@@ -6,7 +6,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress, catalogueFailureKind, catalogueDiagnostics, safeCatalogueDiagnostic, captureRoleCatalogue } from '../schema-snapshot.mjs';
-import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash } from '../schema-compose.mjs';
+import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite } from '../schema-compose.mjs';
 import { schemaCatalogue, schemaCataloguePayload } from '../../native/component-semantic-observations.mjs';
 import { APPLICATION_TRIGGER_WITNESSES } from '../schema-application-hooks.mjs';
 
@@ -598,4 +598,87 @@ test('external abort drains an actual child with partial output before rejecting
     });
   assert.throws(()=>process.kill(child.pid,0),{code:'ESRCH'});
   controller.abort(); // A late abort cannot signal a retired child.
+});
+
+
+test('composition diagnostics retain fixed refusal sites by private Error identity only', () => {
+  let owned;
+  try {
+    composeSchema(
+      prefix + managed + ordinary + footer,
+      prefix + managed.replace('SELECT NULL::text', 'SELECT 1::text') + footer
+    );
+  } catch (error) {
+    owned = error;
+  }
+  assert.equal(schemaCompositionFailureSite(owned), 'NATIVE_BLOCK_DIFFERENT');
+  assert.equal(
+    schemaCompositionFailureSite(new Error('SCHEMA_COMPOSITION_PREIMAGE_REQUIRED')),
+    'UNKNOWN'
+  );
+  assert.equal(schemaCompositionFailureSite({ site: 'NATIVE_BLOCK_DIFFERENT' }), 'UNKNOWN');
+  assert.equal(
+    schemaCompositionFailureSite(
+      new Proxy(
+        {},
+        {
+          get() {
+            throw Error('must not inspect');
+          },
+        }
+      )
+    ),
+    'UNKNOWN'
+  );
+  owned.message = 'private tampered message';
+  assert.equal(schemaCompositionFailureSite(owned), 'UNKNOWN');
+});
+
+test('composition diagnostics distinguish fixed parser and managed mismatch sites without private values', () => {
+  const cases = [
+    [() => dumpObjects('SELECT $unfinished$'), 'DUMP_BOUNDARIES'],
+    [
+      () => dumpObjects('-- Name: secret; Type: FUNCTION; Schema: Bad; Owner: postgres\n'),
+      'DUMP_HEADER',
+    ],
+    [() => dumpObjects(ordinary + ordinary), 'DUMP_DUPLICATE_KEY'],
+    [
+      () =>
+        composeSchema(
+          prefix + managed + ordinary + footer,
+          prefix + managed + object('private_name()', 'auth', 'SELECT 1;') + footer
+        ),
+      'NATIVE_OBJECT_MISSING',
+    ],
+    [
+      () =>
+        composeSchema(
+          prefix + managed + ordinary + footer,
+          prefix + managed.replace('Owner: postgres', 'Owner: other') + footer
+        ),
+      'NATIVE_OWNER_DIFFERENT',
+    ],
+    [
+      () =>
+        composeSchema(
+          prefix + managed + object('private_hook()', 'auth', 'SELECT 1;') + footer,
+          prefix + managed + footer
+        ),
+      'MANAGED_OBJECT_MISSING',
+    ],
+  ];
+  for (const [run, site] of cases) {
+    let caught;
+    try {
+      run();
+    } catch (error) {
+      caught = error;
+    }
+    assert.ok(caught instanceof Error);
+    assert.equal(schemaCompositionFailureSite(caught), site);
+    assert.equal(
+      JSON.stringify({ site: schemaCompositionFailureSite(caught) }).includes('private'),
+      false
+    );
+  }
 });
