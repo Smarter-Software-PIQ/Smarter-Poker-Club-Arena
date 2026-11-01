@@ -3816,7 +3816,8 @@ jobs:
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true')
     name: Production Build
-    runs-on: ubuntu-latest
+    # The performance browser uses locked Playwright 1.58, supported on Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:

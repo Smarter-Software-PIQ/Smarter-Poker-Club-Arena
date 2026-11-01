@@ -32,7 +32,7 @@ describe('browser qualification parallel delivery', () => {
       expect(jobs.filter(([, job]) => job['runs-on']).length).toBeGreaterThan(0);
       for (const [name, job] of jobs.filter(([, job]) => job['runs-on'])) {
         const supportedBrowserImage =
-          file === 'ci.yml' && ['css-beats-e2e', 'diamond-playfield-e2e'].includes(name);
+          file === 'ci.yml' && ['build', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name);
         expect(job['runs-on']).toBe(supportedBrowserImage ? 'ubuntu-24.04' : 'ubuntu-latest');
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
