@@ -4,6 +4,8 @@ on:
     paths:
       - 'scripts/ci/profile-engine-main-thread.mjs'
       - 'scripts/ci/native-fault-observation.py'
+      - 'scripts/ci/native-perf-install.py'
+      - 'tests/operations/native-perf-install.test.py'
       - 'tests/operations/native-fault-observation.test.mjs'
       - 'tests/operations/engine-main-profile.test.mjs'
       - 'tests/fixtures/engine-native-fault/**'
@@ -40,6 +42,39 @@ jobs:
       - run: node --test tests/operations/engine-main-profile.test.mjs tests/operations/native-fault-observation.test.mjs
         env:
           TMPDIR: ${{ runner.temp }}
+      - run: python3 -B tests/operations/native-perf-install.test.py
+  native-perf-packages:
+    name: Actual isolated Ubuntu24 perf package qualification
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Qualify signed exact tools packages without service restart
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-perf-packages"
+          sudo env TMPDIR="$RUNNER_TEMP/native-perf-packages" python3 -B tests/fixtures/engine-native-fault/qualify_perf_packages.py \
+            --output artifacts/native-perf-packages/qualification.json
+      - name: Prove the exact Ubuntu perf control and native unwind behavior
+        run: |
+          set -euo pipefail
+          PERF_PATH=/usr/lib/linux-tools-6.8.0-147/perf
+          test -x "$PERF_PATH"
+          mountpoint -q /sys/kernel/tracing || sudo mount -t tracefs tracefs /sys/kernel/tracing
+          sudo env TMPDIR="$RUNNER_TEMP/native-perf-packages" python3 tests/fixtures/engine-native-fault/qualify.py \
+            --perf "$PERF_PATH" --output artifacts/native-perf-packages/native-qualification.json
+      - name: Retain closed package qualification only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolated-native-perf-packages-${{ github.run_id }}
+          path: |
+            artifacts/native-perf-packages/qualification.json
+            artifacts/native-perf-packages/native-qualification.json
+            artifacts/native-perf-packages/public-debs/*.deb
+          if-no-files-found: error
+          retention-days: 7
   native-feasibility:
     name: Actual isolated Node PID1 native GPF feasibility
     if: github.event_name == 'pull_request'
