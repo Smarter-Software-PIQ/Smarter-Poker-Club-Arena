@@ -99,6 +99,45 @@ MAX_WINDOW_AGE = datetime.timedelta(hours=48)
 MAX_METRICS_WINDOW_AGE = datetime.timedelta(days=7)
 COMMAND = ['docker', 'logs', '--since', '15m', '--tail', '20000', '--timestamps', 'club-arena-engine']
 
+# One expiring evidence recovery case, not a general historical log option.
+# The immutable retained watchdog/capsule crosswalk binds all ten originals.
+ORIGINAL_TEN_CASE = {
+    'case': 'attention14-original-ten-20261029',
+    'witnessSha256': '2382f82518ba8f9ec007580bc3f40c98ec0d5eee96d1b5a9864eb6c41d8bdce5',
+}
+ORIGINAL_TEN_START = '2026-10-29T06:00:00Z'
+ORIGINAL_TEN_END = '2026-10-29T06:15:00Z'
+ORIGINAL_TEN_EXPIRES = datetime.datetime(2026, 11, 2, tzinfo=datetime.timezone.utc)
+ORIGINAL_TEN_SCOPES = [
+    {'tableIds': ['12d107d2-5e4e-4b27-bdbc-203363f36944',
+                  'b880ff51-d392-4ed7-b50e-f73c5c830080',
+                  '7b64c2b3-26c3-420f-9e79-706f9ddf8040',
+                  'a3d0d503-af88-49ca-9024-08d5dd4ab061',
+                  'eddcf530-6080-4df8-ac12-e419ff75f351',
+                  '149dde27-305c-4fc1-adcd-217a7e1f75d8',
+                  '8118d1cb-6de4-4a32-af8f-f2e6c7bb02e3',
+                  'd1183d6c-64d7-4198-965a-355a84addb43']},
+    {'tableIds': ['a72a7de8-4f4f-4602-a6f7-035c89357e97',
+                  'dca58b22-6ef9-430b-ab1a-0c69526c2c0b']},
+]
+
+
+def original_ten_window(case, scopes, start, now=None):
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if (case != ORIGINAL_TEN_CASE or scopes != ORIGINAL_TEN_SCOPES
+            or start != ORIGINAL_TEN_START
+            or not datetime.datetime(2026, 10, 29, 6, 15, tzinfo=datetime.timezone.utc) <= now < ORIGINAL_TEN_EXPIRES):
+        raise ValueError('Original ten incident scope, witness, window or expiry refused')
+    return {'since': ORIGINAL_TEN_START, 'until': ORIGINAL_TEN_END,
+            'originalTenIncident': dict(ORIGINAL_TEN_CASE)}
+
+
+def original_ten_description(window):
+    return {'case': dict(ORIGINAL_TEN_CASE),
+            'expiresAt': '2026-11-02T00:00:00Z',
+            'physicalAvailability': 'UNKNOWN; retained archive coverage is unproven',
+            'cause': 'UNKNOWN; a generic refusal does not reveal the original failed predicate'}
+
 
 def completed_window(value, maximum_age, now=None):
     """One completed fifteen-minute interval with a fixed admission age."""
@@ -126,10 +165,16 @@ def observation_request(request, now=None):
     if isinstance(request, list):
         return selection(request), None, False, False, False, False, False
     allowed = {'scopes', 'windowStart', 'muxTiming', 'lightningFoldTiming',
-               'leaseIncidentMetrics', 'restartIncident', 'leaseHistoricalMetricsOnly'}
+               'leaseIncidentMetrics', 'restartIncident', 'leaseHistoricalMetricsOnly', 'originalTenIncident'}
     if not isinstance(request, dict) or not {'scopes', 'windowStart'} <= set(request) <= allowed:
         raise ValueError('Invalid observation request')
     scopes = selection(request['scopes'])
+    incident = 'originalTenIncident' in request
+    if incident:
+        if set(request) != {'scopes', 'windowStart', 'originalTenIncident'}:
+            raise ValueError('Original ten incident requires exclusive explicit selection')
+        window = original_ten_window(request['originalTenIncident'], scopes, request['windowStart'], now)
+        return scopes, window, False, False, False, False, False
     historical = 'leaseHistoricalMetricsOnly' in request
     if historical:
         if (request['leaseHistoricalMetricsOnly'] is not True
@@ -792,7 +837,11 @@ def archived_window(window, current, seconds=10, scopes=None):
     now = datetime.datetime.now(datetime.timezone.utc)
     start = datetime.datetime.fromisoformat(window['since'].replace('Z', '+00:00'))
     until = datetime.datetime.fromisoformat(window['until'].replace('Z', '+00:00'))
-    if start < now-MAX_WINDOW_AGE or until > now or until-start != datetime.timedelta(minutes=15):
+    incident = 'originalTenIncident' in window
+    if incident:
+        if window != original_ten_window(window['originalTenIncident'], scopes, window['since'], now):
+            raise ValueError('Invalid original ten archive window')
+    elif start < now-MAX_WINDOW_AGE or until > now or until-start != datetime.timedelta(minutes=15):
         raise ValueError('Invalid archive observation window')
     sources, candidates = [], []
     size, lines = len(current), len(current.splitlines())
@@ -817,7 +866,7 @@ def archived_window(window, current, seconds=10, scopes=None):
                 try:
                     ended = datetime.datetime.strptime(match[1], '%Y%m%dT%H%M%SZ').replace(tzinfo=datetime.timezone.utc)
                     started = datetime.datetime.strptime(match[2], '%Y%m%dT%H%M%S').replace(tzinfo=datetime.timezone.utc)
-                    if not (now-MAX_WINDOW_AGE <= ended <= now and started <= ended
+                    if not ((incident or now-MAX_WINDOW_AGE <= ended) and ended <= now and started <= ended
                             and started < until and ended >= start):
                         continue
                     candidates.append((ended, entry.name, match[3], match[4]))
@@ -1090,6 +1139,8 @@ def main():
             extra['leaseIncidentMetrics'] = metric_evidence
         if historical:
             extra.update(leaseHistoricalMetricsOnly=True, logRead='not_requested')
+        if 'originalTenIncident' in (window or {}):
+            extra['originalTenIncident'] = original_ten_description(window)
         if restart_incident:
             extra['restartIncident'] = restart_evidence
         records = ({'records': [], 'matchingRecords': 0, 'omittedRecords': 0, 'oversizedRecords': 0,
@@ -1112,13 +1163,17 @@ def main():
             and set(payload) != {'tournament_log_observation', 'tournament_log_window_start',
                                  'leaseIncidentMetrics', 'leaseHistoricalMetricsOnly'}):
         raise ValueError('Historical metrics require exclusive explicit opt-in')
+    if ('originalTenIncident' in payload
+            and set(payload) != {'tournament_log_observation', 'tournament_log_window_start', 'originalTenIncident'}):
+        raise ValueError('Original ten incident requires exclusive explicit selection')
     request = {'scopes': payload.get('tournament_log_observation'),
                'windowStart': payload.get('tournament_log_window_start')}
     for public, remote in [('mux_subscription_timing', 'muxTiming'),
                            ('lightningFoldTiming', 'lightningFoldTiming'),
                            ('leaseIncidentMetrics', 'leaseIncidentMetrics'),
                            ('restartIncident', 'restartIncident'),
-                           ('leaseHistoricalMetricsOnly', 'leaseHistoricalMetricsOnly')]:
+                           ('leaseHistoricalMetricsOnly', 'leaseHistoricalMetricsOnly'),
+                           ('originalTenIncident', 'originalTenIncident')]:
         if public in payload:
             request[remote] = payload[public]
     scopes, window, mux_timing, fold_timing, lease_metrics, restart_incident, historical = observation_request(request)
@@ -1148,6 +1203,8 @@ def main():
             request['leaseIncidentMetrics'] = True
         if restart_incident:
             request['restartIncident'] = True
+        if 'originalTenIncident' in (window or {}):
+            request['originalTenIncident'] = window['originalTenIncident']
         if historical:
             request['leaseHistoricalMetricsOnly'] = True
         encoded = base64.b64encode(json.dumps(request).encode()).decode()
@@ -1184,6 +1241,9 @@ def main():
                            or result.get('records') != [] or result.get('inputBytes') != 0
                            or result.get('archiveRead') != {'status': 'not_requested'}):
             raise RuntimeError('Historical metric log exclusion differs')
+        incident = 'originalTenIncident' in (window or {})
+        if ('originalTenIncident' in result) != incident or (incident and result['originalTenIncident'] != original_ten_description(window)):
+            raise RuntimeError('Original ten incident evidence differs')
         FAILURE_STAGE = 'public_health_after'
         after = health()
         if before != after or result.get('hostEngineBefore') != before or result.get('hostEngineAfter') != after:
