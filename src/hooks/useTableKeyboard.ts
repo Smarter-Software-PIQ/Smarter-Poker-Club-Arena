@@ -161,16 +161,17 @@ export function useTableKeyboard(options: UseTableKeyboardOptions): void {
       if (!opts.isActive) return;
 
       // Skip if user is typing in an input/textarea
-      const target = e.target as HTMLElement;
+      const target = e.target as HTMLElement | null;
       if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT' ||
+        target?.isContentEditable
       ) {
         return;
       }
 
+      if (typeof e.key !== 'string') return;
       const key = e.key.toLowerCase();
 
       // ── Escape: always works ──

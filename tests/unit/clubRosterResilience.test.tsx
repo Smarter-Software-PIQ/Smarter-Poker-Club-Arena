@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   RosterReadTimeoutError,
   computeRosterRetryDelay,
+  isServerTerminatedRosterTimeout,
+  isTransientRosterReadError,
   runRosterReadWithRetry,
 } from '../../src/utils/rosterReadReliability';
 import RosterConnectionStatus from '../../src/components/club/RosterConnectionStatus';
@@ -96,6 +98,33 @@ describe('Player Command resilient reads', () => {
     expect(computeRosterRetryDelay(0, 1_000, 30_000, () => 0)).toBe(800);
     expect(computeRosterRetryDelay(1, 1_000, 30_000, () => 0.5)).toBe(2_000);
     expect(computeRosterRetryDelay(8, 1_000, 30_000, () => 1)).toBe(30_000);
+  });
+
+  it('classifies SQLSTATE 57014 statement timeouts as transient and server-terminated without misparsing 5-digit SQLSTATEs as HTTP statuses', () => {
+    expect(
+      isTransientRosterReadError({
+        code: '57014',
+        message: 'canceling statement due to statement timeout',
+      })
+    ).toBe(true);
+    expect(
+      isServerTerminatedRosterTimeout({
+        code: '57014',
+        message: 'canceling statement due to statement timeout',
+      })
+    ).toBe(true);
+    expect(
+      isTransientRosterReadError({
+        code: '42501',
+        message: 'permission denied (network check)',
+      })
+    ).toBe(false);
+    expect(
+      isServerTerminatedRosterTimeout({
+        code: '42501',
+        message: 'permission denied',
+      })
+    ).toBe(false);
   });
 });
 

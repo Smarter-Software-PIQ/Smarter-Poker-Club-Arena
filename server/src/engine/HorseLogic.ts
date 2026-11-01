@@ -303,6 +303,7 @@ import { evaluateTournamentCatastropheGuard } from './HorseTournamentCatastrophe
 import { evaluateTournamentPostflop, type Phase8Mode } from './HorseTournamentPostflop.js';
 import { liveHorsePhase8Safety } from './HorsePhase8Safety.js';
 import { performance } from 'node:perf_hooks';
+import { chipStepFor, nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -342,8 +343,9 @@ const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 // otherwise, so a hypothetical 0.05/0.10 game is not rounded into nonsense.
 // Calls and all-ins are deliberately NOT snapped: a call must match exactly
 // what is owed, and a short stack's all-in is whatever it is.
-const chipStep = (bigBlind: number | undefined): number =>
-  typeof bigBlind === 'number' && bigBlind >= 1 && Number.isInteger(bigBlind) ? 1 : 0.01;
+// One definition, shared with the no-limit open sizer so an open drawn on the
+// grid survives this snap unchanged (HorseNlhOpenSize, Dan 2026-10-31).
+const chipStep = chipStepFor;
 
 /**
  * Reconcile a sampled certified action with the decision that reached the
@@ -2227,6 +2229,14 @@ export interface HorseDecideOpts {
    *  and the dominated-offsuit fold are unchanged. Default on; explicit
    *  false keeps today's. */
   v73Vs3BetDefence?: boolean;
+  /** V74 (2026-11-01, Dan 2026-10-31 "MIN RAISE TO 2.5-4X OPENING RANGES"):
+   *  no-limit hold'em raise-first-in opens draw from a band chosen by seat,
+   *  table, format, depth and antes (HorseNlhOpenSize), never from the cards.
+   *  Two-card full-deck no-limit hold'em only (short deck, pineapple, fixed
+   *  limit and Omaha keep the V28 ladder). Default on; explicit false keeps
+   *  the V28 ladder (the measured min-raise defect) for the historical
+   *  corpora only. */
+  v74NlhOpenSizes?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -2272,6 +2282,20 @@ export interface HorseDecideOpts {
    *  on. Re-enable by default only after a recalibrated stratum resolves
    *  significant positive in the mirror and the human-field twin. */
   v62RiverBettorPolarity?: boolean;
+  /** V74 (2026-10-31) an Omaha semi-bluff RAISE needs a draw. The branch is
+   *  "semi-bluff raise with big draws", but its only Omaha draw test was
+   *  `omahaDrawMod()`, which returned 0.7 for a hand with no draw at all, so
+   *  top pair with nothing to come re-raised a bet as a "semi-bluff" whenever
+   *  its equity sat in the 33-52% band (V53 pressure widens that band and
+   *  multiplies the frequency). Reproduced on live reviews 2944297 (PLO4,
+   *  Jc 6s Ac Ks on Jh 3c 4d 8h, raised a turn bet to pot) and 2838834 (PLO5,
+   *  top jack, raised a flop donk to pot in a 3-bet pot), both firing
+   *  v53_pressure_semibluff_raise; plo_toppair_no_redraw_stackoff measured
+   *  -62.13 bb per hand over 234 hands in the seven days to 2026-10-30. When
+   *  on (the default), an Omaha semi-bluff raise needs a flush draw, eight or
+   *  more straight outs, or (hi-lo) a nut low draw; anything else calls or
+   *  folds on the normal price. Explicit `false` is the league's off arm. */
+  v74OmahaSemiBluffNeedsDraw?: boolean;
   /** League calibration arm (2026-10-30): tournament call bar facing a
    *  single open is raised by this amount (0 < x <= 0.2); inert otherwise. */
   tournamentFlatBump?: number;
@@ -3817,6 +3841,7 @@ export function holdemPremiumAggression(
       chipUnit: gs.chipUnit ?? (isTournamentMode(gs) ? 1 : 0.01),
       dominatedFold: opts.holdemDominatedFold !== false,
       tournament: isTournamentMode(gs),
+      openRaiseTo: () => holdemPremiumOpenRaiseTo(player, gs, opts),
       raiserIsManiac: (seatNo) => {
         const raiser = (gs.players ?? []).find((p) => p.seat === seatNo);
         if (!raiser) return false;
@@ -3842,6 +3867,67 @@ export function holdemPremiumAggression(
     return tournamentShoveDiscipline(next, player, gs);
   }
   return next;
+}
+
+/**
+ * V74's open size for an unopened pot, for rule 2 of the hold'em premium
+ * rules: a premium limp or check turned into an open is sized by the same
+ * card-blind draw as every other open (Dan 2026-10-31 / 2026-11-01).
+ */
+function holdemPremiumOpenRaiseTo(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): number | null {
+  if (opts.v74NlhOpenSizes === false || gs.stage !== 'preflop') return null;
+  const bb = Number(gs.bigBlind);
+  if (!(bb > 0)) return null;
+  const position = classifyGamePosition(player.seat, gs, opts.v13 !== false);
+  if (
+    position !== 'early' &&
+    position !== 'middle' &&
+    position !== 'late' &&
+    position !== 'sb' &&
+    position !== 'bb'
+  )
+    return null;
+  const dealt = dealtHorseTableSize(gs, player.seat);
+  let limpers = 0;
+  for (const a of gs.actionHistory ?? []) {
+    if (a.stage !== 'preflop') continue;
+    if (
+      a.action === 'raise' ||
+      a.action === 'bet' ||
+      (a.action === 'all_in' && a.isFullRaise !== undefined)
+    )
+      return null;
+    if (a.action === 'call' || a.action === 'all_in') limpers++;
+  }
+  const heroTotal = (player.stack ?? 0) + (player.bet ?? 0);
+  const deepest = Math.max(
+    0,
+    ...(gs.players ?? [])
+      .filter((p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out)
+      .map((p) => (p.stack ?? 0) + (p.bet ?? 0))
+  );
+  const straddled =
+    gs.straddleActive === true && gs.currentBet > bb * 1.05 && gs.currentBet <= bb * 2.2;
+  return nlhOpenRaiseTo({
+    seat: nlhOpenSeat({
+      position,
+      isButton: gs.dealerSeat !== undefined && player.seat === gs.dealerSeat,
+      trueHeadsUp: dealt === 2,
+    }),
+    depthBB: Math.min(heroTotal, deepest || heroTotal) / bb,
+    tournament: isTournamentMode(gs),
+    anteInPlay: (gs.ante ?? 0) > 0,
+    tableSize: dealt,
+    openUnit: straddled ? gs.currentBet : bb,
+    bigBlind: bb,
+    limpers,
+    sizingMultiplier: 1,
+    rand: fastRandom,
+  });
 }
 
 /** The outer safety net for the hold'em premium rule (#8122), as below. */
@@ -6709,6 +6795,15 @@ export class HorseLogic {
       omahaSuitedPremium: suitedPremium,
       holdemPremiumPair,
       tournamentAggression: (opts.v57TournamentAggression ?? true) !== false,
+      // V74 is no-limit hold'em only: short deck, pineapple, fixed limit and
+      // Omaha have their own qualified packs and keep the V28 ladder.
+      nlhOpenSizes:
+        opts.v74NlhOpenSizes !== false &&
+        vi.holeCount === 2 &&
+        !vi.isShortDeck &&
+        !vi.isOmaha &&
+        !vi.isPotLimit &&
+        !vi.isFixedLimit,
       cashAggression: (opts.v60CashPressure ?? true) !== false,
       isShortDeck: vi.isShortDeck === true,
       ...(typeof opts.tournamentFlatBump === 'number'
@@ -6932,6 +7027,9 @@ export class HorseLogic {
             vi
           );
         }
+        // Legacy ablation route (opts.v7 / v7Preflop === false only): it keeps
+        // its historical ladder. Live no-limit opens are sized by
+        // HorseNlhOpenSize through decidePreflopV7 (Dan 2026-10-31).
         const sizeBB = (2.2 + fastRandom() * 0.8 + limpers * 1.0) * params.sizingMultiplier;
         return this.raiseTo(null, sizeBB * bb, player, gs, vi);
       }
@@ -8289,6 +8387,20 @@ export class HorseLogic {
       if (!vi.isOmaha || !drawsLive) return null;
       if (!drawInfoCache) drawInfoCache = omahaDrawQuality(player.cards, board, vi.isHiLo);
       return drawInfoCache;
+    };
+    // V74: an Omaha hand with no flush draw, under eight straight outs and
+    // (hi-lo) no nut low draw is not a semi-bluff.
+    const v74NoDrawRaise = (): boolean => {
+      if ((opts.v74OmahaSemiBluffNeedsDraw ?? true) === false) return false;
+      const d = drawInfo40();
+      if (!d) return false;
+      const noDraw =
+        !d.nutFlushDraw &&
+        !d.dominatedFlushDraw &&
+        d.straightOuts < 8 &&
+        !(vi.isHiLo && d.nutLowDraw);
+      if (noDraw && tele15) noteFire('v74_omaha_semibluff_needs_draw');
+      return noDraw;
     };
 
     // ═══ V7: barrel planning — multi-street bluffs tell a coherent story ═══
@@ -10868,6 +10980,8 @@ export class HorseLogic {
       // it says: do not raise as a semi-bluff into a bet bigger than 0.85x
       // the pot.
       potFrac <= (pressure53 ? 1.0 : 0.85) &&
+      // V74: in Omaha a semi-bluff raise needs a draw (see the option note).
+      !v74NoDrawRaise() &&
       fastRandom() <
         Math.min(
           pressure53 ? 0.6 : 1,

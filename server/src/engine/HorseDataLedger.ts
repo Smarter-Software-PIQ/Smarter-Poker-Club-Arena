@@ -776,6 +776,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V63-league'
   ),
   flag(
+    'v74OmahaSemiBluffNeedsDraw',
+    '2026-10-31 an Omaha semi-bluff raise needs a flush draw, eight or more straight outs or (hi-lo) a nut low draw; omahaDrawMod had returned 0.7 for no draw at all, so top pair with nothing to come re-raised bets under V53 pressure (reviews 2944297, 2838834; plo_toppair_no_redraw_stackoff -62.13 bb per hand over 234 hands); default on, explicit off arm retained for the league',
+    'V74'
+  ),
+  flag(
     'v62RiverBettorPolarity',
     "2026-10-30 Hold'em river bettor polarity: a river wager's sampled hand is drawn from a bluff / two pair+ / top pair / weaker pair stratum by bet size; OPT-IN since 18:50 UTC after the mirror league resolved it negative against horses (-3.67 +/- 1.02 bb/100 at 200bb) while V61 alone resolved +1.30 +/- 0.41; re-enable only after a recalibrated stratum resolves positive",
     'V62'
@@ -834,6 +839,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v73Vs3BetDefence',
     "2026-11-01 Hold'em opener facing one 3-bet with nobody else in (hero made the only open, exactly one re-raise, nobody calling, three or more dealt in, 25bb+ effective against the 3-bettor, 3-bet 1.8x-7x the open, not all-in): the call-or-4-bet width is a share of the opener seat's own V70 open width (style tightness applied to the open, not to the share), the share derived from the price - the minimum defence frequency P/(P+R) of this 3-bet's new chips R into the pot P (open, blinds, ante) - times a per-seat equity multiplier for range strength and realisation (in position BTN 1.50 / CO 1.62 / HJ 1.75 / LJ 1.88 .. UTG 2.01; out of position SB 1.32 / CO 1.44 / HJ 1.52 / LJ 1.61 .. UTG 1.72), off the reference geometry by the MDF ratio with elasticity 0.5 (ratio held 0.7-1.4), widened up to 15% at 25bb and narrowed up to 5% by the V21 deep scale past 120bb; hands read on a continue order blended between a late-opener and an early-opener reference chart of pairs, suited hands and AKo/AQo (every other offsuit unpaired hand folds to a big 3-bet by the 2026-10-25 owner rule); no bet size changes; the ICM premium applies, the general price relief does not; value 4-bets, the 4-bet bluff, rule 4, the 5-bet branch, the deep 5-bet rule and the dominated-offsuit fold unchanged; measured on production (3 hours to 2026-11-01 03:00 UTC, 25bb+) the button folded 85-87%, the cutoff 75-76%, under the gun 43-60%; explicit off arm retained",
     'V73'
+  ),
+  flag(
+    'v74NlhOpenSizes',
+    '2026-11-01 (Dan 2026-10-31: "MIN RAISE TO 2.5-4X OPENING RANGES. NOT ALWAYS THE MINIMUM RAISE POSSIBLE"; 2026-11-01: "THEY ARE LITERALLY MIN RAISING IN A CASH GAME THAT DOESN\'T HAPPEN") no-limit hold\'em raise-first-in opens draw from a band chosen by seat, table, format, depth and antes (HorseNlhOpenSize): cash never under 2.5bb (100bb early 2.8-3.5 / middle 2.7-3.3 / cutoff 2.5-3.1 / button 2.5-3.0 / small blind 3.0-3.5, a full-ring early seat +0.25, deep cash +0.25/+0.5 up to 4x, 25bb or less 2.5-2.8, smaller with an ante); tournaments deeper than 25bb open an exact min-raise 20% of the time and otherwise early 2.3-3.0 / button 2.0-2.5 / small blind 2.5-3.2 (smaller with an ante, 25-40bb at most 2.5, small blind 2.8), 25bb or less 2.0-2.3; one unit per limper; three random draws, never the cards; on the chip grid with stochastic rounding so a 1-chip big blind no longer floors every open to 2bb; measured before (40 minutes of production) cash 55% of opens at 2.05bb or less, median 2.00; pot limit, fixed limit and 3-bet sizes unchanged; explicit off arm retained',
+    'V74'
   ),
   flag(
     'v52RangeAdvantage',
@@ -1290,9 +1300,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'horse_mind_stats_scoped',
     'boot',
     'HorseMindPersistence (hydrateHorseMindScopedFromDb at boot, flushHorseMindScoped on the timer); HorseMind.readStats prefers it at 40 hands',
-    'V45: the same counters per (player, card family x table size) - a PLO6 VPIP no longer reads as an NLH VPIP',
-    'V45',
-    { dayColumn: 'updated_at', freshnessDays: 1 }
+    // NO DAILY FRESHNESS SINCE 2026-10-26. Live decisions moved to independent
+    // observer memory (2026-10-25-horse-observer-independent-memory) and the
+    // herd's persistent per-context reads to horse_exploit_profiles, which
+    // keeps the one-day freshness check above. Nothing feeds the process-wide
+    // scoped overlay any more, so its last write is 2026-10-26 01:01 UTC and a
+    // daily freshness expectation read that retirement as a critical outage
+    // every night (data_stale, audit 2026-10-30).
+    'V45: the same counters per (player, card family x table size); superseded on 2026-10-26 by horse_exploit_profiles for live per-context reads',
+    'V45'
   ),
   table(
     'horse_mind_pairs',
@@ -3558,6 +3574,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic committed and ordinary raise branches',
     'opt-in river Omaha weak set/trips flatted after clearing the unchanged call bar',
     'V55'
+  ),
+  receipt(
+    'v74_omaha_semibluff_needs_draw',
+    'HorseLogic (V74) semi-bluff raise gate',
+    'an Omaha hand with no flush draw, under eight straight outs and no nut low draw was refused the semi-bluff raise',
+    'V74'
   ),
   receipt(
     'v62_river_bettor_polarity',

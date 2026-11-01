@@ -214,18 +214,6 @@ export class TableWebSocket {
         },
       });
 
-      // Register with RoomService to share the channel and prevent duplicate
-      // subscriptions. 2026-08-22: capture the channel NOW — this import
-      // resolves on a later microtask, by which time disconnect() may have
-      // nulled this.channel (the old code then registered `null!` or a
-      // replacement channel under the wrong lifecycle).
-      const channelForRoom = this.channel;
-      import('./RoomService').then(({ roomService }) => {
-        if (channelForRoom && this.channel === channelForRoom) {
-          roomService.registerChannel(this.tableId, channelForRoom);
-        }
-      });
-
       // Set up event listeners
       this.channel
         .on('broadcast', { event: 'game_event' }, ({ payload }) => {
@@ -269,6 +257,7 @@ export class TableWebSocket {
         );
 
       // Subscribe to channel - returns the channel, callback receives status
+      // Only register with RoomService after SUBSCRIBED so RoomService never holds a dead channel.
       const subscribedChannel = this.channel;
       await new Promise<void>((resolve) => {
         const settle = () => {
@@ -288,6 +277,13 @@ export class TableWebSocket {
               clearTimeout(this.reconnectTimer);
               this.reconnectTimer = null;
             }
+            import('./RoomService')
+              .then(({ roomService }) => {
+                if (!this.destroyed && this.channel === subscribedChannel) {
+                  roomService.registerChannel(this.tableId, subscribedChannel);
+                }
+              })
+              .catch(() => {});
             this.notifyConnection(true);
             try {
               await subscribedChannel.track({
@@ -552,7 +548,7 @@ export class TableWebSocket {
   }
 
   async updatePresence(updates: Partial<PlayerPresence>): Promise<void> {
-    if (!this.channel) return;
+    if (this.destroyed || !this.channel || !this.isConnected) return;
 
     await this.channel.track({
       userId: this.userId,
@@ -608,13 +604,16 @@ export class TableWebSocket {
 
     let data: Record<string, unknown> | null = null;
     for (let attempt = 0; attempt < TableWebSocket.RESYNC_ATTEMPTS; attempt++) {
+      if (this.destroyed) return;
       data = await GameServerAPI.getTableState(this.tableId);
+      if (this.destroyed) return;
       if (data) break;
       if (attempt < TableWebSocket.RESYNC_ATTEMPTS - 1) {
         await new Promise((r) => setTimeout(r, TableWebSocket.RESYNC_BASE_DELAY_MS * 2 ** attempt));
       }
     }
 
+    if (this.destroyed) return;
     if (!data) {
       this.acceptGap(`getTableState returned null ${TableWebSocket.RESYNC_ATTEMPTS}x`);
       return;
