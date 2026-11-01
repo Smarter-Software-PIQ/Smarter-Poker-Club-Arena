@@ -83,7 +83,8 @@ test.afterEach(async ({ page }, testInfo) => {
 
 // Production has no retries. Preserve the first failed action's trace rather
 // than relying on on-first-retry, which never records these failures.
-test.use({ ...devices['iPhone 13'], trace: 'retain-on-failure' });
+// Host-pin day boundaries below are explicitly certified in the Chicago timezone.
+test.use({ ...devices['iPhone 13'], timezoneId: 'America/Chicago', trace: 'retain-on-failure' });
 
 async function openLobby(page: Page, openSection = true) {
   // The Diamond Spins offer opens on the answer to this read. Listen before

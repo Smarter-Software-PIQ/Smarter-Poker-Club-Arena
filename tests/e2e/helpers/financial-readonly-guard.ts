@@ -25,6 +25,8 @@ export const FINANCIAL_ADMIN_SHELL_READ_ONLY_RPC_PATHS = Object.freeze([
   '/rest/v1/rpc/fn_can_i_create_a_union',
   '/rest/v1/rpc/fn_can_i_operate_the_union_network',
   '/rest/v1/rpc/fn_poker_arena_context',
+  // Shared shell registry read: SQL STABLE, SELECT-only (pg_proc, 2026-11-01).
+  '/rest/v1/rpc/fn_platform_capabilities',
   // ClubBottomNav (useClubDataScope, #7292) asks which Club Data scope the
   // signed-in member may open on every club route. STABLE SECURITY DEFINER,
   // no DML (pg_proc, 2026-10-17). Unlisted, it refused every Financial Admin
