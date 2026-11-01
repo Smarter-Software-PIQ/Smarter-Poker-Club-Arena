@@ -56,3 +56,23 @@ export function chicagoStamp(at: Date | string | number): string {
   const day = chicagoDay(d);
   return `${day.slice(5, 7)}/${day.slice(8, 10)} ${chicagoClock(d)}`;
 }
+
+/** Last N Chicago calendar dates, inclusive of today. */
+export function lastDaysRange(days: number): { from: string; to: string } {
+  const to = chicagoDay();
+  return { from: addCalendarDays(to, 1 - days), to };
+}
+
+/** Next Chicago midnight, including 23-hour and 25-hour days. */
+export function nextChicagoDay(now = new Date()): number {
+  if (!Number.isFinite(now.getTime())) throw new RangeError('A Valid Date Is Required');
+  const today = chicagoDay(now);
+  let lo = now.getTime();
+  let hi = lo + 26 * 60 * 60 * 1000;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (chicagoDay(mid) === today) lo = mid;
+    else hi = mid;
+  }
+  return hi;
+}

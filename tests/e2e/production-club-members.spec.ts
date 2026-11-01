@@ -891,6 +891,7 @@ test.describe('Production Kings Club Players', () => {
     }
     await page.getByRole('button', { name: 'Select', exact: true }).click();
     await page.locator('.mm-range__custom input[type="date"]').first().fill('2026-01-01');
+    await expect(page.locator('.mm-range')).toContainText('Chicago Time, DST Automatic.');
     await expect(page.locator('.mm-range__draft')).toContainText('Draft Dates Not Applied');
     await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
       'Recorded Activity'
@@ -956,6 +957,7 @@ test.describe('Production Kings Club Players', () => {
       await expect(control).toHaveAttribute('aria-pressed', 'true');
     }
     await expect(page.locator('.ps-range__custom input[type="date"]')).toHaveCount(2);
+    await expect(page.locator('.ps-controls')).toContainText('Chicago Time, DST Automatic.');
     await expect(page.getByRole('status', { name: 'Displayed Performance Scope' })).toContainText(
       'Chicago Time'
     );

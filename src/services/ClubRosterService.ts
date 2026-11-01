@@ -276,36 +276,13 @@ export interface MemberRange {
 
 export const RANGE_OVERALL: MemberRange = { from: null, to: null };
 
-/** Last N Chicago calendar days, inclusive of today, independent of the device zone. */
-export function lastDaysRange(days: number): MemberRange {
-  const to = isoDate(new Date());
-  const from = new Date(`${to}T12:00:00Z`);
-  from.setUTCDate(from.getUTCDate() - (days - 1));
-  return { from: from.toISOString().slice(0, 10), to };
-}
-
-/** A date-only label in the reporting zone, including IANA daylight-saving rules. */
-export function isoDate(d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
-}
-
-/** Find the next Chicago date boundary without assuming a 24-hour local day. */
-export function nextMemberDay(now = new Date()): number {
-  const today = isoDate(now);
-  let lo = now.getTime();
-  let hi = lo + 26 * 60 * 60 * 1000;
-  while (hi - lo > 1) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (isoDate(new Date(mid)) === today) lo = mid;
-    else hi = mid;
-  }
-  return hi;
-}
+// Compatibility exports for existing roster consumers. Reporting screens share
+// the same cached Chicago calendar used by Club Data and Union Data.
+export {
+  chicagoDay as isoDate,
+  lastDaysRange,
+  nextChicagoDay as nextMemberDay,
+} from '../lib/clubDataDay';
 
 /** One level of a player's upline, closest agent first (depth 1). */
 export interface MemberUplineLevel {
