@@ -214,7 +214,7 @@ test('native build refusal retains first closed command facts without raw compil
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('native', 'operations/release/fixture/native-dump-diagnostic.py')
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as folder:
+with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR') or os.environ['RUNNER_TEMP']) as folder:
  for kind,args,timeout in [('EXIT_NONZERO',[sys.executable,'-c',"import sys;print('private-secret');sys.exit(7)"],2),('DEADLINE',[sys.executable,'-c','import time;time.sleep(1)'],0.02)]:
   m.FIRST_COMMAND_FAILURE=None
   try:m.command(args,cwd=Path(folder),env=dict(os.environ),timeout=timeout)
@@ -228,6 +228,10 @@ with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as folder:
   except Exception:pass
   assert m.FIRST_COMMAND_FAILURE==facts
 print('closed command failure facts passed')`;
-  const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000});
-  assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed command failure facts passed');
+  for(const hosted of [false,true]){
+    const env={...process.env,RUNNER_TEMP:process.env.TMPDIR ?? process.env.RUNNER_TEMP};
+    assert.ok(env.RUNNER_TEMP);if(hosted)delete env.TMPDIR;
+    const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000,env});
+    assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed command failure facts passed');
+  }
 });

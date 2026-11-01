@@ -28,3 +28,11 @@ Raw command arguments, compiler messages, paths and schema remain private. Keep
 the existing deadlines, output caps, process-group cleanup and first-stage
 retention. The real wrapper's nonzero exit, deadline and later-cleanup failure
 are tested without compiling or opening a database. All 43 focused tests pass.
+
+The next native job passed exact source inverse, native SQL-byte parity, FD3
+records and cluster cleanup. It then caught a portability error in the new
+wrapper regression: that test assumed TMPDIR, while the hosted representative
+step exposes RUNNER_TEMP. Use the existing explicit owned root in either
+shape; qualify both environments locally. No temporary-directory fallback,
+production code, build command or assertion change. The initial stock-build
+cause remains unproven, not retroactively passed.
