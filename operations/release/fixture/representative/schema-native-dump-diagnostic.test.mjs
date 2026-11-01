@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNativeDumpDiagnostic,safeNativeDumpDiagnostic,nativeDumpCapability,verifyNativeDumpBinary} from '../schema-native-dump-diagnostic.mjs';
@@ -206,3 +207,27 @@ test('actual dump refusal preserves the first FD3 limit and cancellation facts w
       assert.ok(!JSON.stringify(error).includes('private-secret'));return true;
     });
 }));
+
+// Exercise the real private build-command wrapper without a build or database.
+test('native build refusal retains first closed command facts without raw compiler output',()=>{
+  const script=`import importlib.util,sys,tempfile,json,os
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('native', 'operations/release/fixture/native-dump-diagnostic.py')
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as folder:
+ for kind,args,timeout in [('EXIT_NONZERO',[sys.executable,'-c',"import sys;print('private-secret');sys.exit(7)"],2),('DEADLINE',[sys.executable,'-c','import time;time.sleep(1)'],0.02)]:
+  m.FIRST_COMMAND_FAILURE=None
+  try:m.command(args,cwd=Path(folder),env=dict(os.environ),timeout=timeout)
+  except Exception:pass
+  else:raise AssertionError('failure expected')
+  facts=m.FIRST_COMMAND_FAILURE
+  assert facts['kind']==kind
+  assert facts['exit_code']==(7 if kind=='EXIT_NONZERO' else None)
+  assert 'private-secret' not in json.dumps(facts)
+  try:m.command(['/nonexistent-private-command'],cwd=Path(folder),env=dict(os.environ))
+  except Exception:pass
+  assert m.FIRST_COMMAND_FAILURE==facts
+print('closed command failure facts passed')`;
+  const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000});
+  assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed command failure facts passed');
+});
