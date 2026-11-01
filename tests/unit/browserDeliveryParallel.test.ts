@@ -32,7 +32,7 @@ describe('browser qualification parallel delivery', () => {
       // Playwright's locked browser build supports Ubuntu 24.04. Pin only the
       // exact existing browser consumers; every other hosted job stays latest.
       const pinnedBrowserJobs: Record<string, readonly string[]> = {
-        'ci.yml': ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'],
+        'ci.yml': ['build', 'css-beats-e2e', 'diamond-playfield-e2e'],
         'post-deploy-e2e.yml': [
           'private-record-client-proof',
           'stats-pagination-proof',

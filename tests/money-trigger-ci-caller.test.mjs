@@ -258,7 +258,7 @@ test('all qualification and publication jobs use only fixed standard hosted runn
   // The locked Playwright browser supports these exact hosted Ubuntu 24.04
   // consumers. No other job or runner expression is admitted by this exception.
   const pinnedBrowserJobs = {
-    'ci.yml': ['build','live-e2e','css-beats-e2e','diamond-playfield-e2e'],
+    'ci.yml': ['build','css-beats-e2e','diamond-playfield-e2e'],
     'post-deploy-e2e.yml': ['private-record-client-proof','stats-pagination-proof',
       'production-e2e','live-table-e2e','club-channel-lifecycle-e2e'],
   };

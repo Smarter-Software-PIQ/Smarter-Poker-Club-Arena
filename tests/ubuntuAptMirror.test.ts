@@ -8,7 +8,7 @@ import { parse } from 'yaml';
 describe('Ubuntu browser dependency mirror', () => {
   it('keeps the locked Playwright browser jobs on its supported Ubuntu image', () => {
     const files: Record<string, string[]> = {
-      'ci.yml': ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'],
+      'ci.yml': ['build', 'css-beats-e2e', 'diamond-playfield-e2e'],
       'post-deploy-e2e.yml': [
         'private-record-client-proof',
         'stats-pagination-proof',

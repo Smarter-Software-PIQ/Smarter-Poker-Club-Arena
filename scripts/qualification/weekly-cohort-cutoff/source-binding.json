@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272483,
-      "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -1961,31 +1961,6 @@
     "current": {
       "bytes": 272484,
       "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
-    },
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false
-  },
-  "mobileBrowserHostSourceAudit20261031": {
-    "scope": "Source identity only: four existing Playwright/build jobs use supported ubuntu-24.04 after ubuntu-latest advanced to Ubuntu26 and the locked Playwright install failed before tests. The complete reviewed diff changes only those four runs-on values. No commands, matrices, assertions, financial fixture, deadline, concurrency or release safeguard changes.",
-    "previousCiPin": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
-    },
-    "currentCiPin": {
-      "bytes": 272193,
-      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
-    },
-    "qualification": "No financial recertification, SQL installation or live certification is asserted. All historical audits, inputs and verdicts are preserved. Required hosted checks remain mandatory."
-  },
-  "mobileBrowserHostProtectedIntegration20261101": {
-    "scope": "Source identity only. Preserve protected-main Chromium and accounting shard2 runner routes, source pins and historical audits; retain the mobile delivery live-e2e Ubuntu24 route. No financial recertification or installed SQL change is asserted. All commands, qualification assertions, deadlines and safeguards remain unchanged.",
-    "previousProtectedCiPin": {
-      "bytes": 272484,
-      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
-    },
-    "currentCiPin": {
-      "bytes": 272483,
-      "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
     },
     "execution_performed": false,
     "historicalEvidenceRestamped": false
