@@ -99,13 +99,19 @@ describe('a seat does not advertise a flat head once the chests are live', () =>
       mysteryChestsOnlyFromRow({ is_mystery_bounty: true, mystery_bounty_regular_pool_percent: 0 })
     ).toBe(true);
     expect(
-      mysteryChestsOnlyFromRow({ is_mystery_bounty: true, mystery_bounty_regular_pool_percent: '0' })
+      mysteryChestsOnlyFromRow({
+        is_mystery_bounty: true,
+        mystery_bounty_regular_pool_percent: '0',
+      })
     ).toBe(true);
     expect(
       mysteryChestsOnlyFromRow({ is_mystery_bounty: true, mystery_bounty_regular_pool_percent: 50 })
     ).toBe(false);
     expect(
-      mysteryChestsOnlyFromRow({ is_mystery_bounty: true, mystery_bounty_regular_pool_percent: null })
+      mysteryChestsOnlyFromRow({
+        is_mystery_bounty: true,
+        mystery_bounty_regular_pool_percent: null,
+      })
     ).toBe(false);
     expect(
       mysteryChestsOnlyFromRow({ is_mystery_bounty: false, mystery_bounty_regular_pool_percent: 0 })
@@ -149,6 +155,14 @@ describe('a seat does not advertise a flat head once the chests are live', () =>
     expect(tablePage).toContain('bountyIsMystery={');
     expect(tablePage).toContain('mystery_bounty_stage');
     expect(tablePage).toContain('setMysteryChestsLive(mysteryChestsLiveFromRow(tournData))');
+    // Computed once per seat in seatPositions.map, not duplicated for value and mystery props
+    expect(tablePage.match(/seatBountyBadge\(\{/g)).toHaveLength(1);
+  });
+
+  it('TablePage narrows useProtectedCardLayout revision to revealed hole-card state so folds do not invalidate layout', () => {
+    expect(tablePage).toContain(
+      "Boolean(p.showCards || p.status === 'all_in') && (p.holeCards?.length ?? 0) > 0"
+    );
   });
 });
 
