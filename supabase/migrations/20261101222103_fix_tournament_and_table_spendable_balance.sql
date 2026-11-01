@@ -1,3 +1,5 @@
+BEGIN;
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- FIX TOURNAMENT SEAT STAMPING, LATE-REG SEAT REUSE, AND SPENDABLE BALANCE
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -506,3 +508,5 @@ UPDATE public.table_seats ts
 REVOKE ALL ON FUNCTION public.fn_seat_club_for_user_membership_unchecked(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_seat_club_for_user_membership_unchecked(uuid, uuid, uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_seat_late_registrant_before_maintenance_gate(uuid, uuid) FROM PUBLIC, anon, authenticated;
+
+COMMIT;

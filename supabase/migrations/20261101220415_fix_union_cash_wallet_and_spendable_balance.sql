@@ -1,3 +1,5 @@
+BEGIN;
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- FIX UNION CASH WALLET RESOLUTION, PREFERRED PAYING CLUB, AND SPENDABLE BALANCE
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -347,3 +349,5 @@ REVOKE ALL ON FUNCTION public.fn_ca_cash_paying_club(uuid, uuid, uuid, numeric) 
 REVOKE ALL ON FUNCTION public.fn_ca_cash_entry_need(uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_cash_wallet_covers(uuid, uuid, uuid, numeric) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_entry_paying_club(uuid, uuid) FROM PUBLIC, anon, authenticated;
+
+COMMIT;
