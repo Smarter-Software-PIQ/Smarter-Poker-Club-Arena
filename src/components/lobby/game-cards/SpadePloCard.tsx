@@ -153,6 +153,7 @@ export function SpadePloCard({
           label={actions.secondaryLabel}
           tone="silver"
           onClick={actions.onSecondary}
+          disabled={!actions.onSecondary || actions.secondaryDisabled}
         />
       )}
       <LayeredActionButton

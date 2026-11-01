@@ -108,6 +108,7 @@ export function zoneText(zone: string, value?: string): string {
 export interface ArenaGameCardActions {
   primaryLabel: string;
   secondaryLabel?: string;
+  secondaryDisabled?: boolean;
   primaryTone?: 'blue' | 'green' | 'gold' | 'red' | 'neutral';
   primaryDisabled?: boolean;
   busy?: boolean;
