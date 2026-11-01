@@ -9,6 +9,7 @@ if __import__('sys').platform=='darwin' and not str(BASE).startswith('/Volumes/S
     raise RuntimeError('Use task-owned external SSD scratch')
 ENV={k:v for k,v in os.environ.items() if not k.startswith('PG')}
 MIGRATION='20261028195328_horse_scheduled_mtt_purchases_begin_ten_minutes_before_start.sql'
+FOLLOWUP_MIGRATION='20261101060819_horse_mtt_free_six_hours_paid_one_hour.sql'
 def main():
     passed=[]
     def check(label,ok):
@@ -28,7 +29,7 @@ def main():
         try:
             run('''CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role;CREATE SCHEMA extensions;
 CREATE TABLE profiles(id uuid PRIMARY KEY,is_horse boolean);
-CREATE TABLE tournaments(id uuid PRIMARY KEY,status text,start_time timestamptz,format_contract text);
+CREATE TABLE tournaments(id uuid PRIMARY KEY,status text,start_time timestamptz,format_contract text,buy_in_amount numeric,buy_in_fee numeric,free_buy boolean);
 CREATE TABLE tournament_players(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tournament_id uuid,user_id uuid,status text);
 CREATE TABLE purchases(tournament_id uuid,user_id uuid);
 CREATE FUNCTION fn_lightning_pilot_assignment_blocks(uuid,uuid) RETURNS boolean LANGUAGE sql AS $$SELECT false$$;
@@ -43,7 +44,7 @@ INSERT INTO purchases VALUES($1,$2);INSERT INTO tournament_players(tournament_id
             fn=re.search(r'CREATE OR REPLACE FUNCTION public.fn_register_horse_for_tournament\(.*?\$function\$;',before,re.S).group()
             run(fn)
             run('REVOKE ALL ON FUNCTION fn_register_horse_for_tournament(uuid,uuid,boolean) FROM PUBLIC,anon,authenticated;GRANT EXECUTE ON FUNCTION fn_register_horse_for_tournament(uuid,uuid,boolean) TO service_role;')
-            run(f"INSERT INTO profiles VALUES('{H}',true);INSERT INTO tournaments VALUES('{T}','REGISTERING',now()+interval '3 hours','mtt-v2');")
+            run(f"INSERT INTO profiles VALUES('{H}',true);INSERT INTO tournaments VALUES('{T}','REGISTERING',now()+interval '3 hours','mtt-v2',10,1,false);")
             check('preimage actually purchases three hours early',json.loads(run(call))['ok'])
             run('TRUNCATE tournament_players,purchases;')
             migration=(ROOT/'supabase/migrations'/MIGRATION).read_text();run(migration)
@@ -75,6 +76,58 @@ INSERT INTO purchases VALUES($1,$2);INSERT INTO tournament_players(tournament_id
             check('service ACL retained',run("SELECT proacl::text FROM pg_proc WHERE oid='fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure")=='{postgres=X/postgres,service_role=X/postgres}')
             check('public cannot invoke horse purchases','permission denied' in run('SET ROLE anon;'+call,True))
             check('replay refuses changed preimage','horse_registration_timing_preimage_changed' in run(migration,True))
-            print(json.dumps({'passed':len(passed),'checks':passed,'scope':'actual wrapper and pure time predicate; unchanged economic delegates are sinks'}))
+            # Owner November 1: paid events open one hour ahead; free events
+            # build over six hours. Install this exact follow-up, not a fixture
+            # implementation, and preserve the existing economic delegates.
+            run('TRUNCATE tournament_players,purchases;')
+            run(f"UPDATE tournaments SET status='REGISTERING',start_time=now()+interval '3 hours' WHERE id='{T}';")
+            # Match the live owner after the October 31 pilot retirement. Only
+            # remove that historical opening block; retain all later guards.
+            definition=run("SELECT pg_get_functiondef('fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure)")
+            begin=definition.index('  IF public.fn_lightning_pilot_assignment_blocks(')
+            end=definition.index('\n  END IF;\n',begin)+len('\n  END IF;\n')
+            run(definition[:begin]+definition[end:])
+            metadata_sql="SELECT jsonb_build_object('owner',proowner,'acl',proacl,'secdef',prosecdef,'config',proconfig) FROM pg_proc WHERE oid='fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure"
+            metadata_before=run(metadata_sql)
+            run('CREATE FUNCTION fn_register_horse_for_tournament(uuid,uuid) RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO public,pg_temp AS $$SELECT fn_register_horse_for_tournament($1,$2,true)$$;')
+            followup=(ROOT/'supabase/migrations'/FOLLOWUP_MIGRATION).read_text()
+            run(followup)
+            check('followup preserves live wrapper owner ACL and settings',run(metadata_sql)==metadata_before)
+            check('followup never restores retired pilot call','lightning_pilot' not in run("SELECT prosrc FROM pg_proc WHERE oid='fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure"))
+            for fmt in ['mtt-v1','mtt-v2']:
+                for status in ['ANNOUNCED','REGISTERING']:
+                    for delta,want in [('1 hour 0.001 seconds',False),('1 hour',True),('59 minutes 59.999 seconds',True)]:
+                        at=f"'2026-11-01 20:00Z'::timestamptz+interval '{delta}'"
+                        check(fmt+' '+status+' compatibility hour '+delta,run(f"SELECT fn_ca_horse_mtt_purchase_window_open('{fmt}','{status}',{at},'2026-11-01 20:00Z')")==('t' if want else 'f'))
+                        check(fmt+' '+status+' paid hour '+delta,run(f"SELECT fn_ca_horse_mtt_entry_purchase_window_open('{fmt}','{status}',{at},'2026-11-01 20:00Z',10,1,false)")==('t' if want else 'f'))
+                    for amount,fee,free,label in [('0','0','false','zero charge'),('0','NULL','false','legacy zero charge'),('10','1','true','free buy flag')]:
+                        for delta,want in [('6 hours 0.001 seconds',False),('6 hours',True),('5 hours 59 minutes 59.999 seconds',True)]:
+                            check(fmt+' '+status+' '+label+' '+delta,run(f"SELECT fn_ca_horse_mtt_entry_purchase_window_open('{fmt}','{status}','2026-11-01 20:00Z'::timestamptz+interval '{delta}','2026-11-01 20:00Z',{amount},{fee},{free})")==('t' if want else 'f'))
+            for amount,fee,label in [('0','1','fee-only paid'),('5','0','all-bounty paid'),('NULL','0','unknown amount')]:
+                check(label+' cannot use free window',run(f"SELECT fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '3 hours',now(),{amount},{fee},false)")=='f')
+            check('free null start still refuses',run("SELECT fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',NULL,now(),0,0,true)")=='f')
+            check('paid wrapper refuses three hours before',json.loads(run(call)).get('reason')=='horse_registration_not_open')
+            run(f"UPDATE tournaments SET buy_in_amount=0,buy_in_fee=0 WHERE id='{T}';")
+            check('actual zero charge wrapper registers three hours ahead',json.loads(run(call))['ok'])
+            check('two argument horse door shares the early window and replay',json.loads(run(f"SELECT fn_register_horse_for_tournament('{T}','{H}')")).get('already_registered') is True)
+            check('free entry still uses one ordinary delegate call',run('SELECT count(*) FROM purchases')=='1')
+            run(f"UPDATE tournaments SET start_time=now()+interval '8 hours' WHERE id='{T}';")
+            check('free paid receipt retry survives a moved start',json.loads(run(call)).get('already_registered') is True)
+            check('free replay never purchases twice',run('SELECT count(*) FROM purchases')=='1')
+            run('TRUNCATE tournament_players,purchases;')
+            run(f"UPDATE tournaments SET buy_in_amount=10,buy_in_fee=1,start_time=now()+interval '59 minutes' WHERE id='{T}';")
+            check('actual paid wrapper registers inside one hour',json.loads(run(call))['ok'])
+            run('TRUNCATE tournament_players,purchases;')
+            run(f"UPDATE tournaments SET buy_in_amount=0,buy_in_fee=0,start_time=now()+interval '3 hours' WHERE id='{T}';")
+            check('new free window never bypasses freeze',json.loads(run("SET test.frozen='true';"+call).splitlines()[-1]).get('reason')=='platform_frozen')
+            # Every unresolved promise still consumes its normal slot, even
+            # when admission opens earlier for a freeroll.
+            run(f"INSERT INTO tournaments SELECT gen_random_uuid(),'REGISTERING',now(),'mtt-v2',10,1,false FROM generate_series(1,4); INSERT INTO tournament_players(tournament_id,user_id,status) SELECT id,'{H}','registered' FROM tournaments WHERE id<>'{T}';")
+            check('early free entries retain four-promise budget',json.loads(run(call)).get('reason')=='horse_tournament_reservation_budget')
+            check('budget refusal does not purchase',run('SELECT count(*) FROM purchases')=='0')
+            helper="fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)"
+            check('price-aware helper is service-only',run(f"SELECT has_function_privilege('service_role','{helper}','EXECUTE') AND NOT has_function_privilege('authenticated','{helper}','EXECUTE') AND NOT has_function_privilege('anon','{helper}','EXECUTE')")=='t')
+            check('followup replay fails closed','horse_mtt_arrival_window_preimage_changed' in run(followup,True))
+            print(json.dumps({'passed':len(passed),'checks':passed,'scope':'actual registration wrapper, one-hour paid and six-hour free predicates; unchanged economic delegates are sinks'}))
         finally: cmd([PG/'pg_ctl','-D',d/'db','-m','immediate','-w','stop'])
 if __name__=='__main__':main()
