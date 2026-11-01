@@ -45,7 +45,6 @@ import {
   stackDepthLabel,
   stackFormatRank,
 } from './lobbyEntries';
-import LightningGamesIcon from './LightningGamesIcon';
 import { cashTemplateKey } from '../../config/cashGames';
 import { prefetchIntent } from '../../utils/ChunkPreloader';
 import { observeLobbyScrollClearance } from './lobbyScrollClearance';
@@ -809,6 +808,11 @@ function TournamentHeadingRow({
     <tr
       className={`lt-tournament-header ${tournamentRowClasses(entry)}${entry.featured ? ' is-featured' : ''}`}
       data-game-heading={entry.id}
+      data-cash-format={
+        entry.kind === 'cash' && entry.game?.template
+          ? cashTemplateKey(entry.game.template)
+          : undefined
+      }
       data-tournament-heading={entry.kind === 'cash' ? undefined : entry.id}
       data-lightning-format={isLightningCashRow(entry) ? 'true' : undefined}
       data-kind={entry.kind}
@@ -898,9 +902,7 @@ const COL_NAME: ColumnDef = {
       return (
         <span className="lt-name lt-name--cash" title={e.name}>
           <span className="lt-name__line1">
-            {isLightningCashRow(e) ? (
-              <LightningGamesIcon />
-            ) : e.live ? (
+            {!isLightningCashRow(e) && e.live ? (
               <i className="lt-live" aria-hidden="true" title="Live" />
             ) : null}
             {headline}
@@ -2228,9 +2230,10 @@ export default function LobbyTable({
         <table
           className={`compact-lobby has-premium-chassis${hasTournamentHeadings ? ' has-tournament-headings' : ''}`}
           aria-label="Games"
+          role="table"
         >
-          <thead>
-            <tr>
+          <thead role="rowgroup">
+            <tr role="row">
               {[
                 COL_NAME,
                 category === 'ALL'
@@ -2242,6 +2245,7 @@ export default function LobbyTable({
                 COL_STATUS,
               ].map((col) => (
                 <th
+                  role="columnheader"
                   key={col.key}
                   scope="col"
                   aria-sort={
@@ -2272,7 +2276,7 @@ export default function LobbyTable({
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {sorted.map((entry, index) => (
               <Fragment key={entry.id}>
                 <DateHeadingRow
@@ -2292,6 +2296,7 @@ export default function LobbyTable({
                   onActivate={onActivate}
                 />
                 <tr
+                  role="row"
                   data-testid="lobby-game-row"
                   data-id={entry.id}
                   data-start-time={entry.startTime ?? undefined}
@@ -2319,6 +2324,7 @@ export default function LobbyTable({
                   onClick={() => onSelect(entry)}
                 >
                   <td
+                    role="cell"
                     data-label={
                       entry.kind === 'cash'
                         ? 'Game Style'
@@ -2327,7 +2333,6 @@ export default function LobbyTable({
                           : 'Game Type'
                     }
                   >
-                    {isLightningCashRow(entry) && <LightningGamesIcon />}
                     <FavCell entry={entry} ctx={rowCtx} />
                     <button
                       type="button"
@@ -2362,16 +2367,20 @@ export default function LobbyTable({
                       <PlayerStateChip entry={entry} ctx={rowCtx} />
                     </button>
                   </td>
-                  <td data-label={entry.kind === 'cash' ? 'Stakes' : 'Buy-In'}>
+                  <td role="cell" data-label={entry.kind === 'cash' ? 'Stakes' : 'Buy-In'}>
                     {COL_COST.render(entry, rowCtx)}
                   </td>
-                  <td data-label="Players">{COL_PLAYERS.render(entry, rowCtx)}</td>
-                  <td data-label="Status">{COL_STATUS.render(entry, rowCtx)}</td>
+                  <td role="cell" data-label="Players">
+                    {COL_PLAYERS.render(entry, rowCtx)}
+                  </td>
+                  <td role="cell" data-label="Status">
+                    {COL_STATUS.render(entry, rowCtx)}
+                  </td>
                 </tr>
               </Fragment>
             ))}
             {loading && sorted.length === 0 && (
-              <tr>
+              <tr role="row">
                 <td colSpan={4} role="status">
                   Loading Games
                 </td>

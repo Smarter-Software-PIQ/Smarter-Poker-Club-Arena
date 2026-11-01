@@ -9,7 +9,10 @@
 }
 .has-premium-chassis {
   width: 100%;
+  border: 0 !important;
   border-spacing: 0 !important;
+  background: #000 !important;
+  box-shadow: none !important;
 }
 .has-premium-chassis thead {
   display: table;
@@ -526,4 +529,45 @@
 .has-premium-chassis tbody tr[data-lightning-format='true'].is-cursor::before,
 .has-premium-chassis tbody tr[data-lightning-format='true'].is-selected::before {
   filter: grayscale(1) brightness(1.5);
+}
+
+/* The phone sort headings align with the same five bays; the star bay is empty. */
+.compact-lobby.has-premium-chassis thead {
+  display: block;
+}
+.compact-lobby.has-premium-chassis thead tr {
+  display: grid;
+  grid-template-columns: 29.5% 13.7% 15.4% 10.8% 30.6%;
+}
+.compact-lobby.has-premium-chassis thead th {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  grid-row: 1;
+  width: 100% !important;
+  min-width: 0;
+  height: 44px;
+  padding: 0 !important;
+  box-sizing: border-box;
+  background: #000;
+}
+.compact-lobby.has-premium-chassis thead th:first-child {
+  grid-column: 1;
+  padding-left: 6cqw !important;
+  text-align: center;
+}
+.compact-lobby.has-premium-chassis thead th:nth-child(2) {
+  grid-column: 2;
+}
+.compact-lobby.has-premium-chassis thead th:nth-child(3) {
+  grid-column: 3;
+}
+.compact-lobby.has-premium-chassis thead th:nth-child(4) {
+  grid-column: 5;
+  padding-right: 6cqw !important;
+}
+
+.compact-lobby.has-premium-chassis thead,
+.compact-lobby.has-premium-chassis thead tr {
+  background: #000 !important;
 }
