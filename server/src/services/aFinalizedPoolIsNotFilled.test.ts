@@ -27,6 +27,7 @@
  * (60 min): pinned in HorseConcurrency.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { orderHorseTournamentCandidates } from './HorseTournamentCandidateOrder.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -60,7 +61,6 @@ vi.mock('./errorReporter.js', () => ({ reportError: (...a: unknown[]) => reportE
 import {
   SEAT_FIRST_EMPTY_BUCKET_MS,
   TournamentRecurringService,
-  rampQueueRotation,
   seatFirstHeldEmpty,
 } from './TournamentRecurringService.js';
 
@@ -376,39 +376,40 @@ describe('3. a club board opens with its own members', () => {
   });
 });
 
-describe('4. the ramp queue rotates per event', () => {
-  it('two events ramped in the same hour do not start at the same horse', () => {
-    const pool = 300;
-    const starts = new Set<number>();
+describe('4. the ramp queue independently shuffles per event', () => {
+  const horses = Array.from({ length: 300 }, (_, i) => ({ id: `horse-${i}` }));
+  it('events ramped in the same hour do not all start at the same horse', () => {
+    const starts = new Set<string>();
     for (let i = 0; i < 200; i++) {
-      starts.add(rampQueueRotation(`event-${i}-0000-4000-8000-000000000000`, 0, pool));
+      starts.add(orderHorseTournamentCandidates(horses, `event-${i}`, 0)[0].id);
     }
-    // 200 draws over 300 slots: well over half distinct, never one value.
     expect(starts.size).toBeGreaterThan(100);
   });
-
-  it('is stable for one event within an hour and moves between hours', () => {
-    const id = 'aaaaaaaa-0000-4000-8000-000000000009';
-    expect(rampQueueRotation(id, 5, 100)).toBe(rampQueueRotation(id, 5, 100));
-    const byHour = new Set<number>();
-    for (let h = 0; h < 24; h++) byHour.add(rampQueueRotation(id, h, 100));
-    expect(byHour.size).toBeGreaterThan(12);
+  it('is stable within an hour and moves between hours', () => {
+    expect(orderHorseTournamentCandidates(horses, 'event', 5)).toEqual(
+      orderHorseTournamentCandidates(horses, 'event', 5)
+    );
+    const starts = new Set<string>();
+    for (let hour = 0; hour < 24; hour++)
+      starts.add(orderHorseTournamentCandidates(horses, 'event', hour)[0].id);
+    expect(starts.size).toBeGreaterThan(12);
   });
-
-  it('never indexes outside the pool', () => {
-    expect(rampQueueRotation('x', 3, 0)).toBe(0);
+  it('never invents or loses a candidate', () => {
+    expect(orderHorseTournamentCandidates([], 'event', 3)).toEqual([]);
     for (let n = 1; n < 20; n++) {
-      const r = rampQueueRotation('aaaaaaaa-0000-4000-8000-000000000001', 7, n);
-      expect(r).toBeGreaterThanOrEqual(0);
-      expect(r).toBeLessThan(n);
+      const pool = horses.slice(0, n);
+      expect(
+        orderHorseTournamentCandidates(pool, 'event', 7)
+          .map((h) => h.id)
+          .sort()
+      ).toEqual(pool.map((h) => h.id).sort());
     }
   });
-
-  it('registerHorses uses it for both queues', () => {
+  it('registerHorses uses the event shuffle for both ticket and wallet queues', () => {
     const body = method(SRC, 'private async registerHorses(');
-    expect(body).toContain('rampQueueRotation(tournamentId, hour, ticketPool.length)');
-    expect(body).toContain('rampQueueRotation(tournamentId, hour, walletPool.length)');
-    expect(body).not.toMatch(/\(hour \* 7919\) %/);
+    expect(body).toContain('orderHorseTournamentCandidates(ticketPool, tournamentId, hour)');
+    expect(body).toContain('orderHorseTournamentCandidates(walletPool, tournamentId, hour)');
+    expect(body).not.toContain('rampQueueRotation(');
   });
 });
 

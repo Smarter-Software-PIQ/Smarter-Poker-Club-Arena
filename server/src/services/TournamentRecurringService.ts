@@ -4,6 +4,7 @@ import {
   mttPrizeShare,
   mttPrestartArrivalTarget,
 } from './mttHorseArrivalPlan.js';
+import { orderHorseTournamentCandidates } from './HorseTournamentCandidateOrder.js';
 import { projectTournamentAdmission } from '../tournament/tournamentAdmission.js';
 import { fixedSngHorseCount } from './FixedSngHorsePlan.js';
 import {
@@ -1025,25 +1026,6 @@ export function seatFirstHeldEmpty(
  * prove two properties without a database: a busy horse is never selected,
  * and selection can reach the whole fleet rather than a stable first page.
  */
-/**
- * Where registerHorses starts walking its candidate queue for THIS event in
- * THIS hour: an offset in [0, poolLength). Pure, so the spread is pinned
- * without a database. The event id is in the seed so two events ramped in the
- * same hour start at different horses; the hour is in it so one event's queue
- * still moves along over the day (the old `(hour * 7919) % length` kept only
- * the second property, and one horse collected 34 bookings in an hour).
- */
-export function rampQueueRotation(
-  tournamentId: string,
-  hourUTC: number,
-  poolLength: number
-): number {
-  const n = Math.max(0, Math.floor(Number(poolLength) || 0));
-  if (n === 0) return 0;
-  const seed = (horseHash(`${tournamentId}:ramp-rotation`) ^ Math.imul(hourUTC, 7919)) >>> 0;
-  return mix32(seed) % n;
-}
-
 export function selectHorseCandidates(
   fleetIds: string[],
   busy: ReadonlySet<string>,
@@ -7464,20 +7446,16 @@ export class TournamentRecurringService {
          hour still moves everybody along, and the hourly spread the old note
          describes is kept. */
       const hour = new Date().getUTCHours();
-      const ticketRot = rampQueueRotation(tournamentId, hour, ticketPool.length);
-      const walletRot = rampQueueRotation(tournamentId, hour, walletPool.length);
-      // Backoff must be applied before the bounded offer slice. Otherwise
-      // deferred Horses occupy every offer and hide eligible candidates.
+      // A random event UUID seeds a full permutation, not a rotation of one
+      // common ring. Apply the existing deferral before bounded offers.
       const offerable = (horse: { id: string }) =>
         this.horseEntryBackoff.shouldAttempt(tournamentId, horse.id);
-      const orderedTickets = ticketPool
-        .slice(ticketRot)
-        .concat(ticketPool.slice(0, ticketRot))
-        .filter(offerable);
-      const orderedWallets = walletPool
-        .slice(walletRot)
-        .concat(walletPool.slice(0, walletRot))
-        .filter(offerable);
+      const orderedTickets = orderHorseTournamentCandidates(ticketPool, tournamentId, hour).filter(
+        offerable
+      );
+      const orderedWallets = orderHorseTournamentCandidates(walletPool, tournamentId, hour).filter(
+        offerable
+      );
       // Already-paid awards are not constrained by the ordinary funding quota.
       // Bound extra ticket offers, and never increase the ordinary wallet count.
       const recoveryTickets = orderedTickets.slice(0, Math.max(count, 25));
