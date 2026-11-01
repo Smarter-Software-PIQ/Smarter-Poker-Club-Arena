@@ -13,7 +13,7 @@
   },
   "schemaVersion": 1,
   "diamondLaunchMainInputMerge20261013": {
-    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1\u21923. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
+    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1→3. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
     "changes": {
       ".github/workflows/ci.yml": {
         "previous": {
@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272192,
-      "sha256": "eee56621ab0b351bd63a42bb1fb425e20ede9d8360446df8f934d68057aa323b"
+      "bytes": 272483,
+      "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -325,8 +325,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 119066,
-      "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
+      "bytes": 119330,
+      "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
     }
   },
   "nativePgCron": {
@@ -4037,7 +4037,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -5910,6 +5910,46 @@
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
   },
+  "chromiumHostedImageCompatibility20261031": {
+    "reason": "Only the three affected browser jobs (Diamond playfield, Production Build performance browser, CSS Beat) select proven free hosted Ubuntu24.04 because their locked browser installer refuses Ubuntu26.04. All matrices, commands, financial gates, assertions, deadlines and historical qualification receipts are preserved. Current source identity only.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "pgNetHostedImageCompatibility20261031": {
+    "reason": "Only accounting shard2 selects proven free hosted Ubuntu24.04 for unchanged pinned pg_net0.19.5 native compilation; all other accounting shards retain ubuntu-latest. Every matrix case, command, deadline, source/library pin and financial assertion remains unchanged. Current source identity only.",
+    "previous": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "current": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "pgNetAccountingRouteContract20261031": {
+    "reason": "Only four exact accounting runner expectations match the closed shard2 Ubuntu24.04 route. Current source identity only; all financial commands/assertions and historical evidence remain unchanged.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous": {
+      "bytes": 119070,
+      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+    },
+    "current": {
+      "bytes": 119330,
+      "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
   "standardUbuntuCompatibility20261101": {
     "scope": "Reuse only supported standard Ubuntu24.04 runner correction from57e8375; preserve this branch current CI commands, assertions and all historical evidence. Resolve source identity against actual integrated bytes, excluding unrelated shard/performance changes. Hosted validation pending.",
     "upstreamCommit": "57e8375c17ab705b638649f9927b25a932f45891",
@@ -5938,5 +5978,24 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "prestartClientRunnerIntegration20261101": {
+    "reason": "Preserve protected-main conditional accounting route and all historical qualification evidence while retaining only the existing client live-e2e and post-deploy browser Ubuntu24.04 compatibility correction. Current source identity only; no financial execution or qualification restamp.",
+    "protectedMain": "38a1c453c2eac2515e55cd94b439702e1b35be7c",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "sourceChanges": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 272484,
+          "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+        },
+        "current": {
+          "bytes": 272483,
+          "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
+        }
+      }
+    }
   }
 }

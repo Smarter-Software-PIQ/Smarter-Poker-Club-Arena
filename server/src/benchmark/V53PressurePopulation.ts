@@ -13,7 +13,8 @@ import { RANKS } from '../engine/PokerEngine.js';
 import { humanCalibratedPreflopPercentile } from './HumanCalibratedPopulation.js';
 import type { Plo4AblationPopulation } from './Plo4PolicyLeague.js';
 
-export const V53_PRESSURE_POPULATION_ID = 'v53_pressure_stress_v1';
+import { V53_PRESSURE_POPULATION_ID } from './HorseLeagueHumanField.js';
+export { V53_PRESSURE_POPULATION_ID };
 export const V53_PRESSURE_VARIANTS = Object.freeze(['nlh', 'plo4', 'plo5', 'plo6'] as const);
 
 function holdemDraw(hole: readonly Card[], board: readonly Card[]): boolean {
