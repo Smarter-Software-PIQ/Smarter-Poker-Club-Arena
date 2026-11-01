@@ -1,7 +1,10 @@
 /* Transport batching for the guarded PostgreSQL17.11 dumpFunc reader.
  * Included only by pg_dump.c. SQL statements, snapshot and rendering stay stock.
- * Consecutive selected function objects only; omitted components perform no work.
- * Never reorder around another selected object type.
+ * Read ahead selected DO_FUNC metadata only; stock rendering never moves.
+ * This intentionally supersedes the selected-nonfunction batch barrier: the
+ * pinned dumpFunc SELECT reads a stable catalog snapshot with the same secured
+ * search_path/session state throughout the object loop. Other object readers,
+ * including aggregates, still run through their unchanged stock paths.
  */
 #define CA_FUNCTION_BATCH_MAX 128
 #define CA_FUNCTION_BATCH_BYTES (128 * 1024 * 1024)
@@ -12,12 +15,31 @@ static PGresult *ca_batch_results[CA_FUNCTION_BATCH_MAX];
 static Oid ca_batch_oids[CA_FUNCTION_BATCH_MAX];
 static int ca_batch_count;
 static int ca_batch_next;
+static bool ca_batch_cleanup_registered;
+
+static void
+ca_function_batch_clear(void)
+{
+    int i;
+    for (i = 0; i < CA_FUNCTION_BATCH_MAX; i++)
+        if (ca_batch_results[i] != NULL)
+        {
+            PQclear(ca_batch_results[i]);
+            ca_batch_results[i] = NULL;
+        }
+}
 
 static PGresult *
 ca_function_batch_result(Archive *fout, const FuncInfo *finfo)
 {
     PGresult *result;
     int i;
+    if (!ca_batch_cleanup_registered)
+    {
+        if (atexit(ca_function_batch_clear) != 0)
+            pg_fatal("ISOLATED_FUNCTION_BATCH_CLEANUP");
+        ca_batch_cleanup_registered = true;
+    }
     if (ca_batch_next == ca_batch_count)
     {
         PQExpBuffer batch = createPQExpBuffer();
@@ -36,7 +58,7 @@ ca_function_batch_result(Archive *fout, const FuncInfo *finfo)
             if ((object->dump & object->components) == 0)
                 continue;
             if (object->objType != DO_FUNC)
-                break;
+                continue;
             ca_batch_oids[ca_batch_count++] = object->catId.oid;
             appendPQExpBuffer(batch, "EXECUTE dumpFunc('%u');", object->catId.oid);
         }

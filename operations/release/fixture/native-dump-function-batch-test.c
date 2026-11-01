@@ -16,11 +16,15 @@ typedef struct { int status, rows, fields, cleared; } PGresult;
 typedef struct { char data[8192]; } Buffer;
 typedef Buffer *PQExpBuffer;
 #define DO_FUNC 1
+#define DO_RELATION 2
+#define DO_TYPE 3
+#define DO_AGG 4
 #define PGRES_TUPLES_OK 2
 static const char *mode;
 static int sent, delivered, cleared, requests, query_open;
 static PGresult results[129];
 static const char *names[] = {"proretset","prosrc","probin","provolatile","proisstrict","prosecdef","lanname","proconfig","procost","prorows","funcargs","funciargs","funcresult","proleakproof","protrftypes","proparallel","prokind","prosupport","prosqlbody"};
+static void check_cleanup(void) { if(cleared!=delivered) _Exit(98); }
 static void pg_fatal(const char *message) { (void)message; exit(23); }
 static PQExpBuffer createPQExpBuffer(void) { return calloc(1,sizeof(Buffer)); }
 static void destroyPQExpBuffer(PQExpBuffer b) { free(b); }
@@ -34,7 +38,14 @@ static int PQsendQuery(void *connection,const char *sql) {
     (void)connection;
     if(!strcmp(mode,"send")) return 0;
     sent=delivered=0;requests++;
-    for(;*sql;sql++) if(*sql==';')sent++;
+    for(;*sql;sql++) {
+        if(*sql==';')sent++;
+        if((!strcmp(mode,"mixed") || !strcmp(mode,"partial")) &&
+           !strncmp(sql,"EXECUTE dumpFunc('",18)) {
+            unsigned oid=0;
+            if(sscanf(sql,"EXECUTE dumpFunc('%u'",&oid)!=1 || oid%4!=1)exit(100);
+        }
+    }
     if(sent<1||sent>128)exit(92);
     return 1;
 }
@@ -59,25 +70,36 @@ int main(int argc,char **argv) {
     Archive archive={0};int i,n;DumpableObject **objects;FuncInfo *functions;
     if(argc!=3)return 94;
     mode=argv[1];n=atoi(argv[2]);
+    if(!strcmp(mode,"partial"))atexit(check_cleanup);
     objects=calloc(n,sizeof(*objects));functions=calloc(n,sizeof(*functions));
     for(i=0;i<n;i++) {
         functions[i].dobj=(DumpableObject){DO_FUNC,1,1,{(Oid)(i+1)}};
-        if(i%137==136) functions[i].dobj.objType=2; /* preserved non-function boundary */
+        if(i%137==136) functions[i].dobj.objType=2; /* selected non-function remains stock-rendered */
         if(i%131==130) functions[i].dobj.dump=0; /* excluded component */
         if(!strcmp(mode,"excluded-boundary") && i%2==1) {
             functions[i].dobj.objType=2; functions[i].dobj.dump=0;
+        }
+        if(!strcmp(mode,"mixed") || !strcmp(mode,"partial")) {
+            functions[i].dobj.objType=1+i%4; /* FUNC, RELATION, TYPE, AGG */
+            functions[i].dobj.dump=1;
         }
         objects[i]=&functions[i].dobj;
     }
     ca_batch_objects=objects;ca_batch_objects_count=n;
     for(i=0;i<n;i++) {
         PGresult *r;ca_batch_position=i;
-        if(objects[i]->objType!=DO_FUNC || !objects[i]->dump)continue;
+        if(objects[i]->objType!=DO_FUNC || !objects[i]->dump) {
+            /* A stock nonfunction query can execute: prefetch fully drained. */
+            if(query_open || delivered!=sent)return 99;
+            if(!strcmp(mode,"partial"))exit(23);
+            continue;
+        }
         if(!strcmp(mode,"order") && i==1)ca_batch_oids[ca_batch_next]=99999;
         r=ca_function_batch_result(&archive,&functions[i]);PQclear(r);
     }
     if(ca_batch_count!=ca_batch_next || query_open)return 95;
-    if(!strcmp(mode,"excluded-boundary")) { if(requests!=1)return 97; }
+    if(!strcmp(mode,"mixed")) { if(requests!=((n+3)/4+127)/128 || cleared!=(n+3)/4)return 97; }
+    else if(!strcmp(mode,"excluded-boundary")) { if(requests!=1)return 97; }
     else if(n>128 && requests<2)return 95;
     free(objects);free(functions);return 0;
 }
