@@ -28,7 +28,7 @@
  * This pins each outcome to its own sentence, and pins the ranking against
  * ever naming a non-variant as the newest content.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -62,7 +62,7 @@ type Mode = 'retired' | 'resurrected';
  * either a zero-byte file or a deleted path could win the "most recently
  * committed" ranking, this fixture makes it win.
  */
-function runAudit(mode: Mode) {
+async function runAudit(mode: Mode, deadline: number, auditScript = AUDIT) {
   const sandbox = mkdtempSync(join(tmpdir(), 'estate-integrity-absent-'));
   sandboxes.push(sandbox);
   const bin = join(sandbox, 'bin');
@@ -146,27 +146,79 @@ function runAudit(mode: Mode) {
   );
   chmodSync(fakeGh, 0o755);
 
-  const result = spawnSync('bash', [AUDIT], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    // Local process startup can exceed20s on the shared Mac. Keep the child
-    // bounded independently of the fixture hook; no production deadline changes.
-    timeout: 60_000,
-    env: {
-      ESTATE_INJECT_REPO: 'Smarter-Poker-Diamond-Arena',
-      ESTATE_INJECT_RETIRED_PATH1:
-        '.github/workflows/agent-autopilot.yml|Smarter-Poker-Diamond-Arena|test',
-      ESTATE_INJECT_RETIRED_PATH2:
-        '.github/workflows/agent-open-pr.yml|Smarter-Poker-Diamond-Arena|test',
-      ...process.env,
-      ESTATE_FIXTURE_MODE: mode,
-      GH_TOKEN: 'fixture-read-token',
-      GH_TOKEN_ISSUES: 'fixture-issue-token',
-      GITHUB_REPOSITORY: 'Smarter-Poker/Smarter-Poker-Club-Arena',
-      GITHUB_STEP_SUMMARY: summary,
-      PATH: `${bin}:${process.env.PATH ?? ''}`,
-    },
-  });
+  const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
+    (resolveResult, reject) => {
+      let stdout = '';
+      let stderr = '';
+      let failure: Error | undefined;
+      let settled = false;
+      let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+      const child = spawn('bash', [auditScript], {
+        cwd: ROOT,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ESTATE_INJECT_REPO: 'Smarter-Poker-Diamond-Arena',
+          ESTATE_INJECT_RETIRED_PATH1:
+            '.github/workflows/agent-autopilot.yml|Smarter-Poker-Diamond-Arena|test',
+          ESTATE_INJECT_RETIRED_PATH2:
+            '.github/workflows/agent-open-pr.yml|Smarter-Poker-Diamond-Arena|test',
+          ...process.env,
+          ESTATE_FIXTURE_MODE: mode,
+          GH_TOKEN: 'fixture-read-token',
+          GH_TOKEN_ISSUES: 'fixture-issue-token',
+          GITHUB_REPOSITORY: 'Smarter-Poker/Smarter-Poker-Club-Arena',
+          GITHUB_STEP_SUMMARY: summary,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+        },
+      });
+      const finish = (status: number | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadlineTimer);
+        clearTimeout(cleanupTimer);
+        if (failure) reject(failure);
+        else resolveResult({ status, stdout, stderr });
+      };
+      const terminate = (error: Error) => {
+        if (settled || failure) return;
+        failure = error;
+        // Kill while the child is alive, including descendants holding pipes.
+        // A synchronous wait cannot enforce this when a shell traps SIGTERM.
+        try {
+          if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+          else child.kill('SIGKILL');
+        } catch (killError) {
+          if ((killError as NodeJS.ErrnoException).code !== 'ESRCH') failure = killError as Error;
+        }
+        cleanupTimer = setTimeout(
+          () => {
+            child.stdout.destroy();
+            child.stderr.destroy();
+            child.unref();
+            finish(null);
+          },
+          Math.max(1, Math.min(2_000, deadline + 2_000 - performance.now()))
+        );
+      };
+      const capture = (target: 'stdout' | 'stderr', chunk: Buffer) => {
+        if (failure || settled) return;
+        if (target === 'stdout') stdout += chunk.toString();
+        else stderr += chunk.toString();
+        if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 1024 * 1024) {
+          terminate(new Error('Estate fixture output exceeded its existing one MiB bound'));
+        }
+      };
+      const deadlineTimer = setTimeout(
+        () => terminate(new Error('Estate fixture exceeded the shared execution deadline')),
+        Math.max(1, deadline - performance.now())
+      );
+      child.stdout.on('data', (chunk: Buffer) => capture('stdout', chunk));
+      child.stderr.on('data', (chunk: Buffer) => capture('stderr', chunk));
+      child.on('error', terminate);
+      child.on('close', finish);
+    }
+  );
 
   const report = existsSync(summary) ? readFileSync(summary, 'utf8') : '';
   return { result, report, combined: `${result.stdout}\n${result.stderr}\n${report}` };
@@ -176,18 +228,22 @@ afterAll(() => {
   for (const sandbox of sandboxes.splice(0)) rmSync(sandbox, { recursive: true, force: true });
 });
 
-describe('LAW - the estate audit never calls a missing file an empty one', () => {
-  let retired: ReturnType<typeof runAudit>;
-  let resurrected: ReturnType<typeof runAudit>;
-  beforeAll(() => {
-    // Three independent assertions consume the identical retired scenario.
-    // Run both actual audit scenarios once, preserving all output assertions.
-    retired = runAudit('retired');
-    resurrected = runAudit('resurrected');
-  }, 150_000);
+// Three assertions consumed the identical retired-mode report, repeating the
+// full seven-repository audit. Under contention one run took37.459s despite
+// passing unchanged in7.57s/10.45s for the two modes in isolation. Run each
+// distinct mode once within the original four-test80s aggregate budget, leaving
+// two seconds for cleanup. Every output assertion and its20s limit stays.
+const audits = new Map<Mode, Awaited<ReturnType<typeof runAudit>>>();
+beforeAll(async () => {
+  const deadline = performance.now() + 78_000;
+  for (const mode of ['retired', 'resurrected'] as const) {
+    audits.set(mode, await runAudit(mode, deadline));
+  }
+}, 80_000);
 
+describe('LAW - the estate audit never calls a missing file an empty one', () => {
   it('reports an absent path as absent, an empty file as empty and an unreadable read as unknown', () => {
-    const { result, combined } = retired;
+    const { result, combined } = audits.get('retired')!;
 
     expect(result.status).toBe(1);
 
@@ -195,6 +251,7 @@ describe('LAW - the estate audit never calls a missing file an empty one', () =>
     // restoring a deleted file and filling an empty one are different jobs
     // with different owners.
     expect(combined).not.toContain('ZERO-BYTE');
+    expect(combined).not.toContain('RECORDED AS RETIRED');
     expect(combined).toMatch(/missing from:[^\n]*Smarter-Poker-Diamond-Arena/);
 
     // A file that exists and holds nothing keeps its own sentence.
@@ -208,7 +265,7 @@ describe('LAW - the estate audit never calls a missing file an empty one', () =>
   }, 20_000);
 
   it('never names a deleted path or a zero-byte file as the most recently committed copy', () => {
-    const { combined } = retired;
+    const { combined } = audits.get('retired')!;
 
     const leads = combined.match(/Most recently committed: \*\*[^*]+\*\* \([^)]*\)/g) ?? [];
     expect(leads.length, 'the ranking line disappeared entirely').toBeGreaterThan(0);
@@ -225,7 +282,7 @@ describe('LAW - the estate audit never calls a missing file an empty one', () =>
   }, 20_000);
 
   it('names the variant that is deliberate, so nobody repairs the wrong repo', () => {
-    const { combined } = retired;
+    const { combined } = audits.get('retired')!;
 
     expect(combined).toContain('Recorded deliberate variant');
     // Club Arena's reference-transaction hook is preventive on purpose and its
@@ -235,10 +292,46 @@ describe('LAW - the estate audit never calls a missing file an empty one', () =>
   }, 20_000);
 
   it('alarms if a recorded retirement is reversed without the record being updated', () => {
-    const { result, combined } = resurrected;
+    const { result, combined } = audits.get('resurrected')!;
 
     expect(result.status).toBe(1);
     expect(combined).toContain('RECORDED AS RETIRED');
     expect(combined).toContain('it is back');
   }, 20_000);
 });
+
+it('retires a timed-out fixture process group even when it ignores TERM and holds pipes', async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), 'estate-fixture-timeout-'));
+  sandboxes.push(sandbox);
+  const script = join(sandbox, 'hold-pipes.sh');
+  const pids = join(sandbox, 'pids');
+  writeFileSync(
+    script,
+    `#!/usr/bin/env bash
+trap '' TERM
+sleep 60 &
+printf '%s %s' "$$" "$!" > '${pids}'
+wait
+`
+  );
+  const started = performance.now();
+  await expect(runAudit('retired', started + 1_000, script)).rejects.toThrow(
+    'Estate fixture exceeded the shared execution deadline'
+  );
+  expect(performance.now() - started).toBeLessThan(4_000);
+  const pid = Number(readFileSync(pids, 'utf8').split(' ')[0]);
+  const groupExists = () => {
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      return false;
+    }
+  };
+  const reapedBy = performance.now() + 2_000;
+  while (groupExists() && performance.now() < reapedBy) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+  expect(groupExists(), 'the retired fixture still owns a process group').toBe(false);
+}, 20_000);
