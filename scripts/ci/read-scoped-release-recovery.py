@@ -1620,8 +1620,6 @@ def _serving_boot_id(deadline):
 
 def serving_role_remote(request):
     request = selection(request)
-    if request.get('mode') == 'active_control_inventory':
-        return validate_control_inventory(control_inventory(request),request)
     if request.get('mode') != 'current_serving_inspector_role':
         raise ValueError('Exact current serving identity required')
     deadline = time.monotonic() + 8
@@ -2331,6 +2329,8 @@ def _control_inventory_at(request,parent,repo):
         if (entries!=sorted(os.listdir(fd)) or link.resolve(strict=True)!=target
             or any(identity(os.stat(n,dir_fd=fd,follow_symlinks=False))!=v for n,v in identities.items())):
             raise ValueError('Control inventory refused')
+        if manifest is not None and read('generation-files')!=manifest:
+            raise ValueError('Control inventory refused')
         try: control_matches=read('control-sha').decode('ascii').strip()==sha
         except (OSError,UnicodeError,ValueError): control_matches=False
         return {'schema':'active-control-inventory/v1','readOnly':True,**request,'activeControlSha':sha,
@@ -2372,6 +2372,8 @@ def validate_control_inventory(value,request):
 
 def remote(request):
     request = selection(request)
+    if request.get('mode') == 'active_control_inventory':
+        return validate_control_inventory(control_inventory(request),request)
     if request.get('mode') == 'native_scale_records':
         return validate_scale_reply(scale_remote(request), request)
     if request.get('mode') == 'current_serving_inspector_role':

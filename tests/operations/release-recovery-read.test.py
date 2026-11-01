@@ -2334,6 +2334,30 @@ class NativeCheckpointIntentTests(unittest.TestCase):
 
 
 class ControlInventoryTests(unittest.TestCase):
+    def test_actual_remote_entry_selects_inventory_without_legacy_state_read(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent,generation,source=self.fixture(folder)
+            with patch.object(R.subprocess,'run',side_effect=self.git(source)):
+                value=R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+            with patch.object(R,'control_inventory',return_value=value) as inventory,patch.object(R.os,'open',side_effect=AssertionError('legacy state must not open')):
+                self.assertEqual(R.remote(R.CONTROL_REQUEST),value)
+            inventory.assert_called_once_with(R.CONTROL_REQUEST)
+
+    def test_manifest_race_before_entry_snapshot_is_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent,generation,source=self.fixture(folder)
+            original_stat=R.os.stat;changed=False
+            def race(path,*args,**kwargs):
+                nonlocal changed
+                if path=='control-sha' and kwargs.get('dir_fd') is not None and not changed:
+                    changed=True
+                    manifest=generation/'generation-files'
+                    manifest.write_text(manifest.read_text()+'engine-up.sh\n')
+                return original_stat(path,*args,**kwargs)
+            with patch.object(R.subprocess,'run',side_effect=self.git(source)),patch.object(R.os,'stat',side_effect=race),self.assertRaisesRegex(ValueError,'Control inventory refused'):
+                R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+            self.assertTrue(changed)
+
     def fixture(self, folder):
         parent=Path(folder);sha='a'*40
         generation=parent/'engine-control-generations'/sha;generation.mkdir(parents=True)
