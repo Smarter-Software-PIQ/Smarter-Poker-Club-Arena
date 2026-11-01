@@ -3,7 +3,7 @@
  * Read ahead selected DO_FUNC metadata only; stock rendering never moves.
  * This intentionally supersedes the selected-nonfunction batch barrier: the
  * pinned dumpFunc SELECT reads a stable catalog snapshot with the same secured
- * search_path/session state throughout the object loop. Sequence CONFIG reads
+ * search_path/session state throughout the object loop. Sequence CONFIG and view DEFINITION reads
  * share the aggregate cache budget below; all stock rendering/ACL paths and
  * aggregate readers remain unchanged.
  */
@@ -17,10 +17,10 @@ static Oid ca_batch_oids[CA_FUNCTION_BATCH_MAX];
 static int ca_batch_count;
 static int ca_batch_next;
 static bool ca_batch_cleanup_registered;
-/* One aggregate bound, never two independent 128-result/128MiB caches. */
+/* One aggregate bound, never independent 128-result/128MiB caches. */
 static size_t ca_metadata_cached_bytes;
 static int ca_metadata_cached_results;
-static int ca_metadata_cache_owner; /* 0 empty, 1 function, 2 sequence */
+static int ca_metadata_cache_owner; /* 0 empty, 1 function, 2 sequence, 3 view */
 static size_t ca_batch_result_bytes[CA_FUNCTION_BATCH_MAX];
 
 static bool
@@ -94,9 +94,9 @@ ca_function_batch_result(Archive *fout, const FuncInfo *finfo, const char *stock
         "funcargs", "funciargs", "funcresult", "proleakproof", "protrftypes",
         "proparallel", "prokind", "prosupport", "prosqlbody"
     };
-    /* A live sequence batch keeps its exclusive cache; use the exact stock
+    /* A live sibling batch keeps its exclusive cache; use the exact stock
      * singleton query and validate its result against the remaining total cap. */
-    if (ca_metadata_cache_owner == 2)
+    if (ca_metadata_cache_owner != 0 && ca_metadata_cache_owner != 1)
     {
         size_t bytes;
         result = ExecuteSqlQueryForSingleRow(fout, stock_query);

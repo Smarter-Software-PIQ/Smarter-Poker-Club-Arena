@@ -626,7 +626,7 @@ elapsed/max microseconds for UNKNOWN, FUNCTION_BATCH, FUNCTION_SINGLE, AGGREGATE
 SEQUENCE_BATCH, SEQUENCE_SINGLE, COLUMN_ACL, VIEW_DEFINITION, PARTITION_KEY,
 FOREIGN_OPTIONS, TYPE_NAME, EXTENSION_DEPENDENCY, PREPARE and TYPE_METADATA.
 
-Raw function/sequence batch sites supply their fixed code. Singleton readers use
+Raw function/sequence/view batch sites supply their fixed code. Singleton readers use
 strict pinned fixed-prefix classification; unsupported prefixes or incompatible
 object contexts stay UNKNOWN. No SQL, object identifiers, names or result rows
 enter the channel. Both independent decoders enforce subtype/type/pair bounds;
@@ -658,7 +658,7 @@ unchanged identity, ownership, ACL and CREATE/ALTER logic. The complete
 last_value/is_called sequence DATA reader is byte-identical and never batched.
 Older server branches retain their original single-reader behavior.
 
-Function and sequence metadata share one total128-result/128MiB bound. A live
+Function, sequence and view metadata share one total128-result/128MiB bound. A live
 cache keeps exclusive ownership; the other reader executes its exact original
 single query and validates that result together with the remaining cache.
 Neither reader creates an independent second full cache. Results fully drain
@@ -711,3 +711,32 @@ survive cleanup failure, while incomplete cleanup remains visible and refuses
 success. Capture8's historical finer cause remains unknown because it lacked
 these phase facts. Linux native qualification and a changed connected capture
 remain required before any15-case claim.
+
+### Bounded selected view definitions
+
+The PG17.11 view reader batches only selected DO_TABLE DEFINITION objects that
+are ordinary non-dummy views or materialized views. It sends at most128 of the
+exact original per-OID pg_get_viewdef SELECT statements in one fully drained
+request, on the original snapshot/secured search_path/session. Results retain
+ordinal/OID and are consumed by the unchanged createViewAsClause at the original
+render position. Deferred DO_RULE view replacements and unknown callers retain
+the stock singleton; dummy-view creation never uses this reader. No TYPE_NAME
+reader or cache changes. Stock SQL, semicolon handling, view options, ownership,
+ACLs and all other render paths remain.
+
+All three metadata readers share one exclusive total128-result/128MiB accounting
+domain. An occupied sibling cache forces a bounded stock singleton. Malformed,
+NULL, empty, missing/extra, failed or reordered results refuse; owned cached
+results clear on process exit. Existing VIEW_DEFINITION diagnostics count actual
+network requests, including a batch, without changing D5 tags/events or caps.
+The512KiB/100000-record/45-second limits remain.
+
+The v4 source-bound capability requires the view helper hash plus actual native
+stock SQL parity for135 views/materialized views, including129 ordinary views,
+quoted cross-schema ACL/options, circular dummy/deferred definitions, excluded
+views and zero/one filters. The many-view filter proves130 definitions use two
+requests; the excluded cohort proves only its one materialized view is queried.
+The compiled C contract includes a stock-singleton129-view RED versus bounded
+reader GREEN, shared function/sequence interleaving, result/ordinal/total-cap
+faults, partial exits and SIGINT. These are controlled qualification facts, not
+production latency estimates or proof of connected capture/restore or15cases.

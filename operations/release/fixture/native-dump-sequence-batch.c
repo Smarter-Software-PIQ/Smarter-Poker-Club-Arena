@@ -1,6 +1,6 @@
 /* Pinned PG17 sequence CONFIG metadata only. Stock rendering, OWNED BY, ACLs
  * and dumpSequenceData stay untouched. Included after the function helper so
- * both readers use one aggregate128-result/128MiB accounting domain. */
+ * all readers use one aggregate128-result/128MiB accounting domain. */
 static PGresult *ca_sequence_results[CA_FUNCTION_BATCH_MAX];
 static size_t ca_sequence_result_bytes[CA_FUNCTION_BATCH_MAX];
 static Oid ca_sequence_oids[CA_FUNCTION_BATCH_MAX];
@@ -33,7 +33,7 @@ ca_sequence_batch_result(Archive *fout, const TableInfo *tbinfo,
         return ExecuteSqlQuery(fout, stock_query, PGRES_TUPLES_OK);
     /* Never overlap caches. The returned singleton remains stock-owned and is
      * checked together with all live cached results before handing it back. */
-    if (ca_metadata_cache_owner == 1)
+    if (ca_metadata_cache_owner != 0 && ca_metadata_cache_owner != 2)
     {
         size_t bytes;
         result = ExecuteSqlQuery(fout, stock_query, PGRES_TUPLES_OK);
