@@ -119,7 +119,7 @@ describe('the panel tells the owner the truth about whose money it is', () => {
   });
 
   it('takes canManage from the route response, never from owner_kind', () => {
-    expect(panel).toMatch(/setRouteCanManage\(Boolean\(res\.canManage\)\)/);
+    expect(panel).toMatch(/setRouteCanManage\(res\.canManage === true\)/);
     expect(service).toMatch(/canManage: boolean/);
   });
 
