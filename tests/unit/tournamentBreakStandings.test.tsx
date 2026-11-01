@@ -32,6 +32,7 @@ vi.mock('../../src/lib/supabase', () => ({
       let statuses: string[] | null = null;
       const query: any = {
         select: () => query,
+        abortSignal: () => query,
         eq: () => query,
         order: () => query,
         gt: (_: string, id: string) => {

@@ -19,6 +19,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import { reportError } from '../utils/errorReporter';
 import { isUnlimitedMtt } from '../../server/src/tournament/tournamentEntryCapacity';
 import {
@@ -157,7 +158,7 @@ class TournamentScheduleService {
       error?: string;
       message?: string;
     } | null;
-    if (!res?.ok || !res.schedule_id) {
+    if (res?.ok !== true || typeof res.schedule_id !== 'string' || !res.schedule_id.trim()) {
       throw new Error(scheduleErrorText(res?.error, res?.message));
     }
     return res.schedule_id;
@@ -174,7 +175,7 @@ class TournamentScheduleService {
         throw new Error('Could not update the schedule.');
       }
       const res = data as { ok?: boolean; error?: string } | null;
-      if (!res?.ok) throw new Error(scheduleErrorText(res?.error));
+      if (res?.ok !== true) throw new Error(scheduleErrorText(res?.error));
       return;
     }
     await this.deactivate(scheduleId);
@@ -190,23 +191,28 @@ class TournamentScheduleService {
       throw new Error('Could not deactivate the schedule.');
     }
     const res = data as { ok?: boolean; error?: string } | null;
-    if (!res?.ok) throw new Error(scheduleErrorText(res?.error));
+    if (res?.ok !== true) throw new Error(scheduleErrorText(res?.error));
   }
 
   /** All schedules owned by a union, newest first. */
-  async listForUnion(unionId: string): Promise<TournamentScheduleRow[]> {
-    const { data, error } = await supabase
-      .from('tournament_schedules')
-      .select(
-        'id, union_id, club_id, name, description, active, days_of_week, start_times_utc, interval_minutes, config, time_zone, created_at, updated_at'
-      )
-      .eq('union_id', unionId)
-      .order('created_at', { ascending: false });
-    if (error) {
-      reportError(error, 'TournamentScheduleService.listForUnion');
-      return [];
+  async listForUnion(unionId: string, signal?: AbortSignal): Promise<TournamentScheduleRow[]> {
+    const { data, error } = await runWithRequestDeadline(
+      (requestSignal) =>
+        supabase
+          .from('tournament_schedules')
+          .select(
+            'id, union_id, club_id, name, description, active, days_of_week, start_times_utc, interval_minutes, config, time_zone, created_at, updated_at'
+          )
+          .eq('union_id', unionId)
+          .order('created_at', { ascending: false })
+          .abortSignal(requestSignal),
+      { signal }
+    );
+    if (error || !Array.isArray(data)) {
+      if (error) reportError(error, 'TournamentScheduleService.listForUnion');
+      throw new Error('Could Not Load Recurring Schedules.');
     }
-    return (data as TournamentScheduleRow[]) || [];
+    return data as TournamentScheduleRow[];
   }
 }
 

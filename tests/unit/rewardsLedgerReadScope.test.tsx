@@ -15,9 +15,20 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: (table: string) => {
-      const args = { table, event: '', cursor: '', from: 0, limit: 1000 };
+      const args = {
+        table,
+        event: '',
+        cursor: '',
+        from: 0,
+        limit: 1000,
+        signal: undefined as AbortSignal | undefined,
+      };
       const q = {
         select: () => q,
+        abortSignal: (signal: AbortSignal) => {
+          args.signal = signal;
+          return q;
+        },
         eq: (_: string, value: string) => {
           args.event = value;
           return q;
@@ -66,6 +77,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
   feed.listeners.clear();
 });
@@ -204,5 +216,145 @@ describe('Rewards reads only the complete ledger for the selected event', () => 
     await waitFor(() =>
       expect(pool(view.container).textContent).toContain('The Bounty Pool Is Not Funded Yet')
     );
+  });
+});
+
+const flush = async () => {
+  await act(async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  });
+};
+describe('Rewards pending reads and recorded awards', () => {
+  it.each(['tournament_players', 'tournament_bounties'])(
+    'bounds an unanswered first %s page and ignores late rows',
+    async (table) => {
+      vi.useFakeTimers();
+      let finish!: (v: unknown) => void;
+      const pending = new Promise((resolve) => {
+        finish = resolve;
+      });
+      db.read.mockImplementation((a) => (a.table === table ? pending : { data: [], error: null }));
+      const view = render(<RewardsTab {...props('first')} />);
+      await flush();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+      });
+      expect(pool(view.container).textContent).toContain('The Bounty Pool Could Not Be Read');
+      expect(db.read.mock.calls.find(([a]) => a.table === table)![0].signal.aborted).toBe(true);
+      await act(async () => finish({ data: heads, error: null }));
+      expect(pool(view.container).textContent).toContain('The Bounty Pool Could Not Be Read');
+      expect(db.read).toHaveBeenCalledTimes(2);
+    }
+  );
+  it.each(['tournament_players', 'tournament_bounties'])(
+    'rejects partial rows when the next %s page never answers',
+    async (table) => {
+      vi.useFakeTimers();
+      db.read.mockImplementation((a) =>
+        a.table !== table
+          ? { data: [], error: null }
+          : a.cursor
+            ? new Promise(() => {})
+            : {
+                data: Array.from({ length: 1000 }, (_, i) => ({
+                  id: String(i).padStart(5, '0'),
+                  current_bounty: 1,
+                  bounty_amount: 1,
+                  status: 'playing',
+                })),
+                error: null,
+              }
+      );
+      const view = render(<RewardsTab {...props('first')} />);
+      await flush();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+      });
+      expect(pool(view.container).textContent).toContain('The Bounty Pool Could Not Be Read');
+      expect(pool(view.container).textContent).not.toContain('1,000');
+      expect(db.read).toHaveBeenCalledTimes(3);
+    }
+  );
+  it('keeps verified rows after a hung refresh and accepts the next event refresh', async () => {
+    vi.useFakeTimers();
+    const view = render(<RewardsTab {...props('first')} />);
+    await flush();
+    expect(pool(view.container).textContent).toContain('125');
+    db.read.mockImplementation(() => new Promise(() => {}));
+    await act(async () => feed.listeners.get('first')?.());
+    await flush();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(pool(view.container).textContent).toContain('125');
+    db.read.mockImplementation(({ table }) => ({
+      data: table === 'tournament_players' ? [{ ...heads[0], current_bounty: 250 }] : [],
+      error: null,
+    }));
+    await act(async () => feed.listeners.get('first')?.());
+    await flush();
+    expect(pool(view.container).textContent).toContain('250');
+    expect(db.read).toHaveBeenCalledTimes(6);
+  });
+  it('releases exactly one queued event refresh after timeout and aborts the retired event', async () => {
+    vi.useFakeTimers();
+    db.read.mockImplementation(() => new Promise(() => {}));
+    const view = render(<RewardsTab {...props('first')} />);
+    await flush();
+    const firstSignals = db.read.mock.calls.map(([a]) => a.signal);
+    await act(async () => {
+      for (let i = 0; i < 8; i++) feed.listeners.get('first')?.();
+    });
+    db.read.mockImplementation(({ table }) => ({
+      data: table === 'tournament_players' ? heads : [],
+      error: null,
+    }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    await flush();
+    expect(pool(view.container).textContent).toContain('125');
+    expect(db.read).toHaveBeenCalledTimes(4);
+    expect(firstSignals.every((s) => s.aborted)).toBe(true);
+    db.read.mockImplementation(() => new Promise(() => {}));
+    await act(async () => feed.listeners.get('first')?.());
+    await flush();
+    const oldSignals = db.read.mock.calls.slice(4).map(([a]) => a.signal);
+    view.rerender(<RewardsTab {...props('second')} />);
+    await flush();
+    expect(oldSignals.every((s) => s.aborted)).toBe(true);
+    expect(pool(view.container).textContent).toContain('Loading The Bounty Pool');
+    expect(pool(view.container).textContent).not.toContain('125');
+  });
+  it('prints a recorded zero for a finished player and keeps projection for an unfilled place', () => {
+    const p = props('ordinary');
+    Object.assign(p.tournament, {
+      is_bounty: false,
+      status: 'COMPLETED',
+      prize_pool: 100,
+      payout_structure: [
+        { place: 1, percentage: 60 },
+        { place: 2, percentage: 40 },
+      ],
+    });
+    p.entries = [
+      {
+        id: 'entry',
+        user_id: 'player',
+        username: 'Finisher',
+        status: 'winner',
+        position: 1,
+        prize: 0,
+        chips: 0,
+      },
+    ] as TournamentTabProps['entries'];
+    const view = render(<RewardsTab {...p} />);
+    const rows = view.container.querySelectorAll('.rw-payouts .rw-prize');
+    expect(rows[0].textContent).toBe('0');
+    expect(rows[1].textContent).toBe('40');
+    view.rerender(
+      <RewardsTab {...p} entries={p.entries.map((e) => ({ ...e, prize: undefined }))} />
+    );
+    expect(view.container.querySelector('.rw-payouts .rw-prize')!.textContent).toBe('60');
   });
 });

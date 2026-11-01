@@ -501,10 +501,11 @@ export default function TournamentDetails({
      day is recognised two ways: this page watched the event sit BAGGED, or the
      stage view (capability available and a sealed plan) says the current day
      is past Day 1. While that read is still answering, the auto-open waits. */
-  const { view: stageView, loading: stageViewLoading } = useTournamentStageView(
-    tournamentId,
-    tournament?.status ?? null
-  );
+  const {
+    view: stageView,
+    loading: stageViewLoading,
+    unknown: stageViewUnknown,
+  } = useTournamentStageView(tournamentId, tournament?.status ?? null);
   const baggedNow = isBaggedStatus(tournament?.status);
   useEffect(() => {
     if (baggedNow) setSawBagged(true);
@@ -524,6 +525,7 @@ export default function TournamentDetails({
      * trying to infer where it is being rendered. */
     if (suppressAutoOpenTable) return;
     if (laterDay || stageViewLoading) return;
+    if (stageViewUnknown) return;
     if (tournament?.status !== 'RUNNING') return;
     if (!user?.id) return;
     if (autoOpenedTableRef.current) return;
@@ -548,6 +550,7 @@ export default function TournamentDetails({
     snapshotReady,
     laterDay,
     stageViewLoading,
+    stageViewUnknown,
   ]);
 
   // ── Realtime subscription: live tournament updates ──
