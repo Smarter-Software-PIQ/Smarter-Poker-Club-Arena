@@ -11,7 +11,7 @@ const recovery = " && vars.CA_REQUIRED_NATIVE_PROFILE == 'large'";
 const expression = (standard: string) =>
   '$' + '{{ ' + trusted + recovery + " && 'ca-linux-8core' || '" + standard + "' }}";
 const jobs = [
-  ['accounting_postgres', ci.jobs.accounting_postgres, 'ubuntu-latest'],
+  ['accounting_postgres', ci.jobs.accounting_postgres, 'ubuntu-24.04'],
   ['server_shards', ci.jobs.server_shards, 'ubuntu-latest'],
   ['native-smoke', native.jobs['native-smoke'], 'ubuntu-24.04'],
 ] as const;
@@ -278,7 +278,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       normalized.jobs[name]['runs-on'] = formerClientRoute.replace('4core', '8core');
     }
     for (const name of ['accounting_postgres', 'server_shards']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'accounting_postgres' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = expression('ubuntu-latest');
     }
     expect(normalized.jobs.unit_shards.env.VITEST_MAX_THREADS).toBe(8);

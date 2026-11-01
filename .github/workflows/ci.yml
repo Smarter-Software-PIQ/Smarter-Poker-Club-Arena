@@ -1394,7 +1394,9 @@ jobs:
     name: Accounting transactions (PostgreSQL 17) shard ${{ matrix.shard }}/7
     # Standard GitHub-hosted runners are free for this public repository.
     # Preserve the complete qualification matrix and fail-closed required verdict.
-    runs-on: ubuntu-latest
+    # Pinned pg_net 0.19.5 does not compile against Ubuntu 26.04 curl headers.
+    # Keep the existing native qualification on its compatible hosted image.
+    runs-on: ubuntu-24.04
     # Run 35276340849 reached V31 after 26m13s and exhausted the 30m job cap.
     # V31 passed in 4m31s in 35276304884. Keep room for hosted runtime variance;
     # every case, statement, cleanup deadline and required gate stays unchanged.
