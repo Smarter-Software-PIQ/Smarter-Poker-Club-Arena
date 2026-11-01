@@ -165,11 +165,6 @@ describe('full persisted session hand statistics', () => {
       expect(src).toContain('useSessionHandStats');
       expect(src).toContain('persistedHands.handsPlayed');
     }
-    const app = readFileSync('src/App.tsx', 'utf8');
-    expect(app).toContain("import('./components/session/SessionSummaryHost')");
-    expect(app).toContain("import('./components/tournament/TournamentRankingHost')");
-    expect(app).not.toContain("from './components/session/SessionSummaryHost'");
-    expect(app).not.toContain("from './components/tournament/TournamentRankingHost'");
     const workflow = readFileSync('scripts/ci/test-data-console-postgres-contracts.sh', 'utf8');
     expect(workflow).toContain('python3 -B "$repo/scripts/ci/test-full-session-hands-postgres.py"');
   });

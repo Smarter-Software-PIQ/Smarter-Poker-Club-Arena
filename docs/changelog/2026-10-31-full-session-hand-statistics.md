@@ -8,4 +8,4 @@ Reads run on open, reconnect, visibility return, completed hand, confirmed sessi
 
 Validation includes isolated PostgreSQL 17 execution with 1,205 tournament hands across tables, cash A-to-B-to-A moves with removed source seats, independent concurrent table exclusion, closed/fresh sittings, Diamond custody, incomplete fact coverage, replay and permissions; hook tests exercise loading, failures, reconnect, final settlement and stale asynchronous results. The required accounting workflow executes the maintained SQL test through the existing Data Console PostgreSQL step. See CHECKPOINT-full-session-hands.md for exact delivery state and evidence.
 
-The final-result hosts use the existing lazy/Suspense boundary so this reader does not enter first paint. Stored reports are still read on host initialization; the entry-module and bundle-size gates remain unchanged.
+The existing app-root result hosts and their stylesheet-loading behavior are preserved. Their small shared stats hook is explicitly reviewed through one entry-chunk fragment; the Lightning registry remains dynamically loaded. The entry baseline, numeric bundle budget and animation assertions are unchanged.
