@@ -9,6 +9,16 @@ receipt. Module: `server/src/engine/HorseGtoVs3BetRanges.ts`. Wiring:
 `HorseLogic.ts` (the spot and its read), `HorsePreflop.ts` ("Facing a 3-bet
 or bigger").
 
+**Revision (follow-up to #9088).** #9088 shipped the share as a per-seat
+table scaled by the square root of the 3-bet multiple and +4% with an ante.
+The follow-up derives it instead from the price of the actual 3-bet (its
+minimum defence frequency into the live pot, so size, blinds and ante are
+one arithmetic) times a per-seat, in / out of position equity multiplier,
+as written under "The fix" below. At the reference geometry the shares are
+unchanged; away from it the ante tournament widens (MTT 9-max UTG vs a big
+blind 3-bet 35.1% -> 28.1% fold) and a 5x blind 3-bet narrows a little more
+honestly with its price. No bet size changes.
+
 ## Measured first (production, SELECT only)
 
 Horses that made the only open and then faced one 3-bet, no-limit hold'em,
@@ -69,28 +79,58 @@ straddled, three or more dealt in, the 3-bettor not all-in, the 3-bet 1.8x to
   index (SB 1, BTN 2, CO 3, HJ 4, LJ 5, UTG+2 6, UTG+1 7, nine-handed UTG 8),
   from the dealt census. The opener is in position when the 3-bettor is a
   blind and the opener is not.
-- **Width = a share of the opener's own open.** The continue (call or 4-bet)
-  width is `share x open width`, where the open width is V70's per-seat target
-  for this table (cash / ante, three-handed) at the horse's own tightness
-  (the tightness moves the open, so it is applied there and NOT again to the
-  share: every style folds a similar share of what it actually opened).
-  Shares at 100bb against the reference size:
+- **Width = a share of the opener's own open, derived from the price.** The
+  continue (call or 4-bet) width is `share x open width`, where the open
+  width is V70's per-seat target for this table (cash / ante, three-handed)
+  at the horse's own tightness (the tightness moves the open, so it is
+  applied there and NOT again to the share). The share is reasoned, not a
+  fold-percentage target:
+  1. **The price (minimum defence frequency).** A 3-bet that adds R chips to
+     a pot of P (the open, the blinds, any ante) must be continued against at
+     least MDF = P / (P + R) of the time, or it profits with any two cards.
+     `vs3BetMdf` computes it from the live pot and the 3-bettor's new chips
+     (its raise-to less the blind it had posted), so the 3-bet size, the
+     blinds and the ante are one arithmetic. Reference geometry (2.5bb open,
+     blinds 1.5bb): a blind 3-bets to 10bb, MDF 30.8% (opener in position); a
+     later seat 3-bets to 7.5bb, MDF 34.8% (opener out of position); the big
+     blind 3-bets a 3bb small-blind open to 9bb, MDF 33.3%.
+  2. **The equity multiplier over MDF, by opener seat and position.** MDF
+     treats a call as worth nothing; preflop a continuing hand keeps equity
+     against the 3-bettor's range and realises part of it. Earlier openers
+     hold stronger ranges (UTG is the top 11-16% of hands, nearly all keeping
+     35-45% against a 3-betting range) so their multiplier is larger; the
+     opener with position on every later street realises more, so the
+     in-position row is above the out-of-position row at every seat; the
+     small blind (widest range, always out of position) is lowest. Values
+     are the reference solver shapes (100bb 6-max: button vs a big-blind
+     3-bet continues roughly 45-50% of its open, UTG roughly 60%) divided by
+     the reference MDF, held to the hands the charts admit (an opener's
+     offsuit unpaired hands other than AKo / AQo fold to a big 3-bet by
+     Dan's rule 1, 35-55% of a late open, so they are never inside the
+     width):
 
-  | opener          | SB  | BTN | CO  | HJ  | LJ  | UTG+2 | UTG+1 | UTG (9) |
-  | --------------- | --- | --- | --- | --- | --- | ----- | ----- | ------- |
-  | in position     | -   | 46  | 50  | 54  | 58  | 60    | 61    | 62      |
-  | out of position | 44  | -   | 50  | 53  | 56  | 58    | 59    | 60      |
+     | opener          | SB   | BTN  | CO   | HJ   | LJ   | UTG+2 | UTG+1 | UTG (9) |
+     | --------------- | ---- | ---- | ---- | ---- | ---- | ----- | ----- | ------- |
+     | in position     | -    | 1.50 | 1.62 | 1.75 | 1.88 | 1.95  | 1.98  | 2.01    |
+     | out of position | 1.32 | -    | 1.44 | 1.52 | 1.61 | 1.67  | 1.70  | 1.72    |
 
-  Scaled by `sqrt(reference / size)` bounded 0.75-1.2 (reference 4x for a
-  blind 3-bettor, 3x for an in-position one), widened up to 15% at 25bb (from
-  40bb down), narrowed up to 5% by the V21 deep scale past 120bb (zero at
-  120bb, full at 250bb; the stack-off discipline lives on the 4-bet and 5-bet
-  bars, which are unchanged), and +4% with an ante.
+     At the reference geometry these give shares of the open: in position
+     BTN 46, CO 50, HJ 54, LJ 58 .. UTG 62; out of position SB 44, CO 50,
+     HJ 53, LJ 56 .. UTG 60.
 
-  These shares sit above a solver's because Dan's dominated-offsuit rule
-  folds an opener's offsuit unpaired hands other than AKo / AQo to any 3-bet
-  of 2.5x or more, and those are 35-55% of a late open. The share is what
-  continues of everything else.
+  3. **Away from the reference price** the share follows the MDF ratio with
+     elasticity 0.5 (`V73_PRICE_ELASTICITY`), the ratio held to 0.7-1.4:
+     MDF is the floor that stops a zero-equity bluff, and the equity above
+     it does not grow or shrink with the price, so a cheaper 3-bet admits the
+     next hands down rather than scaling the range. A 5x blind 3-bet
+     continues ~8% less of the open, a 3x one ~11% more, a 1bb big-blind
+     ante ~8% more.
+  4. **Depth.** Under 40bb the continuing hand plays at a stack-to-pot ratio
+     near one and realises nearly all its equity: up to +15% at 25bb (below
+     25bb the jam-or-fold zones own the spot and V73 does not apply). Past
+     120bb the V21 deep scale narrows the share by up to 5% (full at 250bb);
+     the stack-off discipline itself is on the 4-bet and 5-bet bars, which
+     are unchanged.
 
 - **Order.** Hands are read on a continue order blended between a late-opener
   chart (button vs a blind 3-bet) and an early-opener chart (UTG vs a 3-bet),
@@ -104,16 +144,21 @@ straddled, three or more dealt in, the 3-bettor not all-in, the 3-bet 1.8x to
 - **In HorsePreflop.** The call bar becomes `capBar(continueBar + ICM
 premium)` minus the hunter / squeeze reads plus the Phase 6 shift, and the
   call reads the hand on the V73 order. The V57 / V60 call widening and the
-  general price relief are not added on top (the per-seat width owns the
-  call, and the 3-bet size is already priced); the committed-stack relief,
+  general price relief are not added on top (the width owns the call, and
+  the price is already in it through MDF); the committed-stack relief,
   the floor, the stack cap and the credible re-raiser read still apply.
 
-Unchanged: value 4-bets and the 4-bet bluff (legacy ladder bars, V57 / V60
+No bet size changes anywhere: V73 chooses only between continuing and
+folding, so no size can reveal the hand. Unchanged: value 4-bets and the
+4-bet bluff (legacy ladder bars, V57 / V60
 4-bet tweaks included), the 5-bet branch and Dan's 2026-10-25 deep rule (at
 60bb+ in a tournament only AA / KK stack off facing a 4-bet), every rule in
 `HorseHoldemPremiumAggression.ts` (dominated offsuit fold, premiums never
-flat), squeezes, cold calls of a 3-bet, multiway and short-stack spots, PLO
-and every other variant. Never keyed on who the opponents are.
+flat; #9065's rule 4, which decides whether a non-premium hand that wanted
+to 4-bet calls instead, runs after V73 and is not overridden by it),
+squeezes, cold calls of a 3-bet, multiway spots, everything under 25bb
+effective (push/fold and the M-zones), PLO and every other variant. Never
+keyed on who the opponents are.
 
 ## Simulated after (end to end through HorseLogic.decide)
 
@@ -126,28 +171,32 @@ range, before -> after:
 | spot                            | before | after |
 | ------------------------------- | ------ | ----- |
 | BTN vs BB                       | 74.3   | 54.5  |
-| BTN vs SB                       | 73.2   | 54.5  |
+| BTN vs SB                       | 73.2   | 55.0  |
 | CO vs BB                        | 57.2   | 46.4  |
 | CO vs BTN 3x (out of position)  | 50.9   | 46.4  |
 | UTG vs BB                       | 41.6   | 39.3  |
 | UTG vs BTN 3x (out of position) | 31.9   | 41.2  |
-| SB vs BB                        | 79.5   | 63.7  |
+| SB vs BB                        | 79.5   | 61.2  |
+| BTN vs BB 5x                    | 77.0   | 57.0  |
+| BTN vs BB, 40bb                 | 74.3   | 54.5  |
 | MTT 9-max 50bb ante, BTN vs BB  | 82.2   | 54.8  |
-| MTT 9-max 50bb ante, HJ vs BB   | 66.8   | 43.0  |
-| MTT 9-max 50bb ante, UTG vs BB  | 48.8   | 35.1  |
-| MTT 9-max 50bb ante, UTG vs BTN | 47.2   | 44.7  |
-| cash 250bb, BTN vs BB           | 81.1   | 56.2  |
-| cash 250bb, UTG vs BTN 3x       | 49.9   | 51.0  |
+| MTT 9-max 50bb ante, HJ vs BB   | 66.8   | 41.8  |
+| MTT 9-max 50bb ante, UTG vs BB  | 48.8   | 28.1  |
+| MTT 9-max 50bb ante, UTG vs BTN | 47.2   | 40.8  |
+| MTT 9-max 30bb ante, BTN vs BB  | 80.7   | 52.1  |
+| cash 250bb, BTN vs BB           | 81.1   | 56.0  |
+| cash 250bb, UTG vs BTN 3x       | 49.9   | 49.2  |
 
 Styles on the button vs the big blind: tag 77.3 -> 54.1, lag 72.1 -> 55.4,
-grinder 78.6 -> 54.7. The 4-bet share is identical before and after in
+grinder 78.6 -> 54.4. The 4-bet share is identical before and after in
 every spot. What the button now continues that it folded: 22-44, K5s-K9s,
 Q9s, J9s, T8s-T9s, 97s-98s, 86s-87s, 75s-76s, 64s-65s, 54s. What it still
 folds: K2s-K3s, Q2s-Q7s, J4s-J7s, T5s-T6s, 95s-96s, 85s, 74s, 63s, 53s,
 43s, and every offsuit hand but AKo / AQo.
 
-The small blind stays above the band (63.7%) because about half of a small
-blind open is offsuit and folds by the owner rule; out of position the
+The small blind folds most (61.2%) because about half of a small blind open
+is offsuit and folds by the owner rule; the ante tournament's UTG folds
+least (28.1%: a 17.5% open, an 8.8bb 3-bet into a 4.7bb pot, MDF 37.6%); out of position the
 under-the-gun open now folds 41% to a 3x button 3-bet where the legacy price
 relief continued 68% of it.
 
@@ -163,8 +212,9 @@ by seat are the measurement to read after release.
 ## Tests
 
 - `server/src/engine/HorseVs3BetDefence.test.ts`: the module (orders are
-  permutations, charts hold no dominated offsuit hand, shares rise as the
-  opener moves earlier, size and deep scaling, the styled open width) and the
+  permutations, charts hold no dominated offsuit hand, the MDF arithmetic,
+  multipliers rising as the opener moves earlier and higher in position,
+  size / ante / deep scaling, the styled open width) and the
   end-to-end bands above, the off arm's measured overfold, 4-bets unchanged,
   the button's suited hands and pairs continuing, dominated offsuit hands
   still folding, styles, the ante tournament.
@@ -177,6 +227,7 @@ by seat are the measurement to read after release.
 ## After release
 
 Read `v73_vs3bet_defence` against `decide_nlh` (floor 0.002) and repeat the
-by-seat SELECT above: the target is the late seats near 50-60% and the early
-seats near 35-45%, with suited connectors and small pairs continuing from the
-button and the offsuit broadways still folding.
+by-seat SELECT above. The harness predicts the late seats near 52-57% and
+the early seats near 28-45% depending on the price; a live curve far from
+that means a spot the scope or the geometry read differently, and is the
+thing to look at.

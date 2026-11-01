@@ -122,3 +122,19 @@ describe('standings read liveness', () => {
     expect(fx.requests).toEqual(offset === 0 ? [0] : [0, 1000]);
   });
 });
+
+it('aborts a retired archive page without returning its partial standings', async () => {
+  vi.useFakeTimers();
+  fx.rows = Array.from({ length: 1001 }, (_, i) => ({ id: String(i).padStart(8, '0') }));
+  fx.hang = 1000;
+  const owner = new AbortController();
+  const pending = readTournamentStandings('mtt', 'id', false, owner.signal);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fx.requests).toEqual([0, 1000]);
+  owner.abort();
+  const result = await pending;
+  expect(result.data).toBeNull();
+  expect(result.error).toMatchObject({ name: 'AbortError' });
+  expect(fx.signals.at(-1)?.aborted).toBe(true);
+  expect(fx.requests).toEqual([0, 1000]);
+});

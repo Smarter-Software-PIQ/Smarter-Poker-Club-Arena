@@ -163,6 +163,7 @@ function verdictFor(s: { hero: SeatPlayer; gs: HorseGameStateV2 }, action: strin
     minRaiseTo: g.minRaiseTo,
     maxRaiseTo: g.maxRaiseTo,
     actionHistory: g.actionHistory,
+    tournament: (g as { gameMode?: string }).gameMode === 'tournament',
   });
 }
 
@@ -422,13 +423,18 @@ describe('No hold em 4-bet is ever made to fold (Dan 2026-10-31)', () => {
   });
 
   it('a fold after the horse own 4-bet is re-raised becomes a call, or the all-in when calling is all in', () => {
-    for (const hole of ['Qs Qh', 'Ac Kd', 'Jc Jd', 'As 5s']) {
+    // The recorded price: 12,299 to call into 32,325 = 0.38, plus the 0.03
+    // tournament margin = 0.41. QQ (0.44), AK (0.43+) and JJ (0.42) call.
+    for (const hole of ['Qs Qh', 'Ac Kd', 'Jc Jd']) {
       const v = verdictFor(fourBetJamSpot({ hole }), 'fold');
       expect(v?.rule).toBe('four_bettor_continues');
       expect(v?.decision.action).toBe('call');
       const allInOnly = verdictFor(fourBetJamSpot({ hole, legal: ['fold', 'all_in'] }), 'fold');
       expect(allInOnly?.decision.action).toBe('all_in');
     }
+    // A5s (0.35) cannot make that 4-bet under rule 4a; if another path did,
+    // the price, not a blanket rule, decides: it folds.
+    expect(verdictFor(fourBetJamSpot({ hole: 'As 5s' }), 'fold')).toBeNull();
   });
 
   it('AA and KK facing a non-all-in 5-bet over their 4-bet put the rest in', () => {
@@ -525,5 +531,149 @@ describe('No hold em 4-bet is ever made to fold (Dan 2026-10-31)', () => {
     expect(at(fourBetJamSpot())).toBe('reraised_four_bet');
     expect(at(facingThreeBetSpot('As 5s'))).toBe('facing_three_bet');
     expect(at(aceSpot())).toBeNull();
+  });
+});
+
+/**
+ * Generic heads-up 3-bet spot for the price counterexamples: hero opened to
+ * 2.5bb, the 3-bettor re-raised to 9bb (cash) or the tournament sizes given,
+ * and both have `depth` big blinds. `fiveBet` adds hero's 4-bet and a jam.
+ */
+function priceSpot(o: {
+  hole: string;
+  depthBB: number;
+  mode: 'cash' | 'tournament';
+  fiveBet?: boolean;
+  villainDepthBB?: number;
+}) {
+  const bb = o.mode === 'cash' ? 2 : 100;
+  const unit = (v: number) => (o.mode === 'cash' ? Math.round(v * 100) / 100 : Math.round(v));
+  const heroTotal = o.depthBB * bb;
+  const villainTotal = (o.villainDepthBB ?? o.depthBB) * bb;
+  const open = unit(2.5 * bb);
+  const three = unit(9 * bb);
+  const four = unit(2.3 * three);
+  const history = [
+    { stage: 'preflop', seat: 2, userId: 'p2', action: 'sb', amount: bb / 2 },
+    { stage: 'preflop', seat: 3, userId: 'p3', action: 'bb', amount: bb },
+    { stage: 'preflop', seat: 5, userId: 'p5', action: 'raise', amount: open, isFullRaise: true },
+    { stage: 'preflop', seat: 6, userId: 'p6', action: 'raise', amount: three, isFullRaise: true },
+    { stage: 'preflop', seat: 2, userId: 'p2', action: 'fold', amount: 0 },
+    { stage: 'preflop', seat: 3, userId: 'p3', action: 'fold', amount: 0 },
+  ];
+  const heroBet = o.fiveBet ? four : open;
+  const villainBet = o.fiveBet ? villainTotal : three;
+  if (o.fiveBet) {
+    history.push(
+      { stage: 'preflop', seat: 5, userId: 'p5', action: 'raise', amount: four, isFullRaise: true },
+      {
+        stage: 'preflop',
+        seat: 6,
+        userId: 'p6',
+        action: 'all_in',
+        amount: villainTotal,
+        isFullRaise: true,
+      }
+    );
+  }
+  const hero = seat(5, heroTotal - heroBet, heroBet, { hole: o.hole });
+  const gs = {
+    players: [
+      seat(2, 500 * bb, bb / 2, { is_folded: true }),
+      seat(3, 500 * bb, bb, { is_folded: true }),
+      hero,
+      seat(6, villainTotal - villainBet, villainBet, { is_all_in: !!o.fiveBet }),
+    ],
+    communityCards: [],
+    pot: bb * 1.5 + heroBet + villainBet,
+    currentBet: villainBet,
+    stage: 'preflop',
+    gameVariant: 'nlh',
+    gameMode: o.mode,
+    bigBlind: bb,
+    dealerSeat: 5,
+    toCall: villainBet - heroBet,
+    legalActions: o.fiveBet ? ['fold', 'call', 'all_in'] : ['fold', 'call', 'raise', 'all_in'],
+    minRaiseTo: o.fiveBet ? null : three * 2 - open,
+    maxRaiseTo: heroTotal,
+    bettingStructure: 'no_limit',
+    actionHistory: history,
+  } as unknown as HorseGameStateV2;
+  return { hero, gs };
+}
+
+describe('Rule 4 reads the price: depth, sizing, pot odds and tournament context (2026-11-01)', () => {
+  it('100bb cash: QQ and AK 4-bet and call the jam (needs 0.39)', () => {
+    for (const hole of ['Qs Qh', 'Ac Kd', 'Ac Kc']) {
+      expect(verdictFor(priceSpot({ hole, depthBB: 100, mode: 'cash' }), 'raise')).toBeNull();
+      const v = verdictFor(priceSpot({ hole, depthBB: 100, mode: 'cash', fiveBet: true }), 'fold');
+      expect(v?.rule).toBe('four_bettor_continues');
+    }
+  });
+
+  it('200bb and 250bb cash: QQ and AK flat the 3-bet instead of 4-betting to fold (needs 0.44-0.46)', () => {
+    for (const depthBB of [200, 250]) {
+      // AKs (0.45) still clears 200bb's 0.447 and keeps its 4-bet there.
+      for (const hole of depthBB === 200 ? ['Qs Qh', 'Ac Kd'] : ['Qs Qh', 'Ac Kd', 'Ac Kc']) {
+        const v = verdictFor(priceSpot({ hole, depthBB, mode: 'cash' }), 'raise');
+        expect(v?.rule).toBe('premium_flat_deep_three_bet');
+        expect(v?.decision.action).toBe('call');
+        // ...and rule 2 no longer turns that flat back into a 4-bet.
+        expect(verdictFor(priceSpot({ hole, depthBB, mode: 'cash' }), 'call')).toBeNull();
+      }
+      // AA and KK always qualify: they keep the 4-bet and call off.
+      for (const hole of depthBB === 200 ? ['As Ah', 'Kc Kd', 'Ac Kc'] : ['As Ah', 'Kc Kd']) {
+        expect(verdictFor(priceSpot({ hole, depthBB, mode: 'cash' }), 'raise')).toBeNull();
+        expect(verdictFor(priceSpot({ hole, depthBB, mode: 'cash' }), 'call')?.rule).toBe(
+          'premium_preflop_raise'
+        );
+      }
+    }
+  });
+
+  it('tournaments carry the bust premium: QQ 4-bets at 100bb, flats at 160bb', () => {
+    expect(
+      verdictFor(priceSpot({ hole: 'Qs Qh', depthBB: 100, mode: 'tournament' }), 'raise')
+    ).toBeNull();
+    const deep = verdictFor(
+      priceSpot({ hole: 'Qs Qh', depthBB: 160, mode: 'tournament' }),
+      'raise'
+    );
+    expect(deep?.rule).toBe('premium_flat_deep_three_bet');
+  });
+
+  it('a 4-bettor folds only when the jam comes from deeper than the stack it 4-bet into', () => {
+    // 4-bet QQ at 100bb cash, then a 250bb player jams: hero still has only
+    // 100bb, so the price is the 100bb price - it calls.
+    const covered = priceSpot({
+      hole: 'Qs Qh',
+      depthBB: 100,
+      villainDepthBB: 250,
+      mode: 'cash',
+      fiveBet: true,
+    });
+    expect(verdictFor(covered, 'fold')?.rule).toBe('four_bettor_continues');
+    // Both 250bb deep (a 4-bet rule 4a would have flatted): the fold stands.
+    expect(
+      verdictFor(priceSpot({ hole: 'Qs Qh', depthBB: 250, mode: 'cash', fiveBet: true }), 'fold')
+    ).toBeNull();
+    // AA calls (and is put all in) at any depth.
+    expect(['call', 'all_in']).toContain(
+      verdictFor(priceSpot({ hole: 'As Ah', depthBB: 250, mode: 'cash', fiveBet: true }), 'fold')
+        ?.decision.action
+    );
+  });
+
+  it('the real brain at 200bb cash never 4-bets QQ or AK and never 4-bets junk', () => {
+    for (const hole of ['Qs Qh', 'Ac Kd', 'Jc Jd', 'As 5s']) {
+      for (const seed of SEEDS) {
+        const spot = priceSpot({ hole, depthBB: 200, mode: 'cash' });
+        const d = decide(spot, seed);
+        expect(d.action).not.toBe('raise');
+        expect(
+          horseDecisionReceiptIsValid(d, 'nlh', { player: spot.hero, gameState: spot.gs })
+        ).toBe(true);
+      }
+    }
   });
 });
