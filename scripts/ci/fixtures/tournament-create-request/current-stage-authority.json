@@ -1,5 +1,5 @@
 {
-  "observedAt": "2026-11-01T03:44:00Z",
+  "observedMinuteUtc": "2026-11-01T03:44Z",
   "functions": [
     {
       "signature": "fn_operator_seal_stage_plan(uuid,jsonb)",
