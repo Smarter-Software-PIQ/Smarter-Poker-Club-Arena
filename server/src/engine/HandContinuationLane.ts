@@ -56,6 +56,11 @@ export class HandContinuationLane {
     );
   }
 
+  /** Pending bytes may settle; a failed, closed or replaced owner may not. */
+  canAwaitRetention(): boolean {
+    return !this.failed && !this.closed && !this.replayingOriginal && this.current();
+  }
+
   /** A bank/presence decision can change without a controller event. */
   checkpoint(): void {
     if (this.closed || this.failed || !this.current())
@@ -212,5 +217,7 @@ export class HandContinuationLane {
 
   close(): void {
     this.closed = true;
+    for (const waiter of this.retentionWaiters.splice(0))
+      waiter.reject(new Error('Hand Continuation Is Fenced'));
   }
 }
