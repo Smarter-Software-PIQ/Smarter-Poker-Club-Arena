@@ -476,12 +476,141 @@ def failed_custody_unit(unit, deadline):
         return unknown, None
 
 
+FAILED_CUSTODY_TRANSACTION_SHA256 = '3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39'
+FAILED_CUSTODY_REFUSAL = '[engine-release-transaction] FATAL: Phase1 requires the full retained-owner checkpoint; an age-only drained boundary is not qualified'
+
+
+def failed_custody_transaction(parent, deadline):
+    """One fixed original source only; the common 64KiB reader is unchanged."""
+    fds = []
+    try:
+        current = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW); fds.append(current)
+        for part in ('engine-control-generations', FAILED_CUSTODY_CONTROL):
+            info = os.fstat(current)
+            routine_require(info.st_uid == os.geteuid() and not info.st_mode & 0o022 and time.monotonic() < deadline)
+            current = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current); fds.append(current)
+        info = os.fstat(current)
+        routine_require(info.st_uid == os.geteuid() and not info.st_mode & 0o022)
+        fd = os.open('engine-release-transaction.sh', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=current); fds.append(fd)
+        before = os.fstat(fd)
+        routine_require(stat.S_ISREG(before.st_mode) and before.st_uid == os.geteuid() and
+                        not before.st_mode & 0o022 and before.st_size <= 512 * 1024)
+        raw = bytearray()
+        while len(raw) <= 512 * 1024:
+            routine_require(time.monotonic() < deadline)
+            part = os.read(fd, min(4096, 512 * 1024 + 1 - len(raw)))
+            if not part: break
+            raw.extend(part)
+        routine_require(len(raw) == before.st_size and intake_identity(before) == intake_identity(os.fstat(fd)))
+        return hashlib.sha256(raw).hexdigest(), tuple(intake_identity(os.fstat(item)) for item in fds)
+    except (OSError, ValueError):
+        return None
+    finally:
+        for fd in reversed(fds): os.close(fd)
+
+
+def failed_custody_history_inputs(root_fd, parent, deadline):
+    source = failed_custody_transaction(parent, deadline)
+    failure = None
+    try:
+        result_fd = os.open('engine-release-results', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
+        try:
+            info = os.fstat(result_fd)
+            routine_require(info.st_uid == os.geteuid() and stat.S_IMODE(info.st_mode) == 0o700)
+            name = '41349091113-1.json'
+            before = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
+            value, raw = read_json(result_fd, name, private=True, with_bytes=True)
+            fields = {'schema', 'runId', 'result', 'sha', 'controlSha', 'invocationId', 'transactionExitStatus',
+                      'recoveredDesiredSha', 'recoveredDesiredImageId', 'completedAt'}
+            routine_require(set(value) == fields and type(value['schema']) is int and value['schema'] == 1 and
+                value['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and value['result'] == 'failed' and
+                value['sha'] == value['controlSha'] == FAILED_CUSTODY_CONTROL and
+                isinstance(value['invocationId'], str) and re.fullmatch('[0-9a-f]{32}', value['invocationId']) and
+                type(value['transactionExitStatus']) is int and 1 <= value['transactionExitStatus'] <= 255 and value['transactionExitStatus'] != 75 and
+                value['recoveredDesiredSha'] == EED and value['recoveredDesiredImageId'] == FAILED_CUSTODY_IMAGE and
+                type(value['completedAt']) is int and value['completedAt'] == 1793569102 and
+                routine_digest(value) == FAILED_CUSTODY_FAILURE and
+                intake_identity(before) == intake_identity(os.stat(name, dir_fd=result_fd, follow_symlinks=False)))
+            failure = (value['invocationId'], value['completedAt'], hashlib.sha256(raw).hexdigest(), intake_identity(before))
+        finally:
+            os.close(result_fd)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return source, failure
+
+
+def failed_custody_historical(inputs, deadline):
+    source, failure = inputs
+    answer = {'status': 'unknown', 'reason': 'source_unproved', 'observedAtMicros': None,
+              'journalSha256': None, 'literalSha256': None, 'sourceMatches': None,
+              'failureMatches': None, 'unitMatches': None, 'invocationMatches': None,
+              'literalMatches': None, 'beforeFirstNotice': None}
+    if source is None: return answer
+    answer['sourceMatches'] = source[0] == FAILED_CUSTODY_TRANSACTION_SHA256
+    if not answer['sourceMatches']: return answer
+    answer.update(failureMatches=failure is not None, reason='failure_unproved')
+    if failure is None: return answer
+    answer['reason'] = 'journal_unavailable'
+    # Existing bounded_journal owns at most five seconds plus two for drainage.
+    # Preserve its bounds and the outer eighteen-second custody deadline.
+    if deadline - time.monotonic() < 8: return answer
+    unit = FAILED_CUSTODY_UNITS['releaseService']
+    try:
+        reply = bounded_journal(['journalctl', '--unit=' + unit, '_SYSTEMD_INVOCATION_ID=' + failure[0],
+            '--no-pager', '--output=json', '--output-fields=MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP',
+            '--lines=2', '--grep=^' + re.escape(FAILED_CUSTODY_REFUSAL) + '$'])
+        if reply.returncode or len(reply.stdout) > 8192 or time.monotonic() >= deadline: return answer
+        rows = [json.loads(line, object_pairs_hook=unique_object) for line in reply.stdout.decode('utf8').splitlines() if line.strip()]
+        answer['reason'] = 'missing_or_ambiguous'
+        if len(rows) != 1: return answer
+        row = rows[0]
+        allowed = {'MESSAGE', '_SYSTEMD_UNIT', '_SYSTEMD_INVOCATION_ID', '__REALTIME_TIMESTAMP',
+                   '__CURSOR', '__MONOTONIC_TIMESTAMP', '_BOOT_ID', '__SEQNUM', '__SEQNUM_ID'}
+        required = {'MESSAGE', '_SYSTEMD_UNIT', '_SYSTEMD_INVOCATION_ID', '__REALTIME_TIMESTAMP'}
+        routine_require(isinstance(row, dict) and required <= set(row) <= allowed and all(isinstance(v, str) for v in row.values()))
+        answer['reason'] = 'binding_or_time_unproved'
+        routine_require(row['MESSAGE'] == FAILED_CUSTODY_REFUSAL and row['_SYSTEMD_UNIT'] == unit and
+                        row['_SYSTEMD_INVOCATION_ID'] == failure[0] and re.fullmatch('[1-9][0-9]{14,15}', row['__REALTIME_TIMESTAMP']))
+        for key in ('__MONOTONIC_TIMESTAMP', '__SEQNUM'):
+            if key in row: routine_require(re.fullmatch('[0-9]{1,20}', row[key]))
+        for key in ('_BOOT_ID', '__SEQNUM_ID'):
+            if key in row: routine_require(re.fullmatch('[0-9a-f]{32}', row[key]))
+        if '__CURSOR' in row: routine_require(re.fullmatch('[A-Za-z0-9;=._:-]{1,1024}', row['__CURSOR']))
+        stamp = int(row['__REALTIME_TIMESTAMP'])
+        routine_require(946684800000000 <= stamp <= failure[1] * 1000000 + 999999 and stamp < (1793570400 - 120) * 1000000)
+        answer.update(status='observed', reason='observed', observedAtMicros=stamp,
+            journalSha256=hashlib.sha256(reply.stdout).hexdigest(), literalSha256=hashlib.sha256(FAILED_CUSTODY_REFUSAL.encode()).hexdigest(),
+            unitMatches=True, invocationMatches=True, literalMatches=True, beforeFirstNotice=True)
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
+        pass
+    return answer
+
+
+def validate_failed_custody_historical(row):
+    fields = {'status', 'reason', 'observedAtMicros', 'journalSha256', 'literalSha256', 'sourceMatches',
+              'failureMatches', 'unitMatches', 'invocationMatches', 'literalMatches', 'beforeFirstNotice'}
+    routine_require(isinstance(row, dict) and set(row) == fields and row['status'] in {'observed', 'unknown'} and
+        row['reason'] in {'source_unproved', 'failure_unproved', 'journal_unavailable', 'missing_or_ambiguous', 'binding_or_time_unproved', 'observed'} and
+        all(row[k] is None or type(row[k]) is bool for k in ('sourceMatches', 'failureMatches', 'unitMatches', 'invocationMatches', 'literalMatches', 'beforeFirstNotice')))
+    if row['status'] == 'observed':
+        routine_require(row['reason'] == 'observed' and type(row['observedAtMicros']) is int and
+            946684800000000 <= row['observedAtMicros'] <= 1793569102999999 and row['observedAtMicros'] < (1793570400 - 120) * 1000000 and
+            isinstance(row['journalSha256'], str) and re.fullmatch('[0-9a-f]{64}', row['journalSha256']) and
+            row['literalSha256'] == hashlib.sha256(FAILED_CUSTODY_REFUSAL.encode()).hexdigest() and
+            all(row[k] is True for k in ('sourceMatches', 'failureMatches', 'unitMatches', 'invocationMatches', 'literalMatches', 'beforeFirstNotice')))
+    else:
+        routine_require(row['reason'] != 'observed' and all(row[k] is None for k in ('observedAtMicros', 'journalSha256', 'literalSha256', 'unitMatches', 'invocationMatches', 'literalMatches', 'beforeFirstNotice')))
+    return row
+
+
 def failed_custody_remote(request, root_fd, *, state_root=STATE_ROOT,
                           control_parent=Path('/usr/local/lib/club-arena'), systemd=Path('/etc/systemd/system')):
     routine_require(selection(request) == FAILED_CUSTODY_REQUEST)
     deadline = time.monotonic() + 18
     before = failed_custody_canonical(root_fd)
     sources = failed_custody_sources(control_parent, systemd, deadline)
+    history_inputs = failed_custody_history_inputs(root_fd, control_parent, deadline)
+    historical = failed_custody_historical(history_inputs, deadline)
     records = failed_custody_files(state_root, deadline)
     units, bindings = {}, {}
     for label, unit in FAILED_CUSTODY_UNITS.items():
@@ -509,17 +638,18 @@ def failed_custody_remote(request, root_fd, *, state_root=STATE_ROOT,
                                            pending_tcp_health(min(deadline, time.monotonic() + 3))))
     routine_require(records == failed_custody_files(state_root, deadline) and
                     sources == failed_custody_sources(control_parent, systemd, deadline) and
+                    history_inputs == failed_custody_history_inputs(root_fd, control_parent, deadline) and
                     before == failed_custody_canonical(root_fd) and time.monotonic() < deadline)
     return validate_failed_custody_reply({'schema': FAILED_CUSTODY_SCHEMA, 'readOnly': True, **request,
         'canonicalSealSha256': before['sealSha256'], 'sourceQualified': sources[0], 'sourceMatches': sources[1],
-        'records': records[0], 'units': units, 'runtime': runtime, 'databaseFreezeThaw': 'not_observed',
+        'records': records[0], 'units': units, 'runtime': runtime, 'historicalRefusal': historical, 'databaseFreezeThaw': 'not_observed',
         'retryAllowed': False, 'limitation': FAILED_CUSTODY_LIMITATION}, request)
 
 
 def validate_failed_custody_reply(v, request):
     routine_require(selection(request) == FAILED_CUSTODY_REQUEST and isinstance(v, dict) and
         set(v) == {'schema', 'readOnly', 'mode', 'runKey', 'releaseSha', 'canonicalSealSha256', 'sourceQualified', 'sourceMatches',
-                   'records', 'units', 'runtime', 'databaseFreezeThaw', 'retryAllowed', 'limitation'} and
+                   'records', 'units', 'runtime', 'historicalRefusal', 'databaseFreezeThaw', 'retryAllowed', 'limitation'} and
         v['schema'] == FAILED_CUSTODY_SCHEMA and v['readOnly'] is True and all(v.get(k) == x for k, x in request.items()) and
         re.fullmatch('[0-9a-f]{64}', v['canonicalSealSha256']) and type(v['sourceQualified']) is bool and
         v['databaseFreezeThaw'] == 'not_observed' and v['retryAllowed'] is False and v['limitation'] == FAILED_CUSTODY_LIMITATION and
@@ -544,6 +674,7 @@ def validate_failed_custody_reply(v, request):
                             ((row['noMainOrControlPid'] is None and row['processEnumerationEmpty'] is None and row['cgroup'] == 'not-applicable') if label == 'intakePath' else
                              type(row['noMainOrControlPid']) is bool and type(row['processEnumerationEmpty']) is bool and row['cgroup'] != 'not-applicable') and
                             (row['cgroup'] != 'manager-empty' or row['processEnumerationEmpty'] is True))
+    validate_failed_custody_historical(v['historicalRefusal'])
     runtime = v['runtime']
     routine_require(isinstance(runtime, dict) and set(runtime) == {'status', 'desiredImageMatches', 'localHealthSourceMatches'} and runtime['status'] in {'unknown', 'observed'})
     if runtime['status'] == 'unknown': routine_require(runtime['desiredImageMatches'] is runtime['localHealthSourceMatches'] is None)

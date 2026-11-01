@@ -3002,5 +3002,91 @@ class FailedRoutineCustodyTests(unittest.TestCase):
                 with self.assertRaises(ValueError): R.validate_failed_custody_reply(bad, R.FAILED_CUSTODY_REQUEST)
 
 
+class FailedRoutineHistoricalTests(unittest.TestCase):
+    def row(self):
+        return {'MESSAGE': R.FAILED_CUSTODY_REFUSAL,
+                '_SYSTEMD_UNIT': R.FAILED_CUSTODY_UNITS['releaseService'],
+                '_SYSTEMD_INVOCATION_ID': 'd' * 32, '__REALTIME_TIMESTAMP': '1793569101000000'}
+
+    def inputs(self):
+        return ((R.FAILED_CUSTODY_TRANSACTION_SHA256, ()), ('d' * 32, 1793569102, 'a' * 64, ()))
+
+    def test_exact_native_journal_literal_invocation_timestamp_and_closed_decoder(self):
+        row = self.row(); raw = json.dumps(row).encode()
+        with patch.object(R, 'bounded_journal', return_value=subprocess.CompletedProcess([], 0, stdout=raw)) as command:
+            answer = R.failed_custody_historical(self.inputs(), R.time.monotonic() + 10)
+        self.assertEqual(answer['status'], 'observed'); self.assertTrue(answer['beforeFirstNotice'])
+        self.assertEqual(answer['observedAtMicros'], 1793569101000000)
+        self.assertEqual(command.call_count, 1)
+        args = command.call_args.args[0]
+        self.assertIn('_SYSTEMD_INVOCATION_ID=' + 'd' * 32, args)
+        self.assertIn('--unit=' + R.FAILED_CUSTODY_UNITS['releaseService'], args)
+        self.assertIn('--lines=2', args)
+        self.assertEqual(R.validate_failed_custody_historical(answer), answer)
+        self.assertNotIn(R.FAILED_CUSTODY_REFUSAL, json.dumps(answer))
+        self.assertNotIn('d' * 32, json.dumps(answer))
+        for mutation in ({'noEntry': True}, {'beforeFirstNotice': 1}, {'observedAtMicros': 1793570280000000}, {'literalSha256': '0' * 64}):
+            with self.assertRaises(ValueError): R.validate_failed_custody_historical(answer | mutation)
+        for key, value in [('_SYSTEMD_UNIT', 'foreign.service'), ('_SYSTEMD_INVOCATION_ID', 'e' * 32),
+                           ('MESSAGE', 'private error'), ('__REALTIME_TIMESTAMP', '1793569103000000'),
+                           ('__REALTIME_TIMESTAMP', '1793570280000000'), ('_BOOT_ID', 'bad'), ('raw', 'private')]:
+            bad = row | {key: value}
+            with patch.object(R, 'bounded_journal', return_value=subprocess.CompletedProcess([], 0, stdout=json.dumps(bad).encode())):
+                answer = R.failed_custody_historical(self.inputs(), R.time.monotonic() + 10)
+            self.assertEqual(answer['status'], 'unknown'); self.assertIsNone(answer['observedAtMicros'])
+            self.assertNotIn('private', json.dumps(answer))
+        for raw in (b'', (json.dumps(row) + '\n' + json.dumps(row)).encode(), b'not-json'):
+            with patch.object(R, 'bounded_journal', return_value=subprocess.CompletedProcess([], 0, stdout=raw)):
+                self.assertEqual(R.failed_custody_historical(self.inputs(), R.time.monotonic() + 10)['status'], 'unknown')
+        for inputs in ((None, self.inputs()[1]), (('0' * 64, ()), self.inputs()[1]), (self.inputs()[0], None)):
+            with patch.object(R, 'bounded_journal') as command:
+                self.assertEqual(R.failed_custody_historical(inputs, R.time.monotonic() + 10)['status'], 'unknown')
+                command.assert_not_called()
+
+    def test_purpose_source_reader_allows_original186k_without_widening_common64k(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent = Path(folder)
+            generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
+            generation.mkdir(parents=True)
+            path = generation / 'engine-release-transaction.sh'
+            path.write_bytes((ROOT / 'server/scripts/engine-release-transaction.sh').read_bytes())
+            result = R.failed_custody_transaction(parent, R.time.monotonic() + 3)
+            self.assertEqual(result[0], R.FAILED_CUSTODY_TRANSACTION_SHA256)
+            self.assertGreater(path.stat().st_size, R.MAX_BYTES)
+            row = R.intake_record(parent, ('engine-control-generations', R.FAILED_CUSTODY_CONTROL, path.name), False, R.time.monotonic() + 3)[0]
+            self.assertEqual(row['status'], 'unknown')
+            path.write_bytes(b'x' * (512 * 1024 + 1))
+            self.assertIsNone(R.failed_custody_transaction(parent, R.time.monotonic() + 3))
+            path.unlink(); path.symlink_to('/not-followed')
+            self.assertIsNone(R.failed_custody_transaction(parent, R.time.monotonic() + 3))
+
+    def test_private_original_failure_binding_and_recheck_are_mandatory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); root.chmod(0o700)
+            results = root / 'engine-release-results'; results.mkdir(mode=0o700)
+            path = results / '41349091113-1.json'
+            value = {'schema': 1, 'runId': '41349091113-1', 'result': 'failed',
+                     'sha': R.FAILED_CUSTODY_CONTROL, 'controlSha': R.FAILED_CUSTODY_CONTROL,
+                     'invocationId': 'd' * 32, 'transactionExitStatus': 1,
+                     'recoveredDesiredSha': R.EED, 'recoveredDesiredImageId': R.FAILED_CUSTODY_IMAGE,
+                     'completedAt': 1793569102}
+            path.write_text(json.dumps(value)); path.chmod(0o600)
+            fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                with patch.object(R, 'FAILED_CUSTODY_FAILURE', R.routine_digest(value)), \
+                     patch.object(R, 'failed_custody_transaction', return_value=self.inputs()[0]):
+                    before = R.failed_custody_history_inputs(fd, root, R.time.monotonic() + 3)
+                    self.assertEqual(before[1][:2], ('d' * 32, 1793569102))
+                    path.write_text(json.dumps(value | {'invocationId': 'e' * 32}))
+                    self.assertIsNone(R.failed_custody_history_inputs(fd, root, R.time.monotonic() + 3)[1])
+                    self.assertNotEqual(before, R.failed_custody_history_inputs(fd, root, R.time.monotonic() + 3))
+                    path.chmod(0o644)
+                    self.assertIsNone(R.failed_custody_history_inputs(fd, root, R.time.monotonic() + 3)[1])
+            finally:
+                os.close(fd)
+        source = (ROOT / 'scripts/ci/read-scoped-release-recovery.py').read_text()
+        self.assertIn('history_inputs == failed_custody_history_inputs(root_fd, control_parent, deadline)', source)
+
+
 if __name__ == "__main__":
     unittest.main()
