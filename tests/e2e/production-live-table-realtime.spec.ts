@@ -1314,6 +1314,32 @@ async function observeTournamentBoard(
   });
 
   const journal = new EngineSocketJournal(page);
+  // Evidence only: the same two connected intervals already owed by every
+  // tournament format. No extra hand, action, wait or retry is requested.
+  const boardIntervals: NaturalBoardRevealInterval[] = [];
+  let activeBoardInterval: { name: NaturalBoardRevealInterval['name']; since: number } | null =
+    null;
+  const startBoardInterval = async (name: NaturalBoardRevealInterval['name']) => {
+    await page.evaluate(installNaturalBoardReveal, observationDeadline);
+    activeBoardInterval = { name, since: Date.now() };
+  };
+  const stopBoardInterval = async () => {
+    if (!activeBoardInterval) return;
+    const interval = activeBoardInterval;
+    activeBoardInterval = null;
+    const receipts = await page
+      .evaluate(() => window.__naturalBoardReveal?.stop() ?? [])
+      .catch(() => []);
+    const until = Date.now();
+    boardIntervals.push({
+      name: interval.name,
+      receipts,
+      frames: journal
+        .matchingFrames({ direction: 'received', tableId: candidate.id, since: interval.since })
+        .filter((frame) => frame.at <= until),
+    });
+  };
+
   const context = page.context();
   const hudScope = { tableId: candidate.id, tournamentId: selected.boardFacts?.tournamentId ?? '' };
   if (gameFormat === 'mtt' && !hudScope.tournamentId)
@@ -1597,6 +1623,7 @@ async function observeTournamentBoard(
     ).toContainText(/\d+/, { timeout: 10_000 });
 
     await installLiveTablePresentationJournal(page);
+    await startBoardInterval('before-outage');
     const progressStartedAt = Date.now();
     const cycle = await whileConnectionBannerStaysHidden(
       page,
@@ -1641,6 +1668,7 @@ async function observeTournamentBoard(
       progressStartedAt
     );
 
+    await stopBoardInterval();
     try {
       await context.setOffline(true);
       offline = true;
@@ -1686,6 +1714,7 @@ async function observeTournamentBoard(
         ).toBeHidden({ timeout: CONNECT_DEADLINE_MS }),
       ]);
 
+      await startBoardInterval('after-reconnect');
       const recoveredProgressStartedAt = Date.now();
       const recoveredCycle = await whileConnectionBannerStaysHidden(
         page,
@@ -1756,6 +1785,7 @@ async function observeTournamentBoard(
       }
     }
 
+    await stopBoardInterval();
     if (gameFormat === 'mtt') {
       if (!peerPage) throw new Error('The mandatory second HUD context is unavailable');
       // All mandatory gameplay, outage and one-owner reconnect assertions are
@@ -2089,6 +2119,7 @@ async function observeTournamentBoard(
     }
     throw original;
   } finally {
+    await stopBoardInterval();
     hudObservation.abort();
     if (offline) await context.setOffline(false).catch(() => {});
     if (hudClock)
@@ -2113,6 +2144,18 @@ async function observeTournamentBoard(
         contentType: 'application/json',
       });
     await peerContext?.close();
+    const boardEvidence = naturalBoardRevealIntervalsEvidence(boardIntervals, candidate.id);
+    const boardEvidencePath = testInfo.outputPath(
+      `mobile-live-table-${tag}-natural-board-reveal.json`
+    );
+    writeFileSync(
+      boardEvidencePath,
+      JSON.stringify({ gameFormat, subject: tag, ...boardEvidence }, null, 2)
+    );
+    await testInfo.attach(`${tag}-natural-board-reveal-paint-opportunities`, {
+      path: boardEvidencePath,
+      contentType: 'application/json',
+    });
     await testInfo.attach(`${tag}-live-table-realtime-summary`, {
       body: Buffer.from(JSON.stringify(journal.summary(candidate.id), null, 2)),
       contentType: 'application/json',

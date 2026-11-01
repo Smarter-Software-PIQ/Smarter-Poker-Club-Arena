@@ -2,6 +2,7 @@ import type { EngineFrame } from './liveTableRealtime';
 
 export type RevealFrame = {
   at: number;
+  rafGapMs?: number;
   host: boolean;
   back: boolean;
   front: boolean;
@@ -18,6 +19,7 @@ export type RevealReceipt = {
   from: number;
   to: number;
   at: number;
+  baselineFrames?: number;
   frames: RevealFrame[];
   outcome: 'complete' | 'interrupted' | 'bounded';
 };
@@ -37,6 +39,7 @@ export function installNaturalBoardReveal(deadline: number): void {
     raf = 0,
     baseline: { hand: number; count: number; frames: number } | null = null;
   let active: RevealReceipt | null = null;
+  let previousTickAt = Date.now();
   const interrupt = () => {
     if (active) active.outcome = 'interrupted';
     active = null;
@@ -55,6 +58,9 @@ export function installNaturalBoardReveal(deadline: number): void {
       stop();
       return;
     }
+    const tickAt = Date.now();
+    const rafGapMs = Math.max(0, tickAt - previousTickAt);
+    previousTickAt = tickAt;
     const boards = [...document.querySelectorAll<HTMLElement>('.community-cards')].filter(
       (node) => node.getBoundingClientRect().width > 0
     );
@@ -95,6 +101,7 @@ export function installNaturalBoardReveal(deadline: number): void {
         from: baseline.count,
         to: count,
         at: Date.now(),
+        baselineFrames: baseline.frames,
         frames: [],
         outcome: 'interrupted',
       };
@@ -131,6 +138,7 @@ export function installNaturalBoardReveal(deadline: number): void {
       };
       active.frames.push({
         at: Date.now(),
+        rafGapMs,
         host: slot.classList.contains('card-squeeze-host'),
         back: !!slot.querySelector('.card-squeeze__face--back'),
         front: !!slot.querySelector('.card-squeeze__face--front'),
