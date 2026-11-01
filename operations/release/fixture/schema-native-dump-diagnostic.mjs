@@ -131,11 +131,12 @@ export async function verifyNativeDumpBinary(env) {
     manifest.helper_sha256!==await sourceHash('./native-dump-diagnostic.c') ||
     manifest.function_batch_helper_sha256!==await sourceHash('./native-dump-function-batch.c') ||
     manifest.function_batch_contract_sha256!==await sourceHash('./native-dump-function-batch-test.c') ||
-    manifest.transport!=='consecutive-stock-function-executions-v1' ||
-    manifest.qualification?.synthetic_routine_count!==5507 ||
+    manifest.transport!=='bounded-stock-function-read-ahead-v2' ||
+    manifest.qualification?.synthetic_routine_count!==5510 ||
     manifest.qualification?.function_batch_max!==128 ||
     manifest.qualification?.native_batch_result_faults_refused!==true ||
     manifest.qualification?.filtered_zero_one_equal!==true ||
+    manifest.qualification?.dependency_interleaved_sql_equal!==true ||
     manifest.qualification?.diagnostic_object_scope!=='effective-selected-components' ||
     manifest.binary_sha256!==digest(await read('bin/pg_dump',32*1024*1024,true)) ||
     manifest.libpq_sha256!==digest(await read('lib/libpq.so.5',16*1024*1024)) ||

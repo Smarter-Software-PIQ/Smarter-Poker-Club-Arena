@@ -53,7 +53,17 @@ export async function sendPresence(userId: string, online: boolean): Promise<voi
       p_is_online: online,
     })
   );
-  if (online) inFlight = request;
+  if (online) {
+    inFlight = request;
+    void request.then(
+      () => {
+        if (inFlight === request) inFlight = null;
+      },
+      () => {
+        if (inFlight === request) inFlight = null;
+      }
+    );
+  }
   const { error } = await request;
   if (error) throw error;
 }

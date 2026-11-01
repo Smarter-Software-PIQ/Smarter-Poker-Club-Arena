@@ -243,6 +243,7 @@ describe('the host reports the settled boundary, between hands only', () => {
   interface Boundary {
     handId: string;
     bigBlind: number;
+    smallBlind?: number;
     players: Array<{ playerId: string; stackAfter: number }>;
     releasedBefore: number;
   }
@@ -267,6 +268,7 @@ describe('the host reports the settled boundary, between hands only', () => {
     const b = boundaries[0];
     expect(b.handId).toBe(formed.handId);
     expect(b.bigBlind).toBe(2);
+    expect(b.smallBlind).toBe(1);
     // BEFORE the boundary's players were released to the matcher.
     expect(b.releasedBefore).toBe(0);
     const settled = t.calls.settle[0];
@@ -573,5 +575,52 @@ describe('hidden information: the frame walk, the logs and the record', () => {
         .map((r) => r.userId)
     );
     for (const key of Object.keys(row.hole_cards ?? {})) expect(shown.has(key)).toBe(true);
+  });
+});
+
+describe('the mandatory one/two horse input uses the existing rebuy attempt', () => {
+  function boundary(overrides: Record<string, unknown> = {}) {
+    return {
+      clusterId: CLUSTER,
+      handId: HAND,
+      smallBlind: 1,
+      bigBlind: 2,
+      config: { ...LIGHTNING_AUTO_REBUY_DEFAULTS },
+      players: [{ playerId: P1, stackAfter: 0 }],
+      horsePlayers: [{ playerId: P1 }],
+      ...overrides,
+    };
+  }
+
+  it('asks once for a released busted horse despite discretionary config off', async () => {
+    const { x, calls } = executor({});
+    await x.onHandSettled(boundary());
+    await x.onHandSettled(boundary());
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe('fn_lightning_auto_rebuy');
+    expect(calls[0][1].p_player_id).toBe(P1);
+    await x.onHandSettled(boundary({ handId: uid(990) }));
+    expect(calls).toHaveLength(2);
+  });
+
+  it.each([
+    { horsePlayers: [] },
+    { horsePlayers: [{ playerId: P2 }] },
+    { players: [{ playerId: P1, stackAfter: 0.01 }] },
+    { players: [{ playerId: P1, stackAfter: Number.NaN }] },
+    { players: [{ playerId: 'invalid', stackAfter: 0 }], horsePlayers: [{ playerId: 'invalid' }] },
+    { smallBlind: undefined },
+    { smallBlind: 2, bigBlind: 5 },
+  ])('does not invent mandatory intent from incomplete or ineligible data %j', async (input) => {
+    const { x, calls } = executor({});
+    await x.onHandSettled(boundary(input));
+    expect(calls).toHaveLength(0);
+  });
+
+  it('shares one attempt when the ordinary trigger also matches', async () => {
+    const { x, calls } = executor({});
+    await x.onHandSettled(boundary({ config: ON }));
+    await x.onHandSettled(boundary({ config: ON }));
+    expect(calls).toHaveLength(1);
   });
 });

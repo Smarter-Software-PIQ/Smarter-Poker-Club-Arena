@@ -700,6 +700,7 @@ function HomePageInner() {
         }
         return;
       }
+      if (typeof e.key !== 'string') return;
       const key = e.key.toLowerCase();
       switch (key) {
         case '1':

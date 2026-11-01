@@ -557,6 +557,31 @@ describe('foreground recovery belongs to the current table facade', () => {
     expect(second.readyState).toBe(FakeWebSocket.OPEN);
     expect(ws.readyState).toBe(FakeWebSocket.OPEN);
   });
+
+  it('grants bounded wake grace to an active table socket on resume so the 10s mux watchdog does not kill an in-flight wake probe', async () => {
+    const facade = engineSocketMux.acquire('https://engine.example', T1, 'jwt');
+    const ws = lastSocket();
+    ws._open();
+    ws._frame({ type: 'SUBSCRIBED', tableId: T1 });
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    try {
+      visibility.mockReturnValue('hidden');
+      // Sleep for 90 seconds while hidden (watchdog skips ticks while hidden).
+      await vi.advanceTimersByTimeAsync(90_000);
+      visibility.mockReturnValue('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      // Advance 9s (inside the 10s wake grace window): the physical socket must stay open.
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+      expect(facade.readyState).toBe(FakeWebSocket.OPEN);
+      // If still silent past the 10s grace window, the mux watchdog tears it down.
+      await vi.advanceTimersByTimeAsync(11_000);
+      expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+      expect(facade.readyState).toBe(FakeWebSocket.CLOSED);
+    } finally {
+      visibility.mockRestore();
+    }
+  });
 });
 
 describe('warm entry must prove current table state', () => {

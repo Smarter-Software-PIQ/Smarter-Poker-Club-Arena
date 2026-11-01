@@ -1,0 +1,29 @@
+{
+  "provenance": {
+    "source": "independent-read-only-production-database-observation",
+    "sourceUserId": "47965354-0e56-43ef-931c-ddaab82af765",
+    "authenticationIdentity": false,
+    "browserTransportIsSynthetic": true,
+    "databaseProofProvidedByThisFixture": false
+  },
+  "cash": {
+    "tableId": "e474c3ca-ae34-4540-bb2e-6d1313228990",
+    "tournamentId": null,
+    "hands_played": 1,
+    "hands_won": 0,
+    "vpip_percent": 100,
+    "pfr_percent": 0,
+    "started_at": "2026-11-01T02:39:31.408074Z",
+    "through_at": "2026-11-01T02:41:13.019804Z"
+  },
+  "tournament": {
+    "tableId": "ae08a712-fe63-4fb3-9628-c4269a3c5dce",
+    "tournamentId": "329aa86f-08a9-46f1-8916-59c230aca349",
+    "hands_played": 71,
+    "hands_won": 25,
+    "vpip_percent": 53.5,
+    "pfr_percent": 39.4,
+    "started_at": "2026-11-01T01:30:00Z",
+    "through_at": "2026-11-01T03:25:53.310065Z"
+  }
+}
