@@ -151,8 +151,8 @@ export function ClubRakebackVerifiedSoFar({ clubId }: { clubId: string }) {
       <h3>Rakeback Verified So Far</h3>
       <p className="club-verified__note">
         Week Of {when(data.week_start, false)} To {when(data.week_end, false)}. Paid{' '}
-        {when(data.paid_at)}. Estimated From Every Raked Hand Recorded So Far At Each Player&apos;s
-        Rate When It Was Played; The Paid Amount Is Computed At The Close.
+        {when(data.paid_at)}. Estimated From Every Raked Hand Recorded So Far At The Rate In Effect
+        When It Was Played; The Paid Amount Is Computed At The Close.
       </p>
       {!tally.complete && (
         <p className="club-verified__counting" role="status" aria-live="polite">

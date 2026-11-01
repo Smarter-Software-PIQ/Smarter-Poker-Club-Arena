@@ -123,6 +123,8 @@ DECLARE v_now timestamptz:=clock_timestamp(); v_start timestamptz; v_end timesta
  v_complete boolean; v_windows jsonb; v_elapsed int; v_run jsonb; v_paid jsonb; v_totals jsonb; v_players jsonb;
  v_budget interval:=interval '4 seconds';
 BEGIN
+ -- Who is asking: a signed-in viewer of this whole club, never a parameter.
+ IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication_required' USING ERRCODE='42501'; END IF;
  IF p_club_id IS NULL OR NOT public.ca_can_view_whole_club_report(p_club_id) THEN
   RAISE EXCEPTION 'not authorized for this club' USING ERRCODE='42501';
  END IF;
