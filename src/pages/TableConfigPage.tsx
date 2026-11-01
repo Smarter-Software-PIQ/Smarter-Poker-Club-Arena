@@ -546,6 +546,9 @@ export default function TableConfigPage({
   const autoNameRef = useRef<string>('');
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
+  // A failed one-off does not undo the schedule already accepted for this form.
+  const scheduleScope = useMemo(() => ({ clubId }), [clubId]);
+  const savedSchedule = useRef<{ scope: object; id: string } | null>(null);
   const templateUserId = useUserStore((state) => state.user?.id);
   const templateScope = JSON.stringify([clubId, templateUserId]);
   const templateScopeRef = useRef(templateScope);
@@ -1005,7 +1008,8 @@ export default function TableConfigPage({
     const rpcConfig = tournamentService.buildRpcConfig(buildTournamentConfig(config, gameType));
     delete rpcConfig.startTime;
     Object.assign(rpcConfig, recurrence.configKeys);
-    await tournamentScheduleService.upsert({
+    const scheduleId = await tournamentScheduleService.upsert({
+      id: savedSchedule.current?.scope === scheduleScope ? savedSchedule.current.id : undefined,
       clubId: resolvedId,
       unionId: null,
       name: config.name.trim() || 'Tournament',
@@ -1017,6 +1021,7 @@ export default function TableConfigPage({
       active: true,
       config: rpcConfig,
     });
+    savedSchedule.current = { scope: scheduleScope, id: scheduleId };
     toast.success('Recurring schedule saved.');
     return true;
   };
@@ -1144,6 +1149,7 @@ export default function TableConfigPage({
           masterBus.emit('TOURNAMENT_UPDATED', { tournamentId: createdId, status: 'REGISTERING' });
         }
       }
+      savedSchedule.current = null;
       if (onExit) onExit('tournament_created');
       else navigate(`/clubs/${clubId}/tournaments`);
     } catch (error) {

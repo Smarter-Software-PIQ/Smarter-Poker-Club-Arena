@@ -248,6 +248,10 @@ export default function CreateTournamentModal({
   const [rebuyCost, setRebuyCost] = useState('');
   /** Flips synchronously, so a second submit cannot slip past an await. */
   const submittingRef = useRef(false);
+  // Keep an acknowledged schedule when the subsequent one-off fails. An
+  // explicit retry edits that same row; an unanswered create supplies no id.
+  const scheduleScope = useMemo(() => ({ clubId, unionId }), [clubId, unionId]);
+  const savedSchedule = useRef<{ scope: object; id: string } | null>(null);
   /** False once unmounted: onSuccess() closes this modal from inside submit. */
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -963,7 +967,8 @@ export default function CreateTournamentModal({
         // programme's Sunday majors are: next week's copy appears the moment
         // this week's is created.
         if (repeatsWeekly) rpcConfig.spawnAheadMinutes = RESTART_WEEKLY_MINUTES;
-        await tournamentScheduleService.upsert({
+        const scheduleId = await tournamentScheduleService.upsert({
+          id: savedSchedule.current?.scope === scheduleScope ? savedSchedule.current.id : undefined,
           clubId: resolvedClubId,
           unionId: unionId || null,
           name,
@@ -978,6 +983,7 @@ export default function CreateTournamentModal({
           active: true,
           config: rpcConfig,
         });
+        savedSchedule.current = { scope: scheduleScope, id: scheduleId };
         toast.success(
           repeatsWeekly ? 'Saved. This Event Repeats Every Week.' : 'Recurring schedule saved.'
         );
@@ -1017,6 +1023,7 @@ export default function CreateTournamentModal({
           toast.success('Tournament created');
         }
       }
+      savedSchedule.current = null;
       onSuccess();
     } catch (error: any) {
       reportError(error, 'CreateTournamentModal.Failed_to_create_tournament');
