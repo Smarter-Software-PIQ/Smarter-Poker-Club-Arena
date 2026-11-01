@@ -12,12 +12,15 @@ interface TournamentAnnouncementProps {
     | 'mystery_bounty_revealed'
     | null;
   data?: any;
+  /** Stable state object for this event, independent of parent render churn. */
+  eventIdentity?: object | null;
   onDismiss: () => void;
 }
 
 const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
   type,
   data,
+  eventIdentity,
   onDismiss,
 }) => {
   const [visible, setVisible] = useState(false);
@@ -40,8 +43,9 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
    * busy table the timer could therefore never reach zero and the banner sat on
    * the felt until the component unmounted.
    *
-   * The callback now lives in a ref, so the timer effect depends on `type`
-   * alone and runs exactly once per announcement. The identity of the prop is
+   * The callback now lives in a ref. The timer follows `type` and the stable
+   * event identity, so a replacement of the same type gets its full display
+   * and cancels the previous event's fade callback. The callback's identity is
    * irrelevant. (The call site is ALSO stabilised with useCallback and the
    * parent memoised — belt and braces, because a future prop could re-introduce
    * the churn and this component must not care.)
@@ -93,7 +97,7 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
         dismissCallbackTimerRef.current = null;
       }
     };
-  }, [type]);
+  }, [type, eventIdentity]);
 
   if (!type) return null;
 
