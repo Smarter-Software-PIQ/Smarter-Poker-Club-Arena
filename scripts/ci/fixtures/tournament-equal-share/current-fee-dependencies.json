@@ -1,0 +1,305 @@
+{
+  "functions": [
+    {
+      "signature": "fn_ca_begin_legacy_fee_resolution(uuid)",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_begin_legacy_fee_resolution(p_tournament_id uuid)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nDECLARE o public.accounting_tournament_fee_custody_obligations%ROWTYPE;plan jsonb;raw record;\nBEGIN\n SELECT * INTO o FROM public.accounting_tournament_fee_custody_obligations WHERE tournament_id=p_tournament_id;\n IF NOT FOUND OR EXISTS(SELECT 1 FROM public.accounting_tournament_fee_custody_resolutions WHERE tournament_id=p_tournament_id) THEN RETURN; END IF;\n PERFORM public.fn_ca_lock_settlement_lane_global();\n PERFORM 1 FROM public.tournaments WHERE id=p_tournament_id FOR NO KEY UPDATE;\n PERFORM 1 FROM public.tournament_escrow WHERE tournament_id=p_tournament_id FOR UPDATE;\n PERFORM public.fn_ca_tournament_terminal_receipt(p_tournament_id,NULL);\n INSERT INTO public.accounting_tournament_fee_custody_capture_admissions\n  (tournament_id,obligation_id,source_fingerprint,amount)\n VALUES(p_tournament_id,o.id,o.source_fingerprint,o.amount);\n FOR raw IN SELECT r.id FROM public.rake_records r WHERE r.tournament_id=p_tournament_id\n  AND r.is_tournament AND r.rake_amount>0\n  AND NOT EXISTS(SELECT 1 FROM public.accounting_tournament_fee_batches b WHERE b.rake_record_id=r.id)\n  ORDER BY r.id LOOP\n  PERFORM public.fn_ca_capture_tournament_fee_from_recorded_evidence(raw.id);\n END LOOP;\n plan:=public.fn_accounting_tournament_fee_net_plan(p_tournament_id);\n IF plan->>'status' IS DISTINCT FROM 'proven' OR plan->>'source_fingerprint' IS DISTINCT FROM o.source_fingerprint\n  OR (plan->>'net_fee')::numeric IS DISTINCT FROM o.amount\n  OR jsonb_array_length(plan->'active_source_ids')<1\n  OR (public.fn_ca_sep8_spin_original_fee_proof(p_tournament_id) IS NOT NULL AND jsonb_array_length(plan->'active_source_ids')<>3)\n THEN RAISE EXCEPTION 'original fee continuation requires exact canonical attribution proof' USING ERRCODE='P0404'; END IF;\n INSERT INTO public.accounting_tournament_fee_custody_resolutions\n  (tournament_id,obligation_id,amount,source_fingerprint,original_plan)\n VALUES(p_tournament_id,o.id,o.amount,o.source_fingerprint,plan);\nEND $function$\n",
+      "definition_md5": "bdcedd8acbf81c2f925d390d825d422c"
+    }
+  ],
+  "relations": [
+    {
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true
+        },
+        {
+          "name": "tournament_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "source_fingerprint",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "amount",
+          "type": "numeric",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "original_fees",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "original_funding",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "original_scope",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "escrow_snapshot",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "held_at",
+          "type": "timestamp with time zone",
+          "default": "transaction_timestamp()",
+          "notnull": true
+        },
+        {
+          "name": "transaction_id",
+          "type": "bigint",
+          "default": "txid_current()",
+          "notnull": true
+        }
+      ],
+      "relation": "accounting_tournament_fee_custody_obligations",
+      "constraints": [
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_obli_source_fingerprint_check",
+          "definition": "CHECK ((source_fingerprint ~ '^[0-9a-f]{32}$'::text))"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_obliga_original_funding_check",
+          "definition": "CHECK ((jsonb_typeof(original_funding) = 'array'::text))"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_obligat_escrow_snapshot_check",
+          "definition": "CHECK ((jsonb_typeof(escrow_snapshot) = 'object'::text))"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_obligati_original_scope_check",
+          "definition": "CHECK ((jsonb_typeof(original_scope) = 'object'::text))"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_obligatio_original_fees_check",
+          "definition": "CHECK ((jsonb_typeof(original_fees) = 'array'::text))"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_obligations_amount_check",
+          "definition": "CHECK (((amount > (0)::numeric) AND (amount = round(amount, 2)) AND ((amount)::text <> ALL (ARRAY['NaN'::text, 'Infinity'::text, '-Infinity'::text]))))"
+        },
+        {
+          "kind": "p",
+          "name": "accounting_tournament_fee_custody_obligations_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_obligations_reason_check",
+          "definition": "CHECK ((reason = ANY (ARRAY['tournament_fee_sources_require_reconciliation'::text, 'accounting_terms_not_observed'::text, 'accounting_terms_not_active'::text, 'tournament_fee_not_captured_by_original_producer'::text])))"
+        },
+        {
+          "kind": "u",
+          "name": "accounting_tournament_fee_custody_obligations_tournament_id_key",
+          "definition": "UNIQUE (tournament_id)"
+        },
+        {
+          "kind": "t",
+          "name": "legacy_fee_custody_requires_terminal",
+          "definition": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "name": "tournament_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "obligation_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "amount",
+          "type": "numeric",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "source_fingerprint",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "original_plan",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "default": "transaction_timestamp()",
+          "notnull": true
+        },
+        {
+          "name": "transaction_id",
+          "type": "bigint",
+          "default": "txid_current()",
+          "notnull": true
+        }
+      ],
+      "relation": "accounting_tournament_fee_custody_resolutions",
+      "constraints": [
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_reso_source_fingerprint_check",
+          "definition": "CHECK ((source_fingerprint ~ '^[0-9a-f]{32}$'::text))"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_resolutio_original_plan_check",
+          "definition": "CHECK ((jsonb_typeof(original_plan) = 'object'::text))"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_tournament_fee_custody_resolutions_amount_check",
+          "definition": "CHECK (((amount > (0)::numeric) AND (amount = round(amount, 2))))"
+        },
+        {
+          "kind": "u",
+          "name": "accounting_tournament_fee_custody_resolutions_obligation_id_key",
+          "definition": "UNIQUE (obligation_id)"
+        },
+        {
+          "kind": "p",
+          "name": "accounting_tournament_fee_custody_resolutions_pkey",
+          "definition": "PRIMARY KEY (tournament_id)"
+        },
+        {
+          "kind": "t",
+          "name": "legacy_fee_resolution_requires_recognition",
+          "definition": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "name": "tournament_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "obligation_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "source_fingerprint",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "amount",
+          "type": "numeric",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "transaction_id",
+          "type": "bigint",
+          "default": "txid_current()",
+          "notnull": true
+        }
+      ],
+      "relation": "accounting_tournament_fee_custody_capture_admissions",
+      "constraints": [
+        {
+          "kind": "u",
+          "name": "accounting_tournament_fee_custody_capture_adm_obligation_id_key",
+          "definition": "UNIQUE (obligation_id)"
+        },
+        {
+          "kind": "p",
+          "name": "accounting_tournament_fee_custody_capture_admissions_pkey",
+          "definition": "PRIMARY KEY (tournament_id)"
+        },
+        {
+          "kind": "t",
+          "name": "legacy_fee_capture_requires_resolution",
+          "definition": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "name": "singleton",
+          "type": "boolean",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "starts_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": true
+        }
+      ],
+      "relation": "accounting_owner_direct_fee_incident",
+      "constraints": [
+        {
+          "kind": "c",
+          "name": "accounting_owner_direct_fee_incident_check",
+          "definition": "CHECK ((ends_at > starts_at))"
+        },
+        {
+          "kind": "p",
+          "name": "accounting_owner_direct_fee_incident_pkey",
+          "definition": "PRIMARY KEY (singleton)"
+        },
+        {
+          "kind": "c",
+          "name": "accounting_owner_direct_fee_incident_singleton_check",
+          "definition": "CHECK (singleton)"
+        }
+      ]
+    }
+  ]
+}
