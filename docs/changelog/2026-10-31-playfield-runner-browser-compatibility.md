@@ -8,4 +8,12 @@ Only that matrix job now selects ubuntu-24.04. Its three shards, software WebGL,
 cases, deadlines, retries, evidence and aggregate gate remain intact. The existing
 runner contract asserts the exact supported image before normalizing that one
 field; the whole-job fingerprint continues protecting every original command.
-No browser upgrade, alternative provider or gameplay change is introduced.
+The Production Build job subsequently failed at its performance-browser install
+on the same unsupported image. Its prior Ubuntu24.04 run installed Chromium and
+passed route budgets. That job receives the same runner-only correction.
+Three CSS browser shards then failed at the same installer before tests;
+their matrix job also selects the supported image, preserving all twenty shards.
+
+Current CI source bindings record these exact runner changes separately from
+historical financial evidence. No browser upgrade, alternative provider or
+gameplay change is introduced.
