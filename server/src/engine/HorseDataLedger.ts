@@ -821,6 +821,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V70'
   ),
   flag(
+    'v71AnteAwarePushFold',
+    "2026-10-31 Hold'em folded-to jam at <= 15bb in a tournament (or an ante cash table): the jam-or-fold answer reads the chip-EV Nash table (HorseNashPushFold.data.json, first caller only, exact hero/caller card removal) by dealt-in players behind (1 = SB vs BB .. 8 = nine-handed UTG) and dead ante (0/1/2bb solutions, interpolated), at the effective depth (hero capped by the deepest live stack behind), whether or not memory_charts_gold hydrated; the charts were the no-ante game for five positions (Tournament cells equal to Cash) and the offline fallback jammed on the strength ladder; 9-handed 15bb with a big-blind ante jams UTG 8.6 / LJ 16.3 / HJ 22.8 / CO 28.8 / BTN 35.7 / SB 62; the 16-22bb orange-zone shove, BB defence and cash without an ante are unchanged; explicit off arm retained",
+    'V71'
+  ),
+  flag(
     'v52RangeAdvantage',
     'heads-up postflop public-range advantage drives the range c-bet, V38 initiative and PLO small sizes (league v52_range_advantage)',
     'V52'
@@ -2114,6 +2119,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V70',
     'decide_nlh',
     0.01
+  ),
+  receipt(
+    'v71_ante_push',
+    'HorseLogic (V71)',
+    "Hold'em folded-to jam at <= 15bb answered by the ante-aware Nash push/fold table (tournaments and ante cash; also counted in v27_gto_open_jam)",
+    'V71',
+    'decide_nlh'
   ),
   receipt(
     'v27_gto_open_jam',

@@ -30,6 +30,7 @@ const args = process.argv.slice(2);
 const seeds = Number(args[0] ?? 40);
 const styleArg = args[1] ?? 'balanced';
 const offArm = args.includes('off');
+const off71 = args.includes('off71');
 const showGrid = args.includes('grid');
 const asJson = args.includes('json');
 const only = args.find((a) => a.startsWith('ctx='))?.slice(4);
@@ -69,6 +70,21 @@ const CONTEXTS: Ctx[] = [
   { name: 'hu_20na', seats: 2, stackBB: 20, mode: 'tournament', ante: false, format: 'hu_sng' },
   { name: 'hu_12', seats: 2, stackBB: 12, mode: 'tournament', ante: true },
   { name: 'mtt6_20na', seats: 6, stackBB: 20, mode: 'tournament', ante: false },
+  // V71 push/fold grid: 9/6/3/2-handed at 15/12/10/8/5bb, with and without a BB ante.
+  ...[9, 6, 3, 2].flatMap((seats) =>
+    [15, 12, 10, 8, 5].flatMap((stackBB) =>
+      [true, false].map(
+        (ante): Ctx => ({
+          name: `pf${seats}_${stackBB}${ante ? 'a' : 'n'}`,
+          seats,
+          stackBB,
+          mode: 'tournament',
+          ante,
+          ...(seats === 2 ? { format: 'hu_sng' as const } : {}),
+        })
+      )
+    )
+  ),
 ];
 
 function posNames(n: number): string[] {
@@ -116,7 +132,7 @@ function classes(): {
   return out;
 }
 
-function tourney(stackBB: number, seats: number) {
+function tourney(stackBB: number, seats: number, ante = true) {
   return {
     schemaVersion: 1 as const,
     contextStatus: 'complete' as const,
@@ -133,11 +149,11 @@ function tourney(stackBB: number, seats: number) {
     payoutPct: seats <= 3 ? [100] : [30, 20, 14, 10, 8, 6, 4, 3, 3, 2],
     currentSmallBlind: 1,
     currentBigBlind: 2,
-    currentAnte: 2,
-    anteType: 'big_blind' as const,
+    currentAnte: ante ? 2 : 0,
+    anteType: ante ? ('big_blind' as const) : ('none' as const),
     nextSmallBlind: 2,
     nextBigBlind: 4,
-    nextAnte: 4,
+    nextAnte: ante ? 4 : 0,
     nextBlindInMin: 10,
   };
 }
@@ -234,7 +250,7 @@ export function auditPosition(
         ante: ctx.ante ? 2 : 0,
         bigBlindAnte: ctx.ante,
         format: ctx.mode === 'cash' ? 'cash' : (ctx.format ?? 'mtt'),
-        ...(ctx.mode === 'tournament' ? { tournament: tourney(ctx.stackBB, n) } : {}),
+        ...(ctx.mode === 'tournament' ? { tournament: tourney(ctx.stackBB, n, ctx.ante) } : {}),
       } as unknown as HorseGameStateV2;
       seedFastRandom(seed);
       const hero = players[heroSeat - 1];
@@ -310,7 +326,11 @@ if (isMain) {
     const names = posNames(ctx.seats);
     for (const style of styles) {
       const mods = styleArg === 'fleet' ? { tightness: FLEET_TIGHT[style] } : {};
-      const opts = offArm ? { v70GtoOpeningRanges: false } : {};
+      const opts = off71
+        ? { v71AnteAwarePushFold: false }
+        : offArm
+          ? { v70GtoOpeningRanges: false }
+          : {};
       const row: string[] = [];
       const per: Record<string, unknown> = {};
       for (let p = 0; p < names.length; p++) {
@@ -329,7 +349,10 @@ if (isMain) {
   }
   if (asJson) {
     const fs = await import('node:fs');
-    fs.writeFileSync(`/tmp/rfi-${offArm ? 'off' : 'on'}-${styleArg}.json`, JSON.stringify(out));
+    fs.writeFileSync(
+      `/tmp/rfi-${off71 ? 'off71' : offArm ? 'off' : 'on'}-${styleArg}.json`,
+      JSON.stringify(out)
+    );
   }
   process.exit(0);
 }

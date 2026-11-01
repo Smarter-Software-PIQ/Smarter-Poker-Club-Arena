@@ -108,6 +108,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorseHandClasses.ts': 'the Omaha hand-class bar shifts',
     'src/engine/HorseGtoOpeningRanges.ts':
       "the V70 Hold'em raise-first-in seat orders, open bars and limp floors",
+    'src/engine/HorseAnteAwarePushFold.ts':
+      "the V71 Hold'em folded-to jam thresholds by players behind, depth and dead ante",
+    'src/engine/HorseNashPushFold.data.json':
+      'the V71 chip-EV Nash jam-or-fold table (169 thresholds per seat count and ante level)',
     'src/engine/pineappleDiscardChoice.ts': 'the Pineapple discard',
     'src/engine/HorseOpponentMemory.ts':
       'durable variant and context keys and validated snapshots used in opponent decisions',
