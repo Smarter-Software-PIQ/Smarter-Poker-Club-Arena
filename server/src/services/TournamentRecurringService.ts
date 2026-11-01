@@ -4775,17 +4775,8 @@ export class TournamentRecurringService {
       // "Tournament roster cache diverged before horse registration" and was
       // refused, horse and person alike. See
       // docs/changelog/2026-10-08-the-door-alone-counts-the-field.md.
-      const { error: updateErr } = await supabase
-        .from('tournaments')
-        .update({ status: 'REGISTERING' })
-        .eq('id', tournament.id);
-      if (updateErr)
-        reportError(
-          new Error(
-            `[TournamentRecurring] XMTT state update failed for ${tournament.id.slice(0, 8)}: ${updateErr.message}`
-          ),
-          'TournamentRecurring.XMTT_state_update_failed_for_t'
-        );
+      // Creation already published REGISTERING atomically. Seeding may overlap
+      // launch or completion; the creator must never rewind that newer status.
 
       return { tournamentId: tournament.id, registered };
     } catch (err: any) {
@@ -5027,17 +5018,8 @@ export class TournamentRecurringService {
       // "Tournament roster cache diverged before horse registration" and was
       // refused, horse and person alike. See
       // docs/changelog/2026-10-08-the-door-alone-counts-the-field.md.
-      const { error: updateErr } = await supabase
-        .from('tournaments')
-        .update({ status: 'REGISTERING' })
-        .eq('id', tournament.id);
-      if (updateErr)
-        reportError(
-          new Error(
-            `[TournamentRecurring] Tournament state update failed for ${tournament.id.slice(0, 8)}: ${updateErr.message}`
-          ),
-          'TournamentRecurring.Tournament_state_update_failed'
-        );
+      // Creation already published REGISTERING atomically. Seeding may overlap
+      // launch or completion; the creator must never rewind that newer status.
 
       return { tournamentId: tournament.id, registered };
     } catch (err: any) {
@@ -5193,24 +5175,8 @@ export class TournamentRecurringService {
       // ~230,561 chips retained over 30 days, repaid by
       // fn_backpay_hu_winner_shortfalls. The register RPCs are the only
       // writer of pool contributions now.
-      const sngStateUpdate: Record<string, unknown> = {
-        status: 'REGISTERING',
-      };
-      // A field SNG's count is published by the door that registered each
-      // entrant (2026-10-08, the door alone counts the field): writing this
-      // pass's tally here raced every concurrent registration.
-
-      const { error: sngUpdateErr } = await supabase
-        .from('tournaments')
-        .update(sngStateUpdate)
-        .eq('id', sng.id);
-      if (sngUpdateErr)
-        reportError(
-          new Error(
-            `[TournamentRecurring] SNG state update failed for ${sng.id.slice(0, 8)}: ${sngUpdateErr.message}`
-          ),
-          'TournamentRecurring.SNG_state_update_failed_for_sn'
-        );
+      // Creation already published REGISTERING atomically. Seeding may overlap
+      // launch or completion; the creator must never rewind that newer status.
 
       return { tournamentId: sng.id, registered };
     } catch (err: any) {
@@ -6264,21 +6230,10 @@ export class TournamentRecurringService {
        *
        * A seat-first game's count is derived from its seat rows, by
        * fn_sync_seat_first_player_count and now by the trigger that calls it.
-       * The application's job here is the status and nothing else.
+       * Creation already owns the initial status; the launcher owns later transitions.
        */
-      const { error: spinUpdateErr } = await supabase
-        .from('tournaments')
-        .update({
-          status: 'REGISTERING',
-        })
-        .eq('id', spin.id);
-      if (spinUpdateErr)
-        reportError(
-          new Error(
-            `[TournamentRecurring] Spin state update failed for ${spin.id.slice(0, 8)}: ${spinUpdateErr.message}`
-          ),
-          'TournamentRecurring.Spin_state_update_failed_for_s'
-        );
+      // Creation already published REGISTERING atomically. Seeding may overlap
+      // launch or completion; the creator must never rewind that newer status.
 
       return { tournamentId: spin.id, registered };
     } catch (err: any) {
