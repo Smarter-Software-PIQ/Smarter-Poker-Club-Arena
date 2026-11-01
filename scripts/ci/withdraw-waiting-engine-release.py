@@ -176,6 +176,35 @@ CANCEL_HASHES = {
     'engine-release-activation-floor.py': '850c6056e1eb630b8ca6729b5b654c40612f1c25d692999c8cf5fe3b985ddef2',
 }
 WRAPPER_HASH = 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c'
+
+# One additional expired original, not a caller-selected generation or target.
+E9_RUN = '41283363258-1'
+E9_CONTROL = '303d8cc7d38a97c3bcdc32a577b555232ad726bf'
+E9_TARGET = 'e9f00025bd4e2670ed9d1b5714ef94135bcf0224'
+E9_HASHES = {
+    'engine-release-database-proof.py': '7034aa6f2d42a7a321c1e610fa517acd165367512aa8f3e62aaee719a4703155',
+    'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4',
+    'engine-release-seal.py': '7ea266198c0a59e223ba662027352f5a45291d7d9fe25753d3c7dd2ec63916b2',
+    'engine-release-transaction.sh': 'e87f2c5d97039656eb953c2155cab1b2948d93e8bbff85efa30385a95e841e20',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'engine-release-activation-floor.py': '850c6056e1eb630b8ca6729b5b654c40612f1c25d692999c8cf5fe3b985ddef2',
+}
+E9_WRAPPER_HASH = 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c'
+E9_MANIFEST_HASH = '24cc5dbdfd46117934fd82d832da146c1373f7676ef6b4447455be9c599ad4a7'
+MARKERLESS_ORIGINALS = {'41177442979-1': '1793440868', E9_RUN: '1793528863'}
+
+
+def cancellation_profile(request):
+    if request['runKey'] == E9_RUN:
+        require(request['controlSha'] == E9_CONTROL and request['releaseSha'] == E9_TARGET)
+        return {'control': E9_CONTROL, 'target': E9_TARGET, 'hashes': E9_HASHES,
+                'wrapper': E9_WRAPPER_HASH, 'manifest': E9_MANIFEST_HASH,
+                'deadline': MARKERLESS_ORIGINALS[E9_RUN]}
+    require(request['controlSha'] == request['releaseSha'] == CANCEL_CONTROL)
+    return {'control': CANCEL_CONTROL, 'target': CANCEL_CONTROL, 'hashes': CANCEL_HASHES,
+            'wrapper': WRAPPER_HASH, 'manifest': '6008a4314d7a80e77ad0df28c6cc4dd83777ab813f3e66192108be25e063b0ac',
+            'deadline': MARKERLESS_ORIGINALS.get(request['runKey'])}
+
 SYSTEMD = Path('/etc/systemd/system')
 CGROUP = Path('/sys/fs/cgroup')
 THAW_STEPS = {'sit_out_at', 'hold_expires_at', 'addon_period_ends_at', 'reversible_until',
@@ -417,7 +446,7 @@ def prove_unit_empty(unit, bindings=None):
 
 
 def empty_retry_admission(unit, state, key, evidence):
-    require(key == '41177442979-1' and 'engine-release-requests/'+key+'.awaiting-certificate' not in evidence['originals'])
+    require(key in MARKERLESS_ORIGINALS and 'engine-release-requests/'+key+'.awaiting-certificate' not in evidence['originals'])
     require(state['MainPID'] == '0' and state['ActiveState'] == 'activating' and state['SubState'] == 'auto-restart')
     raw = command(['systemctl', 'show', unit, '--all', '-p', 'Type', '-p', 'Restart', '-p', 'RestartUSec'])
     require(dict(line.split('=', 1) for line in raw.splitlines()) ==
@@ -472,11 +501,13 @@ def prove_thaw(rows, active, stamp, now):
             'generation': row['release_generation']}
 
 
-def own_thaw(stamp):
+def own_thaw(stamp, control=CANCEL_CONTROL):
     # The fixed canonical store is used only inside this protected host helper.
     # Only bounded GETs, no RPC or production write, and redirects are refused.
-    helper = PARENT / 'engine-control-generations' / CANCEL_CONTROL / 'engine-release-database-proof.py'
-    require(source_hash(helper) == CANCEL_HASHES[helper.name])
+    require(control in {CANCEL_CONTROL, E9_CONTROL})
+    helper = PARENT / 'engine-control-generations' / control / 'engine-release-database-proof.py'
+    hashes = E9_HASHES if control == E9_CONTROL else CANCEL_HASHES
+    require(source_hash(helper) == hashes[helper.name])
     spec = importlib.util.spec_from_file_location('qualified_withdrawal_database_reader', helper)
     reader = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(reader)
@@ -523,12 +554,13 @@ def observe_seal_state(generation):
 
 
 def announcement_evidence(request, after_stop=False, read_only=False):
-    require(request['controlSha'] == request['releaseSha'] == CANCEL_CONTROL)
+    profile = cancellation_profile(request)
+    control, target = profile['control'], profile['target']
     key = request['runKey']
-    generation = PARENT / 'engine-control-generations' / CANCEL_CONTROL
+    generation = PARENT / 'engine-control-generations' / control
     require(generation.resolve(strict=True) == generation)
-    for name, expected in CANCEL_HASHES.items(): require(source_hash(generation / name) == expected)
-    require(source_hash(PARENT / 'engine-release-unit-wrapper-v1.sh') == WRAPPER_HASH)
+    for name, expected in profile['hashes'].items(): require(source_hash(generation / name) == expected)
+    require(source_hash(PARENT / 'engine-release-unit-wrapper-v1.sh') == profile['wrapper'])
     reqroot = ROOT / 'engine-release-requests'
     originals = {}
     marker_missing = not os.path.lexists(reqroot / (key + '.awaiting-certificate'))
@@ -540,32 +572,34 @@ def announcement_evidence(request, after_stop=False, read_only=False):
         if suffix == 'request': lines = raw.splitlines(); request_raw = raw
         elif suffix == 'intent': require(raw == request_raw)
         else: require(raw.strip() == request['releaseSha'])
-    require(len(lines) == 6 and lines[0] == request['releaseSha'] and lines[3:5] == [str(generation), CANCEL_CONTROL])
+    require(len(lines) == 6 and lines[0] == request['releaseSha'] and lines[3:5] == [str(generation), control])
+    if key == E9_RUN:
+        require(lines[5] == profile['deadline'] and time.time() > int(profile['deadline']))
     if marker_missing and not after_stop:
         # The pinned transaction removes this advisory marker on entry/exit.
         # Only this expired original's positive announced disposition replaces it.
-        require(key == '41177442979-1' and lines[5] == '1793440868'
-                and time.time() > 1793440868)
+        require(profile['deadline'] is not None and lines[5] == profile['deadline']
+                and time.time() > int(profile['deadline']))
         require(command(['python3', str(generation / 'engine-release-activation-floor.py'),
-                         'disposition', '--repo', '/opt/club-arena', '--target', CANCEL_CONTROL,
-                         '--control', CANCEL_CONTROL, '--deadline', lines[5],
+                         'disposition', '--repo', '/opt/club-arena', '--target', target,
+                         '--control', control, '--deadline', lines[5],
                          '--request-root', str(reqroot), '--run-id', key]) == 'announced')
     entry_raw = regular(reqroot / (key + '.activation-entry'), 0o600)
     entry = json.loads(entry_raw)
     require(set(entry) == {'schema', 'runId', 'targetSha', 'controlSha', 'manifestSha256', 'phase'}
             and entry['schema'] == 'engine-release-activation-floor/v2-owner-window' and entry['runId'] == key
-            and entry['targetSha'] == entry['controlSha'] == CANCEL_CONTROL and entry['phase'] == 'announcement')
+            and entry['targetSha'] == target and entry['controlSha'] == control and entry['phase'] == 'announcement')
     reservation_raw = regular(ROOT / ('engine-recovery-window-' + key + '.json'), 0o600)
     reservation = json.loads(reservation_raw)
     require(set(reservation) == {'runId', 'sha', 'announcedAt', 'cause'} and reservation['runId'] == key
-            and reservation['sha'] == CANCEL_CONTROL and reservation['cause'] == 'urgent')
+            and reservation['sha'] == target and reservation['cause'] == 'urgent')
     stamp = reservation['announcedAt']
     require(type(stamp) is int and stamp + 420000 < time.time() * 1000)
     # Existing immutable floor verifier binds announcement to the qualified manifest/window.
     require(command([str(generation / 'engine-release-activation-floor.py'), 'reservation', '--repo', '/opt/club-arena',
-                     '--target', CANCEL_CONTROL, '--control', CANCEL_CONTROL, '--deadline', lines[5],
+                     '--target', target, '--control', control, '--deadline', lines[5],
                      '--run-id', key, '--state-root', str(ROOT)]) == str(stamp))
-    require(entry['manifestSha256'] == '6008a4314d7a80e77ad0df28c6cc4dd83777ab813f3e66192108be25e063b0ac')
+    require(entry['manifestSha256'] == profile['manifest'])
     for suffix in ['break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json']:
         require(not os.path.lexists(reqroot / (key + '.' + suffix)))
     released_path = reqroot / (key + '.lightning-hold.json.released')
@@ -582,7 +616,7 @@ def announcement_evidence(request, after_stop=False, read_only=False):
         require(command([str(seal), 'pending-owner']) == 'none')
         require(command([str(seal), 'get', 'desired-sha']) == request['desiredSha'])
     pin = ROOT / 'engine-release-generation-pins' / (key + '.generation')
-    require(regular(pin, 0o600) == str(generation) + '\n' + CANCEL_CONTROL + '\n')
+    require(regular(pin, 0o600) == str(generation) + '\n' + control + '\n')
     originals[str(pin.relative_to(ROOT))] = digest(regular(pin, 0o600).encode())
     for directory, suffix in [('engine-intake-requests', 'intent'), ('engine-intake-requests', 'request'), ('engine-image-leases', 'lease')]:
         path = ROOT / directory / (key + '.' + suffix)
@@ -593,7 +627,7 @@ def announcement_evidence(request, after_stop=False, read_only=False):
             originals[str(path.relative_to(ROOT))] = digest(raw.encode())
     require(not os.path.lexists(ROOT / 'engine-release-results' / (key + '.json')))
     return {'originals': originals, 'entryHash': digest(entry_raw.encode()),
-            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()), 'thaw': own_thaw(stamp)}
+            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()), 'thaw': own_thaw(stamp, control)}
 
 
 def unchanged_evidence(actual, expected, key):
@@ -640,6 +674,10 @@ def collect_cancellation_admission(request, units, container, read_only=False):
     stop_contract = loaded_stop_contract(units[0], key)
     state = unit_snapshot(units[0])
     require(state['ActiveState'] in {'active', 'activating'} and INVOCATION_PATTERN(state['InvocationID']))
+    # This additional original is admitted only while positively process-empty.
+    # A live or racing invocation cannot become new signal authority.
+    if key == E9_RUN:
+        require(state['MainPID'] == '0')
     if state['MainPID'] == '0':
         empty_retry_admission(units[0], state, key, evidence)
         unit_cgroups = {}
@@ -722,7 +760,7 @@ def cancel_announced(request):
         original_group = intent['originalUnit']['ControlGroup'] or (None if empty_admission else '')
         require(set(intent['evidence']['originals']) <= allowed and all(re.fullmatch('[0-9a-f]{64}', value) for value in intent['evidence']['originals'].values()))
         if empty_admission and not os.path.lexists(issued_path):
-            require(key == '41177442979-1' and 'engine-release-requests/'+key+'.awaiting-certificate' not in intent['evidence']['originals'])
+            require(key in MARKERLESS_ORIGINALS and 'engine-release-requests/'+key+'.awaiting-certificate' not in intent['evidence']['originals'])
             require(announcement_evidence(request) == intent['evidence'])
             require(container_identity(request) == intent['container']); health_pair(request)
             loaded_stop_contract(units[0], key, allow_masked=masked(units), bindings=bindings)

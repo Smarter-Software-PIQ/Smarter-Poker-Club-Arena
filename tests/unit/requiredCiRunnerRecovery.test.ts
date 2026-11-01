@@ -149,6 +149,26 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    // Enforce the exact new reporting regression before retaining all prior job hashes.
+    const chicagoStep = {
+      name: 'Member statistics use Chicago dates across daylight saving transitions',
+      if: 'matrix.shard == 4',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+      run: 'python3 -B scripts/ci/test-member-stats-chicago.py --scratch "$RUNNER_TEMP" --migration supabase/migrations/20261101061213_member_statistics_use_chicago_calendar_boundaries.sql',
+    };
+    const chicagoSteps = normalized.jobs.accounting_postgres.steps;
+    const chicagoIndex = chicagoSteps.findIndex(
+      (step: { name: string }) => step.name === chicagoStep.name
+    );
+    expect(
+      chicagoSteps.filter((step: { name: string }) => step.name === chicagoStep.name)
+    ).toHaveLength(1);
+    expect(chicagoSteps[chicagoIndex]).toStrictEqual(chicagoStep);
+    expect(chicagoSteps[chicagoIndex + 1]?.name).toBe(
+      'Roster cash preserves funded boundaries and computes each total once'
+    );
+    chicagoSteps.splice(chicagoIndex, 1);
+
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
     // Review the added tournament gate exactly, then retain every existing job pin.
     for (const tournamentStep of [

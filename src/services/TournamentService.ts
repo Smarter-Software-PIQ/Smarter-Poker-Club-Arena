@@ -1,4 +1,15 @@
+import type { SealedStagePlanBody } from '../utils/multiDaySchedule';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
+import {
+  withTournamentCreateIntent,
+  readPendingTournamentCreate,
+  resolveTournamentCreateStage,
+  hasStoredTournamentCreate,
+  TournamentCreateRefusedError,
+  TournamentCreateRetiredError,
+  type PreparedTournamentCreate,
+  type TournamentCreateRequest,
+} from './TournamentCreateIntent';
 import { withTournamentRegistrationReadBoundary } from './TournamentRegistrationReadBoundary';
 import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { validateMttBlindStructure } from '../../server/src/domain/tournamentBlindContract';
@@ -1200,7 +1211,89 @@ class TournamentService {
   /**
    * Create a new tournament
    */
-  async createTournament(clubId: string, config: TournamentConfig): Promise<Tournament> {
+  async createTournament(
+    clubId: string,
+    config: TournamentConfig,
+    stagePlan: SealedStagePlanBody | null = null
+  ): Promise<Tournament & { creationStagePlan: SealedStagePlanBody | null }> {
+    if (!hasStoredTournamentCreate()) assertNoNewMttBreakRows(config.blindStructure, config.type);
+    return (await this.createTournamentWithSatellites(clubId, config, [], stagePlan))[0];
+  }
+
+  async confirmTournamentCreationStage(
+    clubId: string,
+    tournamentId: string,
+    plan: SealedStagePlanBody
+  ): Promise<void> {
+    if (!hasStoredTournamentCreate()) return; // A retained pre-adapter stage intent remains supported.
+    const { data, error } = await runWithRequestDeadline(() => getAuthUser());
+    if (error || !data.user)
+      throw new Error('Sign In Before Finishing The Original Tournament Request.');
+    const resolved = await runWithRequestDeadline(() => resolveClubUUID(clubId));
+    await resolveTournamentCreateStage(data.user.id, resolved, tournamentId, plan);
+  }
+
+  async resumePendingTournamentCreation(
+    clubId: string,
+    includeStagePlan = false
+  ): Promise<(Tournament & { creationStagePlan: SealedStagePlanBody | null })[] | null> {
+    if (!hasStoredTournamentCreate()) return null;
+    const { data, error } = await runWithRequestDeadline(() => getAuthUser());
+    if (error || !data.user) throw new Error('Sign In Before Checking A Tournament Request.');
+    const actorId = data.user.id;
+    const resolved = await runWithRequestDeadline(() => resolveClubUUID(clubId));
+    const pending = readPendingTournamentCreate(actorId, resolved);
+    if (!pending || pending.requests.some((request) => request.refused)) return null;
+    if (pending.requests[0].stagePlan && !includeStagePlan)
+      throw new Error('Finish The Original Multi-Day Request In Its Creation Form.');
+    return withTournamentCreateIntent(
+      actorId,
+      resolved,
+      async () => {
+        throw new Error(
+          'The Original Request Needs Its Corrected Settings Before It Can Continue.'
+        );
+      },
+      (request, signal) => this.submitTournamentCreate(resolved, actorId, request, signal)
+    );
+  }
+
+  async createTournamentWithSatellites(
+    clubId: string,
+    config: TournamentConfig,
+    satellites: TournamentConfig[] = [],
+    stagePlan: SealedStagePlanBody | null = null
+  ): Promise<(Tournament & { creationStagePlan: SealedStagePlanBody | null })[]> {
+    const { data, error } = await runWithRequestDeadline(() => getAuthUser());
+    if (error || !data.user) throw new Error('Sign In Before Creating A Tournament.');
+    const actorId = data.user.id;
+    const resolved = await runWithRequestDeadline(() => resolveClubUUID(clubId));
+    return withTournamentCreateIntent(
+      actorId,
+      resolved,
+      async () => {
+        const main = await this.prepareTournamentCreate(resolved, config);
+        const children: PreparedTournamentCreate[] = [];
+        for (const child of satellites) {
+          const prepared = await this.prepareTournamentCreate(resolved, {
+            ...child,
+            satelliteTarget: {
+              tournamentId: resolved,
+              seatsAwarded: child.satelliteTarget?.seatsAwarded ?? 1,
+            },
+          });
+          children.push({ ...prepared, payload: { ...prepared.payload, satelliteTargetId: null } });
+        }
+        return [{ ...main, stagePlan }, ...children];
+      },
+      (request, signal) => this.submitTournamentCreate(resolved, actorId, request, signal)
+    );
+  }
+
+  private async prepareTournamentCreate(
+    clubId: string,
+    config: TournamentConfig
+  ): Promise<PreparedTournamentCreate> {
     assertNoNewMttBreakRows(config.blindStructure, config.type);
     // Union governance: member-club staff lose every tournament-creation path,
     // including private tournaments. Union owners/admins remain authorized by
@@ -1318,50 +1411,37 @@ class TournamentService {
     // fn_create_tournament applies again. Built once, sent as built.
     const rpcConfig = this.buildRpcConfig(config);
 
-    // Map format to variant for DB
-    const variantMap: Record<string, string> = {
-      mtt: 'freezeout',
-      sng: 'sng',
-      bounty: 'bounty',
-      progressive_bounty: 'progressive_bounty',
-      mystery_bounty: 'mystery_bounty',
-      spin: 'spin',
-      satellite: 'satellite',
+    return {
+      payload: rpcConfig,
+      ...(config.type === 'mystery_bounty'
+        ? { mysteryConfig: mysteryBountyCreationColumns(config) }
+        : {}),
     };
+  }
 
-    // Map tournament type for the tournament_type column
-    const isBountyType =
-      config.type === 'bounty' ||
-      config.type === 'progressive_bounty' ||
-      config.type === 'mystery_bounty';
-
-    // FIX: Use resolvedClubId from union guard above — raw clubId may not be a UUID
-    const finalClubId = config.isXmtt ? clubId : await resolveClubUUID(clubId);
-    // 2026-08-19 — this used to be a direct INSERT into `tournaments`, which
-    // could never have worked from a browser: the table has RLS on with only a
-    // public SELECT policy and a service_role ALL policy, and no INSERT policy
-    // for authenticated. Every attempt failed with 42501, which is why all
-    // 9,481 existing tournaments were created server-side by the recurring
-    // service and why this modal appeared to do nothing.
-    //
-    // It now goes through fn_create_tournament, a SECURITY DEFINER function
-    // that owns the three things a client must not be trusted with:
-    //
-    //   WHO   — fn_can_create_games enforces the owner ruling: a standalone
-    //           club's owner/admin, or the union's owner/admin for a club that
-    //           belongs to a union (that club does not build its own games).
-    //   FEE   — the 10% house fee. The override below is still applied so the
-    //           UI shows the right number, but the server recomputes it and
-    //           ignores whatever arrives.
-    //   STATE — status, current_players and the prize/bounty pools.
-    //
-    // The checks above are kept because they produce better messages than the
-    // single deliberately-vague 'not_authorised' the function returns (it must
-    // not let a caller probe which clubs exist or who administers them).
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_create_tournament', {
-      p_club_id: await resolveClubUUID(clubId),
-      p_config: rpcConfig,
+  private async submitTournamentCreate(
+    clubId: string,
+    actorId: string,
+    request: TournamentCreateRequest,
+    signal: AbortSignal
+  ): Promise<Tournament & { creationStagePlan: SealedStagePlanBody | null }> {
+    const { data: auth, error: authError } = await runWithRequestDeadline(() => getAuthUser(), {
+      signal,
     });
+    if (authError || auth.user?.id !== actorId)
+      throw new Error('The Tournament Creator Changed. Sign In To Check The Original Request.');
+    const { data: rpcResult, error: rpcError } = await supabase
+      .rpc(
+        request.stagePlan ? 'fn_create_staged_tournament_request' : 'fn_create_tournament_request',
+        {
+          p_club_id: clubId,
+          p_config: request.payload,
+          p_request_id: request.requestId,
+          p_actor_id: actorId,
+          ...(request.stagePlan ? { p_plan: request.stagePlan } : {}),
+        }
+      )
+      .abortSignal(signal);
 
     /**
      * NEVER SHOW A PLAYER A POSTGRES ERROR (2026-08-27).
@@ -1376,6 +1456,10 @@ class TournamentService {
      */
     if (rpcError) {
       reportError(rpcError, 'TournamentService.createTournament_rpc');
+      if (rpcError.code === 'PGRST202')
+        throw new Error(
+          'Safe Tournament Creation Is Not Available Yet. The Original Request Is Retained.'
+        );
       /**
        * EVERY SQLSTATE HAS ITS OWN REASON (20260924033701).
        *
@@ -1396,22 +1480,79 @@ class TournamentService {
       );
     }
     const result = rpcResult as {
+      request_id?: string;
+      request_state?: string;
+      user_id?: string;
+      club_id?: string;
       success?: boolean;
       error?: string;
       /** 20260924102056: the admission sentence beside operating_access_required. */
       message?: string;
       tournament_id?: string;
       mystery_config?: Record<string, unknown>;
+      stage_plan?: {
+        ok?: boolean;
+        tournament_id?: string;
+        stage_count?: number;
+        plan_hash?: string;
+      };
     } | null;
-    if (!result?.success) {
-      throw new Error(tournamentCreateErrorMessage(result?.error, result?.message));
+    const eventIdValid =
+      typeof result?.tournament_id === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        result.tournament_id
+      ) &&
+      (!request.tournamentId || request.tournamentId === result.tournament_id);
+    const sameRequest =
+      result?.request_id === request.requestId &&
+      result.user_id === actorId &&
+      result.club_id === clubId;
+    if (
+      sameRequest &&
+      result?.request_state === 'retired' &&
+      result.error === 'tournament_request_target_retired' &&
+      eventIdValid
+    )
+      throw new TournamentCreateRetiredError(
+        'The Original Tournament Was Retired. Submit Again To Create A New Event.'
+      );
+    if (
+      sameRequest &&
+      result?.request_state === 'not_created' &&
+      result.success === false &&
+      typeof result.error === 'string'
+    )
+      throw new TournamentCreateRefusedError(
+        tournamentCreateErrorMessage(result.error, result.message)
+      );
+    if (
+      !sameRequest ||
+      result?.success !== true ||
+      result.request_state !== 'accepted' ||
+      !eventIdValid
+    )
+      throw new Error(
+        'The Tournament Request Could Not Be Confirmed. Submit Again To Check Its Original Event.'
+      );
+
+    if (
+      request.stagePlan &&
+      (result.stage_plan?.ok !== true ||
+        result.stage_plan.tournament_id !== result.tournament_id ||
+        result.stage_plan.stage_count !== request.stagePlan.stages.length ||
+        !/^[0-9a-f]{32}$/.test(result.stage_plan.plan_hash ?? ''))
+    ) {
+      throw new Error(
+        'The Multi-Day Creation Could Not Be Confirmed. Submit Again To Check Its Original Event.'
+      );
     }
 
-    if (config.type === 'mystery_bounty') {
-      const expected = mysteryBountyCreationColumns(config);
+    if (request.mysteryConfig) {
       if (
         !result.mystery_config ||
-        Object.entries(expected).some(([key, value]) => result.mystery_config?.[key] !== value)
+        Object.entries(request.mysteryConfig).some(
+          ([key, value]) => result.mystery_config?.[key] !== value
+        )
       ) {
         reportError(
           new Error('Mystery creation receipt did not match selected options'),
@@ -1437,8 +1578,9 @@ class TournamentService {
       .from('tournaments')
       .select('*')
       .eq('id', result.tournament_id!)
+      .abortSignal(signal)
       .maybeSingle();
-    if (refetchErr || !data) {
+    if (refetchErr || !data || data.id !== result.tournament_id || data.club_id !== clubId) {
       reportError(refetchErr, 'TournamentService.created_tournament_refetch_failed', {
         tournamentId: result.tournament_id,
       });
@@ -1446,7 +1588,10 @@ class TournamentService {
         'The tournament was created. It could not be loaded for display, so refresh the lobby to see it.'
       );
     }
-    return data;
+    const finalAuth = await runWithRequestDeadline(() => getAuthUser(), { signal });
+    if (finalAuth.error || finalAuth.data.user?.id !== actorId)
+      throw new Error('The Tournament Creator Changed. Sign In To Check The Original Request.');
+    return { ...data, creationStagePlan: request.stagePlan ?? null };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

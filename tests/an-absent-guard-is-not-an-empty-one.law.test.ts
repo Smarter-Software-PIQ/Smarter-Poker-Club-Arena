@@ -149,7 +149,9 @@ function runAudit(mode: Mode) {
   const result = spawnSync('bash', [AUDIT], {
     cwd: ROOT,
     encoding: 'utf8',
-    timeout: 30_000,
+    // Local process startup can exceed20s on the shared Mac. Keep the child
+    // bounded independently of the fixture hook; no production deadline changes.
+    timeout: 60_000,
     env: {
       ESTATE_INJECT_REPO: 'Smarter-Poker-Diamond-Arena',
       ESTATE_INJECT_RETIRED_PATH1:
@@ -175,18 +177,17 @@ afterAll(() => {
 });
 
 describe('LAW - the estate audit never calls a missing file an empty one', () => {
-  let retiredAudit: ReturnType<typeof runAudit>;
-  let resurrectedAudit: ReturnType<typeof runAudit>;
-
+  let retired: ReturnType<typeof runAudit>;
+  let resurrected: ReturnType<typeof runAudit>;
   beforeAll(() => {
-    // The three retired-state assertions read the same immutable capture.
-    // Two bounded children plus cleanup retain the distinct resurrection case.
-    retiredAudit = runAudit('retired');
-    resurrectedAudit = runAudit('resurrected');
-  }, 75_000);
+    // Three independent assertions consume the identical retired scenario.
+    // Run both actual audit scenarios once, preserving all output assertions.
+    retired = runAudit('retired');
+    resurrected = runAudit('resurrected');
+  }, 150_000);
 
   it('reports an absent path as absent, an empty file as empty and an unreadable read as unknown', () => {
-    const { result, combined } = retiredAudit;
+    const { result, combined } = retired;
 
     expect(result.status).toBe(1);
 
@@ -207,7 +208,7 @@ describe('LAW - the estate audit never calls a missing file an empty one', () =>
   }, 20_000);
 
   it('never names a deleted path or a zero-byte file as the most recently committed copy', () => {
-    const { combined } = retiredAudit;
+    const { combined } = retired;
 
     const leads = combined.match(/Most recently committed: \*\*[^*]+\*\* \([^)]*\)/g) ?? [];
     expect(leads.length, 'the ranking line disappeared entirely').toBeGreaterThan(0);
@@ -224,7 +225,7 @@ describe('LAW - the estate audit never calls a missing file an empty one', () =>
   }, 20_000);
 
   it('names the variant that is deliberate, so nobody repairs the wrong repo', () => {
-    const { combined } = retiredAudit;
+    const { combined } = retired;
 
     expect(combined).toContain('Recorded deliberate variant');
     // Club Arena's reference-transaction hook is preventive on purpose and its
@@ -234,7 +235,7 @@ describe('LAW - the estate audit never calls a missing file an empty one', () =>
   }, 20_000);
 
   it('alarms if a recorded retirement is reversed without the record being updated', () => {
-    const { result, combined } = resurrectedAudit;
+    const { result, combined } = resurrected;
 
     expect(result.status).toBe(1);
     expect(combined).toContain('RECORDED AS RETIRED');

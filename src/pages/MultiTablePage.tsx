@@ -3118,9 +3118,9 @@ export default function MultiTablePage() {
        stays inert rather than answering for the table the player just left. */
     setSpinSheetScope(null);
     try {
-      const openIds = new Set(tablesRef.current.map((t) => t.id));
-      const activeStakes = tablesRef.current[activeIndexRef.current]?.stakes || '';
-      const activeTableId = tablesRef.current[activeIndexRef.current]?.id || null;
+      const openIds = new Set(tablesRef.current.filter(isTableTab).map((t) => t.id));
+      const activeStakes = activeIsTable ? activeTab?.stakes || '' : '';
+      const activeTableId = activeIsTable ? activeTab?.id || null : null;
 
       /* Dan 2026-08-23: "quick join should be users favorite games, or similar
          games to the one they are playing."

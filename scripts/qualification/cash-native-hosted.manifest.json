@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 273774,
-      "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+      "bytes": 274138,
+      "sha256": "417e3086a1f5b7301fc9bf5ed9a074f08d45dba04007f9757f2250ee37c04b99"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6310,6 +6310,55 @@
         "current": {
           "bytes": 273774,
           "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        }
+      },
+      "scripts/ci/classify-ci-changes.mjs": {
+        "ours": {
+          "bytes": 47374,
+          "sha256": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+        },
+        "incoming": {
+          "bytes": 47264,
+          "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
+        },
+        "current": {
+          "bytes": 47374,
+          "sha256": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+        }
+      }
+    }
+  },
+  "memberStatsChicagoRegression20261101": {
+    "reason": "Reviewed six-line addition runs isolated PG17 Chicago member reporting regression in existing required shard4. Existing cash qualification inputs, commands, assertions and historical verdicts unchanged. Current workflow source identity only.",
+    "previous": {
+      "bytes": 273355,
+      "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+    },
+    "current": {
+      "bytes": 273719,
+      "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
+    },
+    "historicalEvidenceRestamped": false
+  },
+  "cashDecisionMemberStatsProtectedMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 6becc343c8299495ca4888f0fe07a3d99837fde6.",
+    "review": "Preserve both parents complete non-pin metadata, historical audits and financial qualification states; current merged CI retains member stats Chicago regression and cash browser gates. Active source pins alone follow merged bytes with protected-main representation retained.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        },
+        "incoming": {
+          "bytes": 273719,
+          "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
+        },
+        "current": {
+          "bytes": 274138,
+          "sha256": "417e3086a1f5b7301fc9bf5ed9a074f08d45dba04007f9757f2250ee37c04b99"
         }
       },
       "scripts/ci/classify-ci-changes.mjs": {

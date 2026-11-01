@@ -15,8 +15,7 @@
  * src/utils/tournamentScheduleWindow.ts and tests/unit/scheduleWindowParity
  * fails if the two drift.
  *
- * These pin that window, and the rule that horses do not occupy an event until
- * it is about to start.
+ * These pin that window, and the separate one-hour paid / six-hour freeroll Horse entry windows.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -24,7 +23,11 @@ import {
   TIMED_WINDOW_AHEAD_MS,
   HORSE_SEED_WITHIN_MS,
 } from './ScheduledTournamentService.js';
-import { MTT_PRESTART_RAMP_MS } from './TournamentRecurringService.js';
+import {
+  MTT_PRESTART_RAMP_MS,
+  MTT_FREEROLL_PRESTART_RAMP_MS,
+  mttHorsePrestartWindowMs,
+} from './TournamentRecurringService.js';
 
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 
@@ -97,7 +100,7 @@ describe('the card is published a day ahead', () => {
   });
 });
 
-describe('horses do not occupy an event that has not started', () => {
+describe('Horse entry opens separately from schedule visibility', () => {
   /**
    * Dan 2026-08-23 widened this from 15 minutes to an hour, to match the MTT
    * pre-start ramp: "HORSES NEED TO BE REGISTERING FOR MTT TOURNAMENTS UP TO
@@ -106,16 +109,28 @@ describe('horses do not occupy an event that has not started', () => {
    * What this describe block is still protecting is unchanged and is the
    * reason the constant exists at all: a horse registered into TOMORROW's
    * event is a horse that cannot deal a cash table or fill a spin today, and
-   * the pool is finite. An hour is a lobby-visibility window. A day is a
-   * pool leak.
+   * the pool is finite. Paid entries open an hour before start; freerolls open six hours before.
+   * Neither window consumes the pool merely because a card is published.
    */
   it('the seed window stays far shorter than the look-ahead', () => {
     expect(HORSE_SEED_WITHIN_MS).toBeLessThan(TIMED_WINDOW_AHEAD_MS);
-    expect(HORSE_SEED_WITHIN_MS).toBe(10 * 60 * 1000);
+    expect(HORSE_SEED_WITHIN_MS).toBe(60 * 60 * 1000);
   });
 
-  it('shares the ten-minute ramp window rather than seeding an hour early', () => {
+  it('shares the regular one-hour ramp window', () => {
     expect(HORSE_SEED_WITHIN_MS).toBe(MTT_PRESTART_RAMP_MS);
+  });
+
+  it('opens freerolls six hours ahead without opening the whole look-ahead', () => {
+    const freeWindow = mttHorsePrestartWindowMs({ buy_in_amount: 0, buy_in_fee: 0 });
+    expect(freeWindow).toBe(MTT_FREEROLL_PRESTART_RAMP_MS);
+    expect(freeWindow).toBe(6 * 60 * 60 * 1000);
+    expect(freeWindow).toBeLessThan(TIMED_WINDOW_AHEAD_MS);
+    expect(6 * 60 * 60 * 1000 <= freeWindow).toBe(true);
+    expect(6 * 60 * 60 * 1000 + 1 <= freeWindow).toBe(false);
+    expect(mttHorsePrestartWindowMs({ buy_in_amount: 20, buy_in_fee: 2 })).toBe(
+      HORSE_SEED_WITHIN_MS
+    );
   });
 
   it('an event published a day out is outside the seed window', () => {
@@ -128,10 +143,11 @@ describe('horses do not occupy an event that has not started', () => {
     expect(2 * tomorrow <= HORSE_SEED_WITHIN_MS).toBe(false);
   });
 
-  it('only an event ten minutes or less away is inside it', () => {
+  it('includes the regular one-hour boundary and excludes earlier entry', () => {
     expect(5 * 60 * 1000 <= HORSE_SEED_WITHIN_MS).toBe(true);
     expect(10 * 60 * 1000 <= HORSE_SEED_WITHIN_MS).toBe(true);
-    expect(10 * 60 * 1000 + 1 <= HORSE_SEED_WITHIN_MS).toBe(false);
+    expect(60 * 60 * 1000 <= HORSE_SEED_WITHIN_MS).toBe(true);
+    expect(60 * 60 * 1000 + 1 <= HORSE_SEED_WITHIN_MS).toBe(false);
     expect(61 * 60 * 1000 <= HORSE_SEED_WITHIN_MS).toBe(false);
   });
 });
