@@ -417,3 +417,22 @@ describe('no entry ceiling on an MTT', () => {
     expect(created().maxPlayers).toBeNull();
   });
 });
+
+describe('an accepted schedule belongs to the same creation intent', () => {
+  it('retains the schedule id when the following one-off fails, including edits on retry', async () => {
+    await openMttTab();
+    choose('Repeat', 'daily');
+    choose('Start Date', localDateValue(new Date(Date.now() + 3 * 86_400_000)));
+    choose('Start Time', '19:15');
+    create.mockRejectedValueOnce(new Error('One-Off Refused'));
+    await start();
+    expect(toast.error).toHaveBeenCalledWith('One-Off Refused');
+    expect(onExit).not.toHaveBeenCalled();
+    choose('Start Time 1 (UTC)', '20:30');
+    await start();
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(upsert.mock.calls[0][0].id).toBeUndefined();
+    expect(upsert.mock.calls[1][0]).toMatchObject({ id: 's-1', startTimesUtc: ['20:30'] });
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+});

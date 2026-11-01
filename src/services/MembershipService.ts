@@ -118,8 +118,9 @@ export const MembershipService = {
   /**
    * Get all members of a club
    */
-  async getClubMembers(clubId: string): Promise<ClubMembership[]> {
+  async getClubMembers(clubId: string, signal?: AbortSignal): Promise<ClubMembership[]> {
     const resolvedId = await resolveClubUUID(clubId);
+    if (signal?.aborted) throw new DOMException('Request Cancelled', 'AbortError');
     const readPage = (cursor: string | null) => {
       let query = supabase
         .from('club_members')
@@ -131,7 +132,7 @@ export const MembershipService = {
         .order('user_id', { ascending: true })
         .limit(1000);
       if (cursor !== null) query = query.gt('user_id', cursor);
-      return query;
+      return signal ? query.abortSignal(signal) : query;
     };
     const data: NonNullable<Awaited<ReturnType<typeof readPage>>['data']> = [];
     let cursor: string | null = null;
@@ -154,13 +155,14 @@ export const MembershipService = {
     );
     const profileMap: Record<string, NameableProfile & { avatar_url?: string }> = {};
     for (let offset = 0; offset < data.length; offset += 200) {
-      const { data: profiles, error } = await supabase
+      const query = supabase
         .from('profiles')
         .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
         .in(
           'id',
           data.slice(offset, offset + 200).map((m) => m.user_id)
         );
+      const { data: profiles, error } = await (signal ? query.abortSignal(signal) : query);
       if (error) throw new Error(error.message);
       if (!Array.isArray(profiles)) throw new Error('Club member names unavailable');
       for (const profile of profiles) profileMap[profile.id] = profile;

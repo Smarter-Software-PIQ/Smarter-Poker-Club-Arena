@@ -77,13 +77,24 @@ import { HelpPopover } from '../components/common/HelpPopover';
 import { Toggle, Slider, NumberField } from '../components/table-config/controls';
 import DayScheduleEditor from '../components/tournament/DayScheduleEditor';
 import { usePlatformCapability } from '../hooks/usePlatformCapability';
-import { sealStagePlan, stageRefusalMessage } from '../services/TournamentStageService';
+import {
+  sealStagePlan,
+  verifySealedStagePlan,
+  stageRefusalMessage,
+} from '../services/TournamentStageService';
 import {
   MULTI_DAY_CAPABILITY,
   buildStagePlan,
   defaultStagePlanDraft,
   type StagePlanDraft,
 } from '../utils/multiDaySchedule';
+import {
+  createdStageIntentKey,
+  readCreatedStageIntent,
+  retainCreatedStageIntent,
+  clearCreatedStageIntent,
+  type CreatedTournamentStageIntent,
+} from '../utils/createdTournamentStageIntent';
 import CashGameCreateFlow from '../components/cash/CashGameCreateFlow';
 import { SpadeConsole } from '../components/console/SpadeConsole';
 import PageBar from '../components/help/PageBar';
@@ -546,11 +557,29 @@ export default function TableConfigPage({
   const autoNameRef = useRef<string>('');
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
+  // A failed one-off does not undo the schedule already accepted for this form.
+  const scheduleScope = useMemo(() => ({ clubId }), [clubId]);
+  const savedSchedule = useRef<{ scope: object; id: string } | null>(null);
   const templateUserId = useUserStore((state) => state.user?.id);
   const templateScope = JSON.stringify([clubId, templateUserId]);
   const templateScopeRef = useRef(templateScope);
   templateScopeRef.current = templateScope;
   const templateRevision = useRef(0);
+  const createdStageIntent = useRef<{ key: string; value: CreatedTournamentStageIntent } | null>(
+    null
+  );
+  const stageCreateInFlight = useRef(new Map<string, symbol>());
+  const stageCreateGeneration = useRef(0);
+  const stageCreateMounted = useRef(true);
+  useEffect(() => {
+    stageCreateMounted.current = true;
+    stageCreateGeneration.current += 1;
+    setStarting(false);
+    return () => {
+      stageCreateMounted.current = false;
+      stageCreateGeneration.current += 1;
+    };
+  }, [templateScope]);
   const [templates, setTemplates] = useState<TableTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -1005,7 +1034,8 @@ export default function TableConfigPage({
     const rpcConfig = tournamentService.buildRpcConfig(buildTournamentConfig(config, gameType));
     delete rpcConfig.startTime;
     Object.assign(rpcConfig, recurrence.configKeys);
-    await tournamentScheduleService.upsert({
+    const scheduleId = await tournamentScheduleService.upsert({
+      id: savedSchedule.current?.scope === scheduleScope ? savedSchedule.current.id : undefined,
       clubId: resolvedId,
       unionId: null,
       name: config.name.trim() || 'Tournament',
@@ -1017,13 +1047,73 @@ export default function TableConfigPage({
       active: true,
       config: rpcConfig,
     });
+    savedSchedule.current = { scope: scheduleScope, id: scheduleId };
     toast.success('Recurring schedule saved.');
     return true;
   };
 
   const handleStartTournament = async () => {
+    const scope = templateScope;
+    if (stageCreateInFlight.current.has(scope)) {
+      toast.info(
+        'The Previous Tournament Request Is Still Pending. Check Its Outcome Before Creating Another.'
+      );
+      return;
+    }
+    const token = Symbol('tournament-create');
+    const generation = stageCreateGeneration.current;
+    stageCreateInFlight.current.set(scope, token);
+    const isCurrent = () =>
+      stageCreateMounted.current &&
+      templateScopeRef.current === scope &&
+      stageCreateGeneration.current === generation;
+    const intentKey =
+      templateUserId && clubId ? createdStageIntentKey(templateUserId, clubId) : null;
+    const finishStageIntent = async (intent: CreatedTournamentStageIntent) => {
+      // Keep the original accepted event and exact plan through rejection,
+      // timeout, edits, remount and explicit retry. Never create a replacement.
+      let sealed;
+      try {
+        sealed = await sealStagePlan(intent.tournamentId, intent.plan);
+      } catch {
+        /* acknowledgement unknown */
+      }
+      if (!isCurrent()) return false;
+      const verified = await verifySealedStagePlan(intent.tournamentId, intent.plan);
+      if (!isCurrent()) return false;
+      if (!verified) {
+        const reason =
+          sealed && !sealed.ok
+            ? stageRefusalMessage(sealed.reason)
+            : 'The Saved Schedule Could Not Be Verified';
+        toast.error(
+          `Tournament ${intent.tournamentId} Was Created. Its Day Schedule Is Not Verified. ${reason}. Start Again To Check This Same Tournament.`
+        );
+        return false;
+      }
+      if (intentKey) clearCreatedStageIntent(intentKey, intent);
+      createdStageIntent.current = null;
+      toast.success(`Day Schedule Saved: ${intent.plan.stages.length} Days.`);
+      masterBus.emit('TOURNAMENT_UPDATED', {
+        tournamentId: intent.tournamentId,
+        status: 'REGISTERING',
+      });
+      if (onExit) onExit('tournament_created');
+      else navigate(`/clubs/${clubId}/tournaments`);
+      return true;
+    };
     setStarting(true);
     try {
+      const retained = intentKey
+        ? createdStageIntent.current?.key === intentKey
+          ? createdStageIntent.current.value
+          : readCreatedStageIntent(intentKey)
+        : null;
+      if (retained) {
+        createdStageIntent.current = { key: intentKey!, value: retained };
+        await finishStageIntent(retained);
+        return;
+      }
       // Next Step (Satellite) sanity: an ON toggle with no target would
       // silently build a cash-paying MTT, so refuse before any round trip.
       if (config.gameMode === 'mtt' && config.nextStepSatellite && !config.satelliteTargetId) {
@@ -1070,6 +1160,17 @@ export default function TableConfigPage({
         config.gameMode === 'mtt' && config.multiDayMtt && multiDayGate === 'available';
       let sealedPlan: ReturnType<typeof buildStagePlan> | null = null;
       if (multiDay) {
+        if (!intentKey) {
+          toast.error('Your Account Must Be Verified Before Creating A Multi-Day Tournament.');
+          return;
+        }
+        // Check storage before the create side effect; the accepted ID is saved
+        // immediately below, before the separately acknowledged seal request.
+        const storageProbe = `${intentKey}:storage-check`;
+        sessionStorage.setItem(storageProbe, '1');
+        if (sessionStorage.getItem(storageProbe) !== '1')
+          throw new Error('Tournament Creation Storage Is Unavailable.');
+        sessionStorage.removeItem(storageProbe);
         if (config.tournamentSchedule) {
           toast.error('A Multi-Day MTT Cannot Also Repeat On A Weekly Schedule.');
           return;
@@ -1118,6 +1219,25 @@ export default function TableConfigPage({
       const createOneOff = !scheduleOn || Boolean(tournamentConfig.startTime);
       if (createOneOff) {
         const created = await tournamentService.createTournament(clubId || '', tournamentConfig);
+        const createdId = (created as { id?: string } | null)?.id;
+        if (sealedPlan?.ok && (!createdId || typeof createdId !== 'string')) {
+          throw new Error(
+            'Tournament Creation Was Not Verified. Check The Tournament List Before Creating Another.'
+          );
+        }
+        if (createdId && sealedPlan?.ok && intentKey) {
+          const intent: CreatedTournamentStageIntent = {
+            version: 1,
+            tournamentId: createdId,
+            plan: sealedPlan.plan,
+          };
+          createdStageIntent.current = { key: intentKey, value: intent };
+          retainCreatedStageIntent(intentKey, intent);
+          if (!isCurrent()) return;
+          await finishStageIntent(intent);
+          return;
+        }
+        if (!isCurrent()) return;
         // Say what was actually built: a 3-handed SNG is a Spin, a 2-handed
         // one is Heads Up, and the old message called every SNG "Heads Up".
         toast.success(
@@ -1129,28 +1249,31 @@ export default function TableConfigPage({
                 : 'Sit and Go created. It starts as soon as it fills.'
             : 'Tournament created. Registration is open.'
         );
-        const createdId = (created as { id?: string } | null)?.id;
-        if (createdId && sealedPlan?.ok) {
-          const sealed = await sealStagePlan(createdId, sealedPlan.plan);
-          if (sealed.ok) {
-            toast.success(`Day Schedule Saved: ${sealedPlan.plan.stages.length} Days.`);
-          } else {
-            toast.error(
-              `The Tournament Was Created As A One-Day Event. ${stageRefusalMessage(sealed.reason)}.`
-            );
-          }
-        }
         if (createdId) {
           masterBus.emit('TOURNAMENT_UPDATED', { tournamentId: createdId, status: 'REGISTERING' });
         }
       }
+      savedSchedule.current = null;
       if (onExit) onExit('tournament_created');
       else navigate(`/clubs/${clubId}/tournaments`);
     } catch (error) {
+      if (!isCurrent()) return;
       reportError(error, 'TableConfigPage.Failed_to_create_tournament');
-      toast.error(error instanceof Error ? error.message : 'Failed to create tournament');
+      const retainedId =
+        createdStageIntent.current?.key === intentKey
+          ? createdStageIntent.current.value.tournamentId
+          : null;
+      toast.error(
+        retainedId
+          ? `Tournament ${retainedId} Was Created. Its Day Schedule Is Not Verified. ${error instanceof Error ? error.message : 'Check The Existing Tournament'}`
+          : error instanceof Error
+            ? error.message
+            : 'Failed to create tournament'
+      );
     } finally {
-      setStarting(false);
+      if (stageCreateInFlight.current.get(scope) === token)
+        stageCreateInFlight.current.delete(scope);
+      if (isCurrent()) setStarting(false);
     }
   };
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { runWithRequestDeadline } from '../../../utils/requestDeadline';
 import { reportError } from '../../../utils/errorReporter';
 import { titleCase } from '../../../utils/titleCase';
 import { isRecordedSatelliteTournament } from '../../../utils/tournamentFilters';
@@ -12,18 +13,20 @@ const pendingTargets = new Map<string, Promise<string | null>>();
 function targetName(id: string): Promise<string | null> {
   const pending = pendingTargets.get(id);
   if (pending) return pending;
-  const request = (async () => {
+  const request = runWithRequestDeadline(async (signal) => {
     // Cash and ordinary tournament cards are render-only. Initialize the
     // database client only when a satellite actually needs its target name.
     const { supabase } = await import('../../../lib/supabase');
+    if (signal.aborted) throw new DOMException('The Request Was Cancelled.', 'AbortError');
     const { data, error } = await supabase
       .from('tournaments')
       .select('name')
       .eq('id', id)
+      .abortSignal(signal)
       .maybeSingle();
     if (error) throw error;
     return data?.name ? titleCase(data.name) : null;
-  })();
+  });
   pendingTargets.set(id, request);
   void request.then(
     () => pendingTargets.delete(id),
