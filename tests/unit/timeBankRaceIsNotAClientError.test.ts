@@ -101,6 +101,19 @@ describe('time bank race refusals', () => {
     );
   });
 
+  it('does not file GameServerAPI.engine_refusal on a 404 /heartbeat (pre-start or closed table)', async () => {
+    mockFetch.mockResolvedValue(refusal(404, { success: false, error: 'Table engine not found' }));
+    const res = await GameServerAPI.sendHeartbeat('table-1');
+    expect(res).toEqual({
+      success: false,
+      error: 'Server error (404)',
+      code: 'TABLE_ENGINE_NOT_FOUND',
+    });
+    await settle();
+    expect(sink.capture).not.toHaveBeenCalled();
+    expect(sink.report).not.toHaveBeenCalled();
+  });
+
   it('classifies only the exact engine sentences', () => {
     expect(isTimeBankRaceRefusal('Not Your Turn')).toBe(true);
     expect(isTimeBankRaceRefusal(' not your turn ')).toBe(true);
