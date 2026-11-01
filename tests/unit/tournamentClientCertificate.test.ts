@@ -134,6 +134,9 @@ describe('closed tournament acceptance selection', () => {
     expect(
       client.steps.find((s: any) => s.name === 'Run the specs that need a deployed page').if
     ).toContain("tournament_only != 'true'");
+    expect(live.steps.find((s: any) => s.id === 'engine').env.TOURNAMENT_ONLY).toBe(
+      '${{ needs.publication-gate.outputs.tournament_only }}'
+    );
     const continuity = live.steps.find((s: any) => s.id === 'continuity');
     expect(continuity.run).toContain('(MTT|SPIN|SNG)');
     expect(continuity.run).toContain('else');
