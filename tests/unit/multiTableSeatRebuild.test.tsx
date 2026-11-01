@@ -4,6 +4,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { clearSessionSummary, peekSessionSummary } from '../../src/services/pendingSessionSummary';
 
+type FollowProps = React.ComponentProps<
+  typeof import('../../src/components/table/PlayerFollowSubscription').default
+>;
 type QueryResult = { data: unknown; error: unknown };
 type SeatRead = {
   userId: string;
@@ -25,10 +28,17 @@ const state = vi.hoisted(() => ({
   metadataResults: [] as (QueryResult | Promise<QueryResult>)[],
   reports: new Map<string, (info: Record<string, unknown>) => void>(),
   inserts: [] as ((payload: unknown) => void)[],
+  follows: new Map<string, FollowProps>(),
   toast: { info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() },
 }));
 
 vi.mock('../../src/services/tournamentResult', () => ({ fetchTournamentResult: state.finishRead }));
+vi.mock('../../src/components/table/PlayerFollowSubscription', () => ({
+  default: (props: FollowProps) => {
+    state.follows.set(props.tableId, props);
+    return null;
+  },
+}));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from(table: string) {
@@ -324,6 +334,7 @@ beforeEach(() => {
   state.metadata.length = 0;
   state.metadataResults.length = 0;
   state.inserts.length = 0;
+  state.follows.clear();
   state.reports.clear();
   state.reportAtUnmount.clear();
   for (let i = 0; i < 6; i++) clearSessionSummary();
@@ -403,6 +414,37 @@ describe('Rendered MultiTable authoritative seat rebuild', () => {
     await act(async () => state.inserts[0]({ new: { table_id: 'B', left_at: null } }));
     await waitFor(() => expect(state.moveSession).toHaveBeenCalledWith('A', 'B', 'account-a'));
     expect(screen.getByTestId('felt-B')).toBeTruthy();
+  });
+
+  it('only the selected-player assignment callback can repoint a player watch', async () => {
+    const target = {
+      tournamentId: 'aaaaaaaa-1111-2222-3333-444444444444',
+      userId: 'bbbbbbbb-1111-2222-3333-444444444444',
+      username: 'Watched Player',
+    };
+    mount();
+    await waitFor(() => expect(state.reads).toHaveLength(1));
+    await settle(state.reads[0], []);
+    await act(async () =>
+      masterBus.emit('OPEN_OBSERVE_TABLE', { tableId: 'A', followPlayer: target })
+    );
+    await waitFor(() => expect(state.follows.get('A')?.target).toEqual(target));
+    await act(async () => state.reports.get('A')?.({ movedToTableId: 'B' }));
+    expect(screen.getByTestId('felt-A')).toBeTruthy();
+    expect(screen.queryByTestId('felt-B')).toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/table/A');
+    expect(state.follows.get('A')?.target).toEqual(target);
+    await act(async () =>
+      state.follows.get('A')!.onMove('A', target, { id: 'C', name: 'Event - Table C' }, false)
+    );
+    expect(screen.getByTestId('felt-C')).toBeTruthy();
+    expect(screen.queryByTestId('felt-B')).toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/table/C');
+    expect(state.follows.get('C')?.target).toEqual(target);
+    expect(state.toast.info).not.toHaveBeenCalledWith(
+      expect.stringContaining("You've Been Moved"),
+      expect.anything()
+    );
   });
 
   it('never replaces an observer when an own-seat INSERT has no confirmed source tab', async () => {

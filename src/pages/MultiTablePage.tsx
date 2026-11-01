@@ -3584,6 +3584,10 @@ export default function MultiTablePage() {
   const updateTableInfo = useCallback(
     (tableId: string, updates: Partial<TableInstance>) => {
       const before = tablesRef.current.find((tab) => tab.id === tableId);
+      // Only onFollowMove may repoint a player-watch tab. Hero seat events and
+      // generic game recovery cannot replace its selected player or location.
+      if (before?.followPlayer && updates.movedToTableId && updates.movedToTableId !== tableId)
+        return;
       if (
         before &&
         ((updates.holeCards && updates.holeCards !== before.holeCards) ||

@@ -122,3 +122,14 @@ it('keeps personal seat moves and their arrival message out of player watching',
   expect(page).toContain('enabled: !followingPlayer');
   expect(page).toContain('movedHereAtMs={followingPlayer ? undefined : arrivedByMoveAtMs}');
 });
+
+it('keeps dead-table recovery and primary-table elections from owning an observer view', () => {
+  const page = readFileSync('src/pages/TablePage.tsx', 'utf8');
+  expect(page).toContain('observer: observerOwnsView()');
+  expect(page).toContain('if (observerOwnsView()) return;');
+  expect(page).toContain('followingPlayerRef.current ||');
+  expect(page).toContain(
+    'tableStateRef.current.isTournament && tableStateRef.current.heroSeat <= 0'
+  );
+  expect(page).toContain('if (followingPlayer || !seatFirstBuyIn || !tournId || !tableId) return;');
+});

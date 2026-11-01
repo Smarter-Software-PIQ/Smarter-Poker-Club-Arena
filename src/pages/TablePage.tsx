@@ -4097,9 +4097,13 @@ function LiveTablePage({
        this table) shows the closed-table state and returns to the club. Not
        during a seat-first pre-start, a maintenance break, a paused tournament
        table or a Lightning room - each of those 404s is expected. */
+    const observerOwnsView = () =>
+      followingPlayerRef.current ||
+      (tableStateRef.current.isTournament && tableStateRef.current.heroSeat <= 0);
     const deadTable = createDeadTableRecovery(
       () => ({
         tableId,
+        observer: observerOwnsView(),
         tournamentId: tableStateRef.current.tournamentId,
         cashGameId: tableStateRef.current.clusterId,
       }),
@@ -4120,6 +4124,7 @@ function LiveTablePage({
     );
     deadTableRecoveryRef.current = deadTable;
     const actOnDeadTable = (verdict: DeadTableVerdict) => {
+      if (observerOwnsView()) return;
       if (verdict.kind === 'successor') {
         heartbeatToastRef.current?.info?.('This Table Moved, Opening The Live One');
         deadTableFollowRef.current(verdict.tableId);
@@ -4139,6 +4144,7 @@ function LiveTablePage({
     };
     const driveDeadTable = () => {
       if (
+        observerOwnsView() ||
         seatFirstOpenRef.current ||
         maintenanceBreakRef.current.active ||
         tablePausedToastShownRef.current ||
@@ -23082,7 +23088,7 @@ function LiveTablePage({
    */
   useEffect(() => {
     const tournId = tableState.tournamentId;
-    if (!seatFirstBuyIn || !tournId || !tableId) return;
+    if (followingPlayer || !seatFirstBuyIn || !tournId || !tableId) return;
     if (tableState.heroSeat > 0 || heroSeatRef.current > 0) return;
     if (seatFirstConfirm !== null || seatFirstPending) return;
 
@@ -23094,7 +23100,7 @@ function LiveTablePage({
          A null answer means "could not resolve OR nothing live" — either
          way, not proof this table was recycled, so stay put. */
       const liveId = await tableService.resolveTournamentLiveTable(tournId);
-      if (cancelled || !liveId || liveId === tableId) return;
+      if (cancelled || followingPlayerRef.current || !liveId || liveId === tableId) return;
       console.debug('[Seat] Table recycled - following tournament to', liveId);
       navigate(`/table/${liveId}`, { replace: true });
     };
@@ -23105,6 +23111,7 @@ function LiveTablePage({
       window.clearInterval(id);
     };
   }, [
+    followingPlayer,
     seatFirstBuyIn,
     tableId,
     tableState.tournamentId,
