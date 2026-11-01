@@ -417,7 +417,11 @@ it('wallet events update the displayed member without replacing a dirty note or 
 });
 it('late wallet refresh cannot restore old-viewer financial access', async () => {
   const pending = deferred<typeof memberDetail>();
-  const view = render(<MemberManagementPage />);
+  let view!: ReturnType<typeof render>;
+  // The wallet hint must reach an installed subscription, not an initial render.
+  await act(async () => {
+    view = render(<MemberManagementPage />);
+  });
   await screen.findByRole('textbox', { name: 'Nickname' });
   state.getMemberDetail.mockReturnValueOnce(pending.promise);
   await act(async () =>
