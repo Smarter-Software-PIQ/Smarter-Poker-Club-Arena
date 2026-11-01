@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272483,
-      "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
+      "bytes": 272790,
+      "sha256": "81978c0a2a6cd6f1fbd2b5f1c51461b01cb1be382f20aa99fa4e1d1b98924f1f"
     },
     "scripts/ci/satellite_qualifier_fixture.py": {
       "bytes": 18466,
@@ -2259,5 +2259,13 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "tournamentCreateRequestNativeEnforcement20261101": {
+    "reason": "Adds actual PostgreSQL 17 tournament creation request replay, atomic rollback and satellite partial-outcome qualification to existing accounting shard 3. Existing financial execution and historical qualification remain unchanged. Current workflow fingerprint is source identity, not financial certification.",
+    "previousWorkflowSha256": {
+      "bytes": 272483,
+      "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
+    },
+    "currentWorkflowSha256": "81978c0a2a6cd6f1fbd2b5f1c51461b01cb1be382f20aa99fa4e1d1b98924f1f"
   }
 }

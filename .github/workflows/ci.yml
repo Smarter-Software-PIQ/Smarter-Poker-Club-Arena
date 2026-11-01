@@ -3230,6 +3230,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-diamond-own-history-postgres.py
 
+      - name: Tournament creates retain their original request receipt
+        if: matrix.shard == 3
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-tournament-create-request.py --work-root "${{ runner.temp }}" --output artifacts/tournament-create-request
+
       - name: A schedule keeps its time zone across daylight saving
         if: matrix.shard == 3
         env:

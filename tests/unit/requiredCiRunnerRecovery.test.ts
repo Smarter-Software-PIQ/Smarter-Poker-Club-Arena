@@ -70,6 +70,25 @@ const normalizePostpaidQualityAddition = (job: { steps: Array<Record<string, unk
   job.steps.splice(start, 1);
 };
 
+const tournamentCreateRequestStep = {
+  name: 'Tournament creates retain their original request receipt',
+  if: 'matrix.shard == 3',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+  run: 'python3 -B scripts/ci/test-tournament-create-request.py --work-root "${{ runner.temp }}" --output artifacts/tournament-create-request',
+};
+const normalizeTournamentCreateRequest = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === tournamentCreateRequestStep.name);
+  expect(job.steps.filter((step) => step.name === tournamentCreateRequestStep.name)).toHaveLength(
+    1
+  );
+  expect(job.steps[index - 1]?.name).toBe(
+    'Diamond own hand history admits automatic membership and stays private'
+  );
+  expect(job.steps[index]).toStrictEqual(tournamentCreateRequestStep);
+  expect(job.steps[index + 1]?.name).toBe('A schedule keeps its time zone across daylight saving');
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -80,6 +99,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
     // Review the added tournament gate exactly, then retain every existing job pin.
     for (const tournamentStep of [
       {
@@ -365,6 +385,33 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       );
       mutate(job.steps, start);
       expect(() => normalizePostpaidQualityAddition(job)).toThrow();
+    }
+  });
+  it('rejects missing, duplicate, moved or weakened tournament request qualification', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, index: number) => steps.splice(index, 1),
+      (steps: Array<Record<string, unknown>>, index: number) =>
+        steps.push(structuredClone(steps[index])),
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].run = String(steps[index].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]];
+      },
+    ];
+    for (const mutate of mutations) {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const index = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === tournamentCreateRequestStep.name
+      );
+      mutate(job.steps, index);
+      expect(() => normalizeTournamentCreateRequest(job)).toThrow();
     }
   });
   it('preserves every native qualification stage and cleanup requirement', () => {
