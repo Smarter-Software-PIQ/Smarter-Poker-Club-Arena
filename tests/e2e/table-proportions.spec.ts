@@ -1499,6 +1499,7 @@ for (const [width, heightOverride] of occupiedViewports)
             document
               .querySelectorAll('.seat__avatar-wrap')
               .forEach((wrap) => wrap.classList.add('seat__avatar-wrap--fold'));
+            document.documentElement.dataset.betAmount = '120000';
             document.dispatchEvent(new Event('fixture-next-hand'));
             await new Promise<void>((resolve) =>
               requestAnimationFrame(() => requestAnimationFrame(() => resolve()))

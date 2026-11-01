@@ -4,6 +4,6 @@ The owner approved the equal-height tournament artwork and requested the same ca
 
 Table avatars now retain their resting pose through actions, folds, wins, all-ins and turn focus. Existing static bust framing and opponent normalization remain intact, while turn attention uses brightness without changing the seat size. Throwable and knockout effects cannot displace an occupied chair.
 
-Top-seat placement retains its allocation between hands and reserves the shown-card lane before cards are revealed. Changing the action or revealing a hand no longer reanchors the character. Cash and tournament tables use the same artwork normalization; Hero, table, card, panel and control dimensions are unchanged.
+Top-seat placement retains its allocation between hands and reserves the shown-card lane before cards are revealed. Changing the action or revealing a hand no longer reanchors the character. Once the original finite allocation completes, wager collision handling cannot push an occupied chair or its neighbors to another position; only actual viewport, roster or artwork geometry changes can allocate again. Cash and tournament tables use the same artwork normalization; Hero, table, card, panel and control dimensions are unchanged.
 
 Regression coverage checks actual avatar rectangles through turn changes in cash and tournament fixtures, alongside the occupied six- and nine-seat portrait collision matrix and fixed static geometry unit contracts. Publication and live proof are recorded in the task evidence checkpoint.

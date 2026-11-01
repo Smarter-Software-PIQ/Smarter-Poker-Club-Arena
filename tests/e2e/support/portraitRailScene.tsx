@@ -287,7 +287,7 @@ export function Review() {
                           /* data-bets="0,3,5" bets only those chairs; absent, every chair bets. */
                           document.documentElement.dataset.bets === undefined ||
                           document.documentElement.dataset.bets.split(',').map(Number).includes(i)
-                            ? 120
+                            ? Number(document.documentElement.dataset.betAmount || 120)
                             : 0
                         }
                         bigBlind={2}

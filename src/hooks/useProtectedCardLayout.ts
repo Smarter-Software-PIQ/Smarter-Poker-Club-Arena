@@ -2123,6 +2123,9 @@ export function useProtectedCardLayout(
           placeDealerButton(scaler, canvas, scale, points, obstacles, hardObstacles, placedWagers);
       }
       if (!phoneMarkers) placeRows(true);
+      // Once the original finite allocation is complete, later actions place
+      // their own cards/chips around the chairs instead of moving a player.
+      artwork.lock();
     };
     place();
     let frame: number | null = null;

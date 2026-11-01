@@ -12,6 +12,7 @@ type Alpha = {
 type Box = { left: number; top: number; width: number; height: number };
 export type OpponentAvatarState = {
   key: string;
+  locked?: boolean;
   shifts: WeakMap<HTMLElement, [number, number]>;
   lowerLaneKey?: string;
   captionKey?: string;
@@ -1037,13 +1038,14 @@ export function createOpponentAvatarLayout(
     syncOpponentCaptionBoundary(
       state,
       captions(),
-      `${window.innerWidth}:${window.innerHeight}:${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${images().map(source).join('|')}`
+      `${window.innerHeight > window.innerWidth ? 'portrait' : 'landscape'}:${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${images().map(source).join('|')}`
     );
     spacingReady = false;
     const all = images().filter((image) => image.complete && image.naturalWidth > 0);
     const hero = all.find((image) => image.closest('.seat--hero'));
     if (!hero) {
       state.key = '';
+      state.locked = false;
       state.shifts = new WeakMap();
       state.lowerLaneKey = undefined;
       scaler.querySelectorAll<HTMLElement>('.seat,.seat__avatar').forEach((element) => {
@@ -1094,7 +1096,7 @@ export function createOpponentAvatarLayout(
       }
       scales.push(`${seat.dataset.playerId}:${image.currentSrc || image.src}:${value}`);
     }
-    if (state.lowerLaneKey) {
+    if (state.lowerLaneKey && !state.locked) {
       const limits = lowerLaneLimits();
       const signature = limits ? `${limits.top}:${limits.bottom}` : '';
       if (signature !== state.lowerLaneKey) {
@@ -1134,9 +1136,16 @@ export function createOpponentAvatarLayout(
       }
     }
     const key = `${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${target.toFixed(2)}:${scales.join('|')}`;
-    if (state.key !== key) {
+    const replacedChair =
+      state.locked &&
+      all.some((image) => {
+        const seat = image.closest<HTMLElement>('.seat')!;
+        return image !== hero && !state.shifts.has(seat);
+      });
+    if (state.key !== key || replacedChair) {
       changed = true;
       state.key = key;
+      state.locked = false;
       state.shifts = new WeakMap();
       state.lowerLaneKey = undefined;
       state.idleReservedKey = undefined;
@@ -1157,7 +1166,8 @@ export function createOpponentAvatarLayout(
   };
   const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
     const old = state.shifts.get(seat);
-    if (!old || !Number.isFinite(deltaY) || seat.classList.contains('seat--hero')) return false;
+    if (state.locked || !old || !Number.isFinite(deltaY) || seat.classList.contains('seat--hero'))
+      return false;
     const ratio = tableRenderScale(scaler);
     const parts = (owner: HTMLElement): Box[] => {
       const image = owner.querySelector<HTMLImageElement>('.seat__avatar-img');
@@ -1268,6 +1278,7 @@ export function createOpponentAvatarLayout(
     wagerTop: number,
     accept: () => boolean
   ): boolean => {
+    if (state.locked) return false;
     const limits = captionRaiseBounds(seat);
     // wagerTop is the future wager's top edge, not the requested INFO top.
     // A caller staging a pod movement subtracts that movement from wagerTop.
@@ -1422,7 +1433,7 @@ export function createOpponentAvatarLayout(
     return changed;
   };
   const space = () => {
-    if (!state.key || !spacingReady) return false;
+    if (!state.key || !spacingReady || state.locked) return false;
     // An arriving caption/character has no resting rectangle yet. Let its
     // existing animationend event request the first allocation; infinite
     // breathing remains visible and never delays the permanent layout.
@@ -1646,6 +1657,13 @@ export function createOpponentAvatarLayout(
   return {
     prepare,
     space,
+    lock: () => {
+      const seats = Array.from(
+        scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
+      );
+      if (spacingReady && state.key && seats.every((seat) => state.shifts.has(seat)))
+        state.locked = true;
+    },
     ready: () => spacingReady && Boolean(state.key),
     awaitingMetadata: () =>
       images().some(
