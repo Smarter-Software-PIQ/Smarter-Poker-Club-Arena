@@ -1436,65 +1436,101 @@ for (const [width, heightOverride] of occupiedViewports)
                 );
               const originalSeat = seat.className;
               const originalWrap = wrap.className;
-              wrap.classList.add('seat__avatar-wrap--celebrate');
-              await frame();
-              const gesture = wrap
-                .getAnimations()
-                .find(
-                  (animation) =>
-                    animation instanceof CSSAnimation &&
-                    animation.animationName === 'spAvatarCelebrate'
+              const root = document.documentElement;
+              const originalMotion = root.getAttribute('data-sp-motion');
+              // Exercise the real adaptive budget path: meaningful gestures
+              // must survive lite mode, not merely an unconstrained desktop.
+              root.setAttribute('data-sp-motion', 'lite');
+              const finish = async (animation: Animation, phase: string) => {
+                try {
+                  await animation.finished;
+                } catch (cause) {
+                  throw new Error(
+                    `Avatar gesture cancelled during ${phase}: ${JSON.stringify({
+                      motion: root.getAttribute('data-sp-motion'),
+                      seat: seat.className,
+                      wrap: wrap.className,
+                      animation: animation instanceof CSSAnimation ? animation.animationName : '',
+                      playState: animation.playState,
+                      currentTime: animation.currentTime,
+                    })}`,
+                    { cause }
+                  );
+                }
+              };
+              try {
+                wrap.classList.add('seat__avatar-wrap--celebrate');
+                await frame();
+                const gesture = wrap
+                  .getAnimations()
+                  .find(
+                    (animation) =>
+                      animation instanceof CSSAnimation &&
+                      animation.animationName === 'spAvatarCelebrate'
+                  );
+                if (!gesture) throw new Error('Real Celebration Animation Missing');
+                gesture.pause();
+                gesture.currentTime = Number(gesture.effect!.getTiming().duration) * 0.4;
+                document.dispatchEvent(new Event('fixture-next-hand'));
+                await frame();
+                const raisedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
+                // Complete the actual gesture, then let the ordinary folded
+                // resting pose settle. No production animation is cancelled.
+                gesture.finish();
+                await finish(gesture, 'celebration');
+                wrap.className = originalWrap;
+                document.dispatchEvent(new Event('fixture-next-hand'));
+                await frame();
+                const restingShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
+                seat.classList.remove('seat--active', 'seat--winner');
+                seat.classList.add('seat--folded');
+                await frame();
+                await Promise.all(
+                  wrap.getAnimations().map((animation) => finish(animation, 'folded resting pose'))
                 );
-              if (!gesture) throw new Error('Real Celebration Animation Missing');
-              gesture.pause();
-              gesture.currentTime = Number(gesture.effect!.getTiming().duration) * 0.4;
-              document.dispatchEvent(new Event('fixture-next-hand'));
-              await frame();
-              const raisedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
-              // Complete the actual gesture, then let the ordinary folded
-              // resting pose settle. No production animation is cancelled.
-              gesture.finish();
-              wrap.className = originalWrap;
-              document.dispatchEvent(new Event('fixture-next-hand'));
-              await frame();
-              const restingShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
-              seat.classList.remove('seat--active', 'seat--winner');
-              seat.classList.add('seat--folded');
-              await frame();
-              await Promise.all(wrap.getAnimations().map((animation) => animation.finished));
-              await frame();
-              const foldedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
-              const box = head.getBoundingClientRect();
-              const file = /\/avatars\/table\/([^/?#]+)/.exec(head.currentSrc || head.src)?.[1];
-              const gap =
-                box.top +
-                box.height * ((file && crowns[file]) || 0) -
-                document.querySelector('.table-page')!.getBoundingClientRect().top;
-              // Live hand admission can clear folded seat state before the
-              // final fold gesture class is retired. Its retained CSS final
-              // frame must use the same semantic resting anchor.
-              seat.classList.remove('seat--folded');
-              wrap.classList.add('seat__avatar-wrap--fold');
-              await frame();
-              const foldGesture = wrap
-                .getAnimations()
-                .find(
-                  (animation) =>
-                    animation instanceof CSSAnimation && animation.animationName === 'spAvatarFold'
-                );
-              if (!foldGesture) throw new Error('Real Fold Animation Missing');
-              await foldGesture.finished;
-              await frame();
-              const retainedBox = head.getBoundingClientRect();
-              const retainedFoldGap =
-                retainedBox.top +
-                retainedBox.height * ((file && crowns[file]) || 0) -
-                document.querySelector('.table-page')!.getBoundingClientRect().top;
-              seat.className = originalSeat;
-              wrap.className = originalWrap;
-              document.dispatchEvent(new Event('fixture-next-hand'));
-              await frame();
-              return { raisedShift, restingShift, foldedShift, gap, retainedFoldGap };
+                await frame();
+                const foldedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
+                const box = head.getBoundingClientRect();
+                const file = /\/avatars\/table\/([^/?#]+)/.exec(head.currentSrc || head.src)?.[1];
+                const gap =
+                  box.top +
+                  box.height * ((file && crowns[file]) || 0) -
+                  document.querySelector('.table-page')!.getBoundingClientRect().top;
+                // Live hand admission can clear folded seat state before the
+                // final fold gesture class is retired. Its retained CSS final
+                // frame must use the same semantic resting anchor.
+                seat.classList.remove('seat--folded');
+                wrap.classList.add('seat__avatar-wrap--fold');
+                await frame();
+                const foldGesture = wrap
+                  .getAnimations()
+                  .find(
+                    (animation) =>
+                      animation instanceof CSSAnimation &&
+                      animation.animationName === 'spAvatarFold'
+                  );
+                if (!foldGesture) throw new Error('Real Fold Animation Missing');
+                await finish(foldGesture, 'retained fold');
+                if (root.getAttribute('data-sp-motion') !== 'lite') {
+                  throw new Error('Adaptive lite gesture witness lost its active budget mode');
+                }
+                await frame();
+                const retainedBox = head.getBoundingClientRect();
+                const retainedFoldGap =
+                  retainedBox.top +
+                  retainedBox.height * ((file && crowns[file]) || 0) -
+                  document.querySelector('.table-page')!.getBoundingClientRect().top;
+                seat.className = originalSeat;
+                wrap.className = originalWrap;
+                document.dispatchEvent(new Event('fixture-next-hand'));
+                await frame();
+                return { raisedShift, restingShift, foldedShift, gap, retainedFoldGap };
+              } finally {
+                seat.className = originalSeat;
+                wrap.className = originalWrap;
+                if (originalMotion === null) root.removeAttribute('data-sp-motion');
+                else root.setAttribute('data-sp-motion', originalMotion);
+              }
             }, AVATAR_CROWN_TOP);
             expect(anchoring.restingShift).toBeCloseTo(anchoring.raisedShift, 1);
             if (width > 768) {

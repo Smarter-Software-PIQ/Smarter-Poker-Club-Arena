@@ -474,6 +474,79 @@ function independentMatch(
   );
 }
 
+async function assertLobbyControlsInsidePaint(page: Page) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
+  const families = await page.locator('.lobby-game-sections__button').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return { left: box.left, top: box.top, width: box.width, height: box.height };
+    })
+  );
+  expect(families).toHaveLength(2);
+  expect(Math.abs(families[0].top - families[1].top)).toBeLessThan(1);
+  expect(families[1].left).toBeGreaterThan(families[0].left + families[0].width);
+  for (const family of families) expect(Math.abs(family.width - family.height)).toBeLessThan(1);
+  await expect
+    .poll(
+      () =>
+        page
+          .locator(
+            '.lobby-game-sections__button:visible, #lobby-game-section-controls .game-bar__type:visible, #lobby-game-section-controls .quickprefs__chip:visible, #lobby-game-section-controls .game-bar__filter-btn:visible, .lobby-sticky-filters > button:visible'
+          )
+          .evaluateAll((buttons) =>
+            buttons.flatMap((button) => {
+              const square = button.classList.contains('lobby-game-sections__button');
+              const box = button.getBoundingClientRect();
+              const ratio = square ? 1105 / 1133 : 3;
+              const width = Math.min(box.width, box.height * ratio);
+              const height = width / ratio;
+              const left = box.left + (box.width - width) / 2;
+              const top = box.top + (box.height - height) / 2;
+              const face = square
+                ? {
+                    left: left + (width * 194) / 1105,
+                    right: left + (width * 910) / 1105,
+                    top: top + (height * 193) / 1133,
+                    bottom: top + (height * 915) / 1133,
+                  }
+                : {
+                    left: left + width * 0.12,
+                    right: left + width * 0.88,
+                    top: top + height * 0.22,
+                    bottom: top + height * 0.76,
+                  };
+              const label = button.querySelector(
+                square ? '.lobby-game-sections__well > span' : '.lobby-filter-label__text'
+              );
+              if (!label) return [{ text: button.textContent, missingLabel: true }];
+              const range = document.createRange();
+              range.selectNodeContents(label);
+              const outside = [...range.getClientRects()].some(
+                (rect) =>
+                  rect.left < face.left - 1 ||
+                  rect.right > face.right + 1 ||
+                  rect.top < face.top - 1 ||
+                  rect.bottom > face.bottom + 1
+              );
+              const wrongFrame =
+                !square &&
+                !getComputedStyle(button).backgroundImage.includes(
+                  'chrome-arena-controls-v1/filter-plate.png'
+                );
+              return outside || wrongFrame
+                ? [{ text: label.textContent, face, outside, wrongFrame }]
+                : [];
+            })
+          ),
+      {
+        message: 'Every control label must fit its actual native painted face on phone and desktop',
+      }
+    )
+    .toEqual([]);
+}
+
 /** The native lower glass is measured from the approved master, not the text wrapper. */
 async function assertRegistrationInkInsideFrame(page: Page) {
   const copy = await page
@@ -1414,6 +1487,11 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
 }, testInfo) => {
   const h = await test.step('Authenticated Lobby Setup', () => setup(page));
   await h.choose('MTT');
+  await assertLobbyControlsInsidePaint(page);
+  await testInfo.attach('lobby-square-controls-phone.png', {
+    body: await page.locator('.lobby-controls').screenshot(),
+    contentType: 'image/png',
+  });
   let sheet = await h.open();
   await clickControl(sheet.getByRole('button', { name: /^Reset / }));
   await clickControl(sheet.getByRole('button', { name: 'Recommended', exact: true }));
@@ -1701,6 +1779,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await expect(rail).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect(rail).toBeInViewport();
+  await assertLobbyControlsInsidePaint(page);
   await assertRegistrationInkInsideFrame(page);
   await testInfo.attach('sticky-lobby-wide.png', {
     body: await page.screenshot(),
