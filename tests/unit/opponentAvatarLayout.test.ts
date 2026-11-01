@@ -1400,7 +1400,7 @@ it.each([
   }
 );
 
-it('switching turn/spotlight focus across seats updates --sp-opponent-art-scale without resetting opponent pod shifts or state.key', async () => {
+it('switching turn/spotlight focus retains the same artwork scale, opponent pod shifts and state.key', async () => {
   const page = document.createElement('div');
   page.className = 'table-page';
   page.innerHTML = `<div class="table-scaler"><div class="seat-wrapper seat-wrapper--spot"><div class="seat seat--hero seat--active" data-player-id="hero"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div></div></div><div class="seat-wrapper"><div class="seat" data-player-id="villain-1" data-opponent-lane="cap" style="--sp-opponent-x: 4px; --sp-opponent-y: -6px;"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div><div class="seat__info" style="width:112px;height:36px"></div></div></div></div>`;
@@ -1455,9 +1455,9 @@ it('switching turn/spotlight focus across seats updates --sp-opponent-art-scale 
     villainSeat.dataset.opponentLane = 'cap';
     state.shifts.set(villainSeat, [4, -6]);
     const initialScale = Number(villainAvatar.style.getPropertyValue('--sp-opponent-art-scale'));
-    expect(initialScale).toBeCloseTo((200 / 300) * 1.04 * 1.04, 5);
+    expect(initialScale).toBeCloseTo(200 / 300, 5);
 
-    // Turn moves from Hero to Villain: focus gain changes, but ring key and shifts must stay intact!
+    // Turn attention moves from Hero to Villain without resizing or moving either character.
     heroWrapper.classList.remove('seat-wrapper--spot');
     heroSeat.classList.remove('seat--active');
     villainWrapper.classList.add('seat-wrapper--spot');
@@ -1471,7 +1471,7 @@ it('switching turn/spotlight focus across seats updates --sp-opponent-art-scale 
     expect(villainSeat.dataset.opponentLane).toBe('cap');
     expect(layout.ready()).toBe(true);
     const nextScale = Number(villainAvatar.style.getPropertyValue('--sp-opponent-art-scale'));
-    expect(nextScale).toBeCloseTo(200 / 300 / (1.04 * 1.04), 5);
+    expect(nextScale).toBeCloseTo(initialScale, 5);
   } finally {
     layout.stop();
     canvas.mockRestore();
