@@ -57,3 +57,9 @@ fixtures. The shared validator now permits only that exact root when it is a
 directory. Whole pinned-archive validation and root-file/traversal/absolute/prefix
 negative cases join the existing source self-test; extraction safeguards remain.
 Actual native compilation and application acceptance remain pending.
+
+The next provider build completed both clients and local cluster startup, then
+refused at SYNTHETIC_SEED (2026-11-01T00:03:25Z). The exact locked embedded-server
+archive contains initdb, pg_ctl and postgres, with no psql executable. Seeding now
+reuses the unchanged maintained query.mjs adapter and locked pg8.16.3 against the
+same private Unix cluster. Production capture and its native clients are unchanged.

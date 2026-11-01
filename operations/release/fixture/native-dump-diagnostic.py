@@ -374,7 +374,7 @@ def qualify(repo, work, output, env, stock_executable):
     runtime = work / 'runtime'
     runtime.mkdir()
     existing = repo / 'scripts/ci/probes/chip-journal-atomicity/postgres-runtime'
-    for file in ['package.json', 'package-lock.json']:
+    for file in ['package.json', 'package-lock.json', 'query.mjs']:
         shutil.copyfile(existing / file, runtime / file)
     command(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], cwd=runtime, env=env, timeout=180)
     package = runtime / 'node_modules/@embedded-postgres/linux-x64'
@@ -399,7 +399,7 @@ def qualify(repo, work, output, env, stock_executable):
                "ALTER DEFAULT PRIVILEGES IN SCHEMA diagnostic_schema GRANT SELECT ON TABLES TO diagnostic_reader;\n")
         sql += '\n'.join(f'CREATE FUNCTION diagnostic_schema.f_{i}() RETURNS integer LANGUAGE sql AS $$SELECT {i}$$;' for i in range(140))
         BUILD_STAGE = 'SYNTHETIC_SEED'
-        command([str(pg / 'psql'), '-X', '-w', '-v', 'ON_ERROR_STOP=1'], cwd=work, env=local, data=sql.encode())
+        command(['node', str(runtime / 'query.mjs')], cwd=work, env=local, data=sql.encode())
         args = ['--no-password', '--schema-only', '--format=plain', '--quote-all-identifiers',
                 '--no-comments', '--no-security-labels', '--no-subscriptions', '--lock-wait-timeout=1000']
         dump_env = {**local, 'LD_LIBRARY_PATH': str(output / 'lib')}
