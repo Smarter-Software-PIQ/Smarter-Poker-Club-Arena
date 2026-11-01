@@ -598,6 +598,9 @@ test.describe('the mobile lobby chrome on production', () => {
     expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(
       'America/Chicago'
     );
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
     const appearance: unknown[] = [];
     for (const [family, tab, mode] of [
       ['ALL', 'PLO', 'cash'],
@@ -618,7 +621,16 @@ test.describe('the mobile lobby chrome on production', () => {
             : `[data-kind="${mode === 'spins' ? 'spin' : mode}"]`;
       const currentRows = page.locator(`[data-testid="lobby-game-row"][data-id]${format}:visible`);
       await expect(currentRows.first()).toBeVisible({ timeout: 30_000 });
-      const id = await currentRows.first().getAttribute('data-id');
+      const sampleRow =
+        mode === 'cash'
+          ? page
+              .locator(
+                '[data-testid="lobby-game-row"][data-id][data-kind="cash"][data-lightning-format="true"]:visible'
+              )
+              .first()
+          : currentRows.first();
+      await expect(sampleRow).toBeVisible({ timeout: 30_000 });
+      const id = await sampleRow.getAttribute('data-id');
       const heading = page.locator(`[data-game-heading="${id}"]:visible`);
       await expect(heading.locator('.lt-tournament-heading__name')).toBeVisible();
       await expect
@@ -655,11 +667,26 @@ test.describe('the mobile lobby chrome on production', () => {
           if (!image.naturalWidth || !image.naturalHeight)
             throw new Error('Premium art did not load');
         }
-        return { heading: element.textContent, backgrounds, overlayDisplay };
+        return {
+          heading: element.textContent,
+          backgrounds,
+          overlayDisplay,
+          icon: element
+            .querySelector('[data-tournament-icon]')
+            ?.getAttribute('data-tournament-icon'),
+          filter: getComputedStyle(element, '::before').filter,
+        };
       });
+      if (mode === 'cash') {
+        expect(paint.icon).toBe('lightning');
+        expect(paint.filter).toContain('grayscale(1)');
+        expect(await sampleRow.evaluate((e) => getComputedStyle(e, '::before').filter)).toContain(
+          'grayscale(1)'
+        );
+      }
       appearance.push({ mode, ...paint });
-      await currentRows.first().scrollIntoViewIfNeeded();
-      await expect(currentRows.first()).toBeInViewport();
+      await sampleRow.scrollIntoViewIfNeeded();
+      await expect(sampleRow).toBeInViewport();
       await expect(heading).toBeInViewport();
       await testInfo.attach(`chrome-arena-${mode}-phone.png`, {
         body: await page.screenshot(),
