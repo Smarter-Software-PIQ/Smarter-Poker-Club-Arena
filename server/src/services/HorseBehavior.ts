@@ -41,6 +41,27 @@ export function horseCashMinimum(
     : configuredMinimum;
 }
 
+/** Owner October 31: all 1/2 cash horses refill to the legal maximum.
+ * This identifies a stake, never an opponent, variant or strategy. */
+export function isMaximumHorseCashStake(
+  table:
+    | {
+        small_blind?: unknown;
+        big_blind?: unknown;
+        tournament_id?: unknown;
+        is_tournament?: unknown;
+      }
+    | null
+    | undefined
+): boolean {
+  return (
+    table?.tournament_id == null &&
+    table?.is_tournament !== true &&
+    Number(table?.small_blind) === 1 &&
+    Number(table?.big_blind) === 2
+  );
+}
+
 /** Owner October 26: every horse chooses the table maximum, to the cent. */
 export function horseMaximumBuyIn(minBuyIn: number, maxBuyIn: number): number {
   if (
