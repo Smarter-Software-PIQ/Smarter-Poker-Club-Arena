@@ -1184,6 +1184,17 @@ export function useProtectedCardLayout(
         const compactFacts =
           compactNine &&
           (Boolean(scaler.querySelector('.seat__allin-puck')) || compactFullShowdown);
+        const opponentRowPose = () =>
+          Array.from(scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero)'))
+            .map((seat) =>
+              [
+                seat.style.getPropertyValue('--sp-opponent-x'),
+                seat.style.getPropertyValue('--sp-opponent-y'),
+                seat.querySelector<HTMLElement>(':scope > .seat__info')?.style.translate ?? '',
+                seat.querySelector<HTMLElement>(':scope > .seat__action')?.style.translate ?? '',
+              ].join(':')
+            )
+            .join('|');
         const entries = buildEntries();
         // A later DOM sibling may already own a retained slot. Reserve the
         // complete retained set before assigning any newly generated pools;
@@ -1200,6 +1211,7 @@ export function useProtectedCardLayout(
         // retain their existing rail/page lanes. This is one finite transaction,
         // not an animation-following or event-driven repair pass.
         if (remainingOwnerSpacingPasses > 0 && artwork.ready()) {
+          const beforeRowPose = opponentRowPose();
           let movedOwner = false;
           const movedSeats = new Set<HTMLElement>();
           const origins =
@@ -1564,14 +1576,18 @@ export function useProtectedCardLayout(
           if (movedOwner) {
             // Rebase shown hands once against the final pod positions. Existing
             // wager slots remain retained and undergo their normal validity check.
-            settled.current.rows = new WeakMap();
-            rows.forEach((row) => {
-              row.style.removeProperty('translate');
-              row.style.removeProperty('--vh-step-f');
-              row.style.removeProperty('--vh-card-w');
-              delete row.dataset.baseStep;
-              delete row.dataset.baseCardW;
-            });
+            // A joint proof can only reassign markers, with zero body or
+            // caption movement. That does not invalidate a tabled hand's slot.
+            if (!compactFacts || opponentRowPose() !== beforeRowPose) {
+              settled.current.rows = new WeakMap();
+              rows.forEach((row) => {
+                row.style.removeProperty('translate');
+                row.style.removeProperty('--vh-step-f');
+                row.style.removeProperty('--vh-card-w');
+                delete row.dataset.baseStep;
+                delete row.dataset.baseCardW;
+              });
+            }
             place(remainingOwnerSpacingPasses - 1, origins);
             return;
           }
@@ -1616,6 +1632,7 @@ export function useProtectedCardLayout(
               )
           )
         ) {
+          const beforeRowPose = opponentRowPose();
           const origins =
             spacingOrigins ??
             new Map(
@@ -2031,14 +2048,18 @@ export function useProtectedCardLayout(
           }
           if (moved) {
             completedWagers.forEach(({ bet, next }) => commitWager(bet, next));
-            settled.current.rows = new WeakMap();
-            rows.forEach((row) => {
-              row.style.removeProperty('translate');
-              row.style.removeProperty('--vh-step-f');
-              row.style.removeProperty('--vh-card-w');
-              delete row.dataset.baseStep;
-              delete row.dataset.baseCardW;
-            });
+            // A joint proof can only reassign markers, with zero body or
+            // caption movement. That does not invalidate a tabled hand's slot.
+            if (!compactFacts || opponentRowPose() !== beforeRowPose) {
+              settled.current.rows = new WeakMap();
+              rows.forEach((row) => {
+                row.style.removeProperty('translate');
+                row.style.removeProperty('--vh-step-f');
+                row.style.removeProperty('--vh-card-w');
+                delete row.dataset.baseStep;
+                delete row.dataset.baseCardW;
+              });
+            }
             place(remainingOwnerSpacingPasses - 1, origins);
             return;
           }
