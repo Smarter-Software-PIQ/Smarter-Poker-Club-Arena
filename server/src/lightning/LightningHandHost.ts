@@ -421,6 +421,7 @@ export interface LightningHandHostDeps {
   onHandSettled?(settled: {
     handId: string;
     bigBlind: number;
+    smallBlind?: number;
     players: Array<{ playerId: string; stackAfter: number }>;
     horsePlayers?: Array<{ playerId: string }>;
   }): Promise<void> | void;
@@ -3293,6 +3294,7 @@ export class LightningHandHost {
       await this.deps.onHandSettled({
         handId: this.handId,
         bigBlind: Number(this.rules.big_blind) || 0,
+        smallBlind: Number(this.rules.small_blind) || 0,
         players,
         horsePlayers,
       });

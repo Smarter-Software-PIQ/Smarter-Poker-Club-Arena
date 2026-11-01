@@ -40,8 +40,10 @@
  *  2. PREMIUMS RAISE PREFLOP, NEVER FLAT. AA and KK never limp, never check
  *     the big-blind option and never flat a raise: they raise. QQ, AKs and
  *     AKo raise over limps, a single raise and a 3-bet; over a 4-bet or more
- *     they are left to the brain. A raise is a standard size (3x plus one per
- *     caller unopened or over one raise, 2.3x over a 3-bet); only a size that
+ *     they are left to the brain. A raise is a standard size (unopened: the
+ *     table's own V74 open draw, the same one every hand gets, so the size
+ *     never marks a premium; 3x plus one per caller over one raise, 2.3x over
+ *     a 3-bet); only a size that
  *     reaches the horse's whole stack becomes an all-in. The tournament shove
  *     discipline still runs after this rule.
  *
@@ -178,6 +180,13 @@ export interface HoldemPremiumInput {
   dominatedFold?: boolean;
   /** Tournament chips: rule 4's call price carries the bust premium. */
   tournament?: boolean;
+  /**
+   * The table's own unopened open size (V74, HorseNlhOpenSize), drawn without
+   * reading the cards. Rule 2 uses it when it turns a premium's limp or check
+   * into an open, so a premium open is sized exactly like every other open
+   * (a fixed 3bb would mark the hand). Null or absent keeps 3bb + 1 per limper.
+   */
+  openRaiseTo?: () => number | null;
 }
 
 export interface HoldemPremiumVerdict<D extends HoldemPremiumDecision = HoldemPremiumDecision> {
@@ -564,7 +573,11 @@ function premiumRaise(
   if (!isTopPremium(h) && read.raises >= 3) return null;
   let to: number;
   if (read.raises === 0) {
-    to = 3 * bb + read.callersSinceLastRaise * bb;
+    const drawn = i.openRaiseTo?.();
+    to =
+      typeof drawn === 'number' && Number.isFinite(drawn) && drawn > 0
+        ? drawn
+        : 3 * bb + read.callersSinceLastRaise * bb;
   } else if (read.raises === 1) {
     to = 3 * read.level + read.callersSinceLastRaise * read.level;
   } else if (read.raises === 2) {

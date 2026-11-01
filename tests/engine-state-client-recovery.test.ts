@@ -397,6 +397,28 @@ describe('EngineStateClient — heartbeats cannot acknowledge missing game state
       c.disconnect();
     }
   });
+
+  it('tears down a silent physical mux socket when 3 unanswered watchdog resyncs escalate before the 60s mux hard timeout', async () => {
+    const { c, ws, statuses } = await openTable();
+    try {
+      ws._frame({ type: 'SNAPSHOT', tableId: TABLE, seq: 1, state: { pot: 10 } });
+      const initialSockets = FakeWebSocket.instances.length;
+      // 35s of silence -> soft resync #1; wake clamps lastInboundAt to 35s and sends soft resync #2 + #3 -> hard escalate at 50s (< 60s mux STALE_HARD_MS).
+      await vi.advanceTimersByTimeAsync(35_000);
+      for (let i = 0; i < 4; i++) {
+        document.dispatchEvent(new Event('visibilitychange'));
+        await vi.advanceTimersByTimeAsync(5_000);
+      }
+      expect(statuses).toContain('reconnecting');
+      expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+      // Reconnect must open a fresh physical socket rather than re-subscribing on the dead one.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(FakeWebSocket.instances.length).toBeGreaterThan(initialSockets);
+      expect(live()).not.toBe(ws);
+    } finally {
+      c.disconnect();
+    }
+  });
 });
 
 describe('EngineStateClient — a socket that never finishes connecting', () => {

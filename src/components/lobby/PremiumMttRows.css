@@ -215,6 +215,7 @@
 }
 .has-premium-chassis tbody tr[data-id] > td.lt-col-name,
 .compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child {
+  position: static;
   display: flex;
   grid-column: 1;
   grid-row: 1;
@@ -418,10 +419,14 @@
   display: block;
   width: max-content;
   max-width: none;
+  margin-inline: auto;
   font-size: calc(clamp(12px, 4cqw, 28px) * var(--fit, 1));
   line-height: 1.05;
   white-space: nowrap;
   overflow-wrap: normal;
+}
+.has-premium-chassis [data-label='Buy-In'] .premium-cash-stakes-value {
+  font-size: max(12px, calc(clamp(12px, 4cqw, 28px) * var(--fit, 1)));
 }
 .has-premium-chassis tbody tr[data-id] > td[data-label='Stakes'] {
   padding-bottom: 1cqw !important;
@@ -629,10 +634,37 @@
   align-items: center;
   gap: 0;
   width: 100%;
+  line-height: 0.9;
 }
 .has-premium-chassis tbody tr[data-id] .premium-cash-style > span {
   display: block;
   width: 100%;
+}
+/* The native glass is shorter than the full raster crop (which includes
+   its lower rim). Center three readable lines in that glass, not the crop. */
+.has-premium-chassis tbody tr[data-id] .lt-name--cash {
+  position: static;
+}
+.has-premium-chassis tbody tr[data-id] .premium-cash-style {
+  position: absolute;
+  inset: 0.4cqw auto 1.6cqw 6cqw;
+  width: 23.5%;
+  justify-content: center;
+}
+.has-premium-chassis tbody tr[data-id] .lt-name--seatfirst {
+  width: 100%;
+  align-items: center;
+}
+.has-premium-chassis tbody tr[data-id] .lt-name--seatfirst,
+.compact-lobby.has-premium-chassis tbody tr[data-kind='sng'] .compact-lobby__open,
+.compact-lobby.has-premium-chassis tbody tr[data-kind='spin'] .compact-lobby__open {
+  gap: 0;
+  line-height: 0.9;
+}
+.has-premium-chassis tbody tr[data-id] .lt-name--seatfirst .lt-name__table,
+.compact-lobby.has-premium-chassis tbody tr[data-kind='sng'] .compact-lobby__meta,
+.compact-lobby.has-premium-chassis tbody tr[data-kind='spin'] .compact-lobby__meta {
+  line-height: 0.9;
 }
 .has-premium-chassis tbody tr[data-id] > td.lt-col-name,
 .compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child {

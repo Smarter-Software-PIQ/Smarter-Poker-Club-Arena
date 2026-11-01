@@ -517,13 +517,104 @@ def coredump_restart_signs(data, container_id, window):
     return rows
 
 
+# One fixed read-only subprocess replaces the existing container read, keeping
+# the same four-second source budget. It never opens a core file or emits paths.
+CORE_CAPTURE_COMMAND = r"""
+import json, os, re, stat, subprocess
+
+def inspect():
+    value = subprocess.run(['docker','inspect','--format',
+        '{"Id":{{json .Id}},"State":{{json .State}},"Config":{"WorkingDir":{{json .Config.WorkingDir}}},"HostConfig":{"Ulimits":{{json .HostConfig.Ulimits}}}}',
+        'club-arena-engine'],
+                           capture_output=True, timeout=1, check=True)
+    if len(value.stdout)>1024*1024: raise ValueError('inspect bound')
+    return json.loads(value.stdout)
+def text(path):
+    with open(path, 'r') as stream:
+        value=stream.read(4097)
+    if len(value)>4096: raise ValueError('metadata bound')
+    return value.strip()
+def limit(value):
+    if value=='unlimited': return value
+    if re.fullmatch(r'[0-9]{1,16}', value) and int(value)<=9007199254740991: return int(value)
+    return 'unknown'
+a=inspect(); identity=a.get('Id'); pid=a.get('State',{}).get('Pid')
+if not isinstance(identity,str) or not re.fullmatch(r'[0-9a-f]{64}',identity) or type(pid) is not int or pid<=0:
+    raise ValueError('container identity')
+m={'patternClass':'unknown','usesPid':'unknown','processSoft':'unknown','processHard':'unknown',
+   'containerSoft':'unknown','containerHard':'unknown','candidate':'unknown'}
+try:
+    pattern=text('/proc/sys/kernel/core_pattern')
+    m['patternClass']='disabled' if not pattern else 'pipe' if pattern.startswith('|') else 'file_absolute' if pattern.startswith('/') else 'file_relative'
+    uses=text('/proc/sys/kernel/core_uses_pid')
+    if uses in ('0','1'): m['usesPid']=int(uses)
+except (OSError,ValueError): pattern=None
+try:
+    for line in text('/proc/'+str(pid)+'/limits').splitlines():
+        match=re.fullmatch(r'Max core file size\s+(\S+)\s+(\S+)\s+bytes',line)
+        if match: m['processSoft'],m['processHard']=map(limit,match.groups())
+except (OSError,ValueError): pass
+for row in a.get('HostConfig',{}).get('Ulimits') or []:
+    if isinstance(row,dict) and row.get('Name')=='core':
+        for key in ('Soft','Hard'):
+            v=row.get(key)
+            if type(v) is int and -1<=v<=9007199254740991: m['container'+key]='unlimited' if v==-1 else v
+# Only the exact conventional basename in the maintained image's fixed /app
+# working directory is eligible. No glob, arbitrary pattern or file contents.
+if pattern=='core' and m['usesPid']==0 and a.get('Config',{}).get('WorkingDir')=='/app':
+    root=app=None
+    try:
+        root=os.open('/proc/'+str(pid)+'/root',os.O_RDONLY|os.O_DIRECTORY)
+        app=os.open('app',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=root)
+        info=os.stat('core',dir_fd=app,follow_symlinks=False)
+        if stat.S_ISREG(info.st_mode):
+            m.update(candidate='regular_file',candidateBytes=info.st_size,candidateMtimeNs=info.st_mtime_ns)
+        else: m['candidate']='not_regular_file'
+    except FileNotFoundError: m['candidate']='absent'
+    except OSError: pass
+    finally:
+        if app is not None: os.close(app)
+        if root is not None: os.close(root)
+b=inspect()
+if b.get('Id')!=identity or b.get('State',{}).get('Pid')!=pid or b.get('State',{}).get('StartedAt')!=a.get('State',{}).get('StartedAt'):
+    raise ValueError('container changed')
+print(json.dumps({'Id':identity,'State':a.get('State',{}),'CoreCapture':m}))
+"""
+
+
+def core_capture_metadata(value, window):
+    """Closed metadata only; current limits never describe the crashed process."""
+    result = {'temporalScope': 'current_container_process_not_crashed_process',
+              'patternClass': 'unknown', 'usesPid': 'unknown',
+              'processSoft': 'unknown', 'processHard': 'unknown',
+              'containerSoft': 'unknown', 'containerHard': 'unknown',
+              'candidate': 'unknown', 'incidentAttribution': 'unproven'}
+    if not isinstance(value, dict): return result
+    if value.get('patternClass') in ('disabled','pipe','file_absolute','file_relative'):
+        result['patternClass']=value['patternClass']
+    if type(value.get('usesPid')) is int and value['usesPid'] in (0,1): result['usesPid']=value['usesPid']
+    for key in ('processSoft','processHard','containerSoft','containerHard'):
+        v=value.get(key)
+        if v=='unlimited' or type(v) is int and 0<=v<=9007199254740991: result[key]=v
+    if value.get('candidate') in ('absent','not_regular_file','regular_file'):
+        result['candidate']=value['candidate']
+    if result['candidate']=='regular_file':
+        size,stamp=value.get('candidateBytes'),value.get('candidateMtimeNs')
+        if type(size) is int and 0<=size<=9007199254740991 and type(stamp) is int and 0<=stamp<=9223372036854775807:
+            start,end=[int(datetime.datetime.fromisoformat(window[k].replace('Z','+00:00')).timestamp()*1000000000) for k in ('since','until')]
+            result.update(candidateBytes=size,candidateMtimeNs=stamp,
+                          candidateWindowRelation='inside' if start<=stamp<end else 'before' if stamp<start else 'after')
+        else: result['candidate']='unknown'
+    return result
+
+
 def read_restart_incident(window, raw):
     """Read the fixed engine container and original host window; no mutation."""
     result = {'engineLogSigns': restart_log_signs(raw), 'sources': {},
               'absenceMeans': 'unknown; Docker events and host journals have finite retention'}
     container_id = None
     commands = {
-        'container': ['docker', 'inspect', '--format', '{"Id":{{json .Id}},"State":{{json .State}}}', 'club-arena-engine'],
+        'container': ['python3', '-c', CORE_CAPTURE_COMMAND],
         'events': ['docker', 'events', '--since', window['since'], '--until', window['until'],
                    '--filter', 'container=club-arena-engine', '--format', '{{json .}}'],
         'autoheal': ['docker', 'logs', '--since', window['since'], '--until', window['until'],
@@ -544,6 +635,7 @@ def read_restart_incident(window, raw):
                 candidate = inspected.get('Id')
                 if isinstance(candidate, str) and re.fullmatch(r'[0-9a-f]{64}', candidate):
                     container_id = candidate
+                core_capture = core_capture_metadata(inspected.get('CoreCapture'), window)
                 value = inspected.get('State', {})
                 row = {}
                 for key in ['OOMKilled', 'Running', 'Restarting']:
@@ -554,6 +646,7 @@ def read_restart_incident(window, raw):
                 for key in ['StartedAt', 'FinishedAt']:
                     if isinstance(value.get(key), str) and re.fullmatch(r'\d{4}-\d\d-\d\dT[0-9:.]+Z', value[key]):
                         row[key] = value[key]
+                row['coreCapture'] = core_capture
                 rows.append(row)
             elif source == 'events':
                 for line in data.splitlines():

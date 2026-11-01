@@ -55,6 +55,22 @@ describe('only the exact configured service can ask an original abort owner', ()
     expect(r.status).toBe(200);
     expect(r.invoke).toHaveBeenCalledWith(operationId, tournamentId);
   });
+  it('requires the explicit supported equal-share mode', async () => {
+    const accepted = await request('isolated-service-key', {
+      operationId,
+      tournamentId,
+      closureMode: 'equal_share',
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.invoke).toHaveBeenCalledWith(operationId, tournamentId, 'equal_share');
+    const refused = await request('isolated-service-key', {
+      operationId,
+      tournamentId,
+      closureMode: 'refund',
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.invoke).not.toHaveBeenCalled();
+  });
   it('reports an unknown original outcome without retrying', async () => {
     const invoke = vi.fn(async () => {
       throw Error('lost');

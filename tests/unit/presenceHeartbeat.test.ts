@@ -91,6 +91,24 @@ describe('usePresenceHeartbeat', () => {
     expect(beats()).toHaveLength(4);
     expect(reportError).toHaveBeenCalledTimes(1);
   });
+
+  it('coalesces overlapping resume triggers while a presence beat is in flight', async () => {
+    let finish!: () => void;
+    rpc.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = () => resolve({ data: null, error: null });
+      })
+    );
+    renderHook(() => usePresenceHeartbeat('u1'));
+    expect(beats()).toHaveLength(1);
+    window.dispatchEvent(new Event('pageshow'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(beats()).toHaveLength(1);
+    finish();
+    await flush();
+    window.dispatchEvent(new Event('pageshow'));
+    expect(beats()).toHaveLength(2);
+  });
 });
 
 describe('signalOffline', () => {

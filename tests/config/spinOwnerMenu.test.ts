@@ -189,6 +189,7 @@ describe('it is wired into the owner menu', () => {
 
 describe('the seed is quoted net of what is already in the wallet', () => {
   it('charges only the shortfall', () => {
+    expect(panel).toContain("seed: action === 'activate' ? Math.ceil(stillNeeded) : null");
     expect(panel).toMatch(
       /const stillNeeded = Math\.max\(required - Number\(state\?\.seeded_amount \?\? 0\), 0\)/
     );
@@ -198,9 +199,9 @@ describe('the seed is quoted net of what is already in the wallet', () => {
        whose response was lost seeded it again. Arguments, in order, with the
        key allowed to follow. */
     expect(panel).toMatch(
-      /spinActivationApi\.activate\(\s*clubId,\s*stillNeeded,\s*maxStake,\s*wallet[,)]/
+      /spinActivationApi\.activate\(\s*request\.clubId,\s*request\.seed!,\s*request\.stake!,\s*request\.wallet!,\s*request\.requestId/
     );
-    expect(panel).toMatch(/activateKeyRef\.current\.key/);
+    expect(panel).toContain('withSpinCommandIntent(');
   });
 
   it('quotes that number on the button, not the gross', () => {

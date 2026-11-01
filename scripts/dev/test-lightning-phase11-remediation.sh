@@ -727,8 +727,10 @@ BEGIN
   END IF;
   -- THE OPERATOR'S VIEW lists a finding detected before the view whose window
   -- reaches into it (time travel on detected_at).
-  UPDATE public.lightning_integrity_signal SET detected_at = now() - interval '3 days' WHERE id = (s ->> 'id')::bigint;
-  r := harness.door('service', format('SELECT public.fn_lightning_operator_cluster(%L, %L, %L)', b.game, now() - interval '3 hours', now()));
+  -- Anchor the view to the planted history too. Crossing an hour between
+  -- planting and this assertion must not age the finding out of the view.
+  UPDATE public.lightning_integrity_signal SET detected_at = b.t0 - interval '3 days' WHERE id = (s ->> 'id')::bigint;
+  r := harness.door('service', format('SELECT public.fn_lightning_operator_cluster(%L, %L, %L)', b.game, b.t0 + interval '4 hours', b.t0 + interval '7 hours'));
   IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r -> 'integrity_signals') e WHERE (e ->> 'id')::bigint = (s ->> 'id')::bigint) THEN
     RAISE EXCEPTION 'FAIL R12: the operator view does not list the extended finding: %', r -> 'integrity_signals';
   END IF;

@@ -30,6 +30,11 @@ import {
   SPIN_SEED_SOURCES,
   type SpinOwnerState,
 } from '../../services/SpinActivationService';
+import {
+  pendingSpinCommand,
+  withSpinCommandIntent,
+  type SpinCommandRequest,
+} from '../../services/SpinCommandIntent';
 import { useToast } from '../common/Toast';
 import { useUserStore } from '../../stores/useUserStore';
 import { compactChips, formatWalletChips } from '../../utils/format';
@@ -85,6 +90,8 @@ export default function SpinActivationPanel({ clubId }: Props) {
 
 function OwnedSpinActivationPanel({ clubId }: Props) {
   const toast = useToast();
+  const actorId = useUserStore((store) => store.user?.id);
+  const [pending, setPending] = useState<SpinCommandRequest | null>(null);
   const [state, setState] = useState<SpinOwnerState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -108,6 +115,9 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
     try {
       const res = await spinActivationApi.getState(clubId);
       if (!isCurrent()) return;
+      setPending(
+        actorId ? pendingSpinCommand({ actorId, clubId, ownerId: res.state.owner_id }) : null
+      );
       setState(res.state);
       setRouteCanManage(res.canManage === true);
       // Default the source wallet to the first one this owner actually has.
@@ -123,7 +133,7 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [clubId]);
+  }, [clubId, actorId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -160,88 +170,69 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
    */
   const canAct = routeCanManage === true;
 
-  /* ONE KEY PER ACTIVATION, HELD ACROSS RETRIES (2026-09-09). Activation
-     seeds the spin pool out of a real wallet; the key used to be minted
-     inside the transport on every request, so a committed activation whose
-     response was lost seeded the pool AGAIN on the next press. Keyed on what
-     is being bought (the seed, ceiling and funding wallet), so a different
-     activation gets its own key. Retired on success. */
-  const activateKeyRef = useRef<{
-    seed: number;
-    stake: number;
-    wallet: string;
-    key: string;
-  } | null>(null);
-  const deactivateKeyRef = useRef<string | null>(null);
-
-  const activate = async () => {
-    if (!canAct || operationInFlightRef.current || !mountedRef.current) return;
+  const command = async (action: 'activate' | 'deactivate') => {
+    if (!canAct || !actorId || !state || operationInFlightRef.current || !mountedRef.current)
+      return;
     operationInFlightRef.current = true;
     setBusy(true);
     setActionError(null);
+    const scope = { actorId, clubId, ownerId: state.owner_id };
     try {
-      if (
-        !activateKeyRef.current ||
-        activateKeyRef.current.seed !== stillNeeded ||
-        activateKeyRef.current.stake !== maxStake ||
-        activateKeyRef.current.wallet !== wallet
-      ) {
-        activateKeyRef.current = {
-          seed: stillNeeded,
-          stake: maxStake,
-          wallet,
-          key: crypto.randomUUID(),
-        };
+      const { request, result } = await withSpinCommandIntent(
+        scope,
+        () => ({
+          action,
+          seed: action === 'activate' ? Math.ceil(stillNeeded) : null,
+          stake: action === 'activate' ? maxStake : null,
+          wallet: action === 'activate' ? wallet : null,
+        }),
+        async (request) => {
+          if (!mountedRef.current) throw new Error('The Spin Request Is Still Pending.');
+          setPending(request);
+          const identity = { actorId: request.actorId, ownerId: request.ownerId };
+          return request.action === 'activate'
+            ? spinActivationApi.activate(
+                request.clubId,
+                request.seed!,
+                request.stake!,
+                request.wallet!,
+                request.requestId,
+                identity
+              )
+            : spinActivationApi.deactivate(request.clubId, request.requestId, identity);
+        }
+      );
+      if (!mountedRef.current) return;
+      if (request.action === 'activate') {
+        toast.success(`Spins Activated With A Seed Of ${chips(request.seed)} Chips`);
+      } else {
+        const returned = Number(result.result.seed_returned ?? 0);
+        toast.success(
+          returned > 0
+            ? `Spins Deactivated. ${chipsBack(returned)} Seed Chips Returned To ${walletLabel(state.owner_kind, state.seed_source_wallet)}.`
+            : 'Spins Deactivated. The Reserve Remains Locked Until Every Live Spin Is Settled.'
+        );
       }
-      await spinActivationApi.activate(
-        clubId,
-        stillNeeded,
-        maxStake,
-        wallet,
-        activateKeyRef.current.key
-      );
-      if (!mountedRef.current) return;
-      activateKeyRef.current = null;
-      toast.success(`Spins Activated With A Seed Of ${chips(stillNeeded)} Chips`);
       await load();
     } catch (err) {
       if (!mountedRef.current) return;
-      const message = err instanceof Error ? err.message : 'Could Not Activate Spins';
+      const message = err instanceof Error ? err.message : 'Could Not Complete The Spin Request';
       setActionError(message);
       toast.error(message);
     } finally {
       operationInFlightRef.current = false;
-      if (mountedRef.current) setBusy(false);
+      if (mountedRef.current) {
+        try {
+          setPending(pendingSpinCommand(scope));
+        } catch {
+          setRouteCanManage(false);
+        }
+        setBusy(false);
+      }
     }
   };
-
-  const deactivate = async () => {
-    if (!canAct || operationInFlightRef.current || !mountedRef.current) return;
-    operationInFlightRef.current = true;
-    setBusy(true);
-    setActionError(null);
-    try {
-      if (!deactivateKeyRef.current) deactivateKeyRef.current = crypto.randomUUID();
-      const response = await spinActivationApi.deactivate(clubId, deactivateKeyRef.current);
-      if (!mountedRef.current) return;
-      deactivateKeyRef.current = null;
-      const returned = Number(response.result.seed_returned ?? 0);
-      toast.success(
-        returned > 0
-          ? `Spins Deactivated. ${chipsBack(returned)} Seed Chips Returned To ${walletLabel(state?.owner_kind, state?.seed_source_wallet)}.`
-          : 'Spins Deactivated. The Reserve Remains Locked Until Every Live Spin Is Settled.'
-      );
-      await load();
-    } catch (err) {
-      if (!mountedRef.current) return;
-      const message = err instanceof Error ? err.message : 'Could Not Deactivate Spins';
-      setActionError(message);
-      toast.error(message);
-    } finally {
-      operationInFlightRef.current = false;
-      if (mountedRef.current) setBusy(false);
-    }
-  };
+  const activate = () => command('activate');
+  const deactivate = () => command('deactivate');
 
   if (loading) {
     return (
@@ -369,7 +360,7 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
               onClick={deactivate}
               disabled={busy}
             >
-              {busy ? 'Working' : 'Turn Spins Off'}
+              {busy ? 'Working' : pending ? 'Check Pending Request' : 'Turn Spins Off'}
             </button>
           )}
         </>
@@ -391,7 +382,7 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
                 className="sap-select"
                 value={maxStake}
                 onChange={(e) => setMaxStake(Number(e.target.value))}
-                disabled={!canAct || busy}
+                disabled={!canAct || busy || pending !== null}
               >
                 {SPIN_BOARD_STAKES.map((s) => (
                   <option key={s} value={s}>
@@ -409,7 +400,7 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
                 className="sap-select"
                 value={wallet}
                 onChange={(e) => setWallet(e.target.value)}
-                disabled={!canAct || busy}
+                disabled={!canAct || busy || pending !== null}
               >
                 {sources.map((s) => (
                   <option key={s.value} value={s.value}>
@@ -465,9 +456,11 @@ function OwnedSpinActivationPanel({ clubId }: Props) {
             >
               {busy
                 ? 'Working'
-                : stillNeeded > 0
-                  ? `Activate Spins And Seed ${chips(stillNeeded)}`
-                  : 'Activate Spins'}
+                : pending
+                  ? 'Check Pending Request'
+                  : stillNeeded > 0
+                    ? `Activate Spins And Seed ${chips(stillNeeded)}`
+                    : 'Activate Spins'}
             </button>
           )}
         </>

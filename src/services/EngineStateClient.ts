@@ -1567,6 +1567,7 @@ export class EngineStateClient {
           reason: `engine silent for ${Math.round(silentFor / 1000)}s, snapshot pending ${Math.round(snapshotWait / 1000)}s (${this.unansweredResyncs} unanswered transport resyncs, ${this.unansweredSnapshotResyncs} unanswered snapshot resyncs) - forcing reconnect`,
         });
         beacon('stale');
+        const silenceStartedAt = this.lastInboundAt;
         this.lastInboundAt = Date.now(); // don't re-fire while the close lands
         this.unansweredResyncs = 0;
         this.unansweredSnapshotResyncs = 0;
@@ -1580,7 +1581,11 @@ export class EngineStateClient {
         const dead = this.ws;
         this.ws = null;
         try {
-          dead?.close(4001, 'client staleness watchdog');
+          if (dead instanceof MuxTableSocket) {
+            dead.recoverAfterUnansweredProbe(silenceStartedAt);
+          } else {
+            dead?.close(4001, 'client staleness watchdog');
+          }
         } catch {
           /* ignore */
         }

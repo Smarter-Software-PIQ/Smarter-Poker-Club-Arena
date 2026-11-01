@@ -543,7 +543,11 @@ export default function ClubMembersPage() {
           ) {
             pendingPositionRef.current = position;
           }
-          if (workspace.filter === 'all' && workspace.sort === 'hierarchy' && !workspace.search) {
+          if (
+            workspace.filter === 'all' &&
+            (workspace.sort === 'newest' || workspace.sort === 'hierarchy') &&
+            !workspace.search
+          ) {
             const cached = readRosterCache(user.id, id);
             if (cached) {
               membersRef.current = cached.rows;
@@ -785,7 +789,7 @@ export default function ClubMembersPage() {
         user?.id &&
         !debouncedSearch &&
         filter === 'all' &&
-        sortKey === 'hierarchy'
+        (sortKey === 'newest' || sortKey === 'hierarchy')
       ) {
         writeRosterCache(user.id, resolvedClubId, membersRef.current, summaryResult.value);
       }
