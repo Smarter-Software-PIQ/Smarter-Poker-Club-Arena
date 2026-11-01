@@ -221,7 +221,7 @@ describe('the release enters the break with time to finish', () => {
       checkpointShell.indexOf('INSTANCE="$(checkpoint_entry_read curl'),
       checkpointShell.indexOf('CHECKPOINT_INTENT="$(checkpoint_entry_read python3')
     );
-    expect(probe).toContain('reserve=245000+remaining_entry');
+    expect(probe).toContain('reserve=int(sys.argv[5])+remaining_entry');
     expect(245_000 + 40_000).toBe(ENTRY_MS);
     expect(probe).toContain('m.get("remainingMs",0)>=reserve');
     // No measured boot term is added to the threshold: the boot is inside
@@ -372,6 +372,8 @@ checkpoint_entry_read() { "$@"; }
 curl() { printf '%s' "$PROBE_HEALTH"; }
 CONTROL_DIR=/immutable-reviewed-control
 LEGACY_SHA=${PREDECESSOR}
+CHECKPOINT_ALLOCATION_MS=40000
+CHECKPOINT_POST_RESERVE_MS=245000
 REQUEST_ROOT="$PROBE_ROOT"
 RUN_ID=35615604946-1
 date() { if [ "$1" = +%s%3N ]; then "$CHECKPOINT_TEST_NODE" -e 'console.log(Date.now())'; else command date "$@"; fi; }
