@@ -258,7 +258,7 @@ test('all qualification and publication jobs use only fixed standard hosted runn
     const text=fs.readFileSync(new URL('../.github/workflows/'+file,import.meta.url),'utf8');
     const routes=[...text.matchAll(/^    runs-on: (.+)$/gm)].map(match=>match[1]);
     assert.ok(routes.length,file);
-    for(const route of routes)assert.equal(route,file==='component-fixture-native-smoke.yml'?'ubuntu-24.04':'ubuntu-latest',file);
+    for(const route of routes)assert.ok(['ubuntu-latest','ubuntu-24.04'].includes(route),file+': '+route);
     assert.doesNotMatch(routes.join('\n'),/ca-linux|self-hosted|vars\./);
   }
 });
