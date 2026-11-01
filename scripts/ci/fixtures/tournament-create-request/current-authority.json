@@ -1,0 +1,1005 @@
+{
+  "functions": [
+    {
+      "signature": "fn_create_tournament(uuid,jsonb)",
+      "definition_md5": "d3585069bf906c99bdb3ae795ac4304d",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_create_tournament(p_club_id uuid, p_config jsonb)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'extensions'\nAS $function$\nDECLARE\n  v_uid uuid := auth.uid();\n  v_res jsonb;\n  v_pct smallint;\n  v_id  uuid;\n  v_saved_pct smallint;\n  v_mystery jsonb;\n  v_persisted jsonb;\n  v_refusal text;\nBEGIN\n  IF v_uid IS NULL THEN\n    RETURN jsonb_build_object('success',false,'error','not_authenticated');\n  END IF;\n  IF NOT public.fn_can_create_games(p_club_id,v_uid) THEN\n    RETURN jsonb_build_object('success',false,'error','not_authorised');\n  END IF;\n\n  -- The refusals the creation forms make, for every caller of this RPC\n  -- (20260924033701). NULL means the engine can run this configuration.\n  v_refusal := public.fn_tournament_config_refusal(p_config,'create');\n  IF v_refusal IS NOT NULL THEN\n    RETURN jsonb_build_object('success',false,'error',v_refusal);\n  END IF;\n\n  -- Only new authored MTTs are constrained here. Stored/funded ladders and\n  -- the scheduled spawner do not pass this request boundary.\n  IF COALESCE(p_config->>'type','') NOT IN ('sng','spin') AND EXISTS (\n    SELECT 1 FROM jsonb_array_elements(CASE\n      WHEN jsonb_typeof(p_config->'blindStructure')='array' THEN p_config->'blindStructure'\n      ELSE '[]'::jsonb END) AS level_row\n    WHERE level_row->'isBreak'='true'::jsonb\n  ) THEN\n    RETURN jsonb_build_object('success',false,'error','custom_level_breaks_not_supported');\n  END IF;\n\n  -- Preserve the existing 10% fallback for absent or invalid input. Only\n  -- input decoding is recoverable: a failed contract write must roll back\n  -- the delegated create in the same database transaction.\n  BEGIN\n    v_pct := CASE WHEN (p_config->>'payoutPercent')::int IN (10,15,20)\n                  THEN (p_config->>'payoutPercent')::smallint ELSE 10 END;\n  EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN\n    v_pct := 10;\n  END;\n\n  IF p_config->>'type'='mystery_bounty' THEN\n    v_mystery:=public.fn_mystery_bounty_creation_document(p_config);\n  END IF;\n\n  -- ca-commerce-admission: creating a NEW tournament is a prospective owner\n  -- action (R2 4.3, D22, D52, D53). Shadow records and proceeds; enforced\n  -- refuses here, before the event is written.\n  DECLARE\n    v_ca_admission jsonb := public.fn_ca_commerce_admit('club', p_club_id, 'create_tournament', 'fn_create_tournament', NULL);\n  BEGIN\n    IF NOT COALESCE((v_ca_admission->>'allowed')::boolean, true) THEN\n      RETURN jsonb_build_object('success', false, 'error', 'operating_access_required',\n        'message', v_ca_admission->>'message', 'reason', v_ca_admission->>'reason');\n    END IF;\n  END;\n  v_res := public.fn_create_tournament_governed_legacy(p_club_id,p_config);\n  IF v_res->'success' = 'false'::jsonb THEN\n    RETURN v_res;\n  END IF;\n  IF v_res->'success' IS DISTINCT FROM 'true'::jsonb THEN\n    RAISE EXCEPTION 'Tournament creation returned an unconfirmed receipt';\n  END IF;\n\n  -- The governed creator returns tournament_id. A missing, malformed or\n  -- cross-club receipt cannot be accepted as a successful creation.\n  v_id := NULLIF(v_res->>'tournament_id','')::uuid;\n  IF v_id IS NULL THEN\n    RAISE EXCEPTION 'Tournament creation returned no tournament_id';\n  END IF;\n  UPDATE public.tournaments SET payout_percent = v_pct,\n         payout_depth_percent = public.fn_ca_requested_payout_depth(p_config->>'payoutPercent')\n   WHERE id = v_id AND club_id = p_club_id\n   RETURNING payout_percent INTO v_saved_pct;\n  IF NOT FOUND THEN\n    RAISE EXCEPTION 'Tournament creation receipt does not identify its club event';\n  END IF;\n\n  IF v_saved_pct IS DISTINCT FROM v_pct THEN\n    RAISE EXCEPTION 'Tournament payout depth was not persisted';\n  END IF;\n\n  IF v_mystery IS NOT NULL THEN\n    UPDATE public.tournaments\n       SET mystery_bounty_profile=v_mystery->>'mystery_bounty_profile',\n           mystery_bounty_activation=v_mystery->>'mystery_bounty_activation',\n           mystery_bounty_activation_value=(v_mystery->>'mystery_bounty_activation_value')::numeric,\n           mystery_bounty_pool_percent=(v_mystery->>'mystery_bounty_pool_percent')::numeric,\n           mystery_bounty_regular_pool_percent=(v_mystery->>'mystery_bounty_regular_pool_percent')::numeric,\n           mystery_bounty_top_percent=(v_mystery->>'mystery_bounty_top_percent')::numeric\n     WHERE id=v_id AND club_id=p_club_id AND is_mystery_bounty;\n    IF NOT FOUND THEN RAISE EXCEPTION 'Mystery creation receipt does not identify its club event'; END IF;\n    -- Read after all triggers, rather than trusting an UPDATE's pre-AFTER image.\n    SELECT jsonb_build_object('mystery_bounty_profile',t.mystery_bounty_profile,\n       'mystery_bounty_activation',t.mystery_bounty_activation,\n       'mystery_bounty_activation_value',t.mystery_bounty_activation_value,\n       'mystery_bounty_pool_percent',t.mystery_bounty_pool_percent,\n       'mystery_bounty_regular_pool_percent',t.mystery_bounty_regular_pool_percent,\n       'mystery_bounty_top_percent',t.mystery_bounty_top_percent)\n      INTO v_persisted FROM public.tournaments t WHERE t.id=v_id AND t.club_id=p_club_id AND t.is_mystery_bounty;\n    IF v_persisted IS DISTINCT FROM v_mystery THEN\n      RAISE EXCEPTION 'Mystery bounty creation terms were not persisted';\n    END IF;\n    v_res:=v_res||jsonb_build_object('mystery_config',v_persisted);\n  END IF;\n\n  -- ca-commerce-admission: the acceptance record names the admission answer\n  -- this event was created under (CAPABILITY-CONTRACT.md 4.4). Never raises.\n  PERFORM public.fn_ca_commerce_record_event_basis('tournament', v_id, 'club', p_club_id, 'create_tournament');\n\n  RETURN v_res;\nEND $function$\n",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "signature": "fn_create_tournament_governed_legacy(uuid,jsonb)",
+      "definition_md5": "3d40ead690de9769287475c206341668",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_create_tournament_governed_legacy(p_club_id uuid, p_config jsonb)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nDECLARE\n  v_uid          uuid := auth.uid();\n  v_id           uuid;\n  v_total        numeric;\n  v_buy_in       numeric;\n  v_fee          numeric;\n  v_max_players  int;\n  v_min_players  int;\n  v_type         text;\n  v_variant      text;\n  v_start        timestamptz;\n  v_payouts      jsonb;\n  v_blinds       jsonb;\n  v_pct_total    numeric;\n  v_is_bounty    boolean;\n  v_bounty       numeric;\n  v_union_id     uuid;\n  v_is_private   boolean;\n  v_action_time    int;\n  v_table_size     int;\n  v_addon_break    int;\n  v_early_chips    int;\n  v_restart_every  int;\n  v_sync_breaks    boolean;\n  v_max_rebuys     int;\n  v_max_reentries  int;\n  v_is_multi_day   boolean;\n  v_total_days     int;\n  v_mb_min_mult    numeric;\n  v_mb_max_mult    numeric;\n  v_mb_min_money   numeric := 0;\n  v_mb_max_money   numeric := 0;\n  v_sat_target     uuid;\n  v_sat_seats      int;\n  v_unlimited boolean;\nBEGIN\n  IF v_uid IS NULL THEN\n    RETURN jsonb_build_object('success', false, 'error', 'not_authenticated');\n  END IF;\n\n  v_is_private := COALESCE((p_config->>'isPrivate')::boolean, false);\n  IF v_is_private THEN\n    IF NOT (is_club_admin(p_club_id, v_uid) OR public.fn_can_create_games(p_club_id, v_uid)) THEN\n      RETURN jsonb_build_object('success', false, 'error', 'not_authorised');\n    END IF;\n  ELSIF NOT public.fn_can_create_games(p_club_id, v_uid) THEN\n    RETURN jsonb_build_object('success', false, 'error', 'not_authorised');\n  END IF;\n\n  -- Keep the database launch boundary aligned with the tournament catalogue.\n  -- Authentication and club authority above remain the existing first gates.\n  IF p_config IS NOT NULL AND jsonb_typeof(p_config) <> 'object' THEN\n    RETURN jsonb_build_object('success', false, 'error', 'invalid_configuration');\n  END IF;\n  p_config := jsonb_set(COALESCE(p_config, '{}'::jsonb), '{gameVariant}',\n    to_jsonb(upper(btrim(COALESCE(p_config->>'gameVariant', 'NLH')))), true);\n  IF p_config->>'gameVariant' NOT IN ('NLH','PLO4','PLO5','PLO6','PLO8','SHORT_DECK','FLH','FLO8') THEN\n    RETURN jsonb_build_object('success', false, 'error', 'unsupported_tournament_variant');\n  END IF;\n\n  IF lower(COALESCE(p_config->>'type','mtt'))='spin'\n     AND p_config->>'gameVariant' NOT IN ('NLH','PLO4','PLO5','PLO6') THEN\n    RETURN jsonb_build_object('success', false, 'error', 'unsupported_spin_variant');\n  END IF;\n\n  v_unlimited:=public.fn_ca_new_tournament_is_unlimited(\n    jsonb_build_object('tournament_type',CASE WHEN p_config->>'type'='sng' THEN 'SNG'\n      WHEN p_config->>'type'='spin' THEN 'SPIN' ELSE 'MTT' END,\n      'satellite_target_id',NULLIF(p_config->>'satelliteTargetId','')));\n  IF v_unlimited AND NULLIF(p_config->>'satelliteTargetId','') IS NOT NULL\n     AND COALESCE(p_config->>'type','mtt') IN ('sng','spin') THEN\n    RETURN jsonb_build_object('success',false,'error','satellite_requires_scheduled_mtt_config');\n  END IF;\n  v_total := COALESCE((p_config->>'buyIn')::numeric, 0);\n  IF v_total < 0 THEN\n    RETURN jsonb_build_object('success', false, 'error', 'buy_in_must_not_be_negative');\n  END IF;\n  IF v_total <> round(v_total) THEN\n    RETURN jsonb_build_object('success', false, 'error', 'buy_in_must_be_whole');\n  END IF;\n\n  v_fee    := LEAST(v_total, GREATEST(0, trunc(v_total * (CASE WHEN NOT v_unlimited AND COALESCE((p_config->>'maxPlayers')::int, 0) BETWEEN 1 AND 2 THEN 0.05 ELSE 0.1 END) * 100 + 0.000001) / 100));\n  v_buy_in := v_total - v_fee;\n\n  v_max_players := CASE WHEN v_unlimited THEN NULL ELSE COALESCE((p_config->>'maxPlayers')::int, 0) END;\n  IF NOT v_unlimited AND v_max_players <= 0 THEN\n    RETURN jsonb_build_object('success', false, 'error', 'max_players_must_be_positive');\n  END IF;\n  v_min_players := GREATEST(COALESCE((p_config->>'minPlayers')::int, 3),CASE WHEN v_unlimited THEN 3 ELSE 2 END);\n  IF NOT v_unlimited AND v_min_players > v_max_players THEN\n    v_min_players := v_max_players;\n  END IF;\n\n  v_type := COALESCE(p_config->>'type', 'mtt');\n  v_variant := CASE v_type\n                 WHEN 'sng' THEN 'sng'\n                 WHEN 'spin' THEN 'spin'\n                 WHEN 'bounty' THEN 'bounty'\n                 WHEN 'progressive_bounty' THEN 'progressive_bounty'\n                 WHEN 'mystery_bounty' THEN 'mystery_bounty'\n                 WHEN 'satellite' THEN 'satellite'\n                 ELSE 'freezeout'\n               END;\n\n  IF v_type = 'spin' THEN\n    v_fee    := 0;\n    v_buy_in := v_total;\n  END IF;\n\n  v_blinds  := COALESCE(p_config->'blindStructure', '[]'::jsonb);\n  v_payouts := COALESCE(p_config->'payoutStructure', '[]'::jsonb);\n\n  IF jsonb_array_length(v_blinds) = 0 THEN\n    RETURN jsonb_build_object('success', false, 'error', 'blind_structure_required');\n  END IF;\n  IF jsonb_array_length(v_payouts) = 0 THEN\n    RETURN jsonb_build_object('success', false, 'error', 'payout_structure_required');\n  END IF;\n\n  SELECT COALESCE(SUM((e->>'percentage')::numeric), 0) INTO v_pct_total\n    FROM jsonb_array_elements(v_payouts) e;\n  IF abs(v_pct_total - 100) > 1 THEN\n    RETURN jsonb_build_object('success', false, 'error', 'payouts_must_total_100',\n                              'detail', v_pct_total);\n  END IF;\n\n  IF NOT v_unlimited AND jsonb_array_length(v_payouts) > v_max_players THEN\n    RETURN jsonb_build_object('success', false, 'error', 'more_paid_places_than_players');\n  END IF;\n\n  v_start := COALESCE((p_config->>'startTime')::timestamptz, now() + interval '1 minute');\n\n  v_is_bounty := v_type IN ('bounty', 'progressive_bounty', 'mystery_bounty');\n  v_bounty := COALESCE((p_config->>'bountyAmount')::numeric, 0);\n  IF v_is_bounty THEN\n    IF v_bounty <= 0 THEN\n      RETURN jsonb_build_object('success', false, 'error', 'bounty_amount_required');\n    END IF;\n    IF v_bounty <> round(v_bounty) THEN\n      RETURN jsonb_build_object('success', false, 'error', 'bounty_must_be_whole');\n    END IF;\n    IF v_buy_in - v_bounty < 0 THEN\n      RETURN jsonb_build_object('success', false, 'error', 'bounty_exceeds_buy_in');\n    END IF;\n  END IF;\n\n  v_action_time := LEAST(60, GREATEST(5,  COALESCE((p_config->>'actionTimeSeconds')::int, 15)));\n  v_table_size  := LEAST(10, GREATEST(2,  COALESCE((p_config->>'tableSize')::int, 9)));\n  v_addon_break := LEAST(10, GREATEST(1,  COALESCE((p_config->>'addonBreakMinutes')::int, 1)));\n  v_sync_breaks := COALESCE((p_config->>'synchronizedBreaks')::boolean, true);\n\n  v_early_chips := COALESCE((p_config->>'earlyBirdChips')::int, 0);\n  IF v_early_chips < 0 THEN\n    RETURN jsonb_build_object('success', false, 'error', 'early_bird_chips_must_not_be_negative');\n  END IF;\n\n  v_restart_every := NULLIF(p_config->>'restartEveryMinutes', '')::int;\n  -- 10080 = one week (Dan 2026-09-03: MTTs repeat weekly, as a Create Event\n  -- checkbox). Was 1440; a day was never long enough for a weekly event.\n  IF v_restart_every IS NOT NULL AND (v_restart_every < 5 OR v_restart_every > 10080) THEN\n    RETURN jsonb_build_object('success', false, 'error', 'restart_every_minutes_out_of_range');\n  END IF;\n\n  v_max_rebuys    := NULLIF(p_config->>'maxRebuys', '')::int;\n  v_max_reentries := NULLIF(p_config->>'maxReentries', '')::int;\n\n  v_is_multi_day := COALESCE((p_config->>'isMultiDay')::boolean, false);\n  v_total_days   := NULLIF(p_config->>'totalDays', '')::int;\n  IF v_is_multi_day THEN\n    IF v_total_days IS NULL OR v_total_days < 2 OR v_total_days > 7 THEN\n      RETURN jsonb_build_object('success', false, 'error', 'total_days_out_of_range');\n    END IF;\n  ELSE\n    v_total_days := 1;\n  END IF;\n\n  v_mb_min_mult := NULLIF(p_config->>'mysteryBountyMin', '')::numeric;\n  v_mb_max_mult := NULLIF(p_config->>'mysteryBountyMax', '')::numeric;\n  IF (v_mb_min_mult IS NOT NULL OR v_mb_max_mult IS NOT NULL)\n     AND v_type <> 'mystery_bounty' THEN\n    RETURN jsonb_build_object('success', false, 'error', 'mystery_range_requires_mystery_bounty');\n  END IF;\n  IF v_type = 'mystery_bounty' THEN\n    v_mb_min_mult := COALESCE(v_mb_min_mult, 0.5);\n    v_mb_max_mult := COALESCE(v_mb_max_mult, 13);\n    IF v_mb_min_mult <= 0 OR v_mb_max_mult < v_mb_min_mult THEN\n      RETURN jsonb_build_object('success', false, 'error', 'mystery_bounty_range_invalid');\n    END IF;\n    v_mb_min_money := round(v_bounty * v_mb_min_mult, 2);\n    v_mb_max_money := round(v_bounty * v_mb_max_mult, 2);\n  END IF;\n\n  v_sat_target := NULLIF(p_config->>'satelliteTargetId', '')::uuid;\n  v_sat_seats  := NULLIF(p_config->>'satelliteSeats', '')::int;\n  IF v_sat_seats IS NOT NULL THEN\n    IF v_sat_seats < 1 THEN\n      RETURN jsonb_build_object('success', false, 'error', 'satellite_seats_invalid');\n    END IF;\n    IF v_sat_target IS NULL THEN\n      RETURN jsonb_build_object('success', false, 'error', 'satellite_seats_requires_target');\n    END IF;\n  END IF;\n\n  SELECT u.id INTO v_union_id FROM unions u\n   WHERE u.id = (SELECT COALESCE(c.union_id,\n                        (SELECT uc.union_id FROM union_clubs uc WHERE uc.club_id = c.id LIMIT 1))\n                   FROM clubs c WHERE c.id = p_club_id);\n\n  IF (COALESCE((p_config->>'freeBuy')::boolean,false) OR COALESCE((p_config->>'addOnFromStart')::boolean,false))\n     AND NOT COALESCE(public.fn_is_free_buy_event((v_buy_in),(v_fee),(CASE WHEN v_type = 'sng' THEN 'SNG' WHEN v_type = 'spin' THEN 'SPIN' ELSE 'MTT' END),(v_variant)),false) THEN\n    RAISE EXCEPTION 'Free Buy creation options require an eligible free-entry tournament' USING ERRCODE='22023';\n  END IF;\n  INSERT INTO tournaments (\n    club_id, name, game_type, variant, tournament_type,\n    buy_in_amount, buy_in_fee, starting_chips,\n    max_players, min_players, current_players, status,\n    blind_structure, payout_structure, guaranteed_prize,\n    late_reg_levels, late_reg_mins, rebuy_levels,\n    start_time,\n    is_rebuy, is_reentry, rebuy_cost, rebuy_chips,\n    add_on_available, addon_cost, addon_chips, addon_levels,\n    is_bounty, bounty_amount, is_pko, is_mystery_bounty,\n    spin_type, satellite_target_id, is_xmtt, union_id, is_private,\n    short_description, is_vip_only, ban_chat, all_in_or_fold, label_as_new,\n    hide_club_name, action_time_seconds, table_size, accelerated_mtt,\n    addon_break_minutes, big_blind_ante, authorized_to_register,\n    early_bird_enabled, early_bird_chips, bubble_protection,\n    final_table_deal_enabled, restart_every_minutes, synchronized_breaks,\n    max_rebuys, max_reentries, is_multi_day, total_days,\n    mystery_bounty_min, mystery_bounty_max, is_pinned, satellite_seats\n  ,\n    free_buy, addon_from_start\n  ) VALUES (\n    p_club_id,\n    COALESCE(NULLIF(trim(p_config->>'name'), ''), 'Tournament'),\n    COALESCE(p_config->>'gameVariant', 'NLH'),\n    v_variant,\n    CASE WHEN v_type = 'sng' THEN 'SNG' WHEN v_type = 'spin' THEN 'SPIN' ELSE 'MTT' END,\n    v_buy_in, v_fee,\n    COALESCE((p_config->>'startingStack')::int, 10000),\n    v_max_players, v_min_players, 0, 'REGISTERING',\n    v_blinds::text, v_payouts::text,\n    GREATEST(0, round(COALESCE((p_config->>'guaranteedPrize')::numeric, 0))),\n    COALESCE((p_config->>'lateRegistrationLevels')::int, 0),\n    COALESCE((p_config->>'lateRegistrationMinutes')::int, 0),\n    COALESCE((p_config->>'lateRegistrationLevels')::int, 0),\n    v_start,\n    COALESCE((p_config->>'isRebuy')::boolean, false),\n    COALESCE((p_config->>'isReentry')::boolean, false),\n    GREATEST(0, round(COALESCE((p_config->>'rebuyCost')::numeric, 0))),\n    COALESCE((p_config->>'rebuyChips')::int, 0),\n    COALESCE((p_config->>'addOnAvailable')::boolean, false),\n    GREATEST(0, round(COALESCE((p_config->>'addOnCost')::numeric, 0))),\n    COALESCE((p_config->>'addOnChips')::int, 0),\n    COALESCE((p_config->>'addOnLevels')::int, 1),\n    v_is_bounty, v_bounty,\n    v_type = 'progressive_bounty',\n    v_type = 'mystery_bounty',\n    CASE WHEN v_type = 'spin' THEN COALESCE(p_config->>'spinType', 'standard') ELSE NULL END,\n    v_sat_target,\n    COALESCE((p_config->>'isXmtt')::boolean, false),\n    CASE WHEN v_is_private THEN NULL ELSE v_union_id END,\n    v_is_private,\n    NULLIF(trim(COALESCE(p_config->>'shortDescription', '')), ''),\n    COALESCE((p_config->>'isVipOnly')::boolean, false),\n    -- TOURNAMENT CHAT IS OFF BY DEFAULT (2026-10-11): unless the host says,\n    -- only a Spin or a Sit N Go starts with chat on.\n    COALESCE((p_config->>'banChat')::boolean, v_type NOT IN ('sng', 'spin')),\n    COALESCE((p_config->>'allInOrFold')::boolean, false),\n    COALESCE((p_config->>'labelAsNew')::boolean, false),\n    COALESCE((p_config->>'hideClubName')::boolean, false),\n    v_action_time, v_table_size,\n    COALESCE((p_config->>'acceleratedMtt')::boolean, false),\n    v_addon_break,\n    COALESCE((p_config->>'bigBlindAnte')::boolean, false),\n    COALESCE((p_config->>'authorizedToRegister')::boolean, false),\n    COALESCE((p_config->>'earlyBirdEnabled')::boolean, false),\n    v_early_chips,\n    COALESCE((p_config->>'bubbleProtection')::boolean, false),\n    COALESCE((p_config->>'finalTableDealEnabled')::boolean, false),\n    v_restart_every, v_sync_breaks,\n    v_max_rebuys, v_max_reentries,\n    v_is_multi_day, v_total_days,\n    v_mb_min_money, v_mb_max_money,\n    COALESCE((p_config->>'isFeatured')::boolean, false),\n    v_sat_seats\n  ,\n    COALESCE((p_config->>'freeBuy')::boolean, false),\n    COALESCE((p_config->>'addOnFromStart')::boolean, false)\n  )\n  RETURNING id INTO v_id;\n\n  RETURN jsonb_build_object('success', true, 'tournament_id', v_id,\n                            'buy_in', v_total, 'buy_in_fee', v_fee,\n                            'status', 'REGISTERING');\nEND;\n$function$\n",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}"
+    }
+  ],
+  "relations": [
+    {
+      "relname": "tournaments",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "game_type",
+          "type": "text",
+          "default": "'NLH'::text",
+          "notnull": true
+        },
+        {
+          "name": "variant",
+          "type": "text",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "buy_in_amount",
+          "type": "numeric(15,2)",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "buy_in_fee",
+          "type": "numeric(15,2)",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "guaranteed_prize",
+          "type": "numeric(15,2)",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "start_time",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "default": "'ANNOUNCED'::text",
+          "notnull": true
+        },
+        {
+          "name": "current_players",
+          "type": "integer",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "max_players",
+          "type": "integer",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "late_reg_mins",
+          "type": "integer",
+          "default": "60",
+          "notnull": false
+        },
+        {
+          "name": "starting_chips",
+          "type": "integer",
+          "default": "10000",
+          "notnull": false
+        },
+        {
+          "name": "blind_structure",
+          "type": "text",
+          "default": "'Standard'::text",
+          "notnull": false
+        },
+        {
+          "name": "payout_structure",
+          "type": "text",
+          "default": "'Standard'::text",
+          "notnull": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false
+        },
+        {
+          "name": "club_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "current_level",
+          "type": "integer",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "prize_pool",
+          "type": "numeric(18,2)",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "is_rebuy",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "add_on_available",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "rebuy_cost",
+          "type": "numeric(15,2)",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "rebuy_chips",
+          "type": "integer",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "rebuy_levels",
+          "type": "integer",
+          "default": "4",
+          "notnull": false
+        },
+        {
+          "name": "addon_cost",
+          "type": "numeric(15,2)",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "addon_chips",
+          "type": "integer",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "min_players",
+          "type": "integer",
+          "default": "3",
+          "notnull": false
+        },
+        {
+          "name": "tournament_type",
+          "type": "text",
+          "default": "'MTT'::text",
+          "notnull": false
+        },
+        {
+          "name": "is_bounty",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "bounty_amount",
+          "type": "numeric(15,2)",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "is_pko",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "is_mystery_bounty",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "mystery_bounty_min",
+          "type": "numeric(15,2)",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "mystery_bounty_max",
+          "type": "numeric(15,2)",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "is_xmtt",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "union_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "is_multi_day",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "parent_tournament_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "flight_number",
+          "type": "integer",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "day_number",
+          "type": "integer",
+          "default": "1",
+          "notnull": false
+        },
+        {
+          "name": "total_days",
+          "type": "integer",
+          "default": "1",
+          "notnull": false
+        },
+        {
+          "name": "flight_end_chips_snapshot",
+          "type": "jsonb",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "survivors_advance_to",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "is_pinned",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "spin_multiplier",
+          "type": "numeric",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "is_premium_spin",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "prize_pool_finalized",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "is_turbo",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "blind_speed",
+          "type": "text",
+          "default": "'standard'::text",
+          "notnull": false
+        },
+        {
+          "name": "spin_type",
+          "type": "text",
+          "default": "'standard'::text",
+          "notnull": false
+        },
+        {
+          "name": "total_rake",
+          "type": "numeric(18,2)",
+          "default": "0",
+          "notnull": true
+        },
+        {
+          "name": "late_reg_levels",
+          "type": "integer",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "addon_levels",
+          "type": "integer",
+          "default": "1",
+          "notnull": false
+        },
+        {
+          "name": "is_reentry",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "satellite_target",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "max_rebuys",
+          "type": "integer",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "max_reentries",
+          "type": "integer",
+          "default": "0",
+          "notnull": false
+        },
+        {
+          "name": "level_started_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "addon_period_triggered",
+          "type": "boolean",
+          "default": "false",
+          "notnull": false
+        },
+        {
+          "name": "satellite_target_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "final_table_triggered",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "bounty_pool",
+          "type": "numeric(18,2)",
+          "default": "0",
+          "notnull": true
+        },
+        {
+          "name": "bounty_pool_paid",
+          "type": "numeric",
+          "default": "0",
+          "notnull": true
+        },
+        {
+          "name": "on_break",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "break_started_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "break_ends_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "is_private",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "spin_locked_tiers",
+          "type": "jsonb",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "short_description",
+          "type": "text",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "is_vip_only",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "ban_chat",
+          "type": "boolean",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "all_in_or_fold",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "label_as_new",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "hide_club_name",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "action_time_seconds",
+          "type": "integer",
+          "default": "15",
+          "notnull": true
+        },
+        {
+          "name": "table_size",
+          "type": "integer",
+          "default": "9",
+          "notnull": true
+        },
+        {
+          "name": "accelerated_mtt",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "addon_break_minutes",
+          "type": "integer",
+          "default": "1",
+          "notnull": true
+        },
+        {
+          "name": "big_blind_ante",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "authorized_to_register",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "early_bird_enabled",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "early_bird_chips",
+          "type": "integer",
+          "default": "0",
+          "notnull": true
+        },
+        {
+          "name": "bubble_protection",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "final_table_deal_enabled",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "restart_every_minutes",
+          "type": "integer",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "synchronized_breaks",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true
+        },
+        {
+          "name": "satellite_seats",
+          "type": "integer",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "schedule_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "mystery_bounty_activation",
+          "type": "text",
+          "default": "'at_the_money'::text",
+          "notnull": true
+        },
+        {
+          "name": "mystery_bounty_activation_value",
+          "type": "numeric",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "mystery_bounty_profile",
+          "type": "text",
+          "default": "'classic'::text",
+          "notnull": true
+        },
+        {
+          "name": "mystery_bounty_top_percent",
+          "type": "numeric",
+          "default": "20",
+          "notnull": true
+        },
+        {
+          "name": "mystery_bounty_regular_pool_percent",
+          "type": "numeric",
+          "default": "50",
+          "notnull": true
+        },
+        {
+          "name": "mystery_bounty_pool_percent",
+          "type": "numeric",
+          "default": "50",
+          "notnull": true
+        },
+        {
+          "name": "mystery_bounty_stage",
+          "type": "text",
+          "default": "'pending'::text",
+          "notnull": true
+        },
+        {
+          "name": "mystery_bounty_activated_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "mystery_bounty_activated_players",
+          "type": "integer",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "mystery_bounty_pool_cents",
+          "type": "bigint",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "allow_rabbit_hunt",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true
+        },
+        {
+          "name": "spin_reveal_lag_ms",
+          "type": "integer",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "addon_period_started_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "addon_period_ends_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "payout_percent",
+          "type": "smallint",
+          "default": "10",
+          "notnull": true
+        },
+        {
+          "name": "free_buy",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "addon_from_start",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "spin_reveal_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "mystery_bounty_activation_generation",
+          "type": "bigint",
+          "default": "0",
+          "notnull": true
+        },
+        {
+          "name": "entry_contract_locked",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true
+        },
+        {
+          "name": "blind_level_state",
+          "type": "jsonb",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "payout_math_version",
+          "type": "smallint",
+          "default": "1",
+          "notnull": true
+        },
+        {
+          "name": "payout_unit_cents",
+          "type": "integer",
+          "default": "1",
+          "notnull": true
+        },
+        {
+          "name": "format_contract",
+          "type": "text",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "restart_source_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "payout_depth_percent",
+          "type": "numeric(5,2)",
+          "default": null,
+          "notnull": false
+        }
+      ],
+      "insert_triggers": [
+        {
+          "name": "a00_tournaments_chat_default",
+          "signature": "fn_ca_tournament_chat_default()",
+          "definition": "CREATE TRIGGER a00_tournaments_chat_default BEFORE INSERT ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_chat_default()"
+        },
+        {
+          "name": "a00_union_member_schedule_cannot_spawn",
+          "signature": "fn_ca_union_member_schedule_cannot_spawn()",
+          "definition": "CREATE TRIGGER a00_union_member_schedule_cannot_spawn BEFORE INSERT ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_union_member_schedule_cannot_spawn()"
+        },
+        {
+          "name": "a0_tournaments_dual_entry_capacity",
+          "signature": "fn_ca_normalize_new_mtt_capacity()",
+          "definition": "CREATE TRIGGER a0_tournaments_dual_entry_capacity BEFORE INSERT OR UPDATE OF max_players, tournament_type, variant, satellite_target_id, satellite_target ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_normalize_new_mtt_capacity()"
+        },
+        {
+          "name": "a1_tournaments_restart_source",
+          "signature": "fn_ca_guard_tournament_restart_source()",
+          "definition": "CREATE TRIGGER a1_tournaments_restart_source BEFORE INSERT OR DELETE OR UPDATE OF restart_source_id ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_guard_tournament_restart_source()"
+        },
+        {
+          "name": "a2_tournaments_new_satellite_target",
+          "signature": "fn_ca_guard_new_satellite_target()",
+          "definition": "CREATE TRIGGER a2_tournaments_new_satellite_target BEFORE INSERT OR UPDATE OF satellite_target_id, satellite_target, is_bounty, is_pko, is_mystery_bounty, is_premium_spin, variant, tournament_type, club_id, union_id ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_guard_new_satellite_target()"
+        },
+        {
+          "name": "a3_bounty_mtt_rebuys_until_registration_closes",
+          "signature": "fn_ca_bounty_mtt_rebuys_until_registration_closes()",
+          "definition": "CREATE TRIGGER a3_bounty_mtt_rebuys_until_registration_closes BEFORE INSERT OR UPDATE OF is_bounty, is_pko, is_mystery_bounty, tournament_type, variant, satellite_target_id, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, max_rebuys, max_reentries, late_reg_levels, buy_in_amount, buy_in_fee ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_bounty_mtt_rebuys_until_registration_closes()"
+        },
+        {
+          "name": "a4_mystery_mtt_terms",
+          "signature": "fn_ca_mystery_mtt_terms()",
+          "definition": "CREATE TRIGGER a4_mystery_mtt_terms BEFORE INSERT OR UPDATE OF is_mystery_bounty, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_activation, mystery_bounty_activation_value ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_mystery_mtt_terms()"
+        },
+        {
+          "name": "aa_diamond_guarantee_copy",
+          "signature": "fn_ca_diamond_guarantee_copy_trigger()",
+          "definition": "CREATE TRIGGER aa_diamond_guarantee_copy BEFORE INSERT OR UPDATE OF name, description, short_description ON public.tournaments FOR EACH ROW WHEN ((new.status <> ALL (ARRAY['COMPLETED'::text, 'CANCELLED'::text, 'CANCELED'::text]))) EXECUTE FUNCTION fn_ca_diamond_guarantee_copy_trigger()"
+        },
+        {
+          "name": "aaa_ca_refuse_replica_money_write",
+          "signature": "fn_ca_refuse_replica_money_write()",
+          "definition": "CREATE TRIGGER aaa_ca_refuse_replica_money_write BEFORE INSERT OR DELETE OR UPDATE ON public.tournaments FOR EACH STATEMENT EXECUTE FUNCTION fn_ca_refuse_replica_money_write()"
+        },
+        {
+          "name": "ca_mtt_payout_depth_guard",
+          "signature": "fn_ca_mtt_payout_depth_guard()",
+          "definition": "CREATE TRIGGER ca_mtt_payout_depth_guard BEFORE INSERT OR UPDATE OF payout_depth_percent, payout_percent ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_mtt_payout_depth_guard()"
+        },
+        {
+          "name": "non_satellite_completed_requires_terminal_receipt",
+          "signature": "fn_non_satellite_completed_requires_terminal_receipt()",
+          "definition": "CREATE CONSTRAINT TRIGGER non_satellite_completed_requires_terminal_receipt AFTER INSERT OR UPDATE OF status ON public.tournaments DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_non_satellite_completed_requires_terminal_receipt()"
+        },
+        {
+          "name": "poker_arena_tournament_guard",
+          "signature": "fn_poker_guard_arena_structure()",
+          "definition": "CREATE TRIGGER poker_arena_tournament_guard BEFORE INSERT OR UPDATE ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_poker_guard_arena_structure()"
+        },
+        {
+          "name": "satellite_completed_requires_settlement_receipt",
+          "signature": "fn_satellite_completed_requires_settlement_receipt()",
+          "definition": "CREATE CONSTRAINT TRIGGER satellite_completed_requires_settlement_receipt AFTER INSERT OR UPDATE OF status ON public.tournaments DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_satellite_completed_requires_settlement_receipt()"
+        },
+        {
+          "name": "satellite_feeds_only_a_deliverable_target",
+          "signature": "fn_satellite_feeds_only_a_deliverable_target()",
+          "definition": "CREATE TRIGGER satellite_feeds_only_a_deliverable_target BEFORE INSERT OR UPDATE OF satellite_target_id, satellite_target, is_bounty, is_pko, is_mystery_bounty, is_premium_spin, variant, tournament_type ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_satellite_feeds_only_a_deliverable_target()"
+        },
+        {
+          "name": "stamp_tournament_terminal_evidence_markers",
+          "signature": "fn_stamp_tournament_terminal_evidence_markers()",
+          "definition": "CREATE TRIGGER stamp_tournament_terminal_evidence_markers AFTER INSERT OR UPDATE OF status ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_stamp_tournament_terminal_evidence_markers()"
+        },
+        {
+          "name": "tournament_prize_math_contract",
+          "signature": "fn_guard_tournament_prize_math_contract()",
+          "definition": "CREATE TRIGGER tournament_prize_math_contract BEFORE INSERT OR UPDATE OF payout_math_version, payout_unit_cents, club_id ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_guard_tournament_prize_math_contract()"
+        },
+        {
+          "name": "tournaments_creation_guard",
+          "signature": "fn_tournaments_creation_guard()",
+          "definition": "CREATE TRIGGER tournaments_creation_guard BEFORE INSERT ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_tournaments_creation_guard()"
+        },
+        {
+          "name": "tournaments_guarantee_affordable_ins",
+          "signature": "trg_tournaments_guarantee_affordable()",
+          "definition": "CREATE TRIGGER tournaments_guarantee_affordable_ins BEFORE INSERT ON public.tournaments FOR EACH ROW WHEN ((COALESCE(new.guaranteed_prize, (0)::numeric) > (0)::numeric)) EXECUTE FUNCTION trg_tournaments_guarantee_affordable()"
+        },
+        {
+          "name": "tournaments_lock_level_clock",
+          "signature": "fn_ca_tournament_lock_level_clock()",
+          "definition": "CREATE TRIGGER tournaments_lock_level_clock BEFORE INSERT OR UPDATE OF blind_structure ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_lock_level_clock()"
+        },
+        {
+          "name": "tournaments_mystery_creation_contract",
+          "signature": "fn_guard_tournament_mystery_creation_contract()",
+          "definition": "CREATE TRIGGER tournaments_mystery_creation_contract BEFORE INSERT OR UPDATE OF is_mystery_bounty, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_guard_tournament_mystery_creation_contract()"
+        },
+        {
+          "name": "tournaments_new_mtt_blind_contract",
+          "signature": "fn_guard_new_mtt_blind_contract()",
+          "definition": "CREATE TRIGGER tournaments_new_mtt_blind_contract BEFORE INSERT OR UPDATE OF blind_structure, starting_chips, tournament_type, variant, max_players ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_guard_new_mtt_blind_contract()"
+        },
+        {
+          "name": "tournaments_short_formats_never_break",
+          "signature": "fn_short_formats_never_break()",
+          "definition": "CREATE TRIGGER tournaments_short_formats_never_break BEFORE INSERT OR UPDATE OF tournament_type, variant, synchronized_breaks ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_short_formats_never_break()"
+        },
+        {
+          "name": "trg_fence_welcome_package_schedule_spawn",
+          "signature": "fn_fence_welcome_package_schedule_spawn()",
+          "definition": "CREATE TRIGGER trg_fence_welcome_package_schedule_spawn BEFORE INSERT ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_fence_welcome_package_schedule_spawn()"
+        },
+        {
+          "name": "trg_guard_retired_club_mutation",
+          "signature": "fn_guard_retired_club_mutation()",
+          "definition": "CREATE TRIGGER trg_guard_retired_club_mutation BEFORE INSERT OR DELETE OR UPDATE ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_guard_retired_club_mutation()"
+        },
+        {
+          "name": "trg_tournaments_bagged_status_door",
+          "signature": "fn_tournaments_bagged_status_door()",
+          "definition": "CREATE TRIGGER trg_tournaments_bagged_status_door BEFORE INSERT OR UPDATE OF status ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_tournaments_bagged_status_door()"
+        },
+        {
+          "name": "trg_tournaments_capture_management_contract",
+          "signature": "fn_capture_managed_game_contract()",
+          "definition": "CREATE TRIGGER trg_tournaments_capture_management_contract AFTER INSERT OR UPDATE ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_capture_managed_game_contract()"
+        },
+        {
+          "name": "trg_tournaments_emit_game_management_event",
+          "signature": "fn_emit_managed_game_row_event()",
+          "definition": "CREATE TRIGGER trg_tournaments_emit_game_management_event AFTER INSERT OR DELETE OR UPDATE ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_emit_managed_game_row_event()"
+        },
+        {
+          "name": "trg_tournaments_publish_readiness",
+          "signature": "fn_guard_tournament_publish_readiness()",
+          "definition": "CREATE TRIGGER trg_tournaments_publish_readiness AFTER INSERT OR UPDATE OF guaranteed_prize, club_id, union_id, is_private, variant, tournament_type, satellite_target_id, satellite_target, satellite_seats ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_guard_tournament_publish_readiness()"
+        },
+        {
+          "name": "trg_tournaments_record_acceptance",
+          "signature": "fn_tournament_record_acceptance()",
+          "definition": "CREATE TRIGGER trg_tournaments_record_acceptance AFTER INSERT ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_tournament_record_acceptance()"
+        },
+        {
+          "name": "trg_tournaments_refuse_unbuilt_multi_day",
+          "signature": "fn_tournaments_refuse_unbuilt_multi_day()",
+          "definition": "CREATE TRIGGER trg_tournaments_refuse_unbuilt_multi_day BEFORE INSERT OR UPDATE OF is_multi_day, total_days, day_number, parent_tournament_id, survivors_advance_to, flight_number, flight_end_chips_snapshot ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_tournaments_refuse_unbuilt_multi_day()"
+        },
+        {
+          "name": "trg_tournaments_union_ownership",
+          "signature": "fn_stamp_tournament_union_ownership()",
+          "definition": "CREATE TRIGGER trg_tournaments_union_ownership BEFORE INSERT ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_stamp_tournament_union_ownership()"
+        },
+        {
+          "name": "trg_whole_dollar_buyin",
+          "signature": "fn_enforce_whole_dollar_buyin()",
+          "definition": "CREATE TRIGGER trg_whole_dollar_buyin BEFORE INSERT OR UPDATE ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_enforce_whole_dollar_buyin()"
+        },
+        {
+          "name": "union_pnl_original_inventory",
+          "signature": "fn_union_pnl_inventory_observe()",
+          "definition": "CREATE TRIGGER union_pnl_original_inventory AFTER INSERT OR DELETE OR UPDATE ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_union_pnl_inventory_observe()"
+        },
+        {
+          "name": "zz_freerolls_are_free_buy",
+          "signature": "fn_freerolls_are_free_buy()",
+          "definition": "CREATE TRIGGER zz_freerolls_are_free_buy BEFORE INSERT OR UPDATE OF buy_in_amount, buy_in_fee, tournament_type, variant, is_rebuy, add_on_available, rebuy_cost, addon_cost, rebuy_chips, addon_chips, rebuy_levels, addon_levels, max_rebuys ON public.tournaments FOR EACH ROW WHEN ((COALESCE(new.buy_in_amount, (0)::numeric) = (0)::numeric)) EXECUTE FUNCTION fn_freerolls_are_free_buy()"
+        },
+        {
+          "name": "zzz_spin_ladder_is_the_drawn_one",
+          "signature": "fn_spin_ladder_is_the_drawn_one()",
+          "definition": "CREATE TRIGGER zzz_spin_ladder_is_the_drawn_one BEFORE INSERT OR UPDATE ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_spin_ladder_is_the_drawn_one()"
+        },
+        {
+          "name": "zzzz_capture_satellite_economics_on_start",
+          "signature": "trg_capture_satellite_economics_on_start()",
+          "definition": "CREATE TRIGGER zzzz_capture_satellite_economics_on_start BEFORE INSERT OR UPDATE OF status ON public.tournaments FOR EACH ROW EXECUTE FUNCTION trg_capture_satellite_economics_on_start()"
+        },
+        {
+          "name": "zzzz_refuse_normal_tournament_completed_insert",
+          "signature": "trg_refuse_normal_tournament_completed_insert()",
+          "definition": "CREATE TRIGGER zzzz_refuse_normal_tournament_completed_insert BEFORE INSERT ON public.tournaments FOR EACH ROW WHEN ((new.status = 'COMPLETED'::text)) EXECUTE FUNCTION trg_refuse_normal_tournament_completed_insert()"
+        },
+        {
+          "name": "zzzzzzz_tournaments_record_format",
+          "signature": "fn_ca_guard_tournament_format()",
+          "definition": "CREATE TRIGGER zzzzzzz_tournaments_record_format BEFORE INSERT OR UPDATE OF format_contract, tournament_type, variant, max_players, min_players, table_size, satellite_target_id, satellite_target, club_id, union_id ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_guard_tournament_format()"
+        },
+        {
+          "name": "zzzzzzzz_launch_tournament_admission",
+          "signature": "fn_ca_launch_tournament_admission_guard()",
+          "definition": "CREATE TRIGGER zzzzzzzz_launch_tournament_admission BEFORE INSERT OR UPDATE OF club_id, union_id, status, started_at, spin_multiplier ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_launch_tournament_admission_guard()"
+        },
+        {
+          "name": "zzzzzzzzzz_tournament_level_clock_floor",
+          "signature": "fn_ca_tournament_level_clock_floor()",
+          "definition": "CREATE TRIGGER zzzzzzzzzz_tournament_level_clock_floor BEFORE INSERT OR UPDATE ON public.tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_level_clock_floor()"
+        }
+      ],
+      "checks": [
+        "CHECK ((((payout_math_version = 1) AND (payout_unit_cents = 1)) OR ((payout_math_version = 2) AND (payout_unit_cents = ANY (ARRAY[1, 100])) AND (upper(COALESCE(tournament_type, ''::text)) = 'MTT'::text) AND ((COALESCE(max_players, 0) > 2) OR (NOT (format_contract IS DISTINCT FROM 'mtt-v2'::text))) AND (lower(COALESCE(variant, ''::text)) <> ALL (ARRAY['spin'::text, 'sng'::text, 'satellite'::text])) AND (NOT COALESCE(is_premium_spin, false)) AND (satellite_target_id IS NULL) AND (satellite_target IS NULL))))",
+        "CHECK (((final_table_triggered IS NOT TRUE) OR ((format_contract = ANY (ARRAY['mtt-v1'::text, 'mtt-v2'::text])) IS TRUE)))",
+        "CHECK (((format_contract IS NULL) OR (format_contract = ANY (ARRAY['mtt-v1'::text, 'mtt-v2'::text, 'seat-first-satellite-v1'::text, 'sng-v1'::text, 'spin-v1'::text]))))",
+        "CHECK (((NOT free_buy) OR ((COALESCE(buy_in_amount, (0)::numeric) = (0)::numeric) AND (COALESCE(buy_in_fee, (0)::numeric) = (0)::numeric))))",
+        "CHECK (((max_players IS NULL) OR (max_players > 2) OR (COALESCE(buy_in_fee, (0)::numeric) <= (round(((COALESCE(buy_in_amount, (0)::numeric) + COALESCE(buy_in_fee, (0)::numeric)) * 0.05), 2) + 0.005)))) NOT VALID",
+        "CHECK ((mystery_bounty_activation = ANY (ARRAY['at_the_money'::text, 'percent_field'::text, 'player_count'::text])))",
+        "CHECK ((mystery_bounty_activation_generation >= 0))",
+        "CHECK ((mystery_bounty_profile = ANY (ARRAY['balanced'::text, 'classic'::text, 'jackpot'::text])))",
+        "CHECK ((mystery_bounty_stage = ANY (ARRAY['pending'::text, 'active'::text, 'complete'::text])))",
+        "CHECK ((NOT (COALESCE(is_pko, false) AND COALESCE(is_mystery_bounty, false))))",
+        "CHECK ((NOT (COALESCE(is_pko, false) AND COALESCE(is_mystery_bounty, false))))",
+        "CHECK (((payout_depth_percent IS NULL) OR ((payout_depth_percent > (0)::numeric) AND (payout_depth_percent <= (100)::numeric)))) NOT VALID",
+        "CHECK ((payout_percent = ANY (ARRAY[10, 15, 20]))) NOT VALID",
+        "CHECK ((COALESCE(buy_in_fee, (0)::numeric) <= (((COALESCE(buy_in_amount, (0)::numeric) + COALESCE(buy_in_fee, (0)::numeric)) * 0.1) + 0.000000001))) NOT VALID",
+        "CHECK ((((NOT (format_contract IS DISTINCT FROM 'mtt-v2'::text)) AND (max_players IS NULL) AND (COALESCE(min_players, 0) >= 3)) OR ((format_contract IS DISTINCT FROM 'mtt-v2'::text) AND COALESCE((max_players > 0), false))))",
+        "CHECK (((created_at < '2026-08-21 00:00:00+00'::timestamp with time zone) OR (((lower(COALESCE(variant, ''::text)) <> 'spin'::text) AND (upper(COALESCE(tournament_type, ''::text)) <> 'SPIN'::text)) OR (COALESCE(buy_in_fee, (0)::numeric) = (0)::numeric)))) NOT VALID",
+        "CHECK (((created_at < '2026-08-21 00:00:00+00'::timestamp with time zone) OR ((variant IS DISTINCT FROM 'spin'::text) AND (upper(COALESCE(tournament_type, ''::text)) <> 'SPIN'::text)) OR (COALESCE(buy_in_fee, (0)::numeric) = (0)::numeric))) NOT VALID",
+        "CHECK ((status = ANY (ARRAY['ANNOUNCED'::text, 'REGISTERING'::text, 'LATE_REG'::text, 'RUNNING'::text, 'COMPLETING'::text, 'COMPLETED'::text, 'CANCELLED'::text, 'BAGGED'::text])))"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "signature": "fn_ca_guard_new_satellite_target()",
+      "definition_md5": "30f43ed19af705ad3abc63b01fa98885",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_guard_new_satellite_target()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nDECLARE v_abi text; v_target uuid:=COALESCE(NEW.satellite_target_id,NEW.satellite_target);\n v_target_row public.tournaments%ROWTYPE; v_supported boolean;\n v_supported_target boolean;  -- 2026-10-16: a bounty target accepts a feeder\n v_source_diamond boolean;  -- DIAMOND PHASE 9\nBEGIN\n IF TG_OP='UPDATE' AND\n   (NEW.satellite_target_id,NEW.satellite_target,NEW.is_bounty,NEW.is_pko,NEW.is_mystery_bounty,\n    NEW.is_premium_spin,NEW.variant,NEW.tournament_type,NEW.club_id,NEW.union_id)\n   IS NOT DISTINCT FROM\n   (OLD.satellite_target_id,OLD.satellite_target,OLD.is_bounty,OLD.is_pko,OLD.is_mystery_bounty,\n    OLD.is_premium_spin,OLD.variant,OLD.tournament_type,OLD.club_id,OLD.union_id) THEN RETURN NEW; END IF;\n PERFORM pg_advisory_xact_lock_shared(530090,1);\n v_abi:=public.fn_ca_lock_mtt_admission_contract();\n -- DIAMOND PHASE 9: ASSETS NEVER CROSS, under every admission contract. A\n -- satellite and its target are the same asset or the row is refused by name.\n v_source_diamond:=EXISTS(SELECT 1 FROM public.clubs c WHERE c.id=NEW.club_id AND c.asset='diamonds');\n IF v_target IS NOT NULL AND EXISTS(SELECT 1 FROM public.tournaments x WHERE x.id=v_target) THEN\n  IF v_source_diamond AND NOT public.fn_poker_diamond_tournament(v_target) THEN\n   RAISE EXCEPTION 'SATELLITE_DIAMOND_SOURCE_CANNOT_FEED_A_CHIP_TARGET' USING ERRCODE='22023';\n  ELSIF NOT v_source_diamond AND public.fn_poker_diamond_tournament(v_target) THEN\n   RAISE EXCEPTION 'SATELLITE_CHIP_SOURCE_CANNOT_FEED_A_DIAMOND_TARGET' USING ERRCODE='22023';\n  END IF;\n END IF;\n IF v_abi='legacy-capacity-v1' THEN RETURN NEW;END IF;\n IF NEW.satellite_target_id IS NOT NULL AND NEW.satellite_target IS NOT NULL\n    AND NEW.satellite_target_id<>NEW.satellite_target THEN\n  RAISE EXCEPTION 'SATELLITE_TARGET_POINTER_CONTRADICTION' USING ERRCODE='22023';\n END IF;\n -- Under READ COMMITTED the post-lock query sees a just-committed feeder.\n -- A repeatable snapshot could otherwise permit an incompatible target edit.\n IF current_setting('transaction_isolation')<>'read committed'\n    AND (TG_OP='UPDATE' OR v_target IS NOT NULL) THEN\n  RAISE EXCEPTION 'SATELLITE_CONTRACT_REQUIRES_READ_COMMITTED' USING ERRCODE='0A000';\n END IF;\n v_supported:=NEW.is_bounty IS FALSE AND NEW.is_pko IS FALSE AND NEW.is_mystery_bounty IS FALSE\n   AND NEW.is_premium_spin IS FALSE\n   AND lower(btrim(COALESCE(NEW.variant,''))) NOT IN\n    ('spin','bounty','progressive','progressive_bounty','pko','mystery','mystery_bounty')\n   AND lower(btrim(COALESCE(NEW.tournament_type,''))) NOT IN\n    ('spin','bounty','progressive','progressive_bounty','pko','mystery','mystery_bounty');\n -- A satellite is never itself a bounty or Spin (v_supported, the SOURCE\n -- rule). As a TARGET a row needs only known flags, no Spin, and no bounty\n -- on a Diamond event, whose seat transfer has no bounty part (2026-10-16).\n v_supported_target:=NEW.is_bounty IS NOT NULL AND NEW.is_pko IS NOT NULL\n   AND NEW.is_mystery_bounty IS NOT NULL AND NEW.is_premium_spin IS FALSE\n   AND lower(btrim(COALESCE(NEW.variant,''))) <> 'spin'\n   AND lower(btrim(COALESCE(NEW.tournament_type,''))) <> 'spin'\n   AND (NOT (NEW.is_bounty OR NEW.is_pko OR NEW.is_mystery_bounty)\n        OR NOT v_source_diamond);\n -- DIAMOND PHASE 9: a Diamond row is supported like a chip row; the asset rule\n -- above decides which targets it may feed, and a target fed by a live\n -- satellite may not change its asset.\n IF TG_OP='UPDATE' AND (NOT v_supported_target OR v_target IS NOT NULL\n      OR v_source_diamond IS DISTINCT FROM\n         EXISTS(SELECT 1 FROM public.clubs c WHERE c.id=OLD.club_id AND c.asset='diamonds')\n      OR lower(COALESCE(NEW.variant,''))='satellite' OR upper(COALESCE(NEW.tournament_type,''))='SATELLITE')\n   AND EXISTS(SELECT 1 FROM public.tournaments s WHERE (s.format_contract='mtt-v2' OR (s.format_contract='sng-v1' AND public.fn_ca_is_fixed_sng_satellite(to_jsonb(s))))\n     AND (s.satellite_target_id=NEW.id OR s.satellite_target=NEW.id) AND s.id<>NEW.id\n     AND upper(COALESCE(s.status,'')) NOT IN ('COMPLETED','CANCELLED','CANCELED')) THEN\n  RAISE EXCEPTION 'SATELLITE_LIVE_TARGET_CANNOT_BECOME_UNSUPPORTED' USING ERRCODE='22023';\n END IF;\n IF v_target IS NULL AND (lower(COALESCE(NEW.variant,''))='satellite'\n    OR upper(COALESCE(NEW.tournament_type,''))='SATELLITE') THEN\n  RAISE EXCEPTION 'SATELLITE_NEW_TARGET_REQUIRED' USING ERRCODE='22023';\n END IF;\n IF v_target IS NOT NULL THEN\n  IF NOT v_supported THEN RAISE EXCEPTION 'SATELLITE_NEW_SOURCE_UNSUPPORTED' USING ERRCODE='22023';END IF;\n  SELECT * INTO v_target_row FROM public.tournaments WHERE id=v_target FOR UPDATE;\n  IF NOT FOUND OR NOT (CASE WHEN v_source_diamond  -- DIAMOND PHASE 9\n       THEN public.fn_ca_diamond_satellite_target_accepts_new_feeder(v_target)\n       ELSE public.fn_ca_satellite_target_accepts_new_feeder(v_target) END)\n     OR (NEW.union_id IS NOT NULL AND v_target_row.union_id IS DISTINCT FROM NEW.union_id)\n     OR (NEW.union_id IS NULL AND (v_target_row.club_id IS DISTINCT FROM NEW.club_id OR v_target_row.union_id IS NOT NULL)) THEN\n   RAISE EXCEPTION 'SATELLITE_NEW_TARGET_UNSUPPORTED' USING ERRCODE='22023';\n  END IF;\n END IF;\n RETURN NEW;\nEND $function$\n"
+    },
+    {
+      "signature": "fn_ca_guard_tournament_format()",
+      "definition_md5": "ff6655365bfdd99ae31dc897568f31e7",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_guard_tournament_format()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\nDECLARE v_format text; v_abi text;\nBEGIN\n  IF TG_OP='INSERT' THEN\n    IF NEW.format_contract IS NOT NULL THEN\n      RAISE EXCEPTION 'TOURNAMENT_FORMAT_IS_DATABASE_ASSIGNED' USING ERRCODE='22023';\n    END IF;\n    v_abi:=public.fn_ca_lock_mtt_admission_contract();\n    IF v_abi='unlimited-mtt-v2' AND public.fn_ca_is_new_mtt(to_jsonb(NEW)) THEN\n      IF NEW.max_players IS NOT NULL OR COALESCE(NEW.min_players,0)<3 THEN\n        RAISE EXCEPTION 'MTT_V2_CAPACITY_NOT_NORMALIZED' USING ERRCODE='23514';\n      END IF;\n      v_format:='mtt-v2';\n    ELSE\n      v_format:=public.fn_ca_legacy_tournament_format(to_jsonb(NEW));\n    END IF;\n    IF v_format IS NULL THEN\n      RAISE EXCEPTION 'TOURNAMENT_LEGACY_FORMAT_AMBIGUOUS' USING ERRCODE='23514';\n    END IF;\n    NEW.format_contract:=v_format;\n    RETURN NEW;\n  END IF;\n  IF NEW.format_contract IS DISTINCT FROM OLD.format_contract THEN\n    RAISE EXCEPTION 'TOURNAMENT_FORMAT_IMMUTABLE' USING ERRCODE='55000';\n  END IF;\n  IF OLD.format_contract='mtt-v2' THEN\n    IF NOT public.fn_ca_is_new_mtt(to_jsonb(NEW)) OR NEW.max_players IS NOT NULL\n       OR COALESCE(NEW.min_players,0)<3 THEN\n      RAISE EXCEPTION 'TOURNAMENT_FORMAT_IDENTITY_CONFLICT' USING ERRCODE='55000';\n    END IF;\n    RETURN NEW;\n  END IF;\n  IF public.fn_ca_tournament_format_identity(to_jsonb(NEW))\n      IS DISTINCT FROM public.fn_ca_tournament_format_identity(to_jsonb(OLD))\n     AND (OLD.format_contract IS NULL\n          OR public.fn_ca_legacy_tournament_format(to_jsonb(NEW)) IS DISTINCT FROM OLD.format_contract) THEN\n    RAISE EXCEPTION 'TOURNAMENT_FORMAT_IDENTITY_CONFLICT' USING ERRCODE='55000';\n  END IF;\n  RETURN NEW;\nEND $function$\n"
+    },
+    {
+      "signature": "fn_ca_new_tournament_is_unlimited(jsonb)",
+      "definition_md5": "34b80f98d9d110072ae6951bb4377ee0",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_new_tournament_is_unlimited(p_config jsonb)\n RETURNS boolean\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\nDECLARE v_abi text;\nBEGIN\n PERFORM pg_advisory_xact_lock_shared(530090,1);\n v_abi:=public.fn_ca_lock_mtt_admission_contract();\n RETURN v_abi='unlimited-mtt-v2' AND public.fn_ca_is_new_mtt(p_config);\nEND $function$\n"
+    },
+    {
+      "signature": "fn_ca_normalize_new_mtt_capacity()",
+      "definition_md5": "06cbd73a8011fac92e0c51b8d752b3da",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_normalize_new_mtt_capacity()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\nDECLARE v_unlimited boolean;\nBEGIN\n v_unlimited:=public.fn_ca_new_tournament_is_unlimited(to_jsonb(NEW));\n IF TG_OP='INSERT' THEN\n  IF v_unlimited THEN\n   IF public.fn_entry_purchases_frozen() THEN\n    RAISE EXCEPTION 'MTT_CREATION_PLATFORM_FROZEN' USING ERRCODE='55000';\n   END IF;\n   NEW.max_players:=NULL;\n   NEW.min_players:=GREATEST(3,COALESCE(NEW.min_players,3));\n   IF COALESCE(NEW.satellite_target_id,NEW.satellite_target) IS NOT NULL\n      AND (upper(COALESCE(NEW.tournament_type,'')) IN ('SNG','SPIN')\n           OR lower(COALESCE(NEW.variant,'')) IN ('sng','spin')) THEN\n    RAISE EXCEPTION 'NEW_SATELLITE_REQUIRES_SCHEDULED_MTT_CONFIG' USING ERRCODE='55000';\n   END IF;\n  END IF;\n ELSIF OLD.format_contract='mtt-v2' THEN\n  IF NOT v_unlimited THEN\n   RAISE EXCEPTION 'MTT_V2_REQUIRES_ACTIVE_ADMISSION' USING ERRCODE='55000';\n  END IF;\n  NEW.max_players:=NULL;\n ELSIF v_unlimited AND OLD.format_contract='mtt-v1' THEN\n  -- A now-irrelevant cap edit cannot rewrite an accepted version1 contract.\n  NEW.max_players:=OLD.max_players;\n END IF;\n RETURN NEW;\nEND $function$\n"
+    },
+    {
+      "signature": "fn_ca_requested_payout_depth(text)",
+      "definition_md5": "64a020fc94426a2083b0bd6c7c65ddf5",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_requested_payout_depth(p_value text)\n RETURNS numeric\n LANGUAGE plpgsql\n IMMUTABLE\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nDECLARE v numeric;\nBEGIN\n  IF p_value IS NULL OR btrim(p_value) !~ '^[0-9]+(\\.[0-9]+)?$' THEN RETURN NULL; END IF;\n  v := round(btrim(p_value)::numeric, 2);\n  RETURN CASE WHEN v > 0 AND v <= 100 THEN v END;\nEND $function$\n"
+    },
+    {
+      "signature": "fn_can_create_games(uuid,uuid)",
+      "definition_md5": "86c1ceac6b112bb891cbe3edb5be2291",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_can_create_games(p_club_id uuid, p_user_id uuid)\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nDECLARE\n  v_own uuid;\n  v_member uuid;\nBEGIN\n  IF p_club_id IS NULL OR p_user_id IS NULL THEN RETURN false; END IF;\n  IF NOT EXISTS (\n    SELECT 1 FROM public.clubs c\n     WHERE c.id = p_club_id AND c.lifecycle_status = 'active'\n  ) THEN RETURN false; END IF;\n\n  SELECT own_union_id, member_union_id INTO v_own, v_member\n    FROM public.fn_club_union_context(p_club_id);\n  IF v_own IS NOT NULL THEN\n    RETURN EXISTS (SELECT 1 FROM public.unions u WHERE u.id = v_own AND u.owner_id = p_user_id)\n        OR EXISTS (SELECT 1 FROM public.union_admins a WHERE a.union_id = v_own AND a.user_id = p_user_id)\n        OR public.fn_club_is_staff(p_club_id,p_user_id);\n  END IF;\n  IF v_member IS NOT NULL THEN\n    RETURN EXISTS (SELECT 1 FROM public.unions u WHERE u.id = v_member AND u.owner_id = p_user_id)\n        OR EXISTS (SELECT 1 FROM public.union_admins a WHERE a.union_id = v_member AND a.user_id = p_user_id);\n  END IF;\n  RETURN public.fn_club_is_staff(p_club_id,p_user_id);\nEND\n$function$\n"
+    },
+    {
+      "signature": "fn_is_free_buy_event(numeric,numeric,text,text)",
+      "definition_md5": "77826637b73710659725e5ffa91732e9",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_is_free_buy_event(p_buy_in_amount numeric, p_buy_in_fee numeric, p_tournament_type text, p_variant text)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\n SET search_path TO 'public', 'pg_temp'\nAS $function$\n  SELECT COALESCE(p_buy_in_amount, 0) = 0\n     AND COALESCE(p_buy_in_fee, 0) = 0\n     AND upper(COALESCE(p_tournament_type, 'MTT')) = 'MTT'\n     AND lower(COALESCE(p_variant, 'freezeout')) NOT IN ('spin', 'sng');\n$function$\n"
+    },
+    {
+      "signature": "fn_mystery_bounty_creation_document(jsonb)",
+      "definition_md5": "0651f9abdf0f91cfb3378dee79d3e65c",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_mystery_bounty_creation_document(p_config jsonb)\n RETURNS jsonb\n LANGUAGE plpgsql\n IMMUTABLE\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nDECLARE\n  v_profile text:=coalesce(p_config->>'mysteryBountyProfile','classic');\n  v_activation text:=coalesce(p_config->>'mysteryBountyActivation','at_the_money');\n  v_value jsonb:=coalesce(p_config->'mysteryBountyActivationValue','null'::jsonb);\n  v_pool jsonb:=coalesce(nullif(p_config->'mysteryBountyPoolPercent','null'::jsonb),'50'::jsonb);\n  v_top jsonb:=coalesce(nullif(p_config->'mysteryBountyTopPercent','null'::jsonb),'20'::jsonb);\nBEGIN\n  IF p_config IS NULL OR jsonb_typeof(p_config)<>'object' THEN\n    RAISE EXCEPTION 'Invalid mystery bounty configuration' USING ERRCODE='22023';\n  END IF;\n  IF v_profile NOT IN ('balanced','classic','jackpot') THEN\n    RAISE EXCEPTION 'Invalid mystery bounty profile' USING ERRCODE='22023';\n  END IF;\n  IF v_activation NOT IN ('at_the_money','percent_field','player_count') THEN\n    RAISE EXCEPTION 'Invalid mystery bounty activation' USING ERRCODE='22023';\n  END IF;\n  IF v_activation<>'at_the_money' THEN\n    IF jsonb_typeof(v_value)<>'number' THEN\n      RAISE EXCEPTION 'Invalid mystery bounty activation value' USING ERRCODE='22023';\n    END IF;\n    IF v_activation='percent_field' AND ((v_value#>>'{}')::numeric<=0 OR (v_value#>>'{}')::numeric>100) THEN\n      RAISE EXCEPTION 'Invalid mystery bounty activation percentage' USING ERRCODE='22023';\n    END IF;\n    IF v_activation='player_count' AND ((v_value#>>'{}')::numeric<2\n       OR (v_value#>>'{}')::numeric>9007199254740991\n       OR trunc((v_value#>>'{}')::numeric)<>(v_value#>>'{}')::numeric) THEN\n      RAISE EXCEPTION 'Invalid mystery bounty activation player count' USING ERRCODE='22023';\n    END IF;\n  ELSE\n    v_value:='null'::jsonb;\n  END IF;\n  IF jsonb_typeof(v_pool)<>'number' OR jsonb_typeof(v_top)<>'number' THEN\n    RAISE EXCEPTION 'Invalid mystery bounty percentage type' USING ERRCODE='22023';\n  END IF;\n  IF (v_pool#>>'{}')::numeric<0 OR (v_pool#>>'{}')::numeric>100\n     OR trunc((v_pool#>>'{}')::numeric*100)<>(v_pool#>>'{}')::numeric*100\n     OR (v_top#>>'{}')::numeric<=0 OR (v_top#>>'{}')::numeric>100 THEN\n    RAISE EXCEPTION 'Invalid mystery bounty percentage range' USING ERRCODE='22023';\n  END IF;\n  RETURN jsonb_build_object('mystery_bounty_profile',v_profile,\n    'mystery_bounty_activation',v_activation,'mystery_bounty_activation_value',v_value,\n    'mystery_bounty_pool_percent',v_pool,'mystery_bounty_regular_pool_percent',100-(v_pool#>>'{}')::numeric,\n    'mystery_bounty_top_percent',v_top);\nEND;\n$function$\n"
+    },
+    {
+      "signature": "fn_tournament_config_refusal(jsonb,text)",
+      "definition_md5": "c1a376cb8d9a01b4ba9db181c7ab9e50",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_tournament_config_refusal(p_config jsonb, p_surface text)\n RETURNS text\n LANGUAGE plpgsql\n STABLE\n SET search_path TO 'pg_catalog'\nAS $function$\nDECLARE\n  v_schedule boolean;\n  v_type     text;\n  v_short    boolean;\n  v_stack    numeric;\n  v_start    timestamptz;\n  v_target   jsonb;\n  v_ok       boolean;\n  v_total    numeric;\n  v_level    jsonb;\n  v_sb       numeric;\n  v_bb       numeric;\n  v_prev_sb  numeric;\n  v_prev_bb  numeric;\n  v_seen     boolean := false;\n  v_variant  text;\n  v_hole     int;\n  v_deck     int;\n  v_seats    numeric;\n  v_rebuy    boolean;\n  v_late     numeric;\n  v_late_min numeric;\n  v_buy_in   numeric;\nBEGIN\n  IF p_surface IS NULL OR p_surface NOT IN ('create', 'schedule') THEN\n    RAISE EXCEPTION 'fn_tournament_config_refusal: unknown surface %', p_surface\n      USING ERRCODE = '22023';\n  END IF;\n  IF p_config IS NULL OR jsonb_typeof(p_config) <> 'object' THEN\n    RETURN 'invalid_configuration';\n  END IF;\n  v_schedule := p_surface = 'schedule';\n\n  BEGIN\n    v_type := lower(COALESCE(NULLIF(btrim(p_config->>'type'), ''), 'mtt'));\n    IF v_schedule AND v_type IN ('hu_sng', 'heads_up') THEN v_type := 'sng'; END IF;\n    v_short := v_type IN ('sng', 'spin');\n\n    -- 1. Starting stack: a whole number above zero, for every format.\n    v_stack := NULLIF(p_config->>'startingStack', '')::numeric;\n    IF v_stack IS NOT NULL AND (v_stack <= 0 OR v_stack <> trunc(v_stack)) THEN\n      RETURN 'starting_stack_must_be_positive';\n    END IF;\n\n    -- 2. A start in the past is refused, never silently moved. Five minutes of\n    --    skew for a device clock that runs slow.\n    IF NOT v_schedule THEN\n      v_start := NULLIF(p_config->>'startTime', '')::timestamptz;\n      IF v_start IS NOT NULL AND v_start < now() - interval '5 minutes' THEN\n        RETURN 'start_time_in_past';\n      END IF;\n    END IF;\n\n    -- 3. A satellite names the event its seats go into.\n    IF v_type = 'satellite' THEN\n      IF v_schedule THEN\n        v_target := COALESCE(p_config->'satelliteTarget', p_config->'satellite_target');\n        -- COALESCE: with no target object every jsonb_typeof test is NULL, and\n        -- NOT NULL would wave the satellite through.\n        v_ok := COALESCE(\n                (jsonb_typeof(v_target) = 'string' AND btrim(v_target #>> '{}') <> '')\n             OR (jsonb_typeof(v_target) = 'object'\n                 AND COALESCE(NULLIF(v_target->>'tournamentId', ''), NULLIF(v_target->>'tournament_id', '')) IS NOT NULL),\n                false)\n             OR COALESCE(btrim(p_config->>'satelliteTargetId'), '') <> ''\n             OR COALESCE(btrim(p_config->>'satellite_target_id'), '') <> ''\n             OR COALESCE(btrim(p_config->>'satelliteTargetName'), '') <> '';\n      ELSE\n        v_ok := COALESCE(btrim(p_config->>'satelliteTargetId'), '') <> '';\n      END IF;\n      IF NOT v_ok THEN\n        RETURN 'satellite_target_required';\n      END IF;\n    END IF;\n\n    -- 4. Payouts add up to 100, within the governed creator's tolerance of 1.\n    IF jsonb_typeof(p_config->'payoutStructure') = 'array'\n       AND jsonb_array_length(p_config->'payoutStructure') > 0 THEN\n      SELECT COALESCE(SUM((e->>'percentage')::numeric), 0) INTO v_total\n        FROM jsonb_array_elements(p_config->'payoutStructure') e;\n      IF abs(v_total - 100) > 1 THEN\n        RETURN 'payouts_must_total_100';\n      END IF;\n    END IF;\n\n    -- 5. A Sit And Go or Spin ladder: positive durations, blinds never fall.\n    --    Break rows (a flag, or 0/0 blinds) do not take part. A new MTT ladder\n    --    is held to the fuller contract by tournaments_new_mtt_blind_contract.\n    IF v_short AND jsonb_typeof(p_config->'blindStructure') = 'array' THEN\n      FOR v_level IN SELECT value FROM jsonb_array_elements(p_config->'blindStructure') LOOP\n        IF jsonb_typeof(v_level) <> 'object' THEN\n          RETURN 'invalid_configuration';\n        END IF;\n        IF NULLIF(v_level->>'durationMinutes', '') IS NOT NULL\n           AND (v_level->>'durationMinutes')::numeric <= 0 THEN\n          RETURN 'blind_level_duration_invalid';\n        END IF;\n        v_sb := NULLIF(v_level->>'smallBlind', '')::numeric;\n        v_bb := NULLIF(v_level->>'bigBlind', '')::numeric;\n        CONTINUE WHEN COALESCE(v_level->>'isBreak', '') = 'true' OR (v_sb = 0 AND v_bb = 0);\n        IF v_seen AND (v_sb < v_prev_sb OR v_bb < v_prev_bb) THEN\n          RETURN 'blind_structure_must_not_decrease';\n        END IF;\n        v_prev_sb := v_sb;\n        v_prev_bb := v_bb;\n        v_seen := true;\n      END LOOP;\n    END IF;\n\n    -- 6. No more seats at a table than one deck can deal: the deck, less one\n    --    board, over the hole cards each seat takes (VariantRules.maxSeatsFor).\n    v_variant := lower(btrim(COALESCE(p_config->>'gameVariant', 'NLH')));\n    v_hole := CASE\n      WHEN v_variant IN ('plo4', 'plo8', 'flo8') THEN 4\n      WHEN v_variant = 'plo5' THEN 5\n      WHEN v_variant = 'plo6' THEN 6\n      WHEN v_variant = 'pineapple' THEN 3\n      ELSE 2 END;\n    v_deck := CASE WHEN v_variant LIKE 'short%' THEN 36 ELSE 52 END;\n    IF v_schedule AND v_type = 'spin' THEN\n      v_seats := 3;\n    ELSE\n      v_seats := round(NULLIF(p_config->>'tableSize', '')::numeric);\n      IF v_seats IS NULL THEN\n        v_seats := CASE\n          WHEN v_schedule AND v_short\n            THEN COALESCE(round(NULLIF(p_config->>'maxPlayers', '')::numeric), 2)\n          ELSE 9 END;\n      END IF;\n      v_seats := LEAST(10, GREATEST(2, v_seats));\n    END IF;\n    IF v_seats > (v_deck - 5) / v_hole THEN\n      RETURN 'table_size_exceeds_deck';\n    END IF;\n\n    -- 7. A rebuy or re-entry needs a late registration window to be sold in.\n    IF v_schedule THEN\n      v_rebuy := COALESCE(p_config->>'isRebuy', '') = 'true'\n              OR COALESCE(p_config->>'rebuy', '') = 'true'\n              OR COALESCE(p_config->>'isReentry', '') = 'true'\n              OR v_type IN ('rebuy', 'reentry', 'mtt_rebuy', 'mtt_reentry');\n      v_late := CASE\n        WHEN v_short THEN 0\n        WHEN NOT (p_config ? 'lateRegistrationLevels') THEN 8\n        ELSE COALESCE(NULLIF(p_config->>'lateRegistrationLevels', '')::numeric, 0) END;\n      v_late_min := 0;\n    ELSE\n      v_rebuy := COALESCE((p_config->>'isRebuy')::boolean, false)\n              OR COALESCE((p_config->>'isReentry')::boolean, false);\n      v_late := CASE WHEN v_short THEN 0\n        ELSE COALESCE(NULLIF(p_config->>'lateRegistrationLevels', '')::numeric, 0) END;\n      v_late_min := COALESCE(NULLIF(p_config->>'lateRegistrationMinutes', '')::numeric, 0);\n    END IF;\n    v_buy_in := COALESCE(NULLIF(p_config->>'buyIn', '')::numeric, 0);\n    IF v_rebuy\n       AND NOT (v_buy_in = 0 AND NOT v_short)   -- a Free Buy event has its own levels\n       AND v_late <= 0 AND v_late_min <= 0 THEN\n      RETURN 'rebuy_requires_late_registration';\n    END IF;\n  EXCEPTION\n    WHEN invalid_text_representation OR numeric_value_out_of_range\n      OR invalid_datetime_format OR datetime_field_overflow THEN\n      RETURN 'invalid_configuration';\n  END;\n\n  RETURN NULL;\nEND;\n$function$\n"
+    },
+    {
+      "signature": "fn_tournaments_creation_guard()",
+      "definition_md5": "f5dcb63005864b24bf422c6628cb169e",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_tournaments_creation_guard()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nDECLARE\n  v_paid int;\nBEGIN\n  IF public.fn_ca_new_tournament_is_unlimited(to_jsonb(NEW)) THEN\n    RETURN NEW; -- The earlier normalizer and final recorded-format constraint own NULL.\n  END IF;\n  IF COALESCE(NEW.max_players, 0) <= 0 THEN\n    RAISE EXCEPTION\n      'tournament guard: max_players must be positive (got %) - a tournament with no seats can never start',\n      NEW.max_players\n      USING ERRCODE = '23514';\n  END IF;\n\n  IF NEW.payout_structure IS NOT NULL\n     AND jsonb_typeof(NEW.payout_structure::jsonb) = 'array' THEN\n    v_paid := jsonb_array_length(NEW.payout_structure::jsonb);\n    IF v_paid > NEW.max_players THEN\n      RAISE EXCEPTION\n        'tournament guard: % paid places for % seats - more places than players who can enter',\n        v_paid, NEW.max_players\n        USING ERRCODE = '23514';\n    END IF;\n  END IF;\n\n  RETURN NEW;\nEND;\n$function$\n"
+    }
+  ]
+}

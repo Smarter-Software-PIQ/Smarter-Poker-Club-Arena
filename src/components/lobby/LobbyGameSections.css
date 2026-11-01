@@ -33,7 +33,11 @@
 
 .lobby-game-sections__button span {
   position: absolute;
-  inset: 20% 9%;
+  /* The native 1829x313 master includes its lower shadow. Its glass face
+     spans y40..235, so center text at y138 (44%), not the canvas midpoint. */
+  inset: auto 9%;
+  top: 44%;
+  transform: translateY(-50%);
   display: grid;
   place-items: center;
   font-family: 'Roboto Condensed', sans-serif;

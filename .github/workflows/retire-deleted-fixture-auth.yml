@@ -1,0 +1,34 @@
+name: Retire Deleted Fixture Auth
+
+# 2026-11-01: three retired test fixtures had their profiles erased (status
+# 'deleted', GDPR requests 'anonymized') but kept a live Auth row. The owner
+# ordered the deletion finished. This one-shot operator door soft deletes those
+# three Auth rows through GoTrue's supported admin API and completes their
+# erasure requests. It acts only on the ids pinned in the script, proves each
+# erasure before any write, and changes nothing on a second run.
+# Operator policy (2026-10-31): no automated production-deleting loop. It has
+# no schedule and runs only when an operator starts it.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: retire-deleted-fixture-auth
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Retire The Three Erased Fixture Auth Rows
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/ci/retire-deleted-fixture-auth.mjs
