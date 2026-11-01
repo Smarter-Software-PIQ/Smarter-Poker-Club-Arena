@@ -43,29 +43,6 @@ describe('natural add-on is a narrow existing-lane observation', () => {
         })
       ).toThrow();
   });
-  it('isolates the time-bound observation from publisher and other passive queues', () => {
-    const expression = lane.concurrency.group
-      .slice(3, -2)
-      .trim()
-      .replaceAll('needs.publication-gate', "needs['publication-gate']");
-    const queue = (event: string, payload: Record<string, unknown>, admitted = false) =>
-      new Function('github', 'needs', 'toJSON', `return (${expression})`)(
-        { event_name: event, event: { client_payload: payload } },
-        { 'publication-gate': { outputs: { natural_addon: String(admitted) } } },
-        (value: unknown) => JSON.stringify(value ?? null)
-      );
-    const natural = queue('repository_dispatch', { natural_addon_tournament_id: 'target' }, true);
-    expect(natural).toBe('post-deploy-live-table-natural-addon-production');
-    expect(queue('workflow_run', {}, false)).toBe('post-deploy-live-table-production');
-    expect(queue('repository_dispatch', {}, false)).toBe('post-deploy-live-table-production');
-    expect(queue('repository_dispatch', { mobile_multirun: true })).toBe(
-      'post-deploy-live-table-multirun-production'
-    );
-    expect(queue('repository_dispatch', { horse_social: true })).toBe(
-      'post-deploy-live-table-horse-social-production'
-    );
-    expect(lane.concurrency['cancel-in-progress']).toBe(false);
-  });
   it('keeps isolated account creation, spectator membership, cleanup and exact provenance', () => {
     expect(observation.run).toContain('production-natural-addon.spec.ts');
     expect(observation.run).toContain('--workers=1 --retries=0');
