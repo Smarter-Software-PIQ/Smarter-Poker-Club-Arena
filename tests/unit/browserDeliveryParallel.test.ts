@@ -31,7 +31,11 @@ describe('browser qualification parallel delivery', () => {
       const jobs = Object.values(workflow.jobs) as Array<Record<string, any>>;
       expect(jobs.filter((job) => job['runs-on']).length).toBeGreaterThan(0);
       for (const job of jobs.filter((job) => job['runs-on'])) {
-        expect(job['runs-on']).toBe('ubuntu-latest');
+        expect(job['runs-on']).toBe(
+          job.steps?.some((step: { run?: string }) => /playwright install/.test(step.run ?? ''))
+            ? 'ubuntu-24.04'
+            : 'ubuntu-latest'
+        );
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
     }
