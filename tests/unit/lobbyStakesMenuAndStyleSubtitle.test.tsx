@@ -213,8 +213,12 @@ describe('Lightning Games lobby identity', () => {
     renderLobby();
     const icons = screen.getAllByRole('img', { name: 'Lightning Games' });
     expect(icons).toHaveLength(2);
+    const premiumCss = read('src/components/lobby/PremiumMttRows.css');
+    expect(premiumCss).toContain("[data-tournament-icon='lightning']");
+    expect(premiumCss).toContain('chrome-arena-mtt-v1/lightning.png');
     for (const icon of icons) {
-      expect(icon.getAttribute('src')).toContain('lightning_bolt-192-242cf8769546.webp');
+      expect(icon.getAttribute('data-tournament-icon')).toBe('lightning');
+      expect(icon.closest('tr')?.hasAttribute('data-game-heading')).toBe(true);
       expect(icon.closest('tr')?.getAttribute('data-cash-format')).toBe('madness');
       expect(icon.closest('tr')?.getAttribute('data-lightning-format')).toBe('true');
     }

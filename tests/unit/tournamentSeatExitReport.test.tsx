@@ -20,7 +20,7 @@ vi.mock('../../src/lib/supabase', () => {
     maybeSingle: async () => ({ data: null, error: null }),
     in: async () => ({ data: mocks.rows, error: null }),
   };
-  return { supabase: { from: () => b } };
+  return { supabase: { from: () => b, rpc: async () => ({ data: null, error: null }) } };
 });
 const row = {
   id: 'old-table',
@@ -71,6 +71,13 @@ describe('closed tournament seats deliver their reports before prune', () => {
         retained = await reportRemovedTournamentSeats(['old-table'], 'hero', () => true);
       });
       expect(retained!.size).toBe(0);
+      const published = peekSessionSummary();
+      expect(published?.handStatsTarget).toEqual({
+        tableId: 'old-table',
+        userId: 'hero',
+        asOf: published?.sessionEnd,
+      });
+      expect(Number.isFinite(published?.handStatsTarget?.asOf)).toBe(true);
       const card = await screen.findByRole('dialog', { name: /tournament ranking/i });
       expect(card.textContent).toContain('353');
       expect(card.textContent).toContain('Buy-In: 35');

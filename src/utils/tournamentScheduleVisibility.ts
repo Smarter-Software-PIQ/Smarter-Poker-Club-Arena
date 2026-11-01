@@ -10,7 +10,7 @@ const chicagoDay = new Intl.DateTimeFormat('en-US', {
   month: '2-digit',
   day: '2-digit',
 });
-/** Future scheduled events, or events whose actual play began today. */
+/** Unstarted scheduled events (including delayed starts), or play begun today. */
 export function isCurrentMttScheduleEvent(row: ScheduleVisibilityRow, now = Date.now()): boolean {
   if (!Number.isFinite(now)) return false;
   const status = String(row.status ?? '').toUpperCase();
@@ -37,5 +37,7 @@ export function isCurrentMttScheduleEvent(row: ScheduleVisibilityRow, now = Date
       chicagoDay.format(actualStart) === chicagoDay.format(now)
     );
   }
-  return Number.isFinite(scheduled) && scheduled >= now;
+  // Passing the advertised start time does not cancel a registration or event.
+  // Keep delayed starts discoverable until an authoritative lifecycle transition.
+  return Number.isFinite(scheduled);
 }

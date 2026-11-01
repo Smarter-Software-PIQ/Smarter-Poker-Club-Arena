@@ -37,6 +37,7 @@ const data: UseMysteryBountyResult = {
   awards: [],
   awardsTotal: 0,
   isLoading: false,
+  isUnavailable: false,
   pendingReveals: 0,
   refresh: vi.fn(),
   leaderboard: [

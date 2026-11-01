@@ -17,9 +17,12 @@ import { supabase } from '../../lib/supabase';
 import { tournamentChipRanks } from '../../utils/tournamentChipRanks';
 import { readTournamentStandings } from '../../services/readTournamentStandings';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { TournamentHourVpip } from './TournamentHourVpip';
+import { readCommittedTournamentBlinds } from '../../utils/committedTournamentBlinds';
+import { parseJsonCached } from '../../utils/parseJsonCached';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { publicOrigin, IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
@@ -99,7 +102,7 @@ export interface TournamentBreakScreenProps {
   heroUserId?: string | null;
   /** 0-based array index, as `tournaments.current_level` is stored. */
   currentLevel?: number;
-  nextLevel: BlindLevel;
+  nextLevel?: BlindLevel | null;
   playersRemaining?: number;
   totalPlayers?: number;
   averageStack?: number;
@@ -190,7 +193,8 @@ export function TournamentBreakScreen({
   /* One owned read at a time; events during a read require a fresh trailing read. */
   const [facts, setFacts] = useState<{
     scope: string;
-    currentLevel: number;
+    currentLevel: number | null;
+    blinds: BlindLevel | null;
     prizePool: number;
     playersRemaining: number;
     totalPlayers: number;
@@ -198,10 +202,18 @@ export function TournamentBreakScreen({
     topPlayers: TournamentPlayer[];
     myPlayer?: TournamentPlayer;
   } | null>(null);
-  const factsScope = JSON.stringify([tournamentId, heroUserId, isVisible, phase]);
+  const factsScope = JSON.stringify([
+    tournamentId,
+    heroUserId,
+    isVisible,
+    phase,
+    !!addOnNotice,
+    breakEndsAtMs,
+  ]);
   useEffect(() => {
     if (!isVisible || !tournamentId) return;
     let mounted = true;
+    const controller = new AbortController();
     setFacts(null);
     setFactsFailed(false);
     let inFlight = false;
@@ -216,11 +228,18 @@ export function TournamentBreakScreen({
       pending = false;
       try {
         const [tRes, pRes] = await Promise.all([
-          supabase
-            .from('tournaments')
-            .select('current_level, prize_pool, current_players, max_players')
-            .eq('id', tournamentId)
-            .maybeSingle(),
+          runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .from('tournaments')
+                .select(
+                  'current_level, blind_level_state, blind_structure, prize_pool, current_players, max_players'
+                )
+                .eq('id', tournamentId)
+                .abortSignal(signal)
+                .maybeSingle(),
+            { signal: controller.signal }
+          ),
           readTournamentStandings(tournamentId, 'id, user_id, username, chips, status'),
         ]);
         if (!mounted || pending) return;
@@ -236,6 +255,8 @@ export function TournamentBreakScreen({
         }
         const t = (tRes.data ?? {}) as {
           current_level?: number | null;
+          blind_level_state?: unknown;
+          blind_structure?: unknown;
           prize_pool?: number | string | null;
           current_players?: number | null;
           max_players?: number | null;
@@ -266,10 +287,38 @@ export function TournamentBreakScreen({
           isCurrentUser: !!heroUserId && r.playerId === heroUserId,
         }));
         const totalChips = active.reduce((sum, r) => sum + r.stack, 0);
+        const index =
+          typeof t.current_level === 'number' &&
+          Number.isInteger(t.current_level) &&
+          t.current_level >= 0
+            ? t.current_level
+            : null;
+        // Both pauses resume the already committed level, not the next schedule row.
+        // Older engines have no snapshot; only their exact advertised index is usable.
+        const structure = Array.isArray(t.blind_structure)
+          ? t.blind_structure
+          : parseJsonCached(t.blind_structure);
+        const scheduled = index !== null && Array.isArray(structure) ? structure[index] : null;
+        const blinds =
+          index === null
+            ? null
+            : readCommittedTournamentBlinds(
+                index,
+                t.blind_level_state ??
+                  (scheduled && !scheduled.isBreak
+                    ? {
+                        index,
+                        small_blind: scheduled.smallBlind ?? scheduled.small_blind,
+                        big_blind: scheduled.bigBlind ?? scheduled.big_blind,
+                        ante: scheduled.ante ?? 0,
+                      }
+                    : null)
+              );
         setFactsFailed(false);
         setFacts({
           scope: factsScope,
-          currentLevel: Math.max(0, Number(t.current_level) || 0),
+          currentLevel: index,
+          blinds,
           prizePool: Number(t.prize_pool) || 0,
           playersRemaining: active.length,
           totalPlayers: pRes.data.length,
@@ -292,12 +341,29 @@ export function TournamentBreakScreen({
     void load();
     return () => {
       mounted = false;
+      controller.abort();
       stop();
     };
   }, [isVisible, tournamentId, heroUserId, phase, factsScope]);
 
   const currentFacts = facts?.scope === factsScope ? facts : null;
-  const currentLevel = currentLevelProp ?? currentFacts?.currentLevel ?? 0;
+  const currentLevel = tournamentId ? currentFacts?.currentLevel : currentLevelProp;
+  const explicitIndex = currentLevelProp ?? (nextLevel ? nextLevel.level - 1 : -1);
+  const resumedBlinds = tournamentId
+    ? currentFacts?.blinds
+    : readCommittedTournamentBlinds(
+        explicitIndex,
+        nextLevel
+          ? {
+              index: explicitIndex,
+              small_blind: nextLevel.smallBlind,
+              big_blind: nextLevel.bigBlind,
+              ante: nextLevel.ante ?? 0,
+            }
+          : null
+      );
+  const bigBlind = resumedBlinds?.bigBlind;
+  const knownBigBlind = typeof bigBlind === 'number' && Number.isFinite(bigBlind) && bigBlind > 0;
   const playersRemaining = playersRemainingProp ?? currentFacts?.playersRemaining ?? 0;
   const totalPlayers = totalPlayersProp ?? currentFacts?.totalPlayers ?? playersRemaining;
   const averageStack = averageStackProp ?? currentFacts?.averageStack ?? 0;
@@ -405,9 +471,15 @@ export function TournamentBreakScreen({
       >
         <span className="break-screen__mini-face">
           <span className="break-screen__mini-badge">
-            {countingDown ? `Break: ${formatTime(displayTime)}` : 'Break: Last Hand'}
+            {countingDown
+              ? `Break: ${formatTime(displayTime)}`
+              : addOnNotice
+                ? 'Add-On: Last Hand'
+                : 'Break: Last Hand'}
           </span>
-          <span className="break-screen__mini-state">Paused</span>
+          <span className="break-screen__mini-state">
+            {countingDown ? 'Paused' : 'Finishing Hands'}
+          </span>
         </span>
       </button>
     );
@@ -452,7 +524,9 @@ export function TournamentBreakScreen({
             <div className="break-screen__timer-container">
               <span className="break-screen__time-label">
                 {addOnNotice
-                  ? 'Add-On Closes In'
+                  ? countingDown
+                    ? 'Add-On Closes In'
+                    : 'Last Hand Before The Add-On Period'
                   : countingDown
                     ? 'Play Resumes In'
                     : 'Finishing The Last Hand'}
@@ -477,25 +551,40 @@ export function TournamentBreakScreen({
             </div>
             <div className="break-screen__next-level">
               <span className="break-screen__section-title">
-                Coming Next: Level {currentLevel + 1}
+                Coming Next: Level{' '}
+                {currentLevel == null
+                  ? factsPending && !factsFailed
+                    ? '...'
+                    : 'N/A'
+                  : currentLevel + 1}
               </span>
               <span className="break-screen__blind-label">Blinds</span>
               <span
                 className="break-screen__blind-value"
-                title={`${nextLevel.smallBlind.toLocaleString('en-US')} / ${nextLevel.bigBlind.toLocaleString('en-US')}`}
+                title={
+                  resumedBlinds
+                    ? `${resumedBlinds.smallBlind.toLocaleString('en-US')} / ${resumedBlinds.bigBlind.toLocaleString('en-US')}`
+                    : undefined
+                }
               >
-                {formatStack(nextLevel.smallBlind)} / {formatStack(nextLevel.bigBlind)}
+                {resumedBlinds
+                  ? `${formatStack(resumedBlinds.smallBlind)} / ${formatStack(resumedBlinds.bigBlind)}`
+                  : factsPending && !factsFailed
+                    ? '...'
+                    : 'N/A'}
               </span>
-              {nextLevel.ante && nextLevel.ante > 0 ? (
+              {resumedBlinds?.ante && resumedBlinds?.ante > 0 ? (
                 <span className="break-screen__ante">
-                  Ante <strong>{formatStack(nextLevel.ante)}</strong>
+                  Ante <strong>{formatStack(resumedBlinds.ante)}</strong>
                 </span>
               ) : null}
             </div>
           </div>
           <p className="break-screen__resume-note" role="status">
             {!countingDown
-              ? 'Break Starts When Every Table Finishes'
+              ? addOnNotice
+                ? 'The 60-Second Add-On Starts When Every Table Finishes'
+                : 'Break Starts When Every Table Finishes'
               : waitingForResume
                 ? 'Waiting For Play To Resume'
                 : 'Play Resumes Automatically'}
@@ -524,7 +613,9 @@ export function TournamentBreakScreen({
                 >
                   {formatStack(addOnNotice.chips)}
                 </span>
-                <span className="break-screen__stat-sub">All Tables Paused</span>
+                <span className="break-screen__stat-sub">
+                  {countingDown ? 'All Tables Paused' : 'Finishing Current Hands'}
+                </span>
               </div>
             </div>
           )}
@@ -560,7 +651,9 @@ export function TournamentBreakScreen({
               <span className="break-screen__stat-sub">
                 {factsPending && averageStackProp === undefined
                   ? 'Chips'
-                  : `${Math.trunc(averageStack / Math.max(nextLevel.bigBlind, 1))} BB`}
+                  : knownBigBlind
+                    ? `${Math.trunc(averageStack / bigBlind)} BB`
+                    : 'N/A'}
               </span>
             </div>
             <div className="break-screen__stat">
@@ -594,7 +687,9 @@ export function TournamentBreakScreen({
                 title={myPlayer.stack.toLocaleString('en-US')}
               >
                 {formatStack(myPlayer.stack)}{' '}
-                <small>{Math.trunc(myPlayer.stack / Math.max(nextLevel.bigBlind, 1))} BB</small>
+                <small>
+                  {knownBigBlind ? `${Math.trunc(myPlayer.stack / bigBlind)} BB` : 'N/A'}
+                </small>
               </span>
             </div>
           )}

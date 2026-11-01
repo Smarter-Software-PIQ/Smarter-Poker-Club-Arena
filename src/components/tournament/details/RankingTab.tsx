@@ -468,7 +468,12 @@ function WatchModal({ entry, tableName, bigBlind, onCancel, onConfirm }: WatchMo
 //  THE TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function RankingTab({
+export default function RankingTab(props: TournamentTabProps) {
+  // Realtime patches, pulse timers and watch selection belong to one event.
+  return <RankingTabForTournament key={props.tournament.id} {...props} />;
+}
+
+function RankingTabForTournament({
   tournament,
   entries,
   tables,
@@ -709,7 +714,8 @@ export default function RankingTab({
         const chipsAgree = held.chips === undefined || held.chips === entry.chips;
         const statusAgree = held.status === undefined || held.status === entry.status;
         const posAgree = held.position === undefined || held.position === entry.position;
-        if (chipsAgree && statusAgree && posAgree) {
+        const tableAgree = held.table_id === undefined || held.table_id === entry.table_id;
+        if (chipsAgree && statusAgree && posAgree && tableAgree) {
           next.delete(entry.user_id);
           changed = true;
         }

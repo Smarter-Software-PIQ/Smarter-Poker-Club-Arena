@@ -49,6 +49,57 @@ export function assertDiamondCashSettingsOpen(
 }
 
 /**
+ * A Diamond tournament table whose arena has `tournaments_enabled = false`
+ * (2026-10-31). The owner closed Diamond Arena on purpose ("KEEP DIAMOND ARENA
+ * CLOSED FOR NOW, DO NOT OPEN ANY TABLES, OR DEAL ANY HANDS UNTIL I AUTHORIZE
+ * IT"), so this is a decision, not a failure: the engine skips loading the
+ * table quietly - no admission retry loop, no Tournament.table_admission_failing
+ * page - and says so once per table at info.
+ */
+export interface TournamentTablePolicyRefusal {
+  readonly code: 'diamond_tournaments_disabled';
+  readonly tableId: string;
+  readonly arenaId: string;
+}
+
+export class DiamondTournamentPolicyClosedError
+  extends Error
+  implements TournamentTablePolicyRefusal
+{
+  readonly code = 'diamond_tournaments_disabled' as const;
+
+  constructor(
+    readonly tableId: string,
+    readonly arenaId: string
+  ) {
+    super(`Diamond Tournaments Are Not Open (table ${tableId}, arena ${arenaId})`);
+    this.name = 'DiamondTournamentPolicyClosedError';
+  }
+}
+
+const closedDiamondTournamentTablesLogged = new Set<string>();
+/** One info line per closed table per process, however often it is asked. */
+export function noteDiamondTournamentTableSkipped(
+  tableId: string,
+  tournamentId: string | null,
+  log: (line: string) => void = (line) => console.info(line)
+): boolean {
+  if (closedDiamondTournamentTablesLogged.has(tableId)) return false;
+  closedDiamondTournamentTablesLogged.add(tableId);
+  log(
+    `[Diamond] tournament table ${tableId}` +
+      (tournamentId ? ` (tournament ${tournamentId})` : '') +
+      ' not loaded: Diamond tournaments are closed (tournaments_enabled=false). ' +
+      'It stays unloaded until the arena reopens.'
+  );
+  return true;
+}
+/** Test seam. */
+export function forgetDiamondTournamentTablesSkipped(): void {
+  closedDiamondTournamentTablesLogged.clear();
+}
+
+/**
  * The tournament switch, read beside the cash one (Diamond Phase 8). A Diamond
  * tournament table is loaded only while `tournaments_enabled` is on, and this
  * keeps the same three outcomes apart that the cash reader keeps apart: a
@@ -83,6 +134,6 @@ export function assertDiamondTournamentSettingsOpen(
     throw new Error('Diamond tournament settings are unavailable or malformed');
   }
   if ((data as { tournaments_enabled: boolean }).tournaments_enabled === false) {
-    throw new Error(`Diamond Tournaments Are Not Open (table ${tableId}, arena ${arenaId})`);
+    throw new DiamondTournamentPolicyClosedError(tableId, arenaId);
   }
 }
