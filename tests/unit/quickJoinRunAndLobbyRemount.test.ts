@@ -190,4 +190,14 @@ describe('spin quick join preserves format and club scope', () => {
     expect(rows).toBeNull();
     expect(filters.some(([op, key]) => op === 'in' && key === 'status')).toBe(false);
   });
+  it('refuses to query tables for a lobby or hub page tab id (prevents 22P02)', async () => {
+    const filters = installSpinQueryFixture();
+    const { readSpinContext } = await import('../../src/lib/quickJoinSpins');
+    const { readTournamentContext } = await import('../../src/lib/quickJoinTournaments');
+    expect(await readSpinContext('lobby:1793519993307')).toBeNull();
+    expect(await readSpinContext('hub:1793519993307')).toBeNull();
+    expect(await readTournamentContext('lobby:1793519993307')).toBeNull();
+    expect(await readTournamentContext('hub:1793519993307')).toBeNull();
+    expect(filters).toHaveLength(0);
+  });
 });
