@@ -463,6 +463,43 @@
    .bbj-widget banner rendered immediately below this bar. Its rules, its
    shimmer and its sweep keyframes went with it. */
 
+/* THE LOBBY PLATE IN THE RIGHT CORNER (Dan 2026-11-01). Exactly the
+   hamburger's footprint at every width - both read --sp-tabbar-control, so
+   they can never drift apart. The strip before it is flex: 1, which is what
+   pins this to the bar's right edge; `order: 50` keeps it right of the
+   quick-menu portal whatever the DOM gains later. Artwork only: the frame,
+   the bevel and the word are inside the picture. */
+.table-tab-bar__lobby-btn {
+  order: 50;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sp-tabbar-control);
+  height: var(--sp-tabbar-control);
+  min-width: var(--sp-tabbar-control);
+  min-height: var(--sp-tabbar-control);
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 300;
+}
+.table-tab-bar__lobby-btn:focus-visible {
+  outline: 2px solid #4fc3f7;
+  outline-offset: 2px;
+}
+.table-tab-bar__lobby-btn-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    MENU CONTAINER
    ───────────────────────────────────────────────────────────────────────────── */

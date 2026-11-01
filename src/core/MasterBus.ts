@@ -1222,7 +1222,10 @@ export interface BusPayloadMap {
       | 'CHANGE_AVATAR'
       | 'TOGGLE_ALIAS'
       /** Dan 2026-08-19: close a table's tab after the player leaves it. */
-      | 'CLOSE_TABLE_TAB';
+      | 'CLOSE_TABLE_TAB'
+      /** Dan 2026-11-01: the tab bar's right-corner lobby plate opens the
+          active tournament table's lobby modal through this. */
+      | 'TOURNAMENT_LOBBY';
   };
   // Table settings open
   TABLE_SETTINGS_OPEN: { tableId: string };

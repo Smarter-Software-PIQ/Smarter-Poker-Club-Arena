@@ -485,6 +485,20 @@ export interface TableModalsLayerProps {
 
   // Tournament Break
   tableAnchorRef?: React.RefObject<HTMLElement | null>;
+  /**
+   * A hand is live at THIS table right now (tableState.isHandInProgress).
+   * Dan 2026-11-01, binding: the break and add-on break cards must never pop
+   * up over a hand in progress - they wait for this table's own hand to
+   * complete, then appear while the other tables finish theirs.
+   */
+  handInProgress: boolean;
+  /**
+   * Re-presents the add-on purchase sheet from the durable tournament row.
+   * Dan 2026-11-01: the add-on break card carries its own Add On action, so a
+   * player who declined the auto-presented sheet can still add on while the
+   * 60-second window is open.
+   */
+  onOpenAddOn: () => void;
   tournamentBreak: {
     active: boolean;
     timeRemaining: number;
@@ -736,6 +750,8 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     onCloseRebuyModal,
     // Tournament Break
     tableAnchorRef,
+    handInProgress,
+    onOpenAddOn,
     tournamentBreak,
     // Announcement
     announcement,
@@ -1413,6 +1429,8 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         <TournamentBreakScreen
           tableAnchorRef={tableAnchorRef}
           isVisible={tournamentBreak.active || !!addOnBreakNotice}
+          handInProgress={handInProgress}
+          onAddOn={onOpenAddOn}
           addOnNotice={
             addOnBreakNotice
               ? { cost: addOnBreakNotice.cost, chips: addOnBreakNotice.chips, asset: arenaAsset }

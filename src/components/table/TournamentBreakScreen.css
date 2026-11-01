@@ -397,6 +397,43 @@
   pointer-events: auto;
   z-index: 2;
 }
+/* THE ADD ON ROW (Dan 2026-11-01). A row on the black glass like the hero
+   hub's launchers: transparent, a black top border, an inset highlight, the
+   action as a lit gold word. No drawn chrome - the console paints controls,
+   CSS does not (#ClubArenaConsole). */
+.break-screen__addon-row {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin: 2cqw 0 0;
+  padding: 2.4cqw 0.5cqw;
+  border: 0 !important;
+  border-top: 1px solid #000 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%) !important;
+  color: #ffd700;
+  -webkit-text-fill-color: #ffd700;
+  font-family: inherit;
+  font-size: 3.6cqw;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.break-screen__addon-row:active {
+  filter: brightness(1.25);
+  transform: none;
+}
+.break-screen__addon-row:focus-visible {
+  outline: 2px solid #ffd700;
+  outline-offset: -4px;
+}
+
 .break-screen__share:focus-visible {
   outline: 2px solid #45adff;
   outline-offset: -4px;

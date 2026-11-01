@@ -115,7 +115,9 @@ describe('the tournament break card', () => {
 
   it('keeps last-hand completion distinct from the timed break', () => {
     const view = render(<TournamentBreakScreen {...props} phase="last_hand" />);
-    expect(screen.getByRole('timer')).toHaveTextContent('Last Hand');
+    // Dan 2026-11-01: "Last Hand" is the add-on break's word alone; the
+    // regular break announces itself as starting while other tables finish.
+    expect(screen.getByRole('timer')).toHaveTextContent('Starting Soon');
     expect(screen.getByRole('status')).toHaveTextContent('Break Starts When Every Table Finishes');
     act(() => vi.advanceTimersByTime(10000));
     expect(screen.getByRole('timer')).not.toHaveTextContent('0:00');
@@ -219,4 +221,71 @@ it('removes the minimized popup when the break expires', () => {
     vi.advanceTimersByTime(1000);
   });
   expect(screen.queryByRole('button', { name: 'Open Break Screen' })).toBeNull();
+});
+
+describe('the card waits for this table to finish its hand (Dan 2026-11-01)', () => {
+  // "THE TOURNAMENT BREAK CARD SHOULD NOT POP UP UNTIL THE HAND AT THE
+  //  CURRENT TABLE IS FINISHED ... IT NEEDS TO WAIT UNTIL THE HAND IS
+  //  COMPLETED AND THEN POP UP" - and for the add-on break: "FIRST CARD
+  //  SHOULD ONLY APPEAR WHEN THE TABLE HAS FINISHED ITS HAND AND IS WAITING
+  //  FOR THE OTHER TABLE TO FINISH."
+  it('renders nothing - full card AND minimized pill - while a hand is live during last_hand', () => {
+    const view = render(<TournamentBreakScreen {...props} phase="last_hand" handInProgress />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open Break Screen' })).toBeNull();
+    // The hand completes: the card appears, in the waiting state.
+    view.rerender(<TournamentBreakScreen {...props} phase="last_hand" handInProgress={false} />);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('timer')).toHaveTextContent('Starting Soon');
+  });
+  it('a running countdown is never suppressed by a wedged hand snapshot', () => {
+    render(
+      <TournamentBreakScreen
+        {...props}
+        phase="counting_down"
+        breakTimeRemaining={300}
+        handInProgress
+      />
+    );
+    expect(screen.getByRole('timer')).toHaveTextContent('5:00');
+  });
+});
+
+describe('the add-on card carries its own Add On row (Dan 2026-11-01)', () => {
+  // "WHERE IS THE ACTUAL 'ADD ON BUTTON' ON THE CARD?! THERE IS NO WAY TO
+  //  ACTUALLY ADD ON."
+  const notice = { cost: 15, chips: 20000, asset: 'chips' as const };
+  it('offers Add On while the 60-second window counts, and it opens the sheet', () => {
+    const onAddOn = vi.fn();
+    render(
+      <TournamentBreakScreen
+        {...props}
+        phase="counting_down"
+        breakTimeRemaining={60}
+        addOnNotice={notice}
+        onAddOn={onAddOn}
+      />
+    );
+    const row = screen.getByRole('button', { name: 'Add On For 15' });
+    fireEvent.click(row);
+    expect(onAddOn).toHaveBeenCalledOnce();
+  });
+  it('holds the row back until the window is actually open', () => {
+    render(
+      <TournamentBreakScreen {...props} phase="last_hand" addOnNotice={notice} onAddOn={vi.fn()} />
+    );
+    expect(screen.queryByRole('button', { name: /Add On For/ })).toBeNull();
+  });
+  it('the regular break card never grows an Add On row', () => {
+    render(
+      <TournamentBreakScreen
+        {...props}
+        phase="counting_down"
+        breakTimeRemaining={300}
+        onAddOn={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole('button', { name: /Add On For/ })).toBeNull();
+  });
 });

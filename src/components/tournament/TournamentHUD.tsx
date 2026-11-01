@@ -1011,11 +1011,14 @@ export function TournamentHUD({
 
   // Urgency color for the countdown (last 60s of a level).
   const timerColor = remaining <= 60 ? '#ff5b6e' : remaining <= 120 ? '#ffd700' : '#45adff';
+  /* Dan 2026-11-01: "Last Hand" belongs to the add-on break card alone. While
+     a pause has no end stamped the dock's clock reads Soon - "RESUMES Soon" -
+     because the tables are still finishing their hands. */
   const clockText = !running
     ? '--:--'
     : paused
       ? pauseSeconds === null
-        ? 'Last Hand'
+        ? 'Soon'
         : fmtClock(pauseSeconds)
       : fmtClock(remaining);
   const clockColor = !running ? '#9aa5b3' : paused ? '#ffd700' : timerColor;

@@ -213,8 +213,7 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
  */
 
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
-import lobbyButtonArt from '../assets/lobby-button.webp';
-import { useButtonImage } from '../hooks/useButtonImage';
+import { useButtonImage, useTimebankIcon } from '../hooks/useButtonImage';
 
 import { cashBuyInRange, cashBuyInRefusalText, cashBuyInSeatConflictText } from '../lib/cashBuyIn';
 import {
@@ -5794,6 +5793,13 @@ function LiveTablePage({
     switch (event.action) {
       case 'SHOW_TOURNAMENT_DOCK':
         setTournamentDockClosed(false);
+        break;
+      case 'TOURNAMENT_LOBBY':
+        /* Dan 2026-11-01: "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN
+           THE RIGHT CORNER IN THE ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE
+           THE POKER TABLE PAGE." The button lives on TableTabBar now and
+           reaches this table through the bus; this case is its door. */
+        setShowTournamentLobby(true);
         break;
       case 'SIT_OUT':
         void handleSitOut();
@@ -27007,25 +27013,14 @@ function LiveTablePage({
              is now the dock under the action bar (search `tournament-dock`
              below), and this corner carries one control: Dan's LOBBY plate. */
           <div className="hud-ur-column">
-            {tableState.isTournament && tableState.tournamentId && (
-              <button
-                type="button"
-                className="tournament-lobby-corner-btn"
-                onClick={() => {
-                  soundService.playButtonClick();
-                  setShowTournamentLobby(true);
-                }}
-                aria-label="Open Tournament Lobby"
-                title="Tournament Lobby"
-              >
-                <img
-                  className="tournament-lobby-corner-btn__img"
-                  src={lobbyButtonArt}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-            )}
+            {/* THE FLOATING LOBBY PLATE IS GONE FROM THE FELT (Dan 2026-11-01):
+                "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN THE RIGHT
+                CORNER IN THE ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE THE
+                POKER TABLE PAGE." The same artwork now renders at the right
+                end of TableTabBar, sized to the hamburger, and opens this
+                table's TournamentLobbyModal through TABLE_MENU_ACTION
+                'TOURNAMENT_LOBBY'. Do not reintroduce a lobby control on the
+                felt. */}
             {/* THE MUST MOVE BOX (Dan 2026-09-05): "JUST LIKE THE TOURNAMENTS
                 WITH A BOX IN THE RIGHT CORNER TO CLICK TO SEE ALL TABLES, CHIP
                 STACKS, HOW MANY PLAYERS ETC." Every must-move table carries
@@ -31245,6 +31240,16 @@ function LiveTablePage({
         }}
         // Tournament Break
         tableAnchorRef={tableScalerRef}
+        /* Dan 2026-11-01: the break and add-on cards wait for THIS table's own
+           hand. isHandInProgress holds through the completion presentation, so
+           the card appears the moment the pot is settled and pushed. */
+        handInProgress={tableState.isHandInProgress}
+        /* Dan 2026-11-01: the Add On row on the add-on break card. The durable
+           row re-presents the sheet and proves eligibility itself. */
+        onOpenAddOn={() => {
+          soundService.playButtonClick();
+          void refreshPersistedAddOnOfferRef.current?.();
+        }}
         tournamentBreak={tournamentBreak as any}
         // Announcement
         announcement={announcement}

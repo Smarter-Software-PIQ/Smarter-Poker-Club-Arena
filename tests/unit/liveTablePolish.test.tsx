@@ -118,10 +118,11 @@ describe('5. the tournament dock can be read', () => {
     );
   });
 
-  it('the toggle and the LOBBY button show a focus ring', () => {
+  it('the toggle shows a focus ring (the felt lobby plate is retired, Dan 2026-11-01)', () => {
     expect(HUD_CSS).toMatch(
-      /\.tournament-dock__line--toggle:focus-visible,\s*\.tournament-lobby-corner-btn:focus-visible \{\s*outline: 2px solid/
+      /\.tournament-dock__line--toggle:focus-visible \{\s*outline: 2px solid/
     );
+    expect(HUD_CSS).not.toMatch(/tournament-lobby-corner-btn:focus-visible/);
   });
 });
 

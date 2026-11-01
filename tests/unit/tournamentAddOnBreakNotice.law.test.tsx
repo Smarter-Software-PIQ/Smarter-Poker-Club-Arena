@@ -199,3 +199,19 @@ describe('every player receives the public add-on break notice', () => {
     expect(screen.queryByText('Chips Total')).toBeNull();
   });
 });
+
+describe('the notice prints the durable row, which the creators keep lawful (Dan 2026-11-01)', () => {
+  // "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF CHIPS THAT THE TOURNAMENT
+  //  STARTED WITH, THE ADD ON SHOULD BE THE SAME AMOUNT OF CHIPS THAT YOU
+  //  START WITH IN THE TOURNAMENT, NEVER LESS!" The law is enforced where
+  //  rows are born (midwayStructurePolicy, tournamentFromTableConfig); the
+  //  notice, the quote and the purchase all print the ROW, so Free Buy's
+  //  owner-designed 10K promotional add-on keeps working unchanged.
+  it('prints the row figure the purchase will credit', async () => {
+    fx.row.addon_chips = 40000;
+    fx.row.starting_chips = 40000;
+    render(<Witness />);
+    await act(async () => {});
+    expect(screen.getByRole('status')).toHaveTextContent('15/40000/1060000');
+  });
+});

@@ -80,8 +80,10 @@ describe('Midway standard structures through the actual scheduled creator', () =
           expect(
             row.starting_chips / levels[row.late_reg_levels - 1].bigBlind
           ).toBeGreaterThanOrEqual(20);
-        if (row.add_on_available)
-          expect(row.addon_chips).toBeGreaterThanOrEqual(row.starting_chips * 2);
+        // Dan 2026-11-01, binding: "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF
+        // CHIPS THAT THE TOURNAMENT STARTED WITH ... NEVER LESS!" - exactly
+        // the starting stack, which retired the 2x floor this asserted.
+        if (row.add_on_available) expect(row.addon_chips).toBe(row.starting_chips);
         if (config.buyIn != null && !smallBounty) {
           if (row.satellite_target_id) {
             expect(100 / row.buy_in_amount).toBeGreaterThanOrEqual(5);
@@ -191,7 +193,8 @@ describe('Midway standard structures through the actual scheduled creator', () =
       rebuy_cost: 20,
       add_on_available: true,
       addon_cost: 20,
-      addon_chips: 10000,
+      // Dan 2026-11-01: the add-on IS the starting stack (base is 5000).
+      addon_chips: 5000,
       addon_break_minutes: 1,
     });
     for (const authored of [

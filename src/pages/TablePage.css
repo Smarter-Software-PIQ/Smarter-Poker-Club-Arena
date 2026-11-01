@@ -5134,10 +5134,12 @@ button.post-bb-overlay-button {
   min-width: 0;
   min-height: 0;
 }
-@media (max-width: 480px) {
-  .table-page {
-    --sp-game-tool-size: 48px;
-  }
+/* Dan 2026-11-01: the tools follow the hamburger (--sp-tabbar-control) at
+   every width - see MultiTablePage.css. Declared on the page itself so a bare
+   /table/ route without the multi-table wrapper gets the same size; the 48px
+   phone step is retired with it. */
+.table-page {
+  --sp-game-tool-size: var(--sp-tabbar-control, 52px);
 }
 /* Compact viewports still reserve the top pod below the jackpot. */
 @media (max-width: 480px) and (max-height: 650px) and (orientation: portrait) {

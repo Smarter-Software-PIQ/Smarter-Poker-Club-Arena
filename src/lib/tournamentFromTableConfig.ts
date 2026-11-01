@@ -410,7 +410,12 @@ export function buildTournamentConfig(
     rebuyChips: config.startingChips,
     addOnAvailable: isMtt && config.addOnMultiplier > 0,
     addOnCost,
-    addOnChips: Math.round(config.startingChips * Math.max(1, config.addOnMultiplier)),
+    /* Dan 2026-11-01, binding: "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF
+       CHIPS THAT THE TOURNAMENT STARTED WITH, THE ADD ON SHOULD BE THE SAME
+       AMOUNT OF CHIPS THAT YOU START WITH IN THE TOURNAMENT, NEVER LESS!" The
+       multiplier slider still switches the add-on ON; it no longer inflates
+       the grant past the starting stack. */
+    addOnChips: config.startingChips,
     addOnLevels: 1,
     /**
      * FREEROLLS ARE FREE BUY (Dan 2026-09-02). A 0 buy-in MTT built on the
@@ -422,7 +427,8 @@ export function buildTournamentConfig(
       buyIn: split.total,
       type: isSpins ? 'spin' : isSng ? 'sng' : 'mtt',
       startingStack: config.startingChips,
-      addOnChips: Math.round(config.startingChips * Math.max(1, config.addOnMultiplier)),
+      /* Dan 2026-11-01: same law as above - the add-on is the starting stack. */
+      addOnChips: config.startingChips,
       maxRebuys: config.numberOfRebuysReentries,
     }),
     guaranteedPrize:
