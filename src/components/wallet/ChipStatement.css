@@ -186,3 +186,35 @@
 .chip-statement__balance-value {
   flex-shrink: 0;
 }
+
+/* Weekly rakeback receipt (2026-10-31): a leg's own receipt, opened in place. */
+.chip-statement__receipt {
+  margin-top: 6px;
+}
+.chip-statement__receipt-toggle {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.chip-statement__receipt-body {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.chip-statement__receipt-body dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+.chip-statement__receipt-body dt {
+  opacity: 0.7;
+}
+.chip-statement__receipt-body dd {
+  margin: 0;
+  text-align: right;
+}

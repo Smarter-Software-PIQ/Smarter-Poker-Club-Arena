@@ -38,6 +38,7 @@ import { reportError } from '../../utils/errorReporter';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import './ChipStatement.css';
+import { WEEKLY_RECEIPT_CATEGORIES, WeeklyRakebackReceipt } from './WeeklyRakebackReceipt';
 
 /**
  * THE RIVETED MASTER PAINTS TWO PLATES IN EVERY STATE (launch audit D-08 /
@@ -846,6 +847,9 @@ function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewK
                   </span>
                   <time dateTime={leg.at}>{when(leg.at)}</time>
                 </div>
+                {scope === 'player' && WEEKLY_RECEIPT_CATEGORIES.has(leg.category) && (
+                  <WeeklyRakebackReceipt ledgerId={leg.id} />
+                )}
               </li>
             ))}
           </ol>
