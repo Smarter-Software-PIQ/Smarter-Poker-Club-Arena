@@ -9,7 +9,10 @@ export async function readFixtureServicePreimage({
   file = '/run/club-arena-qualification/service-preimage.json',
   uid = 1000,
   gid = 1000,
+  maxBytes = 1024 * 1024,
 } = {}) {
+  if (![1024 * 1024, 128 * 1024 * 1024].includes(maxBytes))
+    throw new Error('FIXTURE_SERVICE_PREIMAGE_FILE_REFUSED');
   const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   const requireFile = (condition) => {
     if (!condition) throw new Error('FIXTURE_SERVICE_PREIMAGE_FILE_REFUSED');
@@ -23,7 +26,7 @@ export async function readFixtureServicePreimage({
         before.gid === gid &&
         (before.mode & 0o222) === 0 &&
         before.size > 0 &&
-        before.size <= 1024 * 1024
+        before.size <= maxBytes
     );
     const bytes = Buffer.alloc(before.size + 1);
     let received = 0;
@@ -43,6 +46,16 @@ export async function readFixtureServicePreimage({
   } finally {
     await handle.close();
   }
+}
+
+// Only these two bootstrap exports are eligible; production callers supply no harness.
+export async function readFixtureBootstrapFile(kind, harness = {}) {
+  const names = { PREIMAGE: 'service-schema.sql', PREFLIGHT: 'schema-preflight.json' };
+  if (!Object.hasOwn(names, kind)) throw new Error('FIXTURE_BOOTSTRAP_FILE_REFUSED');
+  return readFixtureServicePreimage({
+    file: '/run/club-arena-qualification/' + names[kind], ...harness,
+    maxBytes: 128 * 1024 * 1024,
+  });
 }
 
 // Original owned bootstrap only, after verified genuine service migrations.

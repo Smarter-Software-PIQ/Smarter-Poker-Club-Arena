@@ -92,8 +92,25 @@ fi
                 code += '\nGENERATION_DIR="$GENERATION_ROOT/$CONTROL_SHA"\n' + activation
                 return subprocess.run(['bash', '-c', code], text=True, capture_output=True, env=env)
 
+            # Undeclared interpreter bytecode in the active generation (the
+            # 2026-11-01 refusal) is shed; anything else in __pycache__ refuses.
+            cache = generations / shas[0] / '__pycache__'
+            cache.mkdir()
+            (cache / 'helper.cpython-312.pyc').write_bytes(b'bytecode')
+            (cache / 'notes.txt').write_text('not bytecode')
+            result = install(shas[1])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('holds something other than interpreter bytecode', result.stderr)
+            self.assertEqual(active.resolve(), generations / shas[0])
+            (cache / 'notes.txt').unlink()
+            (cache / 'nested').mkdir()
+            result = install(shas[1])
+            self.assertNotEqual(result.returncode, 0)
+            (cache / 'nested').rmdir()
             result = install(shas[1])
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('removed undeclared interpreter bytecode', result.stdout)
+            self.assertFalse(cache.exists())
             self.assertEqual(active.resolve(), generations / shas[1], 'validated older canonical generation must activate the requested newer one')
             inode = active.lstat().st_ino
             result = install(shas[1])

@@ -88,6 +88,17 @@ describe('noteRealtimeTransportLoss', () => {
     noteRealtimeTransportLoss('a', 's', undefined, TRANSPORT_LOSS_REPORT_CEILING_MS);
     expect(sink.report).toHaveBeenCalledTimes(2);
   });
+
+  it('suppresses telemetry when the document is hidden (backgrounded mobile tab)', () => {
+    const spy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      noteRealtimeTransportLoss('a', 's', undefined, 1_000);
+      noteRealtimeTransportLoss('b', 's', undefined, 1_005);
+      expect(sink.report).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('isRealtimeTopicRefusal', () => {

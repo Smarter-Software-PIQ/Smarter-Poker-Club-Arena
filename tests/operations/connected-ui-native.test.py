@@ -3,6 +3,9 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import hashlib
+import sys
+import time
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -176,6 +179,102 @@ class NativeObservationAuthority(unittest.TestCase):
                 self.assertEqual(receipt['success'], not cleanup_fails and not callback_fails)
                 self.assertNotIn('PRIVATE FAILURE',json.dumps(receipt))
                 self.assertEqual(receipt['cleanup']['runtime_image_removed'], not cleanup_fails)
+
+
+class BootstrapReadBoundary(unittest.TestCase):
+    def test_actual_child_partial_stream_digest_and_environment(self):
+        body = b'owned fixture bytes'
+        raw = len(body).to_bytes(4, 'big') + hashlib.sha256(body).digest() + body
+        script = "import os,sys,time;assert 'GH_TOKEN' not in os.environ;sys.stderr.write('private-secret');raw=" + repr(raw) + ";[(sys.stdout.buffer.write(raw[i:i+3]),sys.stdout.buffer.flush()) for i in range(0,len(raw),3)]"
+        with patch.dict(os.environ, {'GH_TOKEN':'private-secret'}):
+            actual = MODULE.bounded_bootstrap_output([sys.executable,'-c',script],len(raw),time.monotonic()+5)
+        self.assertEqual(actual,raw)
+        self.assertEqual(MODULE.bootstrap_file_bytes(actual),body)
+        for bad in [raw[:3],raw[:-1],raw+b'x',b'\0'*36,(MODULE.BOOTSTRAP_LIMIT+1).to_bytes(4,'big')+raw[4:]]:
+            with self.subTest(length=len(bad)),self.assertRaises(RuntimeError):
+                partial=MODULE.bounded_bootstrap_output([sys.executable,'-c','import sys;sys.stdout.buffer.write('+repr(bad)+')'],len(raw)+1,time.monotonic()+5)
+                MODULE.bootstrap_file_bytes(partial)
+        wrong = bytearray(raw);wrong[4]^=1
+        with self.assertRaises(RuntimeError):MODULE.bootstrap_file_bytes(bytes(wrong))
+        for script in ["import sys;sys.stdout.buffer.write(b'x'*33)","raise SystemExit(7)"]:
+            with self.assertRaises(RuntimeError):MODULE.bounded_bootstrap_output([sys.executable,'-c',script],32,time.monotonic()+5)
+
+    def test_deadline_kills_and_drains_actual_owned_child(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pidfile=Path(folder)/'pid'
+            script="import os,time;from pathlib import Path;Path("+repr(str(pidfile))+").write_text(str(os.getpid()));time.sleep(20)"
+            with self.assertRaises(RuntimeError):MODULE.bounded_bootstrap_output([sys.executable,'-c',script],32,time.monotonic()+1)
+            pid=int(pidfile.read_text())
+            with self.assertRaises(ProcessLookupError):os.kill(pid,0)
+
+    def exercise(self,fault=None,cleanup_fails=False,mode='schema-preimage'):
+        with tempfile.TemporaryDirectory() as folder:
+            temp=Path(folder);body=b'owned immutable fixture bytes';remote=temp/'remote';remote.write_bytes(body);remote.chmod(0o400)
+            filename='service-schema.sql' if mode=='schema-preimage' else 'schema-preflight.json'
+            if fault=='copy':(temp/filename).write_bytes(b'preserve-collision')
+            state={'exists':False};calls=[];events=[];owned='a'*64
+            def command(args,**kwargs):
+                calls.append(args)
+                if args[:3]==['docker','container','ls']:return subprocess.CompletedProcess(args,0,(owned if state['exists'] else '').encode(),b'')
+                if args[:2]==['docker','run']:
+                    state.update(exists=True,name=args[args.index('--name')+1]);events.append('START')
+                    self.assertIn('--network=none',args);self.assertEqual(args[args.index('--user')+1],'1000:1000')
+                    return subprocess.CompletedProcess(args,0,owned.encode(),b'')
+                if args[:2]==['docker','inspect']:
+                    info={'Id':owned,'Name':'/'+state['name'],'Config':{'Labels':{'com.smarter-poker.isolated-schema-owner':state['name']}},'State':{'Running':fault!='ready','ExitCode':7}}
+                    return subprocess.CompletedProcess(args,0,json.dumps([info]).encode(),b'')
+                if args[:2]==['docker','exec']:
+                    if '.ready' in args[-1]:events.append('READY');return subprocess.CompletedProcess(args,1 if fault=='ready' else 0,b'',b'')
+                    events.append('ACK');self.assertEqual((temp/filename).read_bytes(),body)
+                    if fault=='ack':raise RuntimeError('private-secret')
+                    return subprocess.CompletedProcess(args,0,b'',b'')
+                if args[:2]==['docker','wait']:events.append('WAIT');return subprocess.CompletedProcess(args,0,b'7' if fault=='wait' else b'0',b'')
+                if args[:2]==['docker','rm']:
+                    if not cleanup_fails:state['exists']=False
+                    return subprocess.CompletedProcess(args,0,b'',b'')
+                raise AssertionError(args[:3])
+            original=MODULE.bounded_bootstrap_output
+            def bounded(args,limit,deadline,**kwargs):
+                if args[:2]==['docker','logs']:
+                    lines=[{'status':'failed','stage':'private-secret','error':'Error'},
+                        {'status':'failed','stage':'fixture-preimage-current-application-role-extension','error':'Error','message':'private-secret'},
+                        {'status':'failed','stage':'fixture-preimage-genuine-service-schema-preimage','error':'error','sqlstate':'42501'}]
+                    return original([sys.executable,'-c','print('+repr('\n'.join(json.dumps(x) for x in lines))+')'],limit,deadline,**kwargs)
+                self.assertEqual(args[:2],['docker','exec']);events.append('READ')
+                reader=args[-2].replace("'/opt/qualification/runtime/service-preimage.mjs'",repr((ROOT/'operations/release/fixture/service-preimage.mjs').as_uri()))
+                reader=reader.replace('readFixtureBootstrapFile(process.argv[1])','readFixtureBootstrapFile(process.argv[1],'+json.dumps({'file':str(remote),'uid':os.getuid(),'gid':os.getgid()})+')')
+                raw=original(['node','--input-type=module','-e',reader,args[-1]],limit,deadline,**kwargs)
+                return raw[:-1] if fault=='read' else raw
+            lives=[]
+            original_fsync=MODULE.os.fsync
+            def fsync(fd):
+                if fault=='copy-partial':raise OSError('private-secret')
+                return original_fsync(fd)
+            with patch.object(MODULE.native,'command',command),patch.object(MODULE,'bounded_bootstrap_output',bounded),patch.object(MODULE.os,'fsync',fsync):
+                if fault:
+                    with self.assertRaises((RuntimeError,OSError)):MODULE.private_bootstrap('sha256:'+'b'*64,ROOT,None,temp,mode,time.monotonic()+5,lives)
+                else:MODULE.private_bootstrap('sha256:'+'b'*64,ROOT,None,temp,mode,time.monotonic()+5,lives)
+            life=lives[0];self.assertEqual(life['container_absent'],not cleanup_fails)
+            self.assertFalse(any(call[:2]==['docker','cp'] for call in calls))
+            if not fault:
+                self.assertEqual(events,['START','READY','READ','ACK','WAIT']);self.assertTrue(life['normal_shutdown']);self.assertTrue(life['read_complete']);self.assertTrue(life['acknowledged']);self.assertEqual((temp/filename).stat().st_mode&0o777,0o600)
+            else:
+                self.assertEqual(life['failure']['phase'],{'ready':'READY','read':'READ','copy':'COPY','copy-partial':'COPY','ack':'ACK','wait':'WAIT'}[fault])
+                self.assertEqual(life['failure']['native_failures'],[{'stage':'fixture-preimage-genuine-service-schema-preimage','category':'error','sqlstate':'42501'}])
+                self.assertNotIn('private-secret',json.dumps(life))
+                if fault in ['ready','read','copy','copy-partial']:self.assertNotIn('ACK',events);self.assertNotIn('WAIT',events)
+                if fault=='copy':self.assertEqual((temp/filename).read_bytes(),b'preserve-collision')
+                if fault in ['read','copy-partial']:self.assertFalse((temp/filename).exists())
+                if cleanup_fails:self.assertTrue(life['cleanup_failed'])
+
+    def test_actual_reader_facade_preserves_ready_read_ack_wait_and_owned_cleanup(self):
+        for mode in ['schema-preimage','schema-preflight']:
+            with self.subTest(mode=mode):self.exercise(mode=mode)
+
+    def test_closed_phase_faults_keep_first_failure_and_never_ack_partial_input(self):
+        for fault in ['ready','read','copy','copy-partial','ack','wait']:
+            with self.subTest(fault=fault):self.exercise(fault)
+        self.exercise('ack',cleanup_fails=True)
 
 
 if __name__ == '__main__':

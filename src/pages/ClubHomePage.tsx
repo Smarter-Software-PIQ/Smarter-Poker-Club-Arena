@@ -4340,7 +4340,12 @@ function ClubHomePageContent({
          ids name tournaments: resolve their actual live table while the panel
          is open. The entry tap still re-elects it because games can recycle. */
       if (entry.kind === 'cash') warmTable(entry.id);
-      else {
+      else if (
+        entry.kind === 'spin' ||
+        entry.kind === 'sng' ||
+        entry.status === 'running' ||
+        entry.status === 'late_reg'
+      ) {
         void tableService
           .resolveTournamentLiveTable(entry.id)
           .then((tableId) => warmTable(tableId))
