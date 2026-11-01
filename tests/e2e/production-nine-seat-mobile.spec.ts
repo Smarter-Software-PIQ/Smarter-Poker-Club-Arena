@@ -74,8 +74,10 @@ for (const viewport of [
       const refusedParticipation: RefusedWrite[] = [];
       const clients: WebSocketRoute[] = [];
       let snapshot: Record<string, any> | null = null;
+      let snapshotClient: WebSocketRoute | null = null;
       let latestSequence = 0;
       let realIncomingFrames = 0;
+      let observedViewerId: string | null = null;
       let syntheticPhase = false;
       let forwardedSyntheticUpstream = 0;
       const refusedSynthetic = { http: 0, websocket: 0 };
@@ -110,6 +112,15 @@ for (const viewport of [
         }
         await route.continue();
       });
+      await context.route('**/rest/v1/table_seats?**', async (route) => {
+        const url = new URL(route.request().url());
+        if (
+          (url.searchParams.get('select') || '').startsWith('table_id') &&
+          (url.searchParams.get('user_id') || '').startsWith('eq.')
+        )
+          observedViewerId = url.searchParams.get('user_id')!.slice(3);
+        await route.fallback();
+      });
       await context.routeWebSocket(
         () => true,
         (client) => {
@@ -125,8 +136,10 @@ for (const viewport of [
                 if (frame.tableId === TABLE_ID) {
                   if (typeof frame.seq === 'number')
                     latestSequence = Math.max(latestSequence, frame.seq);
-                  if (frame.type === 'SNAPSHOT' && frame.state?.players?.length === 9)
+                  if (frame.type === 'SNAPSHOT' && frame.state?.players?.length === 9) {
                     snapshot = frame;
+                    snapshotClient = client;
+                  }
                 }
               } catch {
                 /* Forward genuine non-JSON bytes unchanged. */
@@ -185,6 +198,8 @@ for (const viewport of [
         await page.evaluate(() => document.fonts.ready);
         await page.screenshot({ path: info.outputPath('published-nine-seat-observer.png') });
         evidence.realObserverOccupiedSeats = 9;
+        await expect.poll(() => observedViewerId, { timeout: 20_000 }).toBe(fixtureUserId);
+        evidence.reservedViewerConfirmed = true;
         const input = structuredClone(snapshot!) as Record<string, any>;
         expect(input.tableId).toBe(TABLE_ID);
         expect(input.state.lightning_observer).not.toBe(true);
@@ -202,7 +217,7 @@ for (const viewport of [
         if (input.state.current_player === actorId) input.state.current_player = fixtureUserId;
         input.seq = latestSequence + 1;
         syntheticPhase = true;
-        clients.at(-1)!.send(JSON.stringify(input));
+        snapshotClient!.send(JSON.stringify(input));
         await expect(page.locator(`.seat--hero[data-player-id="${fixtureUserId}"]`)).toHaveCount(1);
         await expect(page.locator('.seat:not(.seat--empty)')).toHaveCount(9);
         await page.evaluate(() => document.fonts.ready);
