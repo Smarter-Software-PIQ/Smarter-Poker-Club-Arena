@@ -331,6 +331,34 @@ def role_alignment_record(output):
     return result
 
 
+def current_application_preimage_record(output):
+    expected = {'scope': 'native-current-application-preimage', 'roles': 38,
+                'added_roles': 5, 'extensions': 13, 'target_schema_owner_acl_exact': True,
+                'exact_versions_schemas_owners': True, 'genuine_create_extension': True,
+                'schema_preimage_created': True, 'production_binary_parity': False,
+                'full_schema_ready': False}
+    records = []
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result)
+            result[key] = value
+        return result
+    for line in output.splitlines():
+        if not line.startswith('{') or len(line) > 2048:
+            continue
+        try:
+            row = json.loads(line, object_pairs_hook=unique_object)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get('scope') == expected['scope']:
+            records.append(row)
+    require(len(records) == 1 and set(records[0]) == set(expected))
+    require(all(type(records[0][key]) is type(value) and records[0][key] == value
+                for key, value in expected.items()))
+    return records[0]
+
+
 def service_preimage(output, path):
     """Validate private candidate bytes before exposing any catalog artifact."""
     def unique_object(pairs):
@@ -502,6 +530,7 @@ def execute(repo, output, expected, run=command, connected=None):
         result = run(['bash', PREFIX + 'smoke-image.sh', image_id], repo, env, timeout=420)
         receipt['observations'] = smoke_records(result)
         receipt['role_alignment'] = role_alignment_record(result)
+        receipt['current_application_preimage'] = current_application_preimage_record(result)
         proof, catalog_bytes = service_preimage(result, private_preimage)
         receipt['service_preimage'] = proof
         (output / 'native-service-preimage.json').write_bytes(catalog_bytes)

@@ -145,30 +145,40 @@ test('native extension retains the exact protected role-owner source bindings', 
 });
 
 test('native extension installer uses actual owning sessions and refuses wrong versions', async () => {
-  const { installCurrentApplicationExtensions, currentApplicationExtensions } =
+  const { installCurrentApplicationExtensions, currentApplicationExtensions, currentApplicationExtensionNamespaceSql, currentApplicationExtensionNamespace } =
     await import('../current-application-roles.mjs');
-  for (const drift of [false, true]) {
+  for (const drift of [false, 'extension-version', 'namespace-acl']) {
     const installed = structuredClone(
       currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
     );
     const statements = [];
+    const schemas = new Set(base.schemas.map((item) => item.name));
+    let namespaceCreates = 0;
     class Client {
       async connect() {}
       async query(sql) {
         if (sql.includes(' AS owned')) return { rows: [{ owned: true }] };
+        if (sql.startsWith('SELECT nspname AS name,'))
+          return {rows: [{...structuredClone(currentApplicationExtensionNamespace),
+            ...(drift === 'namespace-acl' ? {acl: []} : {})}]};
         if (sql.startsWith('SELECT e.extname'))
           return {
             rows: installed
               .map((item) =>
-                drift && installed.length === 13 && item.name === 'http'
+                drift === 'extension-version' && installed.length === 13 && item.name === 'http'
                   ? { ...item, version: 'wrong' }
                   : item
               )
               .sort((a, b) => (a.name < b.name ? -1 : 1)),
           };
+        if (sql === currentApplicationExtensionNamespaceSql) {
+          assert.equal(schemas.has('vault'), false);
+          schemas.add('vault'); namespaceCreates++;
+        }
         if (sql.startsWith('CREATE EXTENSION')) {
           const [, name, schema, version] =
             /^CREATE EXTENSION "([^"]+)" WITH SCHEMA "([^"]+)" VERSION '([^']+)'$/.exec(sql);
+          if (!schemas.has(schema)) throw Object.assign(new Error('missing namespace'), {code:'3F000'});
           installed.push({ name, schema, version, owner: this.owner || 'supabase_admin' });
           statements.push(sql);
         }
@@ -194,6 +204,7 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     if (drift) await assert.rejects(installCurrentApplicationExtensions(args));
     else assert.equal((await installCurrentApplicationExtensions(args)).installed, 13);
     assert.equal(statements.length, 11);
+    assert.equal(namespaceCreates, 1);
     assert.deepEqual(
       installed.sort((a, b) => (a.name < b.name ? -1 : 1)),
       currentApplicationExtensions

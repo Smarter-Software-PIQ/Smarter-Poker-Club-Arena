@@ -326,6 +326,36 @@ export const currentApplicationExtensions = Object.freeze([
   { name: 'vector', owner: 'supabase_admin', schema: 'public', version: '0.8.0' },
 ]);
 
+// Genuine read-only namespace catalogue witness retrieved2026-11-01, postgres
+// with auth.uid() NULL; READ ONLY/2s statement/1s lock/ROLLBACK. The aligned
+// role preimage already owns extensions/public. Only vault is absent there.
+export const currentApplicationExtensionNamespace = Object.freeze({
+  name: 'vault', owner: 'supabase_admin',
+  acl: Object.freeze(['postgres=U*/supabase_admin', 'service_role=U/supabase_admin',
+    'supabase_admin=UC/supabase_admin']),
+});
+// One atomic statement, also exercised directly on private native PG17. This
+// is only a disposable fixture operation; occupied namespaces always refuse.
+export const currentApplicationExtensionNamespaceSql = `DO $namespace$
+DECLARE actual jsonb;
+BEGIN
+  IF current_database() <> 'club_arena_qualification' OR inet_server_addr() IS NOT NULL
+    OR current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+    OR current_setting('server_version_num')::integer NOT BETWEEN 170000 AND 179999
+    OR NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE oid=10 AND rolname=current_user AND rolsuper)
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_NAMESPACE_OWNER_REQUIRED'; END IF;
+  IF EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname='vault')
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_NAMESPACE_ABSENT_REQUIRED'; END IF;
+  CREATE SCHEMA vault AUTHORIZATION supabase_admin;
+  GRANT USAGE ON SCHEMA vault TO postgres WITH GRANT OPTION;
+  GRANT USAGE ON SCHEMA vault TO service_role;
+  SELECT jsonb_build_object('name',nspname,'owner',pg_get_userbyid(nspowner),
+    'acl',(SELECT jsonb_agg(a::text ORDER BY a::text) FROM unnest(nspacl) a))
+    INTO actual FROM pg_catalog.pg_namespace WHERE nspname='vault';
+  IF actual IS DISTINCT FROM '${JSON.stringify(currentApplicationExtensionNamespace)}'::jsonb
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_NAMESPACE_POSTIMAGE_REQUIRED'; END IF;
+END $namespace$;`;
+
 export async function installCurrentApplicationExtensions({
   applicationClient,
   Client,
@@ -368,6 +398,8 @@ export async function installCurrentApplicationExtensions({
         "BEGIN; SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='5s';"
       );
       try {
+        if (owner === 'supabase_admin')
+          await client.query(currentApplicationExtensionNamespaceSql);
         for (const item of currentApplicationExtensions.filter(
           (item) => item.owner === owner && !['pg_cron', 'plpgsql'].includes(item.name)
         )) {
@@ -387,6 +419,11 @@ export async function installCurrentApplicationExtensions({
       }
     }
     assert.deepEqual((await bootstrap.query(query)).rows, currentApplicationExtensions);
+    assert.deepEqual((await bootstrap.query(`SELECT nspname AS name,
+      pg_get_userbyid(nspowner) AS owner,
+      (SELECT array_agg(a::text ORDER BY a::text) FROM unnest(nspacl) a) AS acl
+      FROM pg_catalog.pg_namespace WHERE nspname='vault'`)).rows,
+      [currentApplicationExtensionNamespace]);
   } finally {
     await databaseOwner.end(bootstrap);
   }
@@ -395,6 +432,7 @@ export async function installCurrentApplicationExtensions({
     installed: 13,
     exact_versions_schemas_owners: true,
     genuine_create_extension: true,
+    target_schema_owner_acl_exact: true,
     production_binary_parity: false,
   };
 }
