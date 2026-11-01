@@ -119,8 +119,12 @@ describe('a tournament row says what makes it worth playing', () => {
 
 describe('a heading the player taps reorders the whole board', () => {
   it('Players reorders ordinary events while keeping top events pinned', () => {
+    // Featured pins apply only to today's local calendar. The default fixture's
+    // now +45 minutes becomes tomorrow near midnight and is correctly unpinned.
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
     const featured = mtt(
-      { id: 'small', name: 'Featured Small', current_players: 5 },
+      { id: 'small', name: 'Featured Small', current_players: 5, start_time: today.toISOString() },
       { featured: true }
     );
     const big = mtt({ id: 'big', name: 'Busy Big', current_players: 50 });
