@@ -148,8 +148,12 @@ describe('the lobby button lives on the action bar, never the felt (Dan 2026-11-
     expect(TAB).toMatch(/action: 'TOURNAMENT_LOBBY',?/);
     // Only a tournament tab shows it; a lobby tab never does.
     expect(TAB).toMatch(/if \(!activeTabInfo\?\.isTournament \|\| activeIsLobby\) return null;/);
-    // The table answers the bus action by opening its own lobby modal.
-    expect(PAGE).toMatch(/case 'TOURNAMENT_LOBBY':[\s\S]{0,700}?setShowTournamentLobby\(true\);/);
+    // The table answers the bus action by opening its own lobby modal - in
+    // the subscription declared AFTER setShowTournamentLobby, because the
+    // no-TDZ law refuses a new use-before-declare on this route.
+    expect(PAGE).toMatch(
+      /if \(event\.action === 'TOURNAMENT_LOBBY'\) \{[\s\S]{0,700}?setShowTournamentLobby\(true\);/
+    );
     const btn = rule(TAB_CSS, '.table-tab-bar__lobby-btn {');
     expect(btn).toMatch(/width:\s*var\(--sp-tabbar-control\)/);
     expect(btn).toMatch(/height:\s*var\(--sp-tabbar-control\)/);

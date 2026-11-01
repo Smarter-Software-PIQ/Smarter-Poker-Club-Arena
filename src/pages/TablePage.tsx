@@ -5794,13 +5794,6 @@ function LiveTablePage({
       case 'SHOW_TOURNAMENT_DOCK':
         setTournamentDockClosed(false);
         break;
-      case 'TOURNAMENT_LOBBY':
-        /* Dan 2026-11-01: "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN
-           THE RIGHT CORNER IN THE ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE
-           THE POKER TABLE PAGE." The button lives on TableTabBar now and
-           reaches this table through the bus; this case is its door. */
-        setShowTournamentLobby(true);
-        break;
       case 'SIT_OUT':
         void handleSitOut();
         break;
@@ -14166,7 +14159,17 @@ function LiveTablePage({
   // Sync settings when changed from other components (like TableMenu)
   useMasterBusSubscription('TABLE_MENU_ACTION', (event: any) => {
     if (event.tableId && event.tableId !== tableId) return;
-    if (event.action === 'STAND_UP_BB') {
+    if (event.action === 'TOURNAMENT_LOBBY') {
+      /* Dan 2026-11-01: "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN
+         THE RIGHT CORNER IN THE ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE
+         THE POKER TABLE PAGE." The plate lives on TableTabBar now and reaches
+         this table through the bus; this branch is its door. It is handled in
+         THIS subscription, not the earlier switch, because
+         setShowTournamentLobby is declared between the two and the no-TDZ law
+         (tests/no-tdz-in-table-route.law.test.ts) refuses a new
+         use-before-declare. */
+      setShowTournamentLobby(true);
+    } else if (event.action === 'STAND_UP_BB') {
       // STALE CLOSURE. This bus callback is registered once, so `standUpNextBB`
       // inside it is whatever the value was at registration - `!standUpNextBB`
       // can therefore toggle against a stale reading and land on the value it
