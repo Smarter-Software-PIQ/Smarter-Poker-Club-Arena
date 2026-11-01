@@ -1132,21 +1132,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { v59Plo6RiverUnpaired: false },
   },
-  // V71 (2026-10-31): an Omaha semi-bluff raise needs a draw. Default ON:
+  // V72 (2026-10-31): an Omaha semi-bluff raise needs a draw. Default ON:
   // a is today's brain, b is the brain without the gate.
   {
-    name: 'plo4_v71_semibluff_needs_draw',
+    name: 'plo4_v72_semibluff_needs_draw',
     variant: 'plo4',
     pairs: 6000,
     a: {},
-    b: { v71OmahaSemiBluffNeedsDraw: false },
+    b: { v72OmahaSemiBluffNeedsDraw: false },
   },
   {
-    name: 'plo5_v71_semibluff_needs_draw',
+    name: 'plo5_v72_semibluff_needs_draw',
     variant: 'plo5',
     pairs: 6000,
     a: {},
-    b: { v71OmahaSemiBluffNeedsDraw: false },
+    b: { v72OmahaSemiBluffNeedsDraw: false },
   },
   /*
    * LEAGUE-GATED SELF-TUNER (Dan 2026-10-19: "League-gated nudges"). The

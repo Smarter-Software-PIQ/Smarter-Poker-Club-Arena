@@ -776,9 +776,9 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V63-league'
   ),
   flag(
-    'v71OmahaSemiBluffNeedsDraw',
+    'v72OmahaSemiBluffNeedsDraw',
     '2026-10-31 an Omaha semi-bluff raise needs a flush draw, eight or more straight outs or (hi-lo) a nut low draw; omahaDrawMod had returned 0.7 for no draw at all, so top pair with nothing to come re-raised bets under V53 pressure (reviews 2944297, 2838834; plo_toppair_no_redraw_stackoff -62.13 bb per hand over 234 hands); default on, explicit off arm retained for the league',
-    'V71'
+    'V72'
   ),
   flag(
     'v62RiverBettorPolarity',
@@ -3515,10 +3515,10 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V55'
   ),
   receipt(
-    'v71_omaha_semibluff_needs_draw',
-    'HorseLogic (V71) semi-bluff raise gate',
+    'v72_omaha_semibluff_needs_draw',
+    'HorseLogic (V72) semi-bluff raise gate',
     'an Omaha hand with no flush draw, under eight straight outs and no nut low draw was refused the semi-bluff raise',
-    'V71'
+    'V72'
   ),
   receipt(
     'v62_river_bettor_polarity',
