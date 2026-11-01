@@ -20,6 +20,24 @@ const step = (name: string) =>
   browser.steps.find((value: { name?: string }) => value.name === name);
 
 describe('browser qualification parallel delivery', () => {
+  it('keeps post-deploy browser installers on the OS supported by locked Playwright', () => {
+    const workflow = YAML.parse(readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8'));
+    const installers = Object.entries(workflow.jobs).filter(([, job]: [string, any]) =>
+      job.steps?.some((step: any) => /\bplaywright install\b/.test(step.run ?? ''))
+    );
+    expect(installers.map(([name]) => name)).toEqual([
+      'private-record-client-proof',
+      'stats-pagination-proof',
+      'production-e2e',
+      'live-table-e2e',
+      'club-channel-lifecycle-e2e',
+    ]);
+    for (const [name, job] of installers as Array<[string, any]>) {
+      expect(job['runs-on'], name).toBe('ubuntu-24.04');
+      expect(job['continue-on-error'], name).toBeUndefined();
+    }
+  });
+
   it('uses only standard hosted runners across CI and publication', () => {
     for (const file of [
       'ci.yml',
