@@ -175,4 +175,57 @@ describe('street integrity measures the event time before settlement', () => {
       expect.objectContaining({ drift: 1, handNumber: 51922256, stage: 'flop' })
     );
   });
+
+  it('does not report a false-positive drift === pot violation when COMMUNITY_CARDS is verified after synchronous pot distribution to showdown', async () => {
+    const players = seats();
+    const engine = new ServerTableEngine(TABLE) as any;
+    const controller = new HandController(
+      {
+        tableId: TABLE,
+        handNumber: 51922257,
+        gameVariant: 'nlh',
+        smallBlind: 223,
+        bigBlind: 446,
+        rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+      } as HandConfig,
+      players,
+      1
+    );
+    engine.handController = controller;
+    engine.handCount = 51922257;
+    engine.broadcastCurrentState = vi.fn();
+    engine.hub = { emitEvent: vi.fn() };
+    engine.stateVerifier.recordInitialChipTotal(TABLE, players);
+
+    const communities: HandEvent[] = [];
+    controller.onEvent((event) => {
+      if (event.type === 'COMMUNITY_CARDS') communities.push(event);
+    });
+    controller.start();
+    // Run the hand to showdown so pot (892) is already distributed into player stacks
+    // while state.pot remains 892 and state.stage === 'showdown'.
+    while (controller.getState().stage !== 'showdown') {
+      const state = controller.getState();
+      const player = state.players.find((p) => p.seat === state.currentPlayerSeat)!;
+      const action = player.bet < state.currentBet ? 'call' : 'check';
+      expect(controller.performAction(player.seat, action)).toBe(true);
+    }
+    expect(controller.getState().stage).toBe('showdown');
+    expect(controller.getState().pot).toBe(892);
+    expect(controller.getState().players.reduce((s, p) => s + p.stack, 0)).toBe(27000);
+
+    const riverEvent = communities.find((e: any) => e.stage === 'river')!;
+    expect(riverEvent).toBeTruthy();
+
+    // Both captureStreetIntegrityEvent and uncaptured handleHandEvent(COMMUNITY_CARDS)
+    // when live.stage === 'showdown' must verify hand_complete conservation without
+    // double-counting the already-distributed pot.
+    const captured = engine.captureStreetIntegrityEvent(riverEvent, controller);
+    expect(captured.integrityVerification.result.valid).toBe(true);
+    expect(captured.integrityVerification.result.violations).toEqual([]);
+
+    await engine.handleHandEvent(riverEvent, []);
+    expect(engine.stateVerifier.getRecoveryState(TABLE)).toBe('healthy');
+    expect(raiseFinancialAlert).not.toHaveBeenCalled();
+  });
 });
