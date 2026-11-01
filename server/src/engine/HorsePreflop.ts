@@ -148,6 +148,14 @@ export interface PreflopCtx {
   /** 2026-10-22: a maniac raised, or is still to act: no bluff 3-bets,
    *  squeezes or 4-bet bluffs (a raise made to fold). Undefined = unchanged. */
   maniacNoBluff?: boolean;
+  /** V76 (2026-11-01): the V7 4-bet-bluff band is retired at the source -
+   *  the brain never GENERATES a sized 4-bet meant to fold (Dan 2026-10-31,
+   *  rule 4: "STOP 4 BETTING POTS IF THEY ARE FOLDING"). Band hands fall to
+   *  the call-or-fold read (the V73/V75 width where it applies), instead of
+   *  being 4-bet and converted to a call at the final layer, which still
+   *  stands as the fail-safe for every other path. Explicit false restores
+   *  the band (historical corpora only). */
+  retireFourBetBluffBand?: boolean;
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -1914,6 +1922,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // V7 4-BET BLUFF: NLHE only, facing exactly a 3-bet, no callers behind,
     // blocker-heavy band just below the value region. Small sizing, folds to
     // a 5-bet. Makes the value 4-bets unexploitable.
+    // ═══ V76 (2026-11-01): RETIRED AT THE SOURCE ═══ Dan's rule 4 bans any
+    // hold'em 4-bet made to fold; this band's whole purpose was to fold to a
+    // 5-bet, so since 2026-11-01 the final layer (HorseHoldemPremiumAggression
+    // rule 4a, receipt holdem_no_four_bet_bluff) converted every one of its
+    // sized 4-bets to a call. Retiring it here lets the band's hands take the
+    // call-or-fold read directly (the V73/V75 priced width where it applies)
+    // instead of a forced conversion; the final layer stays as the fail-safe.
+    // The retirement gate sits AFTER the rand() roll on purpose: the roll is
+    // still drawn, so every variant's random stream is bit-identical to the
+    // band era (HorseOpponentExploitNeutrality replays recorded draws), and
+    // only the ACTION is retired.
     if (
       !ctx.isOmaha &&
       raises === 2 &&
@@ -1922,7 +1941,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       strength >= t(0.72) &&
       strength < fourBetThresh &&
       currentBet * 2.3 < stack * 0.35 &&
-      rand() < bluffBudget * 0.22 * blockerMult * (aggro3 ? 1.5 : cash3 ? 1.4 : 1)
+      rand() < bluffBudget * 0.22 * blockerMult * (aggro3 ? 1.5 : cash3 ? 1.4 : 1) &&
+      ctx.retireFourBetBluffBand !== true
     ) {
       const mult = 2.2 + rand() * 0.2;
       return { a: 'raiseTo', to: currentBet * mult * ctx.sizingMultiplier };

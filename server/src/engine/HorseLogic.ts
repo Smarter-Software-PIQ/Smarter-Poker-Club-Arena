@@ -2248,6 +2248,14 @@ export interface HorseDecideOpts {
    *  the V28 ladder (the measured min-raise defect) for the historical
    *  corpora only. */
   v74NlhOpenSizes?: boolean;
+  /** V76 (2026-11-01, Dan 2026-10-31 rule 4: "STOP 4 BETTING POTS IF THEY
+   *  ARE FOLDING"): the V7 4-bet-bluff band is retired at the source - the
+   *  hold'em brain never generates a sized 4-bet meant to fold; the band's
+   *  hands take the call-or-fold read directly and the final-layer
+   *  conversion (rule 4a) stays as the fail-safe for every other path.
+   *  Default on; explicit false restores the band (historical corpora
+   *  only). */
+  v76RetireFourBetBluffBand?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -6783,6 +6791,7 @@ export class HorseLogic {
       maniacOpenBar:
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
+      retireFourBetBluffBand: opts.v76RetireFourBetBluffBand === false ? undefined : true,
       // V18 STRADDLE: the shape the fallback above detected - hand the
       // truth to the preflop engine so its unopened branch owns the pot.
       // V28: the single source of truth computed above — unopened for EVERY
