@@ -11,7 +11,8 @@ import { DIAMOND_GAME_TITLES } from './utils/diamondGameTitles';
 import { Suspense, lazy, useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import ClubBrandRedirect from './components/common/ClubBrandRedirect';
-import { SessionSummaryHost } from './components/session/SessionSummaryHost';
+// Finished-session statistics load with their result hosts, outside first paint.
+const SessionSummaryHost = lazy(() => import('./components/session/SessionSummaryHost'));
 // LIGHTNING PHASE 8: lazy, so the Lightning component tree stays out of the
 // entry chunk every player downloads before first paint (entry-chunk gate).
 const LightningSessionSummaryHost = lazy(() =>
@@ -19,7 +20,7 @@ const LightningSessionSummaryHost = lazy(() =>
     default: m.LightningSessionSummaryHost,
   }))
 );
-import TournamentRankingHost from './components/tournament/TournamentRankingHost';
+const TournamentRankingHost = lazy(() => import('./components/tournament/TournamentRankingHost'));
 // Seating starts on mount without putting tournament stage parsing in first paint.
 const TournamentAutoSeat = lazyWithRetry(
   () => import('./components/tournament/TournamentAutoSeat')
@@ -651,7 +652,9 @@ function FullApp() {
           lives outside <Routes> - it has to survive the navigate() off the
           table, and "the lobby" is HomePage OR ClubHomePage (which now serves
           /clubs/:clubId and /clubs/:clubId/lobby alike). */}
-        <SessionSummaryHost />
+        <Suspense fallback={null}>
+          <SessionSummaryHost />
+        </Suspense>
         {/* LIGHTNING PHASE 8: the Lightning session summary, over the lobby a
             player lands in after leaving Lightning. */}
         <Suspense fallback={null}>
@@ -659,7 +662,9 @@ function FullApp() {
         </Suspense>
         {/* Dan 2026-08-20: the tournament bust card. Same feed as the cash
           summary above, split on payload.tournament — see TournamentRankingHost. */}
-        <TournamentRankingHost />
+        <Suspense fallback={null}>
+          <TournamentRankingHost />
+        </Suspense>
         {/* Dan 2026-08-20: "when a scheduled MTT is about to start... 5 minutes
           left, there should be a scrolling announcement across all active
           club/union cash games and tournaments." It has to reach players where
