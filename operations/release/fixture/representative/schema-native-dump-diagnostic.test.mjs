@@ -453,7 +453,7 @@ test('D4 retains the exact original byte cap and fits every unchanged event',()=
   assert.equal(py(complete).status,0);
   const extra=Buffer.concat([0,2,3,1].map((tag,i)=>frame(65533+i,tag)));assert.equal(Buffer.concat([complete,extra]).length,524290);assert.notEqual(py(Buffer.concat([complete,extra])).status,0);
   const exact=createNativeDumpDiagnostic();exact.push(Buffer.concat([complete,extra.subarray(0,30)]),1);assert.equal(exact.snapshot(2).bytes,524288);assert.throws(()=>exact.push(Buffer.from([0]),2),e=>e.diagnosticKind==='FD3_LIMIT');
-  for(const size of [1,2,3,9]){const p=createNativeDumpDiagnostic();p.push(complete.subarray(0,size),1);assert.throws(()=>p.finish());}
+  for(const size of [1,2,3,9]){const p=createNativeDumpDiagnostic();p.push(complete.subarray(0,size),1);assert.throws(()=>p.finish());assert.notEqual(py(complete.subarray(0,size)).status,0);}
   // The exact 43,680 admitted capture events now need 349,442 bytes, with none omitted.
   assert.equal(2+43680*8,349442);assert.ok(2+43680*8<512*1024);
   const legacy=Buffer.concat(records.slice(0,4).map(row=>{const b=Buffer.alloc(12);b.write('D3');b.writeUInt32BE(row.readUIntBE(0,3),2);b[6]=row[3];row.copy(b,7,4,8);b[11]=10;return b;}));

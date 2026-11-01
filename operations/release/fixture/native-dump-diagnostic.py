@@ -300,7 +300,7 @@ def validate_frames(data, with_subtypes=False):
     details = {name:dict(queries_started=0,queries_completed=0,query_elapsed_us=0,query_max_us=0) for name in names}
     def frames():
         if data.startswith(b'D4'):
-            require((len(data) - 2) % 8 == 0)
+            require(len(data) > 2 and (len(data) - 2) % 8 == 0)
             groups = [b'FUNCTION', b'RELATION', b'TYPE', b'OTHER']
             for offset in range(2, len(data), 8):
                 row = data[offset:offset + 8]
