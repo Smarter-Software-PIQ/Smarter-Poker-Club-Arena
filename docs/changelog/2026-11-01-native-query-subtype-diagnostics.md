@@ -25,3 +25,5 @@ stock rendering/ACL/snapshot paths and full native SQL parity remain unchanged.
 This adds attribution for the next capture, not evidence that sequences caused
 any historical timeout or a guarantee that the next capture will finish. Linux
 native qualification and any changed capture remain separate ROOT-owned steps.
+
+Separate the harness's unconditional return from its one-line missing-result guard. GCC's misleading-indentation heuristic rejects the original same-line statements under the existing Wall/Wextra/Werror flags; semantics, warning flags and test assertions are unchanged. Apple Clang did not reproduce that warning, so this source portability repair does not attribute the historical Linux537-byte failure. The changed hosted Linux qualification remains required.

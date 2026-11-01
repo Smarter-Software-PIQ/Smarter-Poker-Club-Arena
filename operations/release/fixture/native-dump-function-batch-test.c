@@ -88,7 +88,8 @@ static PGresult *ExecuteSqlQuery(Archive *a,const char *sql,int status){
     if(!PQsendQuery(a,sql))pg_fatal("stock send");
     r=PQgetResult(a);extra=PQgetResult(a);ca_diag_query_end();
     if(extra){PQclear(extra);if(r)PQclear(r);pg_fatal("stock extra");}
-    if(!r)pg_fatal("stock missing");return r;
+    if(!r)pg_fatal("stock missing");
+    return r;
 }
 static PGresult *ExecuteSqlQueryForSingleRow(Archive *a,const char *sql){return ExecuteSqlQuery(a,sql,PGRES_TUPLES_OK);}
 #include "native-dump-function-batch.c"
