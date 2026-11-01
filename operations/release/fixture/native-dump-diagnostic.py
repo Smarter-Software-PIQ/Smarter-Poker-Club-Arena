@@ -47,6 +47,8 @@ extern void ca_diag_init(void);
 extern void ca_diag_object_begin(int group);
 extern void ca_diag_object_end(void);
 extern void ca_diag_query_begin(void);
+extern void ca_diag_query_begin_subtype(int subtype);
+extern void ca_diag_query_begin_sql(const char *query);
 extern void ca_diag_query_end(void);
 '''
 OBJECT_LOOP = '''\tfor (i = 0; i < numObjs; i++)
@@ -109,7 +111,7 @@ def transformations():
             ('static void\nnotice_processor(void *arg, const char *message)',
              '#include "native-dump-diagnostic.c"\n\nstatic void\nnotice_processor(void *arg, const char *message)'),
             ('\tres = PQexec(AH->connection, query);',
-             '\tca_diag_query_begin();\n\tres = PQexec(AH->connection, query);\n\tca_diag_query_end();'),
+             '\tca_diag_query_begin_sql(query);\n\tres = PQexec(AH->connection, query);\n\tca_diag_query_end();'),
         ],
         'src/bin/pg_dump/pg_backup_db.h': [
             ('#endif\n',
@@ -271,35 +273,42 @@ def normalize_sql(value):
         b'\\unrestrict ' + token + b'\n', b'\\unrestrict NONCE\n')
 
 
-def validate_frames(data):
+def validate_frames(data, with_subtypes=False):
     require(0 < len(data) <= 512 * 1024 and data.endswith(b'\n'))
     previous = 0
     sequence = 0
     obj = None
     query = None
     query_count = 0
+    names = ['UNKNOWN','FUNCTION_BATCH','FUNCTION_SINGLE','AGGREGATE','SEQUENCE_BATCH',
+             'SEQUENCE_SINGLE','COLUMN_ACL','VIEW_DEFINITION','PARTITION_KEY',
+             'FOREIGN_OPTIONS','TYPE_NAME','EXTENSION_DEPENDENCY','PREPARE','TYPE_METADATA']
+    details = {name:dict(queries_started=0,queries_completed=0,query_elapsed_us=0,query_max_us=0) for name in names}
     def frames():
-        if data.startswith(b'D2'):
+        if data.startswith((b'D2', b'D3')):
             require(len(data) % 12 == 0)
             groups = [b'FUNCTION', b'RELATION', b'TYPE', b'OTHER']
             for offset in range(0, len(data), 12):
                 row = data[offset:offset + 12]
-                require(row[:2] == b'D2' and row[6] < 16 and row[11] == 10)
+                require(row[:2] == data[:2] and row[11] == 10)
+                require(row[6] < (224 if data[:2] == b'D3' else 16))
                 tag = row[6]
                 yield (int.from_bytes(row[2:6], 'big'), b'Q' if tag & 2 else b'O',
-                       b'E' if tag & 1 else b'B', groups[tag >> 2], int.from_bytes(row[7:11], 'big'))
+                       b'E' if tag & 1 else b'B', groups[(tag >> 2) & 3], int.from_bytes(row[7:11], 'big'), tag >> 4)
         else:
             for line in data.splitlines():
                 require(len(line) < 96)
                 match = re.fullmatch(rb'D1 ([1-9][0-9]{0,5}) ([OQ]) ([BE]) (FUNCTION|RELATION|TYPE|OTHER) (0|[1-9][0-9]{0,7})', line)
                 require(match is not None)
                 seq, level, boundary, group, elapsed = match.groups()
-                yield (int(seq), level, boundary, group, int(elapsed))
-    for seq, level, boundary, group, elapsed in frames():
+                yield (int(seq), level, boundary, group, int(elapsed), 0)
+    for seq, level, boundary, group, elapsed, subtype in frames():
         require(seq == sequence + 1 and seq <= 100000 and previous <= elapsed <= 45000000)
         sequence, previous = seq, elapsed
+        allowed = {1:[b'FUNCTION'],2:[b'FUNCTION'],3:[b'FUNCTION'],4:[b'RELATION'],5:[b'RELATION'],6:[b'RELATION'],7:[b'RELATION',b'OTHER'],8:[b'RELATION'],9:[b'RELATION'],13:[b'TYPE']}
+        require(group in allowed.get(subtype, [b'FUNCTION',b'RELATION',b'TYPE',b'OTHER']))
         if level == b'O':
-            require(query is None)
+            require(query is None and subtype == 0)
             if boundary == b'B':
                 require(obj is None)
                 obj = group
@@ -308,13 +317,19 @@ def validate_frames(data):
                 obj = None
         elif boundary == b'B':
             require(obj == group and query is None)
-            query = group
+            query = (group, subtype, elapsed)
+            details[names[subtype]]['queries_started'] += 1
         else:
-            require(obj == group and query == group)
+            require(obj == group and query is not None and query[:2] == (group, subtype))
+            duration = elapsed - query[2]
+            detail = details[names[subtype]]
+            detail['queries_completed'] += 1
+            detail['query_elapsed_us'] += duration
+            detail['query_max_us'] = max(detail['query_max_us'], duration)
             query = None
             query_count += 1
     require(obj is None and query is None and query_count > 0)
-    return sequence
+    return {'records':sequence,'query_subtypes':details} if with_subtypes else sequence
 
 
 def diagnostic_dump(executable, args, env, cwd):
@@ -347,6 +362,7 @@ def diagnostic_dump(executable, args, env, cwd):
                 key.data.extend(data)
                 require(len(output) <= 8 * 1024 * 1024 and len(errors) <= 65536 and len(frames) <= 512 * 1024)
         require(proc.wait(timeout=2) == 0)
+        require(bytes(frames).startswith(b'D3'))
         return bytes(output), validate_frames(bytes(frames))
     finally:
         selector.close()
@@ -475,6 +491,11 @@ def qualify(repo, work, output, env, stock_executable):
     global BUILD_STAGE
     BUILD_STAGE = 'SYNTHETIC_RUNTIME'
     require(qualify_batch_contract(repo, work, env))
+    # Bind capability proof to the actual C producer and both independent
+    # decoders, including the original fixed record/byte boundaries.
+    command(['node', '--test', '--test-name-pattern=real D3 C producer|D3 retains the exact original byte cap',
+             str(repo / 'operations/release/fixture/representative/schema-native-dump-diagnostic.test.mjs')],
+            cwd=repo, env=env)
     runtime = work / 'runtime'
     runtime.mkdir()
     existing = repo / 'scripts/ci/probes/chip-journal-atomicity/postgres-runtime'
@@ -606,7 +627,8 @@ RETURN 'diagnostic_function_first.a_before'::regclass::oid;
                 'synthetic_sequence_count': 138, 'sequence_metadata_sql_equal': True, 'metadata_interleaved_sql_equal': True,
                 'sequence_data_reader_unchanged': True, 'metadata_total_results_max': 128,
                 'metadata_total_bytes_max': 128 * 1024 * 1024,
-                'dependency_interleaved_sql_equal': True, 'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components'}
+                'dependency_interleaved_sql_equal': True, 'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components',
+                'diagnostic_wire': 'D3-fixed12', 'query_subtypes_valid': True}
     except Exception as error:
         retain_first_failure(error)
         raise

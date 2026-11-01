@@ -605,16 +605,22 @@ failed or wrongly ordered results refuse capture without retry. Cached native
 results are cleared on normal/error process exit. The128MiB private metadata
 bound,512KiB diagnostic cap and original45-second whole-capture deadline remain.
 
-Diagnostic wire protocol D2 uses fixed12-byte closed records for sequence,
-kind/edge/type and monotonic microseconds; legacy D1 reading remains supported.
-The compact wire preserves every semantic fact within the same512KiB cap,
-rather than stopping the complete schema export because verbose diagnostics
-exhausted that cap. New cost receipts remain version2 with
-closed object_scope and query_scope fields; historical version1 receipts keep
-their original unlabelled semantics. Object counts now mean effective selected
-components; zero-component dispatcher visits are no longer logged. Query spans
-measure actual network requests, including a whole function batch, rather than
-cached per-function reads. The512KiB fixed-channel cap remains enforced.
+Diagnostic wire protocol D3 keeps the same fixed12-byte records, event count,
+512KiB cap and45-second clock bound. Its high tag nibble adds a closed query
+subtype; legacy D1/D2 remain independently decoded without inventing historical
+subtypes. Existing FUNCTION/RELATION/TYPE/OTHER counters and timings remain.
+Version3 receipts additionally provide started/completed network-request counts,
+elapsed/max microseconds for UNKNOWN, FUNCTION_BATCH, FUNCTION_SINGLE, AGGREGATE,
+SEQUENCE_BATCH, SEQUENCE_SINGLE, COLUMN_ACL, VIEW_DEFINITION, PARTITION_KEY,
+FOREIGN_OPTIONS, TYPE_NAME, EXTENSION_DEPENDENCY, PREPARE and TYPE_METADATA.
+
+Raw function/sequence batch sites supply their fixed code. Singleton readers use
+strict pinned fixed-prefix classification; unsupported prefixes or incompatible
+object contexts stay UNKNOWN. No SQL, object identifiers, names or result rows
+enter the channel. Both independent decoders enforce subtype/type/pair bounds;
+the source-bound capability requires actual D3 native frames and subtype proof,
+so old manifests cannot certify the logger. Counts describe network requests,
+including a whole batch, rather than logical statements or cached object reads.
 
 Before any capture credential is present, the existing reusable native job
 builds stock and changed clients from the same pinned upstream archive. Both direct pg_dump builds serialize overlapping recursive library prerequisites with one job, retaining their original420/120-second deadlines. It

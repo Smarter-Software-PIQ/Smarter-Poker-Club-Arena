@@ -39,6 +39,7 @@ static void appendPQExpBuffer(PQExpBuffer b,const char *format,...) {
 }
 static void *GetConnection(Archive *a) { return a; }
 static void ca_diag_query_begin(void) { if(query_open)exit(90); query_open=1; }
+static void ca_diag_query_begin_subtype(int subtype){if(subtype!=1 && subtype!=4)exit(106);ca_diag_query_begin();}
 static void ca_diag_query_end(void) { if(!query_open)exit(91); query_open=0; }
 static int PQsendQuery(void *connection,const char *sql) {
     const char *at=sql;(void)connection;

@@ -74,7 +74,7 @@ ca_sequence_batch_result(Archive *fout, const TableInfo *tbinfo,
         }
         if (ca_sequence_count == 0 || ca_sequence_oids[0] != tbinfo->dobj.catId.oid)
             pg_fatal("ISOLATED_SEQUENCE_BATCH_ORDER");
-        ca_diag_query_begin();
+        ca_diag_query_begin_subtype(4);
         if (!PQsendQuery(GetConnection(fout), batch->data))
             pg_fatal("ISOLATED_SEQUENCE_BATCH_SEND");
         destroyPQExpBuffer(batch);

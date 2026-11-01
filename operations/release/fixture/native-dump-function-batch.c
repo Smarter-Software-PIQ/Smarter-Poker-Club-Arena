@@ -130,7 +130,7 @@ ca_function_batch_result(Archive *fout, const FuncInfo *finfo, const char *stock
         }
         if (ca_batch_count == 0 || ca_batch_oids[0] != finfo->dobj.catId.oid)
             pg_fatal("ISOLATED_FUNCTION_BATCH_ORDER");
-        ca_diag_query_begin();
+        ca_diag_query_begin_subtype(1);
         if (!PQsendQuery(GetConnection(fout), batch->data))
             pg_fatal("ISOLATED_FUNCTION_BATCH_SEND");
         destroyPQExpBuffer(batch);
