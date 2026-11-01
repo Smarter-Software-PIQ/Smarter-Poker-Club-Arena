@@ -1,3 +1,4 @@
+import { DiamondTournamentPolicyClosedError } from '../services/cashTablePlayEligibility.js';
 import { ELIMINATION_SWEEP_STUCK_MS } from './eliminationLock.js';
 import { TournamentAbortBoundary, type AbortBoundaryRequest } from './TournamentAbortBoundary.js';
 import { noteTerminalFinishClub } from './terminalSettlementRpc.js';
@@ -535,6 +536,7 @@ export abstract class TournamentManagerBase {
    * retried, rebuilt or restarted because of it.
    */
   private readonly tableAdmissionLastRefusal = new Map<string, string>();
+  private tableAdmissionPolicyClosure = new Map<string, true>();
   private readonly tableAdmissionPagedAt = new Map<string, number>();
   /**
    * A STALLED TABLE PAGES ITS REAL REFUSAL, AND A REPEATED REFUSAL READS AS
@@ -1758,6 +1760,7 @@ export abstract class TournamentManagerBase {
       manager.tableAdmissionRefusalStreak,
       manager.tableAdmissionRecoveryReason,
       manager.tableAdmissionPagedCode,
+      manager.tableAdmissionPolicyClosure,
     ] as Array<Map<string, unknown> | undefined>) {
       if (tableId === undefined) map?.clear();
       else map?.delete(tableId);
@@ -1800,6 +1803,11 @@ export abstract class TournamentManagerBase {
 
   /** Keep the last refusal a failing table's admission met (bounded text). */
   private noteTableAdmissionRefusal(tableId: string, error: unknown, now = Date.now()): void {
+    // Only the bound admission guard's explicit false is an intentional park.
+    // Unknown reads and later non-policy failures keep normal recovery behavior.
+    if (error instanceof DiamondTournamentPolicyClosedError && error.tableId === tableId)
+      (this.tableAdmissionPolicyClosure ??= new Map()).set(tableId, true);
+    else this.tableAdmissionPolicyClosure?.delete(tableId);
     const text = describeError(error).replace(/\s+/g, ' ').trim().slice(0, 400);
     if (!text) return;
     this.tableAdmissionLastRefusal?.set(tableId, text);
@@ -2435,6 +2443,9 @@ export abstract class TournamentManagerBase {
   }
 
   requestSuccessorForStuckTable(tableId: string): boolean {
+    // A successor sees the same closed policy. Keep the exact owner available
+    // for an explicit close/drain request instead of cycling its generation.
+    if (this.tableAdmissionPolicyClosure?.has(tableId)) return false;
     if (!this.tableEngines.has(tableId) && !this.tableAdmissionFailingSince.has(tableId))
       return false;
     const stuck = this.tableEngines.get(tableId);
@@ -3749,6 +3760,19 @@ export abstract class TournamentManagerBase {
    * resolves in seconds; fifteen minutes of one is the wedge).
    */
   deliberateDealingHold(nowMs: number): string | null {
+    // Whole-event rebuilds must observe the same positive policy as the
+    // per-table successor path. A mixed or unknown field still needs recovery.
+    if (this.tableAdmissionPolicyClosure?.size) {
+      const knownTables = new Set([
+        ...this.tableEngines.keys(),
+        ...this.tableAdmissionFailingSince.keys(),
+      ]);
+      if (
+        knownTables.size > 0 &&
+        [...knownTables].every((tableId) => this.tableAdmissionPolicyClosure.has(tableId))
+      )
+        return 'diamond_tournament_policy_closed';
+    }
     if (
       this.addOnBreakActive &&
       this.addOnBreakEndsAtMs > 0 &&

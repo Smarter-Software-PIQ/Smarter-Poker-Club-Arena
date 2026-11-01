@@ -58,6 +58,17 @@ export function assertDiamondCashSettingsOpen(
  * so a closure here fails the start the ordinary way; it is named so a log
  * line says which switch refused the table.
  */
+export class DiamondTournamentPolicyClosedError extends Error {
+  readonly code = 'diamond_tournament_disabled' as const;
+  constructor(
+    readonly tableId: string,
+    readonly arenaId: string
+  ) {
+    super(`Diamond Tournaments Are Not Open (table ${tableId}, arena ${arenaId})`);
+    this.name = 'DiamondTournamentPolicyClosedError';
+  }
+}
+
 export function assertDiamondTournamentSettingsOpen(
   tableId: string,
   arenaId: string,
@@ -83,6 +94,6 @@ export function assertDiamondTournamentSettingsOpen(
     throw new Error('Diamond tournament settings are unavailable or malformed');
   }
   if ((data as { tournaments_enabled: boolean }).tournaments_enabled === false) {
-    throw new Error(`Diamond Tournaments Are Not Open (table ${tableId}, arena ${arenaId})`);
+    throw new DiamondTournamentPolicyClosedError(tableId, arenaId);
   }
 }
