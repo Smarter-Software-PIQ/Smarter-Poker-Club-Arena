@@ -35,8 +35,52 @@ export type PreNavigationSelection<T extends ProgressBaseline> = {
   facts: Map<string, TournamentBoardFacts>;
   excluded: Set<string>;
   failed: Set<string>;
+  /** Ineligible admission subjects; never classified as natural endings. */
+  retired?: Set<string>;
   deadline: number;
 };
+
+/** A parked admission candidate is never a witnessed continuity pass. */
+export function retirePausedPreNavigationSubjects<T extends ProgressBaseline>(
+  state: PreNavigationSelection<T>,
+  samples: readonly (ProgressBaseline & {
+    running?: boolean;
+    paused: boolean;
+    msSinceProgress: number;
+    loopPhase?: string;
+  })[],
+  maxSilenceMs: number,
+  observedAt: number
+) {
+  const retired = [];
+  for (const baseline of state.baselines) {
+    const sample = samples.find((row) => row.tableId === baseline.tableId);
+    if (
+      !sample ||
+      !sample.running ||
+      sample.paused !== true ||
+      sample.handCount < baseline.handCount ||
+      state.failed.has(baseline.tableId) ||
+      state.excluded.has(baseline.tableId) ||
+      state.retired?.has(baseline.tableId) ||
+      !Number.isFinite(sample.msSinceProgress) ||
+      sample.msSinceProgress < 0 ||
+      sample.msSinceProgress > maxSilenceMs
+    )
+      continue;
+    (state.retired ??= new Set()).add(baseline.tableId);
+    retired.push({
+      tableId: baseline.tableId,
+      reason: 'paused_before_navigation',
+      baselineHandCount: baseline.handCount,
+      currentHandCount: sample.handCount,
+      msSinceProgress: sample.msSinceProgress,
+      loopPhase: sample.loopPhase,
+      observedAt,
+    });
+  }
+  return retired;
+}
 
 /** The production poll's actual subject retirement and readmission step. */
 export async function refreshPreNavigationSelection<T extends ProgressBaseline>(
@@ -59,6 +103,7 @@ export async function refreshPreNavigationSelection<T extends ProgressBaseline>(
       state.deadline
     );
     for (const baseline of state.baselines) {
+      if (state.retired?.has(baseline.tableId)) continue;
       const start = state.facts.get(baseline.tableId);
       let end = latest.get(baseline.tableId);
       if (start && end?.tableStatus === 'closed' && end.tournamentStatus === 'RUNNING')
@@ -67,9 +112,13 @@ export async function refreshPreNavigationSelection<T extends ProgressBaseline>(
         state.excluded.add(baseline.tableId);
     }
   }
-  state.baselines = state.baselines.filter((table) => !state.excluded.has(table.tableId));
+  state.baselines = state.baselines.filter(
+    (table) => !state.excluded.has(table.tableId) && !state.retired?.has(table.tableId)
+  );
   if (state.baselines.length) return false;
-  state.baselines = await discover(state.deadline);
+  state.baselines = (await discover(state.deadline)).filter(
+    (table) => !state.excluded.has(table.tableId) && !state.retired?.has(table.tableId)
+  );
   state.facts = reader
     ? await reader.boardFacts(
         state.baselines.map((table) => table.tableId),
