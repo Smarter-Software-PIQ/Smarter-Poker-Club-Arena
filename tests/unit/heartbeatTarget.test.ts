@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { sliceMethod } from '../helpers/sourceWindow';
 import {
   createHeartbeatRecoveryGuard,
   shouldAskTableRow,
@@ -70,6 +71,41 @@ describe('TablePage heartbeat wiring', () => {
     const connected = page.indexOf("if (engineWsStatus === 'connected') {");
     expect(page.indexOf('heartbeatRowClosedRef.current = false;', connected)).toBeGreaterThan(
       connected
+    );
+  });
+});
+
+describe('TablePage dead-table recovery wiring (2026-10-31)', () => {
+  const page = read('src/pages/TablePage.tsx');
+
+  it('a 404 beat and a closed row both drive the episode; a landed beat or socket ends it', () => {
+    expect(page).toContain('const deadTable = createDeadTableRecovery(');
+    expect(page).toContain('if (heartbeatRowClosedRef.current) driveDeadTable();');
+    expect(page.split('driveDeadTable();').length - 1).toBe(2);
+    expect(page).toContain('deadTable.onRunning();');
+    const connected = page.indexOf("if (engineWsStatus === 'connected') {");
+    expect(page.indexOf('deadTableRecoveryRef.current?.onRunning();', connected)).toBeGreaterThan(
+      connected
+    );
+  });
+
+  it('never acts during a seat-first pre-start, a break, a paused table or a Lightning room', () => {
+    const body = sliceMethod(page, 'const driveDeadTable = () => {');
+    for (const guard of [
+      'seatFirstOpenRef.current',
+      'maintenanceBreakRef.current.active',
+      'tablePausedToastShownRef.current',
+      'lightningRoomRef.current',
+    ])
+      expect(body).toContain(guard);
+    expect(body).toContain('verdictStillCurrent()');
+  });
+
+  it('an embedded table reports its successor to the container instead of navigating', () => {
+    const body = sliceMethod(page, 'deadTableFollowRef.current = (destination: string) => {');
+    expect(body).toContain('onTableInfoUpdate?.({ movedToTableId: destination });');
+    expect(page).toContain(
+      "masterBus.emit('TABLE_MENU_ACTION', { tableId, action: 'CLOSE_TABLE_TAB' });"
     );
   });
 });
