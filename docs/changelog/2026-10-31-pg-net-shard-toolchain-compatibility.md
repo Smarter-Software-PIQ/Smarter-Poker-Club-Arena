@@ -10,3 +10,8 @@ the seven-shard inventory, commands, timeouts, native source/library pins and
 financial assertions remain unchanged. Existing route contracts enforce both
 fixed hosted choices and evaluate every shard. Current-source binding audits
 preserve all historical financial receipts and qualification states.
+
+The native fixture and Horse reader contracts retain their exact runner checks
+using the same closed shard route. Their current source identities and containing
+binding identities are recorded separately; historical financial evidence and
+qualification outcomes are preserved.
