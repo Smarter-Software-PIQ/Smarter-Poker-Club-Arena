@@ -1687,8 +1687,8 @@ export default function LobbyTable({
       }),
     [boardEntries, boardNow]
   );
-  /* Dan 2026-10-19: a featured NIGHTLY event floats only on its own day; the
-     weekly flagship (Sunday 200) keeps its pin all week. Rows that lose the pin
+  /* Owner update October 31: only today's top events float above the schedule.
+     Future nightly and weekly editions remain ordinary rows. Rows that lose the pin
      lose the FEATURED chip too, since the chip says "Pinned To The Top Of The
      Board". Unchanged rows keep their identity. See src/lib/featuredOnItsDay.ts. */
   const entries = useMemo(() => {

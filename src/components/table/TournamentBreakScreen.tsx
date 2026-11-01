@@ -19,6 +19,7 @@ import { readTournamentStandings } from '../../services/readTournamentStandings'
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
 import { reportError } from '../../utils/errorReporter';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { TournamentHourVpip } from './TournamentHourVpip';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { publicOrigin, IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
@@ -596,6 +597,10 @@ export function TournamentBreakScreen({
                 <small>{Math.trunc(myPlayer.stack / Math.max(nextLevel.bigBlind, 1))} BB</small>
               </span>
             </div>
+          )}
+
+          {tournamentId && heroUserId && (
+            <TournamentHourVpip tournamentId={tournamentId} userId={heroUserId} />
           )}
 
           <section className="break-screen__leaders" aria-label="Chip Leaders">
