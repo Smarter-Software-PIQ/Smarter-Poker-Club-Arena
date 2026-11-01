@@ -438,25 +438,30 @@ class NativeLogReader(unittest.TestCase):
         boot='12345678-1234-1234-1234-123456789abc'
         filename='core._usr_local_bin_node.0.'+boot+'.123.456'
         identity={'Id':'a'*64,'State':{'Pid':123,'StartedAt':'2026-11-01T06:48:00Z'},'Config':{'WorkingDir':'/app'},'HostConfig':{}}
-        def run(names=None,failure=None):
-            paths={};stats=[];source=b'fixture handler';directory_reads=0;output=io.StringIO();yielded=[]
+        captures=[]
+        def run(names=None,failure=None,uid='0',effective=None,cgroup='0::/fixture',namespace='different',log_data=None,saved=None):
+            paths={};stats=[];file_reads={};source=b'fixture handler';directory_reads=0;output=io.StringIO();yielded=[]
             def open_fd(name,flags,**kwargs):
                 self.assertTrue(flags&os.O_NOFOLLOW)
                 path=name if name.startswith('/') else paths[kwargs['dir_fd']]+'/'+name
+                if path=='/var/log' and log_data is None:raise OSError('log outside store fixture')
                 self.assertIn(path,['/usr','/usr/share','/usr/share/apport','/usr/share/apport/apport',
-                                    '/var','/var/lib','/var/lib/apport','/var/lib/apport/coredump','/var/crash'])
-                if path=='/var/crash' or failure=='directory' and path=='/var/lib/apport':raise OSError('unavailable')
+                                    '/var','/var/lib','/var/lib/apport','/var/lib/apport/coredump','/var/crash','/var/log','/var/log/apport.log'])
+                if path=='/var/crash' or failure=='log_symlink' and path=='/var/log/apport.log' or failure=='directory' and path=='/var/lib/apport':raise OSError('unavailable')
                 fd=len(paths)+1;paths[fd]=path;return fd
             def fstat(fd):
                 nonlocal directory_reads
                 path=paths[fd];is_file=path=='/usr/share/apport/apport'
+                if path=='/var/log/apport.log':
+                    file_reads['log']=file_reads.get('log',0)+1
+                    return types.SimpleNamespace(st_uid=1 if failure=='log_owner' else 0,st_mode=stat.S_IFREG|(0o666 if failure=='log_writable' else 0o640),st_size=len(log_data),st_dev=1,st_ino=1,st_mtime_ns=2 if failure=='log_changed' and file_reads['log']>1 else 1,st_ctime_ns=1)
                 if path=='/var/lib/apport/coredump':directory_reads+=1
                 return types.SimpleNamespace(st_uid=1 if failure=='owner' and path=='/var/lib/apport' else 0,
                     st_mode=(stat.S_IFREG|0o644) if is_file else (stat.S_IFDIR|(0o775 if failure=='writable_directory' and path=='/var/lib/apport' else 0o755)),st_size=len(source),
                     st_dev=1,st_ino=1,st_mtime_ns=2 if failure=='changed' and directory_reads>=3 else 1,st_ctime_ns=1)
             def read(path,mode):
                 allowed={'/proc/sys/kernel/core_pattern':'|/usr/share/apport/apport -p %p',
-                         '/proc/sys/kernel/core_uses_pid':'0','/proc/123/limits':'',
+                         '/proc/sys/kernel/core_uses_pid':'0','/proc/123/limits':'','/proc/123/status':'Uid: '+uid+' '+(effective if effective is not None else uid)+' '+(saved if saved is not None else uid)+' '+uid,'/proc/123/cgroup':cgroup,
                          '/proc/sys/kernel/random/boot_id':'PRIVATE' if failure=='boot' else boot}
                 self.assertIn(path,allowed);return io.StringIO(allowed[path])
             def entries(fd):
@@ -468,19 +473,29 @@ class NativeLogReader(unittest.TestCase):
             def metadata(name,**kwargs):
                 self.assertEqual(paths[kwargs['dir_fd']],'/var/lib/apport/coredump')
                 self.assertFalse(kwargs['follow_symlinks']);stats.append(name)
-                return types.SimpleNamespace(st_uid=1 if failure=='file_owner' else 0,
+                return types.SimpleNamespace(st_uid=int(uid)+1 if failure=='file_owner' else int(uid),
                     st_mode=(stat.S_IFLNK if failure=='symlink' else stat.S_IFREG)|(0o444 if failure=='public' else 0o400),st_size=1234,st_mtime_ns=123)
             def execute(args,**kwargs):
                 if args[0]=='/usr/bin/dpkg-query':
                     self.assertEqual(kwargs['timeout'],0.5);return types.SimpleNamespace(stdout=b'2.28.1-0ubuntu3.8')
                 self.assertEqual(kwargs['timeout'],1);return types.SimpleNamespace(stdout=json.dumps(identity).encode())
+            def ns_link(path):
+                self.assertIn(path,['/proc/self/ns/mnt','/proc/123/ns/mnt','/proc/self/ns/pid','/proc/123/ns/pid'])
+                if namespace=='missing':raise FileNotFoundError()
+                if namespace=='invalid':return 'PRIVATE_NS'
+                return path.rsplit('/',1)[1]+':['+('1' if '/self/' in path or namespace=='same' or namespace=='mount_only' and path.endswith('/pid') else '2')+']'
+            def bounded_read(fd,limit):
+                if paths[fd]=='/var/log/apport.log':
+                    self.assertEqual(limit,65536);return log_data[-65536:]
+                self.assertEqual(paths[fd],'/usr/share/apport/apport');self.assertEqual(limit,262145);return source
             fingerprint='0'*64 if failure=='unqualified' else '1b8b5e2c53e8970dd2f47c9a0892030d1ebad57cae1f7242c43a6252f1f6dff2'
-            with patch('subprocess.run',side_effect=execute) as processes,patch('builtins.open',side_effect=read),patch('os.open',side_effect=open_fd),patch('os.close'),patch('os.fstat',side_effect=fstat),patch('os.read',return_value=source) as reads,patch('os.scandir',side_effect=entries),patch('os.stat',side_effect=metadata),patch('hashlib.sha256',return_value=types.SimpleNamespace(hexdigest=lambda:fingerprint)),contextlib.redirect_stdout(output):
+            with patch('subprocess.run',side_effect=execute) as processes,patch('builtins.open',side_effect=read),patch('os.open',side_effect=open_fd),patch('os.close'),patch('os.fstat',side_effect=fstat),patch('os.read',side_effect=bounded_read) as reads,patch('os.lseek'),patch('os.readlink',side_effect=ns_link),patch('os.scandir',side_effect=entries),patch('os.stat',side_effect=metadata),patch('hashlib.sha256',return_value=types.SimpleNamespace(hexdigest=lambda:fingerprint)),contextlib.redirect_stdout(output):
                 exec(reader.CORE_CAPTURE_COMMAND,{})
-            reads.assert_called_once() # Only handler source, never a core/report.
+            self.assertEqual(reads.call_count,2 if log_data is not None and failure not in ['log_owner','log_writable','log_symlink'] else 1) # Only handler source and optional bounded log.
             self.assertEqual(processes.call_count,3) # Existing two identity reads + fixed package query.
             self.assertLessEqual(len(yielded),129)
-            return json.loads(output.getvalue())['CoreCapture']['apportCoreStore'],stats
+            captures.append(json.loads(output.getvalue())['CoreCapture'])
+            return captures[-1]['apportCoreStore'],stats
         result,stats=run();self.assertEqual(result['status'],'observed');self.assertEqual(len(result['candidates']),1)
         self.assertEqual(stats,[filename]);self.assertNotIn(boot,json.dumps(result));self.assertNotIn(filename,json.dumps(result))
         unrelated=['core._usr_bin_python.0.'+boot+'.123.456',filename.replace(boot,'a'*36),filename.replace('.0.','.1.'),'PRIVATE']
@@ -492,6 +507,44 @@ class NativeLogReader(unittest.TestCase):
         for names,reason in [(['PRIVATE']*129,'directory_truncated'),([filename.replace('.123.','.'+str(pid)+'.') for pid in range(1,7)],'candidate_limit')]:
             result,_=run(names);self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],reason)
             self.assertEqual(result['candidates'],[])
+
+        nonroot=filename.replace('.0.','.1000.')
+        result,_=run([nonroot],uid='1000');self.assertEqual(len(result['candidates']),1)
+        self.assertEqual(captures[-1]['apportCurrentContext']['realUidClass'],'nonroot')
+        for uid,effective,saved in [('PRIVATE',None,None),('4294967295',None,None),('1000','0',None),('1000','1000','0')]:
+            result,_=run(uid=uid,effective=effective,saved=saved);self.assertEqual(result['status'],'unknown')
+        for group,ns,route in [('0::/system.slice/docker-'+('a'*64)+'.scope','different','host_handling_predicate'),('0::/fixture','different','forward_attempt_predicate'),('0::/fixture','same','host_handling_predicate'),('0::/fixture','mount_only','mount_only_ignore_predicate'),('0::/fixture','missing','host_handling_predicate'),('PRIVATE','invalid','unknown'),('0::/system.slice/docker-'+('a'*64)+'.scope','invalid','unknown')]:
+            run(cgroup=group,namespace=ns);self.assertEqual(captures[-1]['apportCurrentContext']['modeledRoute'],route)
+        prefix=b'ERROR: apport (pid 456) 2026-11-01 10:00:00,001: '
+        line=prefix+b'executable does not belong to a package, ignoring\n'
+        private=prefix+b'executable: /PRIVATE (command line "SECRET")\n'
+        extra=prefix+b'host pid 123 crashed in a container without apport support\n'+prefix+b'writing core dump to /PRIVATE_CORE (limit: -1)\n'
+        run(log_data=line+private+extra);log=captures[-1]['apportLogTail']
+        self.assertEqual(log['counts']['unpackaged_ignored'],1)
+        self.assertEqual(log['counts']['container_no_support'],1);self.assertEqual(log['counts']['core_write_started'],1)
+        self.assertNotIn('PRIVATE',json.dumps(log));self.assertNotIn('SECRET',json.dumps(log));self.assertFalse(log['truncated'])
+        run(log_data=b'x'*65536+line+line);log=captures[-1]['apportLogTail']
+        self.assertTrue(log['truncated']);self.assertEqual(log['counts']['unpackaged_ignored'],1)
+        for failure in ['log_owner','log_writable','log_symlink','log_changed']:
+            run(log_data=line,failure=failure);self.assertEqual(captures[-1]['apportLogTail']['status'],'unknown')
+
+    def test_current_context_and_log_exports_remain_closed_unattributed_metadata(self):
+        window={'since':'2026-11-01T06:40:00Z','until':'2026-11-01T06:55:00Z'}
+        categories={'unpackaged_ignored','container_no_support','container_broken_apport','mount_namespace_ignored','forward_security_refused','forward_timeout','core_write_started','core_write_limit','core_write_failed','core_overflow','apport_busy'}
+        context={'status':'observed','realUidClass':'nonroot','effectiveUidClass':'nonroot','uidRelationship':'same',
+                 'mountNamespace':'different','pidNamespace':'different','cgroupClass':'other','modeledRoute':'forward_attempt_predicate','PRIVATE_UID':1000}
+        log={'status':'observed','mtimeNs':1,'truncated':True,'counts':{key:1 for key in categories},'PRIVATE_LINES':'SECRET'}
+        value={'patternClass':'pipe','handlerClass':'apport','handlerSourceSHA256':'1b8b5e2c53e8970dd2f47c9a0892030d1ebad57cae1f7242c43a6252f1f6dff2',
+               'apportPackageVersion':'2.28.1-0ubuntu3.8','apportCurrentContext':context,'apportLogTail':log}
+        result=reader.core_capture_metadata(value,window)
+        self.assertEqual(result['apportCurrentContext']['forwardingOutcome'],'unproven')
+        self.assertEqual(result['apportCurrentContext']['temporalScope'],'current_process_not_crashed_process')
+        self.assertEqual(result['apportLogTail']['incidentAttribution'],'unproven')
+        self.assertNotIn('PRIVATE',json.dumps(result));self.assertNotIn('SECRET',json.dumps(result))
+        for bad in [{**log,'counts':{'PRIVATE':1}},{**log,'mtimeNs':True},{**log,'truncated':'true'},{**log,'counts':{key:True for key in categories}}]:
+            self.assertEqual(reader.core_capture_metadata({**value,'apportLogTail':bad},window)['apportLogTail']['status'],'unknown')
+        self.assertEqual(reader.core_capture_metadata({**value,'apportCurrentContext':{**context,'cgroupClass':'PRIVATE_PATH'}},window)['apportCurrentContext']['status'],'unknown')
+        self.assertEqual(reader.core_capture_metadata({**value,'apportPackageVersion':'unknown'},window)['apportLogTail']['status'],'unknown')
 
     def test_coredump_metadata_attributes_exact_container_without_exposing_identity(self):
         window = {'since': '2026-10-31T06:00:00Z', 'until': '2026-10-31T06:15:00Z'}
