@@ -283,6 +283,68 @@ afterEach(() => {
 });
 
 describe('Tournament details snapshot recovery', () => {
+  it('publishes completed snapshots while every read receives another standings event', async () => {
+    const reads = Array.from({ length: 4 }, () => deferred<any>());
+    for (const read of reads) fixture.getTournament.mockReturnValueOnce(read.promise);
+    render(<Page />);
+    await flush();
+    for (let index = 0; index < 3; index++) {
+      act(() => {
+        for (const notify of fixture.tournamentEvents.get('a') ?? [])
+          notify({ type: 'tournament_standings_updated', payload: {} });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      reads[index].resolve(tournament('a', { current_level: index + 2 }));
+      await flush();
+      expect(screen.queryByText('Loading Tournament...')).toBeNull();
+      expect(snapshot().level).toBe(index + 2);
+      expect(fixture.getTournament).toHaveBeenCalledTimes(index + 2);
+    }
+  });
+
+  it.each(['header', 'tables'])(
+    'releases an unanswered %s read and permits explicit recovery',
+    async (phase) => {
+      const unanswered = deferred<any>();
+      if (phase === 'header') fixture.getTournament.mockReturnValueOnce(unanswered.promise);
+      else rows('tables', unanswered.promise);
+      render(<Page />);
+      await flush();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12000);
+      });
+      expect(screen.queryByText('Loading Tournament...')).toBeNull();
+      expect(screen.getByRole('alert')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+      await flush();
+      expect(snapshot().id).toBe('a');
+      unanswered.resolve(
+        phase === 'header'
+          ? tournament('a', { current_level: 99 })
+          : { data: [{ id: 'old-table' }], error: null }
+      );
+      await flush();
+      expect(snapshot().level).toBe(1);
+      expect(snapshot().tables).not.toContain('old-table');
+    }
+  );
+
+  it.each([
+    ['spin-v1', 3],
+    ['sng-v1', 2],
+    ['seat-first-satellite-v1', 2],
+  ])('opens the cold REGISTERING seat-first %s table', async (format, capacity) => {
+    fixture.getTournament.mockResolvedValue(
+      tournament('a', { status: 'REGISTERING', format_contract: format, max_players: capacity })
+    );
+    rows('tables', { data: [{ id: 'seat-first-table', status: 'waiting' }], error: null });
+    render(<Page search="?seat=1" />);
+    await flush();
+    expect(fixture.navigate).toHaveBeenCalledWith('/table/seat-first-table');
+  });
+
   it.each(['__proto__', 'constructor'])('opens Detail for inherited tab key %s', async (tab) => {
     render(<Page search={`?tab=${tab}`} />);
     await flush();
