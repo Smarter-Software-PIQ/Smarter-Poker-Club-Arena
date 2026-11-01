@@ -1292,7 +1292,7 @@ export function createOpponentAvatarLayout(
     });
   };
   const captionRaiseBounds = (seat: HTMLElement) => {
-    if (!compactAllIn() || seat.classList.contains('seat--hero')) return null;
+    if (state.locked || !compactAllIn() || seat.classList.contains('seat--hero')) return null;
     const info = seat.querySelector<HTMLElement>(':scope > .seat__info');
     const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
     const parts = image ? paintedParts(image) : [];
@@ -1717,6 +1717,9 @@ export function createOpponentAvatarLayout(
         state.locked = true;
     },
     ready: () => spacingReady && Boolean(state.key),
+    // Locked chairs reject every spacing proposal; do not construct those
+    // transactions again when only cards, bets or the street changed.
+    canMove: () => spacingReady && Boolean(state.key) && !state.locked,
     awaitingMetadata: () =>
       images().some(
         (image) => image.complete && image.naturalWidth > 0 && !resolved.has(source(image))

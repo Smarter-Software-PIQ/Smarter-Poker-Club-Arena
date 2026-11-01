@@ -9,3 +9,5 @@ Top-seat placement retains its allocation between hands and reserves the shown-c
 Regression coverage checks actual avatar rectangles through turn changes in cash and tournament fixtures, alongside the occupied six- and nine-seat portrait collision matrix and fixed static geometry unit contracts. Publication and live proof are recorded in the task evidence checkpoint.
 
 A cash-join rejection now identifies the active club wallet and explains that balances in other clubs are separate. The one-club-at-a-time funding rule and all transaction behavior are unchanged.
+
+Compact-ring qualification exposed duplicate synchronous placement on effect initialization and spacing proposals that a completed chair lock always rejected. Revision updates now share the existing animation-frame scheduler, omit the duplicate mount/new-hand invocation, and skip only locked owner-spacing transactions. Ordinary card, wager and dealer placement remains active. A maintained hook regression fails against the former duplicate pass and verifies coalescing and single new-hand allocation. No timeout or collision assertion was relaxed.

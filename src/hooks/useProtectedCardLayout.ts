@@ -46,6 +46,7 @@ export function useProtectedCardLayout(
     >(),
   });
   const placeRef = useRef<(() => void) | null>(null);
+  const placedRevision = useRef({ revision, handKey });
   useLayoutEffect(() => {
     const scaler = root.current;
     const page = scaler?.closest('.table-page');
@@ -1244,7 +1245,7 @@ export function useProtectedCardLayout(
         // one. Persistent all-in markers stay wholly on felt; ordinary chips
         // retain their existing rail/page lanes. This is one finite transaction,
         // not an animation-following or event-driven repair pass.
-        if (remainingOwnerSpacingPasses > 0 && artwork.ready()) {
+        if (remainingOwnerSpacingPasses > 0 && artwork.canMove()) {
           const beforeRowPose = opponentRowPose();
           let movedOwner = false;
           const movedSeats = new Set<HTMLElement>();
@@ -1655,7 +1656,7 @@ export function useProtectedCardLayout(
         // before committing the smallest local owner/rival spacing transaction.
         if (
           remainingOwnerSpacingPasses > 0 &&
-          artwork.ready() &&
+          artwork.canMove() &&
           page.getAttribute('data-seats') === '9' &&
           window.innerWidth <= 480 &&
           entries.some(
@@ -2159,7 +2160,6 @@ export function useProtectedCardLayout(
       // their own cards/chips around the chairs instead of moving a player.
       artwork.lock();
     };
-    placeRef.current = () => place();
     place();
     let frame: number | null = null;
     const schedule = () => {
@@ -2169,6 +2169,9 @@ export function useProtectedCardLayout(
         place();
       });
     };
+    // Revision commits share the observer frame instead of synchronously
+    // repeating the expensive initial allocation during the same commit.
+    placeRef.current = schedule;
     const isDecorativeAnimation = (event: Event) =>
       event.target instanceof Element &&
       Boolean(
@@ -2235,6 +2238,9 @@ export function useProtectedCardLayout(
     };
   }, [root, handKey]);
   useLayoutEffect(() => {
+    const previous = placedRevision.current;
+    placedRevision.current = { revision, handKey };
+    if (previous.handKey !== handKey || previous.revision === revision) return;
     placeRef.current?.();
   }, [revision, handKey]);
 }

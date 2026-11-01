@@ -1470,6 +1470,11 @@ it('switching turn/spotlight focus retains the same artwork scale, opponent pod 
     expect(villainSeat.style.getPropertyValue('--sp-opponent-y')).toBe('-6px');
     expect(villainSeat.dataset.opponentLane).toBe('cap');
     expect(layout.ready()).toBe(true);
+    expect(layout.canMove()).toBe(true);
+    state.locked = true;
+    expect(layout.ready()).toBe(true);
+    expect(layout.canMove()).toBe(false);
+    expect(layout.captionRaiseBounds(villainSeat)).toBeNull();
     const nextScale = Number(villainAvatar.style.getPropertyValue('--sp-opponent-art-scale'));
     expect(nextScale).toBeCloseTo(initialScale, 5);
   } finally {
