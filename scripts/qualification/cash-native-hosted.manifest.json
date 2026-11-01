@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272484,
-      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+      "bytes": 272771,
+      "sha256": "7c4016f01b0000d7932911cb6cc9006c50289d51c1baf61b459f6740936abfa5"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -5946,6 +5946,19 @@
     "current": {
       "bytes": 119330,
       "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "scheduleRequestNative20261101": {
+    "reason": "Adds the isolated schedule-request native driver to existing accounting shard3 only. Cash native commands, assertions and historical qualification states are unchanged. Current source identity only.",
+    "previous": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "current": {
+      "bytes": 272771,
+      "sha256": "7c4016f01b0000d7932911cb6cc9006c50289d51c1baf61b459f6740936abfa5"
     },
     "execution_performed": false,
     "historicalEvidenceRestamped": false
