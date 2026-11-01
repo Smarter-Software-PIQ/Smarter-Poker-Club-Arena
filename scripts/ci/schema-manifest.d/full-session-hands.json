@@ -1,0 +1,6 @@
+{
+  "_owner": "Full-session Player Hub hand totals, self-only snapshot across tournament tables and confirmed cash moves.",
+  "tables": [],
+  "functions": ["fn_my_game_session_hand_stats"],
+  "columns": {}
+}
