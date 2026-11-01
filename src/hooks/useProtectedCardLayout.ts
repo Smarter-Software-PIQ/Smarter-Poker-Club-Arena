@@ -1420,6 +1420,17 @@ export function useProtectedCardLayout(
               .map(visibleBox)
               .filter((r): r is CardBox => r !== null)
               .concat(reservedDealer ? [reservedDealer] : []);
+            const avatars = Array.from(
+              page.querySelectorAll<HTMLImageElement>('.seat__avatar-img')
+            ).map((image) => {
+              const rect = restingAvatarBox(image, scale);
+              return {
+                image,
+                rect,
+                motion: 1.5 * scale + 0.008 * Math.max(rect.width, rect.height) + 0.5 * scale,
+                touches: artwork.preparePaintedTouch(image, true),
+              };
+            });
             return retained.filter((bet) => {
               const box = visibleBox(bet),
                 image = bet
@@ -1447,21 +1458,12 @@ export function useProtectedCardLayout(
                 y - own.top - own.height / 2
               );
               const motion = 1.5 * scale + 0.008 * Math.max(own.width, own.height) + 0.5 * scale;
-              return Array.from(page.querySelectorAll<HTMLImageElement>('.seat__avatar-img')).every(
-                (other) => {
-                  const r = restingAvatarBox(other, scale);
-                  return (
-                    (other === image ||
-                      distance +
-                        1.5 +
-                        motion +
-                        1.5 * scale +
-                        0.008 * Math.max(r.width, r.height) +
-                        0.5 * scale <
-                        Math.hypot(x - r.left - r.width / 2, y - r.top - r.height / 2)) &&
-                    !artwork.paintedTouches(other, box, 0, true)
-                  );
-                }
+              return avatars.every(
+                ({ image: other, rect: r, motion: otherMotion, touches }) =>
+                  (other === image ||
+                    distance + 1.5 + motion + otherMotion <
+                      Math.hypot(x - r.left - r.width / 2, y - r.top - r.height / 2)) &&
+                  !touches(box, 0)
               );
             });
           };
@@ -1521,6 +1523,35 @@ export function useProtectedCardLayout(
                 ),
               0
             );
+          // Tiny differences at one contact must not consume the entire finite
+          // search. Cover the derived endpoint geometry, then try the chosen
+          // proposals in minimum-motion order. All three budgets stay fixed.
+          const diverse = <T>(
+            values: T[],
+            limit: number,
+            distance: (a: T, b: T) => number
+          ): T[] => {
+            if (!compactNine || values.length <= limit) return values.slice(0, limit);
+            const chosen: T[] = [];
+            const selected = new Set<number>();
+            const nearest = values.map(() => Infinity);
+            let next = 0;
+            while (chosen.length < limit && selected.size < values.length) {
+              const item = values[next];
+              chosen.push(item);
+              selected.add(next);
+              let furthest = -Infinity;
+              for (let i = 0; i < values.length; i++) {
+                if (selected.has(i)) continue;
+                nearest[i] = Math.min(nearest[i], distance(values[i], item));
+                if (nearest[i] > furthest) {
+                  furthest = nearest[i];
+                  next = i;
+                }
+              }
+            }
+            return chosen;
+          };
           let moved = false;
           for (const entry of affected) {
             const owner = entry.bet.closest<HTMLElement>('.seat:not(.seat--hero)');
@@ -1621,7 +1652,17 @@ export function useProtectedCardLayout(
               // A rival's current paint can occupy the very lane it must vacate.
               // Exempt that one proposed pod only while deriving the movement;
               // the fresh whole-assignment check restores every keepout.
-              for (const candidate of fresh.laneCandidates) {
+              const laneCandidates =
+                compactNine && Math.abs(ownerShift) > 0.0001
+                  ? fresh.laneCandidates.flatMap((candidate) => [
+                      candidate,
+                      { ...candidate, top: candidate.top + ownerShift },
+                    ])
+                  : fresh.laneCandidates;
+              // A cap's shown-card edge moves with its owner. Keep both its
+              // existing marker seeds and the translated edge seeds; the final
+              // fresh whole-ring assignment still proves every actual slot.
+              for (const candidate of laneCandidates) {
                 const x = candidate.left + candidate.width / 2,
                   y = candidate.top + candidate.height / 2;
                 if (
@@ -1681,7 +1722,9 @@ export function useProtectedCardLayout(
                   [...values.values()].map((value) => ({ seat, ...value }))
                 )
                 .sort((a, b) => Math.abs(a.shift) - Math.abs(b.shift));
-              for (const proposal of ranked.slice(0, 16))
+              for (const proposal of diverse(ranked, 16, (a, b) =>
+                a.seat === b.seat ? Math.abs(a.shift - b.shift) : Infinity
+              ).sort((a, b) => Math.abs(a.shift) - Math.abs(b.shift)))
                 artwork.tryShiftOwnerForWager(proposal.seat, proposal.shift, () => {
                   if (!withinBudget()) return false;
                   const actual = restingAvatarBox(image, scale),
@@ -1721,9 +1764,11 @@ export function useProtectedCardLayout(
                 });
               return false;
             };
-            for (const shift of [...shifts.values()]
-              .sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)
-              .slice(0, 32)) {
+            for (const shift of diverse(
+              [...shifts.values()].sort((a, b) => Math.abs(a) - Math.abs(b) || a - b),
+              32,
+              (a, b) => Math.abs(a - b)
+            ).sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)) {
               if (Math.abs(shift) < 0.0001) evaluate(shift);
               else artwork.tryShiftOwnerForWager(owner, shift, () => evaluate(shift));
             }
@@ -1742,7 +1787,14 @@ export function useProtectedCardLayout(
             const old = unique.get(key);
             if (!old || plan.cost < old.cost) unique.set(key, plan);
           }
-          for (const plan of [...unique.values()].sort((a, b) => a.cost - b.cost).slice(0, 8)) {
+          for (const plan of diverse(
+            [...unique.values()].sort((a, b) => a.cost - b.cost),
+            8,
+            (a, b) =>
+              a.owner === b.owner && a.rival === b.rival
+                ? Math.hypot(a.ownerShift - b.ownerShift, a.rivalShift - b.rivalShift)
+                : Infinity
+          ).sort((a, b) => a.cost - b.cost)) {
             const accept = () =>
               plan.rival && Math.abs(plan.rivalShift) > 0.0001
                 ? artwork.tryShiftOwnerForWager(plan.rival, plan.rivalShift, complete)
