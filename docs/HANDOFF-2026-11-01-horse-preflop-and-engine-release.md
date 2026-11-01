@@ -8,7 +8,7 @@ was read from GitHub, production health or the production database (SELECT
 only) at the time stated; re-verify anything time-sensitive with one call
 before acting on it (CLAUDE.md 10.86: date every environment claim).
 
----------------------------------------------------------------------------
+---
 
 ## 0. MISSION AND OWNER ORDERS (verbatim, binding)
 
@@ -71,11 +71,12 @@ but NOTHING from V61-V74 / rule 4 is LIVE.** Production still serves the
 currently be replaced (section 4). Do not tell Dan anything is live until
 `https://engine.smarter.poker/health` -> `releaseSha` contains it.
 
----------------------------------------------------------------------------
+---
 
 ## 1. ENVIRONMENT, ACCESS AND RULES YOU MUST FOLLOW
 
 ### Repos, paths, tools
+
 - GitHub repo: `Smarter-Software-PIQ/smarter-poker-club-arena` (the API also
   answers as `Smarter-Software-PIQ/Smarter-Poker-Club-Arena`; "This repository
   moved" notices on push are harmless).
@@ -113,6 +114,7 @@ currently be replaced (section 4). Do not tell Dan anything is live until
 - Never `--no-verify`. The pre-push hook runs related tests (minutes).
 
 ### Binding laws that shaped this work (read CLAUDE.md in full; highlights)
+
 - **10.5 Horses are players.** Never key strategy on horse/human labels.
   Every opponent gets one policy; observed public play (reads such as maniac)
   may adapt it. Laws pin "identical answers when labels are flipped".
@@ -146,7 +148,7 @@ currently be replaced (section 4). Do not tell Dan anything is live until
 - Laws registry: every `*.law.test.*` needs `docs/laws.d/<file>.md`
   (tests/law-registry.law.test.ts).
 
----------------------------------------------------------------------------
+---
 
 ## 2. CURRENT STATE SNAPSHOT (2026-11-01 14:27 UTC)
 
@@ -178,7 +180,7 @@ currently be replaced (section 4). Do not tell Dan anything is live until
   reason found anywhere (PR/issue comments, changelogs, branches). Do not
   assume interference.
 
----------------------------------------------------------------------------
+---
 
 ## 3. WORKSTREAMS, PHASES AND SUB-PHASES (what is done, where, and status)
 
@@ -187,6 +189,7 @@ MERGED (protected main) -> LIVE (serving releaseSha contains it, verified).
 Nothing below is LIVE.
 
 ### Phase A - Postflop leak fixes V61-V69 (MERGED, not live)
+
 Origin: weekly leak report `docs/horse-measure/2026-10-31/horse-leak-report-2026-10-31.md`
 (cash/MTT weekly: turn one-pair calls -308k/-185k; flop bet-raised call one
 pair/air -241k/-163k; turn bet-raised call -179k/-111k; river one-pair
@@ -206,6 +209,7 @@ Baseline for re-measurement: `docs/horse-measure/2026-10-31/horse-v63-v69-baseli
 tool `scripts/horse-measure/horse-v63-v69-measure.py` (usage in its header).
 
 ### Phase B - Preflop (MERGED, not live)
+
 **B1. V70 GTO opening ranges** - #8995, merge `61229f0de1`.
 `server/src/engine/HorseGtoOpeningRanges.ts` (seats-behind indexing), flag
 `v70GtoOpeningRanges`, receipt `v70_gto_open`. Audit:
@@ -245,40 +249,42 @@ release: `v73_vs3bet_defence` against `decide_nlh` (alarm floor 0.002), rerun
 the by-seat query (section 6).
 
 **B5. Rule 4 - no hold'em 4-bet is ever made to fold** - #9065 (`4d3d19a7e2`)
-+ price-aware refinement #9093 (`258d5eff18`), in
-`server/src/engine/HorseHoldemPremiumAggression.ts` (final `wager_rules`
-node in HorseLogic and again at commit in ServerTableEngineTurns).
-- Reported hand: Saturday Mystery `329aa86f-08a9-46f1-8916-59c230aca349`,
+
+- price-aware refinement #9093 (`258d5eff18`), in
+  `server/src/engine/HorseHoldemPremiumAggression.ts` (final `wager_rules`
+  node in HorseLogic and again at commit in ServerTableEngineTurns).
+
+* Reported hand: Saturday Mystery `329aa86f-08a9-46f1-8916-59c230aca349`,
   hand 53158209 (2026-11-01 02:03 UTC, 75/150, ~107bb): horse opened QQ to
   466, Dan (seat 1, user 47965354-0e56-43ef-931c-ddaab82af765) 3-bet 1,631,
   horse 4-bet 3,751, Dan jammed 39,870, horse folded QQ. In that event horses
   4-bet 6 of 9 three-bets faced, all value (AA, KK, KK, QQ, QQ, AKo).
-- Cause: rule 2 forces QQ/AK to re-raise a 3-bet; the brain's Oct 25 deep
+* Cause: rule 2 forces QQ/AK to re-raise a 3-bet; the brain's Oct 25 deep
   tournament 5-bet bar (`HorsePreflop.ts` raises>=3 branch: at >60bb only
   premium pairs continue) also covered the player who MADE the 4-bet; plus the
   V7 4-bet-bluff band folds to a 5-bet by design.
-- 4a: a sized re-raise over a 3-bet or more only with QQ+/AK that can call the
+* 4a: a sized re-raise over a 3-bet or more only with QQ+/AK that can call the
   jam it invites; other hands call (rule 1 still folds dominated offsuit);
   QQ/AK too deep flat (`premium_flat_deep_three_bet`); all-in re-raises and
   <=20bb push/fold untouched.
-- 4b: a horse whose own 4-bet was re-raised calls (AA/KK jam via rule 2) when
+* 4b: a horse whose own 4-bet was re-raised calls (AA/KK jam via rule 2) when
   the price allows; with 4a that is every 4-bet it made unless the re-raise
   comes from a deeper stack than the one it 4-bet into (e.g. a third player's
   cold 5-bet).
-- Price (`fourBetCommits`): required = (S - F) / (D + 2S) (+0.03 in
+* Price (`fourBetCommits`): required = (S - F) / (D + 2S) (+0.03 in
   tournaments); equity vs a solver-style jam range: AA 0.85, KK 0.65, AKs 0.45,
   QQ 0.44, AKo 0.43, JJ 0.42, TT 0.40, else 0.35; maniac read +0.10. Over a 9bb
   3-bet: QQ 4-bets/calls off to ~178bb cash / ~120bb MTT, AKo ~152/108, AKs
   ~214/136; deeper they flat. Recorded hand needs 0.41 -> calls.
-- Receipts: `holdem_no_four_bet_bluff`, `holdem_premium_flat_deep_three_bet`,
+* Receipts: `holdem_no_four_bet_bluff`, `holdem_premium_flat_deep_three_bet`,
   `holdem_four_bettor_continues`. Worker receipt validation
   (`server/src/engine/horseDecision/responseValidation.ts`, `holdemFourBetSpot`)
   admits exactly these raise->call / fold->call de-escalations, context-bound.
-- Departures from Dan's literal words (explain if asked): deep QQ/AK flat a
+* Departures from Dan's literal words (explain if asked): deep QQ/AK flat a
   3-bet (Oct 25 rule 2 said never flat) because the only re-raise would be the
   4-bet-then-fold he banned; a 4-bettor may still fold to a re-raise from a
   deeper stack than it 4-bet into (price decides).
-- Tests: `HorseHoldemPremiumAggression.law.test.ts` (recorded hand, 100/200/250bb
+* Tests: `HorseHoldemPremiumAggression.law.test.ts` (recorded hand, 100/200/250bb
   cash, 100/160bb MTT counterexamples, brain never 4-bets QQ/AK/JJ/A5s at
   200bb, receipts valid); `plo6RiverDisciplineReceipt.test.ts` list without NLH.
 
@@ -287,6 +293,7 @@ node in HorseLogic and again at commit in ServerTableEngineTurns).
 `v74NlhOpenSizes` (default on; NOTE another session separately used "V74" for
 `v74OmahaSemiBluffNeedsDraw` #9012 - number your next feature V75+), law
 `HorseNlhOpenSize.law.test.ts` (`docs/laws.d/server-src-engine-HorseNlhOpenSize.md`).
+
 - Root causes found by harness through HorseLogic.decide: (1) the V28 ladder
   drew 2.2-3.0bb (2.05-2.40 ante), -0.15 late, x persona 0.88-1.12 -> many
   draws under 2bb clamped to the min-raise; (2) `legalize` floors to whole chips
@@ -306,27 +313,29 @@ node in HorseLogic and again at commit in ServerTableEngineTurns).
   30.0%->20.0%, median 2.13->2.33; MTT 24bb ante 34.5%->1.3%.
 
 ### Phase C - Release / infrastructure (mixed)
-| item | PR | merge | status |
-|---|---|---|---|
-| owner window V63-V69 :55 | #8917 | 53c5991113 | expired |
-| scale gate reads docker absence | #8928 | 0db4b3de03 | merged |
-| thaw no longer mutates retired clubs (freeze incident 2026-10-31 19:54:37-20:20:26, fn_thaw_platform 500 CLUB_RETIRED) | #8946 + migration 20261031201656 | ca54cf2d0c | **live (DB)**; normal thaws verified 23:00:18 Oct 31, 08:00:06 and 10:05:00 Nov 1 |
-| close V63-V69 window | #8954 | 24e4211d90 | done |
-| drained-boundary cutover for eed06fe5 (census cannot fit: V8 QueryObjects ~11-12 ms/MB, ~45 s at 3.85 GB vs 30.3 s allowance) + witness RPC `fn_ca_release_drained_predecessor_witness` (migration 20261031212432) | #8986 | 5b06a8a8b6 | merged; never succeeded (section 4) |
-| owner window V63-V70 drained :55 | #9015 | 9dfb752f99 | expired 05:20 UTC 11-01 |
-| drained witness errexit bug | #9095 | b6fd73bcd9 | merged |
-| platform-health phase 6 (closed Diamond tables retire quietly, stall gauge, observe-only memory governor) | #9057 (other session) | ca8250444e | merged, not live |
-| owner window crash-loop fix | #9106 (other session) | 3fafb01c8f | expired 09:25 UTC |
-| deadlock analysis / decision | #9133 / #9134 (other session) | ac6ffa970a / 9c5dfec15a | docs merged; **decision not implemented** |
-| census re-offered after a self-restart | #9148 | c47bd55d19 | merged |
-| census scale gate: fixture reports own verdict at 33 s, cleanup uses full 5 s reserve with docker kill, at most two measurements per image | #9141 | 13dd622a1e | merged |
-| daily preparation owned by a window (03:30-03:50 Chicago, first push or schedule run of the Chicago date), crons `31,35,39,43 8/9 * * *` | #9147 | 241d09027c | merged; first use 2026-11-02 03:30 CST (09:30 UTC) |
-| door check carries a door a queued window migration supplies (daily route only; host re-verifies via new RPC `fn_ca_engine_release_missing_functions` migration `20261101134516` before seal) | #9149 | - | **CLOSED unmerged** after #9139 merged (branch `fix/doors-honor-queued-window-migrations` kept as an option) |
-| door allowlist + owner windows 70/71 (14:30-20:25 UTC 11-01, contain `4e9c3228`; 71 installs 04247 then 05048 in the first confirmed freeze) | #9139 (other session) | b194c1db64 | **MERGED 14:30:30 UTC**: this session is today's release owner |
-| DB-only window for 05048 | #9150 (other session) | - | OPEN |
-| measurement kit + baselines | #9138 | 6340baecb5 | merged |
+
+| item                                                                                                                                                                                                               | PR                               | merge                   | status                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| owner window V63-V69 :55                                                                                                                                                                                           | #8917                            | 53c5991113              | expired                                                                                                      |
+| scale gate reads docker absence                                                                                                                                                                                    | #8928                            | 0db4b3de03              | merged                                                                                                       |
+| thaw no longer mutates retired clubs (freeze incident 2026-10-31 19:54:37-20:20:26, fn_thaw_platform 500 CLUB_RETIRED)                                                                                             | #8946 + migration 20261031201656 | ca54cf2d0c              | **live (DB)**; normal thaws verified 23:00:18 Oct 31, 08:00:06 and 10:05:00 Nov 1                            |
+| close V63-V69 window                                                                                                                                                                                               | #8954                            | 24e4211d90              | done                                                                                                         |
+| drained-boundary cutover for eed06fe5 (census cannot fit: V8 QueryObjects ~11-12 ms/MB, ~45 s at 3.85 GB vs 30.3 s allowance) + witness RPC `fn_ca_release_drained_predecessor_witness` (migration 20261031212432) | #8986                            | 5b06a8a8b6              | merged; never succeeded (section 4)                                                                          |
+| owner window V63-V70 drained :55                                                                                                                                                                                   | #9015                            | 9dfb752f99              | expired 05:20 UTC 11-01                                                                                      |
+| drained witness errexit bug                                                                                                                                                                                        | #9095                            | b6fd73bcd9              | merged                                                                                                       |
+| platform-health phase 6 (closed Diamond tables retire quietly, stall gauge, observe-only memory governor)                                                                                                          | #9057 (other session)            | ca8250444e              | merged, not live                                                                                             |
+| owner window crash-loop fix                                                                                                                                                                                        | #9106 (other session)            | 3fafb01c8f              | expired 09:25 UTC                                                                                            |
+| deadlock analysis / decision                                                                                                                                                                                       | #9133 / #9134 (other session)    | ac6ffa970a / 9c5dfec15a | docs merged; **decision not implemented**                                                                    |
+| census re-offered after a self-restart                                                                                                                                                                             | #9148                            | c47bd55d19              | merged                                                                                                       |
+| census scale gate: fixture reports own verdict at 33 s, cleanup uses full 5 s reserve with docker kill, at most two measurements per image                                                                         | #9141                            | 13dd622a1e              | merged                                                                                                       |
+| daily preparation owned by a window (03:30-03:50 Chicago, first push or schedule run of the Chicago date), crons `31,35,39,43 8/9 * * *`                                                                           | #9147                            | 241d09027c              | merged; first use 2026-11-02 03:30 CST (09:30 UTC)                                                           |
+| door check carries a door a queued window migration supplies (daily route only; host re-verifies via new RPC `fn_ca_engine_release_missing_functions` migration `20261101134516` before seal)                      | #9149                            | -                       | **CLOSED unmerged** after #9139 merged (branch `fix/doors-honor-queued-window-migrations` kept as an option) |
+| door allowlist + owner windows 70/71 (14:30-20:25 UTC 11-01, contain `4e9c3228`; 71 installs 04247 then 05048 in the first confirmed freeze)                                                                       | #9139 (other session)            | b194c1db64              | **MERGED 14:30:30 UTC**: this session is today's release owner                                               |
+| DB-only window for 05048                                                                                                                                                                                           | #9150 (other session)            | -                       | OPEN                                                                                                         |
+| measurement kit + baselines                                                                                                                                                                                        | #9138                            | 6340baecb5              | merged                                                                                                       |
 
 ### Phase D - CI health fixes made along the way
+
 - #9036 rake-share proof replays at its install clock (`scripts/ci/test-player-fee-redemption.sh`, `RAKE_SHARE_REPLAY_CLOCK`), merged `47f9db6acf`.
 - #9037 (other) Stats fixture 30-day window; #9047 (other) pg_net built with `-DCURL_DISABLE_TYPECHECK`.
 - Known flakes (re-run only after confirming another branch fails the same job):
@@ -336,11 +345,12 @@ node in HorseLogic and again at commit in ServerTableEngineTurns).
   transient curl 56; intermittent mainInspectorRetirement container test;
   `HorseLeagueProcessPriority.integration` under concurrent hooks.
 
----------------------------------------------------------------------------
+---
 
 ## 4. THE BLOCKERS AND THE CRITICAL PATH TO "LIVE"
 
 ### Blocker 1 (hard, structural): eed06fe5 can never certify a cutover
+
 Evidence (`public.engine_maintenance_break_log`, `engine_maintenance_break_faults`,
 health): 2026-11-01 07:55 break unparked_at_countdown 98 / ready_for_restart_at
 NULL; 10:00 break 5 / NULL (process 18 min old); 2026-10-31 22:55 99 but ready
@@ -364,6 +374,7 @@ excluded by law (`noServingReleaseBuysACustodyException.law.test.ts`,
 `everyRestartBlockerDeclaresItsBound`), /health gives counts not identities,
 and handsInFlightTotal is 0 by construction in a break.
 Options (from #9133/#9134 and the certdiag analysis):
+
 1. **DECIDED (#9134, owner-delegated): replace eed06fe5 at its next unplanned
    death.** Shape: (a) the transaction stages the candidate as today and writes
    a durable, expiring (e.g. 24 h) `crash-boundary` intent naming candidate SHA
@@ -384,6 +395,7 @@ Options (from #9133/#9134 and the certdiag analysis):
    (would void real hands; overrides custody law). Needs Dan explicitly.
 
 ### Blocker 2: the queued window migrations and the door check
+
 `20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql`
 (#9054; `-- @install-window: daily-maintenance`; triggers on hand_history,
 hand_state_snapshots, hand_atomic_commits, smarter_private.hand_continuations,
@@ -399,6 +411,7 @@ it does not double-install (the installer is idempotent: "queued" = not in
 schema_migrations). Check with `SELECT version, name FROM supabase_migrations.schema_migrations WHERE version IN ('20261101004247','20261101005048');`.
 
 ### Blocker 3 (fixed, verify on first use): daily preparation punctuality
+
 #9147 merged. Admission is judged by the run's own creation instant (schedule
 `created_at` or push `repository.pushed_at`); runs outside 03:30-03:50
 Chicago prepare nothing; inside it, the lowest run id of the Chicago date owns
@@ -413,10 +426,12 @@ one day later, after the migration installs. First real test: 2026-11-02 03:30-0
 the 04:00 freeze (10:00 UTC).
 
 ### Blocker 4 (fixed, verify on first use): census scale gate
+
 #9141 merged. First use: the next receiver on the host. Verify the receipt has
 `attempts` and, on timeout, `freshRemeasurement`.
 
 ### Critical path (do in this order)
+
 1. Read the latest state: health, the #9139 owner windows 70/71 (14:30-20:25 UTC
    2026-11-01: did a :55 attempt happen, did the migrations install, did the
    cutover refuse on the eed06fe5 certificate?), PR #9150, any crash-boundary
@@ -432,9 +447,10 @@ the 04:00 freeze (10:00 UTC).
 4. Measure (section 6) for at least a few hours after activation; compare to
    baselines; report per workstream as LIVE only with evidence.
 
----------------------------------------------------------------------------
+---
 
 ## 5. NOT DONE / FOLLOW-UPS (backlog, in priority order)
+
 1. Everything in section 4 (release, verification, measurement).
 2. Decide V67 strength after live data.
 3. Owner decision: 16-22bb tournament "orange zone" shove ranges (not changed).
@@ -449,12 +465,14 @@ the 04:00 freeze (10:00 UTC).
    (#9057 changes the gauge).
 8. eed06fe5 memory crash-loop is cured only by replacement (#9057 in main).
 
----------------------------------------------------------------------------
+---
 
 ## 6. MEASUREMENT: BASELINES, TOOLS AND EXACT PROCEDURES
+
 All in the repo since #9138: `scripts/horse-measure/` (README with every
 baseline number) and `docs/horse-measure/` (reports, raw results, checkpoint
 logs of 2026-10-30/31).
+
 - Open sizes / facing 3-bet / facing 5-bet: `scripts/horse-measure/preflop-raise-ladder.sql`
   (one SELECT; change `interval '40 minutes'`). Baseline (40 min to ~01:58 UTC
   11-01, 8,668 NLH hands): cash opens 1,319 - 726 at <=2.05bb, median 2.00,
@@ -482,20 +500,23 @@ logs of 2026-10-30/31).
   `tournament_id` and `has_human`), and `ca_hand_facts(hand_id,user_id,hand_class,position)`
   for the hand classes.
 
----------------------------------------------------------------------------
+---
 
 ## 7. HOW TO VERIFY "LIVE" (exact commands)
+
 ```
 curl -s https://engine.smarter.poker/health | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['releaseSha'],d['uptime'],d['maintenance']['active'],d['handsInFlightTotal'],d['liveness'])"
 git merge-base --is-ancestor 241d09027c <releaseSha> && echo contains-all-horse-work
 ```
+
 DB (SELECT): `SELECT * FROM public.engine_maintenance_break_log WHERE break_started_at > now() - interval '6 hours' ORDER BY 1;`
 `SELECT count(*) FROM public.hand_history WHERE created_at > '<activation>'::timestamptz;`
 Release records: `ca_engine_deploy_attempts` (door refusals were recorded there).
 
----------------------------------------------------------------------------
+---
 
 ## 8. PITFALLS THAT COST TIME (do not repeat)
+
 - Raise-level counting off by one: with `rb` = raises before the action, the
   open has rb 0, a 3-bet rb 1, a 4-bet rb 2, a 5-bet rb 3.
 - 1-chip big blind tables round to whole chips: a "spread of sizes" test needs
@@ -517,6 +538,7 @@ Release records: `ca_engine_deploy_attempts` (door refusals were recorded there)
   tournament (Saturday Mystery).
 
 ## 9. OPEN QUESTIONS FOR DAN (ask only if the owner path is unclear)
+
 1. Who is the single release owner for today: the #9139 session (owner windows
    70/71, 14:30-20:25 UTC) or the platform-health session (#9134 crash-boundary)?
 2. Approve implementing #9134 crash-boundary replacement if its owner is not

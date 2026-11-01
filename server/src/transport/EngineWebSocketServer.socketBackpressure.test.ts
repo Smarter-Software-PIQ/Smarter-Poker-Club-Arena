@@ -122,6 +122,40 @@ afterEach(() => {
 });
 
 describe('the physical socket owns its hard backpressure fence', () => {
+  it.each(['single', 'mux'] as const)(
+    'queues recovery state before a decision on the real %s adapter',
+    async (mode) => {
+      const f = fixture();
+      const ws = mode === 'mux' ? f.add() : new FakeWs();
+      if (mode === 'mux') {
+        subscribe(ws);
+        await flush();
+      } else {
+        sockets.push(ws);
+        f.inner.onUpgraded(ws, {}, 'hero', TABLE_A, '192.0.2.1');
+        await flush();
+      }
+      const preflop = { stage: 'preflop', current_bet: 1, action_context: 'hand-7:preflop:3' };
+      const flop = { stage: 'flop', current_bet: 0, action_context: 'hand-7:flop:4' };
+      f.hub.publish(TABLE_A, preflop);
+      ws.bufferedAmount = 256 * 1024 + 1;
+      f.hub.publish(TABLE_A, flop);
+      const before = ws.sent.length;
+      // Still congested, not disconnected: recovery has the same SOFT exemption
+      // as a client RESYNC, with the physical HARD guard before each frame.
+      f.hub.emitEvent(TABLE_A, {
+        type: 'turn_change',
+        action_context: flop.action_context,
+        seat: 1,
+      });
+      const frames = ws.sent.slice(before).map((raw) => JSON.parse(raw));
+      expect(frames.map((frame) => frame.type)).toEqual(['SNAPSHOT', 'EVENT']);
+      expect(frames[0].state).toEqual(flop);
+      expect(frames[1].payload.action_context).toBe(frames[0].state.action_context);
+      expect(ws.close).not.toHaveBeenCalled();
+    }
+  );
+
   it('records subscription audits without creating external network deadlines', async () => {
     const f = fixture();
     const ws = f.add();

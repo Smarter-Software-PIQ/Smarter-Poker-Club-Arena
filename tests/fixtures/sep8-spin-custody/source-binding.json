@@ -1754,6 +1754,27 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false
   },
+  "fullSessionHandStatsRouting20261031": {
+    "reason": "Add the new self-only full-session hand statistics PostgreSQL runner to the existing required Data Console accounting selection. Existing routing, financial commands, assertions and historical qualification verdicts are preserved. Current source identity only, not recertification.",
+    "path": "scripts/ci/classify-ci-changes.mjs",
+    "previousSha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319",
+    "currentSha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+    "historicalEvidenceRestamped": false
+  },
+  "standardUbuntuCompatibility20261101": {
+    "scope": "Only four accounting standard-hosted OS assertions now pin ubuntu-24.04 after latest moved to unsupported Ubuntu26.04. No financial assertion or qualification status changed.",
+    "previousFixtureContractSha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+    "currentFixtureContractSha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "protectedMainRunnerReconciliation20261101": {
+    "scope": "Preserve both source-identity histories and protected accounting shard2-only Ubuntu24.04 route; retain all supported browser pins. Only actual current CI/contract/nested binding identities change.",
+    "protectedMain": "38a1c453c2eac2515e55cd94b439702e1b35be7c",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "closureMainIntegration20261101": {
     "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
     "updatedCurrentInputs": [
@@ -1764,13 +1785,6 @@
   },
   "financialMainIntegration20261101": {
     "reason": "Preserve both histories, existing qualified receipt parser and connected closure-native qualification. Current nested identities only.",
-    "historicalEvidenceRestamped": false
-  },
-  "fullSessionHandStatsRouting20261031": {
-    "reason": "Add the new self-only full-session hand statistics PostgreSQL runner to the existing required Data Console accounting selection. Existing routing, financial commands, assertions and historical qualification verdicts are preserved. Current source identity only, not recertification.",
-    "path": "scripts/ci/classify-ci-changes.mjs",
-    "previousSha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319",
-    "currentSha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
     "historicalEvidenceRestamped": false
   },
   "closureSessionStatsIntegration20261101": {

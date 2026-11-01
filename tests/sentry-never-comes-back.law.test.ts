@@ -76,17 +76,30 @@ describe('Sentry never comes back', () => {
     ).toEqual([]);
   });
 
-  it('no source file imports or requires a Sentry package', () => {
-    const sources = FILES.filter(
-      (f) => /\.(c|m)?(j|t)sx?$/.test(f) && !f.startsWith('supabase/migrations/')
-    );
+  const sources = FILES.filter(
+    (f) => /\.(c|m)?(j|t)sx?$/.test(f) && !f.startsWith('supabase/migrations/')
+  );
+  const sourcePartitions = Array.from({ length: 8 }, (_, bucket) =>
+    sources.filter((_, index) => index % 8 === bucket)
+  );
+  it('partitions every tracked source file exactly once', () => {
     expect(sources.length).toBeGreaterThan(100);
-    const pattern = new RegExp(
-      String.raw`(from\s+|import\s*\(\s*|require\s*\(\s*|import\s+)['"\x60]` + SCOPE + '/',
-      'i'
-    );
-    expect(sources.filter((f) => pattern.test(read(f)))).toEqual([]);
-  }, 15_000);
+    const covered = sourcePartitions.flat();
+    expect(covered.length).toBe(sources.length);
+    expect(new Set(covered).size).toBe(sources.length);
+    expect([...covered].sort()).toEqual([...sources].sort());
+  });
+  it.each(sourcePartitions.map((files, index) => ({ index, files })))(
+    'no source file imports or requires a Sentry package in partition $index',
+    ({ files }) => {
+      const pattern = new RegExp(
+        String.raw`(from\s+|import\s*\(\s*|require\s*\(\s*|import\s+)['"\x60]` + SCOPE + '/',
+        'i'
+      );
+      expect(files.filter((f) => pattern.test(read(f)))).toEqual([]);
+    },
+    15_000
+  );
 
   it('no workflow, env template or Docker file configures a Sentry key', () => {
     const configs = FILES.filter(

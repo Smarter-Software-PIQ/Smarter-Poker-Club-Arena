@@ -89,25 +89,30 @@ describe('an off-cycle break needs a reason, and the newest release owns it', ()
       return at;
     });
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    // No lock is taken without an emergency reason (owner ruling 2026-10-04).
+    // No lock is taken without an emergency or explicit owner reason.
     // The seal answers `unavailable` to every reservation that names no
     // cause, so between reading the reason and the one lock acquisition the
-    // request returns unless the engine is measurably degraded. Commit
+    // request returns without a measured or explicitly authorized reason. Commit
     // urgency and a missed scheduled break are not reasons.
     const gate = between(
       request,
       'reason="$(recovery_window_reason "$health")"',
       "acquire_engine_lock 'one recovery announcement'"
     );
-    // The one other reason (2026-10-23) is an explicit owner-ordered window:
+    // The other original reason (2026-10-23) is an explicit owner-ordered window:
     // a reviewed, expiring entry read from the target's own tree. It is asked
-    // only after the measured reasons, under the same lock and seal.
+    // only after the measured reasons, under the same lock and seal. The
+    // October31 Phase1 hourly exception adds its fixed-cycle adoption reason;
+    // it still needs the same lock, seal and actual scheduled-cycle binding.
     expect(gate).toMatch(
-      /case "\$\{reason%% \*\}" in\s+engine-degraded\|owner-ordered\) ;;\s+\*\) return 0 ;;\s+esac/
+      /case "\$\{reason%% \*\}" in\s+engine-degraded\|owner-ordered\|phase1-hourly\) ;;\s+\*\) return 0 ;;\s+esac/
     );
     expect(gate).toContain('[ -n "$reason" ] || reason="$(owner_window_reason "$health")"');
     expect(request.split("acquire_engine_lock 'one recovery announcement'")).toHaveLength(2);
     expect(request).toContain('reserve_args+=(--cause "$(recovery_cause "${reason%% *}")")');
+    expect(request).toContain(
+      'reserve_args+=(--scheduled-cycle-start "$PHASE1_CYCLE_START" --control-sha "$CONTROL_SHA")'
+    );
     const owner = between(policy, 'owner_window_reason() {', '\n}');
     expect(owner).toContain(
       'git -C "$REPO_DIR" show "$SHA:server/release/owner-maintenance-windows.json"'

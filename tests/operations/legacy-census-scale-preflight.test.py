@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import signal
 from pathlib import Path
 import subprocess
@@ -22,7 +23,10 @@ spec.loader.exec_module(m)
 
 def valid_result():
     return {'schema':'legacy-native-scale-fixture/v1', 'ok':True,
-            'qualification':'synthetic-cardinality-and-memory-only', 'fixtureSHA256':'f'*64,
+            'qualification':'synthetic-full-cardinality-census-phase-only', 'fixtureSHA256':'f'*64,
+            'collectorSHA256':m.digest((m.ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+            'compositionSHA256':m.digest((m.ROOT/'legacy-census-scale-composition.mjs').read_bytes()),
+            'transport':{'ok':True,'closed':True,'outerMs':19000},
             'count':35000000, 'prototypeRestored':True, 'matched':11, 'node':'v22.23.2',
             'v8':'12.4.254.21-node.56', 'platform':'linux', 'arch':'x64',
             'sourceSHA256':'cbd7279fc6595a31bd2044769d2ad85684d63713351acd0bb602dbfcdbdce31e',
@@ -38,11 +42,24 @@ class Response(io.BytesIO):
 
 
 class ScaleBoundary(unittest.TestCase):
+    def test_composed_transport_rejects_coercion_and_nonfinite_or_unexpected_shape(self):
+        for forged in [True, False, '1', None, [], {}, float('inf'), float('nan'), 0, -1, 30001, 10**1000]:
+            value=valid_result()
+            value['transport']['outerMs']=forged
+            with self.subTest(forged=forged), self.assertRaises(RuntimeError):
+                m.validate_result(value,'f'*64)
+        for forged in [None, [], True, {'ok':True,'closed':True},
+                       {'ok':True,'closed':True,'outerMs':1,'extra':True}]:
+            value=valid_result();value['transport']=forged
+            with self.subTest(shape=forged), self.assertRaises(RuntimeError):
+                m.validate_result(value,'f'*64)
+
     def test_actual_measurement_validation_never_treats_smaller_case_as_scale(self):
         value = valid_result()
         m.validate_result(value, 'f'*64)
         alterations = [('count',34999999), ('queryMs',20001), ('fixtureMs',35001),
-                       ('prototypeRestored',False), ('node','v26.0.0'), ('matched',10)]
+                       ('collectorSHA256','0'*64), ('transport',{'ok':True,'closed':False,'outerMs':1}),
+                       ('transport',{'ok':True,'closed':True,'outerMs':30001}), ('prototypeRestored',False), ('node','v26.0.0'), ('matched',10)]
         for key, replacement in alterations:
             bad = copy.deepcopy(value)
             bad[key] = replacement
@@ -142,7 +159,9 @@ class ScaleBoundary(unittest.TestCase):
                 key = path.name[:-7]
                 fixture_sha = m.digest((m.ROOT/'legacy-census-scale-fixture.mjs').read_bytes())
                 binding = {'schema':'legacy-native-scale-binding/v1','image':'sha256:'+'a'*64,
-                           'fixtureSHA256':fixture_sha,'controllerSHA256':m.digest(Path(m.__file__).read_bytes()),'profile':m.PROFILE}
+                           'fixtureSHA256':fixture_sha,'controllerSHA256':m.digest(Path(m.__file__).read_bytes()),'profile':m.PROFILE,
+                           'collectorSHA256':m.digest((m.ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+                           'compositionSHA256':m.digest((m.ROOT/'legacy-census-scale-composition.mjs').read_bytes())}
                 return {'binding':binding,'container':'ca-native-scale-'+key[:32]}
             with patch.object(m,'STATE',state), patch.object(m.os,'geteuid',return_value=0), patch.object(m.sys,'platform','linux'), patch.object(m,'serving',return_value=identity), patch.object(m,'candidate_identity',return_value={}), patch.object(m,'secure_directory'), patch.object(m.os,'fstat',return_value=type('S',(),{'st_mode':0o100600,'st_uid':0})()), patch.object(m.Path,'exists',exists), patch.object(m,'read_state',side_effect=read_intent), patch.object(m,'cleanup',return_value=True) as cleanup, patch.object(m,'command') as command:
                 with self.assertRaisesRegex(RuntimeError,'no automatic repeat'):
@@ -156,7 +175,9 @@ class ScaleBoundary(unittest.TestCase):
             identity = {'revision':next(iter(m.LEGACY))}
             fixture_sha = m.digest((m.ROOT/'legacy-census-scale-fixture.mjs').read_bytes())
             binding = {'schema':'legacy-native-scale-binding/v1','image':'sha256:'+'a'*64,
-                       'fixtureSHA256':fixture_sha,'controllerSHA256':m.digest(Path(m.__file__).read_bytes()),'profile':m.PROFILE}
+                       'fixtureSHA256':fixture_sha,'controllerSHA256':m.digest(Path(m.__file__).read_bytes()),'profile':m.PROFILE,
+                           'collectorSHA256':m.digest((m.ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+                           'compositionSHA256':m.digest((m.ROOT/'legacy-census-scale-composition.mjs').read_bytes())}
             result = valid_result()
             result['fixtureSHA256'] = fixture_sha
             receipt = {'binding':binding,'candidate':{},'status':'qualified','cleanupProved':True,
@@ -227,8 +248,9 @@ class ScaleBoundary(unittest.TestCase):
         # Every marker is a refusal the identity-checked fixture or addon can print.
         fixture = (ROOT/'server/scripts/legacy-census-scale-fixture.mjs').read_bytes()
         addon = (ROOT/'server/scripts/native/legacy-census.cc').read_bytes()
+        composition = (ROOT/'server/scripts/legacy-census-scale-composition.mjs').read_bytes()
         for marker in m.DEADLINE_MARKERS:
-            self.assertTrue(marker in fixture or marker in addon, marker)
+            self.assertTrue(marker in fixture or marker in addon or marker in composition, marker)
 
     def own_commands(self, killed):
         own = subprocess.CompletedProcess([],0,json.dumps('a'*64)+' '+json.dumps('k'*64),'')
@@ -271,7 +293,9 @@ class ScaleBoundary(unittest.TestCase):
         record, docker, cmd = self.run_measure(slow, self.own_commands(True))
         args, kwargs = docker.call_args.args[0], docker.call_args.kwargs
         # The fixture's own deadline is 2 s inside the 35 s client deadline.
-        self.assertAlmostEqual(int(args[-1])/1000 - started, 33, delta=1)
+        self.assertAlmostEqual(int(args[-3])/1000 - started, 33, delta=1)
+        self.assertEqual(args[-2:], [m.digest((m.ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+                                    m.digest((m.ROOT/'legacy-census-scale-composition.mjs').read_bytes())])
         self.assertAlmostEqual(kwargs['timeout'], 35, delta=1)
         self.assertEqual([call.args[0][1] for call in cmd.call_args_list], ['inspect','kill','rm','inspect'])
         self.assertIs(record['timedOut'], True)
@@ -433,9 +457,14 @@ class ScaleBoundary(unittest.TestCase):
         installer = (ROOT/'server/scripts/install-engine-supervisor.sh').read_text()
         workflow = (ROOT/'.github/workflows/auto-deploy-hetzner.yml').read_text()
         source = Path(m.__file__).read_text()
-        for name in ['legacy-census-scale-preflight.py','legacy-census-scale-fixture.mjs']:
-            self.assertIn(name,installer)
-            self.assertIn(name,workflow)
+        required=re.search(r'REQUIRED_FILES=\((.*?)\n\)',installer,re.S).group(1).split()
+        compared=re.search(r'for asset in (legacy-census-scale-.*?); do',workflow).group(1).split()
+        for name in ['legacy-census-scale-preflight.py','legacy-census-scale-fixture.mjs',
+                     'legacy-census-scale-composition.mjs','legacy-engine-checkpoint.mjs']:
+            self.assertIn(name,required)
+            self.assertIn(name,compared)
+        self.assertIn('archive \"$CONTROL_SHA\" server/scripts',workflow)
+        self.assertIn('COPY scripts/legacy-engine-checkpoint.mjs scripts/legacy-census-scale-composition.mjs ./native/legacy-census/',(ROOT/'server/Dockerfile').read_text())
         self.assertIn('legacy-census-scale-preflight.py',helper)
         self.assertLess(workflow.index('for asset in legacy-census-scale'),workflow.index('name: Dispatch the staged SHA'))
         for flag in ["'--network', 'none'","'--read-only'","'--no-healthcheck'","'--memory-swap'",

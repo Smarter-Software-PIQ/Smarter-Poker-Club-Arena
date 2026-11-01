@@ -30,7 +30,7 @@ function formatTime(totalSeconds: number): string {
 }
 
 export function MaintenanceBreakBanner() {
-  const { maintenanceBreak } = useMaintenanceBreak();
+  const { maintenanceBreak, routineSchedule } = useMaintenanceBreak();
   const countingDown =
     maintenanceBreak.phase === 'counting_down' && !!maintenanceBreak.breakEndsAtMs;
   const [remaining, setRemaining] = useState(0);
@@ -44,12 +44,12 @@ export function MaintenanceBreakBanner() {
     return () => clearInterval(t);
   }, [maintenanceBreak.active, countingDown, maintenanceBreak.breakEndsAtMs]);
 
-  // Daily Chicago heads-up; actual engine events still own every active break.
-  const [upcoming, setUpcoming] = useState(() => isRoutineMaintenanceUpcoming(serverNow()));
+  // The existing display tick never requests health or decides freeze/release.
+  const [, setClockTick] = useState(0);
+  const upcoming = isRoutineMaintenanceUpcoming(serverNow(), routineSchedule ?? 'unknown');
   useEffect(() => {
     if (maintenanceBreak.active) return;
-    const refresh = () => setUpcoming(isRoutineMaintenanceUpcoming(serverNow()));
-    refresh();
+    const refresh = () => setClockTick((tick) => tick + 1);
     const t = setInterval(refresh, 15_000);
     return () => clearInterval(t);
   }, [maintenanceBreak.active]);
@@ -62,7 +62,9 @@ export function MaintenanceBreakBanner() {
             &bull;
           </span>
           <span className="maintenance-banner__text">
-            Daily Maintenance At 4 AM Chicago Time. Expected Resume At 4:05 AM.
+            {routineSchedule === 'phase1-hourly'
+              ? 'Hourly Maintenance At The Top Of The Hour. Expected Resume Five Minutes Later.'
+              : 'Daily Maintenance At 4 AM Chicago Time. Expected Resume At 4:05 AM.'}
           </span>
         </div>
       );

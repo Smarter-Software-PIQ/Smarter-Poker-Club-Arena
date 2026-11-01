@@ -484,9 +484,18 @@ jobs:
         id: prepare
         run: |
           set -euo pipefail
-          if python3 - "$RUNNER_TEMP/engine-activation-floor-$RUN_KEY.json" <<'PYTHON'
-          import json, sys
-          raise SystemExit(0 if json.load(open(sys.argv[1])).get('schema') in ('engine-release-activation-floor/v1', 'engine-release-activation-floor/v2-owner-window') else 1)
+          if python3 - "$RUNNER_TEMP/engine-activation-floor-$RUN_KEY.json" "$SHA" <<'PYTHON'
+          import json, subprocess, sys
+          floor = json.load(open(sys.argv[1])).get('schema')
+          scheduled = floor in ('engine-release-activation-floor/v1', 'engine-release-activation-floor/v2-owner-window')
+          # An expired historical floor cannot suppress the source-owned Phase1
+          # image qualification. This is the SAME existing builder/prewarm door.
+          path = 'server/src/maintenance/maintenanceSchedulePolicy.json'
+          present = subprocess.check_output(['git','ls-tree','--name-only',sys.argv[2],'--',path], timeout=10).strip()
+          if present:
+              p = json.loads(subprocess.check_output(['python3','server/scripts/engine-release-seal.py','schedule-policy','--repo','.','--sha',sys.argv[2]], timeout=35))
+              scheduled = scheduled or p['phase1Status'] in ('active','complete','off')
+          raise SystemExit(0 if scheduled else 1)
           PYTHON
           then
             REMAINING=$((RELEASE_DISPATCH_DEADLINE_EPOCH - $(date +%s) - 15))
@@ -521,7 +530,7 @@ jobs:
           IMAGE_ID="$(printf '%s' "$IMAGE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')"
           GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_DIR" show "$CONTROL_SHA:server/scripts/prewarm-engine-image.sh" \
             | cmp -s - "$STAGE/server/scripts/prewarm-engine-image.sh"
-          for asset in legacy-census-scale-preflight.py legacy-census-scale-fixture.mjs engine-release-seal.py; do
+          for asset in legacy-census-scale-preflight.py legacy-census-scale-fixture.mjs legacy-census-scale-composition.mjs legacy-engine-checkpoint.mjs engine-release-seal.py; do
             GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_DIR" show "$CONTROL_SHA:server/scripts/$asset" \
               | cmp -s - "$STAGE/server/scripts/$asset"
           done

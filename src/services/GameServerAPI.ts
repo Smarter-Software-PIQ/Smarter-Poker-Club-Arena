@@ -547,7 +547,7 @@ export interface MaintenancePresentation {
 }
 
 export interface ServerStatus {
-  maintenance?: { presentation?: MaintenancePresentation };
+  maintenance?: { presentation?: MaintenancePresentation; schedule?: unknown };
   running: boolean;
   uptime: number;
   activeTables: number;
