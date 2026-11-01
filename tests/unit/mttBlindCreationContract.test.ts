@@ -1,3 +1,7 @@
+import {
+  installScheduleCreateFixture,
+  scheduleRpcResponse,
+} from '../helpers/scheduleCreateFixture';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { validateMttBlindStructure } from '../../server/src/domain/tournamentBlindContract';
 import { supabase } from '../../src/lib/supabase';
@@ -91,14 +95,24 @@ describe('manual tournament and saved schedule configuration', () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('schedule authoring refusal reaches the real caller', () => {
+  installScheduleCreateFixture();
   afterEach(() => vi.restoreAllMocks());
   it('explains the database break-row refusal without claiming the schedule was saved', async () => {
     const { tournamentScheduleService } =
       await import('../../src/services/TournamentScheduleService');
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: { error: 'custom_level_breaks_not_supported' },
-      error: null,
-    } as never);
+    vi.spyOn(supabase, 'rpc').mockImplementation(
+      (_name, args: any) =>
+        scheduleRpcResponse({
+          data: {
+            ok: false,
+            error: 'custom_level_breaks_not_supported',
+            request_state: 'not_created',
+            request_id: args.p_request_id,
+            user_id: args.p_user_id,
+          },
+          error: null,
+        }) as never
+    );
     await expect(
       tournamentScheduleService.upsert({
         clubId: 'synthetic-club',
@@ -110,7 +124,7 @@ describe('schedule authoring refusal reaches the real caller', () => {
     ).rejects.toThrow('Custom Level Breaks Are Not Supported');
     expect(supabase.rpc).toHaveBeenCalledTimes(1);
     expect(supabase.rpc).toHaveBeenCalledWith(
-      'fn_upsert_tournament_schedule',
+      'fn_create_tournament_schedule_request',
       expect.objectContaining({
         p_schedule: expect.objectContaining({
           config: {

@@ -100,3 +100,34 @@ describe('a boundary tops its horses up together', () => {
     );
   });
 });
+
+describe('mandatory one/two horse intents remain independent', () => {
+  it('requests all five variants together without a legacy opt-in', async () => {
+    const variants = ['nlh', 'plo4', 'plo5', 'plo6', 'plo8'];
+    const ids = variants.map((v) => `mandatory-${v}`);
+    const done = requestLightningHorseTopUps({
+      handId: 'mandatory-hand',
+      clusterId: 'cluster',
+      horsePlayers: ids.map((playerId) => ({ playerId })),
+    });
+    await tick();
+    expect(f.seatReads.map((r) => r.playerId)).toEqual(ids);
+    for (let i = 0; i < f.seatReads.length; i++) {
+      const answer = seat(ids[i]);
+      answer.data.stack = 250;
+      answer.data.auto_rebuy = false;
+      Object.assign(answer.data.tables, {
+        game_variant: variants[i],
+        small_blind: 1,
+        big_blind: 2,
+        min_buy_in: 200,
+        max_buy_in: 400,
+        tournament_id: null,
+      });
+      f.seatReads[i].answer(answer);
+    }
+    await done;
+    expect(f.request.mock.calls.map((c) => [c[1], c[3]])).toEqual(ids.map((id) => [id, 150]));
+    expect(new Set(f.request.mock.calls.map((c) => c[2])).size).toBe(5);
+  });
+});

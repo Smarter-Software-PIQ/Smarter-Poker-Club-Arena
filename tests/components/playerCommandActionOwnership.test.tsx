@@ -1062,7 +1062,14 @@ it('does not apply a delayed live stats response after a newer explicit range re
   await screen.findByText('River Shark');
   const pending = deferred<typeof memberDetail>();
   state.getMemberDetail.mockReturnValueOnce(pending.promise);
+  expect(state.recordChannel).toBeTruthy();
+  const readsBeforeLiveRefresh = state.getMemberDetail.mock.calls.length;
+  const originalRange = state.getMemberDetail.mock.calls.at(-1)?.[2];
   await act(async () => state.recordChannel?.onPayload({}));
+  await waitFor(() =>
+    expect(state.getMemberDetail).toHaveBeenCalledTimes(readsBeforeLiveRefresh + 1)
+  );
+  expect(state.getMemberDetail.mock.calls.at(-1)?.[2]).toEqual(originalRange);
   state.getMemberDetail.mockImplementation(async (_club, _member, activeRange) => ({
     ...memberDetail,
     identity: { ...memberDetail.identity, avatar_url: '/avatars/table/free_ninja@2x.webp' },
@@ -1101,14 +1108,23 @@ it('cannot restore a downline that settles after financial access is withdrawn',
   state.getDownline.mockReturnValueOnce(downline.promise);
   render(<MemberManagementPage />);
   await screen.findByText('River Shark');
-  state.getMemberDetail.mockResolvedValue({
+  const authority = deferred<typeof memberDetail>();
+  const readsBeforeWithdrawal = state.getMemberDetail.mock.calls.length;
+  state.getMemberDetail.mockReturnValueOnce(authority.promise);
+  const denied = {
     ...memberDetail,
     stats: null,
     wallets: null,
     downline: null,
     capabilities: { ...memberDetail.capabilities, can_view_financials: false },
-  });
+  };
   await act(async () => state.recordChannel?.onPayload({}));
+  await waitFor(() =>
+    expect(state.getMemberDetail.mock.calls.length).toBeGreaterThan(readsBeforeWithdrawal)
+  );
+  // The stale roster arrives after the authoritative denial has actually rendered.
+  await act(async () => authority.resolve(denied));
+  await waitFor(() => expect(screen.queryByText('Cash Hands')).not.toBeInTheDocument());
   await act(async () =>
     downline.resolve([{ user_id: '33333333-3333-4333-8333-333333333333', alias: 'Cyan Rail' }])
   );

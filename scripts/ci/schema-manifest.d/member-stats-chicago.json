@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/stats-chicago-20261101; new internal Chicago date readers, installed through Apply Merged Migration after protected integration; this declaration is not installation evidence.",
+  "functions": ["ca_member_record_chicago_facts", "ca_club_member_chicago_fee_totals"],
+  "tables": [],
+  "columns": {}
+}

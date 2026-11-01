@@ -641,11 +641,13 @@ it.each(['register', 'unregister'])(
   'a stale membership read cannot reverse confirmed %s',
   async (action) => {
     let finish!: (value: any) => void;
-    state.readMembership = () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      });
+    const pendingMembership = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const readMembership = vi.fn(() => pendingMembership);
+    state.readMembership = readMembership;
     const { first } = mountActions();
+    await waitFor(() => expect(readMembership).toHaveBeenCalledTimes(1));
     vi.mocked(tournamentService.getTournament).mockResolvedValue(first as any);
     fireEvent.click(await screen.findByRole('button', { name: /^Register/ }));
     await act(async () => {
@@ -658,6 +660,7 @@ it.each(['register', 'unregister'])(
         fireEvent.click(screen.getByRole('button', { name: 'Unregister' }));
       });
     }
+    expect(readMembership).toHaveBeenCalledTimes(1);
     await act(async () => {
       finish({ data: action === 'register' ? null : { id: 'old-entry' }, error: null });
     });

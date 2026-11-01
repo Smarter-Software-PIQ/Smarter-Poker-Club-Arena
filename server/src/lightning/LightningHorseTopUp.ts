@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import { supabase, readClubChipBalances } from '../services/supabase.js';
 import { cappedAutoTopUp, horseAutoTopUpWanted } from '../services/HorseTopUpStyle.js';
+import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
 import { requestLightningTopUp } from './LightningTopUp.js';
 
 /** A horse's input device supplies the same original request a browser submits.
- * Seat Auto Top Up is the intent; cluster auto-rebuy configuration is separate.
+ * Seat Auto Top Up is the usual intent; the owner's 1/2 maximum policy supplies
+ * that intent for every horse at this stake. Cluster auto-rebuy is separate.
  *
  * EVERY HORSE AT ONCE (2026-10-26). Each horse's request is its own: its own
  * seat, its own session, its own wallet and its own idempotency key, exactly
@@ -32,7 +34,7 @@ async function requestOneHorseTopUp(
   const { data: seat, error } = await supabase
     .from('table_seats')
     .select(
-      'table_id,stack,auto_rebuy,club_id,is_sitting_out,leave_pending,tables!table_seats_table_id_fkey!inner(cluster_id,game_variant,big_blind,min_buy_in,max_buy_in)'
+      'table_id,stack,auto_rebuy,club_id,is_sitting_out,leave_pending,tables!table_seats_table_id_fkey!inner(cluster_id,game_variant,small_blind,big_blind,min_buy_in,max_buy_in,tournament_id)'
     )
     .eq('user_id', playerId)
     .is('left_at', null)
@@ -45,17 +47,21 @@ async function requestOneHorseTopUp(
     string,
     unknown
   >;
-  const own = { autoTopUp: seat.auto_rebuy === true, clubId: seat.club_id };
+  const maximumCash = table?.tournament_id === null && isMaximumHorseCashStake(table);
+  const own = { autoTopUp: maximumCash || seat.auto_rebuy === true, clubId: seat.club_id };
   if (!own.autoTopUp || !own.clubId) return;
   const wanted = horseAutoTopUpWanted({
     userId: playerId,
     variant: table.game_variant,
     stack: Number(seat.stack),
     maxBuyIn: Number(table.max_buy_in),
+    smallBlind: maximumCash ? table.small_blind : undefined,
+    bigBlind: table.big_blind,
   });
   if (!(wanted > 0)) return;
   // The current Classic batch reader also owns Classic flag allocation;
-  // Lightning only reads its existing opt-in. Reuse the anchor read above
+  // Lightning supplies its own intent without changing another seat's flag.
+  // Reuse the anchor read above
   // and fetch funding only when this stack actually needs an add-on.
   const [session, balances] = await Promise.all([
     supabase
@@ -79,6 +85,7 @@ async function requestOneHorseTopUp(
     wanted,
     wallet,
     investedThisTable: invested,
+    smallBlind: maximumCash ? table.small_blind : undefined,
     bigBlind: Number(table.big_blind),
     minBuyIn: Number(table.min_buy_in),
     maxBuyIn: Number(table.max_buy_in),
