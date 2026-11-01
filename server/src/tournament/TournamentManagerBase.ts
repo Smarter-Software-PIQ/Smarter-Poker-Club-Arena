@@ -4098,6 +4098,7 @@ export abstract class TournamentManagerBase {
     // pauseAfterHand() is the same mechanism hand-for-hand already uses: the
     // current hand is played to the end and no new hand is dealt.
     for (const engine of this.tableEngines.values()) {
+      if (!this.lifecycleIsCurrent(lifecycle)) return;
       try {
         // Budget the pause for the WHOLE break: the last hand still has to
         // finish, then five minutes run on top of that. The engine's default

@@ -231,8 +231,11 @@ describe('tournament break lifecycle fence', () => {
     stubBreakPersistence();
     const engine = { pauseAfterHand: vi.fn(() => manager.fence()) };
     manager.addTableEngine(engine);
+    const laterEngine = { pauseAfterHand: vi.fn() };
+    (manager as any).tableEngines.set('table-2', laterEngine);
     await manager.pauseForBreak(300_000);
     expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
+    expect(laterEngine.pauseAfterHand).not.toHaveBeenCalled();
     expect(manager.broadcastCall).not.toHaveBeenCalled();
   });
 
