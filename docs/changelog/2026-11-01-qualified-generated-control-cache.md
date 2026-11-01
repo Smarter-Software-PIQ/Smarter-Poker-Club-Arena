@@ -42,3 +42,15 @@ main and both bytecode prevention fixes. The earlier changelog and commits remai
 historical evidence. Its synthetic activation fixture now proves unknown cache
 bytes and foreign entries are preserved and refuse activation; the separate
 compiled-cache suite proves the qualified, non-deleting disposition.
+
+## Offline historical-source qualification
+
+The first Linux qualification stopped before its eleven native cases: CI's
+blobless checkout lacked an old source blob and correctly refused lazy fetching.
+The isolated fixture now hydrates a checksum-pinned 298019-byte Git pack containing
+only the exact 32 old source blobs and strict baseline installer into its private
+objectstore. Actual blob IDs, SHA256 values, protected ancestry and the original
+strict source are still verified. A private metadata-only historical graph proves
+the original archive fails with absent blobs and the corrected bounded blob
+reader succeeds after that private hydration. Production Git reads still forbid lazy fetch and inherited routing;
+no network credentials, shared object writes or broad history hydration are added.
