@@ -70,7 +70,11 @@ describe('live-table readiness starts only admitted health reads', () => {
 // guard, without a live engine or a production mutation.
 import ts from 'typescript';
 import { createProgressSilenceGuard } from '../e2e/support/progressSilence';
-import { refreshPreNavigationSelection, nextHandAdvanced } from '../e2e/support/preNavigationBoard';
+import {
+  refreshPreNavigationSelection,
+  nextHandAdvanced,
+  retirePausedPreNavigationSubjects,
+} from '../e2e/support/preNavigationBoard';
 import { SelectionObservationDeadline } from '../e2e/support/selectionDeadline';
 import { readinessReadTimeout } from '../e2e/support/readinessReadAdmission';
 import { vi } from 'vitest';
@@ -78,7 +82,10 @@ import { vi } from 'vitest';
 function actualProgress(
   boardReader: Record<string, unknown> | undefined,
   read: (...args: unknown[]) => Promise<unknown>,
-  poll: (callback: () => Promise<unknown> | boolean) => Promise<void>
+  poll: (callback: () => Promise<unknown> | boolean) => Promise<void>,
+  readinessObservation: (deadline: number) => Promise<unknown> = async () => {
+    throw new Error('unexpected readmission');
+  }
 ) {
   const source = readFileSync(
     join(__dirname, '../e2e/production-live-table-realtime.spec.ts'),
@@ -93,8 +100,9 @@ function actualProgress(
     let acceptedFacts = null, healthRead, before, lastScopedHealth;
     let after = { tableLiveness: [] };
     const excluded = new Set();
+    const retiredBeforeNavigation = new Set();
     ${source.slice(start, end)}
-    return {beforeTable, afterTable};
+    return {beforeTable, afterTable, retired: [...retiredBeforeNavigation], excluded: [...excluded]};
   }`,
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }
   ).outputText;
@@ -108,9 +116,8 @@ function actualProgress(
     operationalPollFailure: new OperationalPollFailure(),
     SelectionObservationDeadline,
     refreshPreNavigationSelection,
-    readinessObservation: async () => {
-      throw new Error('unexpected readmission');
-    },
+    retirePausedPreNavigationSubjects,
+    readinessObservation,
     readEngineHealth: read,
     healthyRunningTable: (health: { tableLiveness: unknown[] }) => health.tableLiveness[0],
     nextHandAdvanced,
@@ -119,12 +126,94 @@ function actualProgress(
     continuouslyActive: createProgressSilenceGuard(45_000),
     gameFormat: 'mtt',
     CAUSAL_HAND_TIMEOUT_MS: 90_000,
+    MAX_GAMEPLAY_SILENCE_MS: 45_000,
+    testInfo: { attach: vi.fn(async () => undefined) },
     expect: {
       poll: (callback: () => Promise<unknown> | boolean) => ({ toBe: () => poll(callback) }),
     },
   };
   return new Function(...Object.keys(globals), code)(...Object.values(globals))();
 }
+
+it('actual progress retires a newly parked candidate and requires a new healthy hand', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(0);
+  const replacement = { tableId: 'replacement', handCount: 20, msSinceProgress: 0 };
+  const read = vi
+    .fn()
+    .mockResolvedValueOnce({
+      tableLiveness: [
+        {
+          tableId: 't',
+          handCount: 1,
+          msSinceProgress: 11_000,
+          running: true,
+          paused: true,
+        },
+      ],
+    })
+    .mockResolvedValueOnce({ tableLiveness: [replacement] })
+    .mockResolvedValueOnce({ tableLiveness: [{ ...replacement, handCount: 21 }] });
+  const discover = vi.fn(async (deadline: number) => {
+    expect(deadline).toBe(89_000);
+    return { healthRead: { candidates: {}, scoped: {} }, baselines: [replacement] };
+  });
+  const result = actualProgress(
+    undefined,
+    read,
+    async (callback) => {
+      expect(await callback()).toBe(false); // Parked subject is not a pass.
+      expect(await callback()).toBe(false); // Readmission is not a pass.
+      expect(await callback()).toBe(false); // Same replacement hand is not a pass.
+      expect(await callback()).toBe(true);
+    },
+    discover
+  );
+  await expect(result).resolves.toMatchObject({
+    beforeTable: { tableId: 'replacement', handCount: 20 },
+    afterTable: { tableId: 'replacement', handCount: 21 },
+    retired: ['t'],
+    excluded: [],
+  });
+  expect(discover).toHaveBeenCalledTimes(1);
+  vi.restoreAllMocks();
+});
+
+it('actual progress refuses when the parked subject has no healthy replacement', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(0);
+  const refusal = new Error('fixed progress deadline');
+  const read = vi.fn(async () => ({
+    tableLiveness: [
+      {
+        tableId: 't',
+        handCount: 1,
+        msSinceProgress: 11_000,
+        running: true,
+        paused: true,
+      },
+    ],
+  }));
+  const discover = vi.fn(async (deadline: number) => {
+    expect(deadline).toBe(89_000);
+    return { healthRead: { candidates: {}, scoped: {} }, baselines: [] };
+  });
+  await expect(
+    actualProgress(
+      undefined,
+      read,
+      async (callback) => {
+        expect(await callback()).toBe(false);
+        expect(await callback()).toBe(false);
+        vi.mocked(Date.now).mockReturnValue(89_001);
+        expect(await callback()).toBe(false);
+        throw refusal;
+      },
+      discover
+    )
+  ).rejects.toBe(refusal);
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(discover).toHaveBeenCalledTimes(1);
+  vi.restoreAllMocks();
+});
 
 it('actual progress callback refuses a late 14999ms read without clearing a prior failure', async () => {
   vi.spyOn(Date, 'now').mockReturnValue(0);

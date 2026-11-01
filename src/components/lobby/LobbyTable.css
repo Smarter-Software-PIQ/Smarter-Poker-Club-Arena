@@ -2248,3 +2248,106 @@ abbr.lt-variant[title] {
     inset 0 -2px 0 var(--lightning-frame-ink),
     inset -2px 0 0 var(--lightning-frame-ink);
 }
+
+/* One event header spans every visible column; its values remain aligned below. */
+.lt-tournament-header > td {
+  padding: 7px 10px 5px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.lt-tournament-heading,
+.lt-tournament-heading.lt-name__line1 {
+  display: block;
+  width: 100%;
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-family: var(--font-primary, 'Inter', sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.lt-tournament-heading__name {
+  font: inherit;
+}
+.lt-tournament-heading__guarantee {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid #e4e7ec;
+  background: #000;
+  color: #e4e7ec;
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+}
+/* The header owns the top edge and the values own the bottom, never a divider. */
+.lobby-table tbody tr[data-kind][data-tournament-body='true'] {
+  outline: none;
+  border-top: 0;
+}
+.lobby-table tbody tr[data-kind][data-tournament-heading] > td {
+  box-shadow: inset 4px 0 0 var(--tournament-row-accent);
+}
+.lobby-table tbody tr[data-kind][data-tournament-heading].is-featured {
+  outline: none;
+}
+.lobby-table tbody tr[data-kind][data-tournament-heading].is-featured > td:first-child {
+  box-shadow:
+    inset 0 2px 0 var(--accent-red, #f02849),
+    inset 6px 0 0 var(--accent-red, #f02849),
+    inset -2px 0 0 var(--accent-red, #f02849);
+}
+.lobby-table tbody tr[data-kind][data-tournament-heading].is-featured .lt-tournament-heading {
+  color: var(--accent-red, #f02849);
+}
+.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured > td {
+  box-shadow: inset 0 -2px 0 var(--accent-red, #f02849);
+}
+.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured > td:first-child {
+  box-shadow:
+    inset 0 -2px 0 var(--accent-red, #f02849),
+    inset 6px 0 0 var(--accent-red, #f02849);
+}
+.lobby-table
+  tbody
+  tr[data-kind][data-tournament-body='true'].is-featured
+  > td[data-last-visible='true'] {
+  box-shadow:
+    inset 0 -2px 0 var(--accent-red, #f02849),
+    inset -2px 0 0 var(--accent-red, #f02849);
+}
+
+/* Each event is one continuous frame; only separate events get a gap. */
+.lobby-table.has-tournament-headings,
+.club-lobby-machine .lobby-table.has-tournament-headings {
+  border-spacing: 0;
+}
+.lobby-table tbody tr.lt-event-gap > td {
+  height: 4px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* Override the original featured-row outline across the joined event body. */
+.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured {
+  outline: none;
+}
+/* The machine gives every desktop tr and td a 38px minimum row height.
+   Event spacers own both boxes and never inherit that game-row dimension. */
+.club-lobby-machine .lobby-table tbody tr.lt-event-gap,
+.club-lobby-machine .lobby-table tbody tr.lt-event-gap > td {
+  height: 4px;
+  min-height: 0;
+  max-height: 4px;
+  padding: 0;
+  border: 0;
+  background: #000;
+  box-shadow: none;
+  line-height: 0;
+  font-size: 0;
+}

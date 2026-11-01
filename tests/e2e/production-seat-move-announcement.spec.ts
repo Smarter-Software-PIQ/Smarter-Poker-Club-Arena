@@ -3,7 +3,7 @@ import {
   requestObserverForegroundProbe,
 } from './support/spectatorSocketRead';
 import { openLobbyGameSection } from './support/lobbyGameSections';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { expect, test, type WebSocketRoute } from '@playwright/test';
 import { formatPopupText } from '../../src/utils/popupStyle';
 import {
@@ -400,6 +400,41 @@ test('the published table explains controlled seat moves without moving a player
       `SEAT_MOVE_NOTICE_PROOF ${JSON.stringify({ ...evidence, refusedParticipationAttempts: writes })}`
     );
 
+    // Qualify the actual observer footer before the guarded synthetic hero.
+    // The full-table waiting-list control is taller than the Spectating label.
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Table Chat', exact: true })).toBeHidden();
+    await expect(page.locator('.toast')).toHaveCount(0, { timeout: 20_000 });
+    await page.evaluate(() => document.fonts.ready);
+    const observerFooter = await page.locator('.table-page').evaluate((table) => {
+      const footer = table.querySelector('.spectator-footer-bar')!.getBoundingClientRect();
+      const panels = [...table.querySelectorAll<HTMLElement>('.seat:not(.seat--empty) .seat__info')]
+        .filter(
+          (panel) => getComputedStyle(panel).visibility !== 'hidden' && panel.offsetHeight > 0
+        )
+        .map((panel) => ({
+          bottom: panel.getBoundingClientRect().bottom,
+          height: panel.offsetHeight,
+          width: panel.offsetWidth,
+        }));
+      return {
+        viewport: { width: innerWidth, height: innerHeight },
+        occupiedSeats: table.querySelectorAll('.seat:not(.seat--empty)').length,
+        waitingListControl: table.querySelector('.waitlist-cta') !== null,
+        footerTop: footer.top,
+        panels,
+      };
+    });
+    evidence.observerFooter = observerFooter;
+    const observerScreenshot = info.outputPath('mobile-live-table-observer-footer.png');
+    await page.screenshot({ path: observerScreenshot });
+    expect(observerFooter.panels.length).toBeGreaterThanOrEqual(2);
+    for (const panel of observerFooter.panels)
+      expect(
+        panel.bottom,
+        'the published observer panel must clear the actual footer'
+      ).toBeLessThanOrEqual(observerFooter.footerTop + 0.5);
+
     // A synthetic reserved-account identity tests the deployed diagnostic,
     // not an authoritative seat, natural gameplay or a financial receipt.
     await expect.poll(() => snapshotTemplate !== null).toBe(true);
@@ -453,8 +488,6 @@ test('the published table explains controlled seat moves without moving a player
     expect(heroDiagnostics).toEqual([]);
     // Verify equal sizing in the published client using its real mapped
     // player rows. Synthetic input remains confined to this guarded browser.
-    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'Table Chat', exact: true })).toBeHidden();
     await page.evaluate(() => document.fonts.ready);
     const equalSeatSizing = await page
       .locator('.table-page .seat:not(.seat--empty)')
@@ -497,8 +530,28 @@ test('the published table explains controlled seat moves without moving a player
       expect(Math.abs(action.height - actions[0].height)).toBeLessThan(1.5);
     }
     evidence.equalSeatSizing = equalSeatSizing;
+    // Retain the actual visual slots and painted bounds for owner review.
+    // Aliases rotate with the hero; placement is a property of the slot.
+    evidence.seatPositions = await page.locator('.table-page').evaluate((page) => {
+      const box = (element: Element | null) => element?.getBoundingClientRect().toJSON() ?? null;
+      return {
+        page: box(page),
+        canvas: box(page.querySelector('.table-scaler')),
+        seats: [...page.querySelectorAll<HTMLElement>('.seat-wrapper')].map((wrapper) => ({
+          x: parseFloat(wrapper.style.left),
+          y: parseFloat(wrapper.style.top),
+          hero: Boolean(wrapper.querySelector('.seat--hero')),
+          name: wrapper.querySelector('.seat__name')?.textContent,
+          avatar: box(wrapper.querySelector('.seat__avatar-img')),
+          panel: box(wrapper.querySelector('.seat__info')),
+          action: box(wrapper.querySelector('.seat__action')),
+        })),
+      };
+    });
+    const sizingScreenshot = info.outputPath('mobile-live-table-equal-seat-sizing.png');
+    await page.screenshot({ path: sizingScreenshot });
     await info.attach('mobile-published-equal-seat-sizing', {
-      body: await page.screenshot(),
+      path: sizingScreenshot,
       contentType: 'image/png',
     });
     const afterSynthetic = await readBuild();
@@ -522,10 +575,13 @@ test('the published table explains controlled seat moves without moving a player
     try {
       if (syntheticPhase) await context.close();
     } finally {
+      const renderingReceipt = info.outputPath('mobile-live-table-seat-move-rendering.json');
+      await writeFile(
+        renderingReceipt,
+        JSON.stringify({ ...evidence, refusedParticipationAttempts: writes }, null, 2)
+      );
       await info.attach('mobile-live-table-seat-move-rendering', {
-        body: Buffer.from(
-          JSON.stringify({ ...evidence, refusedParticipationAttempts: writes }, null, 2)
-        ),
+        path: renderingReceipt,
         contentType: 'application/json',
       });
     }

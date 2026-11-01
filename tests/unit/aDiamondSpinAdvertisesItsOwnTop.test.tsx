@@ -17,7 +17,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
-    rpc,
+    rpc: (...args: unknown[]) => {
+      const response = rpc(...args);
+      return Object.assign(Promise.resolve(response), { abortSignal: () => response });
+    },
     from: () => ({
       select: () => ({
         eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
