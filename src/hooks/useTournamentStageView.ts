@@ -28,30 +28,59 @@ export function useTournamentStageView(
   refreshKey: unknown = null
 ): StageViewState {
   const gate = usePlatformCapability(MULTI_DAY_CAPABILITY);
-  const [view, setView] = useState<TournamentStageView | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [answer, setAnswer] = useState<{
+    tournamentId: string;
+    refreshKey: unknown;
+    nonce: number;
+    view: TournamentStageView | null;
+    loading: boolean;
+  } | null>(null);
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     if (gate !== 'available' || !tournamentId) {
-      setView(null);
-      setLoading(gate === 'loading');
+      setAnswer(null);
       return;
     }
     let live = true;
-    setLoading(true);
-    void readTournamentStageView(tournamentId).then((read) => {
-      if (!live) return;
-      setView(read.status === 'ok' && read.view.plan ? read.view : null);
-      setLoading(false);
-    });
+    const controller = new AbortController();
+    const scope = { tournamentId, refreshKey, nonce };
+    setAnswer({ ...scope, view: null, loading: true });
+    void readTournamentStageView(tournamentId, controller.signal).then(
+      (read) => {
+        if (!live) return;
+        setAnswer({
+          ...scope,
+          view: read.status === 'ok' && read.view.plan ? read.view : null,
+          loading: false,
+        });
+      },
+      () => {
+        if (live) setAnswer({ ...scope, view: null, loading: false });
+      }
+    );
     return () => {
       live = false;
+      controller.abort();
     };
   }, [gate, tournamentId, refreshKey, nonce]);
 
-  return { view, loading, reload };
+  // Effects run after rendering: an old event/status must never be projected
+  // into the new scope while its read is still being started.
+  const current =
+    gate === 'available' &&
+    tournamentId &&
+    answer?.tournamentId === tournamentId &&
+    Object.is(answer.refreshKey, refreshKey) &&
+    answer.nonce === nonce;
+  return {
+    view: current ? answer.view : null,
+    loading:
+      gate === 'loading' ||
+      (gate === 'available' && Boolean(tournamentId) && (!current || answer.loading)),
+    reload,
+  };
 }
 
 /**
@@ -62,27 +91,40 @@ export function useTournamentStageViews(
   ids: readonly string[]
 ): Record<string, TournamentStageView> {
   const gate = usePlatformCapability(MULTI_DAY_CAPABILITY);
-  const [views, setViews] = useState<Record<string, TournamentStageView>>({});
+  const [answer, setAnswer] = useState<{
+    key: string;
+    views: Record<string, TournamentStageView>;
+  } | null>(null);
   const key = [...ids].sort().join(',');
 
   useEffect(() => {
     if (gate !== 'available' || key === '') {
-      setViews({});
+      setAnswer(null);
       return;
     }
     let live = true;
-    void Promise.all(key.split(',').map((id) => readTournamentStageView(id))).then((reads) => {
-      if (!live) return;
-      const next: Record<string, TournamentStageView> = {};
-      for (const read of reads) {
-        if (read.status === 'ok' && read.view.plan) next[read.view.tournamentId] = read.view;
+    const controller = new AbortController();
+    setAnswer(null);
+    void Promise.all(
+      key.split(',').map((id) => readTournamentStageView(id, controller.signal))
+    ).then(
+      (reads) => {
+        if (!live) return;
+        const next: Record<string, TournamentStageView> = {};
+        for (const read of reads) {
+          if (read.status === 'ok' && read.view.plan) next[read.view.tournamentId] = read.view;
+        }
+        setAnswer({ key, views: next });
+      },
+      () => {
+        if (live) setAnswer({ key, views: {} });
       }
-      setViews(next);
-    });
+    );
     return () => {
       live = false;
+      controller.abort();
     };
   }, [gate, key]);
 
-  return views;
+  return gate === 'available' && answer?.key === key ? answer.views : {};
 }
