@@ -1972,5 +1972,26 @@
     "updatedCurrentInputs": [".github/workflows/ci.yml"],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "equalShareMainIntegration20261101": {
+    "reason": "Integrate protected main shard2-only accounting runner and three browser pins; preserve live-e2e Ubuntu24.04. Reviewed current source identity only; no financial SQL or historical qualification restamp.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 272484,
+          "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+        },
+        "current": {
+          "bytes": 272483,
+          "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "financialMainIntegration20261101": {
+    "reason": "Preserve both histories, existing qualified receipt parser and connected closure-native qualification. Current nested identities only.",
+    "historicalEvidenceRestamped": false
   }
 }
