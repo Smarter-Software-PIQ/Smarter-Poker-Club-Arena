@@ -1394,9 +1394,8 @@ jobs:
     name: Accounting transactions (PostgreSQL 17) shard ${{ matrix.shard }}/7
     # Standard GitHub-hosted runners are free for this public repository.
     # Preserve the complete qualification matrix and fail-closed required verdict.
-    # Pinned pg_net 0.19.5 does not compile against Ubuntu 26.04 curl headers.
-    # Keep the existing native qualification on its compatible hosted image.
-    runs-on: ubuntu-24.04
+    # Shard 2 builds pinned pg_net against the proven compatible system headers.
+    runs-on: ${{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}
     # Run 35276340849 reached V31 after 26m13s and exhausted the 30m job cap.
     # V31 passed in 4m31s in 35276304884. Keep room for hosted runtime variance;
     # every case, statement, cleanup deadline and required gate stays unchanged.
@@ -3818,6 +3817,7 @@ jobs:
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true')
     name: Production Build
+    # Its locked performance-browser installer also requires the proven image.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -4836,6 +4836,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
+    # The locked Chromium installer supports this proven hosted image, not 26.04.
     runs-on: ubuntu-24.04
     # 7.1 minutes measured inside the old job; room for a slow browser install.
     timeout-minutes: 25
