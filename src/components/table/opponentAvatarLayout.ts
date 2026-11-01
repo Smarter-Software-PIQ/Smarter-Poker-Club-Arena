@@ -14,6 +14,7 @@ export type OpponentAvatarState = {
   key: string;
   locked?: boolean;
   shifts: WeakMap<HTMLElement, [number, number]>;
+  resolved?: Map<string, Alpha | null>;
   lowerLaneKey?: string;
   captionKey?: string;
   captionPreimages?: WeakMap<HTMLElement, { value: string; priority: string }>;
@@ -110,6 +111,7 @@ export function opponentShiftTransaction(
   }
 }
 const metadata = new Map<string, Promise<Alpha | null>>();
+const resolvedMetadata = new Map<string, Alpha | null>();
 const box = (element: Element): Box => {
   // Position badges share the character's gesture wrapper. Their permanent
   // footprint, rather than a breathing/winner frame, owns the lower lane.
@@ -829,9 +831,15 @@ function alpha(image: HTMLImageElement): Promise<Alpha | null> {
         }
       : null;
   };
+  const recordResolved = (result: Alpha | null) => {
+    if (resolvedMetadata.size >= 256)
+      resolvedMetadata.delete(resolvedMetadata.keys().next().value!);
+    resolvedMetadata.set(source, result);
+    return result;
+  };
   const pending = new Promise<Alpha | null>((resolve) => {
     try {
-      resolve(read(image));
+      resolve(recordResolved(read(image)));
       return;
     } catch {
       /* Read the same public bytes with CORS, without changing the shown image. */
@@ -842,7 +850,7 @@ function alpha(image: HTMLImageElement): Promise<Alpha | null> {
       clearTimeout(timer);
       probe.onload = null;
       probe.onerror = null;
-      resolve(result);
+      resolve(recordResolved(result));
     };
     probe.crossOrigin = 'anonymous';
     probe.onload = () => {
@@ -876,7 +884,13 @@ export function opponentPaintSpansTouch(
   );
 }
 
-function subject(image: HTMLImageElement, a: Alpha, rendered: boolean, override?: Box): Box {
+function subject(
+  image: HTMLImageElement,
+  a: Alpha,
+  rendered: boolean,
+  override?: Box,
+  includeFocus = true
+): Box {
   const style = getComputedStyle(image);
   const rect = rendered
     ? (override ?? box(image))
@@ -902,7 +916,7 @@ function subject(image: HTMLImageElement, a: Alpha, rendered: boolean, override?
   if (!rendered) {
     const transform =
       (style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d) *
-      permanentAvatarFocusScale(image);
+      (includeFocus ? permanentAvatarFocusScale(image) : 1);
     top = rect.height + (top - rect.height) * transform;
     bottom = rect.height + (bottom - rect.height) * transform;
   }
@@ -917,7 +931,7 @@ export function createOpponentAvatarLayout(
 ) {
   let active = true;
   const observedAnimations = new WeakSet<Animation>();
-  const resolved = new Map<string, Alpha | null>();
+  const resolved = (state.resolved ??= new Map<string, Alpha | null>());
   const pending = new Set<string>();
   const source = (image: HTMLImageElement) => image.currentSrc || image.src;
   let spacingReady = false;
@@ -1062,26 +1076,40 @@ export function createOpponentAvatarLayout(
         .forEach((action) => action.style.removeProperty('translate'));
       return false;
     }
-    for (const image of all)
-      if (image.complete && image.naturalWidth && !pending.has(source(image))) {
-        const url = source(image);
+    for (const image of all) {
+      const url = source(image);
+      if (!resolved.has(url) && !pending.has(url)) {
         pending.add(url);
-        void alpha(image).then((value) => {
-          // Decoded bytes belong to the URL, not the DOM node that began
-          // the read. A roster/profile render can replace that node while a
-          // current portrait still needs the same pending metadata.
-          if (active) {
-            resolved.set(url, value);
-            schedule();
-          }
-        });
+        if (resolvedMetadata.has(url)) {
+          // Already decoded on this session: populate on the existing microtask
+          // boundary so initial mount still reserves card/wager slots before
+          // metadata rebasing, while avoiding any second canvas decode.
+          const cachedValue = resolvedMetadata.get(url)!;
+          void Promise.resolve(cachedValue).then((value) => {
+            if (active) {
+              resolved.set(url, value);
+              schedule();
+            }
+          });
+        } else if (image.complete && image.naturalWidth) {
+          void alpha(image).then((value) => {
+            // Decoded bytes belong to the URL, not the DOM node that began
+            // the read. A roster/profile render can replace that node while a
+            // current portrait still needs the same pending metadata.
+            if (active) {
+              resolved.set(url, value);
+              schedule();
+            }
+          });
+        }
       }
+    }
     if (all.some((image) => !resolved.has(source(image)))) return false;
     const heroAlpha = resolved.get(source(hero));
     if (!heroAlpha) return false; // Preserve existing visible artwork if its public metadata is unavailable.
     const target = subject(hero, heroAlpha, false).height;
+    const baseTarget = subject(hero, heroAlpha, false, undefined, false).height;
     const scales: string[] = [];
-    let changed = false;
     for (const image of all) {
       const avatar = image.closest<HTMLElement>('.seat__avatar')!;
       const seat = image.closest<HTMLElement>('.seat')!;
@@ -1095,10 +1123,12 @@ export function createOpponentAvatarLayout(
       const value = factor.toFixed(6);
       if (avatar.style.getPropertyValue('--sp-opponent-art-scale') !== value) {
         avatar.style.setProperty('--sp-opponent-art-scale', value);
-        changed = true;
         seat.dispatchEvent(new Event('opponentavatarresize'));
       }
-      scales.push(`${seat.dataset.playerId}:${image.currentSrc || image.src}:${value}`);
+      const baseValue = (baseTarget / subject(image, own, false, undefined, false).height).toFixed(
+        6
+      );
+      scales.push(`${seat.dataset.playerId}:${image.currentSrc || image.src}:${baseValue}`);
     }
     if (state.lowerLaneKey && !state.locked) {
       const limits = lowerLaneLimits();
@@ -1139,15 +1169,16 @@ export function createOpponentAvatarLayout(
         state.lowerLaneKey = stillClear && lowerSeats.length ? signature : undefined;
       }
     }
-    const key = `${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${target.toFixed(2)}:${scales.join('|')}`;
+    const key = `${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${baseTarget.toFixed(2)}:${scales.join('|')}`;
     const replacedChair =
       state.locked &&
       all.some((image) => {
         const seat = image.closest<HTMLElement>('.seat')!;
         return image !== hero && !state.shifts.has(seat);
       });
+    let ringChanged = false;
     if (state.key !== key || replacedChair) {
-      changed = true;
+      ringChanged = true;
       state.key = key;
       state.locked = false;
       state.shifts = new WeakMap();
@@ -1164,9 +1195,9 @@ export function createOpponentAvatarLayout(
     }
     // SeatSlot measures caption clearance on the existing animation frame.
     // Allocate once that permanent artwork rise has reached its caption.
-    spacingReady = !changed;
-    if (changed) schedule();
-    return changed;
+    spacingReady = !ringChanged;
+    if (ringChanged) schedule();
+    return ringChanged;
   };
   const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
     const old = state.shifts.get(seat);
