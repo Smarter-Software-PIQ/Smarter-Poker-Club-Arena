@@ -300,6 +300,16 @@ describe('the harness, CI, fragment and changelog', () => {
     expect(HARNESS).toContain('( "${PSQL[@]}" -f "$fixture/conc0.sql"');
     expect(HARNESS).toContain('( "${PSQL[@]}" -f "$fixture/conc1.sql"');
   });
+  it('keeps the extended-finding view on the planted clock across an hour rollover', () => {
+    const view = HARNESS.slice(
+      HARNESS.indexOf("-- THE OPERATOR'S VIEW"),
+      HARNESS.indexOf("\\echo '  ok  R12 FIXED 6")
+    );
+    expect(view).toContain("detected_at = b.t0 - interval '3 days'");
+    expect(view).toContain("b.t0 + interval '4 hours', b.t0 + interval '7 hours'");
+    expect(view).not.toContain('now()');
+    expect(view).toContain('FAIL R12: the operator view does not list the extended finding');
+  });
   it('CI runs the harness on shard 3 after the Phase 12 load and chaos step', () => {
     const lc = CI.indexOf('test-lightning-phase12-load-chaos.sh');
     const me = CI.indexOf('test-lightning-phase11-remediation.sh');
