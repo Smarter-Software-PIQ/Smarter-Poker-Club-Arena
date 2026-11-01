@@ -1,6 +1,6 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TournamentBreakScreen from '../../src/components/table/TournamentBreakScreen';
 
 const state = vi.hoisted(() => ({
@@ -12,9 +12,13 @@ const state = vi.hoisted(() => ({
     status: string;
   }>,
   total: 73,
+  level: 2,
+  snapshot: null as unknown,
+  structure: [] as unknown,
   error: false,
   queries: 0,
   hold: null as Promise<void> | null,
+  metadataHold: null as Promise<void> | null,
   listeners: new Map<string, () => void>(),
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
@@ -32,6 +36,7 @@ vi.mock('../../src/lib/supabase', () => ({
       let statuses: string[] | null = null;
       const query: any = {
         select: () => query,
+        abortSignal: () => query,
         eq: () => query,
         order: () => query,
         gt: (_: string, id: string) => {
@@ -46,10 +51,19 @@ vi.mock('../../src/lib/supabase', () => ({
           limit = value;
           return query;
         },
-        maybeSingle: async () => ({
-          data: { current_level: 2, prize_pool: 1700, current_players: state.total },
-          error: null,
-        }),
+        maybeSingle: async () => {
+          await state.metadataHold;
+          return {
+            data: {
+              current_level: state.level,
+              blind_level_state: state.snapshot,
+              blind_structure: state.structure,
+              prize_pool: 1700,
+              current_players: state.total,
+            },
+            error: null,
+          };
+        },
         then: (resolve: any, reject: any) => {
           state.queries++;
           const rows = state.rows.filter(
@@ -83,8 +97,16 @@ const flush = async () => {
 };
 beforeEach(() => {
   state.total = 73;
+  state.level = 2;
+  state.snapshot = null;
+  state.structure = [
+    { smallBlind: 25, bigBlind: 50 },
+    { smallBlind: 50, bigBlind: 100 },
+    { smallBlind: 100, bigBlind: 200, ante: 20 },
+  ];
   state.error = false;
   state.hold = null;
+  state.metadataHold = null;
   state.queries = 0;
   state.listeners.clear();
   state.rows = Array.from({ length: 73 }, (_, i) => ({
@@ -189,5 +211,86 @@ describe('live break standings', () => {
     await act(async () => state.listeners.get('event')!());
     expect(players()).toBe('72');
     expect(screen.queryByText('Standings Unavailable')).toBeNull();
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+it('releases unreadable metadata and can refresh on a later committed event', async () => {
+  vi.useFakeTimers();
+  state.metadataHold = new Promise(() => {});
+  render(<TournamentBreakScreen {...props} />);
+  await flush();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(screen.getByText('Standings Unavailable')).toBeVisible();
+  state.metadataHold = null;
+  await act(async () => {
+    state.listeners.get('event')!();
+  });
+  expect(players()).toBe('73');
+});
+
+it('performs the pending committed-event read after metadata times out', async () => {
+  vi.useFakeTimers();
+  state.metadataHold = new Promise(() => {});
+  const view = render(<TournamentBreakScreen {...props} />);
+  await flush();
+  state.metadataHold = null;
+  state.rows = state.rows.slice(1);
+  await act(async () => {
+    state.listeners.get('event')!();
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(players()).toBe('72');
+  expect(screen.queryByText('Loading Standings')).toBeNull();
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
+});
+it('retires a hung metadata deadline when the break closes', async () => {
+  vi.useFakeTimers();
+  state.metadataHold = new Promise(() => {});
+  const view = render(<TournamentBreakScreen {...props} />);
+  await flush();
+  view.unmount();
+  await flush();
+  expect(vi.getTimerCount()).toBe(0);
+  expect(state.listeners.size).toBe(0);
+});
+
+describe('authoritative paused tournament blinds', () => {
+  it('shows committed add-on blinds instead of stale hourly payload and refreshes on recovery', async () => {
+    state.snapshot = { index: 2, small_blind: 150, big_blind: 300, ante: 30 };
+    render(<TournamentBreakScreen {...props} addOnNotice={{ cost: 15, chips: 20000 }} />);
+    await flush();
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('150 / 300');
+    expect(document.querySelector('.break-screen__ante')).toHaveTextContent('30');
+    state.level = 3;
+    state.snapshot = { index: 3, small_blind: 200, big_blind: 400, ante: 40 };
+    await act(async () => state.listeners.get('event')!());
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('200 / 400');
+    expect(screen.getByText('Coming Next: Level 4')).toBeVisible();
+  });
+  it('uses the exact legacy schedule index but refuses mismatched snapshots and invented overflow', async () => {
+    state.structure = JSON.stringify(state.structure);
+    render(<TournamentBreakScreen {...props} />);
+    await flush();
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('100 / 200');
+    state.snapshot = { index: 1, small_blind: 50, big_blind: 100, ante: 0 };
+    await act(async () => state.listeners.get('event')!());
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('N/A');
+    expect(document.querySelector('.break-screen__my-stack small')).toHaveTextContent('N/A');
+    state.snapshot = null;
+    state.level = 30;
+    await act(async () => state.listeners.get('event')!());
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('N/A');
+    state.error = true;
+    await act(async () => state.listeners.get('event')!());
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('N/A');
   });
 });

@@ -188,6 +188,7 @@ import { noteDecisionMs, noteFire, telemetryOn } from './BrainTelemetry.js';
 // by GtoChartLoader so the synchronous decision can read them at zero I/O.
 // See engine/GtoCharts.ts for scope and why absence falls back to heuristics.
 import { gtoOpenJam, gtoBbVsSbJam, handClass as gtoHandClass } from './GtoCharts.js';
+import { nashJamProbability, V71_PUSH_FOLD_MAX_BB } from './HorseAnteAwarePushFold.js';
 // V29 (Dan 2026-08-29): the flop plays from the solver — class-mean mixes
 // aggregated offline from the 8.8M-solution warehouse, preloaded by
 // GtoPostflopLoader. See engine/GtoPostflop.ts for scope and honesty notes.
@@ -2198,6 +2199,12 @@ export interface HorseDecideOpts {
    *  target widths; the jam-or-fold zones are untouched. Default on;
    *  explicit false keeps today's open. */
   v70GtoOpeningRanges?: boolean;
+  /** V71 (2026-10-31): the folded-to Hold'em jam at <= 15bb in a tournament
+   *  (or an ante cash table) reads the chip-EV Nash jam-or-fold table by
+   *  dealt-in players behind and dead ante (HorseAnteAwarePushFold), with or
+   *  without the solver charts loaded. Default on; explicit false keeps the
+   *  V27 chart / offline fallback answer. */
+  v71AnteAwarePushFold?: boolean;
   /** V72 (2026-10-31): Hold'em facing one open with nobody in (three or more
    *  dealt in) - the call / 3-bet base is set per (defender seat, opener
    *  seat by dealt-in players behind, open size, ante) from reference GTO
@@ -3807,6 +3814,8 @@ export function holdemPremiumAggression(
   if (telemetryOn(opts)) {
     if (verdict.rule === 'dominated_3bet_fold') noteFire('holdem_dominated_3bet_fold');
     else if (verdict.rule === 'premium_preflop_raise') noteFire('holdem_premium_preflop_raise');
+    else if (verdict.rule === 'no_four_bet_bluff') noteFire('holdem_no_four_bet_bluff');
+    else if (verdict.rule === 'four_bettor_continues') noteFire('holdem_four_bettor_continues');
     else noteFire('holdem_premium_postflop_bet');
   }
   const next = verdict.decision;
@@ -5850,14 +5859,60 @@ export class HorseLogic {
         toCall <= bb &&
         chartDepthBB <= 15
       ) {
-        const advice = gtoOpenJam({
-          isTournament: tourney,
-          position: chartPos,
-          stackBB: chartDepthBB,
-          hand,
-        });
-        if (advice) {
-          if (telemetryOn(opts)) noteFire('v27_gto_open_jam');
+        // ═══ V71 ANTE-AWARE PUSH/FOLD (2026-10-31) ═══ in a tournament (or
+        // at an ante cash table, which already reads the Tournament charts)
+        // with an ante in the pot, the jam reads the chip-EV Nash table for
+        // the seat's exact count of dealt-in players behind and the dead
+        // ante, whether or not the charts hydrated. The charts are the no-ante game with five
+        // positions: identical Tournament and Cash cells, so a big-blind
+        // ante was ignored and a nine-handed UTG jammed the six-handed UTG
+        // chart. Depth is the effective stack: hero's, capped by the deepest
+        // live stack still to act. Nobody's identity is read.
+        const nash71 = (() => {
+          if (opts.v71AnteAwarePushFold === false || !tourney) return null;
+          if (chartDepthBB > V71_PUSH_FOLD_MAX_BB) return null;
+          // Only where there IS dead ante: the charts are the no-ante game,
+          // and against the human-calibrated field the no-ante Nash answer
+          // ran -3.56 +/- 1.63 bb/100 at 15bb over four seeds (league, V71
+          // changelog), so a table without an ante keeps the charts and the
+          // offline fallback exactly as they were.
+          const ante71 = anteOrbitCostBB(
+            gs.ante ?? 0,
+            dealtHorseTableSize(gs, player.seat),
+            bb,
+            gs.bigBlindAnte === true
+          );
+          if (!(ante71 > 0)) return null;
+          const behind71 = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+          if (behind71 === null || behind71 < 1) return null;
+          let deepestBehind71 = 0;
+          for (const p of gs.players) {
+            if (p.seat === player.seat || p.is_folded || p.is_sitting_out) continue;
+            deepestBehind71 = Math.max(deepestBehind71, (p.stack + p.bet) / bb);
+          }
+          const depth71 =
+            deepestBehind71 > 0 ? Math.min(chartDepthBB, deepestBehind71) : chartDepthBB;
+          return nashJamProbability({
+            hand,
+            behind: behind71,
+            depthBB: depth71,
+            anteBB: ante71,
+          });
+        })();
+        const advice =
+          nash71 === null
+            ? gtoOpenJam({
+                isTournament: tourney,
+                position: chartPos,
+                stackBB: chartDepthBB,
+                hand,
+              })
+            : null;
+        if (nash71 !== null || advice) {
+          if (telemetryOn(opts)) {
+            noteFire('v27_gto_open_jam');
+            if (nash71 !== null) noteFire('v71_ante_push');
+          }
           // ═══ V48 PERSONA: gtoAdherence ═══════════════════════════════════
           // Not every player takes the chart every time, and a fleet where
           // every seat plays the identical solver line at 12bb is a fleet
@@ -5880,7 +5935,12 @@ export class HorseLogic {
           } else {
             // The chart gives the mixed strategy; the horse rolls it. A 77%
             // jam is jammed 77% of the time, not rounded to always.
-            const pushProb = advice.action === 'push' ? advice.freq : 1 - advice.freq;
+            const pushProb =
+              nash71 !== null
+                ? nash71
+                : advice!.action === 'push'
+                  ? advice!.freq
+                  : 1 - advice!.freq;
             if (fastRandom() < pushProb) {
               notePhase6Route('solver', 'chart_open_jam');
               return { action: 'all_in', thinkTime: 0 };

@@ -562,6 +562,299 @@ test.describe('the mobile lobby chrome on production', () => {
     }
   });
 
+  test('tournament favorites stay below current pins across sorting and reload', async ({
+    page,
+  }, testInfo) => {
+    expect(
+      /^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || ''),
+      'Favorite proof requires its owned isolated production account'
+    ).toBe(true);
+    const preferenceKey = 'lobby-tournament-favorites:global';
+    const participation: string[] = [];
+    await page.route(
+      /\/(?:action|leave|post-bb|rabbit-hunt|buyin|addchips|rebuy|cashout|sitout|seat-move|seat-change|rest\/v1\/(?:table_seats|tournament_players|wallet_transactions|rpc\/(?:fn_cash_game_join|atomic_table_buyin|fn_lightning_join|fn_lightning_buy_in|fn_take_seat_and_buy_in|fn_register_for_tournament|fn_unregister_from_tournament|fn_leave_seat_and_refund|atomic_table_rebuy|process_tournament_rebuy|fn_join_waitlist)))(?:[/?#]|$)/,
+      async (route) => {
+        if (['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) return route.continue();
+        participation.push(new URL(route.request().url()).pathname);
+        await route.abort('blockedbyclient');
+      }
+    );
+    const isPreferenceRead = (response: import('@playwright/test').Response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith('/user_page_preferences') &&
+        response.request().method() === 'GET' &&
+        response.ok() &&
+        url.searchParams.get('preference_key') === `eq.${preferenceKey}`
+      );
+    };
+    const initialRead = page.waitForResponse(isPreferenceRead);
+    await openLobby(page);
+    const owner = await readLobbyPreferenceOwner(page);
+    const firstRead = await initialRead;
+    expect(new URL(firstRead.url()).searchParams.get('user_id')).toBe(`eq.${owner}`);
+    const initial = await firstRead.json();
+    expect(initial?.value ?? initial?.[0]?.value ?? []).toEqual([]);
+    expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(
+      'America/Chicago'
+    );
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+    const appearance: unknown[] = [];
+    for (const [family, tab, mode] of [
+      ['ALL', 'PLO', 'cash'],
+      ['MTT', 'SPINS', 'spins'],
+      ['MTT', "SIT N GO'S", 'sng'],
+      ['MTT', 'SATELLITES', 'satellites'],
+      ['MTT', "MTT'S", 'mtt'],
+    ]) {
+      await openLobbyGameSection(page, family);
+      const selectedTab = page.getByRole('tab', { name: tab, exact: true });
+      await selectedTab.click();
+      await expect(selectedTab).toHaveAttribute('aria-selected', 'true');
+      const format =
+        mode === 'satellites'
+          ? '[data-kind="mtt"].is-satellite'
+          : mode === 'mtt'
+            ? '[data-kind="mtt"]:not(.is-satellite)'
+            : `[data-kind="${mode === 'spins' ? 'spin' : mode}"]`;
+      const currentRows = page.locator(`[data-testid="lobby-game-row"][data-id]${format}:visible`);
+      await expect(currentRows.first()).toBeVisible({ timeout: 30_000 });
+      const sampleRow =
+        mode === 'cash'
+          ? page
+              .locator(
+                '[data-testid="lobby-game-row"][data-id][data-kind="cash"][data-lightning-format="true"]:visible'
+              )
+              .first()
+          : currentRows.first();
+      await expect(sampleRow).toBeVisible({ timeout: 30_000 });
+      const id = await sampleRow.getAttribute('data-id');
+      const heading = page.locator(`[data-game-heading="${id}"]:visible`);
+      await expect(heading.locator('.lt-tournament-heading__name')).toBeVisible();
+      await expect
+        .poll(() =>
+          heading.evaluate((element) => {
+            const zone = element.querySelector('.lt-tournament-heading__name') as HTMLElement;
+            const title = zone.firstElementChild as HTMLElement;
+            const plate = element.querySelector('.lt-tournament-heading__guarantee')!;
+            return (
+              title.scrollHeight <= zone.clientHeight + 1 &&
+              Math.abs(
+                parseFloat(getComputedStyle(title).fontSize) -
+                  parseFloat(getComputedStyle(plate).fontSize)
+              ) < 0.1
+            );
+          })
+        )
+        .toBe(true);
+      const paint = await heading.evaluate(async (element) => {
+        const overlayDisplay = getComputedStyle(element, '::after').display;
+        if (element.matches('.is-featured') && overlayDisplay !== 'none')
+          throw new Error('A format rail is covering the featured red perimeter');
+        const backgrounds = [
+          getComputedStyle(element, '::before').backgroundImage,
+          getComputedStyle(element.querySelector('.lt-tournament-icon,.lt-lightning-icon')!)
+            .backgroundImage,
+        ];
+        for (const background of backgrounds) {
+          const url = /url\(["']?(.*?)["']?\)/.exec(background)?.[1];
+          if (!url) throw new Error('Premium chassis or format art is absent');
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          if (!image.naturalWidth || !image.naturalHeight)
+            throw new Error('Premium art did not load');
+        }
+        return {
+          heading: element.textContent,
+          backgrounds,
+          overlayDisplay,
+          icon: element
+            .querySelector('[data-tournament-icon]')
+            ?.getAttribute('data-tournament-icon'),
+          filter: getComputedStyle(element, '::before').filter,
+        };
+      });
+      if (mode === 'cash') {
+        expect(paint.icon).toBe('lightning');
+        expect(paint.filter).toContain('grayscale(1)');
+        expect(await sampleRow.evaluate((e) => getComputedStyle(e, '::before').filter)).toContain(
+          'grayscale(1)'
+        );
+      }
+      appearance.push({ mode, ...paint });
+      await sampleRow.scrollIntoViewIfNeeded();
+      await expect(sampleRow).toBeInViewport();
+      await expect(heading).toBeInViewport();
+      await testInfo.attach(`chrome-arena-${mode}-phone.png`, {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const wideHeading = page.locator('.lobby-table tr[data-game-heading]').first();
+    await wideHeading.scrollIntoViewIfNeeded();
+    await expect(wideHeading).toBeInViewport();
+    await testInfo.attach('chrome-arena-mtt-wide.png', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const rows = page.locator('[data-testid="lobby-game-row"][data-kind="mtt"][data-id]:visible');
+    const pinDates = await rows.evaluateAll((elements) =>
+      elements.map((e) => ({
+        id: e.getAttribute('data-id'),
+        hostPinned: e.getAttribute('data-host-pinned') === 'true',
+        displayedPinned: e.matches('.is-featured'),
+        start: e.getAttribute('data-start-time'),
+        today: new Date().toLocaleDateString('en-CA'),
+        day: new Date(e.getAttribute('data-start-time') || '').toLocaleDateString('en-CA'),
+      }))
+    );
+    expect(
+      pinDates.filter((row) => row.hostPinned).length,
+      'Live host-selected events are present'
+    ).toBeGreaterThan(0);
+    expect(
+      pinDates
+        .filter((row) => row.displayedPinned)
+        .map((row) => row.id)
+        .sort()
+    ).toEqual(
+      pinDates
+        .filter((row) => row.hostPinned && row.start && row.day === row.today)
+        .map((row) => row.id)
+        .sort()
+    );
+    await testInfo.attach('chrome-arena-appearance.json', {
+      body: Buffer.from(JSON.stringify({ appearance, pinDates })),
+      contentType: 'application/json',
+    });
+    await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+    const snapshot = () =>
+      rows.evaluateAll((elements) =>
+        elements.map((element) => ({
+          id: element.getAttribute('data-id'),
+          pinned: element.matches('[data-featured="true"],.is-featured'),
+          favorite: Boolean(element.querySelector('button[aria-label="Remove From Favorites"]')),
+        }))
+      );
+    const chooseSort = async (label: string) => {
+      await page.getByRole('button', { name: 'Filters And Sort', exact: true }).click();
+      const filters = page.getByRole('dialog', { name: 'Advanced Filters', exact: true });
+      const choice = filters.getByRole('button', { name: label, exact: true });
+      await choice.click();
+      await expect(choice).toHaveAttribute('aria-pressed', 'true');
+      await filters.getByRole('button', { name: 'Close Game Filters', exact: true }).click();
+      await expect(filters).toBeHidden();
+    };
+    await chooseSort('Stakes: High To Low');
+    const before = await snapshot();
+    expect(before.filter((row) => row.favorite)).toEqual([]);
+    const ordinary = before.filter((row) => !row.pinned);
+    expect(
+      ordinary.length,
+      'The live schedule needs two ordinary events for promotion'
+    ).toBeGreaterThan(1);
+    const chosen = ordinary.at(-1)!.id!;
+    expect(chosen).toMatch(/^[0-9a-f-]{36}$/i);
+    // data-id belongs to the row itself, so address it directly rather than a descendant.
+    const selected = () =>
+      page.locator(`[data-testid="lobby-game-row"][data-id="${chosen}"]:visible`);
+    const saveChoice = (enabled: boolean) =>
+      page.waitForResponse((response) => {
+        if (
+          !response.url().includes('/rest/v1/user_page_preferences') ||
+          response.request().method() !== 'POST' ||
+          !response.ok()
+        )
+          return false;
+        const body = response.request().postDataJSON();
+        return (
+          body?.user_id === owner &&
+          body?.preference_key === preferenceKey &&
+          Array.isArray(body.value) &&
+          body.value.length === (enabled ? 1 : 0) &&
+          body.value.includes(chosen) === enabled
+        );
+      });
+    const phaseEvidence: Array<{ phase: string; rows: Awaited<ReturnType<typeof snapshot>> }> = [];
+    const assertFavoriteTier = async (phase: string) => {
+      await expect
+        .poll(async () => {
+          const current = await snapshot();
+          const pins = current.filter((row) => row.pinned);
+          const favoriteIndex = current.findIndex((row) => row.id === chosen && row.favorite);
+          return (
+            favoriteIndex === pins.length &&
+            current.slice(0, pins.length).every((row) => row.pinned) &&
+            current.slice(pins.length + 1).every((row) => !row.pinned && !row.favorite)
+          );
+        })
+        .toBe(true);
+      phaseEvidence.push({ phase, rows: await snapshot() });
+    };
+    const originalUrl = page.url();
+    const saved = saveChoice(true);
+    await selected().getByRole('button', { name: 'Add To Favorites', exact: true }).click();
+    await saved;
+    expect(page.url()).toBe(originalUrl);
+    await assertFavoriteTier('starred');
+    await chooseSort('Most Players');
+    await assertFavoriteTier('players-descending');
+    await chooseSort('Stakes: High To Low');
+    await assertFavoriteTier('buy-in-descending');
+    const readback = page.waitForResponse(
+      (response) =>
+        isPreferenceRead(response) &&
+        new URL(response.url()).searchParams.get('user_id') === `eq.${owner}`
+    );
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const persisted = await (await readback).json();
+    expect(persisted?.value ?? persisted?.[0]?.value).toEqual([chosen]);
+    await expect(selected()).toBeVisible({ timeout: 30_000 });
+    await assertFavoriteTier('reloaded-server-readback');
+    await rows.first().scrollIntoViewIfNeeded();
+    await expect(selected()).toBeInViewport();
+    await testInfo.attach('tournament-favorite-starred-tier.png', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    const removed = saveChoice(false);
+    await selected().getByRole('button', { name: 'Remove From Favorites', exact: true }).click();
+    await removed;
+    await expect(
+      selected().getByRole('button', { name: 'Add To Favorites', exact: true })
+    ).toBeVisible();
+    await expect
+      .poll(async () => {
+        const current = await snapshot();
+        return (
+          current.findIndex((row) => row.id === chosen) > current.filter((row) => row.pinned).length
+        );
+      })
+      .toBe(true);
+    expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
+    expect(participation).toEqual([]);
+    await testInfo.attach('tournament-favorite-priority.json', {
+      body: Buffer.from(
+        JSON.stringify({
+          chosen,
+          initialFavoritesEmpty: true,
+          phases: phaseEvidence,
+          participation,
+        })
+      ),
+      contentType: 'application/json',
+    });
+    await testInfo.attach('tournament-favorite-priority.png', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+  });
+
   test('the footer frame sits on the bottom edge with nothing under it', async ({ page }) => {
     await openLobby(page);
     /* Two landmarks share this name on a club lobby: the arena boundary's

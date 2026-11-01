@@ -55,6 +55,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import styles from './TournamentLobbyCard.module.css';
 import { reportError } from '../../utils/errorReporter';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { formatGameTitle } from '../../utils/formatGameTitle';
 // Whole-number tournament money (Dan 2026-08-20).
 import { money } from '../../utils/buyIn';
@@ -244,6 +245,7 @@ function TournamentLobbyCardInner({
 }: TournamentLobbyCardProps & { user: ReturnType<typeof useAuthUser>['user'] }) {
   const navigate = useAppNavigate();
   const registrationRead = useRef(0);
+  const registrationAbort = useRef<AbortController | null>(null);
   const [registering, setRegistering] = useState(false);
   const [isRegistered, setIsRegistered] = useState(knownRegistration === true);
   /**
@@ -279,6 +281,7 @@ function TournamentLobbyCardInner({
        do not know, go and look"; `null` is "my batch query failed", which is
        also a reason to look rather than to guess. See knownRegistration. */
     registrationRead.current++;
+    registrationAbort.current?.abort();
     if (typeof knownRegistration === 'boolean') {
       setIsRegistered(knownRegistration);
       setRegCheckFailed(false);
@@ -292,6 +295,7 @@ function TournamentLobbyCardInner({
     }
     return () => {
       registrationRead.current++;
+      registrationAbort.current?.abort();
       if (interval !== undefined) clearInterval(interval);
     };
   }, [tournament.id, tournament.startsAt, knownRegistration, user?.id]);
@@ -326,19 +330,27 @@ function TournamentLobbyCardInner({
 
   const checkRegistration = async () => {
     const request = ++registrationRead.current;
+    registrationAbort.current?.abort();
     if (!user?.id) {
       setIsRegistered(false);
       setRegCheckFailed(false);
       return;
     }
+    const controller = new AbortController();
+    registrationAbort.current = controller;
     setRegCheckFailed(true);
     try {
-      const { data, error } = await supabase
-        .from('tournament_players')
-        .select('id')
-        .eq('tournament_id', tournament.id)
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const { data, error } = await runWithRequestDeadline(
+        (signal) =>
+          supabase
+            .from('tournament_players')
+            .select('id')
+            .eq('tournament_id', tournament.id)
+            .eq('user_id', user.id)
+            .abortSignal(signal)
+            .maybeSingle(),
+        { signal: controller.signal }
+      );
       if (request !== registrationRead.current) return;
       if (error) throw error;
       setRegCheckFailed(false);
@@ -347,6 +359,8 @@ function TournamentLobbyCardInner({
       if (request !== registrationRead.current) return;
       reportError(error, 'TournamentLobbyCard.Registration_check_failed');
       setRegCheckFailed(true);
+    } finally {
+      if (registrationAbort.current === controller) registrationAbort.current = null;
     }
   };
 

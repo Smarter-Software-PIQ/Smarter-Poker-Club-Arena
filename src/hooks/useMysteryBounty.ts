@@ -43,6 +43,8 @@ export interface UseMysteryBountyResult {
   awardsTotal: number;
   leaderboard: MysteryBountyLeaderboardRow[];
   isLoading: boolean;
+  /** No authoritative snapshot has been read for this event. */
+  isUnavailable: boolean;
   /** Reveals broadcast since the last completed refetch. Presentation only. */
   pendingReveals: number;
   refresh: () => void;
@@ -67,6 +69,7 @@ export function useMysteryBounty(
   const [awardsTotal, setAwardsTotal] = useState(0);
   const [leaderboard, setLeaderboard] = useState<MysteryBountyLeaderboardRow[]>(EMPTY_LEADERBOARD);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUnavailable, setIsUnavailable] = useState(false);
   const [pendingReveals, setPendingReveals] = useState(0);
 
   const refreshRef = useRef<() => void>(() => {});
@@ -78,6 +81,7 @@ export function useMysteryBounty(
     setAwardsTotal(0);
     setLeaderboard(EMPTY_LEADERBOARD);
     setPendingReveals(0);
+    setIsUnavailable(false);
     setIsLoading(Boolean(tournamentId && enabled));
     if (!tournamentId || !enabled) return;
 
@@ -85,6 +89,7 @@ export function useMysteryBounty(
     // event. A new event starts independently of any old transport response.
     let active = true;
     let inFlight = false;
+    let hasSnapshot = false;
     let queued = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -95,6 +100,7 @@ export function useMysteryBounty(
         return;
       }
       inFlight = true;
+      if (!hasSnapshot) setIsLoading(true);
       try {
         const [inv, aw, lb] = await Promise.all([
           // Strict: a failed refresh keeps what is on screen (2026-10-26).
@@ -103,13 +109,18 @@ export function useMysteryBounty(
           MysteryBountyService.getLeaderboard(tournamentId, { strict: true }),
         ]);
         if (!active) return;
+        hasSnapshot = true;
+        setIsUnavailable(false);
         setInventory(inv);
         setAwards(aw.rows);
         setAwardsTotal(aw.total);
         setLeaderboard(lb);
         setPendingReveals(0);
       } catch (err) {
-        if (active) reportError(err, 'useMysteryBounty.load');
+        if (active) {
+          setIsUnavailable(!hasSnapshot);
+          reportError(err, 'useMysteryBounty.load');
+        }
       } finally {
         inFlight = false;
         if (active) {
@@ -182,6 +193,7 @@ export function useMysteryBounty(
     awardsTotal: ownsView ? awardsTotal : 0,
     leaderboard: ownsView ? leaderboard : EMPTY_LEADERBOARD,
     isLoading: ownsView ? isLoading : Boolean(tournamentId && enabled),
+    isUnavailable: ownsView ? isUnavailable : false,
     pendingReveals: ownsView ? pendingReveals : 0,
     refresh,
   };

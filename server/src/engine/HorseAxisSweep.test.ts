@@ -162,13 +162,57 @@ describe('AXIS 3: the chart owns the push/fold zone; the heuristic is only the n
         hand_matrix: { '72o': { push: 1.0 } },
       } as never,
     ]);
+    // V71 (2026-10-31): an ANTE pot's folded-to jam is answered by the
+    // ante-aware Nash table (pinned below and in HorseAnteAwarePushFold.test.ts);
+    // this ante-free pot is still the chart's, on either arm.
     let jams = 0;
     for (let i = 0; i < 20; i++) {
       const s = sbState('7h2c', 250); // 2.5bb behind + 0.5 posted = 3bb depth
-      const r = HorseLogic.decide(s.players[0] as never, s as never, 'balanced', {}, {} as never);
+      const r = HorseLogic.decide(s.players[0] as never, s as never, 'balanced', {}, {
+        v71AnteAwarePushFold: false,
+      } as never);
       if (r.action === 'all_in') jams++;
     }
     expect(jams).toBe(20);
+  });
+
+  it('V71: with a big-blind ante the Nash table answers the jam whatever the chart row says', () => {
+    // Heads-up 3bb with a 1bb big-blind ante: the chip-EV equilibrium folds
+    // 72o (it jams it only up to 2.5bb with the ante). The hand-made 100%
+    // chart row no longer decides an ante pot; a top-of-range hand still jams.
+    setGtoCharts([
+      {
+        game_type: 'Tournament',
+        hero_position: 'SB',
+        stack_depth: 3,
+        villain_action: 'fold_to_hero',
+        hand_matrix: { '72o': { push: 1.0 } },
+      } as never,
+    ]);
+    const withAnte = (hole: string) => {
+      const s = sbState(hole, 250);
+      s.players[1].stack -= 100;
+      s.players[1].totalInvested += 100;
+      return { ...s, pot: 250, ante: 100, bigBlindAnte: true };
+    };
+    let jams72 = 0;
+    let jamsK5 = 0;
+    for (let i = 0; i < 20; i++) {
+      const a = withAnte('7h2c');
+      if (
+        HorseLogic.decide(a.players[0] as never, a as never, 'balanced', {}, {} as never).action ===
+        'all_in'
+      )
+        jams72++;
+      const b = withAnte('Kh5c');
+      if (
+        HorseLogic.decide(b.players[0] as never, b as never, 'balanced', {}, {} as never).action ===
+        'all_in'
+      )
+        jamsK5++;
+    }
+    expect(jams72).toBe(0);
+    expect(jamsK5).toBe(20);
   });
 
   it('with the chart store EMPTY the same hand folds - the net is tighter, never wider', () => {
