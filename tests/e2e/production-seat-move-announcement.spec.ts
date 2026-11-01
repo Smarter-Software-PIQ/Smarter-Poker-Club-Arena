@@ -400,6 +400,72 @@ test('the published table explains controlled seat moves without moving a player
       `SEAT_MOVE_NOTICE_PROOF ${JSON.stringify({ ...evidence, refusedParticipationAttempts: writes })}`
     );
 
+    // Reopen the served client with an explicit player watch. Only the watched
+    // assignment read is controlled locally; no tournament or seat is created.
+    await context.route('**/rest/v1/tournament_players?**', async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        route.request().method() === 'GET' &&
+        url.searchParams.get('select') === 'table_id,status' &&
+        url.searchParams.get('tournament_id') === `eq.${fixtureUserId}` &&
+        url.searchParams.get('user_id') === `eq.${actorId}`
+      ) {
+        await route.fulfill({ json: { table_id: source.id, status: 'playing' } });
+        return;
+      }
+      await route.fallback();
+    });
+    const watchQuery = new URLSearchParams({
+      followTournament: fixtureUserId,
+      followPlayer: actorId!,
+      followName: alias,
+    });
+    snapshotTemplate = null;
+    await page.goto(`table/${source.id}?${watchQuery}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: 'Stop Following', exact: true })).toBeVisible();
+    await expect(page.locator('.table-surface')).toBeVisible();
+    await expect.poll(() => snapshotTemplate !== null).toBe(true);
+    const watchedRoute = page.url();
+    // Block every write and upstream frame before delivering a synthetic own
+    // seat move. It reaches the actual published parser and navigation hook.
+    syntheticPhase = true;
+    inject(main, Date.now(), 'must_move');
+    await expect(toastMessage(mainText)).toBeVisible();
+    clients.at(-1)!.send(
+      JSON.stringify({
+        type: 'EVENT',
+        tableId: source.id,
+        ts: Date.now(),
+        payload: {
+          type: 'seat_moved',
+          table_id: source.id,
+          user_id: fixtureUserId,
+          to_table_id: other.id,
+          reason: 'table_balance',
+          timestamp: Date.now(),
+        },
+      })
+    );
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    );
+    await expect(page).toHaveURL(watchedRoute);
+    await expect(page.getByRole('button', { name: 'Stop Following', exact: true })).toBeVisible();
+    await expect(page.locator('.disconnect-toast--moved')).toHaveCount(0);
+    await expect(
+      page.locator('.toast__message').filter({ hasText: /You've Been Moved/i })
+    ).toHaveCount(0);
+    evidence.playerWatch = {
+      assignmentSource: 'browser-controlled-read-only',
+      ownMoveSource: 'browser-controlled-event',
+      routeAndSelectedPlayerPreserved: true,
+      personalMoveMessageAbsent: true,
+      naturalTournamentMoveObserved: false,
+    };
+
     // A synthetic reserved-account identity tests the deployed diagnostic,
     // not an authoritative seat, natural gameplay or a financial receipt.
     await expect.poll(() => snapshotTemplate !== null).toBe(true);
