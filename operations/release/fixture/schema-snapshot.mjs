@@ -135,7 +135,7 @@ export function catalogueDiagnostics(db, now = () => performance.now()) {
   };
 }
 
-const dumpFailureKinds = new Set(['DEADLINE', 'STDOUT_LIMIT', 'STDERR_LIMIT', 'SPAWN',
+const dumpFailureKinds = new Set(['CANCELLED', 'DEADLINE', 'STDOUT_LIMIT', 'STDERR_LIMIT', 'SPAWN',
   'FD3_LIMIT','FD3_PROTOCOL',
   'STDIN', 'FACTS_REFUSED',
   'TLS_VERIFICATION', 'PERMISSION_DENIED', 'LOCK_TIMEOUT', 'STATEMENT_TIMEOUT',
@@ -513,8 +513,9 @@ ROLLBACK;
 }
 
 export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, deadlineMs = 30000,
-  nativeClient = null } = {}) {
+  nativeClient = null, signal } = {}) {
   requireCapture(/^[0-9A-Fa-f]+-[0-9A-Fa-f]+-[0-9]+$/.test(snapshot));
+  requireCapture(!signal?.aborted);
   const env = databaseChildEnvironment(config, 'isolated-schema-readonly-dump');
   const client=nativeClient===null?null:nativeDumpCapability(nativeClient);
   if(client)env.LD_LIBRARY_PATH=client.library;
@@ -537,6 +538,7 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
       ...progress.snapshot(),...(nativeCost?{native_cost:nativeCost.snapshot(Math.min(45000,Math.round(performance.now()-started))),
         native_client:{source_version:'17.11',binary_sha256:client.binary_sha256}}:{})}) });
   const cancellation=nativeCancellation(child,deadlineMs,reason=>{failed=true;failureKind ??= reason;});
+  const abort = () => cancellation.abort('CANCELLED');
   try {
     await new Promise((resolve, reject) => {
       if(nativeCost){
@@ -573,11 +575,13 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
         if(performance.now()-started>deadlineMs){failed=true;failureKind ??= 'DEADLINE';}
         code === 0 && !failed ? resolve() : reject(failure(code, signal));
       });
+      signal?.addEventListener('abort', abort, {once:true});
+      if(signal?.aborted)abort();
     });
     const sql = Buffer.concat(chunks).toString('utf8');
     assertSchemaOnly(sql);
     return sql;
-  } finally { cancellation.clear(); progress.clear(); nativeCost?.clear(); delete env.PGPASSWORD; chunks.length = 0; stderrChunks.length = 0; }
+  } finally { signal?.removeEventListener('abort', abort); cancellation.clear(); progress.clear(); nativeCost?.clear(); delete env.PGPASSWORD; chunks.length = 0; stderrChunks.length = 0; }
 }
 
 export async function captureSchema({ output, env = process.env, Client, dump = dumpSnapshot,
@@ -613,12 +617,6 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
       facts.read_only === 'on' && ['foreign_servers','user_mappings','subscriptions','security_labels','other_database_settings']
         .every((key) => facts[key] === 0));
     const snapshot = (await db.query('SELECT pg_export_snapshot() AS snapshot')).rows[0].snapshot;
-    stage = 'catalogue';
-    const catalogue = await schemaCataloguePayload(catalogueCause.db);
-    definitionCounts=catalogueDefinitionCounts(catalogue);
-    const catalogueDigest = catalogue.catalogue_digest;
-    catalogueCause.phase('roles');
-    const roleCatalogue = await captureRoleCatalogue(catalogueCause.db);
     stage = 'native-snapshot-transport';
     const nativeResult = await nativeCheck(config,snapshot,{deadlineMs:Math.min(5000,remainingDumpBudget(deadlineAt,Date.now()))});
     requireCapture(nativeResult?.status==='passed' && nativeResult.client_major===17 &&
@@ -628,8 +626,42 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
     stage = 'schema-only-dump';
     const nativeClient=dump===dumpSnapshot?await verifyNativeDumpBinary(env):null;
     if(nativeClient)nativeDumpClient={source_version:'17.11',binary_sha256:nativeClient.binary_sha256};
-    const remaining = remainingDumpBudget(deadlineAt, Date.now());
-    const sql = await dump(config, snapshot, { deadlineMs: remaining,nativeClient });
+    // The exporter transaction stays open until both readers have drained.
+    // Catalogue queries retain their original serial order on the Node client;
+    // pg_dump imports the same snapshot on its independently proved connection.
+    const controller = new AbortController();
+    let firstFailure = null;
+    const fail = (failedStage, error) => {
+      firstFailure ??= {stage:failedStage,error};
+      controller.abort();
+      return error;
+    };
+    const catalogueRead = (async () => {
+      try {
+        const catalogue = await schemaCataloguePayload(catalogueCause.db);
+        definitionCounts=catalogueDefinitionCounts(catalogue);
+        catalogueCause.phase('roles');
+        const roleCatalogue = await captureRoleCatalogue(catalogueCause.db);
+        return {catalogue,roleCatalogue};
+      } catch(error) { throw fail('catalogue',error); }
+    })();
+    const dumpRead = (async () => {
+      try {
+        return await dump(config,snapshot,{deadlineMs:remainingDumpBudget(deadlineAt,Date.now()),
+          nativeClient,signal:controller.signal});
+      } catch(error) {
+        fail('schema-only-dump',error);
+        // pg.end owns cancellation of an active catalogue query. Join its
+        // close and the catalogue promise before transaction/output cleanup.
+        await db.end().catch(()=>{});
+        throw error;
+      }
+    })();
+    const reads = await Promise.allSettled([catalogueRead,dumpRead]);
+    if(firstFailure){stage=firstFailure.stage;throw firstFailure.error;}
+    const {catalogue,roleCatalogue}=reads[0].value;
+    const catalogueDigest=catalogue.catalogue_digest;
+    const sql=reads[1].value;
     requireCapture(!transportFailed);
     // Keep every output private until the complete capture is closed. The
     // only allowed public output is a separate sanitized qualification receipt.
