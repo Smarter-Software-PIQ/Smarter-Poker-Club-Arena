@@ -22,10 +22,33 @@ MIGRATION = ROOT / "supabase/migrations/20261029181526_remove_unused_pg_net_befo
 PG_SHA = "e0630a3600aea27511715563259ec2111cd5f4353a4b040e0be827f94cd7a8b0"
 NET_COMMIT = "a7792bfd913c7859e14025d606624982706c2a7f"
 NET_SHA = "855f33ecf738094a55f6ee4c89e620e12ca33d574a2b33f89d1fc730f6b62630"
+NET_EVENT_SHA = "55687ecb97ae68c17142c253502e188d531d8a3affe43e72193959f0c5ceb3f2"
+NET_EVENT_PREPARED_SHA = "3a0563c3b9e37406667fcfb452cd7340cc4b286460c29cf9c89a3608c11f57be"
 
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+
+def prepare_pg_net_headers(net):
+    # curl's public entry header must precede multi.h: otherwise its GCC/Clang
+    # type-check macro expands inside multi.h's own function declaration.
+    # This exact private build preparation changes no extension API/SQL member.
+    header = net / "src/event.h"
+    original = header.read_bytes()
+    if hashlib.sha256(original).hexdigest() != NET_EVENT_SHA:
+        raise AssertionError("Pinned pg_net event header preimage differs")
+    needle = b"#include <curl/multi.h>"
+    if original.count(needle) != 1:
+        raise AssertionError("Pinned pg_net multi header include differs")
+    prepared = original.replace(needle, b"#include <curl/curl.h>\n" + needle)
+    if hashlib.sha256(prepared).hexdigest() != NET_EVENT_PREPARED_SHA:
+        raise AssertionError("Prepared pg_net event header differs")
+    header.write_bytes(prepared)
+    return {"path": "src/event.h", "before_sha256": NET_EVENT_SHA,
+            "after_sha256": NET_EVENT_PREPARED_SHA,
+            "change": "include curl/curl.h before curl/multi.h; typechecking retained"}
 
 
 def build(work):
@@ -42,6 +65,7 @@ def build(work):
             tar.extractall(work, filter="data")
     pg = work / "postgresql-17.6"
     net = work / "supabase-pg_net-a7792bf"
+    (work / "header-preparation.json").write_text(json.dumps(prepare_pg_net_headers(net), sort_keys=True) + "\n")
     jobs = str(min(os.cpu_count() or 2, 12))
     with (work / "build.log").open("w") as log:
         for command, cwd in [
@@ -171,7 +195,7 @@ INSERT INTO public.unrelated_player_fixture VALUES(1,123.45);
             holder.stdin.flush()
             holder.communicate(timeout=5)
 
-        print(json.dumps({"status": "passed", "postgres": version, "pg_net_commit": NET_COMMIT, "production_member_identity": identity, "source_sha256": {str(MIGRATION.relative_to(ROOT)): sha(MIGRATION), str(Path(__file__).resolve().relative_to(ROOT)): sha(Path(__file__).resolve())}, "cases": passed, "count": len(passed), "production_mutations": False, "authority_limit": "Native fixture executes as actual extension owner. Supabase supautils management authorization is verified separately by the protected installer.", "build": "explicit-private-prefix" if args.pg_prefix else "pinned-official-private-build"}, sort_keys=True))
+        print(json.dumps({"status": "passed", "postgres": version, "pg_net_commit": NET_COMMIT, "production_member_identity": identity, "source_sha256": {str(MIGRATION.relative_to(ROOT)): sha(MIGRATION), str(Path(__file__).resolve().relative_to(ROOT)): sha(Path(__file__).resolve())}, "cases": passed, "count": len(passed), "production_mutations": False, "authority_limit": "Native fixture executes as actual extension owner. Supabase supautils management authorization is verified separately by the protected installer.", "build": "explicit-private-prefix" if args.pg_prefix else "pinned-official-private-build-header-order-normalized", "header_preparation": None if args.pg_prefix else json.loads((work / "header-preparation.json").read_text())}, sort_keys=True))
     except Exception:
         for log in [work / "build.log", work / "postgres.log"]:
             if log.exists():
