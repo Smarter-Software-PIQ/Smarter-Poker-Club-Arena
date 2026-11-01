@@ -3816,6 +3816,7 @@ export function holdemPremiumAggression(
       actionHistory: gs.actionHistory,
       chipUnit: gs.chipUnit ?? (isTournamentMode(gs) ? 1 : 0.01),
       dominatedFold: opts.holdemDominatedFold !== false,
+      tournament: isTournamentMode(gs),
       raiserIsManiac: (seatNo) => {
         const raiser = (gs.players ?? []).find((p) => p.seat === seatNo);
         if (!raiser) return false;
@@ -3832,6 +3833,8 @@ export function holdemPremiumAggression(
     else if (verdict.rule === 'premium_preflop_raise') noteFire('holdem_premium_preflop_raise');
     else if (verdict.rule === 'no_four_bet_bluff') noteFire('holdem_no_four_bet_bluff');
     else if (verdict.rule === 'four_bettor_continues') noteFire('holdem_four_bettor_continues');
+    else if (verdict.rule === 'premium_flat_deep_three_bet')
+      noteFire('holdem_premium_flat_deep_three_bet');
     else noteFire('holdem_premium_postflop_bet');
   }
   const next = verdict.decision;

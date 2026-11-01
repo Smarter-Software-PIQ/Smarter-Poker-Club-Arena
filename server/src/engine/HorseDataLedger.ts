@@ -2394,6 +2394,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Hold em premium aggression'
   ),
   receipt(
+    'holdem_premium_flat_deep_three_bet',
+    'HorseLogic.decide (HorseHoldemPremiumAggression)',
+    'NLH QQ/AK 4-bet too deep to call the 5-bet jam it invites turned into a flat call of the 3-bet',
+    'Hold em premium aggression'
+  ),
+  receipt(
     'holdem_four_bettor_continues',
     'HorseLogic.decide (HorseHoldemPremiumAggression)',
     'NLH fold after the horse own 4-bet was re-raised turned into a call (AA/KK jam)',
