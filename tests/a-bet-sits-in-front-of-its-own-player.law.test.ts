@@ -41,7 +41,12 @@ describe('a bet sits in front of its own player', () => {
     const hook = read('src/hooks/useProtectedCardLayout.ts');
     // Searched from the wager's own rest point in front of its player...
     expect(hook).toMatch(/const anchor = \{/);
-    expect(hook).toMatch(/a\.top \+ a\.height \/ 2 - anchor\.y/);
+    // A compatible settled slot stays fixed; new slots use the wager's rest point.
+    expect(hook).toMatch(
+      /const retainedAnchor = trial && stored && stillOwned \? markerCentre : null/
+    );
+    expect(hook).toMatch(/const costAnchor = retainedAnchor \?\? anchor/);
+    expect(hook).toMatch(/a\.top \+ a\.height \/ 2 - costAnchor\.y/);
     // ...an empty chair is somebody's lane too...
     expect(hook).toMatch(/wrapper\.querySelector\('\.seat'\) \?\?/);
     // ...no tier drops the ownership rule...

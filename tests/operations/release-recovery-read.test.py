@@ -929,9 +929,9 @@ class ReaderTests(unittest.TestCase):
         lists = [node for node in ast.walk(tree) if isinstance(node, ast.List)
                  and node.elts and isinstance(node.elts[0], ast.Constant)
                  and node.elts[0].value == 'systemctl']
-        self.assertEqual(len(lists), 2)
+        self.assertEqual(len(lists), 4)
         self.assertTrue(all(node.elts[1].value == 'show' for node in lists))
-        self.assertEqual({node.elts[-1].value for node in lists}, {'--property=ActiveState,SubState,InvocationID', '--property=MainPID,ControlGroup,InvocationID'})
+        self.assertEqual({node.elts[-1].value for node in lists}, {'--property=ActiveState,SubState,InvocationID', '--property=MainPID,ControlGroup,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID'})
         self.assertIn('--property=ActiveState,SubState,InvocationID', source)
 
     def witness_fixture(self):
@@ -2597,6 +2597,123 @@ class CompositionScaleRecordsTests(unittest.TestCase):
         with self.assertRaises(ValueError):R.validate_reply(bad,request)
         bad=copy.deepcopy(reply);bad['receipt']['servingBefore']={'container':'c'*64,'image':'sha256:'+'d'*64,'revision':R.EED,'startedAt':'2026-11-01T17:00:00Z','instanceId':'1-12345678','raw':'PRIVATE'}
         with self.assertRaises(ValueError):R.validate_reply(bad,request)
+
+
+class IntakeCustodyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name);self.deadline=lambda:R.time.monotonic()+5
+        self.unit={'status':'observed','properties':{'LoadState':'loaded','ActiveState':'failed','SubState':'failed','UnitFileState':'enabled','Result':'exit-code','ExecMainStatus':'1','MainPID':'0','InvocationID':'a'*32}}
+        self.path_unit={'status':'observed','properties':{k:v for k,v in self.unit['properties'].items() if k not in {'MainPID','ExecMainStatus','Result'}}}
+        self.patch=patch.object(R,'intake_unit',side_effect=lambda unit,deadline:self.path_unit if unit.endswith('.path') else self.unit);self.patch.start();self.addCleanup(self.patch.stop)
+    def write(self, parts, raw, mode=0o600):
+        p=self.root.joinpath(*parts);p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(raw);p.chmod(mode)
+        if parts[0]=='control-staging': (self.root/'control-staging/41339482095-1').chmod(0o700)
+        return p
+    def request(self):
+        raw=('\n'.join([R.INTAKE_REQUEST['releaseSha']]*2+['https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41339482095','PUBLIC_ACTOR','1793563200'])+'\n').encode()
+        p=self.write(('engine-intake-requests','41339482095-1.intent'),raw)
+        os.link(p,p.with_suffix('.request'))
+        return p
+    def read(self):return R.validate_intake_reply(R.intake_records_at(R.INTAKE_REQUEST,self.root),R.INTAKE_REQUEST)
+    def test_intake_exact_selector_refuses_any_changed_or_extra_identity(self):
+        self.assertEqual(R.selection(R.INTAKE_REQUEST),R.INTAKE_REQUEST)
+        for key in R.INTAKE_REQUEST:
+            with self.assertRaises(ValueError):R.selection({**R.INTAKE_REQUEST,key:'wrong'})
+        with self.assertRaises(ValueError):R.selection({**R.INTAKE_REQUEST,'controlSha':R.INTAKE_REQUEST['releaseSha']})
+    def test_intake_native_fivefield_hardlinked_records_and_no_private_export(self):
+        self.request();reply=self.read()
+        self.assertEqual(reply['intakeBinding'],'matched');self.assertEqual(reply['units']['intakeService']['properties']['UnitFileState'],'enabled')
+        self.assertNotIn('PUBLIC_ACTOR',json.dumps(reply));self.assertNotIn('https:',json.dumps(reply))
+        self.assertEqual(reply['intakeResultContract'],'not_produced');self.assertFalse(reply['retryAllowed'])
+    def test_intake_missing_is_distinct_from_unknown_symlink(self):
+        self.assertEqual(self.read()['records']['request']['status'],'absent')
+        p=self.request();p.unlink();p.symlink_to('/not/read')
+        self.assertEqual(self.read()['records']['intent']['status'],'unknown')
+    def test_intake_writable_private_record_is_unknown(self):
+        p=self.request();p.chmod(0o664)
+        self.assertEqual(self.read()['records']['intent']['status'],'unknown')
+        self.assertEqual(self.read()['intakeBinding'],'unavailable')
+    def test_intake_changed_or_conflicting_request_refused(self):
+        p=self.request();p.with_suffix('.request').unlink();self.write(('engine-intake-requests','41339482095-1.request'),b'conflict')
+        with self.assertRaises(ValueError):self.read()
+    def test_intake_parent_symlink_or_writable_directory_not_followed(self):
+        p=self.request();p.parent.chmod(0o777)
+        self.assertEqual(self.read()['records']['request']['status'],'unknown')
+        p.parent.chmod(0o700);p.unlink();p.with_suffix('.request').unlink();p.parent.rmdir();p.parent.symlink_to(self.root,target_is_directory=True)
+        self.assertEqual(self.read()['records']['request']['status'],'unknown')
+    def test_intake_stage_hashes_are_fixed_and_mismatch_not_hidden(self):
+        name=next(iter(R.INTAKE_FILES));self.write(('control-staging','41339482095-1','server','scripts',name),b'changed public source',0o755)
+        reply=self.read();self.assertFalse(reply['stageFiles'][name]['sourceMatches'])
+        self.assertEqual(reply['stageFiles'][name]['mode'],0o755)
+        p=self.root/'control-staging/41339482095-1/server/scripts'/name;p.chmod(0o664)
+        with patch.object(R.os,'read',wraps=os.read) as reads:
+            row=R.intake_record(self.root,('control-staging','41339482095-1','server','scripts',name),False,self.deadline())[0]
+            self.assertEqual(reads.call_count,0)
+        self.assertEqual(row['status'],'metadata_only');self.assertEqual(row['mode'],0o664);self.assertTrue(row['ownerQualified']);self.assertIsNone(row['sha256'])
+        reply=self.read();self.assertEqual(reply['stageFiles'][name]['code'],'unsafe_mode')
+        p.chmod(0o755);p.parent.chmod(0o775)
+        self.assertEqual(self.read()['stageFiles'][name]['status'],'metadata_only')
+        p.parent.chmod(0o755)
+        # Independently retained hashes of the original 0045 Git blobs. The
+        # production reader's default-depth checkout need not retain old objects.
+        self.assertEqual(R.INTAKE_FILES,{
+            'engine-release-intake.sh':'b78e3de906d645173a28a89db76b16b0f68c5c0e3042ffd2f0e3e5a05c333abf',
+            'install-engine-intake.sh':'5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+            'install-engine-supervisor.sh':'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+            'quarantine-generated-control-cache.py':'fd35b78cd3d15c5222d7a80e0bd5c2a655c2980b2adbe0efb8aa21b3c81e77a4'})
+    def test_intake_existing_floor_entry_shape_binding_and_no_creation(self):
+        path=('engine-release-requests','41339482095-1.activation-entry')
+        v={'schema':'engine-release-activation-floor/v3-phase1','runId':R.INTAKE_REQUEST['runKey'],'targetSha':R.INTAKE_REQUEST['releaseSha'],'controlSha':R.INTAKE_REQUEST['releaseSha'],'manifestSha256':'b'*64,'phase':'announcement'}
+        self.write(path,json.dumps(v).encode());self.assertEqual(self.read()['activationEntry']['phase'],'announcement')
+        v['controlSha']='f'*40;self.write(path,json.dumps(v).encode())
+        with self.assertRaises(ValueError):self.read()
+    def test_intake_release_result_only_existing_producer_identity(self):
+        path=('engine-release-results','41339482095-1.json')
+        v={'runId':R.INTAKE_REQUEST['runKey'],'sha':R.INTAKE_REQUEST['releaseSha'],'controlSha':R.INTAKE_REQUEST['releaseSha'],'schema':1,'result':'failed','invocationId':'a'*32,'transactionExitStatus':1,'completedAt':1793563200,'secret':'NEVER_EXPORT'}
+        self.write(path,json.dumps(v).encode());self.assertEqual(self.read()['releaseResult'],{'result':'failed','transactionExitStatus':1});self.assertNotIn('NEVER_EXPORT',json.dumps(self.read()))
+        v['runId']='1-1';self.write(path,json.dumps(v).encode())
+        with self.assertRaises(ValueError):self.read()
+    def test_intake_pre_post_unit_or_inode_change_refuses(self):
+        self.request();original=R.intake_snapshot;calls=[]
+        def changed(*args):
+            answer=original(*args);calls.append(1)
+            if len(calls)==1:
+                p=self.root/'engine-intake-requests/41339482095-1.intent';raw=p.read_bytes();p.unlink();p.write_bytes(raw);p.chmod(0o600)
+            return answer
+        with patch.object(R,'intake_snapshot',side_effect=changed):
+            with self.assertRaises(ValueError):self.read()
+    def test_intake_export_tampering_and_unknown_units_refused(self):
+        self.request();reply=self.read()
+        for path,value in [('retryAllowed',True),('intakeBinding','unavailable'),('extra','PRIVATE')]:
+            bad=copy.deepcopy(reply);bad[path]=value
+            with self.assertRaises(ValueError):R.validate_intake_reply(bad,R.INTAKE_REQUEST)
+        bad=copy.deepcopy(reply);bad['intakeBinding']='unavailable';bad['requestDeadlineEpoch']='PRIVATE'
+        with self.assertRaises(ValueError):R.validate_intake_reply(bad,R.INTAKE_REQUEST)
+        bad=copy.deepcopy(reply);bad['units']['intakeService']['properties']['ActiveState']='invented'
+        with self.assertRaises(ValueError):R.validate_intake_reply(bad,R.INTAKE_REQUEST)
+        bad=copy.deepcopy(reply);bad['stageFiles'][next(iter(R.INTAKE_FILES))]['sourceMatches']=True
+        with self.assertRaises(ValueError):R.validate_intake_reply(bad,R.INTAKE_REQUEST)
+    def test_intake_actual_child_bounded_unit_read_and_timeout_drain(self):
+        self.patch.stop()
+        props=''.join(k+'='+v+'\n' for k,v in self.unit['properties'].items())
+        original=R.subprocess.Popen;children=[]
+        def child(args,**kwargs):
+            self.assertEqual(args[:2],['systemctl','show']);self.assertIn('club-arena-engine-intake-v1@41339482095-1.service',args)
+            p=original([R.sys.executable,'-c','import sys;sys.stdout.write('+repr(props)+')'],**kwargs);children.append(p);return p
+        with patch.object(R.subprocess,'Popen',side_effect=child):
+            self.assertEqual(R.intake_unit('club-arena-engine-intake-v1@41339482095-1.service',self.deadline()),self.unit)
+        path_props=''.join(k+'='+v+'\n' for k,v in self.path_unit['properties'].items())
+        def path_child(args,**kwargs):
+            self.assertEqual(args[-1],'--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID')
+            p=original([R.sys.executable,'-c','import sys;sys.stdout.write('+repr(path_props)+')'],**kwargs);children.append(p);return p
+        with patch.object(R.subprocess,'Popen',side_effect=path_child):
+            self.assertEqual(R.intake_unit('club-arena-engine-intake-v1@41339482095-1.path',self.deadline()),self.path_unit)
+        def hung(args,**kwargs):
+            p=original([R.sys.executable,'-c','import time;time.sleep(20)'],**kwargs);children.append(p);return p
+        with patch.object(R.subprocess,'Popen',side_effect=hung):
+            self.assertEqual(R.intake_unit('club-arena-engine-intake-v1@41339482095-1.service',self.deadline()),{'status':'unknown','properties':None})
+        self.assertTrue(all(p.poll() is not None and p.stdout.closed for p in children))
 
 
 if __name__ == "__main__":

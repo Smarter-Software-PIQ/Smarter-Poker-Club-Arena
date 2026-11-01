@@ -97,6 +97,7 @@ export function useTableChat(
   ) => void
 ): UseTableChatReturn {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const chatTableIdRef = useRef(tableId);
   const [isChatBanned, setIsChatBanned] = useState(false);
   const [isChatCollapsed, setIsChatCollapsed] = useState(true);
   const [isChatMuted, setIsChatMuted] = useState(false);
@@ -180,6 +181,12 @@ export function useTableChat(
 
   // Fetch history and listen to Supabase real-time chat (Unified architecture)
   useEffect(() => {
+    // Only a different table owns a fresh history. StrictMode can replay
+    // this effect for the same room after a local notice was appended.
+    if (chatTableIdRef.current !== tableId) {
+      chatTableIdRef.current = tableId;
+      setChatMessages([]);
+    }
     if (!tableId) return;
     let isMounted = true;
     /**
@@ -219,7 +226,18 @@ export function useTableChat(
             timestamp: new Date(m.created_at),
           };
         });
-        setChatMessages(formatted);
+        setChatMessages((previous) => {
+          if (!isMounted) return previous;
+          // History may finish after a committed move notice or realtime row.
+          // Hydrate by identity rather than replacing those intervening lines.
+          const merged = new Map<string, ChatMessage>(
+            formatted.map((message) => [message.id, message])
+          );
+          for (const message of previous) merged.set(message.id, message);
+          return [...merged.values()]
+            .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+            .slice(-50);
+        });
       }
     };
     loadMessages();

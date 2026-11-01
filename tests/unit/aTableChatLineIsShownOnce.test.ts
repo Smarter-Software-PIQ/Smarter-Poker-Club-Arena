@@ -18,6 +18,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 
 const h = vi.hoisted(() => ({
   registered: [] as Array<{ topic: string }>,
@@ -75,6 +76,7 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 import { supabase } from '../../src/lib/supabase';
 import { TableWebSocket } from '../../src/services/TableWebSocket';
 import { useTableChat } from '../../src/hooks/useTableChat';
+import { useSeatMoveAnnouncement } from '../../src/hooks/useSeatMoveAnnouncement';
 import { masterBus } from '../../src/core/MasterBus';
 
 beforeEach(() => {
@@ -111,8 +113,136 @@ describe('a table channel is never reused', () => {
 });
 
 describe('useTableChat shows a saved row once', () => {
+  it('retains one initial seat announcement through StrictMode effect replay', async () => {
+    const players = [{ id: 'alice', name: 'Alice' }];
+    const event = {
+      type: 'seat_moved',
+      table_id: 't1',
+      user_id: 'alice',
+      to_table_id: 'main',
+      reason: 'must_move',
+      timestamp: 2,
+    };
+    const { result } = renderHook(
+      () => {
+        const chat = useTableChat('t1', 'viewer', players);
+        useSeatMoveAnnouncement({
+          tableId: 't1',
+          event,
+          players,
+          announce: (content, id) =>
+            chat.setChatMessages((previous) => [
+              ...previous,
+              { id, type: 'SYSTEM', playerName: 'System', content, timestamp: new Date(2000) },
+            ]),
+        });
+        return chat;
+      },
+      { wrapper: StrictMode }
+    );
+    await waitFor(() =>
+      expect(result.current.chatMessages.map((m) => m.content)).toEqual([
+        'Alice Was Moved To The Main Game',
+      ])
+    );
+  });
+
+  it('preserves a committed seat notice and live row when delayed history arrives', async () => {
+    let resolveHistory!: (value: unknown) => void;
+    const query = (supabase as any).from('table_chat');
+    query.limit.mockImplementationOnce(() => new Promise((resolve) => (resolveHistory = resolve)));
+    const players = [{ id: 'alice', name: 'Alice' }];
+    const { result, rerender } = renderHook(
+      ({ event }) => {
+        const chat = useTableChat('t1', 'viewer', players);
+        useSeatMoveAnnouncement({
+          tableId: 't1',
+          event,
+          players,
+          announce: (content, id) =>
+            chat.setChatMessages((previous) => [
+              ...previous,
+              { id, type: 'SYSTEM', playerName: 'System', content, timestamp: new Date(2000) },
+            ]),
+        });
+        return chat;
+      },
+      { initialProps: { event: null as Record<string, unknown> | null } }
+    );
+    rerender({
+      event: {
+        type: 'seat_moved',
+        table_id: 't1',
+        user_id: 'alice',
+        to_table_id: 'main',
+        reason: 'must_move',
+        timestamp: 2,
+      },
+    });
+    await waitFor(() => expect(result.current.chatMessages).toHaveLength(1));
+    const row = {
+      id: 'saved',
+      table_id: 't1',
+      user_id: 'alice',
+      message: 'Hello',
+      created_at: new Date(1000).toISOString(),
+    };
+    const deliver = (masterBus.subscribe as any).mock.calls.find(
+      (c: unknown[]) => c[0] === 'TABLE_CHAT_INSERT'
+    )[1];
+    act(() => deliver({ payload: { tableId: 't1', newRow: row } }));
+    await act(async () => resolveHistory({ data: [row], error: null }));
+    expect(result.current.chatMessages.map((m) => m.content)).toEqual([
+      'Hello',
+      'Alice Was Moved To The Main Game',
+    ]);
+    expect(result.current.chatMessages.filter((m) => m.id === 'saved')).toHaveLength(1);
+    act(() => deliver({ payload: { tableId: 't1', newRow: row } }));
+    expect(result.current.chatMessages).toHaveLength(2);
+  });
+
+  it('refuses a late history response after the viewed table changes', async () => {
+    let resolveOld!: (value: unknown) => void;
+    const query = (supabase as any).from('table_chat');
+    query.limit.mockImplementationOnce(() => new Promise((resolve) => (resolveOld = resolve)));
+    const { result, rerender } = renderHook(({ table }) => useTableChat(table, 'viewer', []), {
+      initialProps: { table: 'old' },
+    });
+    act(() =>
+      result.current.setChatMessages([
+        {
+          id: 'local-old',
+          type: 'SYSTEM',
+          playerName: 'System',
+          content: 'Old notice',
+          timestamp: new Date(1500),
+        },
+      ])
+    );
+    expect(result.current.chatMessages).toHaveLength(1);
+    rerender({ table: 'new' });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () =>
+      resolveOld({
+        data: [
+          {
+            id: 'old-row',
+            user_id: 'alice',
+            message: 'Old room',
+            created_at: new Date(1000).toISOString(),
+          },
+        ],
+      })
+    );
+    expect(result.current.chatMessages).toEqual([]);
+  });
+
   it('draws one line for one row however many times it is delivered', async () => {
-    const { result } = renderHook(() => useTableChat('t1', 'u1', [{ id: 'u1', name: 'Dan' }] as any));
+    const { result } = renderHook(() =>
+      useTableChat('t1', 'u1', [{ id: 'u1', name: 'Dan' }] as any)
+    );
     // Let the history load settle first, so it cannot overwrite the live lines.
     await waitFor(() => expect((supabase as any).from).toHaveBeenCalled());
     await act(async () => {

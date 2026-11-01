@@ -366,7 +366,12 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   // alpha row is conservatively enclosed, transformed through the real 2D
   // ancestor matrices, and clipped before projection. Unknown pixels or 3D
   // transforms retain the old conservative refusal; they never become a pass.
-  const imagePaintTouches = (image: HTMLImageElement, target: DOMRect): boolean => {
+  const decodedTops = new WeakMap<HTMLImageElement, number>();
+  const imagePaintTouches = (
+    image: HTMLImageElement,
+    target: DOMRect,
+    measureTop = false
+  ): boolean => {
     try {
       const style = getComputedStyle(image);
       const width = parseFloat(style.width),
@@ -392,7 +397,23 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       for (let node: Element | null = image; node; node = node.parentElement) {
         const css = getComputedStyle(node);
         if (css.rotate && css.rotate !== 'none' && css.rotate !== '0deg') return true;
-        if (css.scale && css.scale !== 'none' && css.scale !== '1') return true;
+        const individualScale = (css.scale || 'none').trim();
+        const axes =
+          individualScale === 'none'
+            ? [1]
+            : individualScale
+                .split(/\s+/)
+                .map((axis) =>
+                  axis.endsWith('%') ? Number(axis.slice(0, -1)) / 100 : Number(axis)
+                );
+        if (
+          axes.length > 3 ||
+          axes.some((axis) => !Number.isFinite(axis) || axis <= 0) ||
+          (axes.length === 3 && axes[2] !== 1)
+        )
+          return true;
+        const sx = axes[0],
+          sy = axes[1] ?? sx;
         const matrix = new DOMMatrix(css.transform === 'none' ? undefined : css.transform);
         if (
           [
@@ -409,7 +430,11 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
           matrix.m44 !== 1
         )
           return true;
-        linear = new DOMMatrix([matrix.a, matrix.b, matrix.c, matrix.d, 0, 0]).multiply(linear);
+        // Individual scale composes outside transform. The actual image rectangle
+        // below supplies translation, including transform origins and translate.
+        linear = new DOMMatrix([sx, 0, 0, sy, 0, 0])
+          .multiply(new DOMMatrix([matrix.a, matrix.b, matrix.c, matrix.d, 0, 0]))
+          .multiply(linear);
       }
       const corners = [
         [0, 0],
@@ -483,6 +508,7 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       if (!context) return true;
       context.drawImage(image, 0, 0);
       const pixels = context.getImageData(0, 0, nw, nh).data;
+      let decodedTop = Infinity;
       for (let row = 0; row < nh; row++) {
         const y0 = Math.max(top, oy + row * scale),
           y1 = Math.min(bottom, oy + (row + 1) * scale);
@@ -504,6 +530,10 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
           [x1, y1],
           [x0, y1],
         ].map(([x, y]) => new DOMPoint(x, y).matrixTransform(linear));
+        if (measureTop) {
+          decodedTop = Math.min(decodedTop, Math.min(...points.map((point) => point.y)) + dy);
+          continue;
+        }
         if (
           Math.max(...points.map((point) => point.x)) + dx > target.left + 0.5 &&
           Math.min(...points.map((point) => point.x)) + dx < target.right - 0.5 &&
@@ -512,6 +542,7 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         )
           return true;
       }
+      if (measureTop && Number.isFinite(decodedTop)) decodedTops.set(image, decodedTop);
       return false;
     } catch {
       return true;
@@ -594,7 +625,16 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       ? '.seat-wrapper--cap .seat__avatar-img'
       : '.seat-wrapper--top .seat__avatar-img'
   );
-  const topGap = mini && head && visible(head) ? box(head).top - box(mini).bottom : null;
+  // Equal-height artwork can have transparent canvas above its crown. Keep
+  // the existing proximity bounds on actual decoded paint, not that canvas.
+  // Unreadable/unsupported pixels retain the conservative original rectangle.
+  if (table.getAttribute('data-seats') === '9' && head instanceof HTMLImageElement)
+    imagePaintTouches(head, box(head), true);
+  const headTop =
+    head instanceof HTMLImageElement
+      ? (decodedTops.get(head) ?? box(head).top)
+      : head && box(head).top;
+  const topGap = mini && head && visible(head) ? headTop! - box(mini).bottom : null;
   // A PLO5/PLO6 hand reserves a full card-height lane above the
   // top plate; keep its player close beneath that lane and the BBJ.
   const capPlate = head?.closest('.seat-wrapper')?.querySelector('.seat__info');
@@ -608,7 +648,7 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   );
   const gapLimit =
     largeHand && capPlate && head
-      ? Math.max(12, (cardWidth * 92) / 64 + 10 - (box(capPlate).top - box(head).top))
+      ? Math.max(12, (cardWidth * 92) / 64 + 10 - (box(capPlate).top - headTop!))
       : 12;
   if (table.getAttribute('data-seats') === '6' && box(table).width > 480 && head && visible(head)) {
     const scaler = table.querySelector<HTMLElement>('.table-scaler')!;

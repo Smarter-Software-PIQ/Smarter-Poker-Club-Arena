@@ -1263,7 +1263,11 @@ export const SeatSlot = memo(
         const factors = (
           style.getPropertyValue('--sp-bust-effective-scale').match(/-?\d*\.?\d+/g) ?? ['1']
         ).map(Number);
-        const scale = factors.reduce((a, b) => a * b, 1) || 1;
+        const artParent = art.closest<HTMLElement>('.seat__avatar');
+        const opponentScale = seat.classList.contains('seat--hero')
+          ? 1
+          : parseFloat(artParent ? getComputedStyle(artParent).scale : '1') || 1;
+        const scale = (factors.reduce((a, b) => a * b, 1) || 1) * opponentScale;
         const clip = (parseFloat(style.getPropertyValue('--sp-bust-clip')) || 0) / 100;
         const h = art.offsetHeight;
         // translateY(clip) scale(s) about 50% (100% - clip): the art's visual
@@ -1289,12 +1293,14 @@ export const SeatSlot = memo(
       const changed = new MutationObserver(schedule);
       changed.observe(seat, { childList: true, subtree: true, characterData: true });
       seat.addEventListener('load', schedule, true);
+      seat.addEventListener('opponentavatarresize', schedule);
       artRiseRef.current = {
         seat,
         stop: () => {
           resized.disconnect();
           changed.disconnect();
           seat.removeEventListener('load', schedule, true);
+          seat.removeEventListener('opponentavatarresize', schedule);
           if (frame !== null) cancelAnimationFrame(frame);
         },
       };
