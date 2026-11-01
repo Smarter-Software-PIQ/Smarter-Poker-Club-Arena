@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import selectors
+import shlex
 import time
 import stat
 import subprocess
@@ -323,7 +324,368 @@ def validate_routine_reply(value, request):
     return value
 
 
+FAILED_CUSTODY_REQUEST = {'mode': 'failed_routine_custody', 'runKey': '41349091113-1',
+                         'releaseSha': '3e3c6d4752cd587fad0db521ebd262f1b485514c'}
+FAILED_CUSTODY_SCHEMA = 'failed-routine-custody-observation/v1'
+FAILED_CUSTODY_CONTROL = FAILED_CUSTODY_REQUEST['releaseSha']
+FAILED_CUSTODY_FAILURE = '4871c8d6386ea8e91ef00b0601708cb46254ef6117129af9a5a1ed239fff844f'
+FAILED_CUSTODY_IMAGE = 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+FAILED_CUSTODY_SOURCE = {
+    'install-engine-supervisor.sh': 'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'install-engine-intake.sh': '5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+    'engine-release-unit-wrapper.sh': 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83'}
+FAILED_CUSTODY_UNITS = {
+    'releaseService': 'club-arena-engine-release-v1@41349091113-1.service',
+    'intakeService': 'club-arena-engine-intake-v1@41349091113-1.service',
+    'intakePath': 'club-arena-engine-intake-v1@41349091113-1.path'}
+FAILED_CUSTODY_FILES = {name: ('engine-release-requests', '41349091113-1.' + suffix) for name, suffix in (
+    ('request', 'request'), ('intent', 'intent'), ('entry', 'activation-entry'),
+    ('checkpoint', 'legacy-checkpoint-intent'), ('retirementIntent', 'main-inspector-retirement-intent'),
+    ('retirementReceipt', 'main-inspector-retirement-receipt'), ('hold', 'lightning-hold.json'),
+    ('holdReleased', 'lightning-hold.json.released'), ('breakDeadline', 'break-deadline'),
+    ('awaitingCertificate', 'awaiting-certificate'))}
+FAILED_CUSTODY_FILES.update({
+    'intakeRequest': ('engine-intake-requests', '41349091113-1.request'),
+    'intakeIntent': ('engine-intake-requests', '41349091113-1.intent'),
+    'pin': ('engine-release-generation-pins', '41349091113-1.generation'),
+    'lease': ('engine-image-leases', '41349091113-1.lease'),
+    'reservation': ('engine-recovery-window-41349091113-1.json',)})
+FAILED_CUSTODY_LIMITATION = 'Point-in-time observation only; no-entry, database freeze/thaw, cleanup and retry authority remain unproved.'
+
+
+def failed_custody_canonical(root_fd):
+    value = routine_remote(ROUTINE_REQUEST, root_fd)
+    routine_require(value['desiredSha'] == EED and value['desiredImageId'] == FAILED_CUSTODY_IMAGE and
+                    not value['pending']['present'] and not value['finalization']['present'] and len(value['owners']) == 1)
+    row = value['owners'][0]
+    routine_require(row['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and
+                    row['sha'] == row['controlSha'] == FAILED_CUSTODY_CONTROL and
+                    row['policyDigest'] == '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578' and
+                    row['status'] == 'reserved' and row['startsAt'] == 1793570400 and row['endsAt'] == 1793570700 and
+                    row['window'] is None and row['failureSha256'] == FAILED_CUSTODY_FAILURE and
+                    row['result']['sha256'] == FAILED_CUSTODY_FAILURE and row['result']['outcome'] == 'failed' and
+                    row['result']['identityMatches'] is True and row['result']['cycleFailureMatches'] is True and
+                    not row['committed']['present'])
+    return value
+
+
+def failed_custody_files(root, deadline):
+    rows, identities = {}, {}
+    for name, parts in FAILED_CUSTODY_FILES.items():
+        row, raw, identity = intake_record(root, parts, True, deadline)
+        rows[name] = {'presence': row['status'] if row['status'] in {'present', 'absent'} else 'unknown',
+                      'sha256': row['sha256'], 'identityBinding': 'unproved'}
+        # Hash/presence is diagnostic; absence never implies never-entered.
+        if raw is not None and name in {'request', 'intent'}:
+            lines = raw.decode('utf8').splitlines()
+            if (len(lines) == 6 and lines[0] == lines[4] == FAILED_CUSTODY_CONTROL and
+                    lines[1] == 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41349091113' and
+                    re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\[\]-]{0,99}', lines[2]) and
+                    lines[3] == '/usr/local/lib/club-arena/engine-control-generations/' + FAILED_CUSTODY_CONTROL and
+                    re.fullmatch(r'[1-9][0-9]{0,9}', lines[5])):
+                rows[name]['identityBinding'] = 'original-request-bound'
+        elif raw is not None and name in {'entry', 'retirementIntent', 'reservation'}:
+            try:
+                v = json.loads(raw, object_pairs_hook=unique_object)
+                target = v.get('targetSha', v.get('target', v.get('sha')))
+                if v.get('runId') == FAILED_CUSTODY_REQUEST['runKey'] and target == FAILED_CUSTODY_CONTROL:
+                    rows[name]['identityBinding'] = 'source-fields-match'
+            except (ValueError, AttributeError):
+                pass
+        identities[name] = identity
+    return rows, identities
+
+
+def failed_custody_sources(parent, systemd, deadline):
+    rows = {name: None for name in (*FAILED_CUSTODY_SOURCE, 'sharedWrapper', 'releaseTemplate', 'intakeTemplate', 'pathTemplate')}
+    originals = {}
+    generation = ('engine-control-generations', FAILED_CUSTODY_CONTROL)
+    for name, digest in FAILED_CUSTODY_SOURCE.items():
+        row, raw, identity = intake_record(parent, generation + (name,), False, deadline)
+        rows[name] = row['sha256'] == digest if raw is not None else None
+        originals[name] = (raw, identity)
+    qualified = all(rows[k] is True for k in FAILED_CUSTODY_SOURCE)
+    if qualified:
+        wrapper, _, wrapper_identity = intake_record(parent, ('engine-release-unit-wrapper-v1.sh',), False, deadline)
+        rows['sharedWrapper'] = wrapper['sha256'] == FAILED_CUSTODY_SOURCE['engine-release-unit-wrapper.sh'] if wrapper['sha256'] else None
+        qualified = rows['sharedWrapper'] is True
+        originals['sharedWrapper'] = (wrapper['sha256'], wrapper_identity)
+    # Compare actual fixed template bytes with the exact original installer
+    # heredocs. No shell expansion, imports or caller-selected source.
+    if qualified:
+        for label, source, marker, template in (
+            ('releaseTemplate', 'install-engine-supervisor.sh', 'cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n', 'club-arena-engine-release-v1@.service'),
+            ('intakeTemplate', 'install-engine-intake.sh', 'cat > "$UNIT_STAGE" <<\'UNIT\'\n', 'club-arena-engine-intake-v1@.service'),
+            ('pathTemplate', 'install-engine-intake.sh', 'cat > "$PATH_STAGE" <<\'UNIT\'\n', 'club-arena-engine-intake-v1@.path')):
+            content = originals[source][0].decode('utf8').split(marker, 1)[1].split('\nUNIT\n', 1)[0] + '\n'
+            if label == 'releaseTemplate':
+                content = content.replace('$UNIT_WRAPPER_V1', '/usr/local/lib/club-arena/engine-release-unit-wrapper-v1.sh').replace('\\$', '$')
+            row, raw, identity = intake_record(systemd, (template,), False, deadline)
+            rows[label] = raw == content.encode() if raw is not None else None
+            originals[label] = (raw, identity)
+        qualified = all(v is True for v in rows.values())
+    return qualified, rows, originals
+
+
+def failed_custody_unit(unit, deadline):
+    """Only fixed systemd metadata and its existing typed process enumeration."""
+    routine_require(unit in FAILED_CUSTODY_UNITS.values())
+    unknown = {'status': 'unknown', 'inactive': None, 'noJob': None, 'disabled': None,
+               'noMainOrControlPid': None, 'processEnumerationEmpty': None, 'cgroup': 'unknown'}
+    path = unit.endswith('.path')
+    props = ['LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job', 'FragmentPath', 'DropInPaths']
+    args = ['systemctl', 'show', unit, '--no-pager', '--all', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,MainPID,ControlPID,ControlGroup,FragmentPath,DropInPaths']
+    if path:
+        args = ['systemctl', 'show', unit, '--no-pager', '--all', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,FragmentPath,DropInPaths']
+    else:
+        props += ['MainPID', 'ControlPID', 'ControlGroup']
+    try:
+        raw = inspector_command(args, min(deadline, time.monotonic() + 2), limit=4096)
+        d = unique_object([line.split('=', 1) for line in raw.decode('ascii').splitlines()])
+        routine_require(set(d) == set(props) and d['LoadState'] in {'loaded', 'not-found'} and
+                        d['ActiveState'] in {'active', 'activating', 'reloading', 'inactive', 'failed', 'deactivating'} and
+                        d['SubState'] in {'running', 'start', 'start-pre', 'start-post', 'exited', 'dead', 'failed', 'auto-restart', 'stop', 'stop-sigterm', 'stop-sigkill', 'stop-post', 'final-sigterm', 'final-sigkill', 'waiting'} and
+                        d['UnitFileState'] in {'', 'disabled', 'static', 'enabled', 'enabled-runtime', 'indirect'} and
+                        re.fullmatch(r'[0-9]*', d['Job']))
+        routine_require(d['FragmentPath'] == '/etc/systemd/system/' + unit.split('@', 1)[0] + '@.' + unit.rsplit('.', 1)[1] and d['DropInPaths'] == '')
+        if not path:
+            routine_require(all(re.fullmatch(r'[0-9]*', d[k]) for k in ('MainPID', 'ControlPID')))
+        # Path units have no service PIDs. Empty is inapplicable, never zero.
+        path = unit.endswith('.path')
+        pid_clear = None if path else d['MainPID'] == d['ControlPID'] == '0'
+        empty, cgroup = None, 'not-applicable'
+        if not path:
+            processes = inspector_command(['busctl', '--system', '--timeout=1s', 'call', 'org.freedesktop.systemd1',
+                '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager', 'GetUnitProcesses', 's', unit],
+                min(deadline, time.monotonic() + 2), limit=4096).decode('ascii').strip()
+            fields = shlex.split(processes)
+            routine_require(len(fields) >= 2 and fields[0] == 'a(sus)' and re.fullmatch('0|[1-9][0-9]{0,2}', fields[1]))
+            count = int(fields[1])
+            routine_require(count <= 128 and len(fields) == 2 + 3 * count and
+                            all(fields[2 + 3 * i].startswith('/') and re.fullmatch('[1-9][0-9]*', fields[3 + 3 * i]) for i in range(count)))
+            empty = count == 0
+            # The exact manager enumeration covers this unit's descendants;
+            # arbitrary filesystem paths are never followed.
+            cgroup = 'manager-empty' if empty and d['ControlGroup'] in {'', '/system.slice/' + unit} else 'unproved'
+        result = {'status': 'observed', 'inactive': d['ActiveState'] in {'inactive', 'failed'} and d['SubState'] in {'dead', 'failed'},
+                  'noJob': d['Job'] in {'', '0'}, 'disabled': d['UnitFileState'] in {'', 'disabled', 'static'},
+                  'noMainOrControlPid': pid_clear, 'processEnumerationEmpty': empty, 'cgroup': cgroup}
+        return result, hashlib.sha256(raw).hexdigest()
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
+        return unknown, None
+
+
+FAILED_CUSTODY_TRANSACTION_SHA256 = '3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39'
+FAILED_CUSTODY_REFUSAL = '[engine-release-transaction] FATAL: Phase1 requires the full retained-owner checkpoint; an age-only drained boundary is not qualified'
+
+
+def failed_custody_transaction(parent, deadline):
+    """One fixed original source only; the common 64KiB reader is unchanged."""
+    fds = []
+    try:
+        current = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW); fds.append(current)
+        for part in ('engine-control-generations', FAILED_CUSTODY_CONTROL):
+            info = os.fstat(current)
+            routine_require(info.st_uid == os.geteuid() and not info.st_mode & 0o022 and time.monotonic() < deadline)
+            current = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current); fds.append(current)
+        info = os.fstat(current)
+        routine_require(info.st_uid == os.geteuid() and not info.st_mode & 0o022)
+        fd = os.open('engine-release-transaction.sh', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=current); fds.append(fd)
+        before = os.fstat(fd)
+        routine_require(stat.S_ISREG(before.st_mode) and before.st_uid == os.geteuid() and
+                        not before.st_mode & 0o022 and before.st_size <= 512 * 1024)
+        raw = bytearray()
+        while len(raw) <= 512 * 1024:
+            routine_require(time.monotonic() < deadline)
+            part = os.read(fd, min(4096, 512 * 1024 + 1 - len(raw)))
+            if not part: break
+            raw.extend(part)
+        routine_require(len(raw) == before.st_size and intake_identity(before) == intake_identity(os.fstat(fd)))
+        return hashlib.sha256(raw).hexdigest(), tuple(intake_identity(os.fstat(item)) for item in fds)
+    except (OSError, ValueError):
+        return None
+    finally:
+        for fd in reversed(fds): os.close(fd)
+
+
+def failed_custody_history_inputs(root_fd, parent, deadline):
+    source = failed_custody_transaction(parent, deadline)
+    failure = None
+    try:
+        result_fd = os.open('engine-release-results', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
+        try:
+            info = os.fstat(result_fd)
+            routine_require(info.st_uid == os.geteuid() and stat.S_IMODE(info.st_mode) == 0o700)
+            name = '41349091113-1.json'
+            before = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
+            value, raw = read_json(result_fd, name, private=True, with_bytes=True)
+            fields = {'schema', 'runId', 'result', 'sha', 'controlSha', 'invocationId', 'transactionExitStatus',
+                      'recoveredDesiredSha', 'recoveredDesiredImageId', 'completedAt'}
+            routine_require(set(value) == fields and type(value['schema']) is int and value['schema'] == 1 and
+                value['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and value['result'] == 'failed' and
+                value['sha'] == value['controlSha'] == FAILED_CUSTODY_CONTROL and
+                isinstance(value['invocationId'], str) and re.fullmatch('[0-9a-f]{32}', value['invocationId']) and
+                type(value['transactionExitStatus']) is int and 1 <= value['transactionExitStatus'] <= 255 and value['transactionExitStatus'] != 75 and
+                value['recoveredDesiredSha'] == EED and value['recoveredDesiredImageId'] == FAILED_CUSTODY_IMAGE and
+                type(value['completedAt']) is int and value['completedAt'] == 1793569102 and
+                routine_digest(value) == FAILED_CUSTODY_FAILURE and
+                intake_identity(before) == intake_identity(os.stat(name, dir_fd=result_fd, follow_symlinks=False)))
+            failure = (value['invocationId'], value['completedAt'], hashlib.sha256(raw).hexdigest(), intake_identity(before))
+        finally:
+            os.close(result_fd)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return source, failure
+
+
+def failed_custody_historical(inputs, deadline):
+    source, failure = inputs
+    answer = {'status': 'unknown', 'reason': 'source_unproved', 'observedAtMicros': None,
+              'journalSha256': None, 'literalSha256': None, 'sourceMatches': None,
+              'failureMatches': None, 'unitMatches': None, 'invocationMatches': None,
+              'literalMatches': None, 'beforeFirstNotice': None}
+    if source is None: return answer
+    answer['sourceMatches'] = source[0] == FAILED_CUSTODY_TRANSACTION_SHA256
+    if not answer['sourceMatches']: return answer
+    answer.update(failureMatches=failure is not None, reason='failure_unproved')
+    if failure is None: return answer
+    answer['reason'] = 'journal_unavailable'
+    # Existing bounded_journal owns at most five seconds plus two for drainage.
+    # Preserve its bounds and the outer eighteen-second custody deadline.
+    if deadline - time.monotonic() < 8: return answer
+    unit = FAILED_CUSTODY_UNITS['releaseService']
+    try:
+        reply = bounded_journal(['journalctl', '--unit=' + unit, '_SYSTEMD_INVOCATION_ID=' + failure[0],
+            '--no-pager', '--output=json', '--output-fields=MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP',
+            '--lines=2', '--grep=^' + re.escape(FAILED_CUSTODY_REFUSAL) + '$'])
+        if reply.returncode or len(reply.stdout) > 8192 or time.monotonic() >= deadline: return answer
+        rows = [json.loads(line, object_pairs_hook=unique_object) for line in reply.stdout.decode('utf8').splitlines() if line.strip()]
+        answer['reason'] = 'missing_or_ambiguous'
+        if len(rows) != 1: return answer
+        row = rows[0]
+        allowed = {'MESSAGE', '_SYSTEMD_UNIT', '_SYSTEMD_INVOCATION_ID', '__REALTIME_TIMESTAMP',
+                   '__CURSOR', '__MONOTONIC_TIMESTAMP', '_BOOT_ID', '__SEQNUM', '__SEQNUM_ID'}
+        required = {'MESSAGE', '_SYSTEMD_UNIT', '_SYSTEMD_INVOCATION_ID', '__REALTIME_TIMESTAMP'}
+        routine_require(isinstance(row, dict) and required <= set(row) <= allowed and all(isinstance(v, str) for v in row.values()))
+        answer['reason'] = 'binding_or_time_unproved'
+        routine_require(row['MESSAGE'] == FAILED_CUSTODY_REFUSAL and row['_SYSTEMD_UNIT'] == unit and
+                        row['_SYSTEMD_INVOCATION_ID'] == failure[0] and re.fullmatch('[1-9][0-9]{14,15}', row['__REALTIME_TIMESTAMP']))
+        for key in ('__MONOTONIC_TIMESTAMP', '__SEQNUM'):
+            if key in row: routine_require(re.fullmatch('[0-9]{1,20}', row[key]))
+        for key in ('_BOOT_ID', '__SEQNUM_ID'):
+            if key in row: routine_require(re.fullmatch('[0-9a-f]{32}', row[key]))
+        if '__CURSOR' in row: routine_require(re.fullmatch('[A-Za-z0-9;=._:-]{1,1024}', row['__CURSOR']))
+        stamp = int(row['__REALTIME_TIMESTAMP'])
+        routine_require(946684800000000 <= stamp <= failure[1] * 1000000 + 999999 and stamp < (1793570400 - 120) * 1000000)
+        answer.update(status='observed', reason='observed', observedAtMicros=stamp,
+            journalSha256=hashlib.sha256(reply.stdout).hexdigest(), literalSha256=hashlib.sha256(FAILED_CUSTODY_REFUSAL.encode()).hexdigest(),
+            unitMatches=True, invocationMatches=True, literalMatches=True, beforeFirstNotice=True)
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
+        pass
+    return answer
+
+
+def validate_failed_custody_historical(row):
+    fields = {'status', 'reason', 'observedAtMicros', 'journalSha256', 'literalSha256', 'sourceMatches',
+              'failureMatches', 'unitMatches', 'invocationMatches', 'literalMatches', 'beforeFirstNotice'}
+    routine_require(isinstance(row, dict) and set(row) == fields and row['status'] in {'observed', 'unknown'} and
+        row['reason'] in {'source_unproved', 'failure_unproved', 'journal_unavailable', 'missing_or_ambiguous', 'binding_or_time_unproved', 'observed'} and
+        all(row[k] is None or type(row[k]) is bool for k in ('sourceMatches', 'failureMatches', 'unitMatches', 'invocationMatches', 'literalMatches', 'beforeFirstNotice')))
+    if row['status'] == 'observed':
+        routine_require(row['reason'] == 'observed' and type(row['observedAtMicros']) is int and
+            946684800000000 <= row['observedAtMicros'] <= 1793569102999999 and row['observedAtMicros'] < (1793570400 - 120) * 1000000 and
+            isinstance(row['journalSha256'], str) and re.fullmatch('[0-9a-f]{64}', row['journalSha256']) and
+            row['literalSha256'] == hashlib.sha256(FAILED_CUSTODY_REFUSAL.encode()).hexdigest() and
+            all(row[k] is True for k in ('sourceMatches', 'failureMatches', 'unitMatches', 'invocationMatches', 'literalMatches', 'beforeFirstNotice')))
+    else:
+        routine_require(row['reason'] != 'observed' and all(row[k] is None for k in ('observedAtMicros', 'journalSha256', 'literalSha256', 'unitMatches', 'invocationMatches', 'literalMatches', 'beforeFirstNotice')))
+    return row
+
+
+def failed_custody_remote(request, root_fd, *, state_root=STATE_ROOT,
+                          control_parent=Path('/usr/local/lib/club-arena'), systemd=Path('/etc/systemd/system')):
+    routine_require(selection(request) == FAILED_CUSTODY_REQUEST)
+    deadline = time.monotonic() + 18
+    before = failed_custody_canonical(root_fd)
+    sources = failed_custody_sources(control_parent, systemd, deadline)
+    history_inputs = failed_custody_history_inputs(root_fd, control_parent, deadline)
+    historical = failed_custody_historical(history_inputs, deadline)
+    records = failed_custody_files(state_root, deadline)
+    units, bindings = {}, {}
+    for label, unit in FAILED_CUSTODY_UNITS.items():
+        if sources[0]:
+            units[label], bindings[label] = failed_custody_unit(unit, deadline)
+        else:
+            units[label], bindings[label] = ({'status': 'unknown', 'inactive': None, 'noJob': None, 'disabled': None,
+                'noMainOrControlPid': None, 'processEnumerationEmpty': None, 'cgroup': 'unknown'}, None)
+    runtime = {'status': 'unknown', 'desiredImageMatches': None, 'localHealthSourceMatches': None}
+    runtime_before = None
+    if sources[0]:
+        try:
+            container = inspector_identity(min(deadline, time.monotonic() + 3))
+            health = pending_tcp_health(min(deadline, time.monotonic() + 3))
+            runtime_before = (container, health)
+            runtime = {'status': 'observed', 'desiredImageMatches': container['image'] == FAILED_CUSTODY_IMAGE,
+                       'localHealthSourceMatches': health['source'] == EED}
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    for label, unit in FAILED_CUSTODY_UNITS.items():
+        if sources[0] and (units[label], bindings[label]) != failed_custody_unit(unit, deadline):
+            raise ValueError('Failed routine custody changed')
+    if runtime_before is not None:
+        routine_require(runtime_before == (inspector_identity(min(deadline, time.monotonic() + 3)),
+                                           pending_tcp_health(min(deadline, time.monotonic() + 3))))
+    routine_require(records == failed_custody_files(state_root, deadline) and
+                    sources == failed_custody_sources(control_parent, systemd, deadline) and
+                    history_inputs == failed_custody_history_inputs(root_fd, control_parent, deadline) and
+                    before == failed_custody_canonical(root_fd) and time.monotonic() < deadline)
+    return validate_failed_custody_reply({'schema': FAILED_CUSTODY_SCHEMA, 'readOnly': True, **request,
+        'canonicalSealSha256': before['sealSha256'], 'sourceQualified': sources[0], 'sourceMatches': sources[1],
+        'records': records[0], 'units': units, 'runtime': runtime, 'historicalRefusal': historical, 'databaseFreezeThaw': 'not_observed',
+        'retryAllowed': False, 'limitation': FAILED_CUSTODY_LIMITATION}, request)
+
+
+def validate_failed_custody_reply(v, request):
+    routine_require(selection(request) == FAILED_CUSTODY_REQUEST and isinstance(v, dict) and
+        set(v) == {'schema', 'readOnly', 'mode', 'runKey', 'releaseSha', 'canonicalSealSha256', 'sourceQualified', 'sourceMatches',
+                   'records', 'units', 'runtime', 'historicalRefusal', 'databaseFreezeThaw', 'retryAllowed', 'limitation'} and
+        v['schema'] == FAILED_CUSTODY_SCHEMA and v['readOnly'] is True and all(v.get(k) == x for k, x in request.items()) and
+        re.fullmatch('[0-9a-f]{64}', v['canonicalSealSha256']) and type(v['sourceQualified']) is bool and
+        v['databaseFreezeThaw'] == 'not_observed' and v['retryAllowed'] is False and v['limitation'] == FAILED_CUSTODY_LIMITATION and
+        isinstance(v['sourceMatches'], dict) and set(v['sourceMatches']) == set(FAILED_CUSTODY_SOURCE) | {'sharedWrapper', 'releaseTemplate', 'intakeTemplate', 'pathTemplate'} and
+        all(x is None or type(x) is bool for x in v['sourceMatches'].values()) and
+        isinstance(v['records'], dict) and set(v['records']) == set(FAILED_CUSTODY_FILES) and
+        isinstance(v['units'], dict) and set(v['units']) == set(FAILED_CUSTODY_UNITS))
+    if v['sourceQualified']: routine_require(all(x is True for x in v['sourceMatches'].values()) and 'releaseTemplate' in v['sourceMatches'])
+    for name, row in v['records'].items():
+        routine_require(isinstance(row, dict) and set(row) == {'presence', 'sha256', 'identityBinding'} and
+            row['presence'] in {'present', 'absent', 'unknown'} and row['identityBinding'] in {'unproved', 'source-fields-match', 'original-request-bound'} and
+            (isinstance(row['sha256'], str) and re.fullmatch('[0-9a-f]{64}', row['sha256']) if row['presence'] == 'present' else row['sha256'] is None) and
+            (row['identityBinding'] == 'unproved' or row['presence'] == 'present'))
+        routine_require(row['identityBinding'] != 'original-request-bound' or name in {'request', 'intent'})
+    for label, row in v['units'].items():
+        routine_require(isinstance(row, dict) and set(row) == {'status', 'inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty', 'cgroup'} and
+            row['status'] in {'observed', 'unknown'} and row['cgroup'] in {'unknown', 'unproved', 'manager-empty', 'not-applicable'} and
+            all(row[k] is None or type(row[k]) is bool for k in ('inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty')))
+        if row['status'] == 'unknown': routine_require(row['cgroup'] == 'unknown' and all(row[k] is None for k in ('inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty')))
+        else:
+            routine_require(v['sourceQualified'] and all(type(row[k]) is bool for k in ('inactive', 'noJob', 'disabled')) and
+                            ((row['noMainOrControlPid'] is None and row['processEnumerationEmpty'] is None and row['cgroup'] == 'not-applicable') if label == 'intakePath' else
+                             type(row['noMainOrControlPid']) is bool and type(row['processEnumerationEmpty']) is bool and row['cgroup'] != 'not-applicable') and
+                            (row['cgroup'] != 'manager-empty' or row['processEnumerationEmpty'] is True))
+    validate_failed_custody_historical(v['historicalRefusal'])
+    runtime = v['runtime']
+    routine_require(isinstance(runtime, dict) and set(runtime) == {'status', 'desiredImageMatches', 'localHealthSourceMatches'} and runtime['status'] in {'unknown', 'observed'})
+    if runtime['status'] == 'unknown': routine_require(runtime['desiredImageMatches'] is runtime['localHealthSourceMatches'] is None)
+    else: routine_require(v['sourceQualified'] and type(runtime['desiredImageMatches']) is type(runtime['localHealthSourceMatches']) is bool)
+    return v
+
+
 def selection(value):
+    if isinstance(value, dict) and value.get('mode') == 'failed_routine_custody':
+        if value != FAILED_CUSTODY_REQUEST: raise ValueError('Exact failed routine custody required')
+        return dict(value)
     if isinstance(value, dict) and value.get('mode') == 'canonical_routine_owner':
         if value != ROUTINE_REQUEST: raise ValueError('Exact failed routine owner read required')
         return dict(value)
@@ -3020,6 +3382,9 @@ def remote(request):
     # All production paths are fixed. No environment/caller path override.
     root_fd = os.open(STATE_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
+        if request.get('mode') == 'failed_routine_custody':
+            if os.geteuid() != 0: raise ValueError('Root read custody required')
+            return failed_custody_remote(request, root_fd)
         if request.get('mode') == 'canonical_routine_owner':
             if os.geteuid() != 0: raise ValueError('Root read custody required')
             return routine_remote(request, root_fd)
@@ -3051,6 +3416,8 @@ def remote(request):
 
 
 def validate_reply(value, request):
+    if request.get('mode') == 'failed_routine_custody':
+        return validate_failed_custody_reply(value, request)
     if request.get('mode') == 'canonical_routine_owner':
         return validate_routine_reply(value, request)
     if request.get('mode') == 'intake_staging_records':
@@ -3153,7 +3520,7 @@ def main():
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
         reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
-        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records'} else 4096):
+        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records'} else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:
             try:
