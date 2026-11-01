@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272549,
+      "sha256": "873a74cebf9b019d924063fccc7fcb113382f97e201df7cee07530abce257080"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -1937,6 +1937,17 @@
     "current": {
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    }
+  },
+  "browserRunnerCompatibility20261031": {
+    "reason": "Playwright 1.58 cannot install on Ubuntu26.04 selected by ubuntu-latest. Pin only browser-installing CI jobs to the successful Ubuntu24.04 baseline; preserve all suites, assertions, financial matrices and gates. Source identity only; no financial or live recertification.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272549,
+      "sha256": "873a74cebf9b019d924063fccc7fcb113382f97e201df7cee07530abce257080"
     }
   }
 }
