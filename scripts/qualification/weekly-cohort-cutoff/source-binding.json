@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272471,
-      "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
+      "bytes": 272626,
+      "sha256": "1f1cdf41989904f94d3601910c48ea11ae80ce52c39a1140e9463648d80d2d29"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -1973,6 +1973,17 @@
     "current": {
       "bytes": 272471,
       "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
+    }
+  },
+  "nativeRunnerCompatibility20261101": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272471,
+      "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
+    },
+    "current": {
+      "bytes": 272626,
+      "sha256": "1f1cdf41989904f94d3601910c48ea11ae80ce52c39a1140e9463648d80d2d29"
     }
   }
 }
