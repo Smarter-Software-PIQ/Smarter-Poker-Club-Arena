@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -5909,5 +5909,16 @@
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
+  },
+  "browserRunnerCompatibility20261101": {
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "reason": "Reviewed four browser-job runner labels only: Ubuntu24.04 supports locked Playwright1.58 after ubuntu-latest advanced to26.04. Every cash qualification command, input, assertion and native verdict unchanged; current workflow identity only."
   }
 }
