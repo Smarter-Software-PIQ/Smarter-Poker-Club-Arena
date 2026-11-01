@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { test, expect, devices, type Page, type Locator } from '@playwright/test';
 import {
@@ -42,6 +44,67 @@ test.use({
 test.describe.configure({ mode: 'default', timeout: 180_000 });
 
 const actionTimelines = new WeakMap<Page, unknown[]>();
+const diagnosticRows = new WeakMap<Page, Map<string, Row>>();
+const diagnosticScopes = new WeakMap<Page, unknown[]>();
+const publicRowFields = [
+  'id',
+  'club_id',
+  'union_id',
+  'is_private',
+  'game_type',
+  'game_variant',
+  'variant',
+  'tournament_type',
+  'format_contract',
+  'status',
+  'lifecycle',
+  'is_deleted',
+  'current_players',
+  'max_players',
+  'buy_in_amount',
+  'buy_in_fee',
+  'small_blind',
+  'big_blind',
+  'cluster_id',
+  'start_time',
+  'started_at',
+  'ended_at',
+  'created_at',
+  'satellite_target_id',
+  'is_satellite',
+  'proof_board_census',
+  'name',
+  'is_featured',
+  'is_pinned',
+  'is_bounty',
+  'is_pko',
+  'is_mystery_bounty',
+  'is_rebuy',
+  'is_reentry',
+  'cluster_template',
+  'cluster_handedness',
+  'cluster_mode',
+];
+function persistProgress(page: Page) {
+  const output = test.info().outputPath('attachments', 'filter-action-progress.json');
+  mkdirSync(dirname(output), { recursive: true });
+  const observer = observationHandles.get(page);
+  writeFileSync(
+    output,
+    JSON.stringify({
+      observedAt: Date.now(),
+      actions: actionTimelines.get(page),
+      sourceRows: [...(diagnosticRows.get(page)?.values() || [])].map((row) =>
+        Object.fromEntries(
+          publicRowFields.filter((key) => row[key] !== undefined).map((key) => [key, row[key]])
+        )
+      ),
+      membershipScopes: diagnosticScopes.get(page),
+      observerErrors: observer?.errors,
+      lifecycleWitnesses: observer?.witnesses,
+    })
+  );
+}
 const observationHandles = new WeakMap<
   Page,
   { finish: () => Promise<void>; errors: unknown[]; witnesses: unknown[] }
@@ -69,19 +132,68 @@ test.afterEach(async ({ page }, info) => {
 async function clickControl(locator: Locator, options?: Parameters<Locator['click']>[0]) {
   const control = locator.toString();
   const started = Date.now();
-  let completed = false;
+  const page = locator.page();
+  const action: Record<string, unknown> = { control, started, phase: 'starting', completed: false };
+  actionTimelines.get(page)?.push(action);
+  persistProgress(page);
   await test.step(control, async () => {
     try {
+      action.before = await locator.evaluateAll((elements) =>
+        elements.map((element) => {
+          const rect = element.getBoundingClientRect();
+          const details = element.closest('details');
+          const ancestors = [];
+          for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            if (parent.scrollHeight > parent.clientHeight) {
+              const box = parent.getBoundingClientRect();
+              ancestors.push({
+                className: parent.className,
+                scrollTop: parent.scrollTop,
+                height: parent.clientHeight,
+                scrollHeight: parent.scrollHeight,
+                top: box.top,
+                bottom: box.bottom,
+              });
+            }
+          }
+          return {
+            text: element.textContent?.trim().slice(0, 100),
+            rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+            detailsOpen: details?.open,
+            display: getComputedStyle(element).display,
+            visibility: getComputedStyle(element).visibility,
+            ancestors,
+          };
+        })
+      );
+      action.phase = 'native-scroll';
+      persistProgress(page);
+      // Scroll the real overflow owner before Playwright's actionability check.
+      // Retain the ordinary visible, stable, enabled and hit-target checks.
+      await locator.scrollIntoViewIfNeeded({ timeout: 10_000 });
+      action.phase = 'click';
+      persistProgress(page);
       const closesSheet =
         control.includes('Close Game Filters') || /name: ['"]Done['"]/.test(control);
       const dialog = closesSheet ? locator.locator('xpath=ancestor::*[@role="dialog"]') : null;
-      await locator.click(options);
+      await locator.click({ ...options, timeout: 10_000 });
       if (dialog) await expect(dialog).toBeHidden();
-      completed = true;
+      action.completed = true;
+    } catch (error) {
+      action.error = error instanceof Error ? error.message : String(error);
+      persistProgress(page);
+      try {
+        await page.screenshot({
+          path: test.info().outputPath('filter-control-failure.png'),
+          timeout: 5_000,
+        });
+      } catch (capture) {
+        action.captureError = capture instanceof Error ? capture.message : String(capture);
+      }
+      throw error;
     } finally {
-      actionTimelines
-        .get(locator.page())
-        ?.push({ control, elapsedMs: Date.now() - started, completed });
+      action.elapsedMs = Date.now() - started;
+      persistProgress(page);
     }
   });
 }
@@ -369,6 +481,260 @@ function style(row: Row): string {
     return 'straight_madness';
   return ['action', 'lightning'].includes(key) ? 'madness' : key;
 }
+type LedDecision = {
+  color: 'blue' | 'red' | 'green' | 'yellow' | 'white';
+  sides: 'both' | 'left' | 'none';
+};
+function expectedExteriorLed(row: Row, spec: GameFilterSpec, cash: boolean): LedDecision {
+  if (cash) {
+    const key = variant(row, true);
+    const template = text(row.cluster_template || object(row.cluster).template_name).toLowerCase();
+    const lightning =
+      Boolean(row.cluster_id) &&
+      ['action', 'madness', 'lightning'].includes(template) &&
+      number(row.cluster_handedness ?? row.max_players) === 6 &&
+      !['short_deck', 'pineapple', 'plo8', 'flo8'].includes(key);
+    const colors: Record<string, LedDecision['color']> = {
+      nlh: 'blue',
+      flh: 'blue',
+      plo4: 'blue',
+      plo5: 'red',
+      plo6: 'green',
+      plo8: 'yellow',
+      flo8: 'yellow',
+      pineapple: 'yellow',
+      short_deck: 'green',
+    };
+    expect(
+      colors[key],
+      `Observed cash variant ${key} needs an independent LED palette`
+    ).toBeTruthy();
+    return { color: lightning ? 'white' : colors[key], sides: 'both' };
+  }
+  const contract = text(row.format_contract);
+  const mtt = ['mtt-v1', 'mtt-v2'].includes(contract);
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' });
+  const start = Date.parse(text(row.start_time));
+  if (
+    (row.is_pinned === true || row.is_featured === true) &&
+    Number.isFinite(start) &&
+    day.format(start) === day.format(Date.now())
+  )
+    return { color: 'red', sides: 'none' };
+  if (satellite(row) === true) return { color: 'yellow', sides: 'both' };
+  if (contract === 'spin-v1') return { color: 'red', sides: 'both' };
+  if (['sng-v1', 'seat-first-satellite-v1'].includes(contract))
+    return { color: 'green', sides: 'both' };
+  expect(mtt, 'Only a known observed tournament contract can select an LED palette').toBe(true);
+  if (
+    namedConvention(row) === 'freeroll' ||
+    number(row.buy_in_amount) + number(row.buy_in_fee) <= 0
+  )
+    return { color: 'blue', sides: 'both' };
+  const bounty = ['pko', 'mystery_bounty', 'bounty'].some(
+    (key) => feature(row, key, spec, false) === true
+  );
+  if (bounty) return { color: 'green', sides: 'left' };
+  const freezeout =
+    namedConvention(row) === 'freezeout' &&
+    !text(row.name).toLowerCase().includes('spin') &&
+    !['reentry', 'rebuy'].some((key) => feature(row, key, spec, false) === true);
+  return freezeout ? { color: 'white', sides: 'left' } : { color: 'blue', sides: 'both' };
+}
+async function assertExteriorLeds(
+  page: Page,
+  rawRows: Map<string, Row>,
+  spec: GameFilterSpec,
+  cash: boolean
+) {
+  if (cash) {
+    await expect
+      .poll(
+        () =>
+          page
+            .locator(
+              '.has-premium-chassis:visible tr[data-game-heading][data-kind="cash"] .lt-tournament-heading__name'
+            )
+            .evaluateAll((titles) =>
+              titles.flatMap((title) => {
+                const face = title.getBoundingClientRect();
+                const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+                const ink: DOMRect[] = [];
+                while (walker.nextNode()) {
+                  if (!walker.currentNode.textContent?.trim()) continue;
+                  const range = document.createRange();
+                  range.selectNodeContents(walker.currentNode);
+                  ink.push(
+                    ...[...range.getClientRects()].filter(
+                      (rect) => rect.width > 0 && rect.height > 0
+                    )
+                  );
+                }
+                return ink.length &&
+                  ink.every(
+                    (rect) =>
+                      rect.left >= face.left - 1 &&
+                      rect.right <= face.right + 1 &&
+                      rect.top >= face.top - 1 &&
+                      rect.bottom <= face.bottom + 1
+                  )
+                  ? []
+                  : [{ text: title.textContent, face, ink }];
+              })
+            ),
+        {
+          message:
+            'Full cash titles, including Lightning, must paint inside their actual header face',
+        }
+      )
+      .toEqual([]);
+  }
+  const readings = await page
+    .locator(
+      '.has-premium-chassis:visible tbody tr[data-id]:visible, .has-premium-chassis:visible tbody tr[data-game-heading]:visible'
+    )
+    .evaluateAll((elements) =>
+      elements.map((element) => {
+        const before = getComputedStyle(element, '::before');
+        const after = getComputedStyle(element, '::after');
+        return {
+          id: element.getAttribute('data-id') || element.getAttribute('data-game-heading')!,
+          heading: element.hasAttribute('data-game-heading'),
+          titleText:
+            element.querySelector('.lt-tournament-heading__name')?.textContent?.trim() ?? null,
+          beforeFilter: before.filter,
+          beforeArt: before.backgroundImage,
+          afterFilter: after.filter,
+          afterDisplay: after.display,
+          mask: after.maskImage || after.webkitMaskImage,
+          clip: after.clipPath,
+          actualColor: element.getAttribute('data-led-color'),
+          actualSides: element.getAttribute('data-led-sides'),
+        };
+      })
+    );
+  expect(readings.length).toBeGreaterThan(0);
+  const filters: Record<LedDecision['color'], string> = {
+    blue: 'none',
+    red: 'hue-rotate(135deg)',
+    green: 'hue-rotate(-75deg)',
+    yellow: 'hue-rotate(-155deg)',
+    white: 'grayscale(1) brightness(1.35)',
+  };
+  for (const reading of readings) {
+    const raw = rawRows.get(reading.id);
+    expect(raw, `LED ${reading.id} must have an independently observed raw source`).toBeTruthy();
+    const expected = expectedExteriorLed(raw!, spec, cash);
+    if (cash && reading.heading) {
+      expect(reading.titleText, 'Each cash title is visibly populated').toBeTruthy();
+      expect(
+        /^Lightning /.test(reading.titleText!),
+        'The title must name exactly the raw-source Lightning format'
+      ).toBe(expected.color === 'white');
+    }
+    expect(reading.beforeFilter, 'The silver/black frame art must remain untinted').toBe('none');
+    expect(reading.actualColor, `Raw-source palette ${reading.id}`).toBe(expected.color);
+    expect(reading.actualSides, `Raw-source LED zones ${reading.id}`).toBe(expected.sides);
+    if (expected.sides === 'none') {
+      expect(reading.beforeArt).toContain('card-featured.png');
+      expect(reading.afterDisplay).toBe('none');
+    } else {
+      expect(reading.afterDisplay).not.toBe('none');
+      expect(reading.afterFilter).toBe(filters[expected.color]);
+      expect(reading.clip).toBe('none');
+      const mask = reading.mask
+        .replace(/rgba?\(([^)]+)\)/g, (_, channels: string) => {
+          const values = channels.split(',').map(Number);
+          return values.length === 4 && values[3] === 0 ? 'transparent' : 'opaque';
+        })
+        .replace(/\s+/g, '')
+        .replace('90deg', 'toright');
+      const both = [
+        'linear-gradient(toright,opaque0%5.5%,transparent5.5%94.5%,opaque94.5%100%)',
+        'linear-gradient(toright,opaque0%,opaque5.5%,transparent5.5%,transparent94.5%,opaque94.5%,opaque100%)',
+      ];
+      const left = [
+        'linear-gradient(toright,opaque0%5.5%,transparent5.5%100%)',
+        'linear-gradient(toright,opaque0%,opaque5.5%,transparent5.5%,transparent100%)',
+      ];
+      expect(
+        expected.sides === 'both' ? both : left,
+        'The colored overlay may paint only the exterior 5.5% rails, never the interior'
+      ).toContain(mask);
+    }
+  }
+  return readings;
+}
+type ObservedLobbyScope = { unionId: string | null; clubIds: string[] };
+function scopeFromTournamentQuery(url: URL): ObservedLobbyScope | undefined {
+  const uuid = /^[0-9a-f-]{36}$/i;
+  const expression = url.searchParams.get('or')?.replace(/^\((.*)\)$/, '$1');
+  if (expression) {
+    const union =
+      /^union_id\.eq\.([0-9a-f-]{36}),and\(club_id\.eq\.([0-9a-f-]{36}),is_private\.eq\.true\)$/i.exec(
+        expression
+      );
+    if (union && union[2].toLowerCase() === CLUB_ID.toLowerCase())
+      return { unionId: union[1].toLowerCase(), clubIds: [CLUB_ID] };
+  }
+  const filter = url.searchParams.get('club_id');
+  const clubs =
+    filter?.startsWith('in.(') && filter.endsWith(')')
+      ? filter
+          .slice(4, -1)
+          .split(',')
+          .map((value) => value.replace(/^"|"$/g, '').trim().toLowerCase())
+      : filter?.startsWith('eq.')
+        ? [filter.slice(3).toLowerCase()]
+        : [];
+  if (
+    clubs.length &&
+    clubs.every((value) => uuid.test(value)) &&
+    clubs.includes(CLUB_ID.toLowerCase())
+  )
+    return { unionId: null, clubIds: [...new Set(clubs)].sort() };
+  if ([expression, filter].some((value) => value?.includes(CLUB_ID)))
+    throw new Error('The observed tournament membership query has an unrecognized scope');
+  return undefined;
+}
+function independentlyInScope(row: Row, scope: ObservedLobbyScope): boolean {
+  return scope.unionId
+    ? row.union_id === scope.unionId ||
+        (scope.clubIds.includes(text(row.club_id)) && row.is_private === true)
+    : scope.clubIds.includes(text(row.club_id));
+}
+function completeTournamentMembership(row: Row): boolean {
+  return (
+    /^[0-9a-f-]{36}$/i.test(text(row.id)) &&
+    ['mtt-v1', 'mtt-v2', 'spin-v1', 'sng-v1', 'seat-first-satellite-v1'].includes(
+      text(row.format_contract)
+    ) &&
+    [
+      'club_id',
+      'union_id',
+      'is_private',
+      'status',
+      'game_type',
+      'buy_in_amount',
+      'buy_in_fee',
+      'current_players',
+      'max_players',
+    ].every((key) => Object.hasOwn(row, key))
+  );
+}
+function belongsToObservedFamily(row: Row, type: Tab): boolean {
+  if (row.proof_board_census !== true) return false;
+  const contract = text(row.format_contract);
+  if (type === 'SPIN') return contract === 'spin-v1';
+  if (type === 'SNG') return ['sng-v1', 'seat-first-satellite-v1'].includes(contract);
+  if (type === 'MTT') return ['mtt-v1', 'mtt-v2'].includes(contract);
+  if (type === 'SATELLITE')
+    return (
+      ['mtt-v1', 'mtt-v2', 'spin-v1', 'sng-v1', 'seat-first-satellite-v1'].includes(contract) &&
+      satellite(row) === true
+    );
+  return false;
+}
 function independentMatch(
   row: Row,
   value: GameFilterValue,
@@ -377,10 +743,23 @@ function independentMatch(
   allRows: Map<string, Row>
 ): boolean {
   const rawStatus = text(row.status).toUpperCase();
+  if (!cash) {
+    const start = Date.parse(text(row.start_time));
+    const hours = number(row.buy_in_amount) + number(row.buy_in_fee) >= 200 ? 144 : 72;
+    if (Number.isFinite(start) && start - Date.now() > hours * 60 * 60 * 1000) return false;
+  }
   if (cash && (row.is_deleted === true || ['CLOSED', 'DELETED'].includes(rawStatus))) return false;
   if (
     !cash &&
-    ['COMPLETED', 'COMPLETING', 'CANCELLED', 'CANCELED', 'ABORTED', 'FINISHED'].includes(rawStatus)
+    ![
+      'REGISTERING',
+      'LATE_REG',
+      'LATE_REGISTRATION',
+      'STARTING_SOON',
+      'RUNNING',
+      'IN_PROGRESS',
+      'BAGGED',
+    ].includes(rawStatus)
   )
     return false;
   if (!cash && ['mtt-v1', 'mtt-v2'].includes(text(row.format_contract))) {
@@ -759,6 +1138,7 @@ async function setup(page: Page) {
     /^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || ''),
     'Only the isolated certificate identity may run this journey'
   ).toBe(true);
+  page.setDefaultTimeout(10_000);
   actionTimelines.set(page, []);
   const participation: string[] = [];
   await page.route(
@@ -770,6 +1150,10 @@ async function setup(page: Page) {
     }
   );
   const rawRows = new Map<string, Row>();
+  diagnosticRows.set(page, rawRows);
+  let observedScope: ObservedLobbyScope | undefined;
+  const scopeWitnesses: unknown[] = [];
+  diagnosticScopes.set(page, scopeWitnesses);
   const reads: Promise<void>[] = [];
   const observerErrors: { source: string; message: string }[] = [];
   const lifecycleWitnesses: unknown[] = [];
@@ -785,7 +1169,7 @@ async function setup(page: Page) {
   };
   const saves: Record<string, unknown>[] = [];
   const pools = new Map<string, { eligible?: number; players?: number }>();
-  const accept = (rows: unknown) => {
+  const accept = (rows: unknown, boardCensus?: boolean) => {
     if (!Array.isArray(rows)) return;
     for (const value of rows) {
       const row = object(value);
@@ -795,6 +1179,7 @@ async function setup(page: Page) {
           ...rawRows.get(row.id),
           ...row,
           id: row.id,
+          ...(boardCensus !== undefined ? { proof_board_census: boardCensus } : {}),
           ...(cluster.template_name !== undefined
             ? { cluster_template: cluster.template_name }
             : {}),
@@ -819,13 +1204,21 @@ async function setup(page: Page) {
           const data = object(value);
           if (
             typeof data.id === 'string' &&
-            rawRows.has(data.id) &&
+            (rawRows.has(data.id) ||
+              (observedScope &&
+                completeTournamentMembership(data) &&
+                independentlyInScope(data, observedScope))) &&
             ('current_players' in data ||
               'status' in data ||
               'game_variant' in data ||
               'game_type' in data)
           )
-            accept([data]);
+            accept(
+              [data],
+              observedScope && completeTournamentMembership(data)
+                ? independentlyInScope(data, observedScope)
+                : undefined
+            );
           for (const field of ['payload', 'data', 'record', 'new', 'records'])
             if (data[field] !== undefined) visit(data[field]);
         };
@@ -888,14 +1281,37 @@ async function setup(page: Page) {
       }
       if (response.request().method() !== 'GET' && !url.pathname.endsWith('/get_club_home')) return;
       if (!/\/(?:tables|tournaments|get_club_home)$/.test(url.pathname)) return;
+      if (url.pathname.endsWith('/tournaments')) {
+        const scope = scopeFromTournamentQuery(url);
+        if (scope) {
+          if (observedScope && JSON.stringify(observedScope) !== JSON.stringify(scope))
+            throw new Error('The observed tournament membership scope changed during this case');
+          if (!observedScope)
+            scopeWitnesses.push({
+              source: 'scoped-tournament-query',
+              observedAt: Date.now(),
+              ...scope,
+            });
+          observedScope = scope;
+        }
+      }
       observe(
         url.pathname,
         (async () => {
           const body = await readBody(response);
-          if (Array.isArray(body)) accept(body);
+          // Admit scope from the independent source request, never from
+          // the displayed IDs. Union/sibling rows remain in their real census.
+          const queryScope = [url.searchParams.get('or'), url.searchParams.get('club_id')].some(
+            (value) => value?.includes(CLUB_ID)
+          );
+          const homeScope =
+            url.pathname.endsWith('/get_club_home') &&
+            object(response.request().postDataJSON()).p_club_key === CLUB_ID;
+          const boardCensus = queryScope || homeScope;
+          if (Array.isArray(body)) accept(body, boardCensus ? true : undefined);
           else {
-            accept(body.tables);
-            accept(body.tournaments);
+            accept(body.tables, boardCensus ? true : undefined);
+            accept(body.tournaments, boardCensus ? true : undefined);
           }
         })()
       );
@@ -950,6 +1366,31 @@ async function setup(page: Page) {
       'start_time',
       'started_at',
       'format_contract',
+      'club_id',
+      'union_id',
+      'is_private',
+      'buy_in_amount',
+      'buy_in_fee',
+      'name',
+      'created_at',
+      'is_bounty',
+      'is_pko',
+      'is_mystery_bounty',
+      'is_rebuy',
+      'is_reentry',
+      'add_on_available',
+      'guaranteed_prize',
+      'blind_speed',
+      'blind_structure',
+      'current_level',
+      'late_reg_levels',
+      'late_reg_mins',
+      'rebuy_levels',
+      'prize_pool_finalized',
+      'is_xmtt',
+      'satellite_target_id',
+      'satellite_target',
+      'is_pinned',
     ];
     const before = ids.map((id) =>
       Object.fromEntries(fields.map((key) => [key, rawRows.get(id)?.[key]]))
@@ -974,7 +1415,11 @@ async function setup(page: Page) {
       sorted(rows.map((row) => row.id)),
       'Every disputed lifecycle must be independently readable'
     ).toEqual(sorted(ids));
-    accept(rows);
+    if (!observedScope)
+      throw new Error('No independent tournament membership query scope was observed');
+    for (const row of rows)
+      accept([row], completeTournamentMembership(row) && independentlyInScope(row, observedScope));
+    persistProgress(page);
   };
   const cache = `ca_advanced_filters_${owner}:${CLUB_ID}`;
   const viewCache = `ca_lobby_view_${owner}:${CLUB_ID}`;
@@ -1000,7 +1445,7 @@ async function setup(page: Page) {
     await expect(tab).toHaveAttribute('aria-selected', 'true');
   };
   const open = async () => {
-    await clickControl(page.getByRole('button', { name: 'Open Sticky Filters', exact: true }));
+    await clickControl(page.locator('#lobby-game-section-controls .game-bar__filter-btn'));
     const sheet = page.getByRole('dialog');
     await expect(sheet).toBeVisible();
     return sheet;
@@ -1065,7 +1510,33 @@ for (const type of TYPES) {
       baseline.every((id) => h.rawRows.has(id)),
       'Every baseline row must have an actual source response'
     ).toBe(true);
+    if (!cash) {
+      expect(
+        baseline.every((id) => belongsToObservedFamily(h.rawRows.get(id)!, type)),
+        'The baseline must independently belong to the scoped source census and selected family'
+      ).toBe(true);
+    }
     const evidence: unknown[] = [];
+    await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
+    await Promise.all(h.reads);
+    const ledReadings = await assertExteriorLeds(page, h.rawRows, spec, cash);
+    evidence.push({ control: 'raw-source-exterior-led-palette', ledReadings });
+    await h.rows.first().scrollIntoViewIfNeeded({ timeout: 10_000 });
+    await testInfo.attach(`lobby-led-${type.toLowerCase()}-phone.png`, {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await testInfo.attach(`lobby-led-${type.toLowerCase()}-phone.json`, {
+      body: Buffer.from(JSON.stringify(ledReadings)),
+      contentType: 'application/json',
+    });
+    sheet = await h.open();
+    const currentCohort = () =>
+      cash
+        ? baseline
+        : [...h.rawRows.values()]
+            .filter((row) => belongsToObservedFamily(row, type))
+            .map((row) => row.id);
     const check = async (control: string) => {
       const value = await h.state(type);
       expect(value, `${control}: saved account-scoped state`).toBeTruthy();
@@ -1073,6 +1544,9 @@ for (const type of TYPES) {
       const started = Date.now();
       let refreshed = false;
       let mismatchSamples = 0;
+      const membership: Record<string, unknown> = { kind: 'membership', control, started, value };
+      actionTimelines.get(page)?.push(membership);
+      persistProgress(page);
       await test.step(`${type}/${control}`, async () => {
         try {
           await expect
@@ -1080,7 +1554,7 @@ for (const type of TYPES) {
               async () => {
                 let actual = sorted(await h.ids());
                 let expected = sorted(
-                  baseline.filter((id) =>
+                  currentCohort().filter((id) =>
                     independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
                   )
                 );
@@ -1100,12 +1574,14 @@ for (const type of TYPES) {
                   await h.refreshLifecycle(disputed);
                   actual = sorted(await h.ids());
                   expected = sorted(
-                    baseline.filter((id) =>
+                    currentCohort().filter((id) =>
                       independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
                     )
                   );
                 }
                 matched = { actual, expected };
+                membership.latest = matched;
+                persistProgress(page);
                 return JSON.stringify(actual) === JSON.stringify(expected)
                   ? []
                   : [{ actual, expected }];
@@ -1116,6 +1592,8 @@ for (const type of TYPES) {
             )
             .toEqual([]);
         } finally {
+          membership.elapsedMs = Date.now() - started;
+          persistProgress(page);
           evidence.push({ control, elapsedMs: Date.now() - started, value, ...matched });
         }
       });
@@ -1482,11 +1960,116 @@ for (const type of TYPES) {
   });
 }
 
+async function readScheduleHeader(page: Page) {
+  const header = page.locator('.has-premium-chassis:visible thead:visible');
+  await expect(header).toHaveCount(1);
+  await header.scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect(header).toBeInViewport();
+  const geometry = await header.evaluate((element) => {
+    const row = element.querySelector('tr')!;
+    const rowBox = row.getBoundingClientRect();
+    const rowCss = getComputedStyle(row);
+    const painted = (width: string, style: string, color: string) =>
+      Number.parseFloat(width) > 0 &&
+      !['none', 'hidden'].includes(style) &&
+      color !== 'transparent' &&
+      !/rgba\([^)]*,\s*0\)/.test(color);
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      row: {
+        left: rowBox.left + Number.parseFloat(rowCss.borderLeftWidth),
+        right: rowBox.right - Number.parseFloat(rowCss.borderRightWidth),
+        top: rowBox.top,
+        bottom: rowBox.bottom,
+        width:
+          rowBox.width -
+          Number.parseFloat(rowCss.borderLeftWidth) -
+          Number.parseFloat(rowCss.borderRightWidth),
+      },
+      rules: {
+        top: painted(rowCss.borderTopWidth, rowCss.borderTopStyle, rowCss.borderTopColor),
+        bottom: painted(
+          rowCss.borderBottomWidth,
+          rowCss.borderBottomStyle,
+          rowCss.borderBottomColor
+        ),
+      },
+      cells: [...row.querySelectorAll('th')].map((cell) => {
+        const box = cell.getBoundingClientRect();
+        const css = getComputedStyle(cell);
+        const range = document.createRange();
+        range.selectNodeContents(cell.querySelector('.lt-th') || cell);
+        const ink = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+        const left = Math.min(...ink.map((rect) => rect.left));
+        const right = Math.max(...ink.map((rect) => rect.right));
+        const top = Math.min(...ink.map((rect) => rect.top));
+        const bottom = Math.max(...ink.map((rect) => rect.bottom));
+        return {
+          text: cell.textContent?.trim(),
+          left: box.left,
+          right: box.right,
+          top: box.top,
+          bottom: box.bottom,
+          width: box.width,
+          centered:
+            ink.length > 0 &&
+            Math.abs((left + right - box.left - box.right) / 2) <= 2 &&
+            Math.abs((top + bottom - box.top - box.bottom) / 2) <= 2,
+          inside:
+            ink.length > 0 &&
+            left >= box.left - 1 &&
+            right <= box.right + 1 &&
+            top >= box.top - 1 &&
+            bottom <= box.bottom + 1,
+          rules: {
+            top: painted(css.borderTopWidth, css.borderTopStyle, css.borderTopColor),
+            bottom: painted(css.borderBottomWidth, css.borderBottomStyle, css.borderBottomColor),
+            right: painted(css.borderRightWidth, css.borderRightStyle, css.borderRightColor),
+          },
+        };
+      }),
+    };
+  });
+  expect(geometry.cells).toHaveLength(4);
+  expect(geometry.row.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.row.right).toBeLessThanOrEqual(geometry.viewport.width + 1);
+  expect(geometry.row.top).toBeGreaterThanOrEqual(0);
+  expect(geometry.row.bottom).toBeLessThanOrEqual(geometry.viewport.height + 1);
+  for (const [index, cell] of geometry.cells.entries()) {
+    expect(cell.text).toMatch([/^Game/i, /^Buy-In/i, /^Players/i, /^Status/i][index]);
+    expect(cell.left).toBeCloseTo(index ? geometry.cells[index - 1].right : geometry.row.left, 0);
+    expect(cell.top).toBeCloseTo(geometry.cells[0].top, 0);
+    expect(cell.bottom).toBeCloseTo(geometry.cells[0].bottom, 0);
+    expect(cell.width).toBeCloseTo(geometry.row.width * [0.295, 0.137, 0.154, 0.414][index], 0);
+    expect(cell.centered, `${cell.text} ink centered inside its painted header cell`).toBe(true);
+    expect(cell.inside, `${cell.text} complete inside its painted header cell`).toBe(true);
+    expect(geometry.rules.top || cell.rules.top, 'continuous visible top rule').toBe(true);
+    expect(geometry.rules.bottom || cell.rules.bottom, 'continuous visible bottom rule').toBe(true);
+    if (index < 3) expect(cell.rules.right, `${cell.text} visible vertical divider`).toBe(true);
+  }
+  expect(geometry.cells[3].right).toBeCloseTo(geometry.row.right, 0);
+  return geometry;
+}
+
 test('sticky lobby controls and cross-tab sorting remain accessible and durable', async ({
   page,
 }, testInfo) => {
   const h = await test.step('Authenticated Lobby Setup', () => setup(page));
   await h.choose('MTT');
+  const rail = page.locator('.lobby-sticky-filters');
+  await page.locator('.lobby-controls__heading').scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect(rail).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Browse Game Types', exact: true })).toHaveCount(0);
+  const phoneHeader = await readScheduleHeader(page);
+  await testInfo.attach('lobby-schedule-header-phone.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await testInfo.attach('lobby-schedule-header-phone.json', {
+    body: Buffer.from(JSON.stringify(phoneHeader)),
+    contentType: 'application/json',
+  });
   await assertLobbyControlsInsidePaint(page);
   await testInfo.attach('lobby-square-controls-phone.png', {
     body: await page.locator('.lobby-controls').screenshot(),
@@ -1499,7 +2082,6 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await expect(h.rows.first()).toBeVisible({ timeout: 30000 });
   const baseline = await h.ids();
   expect(baseline.length).toBeGreaterThan(1);
-  const rail = page.getByRole('navigation', { name: 'Quick Lobby Filters', exact: true });
   await h.rows.last().scrollIntoViewIfNeeded();
   await expect(rail).toBeInViewport();
   const geometry = await rail.evaluate((element) => ({
@@ -1518,27 +2100,79 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     body: await page.screenshot(),
     contentType: 'image/png',
   });
+  // Exercise the compact sheet door while its real rail is visible.
+  await clickControl(rail.getByRole('button', { name: 'Open Sticky Filters', exact: true }));
+  sheet = page.getByRole('dialog');
+  await expect(sheet).toBeVisible();
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   // Favorites must remain available even after a cash choice carries to MTT.
-  const favorites = rail.getByRole('button', { name: 'Favorites', exact: true });
-  await clickControl(favorites);
-  await expect(favorites).toHaveAttribute('aria-pressed', 'true');
+  const activeFavorites = async () => {
+    await expect
+      .poll(() =>
+        rail.evaluate((element) => {
+          const controls = element
+            .closest('.club-home')!
+            .querySelector('#lobby-game-section-controls')!;
+          const top = Math.max(0, Number.parseFloat(getComputedStyle(element).top) || 0);
+          return (element as HTMLElement).hidden === controls.getBoundingClientRect().bottom > top;
+        })
+      )
+      .toBe(true);
+    return (await rail.isVisible())
+      ? rail.getByRole('button', { name: 'Favorites', exact: true })
+      : page.locator('.lobby-controls__favorites');
+  };
+  const visibleDuplicates = async () =>
+    page.locator('button').evaluateAll((buttons) => {
+      const visible = buttons.filter((button) => {
+        const box = button.getBoundingClientRect();
+        const style = getComputedStyle(button);
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          box.width > 0 &&
+          box.height > 0 &&
+          box.top >= 0 &&
+          box.bottom <= innerHeight &&
+          box.left >= 0 &&
+          box.right <= innerWidth
+        );
+      });
+      return {
+        favorites: visible.filter((button) => button.textContent?.trim() === 'Favorites').length,
+        filters: visible.filter((button) =>
+          ['Filters And Sort', 'Open Sticky Filters'].includes(
+            button.getAttribute('aria-label') || ''
+          )
+        ).length,
+      };
+    });
+  await expect.poll(visibleDuplicates).toEqual({ favorites: 1, filters: 1 });
+  await clickControl(await activeFavorites());
+  await expect(page.locator('.lobby-controls__favorites')).toHaveAttribute('aria-pressed', 'true');
   await expect(h.rows).toHaveCount(0);
-  await clickControl(favorites);
-  await expect(favorites).toHaveAttribute('aria-pressed', 'false');
+  await clickControl(await activeFavorites());
+  await expect(page.locator('.lobby-controls__favorites')).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(async () => sorted(await h.ids())).toEqual(sorted(baseline));
   const quickControls = page.locator('.lobby-refinements');
   await expect(quickControls.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(
     0
   );
-  await expect(page.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(1);
   const quickFilters = quickControls.getByRole('button', { name: 'Filters And Sort', exact: true });
+  // Empty favorites may have clamped the page back to the primary controls.
+  // Return to the natural rows before exercising the compact Browse door.
+  await h.rows.last().scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect(rail).toBeInViewport();
+  await clickControl(rail.getByRole('button', { name: 'Browse Game Types', exact: true }));
+  await expect(page.locator('#lobby-game-section-controls')).toBeInViewport();
+  await expect(rail).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Browse Game Types', exact: true })).toHaveCount(0);
+  await expect.poll(visibleDuplicates).toEqual({ favorites: 1, filters: 1 });
   await clickControl(quickFilters);
   sheet = page.getByRole('dialog');
   await expect(sheet).toBeVisible();
   await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
-  // The rail returns to the real game controls, rather than opening another popup.
-  await clickControl(rail.getByRole('button', { name: 'Browse Game Types', exact: true }));
-  await expect(page.locator('#lobby-game-section-controls')).toBeInViewport();
   const filterPlacement = await quickFilters.evaluate((element) => {
     const running = [...element.parentElement!.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === 'Running'
@@ -1592,6 +2226,16 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await page.setViewportSize({ width: 1280, height: 900 });
   await clickControl(page.locator('.afx-overlay'), { position: { x: 1, y: 1 } });
   await expect(sheet).toBeHidden();
+  const wideHeader = await readScheduleHeader(page);
+  await testInfo.attach('lobby-schedule-header-wide.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await testInfo.attach('lobby-schedule-header-wide.json', {
+    body: Buffer.from(JSON.stringify(wideHeader)),
+    contentType: 'application/json',
+  });
+
   await page.setViewportSize({ width: 393, height: 852 });
   sheet = await h.open();
   expect(await h.state('MTT')).toEqual(savedMtt);

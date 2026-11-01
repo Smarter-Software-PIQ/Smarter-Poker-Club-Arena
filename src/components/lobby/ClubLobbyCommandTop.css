@@ -215,6 +215,36 @@
   padding: 12px 8px 8px;
 }
 
+.club-home .club-lobby-command-top .lobby-controls__heading:has(.lobby-controls__favorites) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 8px;
+  text-align: left;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls__heading:has(.lobby-controls__favorites)
+  .lobby-controls__title {
+  font-size: clamp(16px, 5cqw, 22px);
+}
+.club-home .club-lobby-command-top .lobby-controls__favorites {
+  position: relative;
+  container-type: inline-size;
+  width: 132px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: url('/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png') center /
+    contain no-repeat;
+  box-shadow: none;
+  color: #e4e7ec;
+  --lobby-key-font: 15.84px;
+}
+.club-home .club-lobby-command-top .lobby-controls__favorites[aria-pressed='true'] {
+  color: #45adff;
+}
+
 .club-lobby-command-top .lobby-controls__heading > div {
   display: flex;
   flex-direction: row-reverse;

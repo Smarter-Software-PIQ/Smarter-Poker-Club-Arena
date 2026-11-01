@@ -1505,7 +1505,13 @@ export function cashEntry(t: LobbyTableRow, waiting = 0): LobbyEntry {
           id: t.cluster_id,
           mustMove: t.cluster_must_move !== false,
           template: t.cluster_template ?? null,
-          ...(t.game_variant && !isLightningVariant(t.game_variant)
+          ...((t.game_variant && !isLightningVariant(t.game_variant)) ||
+          (cashTemplateKey(t.cluster_template ?? '') === 'madness' &&
+            !isLightningEligible(
+              t.cluster_template,
+              t.cluster_handedness ?? t.max_players,
+              t.game_variant ?? undefined
+            ))
             ? { noLightning: true as const }
             : {}),
           ...(cashRulesStyleOf(t) ? { style: cashRulesStyleOf(t) } : {}),
@@ -2035,8 +2041,24 @@ export function styleCountsLine(
   return choices.map((c) => `${c.label} ${counts[c.key] ?? 0}`).join(' / ');
 }
 
+/** Format identity, independent of whether its live pool is currently joinable. */
+export function isLightningCashRow(entry: LobbyEntry): boolean {
+  return (
+    entry.kind === 'cash' &&
+    !entry.game?.noLightning &&
+    cashTemplateKey(entry.game?.template ?? '') === 'madness'
+  );
+}
+
 export function cashTitleLines(entry: LobbyEntry): { headline: string; subtitle: string | null } {
-  const headline = [entry.gameLabel, entry.stakesLabel].filter(Boolean).join(' ').trim();
+  const headline = [
+    isLightningCashRow(entry) ? 'Lightning' : null,
+    entry.gameLabel,
+    entry.stakesLabel,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
   /* A templated game (Operation Table Stakes) says what KIND of game it is on
      line two - Classic, Action or Madness - straight from the game row, not
      parsed back out of a table name. Dan 2026-09-04: "UNDER ALL THE GAMES

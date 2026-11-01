@@ -71,17 +71,19 @@
   display: none;
   clip-path: inset(0 94% 0 0);
 }
-.has-premium-chassis tbody tr.is-bounty::after {
+.has-premium-chassis tbody tr.is-bounty:not([data-led-color])::after {
   display: block;
   filter: hue-rotate(-75deg);
 }
-.has-premium-chassis tbody tr.is-satellite::after {
+.has-premium-chassis tbody tr.is-satellite:not([data-led-color])::after {
   display: block;
   filter: hue-rotate(-155deg);
 }
 .has-premium-chassis
   tbody
-  tr.is-freezeout:not(.is-satellite):not(.is-bounty):not(.is-freeroll)::after {
+  tr.is-freezeout:not([data-led-color]):not(.is-satellite):not(.is-bounty):not(
+    .is-freeroll
+  )::after {
   display: block;
   filter: grayscale(1) brightness(1.3);
 }
@@ -90,9 +92,6 @@
 }
 .has-premium-chassis tbody tr.is-featured::after {
   display: none !important;
-}
-.has-premium-chassis tbody tr[data-lightning-format='true']::before {
-  filter: grayscale(1) brightness(1.35);
 }
 .has-premium-chassis tbody tr[data-game-heading] > td {
   position: relative;
@@ -586,20 +585,18 @@
   box-shadow: none !important;
 }
 
-.has-premium-chassis tbody tr[data-lightning-format='true'].is-cursor::before,
-.has-premium-chassis tbody tr[data-lightning-format='true'].is-selected::before {
-  filter: grayscale(1) brightness(1.5);
-}
-
-/* The phone sort headings align with the same five bays; the star bay is empty. */
-.compact-lobby.has-premium-chassis thead {
+/* Four contiguous heading fields: the unlabeled favorite bay belongs to
+   Status here, so it cannot punch a hole in the engraved header frame. */
+.club-home table.has-premium-chassis thead {
   display: block;
 }
-.compact-lobby.has-premium-chassis thead tr {
+.club-home table.has-premium-chassis thead tr {
   display: grid;
-  grid-template-columns: 29.5% 13.7% 15.4% 10.8% 30.6%;
+  grid-template-columns: 29.5% 13.7% 15.4% 41.4%;
+  box-sizing: border-box;
+  border: 1px solid rgb(217 222 229 / 35%);
 }
-.compact-lobby.has-premium-chassis thead th {
+.club-home table.has-premium-chassis thead th {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -607,28 +604,31 @@
   width: 100% !important;
   min-width: 0;
   height: 44px;
+  font-size: clamp(13px, 2.8cqw, 18px);
   padding: 0 !important;
   box-sizing: border-box;
   background: #000;
-}
-.compact-lobby.has-premium-chassis thead th:first-child {
-  grid-column: 1;
-  padding-left: 6cqw !important;
+  border: 0;
+  border-right: 1px solid rgb(255 255 255 / 18%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%);
   text-align: center;
 }
-.compact-lobby.has-premium-chassis thead th:nth-child(2) {
+.club-home table.has-premium-chassis thead th:first-child {
+  grid-column: 1;
+}
+.club-home table.has-premium-chassis thead th:nth-child(2) {
   grid-column: 2;
 }
-.compact-lobby.has-premium-chassis thead th:nth-child(3) {
+.club-home table.has-premium-chassis thead th:nth-child(3) {
   grid-column: 3;
 }
-.compact-lobby.has-premium-chassis thead th:nth-child(4) {
-  grid-column: 5;
-  padding-right: 6cqw !important;
+.club-home table.has-premium-chassis thead th:nth-child(4) {
+  grid-column: 4;
+  border-right: 0;
 }
 
-.compact-lobby.has-premium-chassis thead,
-.compact-lobby.has-premium-chassis thead tr {
+.club-home table.has-premium-chassis thead,
+.club-home table.has-premium-chassis thead tr {
   background: #000 !important;
 }
 
@@ -660,6 +660,8 @@
 .has-premium-chassis tbody tr[data-id] .premium-cash-style > span {
   display: block;
   width: 100%;
+  font-size: calc(clamp(12px, 2.6cqw, 22px) * var(--fit, 1));
+  white-space: nowrap;
 }
 /* The native glass is shorter than the full raster crop (which includes
    its lower rim). Center three readable lines in that glass, not the crop. */
@@ -774,4 +776,31 @@
   inset: 0.4cqw auto 1.6cqw 6cqw;
   width: 23.5%;
   z-index: 1;
+}
+
+/* Reprint only the native exterior LED bays through a mask. The centre,
+   chrome material, icons and live white ink never receive a colour filter. */
+.has-premium-chassis tbody tr[data-led-color]::after {
+  display: block;
+  clip-path: none;
+  mask-image: linear-gradient(to right, #000 0% 5.5%, transparent 5.5% 94.5%, #000 94.5% 100%);
+  filter: none;
+}
+.has-premium-chassis tbody tr[data-led-sides='left']::after {
+  mask-image: linear-gradient(to right, #000 0% 5.5%, transparent 5.5% 100%);
+}
+.has-premium-chassis tbody tr[data-led-color='red']::after {
+  filter: hue-rotate(135deg);
+}
+.has-premium-chassis tbody tr[data-led-color='green']::after {
+  filter: hue-rotate(-75deg);
+}
+.has-premium-chassis tbody tr[data-led-color='yellow']::after {
+  filter: hue-rotate(-155deg);
+}
+.has-premium-chassis tbody tr[data-led-color='white']::after {
+  filter: grayscale(1) brightness(1.35);
+}
+.has-premium-chassis tbody tr[data-led-sides='none']::after {
+  display: none !important;
 }
