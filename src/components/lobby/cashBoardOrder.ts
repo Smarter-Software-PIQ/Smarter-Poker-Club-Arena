@@ -57,12 +57,12 @@ export function compareCanonicalVariant(a: CashBoardRow, b: CashBoardRow): numbe
 
 export function cashBoardComparator(
   sortKey: CashBoardSortKey | string,
-  gameType: string
+  gameType: string,
+  playersOf: (row: CashBoardRow) => number = (row) => row.current_players || 0
 ): (a: CashBoardRow, b: CashBoardRow) => number {
   const cmpStakes = (a: CashBoardRow, b: CashBoardRow) => bb(b) - bb(a);
   const cmpStakesLow = (a: CashBoardRow, b: CashBoardRow) => bb(a) - bb(b);
-  const cmpPlayers = (a: CashBoardRow, b: CashBoardRow) =>
-    (b.current_players || 0) - (a.current_players || 0);
+  const cmpPlayers = (a: CashBoardRow, b: CashBoardRow) => playersOf(b) - playersOf(a);
   const cmpName = (a: CashBoardRow, b: CashBoardRow) => (a.name || '').localeCompare(b.name || '');
   /* The non-stakes sorts group variants on the Omaha tab only, as they always
      have: Hold'em and Limit get their grouping from LobbyTable's heading sort,

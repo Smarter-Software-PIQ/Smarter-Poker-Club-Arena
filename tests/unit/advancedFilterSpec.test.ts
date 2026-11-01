@@ -141,7 +141,13 @@ describe('price range', () => {
 describe('must-have and hide', () => {
   it('requires every must-have and excludes any hidden feature', () => {
     const must = { ...emptyFilterValue(holdem), mustHave: ['bomb_pot'] };
-    expect(rowPassesFilter(holdem, must, row({ settings: { bomb_pot_enabled: true } }))).toBe(true);
+    expect(
+      rowPassesFilter(
+        holdem,
+        must,
+        row({ settings: { bomb_pot_enabled: true, bomb_pot_trigger_mode: 'once_per_orbit' } })
+      )
+    ).toBe(true);
     /* REPLACED 2026-09-22, in the commit that made the matcher three-valued.
        This used `settings: {}` with an empty row, i.e. a row that never
        carried the column, and required MUST-HAVE to delete it. That is the
@@ -151,9 +157,13 @@ describe('must-have and hide', () => {
     expect(rowPassesFilter(holdem, must, row({ row: { bomb_pot_enabled: false } }))).toBe(false);
 
     const hide = { ...emptyFilterValue(holdem), hide: ['bomb_pot'] };
-    expect(rowPassesFilter(holdem, hide, row({ settings: { bomb_pot_enabled: true } }))).toBe(
-      false
-    );
+    expect(
+      rowPassesFilter(
+        holdem,
+        hide,
+        row({ settings: { bomb_pot_enabled: true, bomb_pot_trigger_mode: 'once_per_orbit' } })
+      )
+    ).toBe(false);
     expect(rowPassesFilter(holdem, hide, row({ row: { bomb_pot_enabled: false } }))).toBe(true);
   });
 

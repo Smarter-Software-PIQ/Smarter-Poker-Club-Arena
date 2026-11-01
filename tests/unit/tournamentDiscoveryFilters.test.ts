@@ -370,11 +370,13 @@ describe('every tournament chip reads only columns the lobby actually selects', 
 describe('the matcher answers yes, no, or cannot tell', () => {
   const bomb = FILTER_SPECS.HOLDEM.features.find((f) => f.key === 'bomb_pot')!;
 
-  it('calls a plain column unknown only when no source carried it', () => {
+  it('calls a missing bomb rule unknown and requires a viable scheduled mode', () => {
     expect(featureState(bomb, {}, {})).toBeNull();
     expect(featureState(bomb, { bomb_pot_enabled: null }, {})).toBe(false);
     expect(featureState(bomb, { bomb_pot_enabled: false }, {})).toBe(false);
-    expect(featureState(bomb, {}, { bomb_pot_enabled: true })).toBe(true);
+    expect(
+      featureState(bomb, {}, { bomb_pot_enabled: true, bomb_pot_trigger_mode: 'once_per_orbit' })
+    ).toBe(true);
   });
 
   it('never hides a row that cannot answer, on any tournament chip', () => {

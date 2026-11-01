@@ -218,6 +218,50 @@ describe('waiting-game tabs default to the current player count', () => {
     for (const tab of ['MTT', 'HOLDEM', 'OMAHA', 'LIMIT', 'MIXED'] as const) {
       expect(sortForTab(EMPTY_VIEW_PREFS, tab)).toBe('recommended');
     }
-    expect(defaultSortForTab('ALL')).toBe('starting_soon');
+    expect(defaultSortForTab('ALL')).toBe('recommended');
   });
 });
+
+it.each(['SPIN', 'SNG'] as const)(
+  '%s reads an obsolete scheduled-start sort as Players without writing a reset',
+  (tab) => {
+    const raw = JSON.stringify({
+      tab,
+      sortByTab: { [tab]: 'starting_soon', MTT: 'starting_soon' },
+      favoritesOnly: false,
+    });
+    seed(raw);
+    const prefs = loadViewPrefs(CLUB);
+    expect(prefs.sortByTab[tab]).toBe('players');
+    expect(sortForTab(prefs, tab)).toBe('players');
+    expect(sortForTab({ ...prefs, sortByTab: { [tab]: 'starting_soon' } }, tab)).toBe('players');
+    expect(prefs.sortByTab.MTT).toBe('starting_soon');
+    expect(localStorage.getItem(`ca_lobby_view_${CLUB}`)).toBe(raw);
+  }
+);
+
+it.each(['ALL', 'HOLDEM', 'OMAHA', 'LIMIT', 'MIXED'] as const)(
+  '%s normalizes a removed cash start sort without rewriting the cache',
+  (tab) => {
+    const raw = JSON.stringify({
+      tab,
+      sortByTab: {
+        [tab]: 'starting_soon',
+        ALL: 'starting_soon',
+        MTT: 'starting_soon',
+        SATELLITE: 'starting_soon',
+      },
+      favoritesOnly: false,
+    });
+    seed(raw);
+    const prefs = loadViewPrefs(CLUB);
+    expect(prefs.sortByTab[tab]).toBe('recommended');
+    expect(sortForTab({ ...prefs, sortByTab: { [tab]: 'starting_soon' } }, tab)).toBe(
+      'recommended'
+    );
+    expect(prefs.sortByTab.ALL).toBe('recommended');
+    expect(prefs.sortByTab.MTT).toBe('starting_soon');
+    expect(prefs.sortByTab.SATELLITE).toBe('starting_soon');
+    expect(localStorage.getItem(KEY)).toBe(raw);
+  }
+);

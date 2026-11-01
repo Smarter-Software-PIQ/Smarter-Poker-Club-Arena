@@ -73,7 +73,9 @@ describe('the board shows the game, not the table', () => {
   it('a full Main is not a full game: status is running or open, never full', () => {
     expect(cashEntry(cluster({ current_players: 6, max_players: 6 })).status).toBe('running');
     expect(cashEntry(cluster({ cluster_players: 0, current_players: 0 })).status).toBe('open');
-    expect(cashEntry(cluster({ cluster_players: 0, current_players: 0 })).statusLabel).toBe('Open');
+    expect(cashEntry(cluster({ cluster_players: 0, current_players: 0 })).statusLabel).toBe(
+      'Seats Available'
+    );
   });
 
   it('carries the MUST MOVE medallion first, with the template', () => {

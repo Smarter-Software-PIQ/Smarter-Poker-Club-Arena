@@ -187,7 +187,7 @@ function sanitizeViewPrefs(parsed: unknown): LobbyViewPrefs {
   if (rawSorts && typeof rawSorts === 'object' && !Array.isArray(rawSorts)) {
     for (const [k, v] of Object.entries(rawSorts as Record<string, unknown>)) {
       if (VALID_TABS.has(k) && typeof v === 'string' && VALID_SORTS.has(v)) {
-        sortByTab[k as LobbyTabKey] = v as LobbySortKey;
+        sortByTab[k as LobbyTabKey] = validSortForTab(k as LobbyTabKey, v as LobbySortKey);
       }
     }
   }
@@ -374,9 +374,16 @@ export function defaultSortForTab(tab: LobbyTabKey): LobbySortKey {
   if (tab === 'MTT' || tab === 'HOLDEM' || tab === 'OMAHA' || tab === 'LIMIT' || tab === 'MIXED') {
     return 'recommended';
   }
-  return 'starting_soon';
+  return 'recommended';
+}
+
+function validSortForTab(tab: LobbyTabKey, saved: LobbySortKey): LobbySortKey {
+  if (saved !== 'starting_soon' || tab === 'MTT' || tab === 'SATELLITE') return saved;
+  return defaultSortForTab(tab);
 }
 
 export function sortForTab(prefs: LobbyViewPrefs, tab: LobbyTabKey): LobbySortKey {
-  return prefs.sortByTab[tab] ?? defaultSortForTab(tab);
+  const saved = prefs.sortByTab[tab];
+  // Unsupported legacy sorts normalize on read, without a remote reset write.
+  return saved ? validSortForTab(tab, saved) : defaultSortForTab(tab);
 }

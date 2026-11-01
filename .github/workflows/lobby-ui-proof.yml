@@ -5,7 +5,13 @@ run-name: Scoped Lobby UI Proof ${{ github.event.action }} ${{ github.sha }}
 # from the protected default branch; callers cannot select code or test inputs.
 on:
   repository_dispatch:
-    types: [verify-lobby-ui, verify-spectator-notifications, verify-tournament-favorites]
+    types:
+      [
+        verify-lobby-ui,
+        verify-spectator-notifications,
+        verify-tournament-favorites,
+        verify-lobby-filters,
+      ]
 
 permissions:
   contents: read
@@ -146,6 +152,24 @@ jobs:
           set -euo pipefail
           npx playwright test tests/e2e/production-mobile-lobby-chrome.spec.ts \
             --grep 'tournament favorites stay below current pins across sorting and reload$' \
+            --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json \
+            --output=test-results/lobby-ui-proof \
+            2>&1 | tee e2e-report/lobby-ui-proof/browser.log
+
+      - name: Verify every lobby filter and the compact sticky controls
+        if: github.event.action == 'verify-lobby-filters'
+        timeout-minutes: 15
+        env:
+          TZ: America/Chicago
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          ARENA_BASE_URL: https://smarter.poker/hub/club-arena
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/lobby-ui-proof/report.json
+        run: |
+          set -euo pipefail
+          npx playwright test tests/e2e/production-lobby-filter-audit.spec.ts \
             --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json \
             --output=test-results/lobby-ui-proof \
             2>&1 | tee e2e-report/lobby-ui-proof/browser.log

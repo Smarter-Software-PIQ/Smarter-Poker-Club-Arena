@@ -2,7 +2,13 @@ import { fireEvent, render, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import LobbyTable from '../../src/components/lobby/LobbyTable';
-import { cashEntry, type LobbyTableRow } from '../../src/components/lobby/lobbyEntries';
+import {
+  cashEntry,
+  tournamentEntry,
+  type LobbyTableRow,
+  type LobbyTournamentRow,
+  type LobbyEntry,
+} from '../../src/components/lobby/lobbyEntries';
 import { headingForOrder, orderForHeading } from '../../src/components/lobby/lobbySortBridge';
 
 /* 2026-10-24: the filter sheet's "Sort The Board" chips did nothing on the
@@ -129,6 +135,8 @@ describe('lobbySortBridge', () => {
     expect(headingForOrder('HOLDEM', 'stakes_high')).toEqual({ key: 'stakes', dir: 'desc' });
     expect(headingForOrder('LIMIT', 'stakes_low')).toEqual({ key: 'stakes', dir: 'asc' });
     expect(headingForOrder('SPIN', 'stakes_high')).toEqual({ key: 'buyin', dir: 'desc' });
+    expect(headingForOrder('SATELLITE', 'stakes_high')).toEqual({ key: 'buyin', dir: 'desc' });
+    expect(headingForOrder('SATELLITE', 'stakes_low')).toEqual({ key: 'buyin', dir: 'asc' });
     expect(headingForOrder('MTT', 'stakes_low')).toEqual({ key: 'buyin', dir: 'asc' });
     expect(headingForOrder('SNG', 'players')).toEqual({ key: 'players', dir: 'desc' });
     expect(headingForOrder('MTT', 'starting_soon')).toBe('reset');
@@ -139,10 +147,123 @@ describe('lobbySortBridge', () => {
   it('maps a heading back to the chip that says the same thing, or none', () => {
     expect(orderForHeading('OMAHA', 'stakes', 'desc')).toBe('stakes_high');
     expect(orderForHeading('ALL', 'cost', 'asc')).toBe('stakes_low');
+    expect(orderForHeading('SATELLITE', 'buyin', 'desc')).toBe('stakes_high');
+    expect(orderForHeading('SATELLITE', 'buyin', 'asc')).toBe('stakes_low');
     expect(orderForHeading('SPIN', 'buyin', 'desc')).toBe('stakes_high');
     expect(orderForHeading('HOLDEM', 'players', 'desc')).toBe('players');
     expect(orderForHeading('MTT', 'starts', 'asc')).toBe('starting_soon');
     expect(orderForHeading('HOLDEM', 'players', 'asc')).toBeNull();
     expect(orderForHeading('OMAHA', 'status', 'desc')).toBeNull();
+  });
+});
+
+const event = (
+  id: string,
+  format: string,
+  price: number,
+  players: number,
+  extra: Partial<LobbyTournamentRow> = {}
+) =>
+  tournamentEntry(
+    {
+      id,
+      name: `Fixture ${id}`,
+      game_type: 'NLH',
+      buy_in_amount: price,
+      buy_in_fee: 0,
+      guaranteed_prize: null,
+      format_contract: format,
+      start_time: new Date(Date.now() + 7_200_000).toISOString(),
+      status: 'REGISTERING',
+      current_players: players,
+      max_players: format.startsWith('mtt') ? null : format === 'spin-v1' ? 3 : 2,
+      starting_chips: 1000,
+      ...extra,
+    },
+    format === 'spin-v1' ? 'spin' : format.startsWith('mtt') ? 'mtt' : 'sng'
+  );
+
+function tournamentBoard(category: string, rows: LobbyEntry[], preferPageOrder = false) {
+  const props = {
+    entries: rows,
+    category: category as never,
+    clubId: 'event-sort-club',
+    selectedId: null,
+    onSelect: vi.fn(),
+    onActivate: vi.fn(),
+    ctx,
+  };
+  const view = render(
+    <MemoryRouter>
+      <LobbyTable {...props} preferPageOrder={preferPageOrder} />
+    </MemoryRouter>
+  );
+  const press = (key: string, seq: number, pageOrder = preferPageOrder) =>
+    view.rerender(
+      <MemoryRouter>
+        <LobbyTable {...props} preferPageOrder={pageOrder} requestedOrder={{ key, seq }} />
+      </MemoryRouter>
+    );
+  const ids = () =>
+    Array.from(document.querySelectorAll('.lobby-table-wrap tbody tr[id]')).map((row) =>
+      row.id.replace('lt-row-', '')
+    );
+  return { press, ids };
+}
+
+describe('tournament sheet sort honors its real board', () => {
+  it('Satellite price chips sort real event prices in both directions', () => {
+    localStorage.clear();
+    const rows = [
+      event('low', 'seat-first-satellite-v1', 5, 0),
+      event('high', 'seat-first-satellite-v1', 50, 1),
+      event('mid', 'seat-first-satellite-v1', 20, 0),
+    ];
+    const { press, ids } = tournamentBoard('SATELLITE', rows);
+    press('stakes_high', 1);
+    expect(ids()).toEqual(['high', 'mid', 'low']);
+    press('stakes_low', 2);
+    expect(ids()).toEqual(['low', 'mid', 'high']);
+  });
+
+  it.each([
+    ['SPIN', 'spin-v1'],
+    ['SNG', 'sng-v1'],
+    ['SATELLITE', 'seat-first-satellite-v1'],
+  ])(
+    '%s keeps its untouched Players default but honors explicit page orders',
+    (category, format) => {
+      localStorage.clear();
+      const rows = [event('page-first', format, 5, 0), event('busier', format, 25, 1)];
+      const { press, ids } = tournamentBoard(category, rows);
+      expect(ids()).toEqual(['busier', 'page-first']);
+      press('recommended', 1, true);
+      expect(ids()).toEqual(['page-first', 'busier']);
+      press('players', 2, true);
+      expect(ids()).toEqual(['busier', 'page-first']);
+      press('starting_soon', 3, true);
+      expect(ids()).toEqual(['page-first', 'busier']);
+    }
+  );
+
+  it('MTT Starting Time keeps the parent order while ordinary Recommended retains phase order', () => {
+    localStorage.clear();
+    const rows = [
+      event('future', 'mtt-v1', 5, 0),
+      event('late-open', 'mtt-v1', 25, 10, {
+        status: 'RUNNING',
+        started_at: new Date(Date.now() - 60_000).toISOString(),
+        start_time: new Date(Date.now() - 60_000).toISOString(),
+        late_reg_mins: 120,
+        current_level: 0,
+        prize_pool_finalized: false,
+      }),
+    ];
+    const { press, ids } = tournamentBoard('MTT', rows);
+    expect(ids()).toEqual(['late-open', 'future']);
+    press('starting_soon', 1, true);
+    expect(ids()).toEqual(['future', 'late-open']);
+    press('recommended', 2, false);
+    expect(ids()).toEqual(['late-open', 'future']);
   });
 });

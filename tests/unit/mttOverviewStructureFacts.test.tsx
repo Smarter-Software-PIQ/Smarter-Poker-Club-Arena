@@ -203,7 +203,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(119000);
     });
-    expect(screen.getByText('Late Reg Closed')).toBeInTheDocument();
+    expect(screen.getByText('Registration Closed')).toBeInTheDocument();
     expect(screen.getByText('Late Reg').closest('.tl-stat')?.textContent).toBe('Late RegClosed');
   });
 
@@ -237,7 +237,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
   function expectAmounts(name: string, container: HTMLElement, known: boolean) {
     if (name === 'Overview') {
       const hero = container.querySelector('.dov-hero')!;
-      expect(within(hero as HTMLElement).getByText('Late Reg Closed')).toBeInTheDocument();
+      expect(within(hero as HTMLElement).getByText('Registration Closed')).toBeInTheDocument();
       /* 52,500 prints as 52.5K: chipsCompact is compactChips (src/utils/format.ts),
          the one compact formatter, which never rounds a figure UP to a number
          the player does not have (#ClubArenaConsole, 2026-09-04). */
@@ -333,7 +333,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
       await vi.advanceTimersByTimeAsync(90_000);
     });
     expect(screen.getByText('Waiting For Resume')).toBeInTheDocument();
-    expect(screen.queryByText('Late Reg Closed')).toBeNull();
+    expect(screen.queryByText('Registration Closed')).toBeNull();
     const clearOnly = {
       ...paused,
       tournament: { ...paused.tournament, on_break: false, break_ends_at: null },
@@ -350,7 +350,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
         }}
       />
     );
-    expect(screen.getByText('Late Reg Closed')).toBeInTheDocument();
+    expect(screen.getByText('Registration Closed')).toBeInTheDocument();
     expect(rendered.container.querySelector('.dov-hero__time')?.textContent).toBe('-');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -379,7 +379,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
       expect(blindClock().textContent).toContain('Paused');
-      expect(screen.queryByText('Late Reg Closed')).toBeNull();
+      expect(screen.queryByText('Registration Closed')).toBeNull();
     }
   );
 
@@ -449,7 +449,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
           }}
         />
       );
-      expect(screen.getByText('Late Reg Closed')).toBeInTheDocument();
+      expect(screen.getByText('Registration Closed')).toBeInTheDocument();
       expect(rendered.container.querySelector('.dov-hero__time')?.textContent).toBe('-');
       expect(rendered.container.querySelector('.dov-blind__value')?.textContent).toBe(
         '52.5K / 105K'
@@ -469,7 +469,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
         tournament={{ ...input.tournament, id: 'another-event', on_break: false }}
       />
     );
-    expect(screen.getByText('Late Reg Closed')).toBeInTheDocument();
+    expect(screen.getByText('Registration Closed')).toBeInTheDocument();
     expect(rendered.container.querySelector('.dov-hero__time')?.textContent).toBe('-');
     rendered.rerender(<DetailOverviewTab {...paused} />);
     expect(blindClock().textContent).toContain('Paused');
@@ -493,7 +493,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
     expect(
       screen.getByText('Maintenance Break Starting. Tables Are Finishing Their Current Hand.')
     ).toBeInTheDocument();
-    expect(screen.getByText('Late Reg Closed')).toBeInTheDocument();
+    expect(screen.getByText('Registration Closed')).toBeInTheDocument();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });

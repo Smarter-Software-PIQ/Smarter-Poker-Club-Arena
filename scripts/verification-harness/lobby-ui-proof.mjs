@@ -101,16 +101,53 @@ export const FAVORITE_COMPONENT_PATHS = [
     'src/lib/tableSettingIntents.ts',
   ]),
 ];
+export const FILTER_ACTION = 'verify-lobby-filters';
+export const FILTER_CASES = [
+  ...['HOLDEM', 'OMAHA', 'LIMIT', 'MTT', 'SPIN', 'SNG', 'SATELLITE'].map((type) => ({
+    file: 'production-lobby-filter-audit.spec.ts',
+    title: `every ${type} lobby filter matches live rows and persists`,
+    project: 'chromium',
+  })),
+  {
+    file: 'production-lobby-filter-audit.spec.ts',
+    title: 'sticky lobby controls and cross-tab sorting remain accessible and durable',
+    project: 'chromium',
+  },
+];
+export const FILTER_COMPONENT_PATHS = [
+  ...new Set([
+    ...FAVORITE_COMPONENT_PATHS,
+    'src/pages/TournamentPage.tsx',
+    'src/components/tournament/details/DetailOverviewTab.tsx',
+    'src/components/lobby/AdvancedFilters.tsx',
+    'src/components/lobby/AdvancedFilters.css',
+    'src/components/lobby/advancedFilterSpec.ts',
+    'src/components/lobby/cashBoardOrder.ts',
+    'src/components/lobby/lobbyEntries.ts',
+    'src/components/lobby/StickyLobbyFilters.tsx',
+    'src/components/lobby/StickyLobbyFilters.css',
+    'src/utils/tournamentFilters.ts',
+    'src/utils/tournamentEntryWindow.ts',
+    'src/utils/tournamentScheduleWindow.ts',
+    'src/config/tournamentVariants.ts',
+    'src/config/cashGames.ts',
+    'src/lightning/lightningLobby.ts',
+    'src/lightning/lightningLobbyFeed.ts',
+    'src/lightning/lightningSessionApi.ts',
+  ]),
+];
 function selection(action) {
   if (action === 'verify-lobby-ui')
     return CASE_PAIRS.map(([file, title]) => ({ file, title, project: 'chromium' }));
   if (action === RECOVERY_ACTION) return RECOVERY_CASES;
   if (action === FAVORITE_ACTION) return FAVORITE_CASES;
+  if (action === FILTER_ACTION) return FILTER_CASES;
   throw new Error('Unknown closed Lobby proof request.');
 }
 function componentPaths(action) {
   selection(action);
   if (action === FAVORITE_ACTION) return FAVORITE_COMPONENT_PATHS;
+  if (action === FILTER_ACTION) return FILTER_COMPONENT_PATHS;
   return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
 }
 
@@ -122,7 +159,7 @@ export function admitDispatch(environment, event) {
     !SHA.test(environment.GITHUB_SHA || '') ||
     !ID.test(environment.PROOF_RUN_ID || '') ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(environment.GITHUB_REPOSITORY || '') ||
-    !['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION].includes(event?.action) ||
+    !['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION, FILTER_ACTION].includes(event?.action) ||
     !event.client_payload ||
     Array.isArray(event.client_payload) ||
     typeof event.client_payload !== 'object' ||

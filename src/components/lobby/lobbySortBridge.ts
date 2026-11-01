@@ -32,12 +32,12 @@ export interface HeadingSort {
 }
 
 const CASH_TABS = new Set(['HOLDEM', 'OMAHA', 'LIMIT', 'MIXED']);
-const SEAT_FIRST_TABS = new Set(['SPIN', 'SNG']);
+const TOURNAMENT_TABS = new Set(['MTT', 'SPIN', 'SNG', 'SATELLITE']);
 
 /** The heading that carries a tab's price: Stakes on cash, Buy-In on events. */
 function priceKey(tab: string): string | null {
   if (CASH_TABS.has(tab)) return 'stakes';
-  if (tab === 'MTT' || SEAT_FIRST_TABS.has(tab)) return 'buyin';
+  if (TOURNAMENT_TABS.has(tab)) return 'buyin';
   return null; // ALL: the page order is the board
 }
 

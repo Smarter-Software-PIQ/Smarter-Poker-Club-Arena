@@ -124,6 +124,7 @@ import {
 import { waitlistService } from '../services/WaitlistService';
 import ConfirmModal from '../components/common/ConfirmModal';
 import { retryFetch } from '../utils/retryFetch';
+import StickyLobbyFilters from '../components/lobby/StickyLobbyFilters';
 import './ClubHomePage.css';
 import '../components/lobby/ClubLobbyCommandTop.css';
 import './ClubHomeMobilePremium.css';
@@ -3737,7 +3738,12 @@ function ClubHomePageContent({
     /* One pure comparator (cashBoardOrder.ts): a stakes sort breaks every
        price tie in canonical variant order on EVERY tab, ALL included (Dan
        2026-10-23); the other sorts keep the Omaha tab's variant groups. */
-    return rows.sort(cashBoardComparator(sortKey, gameType));
+    const displayedPlayers = new Map(
+      rows.map((row) => [row, cashEntry(row as unknown as LobbyTableRow).players || 0])
+    );
+    return rows.sort(
+      cashBoardComparator(sortKey, gameType, (row) => displayedPlayers.get(row as TableData) || 0)
+    );
   }, [boardTables, gameType, showsCash, sortKey, advFilters, allStatusFilter, linkedGameId]);
 
   /**
@@ -3876,7 +3882,7 @@ function ClubHomePageContent({
         const total = (Number(t.buy_in_amount) || 0) + (Number(t.buy_in_fee) || 0);
         if (
           !rowPassesFilter(advSpec, advValue, {
-            variant: t.variant || t.game_type,
+            variant: t.game_type || t.variant,
             price: total,
             seats: getTournamentEntryCapacity(t) ?? 0,
             // The "Table Size" slider filters on seats at a TABLE, not on the
@@ -3917,6 +3923,8 @@ function ClubHomePageContent({
         return rows.sort((a, b) => cmpPlayersTourn(a, b) || cmpBuyIn(a, b) || cmpNameTourn(a, b));
       case 'starting_soon': {
         const at = (t: TournamentData) => {
+          // Seat-first games start on fill, not their recycler's stored timestamp.
+          if (isSeatFirstTournament(t)) return Infinity;
           const ms = new Date(t.start_time).getTime();
           return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
         };
@@ -5772,7 +5780,7 @@ function ClubHomePageContent({
                                     </button>
                                   );
                                 })}
-                                {currentUserId && showsCash && (
+                                {currentUserId && (
                                   <button
                                     type="button"
                                     className={`quickprefs__chip ${favoritesOnly ? 'is-on' : ''}`}
@@ -5857,6 +5865,23 @@ function ClubHomePageContent({
             }
           />
 
+          {gameSection && (
+            <StickyLobbyFilters
+              gameLabel={GAME_TYPE_TABS.find((tab) => tab.key === gameType)?.label ?? 'Games'}
+              favoritesOnly={favoritesOnly}
+              showFavorites={Boolean(currentUserId) && gameType !== 'ALL'}
+              sortOnly={gameType === 'ALL'}
+              onBrowse={(button) => {
+                button
+                  .closest('.club-home')
+                  ?.querySelector('#lobby-game-section-controls')
+                  ?.scrollIntoView({ block: 'start' });
+              }}
+              onFavorites={() => selectFavoritesOnly(!favoritesOnly)}
+              onFilters={() => setFiltersOpen(true)}
+            />
+          )}
+
           {/* The Welcome Package receipt outlives the opening checklist latch.
             Every owner club asks its authoritative RPC; old clubs answer
             ineligible and render nothing, while an entitled first club keeps
@@ -5938,7 +5963,12 @@ function ClubHomePageContent({
               }}
               sortKey={sortKey}
               onSortChange={selectSortKey}
-              sortOptions={SORT_OPTIONS}
+              onTypeChange={selectGameType}
+              sortOptions={
+                showsCash || gameType === 'SPIN' || gameType === 'SNG'
+                  ? SORT_OPTIONS.filter((option) => option.key !== 'starting_soon')
+                  : SORT_OPTIONS
+              }
               sortOnly={gameType === 'ALL'}
             />
           )}
@@ -5989,6 +6019,11 @@ function ClubHomePageContent({
                 /* A Sort By the player chose for this tab is obeyed over the
                  featured pin wherever it is the board's order (ALL). */
                 requestedOrder={requestedOrder}
+                preferPageOrder={
+                  !showsCash &&
+                  viewPrefs.sortByTab[gameType as keyof typeof viewPrefs.sortByTab] != null &&
+                  (sortKey === 'starting_soon' || (sortKey === 'recommended' && gameType !== 'MTT'))
+                }
                 orderLabel={SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
                 onHeadingSort={followHeadingSort}
                 orderChosen={

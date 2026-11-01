@@ -241,12 +241,12 @@ describe('mttPhaseText — the live phrase on line 2', () => {
       { status: 'late_reg' },
       { status: 'RUNNING', started_at: iso(-11 * 60000), late_reg_mins: 10 }
     );
-    expect(mttPhaseText(closing, NOW)).toBe('Late Reg Closed');
+    expect(mttPhaseText(closing, NOW)).toBe('Registration Closed');
     const open = entry(
       { status: 'late_reg' },
       { status: 'RUNNING', late_reg_mins: 0, late_reg_levels: 0 }
     );
-    expect(mttPhaseText(open, NOW)).toBe('Late Reg Closed');
+    expect(mttPhaseText(open, NOW)).toBe('Registration Closed');
   });
   it('a running tournament displays late registration rather than a level countdown', () => {
     const e = entry(
@@ -262,14 +262,14 @@ describe('mttPhaseText — the live phrase on line 2', () => {
         ]),
       }
     );
-    expect(mttPhaseText(e, NOW)).toBe('Late Reg Closed');
+    expect(mttPhaseText(e, NOW)).toBe('Registration Closed');
   });
 
   it('running and terminal states', () => {
     /* A running tournament with no blind structure to read has no level clock
        to show, so the word stands. With one, it counts the level down — see
        the case below. */
-    expect(mttPhaseText(entry({ status: 'running' }), NOW)).toBe('Late Reg Closed');
+    expect(mttPhaseText(entry({ status: 'running' }), NOW)).toBe('Registration Closed');
     expect(mttPhaseText(entry({ status: 'completed', statusLabel: 'Completed' }), NOW)).toBe(
       'Completed'
     );

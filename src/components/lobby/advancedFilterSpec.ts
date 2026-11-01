@@ -81,7 +81,7 @@ export interface FeatureOption {
    * Tournament features call the trait predicates in utils/tournamentFilters,
    * the same functions the card's medallions call, so the two cannot disagree.
    */
-  test?: (row: Record<string, unknown>) => boolean | null;
+  test?: (row: Record<string, unknown>, settings?: Record<string, unknown>) => boolean | null;
   /**
    * A chip for a capability the platform may not be running yet. The sheet
    * draws it only while `fn_platform_capabilities()` says the capability is
@@ -142,26 +142,140 @@ export interface GameFilterSpec {
  * enforce (Kill Pot, CallTime, VPIP, NIT Game, PC Emulator) or columns the
  * lobby does not fetch. They come back with the feature, together.
  */
+type CashFeatureRow = Record<string, unknown>;
+/** The selected engine column owns its value; JSON is only a legacy fallback. */
+const cashValue = (row: CashFeatureRow, settings: CashFeatureRow, key: string): unknown =>
+  row[key] !== undefined ? row[key] : settings[key];
+const cashFlag = (value: unknown, defaultValue = false): boolean | null =>
+  value === undefined
+    ? null
+    : value === null
+      ? defaultValue
+      : value === true || value === 'true' || value === 1
+        ? true
+        : value === false || value === 'false' || value === 0
+          ? false
+          : null;
+const both = (a: boolean | null, b: boolean | null): boolean | null =>
+  a === false || b === false ? false : a === null || b === null ? null : true;
+const either = (a: boolean | null, b: boolean | null): boolean | null =>
+  a === true || b === true ? true : a === null || b === null ? null : false;
+const positiveCash = (value: unknown): boolean | null =>
+  value === undefined ? null : Number.isFinite(Number(value)) && Number(value) > 0;
+
+/** ServerTableEngineBase's RIT permissions and heads-up-table refusal.
+ * Insurance does not disable RIT: the engine asks for runs before insurance. */
+function cashRunItTwice(row: CashFeatureRow, settings: CashFeatureRow = {}): boolean | null {
+  const read = (key: string) => cashValue(row, settings, key);
+  const seats = read('max_players');
+  if (seats !== undefined && Number(seats) > 0 && Number(seats) <= 2) return false;
+  const configured = either(
+    both(cashFlag(read('run_it_twice'), true), cashFlag(read('allow_run_it_twice'), true)),
+    cashFlag(read('run_it_twice_enabled'))
+  );
+  return configured === false ? false : seats === undefined ? null : configured;
+}
+
+/** BombPotScheduler's scheduled mode viability, never a dormant enabled flag. */
+function cashBombPot(row: CashFeatureRow, settings: CashFeatureRow = {}): boolean | null {
+  const read = (key: string) => cashValue(row, settings, key);
+  const enabled = cashFlag(read('bomb_pot_enabled'));
+  if (enabled === false) return false;
+  const mode = read('bomb_pot_trigger_mode');
+  const viable =
+    mode === undefined
+      ? null
+      : mode === 'once_per_orbit' || mode === 'bomb_pot_only'
+        ? true
+        : mode === 'timed'
+          ? positiveCash(
+              read('bomb_pot_interval_seconds') === undefined
+                ? undefined
+                : Math.floor(Number(read('bomb_pot_interval_seconds')))
+            )
+          : positiveCash(
+              read('bomb_pot_frequency') === undefined
+                ? undefined
+                : Math.floor(Number(read('bomb_pot_frequency')))
+            );
+  return both(enabled, viable);
+}
+
+function cashMultiBoardBomb(row: CashFeatureRow, settings: CashFeatureRow = {}): boolean | null {
+  const boards = cashValue(row, settings, 'bomb_pot_board_count');
+  const multiple =
+    boards != null
+      ? Number(boards) >= 2
+      : cashFlag(cashValue(row, settings, 'bomb_pot_double_board'));
+  return both(cashBombPot(row, settings), multiple);
+}
+
 const CASH_FEATURES: FeatureOption[] = [
-  { key: 'ante', label: 'Ante', match: ['ante', 'ante_enabled'] },
+  {
+    key: 'ante',
+    label: 'Ante',
+    match: ['ante', 'ante_enabled'],
+    test: (row, settings = {}) =>
+      both(
+        cashFlag(cashValue(row, settings, 'ante_enabled'), true),
+        positiveCash(cashValue(row, settings, 'ante'))
+      ),
+  },
   { key: 'straddle', label: 'Straddle', match: ['straddle_enabled'] },
-  { key: 'auto_straddle', label: 'Auto Straddle', match: ['auto_utg_straddle'] },
+  {
+    key: 'auto_straddle',
+    label: 'Auto Straddle',
+    match: ['straddle_enabled', 'auto_utg_straddle'],
+    test: (row, settings = {}) =>
+      both(
+        cashFlag(cashValue(row, settings, 'straddle_enabled')),
+        cashFlag(cashValue(row, settings, 'auto_utg_straddle'))
+      ),
+  },
   { key: 'insurance', label: 'Insurance', match: ['insurance_enabled'] },
   {
     key: 'rit_choice',
     label: 'Run It Twice',
-    match: ['run_it_twice', 'run_it_twice_enabled', 'allow_run_it_twice'],
+    match: ['run_it_twice', 'run_it_twice_enabled', 'allow_run_it_twice', 'max_players'],
+    test: cashRunItTwice,
   },
-  { key: 'bomb_pot', label: 'BombPot', match: ['bomb_pot_enabled'] },
+  {
+    key: 'bomb_pot',
+    label: 'BombPot',
+    match: [
+      'bomb_pot_enabled',
+      'bomb_pot_trigger_mode',
+      'bomb_pot_frequency',
+      'bomb_pot_interval_seconds',
+    ],
+    test: cashBombPot,
+  },
   /* MULTI-BOARD DISCOVERY (2026-08-28): the double-board boolean is kept in
      lockstep with bomb_pot_board_count >= 2 by every writer, and the lobby
      query fetches it — so this chip really narrows, unlike the fourteen
      ghosts removed on 2026-08-25. */
-  { key: 'bomb_multi_board', label: 'Multi-Board Bomb', match: ['bomb_pot_double_board'] },
+  {
+    key: 'bomb_multi_board',
+    label: 'Multi-Board Bomb',
+    match: [
+      'bomb_pot_enabled',
+      'bomb_pot_trigger_mode',
+      'bomb_pot_frequency',
+      'bomb_pot_interval_seconds',
+      'bomb_pot_board_count',
+      'bomb_pot_double_board',
+    ],
+    test: cashMultiBoardBomb,
+  },
   /* seven_deuce_enabled is the column; the old key was `seven_deuce`, off by a
      suffix, so the chip never matched the table it names. */
   { key: 'seven_deuce', label: 'Seven-Deuce', match: ['seven_deuce_enabled'] },
-  { key: 'time_bank', label: 'Time Bank', match: ['time_bank_enabled'] },
+  {
+    key: 'time_bank',
+    label: 'Time Bank',
+    match: ['time_bank_enabled'],
+    test: (row, settings = {}) => cashFlag(cashValue(row, settings, 'time_bank_enabled'), true),
+  },
   { key: 'all_in_or_fold', label: 'All-In Or Fold', match: ['all_in_or_fold'] },
 ];
 
@@ -268,7 +382,7 @@ const MTT_FEATURES: FeatureOption[] = [
       'format_contract',
       'name',
     ],
-    test: isSatelliteTournament,
+    test: (row) => isSatelliteTournament(row),
   },
   {
     key: 'turbo',
@@ -333,7 +447,7 @@ const BUYIN_RANGE: RangeSpec = {
 const CASH_STATUSES = [
   { key: 'full', label: 'Full' },
   { key: 'empty', label: 'Empty' },
-  { key: 'open', label: 'Open Seats' },
+  { key: 'open', label: 'Seats Available' },
 ];
 
 /**
@@ -482,7 +596,7 @@ export const FILTER_SPECS: Record<Exclude<FilterGameType, 'ALL'>, GameFilterSpec
     games: chipsFor([...TOURNAMENT_VARIANT_KEYS, 'pineapple'], MTT_CHIP_LABELS),
     range: BUYIN_RANGE,
     statuses: [
-      { key: 'late_reg', label: 'Late Reg' },
+      { key: 'late_reg', label: 'Late Reg Open' },
       { key: 'starting_soon', label: 'Starting Soon' },
       { key: 'open_reg', label: 'Open Registration' },
       { key: 'running', label: 'Running' },
@@ -498,7 +612,7 @@ export const FILTER_SPECS: Record<Exclude<FilterGameType, 'ALL'>, GameFilterSpec
     statuses: [
       { key: 'running', label: 'Running' },
       { key: 'open_reg', label: 'Open Registration' },
-      { key: 'late_reg', label: 'Late Reg' },
+      { key: 'late_reg', label: 'Late Reg Open' },
       { key: 'starting_soon', label: 'Starting Soon' },
     ],
     seats: { min: 2, max: 9 },
@@ -599,10 +713,10 @@ export function featureState(
   row: Record<string, unknown>,
   settings: Record<string, unknown>
 ): boolean | null {
-  if (f.test) return f.test(row);
+  if (f.test) return f.test(row, settings);
   let carried = false;
   for (const k of f.match) {
-    const val = settings[k] ?? row[k];
+    const val = cashValue(row, settings, k);
     if (val === undefined) continue;
     carried = true;
     if (val === true || val === 'true' || (typeof val === 'number' && val > 0)) return true;
