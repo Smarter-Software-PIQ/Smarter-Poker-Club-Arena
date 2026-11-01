@@ -252,7 +252,7 @@ export async function alignCurrentApplicationRoles({ applicationClient, Client, 
   const bytes = await readFile(new URL('./role-alignment-aligned.json', import.meta.url));
   assert.equal(
     createHash('sha256').update(bytes).digest('hex'),
-    'd0d858e8dbb70afca05d3e84be6ce109b818ea1ba278813d9d4b6afd062e2083',
+    '3355db850eda81d0fcb54d8bbc1e3ad0c1a39f3ad2f2e5f873b464195c6396c8',
     new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_SOURCE_PIN'})
   );
   const before = JSON.parse(bytes),
