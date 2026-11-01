@@ -30,7 +30,8 @@ import {
   HorseLeagueComputeWorkerClient,
   type HorseLeagueCompute,
 } from './HorseLeagueComputeWorkerClient.js';
-import type { Card, SeatPlayer, HandStage, ActionRecord } from '../types.js';
+import type { Card, SeatPlayer, HandStage, ActionRecord, HorseStyle } from '../types.js';
+import { plo4StrengthSeatStyle } from './Plo4StrengthContract.js';
 import {
   HorseLogic,
   type HorseDecideOpts,
@@ -75,13 +76,31 @@ import {
   HUMAN_FIELD_COMPONENT_SCENARIOS,
   HUMAN_FIELD_NAME_PREFIX,
   HUMAN_FIELD_VARIANTS,
+  V53_PRESSURE_FIELD_VARIANTS,
+  V53_PRESSURE_POPULATION_ID,
 } from './HorseLeagueHumanField.js';
+import { pressureOpponentDecision } from './V53PressurePopulation.js';
 
 export {
   HUMAN_FIELD_COMPONENT_SCENARIOS,
   HUMAN_FIELD_NAME_PREFIX,
   HUMAN_FIELD_VARIANTS,
+  V53_PRESSURE_FIELD_VARIANTS,
+  V53_PRESSURE_POPULATION_ID,
 } from './HorseLeagueHumanField.js';
+
+/** The opponent fields a league card may seat around one hero horse (see
+ *  LeagueMatchup.opponentPopulation). */
+export type LeagueOpponentPopulation =
+  | typeof HUMAN_CALIBRATED_POPULATION_ID
+  | typeof V53_PRESSURE_POPULATION_ID;
+
+/** Variants each field may be dealt, or null for an unknown field. */
+export function leagueFieldVariants(population: unknown): readonly string[] | null {
+  if (population === HUMAN_CALIBRATED_POPULATION_ID) return HUMAN_FIELD_VARIANTS;
+  if (population === V53_PRESSURE_POPULATION_ID) return V53_PRESSURE_FIELD_VARIANTS;
+  return null;
+}
 import { supabase } from '../services/supabase.js';
 import { reportError } from '../services/errorReporter.js';
 import {
@@ -129,7 +148,7 @@ export interface LeagueResult {
    *  bb100/stderr are the hero horse's per-hand edge of arm A over arm B
    *  against that field, and benchmarkComponents carries each arm's own
    *  absolute bb/100 against it. Absent: the mirror (horse vs horse) card. */
-  opponentPopulation?: typeof HUMAN_CALIBRATED_POPULATION_ID;
+  opponentPopulation?: LeagueOpponentPopulation;
   /** Human-field results only: the calibrated opponents' responses per
    *  decision node, both arms, counts only. Proof the field actually played. */
   humanResponses?: Record<string, Record<string, number>>;
@@ -196,13 +215,30 @@ export interface LeagueMatchup {
    * arms differ only in the flag under test, card luck cancels in the
    * difference, and bb100 is the hero's per-hand edge of A over B against
    * that field. Only variants in HUMAN_FIELD_VARIANTS are accepted.
+   *
+   * Set to V53_PRESSURE_POPULATION_ID (2026-10-31): the same duplicate deal,
+   * with the V53 aggressor workload in every other seat instead
+   * (HorseLeagueHumanField.ts says why it exists and what it is not). NLH only.
    */
-  opponentPopulation?: typeof HUMAN_CALIBRATED_POPULATION_ID;
+  opponentPopulation?: LeagueOpponentPopulation;
+  /**
+   * PRODUCTION PERSONAS (2026-10-31). Absent: every horse plays the
+   * 'balanced' style, as every mirror card always has. True: each seat plays
+   * the production persona Plo4StrengthContract assigns from the deal seed and
+   * seat (plo4StrengthSeatStyle over PRODUCTION_HORSE_STYLES), the same seat
+   * keeping the same persona in both passes while the arms swap. For layers
+   * that read a horse's own or an opponent's TABLE IMAGE: a field of
+   * 'balanced' horses never leaves the middle band those reads act outside of,
+   * so v18_self_image and v23_river_reads diverged in 1-3 of 2,000 pairs and
+   * read exactly zero on some nights while production fired them 100k-1.2M
+   * times a day against a fleet of mixed personas.
+   */
+  productionStyles?: boolean;
 }
 
 /** The human field inside one dealt hand (see LeagueMatchup.opponentPopulation). */
 export interface LeagueHumanField {
-  population: typeof HUMAN_CALIBRATED_POPULATION_ID;
+  population: LeagueOpponentPopulation;
   /** True for every seat index dealt to the human-calibrated population. */
   isHuman: (seatIdx: number) => boolean;
   /** Accumulates the population's responses per decision node. */
@@ -275,6 +311,7 @@ interface Seat {
   contributed: number;
   opts: HorseDecideOpts;
   mods: HorseProfileMods;
+  style: HorseStyle;
 }
 
 /**
@@ -304,13 +341,16 @@ export function playHand(
   modsOf?: (seatIdx: number) => HorseProfileMods,
   /** 2026-10-24: seats dealt to the human-calibrated population, seated as
    *  humans. Absent: every seat is a horse (the pre-existing path). */
-  humanField?: LeagueHumanField
+  humanField?: LeagueHumanField,
+  /** 2026-10-31: per-seat persona (LeagueMatchup.productionStyles). Absent:
+   *  every horse plays 'balanced' (the pre-existing path). */
+  styleOf?: (seatIdx: number) => HorseStyle
 ): number[] {
   const SEATS = numSeats;
-  if (humanField && !HUMAN_FIELD_VARIANTS.includes(gameVariant)) {
+  if (humanField && !(leagueFieldVariants(humanField.population) ?? []).includes(gameVariant)) {
     throw new Error(
-      `A human-field hand cannot deal ${gameVariant}: the human-calibrated population is ` +
-        `qualified for ${HUMAN_FIELD_VARIANTS.join(', ')} only`
+      `A ${humanField.population} field hand cannot deal ${gameVariant}: that population is ` +
+        `qualified for ${(leagueFieldVariants(humanField.population) ?? []).join(', ') || 'nothing'} only`
     );
   }
   const START_STACK = stackBB * BB;
@@ -339,6 +379,7 @@ export function playHand(
       // A human-field seat never reaches HorseLogic, so its opts are unused.
       opts: human ? {} : sandbox ? { ...configOf(s) } : { ...configOf(s), mind: false },
       mods: !human && modsOf ? { ...modsOf(s) } : {},
+      style: !human && styleOf ? styleOf(s) : 'balanced',
       player: {
         seat: s + 1,
         user_id: human ? `league-human-${s + 1}` : `league-${s + 1}`,
@@ -456,23 +497,25 @@ export function playHand(
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
         // seat was dealt, never re-derived from a flag on the player.
-        humanField?.isHuman(i) === true
-          ? humanFieldDecision(humanField, p, stage, boardCards, gameVariant, {
-              pot,
-              currentBet,
-              lastRaise,
-              toCall,
-              aggressionThisStreet: history.some(
-                (a) =>
-                  a.stage === stage &&
-                  (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
-              ),
-            })
-          : sandbox
-            ? HorseMind.runInSandbox(sandbox, () =>
-                HorseLogic.decide(p, gs, 'balanced', seat.mods, seat.opts)
-              )
-            : HorseLogic.decide(p, gs, 'balanced', seat.mods, seat.opts);
+        humanField?.isHuman(i) === true && humanField.population === V53_PRESSURE_POPULATION_ID
+          ? pressureFieldDecision(humanField, p, gs, currentBet, lastRaise, toCall)
+          : humanField?.isHuman(i) === true
+            ? humanFieldDecision(humanField, p, stage, boardCards, gameVariant, {
+                pot,
+                currentBet,
+                lastRaise,
+                toCall,
+                aggressionThisStreet: history.some(
+                  (a) =>
+                    a.stage === stage &&
+                    (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
+                ),
+              })
+            : sandbox
+              ? HorseMind.runInSandbox(sandbox, () =>
+                  HorseLogic.decide(p, gs, seat.style, seat.mods, seat.opts)
+                )
+              : HorseLogic.decide(p, gs, seat.style, seat.mods, seat.opts);
 
       // Validate against the engine's own rules; downgrade an illegal action
       // to the safe fallback and count it (the conservation test asserts 0).
@@ -800,6 +843,49 @@ function humanFieldDecision(
   return d.amount !== undefined ? { action: d.action, amount: d.amount } : { action: d.action };
 }
 
+/**
+ * An aggressor-field seat's decision (V53_PRESSURE_POPULATION_ID): the V53
+ * workload reads only its own cards and the public state, offered the same
+ * no-limit legal menu a calibrated seat gets, and its answer goes through the
+ * same validation below. Its randomness comes from the deal's own seeded
+ * stream, so both passes of a pair replay it identically until the arms
+ * differ. Response counts are kept per street, counts only.
+ */
+function pressureFieldDecision(
+  field: LeagueHumanField,
+  p: SeatPlayer,
+  gs: HorseGameStateV2,
+  currentBet: number,
+  lastRaise: number,
+  toCall: number
+): { action: string; amount?: number } {
+  const legalActions: string[] = [];
+  if (toCall > 0) legalActions.push('fold');
+  else legalActions.push('check');
+  if (toCall > 0 && p.stack > toCall) legalActions.push('call');
+  const maxTo = p.bet + p.stack;
+  const minTo = currentBet > 0 ? currentBet + Math.max(BB, lastRaise) : BB;
+  const canWager = maxTo > currentBet && maxTo >= minTo;
+  if (canWager) legalActions.push(currentBet > 0 ? 'raise' : 'bet');
+  if (p.stack > 0) legalActions.push('all_in');
+  const d = pressureOpponentDecision(
+    p,
+    {
+      ...gs,
+      legalActions,
+      toCall,
+      minRaiseTo: canWager ? minTo : null,
+      maxRaiseTo: canWager ? maxTo : null,
+    } as HorseGameStateV2,
+    fastRandom
+  );
+  if (field.responses) {
+    const tally = (field.responses[`v53_field_${gs.stage}`] ??= {});
+    tally[d.action] = (tally[d.action] ?? 0) + 1;
+  }
+  return d.amount !== undefined ? { action: d.action, amount: d.amount } : { action: d.action };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Duplicate-deal matchup
 // ─────────────────────────────────────────────────────────────────────────────
@@ -871,6 +957,10 @@ export async function runMatchup(
     const evenIsA = (s: number) => withEvidence(s % 2 === 0 ? matchup.a : matchup.b);
     const evenIsB = (s: number) => withEvidence(s % 2 === 0 ? matchup.b : matchup.a);
     const hasMods = matchup.modsA !== undefined || matchup.modsB !== undefined;
+    // Same persona at the same seat in both passes; only the arm swaps.
+    const styleOf = matchup.productionStyles
+      ? (s: number) => plo4StrengthSeatStyle(handSeed, s + 1)
+      : undefined;
     const modsEvenIsA = hasMods
       ? (s: number) => (s % 2 === 0 ? (matchup.modsA ?? {}) : (matchup.modsB ?? {}))
       : undefined;
@@ -888,7 +978,9 @@ export async function runMatchup(
       SEATS,
       matchup.stackBB ?? 100,
       matchup.context ?? CASH_LEAGUE_CONTEXT,
-      modsEvenIsA
+      modsEvenIsA,
+      undefined,
+      styleOf
     );
     const net2 = playHand(
       handSeed,
@@ -900,7 +992,9 @@ export async function runMatchup(
       SEATS,
       matchup.stackBB ?? 100,
       matchup.context ?? CASH_LEAGUE_CONTEXT,
-      modsEvenIsB
+      modsEvenIsB,
+      undefined,
+      styleOf
     );
 
     let aNet = 0;
@@ -975,14 +1069,15 @@ async function runHumanFieldMatchup(
   shouldContinue: () => boolean
 ): Promise<LeagueResult> {
   const population = matchup.opponentPopulation;
-  if (population !== HUMAN_CALIBRATED_POPULATION_ID) {
+  const fieldVariants = leagueFieldVariants(population);
+  if (population === undefined || fieldVariants === null) {
     throw new Error(`Unknown league opponent population: ${String(population)}`);
   }
   const variant = matchup.variant ?? 'nlh';
-  if (!HUMAN_FIELD_VARIANTS.includes(variant)) {
+  if (!fieldVariants.includes(variant)) {
     throw new Error(
-      `${matchup.name}: a human-field card cannot deal ${variant}; the human-calibrated ` +
-        `population is qualified for ${HUMAN_FIELD_VARIANTS.join(', ')} only`
+      `${matchup.name}: a ${population} card cannot deal ${variant}; that ` +
+        `population is qualified for ${fieldVariants.join(', ')} only`
     );
   }
   const SEATS = matchup.seats ?? DEFAULT_SEATS;
@@ -1191,7 +1286,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
    * Re-measured 2026-09-21 with runMatchup's divergence count: 0 of 1,000 and
    * 0 of 6,000 pairs diverged at seeds 4242 and 20260921. INERT; still off.
    */
-  // { name: 'v16_ratio_rescale', pairs: 6000, a: { v16Ratio: true }, b: {} },
+  // v16_ratio_rescale now reports through UNMEASURABLE_MATCHUPS (2026-10-31).
   // V55 is opt-in. Freeze the deep cash domain before examining results:
   // the audit's leaking river re-shoves occurred above 100bb.
   ...(['plo4', 'plo5', 'plo6'] as const).map((variant) => ({
@@ -1202,25 +1297,10 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { v56OmahaPressureRange: true },
     b: { v56OmahaPressureRange: false },
   })),
-  {
-    name: 'plo4_v55_river_trips_flat',
-    variant: 'plo4',
-    stackBB: 400,
-    pairs: 6000,
-    a: { v55OmahaRiverTripsFlat: true },
-    b: {},
-  },
-  {
-    name: 'plo5_v55_river_trips_flat',
-    variant: 'plo5',
-    stackBB: 400,
-    pairs: 6000,
-    a: { v55OmahaRiverTripsFlat: true },
-    b: {},
-  },
-  // PLO6 is not on the standing card: the declared 6000-pair probe at
-  // seed20261024 had zero divergent pairs. It remains scenario-tested and
-  // opt-in, with no measured edge or promotion claim.
+  // plo4/plo5/plo6_v55_river_trips_flat are in UNMEASURABLE_MATCHUPS
+  // (2026-10-31): the paired-board fold and V56 decide every spot V55 was
+  // built for, so the arms played identical poker from 2026-10-27. They
+  // report a refused row every run instead of a nightly 0.00 +/- 0.00.
   { name: 'v16_sizecond', pairs: 6000, a: {}, b: { v16SizeCond: false } },
   { name: 'plo4_v16_polarity', variant: 'plo4', pairs: 6000, a: {}, b: { v16PloPolar: false } },
   // Measurable because playHand's sandbox settlement now feeds
@@ -1258,7 +1338,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
    * Re-measured 2026-09-21: 0 of 1,000 and 0 of 6,000 pairs diverged at seeds
    * 4242 and 20260921 (INERT); a heads-up v11 control diverged in 7 and 2 of 1,000.
    */
-  // { name: 'v31_gto_suit_aware', seats: 2, pairs: 6000, a: {}, b: { v31GtoSuitAware: false } },
+  // v31_gto_suit_aware now reports through UNMEASURABLE_MATCHUPS (2026-10-31).
   // 2026-10-16: the facing-bet defence resolved NEGATIVE heads-up (-0.31 +/-
   // 0.15 over 41 nightly runs) and is default OFF. Same matchup, same sign:
   // arm A is still "defence on".
@@ -1284,7 +1364,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { v33DepthCeiling: true },
     b: {},
   },
-  { name: 'v18_self_image', pairs: 6000, a: {}, b: { v18SelfImage: false } },
+  // 2026-10-31: LIVE, REACHED, RARELY DECISIVE. The layer fires inside the
+  // league sandbox (154 v18_self_image fires per 8,640 decides in a 500-pair
+  // probe) but only moves bluffScale by x0.85 / x1.1, which flips a decision in
+  // about 1.5 pairs per 1,000. At 6,000 pairs that is ~9 expected divergent
+  // pairs, and 2026-10-30 drew zero: an INERT night by chance, not a dead flag
+  // (53 of its 58 nightly rows since 2026-08-28 carry a stderr). Neither the
+  // human field (3 of 3,000), production personas (1 of 1,500), persona dials
+  // (0-1 of 1,500) nor heads-up (0 of 2,000) reaches it more often, so the
+  // card buys the sample instead: 24,000 pairs expect ~36 divergent pairs and
+  // cost ~4 minutes (production ran 6,000 in ~59 s), paid for by the two V55
+  // cards that left for UNMEASURABLE_MATCHUPS (~9 minutes a night).
+  { name: 'v18_self_image', pairs: 24_000, a: {}, b: { v18SelfImage: false } },
   /*
    * v18_exploit_size is NOT on the card, and this one is impossible by
    * CONSTRUCTION rather than merely underpowered - it reported 0.00 +/- 0.00
@@ -1308,7 +1399,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
    * exact and costs no hands at all:
    * server/src/engine/V18ExploitSizingIsMeasurable.test.ts
    */
-  // { name: 'v18_exploit_size', pairs: 6000, a: {}, b: { v18ExploitSize: false } },
+  // v18_exploit_size now reports through UNMEASURABLE_MATCHUPS (2026-10-31).
   // 2026-08-27: the bet-ratio scale repair. There is no "off" for a fixed
   // arithmetic bug, so this measures the sizing-read layer as a whole
   // against playing without size reads at all - if the repair helps, this
@@ -1331,7 +1422,11 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // layers only fire in tournament/spin modes the league does not deal;
   // they ship scenario-tested with telemetry, the way V16 real ICM did.
   { name: 'v23_raise_plans', pairs: 6000, a: {}, b: { v23Plan: false } },
-  { name: 'v23_river_reads', pairs: 6000, a: {}, b: { v23Reads: false } },
+  // 2026-10-31: the same shape as v18_self_image above. The reads fire in the
+  // sandbox (58 v23_river_read per 8,640 decides) and diverge about 0.5-1.3
+  // pairs per 1,000; 2026-10-30 rounded to 0.00 +/- 0.00. 24,000 pairs expect
+  // 12-30 divergent pairs, so a night cannot come up empty by chance.
+  { name: 'v23_river_reads', pairs: 24_000, a: {}, b: { v23Reads: false } },
   // 2026-10-16: the short-deck half of V23 resolved NEGATIVE (-0.36 +/- 0.14
   // over 44 nightly runs) and is default OFF behind v23ShortDeck; the plo8
   // low-draw half wins (+1.63 +/- 0.18) and stays on under v23Variants. Same
@@ -1343,7 +1438,12 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // layer and the tempo floors only exist in tournament/live conditions the
   // league cannot deal, so those ship scenario-tested with telemetry.
   { name: 'plo4_v24_price', variant: 'plo4', pairs: 6000, a: {}, b: { v24PloDefense: false } },
-  { name: 'plo6_v24_price', variant: 'plo6', pairs: 6000, a: {}, b: { v24PloDefense: false } },
+  // 2026-10-31: the PLO6 cash half resolved NEGATIVE pooled over the audit's 7-run
+  // window (-2.34 +/- 1.12 to 2026-10-30; -2.41 +/- 0.98 over the 9 runs since
+  // 2026-10-23, against -0.20 +/- 0.42 over the 42 runs before 2026-10-17) and
+  // is default OFF in PLO6 cash (HorseLogic v24PloDefenseOn). Same matchup, same
+  // sign: arm A is still "price defense on"; arm B is today's brain.
+  { name: 'plo6_v24_price', variant: 'plo6', pairs: 6000, a: { v24PloDefense: true }, b: {} },
   // ── V40 (2026-09-04) ── "horses are playing PLO like it's hold'em". The
   // tiered aggressor sampler, the pair/two-pair/trips pressure cap and the
   // small-ball betting law, measured where the naked-aces call-down
@@ -1397,7 +1497,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // V53 (2026-10-24): pressure on a credibly aggressive human. Read-gated,
   // so a horse-only league arm engages it only where a horse's own play reads
   // outside the envelope; arm A is production (on).
-  { name: 'v53_pressure', pairs: 6000, a: {}, b: { v53Pressure: false } },
+  // 2026-10-31: in hold'em that never happens - every v53_pressure row from
+  // 2026-10-25 read 0.00 +/- 0.00 (0 of 6,000 pairs), while production fires
+  // V53 tens of thousands of times a day against real aggressors. Hold'em has
+  // no aggressive-raiser prior (the Omaha cards below engage through it), and
+  // probes found no mirror that reaches it: the human-calibrated field 0 of
+  // 3,000, maxed aggression dials 1 of 1,500, heads-up 0 of 2,000. It is now
+  // dealt against the opponent it is built for - one hero horse in the V53
+  // aggressor field (V53_PRESSURE_POPULATION_ID): 48 and 63 of 2,000 pairs
+  // diverged at seeds 20261031 and 4242. Same name and sign (arm A on).
+  {
+    name: 'v53_pressure',
+    pairs: 12_000,
+    a: {},
+    b: { v53Pressure: false },
+    opponentPopulation: V53_PRESSURE_POPULATION_ID,
+  },
   { name: 'plo4_v53_pressure', variant: 'plo4', pairs: 6000, a: {}, b: { v53Pressure: false } },
   { name: 'plo5_v53_pressure', variant: 'plo5', pairs: 6000, a: {}, b: { v53Pressure: false } },
   { name: 'plo6_v53_pressure', variant: 'plo6', pairs: 6000, a: {}, b: { v53Pressure: false } },
@@ -1558,6 +1673,159 @@ for (const name of HUMAN_FIELD_TWINS) {
   const mirror = LEAGUE_MATCHUPS.find((m) => m.name === name);
   if (!mirror) throw new Error(`HUMAN_FIELD_TWINS names ${name}, which is not on the card`);
   LEAGUE_MATCHUPS.push(humanFieldTwin(mirror));
+}
+
+/**
+ * UNMEASURABLE MATCHUPS (2026-10-31). A matchup the league deliberately does
+ * not deal, with the reason. Every run writes one `status = 'refused'` row per
+ * entry (hands = 0) BEFORE the first hand, so the daily audit reads the
+ * judgement where it reads every measurement (fn_audit_nightly_job_health:
+ * league_matchup_refused, and league_refusal_went_silent if a row stops
+ * arriving). Retire a matchup by MOVING it here, never by deleting or
+ * commenting it out: a matchup with no row is invisible to every detector,
+ * which is how v16_ratio_rescale, v18_exploit_size and v31_gto_suit_aware
+ * went 34 nights with one hand-written refusal row (2026-09-27) and the audit
+ * reported v16_ratio_rescale as "not on the card, default rule unevaluable".
+ *
+ * The arms are the ones the matchup would deal, so the refused row carries
+ * the exact question that cannot be answered. `reason` says why, when it was
+ * last measured, the divergence probes, and what would change the verdict.
+ */
+export interface UnmeasurableMatchup extends Pick<
+  LeagueMatchup,
+  'name' | 'variant' | 'seats' | 'stackBB' | 'a' | 'b'
+> {
+  reason: string;
+}
+
+export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  {
+    name: 'v16_ratio_rescale',
+    a: { v16Ratio: true },
+    b: {},
+    reason:
+      'Dead by precedence, not for want of an edge. v16Ratio is DEFAULT OFF ' +
+      '(HorseLogic: opts.v16Ratio === true). It rescales two HorseLogic thresholds: the ' +
+      'OOP check-raise bluff gate (betRatio <= 0.6 vs 1.5, which on the bet/(pot+bet) ' +
+      'scale is "at most 1.5x pot" either way and never binds) and the heads-up river ' +
+      'bluff-catch gate (0.4 vs 0.667). V38 (opts.v38Ev, default ON since 2026-09-03) ' +
+      'returns a call or a fold for every river spot, and for every solverless flop/turn ' +
+      'spot, before the second gate is reached, so no hand can differ. Last measured on ' +
+      'the card 2026-09-04: 0.00 +/- 0.00 over 12,000 hands (2026-08-31, before V38 ' +
+      'defaulted on: +0.35 +/- 0.24, never resolved). Divergence probes: 0 of 1,000 ' +
+      'pairs at seeds 4242 and 20260921 (2026-09-21) and 4242 / 20260927 (2026-09-27); ' +
+      'and 0 of 2,000 at seed 20261031 on main 18dd7c6ab (2026-10-31). The default-ON rule (three significant positive runs) ' +
+      'therefore cannot be evaluated and the default stays OFF. What would change this: ' +
+      'turn opts.v38Ev off on both arms, or lift the rescaled gates above the V38 return. ' +
+      'Read this row, not the absence of one, when deciding v16Ratio.',
+  },
+  {
+    name: 'v18_exploit_size',
+    a: {},
+    b: { v18ExploitSize: false },
+    reason:
+      'Unanswerable by self-play. A league matchup is a MIRROR - both arms are the same ' +
+      "brain differing only in the flag under test - so each arm's opponent folds at the " +
+      "brain's own middling rate. The layer multiplies its river raise by " +
+      '(exploit.valueThinMod - 1) and only counts a firing when abs(valueThinMod - 1) > ' +
+      "0.03, and HorseMind.exploit moves valueThinMod off 1 only when the opponent's " +
+      'fold-vs-aggression rate leaves the middle band (above 0.62, or below 0.35). In ' +
+      'self-play it stays at 1 and the gate never opens; the human-calibrated field folds ' +
+      'rivers inside the same band (0 divergent pairs of 3,000, 2026-10-24). Last measured ' +
+      'on the card 2026-09-01: 0.00 +/- 0.00 over 12,000 hands. Divergence probes: 0 of ' +
+      '1,000 pairs at seeds 4242 and 20260921 (2026-09-21); 0 and 1 of 1,000 at seeds 4242 ' +
+      'and 20260927 (2026-09-27) - one pair in a thousand is bb100 = stderr, noise wearing ' +
+      'the shape of a measurement. What would change this: an exploitable opponent, which ' +
+      'self-play cannot produce. The effect is pinned deterministically instead: ' +
+      'server/src/engine/V18ExploitSizingIsMeasurable.test.ts',
+  },
+  {
+    name: 'v31_gto_suit_aware',
+    seats: 2,
+    a: {},
+    b: { v31GtoSuitAware: false },
+    reason:
+      'Too rare for any sample the league can afford. Live telemetry on 2026-09-01: ' +
+      'v31_gto_open fired 195 times against 924,871 decides, so at 6,000 pairs this ' +
+      'matchup expects roughly TWO firings - observing no difference is the likely ' +
+      'outcome. Last measured on the card 2026-09-01: 0.00 +/- 0.00 over 12,000 hands. ' +
+      'Divergence probes: 0 of 1,000 pairs at seeds 4242 and 20260921 (2026-09-21) and ' +
+      '4242 / 20260927 (2026-09-27), while a heads-up v11 control on the same harness ' +
+      'diverged in 7 and 6 of 1,000. What would change this: a deliberate one-off with a ' +
+      'large temporary pairs bump, or a seeded scenario matrix that forces suit-aware ' +
+      'nodes. V31 is certified through fn_audit_gto_v31_certified and ' +
+      'benchmark/GtoV31CandidateEvaluation.ts, which is where its verdict lives.',
+  },
+  ...(['plo4', 'plo5', 'plo6'] as const).map(
+    (variant): UnmeasurableMatchup => ({
+      name: `${variant}_v55_river_trips_flat`,
+      variant,
+      stackBB: 400,
+      a: { v55OmahaRiverTripsFlat: true },
+      b: {},
+      reason:
+        'Unreachable in self-play, not dead. v55OmahaRiverTripsFlat is DEFAULT OFF ' +
+        '(HorseLogic: opts.v55OmahaRiverTripsFlat === true) and only changes a river ' +
+        'Omaha decision holding weak trips (trips through a board pair) or a set on a ' +
+        'straight/flush-possible board, facing a raise with the money committed. The flag ' +
+        'still reaches code: HorseOmahaRiverTripsFlat.test.ts pins the recorded re-shove ' +
+        'turning into a call. But the league stopped dealing that spot when the ' +
+        '2026-10-26 river changes went in - the paired-board fold (#8088 PLO5/PLO6, #8104 ' +
+        'PLO4: trips without a full house fold on a paired turn or river) and V56 ' +
+        '(v56OmahaPressureRange, default ON, #8067: the vulnerable river set is priced ' +
+        'against the strict pressure range) - so neither arm ever reaches the raise-war ' +
+        'branch V55 changes. ' +
+        (variant === 'plo6'
+          ? 'Never on the standing card: the declared 6000-pair probe at seed 20261024 had ' +
+            'zero divergent pairs. '
+          : `Nightly at 400bb: ${
+              variant === 'plo4' ? '+0.07 +/- 0.17 on 2026-10-26, then' : ''
+            } 0 of 6,000 pairs diverged on every run from 2026-10-27 to 2026-10-30 ` +
+            `(${variant === 'plo5' ? 'and 2026-10-31 read 0.48 +/- 0.48: one divergent pair, bb100 = stderr' : 'and again 2026-10-31'}). `) +
+        'Re-probed 2026-10-31 on main 18dd7c6ab: 0 of 2,000 pairs at seed 20261031 ' +
+        '(PLO4 and PLO5, 400bb). The layer stays opt-in with no measured edge and no ' +
+        'promotion claim. What would change this: switching the paired-board fold and ' +
+        'V56 off on both arms, which would measure a brain production does not play.',
+    })
+  ),
+] as UnmeasurableMatchup[]);
+
+for (const u of UNMEASURABLE_MATCHUPS) {
+  if (LEAGUE_MATCHUPS.some((m) => m.name === u.name)) {
+    throw new Error(`${u.name} is both on the card and in UNMEASURABLE_MATCHUPS`);
+  }
+}
+
+/** The refused rows one league run writes before it deals (see
+ *  UNMEASURABLE_MATCHUPS). Pure, so the shape the audit reads is pinned. */
+export function refusedLeagueRows(runDate: string): Array<{
+  run_date: string;
+  matchup: string;
+  hands: 0;
+  bb100: 0;
+  stderr: 0;
+  status: 'refused';
+  refusal_reason: string;
+  config_a: Record<string, unknown>;
+  config_b: Record<string, unknown>;
+  duration_ms: 0;
+  illegal_actions: 0;
+  truncated_streets: 0;
+}> {
+  return UNMEASURABLE_MATCHUPS.map((u) => ({
+    run_date: runDate,
+    matchup: u.name,
+    hands: 0,
+    bb100: 0,
+    stderr: 0,
+    status: 'refused',
+    refusal_reason: u.reason,
+    config_a: leagueResultConfig(u, 'a'),
+    config_b: leagueResultConfig(u, 'b'),
+    duration_ms: 0,
+    illegal_actions: 0,
+    truncated_streets: 0,
+  }));
 }
 
 // V12.3: the old comment here claimed hour 4 was "the quietest hour on the
@@ -2249,6 +2517,20 @@ export async function runLeague(
       `rotation offset ${rotateBy} -> first up ${card[0]?.name}`
   );
   try {
+    if (!shouldContinue()) return results;
+    // UNMEASURABLE MATCHUPS SAY SO EVERY RUN (2026-10-31). Written before the
+    // first hand and before the lane check: a refusal costs no compute, and it
+    // is the row the audit reads when it decides a layer the card cannot
+    // measure. Idempotent on (run_date, matchup), so the pm run and a resumed
+    // card rewrite the same rows.
+    try {
+      const { error } = await supabase
+        .from('horse_league_results')
+        .upsert(refusedLeagueRows(date) as never, { onConflict: 'run_date,matchup' });
+      if (error) throw new Error(error.message);
+    } catch (err) {
+      reportError(err, 'HorseLeague.refused');
+    }
     if (!shouldContinue()) return results;
     // CAPACITY ROOT FIX (2026-09-08): this is the only compute lane the
     // production league may use. The old path executed 32 complete synthetic
