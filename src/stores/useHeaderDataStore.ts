@@ -25,6 +25,7 @@
 
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
+import { subscribeRealtime } from '../lib/subscribeRealtime';
 import { masterBus } from '../core/MasterBus';
 import { reportError } from '../utils/errorReporter';
 import { resolveCosmetic } from '../cosmetics/avatarCosmetics';
@@ -589,64 +590,76 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
     set({ _channelKey: channelKey });
 
     const channel = masterBus.getOrCreateChannel(channelKey);
-    channel
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          // A direct message arrives as a `new_message` notification. Refresh
-          // the Messages badge and hand the row to the live message popup.
-          const row = (payload?.new ?? null) as Record<string, any> | null;
+    // JOIN ONLY AS THE SIGNED-IN PLAYER (2026-11-01). This channel used to call
+    // subscribe() the moment loadOnce ran. On a cold load straight onto a table
+    // (no main header, so HeaderAppearanceSync starts it from the user store
+    // before the socket is authorised) it joined without an access token. Row
+    // level security then dropped every INSERT on notifications and passed only
+    // DELETEs: run 41280281132 showed the ringing call's DELETE reaching the
+    // table page and its INSERT never arriving, so no call alert, no message
+    // pop-up and no bell count at a table. subscribeRealtime waits for the
+    // shared realtime admission (socket open and authorised) like every other
+    // page channel.
+    const admission = new AbortController();
+    channel.on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        // A direct message arrives as a `new_message` notification. Refresh
+        // the Messages badge and hand the row to the live message popup.
+        const row = (payload?.new ?? null) as Record<string, any> | null;
+        try {
+          if (payload?.eventType === 'INSERT' && row?.type === 'incoming_call') {
+            window.dispatchEvent(new CustomEvent(INCOMING_CALL_EVENT, { detail: row }));
+          } else if (payload?.eventType === 'DELETE' && payload?.old?.id) {
+            window.dispatchEvent(
+              new CustomEvent(CALL_ALERT_CLEARED_EVENT, { detail: { id: payload.old.id } })
+            );
+          }
+        } catch (e) {
+          reportError(e, 'useHeaderDataStore.incoming_call_event');
+        }
+        if (payload?.eventType === 'INSERT' && row?.type === 'new_message') {
           try {
-            if (payload?.eventType === 'INSERT' && row?.type === 'incoming_call') {
-              window.dispatchEvent(new CustomEvent(INCOMING_CALL_EVENT, { detail: row }));
-            } else if (payload?.eventType === 'DELETE' && payload?.old?.id) {
-              window.dispatchEvent(
-                new CustomEvent(CALL_ALERT_CLEARED_EVENT, { detail: { id: payload.old.id } })
-              );
-            }
+            window.dispatchEvent(new CustomEvent(NEW_MESSAGE_EVENT, { detail: row }));
           } catch (e) {
-            reportError(e, 'useHeaderDataStore.incoming_call_event');
+            reportError(e, 'useHeaderDataStore.new_message_event');
           }
-          if (payload?.eventType === 'INSERT' && row?.type === 'new_message') {
-            try {
-              window.dispatchEvent(new CustomEvent(NEW_MESSAGE_EVENT, { detail: row }));
-            } catch (e) {
-              reportError(e, 'useHeaderDataStore.new_message_event');
-            }
-            scheduleCount('messages', async () => {
-              const count = await fetchMessengerUnreadCount();
-              if (count !== null && get()._userId === userId) get().setUnreadMessages(count);
-            });
-          }
-          // PERF 2026-08-24: this used to run a `count: 'exact'` query
-          // SYNCHRONOUSLY ON EVERY EVENT. This channel lives on the global
-          // header, so it is mounted for every user for the whole session, and
-          // notifications arrive in bursts (a tournament finishing, a club
-          // announcement, a settlement run). Ten notifications meant ten exact
-          // counts. Coalesced: a burst now costs one query. A badge does not
-          // need sub-second precision.
-          scheduleCount('notifications', async () => {
-            try {
-              const { count } = await supabase
-                .from('notifications')
-                .select('*', { count: 'exact', head: true })
-                .eq('user_id', userId)
-                .eq('read', false);
-              get().setNotificationCount(count || 0);
-            } catch (e) {
-              reportError(e, 'useHeaderDataStore.async');
-              /* silent */
-            }
+          scheduleCount('messages', async () => {
+            const count = await fetchMessengerUnreadCount();
+            if (count !== null && get()._userId === userId) get().setUnreadMessages(count);
           });
         }
-      )
-      .subscribe((status: string, err?: Error) => {
+        // PERF 2026-08-24: this used to run a `count: 'exact'` query
+        // SYNCHRONOUSLY ON EVERY EVENT. This channel lives on the global
+        // header, so it is mounted for every user for the whole session, and
+        // notifications arrive in bursts (a tournament finishing, a club
+        // announcement, a settlement run). Ten notifications meant ten exact
+        // counts. Coalesced: a burst now costs one query. A badge does not
+        // need sub-second precision.
+        scheduleCount('notifications', async () => {
+          try {
+            const { count } = await supabase
+              .from('notifications')
+              .select('*', { count: 'exact', head: true })
+              .eq('user_id', userId)
+              .eq('read', false);
+            get().setNotificationCount(count || 0);
+          } catch (e) {
+            reportError(e, 'useHeaderDataStore.async');
+            /* silent */
+          }
+        });
+      }
+    );
+    void subscribeRealtime(
+      channel,
+      (status: string, err?: Error) => {
         if (status === 'CHANNEL_ERROR') {
           console.debug('[HeaderDataStore] Realtime channel error:', err?.message || err);
           // Auto-retry: remove stale channel and re-create after 3s
@@ -678,7 +691,10 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
             }
           }, 3000);
         }
-      });
+      },
+      admission.signal
+    );
+    const stopAdmission = () => admission.abort();
 
     // ── Bus listeners for in-app actions (instant, no realtime delay) ──
     // CRITICAL: Store unsubscribe functions to prevent zombie listeners on logout/login
@@ -756,6 +772,7 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
 
     set({
       _busUnsubscribers: [
+        stopAdmission,
         stopMessageBadgePoll,
         stopAppearanceReads,
         unsubNotifRead,
