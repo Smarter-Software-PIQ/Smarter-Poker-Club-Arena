@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272761,
-      "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+      "bytes": 273125,
+      "sha256": "f185d85981b918021a4bdc978cfa3274ecb296346dc4c5c81cfdf713967d35e9"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2049,6 +2049,18 @@
   },
   "financialMainIntegration20261101": {
     "reason": "Retain both branch histories and reviewed composed workflow and nested binding identities. No historical evidence restamped.",
+    "historicalEvidenceRestamped": false
+  },
+  "memberStatsChicagoRegression20261101": {
+    "reason": "Reviewed six-line workflow addition executes isolated PG17 Chicago member-statistics regression in existing required accounting shard4. Existing commands, assertions, financial matrices, permissions and deadlines unchanged. Current source identity only; no historical financial or live evidence restamped.",
+    "previous": {
+      "bytes": 272761,
+      "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+    },
+    "current": {
+      "bytes": 273125,
+      "sha256": "f185d85981b918021a4bdc978cfa3274ecb296346dc4c5c81cfdf713967d35e9"
+    },
     "historicalEvidenceRestamped": false
   }
 }

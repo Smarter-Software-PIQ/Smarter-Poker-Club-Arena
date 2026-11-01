@@ -3389,6 +3389,12 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      - name: Member statistics use Chicago dates across daylight saving transitions
+        if: matrix.shard == 4
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-member-stats-chicago.py --scratch "$RUNNER_TEMP" --migration supabase/migrations/20261101061213_member_statistics_use_chicago_calendar_boundaries.sql
+
       - name: Roster cash preserves funded boundaries and computes each total once
         id: roster_cash_batch
         if: matrix.shard == 4

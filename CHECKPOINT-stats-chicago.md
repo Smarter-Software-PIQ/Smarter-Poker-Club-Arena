@@ -1,0 +1,11 @@
+# Chicago member statistics
+
+Owner request: Fix the stats to use Chicago time including DST, publish and verify live.
+Scope: Member Management ledger and linked Player Statistics date windows, relative rollover, source data boundaries, regression protection, database installation and client publication. No engine, financial record or wallet mutations.
+Owner: this chat, branch fix/stats-chicago-20261101; checkout on external SSD stats-chicago-01a195b1/ca, base 84c645401cd98ad789d80252c2e6454c509c9732.
+Acceptance: inclusive Chicago dates, half-open timestamp bounds; spring 23h/fall 25h; existing funded attribution, fee cutoff, sharing, access and overall behavior preserved; exact migration qualified/merged/installed, client protected merge/publication, both build endpoints and live behavior verified.
+Policies read November 1 2026 01:06 CDT: canonical AGENTS, operating law, hardening and index, policy version 2.9 manifest 7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52. Full receipt retained in task scratch/policy-read.txt. Repository AGENTS, CLAUDE, playbook, PUBLISHING and deploy-paths read. Storage checked mounted separate SSD volume.
+Live source inspected via Supabase project kuklfnapbkmacvwxktbh: detail md5 2987cb34d6077d42094681b551405ca3, statistics f97c559e454d815c83e7abdfe7dbfa65, daily helper aaa18d36aa254de31a779741eea13861, fees e233f2f7c3952d9c744cecb87ba82f59. Helpers currently use UTC dates. GitHub authenticated service Smarter-Poker available. Supabase read access verified.
+In progress: implementation and private locked dependency installation. No push or publication yet.
+
+Validation update: isolated PG17 candidate reproduces the UTC defect before repair and passes normal/23h/25h dates, actual member detail/statistics RPCs, transfers, tournament money/fee boundaries, open bounds, standing-share conservation, fixed redemption timestamps, and denied access/internal-helper privileges. Client patch saved in task scratch/client.patch for database-first delivery; client tests 69 passed before split. Current database PR carries native regression in existing required accounting shard4. Reviewed six-line CI addition and updated its five current source pins with audit notes; source binding verifier passes all1822 pins. Historical evidence is not restamped.
