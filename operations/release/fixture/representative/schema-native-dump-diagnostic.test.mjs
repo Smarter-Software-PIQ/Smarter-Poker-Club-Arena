@@ -1,7 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNativeDumpDiagnostic,safeNativeDumpDiagnostic,nativeDumpCapability,verifyNativeDumpBinary} from '../schema-native-dump-diagnostic.mjs';
+import {createNativeDumpDiagnostic,safeNativeDumpDiagnostic,QUERY_SUBTYPES,nativeDumpCapability,verifyNativeDumpBinary} from '../schema-native-dump-diagnostic.mjs';
 import {mkdtemp,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -119,9 +119,10 @@ async function binaryFixture(run){
       builder_sha256:hash(await readFile(new URL('../native-dump-diagnostic.py',import.meta.url))),
       helper_sha256:hash(await readFile(new URL('../native-dump-diagnostic.c',import.meta.url))),
       function_batch_helper_sha256:hash(await readFile(new URL('../native-dump-function-batch.c',import.meta.url))),
+      sequence_batch_helper_sha256:hash(await readFile(new URL('../native-dump-sequence-batch.c',import.meta.url))),
       function_batch_contract_sha256:hash(await readFile(new URL('../native-dump-function-batch-test.c',import.meta.url))),
-      transport:'bounded-stock-function-read-ahead-v2',
-      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5510,function_batch_max:128,native_batch_result_faults_refused:true,dependency_interleaved_sql_equal:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components'}};
+      transport:'bounded-stock-function-sequence-metadata-v3',
+      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5513,function_batch_max:128,synthetic_sequence_count:138,sequence_metadata_sql_equal:true,metadata_interleaved_sql_equal:true,sequence_data_reader_unchanged:true,metadata_total_results_max:128,metadata_total_bytes_max:128*1024*1024,native_batch_result_faults_refused:true,dependency_interleaved_sql_equal:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components',diagnostic_wire:'D3-fixed12',query_subtypes_valid:true}};
     const save=()=>writeFile(path.join(output,'manifest.json'),JSON.stringify(manifest),{mode:0o600});await save();
     await run({root,output,manifest,save,env:{RUNNER_TEMP:root,GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
   }finally{await rm(root,{recursive:true,force:true});}
@@ -129,16 +130,17 @@ async function binaryFixture(run){
 
 test('only exact qualified owned native binary and source manifest creates an execution capability',async()=>binaryFixture(async({env,output,manifest,save})=>{
   const client=await verifyNativeDumpBinary(env);assert.equal(nativeDumpCapability(client).postgres_version,'17.11');
-  for(const key of ['archive_sha256','builder_sha256','helper_sha256','function_batch_helper_sha256','function_batch_contract_sha256','binary_sha256','libpq_sha256','control_sha']){
+  for(const key of ['archive_sha256','builder_sha256','helper_sha256','function_batch_helper_sha256','sequence_batch_helper_sha256','function_batch_contract_sha256','binary_sha256','libpq_sha256','control_sha']){
     const old=manifest[key];manifest[key]='b'.repeat(old.length);await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest[key]=old;
   }
-  for(const [key,bad] of [['synthetic_routine_count',5509],['function_batch_max',129],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['dependency_interleaved_sql_equal',false],['diagnostic_object_scope','all-visits']]){
+  for(const [key,bad] of [['synthetic_routine_count',5512],['function_batch_max',129],['synthetic_sequence_count',137],['sequence_metadata_sql_equal',false],['metadata_interleaved_sql_equal',false],['sequence_data_reader_unchanged',false],['metadata_total_results_max',256],['metadata_total_bytes_max',256*1024*1024],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['dependency_interleaved_sql_equal',false],['diagnostic_object_scope','all-visits'],['diagnostic_wire','D2-fixed12'],['query_subtypes_valid',false]]){
     const old=manifest.qualification[key];manifest.qualification[key]=bad;await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.qualification[key]=old;
   }
+  for(const key of ['diagnostic_wire','query_subtypes_valid']){const old=manifest.qualification[key];delete manifest.qualification[key];await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.qualification[key]=old;}
   const oldTransport=manifest.transport;
-  for(const transport of ['logging-only','consecutive-stock-function-executions-v1']){
+  for(const transport of ['logging-only','consecutive-stock-function-executions-v1','bounded-stock-function-read-ahead-v2']){
     manifest.transport=transport;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);
   }
   manifest.transport=oldTransport;
@@ -315,4 +317,123 @@ with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR') or os.environ['RUN
 print('bounded native read-ahead contract passed')`;
   const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:15000});
   assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'bounded native read-ahead contract passed');
+});
+
+
+test('real D3 C producer and independent decoders preserve exact closed subtype counts and timing',async()=>{
+  const root=await mkdtemp(path.join(process.env.TMPDIR ?? process.env.RUNNER_TEMP,'native-subtypes-'));
+  try{
+    const source=path.join(root,'producer.c'),binary=path.join(root,'producer');
+    const helper=new URL('../native-dump-diagnostic.c',import.meta.url).pathname;
+    const code=`#include <stdbool.h>
+#include <stdlib.h>
+static void pg_fatal(const char *format,...) {(void)format;_Exit(71);}
+#include ${JSON.stringify(helper)}
+int main(int argc,char **argv){
+ const int groups[]={1,1,1,1,2,2,2,2,2,2,2,2,3,3};
+ const char *sql[]={"EXECUTE dumpFuncX(\'private\')",NULL,"EXECUTE dumpFunc('private')","EXECUTE dumpAgg('private')",NULL,
+ "SELECT format_type(seqtypid, NULL), seqstart, seqincrement, seqmax, seqmin, seqcache, seqcycle FROM pg_catalog.pg_sequence WHERE seqrelid = 'private'",
+ "EXECUTE getColumnACLs('private')","SELECT pg_catalog.pg_get_viewdef('private')","SELECT pg_get_partkeydef('private')",
+ "SELECT fs.srvname, pg_catalog.array_to_string(ARRAY(private)","SELECT pg_catalog.format_type('private')",
+ "SELECT e.extname FROM pg_catalog.pg_depend d, pg_catalog.pg_extension e private","PREPARE private","EXECUTE dumpEnumType('private')"};
+ int i;ca_diag_init();
+ if(argc>1){
+  if(!strcmp(argv[1],"records")){ca_diag_seq=100000;ca_diag_object_begin(1);return 0;}
+  if(!strcmp(argv[1],"clock")){ca_diag_origin.tv_sec-=46;ca_diag_object_begin(1);return 0;}
+  if(!strcmp(argv[1],"scope")){ca_diag_object_begin(2);ca_diag_query_begin_sql("EXECUTE dumpFunc('private')");ca_diag_query_end();ca_diag_object_end();return 0;}
+  ca_diag_object_begin(2);ca_diag_query_begin_subtype(atoi(argv[1]));return 0;
+ }
+ for(i=0;i<14;i++){ca_diag_object_begin(groups[i]);if(sql[i])ca_diag_query_begin_sql(sql[i]);else ca_diag_query_begin_subtype(i);ca_diag_query_end();ca_diag_object_end();}
+ return 0;}`;
+    await writeFile(source,code);
+    const build=spawnSync('cc',['-std=c11','-D_POSIX_C_SOURCE=200809L','-Wall','-Wextra','-Werror',source,'-o',binary],{encoding:'utf8',timeout:15000});assert.equal(build.status,0,build.stderr);
+    const run=spawnSync(binary,[],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000});assert.equal(run.status,0,run.stderr?.toString());
+    const frames=run.output[3];assert.equal(frames.length,14*4*12);assert.equal(frames.subarray(0,2).toString(),'D3');assert.ok(!frames.includes(Buffer.from('private')));
+    const parse=bytes=>{const parser=createNativeDumpDiagnostic();parser.push(bytes,1);parser.finish();return parser.snapshot(2);};
+    const result=parse(frames);assert.equal(result.version,3);assert.equal(result.records,56);assert.deepEqual(safeNativeDumpDiagnostic(result),result);
+    for(const [i,name]of QUERY_SUBTYPES.entries()){assert.equal(result.query_subtypes[name].queries_completed,1,name);assert.equal(frames[(i*4+1)*12+6]>>>4,i,name);}
+    const partial=createNativeDumpDiagnostic();partial.push(frames.subarray(0,24),1);assert.equal(partial.snapshot(2).last_unpaired_query.subtype,'UNKNOWN');assert.ok(safeNativeDumpDiagnostic(partial.snapshot(2)));
+    const scoped=spawnSync(binary,['scope'],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000});assert.equal(scoped.status,0);assert.equal(parse(scoped.output[3]).query_subtypes.UNKNOWN.queries_completed,1);
+    const script="import importlib.util,sys,json;spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);print(json.dumps(m.validate_frames(sys.stdin.buffer.read(),with_subtypes=True)))";
+    const python=bytes=>spawnSync('python3',['-B','-c',script],{input:bytes,encoding:'utf8',timeout:5000});
+    const decoded=python(frames);assert.equal(decoded.status,0,decoded.stderr);assert.deepEqual(JSON.parse(decoded.stdout),{records:56,query_subtypes:result.query_subtypes});
+    const cases=[];
+    for(const [at,value]of [[6,16],[18,226],[18,82],[30,50],[13,50]]){const bad=Buffer.from(frames);bad[at]=value;cases.push(bad);}
+    cases.push(frames.subarray(0,-1));const late=Buffer.from(frames);late.writeUInt32BE(45000001,7);cases.push(late);
+    for(const bad of cases){assert.throws(()=>parse(bad));assert.notEqual(python(bad).status,0);}
+    for(const invalid of ['14','1','records','clock'])assert.equal(spawnSync(binary,[invalid],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000}).status,71);
+    const malformed=structuredClone(result);malformed.query_subtypes.UNKNOWN.queries_started++;
+    assert.equal(safeNativeDumpDiagnostic(malformed),null);
+    const unknown=structuredClone(result);unknown.query_subtypes.PRIVATE={};assert.equal(safeNativeDumpDiagnostic(unknown),null);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('D3 retains the exact original byte cap without extra records',()=>{
+  const frame=(seq,tag)=>{const b=Buffer.alloc(12);b.write('D3');b.writeUInt32BE(seq,2);b[6]=tag;b.writeUInt32BE(seq,7);b[11]=10;return b;};
+  const pieces=[];for(let i=0;i<10922;i++)for(const tag of [0,2,3,1])pieces.push(frame(pieces.length+1,tag));
+  const complete=Buffer.concat(pieces);assert.equal(complete.length,524256);
+  const parser=createNativeDumpDiagnostic();parser.push(complete,1);parser.finish();assert.equal(parser.snapshot(2).records,43688);
+  const script="import importlib.util,sys;spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);print(m.validate_frames(sys.stdin.buffer.read()))";
+  const py=bytes=>spawnSync('python3',['-B','-c',script],{input:bytes,encoding:'utf8',timeout:5000,maxBuffer:1024*1024});
+  assert.equal(py(complete).status,0);
+  const extra=Buffer.concat([0,2,3,1].map((tag,i)=>frame(43689+i,tag)));assert.notEqual(py(Buffer.concat([complete,extra])).status,0);
+  const exact=createNativeDumpDiagnostic();exact.push(Buffer.concat([complete,extra.subarray(0,32)]),1);
+  assert.equal(exact.snapshot(2).bytes,512*1024);
+  assert.throws(()=>exact.push(Buffer.from([0]),2),error=>error.diagnosticKind==='FD3_LIMIT');
+  assert.deepEqual(exact.snapshot(2).limit,{kind:'TOTAL_BYTES',observed_at_least:512*1024+1});assert.ok(safeNativeDumpDiagnostic(exact.snapshot(2)));
+});
+
+
+test('native build command failures retain only closed first site and bounded facts',async()=>{
+  const root=await mkdtemp(path.join(process.env.TMPDIR ?? process.env.RUNNER_TEMP,'closed-command-site-'));
+  try{
+    const script=`import importlib.util,sys,os,json
+spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+for site in sorted(m.COMMAND_SITES):
+ m.FIRST_COMMAND_FAILURE=None
+ try:m.command([sys.executable,'-c',"import sys;print('private-argv-secret');sys.stderr.write('private-sql-secret');sys.exit(7)"],cwd=sys.argv[1],env=os.environ,site=site)
+ except RuntimeError:pass
+ first=dict(m.FIRST_COMMAND_FAILURE)
+ expected={'kind':'EXIT_NONZERO','exit_code':7,'stdout_bytes':20,'stderr_bytes':18,'site':site}
+ if site=='BATCH_COMPILE':expected['compiler_category']='UNCLASSIFIED'
+ assert first==expected,first
+ try:m.command([sys.executable,'-c','raise SystemExit(9)'],cwd=sys.argv[1],env=os.environ,site='BATCH_EXECUTE')
+ except RuntimeError:pass
+ assert m.FIRST_COMMAND_FAILURE==first
+ assert 'private' not in json.dumps(first) and sys.argv[1] not in json.dumps(first)
+for token,category in m.COMPILER_CATEGORIES:
+ m.FIRST_COMMAND_FAILURE=None
+ child="import sys;sys.stderr.write("+repr('private-sql-secret '+token.decode())+");sys.exit(7)"
+ try:m.command([sys.executable,'-c',child],cwd=sys.argv[1],env=os.environ,site='BATCH_COMPILE')
+ except RuntimeError:pass
+ assert m.FIRST_COMMAND_FAILURE['compiler_category']==category
+ assert 'private' not in json.dumps(m.FIRST_COMMAND_FAILURE) and token.decode() not in json.dumps(m.FIRST_COMMAND_FAILURE)
+m.FIRST_COMMAND_FAILURE=None
+try:m.command([sys.executable],cwd=sys.argv[1],env=os.environ,site='private-invalid-site')
+except RuntimeError:pass
+else:raise AssertionError('unclosed site accepted')
+assert m.FIRST_COMMAND_FAILURE is None
+print('closed-first-site-pass')`;
+    const result=spawnSync('python3',['-B','-c',script,root],{encoding:'utf8',timeout:10000});
+    assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed-first-site-pass');assert.equal(result.stderr,'');
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+
+test('qualification phases stay closed and retain first reader failure',()=>{
+  const script=`import importlib.util,json
+spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+for phase in m.QUALIFICATION_PHASES:
+ m.QUALIFICATION_PHASE=phase
+ assert m.DiagnosticFailure().phase==phase
+m.QUALIFICATION_PHASE='private-sql-secret'
+assert m.DiagnosticFailure().phase is None
+m.BUILD_STAGE='SYNTHETIC_DIAGNOSTIC';m.QUALIFICATION_PHASE='FUNCTION_FIRST_ORDER'
+e=m.DiagnosticFailure();m.QUALIFICATION_PHASE='FD_CLOSED';m.retain_first_failure(e)
+m.retain_first_failure(m.DiagnosticFailure())
+assert m.FIRST_FAILURE_PHASE=='FUNCTION_FIRST_ORDER'
+assert m.FIRST_FAILURE_STAGE=='SYNTHETIC_DIAGNOSTIC'
+print('closed-phase-pass')`;
+  const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000});
+  assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed-phase-pass');
 });
