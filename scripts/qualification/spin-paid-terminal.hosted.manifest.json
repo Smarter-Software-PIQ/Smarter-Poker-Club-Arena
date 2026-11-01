@@ -27,12 +27,24 @@
       "sha256": "8d339ff212c59403c76d28030778e3d898ff6f11fa2a1e34527ee8e00fb5388c"
     },
     "server/src/tournament/SpinDrawReceipt.ts": {
-      "bytes": 7845,
-      "sha256": "99589d854a8ad1c08864c6c04efd96f7af76562f5df7aa5712b6eee39918c718"
+      "bytes": 8310,
+      "sha256": "cfb33c24bb0fd01fb13e294bc4e6a0ba153bed091d6663084375c4ba9543440d"
     },
     "server/src/config/spinSpec.ts": {
       "bytes": 44318,
       "sha256": "5dc468654ae62fe6dd459ba91d6786fa5efc91a276c4dc76686ef531e65f089b"
     }
-  }
+  },
+  "source_revision_notes": [
+    {
+      "date": "2026-11-01",
+      "reason": "Owner over-25 seven-to-ten-minute playable-clock rule. Current source fingerprint only; the one-chip paid-terminal inputs and prior execution evidence remain unchanged. New exact-source native execution is required independently.",
+      "previous_source": {
+        "server/src/tournament/SpinDrawReceipt.ts": {
+          "bytes": 7845,
+          "sha256": "99589d854a8ad1c08864c6c04efd96f7af76562f5df7aa5712b6eee39918c718"
+        }
+      }
+    }
+  ]
 }

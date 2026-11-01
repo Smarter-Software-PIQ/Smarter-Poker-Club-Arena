@@ -16,6 +16,12 @@ const runtime = ts.transpileModule(
 const methods = new Function('acceleratedLevelMs', runtime)(acceleratedLevelMs);
 
 describe('owner November 1: buy-ins above 25 use seven to ten minute levels', () => {
+  it('retains the independently captured one-chip paid terminal rules', () => {
+    const captured = JSON.parse(
+      readFileSync('../scripts/qualification/fixtures/spin-paid-terminal/rules.json', 'utf8')
+    );
+    expect(spinRuleManifest(1, 1000)).toEqual(captured);
+  });
   for (const buyIn of [25, 25.01, 50, 200]) {
     for (const accelerated of [false, true]) {
       for (const minutes of [3, 5, 7, 8, 9, 10, 15]) {
