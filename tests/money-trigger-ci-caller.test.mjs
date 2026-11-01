@@ -258,7 +258,7 @@ test('all qualification and publication jobs use only fixed standard hosted runn
     const text=fs.readFileSync(new URL('../.github/workflows/'+file,import.meta.url),'utf8');
     const routes=[...text.matchAll(/^    runs-on: (.+)$/gm)].map(match=>match[1]);
     assert.ok(routes.length,file);
-    const pinnedBrowserJobs=new Set(['build','live-e2e','css-beats-e2e','diamond-playfield-e2e']);
+    const pinnedBrowserJobs=new Set(['build','live-e2e','css-beats-e2e','diamond-playfield-e2e','accounting_postgres']);
     let job;
     for(const line of text.split('\n')){
       const named=/^  ([A-Za-z0-9_-]+):$/.exec(line);
