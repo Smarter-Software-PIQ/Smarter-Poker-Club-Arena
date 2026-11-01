@@ -520,7 +520,7 @@ def coredump_restart_signs(data, container_id, window):
 # One fixed read-only subprocess replaces the existing container read, keeping
 # the same four-second source budget. It never opens a core file or emits paths.
 CORE_CAPTURE_COMMAND = r"""
-import json, os, re, stat, subprocess
+import hashlib, json, os, re, stat, subprocess
 
 def inspect():
     value = subprocess.run(['docker','inspect','--format',
@@ -555,6 +555,37 @@ m['handlerClass'] = {'/usr/share/apport/apport':'apport',
     '/usr/lib/systemd/systemd-coredump':'systemd',
     '/lib/systemd/systemd-coredump':'systemd'}.get(handler[1] if handler else '', 'unknown')
 m['handlerCandidates'] = []
+m['handlerSourceSHA256']='unknown'; m['apportPackageVersion']='unknown'
+if m['handlerClass']=='apport':
+    # Fixed root-owned, non-writable path only; no source bytes are exported.
+    handles=[]
+    try:
+        parent=None
+        for part in ['/usr','share','apport']:
+            descriptor=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,
+                               **({'dir_fd':parent} if parent is not None else {}))
+            handles.append(descriptor); parent=descriptor
+            info=os.fstat(descriptor)
+            if info.st_uid!=0 or info.st_mode&0o022: raise ValueError('handler directory untrusted')
+        descriptor=os.open('apport',os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW,dir_fd=parent)
+        handles.append(descriptor)
+        before=os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid!=0 or before.st_mode&0o022
+                or not 0<before.st_size<=262144): raise ValueError('handler source refused')
+        source=os.read(descriptor,262145)
+        after=os.fstat(descriptor)
+        source_identity=lambda value:(value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns,value.st_uid,value.st_mode)
+        if len(source)!=before.st_size or source_identity(before)!=source_identity(after): raise ValueError('handler source changed')
+        m['handlerSourceSHA256']=hashlib.sha256(source).hexdigest()
+        # Fixed package query consumes part of the existing four-second budget.
+        # No shell, package inventory or raw command output is exported.
+        package=subprocess.run(['/usr/bin/dpkg-query','--show','--showformat=${Version}','apport'],
+                               capture_output=True,timeout=0.5,check=True)
+        version=package.stdout.decode('ascii')
+        if re.fullmatch(r'[0-9][A-Za-z0-9.+:~\-]{0,95}',version): m['apportPackageVersion']=version
+    except (OSError,ValueError,subprocess.SubprocessError): pass
+    finally:
+        for descriptor in reversed(handles): os.close(descriptor)
 if m['handlerClass']=='apport':
     candidates=[('local_node','_usr_local_bin_node.0.crash'),('system_node','_usr_bin_node.0.crash')]
     var=crash=None
@@ -625,6 +656,13 @@ def core_capture_metadata(value, window):
                               and value.get('handlerClass') in ('apport','systemd') else 'unknown')
     result['handlerArtifactLookup'] = 'fixed_apport_candidates' if result['handlerClass']=='apport' else 'unproven'
     result['handlerCandidates'] = []
+    result['handlerSourceSHA256']='unknown'; result['apportPackageVersion']='unknown'
+    if result['handlerClass']=='apport':
+        fingerprint,version=value.get('handlerSourceSHA256'),value.get('apportPackageVersion')
+        if isinstance(fingerprint,str) and re.fullmatch(r'[0-9a-f]{64}',fingerprint):
+            result['handlerSourceSHA256']=fingerprint
+            if isinstance(version,str) and re.fullmatch(r'[0-9][A-Za-z0-9.+:~\-]{0,95}',version):
+                result['apportPackageVersion']=version
     candidates=value.get('handlerCandidates')
     if (result['handlerClass']=='apport' and isinstance(candidates,list) and len(candidates)==2
             and all(isinstance(row,dict) for row in candidates)
