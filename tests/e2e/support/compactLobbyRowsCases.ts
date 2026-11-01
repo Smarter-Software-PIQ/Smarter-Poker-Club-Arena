@@ -57,6 +57,7 @@ export function registerCompactLobbyRowsCases() {
       ...new Set([
         'src/components/lobby/LobbyTable.css',
         'src/components/lobby/CompactLobbyRows.css',
+        'src/components/lobby/PremiumMttRows.css',
       ]),
     ]
       .map((file) => readFileSync(file, 'utf8'))
