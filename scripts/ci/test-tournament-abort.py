@@ -113,6 +113,14 @@ END$$;""")
   assert len(equal_report['cases'])==56
   e.report['equal_share']={'passed':True,'cases':56,'report':'equal-share/equal-share-report.json'}
   e.report['source_sha256'][str(equal_driver.relative_to(ROOT))]=hashlib.sha256(equal_driver.read_bytes()).hexdigest()
+  boundary_driver=ROOT/'scripts/ci/test-tournament-closure-boundary.py'
+  subprocess.run([sys.executable,'-B',str(boundary_driver),
+   '--evidence',str(a.evidence/'closure-boundary'),'--work-root',str(a.work_root/'closure-boundary'),
+   '--socket-root',str(a.socket_root),'--pg-bin',str(a.pg_bin)],check=True,timeout=180)
+  boundary_report=json.loads((a.evidence/'closure-boundary/closure-boundary-report.json').read_text())
+  assert boundary_report.get('passed') is True and boundary_report.get('cleanup')=={'stopped':True,'removed':True}
+  assert {'migration-live-proof','retained-private-original-preserved','late-atomic-not-committed','unbegun-park-archived-atomically'}<=set(boundary_report['cases'])
+  e.report['closure_boundary']={'passed':True,'report':'closure-boundary/closure-boundary-report.json'}
   e.report['passed']=True;e.report['status']='passed'
  finally:
   e.close();(a.evidence/'abort-report.json').write_text(json.dumps(e.report,indent=2)+'\n')
