@@ -312,8 +312,14 @@ describe('the host transaction proves the carried doors inside its unchanged bud
   });
 
   it('never requests an off-cycle window and declines any break but the daily one, before the lock', () => {
-    const request = TX.slice(TX.indexOf('request_recovery_window() {'));
-    expect(request.slice(0, 1500)).toContain('[ -z "${WINDOW_DOOR_NAMES:-}" ] || return 0');
+    // The whole function body: from its header to the first closing brace in column 0.
+    const start = TX.indexOf('request_recovery_window() {');
+    const request = TX.slice(start, TX.indexOf('\n}\n', start));
+    expect(start).toBeGreaterThan(0);
+    expect(request).toContain('[ -z "${WINDOW_DOOR_NAMES:-}" ] || return 0');
+    expect(request.indexOf('[ -z "${WINDOW_DOOR_NAMES:-}" ] || return 0')).toBeLessThan(
+      request.indexOf('curl -sS --max-time 5 http://127.0.0.1:8080/health')
+    );
     const decline = TX.indexOf('only that freeze installs window doors');
     const lock = TX.indexOf("acquire_engine_lock 'maintenance cutover'");
     const certificate = TX.indexOf('BREAK_REMAINING_MS="$(maintenance_certificate "$ADMISSION_MIN_BREAK_MS")"');
