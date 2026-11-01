@@ -1430,7 +1430,7 @@ for (const [width, heightOverride] of occupiedViewports)
           const retainedArtwork = await fixedArtwork();
           const retainedRows = await permanent(),
             retainedChips = await chips();
-          for (const acting of [0, 7]) {
+          for (const acting of [0, Math.min(7, count - 1)]) {
             await page.evaluate(
               (index) =>
                 document.dispatchEvent(new CustomEvent('fixture-focus', { detail: index })),
@@ -1474,6 +1474,136 @@ for (const [width, heightOverride] of occupiedViewports)
               await chips(),
               'Turn focus preserves settled chips and collection origins'
             ).toEqual(retainedChips);
+          }
+          const contributionCentres = () =>
+            page.locator('.seat__bet-chips[data-wager-kind="chips"]').evaluateAll((bets) =>
+              bets.map((bet) => {
+                // The real unanimated tower box, independently of the label's width.
+                const rect = (bet.querySelector('.cp-stacks') ?? bet).getBoundingClientRect();
+                return {
+                  owner: bet.closest('.seat')!.getAttribute('data-player-id'),
+                  x: rect.left + rect.width / 2,
+                  y: rect.bottom,
+                };
+              })
+            );
+          const retainedContributions = await contributionCentres();
+          const settleContributions = () =>
+            page.evaluate(async () => {
+              for (let phase = 0; phase < 3; phase++) {
+                await Promise.all(
+                  document
+                    .getAnimations()
+                    .filter(
+                      (animation) =>
+                        animation.playState === 'running' &&
+                        animation.effect?.getComputedTiming().iterations !== Infinity
+                    )
+                    .map((animation) => animation.finished.catch(() => {}))
+                );
+                await new Promise<void>((done) =>
+                  requestAnimationFrame(() => requestAnimationFrame(() => done()))
+                );
+              }
+            });
+          // An appearing action footprint must not evict a landed contribution.
+          // Deliberately exercise the collision boundary, then remove the footprint.
+          if (sceneGroup === 'focus') {
+            await page.evaluate(() => {
+              const bet = document.querySelector('.seat__bet-chips[data-wager-kind="chips"]')!;
+              const rect = bet.getBoundingClientRect();
+              const action = document.createElement('div');
+              action.className = 'seat__action';
+              action.dataset.retainedChipProbe = 'true';
+              action.textContent = 'Raise';
+              Object.assign(action.style, {
+                position: 'fixed',
+                left: `${rect.left}px`,
+                top: `${rect.top}px`,
+                width: `${rect.width}px`,
+                height: `${rect.height}px`,
+                transform: 'none',
+              });
+              document.querySelector('.table-page')!.append(action);
+              document.dispatchEvent(new Event('fixture-runout'));
+            });
+            const contact = await page.evaluate(() => {
+              const action = document
+                .querySelector('[data-retained-chip-probe]')!
+                .getBoundingClientRect();
+              const bet = document
+                .querySelector('.seat__bet-chips[data-wager-kind="chips"]')!
+                .getBoundingClientRect();
+              return {
+                width: Math.min(action.right, bet.right) - Math.max(action.left, bet.left),
+                height: Math.min(action.bottom, bet.bottom) - Math.max(action.top, bet.top),
+              };
+            });
+            expect(
+              contact.width,
+              'The regression presents an actual dynamic keepout'
+            ).toBeGreaterThan(0.5);
+            expect(
+              contact.height,
+              'The regression presents an actual dynamic keepout'
+            ).toBeGreaterThan(0.5);
+            await settleContributions();
+            const fixed = (await contributionCentres())[0];
+            expect(fixed.x, 'An appearing action cannot evict landed chips').toBeCloseTo(
+              retainedContributions[0].x,
+              1
+            );
+            expect(fixed.y, 'An appearing action cannot evict landed chips').toBeCloseTo(
+              retainedContributions[0].y,
+              1
+            );
+            await page.evaluate(() => {
+              document.querySelector('[data-retained-chip-probe]')!.remove();
+              document.dispatchEvent(new Event('fixture-runout'));
+            });
+            await settleContributions();
+          }
+          await page.evaluate(() => {
+            document.documentElement.dataset.betAmount = '120000';
+            document.documentElement.dataset.actionPills = 'true';
+            document.documentElement.dataset.dealer = '4';
+            document.dispatchEvent(new Event('fixture-runout'));
+          });
+          await settleContributions();
+          for (const contribution of await contributionCentres()) {
+            const previous = retainedContributions.find((row) => row.owner === contribution.owner)!;
+            expect(
+              contribution.x,
+              'Placed chips keep their centre through amount/action/dealer changes'
+            ).toBeCloseTo(previous.x, 1);
+            expect(
+              contribution.y,
+              'Placed chips keep their centre through amount/action/dealer changes'
+            ).toBeCloseTo(previous.y, 1);
+          }
+          // A new contribution uses the remaining lane; existing stacks do not make room by moving.
+          const existingOwners = Array.from({ length: count - 1 }, (_, index) => index).join(',');
+          for (const owners of [existingOwners, `${existingOwners},${count - 1}`]) {
+            await page.evaluate((bets) => {
+              document.documentElement.dataset.bets = bets;
+              document.dispatchEvent(new Event('fixture-runout'));
+            }, owners);
+            await settleContributions();
+            const current = await contributionCentres();
+            expect(current).toHaveLength(owners.split(',').length);
+            for (const contribution of current.filter((row) => row.owner !== `p${count - 1}`)) {
+              const previous = retainedContributions.find(
+                (row) => row.owner === contribution.owner
+              )!;
+              expect(contribution.x, 'Another bet cannot move a placed contribution').toBeCloseTo(
+                previous.x,
+                1
+              );
+              expect(contribution.y, 'Another bet cannot move a placed contribution').toBeCloseTo(
+                previous.y,
+                1
+              );
+            }
           }
           await page.evaluate(async () => {
             document

@@ -20,6 +20,13 @@ import {
   PORTRAIT_CARD_LANE_MAX_VIEWPORT_PX,
 } from '../components/table/tableGeometry';
 
+import {
+  wagerAnchor,
+  wagerRestPoint,
+  retainedWagerCorrection,
+  type WagerAnchor,
+} from '../lib/retainedWagerAnchor';
+
 type SettledCardRow = { translate: string; width: string; step: string };
 
 /** Layout belongs to the table that paints it; no global selectors or game-state writes. */
@@ -42,7 +49,15 @@ export function useProtectedCardLayout(
     ownerSpacingTried: new WeakSet<HTMLElement>(),
     wagers: new WeakMap<
       HTMLElement,
-      { offsets: string[]; width: number; height: number; owner: string | null }
+      {
+        offsets: string[];
+        owner: string | null;
+        kind: string;
+        anchor: WagerAnchor;
+        landed: boolean;
+        width: number;
+        height: number;
+      }
     >(),
   });
   const placeRef = useRef<(() => void) | null>(null);
@@ -112,6 +127,11 @@ export function useProtectedCardLayout(
         )
       );
     const wagers = () => Array.from(scaler.querySelectorAll<HTMLElement>('.seat__bet-chips'));
+    const wagerKind = (bet: HTMLElement) =>
+      bet.dataset.wagerKind ?? (bet.querySelector('.seat__allin-puck') ? 'all-in' : 'chips');
+    const sameWager = (bet: HTMLElement, stored: { owner: string | null; kind: string }) =>
+      stored.owner === (bet.closest('.seat')?.getAttribute('data-player-id') ?? null) &&
+      stored.kind === wagerKind(bet);
     const resetWagers = () =>
       wagers().forEach((bet) => {
         for (const name of ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'])
@@ -175,6 +195,13 @@ export function useProtectedCardLayout(
             : visibleBox(element);
         return box ? [{ element, box }] : [];
       });
+      // Newly shown cards respect chips that already landed on this street.
+      if (!withMarkers)
+        for (const bet of wagers()) {
+          if (!settled.current.wagers.get(bet)?.landed) continue;
+          const box = visibleBox(bet);
+          if (box) protectedEntries.push({ element: bet, box });
+        }
       const protectedBoxes = protectedEntries.map(({ box }) => box);
       // A later seat can reveal before an earlier DOM sibling. Reserve every
       // already-settled hand before allocating any new one, regardless of order.
@@ -193,7 +220,12 @@ export function useProtectedCardLayout(
           height: Math.max(...boxes.map((box) => box.top + box.height)) - top,
         });
       }
-      const dealer = withMarkers ? scaler.querySelector<HTMLElement>('.dealer-button') : null;
+      const dealerNode = scaler.querySelector<HTMLElement>('.dealer-button');
+      const retainedDealer =
+        dealerNode &&
+        settled.current.dealer?.owner ===
+          `${dealerNode.dataset.ownerX}:${dealerNode.dataset.ownerY}`;
+      const dealer = withMarkers || retainedDealer ? dealerNode : null;
       if (dealer) {
         const settled = dealerSettledBox(scaler, dealer);
         if (settled) protectedBoxes.push(settled);
@@ -419,19 +451,43 @@ export function useProtectedCardLayout(
       const geometryReset = refreshGeometry();
       const ringReset = artwork.prepare(handKey);
       if (ringReset) {
+        for (const bet of wagers()) {
+          if (!settled.current.wagers.get(bet)?.landed) settled.current.wagers.delete(bet);
+        }
         settled.current.pods = new WeakMap();
         settled.current.dealer = null;
         settled.current.rows = new WeakMap();
-        settled.current.wagers = new WeakMap();
         settled.current.ownerSpacingTried = new WeakSet();
       }
-      if (geometryReset || ringReset) resetWagers();
+      if (geometryReset) resetWagers();
       const offsetNames = ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'];
       for (const bet of wagers()) {
         const stored = settled.current.wagers.get(bet);
-        if (stored)
+        if (stored && sameWager(bet, stored)) {
           offsetNames.forEach((name, index) => bet.style.setProperty(name, stored.offsets[index]));
-        else offsetNames.forEach((name) => bet.style.removeProperty(name));
+          if (!stored.landed) continue;
+          // A raise's label width or an all-in sibling can change the CSS rest
+          // point. Keep this contribution's actual scaler-relative centre.
+          const correction = retainedWagerCorrection(
+            stored.anchor,
+            bet.getBoundingClientRect(),
+            scaler.getBoundingClientRect(),
+            tableRenderScale(scaler),
+            wagerRestPoint(bet)
+          );
+          if (!correction.x && !correction.y) continue;
+          const values = stored.offsets.map((value) => parseFloat(value) || 0);
+          stored.offsets = [
+            values[0] + correction.x,
+            values[1] + correction.y,
+            values[2] - correction.x,
+            values[3] - correction.y,
+          ].map((value) => `${value}px`);
+          offsetNames.forEach((name, index) => bet.style.setProperty(name, stored.offsets[index]));
+        } else {
+          settled.current.wagers.delete(bet);
+          offsetNames.forEach((name) => bet.style.removeProperty(name));
+        }
       }
       const dealerElement = scaler.querySelector<HTMLElement>('.dealer-button');
       if (dealerElement) {
@@ -607,6 +663,22 @@ export function useProtectedCardLayout(
       // stand at its owner fell through to the unowned fallback: parked under
       // the hero or in front of another player. Here the hands are placed
       // first, at their own players, and the markers are placed round them.
+      let allocationUnresolved = false;
+      const promoteWagers = () => {
+        if (!artwork.ready() || artwork.canMove() || allocationUnresolved) return;
+        for (const bet of wagers()) {
+          const stored = settled.current.wagers.get(bet);
+          if (stored && !stored.landed && sameWager(bet, stored)) {
+            stored.anchor = wagerAnchor(
+              bet.getBoundingClientRect(),
+              scaler.getBoundingClientRect(),
+              scale,
+              wagerRestPoint(bet)
+            );
+            stored.landed = true;
+          }
+        }
+      };
       const phoneMarkers =
         window.innerWidth <= PORTRAIT_CARD_LANE_MAX_VIEWPORT_PX &&
         window.innerHeight > window.innerWidth;
@@ -775,14 +847,18 @@ export function useProtectedCardLayout(
           .filter((c) => c.w > 0 && Number.isFinite(c.x) && Number.isFinite(c.y));
         // Reserve the dealer's owned slot before chips compete for that lane.
         // Its retained translation is tried first and remains fixed on runout.
+        const retainedWagerBoxes = wagers()
+          .filter((bet) => settled.current.wagers.get(bet)?.landed)
+          .map(visibleBox)
+          .filter((box): box is CardBox => box !== null);
         const reservedDealer = placeDealerButton(
           scaler,
           canvas,
           scale,
           getPoints,
-          obstacles,
-          hardObstacles,
-          []
+          obstacles.concat(retainedWagerBoxes),
+          hardObstacles.concat(retainedWagerBoxes),
+          retainedWagerBoxes
         );
         if (reservedDealer) {
           obstacles.push(reservedDealer);
@@ -813,9 +889,17 @@ export function useProtectedCardLayout(
           if (artwork.ready())
             settled.current.wagers.set(bet, {
               offsets: offsetNames.map((name) => bet.style.getPropertyValue(name)),
+              owner: bet.closest('.seat')?.getAttribute('data-player-id') ?? null,
+              kind: wagerKind(bet),
+              anchor: wagerAnchor(
+                bet.getBoundingClientRect(),
+                scaler.getBoundingClientRect(),
+                scale,
+                wagerRestPoint(bet)
+              ),
+              landed: false,
               width: box.width,
               height: box.height,
-              owner: bet.closest('.seat')?.getAttribute('data-player-id') ?? null,
             });
         };
         const permanentKeepouts = [
@@ -902,12 +986,13 @@ export function useProtectedCardLayout(
               if (
                 !trial &&
                 stored &&
-                stillOwned &&
-                stored.owner === bet.closest('.seat')?.getAttribute('data-player-id') &&
-                Math.abs(stored.width - box.width) < 0.5 &&
-                Math.abs(stored.height - box.height) < 0.5 &&
-                !fixedWagers.some((other) => wagerBoxesOverlap(box!, other)) &&
-                !permanentKeepouts.some((other) => retainedWagerTouches(box!, other))
+                sameWager(bet, stored) &&
+                (stored.landed ||
+                  (stillOwned &&
+                    Math.abs(stored.width - box.width) < 0.5 &&
+                    Math.abs(stored.height - box.height) < 0.5 &&
+                    !fixedWagers.some((other) => wagerBoxesOverlap(box!, other)) &&
+                    !permanentKeepouts.some((other) => retainedWagerTouches(box!, other))))
               ) {
                 fixedWagers.push(box);
                 obstacles.push(box);
@@ -1219,6 +1304,8 @@ export function useProtectedCardLayout(
             .join('|');
         const entries = buildEntries();
         if (!entries.length) {
+          artwork.lock();
+          promoteWagers();
           if (!reservedDealer)
             placeDealerButton(
               scaler,
@@ -2129,6 +2216,7 @@ export function useProtectedCardLayout(
           hardObstacles.push(next);
           placedWagers.push(next);
         }
+        allocationUnresolved = unresolved;
         // Complete the original finite allocation with the safe slots already
         // proved above. Never cache a covered last resort and wait for a runout
         // to discover that the remaining owner's lane needs a little spacing.
@@ -2160,6 +2248,7 @@ export function useProtectedCardLayout(
       // Once the original finite allocation is complete, later actions place
       // their own cards/chips around the chairs instead of moving a player.
       artwork.lock();
+      promoteWagers();
     };
     place();
     let frame: number | null = null;
@@ -2379,11 +2468,17 @@ function placeDealerButton(
       );
     // Ownership remains mandatory even in the most crowded printing lane.
     const offWagers = clearOf(wagers);
+    // Printing is negotiable on a compact felt; the community cards are not.
+    const offBoard = clearOf(
+      Array.from(scaler.querySelectorAll('.community-area')).map((element) =>
+        element.getBoundingClientRect()
+      )
+    );
     let cost = Infinity;
     for (const point of getPoints()) {
       if (point.depth < 10 || !owned(point.x, point.y)) continue;
       const box = boxAt(point.x, point.y);
-      if (!offWagers(box)) continue;
+      if (!offWagers(box) || !offBoard(box)) continue;
       const next = covered(box) * 4 + Math.hypot(point.x - own.x, point.y - own.y);
       if (next < cost) {
         cost = next;

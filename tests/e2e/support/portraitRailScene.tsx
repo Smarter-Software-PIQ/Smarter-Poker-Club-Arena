@@ -289,7 +289,13 @@ export function Review() {
                         }
                         position={i === 1 ? 'SB' : null}
                         isActive={i === activeSeat}
-                        lastAction={revealed && i % 3 === 0 ? 'all_in' : 'call'}
+                        lastAction={
+                          document.documentElement.dataset.actionPills === 'true'
+                            ? 'raise'
+                            : revealed && i % 3 === 0
+                              ? 'all_in'
+                              : 'call'
+                        }
                         lastBetAmount={
                           /* data-bets="0,3,5" bets only those chairs; absent, every chair bets. */
                           document.documentElement.dataset.bets === undefined ||
