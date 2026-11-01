@@ -181,6 +181,8 @@ export class ReplayEngine {
   readonly problems: string[] = [];
   /** Requests for a time bank; a page that is shown its turns makes none. */
   readonly timeBankRequests: number[] = [];
+  /** Account preference actually sent by the mounted page, not fixture intent. */
+  readonly autoTimeBankPreferences: boolean[] = [];
   /** Every frame sent, for the test's own report. */
   readonly sent: Array<{ at: number; type: string; detail: string }> = [];
   /**
@@ -402,6 +404,9 @@ export class ReplayEngine {
       return this.onAction(route, request);
     }
     if (url.pathname === '/heartbeat') {
+      const body = request.postDataJSON() as { autoTimeBank?: unknown } | null;
+      if (typeof body?.autoTimeBank === 'boolean')
+        this.autoTimeBankPreferences.push(body.autoTimeBank);
       return this.json(route, { success: true, connected: true, gracePeriodRemaining: 0 });
     }
     if (url.pathname === '/preaction') return this.json(route, { success: true });

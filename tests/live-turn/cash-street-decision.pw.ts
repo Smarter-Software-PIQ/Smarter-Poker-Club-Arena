@@ -80,6 +80,10 @@ function backendFor(rec: Recording) {
       club_members: [
         { club_id: CLUB, user_id: PLAYER, role: 'member', status: 'active', chip_balance: 5000 },
       ],
+      // This recording permits arbitrary human pauses between decisions.
+      // Optional automatic banks must not turn runner speed into a control
+      // coherence assertion. Verify this account preference on the wire below.
+      user_table_settings: [{ user_id: PLAYER, auto_time_bank: false }],
       // The seat row the table's ten-second liveness read looks for. Without
       // it the page concludes this player was removed and says so in a toast
       // that sits over the action bar.
@@ -116,6 +120,7 @@ async function openTable(page: Page): Promise<ReplayEngine> {
   await signIn(page, backendFor(rec));
   const engine = await ReplayEngine.install(page, rec);
   await page.goto(`table/${rec.table}`);
+  await expect.poll(() => engine.autoTimeBankPreferences.includes(false)).toBe(true);
   return engine;
 }
 
