@@ -208,7 +208,16 @@ describe('the felt reserves stay fixed through hand and action states', () => {
           prop === '--sp-hero-clear' &&
           d.selector === ".table-page[data-seats='6'] .table-container" &&
           (d.value === '64px' || d.value === '58px');
-        if (!fixedShortRing && STATE.test(d.selector))
+        // Nine-seat configuration reserves a permanent top-player lane.
+        // Accept only the two exact viewport formulas, never arbitrary state.
+        const fixedTopPair =
+          prop === '--sp-table-top' &&
+          d.selector === ".table-page[data-seats='9'] .table-container" &&
+          [
+            'calc(max(188px, calc(25.05vw + 88px)) + var(--sp-page-inset-top))',
+            'calc(30.55vw + 82px + var(--sp-page-inset-top))',
+          ].includes(d.value);
+        if (!fixedShortRing && !fixedTopPair && STATE.test(d.selector))
           offenders.push(`${prop} declared on "${d.selector}"`);
       }
     }

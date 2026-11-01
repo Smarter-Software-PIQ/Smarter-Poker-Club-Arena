@@ -548,6 +548,31 @@ test('the published table explains controlled seat moves without moving a player
         })),
       };
     });
+    const topRailClearance = await page.locator('.table-scaler').evaluate((canvas) => ({
+      railTop: canvas.getBoundingClientRect().top,
+      pods: [...canvas.querySelectorAll('.seat-wrapper--top')].map((pod) => ({
+        name: pod.querySelector('.seat__name')?.textContent,
+        bottom: Math.max(
+          ...[
+            ...pod.querySelectorAll(
+              '.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge'
+            ),
+          ]
+            .map((element) => element.getBoundingClientRect())
+            .filter((b) => b.width && b.height)
+            .map((b) => b.bottom)
+        ),
+      })),
+    }));
+    if (equalSeatSizing.length === 9) {
+      expect(topRailClearance.pods).toHaveLength(2);
+      for (const pod of topRailClearance.pods)
+        expect(
+          topRailClearance.railTop - pod.bottom,
+          `${pod.name}: complete pod above rail`
+        ).toBeGreaterThanOrEqual(3);
+    }
+    evidence.topRailClearance = topRailClearance;
     const sizingScreenshot = info.outputPath('mobile-live-table-equal-seat-sizing.png');
     await page.screenshot({ path: sizingScreenshot });
     await info.attach('mobile-published-equal-seat-sizing', {

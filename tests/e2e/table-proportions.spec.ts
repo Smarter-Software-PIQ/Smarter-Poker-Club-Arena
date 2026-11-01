@@ -836,9 +836,14 @@ test('Safari toolbar space is reclaimed by portrait gameplay without narrowing t
 const occupiedViewports: Array<[number, number?]> = [
   ...[320, 375, 393, 430, 480, 600, 768, 1024].map((width): [number] => [width]),
   [600, 852],
+  [600, 1310],
 ];
 for (const [width, heightOverride] of occupiedViewports)
-  for (const count of heightOverride || width === 1024 ? [6] : [6, 9])
+  for (const count of heightOverride === 1310
+    ? [9]
+    : heightOverride || width === 1024
+      ? [6]
+      : [6, 9])
     test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}`, async ({
       page,
     }, testInfo) => {
@@ -1086,6 +1091,33 @@ for (const [width, heightOverride] of occupiedViewports)
             requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
           );
         });
+        if (count === 9 && ((width >= 393 && width <= 480) || heightOverride === 1310)) {
+          // A toolbar-clear crown is insufficient: the entire top player must
+          // finish before the chassis starts, including its live action tag.
+          const capGaps = await page.locator('.table-scaler').evaluate((canvas) => {
+            const railTop = canvas.getBoundingClientRect().top;
+            return [...canvas.querySelectorAll('.seat-wrapper--top')].map(
+              (pod) =>
+                railTop -
+                Math.max(
+                  ...[
+                    ...pod.querySelectorAll(
+                      '.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge'
+                    ),
+                  ]
+                    .map((element) => element.getBoundingClientRect())
+                    .filter((b) => b.width && b.height)
+                    .map((b) => b.bottom)
+                )
+            );
+          });
+          expect(capGaps).toHaveLength(2);
+          for (const gap of capGaps)
+            expect(
+              gap,
+              `${width}px ${state} ${jackpot}: top pod above rail`
+            ).toBeGreaterThanOrEqual(3);
+        }
         if (scaledPhone) {
           const proof = await page.evaluate(readMobileTableLayout, AVATAR_CROWN_TOP);
           expect(proof.occupied).toBe(count);
