@@ -20,10 +20,18 @@ ca_diag_init(void)
     struct sockaddr_storage peer;
     socklen_t size = sizeof(peer);
     struct stat details;
+    size_t written = 0;
     if (fstat(3, &details) != 0 || !S_ISSOCK(details.st_mode) ||
         getpeername(3, (struct sockaddr *) &peer, &size) != 0 ||
         peer.ss_family != AF_UNIX || clock_gettime(CLOCK_MONOTONIC, &ca_diag_origin) != 0)
         pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_FD");
+    while (written < 2)
+    {
+        ssize_t size = send(3, &"D4"[written], 2 - written, MSG_NOSIGNAL);
+        if (size < 0 && errno == EINTR) continue;
+        if (size <= 0) pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_WRITE");
+        written += size;
+    }
 }
 
 static void
@@ -31,7 +39,7 @@ ca_diag_emit(char level, char boundary)
 {
     struct timespec now;
     long long elapsed;
-    unsigned char line[12];
+    unsigned char line[8];
     const size_t length = sizeof(line);
     size_t written = 0;
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
@@ -41,20 +49,17 @@ ca_diag_emit(char level, char boundary)
     if (++ca_diag_seq > 100000 || elapsed < 0 || elapsed > 45000000LL ||
         ca_diag_object < 1 || ca_diag_object > 4)
         pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_RANGE");
-    /* D3 adds a fixed subtype nibble without another byte or event. */
-    line[0] = 'D'; line[1] = '3';
-    line[2] = (unsigned char) (ca_diag_seq >> 24);
-    line[3] = (unsigned char) (ca_diag_seq >> 16);
-    line[4] = (unsigned char) (ca_diag_seq >> 8);
-    line[5] = (unsigned char) ca_diag_seq;
-    line[6] = (unsigned char) ((level == 'Q' ? ca_diag_subtype << 4 : 0) |
+    /* One D4 stream header, then every original event in exactly eight bytes. */
+    line[0] = (unsigned char) (ca_diag_seq >> 16);
+    line[1] = (unsigned char) (ca_diag_seq >> 8);
+    line[2] = (unsigned char) ca_diag_seq;
+    line[3] = (unsigned char) ((level == 'Q' ? ca_diag_subtype << 4 : 0) |
                              ((ca_diag_object - 1) << 2) |
                              (level == 'Q' ? 2 : 0) | (boundary == 'E' ? 1 : 0));
-    line[7] = (unsigned char) (elapsed >> 24);
-    line[8] = (unsigned char) (elapsed >> 16);
-    line[9] = (unsigned char) (elapsed >> 8);
-    line[10] = (unsigned char) elapsed;
-    line[11] = '\n';
+    line[4] = (unsigned char) (elapsed >> 24);
+    line[5] = (unsigned char) (elapsed >> 16);
+    line[6] = (unsigned char) (elapsed >> 8);
+    line[7] = (unsigned char) elapsed;
     while (written < (size_t) length)
     {
         ssize_t size = send(3, line + written, length - written, MSG_NOSIGNAL);

@@ -605,10 +605,11 @@ failed or wrongly ordered results refuse capture without retry. Cached native
 results are cleared on normal/error process exit. The128MiB private metadata
 bound,512KiB diagnostic cap and original45-second whole-capture deadline remain.
 
-Diagnostic wire protocol D3 keeps the same fixed12-byte records, event count,
-512KiB cap and45-second clock bound. Its high tag nibble adds a closed query
-subtype; legacy D1/D2 remain independently decoded without inventing historical
-subtypes. Existing FUNCTION/RELATION/TYPE/OTHER counters and timings remain.
+Diagnostic wire protocol D4 emits one two-byte stream header and eight-byte
+records, preserving every original event and fact within the same512KiB cap,
+100000-record bound and45-second clock bound. Each record packs the unchanged
+event/group/subtype tag, a24-bit sequence number and32-bit microsecond timestamp.
+Legacy D1/D2/D3 remain independently decoded without inventing historical subtypes. Existing FUNCTION/RELATION/TYPE/OTHER counters and timings remain.
 Version3 receipts additionally provide started/completed network-request counts,
 elapsed/max microseconds for UNKNOWN, FUNCTION_BATCH, FUNCTION_SINGLE, AGGREGATE,
 SEQUENCE_BATCH, SEQUENCE_SINGLE, COLUMN_ACL, VIEW_DEFINITION, PARTITION_KEY,
@@ -618,7 +619,7 @@ Raw function/sequence batch sites supply their fixed code. Singleton readers use
 strict pinned fixed-prefix classification; unsupported prefixes or incompatible
 object contexts stay UNKNOWN. No SQL, object identifiers, names or result rows
 enter the channel. Both independent decoders enforce subtype/type/pair bounds;
-the source-bound capability requires actual D3 native frames and subtype proof,
+the source-bound capability requires actual D4 native frames and subtype proof,
 so old manifests cannot certify the logger. Counts describe network requests,
 including a whole batch, rather than logical statements or cached object reads.
 

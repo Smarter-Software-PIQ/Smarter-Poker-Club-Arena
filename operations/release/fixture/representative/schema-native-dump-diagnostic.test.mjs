@@ -122,7 +122,7 @@ async function binaryFixture(run){
       sequence_batch_helper_sha256:hash(await readFile(new URL('../native-dump-sequence-batch.c',import.meta.url))),
       function_batch_contract_sha256:hash(await readFile(new URL('../native-dump-function-batch-test.c',import.meta.url))),
       transport:'bounded-stock-function-sequence-metadata-v3',
-      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5513,function_batch_max:128,synthetic_sequence_count:138,sequence_metadata_sql_equal:true,metadata_interleaved_sql_equal:true,sequence_data_reader_unchanged:true,metadata_total_results_max:128,metadata_total_bytes_max:128*1024*1024,native_batch_result_faults_refused:true,dependency_interleaved_sql_equal:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components',diagnostic_wire:'D3-fixed12',query_subtypes_valid:true}};
+      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5513,function_batch_max:128,synthetic_sequence_count:138,sequence_metadata_sql_equal:true,metadata_interleaved_sql_equal:true,sequence_data_reader_unchanged:true,metadata_total_results_max:128,metadata_total_bytes_max:128*1024*1024,native_batch_result_faults_refused:true,dependency_interleaved_sql_equal:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components',diagnostic_wire:'D4-header2-record8',query_subtypes_valid:true}};
     const save=()=>writeFile(path.join(output,'manifest.json'),JSON.stringify(manifest),{mode:0o600});await save();
     await run({root,output,manifest,save,env:{RUNNER_TEMP:root,GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
   }finally{await rm(root,{recursive:true,force:true});}
@@ -134,7 +134,7 @@ test('only exact qualified owned native binary and source manifest creates an ex
     const old=manifest[key];manifest[key]='b'.repeat(old.length);await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest[key]=old;
   }
-  for(const [key,bad] of [['synthetic_routine_count',5512],['function_batch_max',129],['synthetic_sequence_count',137],['sequence_metadata_sql_equal',false],['metadata_interleaved_sql_equal',false],['sequence_data_reader_unchanged',false],['metadata_total_results_max',256],['metadata_total_bytes_max',256*1024*1024],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['dependency_interleaved_sql_equal',false],['diagnostic_object_scope','all-visits'],['diagnostic_wire','D2-fixed12'],['query_subtypes_valid',false]]){
+  for(const [key,bad] of [['synthetic_routine_count',5512],['function_batch_max',129],['synthetic_sequence_count',137],['sequence_metadata_sql_equal',false],['metadata_interleaved_sql_equal',false],['sequence_data_reader_unchanged',false],['metadata_total_results_max',256],['metadata_total_bytes_max',256*1024*1024],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['dependency_interleaved_sql_equal',false],['diagnostic_object_scope','all-visits'],['diagnostic_wire','D2-fixed12'],['diagnostic_wire','D3-fixed12'],['query_subtypes_valid',false]]){
     const old=manifest.qualification[key];manifest.qualification[key]=bad;await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.qualification[key]=old;
   }
@@ -277,11 +277,11 @@ test('actual native C producer and both independent decoders agree on compact wi
     const built=spawnSync('cc',['-std=c11','-D_POSIX_C_SOURCE=200809L','-Wall','-Wextra','-Werror',source,'-o',binary],{encoding:'utf8',timeout:15000});
     assert.equal(built.status,0,built.stderr);
     const native=spawnSync(binary,[],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000});
-    assert.equal(native.status,0,native.stderr?.toString());const frames=native.output[3];assert.equal(frames.length,48);
+    assert.equal(native.status,0,native.stderr?.toString());const frames=native.output[3];assert.equal(frames.length,34);
     const parser=createNativeDumpDiagnostic();parser.push(frames,1);parser.finish();assert.equal(parser.snapshot(2).types.FUNCTION.queries_completed,1);parser.clear();
     const script="import importlib.util,sys;spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);print(m.validate_frames(sys.stdin.buffer.read()))";
     const valid=spawnSync('python3',['-B','-c',script],{input:frames,encoding:'utf8',timeout:5000});assert.equal(valid.status,0,valid.stderr);assert.equal(valid.stdout.trim(),'4');
-    const invalid=Buffer.from(frames);invalid[6]=16;
+    const invalid=Buffer.from(frames);invalid[5]=16;
     assert.notEqual(spawnSync('python3',['-B','-c',script],{input:invalid,encoding:'utf8',timeout:5000}).status,0);
   }finally{await rm(root,{recursive:true,force:true});}
 });
@@ -320,7 +320,7 @@ print('bounded native read-ahead contract passed')`;
 });
 
 
-test('real D3 C producer and independent decoders preserve exact closed subtype counts and timing',async()=>{
+test('real D4 C producer and independent decoders preserve exact closed subtype counts and timing',async()=>{
   const root=await mkdtemp(path.join(process.env.TMPDIR ?? process.env.RUNNER_TEMP,'native-subtypes-'));
   try{
     const source=path.join(root,'producer.c'),binary=path.join(root,'producer');
@@ -338,6 +338,7 @@ int main(int argc,char **argv){
  "SELECT e.extname FROM pg_catalog.pg_depend d, pg_catalog.pg_extension e private","PREPARE private","EXECUTE dumpEnumType('private')"};
  int i;ca_diag_init();
  if(argc>1){
+  if(!strcmp(argv[1],"bulk")){int n=atoi(argv[2]);for(i=0;i<n;i++){ca_diag_object_begin(1);ca_diag_query_begin();ca_diag_query_end();ca_diag_object_end();}return 0;}
   if(!strcmp(argv[1],"records")){ca_diag_seq=100000;ca_diag_object_begin(1);return 0;}
   if(!strcmp(argv[1],"clock")){ca_diag_origin.tv_sec-=46;ca_diag_object_begin(1);return 0;}
   if(!strcmp(argv[1],"scope")){ca_diag_object_begin(2);ca_diag_query_begin_sql("EXECUTE dumpFunc('private')");ca_diag_query_end();ca_diag_object_end();return 0;}
@@ -348,18 +349,22 @@ int main(int argc,char **argv){
     await writeFile(source,code);
     const build=spawnSync('cc',['-std=c11','-D_POSIX_C_SOURCE=200809L','-Wall','-Wextra','-Werror',source,'-o',binary],{encoding:'utf8',timeout:15000});assert.equal(build.status,0,build.stderr);
     const run=spawnSync(binary,[],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000});assert.equal(run.status,0,run.stderr?.toString());
-    const frames=run.output[3];assert.equal(frames.length,14*4*12);assert.equal(frames.subarray(0,2).toString(),'D3');assert.ok(!frames.includes(Buffer.from('private')));
+    const frames=run.output[3];assert.equal(frames.length,2+14*4*8);assert.equal(frames.subarray(0,2).toString(),'D4');assert.ok(!frames.includes(Buffer.from('private')));
     const parse=bytes=>{const parser=createNativeDumpDiagnostic();parser.push(bytes,1);parser.finish();return parser.snapshot(2);};
-    const result=parse(frames);assert.equal(result.version,3);assert.equal(result.records,56);assert.deepEqual(safeNativeDumpDiagnostic(result),result);
-    for(const [i,name]of QUERY_SUBTYPES.entries()){assert.equal(result.query_subtypes[name].queries_completed,1,name);assert.equal(frames[(i*4+1)*12+6]>>>4,i,name);}
-    const partial=createNativeDumpDiagnostic();partial.push(frames.subarray(0,24),1);assert.equal(partial.snapshot(2).last_unpaired_query.subtype,'UNKNOWN');assert.ok(safeNativeDumpDiagnostic(partial.snapshot(2)));
+    const legacy=Buffer.concat(Array.from({length:56},(_,i)=>{const row=frames.subarray(2+i*8,10+i*8),b=Buffer.alloc(12);b.write('D3');b.writeUInt32BE(row.readUIntBE(0,3),2);b[6]=row[3];row.copy(b,7,4,8);b[11]=10;return b;}));
+    const result=parse(frames);assert.deepEqual(parse(legacy).types,result.types);assert.deepEqual(parse(legacy).query_subtypes,result.query_subtypes);
+    for(let width=1;width<=10;width++){const p=createNativeDumpDiagnostic();for(let offset=0;offset<frames.length;offset+=width)p.push(frames.subarray(offset,offset+width),1);p.finish();assert.deepEqual(p.snapshot(2),result);}
+assert.equal(result.version,3);assert.equal(result.records,56);assert.deepEqual(safeNativeDumpDiagnostic(result),result);
+    for(const [i,name]of QUERY_SUBTYPES.entries()){assert.equal(result.query_subtypes[name].queries_completed,1,name);assert.equal(frames[2+(i*4+1)*8+3]>>>4,i,name);}
+    const partial=createNativeDumpDiagnostic();partial.push(frames.subarray(0,18),1);assert.equal(partial.snapshot(2).last_unpaired_query.subtype,'UNKNOWN');assert.ok(safeNativeDumpDiagnostic(partial.snapshot(2)));
     const scoped=spawnSync(binary,['scope'],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000});assert.equal(scoped.status,0);assert.equal(parse(scoped.output[3]).query_subtypes.UNKNOWN.queries_completed,1);
     const script="import importlib.util,sys,json;spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);print(json.dumps(m.validate_frames(sys.stdin.buffer.read(),with_subtypes=True)))";
     const python=bytes=>spawnSync('python3',['-B','-c',script],{input:bytes,encoding:'utf8',timeout:5000});
+    for(const [cycles,ok]of [[16383,true],[16384,false]]){const bulk=spawnSync(binary,['bulk',String(cycles)],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000,maxBuffer:1024*1024});assert.equal(bulk.status,0);assert.equal(bulk.output[3].length,2+cycles*32);if(ok){assert.equal(parse(bulk.output[3]).records,cycles*4);assert.equal(python(bulk.output[3]).status,0);}else{assert.throws(()=>parse(bulk.output[3]));assert.notEqual(python(bulk.output[3]).status,0);}}
     const decoded=python(frames);assert.equal(decoded.status,0,decoded.stderr);assert.deepEqual(JSON.parse(decoded.stdout),{records:56,query_subtypes:result.query_subtypes});
     const cases=[];
-    for(const [at,value]of [[6,16],[18,226],[18,82],[30,50],[13,50]]){const bad=Buffer.from(frames);bad[at]=value;cases.push(bad);}
-    cases.push(frames.subarray(0,-1));const late=Buffer.from(frames);late.writeUInt32BE(45000001,7);cases.push(late);
+    for(const [at,value]of [[5,16],[13,226],[13,82],[21,50],[1,50]]){const bad=Buffer.from(frames);bad[at]=value;cases.push(bad);}
+    cases.push(frames.subarray(0,-1));const late=Buffer.from(frames);late.writeUInt32BE(45000001,6);cases.push(late);
     for(const bad of cases){assert.throws(()=>parse(bad));assert.notEqual(python(bad).status,0);}
     for(const invalid of ['14','1','records','clock'])assert.equal(spawnSync(binary,[invalid],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000}).status,71);
     const malformed=structuredClone(result);malformed.query_subtypes.UNKNOWN.queries_started++;
@@ -436,4 +441,21 @@ assert m.FIRST_FAILURE_STAGE=='SYNTHETIC_DIAGNOSTIC'
 print('closed-phase-pass')`;
   const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000});
   assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed-phase-pass');
+});
+
+
+test('D4 retains the exact original byte cap and fits every unchanged event',()=>{
+  const frame=(seq,tag)=>{const b=Buffer.alloc(8);b.writeUIntBE(seq,0,3);b[3]=tag;b.writeUInt32BE(seq,4);return b;};
+  const records=[];for(let i=0;i<16383;i++)for(const tag of [0,2,3,1])records.push(frame(records.length+1,tag));
+  const complete=Buffer.concat([Buffer.from('D4'),...records]);assert.equal(complete.length,524258);
+  const parser=createNativeDumpDiagnostic();for(let offset=0;offset<complete.length;offset+=137)parser.push(complete.subarray(offset,offset+137),1);parser.finish();assert.equal(parser.snapshot(2).records,65532);
+  const py=bytes=>spawnSync('python3',['-B','-c',"import importlib.util,sys;spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);print(m.validate_frames(sys.stdin.buffer.read()))"],{input:bytes,encoding:'utf8',timeout:5000,maxBuffer:1024*1024});
+  assert.equal(py(complete).status,0);
+  const extra=Buffer.concat([0,2,3,1].map((tag,i)=>frame(65533+i,tag)));assert.equal(Buffer.concat([complete,extra]).length,524290);assert.notEqual(py(Buffer.concat([complete,extra])).status,0);
+  const exact=createNativeDumpDiagnostic();exact.push(Buffer.concat([complete,extra.subarray(0,30)]),1);assert.equal(exact.snapshot(2).bytes,524288);assert.throws(()=>exact.push(Buffer.from([0]),2),e=>e.diagnosticKind==='FD3_LIMIT');
+  for(const size of [1,2,3,9]){const p=createNativeDumpDiagnostic();p.push(complete.subarray(0,size),1);assert.throws(()=>p.finish());assert.notEqual(py(complete.subarray(0,size)).status,0);}
+  // The exact 43,680 admitted capture events now need 349,442 bytes, with none omitted.
+  assert.equal(2+43680*8,349442);assert.ok(2+43680*8<512*1024);
+  const legacy=Buffer.concat(records.slice(0,4).map(row=>{const b=Buffer.alloc(12);b.write('D3');b.writeUInt32BE(row.readUIntBE(0,3),2);b[6]=row[3];row.copy(b,7,4,8);b[11]=10;return b;}));
+  const old=createNativeDumpDiagnostic();old.push(legacy,1);old.finish();assert.deepEqual(old.snapshot(2).types,(()=>{const p=createNativeDumpDiagnostic();p.push(Buffer.concat([Buffer.from('D4'),...records.slice(0,4)]),1);p.finish();return p.snapshot(2).types;})());assert.equal(py(legacy).status,0);
 });
