@@ -17,11 +17,29 @@ const closureDatabaseWindowId = '2026-11-01-fixed170-closure-boundary-db';
 const ownerWindowPath = 'server/release/owner-maintenance-windows.json';
 const closureDatabaseMarker = ',\n    {\n      "id": "' + closureDatabaseWindowId + '"';
 
+const equalShareDatabaseWindowId = '2026-11-01-fixed170-equal-share-db';
+const equalShareDatabaseMarker = ',\n    {\n      "id": "' + equalShareDatabaseWindowId + '"';
+
+/** Strip only the qualified final append; every prior byte remains authoritative. */
+function beforeEqualShareDatabaseWindow(raw: string): string {
+  const doc = JSON.parse(raw);
+  const matches = [...doc.windows, ...doc.databaseWindows].filter(
+    (entry: { id: string }) => entry.id === equalShareDatabaseWindowId
+  );
+  if (matches.length !== 1 || doc.databaseWindows.at(-1)?.id !== equalShareDatabaseWindowId)
+    throw new Error('The equal-share database-only entry must be unique and final');
+  const start = raw.indexOf(equalShareDatabaseMarker, raw.indexOf('  "databaseWindows"'));
+  if (start < 0 || raw.split(equalShareDatabaseMarker).length !== 2 || !raw.endsWith('\n  ]\n}\n'))
+    throw new Error('The equal-share database-only raw append is unavailable');
+  return raw.slice(0, start) + '\n  ]\n}\n';
+}
+
 /** Historical engine hashes predate this one independently qualified DB entry.
  * Remove only its final raw object; retain every byte of all earlier entries.
  * The separate guard below pins the new object and the exact protected prefix.
  */
-function historicalOwnerWindowSource(raw: string): string {
+function historicalOwnerWindowSource(raw: string, beforeEqualShare = false): string {
+  if (!beforeEqualShare) raw = beforeEqualShareDatabaseWindow(raw);
   const doc = JSON.parse(raw);
   const matches = [...doc.windows, ...doc.databaseWindows].filter(
     (entry: { id: string }) => entry.id === closureDatabaseWindowId
@@ -1544,7 +1562,7 @@ it('binds the owner-ordered drained engine crash-loop activation that falls back
 });
 
 it('admits only the qualified closure database append while preserving exact protected history', () => {
-  const raw = readFileSync(join(root, ownerWindowPath), 'utf8');
+  const raw = beforeEqualShareDatabaseWindow(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   expect(doc.version).toBe(1);
   expect(doc.databaseWindows).toHaveLength(4);
@@ -1602,7 +1620,7 @@ it('admits only the qualified closure database append while preserving exact pro
   // Independently compared byte-for-byte with protected e665e4a5bdc361317b1de9942ca295a36ba1d625.
   // This full-source pin includes every old engine window, DB entry, ordering and whitespace.
   const protectedHistoryHash = 'b15c5009360704744f666ceb01f1b5cebfa78cec0f4a3c5dbbc79fbadb8fe1a8';
-  const history = historicalOwnerWindowSource(raw);
+  const history = historicalOwnerWindowSource(raw, true);
   expect(createHash('sha256').update(history).digest('hex')).toBe(protectedHistoryHash);
   const start = raw.indexOf(closureDatabaseMarker);
   expect(createHash('sha256').update(raw.slice(start, -'\n  ]\n}\n'.length)).digest('hex')).toBe(
@@ -1613,19 +1631,103 @@ it('admits only the qualified closure database append while preserving exact pro
     createHash('sha256')
       .update(
         historicalOwnerWindowSource(
-          raw.replace('2026-10-28-horse-brain-pineapple-database-only', 'foreign-database-window')
+          raw.replace('2026-10-28-horse-brain-pineapple-database-only', 'foreign-database-window'),
+          true
         )
       )
       .digest('hex')
   ).not.toBe(protectedHistoryHash);
   const unexpected = structuredClone(doc);
   unexpected.databaseWindows.push({ ...entry, id: 'unreviewed-extra-window' });
-  expect(() => historicalOwnerWindowSource(JSON.stringify(unexpected, null, 2) + '\n')).toThrow(
+  expect(() =>
+    historicalOwnerWindowSource(JSON.stringify(unexpected, null, 2) + '\n', true)
+  ).toThrow('unique and final');
+  const duplicate = structuredClone(doc);
+  duplicate.databaseWindows.push(entry);
+  expect(() =>
+    historicalOwnerWindowSource(JSON.stringify(duplicate, null, 2) + '\n', true)
+  ).toThrow('unique and final');
+});
+
+it('binds the one-file equal-share append and preserves the entire prior source', () => {
+  const raw = readFileSync(join(root, ownerWindowPath), 'utf8');
+  const doc = JSON.parse(raw);
+  const entry = doc.databaseWindows.at(-1);
+  expect(doc.databaseWindows).toHaveLength(5);
+  const ids = [...doc.windows, ...doc.databaseWindows].map((value: { id: string }) => value.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(entry.id).toBe(equalShareDatabaseWindowId);
+  expect(entry.id).toMatch(/^[a-z0-9][a-z0-9-]{0,63}$/);
+  expect(Object.keys(entry).sort()).toEqual([
+    'contains',
+    'id',
+    'migrations',
+    'notAfter',
+    'notBefore',
+    'ownerOrder',
+  ]);
+  expect(entry.contains).toBe('c2e5080b2267917a48fd7e45d82bc719c0f6ffa7');
+  expect(entry.notBefore).toBe('2026-11-01T14:40:00Z');
+  expect(entry.notAfter).toBe('2026-11-01T20:30:00Z');
+  expect(Date.parse(entry.notAfter) - Date.parse(entry.notBefore)).toBe(
+    5 * 3_600_000 + 50 * 60_000
+  );
+  expect(Date.parse(entry.notAfter) - Date.parse(entry.notBefore)).toBeLessThanOrEqual(
+    6 * 3_600_000
+  );
+  expect(entry.migrations).toEqual([
+    '20261101004247_started_tournament_abort_supports_equal_share_settlement.sql',
+  ]);
+  expect(
+    createHash('sha256')
+      .update(readFileSync(join(root, 'supabase/migrations', entry.migrations[0])))
+      .digest('hex')
+  ).toBe('d42ad78995ffb0c626636e10c41b9b350119995e20c7ef71c4578ac99bfca1aa');
+  const prior = beforeEqualShareDatabaseWindow(raw);
+  expect(createHash('sha256').update(prior).digest('hex')).toBe(
+    'a52c841a814dcf394e3e654bbfb4fe7596ac9fa8ea418b597ab2a5a7d6b834a3'
+  );
+  const start = raw.indexOf(equalShareDatabaseMarker);
+  expect(createHash('sha256').update(raw.slice(start, -'\n  ]\n}\n'.length)).digest('hex')).toBe(
+    'd31450110027187b67910828924c846cac90fdf120acc23bac71004c1e0d2192'
+  );
+  const previousEntry = JSON.parse(prior).databaseWindows.at(-1);
+  const originalQuote = previousEntry.ownerOrder
+    .split(' His original financial order in ')[1]
+    .split(' This database-only prerequisite')[0];
+  expect(entry.ownerOrder).toContain(originalQuote);
+  for (const guard of [
+    'request_database_break=false',
+    'owner_window_id',
+    'first-P1 Deployment Recovery',
+    'weekly reader',
+    '285-second',
+    '150-second',
+    '100-second',
+    'fn_platform_frozen',
+    'No new announcement',
+    'scheduled-hourly substitution',
+    'new-tournament-start hold',
+    'AUDIT retains financial disposition',
+  ])
+    expect(entry.ownerOrder).toContain(guard);
+  const unexpected = structuredClone(doc);
+  unexpected.databaseWindows.push({ ...entry, id: 'unreviewed-extra-window' });
+  expect(() => beforeEqualShareDatabaseWindow(JSON.stringify(unexpected, null, 2) + '\n')).toThrow(
     'unique and final'
   );
   const duplicate = structuredClone(doc);
   duplicate.databaseWindows.push(entry);
-  expect(() => historicalOwnerWindowSource(JSON.stringify(duplicate, null, 2) + '\n')).toThrow(
+  expect(() => beforeEqualShareDatabaseWindow(JSON.stringify(duplicate, null, 2) + '\n')).toThrow(
     'unique and final'
   );
+  expect(
+    createHash('sha256')
+      .update(
+        beforeEqualShareDatabaseWindow(
+          raw.replace('2026-11-01-fixed170-closure-boundary-db', 'foreign-window')
+        )
+      )
+      .digest('hex')
+  ).not.toBe('a52c841a814dcf394e3e654bbfb4fe7596ac9fa8ea418b597ab2a5a7d6b834a3');
 });

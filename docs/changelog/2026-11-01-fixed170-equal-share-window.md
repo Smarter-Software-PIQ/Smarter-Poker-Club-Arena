@@ -1,0 +1,7 @@
+# Prepare the fixed170 equal-share prerequisite window
+
+Adds a separate one-migration database window for the protected 04247 equal-share contract. The bounded 14:40–20:30 UTC interval is agent-selected source preparation, not a clock certificate, freeze, installer run or financial disposition. The owner’s exact financial order and provenance are copied from the existing closure-boundary reservation.
+
+This entry permits only the maintained `request_database_break=false` route joining the genuine owning first-P1 Deployment Recovery freeze, with current history/preimages, source and generation ownership, weekly-reader completion, full recovery and installer reserves, durable freeze enforcement and original healthy thaw intact. It authorizes no new announcement, freeze, scheduled-hourly substitute, payments or new-tournament hold. AUDIT retains disposition and settlement ownership. The 05048 reservation and all earlier engine/database bytes remain unchanged.
+
+Historical source guards strip only this qualified final append before applying every prior hash and closure-boundary guard. The new guard pins the full previous raw source and exact new object, migration hash, unique identity, source anchor, bounds and copied authority; unexpected additions, duplicates and prior mutation remain failures. Native reverse-order qualification, protected delivery, installation and runtime evidence remain separate prerequisites owned by their existing operators.
