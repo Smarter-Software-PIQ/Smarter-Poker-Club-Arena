@@ -79,6 +79,17 @@ describe('a window migration declares itself exactly', () => {
   });
 });
 
+describe('the equal-share receipt constraints use the certified window', () => {
+  it('admits the exact financial migration only through the window route', () => {
+    const file = '20261101004247_started_tournament_abort_supports_equal_share_settlement.sql';
+    const sql = read(`supabase/migrations/${file}`);
+    expect(windowDeclaration(sql)).toBe('daily-maintenance');
+    expect(validateWindowMigration(file, sql)).toBe(true);
+    expect(sql).toContain("SET LOCAL lock_timeout='1s';");
+    expect(sql).toContain("SET LOCAL statement_timeout='5s';");
+  });
+});
+
 describe('it refuses rather than waits, in one transaction', () => {
   it('accepts the fixture that takes all three live tables', () => {
     expect(validateWindowMigration(FILE, fixture, { preamble: [] })).toBe(true);
