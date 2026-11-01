@@ -50,9 +50,46 @@ function board(guarantee: number) {
   );
   return { entry, onSelect, writers };
 }
+// Same single-argument :not() specificity model as topRailCapCascade.test.ts.
+function selectorWeight(selector: string) {
+  const unwrapped = selector.replace(/:not\(([^()]*)\)/g, ' $1 ');
+  const classes = (unwrapped.match(/\.[\w-]+|\[[^\]]*\]|:[\w-]+/g) ?? []).length;
+  const types = (unwrapped.match(/(?:^|[\s>+~])[a-z][\w-]*/g) ?? []).length;
+  return classes * 100 + types;
+}
+function declaration(css: string, selector: string, requiredBody = '') {
+  const normalized = (value: string) => value.replace(/\s+/g, ' ').trim();
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = Array.from(clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)).find(
+    (match) =>
+      match[2].includes(requiredBody) &&
+      match[1].split(',').some((candidate) => normalized(candidate) === normalized(selector))
+  );
+  expect(rule, `Missing Rule: ${selector}`).toBeTruthy();
+  return rule![2];
+}
 describe('tournament headers span their whole event frame', () => {
   it('overrides the machine desktop row gap and paints the actual last visible cell', () => {
     const css = readFileSync('src/components/lobby/LobbyTable.css', 'utf8');
+    const machine = readFileSync('src/components/lobby/ClubLobbyCommandTop.css', 'utf8');
+    const oldOutline = ".lobby-table tr[data-kind]:not([data-kind='cash']).is-featured";
+    const body = ".lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured";
+    expect(declaration(css, oldOutline)).toContain('outline: 2px solid');
+    expect(declaration(css, body)).toContain('outline: none;');
+    expect(selectorWeight(body)).toBeGreaterThan(selectorWeight(oldOutline));
+    for (const element of ['tr', 'td']) {
+      const owner = `.club-lobby-machine .lobby-table tbody ${element}`;
+      const spacer = `.club-lobby-machine .lobby-table tbody tr.lt-event-gap${element === 'td' ? ' > td' : ''}`;
+      expect(declaration(machine, owner, 'height: clamp(38px')).toContain(
+        'height: clamp(38px, 4.1vh, 43px);'
+      );
+      expect(declaration(css, spacer)).toContain('height: 4px;');
+      expect(declaration(css, spacer)).toContain('padding: 0;');
+      expect(declaration(css, spacer)).toContain('background: #000;');
+      expect(declaration(css, spacer)).toContain('box-shadow: none;');
+      expect(selectorWeight(spacer)).toBeGreaterThan(selectorWeight(owner));
+    }
+
     expect(css).toMatch(
       /\.club-lobby-machine \.lobby-table\.has-tournament-headings\s*\{\s*border-spacing: 0;/
     );
@@ -60,6 +97,12 @@ describe('tournament headers span their whole event frame', () => {
       "[data-tournament-body='true'].is-featured > td[data-last-visible='true']"
     );
     expect(css).toMatch(/tr\.lt-event-gap > td\s*\{\s*height: 4px;\s*padding: 0;/);
+    expect(css).toMatch(
+      /tr\[data-kind\]\[data-tournament-body='true'\]\.is-featured\s*\{\s*outline: none;/
+    );
+    expect(css).toMatch(
+      /\.club-lobby-machine \.lobby-table tbody tr\.lt-event-gap,\s*\.club-lobby-machine \.lobby-table tbody tr\.lt-event-gap > td\s*\{\s*height: 4px;\s*min-height: 0;\s*max-height: 4px;\s*padding: 0;/
+    );
   });
   it('puts full title, snowflake and bold guarantee above the existing numeric columns in both layouts', () => {
     board(10000);
