@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
     },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
@@ -1969,5 +1969,17 @@
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
+  },
+  "mobileBrowserHostSourceAudit20261031": {
+    "scope": "Source identity only: four existing Playwright/build jobs use supported ubuntu-24.04 after ubuntu-latest advanced to Ubuntu26 and the locked Playwright install failed before tests. The complete reviewed diff changes only those four runs-on values. No commands, matrices, assertions, financial fixture, deadline, concurrency or release safeguard changes.",
+    "previousCiPin": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "currentCiPin": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "qualification": "No financial recertification, SQL installation or live certification is asserted. All historical audits, inputs and verdicts are preserved. Required hosted checks remain mandatory."
   }
 }
