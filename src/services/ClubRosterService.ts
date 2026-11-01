@@ -40,14 +40,42 @@ async function readMemberRpc(
   parameters: Record<string, unknown>,
   signal?: AbortSignal
 ): Promise<unknown> {
-  const { runRosterReadWithRetry } = await import('../utils/rosterReadReliability');
+  const { computeRosterRetryDelay, isServerTerminatedRosterTimeout, runRosterReadWithRetry } =
+    await import('../utils/rosterReadReliability');
   return runRosterReadWithRetry(
     async (attemptSignal) => {
-      let request = supabase.rpc(name, parameters);
-      if (name === 'ca_club_member_detail' || name === 'ca_club_member_statistics') {
-        request = request.setHeader('x-client-info', 'club-arena-member-results/2');
+      const executeRpc = async () => {
+        let request = supabase.rpc(name, parameters);
+        if (name === 'ca_club_member_detail' || name === 'ca_club_member_statistics') {
+          request = request.setHeader('x-client-info', 'club-arena-member-results/2');
+        }
+        return await request.abortSignal(attemptSignal);
+      };
+      let { data, error } = await executeRpc();
+      for (
+        let retry = 0;
+        retry < 2 && error && !attemptSignal.aborted && isServerTerminatedRosterTimeout(error);
+        retry += 1
+      ) {
+        const delayMs = computeRosterRetryDelay(retry, 500, 1_500);
+        await new Promise<void>((resolve, reject) => {
+          if (attemptSignal.aborted) {
+            reject(new DOMException('The roster request was superseded.', 'AbortError'));
+            return;
+          }
+          const timer = setTimeout(() => {
+            attemptSignal.removeEventListener('abort', onAbort);
+            resolve();
+          }, delayMs);
+          const onAbort = () => {
+            clearTimeout(timer);
+            attemptSignal.removeEventListener('abort', onAbort);
+            reject(new DOMException('The roster request was superseded.', 'AbortError'));
+          };
+          attemptSignal.addEventListener('abort', onAbort, { once: true });
+        });
+        ({ data, error } = await executeRpc());
       }
-      const { data, error } = await request.abortSignal(attemptSignal);
       if (error) throw error;
       return data;
     },
@@ -241,26 +269,42 @@ export function mapRosterRow(row: Record<string, unknown>): RosterMember {
 }
 
 export interface MemberRange {
-  /** UTC calendar date, yyyy-mm-dd, inclusive at both ends. Both null means all recorded activity. */
+  /** Chicago calendar date, yyyy-mm-dd, inclusive at both ends. Both null means all recorded activity. */
   from: string | null;
   to: string | null;
 }
 
 export const RANGE_OVERALL: MemberRange = { from: null, to: null };
 
-/** The last N UTC calendar days inclusive of today, matching the RPC day buckets. */
+/** Last N Chicago calendar days, inclusive of today, independent of the device zone. */
 export function lastDaysRange(days: number): MemberRange {
-  const to = new Date();
-  const from = new Date(to);
+  const to = isoDate(new Date());
+  const from = new Date(`${to}T12:00:00Z`);
   from.setUTCDate(from.getUTCDate() - (days - 1));
-  return { from: isoDate(from), to: isoDate(to) };
+  return { from: from.toISOString().slice(0, 10), to };
 }
 
+/** A date-only label in the reporting zone, including IANA daylight-saving rules. */
 export function isoDate(d: Date): string {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+/** Find the next Chicago date boundary without assuming a 24-hour local day. */
+export function nextMemberDay(now = new Date()): number {
+  const today = isoDate(now);
+  let lo = now.getTime();
+  let hi = lo + 26 * 60 * 60 * 1000;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (isoDate(new Date(mid)) === today) lo = mid;
+    else hi = mid;
+  }
+  return hi;
 }
 
 /** One level of a player's upline, closest agent first (depth 1). */
@@ -517,11 +561,15 @@ export const ClubRosterService = {
           return await request;
         };
         let { data, error } = await executeRpc();
-        if (error && !attemptSignal.aborted && isServerTerminatedRosterTimeout(error)) {
+        for (
+          let retry = 0;
+          retry < 2 && error && !attemptSignal.aborted && isServerTerminatedRosterTimeout(error);
+          retry += 1
+        ) {
           // SQLSTATE 57014/55P03 means Postgres itself already canceled the
           // statement at its role statement_timeout (8s), so no abandoned query
-          // remains running on the server. Retry once within the 40s window.
-          const delayMs = computeRosterRetryDelay(0, 350, 800);
+          // remains running on the server. Retry up to twice within the 40s window.
+          const delayMs = computeRosterRetryDelay(retry, 500, 1_500);
           await new Promise<void>((resolve, reject) => {
             if (attemptSignal.aborted) {
               reject(new DOMException('The roster request was superseded.', 'AbortError'));

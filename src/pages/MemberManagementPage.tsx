@@ -1105,10 +1105,10 @@ export default function MemberManagementPage() {
                 ? 'Loading The Selected Range...'
                 : detail!.range.is_overall
                   ? 'Showing All Recorded Activity'
-                  : `Showing ${detail!.range.from ?? '?'} To ${detail!.range.to ?? '?'} UTC`}
+                  : `Showing ${detail!.range.from ?? '?'} To ${detail!.range.to ?? '?'} Chicago Time`}
             </p>
             <p className="mm-range__caption">
-              UTC Dates Include Both From And To. Custom Dates Need Confirm.
+              Chicago Dates Include Both From And To. Custom Dates Need Confirm.
             </p>
             {rangeMode === 'custom' && (customFrom !== range.from || customTo !== range.to) && (
               <p className="mm-range__draft" role="status">
@@ -1136,12 +1136,13 @@ export default function MemberManagementPage() {
               </p>
               <p>
                 Total Winnings Is The Cash Net Result, Signed Hand Results Not Wallet Balances. MTT
-                Winnings Is Tournament Money: Prizes Paid Minus Buy-Ins In The Displayed UTC Window,
-                Matching The Win/Loss Card. Tournament Stack Chips Are Not Counted.
+                Winnings Is Tournament Money: Prizes Paid Minus Buy-Ins In The Displayed Chicago
+                Window, Matching The Win/Loss Card. Tournament Stack Chips Are Not Counted.
               </p>
               <p>
                 Claimed Back Counts Incoming Rakeback And Commission Transactions. Sent Out Counts
-                Outgoing Transfer, Send And Distribution Transactions In The Displayed UTC Window.
+                Outgoing Transfer, Send And Distribution Transactions In The Displayed Chicago
+                Window.
               </p>
               <p>Fees, Winnings And Transaction Totals Are Club Chip Wallet Amounts.</p>
               <p>

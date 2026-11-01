@@ -957,7 +957,7 @@ test.describe('Production Kings Club Players', () => {
     }
     await expect(page.locator('.ps-range__custom input[type="date"]')).toHaveCount(2);
     await expect(page.getByRole('status', { name: 'Displayed Performance Scope' })).toContainText(
-      'UTC'
+      'Chicago Time'
     );
     const performanceGuide = page.locator('[aria-label="Performance Metric Definitions"]');
     await performanceGuide.locator('summary').click();

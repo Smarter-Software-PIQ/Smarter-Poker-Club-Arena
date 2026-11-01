@@ -239,7 +239,7 @@ it.each(['record', 'statistics'] as const)(
           : { ...statistics, from: '2026-01-01', to: '2026-01-31' }
       );
     });
-    expect(caption).toHaveTextContent('Showing 2026-01-01 To 2026-01-31 UTC');
+    expect(caption).toHaveTextContent('Showing 2026-01-01 To 2026-01-31 Chicago Time');
     expect(read).toHaveBeenCalledTimes(2);
     view.unmount();
   }
@@ -405,9 +405,9 @@ it('ignores the old performance read when the viewer changes during a queued ref
   expect(state.getMemberStatistics).toHaveBeenCalledTimes(3);
 });
 
-it('advances relative performance dates at the UTC boundary without polling', async () => {
+it('advances relative performance dates at the Chicago boundary without polling', async () => {
   vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-10-18T23:59:59.900Z'));
+  vi.setSystemTime(new Date('2026-10-19T04:59:59.900Z'));
   render(<PlayerStatisticsPage />);
   await act(async () => {});
   // Opened without a carried range, Statistics shows Overall, as the record does.
@@ -424,7 +424,7 @@ it('advances relative performance dates at the UTC boundary without polling', as
 
 it('keeps the chosen member ledger dates until the viewer explicitly selects a range', async () => {
   vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-10-18T23:59:59.900Z'));
+  vi.setSystemTime(new Date('2026-10-19T04:59:59.900Z'));
   render(<MemberManagementPage />);
   await act(async () => {});
   fireEvent.click(screen.getByRole('button', { name: '7 Days', exact: true }));

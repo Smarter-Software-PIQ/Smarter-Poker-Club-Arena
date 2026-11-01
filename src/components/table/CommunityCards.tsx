@@ -818,8 +818,10 @@ function CommunityCardsComponent({
      effect whose whole body wrote `prevCardCountRef`, which nothing ever
      read. AUDIT 2026-09-05: both are gone. */
 
-  // Track newly dealt cards — only new cards get deal animation, existing cards stay still
-  useEffect(() => {
+  // Admit a new street before paint: a passive effect lets its ordinary face
+  // paint once before replacing it with the face-down reveal. Existing cards
+  // and boards mounted after reconnect retain their static presentation.
+  useLayoutEffect(() => {
     const prevCount = prevVisibleCountRef.current;
     // 700ms used to be enough, but the two-phase flop (land face down, then
     // fan open) runs to ~1.22s. Clearing at 700ms tore the flip markup out

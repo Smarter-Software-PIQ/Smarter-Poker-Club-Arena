@@ -53,6 +53,7 @@ import ClubRosterService, {
   RANGE_OVERALL,
   lastDaysRange,
   isoDate,
+  nextMemberDay,
   type MemberRange,
   type MemberStatistics,
 } from '../services/ClubRosterService';
@@ -90,7 +91,7 @@ const RANGE_LABEL: Record<StatsRange, string> = {
   custom: 'Custom',
 };
 
-/** The relative windows: they advance with the UTC calendar. */
+/** The relative windows: they advance with the Chicago calendar. */
 function relativeDays(mode: StatsRange): number | null {
   return mode === 'day' || mode === 'week' || mode === 'month' ? RANGE_DAYS[mode] : null;
 }
@@ -386,11 +387,11 @@ export default function PlayerStatisticsPage() {
     };
   }, []);
 
-  // Relative windows advance on the UTC calendar boundary, even on idle pages.
+  // Relative windows advance on the Chicago calendar boundary, even on idle pages.
   useEffect(() => {
     if (relativeDays(rangeMode) === null) return;
     const now = new Date();
-    const nextDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+    const nextDay = nextMemberDay(now);
     const timer = window.setTimeout(() => refreshRef.current(), nextDay - now.getTime() + 25);
     return () => window.clearTimeout(timer);
   }, [rangeMode, range.from, range.to]);
@@ -510,10 +511,10 @@ export default function PlayerStatisticsPage() {
             ? 'Loading The Selected Range...'
             : stats?.is_overall
               ? 'Showing All Recorded Activity'
-              : `Showing ${stats?.from ?? range.from ?? '?'} To ${stats?.to ?? range.to ?? '?'} UTC · ${variantLabel(stats ? stats.variant : variant)}`}
+              : `Showing ${stats?.from ?? range.from ?? '?'} To ${stats?.to ?? range.to ?? '?'} Chicago Time · ${variantLabel(stats ? stats.variant : variant)}`}
         </p>
         <p className="ps-range__caption">
-          UTC Dates Include Both From And To. Custom Dates Need Confirm.
+          Chicago Dates Include Both From And To. Custom Dates Need Confirm.
         </p>
         {rangeMode === 'custom' && (customFrom !== range.from || customTo !== range.to) && (
           <p className="ps-range__draft" role="status">
@@ -524,8 +525,8 @@ export default function PlayerStatisticsPage() {
           <details className="ps-metric-guide" aria-label="Performance Metric Definitions">
             <summary>Metric Definitions</summary>
             <p>
-              All Figures Use Recorded Hands For This Club, The Displayed UTC Dates And Game. Older
-              Activity May No Longer Be Retained.
+              All Figures Use Recorded Hands For This Club, The Displayed Chicago Dates And Game.
+              Older Activity May No Longer Be Retained.
             </p>
             <p>
               VPIP Counts Hands With Voluntary Preflop Investment; PFR Counts Hands With A Preflop

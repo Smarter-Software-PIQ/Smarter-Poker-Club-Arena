@@ -1586,8 +1586,11 @@ and blind-clock authority stays independent of global engine maintenance.
 
 The owner explicitly requested scheduled daily server updates on October 20.
 This is a narrow exception to the former no-release-timer rule: the existing
-stage-engine-release.yml prepares protected main at 03:30 Chicago (UTC twin
-triggers guarded by Chicago hour), through the existing receiver only. It
+stage-engine-release.yml prepares protected main in the 03:30-03:50 Chicago
+window: the first push or schedule run created inside it prepares, once per
+Chicago date, and a late cron prepares nothing (2026-11-01,
+`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`),
+through the existing receiver only. It
 must not add a second publisher, watcher, retry agent or repair loop. Routine
 pushes queue for that daily preparation; urgent releases and degraded-engine
 recovery retain explicit, bounded emergency admission. A request deadline or

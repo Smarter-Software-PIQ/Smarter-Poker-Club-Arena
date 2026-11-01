@@ -52,8 +52,12 @@ const WORKFLOWS = join(ROOT, '.github', 'workflows');
 /** Every timer this repository runs; daily DST twins remain one business schedule. */
 const TIMERS: ReadonlyArray<readonly [string, string]> = [
   // Owner explicitly requested daily 04:00 Chicago engine updates, 2026-10-20.
-  ['stage-engine-release.yml', '30 8 * * *'],
-  ['stage-engine-release.yml', '30 9 * * *'],
+  // Same business schedule, more chances to arrive (2026-11-01): GitHub
+  // delivered the single :30 tick 5-6 h late on 10-30/10-31 and not at all on
+  // 11-01. Four odd minutes per DST twin; only a run created inside the
+  // 03:30-03:50 Chicago window prepares, once per Chicago date.
+  ['stage-engine-release.yml', '31,35,39,43 8 * * *'],
+  ['stage-engine-release.yml', '31,35,39,43 9 * * *'],
   ['applied-migrations-recorded.yml', '25 7,19 * * *'],
   ['ci.yml', '17 */2 * * *'],
   ['ci.yml', '35 6 * * *'],

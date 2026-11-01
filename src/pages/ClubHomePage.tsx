@@ -1472,12 +1472,18 @@ function ClubHomePageContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubId]);
 
+  const clubHomeChannelInstanceRef = useRef(0);
   // ── Realtime subscription: live table updates (player counts, status) ──
   useEffect(() => {
     if (!clubId) return;
     let isMounted = true;
     let realtimeEpoch = 0;
     let firstSubscribe = true;
+    let activeChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
+    clubHomeChannelInstanceRef.current += 1;
+    const mountInstanceId = clubHomeChannelInstanceRef.current;
+    const channelKey =
+      mountInstanceId > 1 ? `club-tables-${clubId}-${mountInstanceId}` : `club-tables-${clubId}`;
     let playingRefreshTimer: ReturnType<typeof setTimeout> | null = null;
     let occupancyTimer: ReturnType<typeof setInterval> | null = null;
     /* The jackpot feeds are ref-counted per club and per pool, so a table open
@@ -1564,7 +1570,6 @@ function ClubHomePageContent({
 
       if (!isCurrent()) return;
 
-      const channelKey = `club-tables-${clubId}`;
       /**
        * A CHANNEL WITH NO FACTORY IS A CHANNEL THAT NEVER COMES BACK.
        *
@@ -1582,12 +1587,17 @@ function ClubHomePageContent({
        * Registered BEFORE the handlers so a reap that lands mid-setup still
        * has something to call; only the latest setup may attach callbacks.
        */
+      let channel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
       masterBus.registerChannelFactory(channelKey, () => {
         setupRealtime().catch((e) =>
           console.warn('[ClubHomePage] realtime auto-recovery failed:', e)
         );
       });
-      let channel = masterBus.getOrCreateChannel(channelKey);
+      if (activeChannel) {
+        masterBus.removeRegisteredChannel(channelKey, activeChannel);
+      }
+      channel = masterBus.getOrCreateChannel(channelKey);
+      activeChannel = channel;
 
       // Realtime admission rules — these MUST mirror the fetch queries below
       // (the cash-table query and the tournament queries). Realtime `filter:`
@@ -1959,7 +1969,12 @@ function ClubHomePageContent({
       // still registered is an invitation for the health monitor to rebuild
       // the one we are deliberately tearing down.
       masterBus.removeChannelFactory(`club-tables-${clubId}`);
-      masterBus.removeRegisteredChannel(`club-tables-${clubId}`);
+      if (mountInstanceId > 1) masterBus.removeChannelFactory(channelKey);
+      if (mountInstanceId > 1) {
+        masterBus.removeRegisteredChannel(channelKey, activeChannel ?? undefined);
+      } else {
+        masterBus.removeRegisteredChannel(`club-tables-${clubId}`);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubId, currentUser?.id, isAutomaticArena]);

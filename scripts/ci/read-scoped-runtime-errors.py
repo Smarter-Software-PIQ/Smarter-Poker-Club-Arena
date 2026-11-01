@@ -520,7 +520,7 @@ def coredump_restart_signs(data, container_id, window):
 # One fixed read-only subprocess replaces the existing container read, keeping
 # the same four-second source budget. It never opens a core file or emits paths.
 CORE_CAPTURE_COMMAND = r"""
-import json, os, re, stat, subprocess
+import hashlib, json, os, re, stat, subprocess
 
 def inspect():
     value = subprocess.run(['docker','inspect','--format',
@@ -549,9 +549,68 @@ try:
     uses=text('/proc/sys/kernel/core_uses_pid')
     if uses in ('0','1'): m['usesPid']=int(uses)
 except (OSError,ValueError): pattern=None
+# Classify only the executable token. Arguments never leave this subprocess.
+handler = re.match(r'^\|(/[^\s]+)(?:\s|$)', pattern or '')
+m['handlerClass'] = {'/usr/share/apport/apport':'apport',
+    '/usr/lib/systemd/systemd-coredump':'systemd',
+    '/lib/systemd/systemd-coredump':'systemd'}.get(handler[1] if handler else '', 'unknown')
+m['handlerCandidates'] = []
+m['handlerSourceSHA256']='unknown'; m['apportPackageVersion']='unknown'
+if m['handlerClass']=='apport':
+    # Fixed root-owned, non-writable path only; no source bytes are exported.
+    handles=[]
+    try:
+        parent=None
+        for part in ['/usr','share','apport']:
+            descriptor=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,
+                               **({'dir_fd':parent} if parent is not None else {}))
+            handles.append(descriptor); parent=descriptor
+            info=os.fstat(descriptor)
+            if info.st_uid!=0 or info.st_mode&0o022: raise ValueError('handler directory untrusted')
+        descriptor=os.open('apport',os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW,dir_fd=parent)
+        handles.append(descriptor)
+        before=os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid!=0 or before.st_mode&0o022
+                or not 0<before.st_size<=262144): raise ValueError('handler source refused')
+        source=os.read(descriptor,262145)
+        after=os.fstat(descriptor)
+        source_identity=lambda value:(value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns,value.st_uid,value.st_mode)
+        if len(source)!=before.st_size or source_identity(before)!=source_identity(after): raise ValueError('handler source changed')
+        m['handlerSourceSHA256']=hashlib.sha256(source).hexdigest()
+        # Fixed package query consumes part of the existing four-second budget.
+        # No shell, package inventory or raw command output is exported.
+        package=subprocess.run(['/usr/bin/dpkg-query','--show','--showformat=${Version}','apport'],
+                               capture_output=True,timeout=0.5,check=True)
+        version=package.stdout.decode('ascii')
+        if re.fullmatch(r'[0-9][A-Za-z0-9.+:~\-]{0,95}',version): m['apportPackageVersion']=version
+    except (OSError,ValueError,subprocess.SubprocessError): pass
+    finally:
+        for descriptor in reversed(handles): os.close(descriptor)
+if m['handlerClass']=='apport':
+    candidates=[('local_node','_usr_local_bin_node.0.crash'),('system_node','_usr_bin_node.0.crash')]
+    var=crash=None
+    try:
+        var=os.open('/var',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        crash=os.open('crash',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=var)
+        if os.fstat(var).st_uid!=0 or os.fstat(crash).st_uid!=0: raise ValueError('untrusted directory')
+        for kind,name in candidates:
+            row={'kind':kind,'availability':'unknown'}
+            try:
+                info=os.stat(name,dir_fd=crash,follow_symlinks=False)
+                if not stat.S_ISREG(info.st_mode): row['availability']='not_regular_file'
+                elif info.st_uid==0:
+                    row.update(availability='regular_file',bytes=info.st_size,mtimeNs=info.st_mtime_ns)
+            except FileNotFoundError: row['availability']='absent'
+            except OSError: pass
+            m['handlerCandidates'].append(row)
+    except (OSError,ValueError):
+        m['handlerCandidates']=[{'kind':kind,'availability':'unknown'} for kind,_ in candidates]
+    finally:
+        if crash is not None: os.close(crash)
+        if var is not None: os.close(var)
 try:
     for line in text('/proc/'+str(pid)+'/limits').splitlines():
-        match=re.fullmatch(r'Max core file size\s+(\S+)\s+(\S+)\s+bytes',line)
+        match=re.fullmatch(r'Max core file size\s+(\S+)\s+(\S+)\s+bytes',line.strip())
         if match: m['processSoft'],m['processHard']=map(limit,match.groups())
 except (OSError,ValueError): pass
 for row in a.get('HostConfig',{}).get('Ulimits') or []:
@@ -593,6 +652,31 @@ def core_capture_metadata(value, window):
     if value.get('patternClass') in ('disabled','pipe','file_absolute','file_relative'):
         result['patternClass']=value['patternClass']
     if type(value.get('usesPid')) is int and value['usesPid'] in (0,1): result['usesPid']=value['usesPid']
+    result['handlerClass'] = (value.get('handlerClass') if result['patternClass']=='pipe'
+                              and value.get('handlerClass') in ('apport','systemd') else 'unknown')
+    result['handlerArtifactLookup'] = 'fixed_apport_candidates' if result['handlerClass']=='apport' else 'unproven'
+    result['handlerCandidates'] = []
+    result['handlerSourceSHA256']='unknown'; result['apportPackageVersion']='unknown'
+    if result['handlerClass']=='apport':
+        fingerprint,version=value.get('handlerSourceSHA256'),value.get('apportPackageVersion')
+        if isinstance(fingerprint,str) and re.fullmatch(r'[0-9a-f]{64}',fingerprint):
+            result['handlerSourceSHA256']=fingerprint
+            if isinstance(version,str) and re.fullmatch(r'[0-9][A-Za-z0-9.+:~\-]{0,95}',version):
+                result['apportPackageVersion']=version
+    candidates=value.get('handlerCandidates')
+    if (result['handlerClass']=='apport' and isinstance(candidates,list) and len(candidates)==2
+            and all(isinstance(row,dict) for row in candidates)
+            and [row.get('kind') for row in candidates]==['local_node','system_node']):
+        start,end=[int(datetime.datetime.fromisoformat(window[k].replace('Z','+00:00')).timestamp()*1000000000) for k in ('since','until')]
+        for row in candidates:
+            item={'kind':row['kind'],'availability':'unknown','incidentAttribution':'unproven'}
+            if row.get('availability') in ('absent','not_regular_file'): item['availability']=row['availability']
+            elif row.get('availability')=='regular_file':
+                size,stamp=row.get('bytes'),row.get('mtimeNs')
+                if type(size) is int and 0<=size<=9007199254740991 and type(stamp) is int and 0<=stamp<=9223372036854775807:
+                    item.update(availability='regular_file',bytes=size,mtimeNs=stamp,
+                                windowRelation='inside' if start<=stamp<end else 'before' if stamp<start else 'after')
+            result['handlerCandidates'].append(item)
     for key in ('processSoft','processHard','containerSoft','containerHard'):
         v=value.get(key)
         if v=='unlimited' or type(v) is int and 0<=v<=9007199254740991: result[key]=v
