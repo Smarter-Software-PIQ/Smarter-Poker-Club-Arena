@@ -512,6 +512,27 @@ export const PLO_STACKOFF_TAGS = [
 /** Diagnostic rates use their variant family and a 40-reviewed-hand floor. */
 export type LeakFamily = 'omaha' | 'holdem' | 'tournament';
 
+/**
+ * V24 OMAHA PRICE DEFENSE, PER VARIANT (2026-10-31). The relief is ON by
+ * default everywhere except PLO6 CASH, where the nightly league (a cash card)
+ * pooled it significantly NEGATIVE (plo6_v24_price, -2.34 +/- 1.12 bb/100 over
+ * the seven runs to 2026-10-30) while PLO4 pooled significantly positive.
+ * PLO6 tournaments keep it: the league deals no tournament, V24 was built for
+ * the PLO PKO Dan watched, and its tournament half (the survival premium
+ * scaled by the fraction of stack at risk) is unmeasured there, not negative.
+ * An explicit option decides it everywhere: true turns it on (the league
+ * card's arm A and the plo6-v24 qualification candidate), false turns it off
+ * (the ablation arm). PLO6 cash gets it back only when it qualifies.
+ */
+export function v24PloDefenseOn(
+  option: boolean | undefined,
+  gameVariant: unknown,
+  tournament: boolean
+): boolean {
+  if (option !== undefined) return option !== false;
+  return tournament || String(gameVariant ?? '').toLowerCase() !== 'plo6';
+}
+
 export function leakLoad(
   mods: HorseProfileMods | undefined,
   tags: readonly string[],
@@ -1987,10 +2008,12 @@ export interface HorseDecideOpts {
    *  awareness preflop — pots against a covered raiser are worth more than
    *  their chips, so the call bar bends toward them (default: enabled) */
   v24Bounty?: boolean;
-  /** disable the V24 Omaha price defense: in PLO the call bar bends toward
-   *  the POT ODDS rather than a fixed NLH-calibrated percentile, and the
-   *  survival premium scales with the fraction of stack actually at risk
-   *  (default: enabled) */
+  /** the V24 Omaha price defense: in PLO the call bar bends toward the POT
+   *  ODDS rather than a fixed NLH-calibrated percentile, and the survival
+   *  premium scales with the fraction of stack actually at risk. Default:
+   *  enabled, except DISABLED in PLO6 cash since 2026-10-31 (league
+   *  plo6_v24_price pooled negative; see v24PloDefenseOn). An explicit value
+   *  decides it everywhere. */
   v24PloDefense?: boolean;
   /** disable the V25 PLO tournament layer (Dan 2026-08-28): pot limit means
    *  you cannot shove, so short-stack PLO is a COMMITMENT decision rather
@@ -6383,7 +6406,14 @@ export class HorseLogic {
         (opts.v20Mzone ?? true) !== false ? dealtHorseTableSize(gs, player.seat) : undefined,
       // V21: deep-stack cash stack-off discipline.
       deepDiscipline: (opts.v21Deep ?? true) !== false,
-      ploPriceDefense: (opts.v24PloDefense ?? true) !== false,
+      // V24 price defense, PLO6 CASH half DEFAULT OFF since 2026-10-31: the
+      // league pooled plo6_v24_price NEGATIVE (-2.34 +/- 1.12 bb/100 over the
+      // 7 runs to 2026-10-30; -2.41 +/- 0.98 over the 9 runs since 2026-10-23)
+      // while plo4_v24_price pooled +3.43 +/- 0.89 over the same nights.
+      // Absent the option, PLO6 cash plays without it and everything else
+      // keeps it; an explicit v24PloDefense (true or false) still decides it,
+      // so the league card and plo6-v24 qualification measure it.
+      ploPriceDefense: v24PloDefenseOn(opts.v24PloDefense, gs.gameVariant, isTournamentMode(gs)),
       // V25: PLO tournament play — the pot-limit commitment zone and its
       // consequences. Tournament-only by construction inside the engine.
       ploTourney: (opts.v25PloTourney ?? true) !== false,
