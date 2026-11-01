@@ -1107,3 +1107,34 @@ describe('the original HUD read has a finite ownership boundary', () => {
     expect(hudBar()).toBeNull();
   });
 });
+
+describe('tournament HUD hot-path optimizations', () => {
+  it('memoizes blind_structure JSON parsing across 1 Hz getCurrentLevelState ticks', async () => {
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    await mount();
+    parseSpy.mockClear();
+
+    await advance(5_000);
+    const structureParses = parseSpy.mock.calls.filter(([arg]) => arg === STRUCTURE);
+    expect(structureParses).toHaveLength(0);
+    parseSpy.mockRestore();
+  });
+
+  it('computes competition rank in O(N) for large tournament fields without cloning and sorting', async () => {
+    const largeField = Array.from({ length: 100 }, (_, i) => ({
+      user_id: i === 42 ? 'viewer' : `player-${i}`,
+      chips: i === 42 ? 5000 : i < 10 ? 8000 : 3000,
+    }));
+    fx.playersAnswer = () => ok(largeField);
+    const sortSpy = vi.spyOn(Array.prototype, 'sort');
+    await mount();
+    expect(
+      screen.getByText('Rank').parentElement?.querySelector('.tournament-dock__value')?.textContent
+    ).toBe('11');
+    const fieldSorts = sortSpy.mock.instances.filter(
+      (arr) => Array.isArray(arr) && arr.length === largeField.length
+    );
+    expect(fieldSorts).toHaveLength(0);
+    sortSpy.mockRestore();
+  });
+});

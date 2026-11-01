@@ -6205,7 +6205,15 @@ function LiveTablePage({
   useProtectedCardLayout(
     tableScalerRef,
     JSON.stringify([
-      tableState.players.map((p) => p && [p.id, p.showCards, p.status, p.holeCards?.length]),
+      tableState.players.map(
+        (p) =>
+          p && [
+            p.id,
+            Boolean(p.showCards || p.status === 'all_in') && (p.holeCards?.length ?? 0) > 0
+              ? p.holeCards?.length
+              : 0,
+          ]
+      ),
       tableState.communityCards,
       tableState.communityCards2,
       tableState.communityCards3,
@@ -28407,6 +28415,14 @@ function LiveTablePage({
                the pot pill by exactly that lift. */
             const collectDy =
               collectOffset.y + (!markerSize.railBets && pos.y >= 100 && pos.x === 50 ? 30 : 0);
+            const seatBounty = seatBountyBadge({
+              isBountyTournament: Boolean(tableState.isBountyTournament),
+              mysteryChestsLive,
+              chestsOnly: mysteryChestsOnly,
+              playerId: player?.id,
+              playerStatus: player?.status,
+              bountyMap: tableState.bountyMap,
+            });
 
             return (
               <div
@@ -28614,26 +28630,8 @@ function LiveTablePage({
                       : null
                   }
                   isTournament={tableState.isTournament}
-                  bountyValue={
-                    seatBountyBadge({
-                      isBountyTournament: Boolean(tableState.isBountyTournament),
-                      mysteryChestsLive,
-                      chestsOnly: mysteryChestsOnly,
-                      playerId: player?.id,
-                      playerStatus: player?.status,
-                      bountyMap: tableState.bountyMap,
-                    }).value
-                  }
-                  bountyIsMystery={
-                    seatBountyBadge({
-                      isBountyTournament: Boolean(tableState.isBountyTournament),
-                      mysteryChestsLive,
-                      chestsOnly: mysteryChestsOnly,
-                      playerId: player?.id,
-                      playerStatus: player?.status,
-                      bountyMap: tableState.bountyMap,
-                    }).mystery
-                  }
+                  bountyValue={seatBounty.value}
+                  bountyIsMystery={seatBounty.mystery}
                   /* THE GRID THIS TABLE PAYS ON (2026-09-20). `arenaAsset` has
                      been through `parseArenaIdentity`, which writes 'diamonds'
                      only for a row satisfying all three conditions
