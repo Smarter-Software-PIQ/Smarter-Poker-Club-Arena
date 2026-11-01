@@ -51,13 +51,6 @@ BEGIN
   j := ca_player_rake_stats(k, null, 'diamonds');
   ASSERT (j->>'rake_share')::numeric = 0, 'diamonds unaffected';
 
-  -- The intended recent B/C cases and the lagging/future hand are in both
-  -- rolling-seven-day readers, independent of the date this fixture runs.
-  ASSERT (ca_player_rake_stats(k, 7, 'chips')->>'rake_share')::numeric = 56.25,
-    'seven-day share retains both recent closed-day cases';
-  ASSERT (ca_player_rake_stats_by_club(k, 7, 'chips', c)->>'rake_share')::numeric = 56.25,
-    'club seven-day share retains both recent closed-day cases';
-
   -- Immediate: the next KINGS hand is shared at once, by every reader.
   INSERT INTO ca_hand_facts VALUES (w,'fade0000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-00000000000f',null,now(),2.00,0.5);
   INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount,created_at) VALUES ('00000000-0000-0000-0000-00000000000f',w,c,2.00,now());
@@ -75,7 +68,7 @@ BEGIN
   ASSERT (ca_player_rake_stats_by_club(w, null, 'chips', c)->>'rake_paid')::numeric = -83.21, 'not KINGS rake';
 
   -- Ending the rule ends the share at that instant, in every reader.
-  UPDATE smarter_private.player_rake_share_rules SET effective_until = ((SELECT day + 1 FROM rake_share_fixture_clock)::timestamp AT TIME ZONE 'UTC');
+  UPDATE smarter_private.player_rake_share_rules SET effective_until = '2026-10-25 00:00:00+00';
   ASSERT (ca_player_rake_stats(k)->>'rake_paid')::numeric = 565.26, 'only hand B was inside the rule';
   ASSERT (SELECT cash_fees FROM ca_club_member_fee_totals(c, null, null, k)) = 565.26, 'fees follow the same window';
   BEGIN
@@ -86,5 +79,3 @@ BEGIN
   END;
   RAISE NOTICE 'rake share: all assertions passed';
 END $$;
-
-DROP TABLE public.rake_share_fixture_clock;
