@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   nearbyMaintenanceWindows,
   nextMaintenanceAnnouncement,
+  type MaintenanceFrequency,
 } from '../maintenance/maintenanceSchedule.js';
 import { MaintenanceBreak } from '../maintenance/MaintenanceBreak.js';
 import {
@@ -17,10 +18,10 @@ const maintenance = {
   lastHandLeadMs: MaintenanceBreak.LAST_HAND_LEAD_MS,
   durationMs: MaintenanceBreak.BREAK_DURATION_MS,
 };
-const prepare = (start: string, field: number) =>
+const prepare = (start: string, field: number, frequency: MaintenanceFrequency = 'daily') =>
   scheduledLaunchPreparationAt(at(start), field, 60_000, {
     ...maintenance,
-    freezeStartsAt: nearbyMaintenanceWindows(at(start))
+    freezeStartsAt: nearbyMaintenanceWindows(at(start), frequency)
       .map((w) => w.startsAt)
       .reverse(),
   });
@@ -65,6 +66,31 @@ describe('scheduled launch preparation owns the setup time', () => {
     }
   });
 
+  it('Phase1 hourly starts finish seating ahead of each last-hand door with the full pass margin', () => {
+    for (let hour = 11; hour < 24; hour++) {
+      const start = new Date(Date.UTC(2026, 9, 20, hour, 0)).toISOString();
+      for (const field of [6, 40, 342, 483]) {
+        const opened = prepare(start, field, 'phase1-hourly');
+        const lastHand = at(start) - maintenance.lastHandLeadMs;
+        expect(opened + launchSeatingBudgetMs(field)).toBe(
+          lastHand - 60_000 - LAUNCH_BREAK_PASS_MARGIN_MS
+        );
+        expect(
+          launchWouldCrossLastHand(
+            field,
+            nextMaintenanceAnnouncement(
+              opened + 60_000 + LAUNCH_BREAK_PASS_MARGIN_MS,
+              'phase1-hourly'
+            ) -
+              opened -
+              60_000 -
+              LAUNCH_BREAK_PASS_MARGIN_MS
+          )
+        ).toBe(false);
+      }
+    }
+  });
+
   it('leaves a slow discovery pass its full seated minute and pass margin before the daily door', () => {
     for (let minute = -10; minute <= 10; minute++) {
       const start = new Date(at('2026-10-20T09:00:00Z') + minute * 60_000).toISOString();
@@ -73,7 +99,7 @@ describe('scheduled launch preparation owns the setup time', () => {
         expect(
           launchWouldCrossLastHand(
             field,
-            nextMaintenanceAnnouncement(opened + 60_000 + LAUNCH_BREAK_PASS_MARGIN_MS) -
+            nextMaintenanceAnnouncement(opened + 60_000 + LAUNCH_BREAK_PASS_MARGIN_MS, 'daily') -
               opened -
               60_000 -
               LAUNCH_BREAK_PASS_MARGIN_MS

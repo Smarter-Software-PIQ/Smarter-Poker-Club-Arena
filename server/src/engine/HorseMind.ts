@@ -1101,7 +1101,8 @@ export class HorseMind {
     let sc = this.scoped.get(key);
     if (!sc) {
       if (this.scoped.size >= MAX_TRACKED_PLAYERS * 4)
-        evictOldest(this.scoped, MAX_TRACKED_PLAYERS * 4);
+        for (const evicted of evictOldest(this.scoped, MAX_TRACKED_PLAYERS * 4))
+          this.dirtyScoped.delete(evicted);
       sc = freshStats();
       this.scoped.set(key, sc);
     }

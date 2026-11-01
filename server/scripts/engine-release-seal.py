@@ -494,6 +494,244 @@ def cmd_bootstrap_running(args: argparse.Namespace) -> None:
         print(sha)
 
 
+# Source policy is part of the immutable engine archive. No environment/CLI
+# switch grants hourly authority. Completion/off on current protected main
+# revokes new cycles even for an older still-contained target.
+SCHEDULE_POLICY_PATH = 'server/src/maintenance/maintenanceSchedulePolicy.json'
+SCHEDULE_POLICY_ID = 'phase1-hourly-01a1944f'
+
+
+def schedule_policy(repo: str, sha: str) -> dict[str, Any]:
+    raw = run(['git', '-C', repo, 'show', f'{valid_sha(sha)}:{SCHEDULE_POLICY_PATH}'])
+    try:
+        p = json.loads(raw)
+    except ValueError:
+        die('maintenance schedule policy is unreadable')
+    if (not isinstance(p, dict) or set(p) != {'schema', 'policyId', 'timeZone', 'phase1Status', 'ownerMessageId', 'completionEvidence'}
+            or p.get('schema') != 'engine-maintenance-schedule/v1'
+            or p.get('policyId') != SCHEDULE_POLICY_ID or p.get('timeZone') != 'America/Chicago'
+            or p.get('ownerMessageId') != '01a1944f-7131-7f11-8dcc-873d576e781c'
+            or p.get('phase1Status') not in ('active', 'complete', 'off')
+            or (p['phase1Status'] != 'active' and (not isinstance(p['completionEvidence'], str) or len(p['completionEvidence'].strip()) < 12))
+            or (p['phase1Status'] == 'active' and p['completionEvidence'] is not None)):
+        die('maintenance schedule policy is invalid')
+    return {**p, 'digest': hashlib.sha256(raw.encode()).hexdigest()}
+
+
+def current_cycle_policy(repo: str, sha: str, control: str) -> dict[str, Any]:
+    main = run(['git', '-C', repo, 'rev-parse', 'origin/main'])
+    for candidate in (sha, control):
+        git_is_ancestor(repo, valid_sha(candidate), main, 'hourly policy target/control is not protected main')
+    target, latest, controller = (schedule_policy(repo, revision) for revision in (sha, main, control))
+    if target['digest'] != latest['digest'] or target['digest'] != controller['digest']:
+        die('current protected hourly source policy does not authorize this cycle')
+    return target
+
+
+def routine_window(c: dict[str, Any], *, verified: bool = False) -> dict[str, Any] | None:
+    w = c.get('window')
+    if w is None:
+        if verified: die('routine cycle has no verified durable announcement')
+        return None
+    if (not isinstance(w, dict) or set(w) != {'announcedAt','startsAt','endsAt','verified'}
+            or any(type(w.get(k)) is not int for k in ('announcedAt','startsAt','endsAt'))
+            or type(w.get('verified')) is not bool or w['startsAt'] != w['announcedAt']+120000
+            or w['endsAt'] != w['startsAt']+300000
+            or not c['startsAt']*1000 <= w['startsAt'] < (c['startsAt']+60)*1000):
+        die('routine cycle window does not preserve its actual120/300second promise')
+    if verified and not w['verified']:
+        die('routine cycle announcement is not durably observed')
+    return w
+
+
+def cmd_bind_routine_window(args: argparse.Namespace) -> None:
+    raw = sys.stdin.read(1048577)
+    if len(raw)>1048576: die('routine health binding exceeds its bound')
+    try: h=json.loads(raw)
+    except ValueError: die('routine health binding is unreadable')
+    with SealLock():
+        state=load_state(); c=own_routine_cycle(state, str(args.run_id))
+        if c is None or c['status']!='reserved' or c.get('failure') is not None:
+            die('routine window has no unresolved original owner')
+        current_cycle_policy(args.repo,c['sha'],c['controlSha'])
+        m=h.get('maintenance') if isinstance(h,dict) else None
+        p=m.get('presentation') if isinstance(m,dict) else None
+        if (h.get('releaseSha')!=state['desired']['sha'] or h.get('running') is not True
+                or 'weeklyPayout' not in h or h['weeklyPayout'] is not None
+                or not isinstance(p,dict) or m.get('active') is not True or m.get('durableConfirmed') is not True
+                or m.get('phase') not in ('last_hand','counting_down') or p.get('phase')!=m['phase'] or p.get('active') is not True
+                or p.get('reason')!=m.get('reason') or type(p.get('break_id')) is not int):
+            die('routine durable maintenance identity is unproved')
+        announced=p['break_id']; w={'announcedAt':announced,'startsAt':announced+120000,'endsAt':announced+420000,'verified':True}
+        probe={**c,'window':w}; routine_window(probe,verified=True)
+        if (type(p.get('break_ends_at')) is not int or p['break_ends_at']!=w['endsAt']
+                or type(p.get('scheduled_ends_at')) is not int or p['scheduled_ends_at']!=w['endsAt']):
+            die('routine presentation changed its promised window')
+        now=int(time.time()*1000)
+        if not announced <= now < w['endsAt'] or (m['phase']=='last_hand') != (now<w['startsAt']):
+            die('routine announcement is outside its original window/phase')
+        if m['reason']=='Scheduled Engine Maintenance':
+            s=m.get('schedule')
+            expected={'timeZone':'America/Chicago','frequency':'phase1-hourly','policyId':SCHEDULE_POLICY_ID,
+                      'startHour':None,'startMinute':0,'durationMs':300000,'hourlyCashFreeze':True}
+            if (not isinstance(s,dict) or type(s.get('startMinute')) is not int or type(s.get('durationMs')) is not int
+                    or s.get('hourlyCashFreeze') is not True or any(s.get(k)!=v for k,v in expected.items())
+                    or schedule_policy(args.repo,state['desired']['sha'])['phase1Status']!='active'):
+                die('routine serving hourly source is unproved')
+        elif m['reason']=='Deployment Recovery':
+            path=STATE_DIR/f'engine-recovery-window-{args.run_id}.json'
+            try: reservation=json.loads(path.read_text())
+            except (OSError,ValueError): die('initial routine recovery owner is unreadable')
+            if reservation.get('runId')!=args.run_id or reservation.get('sha')!=c['sha'] or reservation.get('announcedAt')!=announced:
+                die('initial routine recovery belongs to a different owner')
+        else: die('routine reason is not supported')
+        old=routine_window(c)
+        if old is not None and any(old[k]!=w[k] for k in ('announcedAt','startsAt','endsAt')):
+            die('routine window cannot slide after its first declaration')
+        if c.get('window') != w:
+            c['window']=w; write_state(state)
+        print(json.dumps(c,sort_keys=True))
+
+
+def routine_cycles(state: dict[str, Any]) -> dict[str, Any]:
+    cycles = state.get('routineMaintenanceCycles', {})
+    if not isinstance(cycles, dict):
+        die('routine cycle history is unreadable')
+    for key, c in cycles.items():
+        if (not re.fullmatch(r'[1-9][0-9]*', key) or int(key) % 3600 or not isinstance(c, dict)
+                or c.get('startsAt') != int(key) or c.get('endsAt') != int(key) + 300
+                or c.get('policyId') != SCHEDULE_POLICY_ID
+                or not re.fullmatch(r'[0-9a-f]{64}', str(c.get('policyDigest', '')))
+                or not RUN_ID_RE.fullmatch(str(c.get('runId', '')))
+                or not SHA_RE.fullmatch(str(c.get('sha', ''))) or not SHA_RE.fullmatch(str(c.get('controlSha', '')))
+                or c.get('kind') not in ('hourly-reset', 'daily-restoration')
+                or c.get('status') not in ('reserved', 'committed', 'sealed')):
+            die('routine cycle history contains an invalid owner')
+        routine_window(c)
+        if c['status'] in ('committed', 'sealed'): routine_window(c,verified=True)
+        if c['status'] in ('committed', 'sealed') and state['committedRuns'].get(c['runId'], {}).get('sha') != c['sha']:
+            die('routine cycle has no exact canonical committed owner')
+        if c['status'] == 'sealed':
+            result = c.get('result')
+            if not isinstance(result, dict) or result.get('result') != 'sealed' or result.get('runId') != c['runId'] or result.get('sha') != c['sha']:
+                die('routine cycle has no sealed result receipt')
+            actual = load_result(c['runId'])
+            immutable = ('runId', 'result', 'sha', 'imageId', 'completedAt', 'completionRuntime')
+            if (any(result.get(k) != actual.get(k) for k in immutable) or
+                    state['committedRuns'][c['runId']].get('imageId') != actual['imageId']):
+                die('routine cycle receipt differs from its canonical completion')
+    return cycles
+
+
+def cmd_restoration_needed(args: argparse.Namespace) -> None:
+    target = schedule_policy(args.repo, args.sha)
+    raw = sys.stdin.read(1048577)
+    if target['phase1Status'] == 'active' or len(raw) > 1048576:
+        raise SystemExit(1)
+    try:
+        h = json.loads(raw)
+        serving = valid_sha(h.get('releaseSha', ''))
+        schedule = h.get('maintenance', {}).get('schedule', {})
+    except (ValueError, AttributeError):
+        raise SystemExit(1)
+    expected = {'timeZone':'America/Chicago', 'frequency':'phase1-hourly', 'policyId':SCHEDULE_POLICY_ID,
+                'startHour':None, 'startMinute':0, 'durationMs':300000, 'hourlyCashFreeze':True}
+    if (h.get('running') is not True or serving == args.sha or not isinstance(schedule, dict) or
+            type(schedule.get('startMinute')) is not int or type(schedule.get('durationMs')) is not int or
+            schedule.get('hourlyCashFreeze') is not True or any(schedule.get(k) != v for k,v in expected.items())):
+        raise SystemExit(1)
+    git_is_ancestor(args.repo, serving, args.sha, 'serving hourly source is not contained in restoration target')
+    if schedule_policy(args.repo, serving)['phase1Status'] != 'active':
+        raise SystemExit(1)
+    print('true')
+
+
+def cmd_check_routine_owner(args: argparse.Namespace) -> None:
+    with SealLock():
+        state = load_state()
+        owners = [c for c in routine_cycles(state).values() if c['status'] not in ('sealed',)]
+        if any(c['runId'] != args.run_id for c in owners):
+            die('foreign pending or unknown routine cycle owner remains authoritative')
+        print('owned' if owners else 'none')
+
+
+def cmd_current_cycle_policy(args: argparse.Namespace) -> None:
+    print(json.dumps(current_cycle_policy(args.repo,args.sha,args.control_sha),sort_keys=True))
+
+
+def cmd_schedule_policy(args: argparse.Namespace) -> None:
+    p = schedule_policy(args.repo, args.sha)
+    print(json.dumps(p, sort_keys=True))
+
+
+def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
+    run_id = str(args.run_id)
+    if not RUN_ID_RE.fullmatch(run_id):
+        die('routine cycle run id is invalid')
+    now = int(time.time())
+    with SealLock():
+        state = load_state()
+        cycles = routine_cycles(state)
+        # A replay belongs to its original cycle, never whichever hour is next.
+        own = [c for c in cycles.values() if c['runId'] == run_id]
+        if len(own) > 1:
+            die('run owns more than one routine cycle')
+        if own:
+            c = own[0]
+            if c['sha'] != args.sha or c['controlSha'] != args.control_sha:
+                die('routine cycle replay changed immutable identity')
+            if c['status'] in ('committed', 'sealed'):
+                print(json.dumps(c, sort_keys=True)); return
+            if c.get('failure') is not None:
+                die('original routine failure retains unresolved cleanup/custody ownership')
+            p = current_cycle_policy(args.repo, args.sha, args.control_sha)
+            if c['policyDigest'] != p['digest']:
+                die('routine cycle replay changed immutable identity')
+            if c['status'] not in ('sealed',) and now*1000 >= (routine_window(c) or {'endsAt':(c['startsAt']+360)*1000})['endsAt']:
+                die('original routine cycle expired unresolved; no later cycle is authorized')
+            audit_once('routine_cycle_reserved', state, f'routine_cycle:{c["startsAt"]}', cycle=c)
+            print(json.dumps(c, sort_keys=True)); return
+        if state.get('pending') or state.get('finalization') or any(c['status'] not in ('sealed',) for c in cycles.values()):
+            die('prior pending or unknown routine owner remains authoritative')
+        p = current_cycle_policy(args.repo, args.sha, args.control_sha)
+        kind = 'hourly-reset'
+        if p['phase1Status'] != 'active':
+            # Completion is a single changed-image restoration, not permission
+            # to restart an already-daily image on every future scheduled tick.
+            desired_sha = state['desired']['sha']
+            path = run(['git','-C',args.repo,'ls-tree','--name-only',desired_sha,'--',SCHEDULE_POLICY_PATH])
+            if (not path or desired_sha == args.sha or schedule_policy(args.repo, desired_sha)['phase1Status'] != 'active'):
+                print(json.dumps({'status':'daily'})); return
+            kind = 'daily-restoration'
+        starts = (now // 3600 + 1) * 3600
+        key = str(starts)
+        if key in cycles:
+            print(json.dumps(cycles[key], sort_keys=True)); return
+        c = {'kind': kind, 'policyId': p['policyId'], 'policyDigest': p['digest'], 'startsAt': starts, 'endsAt': starts+300,
+             'runId': run_id, 'sha': valid_sha(args.sha), 'controlSha': valid_sha(args.control_sha), 'status': 'reserved'}
+        cycles[key] = c
+        state['routineMaintenanceCycles'] = cycles
+        state['updatedAt'] = now
+        write_state(state)
+        audit_once('routine_cycle_reserved', state, f'routine_cycle:{starts}', cycle=c)
+        print(json.dumps(c, sort_keys=True))
+
+
+def own_routine_cycle(state: dict[str, Any], run_id: str) -> dict[str, Any] | None:
+    return next((c for c in routine_cycles(state).values() if c['runId'] == run_id), None)
+
+
+def finish_routine_failure(state: dict[str, Any], run_id: str, result: dict[str, Any]) -> None:
+    c = own_routine_cycle(state, run_id)
+    if c is not None:
+        if c['status'] != 'reserved' or c['sha'] != result['sha'] or c['controlSha'] != result['controlSha']:
+            die('failure does not match the routine cycle owner')
+        # Desired restoration is not proof of native cleanup/custody. Preserve
+        # this global owner even after the provider has a terminal failure.
+        c['failure'] = result
+        write_state(state)
+
+
 def cmd_prepare(args: argparse.Namespace) -> None:
     meta = metadata(args)
     target_sha = valid_sha(args.sha)
@@ -540,6 +778,12 @@ def cmd_prepare(args: argparse.Namespace) -> None:
             if len(meta["reason"]) < 12:
                 die("rollback reason must describe the emergency in at least 12 characters")
 
+        cycle = own_routine_cycle(state, meta['runId'])
+        if cycle is not None:
+            current_cycle_policy(args.repo, target_sha, cycle['controlSha'])
+            window = routine_window(cycle, verified=True)
+            if cycle['status'] != 'reserved' or cycle['sha'] != target_sha or not window['startsAt'] <= int(time.time()*1000) < window['endsAt']:
+                die('routine reset does not own the current top-of-hour cycle')
         existing = state.get("pending")
         if pending_is_active(existing) and str(existing.get("runId")) != meta["runId"]:
             die(f"another audited cutover is still active (run {existing.get('runId')})")
@@ -571,7 +815,7 @@ def cmd_authorize(args: argparse.Namespace) -> None:
     with SealLock():
         state = load_state()
         desired = state["desired"]
-        if image_id == desired["imageId"] and image_sha == desired["sha"]:
+        if image_id == desired["imageId"] and image_sha == desired["sha"] and not args.token_stdin:
             audit("desired_start_authorized", state, target=desired)
             # Return the immutable pair. The caller must docker-run imageId,
             # never the mutable tag/reference it asked us to authorize.
@@ -581,6 +825,11 @@ def cmd_authorize(args: argparse.Namespace) -> None:
         pending = state.get("pending")
         if not pending_is_active(pending):
             die("requested image is not the sealed desired release and no live cutover authorization exists")
+        cycle = own_routine_cycle(state, str(pending.get('runId')))
+        if cycle is not None:
+            window = routine_window(cycle, verified=True)
+            if cycle['status'] != 'reserved' or cycle.get('failure') is not None or not window['startsAt'] <= int(time.time()*1000) < window['endsAt']:
+                die('routine token does not own the current top-of-hour cycle')
         if pending.get("used") is True:
             die("the prepared cutover authorization was already consumed")
         if image_id != pending.get("imageId") or image_sha != pending.get("sha"):
@@ -720,7 +969,12 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
             if not RECOVERY_CAUSE_RE.fullmatch(str(value.get("cause") or "")):
                 print("unavailable")
                 return
-            print(value["announcedAt"])
+            if getattr(args, 'scheduled_cycle_start', None) is not None:
+                # The first HTTP outcome may be unknown. Observe that original
+                # announcement; never resend an old timestamp as a new notice.
+                print('unavailable')
+            else:
+                print(value["announcedAt"])
             return
 
         # ONE SCHEDULED BREAK AN HOUR; A SECOND ONE ONLY FOR AN EMERGENCY
@@ -749,6 +1003,14 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
             print("unavailable")
             return
         now_ms = int(time.time() * 1000)
+        scheduled_cycle = getattr(args, 'scheduled_cycle_start', None)
+        if scheduled_cycle is not None:
+            p = current_cycle_policy(args.repo, target, args.control_sha)
+            cycle = own_routine_cycle(state, run_id)
+            if (cycle is None or cycle['status'] != 'reserved' or cycle['policyDigest'] != p['digest']
+                    or cycle['startsAt'] != scheduled_cycle or args.cause != 'urgent' or p['phase1Status'] != 'active'
+                    or not scheduled_cycle*1000-120000 <= now_ms < scheduled_cycle*1000-60000):
+                die('initial hourly announcement does not own the fixed58 source cycle')
         blocker, eligible_at = recovery_window_eligibility(run_id, now_ms)
         if blocker:
             if getattr(args, "include_eligibility", False):
@@ -756,7 +1018,17 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
             else:
                 print("rate-limited")
             return
-        value = {"runId": run_id, "sha": target, "announcedAt": now_ms, "cause": cause}
+        announced_at = now_ms
+        if scheduled_cycle is not None:
+            old = routine_window(cycle)
+            if old is not None:
+                print('unavailable'); return
+            if old is None:
+                cycle['window']={'announcedAt':now_ms,'startsAt':now_ms+120000,'endsAt':now_ms+420000,'verified':False}
+                routine_window(cycle)
+                write_state(state)
+            announced_at=cycle['window']['announcedAt']
+        value = {"runId": run_id, "sha": target, "announcedAt": announced_at, "cause": cause}
         write_json_atomic(path, value)
         audit_once("recovery_window_reserved", state, f"recovery_window:{run_id}", window=value)
         print(value["announcedAt"])
@@ -995,6 +1267,7 @@ def cmd_record_failure(args: argparse.Namespace) -> None:
             value = load_failure(run_id)
             if any(value[key] != expected[key] for key in expected):
                 die("an existing failure binds this run to different attempt bytes")
+            finish_routine_failure(state, run_id, value)
             audit_once(
                 "failure_recorded",
                 state,
@@ -1012,6 +1285,7 @@ def cmd_record_failure(args: argparse.Namespace) -> None:
             "completedAt": int(time.time()),
         }
         write_json_atomic(path, value)
+        finish_routine_failure(state, run_id, value)
         audit_once(
             "failure_recorded",
             state,
@@ -1039,6 +1313,7 @@ def cmd_attest_failure(args: argparse.Namespace) -> None:
             die("durable failure does not attest this exact control generation")
         if invocation_id and value["invocationId"] != invocation_id:
             die("durable failure does not attest this exact invocation")
+        finish_routine_failure(state, run_id, value)
         # Attestation is also the reboot/uncertain-response convergence edge.
         # A crash can occur after the immutable failure file is fsynced but
         # before its audit append. Repair that exact event idempotently before
@@ -1299,6 +1574,9 @@ def cmd_record_result(args: argparse.Namespace) -> None:
         # result file cannot erase authorship. The seal's audited run id is the
         # authority on whether this run performed the cutover.
         effective_result = "sealed" if this_run_sealed else "already-released"
+        cycle = own_routine_cycle(state, run_id)
+        if cycle is not None and not this_run_sealed:
+            die('an already-released observation cannot certify a routine reset')
 
         require_horse_journal_runtime(os.environ.get("CONTAINER", "club-arena-engine"),
                                       target_sha, image_id, container_id, started_at)
@@ -1403,7 +1681,11 @@ def cmd_record_result(args: argparse.Namespace) -> None:
             if load_state() != state:
                 die("orphan finalization seal changed before retirement")
             state.setdefault("orphanFinalizationResolutions", {})[finalization["runId"]] = orphan_resolution
-        if exact_finalization or orphan_resolution is not None:
+        if cycle is not None:
+            if cycle['status'] not in ('committed', 'sealed') or value['result'] != 'sealed':
+                die('routine cycle completion has no exact sealed commit')
+            cycle.update(status='sealed', result=value)
+        if exact_finalization or orphan_resolution is not None or cycle is not None:
             state["finalization"] = None
             state["updatedAt"] = int(time.time())
             write_state(state)
@@ -1423,6 +1705,14 @@ def cmd_attest_result(args: argparse.Namespace) -> None:
             die("durable result does not attest this exact SHA")
         if invocation_id and invocation_id not in value["invocationIds"]:
             die("durable result does not attest this exact invocation")
+        cycle = own_routine_cycle(state, run_id)
+        if cycle is not None and cycle['status'] == 'committed':
+            if value['result'] != 'sealed' or state['committedRuns'].get(run_id, {}).get('imageId') != value['imageId']:
+                die('routine result cannot resolve the original committed cycle')
+            cycle.update(status='sealed', result=value)
+            if (state.get('finalization') or {}).get('runId') == run_id:
+                state['finalization'] = None
+            write_state(state)
         desired = state["desired"]
         if desired["sha"] != value["sha"] or desired["imageId"] != value["imageId"]:
             die("durable result no longer matches the sealed desired release")
@@ -1512,6 +1802,11 @@ def cmd_commit(args: argparse.Namespace) -> None:
             "sha": target_sha,
             "imageId": image_id,
         }
+        cycle = own_routine_cycle(state, meta['runId'])
+        if cycle is not None:
+            if cycle['status'] != 'reserved' or cycle['sha'] != target_sha:
+                die('commit does not match the reserved routine cycle')
+            cycle['status'] = 'committed'
         state["finalization"] = {
             "runId": meta["runId"],
             "sha": target_sha,
@@ -1607,6 +1902,33 @@ def parser() -> argparse.ArgumentParser:
     add_audit_arguments(bootstrap)
     bootstrap.set_defaults(handler=cmd_bootstrap_running)
 
+    binding = commands.add_parser('bind-routine-window')
+    binding.add_argument('--repo', required=True)
+    binding.add_argument('--run-id', required=True)
+    binding.set_defaults(handler=cmd_bind_routine_window)
+    restoring = commands.add_parser('restoration-needed')
+    restoring.add_argument('--repo', required=True)
+    restoring.add_argument('--sha', required=True)
+    restoring.set_defaults(handler=cmd_restoration_needed)
+    owner = commands.add_parser('check-routine-owner')
+    owner.add_argument('--run-id', required=True)
+    owner.set_defaults(handler=cmd_check_routine_owner)
+    current = commands.add_parser('current-cycle-policy')
+    current.add_argument('--repo', required=True)
+    current.add_argument('--sha', required=True)
+    current.add_argument('--control-sha', required=True)
+    current.set_defaults(handler=cmd_current_cycle_policy)
+    schedule = commands.add_parser('schedule-policy')
+    schedule.add_argument('--repo', required=True)
+    schedule.add_argument('--sha', required=True)
+    schedule.set_defaults(handler=cmd_schedule_policy)
+    cycle = commands.add_parser('reserve-routine-cycle')
+    cycle.add_argument('--repo', required=True)
+    cycle.add_argument('--sha', required=True)
+    cycle.add_argument('--control-sha', required=True)
+    cycle.add_argument('--run-id', required=True)
+    cycle.set_defaults(handler=cmd_reserve_routine_cycle)
+
     prepare = commands.add_parser("prepare")
     prepare.add_argument("--sha", required=True)
     prepare.add_argument("--image", required=True)
@@ -1643,6 +1965,8 @@ def parser() -> argparse.ArgumentParser:
     recovery_window.add_argument("--repo", required=True)
     recovery_window.add_argument("--missed-window", action="store_true")
     recovery_window.add_argument("--cause")
+    recovery_window.add_argument("--scheduled-cycle-start", type=int)
+    recovery_window.add_argument("--control-sha")
     recovery_window.add_argument("--include-eligibility", action="store_true")
     recovery_window.set_defaults(handler=cmd_reserve_recovery_window)
 

@@ -147,7 +147,9 @@ GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_DIR" show \
 # engine lock, release unit, checkpoint, and all runtime recovery paths.
 python3 "$STAGE/server/scripts/engine-release-activation-floor.py" admit \
   --repo "$REPO_DIR" --target "$TARGET_SHA" --control "$CONTROL_SHA" \
-  --deadline "$NOT_AFTER_EPOCH" || die 'target activation floor refused before control installation'
+  --deadline "$NOT_AFTER_EPOCH" --run-id "$RUN_ID" \
+  --request-root "${ENGINE_RELEASE_REQUEST_ROOT:-/var/lib/club-arena/engine-release-requests}" \
+  || die 'target activation floor refused before control installation'
 
 set +e
 INSTALL_OUTPUT="$(ENGINE_CONTROL_SHA="$CONTROL_SHA" \

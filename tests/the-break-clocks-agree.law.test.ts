@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
+import { spawnSync } from 'node:child_process';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 
@@ -133,8 +134,13 @@ describe('the socket clocks agree, and clear any proxy idle timeout', () => {
 describe('the break minute is the same minute everywhere', () => {
   const engineMinute = Number(ENGINE.match(/BREAK_START_MINUTE = (\d+)/)![1]);
 
-  it('routine maintenance parks at 04:00 Chicago', () => {
+  it('temporary Phase1 maintenance and restored daily maintenance both park on the hour', () => {
     expect(engineMinute).toBe(0);
+    const policy = JSON.parse(read('server/src/maintenance/maintenanceSchedulePolicy.json'));
+    expect(policy.policyId).toBe('phase1-hourly-01a1944f');
+    expect(policy.phase1Status).toBe('active');
+    expect(read('.github/workflows/stage-engine-release.yml')).toContain("cron: '30 * * * *'");
+    expect(RELEASE_TRANSACTION).toContain('PHASE1_CYCLE_START');
   });
 
   // Added 2026-09-12. The release transaction now decides whether a superseded
@@ -533,3 +539,35 @@ describe('the break scorecard grades only what the break controls', () => {
     ).toBe(false);
   });
 });
+
+// Four actual shell children each retain their 5s deadline. Allow a separate
+// 20s envelope for 16 isolated Git fixtures and canonical state/control work;
+// the outer test also covers the Git-context lookup and 5s for collection/teardown.
+const hourlyCycleQualificationTimeoutMs = 4 * 5_000 + 20_000;
+const hourlyCycleGitContextTimeoutMs = 5_000;
+
+it(
+  'qualifies the global Phase1 cycle in isolated canonical state and actual shell admission',
+  () => {
+    const repo = resolve(__dirname, '..');
+    const gitDir = spawnSync('git', ['-C', repo, 'rev-parse', '--absolute-git-dir'], {
+      encoding: 'utf8',
+      timeout: hourlyCycleGitContextTimeoutMs,
+    });
+    expect(gitDir.status, gitDir.stdout + gitDir.stderr).toBe(0);
+    expect(gitDir.stdout.trim()).not.toBe('');
+    const result = spawnSync(
+      'python3',
+      [resolve(__dirname, 'operations/engine-hourly-maintenance.py')],
+      {
+        encoding: 'utf8',
+        timeout: hourlyCycleQualificationTimeoutMs,
+        // Reproduce Git-hook context even outside a push.
+        env: { ...process.env, GIT_DIR: gitDir.stdout.trim(), GIT_WORK_TREE: repo },
+      }
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain('Ran 16 tests');
+  },
+  hourlyCycleGitContextTimeoutMs + hourlyCycleQualificationTimeoutMs + 5_000
+);

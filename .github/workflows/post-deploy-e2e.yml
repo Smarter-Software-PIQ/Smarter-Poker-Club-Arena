@@ -1874,6 +1874,7 @@ jobs:
           ENGINE_TRIGGER_SHA: ${{ needs.publication-gate.outputs.engine_trigger_sha }}
           ENGINE_TRIGGER_JSON: ${{ toJSON(github.event.client_payload.engine_sha) }}
           MOBILE_MULTIRUN_JSON: ${{ toJSON(github.event.client_payload.mobile_multirun) }}
+          TOURNAMENT_ONLY: ${{ needs.publication-gate.outputs.tournament_only }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
@@ -1883,7 +1884,7 @@ jobs:
             # unshipped merge cannot substitute a different release identity.
             ENGINE_SHA="$ENGINE_TRIGGER_SHA"
           elif [ -z "$ENGINE_TRIGGER_SHA" ] && { [ "$EVENT_NAME" = workflow_run ] || \
-               { [ "$EVENT_NAME" = repository_dispatch ] && [ "${MOBILE_MULTIRUN_JSON:-}" = true ] && [ "${ENGINE_TRIGGER_JSON:-}" = null ]; }; }; then
+               { [ "$EVENT_NAME" = repository_dispatch ] && { [ "${MOBILE_MULTIRUN_JSON:-}" = true ] || [ "${TOURNAMENT_ONLY:-}" = true ]; } && [ "${ENGINE_TRIGGER_JSON:-}" = null ]; }; }; then
             # Test the published client with the engine actually serving it.
             # Latest main may contain another task's staged, unshipped engine.
             #

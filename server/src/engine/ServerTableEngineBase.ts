@@ -307,10 +307,16 @@ async function awaitTimeBankRpc<T>(operation: PromiseLike<T>, timeoutMs?: number
 
 export abstract class ServerTableEngineBase {
   private withheldInputPublication: string | null = null;
+  private retainedDecisionContext: string | null = null;
+  private retainedDecisionLane: HandContinuationLane | null = null;
 
   /** Remember only a real decision whose public capability was withheld. */
   protected publishedActionContext(allViewers = false): string | null {
     const context = this.getActionContext();
+    if (context !== null && !this.handContinuation?.isUnretained()) {
+      this.retainedDecisionContext = context;
+      this.retainedDecisionLane = this.handContinuation ?? null;
+    }
     const controller = this.handController;
     const decision = controller ? playerActionContext(controller) : null;
     if (context === null && controller && decision) this.withheldInputPublication = decision;
@@ -343,8 +349,32 @@ export abstract class ServerTableEngineBase {
   }
 
   public getActionContext(): string | null {
-    if (this.isOriginalInputPending() || this.handContinuation?.isUnretained()) return null;
-    return this.handController ? playerActionContext(this.handController) : null;
+    if (this.isOriginalInputPending()) {
+      this.retainedDecisionContext = null;
+      this.retainedDecisionLane = null;
+      return null;
+    }
+    const decision = this.handController ? playerActionContext(this.handController) : null;
+    if (!decision) {
+      this.retainedDecisionContext = null;
+      this.retainedDecisionLane = null;
+      return null;
+    }
+    const lane = this.handContinuation;
+    if (lane && !lane.canAwaitRetention()) {
+      this.retainedDecisionContext = null;
+      this.retainedDecisionLane = null;
+      return null;
+    }
+    if (lane?.isUnretained()) {
+      // A bank/presence checkpoint does not create another betting decision.
+      // Keep only a capability already observed after retention. A new actor,
+      // wager, decision count or controller incarnation still has no input.
+      return lane === this.retainedDecisionLane && decision === this.retainedDecisionContext
+        ? decision
+        : null;
+    }
+    return decision;
   }
 
   protected handContinuation: HandContinuationLane | null = null;

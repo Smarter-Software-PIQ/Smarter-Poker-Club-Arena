@@ -2113,7 +2113,15 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       return { success: false, error: 'Weekly Accounting Pause', code: 'WEEKLY_ACCOUNTING_PAUSED' };
     // HTTP always supplies a context; trusted in-process callers omit it.
     if (actionContext !== undefined) this.noteOwnClientClaim(userId);
-    if (actionContext !== undefined && this.handContinuation?.isUnretained()) {
+    // An unchanged, previously retained decision remains valid while its
+    // clock/presence metadata is retained. Accept once into the SAME original
+    // lane now, so its normal action path clears the actor's expiry timer.
+    // HTTP acknowledgement still waits for this mutation's own retention.
+    if (
+      actionContext !== undefined &&
+      this.handContinuation?.isUnretained() &&
+      (typeof actionContext !== 'string' || this.getActionContext() !== actionContext)
+    ) {
       return {
         success: false,
         code: 'ACTION_STATE_PENDING',

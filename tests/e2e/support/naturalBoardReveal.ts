@@ -245,3 +245,37 @@ export function naturalBoardRevealEvidence(
     receipts: admitted,
   };
 }
+
+export type NaturalBoardRevealInterval = {
+  name: 'before-outage' | 'after-reconnect';
+  receipts: RevealReceipt[];
+  frames: EngineFrame[];
+};
+
+/** Qualify each connected interval independently; never join across a reconnect. */
+export function naturalBoardRevealIntervalsEvidence(
+  intervals: NaturalBoardRevealInterval[],
+  tableId: string
+) {
+  if (
+    intervals.length > 2 ||
+    new Set(intervals.map((interval) => interval.name)).size !== intervals.length
+  )
+    throw new Error('Natural board evidence requires at most two distinct connected intervals');
+  const evidence = intervals.map(({ name, receipts, frames }) => ({
+    name,
+    ...naturalBoardRevealEvidence(receipts, frames, tableId),
+  }));
+  return {
+    kind: 'natural-board-reveal-connected-intervals/v1',
+    tableId,
+    limit:
+      'rAF DOM/computed animation evidence; not painted pixels or complete compositor frame coverage',
+    verdict: evidence.some((interval) => interval.verdict === 'violation')
+      ? 'violation'
+      : evidence.some((interval) => interval.verdict === 'qualified')
+        ? 'qualified'
+        : 'unknown',
+    intervals: evidence,
+  };
+}

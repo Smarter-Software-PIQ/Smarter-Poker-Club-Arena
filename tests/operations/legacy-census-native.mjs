@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { getHeapStatistics } from 'node:v8';
 import vm from 'node:vm';
+import { composedScaleCensus } from '../../server/scripts/legacy-census-scale-composition.mjs';
 import { bindLegacyCensusModules, collectMarkedLegacyCensus, projectLegacyCensus } from '../../server/scripts/legacy-engine-checkpoint.mjs';
 const require = createRequire(import.meta.url);
 assert.equal(process.version, 'v22.23.2');
@@ -93,8 +94,14 @@ try {
       assert.ok(before.process >= before.used*8+32*MiB, 'unchanged real process guard must pass');
     }
     const deadline = Date.now()+30000;
-    bindLegacyCensusModules.call(modules,key,deadline,addon);
-    result = collectMarkedLegacyCensus(key,deadline);
+    if (scenario === 'bounded') {
+      const composed=await composedScaleCensus(types,addon,Date.now()+35000);
+      result=composed.result;
+      assert.equal(composed.transport.closed,true);
+    } else {
+      bindLegacyCensusModules.call(modules,key,deadline,addon);
+      result = collectMarkedLegacyCensus(key,deadline);
+    }
     const projected = projectLegacyCensus.call(result,modules,deadline);
     assert.deepEqual(projected.map(xs=>xs.length),[1,1,2,1,1]);
     assert.equal(Object.hasOwn(globalThis,key),false);

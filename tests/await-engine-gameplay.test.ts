@@ -364,3 +364,31 @@ describe('the live-table certificate does not start into the next scheduled brea
     expect(CERTIFICATE_LEAD_MS).toBe(15 * 60_000);
   });
 });
+
+it('uses the actual observed hourly timer without imposing desired-source timing on a daily engine', () => {
+  const at = Date.parse('2026-11-01T00:57:00Z');
+  const schedule = {
+    timeZone: 'America/Chicago',
+    frequency: 'phase1-hourly',
+    policyId: 'phase1-hourly-01a1944f',
+    startHour: null,
+    startMinute: 0,
+    durationMs: 300000,
+    hourlyCashFreeze: true,
+    nextAnnouncementAt: Date.parse('2026-11-01T00:58:00Z'),
+  };
+  expect(msUntilNextAnnouncement(at, schedule)).toBe(60_000);
+  expect(
+    msUntilNextAnnouncement(at, {
+      timeZone: 'America/Chicago',
+      startHour: 4,
+      startMinute: 0,
+      durationMs: 300000,
+      hourlyCashFreeze: false,
+    })
+  ).toBeGreaterThan(60_000);
+  expect(msUntilNextAnnouncement(Date.parse('2026-11-01T00:58:30Z'), schedule)).toBe(0);
+  expect(() => msUntilNextAnnouncement(at, { ...schedule, hourlyCashFreeze: false })).toThrow(
+    'unproved'
+  );
+});

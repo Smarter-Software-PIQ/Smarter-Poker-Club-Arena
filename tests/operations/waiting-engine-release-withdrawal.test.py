@@ -323,9 +323,49 @@ class AnnouncedCancellation(unittest.TestCase):
                 if failure is not None:
                     with self.assertRaises(ValueError):module.announcement_evidence(request)
                 else:
-                    proof=module.announcement_evidence(request);self.assertEqual(proof['thaw'],{'verified':True})
-                    thaw_read.assert_called_once_with(stamp,request['controlSha'])
-                    self.assertEqual(proof['entryHash'],module.digest((reqroot/(key+'.activation-entry')).read_bytes()))
+                    # Execute the actual pinned generation-local hold module through
+                    # announcement_evidence, with only its already separately tested
+                    # custody read replaced. Python bytecode is enabled as on the
+                    # actual remote cancellation entry (local -B does not propagate).
+                    hold_source=subprocess.check_output(['git','show',request['controlSha']+':server/scripts/engine-release-lightning-hold.py'],cwd=ROOT)
+                    (generation/'engine-release-lightning-hold.py').write_bytes(hold_source)
+                    manifest={'engine-supervisor.sh','engine-up.sh','engine-release-protocol-v1.schema',
+                              'engine-release-seal.py','verify-recovery-stack.sh','engine-release-lightning-hold.py'}
+                    for name in manifest-{'engine-release-lightning-hold.py'}:
+                        (generation/name).write_bytes(subprocess.check_output(['git','show',request['controlSha']+':server/scripts/'+name],cwd=ROOT))
+                    (generation/'generation-files').write_text('\n'.join(sorted(manifest))+'\n')
+                    (generation/'control-sha').write_text(request['controlSha']+'\n')
+                    self.assertEqual({p.name for p in generation.iterdir()},manifest|{'generation-files','control-sha'})
+                    before={p.name:p.read_bytes() for p in generation.iterdir()}
+                    original_exec=importlib.machinery.SourceFileLoader.exec_module
+                    for prior_flag in (False,True):
+                        for import_failure in (False,True):
+                            with self.subTest(prior_flag=prior_flag,import_failure=import_failure):
+                                thaw_read.reset_mock()
+                                # Each matrix cell gets a clean fixture-only cache state.
+                                cache=generation/'__pycache__'
+                                if cache.exists(): shutil.rmtree(cache)
+                                def execute(loader, loaded):
+                                    original_exec(loader,loaded)
+                                    if loaded.__name__=='qualified_withdrawal_hold_reader':
+                                        if import_failure: raise ValueError('isolated hold import failure')
+                                        loaded.own_record=lambda path,key:{'phase':'released'}
+                                with patch.object(module.sys,'dont_write_bytecode',prior_flag), \
+                                     patch.object(importlib.machinery.SourceFileLoader,'exec_module',execute):
+                                    if import_failure:
+                                        with self.assertRaisesRegex(ValueError,'isolated hold import failure'):
+                                            module.announcement_evidence(request)
+                                    else:
+                                        proof=module.announcement_evidence(request)
+                                        self.assertEqual(proof['thaw'],{'verified':True})
+                                        self.assertEqual(proof['entryHash'],module.digest((reqroot/(key+'.activation-entry')).read_bytes()))
+                                    self.assertIs(module.sys.dont_write_bytecode,prior_flag)
+                                if import_failure:
+                                    thaw_read.assert_not_called()
+                                else:
+                                    thaw_read.assert_called_once_with(stamp,request['controlSha'])
+                                self.assertFalse((generation/'__pycache__').exists(), 'hold-reader import changed immutable generation inventory')
+                                self.assertEqual(before,{p.name:p.read_bytes() for p in generation.iterdir()})
 
     def test_e9_mask_only_empty_retry_retires_once_without_signalling(self):
         for race in [False,True]:
@@ -922,6 +962,29 @@ class AnnouncedCancellation(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('owned fixture retired', result.stdout)
         self.assertIn('30-second auto-restart empty admission and natural masked quiescence passed without stop.', result.stdout)
+
+
+class BytecodeCustody(unittest.TestCase):
+    def test_actual_dynamic_import_and_own_thaw_never_pollutes_generation(self):
+        for import_failure in [False,True]:
+            with self.subTest(import_failure=import_failure),tempfile.TemporaryDirectory(dir=TEST_TMP) as folder:
+                parent=Path(folder);generation=parent/'engine-control-generations'/module.E9_CONTROL;generation.mkdir(parents=True)
+                helper=generation/'engine-release-database-proof.py'
+                helper.write_text('raise RuntimeError("import sentinel")\n' if import_failure else 'def read_fixed_env(path):\n    raise RuntimeError("read sentinel")\n')
+                digest=module.hashlib.sha256(helper.read_bytes()).hexdigest()
+                with patch.object(sys,'dont_write_bytecode',False):
+                    # Original CPython loader genuinely writes into the exact-manifest directory.
+                    spec=importlib.util.spec_from_file_location('native_old_bytecode_fixture',helper)
+                    old=importlib.util.module_from_spec(spec)
+                    try: spec.loader.exec_module(old)
+                    except RuntimeError: pass
+                    self.assertTrue((generation/'__pycache__').is_dir())
+                    shutil.rmtree(generation/'__pycache__')
+                    with patch.object(module,'PARENT',parent),patch.object(module,'E9_HASHES',{helper.name:digest}),patch.object(module,'source_hash',side_effect=lambda p:module.hashlib.sha256(p.read_bytes()).hexdigest()):
+                        with self.assertRaisesRegex(RuntimeError,'sentinel'): module.own_thaw(1,module.E9_CONTROL)
+                    self.assertFalse(sys.dont_write_bytecode)
+                    self.assertFalse((generation/'__pycache__').exists())
+                    self.assertEqual([p.name for p in generation.iterdir()],[helper.name])
 
 
 if __name__ == '__main__':

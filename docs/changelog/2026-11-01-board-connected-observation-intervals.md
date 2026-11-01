@@ -1,0 +1,11 @@
+# Reuse both existing connected board observation intervals
+
+Live run 41315415469 retained an unknown board verdict with no reveal receipts and observed transport continuity. The observer covered only the first pre-outage natural hand cycle, then stopped. That evidence does not establish why no street transition was observed and cannot claim a face-flash violation or a successful board proof. The separate MTT failure occurred during pre-navigation readiness admission, before board observation; no deadline, selection, availability or runtime assertion is changed here.
+
+The same existing cash spectator case now captures two distinct connected intervals: the original pre-outage cycle, and the already required post-reconnect cycle plus existing payout, viewport and committed-stat observations before reload. The second interval starts only after the acknowledged reconnect snapshot and hidden-banner check. Each interval uses the original observation deadline and six-receipt/240-frame limits. No wait, forced hand, participation, retry, timeout or new test case is introduced. Reload remains outside capture.
+
+Wire facts qualify each interval independently. Replayed snapshots or multiple transports cannot qualify an interval. A same-hand turn from one interval cannot combine with a river from another, and any admitted violation dominates clean coverage elsewhere. Unknown remains unknown. Finalization always retains the bounded interval artifact, including partial or empty observations on failure. This is evidence collection, not a new product animation fix or a completed live certificate.
+
+The focused observer regression covers post-reconnect qualification, cross-interval refusal, violation dominance in either order, unstable transports/snapshots, empty evidence and interval bounds, while preserving the actual rAF animation tests.
+
+The required CI run also exposed a registration-race fixture emitting a tournament broadcast before the mounted component had installed its selected-event consumer. That test now explicitly waits for the actual consumer before emitting. It retains the authoritative entrant count, exact refresh count and event-order assertions; no product behavior, timeout or retry changes. The original hosted failure is retained, and the focused tournament component file is checked after this repair.

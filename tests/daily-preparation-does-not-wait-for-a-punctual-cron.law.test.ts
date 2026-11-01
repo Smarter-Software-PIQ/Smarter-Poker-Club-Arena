@@ -32,7 +32,15 @@
  *      first run; the emergency and owner-window routes are unchanged.
  */
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  chmodSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -61,6 +69,28 @@ const epoch = (iso: string) => String(Math.floor(Date.parse(iso) / 1000));
 function admit(c: Case) {
   const dir = mkdtempSync(join(tmpdir(), 'daily-prep-'));
   try {
+    const policy = JSON.parse(
+      readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
+    );
+    policy.phase1Status = 'off';
+    policy.completionEvidence = 'isolated daily-preparation fixture';
+    mkdirSync(join(dir, 'server/scripts'), { recursive: true });
+    writeFileSync(
+      join(dir, 'server/scripts/engine-release-seal.py'),
+      readFileSync(join(root, 'server/scripts/engine-release-seal.py'))
+    );
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'policy.json'), JSON.stringify(policy));
+    writeFileSync(
+      join(dir, 'bin/git'),
+      `#!/usr/bin/env bash
+set -eu
+[ "$1" = -C ] && [ "$2" = . ] && [ "$3" = show ]
+[ "$4" = '${'a'.repeat(40)}:server/src/maintenance/maintenanceSchedulePolicy.json' ]
+cat '${join(dir, 'policy.json')}'
+`
+    );
+    chmodSync(join(dir, 'bin/git'), 0o755);
     const runs = (c.runs ?? []).map((r) => ({ head_branch: 'main', ...r }));
     const result = spawnSync(
       'bash',
@@ -87,6 +117,8 @@ function admit(c: Case) {
         cwd: dir,
         env: {
           ...process.env,
+          PATH: `${join(dir, 'bin')}:${process.env.PATH ?? ''}`,
+          GITHUB_SHA: 'a'.repeat(40),
           EVENT_NAME: c.event,
           PUSHED_AT: c.pushedAt ?? '',
           RUN_CREATED_AT: c.createdAt ?? '',
@@ -267,8 +299,9 @@ describe('the workflow adds chances, not authority', () => {
     );
   });
 
-  it('schedules only odd minutes inside the window for both DST twins', () => {
+  it('retains temporary hourly preparation and daily odd-minute DST chances', () => {
     expect(stage.on.schedule).toEqual([
+      { cron: '30 * * * *' },
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
     ]);

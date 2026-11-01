@@ -4,6 +4,7 @@ import { parse } from 'yaml';
 import {
   installNaturalBoardReveal,
   naturalBoardRevealEvidence,
+  naturalBoardRevealIntervalsEvidence,
   type RevealReceipt,
 } from '../e2e/support/naturalBoardReveal';
 import type { EngineFrame } from '../e2e/support/liveTableRealtime';
@@ -245,4 +246,127 @@ it('different hands cannot combine into a qualified turn and river', () => {
       'table'
     ).verdict
   ).toBe('unknown');
+});
+
+const completeStreet = (to: number, firstHost = true): RevealReceipt => ({
+  hand: 42,
+  from: to - 1,
+  to,
+  at: to * 1000,
+  outcome: 'complete',
+  frames: [
+    {
+      at: to * 1000,
+      host: firstHost,
+      back: true,
+      front: true,
+      profile: 'mobile',
+      angle: 0,
+      currentTime: 0,
+      endTime: 350,
+      finished: false,
+      faceStylesValid: true,
+      reducedMotion: false,
+    },
+    {
+      at: to * 1000 + 350,
+      host: true,
+      back: true,
+      front: true,
+      profile: 'mobile',
+      angle: 180,
+      currentTime: 350,
+      endTime: 350,
+      finished: true,
+      faceStylesValid: true,
+      reducedMotion: false,
+    },
+  ],
+});
+
+it('post-reconnect existing observations can qualify without combining across the outage', () => {
+  const turn = completeStreet(4),
+    river = completeStreet(5);
+  const result = naturalBoardRevealIntervalsEvidence(
+    [
+      { name: 'before-outage', receipts: [], frames: [] },
+      { name: 'after-reconnect', receipts: [turn, river], frames: [wire(turn), wire(river)] },
+    ],
+    'table'
+  );
+  expect(result.verdict).toBe('qualified');
+  expect(result.intervals.map((interval) => interval.verdict)).toEqual(['unknown', 'qualified']);
+  expect(JSON.stringify(result)).not.toContain('PUBLIC');
+});
+
+it('even the same hand cannot combine a pre-outage turn with a post-reconnect river', () => {
+  const turn = completeStreet(4),
+    river = completeStreet(5);
+  expect(
+    naturalBoardRevealIntervalsEvidence(
+      [
+        { name: 'before-outage', receipts: [turn], frames: [wire(turn)] },
+        { name: 'after-reconnect', receipts: [river], frames: [wire(river)] },
+      ],
+      'table'
+    ).verdict
+  ).toBe('unknown');
+});
+
+it('an admitted violation in either interval dominates a complete clean interval', () => {
+  const turn = completeStreet(4),
+    river = completeStreet(5),
+    bad = completeStreet(4, false);
+  for (const earlier of [true, false]) {
+    const good = { receipts: [turn, river], frames: [wire(turn), wire(river)] };
+    const violation = { receipts: [bad], frames: [wire(bad)] };
+    expect(
+      naturalBoardRevealIntervalsEvidence(
+        [
+          { name: 'before-outage', ...(earlier ? violation : good) },
+          { name: 'after-reconnect', ...(earlier ? good : violation) },
+        ],
+        'table'
+      ).verdict
+    ).toBe('violation');
+  }
+});
+
+it('snapshots and multiple transports poison only their own interval and never create coverage', () => {
+  const turn = completeStreet(4),
+    river = completeStreet(5);
+  for (const extra of [
+    { ...wire(turn), message: { type: 'SNAPSHOT' } },
+    { ...wire(turn), socketId: 2 },
+  ]) {
+    const result = naturalBoardRevealIntervalsEvidence(
+      [
+        { name: 'before-outage', receipts: [turn], frames: [wire(turn)] },
+        {
+          name: 'after-reconnect',
+          receipts: [turn, river],
+          frames: [wire(turn), wire(river), extra],
+        },
+      ],
+      'table'
+    );
+    expect(result.verdict).toBe('unknown');
+    expect(result.intervals[1].transportContinuity).toBe('unproven');
+    expect(result.intervals[1].receipts).toEqual([]);
+  }
+});
+
+it('retains an unknown empty observation and refuses duplicate or unbounded intervals', () => {
+  expect(naturalBoardRevealIntervalsEvidence([], 'table')).toMatchObject({
+    verdict: 'unknown',
+    intervals: [],
+  });
+  const empty = { name: 'before-outage' as const, receipts: [], frames: [] };
+  expect(() => naturalBoardRevealIntervalsEvidence([empty, empty], 'table')).toThrow();
+  expect(() => naturalBoardRevealIntervalsEvidence([empty, empty, empty], 'table')).toThrow();
+  const spec = readFileSync('tests/e2e/production-live-table-realtime.spec.ts', 'utf8');
+  expect(spec).toMatch(
+    /finally \{\s*await stopBoardInterval\(\);\s*const boardEvidence = naturalBoardRevealIntervalsEvidence/
+  );
+  expect(spec).toMatch(/await stopBoardInterval\(\);\s*await page\.reload/);
 });
