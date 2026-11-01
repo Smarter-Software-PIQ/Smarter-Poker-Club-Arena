@@ -588,17 +588,22 @@ source preparation, not a full-schema or connected fifteen-case pass.
 
 ### Pinned native export function batching
 
-The PostgreSQL17.11 export client uses two distinct changes: private fixed-enum
-cost logging and bounded transport batching of consecutive selected function
-objects. Zero-component objects do not break that selected sequence; every
-selected non-function object still ends the batch. The batch helper preserves the upstream PREPARE, each EXECUTE, the
-same connection/snapshot, rendering and ACL paths. Up to128 EXECUTEs share one
-simple-query message; every individual result must have one row and the exact
-19-column metadata layout. Results are assigned by request ordinal/OID and
-consumed in original object order. Another object type ends the batch. Any
-missing, extra, malformed or failed result refuses the capture without retry.
-The original45-second capture deadline, TLS, complete schema and private output
-limits remain unchanged. The batch is bounded to128MiB private metadata.
+The PostgreSQL17.11 export client uses private fixed-enum cost logging and
+bounded DO_FUNC metadata read-ahead. This intentionally supersedes the earlier
+selected-nonfunction batch barrier: the next128 selected functions can be read
+across other selected object types, while stock rendering and all nonfunction
+readers, including aggregates, retain their original order and paths. The pinned
+function SELECT reads the same exported catalog snapshot with the same secured
+search path and session state throughout the object loop. Function bodies and
+default expressions are deparsed, never executed by this reader.
+
+The helper preserves upstream PREPARE and each EXECUTE. Up to128 EXECUTEs share
+one fully drained simple-query message; every result has one row and the exact
+19-column metadata layout. Cached rows retain request ordinal/OID and are consumed
+only at their original function's render position. Missing, extra, malformed,
+failed or wrongly ordered results refuse capture without retry. Cached native
+results are cleared on normal/error process exit. The128MiB private metadata
+bound,512KiB diagnostic cap and original45-second whole-capture deadline remain.
 
 Diagnostic wire protocol D2 uses fixed12-byte closed records for sequence,
 kind/edge/type and monotonic microseconds; legacy D1 reading remains supported.
@@ -614,11 +619,16 @@ cached per-function reads. The512KiB fixed-channel cap remains enforced.
 Before any capture credential is present, the existing reusable native job
 builds stock and changed clients from the same pinned upstream archive. Both direct pg_dump builds serialize overlapping recursive library prerequisites with one job, retaining their original420/120-second deadlines. It
 requires identical SQL output (apart from the existing random restrict nonce)
-on a private Unix-only database containing5507 functions/procedures with
+on a private Unix-only database containing5510 functions/procedures with
 mixed signatures, defaults, SQL bodies, PL/pgSQL and ACLs, plus zero/one-function
-schema filters. Its separate credential-free C result contract exercises batch
-boundaries, excluded objects, malformed/error/missing/extra results, ordinal
-mismatch and interruption. These checks do not certify production capture,
+schema filters. A composite type, SQL-body function, cross-schema view and another
+SQL-body function force dependency-interleaved stock definition order; a quoted
+schema/domain, overloaded argument and column/function grants qualify deparse and
+ACL parity. Its separate credential-free C result contract exercises batch
+boundaries, excluded objects, selected relation/type/aggregate crossings,
+malformed/error/missing/extra results, ordinal mismatch, partial-cache cleanup and
+interruption. The versioned native capability refuses old consecutive-only or
+missing interleaved-parity qualification receipts. These checks do not certify production capture,
 full-schema restoration, connected tournament/RIT cases or live behavior.
 
 ### Bounded snapshot-reader overlap
