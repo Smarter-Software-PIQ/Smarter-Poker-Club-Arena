@@ -38,13 +38,48 @@ objects=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','--path-format
 main=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','origin/main'],env=CLEAN,timeout=10).strip()
 fixture_git('update-ref','refs/remotes/origin/main',main.decode())
 fixture_git('index-pack','--stdin',input=PACK)
+# Bound the real history once, while the private seed can still read the
+# checkout's object store. Repeated recoveries must not reread shared packs.
+# These are original commit/tree bytes, not fabricated ancestry or replacements.
+rows=fixture_git('rev-list','--boundary',Q.OLD+'..'+main.decode()).decode().splitlines()
+assert 0<len(rows)<5000
+ids={row.lstrip('-') for row in rows};BOUNDARY=[row[1:] for row in rows if row.startswith('-')]
+for ref in (Q.OLD,'41551479ba47a4f077d6ed83f1b388c2b068fdd3'):
+    for suffix in ('^{tree}',':server',':server/scripts'):
+        ids.add(fixture_git('rev-parse',ref+suffix).decode().strip())
+METADATA=fixture_git('pack-objects','--stdout',input=('\n'.join(sorted(ids))+'\n').encode())
+assert len(METADATA)<4*1024*1024
+fixture_git('index-pack','--stdin',input=METADATA)
+(REPO/'shallow').write_text('\n'.join(BOUNDARY)+'\n')
+(REPO/'objects/info/alternates').unlink()
+# Every original source identity below must now resolve entirely offline from
+# this bounded private store. All 33 OID/SHA256/Git-blob checks remain intact.
 assert len(MANIFEST['objects'])==33
+refs=list(MANIFEST['objects'])
+assert all('\n' not in ref and '\r' not in ref for ref in refs)
+# Resolve the actual immutable refs together. Repeated Git launcher startup can
+# otherwise consume the outer suite deadline before its eleven cases finish.
+batch=fixture_git('cat-file','--batch',input=('\n'.join(refs)+'\n').encode('ascii'))
+offset=0;validated={}
 for ref,item in MANIFEST['objects'].items():
-    assert fixture_git('rev-parse',ref).decode().strip()==item['oid']
-    raw=fixture_git('cat-file','blob',item['oid'])
+    end=batch.find(b'\n',offset)
+    assert end>=offset
+    header=batch[offset:end].decode('ascii').split(' ')
+    assert len(header)==3 and header[0]==item['oid'] and header[1]=='blob'
+    assert header[2].isascii() and header[2].isdecimal()
+    size=int(header[2])
+    assert header[2]==str(size)
+    offset=end+1
+    assert size<=len(batch)-offset-1
+    raw=batch[offset:offset+size]
+    offset+=size
+    assert batch[offset:offset+1]==b'\n'
+    offset+=1
     assert hashlib.sha256(raw).hexdigest()==item['sha256']
     assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==item['oid']
-SOURCES={name:fixture_git('cat-file','blob',Q.OLD+':server/scripts/'+name) for name in Q.SOURCE_HASHES}
+    validated[ref]=raw
+assert offset==len(batch)
+SOURCES={name:validated[Q.OLD+':server/scripts/'+name] for name in Q.SOURCE_HASHES}
 assert all(hashlib.sha256(raw).hexdigest()==Q.SOURCE_HASHES[name] for name,raw in SOURCES.items())
 INSTALLER=(ROOT/'server/scripts/install-engine-supervisor.sh').read_text()
 RUN='41316608416-1'
@@ -241,16 +276,8 @@ class CacheQuarantine(unittest.TestCase):
             subprocess.run(['git','init','--bare','--template=','-q',str(repo)],env=env,check=True)
             def local(*args,input=None,check=True):
                 return subprocess.run(['git','-C',str(repo),*args],env=env,input=input,capture_output=True,check=check,timeout=10)
-            rows=fixture_git('rev-list','--boundary',Q.OLD+'..'+main.decode()).decode().splitlines()
-            assert 0<len(rows)<5000
-            ids={row.lstrip('-') for row in rows};boundary=[row[1:] for row in rows if row.startswith('-')]
-            for ref in (Q.OLD,'41551479ba47a4f077d6ed83f1b388c2b068fdd3'):
-                for suffix in ('^{tree}',':server',':server/scripts'):
-                    ids.add(fixture_git('rev-parse',ref+suffix).decode().strip())
-            metadata=fixture_git('pack-objects','--stdout',input=('\n'.join(sorted(ids))+'\n').encode())
-            assert len(metadata)<4*1024*1024
-            local('index-pack','--stdin',input=metadata)
-            (repo/'shallow').write_text('\n'.join(boundary)+'\n')
+            local('index-pack','--stdin',input=METADATA)
+            (repo/'shallow').write_text('\n'.join(BOUNDARY)+'\n')
             local('update-ref','refs/remotes/origin/main',main.decode())
             args=('archive',Q.OLD,'server/scripts/engine-release-database-proof.py')
             before=local(*args,check=False)

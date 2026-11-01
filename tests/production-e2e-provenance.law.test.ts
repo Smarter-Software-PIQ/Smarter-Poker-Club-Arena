@@ -141,7 +141,17 @@ describe('the publisher hands its selected artifact to post-deploy verification'
       workflow.indexOf('  publication-gate:'),
       workflow.indexOf('  seo-contract:')
     );
-    expect(gate).toContain('client_target_sha: ${{ steps.client-target.outputs.sha }}');
+    expect(gate).toContain(
+      'client_target_sha: ${{ steps.board-client.outputs.sha || steps.client-target.outputs.sha }}'
+    );
+    const scopedBoard = gate.slice(
+      gate.indexOf('      - name: Bind the scoped board proof to the actual published source'),
+      gate.indexOf('      - name: Resolve the exact client artifact selected by this publisher')
+    );
+    expect(scopedBoard).toContain("if: steps.origin.outputs.natural_board_reveal == 'true'");
+    expect(scopedBoard).toContain('publisher-artifact');
+    expect(scopedBoard).toContain('test "$LIVE" = "$SELECTED"');
+    expect(scopedBoard).toContain('Verify the origin serves this bundle');
     // A stood-down publisher has no client artifact to resolve.
     expect(gate).toContain(
       "if: github.event_name == 'workflow_run' && steps.origin.outputs.should_run == 'true'"

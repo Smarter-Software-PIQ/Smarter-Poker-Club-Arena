@@ -345,7 +345,92 @@ export function installNaturalBoardReveal(deadline: number): void {
   raf = requestAnimationFrame(tick);
 }
 
-/** Join only already admitted public natural wire facts; never retain raw frames/cards. */
+/** Bounded public counters explain UNKNOWN; they never qualify a painted reveal. */
+export function naturalBoardWireDiagnostics(frames: EngineFrame[], tableId: string) {
+  const frameLimit = 8192;
+  const handLimit = 128;
+  const result = {
+    schema: 'natural-board-public-wire-counts/v1',
+    frameLimit,
+    handLimit,
+    truncated: frames.length > frameLimit,
+    handLimitReached: false,
+    inspectedFrames: Math.min(frames.length, frameLimit),
+    receivedTableFrames: 0,
+    snapshots: 0,
+    subscribed: 0,
+    replayedFrames: 0,
+    boardEvents: 0,
+    naturalSingleBoardEvents: 0,
+    malformedBoardEvents: 0,
+    multipleBoardEvents: 0,
+    invalidHandEvents: 0,
+    naturalHandChanges: 0,
+    naturalStreetCounts: { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, other: 0 },
+    handsWithTurnAndRiverEvents: 0,
+    handsWithAllThreeStreetLengths: 0,
+  };
+  const hands = new Map<number, number>();
+  let previousHand: number | null = null;
+  // Counts only: never copy card values, IDs, raw payloads or event timestamps.
+  for (let index = 0; index < Math.min(frames.length, frameLimit); index++) {
+    const frame = frames[index];
+    if (frame.direction !== 'received' || frame.message.tableId !== tableId) continue;
+    result.receivedTableFrames++;
+    const raw = frame.message.payload;
+    const payload =
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : null;
+    const replayed = frame.message.replayed === true || payload?.replayed === true;
+    if (replayed) result.replayedFrames++;
+    if (frame.message.type === 'SNAPSHOT') result.snapshots++;
+    if (frame.message.type === 'SUBSCRIBED') result.subscribed++;
+    if (frame.message.type !== 'EVENT' || payload?.type !== 'community_cards_dealt') continue;
+    result.boardEvents++;
+    if (
+      payload.table_id !== tableId ||
+      !Array.isArray(payload.board) ||
+      !Array.isArray(payload.board2) ||
+      !Array.isArray(payload.board3)
+    ) {
+      result.malformedBoardEvents++;
+      continue;
+    }
+    if (payload.board2.length || payload.board3.length) {
+      result.multipleBoardEvents++;
+      continue;
+    }
+    if (replayed) continue;
+    const rawHand = payload.hand_number;
+    const hand =
+      typeof rawHand === 'number' || (typeof rawHand === 'string' && /^\d+$/.test(rawHand))
+        ? Number(rawHand)
+        : NaN;
+    if (!Number.isSafeInteger(hand) || hand <= 0) {
+      result.invalidHandEvents++;
+      continue;
+    }
+    result.naturalSingleBoardEvents++;
+    const count = payload.board.length;
+    const key = count <= 5 ? (String(count) as keyof typeof result.naturalStreetCounts) : 'other';
+    result.naturalStreetCounts[key]++;
+    if (previousHand !== null && previousHand !== hand) result.naturalHandChanges++;
+    previousHand = hand;
+    if (!hands.has(hand) && hands.size >= handLimit) {
+      result.handLimitReached = true;
+      continue;
+    }
+    hands.set(hand, (hands.get(hand) ?? 0) | (count >= 3 && count <= 5 ? 1 << (count - 3) : 0));
+  }
+  for (const lengths of hands.values()) {
+    if ((lengths & 6) === 6) result.handsWithTurnAndRiverEvents++;
+    if ((lengths & 7) === 7) result.handsWithAllThreeStreetLengths++;
+  }
+  return result;
+}
+
+/** Acceptance remains independent of the bounded explanatory counters. */
 export function naturalBoardRevealEvidence(
   receipts: RevealReceipt[],
   frames: EngineFrame[],
@@ -429,6 +514,7 @@ export function naturalBoardRevealEvidence(
         ? 'qualified'
         : 'unknown',
     receipts: admitted,
+    wireDiagnostics: naturalBoardWireDiagnostics(frames, tableId),
   };
 }
 

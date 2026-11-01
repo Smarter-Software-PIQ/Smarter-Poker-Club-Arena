@@ -334,7 +334,8 @@ describe('explicit passive observation queue ownership', () => {
     eventName: string,
     optIn?: unknown,
     horseOptIn?: unknown,
-    naturalAdmitted = false
+    naturalAdmitted = false,
+    boardAdmitted = false
   ): string {
     if (!rawGroup.startsWith('${{')) return rawGroup;
     const expression = rawGroup
@@ -342,20 +343,23 @@ describe('explicit passive observation queue ownership', () => {
       .replaceAll('github.event.client_payload.mobile_multirun', 'optIn')
       .replaceAll('github.event.client_payload.horse_social', 'horseOptIn')
       .replaceAll('github.event_name', 'eventName')
-      .replaceAll('needs.publication-gate.outputs.natural_addon', 'naturalOutput');
+      .replaceAll('needs.publication-gate.outputs.natural_addon', 'naturalOutput')
+      .replaceAll('needs.publication-gate.outputs.natural_board_reveal', 'boardOutput');
     return Function(
       'eventName',
       'optIn',
       'horseOptIn',
       'toJSON',
       'naturalOutput',
+      'boardOutput',
       `return (${expression});`
     )(
       eventName,
       optIn,
       horseOptIn,
       (value: unknown) => JSON.stringify(value ?? null),
-      String(naturalAdmitted)
+      String(naturalAdmitted),
+      String(boardAdmitted)
     );
   }
 
@@ -368,9 +372,10 @@ describe('explicit passive observation queue ownership', () => {
       event: string,
       flag?: unknown,
       horseFlag?: unknown,
-      naturalAdmitted = false
+      naturalAdmitted = false,
+      boardAdmitted = false
     ) {
-      const key = group(event, flag, horseFlag, naturalAdmitted);
+      const key = group(event, flag, horseFlag, naturalAdmitted, boardAdmitted);
       const slot = slots.get(key);
       if (!slot) slots.set(key, { running: name });
       else {
@@ -382,7 +387,12 @@ describe('explicit passive observation queue ownership', () => {
     enqueue('explicit-multirun', 'repository_dispatch', true);
     enqueue('explicit-horse-social', 'repository_dispatch', undefined, true);
     enqueue('explicit-natural-addon', 'repository_dispatch', undefined, undefined, true);
+    enqueue('explicit-natural-board', 'repository_dispatch', undefined, undefined, false, true);
     enqueue('new-publication', 'workflow_run');
+    expect(cancelled).not.toContain('explicit-natural-board');
+    expect([...slots.values()].some((slot) => slot.running === 'explicit-natural-board')).toBe(
+      true
+    );
     expect(cancelled).not.toContain('explicit-natural-addon');
     expect([...slots.values()].some((slot) => slot.running === 'explicit-natural-addon')).toBe(
       true
@@ -401,6 +411,20 @@ describe('explicit passive observation queue ownership', () => {
       'post-deploy-live-table-production'
     );
     expect(group('workflow_run', undefined, undefined, true)).toBe(
+      'post-deploy-live-table-production'
+    );
+  });
+
+  it('isolates an admitted board observation from publication and other observation queues', () => {
+    const board = group('repository_dispatch', undefined, undefined, false, true);
+    expect(board).toBe('post-deploy-live-table-natural-board-production');
+    expect(board).not.toBe(group('repository_dispatch', undefined, undefined, true));
+    expect(board).not.toBe(group('repository_dispatch', true));
+    expect(board).not.toBe(group('repository_dispatch', undefined, true));
+    expect(group('repository_dispatch', undefined, undefined, false, false)).toBe(
+      'post-deploy-live-table-production'
+    );
+    expect(group('workflow_run', undefined, undefined, false, true)).toBe(
       'post-deploy-live-table-production'
     );
   });

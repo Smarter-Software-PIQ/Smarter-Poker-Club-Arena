@@ -287,7 +287,7 @@ describe('LAW: a race that touched nothing names it and waits', () => {
       const guardSource = read('server/scripts/legacy-engine-checkpoint-guard.mjs');
       expect(guardSource).toContain('const reserveMs = 245000;');
       expect(read('server/scripts/legacy-engine-checkpoint.sh')).toContain(
-        'reserve=245000+remaining_entry'
+        'reserve=int(sys.argv[5])+remaining_entry'
       );
       expect(
         deferrableCheckpointRefusal(

@@ -30,6 +30,11 @@ MAX_MODULE_BYTES = 256 * 1024 * 1024
 OPERATION = re.compile(r'[1-9][0-9]{0,19}')
 SHA = re.compile(r'[0-9a-f]{40}')
 INVOCATION = re.compile(r'[0-9a-f]{32}')
+PREREQUISITE_TOOLS = {'perf': '/usr/bin/perf', 'readelf': '/usr/bin/readelf', 'systemdRun': '/usr/bin/systemd-run'}
+TOOL_REASONS = frozenset(('available', 'missing', 'untrusted', 'not-executable', 'unknown'))
+OS_IDS = frozenset(('ubuntu', 'debian', 'fedora', 'rhel', 'centos', 'rocky', 'almalinux', 'unknown'))
+OS_VERSION = re.compile(r'[0-9]{1,3}(?:\.[0-9]{1,3}){0,2}')
+KERNEL_RELEASE = re.compile(r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(?:-[0-9]{1,5})?-(?:generic|generic-64k|lowlatency|azure|aws|gcp|oracle|amd64|arm64|cloud-amd64|cloud-arm64)')
 
 
 REFUSAL_CODES = frozenset({
@@ -105,6 +110,84 @@ def closed_refusal(error):
 
 def refuse(reason):
     raise RuntimeError(reason)
+
+
+def prerequisite_tool(path):
+    """Fixed tool metadata only. Never execute a tool or read its contents."""
+    try:
+        resolved = Path(path).resolve(strict=True)
+        if len(resolved.parts) > 32:
+            return {'available': False, 'reason': 'untrusted'}
+        current = Path('/')
+        for part in resolved.parts[1:-1]:
+            current /= part
+            info = current.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                return {'available': False, 'reason': 'untrusted'}
+        info = resolved.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            return {'available': False, 'reason': 'untrusted'}
+        if not info.st_mode & 0o111 or not os.access(resolved, os.X_OK):
+            return {'available': False, 'reason': 'not-executable'}
+        return {'available': True, 'reason': 'available'}
+    except FileNotFoundError:
+        return {'available': False, 'reason': 'missing'}
+    except (OSError, RuntimeError):
+        return {'available': False, 'reason': 'unknown'}
+
+
+def prerequisite_os():
+    result = {'id': 'unknown', 'versionId': 'unknown', 'kernelRelease': 'unknown'}
+    release = os.uname().release
+    if KERNEL_RELEASE.fullmatch(release):
+        result['kernelRelease'] = release
+    try:
+        path = Path('/etc/os-release').resolve(strict=True)
+        # Only the standard OS metadata locations may contribute public fields.
+        if str(path) not in ('/etc/os-release', '/usr/lib/os-release'):
+            return result
+        trusted_directory(path.parent)
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022 or info.st_size > 4096:
+            return result
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            raw = os.read(fd, 4097)
+            after = os.fstat(fd)
+            if len(raw) > 4096 or (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+                return result
+        finally:
+            os.close(fd)
+        fields = {}
+        for line in raw.decode('ascii').splitlines():
+            key, separator, value = line.partition('=')
+            if key in ('ID', 'VERSION_ID') and separator:
+                if key in fields:
+                    return result
+                fields[key] = value[1:-1] if re.fullmatch(r'"[^"]*"', value) else value
+        if fields.get('ID') in OS_IDS:
+            result['id'] = fields['ID']
+        if OS_VERSION.fullmatch(fields.get('VERSION_ID', '')):
+            result['versionId'] = fields['VERSION_ID']
+    except (OSError, ValueError, UnicodeError, RuntimeError):
+        pass
+    return result
+
+
+def native_prerequisites(expected, source_sha):
+    """Read-only same-engine preflight; no state directories, locks or units."""
+    if os.geteuid() != 0 or sys.platform != 'linux':
+        refuse('root_linux_required')
+    if not isinstance(source_sha, str) or not re.fullmatch(r'[0-9a-f]{64}', source_sha):
+        refuse('source_identity_refused')
+    original = target_identity(expected)
+    tools = {name: prerequisite_tool(path) for name, path in PREREQUISITE_TOOLS.items()}
+    operating_system = prerequisite_os()
+    if not same_target(original):
+        refuse('original_target_changed')
+    return {'schema': 'native-prerequisites/v1', 'engineSHA': expected, 'sourceSHA256': source_sha,
+            'originalIdentitySHA256': hashlib.sha256(json.dumps(original, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+            'readOnly': True, 'tools': tools, 'os': operating_system}
 
 
 def operation(value):
@@ -967,13 +1050,51 @@ def receipt_outcome(raw, op, expected, transport_exit):
     except (ValueError, KeyError, TypeError, RecursionError, RuntimeError):
         return unknown
 
+
+def prerequisites_outcome(raw, expected, source_sha, transport_exit):
+    unknown = {'schema': 'native-prerequisites-readback/v1', 'validPrerequisites': False,
+               'transportExit': transport_exit if type(transport_exit) is int and -128 <= transport_exit <= 255 else None,
+               'reason': 'prerequisites_unproven'}
+    try:
+        value = strict_json(raw, 16384)
+        if (type(transport_exit) is not int or transport_exit != 0 or set(value) != {'schema', 'engineSHA', 'sourceSHA256', 'originalIdentitySHA256', 'readOnly', 'tools', 'os'}
+                or value['schema'] != 'native-prerequisites/v1' or value['engineSHA'] != expected
+                or value['sourceSHA256'] != source_sha or value['readOnly'] is not True
+                or not SHA.fullmatch(expected) or not re.fullmatch(r'[0-9a-f]{64}', source_sha)
+                or not isinstance(value['originalIdentitySHA256'], str)
+                or not re.fullmatch(r'[0-9a-f]{64}', value['originalIdentitySHA256'])
+                or not isinstance(value['tools'], dict) or set(value['tools']) != set(PREREQUISITE_TOOLS)
+                or not isinstance(value['os'], dict) or set(value['os']) != {'id', 'versionId', 'kernelRelease'}):
+            return unknown
+        for tool in value['tools'].values():
+            if (not isinstance(tool, dict) or set(tool) != {'available', 'reason'}
+                    or type(tool['available']) is not bool or not isinstance(tool['reason'], str)
+                    or tool['reason'] not in TOOL_REASONS
+                    or tool['available'] != (tool['reason'] == 'available')):
+                return unknown
+        system = value['os']
+        if (not isinstance(system['id'], str) or system['id'] not in OS_IDS
+                or not isinstance(system['versionId'], str)
+                or (system['versionId'] != 'unknown' and not OS_VERSION.fullmatch(system['versionId']))
+                or not isinstance(system['kernelRelease'], str)
+                or (system['kernelRelease'] != 'unknown' and not KERNEL_RELEASE.fullmatch(system['kernelRelease']))):
+            return unknown
+        return {**value, 'validPrerequisites': True, 'transportExit': transport_exit}
+    except (ValueError, KeyError, TypeError, RecursionError, RuntimeError):
+        return unknown
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=('admit', 'collect', 'stop-post', 'receipt'))
-    parser.add_argument('--operation', required=True)
+    parser.add_argument('mode', choices=('admit', 'collect', 'stop-post', 'receipt', 'prerequisites'))
+    parser.add_argument('--operation')
     parser.add_argument('--expected-engine-sha')
     parser.add_argument('--wait', action='store_true')
     args = parser.parse_args()
+    if args.mode == 'prerequisites':
+        if args.operation is not None or args.wait:
+            refuse('operation_refused')
+        print(json.dumps(native_prerequisites(args.expected_engine_sha or '', hashlib.sha256(Path(__file__).read_bytes()).hexdigest()), separators=(',', ':')))
+        return
     op = operation(args.operation)
     if args.wait and args.mode != 'receipt':
         refuse('wait_mode_refused')
@@ -995,5 +1116,5 @@ if __name__ == '__main__':
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as error:
         print(json.dumps({'verdict': 'UNKNOWN', 'reason': 'native_observation_refused',
                           'refusalCode': closed_refusal(error),
-                          'refusalPhase': sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ('admit', 'collect', 'stop-post', 'receipt') else 'entry'}, separators=(',', ':')))
+                          'refusalPhase': sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ('admit', 'collect', 'stop-post', 'receipt', 'prerequisites') else 'entry'}, separators=(',', ':')))
         sys.exit(1)
