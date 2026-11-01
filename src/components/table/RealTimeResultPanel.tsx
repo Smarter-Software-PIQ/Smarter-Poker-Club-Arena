@@ -45,6 +45,7 @@ import { getLightningPoolSession } from '../../lightning/lightningSession';
 import { reportError } from '../../utils/errorReporter';
 import { sessionStatsService, type SessionStats } from '../../services/SessionStatsService';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
+import { useSessionHandStats } from '../../hooks/useSessionHandStats';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { formatTableChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
@@ -52,6 +53,7 @@ import './RealTimeResultPanel.css';
 
 export interface RealTimeResultPanelProps {
   isOpen: boolean;
+  refreshRevision?: string;
   onClose: () => void;
   tableId: string;
   userId: string;
@@ -123,6 +125,7 @@ function money(n: number): string {
 
 export default function RealTimeResultPanel({
   isOpen,
+  refreshRevision,
   onClose,
   tableId,
   userId,
@@ -167,6 +170,13 @@ export default function RealTimeResultPanel({
       setStats(sessionStatsService.getStats(tableId));
     }
   });
+  const { stats: persistedHands } = useSessionHandStats(
+    tableId,
+    userId,
+    isOpen,
+    undefined,
+    refreshRevision
+  );
   const [now, setNow] = useState(() => Date.now());
   const [observers, setObservers] = useState<{ id: string; name: string }[]>([]);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -388,12 +398,30 @@ export default function RealTimeResultPanel({
       ink: winnings > 0 ? 'green' : winnings < 0 ? 'red' : 'silver',
     },
     {
-      label: 'Current Table VPIP',
-      value: `${Math.round(stats?.vpipPercent ?? 0)}%`,
+      label: 'Session VPIP',
+      value: persistedHands?.vpipPercent == null ? '-' : `${persistedHands.vpipPercent}%`,
       ink: 'silver',
     },
-    { label: 'Hands Played', value: String(stats?.handsPlayed ?? 0), ink: 'silver' },
-    { label: 'Hands/Hour', value: String(Math.round(stats?.handsPerHour ?? 0)), ink: 'silver' },
+    {
+      label: 'Hands Played',
+      value: persistedHands ? persistedHands.handsPlayed.toLocaleString() : '-',
+      ink: 'silver',
+    },
+    {
+      label: 'Hands/Hour',
+      value: persistedHands
+        ? Math.round(
+            persistedHands.handsPlayed /
+              Math.max(
+                (Date.parse(persistedHands.throughAt ?? new Date(now).toISOString()) -
+                  Date.parse(persistedHands.startedAt)) /
+                  3_600_000,
+                1 / 3600
+              )
+          ).toLocaleString()
+        : '-',
+      ink: 'silver',
+    },
     { label: 'BB Won', value: (stats?.bigBlindsWon ?? 0).toFixed(1), ink: 'silver' },
   ];
 

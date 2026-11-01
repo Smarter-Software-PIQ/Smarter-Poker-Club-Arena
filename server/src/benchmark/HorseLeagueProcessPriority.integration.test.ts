@@ -92,6 +92,8 @@ const runtimePaths = [
   .concat('hub/ChannelHub.ts');
 const sha = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+/** How long a finished fixture's process group may take to leave the table (2026-10-31). */
+const GROUP_EXIT_GRACE_MS = 5_000;
 
 function groupExists(pid: number): boolean {
   try {
@@ -215,6 +217,11 @@ it.runIf(hostQualifies)(
       expect(result.cleanup.length).toBeGreaterThan(0);
       expect(result.cleanup.every((entry: { confirmed: boolean }) => entry.confirmed)).toBe(true);
       expect(result.supervisorCleanup).toEqual({ parityChannelHubClosed: true });
+      // The fixture's own receipt confirms every child it started; the group's
+      // last exit can still land a moment later on a loaded host. Wait for it,
+      // bounded well under the ceiling, then require it gone.
+      const groupGoneBy = Date.now() + GROUP_EXIT_GRACE_MS;
+      while (child.pid && groupExists(child.pid) && Date.now() < groupGoneBy) await delay(50);
       expect(
         child.pid && groupExists(child.pid),
         'no owned process remains after successful receipt'

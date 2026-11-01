@@ -25,7 +25,7 @@ import { useUserStore } from '../stores/useUserStore';
 import { realtimeChannelService } from '../services/RealtimeChannelService';
 import { supabase } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { reportError } from '../utils/errorReporter';
+import { reportError, reportWarning } from '../utils/errorReporter';
 import { IS_NATIVE_BUILD } from '../lib/appBase';
 import { playerDisplayName } from '../utils/playerDisplayName';
 
@@ -1375,6 +1375,8 @@ class MasterBusCore {
 
   // #4: Channel health monitor interval
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+  /** Critical keys already logged dead-without-factory in their current outage. */
+  private criticalDeadNoticed: Set<string> = new Set();
 
   // Phase 7: Cross-Tab Broadcast Channel
   private broadcastChannel: BroadcastChannel | null = null;
@@ -2027,6 +2029,7 @@ class MasterBusCore {
 
       this.channelRegistry.forEach((channel, key) => {
         const state = (channel as any).state;
+        if (state !== 'closed' && state !== 'errored') this.criticalDeadNoticed.delete(key);
         if (state === 'closed' || state === 'errored') {
           console.warn(`[BUS HEALTH] Dead channel detected: "${key}" (state: ${state})`);
           deadChannels.push(key);
@@ -2049,26 +2052,54 @@ class MasterBusCore {
             reportError(e, 'MasterBus.Recovery_failed_for_key');
           }
         } else if (this.isCriticalChannelKey(key)) {
-          // P2-4: A critical channel (e.g. per-user hole cards
-          // `table-cards-secure-*` or a tournament's `t-break-<UUID>`) with no
-          // re-subscribe factory must NOT be
-          // silently removed — removeChannel would destroy the underlying
-          // Supabase channel and abort its own auto-rejoin, leaving the hero
-          // permanently blind for the session. Leave it in place so Supabase's
-          // realtime client keeps attempting to rejoin, and surface it loudly.
-          reportError(
-            new Error(`Critical realtime channel dead with no recovery factory: ${key}`),
-            'MasterBus.Critical_channel_no_factory'
-          );
-          console.warn(
-            `[BUS HEALTH] Critical channel "${key}" dead but has no factory -- leaving in place for Supabase auto-rejoin (NOT reaping)`
-          );
+          this.noteCriticalChannelWithoutFactory(key);
         } else {
           this.removeRegisteredChannel(key);
           console.warn(`[BUS HEALTH] No factory for "${key}" -- removed only`);
         }
       });
     }, 30_000); // Every 30 seconds
+  }
+
+  /**
+   * A critical channel is dead and nobody registered a re-subscribe factory.
+   *
+   * `t-break-<UUID>` is a SHARED tournament channel bound directly by four
+   * consumers (TablePage, TournamentPage, useMysteryBounty,
+   * MysteryBountyCelebration), none of which owns a factory: the channel is
+   * deliberately left in place so the Supabase client's own rejoin timer
+   * recovers it, and every consumer re-reads tournament state on its own
+   * poll. That is the designed recovery path, not an error - but it was
+   * filed as an ERROR on every 30 s tick for as long as the outage lasted
+   * (MasterBus.Critical_channel_no_factory, 2026-10-31). It is now a warning,
+   * once per key per outage (reset when the channel is seen healthy again).
+   *
+   * `table-cards-secure-*` (the hero's hole cards) is still reported as an
+   * error, once per outage: a dead one with no factory does blind the hero.
+   */
+  private noteCriticalChannelWithoutFactory(key: string): void {
+    if (this.criticalDeadNoticed.has(key)) return;
+    this.criticalDeadNoticed.add(key);
+    if (key.startsWith('t-break-')) {
+      reportWarning(
+        `Tournament channel ${key} is down; leaving it for Supabase auto-rejoin`,
+        'MasterBus.Critical_channel_no_factory'
+      );
+      return;
+    }
+    // P2-4: A critical channel (per-user hole cards `table-cards-secure-*`)
+    // with no re-subscribe factory must NOT be silently removed -
+    // removeChannel would destroy the underlying Supabase channel and abort
+    // its own auto-rejoin, leaving the hero permanently blind for the session.
+    // Leave it in place so Supabase's realtime client keeps attempting to
+    // rejoin, and surface it loudly.
+    reportError(
+      new Error(`Critical realtime channel dead with no recovery factory: ${key}`),
+      'MasterBus.Critical_channel_no_factory'
+    );
+    console.warn(
+      `[BUS HEALTH] Critical channel "${key}" dead but has no factory -- leaving in place for Supabase auto-rejoin (NOT reaping)`
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

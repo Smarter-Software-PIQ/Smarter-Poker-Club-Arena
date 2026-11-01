@@ -240,6 +240,15 @@ export interface PreflopCtx {
     bluffProb: number;
     defender: 'bb' | 'sb' | 'ip';
   };
+  /**
+   * V73 THE OPENER FACING A 3-BET (2026-11-01, HorseGtoVs3BetRanges): hero
+   * opened a no-limit hold'em pot, exactly one player re-raised and nobody
+   * has called it, three or more dealt in, 25bb+ effective. `strength` is the
+   * hand on the opener seat's continue order (jitter as `strength`),
+   * `continueBar` the bar for calling or 4-betting, a share of the seat's own
+   * open width. Undefined = the legacy fixed bar (the explicit off arm).
+   */
+  gtoVs3Bet?: { strength: number; continueBar: number };
   /** PRNG supplied by the caller (fast xorshift) */
   rand: () => number;
   /**
@@ -1773,9 +1782,38 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         vs35.fourBet +
         phase6Shift('fourBet')
     );
+    // ═══ V73 THE OPENER FACING A 3-BET (2026-11-01) ═══════════════════
+    // The bar below is a FIXED top-of-the-deck share whatever hero opened,
+    // so the wider the open the more of it folded (production, 3 hours at
+    // 25bb+: button 85-87% fold, cutoff 75%, under the gun 43-60%), and it
+    // read the high-card ladder, which folds 99% of suited connectors. With
+    // the V73 read the continue (call or 4-bet) bar is a share of the seat's
+    // own open width on the seat's continue order (HorseGtoVs3BetRanges),
+    // already priced by the 3-bet size, depth (the V21 deep scale included)
+    // and the ante; the hunter, squeeze, exploit and Phase 6 reads move it as
+    // before. Value 4-bets, the 4-bet bluff and the 5-bet branch are
+    // unchanged.
+    // Style tightness is NOT multiplied into this bar: the width is already a
+    // share of the open, and a tighter horse opened a narrower, stronger
+    // range, so the same continue hands are a LARGER share of it (measured:
+    // with tightness applied a tag and a grinder under the gun folded 42% and
+    // 47% to a 3-bet against 36% and 38% before, the reverse of the intent).
+    // The ICM premium still applies in full.
+    const v73 = ctx.gtoVs3Bet !== undefined && raises === 2 && !ctx.isOmaha ? ctx.gtoVs3Bet : null;
     let callThresh = phase6CapBar(
-      t53(ip ? 0.74 : 0.78, 'call') - 0.03 * hunted3 - 0.02 * sq + deepT * 0.5 + phase6Shift('call')
+      v73
+        ? capBar(v73.continueBar + (ploIcm ? ploIcm.call : ctx.riskAdd)) -
+            0.03 * hunted3 -
+            0.02 * sq +
+            phase6Shift('call')
+        : t53(ip ? 0.74 : 0.78, 'call') -
+            0.03 * hunted3 -
+            0.02 * sq +
+            deepT * 0.5 +
+            phase6Shift('call')
     );
+    // The hand the call reads: the V73 continue order when the read is in.
+    const callStrength = v73 ? v73.strength : strength;
     // 2026-10-16 OPPONENT EXPLOIT: a credible over-re-raiser's 3-bets and
     // 4-bets are 4-bet and called from the top of THEIR re-raising range.
     // TOURNAMENT AGGRESSION: production folded 62% to a 3-bet, which hands
@@ -1785,7 +1823,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // 0.62 the early opener called 3-bets with 90% of its range.)
     const aggro3 = tAggro && (ctx.effectiveStackBB ?? stackBB) <= 60;
     if (aggro3) {
-      callThresh = phase6CapBar(callThresh - 0.02);
+      // V73: the per-seat continue width already owns the call.
+      if (!v73) callThresh = phase6CapBar(callThresh - 0.02);
       fourBetThresh = phase6CapBar(fourBetThresh - 0.015);
     }
     // CASH PRESSURE: production folded 61.8% of opens to a 3-bet (humans
@@ -1795,7 +1834,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // discipline still rules, and a credible re-raiser read still wins.
     const cash3 = cAggro && (ctx.effectiveStackBB ?? stackBB) <= 100;
     if (cash3) {
-      callThresh = phase6CapBar(Math.min(callThresh, t53(ip ? 0.66 : 0.72, 'call')));
+      // V73: the per-seat continue width already owns the call.
+      if (!v73) callThresh = phase6CapBar(Math.min(callThresh, t53(ip ? 0.66 : 0.72, 'call')));
       fourBetThresh = phase6CapBar(fourBetThresh - 0.015);
     }
     const vsReRaiser = ctx.exploitReRaiser;
@@ -1915,12 +1955,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     //  2. The stack cap protects DEEP stacks from light stack-offs. It must
     //     not veto a committed short stack taking a price it already paid
     //     for — the chips hero raised are not somebody else's money.
-    const relief3 = Math.max(0, 0.5 - guardOdds) * (ctx.isOmaha ? 1.6 : 0.9);
+    // V73: the 3-bet's price is already inside the per-seat width (it
+    // scales with the 3-bet size), so the general price relief is not added
+    // on top; the committed-stack relief and the floor still apply.
+    const relief3 = v73 ? 0 : Math.max(0, 0.5 - guardOdds) * (ctx.isOmaha ? 1.6 : 0.9);
     const commit3 = investedShare >= 0.12 ? Math.min(0.1, investedShare * 0.5) : 0;
     const floor3 = ctx.isOmaha ? 0.3 : 0.42;
     const pricedCallThresh = Math.max(floor3, callThresh - relief3 - commit3);
     const capOK3 = toCall <= stack * 0.35 || (investedShare >= 0.1 && guardOdds <= 0.45);
-    if (strength >= pricedCallThresh && capOK3) return { a: 'call' };
+    if (callStrength >= pricedCallThresh && capOK3) return { a: 'call' };
     if (toCall > 0 && toCall <= pricePot * 0.15 && strength >= 0.45) return { a: 'call' };
     if (toCall === 0) return { a: 'check' };
     return { a: 'fold' };
