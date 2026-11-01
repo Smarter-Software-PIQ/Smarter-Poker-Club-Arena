@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272389,
+      "sha256": "c8cdb3700fd947321f42fecc2627657ee2217ce7df5f372558de2513679a8409"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -5909,5 +5909,17 @@
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
+  },
+  "playwrightHostedImageSourceAudit20261101": {
+    "reason": "Current native hosted input identity only: CI build, css-beats-e2e and diamond-playfield-e2e use standard ubuntu-24.04 for supported Playwright 1.58 browser dependencies. No financial command, SQL, fixture, assertion, deadline, historical qualification or live/native certificate changed.",
+    "previousCiPin": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "currentCiPin": {
+      "bytes": 272389,
+      "sha256": "c8cdb3700fd947321f42fecc2627657ee2217ce7df5f372558de2513679a8409"
+    },
+    "execution_performed": false
   }
 }
