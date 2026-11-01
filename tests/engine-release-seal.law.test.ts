@@ -136,6 +136,7 @@ describe('disposable Git fixtures preserve the calling repository', () => {
 // then 139s with one worker). Keep the existing deadline per existing class:
 // measured class totals 11.74s / 3.69s / 15.31s / 5.89s; no child budget changes.
 const recoveryClasses = [
+  ['FreshEngineOwnerWindow', 3],
   ['OwnerOrderedWindow', 12],
   ['OwnerWitnessRealHistory', 1],
   ['ProportionateRecoveryWindowTests', 15],
@@ -174,8 +175,8 @@ print(json.dumps(inventory))
   expect(Object.keys(inventory).sort()).toEqual(recoveryClasses.map(([name]) => name).sort());
   for (const [name, count] of recoveryClasses) expect(inventory[name]).toHaveLength(count);
   const names = Object.values(inventory).flat();
-  expect(names).toHaveLength(38);
-  expect(new Set(names).size).toBe(38);
+  expect(names).toHaveLength(41);
+  expect(new Set(names).size).toBe(41);
 });
 
 it.each(recoveryClasses)(
