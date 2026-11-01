@@ -27,6 +27,10 @@ PREFIX = 'postgresql-17.11/'
 BUILD_STAGE = 'INPUT'
 FIRST_FAILURE_STAGE = None
 FIRST_COMMAND_FAILURE = None
+QUALIFICATION_PHASE = None
+FIRST_FAILURE_PHASE = None
+FILTER_CONTEXTS = {'EMPTY','SINGLE','SEQUENCE_SINGLE','SEQUENCE_FIRST','FUNCTION_FIRST'}
+QUALIFICATION_PHASES = {context + '_' + phase for context in {'MAIN', *FILTER_CONTEXTS} for phase in {'DUMP_IO','DUMP_EXIT','DUMP_WIRE','DUMP_FRAMES','PARITY','ORDER'}} | {'FD_MISSING','FD_KIND','FD_CLOSED'}
 COMMAND_SITES = {'BATCH_COMPILE', 'BATCH_EXECUTE', 'D3_CAPABILITY', 'RUNTIME_NPM', 'RUNTIME_HYDRATE'}
 COMPILER_CATEGORIES = ((b'-Werror=misleading-indentation', 'MISLEADING_INDENTATION'),
                        (b'-Werror=unused-function', 'UNUSED_FUNCTION'),
@@ -40,6 +44,7 @@ class DiagnosticFailure(RuntimeError):
     def __init__(self):
         super().__init__('ISOLATED_DUMP_DIAGNOSTIC_REFUSED')
         self.stage = BUILD_STAGE if BUILD_STAGE in STAGES else 'UNKNOWN'
+        self.phase = QUALIFICATION_PHASE if QUALIFICATION_PHASE in QUALIFICATION_PHASES else None
 
 SOURCE_HASHES = {
     'src/bin/pg_dump/pg_dump.c': '8576b36741608e0a956b51e98e1b41b76877a95eb9091300b66c2eaa0faf78f8',
@@ -88,10 +93,11 @@ def require(value):
 
 
 def retain_first_failure(error):
-    global FIRST_FAILURE_STAGE
+    global FIRST_FAILURE_STAGE, FIRST_FAILURE_PHASE
     if FIRST_FAILURE_STAGE is None:
         stage = error.stage if isinstance(error, DiagnosticFailure) else BUILD_STAGE
         FIRST_FAILURE_STAGE = stage if stage in STAGES else 'UNKNOWN'
+        FIRST_FAILURE_PHASE = error.phase if isinstance(error, DiagnosticFailure) else QUALIFICATION_PHASE
 
 
 def digest(data):
@@ -340,7 +346,10 @@ def validate_frames(data, with_subtypes=False):
     return {'records':sequence,'query_subtypes':details} if with_subtypes else sequence
 
 
-def diagnostic_dump(executable, args, env, cwd):
+def diagnostic_dump(executable, args, env, cwd, context='MAIN'):
+    global QUALIFICATION_PHASE
+    require(context in {'MAIN', *FILTER_CONTEXTS})
+    QUALIFICATION_PHASE = context + '_DUMP_IO'
     parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     selector = selectors.DefaultSelector()
     proc = None
@@ -369,8 +378,11 @@ def diagnostic_dump(executable, args, env, cwd):
                     continue
                 key.data.extend(data)
                 require(len(output) <= 8 * 1024 * 1024 and len(errors) <= 65536 and len(frames) <= 512 * 1024)
+        QUALIFICATION_PHASE = context + '_DUMP_EXIT'
         require(proc.wait(timeout=2) == 0)
+        QUALIFICATION_PHASE = context + '_DUMP_WIRE'
         require(bytes(frames).startswith(b'D3'))
+        QUALIFICATION_PHASE = context + '_DUMP_FRAMES'
         return bytes(output), validate_frames(bytes(frames))
     finally:
         selector.close()
@@ -411,12 +423,15 @@ def closed_peer_handoff_check():
 
 
 def negative_native_fd(executable, args, env, cwd):
+    global QUALIFICATION_PHASE
+    QUALIFICATION_PHASE = 'FD_MISSING'
     # Both failures are owned synthetic invocations, not production probes.
     result = subprocess.run([str(executable), *args], cwd=cwd, env=env,
                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, timeout=5, close_fds=True)
     require(result.returncode != 0 and result.stdout == b'' and len(result.stderr) < 1024 and
             b'ISOLATED_DUMP_DIAGNOSTIC_FD' in result.stderr)
+    QUALIFICATION_PHASE = 'FD_KIND'
     with tempfile.TemporaryFile(dir=cwd) as wrong_kind:
         def bad_fd3(): os.dup2(wrong_kind.fileno(), 3)
         result = subprocess.run([str(executable), *args], cwd=cwd, env=env,
@@ -425,6 +440,7 @@ def negative_native_fd(executable, args, env, cwd):
                                 pass_fds=tuple(sorted({3, wrong_kind.fileno()})), preexec_fn=bad_fd3)
         require(result.returncode != 0 and result.stdout == b'' and len(result.stderr) < 1024 and
                 b'ISOLATED_DUMP_DIAGNOSTIC_FD' in result.stderr)
+    QUALIFICATION_PHASE = 'FD_CLOSED'
     parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     parent.close()
     # Popen validates pass_fds before preexec. Keep an owned fd3 valid even
@@ -496,7 +512,7 @@ def qualify_batch_contract(repo, work, env):
 
 
 def qualify(repo, work, output, env, stock_executable):
-    global BUILD_STAGE
+    global BUILD_STAGE, QUALIFICATION_PHASE
     BUILD_STAGE = 'SYNTHETIC_RUNTIME'
     require(qualify_batch_contract(repo, work, env))
     # Bind capability proof to the actual C producer and both independent
@@ -589,7 +605,7 @@ RETURN 'diagnostic_sequence_first.a_before'::regclass::oid;
 CREATE SCHEMA diagnostic_function_first;
 CREATE SEQUENCE diagnostic_function_first.a_before;
 CREATE SEQUENCE diagnostic_function_first.b_after;
-CREATE FUNCTION diagnostic_function_first.free() RETURNS integer LANGUAGE SQL RETURN 1;
+CREATE FUNCTION diagnostic_function_first.aa_free() RETURNS integer LANGUAGE SQL RETURN 1;
 CREATE FUNCTION diagnostic_function_first.depends() RETURNS oid LANGUAGE SQL
 RETURN 'diagnostic_function_first.a_before'::regclass::oid;
 '''
@@ -608,16 +624,20 @@ RETURN 'diagnostic_function_first.a_before'::regclass::oid;
                        'diagnostic_sequence_first', 'diagnostic_function_first']:
             filtered_args = args + ['--schema=' + schema]
             filtered_stock = command([str(stock_executable), *filtered_args], cwd=work, env=dump_env, timeout=45)
-            filtered, _ = diagnostic_dump(output / 'bin/pg_dump', filtered_args, dump_env, work)
+            context = schema.removeprefix('diagnostic_').upper()
+            filtered, _ = diagnostic_dump(output / 'bin/pg_dump', filtered_args, dump_env, work, context=context)
+            QUALIFICATION_PHASE = context + '_PARITY'
             require(normalize_sql(filtered_stock) == normalize_sql(filtered))
             if schema in ['diagnostic_sequence_first', 'diagnostic_function_first']:
+                QUALIFICATION_PHASE = context + '_ORDER'
                 prefix = ('"' + schema + '".').encode()
                 before = filtered_stock.index(b'CREATE SEQUENCE ' + prefix + b'"a_before"')
                 function = filtered_stock.index(b'CREATE FUNCTION ' + prefix + b'"depends"')
                 after = filtered_stock.index(b'CREATE SEQUENCE ' + prefix + b'"b_after"')
                 require(before < function < after)
                 if schema == 'diagnostic_function_first':
-                    require(filtered_stock.index(b'CREATE FUNCTION ' + prefix + b'"free"') < before)
+                    require(filtered_stock.index(b'CREATE FUNCTION ' + prefix + b'"aa_free"') < before)
+        QUALIFICATION_PHASE = None
         BUILD_STAGE = 'SQL_EQUIVALENCE'
         require(normalize_sql(stock) == normalize_sql(instrumented))
         # Parsed SQL-body dependencies force the actual stock definition order.
@@ -761,7 +781,7 @@ def build(repo, output):
 
 
 def cleanup(output):
-    global BUILD_STAGE
+    global BUILD_STAGE, QUALIFICATION_PHASE
     BUILD_STAGE = 'CLEANUP'
     operation = operation_identity()
     runner = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
@@ -835,5 +855,6 @@ if __name__ == '__main__':
                           'stage':FIRST_FAILURE_STAGE if FIRST_FAILURE_STAGE is not None else
                             error.stage if isinstance(error, DiagnosticFailure) else 'UNKNOWN',
                           'code':'ISOLATED_DUMP_DIAGNOSTIC_REFUSED',
+                          **({'qualification_phase': FIRST_FAILURE_PHASE if FIRST_FAILURE_STAGE is not None else error.phase} if (FIRST_FAILURE_PHASE if FIRST_FAILURE_STAGE is not None else error.phase if isinstance(error, DiagnosticFailure) else None) in QUALIFICATION_PHASES else {}),
                           **({'command_failure': FIRST_COMMAND_FAILURE} if FIRST_COMMAND_FAILURE is not None else {})}), file=sys.stderr)
         sys.exit(1)
