@@ -355,18 +355,18 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = repository_dispatch ]; then
+            # One explicitly requested natural observation per fixture budget.
+            # Horse evidence is valid only for an exact engine-triggered run.
+            if [ "${HORSE_SOCIAL_JSON-null}" != null ]; then
+              { [ "$HORSE_SOCIAL_JSON" = true ] && [ "$MOBILE_MULTIRUN_JSON" = null ] && [ "$MOBILE_MULTIRUN_TARGET_JSON" = null ] && [ "$CLIENT_NAVIGATION_JSON" = null ] && [ "$ENGINE_TRIGGER_JSON" != null ]; } \
+                || { echo '::error::Horse social proof requires literal true, one engine pin and no other observation mode.'; exit 1; }
+            fi
             if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && Object.hasOwn(p,"tournament_only") ? 0 : 1)'; then
               node scripts/ci/tournament-client-certificate.mjs admit
               echo 'tournament_only=true' >> "$GITHUB_OUTPUT"
               echo 'engine_trigger_sha=' >> "$GITHUB_OUTPUT"
               echo 'should_run=true' >> "$GITHUB_OUTPUT"
               exit 0
-            fi
-            # One explicitly requested natural observation per fixture budget.
-            # Horse evidence is valid only for an exact engine-triggered run.
-            if [ "${HORSE_SOCIAL_JSON-null}" != null ]; then
-              { [ "$HORSE_SOCIAL_JSON" = true ] && [ "$MOBILE_MULTIRUN_JSON" = null ] && [ "$MOBILE_MULTIRUN_TARGET_JSON" = null ] && [ "$CLIENT_NAVIGATION_JSON" = null ] && [ "$ENGINE_TRIGGER_JSON" != null ]; } \
-                || { echo '::error::Horse social proof requires literal true, one engine pin and no other observation mode.'; exit 1; }
             fi
             if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && Object.hasOwn(p,"natural_addon_tournament_id") ? 0 : 1)'; then
               node -e '
@@ -2804,6 +2804,7 @@ jobs:
   stood-down-is-not-green:
     name: A stood-down run is marked superseded, not passed
     needs:
+      - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof
       - publication-gate
