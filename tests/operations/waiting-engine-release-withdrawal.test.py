@@ -924,5 +924,28 @@ class AnnouncedCancellation(unittest.TestCase):
         self.assertIn('30-second auto-restart empty admission and natural masked quiescence passed without stop.', result.stdout)
 
 
+class BytecodeCustody(unittest.TestCase):
+    def test_actual_dynamic_import_and_own_thaw_never_pollutes_generation(self):
+        for import_failure in [False,True]:
+            with self.subTest(import_failure=import_failure),tempfile.TemporaryDirectory(dir=TEST_TMP) as folder:
+                parent=Path(folder);generation=parent/'engine-control-generations'/module.E9_CONTROL;generation.mkdir(parents=True)
+                helper=generation/'engine-release-database-proof.py'
+                helper.write_text('raise RuntimeError("import sentinel")\n' if import_failure else 'def read_fixed_env(path):\n    raise RuntimeError("read sentinel")\n')
+                digest=module.hashlib.sha256(helper.read_bytes()).hexdigest()
+                with patch.object(sys,'dont_write_bytecode',False):
+                    # Original CPython loader genuinely writes into the exact-manifest directory.
+                    spec=importlib.util.spec_from_file_location('native_old_bytecode_fixture',helper)
+                    old=importlib.util.module_from_spec(spec)
+                    try: spec.loader.exec_module(old)
+                    except RuntimeError: pass
+                    self.assertTrue((generation/'__pycache__').is_dir())
+                    shutil.rmtree(generation/'__pycache__')
+                    with patch.object(module,'PARENT',parent),patch.object(module,'E9_HASHES',{helper.name:digest}),patch.object(module,'source_hash',side_effect=lambda p:module.hashlib.sha256(p.read_bytes()).hexdigest()):
+                        with self.assertRaisesRegex(RuntimeError,'sentinel'): module.own_thaw(1,module.E9_CONTROL)
+                    self.assertFalse(sys.dont_write_bytecode)
+                    self.assertFalse((generation/'__pycache__').exists())
+                    self.assertEqual([p.name for p in generation.iterdir()],[helper.name])
+
+
 if __name__ == '__main__':
     unittest.main()
