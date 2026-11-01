@@ -432,12 +432,14 @@ export default function AgentManagementPage() {
     };
 
     const channelKey = `agent-mgmt-${clubId}`;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
 
     const setupRealtime = async () => {
       const resolvedId = await resolveClubUUID(clubId);
       if (cancelled || !scopeIsCurrent(requestScope)) return;
 
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
@@ -475,6 +477,9 @@ export default function AgentManagementPage() {
         });
     };
 
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (!cancelled) void setupRealtime();
+    });
     setupRealtime().catch((e) => console.warn('[AgentManagementPage] Realtime setup failed:', e));
 
     // Bus event listeners for cross-component sync (debounced to prevent rapid-fire reloads)
@@ -537,7 +542,10 @@ export default function AgentManagementPage() {
 
     return () => {
       cancelled = true;
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
       unsubWallet();
       unsubBalance();
       unsubClub();

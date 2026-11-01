@@ -99,6 +99,7 @@ export default function ClubChat({ clubId, userId, userName }: ClubChatProps) {
   useEffect(() => {
     if (!clubId) return;
     const channelKey = `club-chat:${clubId}`;
+    let hasSubscribedOnce = false;
     const channel = masterBus
       .getOrCreateChannel(channelKey)
       .on(
@@ -138,6 +139,12 @@ export default function ClubChat({ clubId, userId, userName }: ClubChatProps) {
         }
       )
       .subscribe((status: string, err?: Error) => {
+        if (status === 'SUBSCRIBED') {
+          if (hasSubscribedOnce) {
+            void loadMessages();
+          }
+          hasSubscribedOnce = true;
+        }
         if (status === 'CHANNEL_ERROR') {
           if (err) reportError(err?.message || err, 'ClubChat._Realtime_channel_error');
         }
@@ -147,9 +154,9 @@ export default function ClubChat({ clubId, userId, userName }: ClubChatProps) {
       });
 
     return () => {
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeRegisteredChannel(channelKey, channel);
     };
-  }, [clubId]);
+  }, [clubId, loadMessages]);
 
   // Auto-scroll on new messages
   useEffect(() => {

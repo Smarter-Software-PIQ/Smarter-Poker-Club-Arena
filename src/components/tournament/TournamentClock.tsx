@@ -311,6 +311,7 @@ const TournamentClockForEvent: React.FC<TournamentClockProps> = ({
     // payload (it just re-runs the authoritative read), so it is correct for
     // any future carrier without modification.
     const channelKey = `clock-players-${tournamentId}`;
+    let hasSubscribedOnce = false;
     const channel = masterBus.getOrCreateChannel(channelKey);
     channel
       .on(
@@ -326,6 +327,12 @@ const TournamentClockForEvent: React.FC<TournamentClockProps> = ({
         }
       )
       .subscribe((status: string, err?: Error) => {
+        if (status === 'SUBSCRIBED') {
+          if (hasSubscribedOnce) {
+            refreshState();
+          }
+          hasSubscribedOnce = true;
+        }
         // The 30s poll above is the backstop, so a dead channel degrades
         // rather than breaks. Still report it.
         if (status === 'CHANNEL_ERROR' && err) {
@@ -340,7 +347,7 @@ const TournamentClockForEvent: React.FC<TournamentClockProps> = ({
       refreshPendingRef.current = false;
       if (tickRef.current) clearInterval(tickRef.current);
       clearInterval(refreshInterval);
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeRegisteredChannel(channelKey, channel);
     };
   }, [refreshState, tournamentId]);
 

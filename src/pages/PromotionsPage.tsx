@@ -237,6 +237,7 @@ function PromotionsAccount({
        before the filter can be built; hence the async setup. Without a clubId
        this is the global promotions surface and there is no narrower scope to
        apply. Do not remove the filter on the club route. */
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
     const setupRealtime = async () => {
       const resolvedClubId = clubId ? await resolveClubUUID(clubId) : null;
 
@@ -252,6 +253,7 @@ function PromotionsAccount({
       if (!isMounted) return;
 
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
@@ -278,11 +280,17 @@ function PromotionsAccount({
           }
         });
     };
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (isMounted) void setupRealtime();
+    });
     void setupRealtime();
 
     return () => {
       isMounted = false;
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubId]);

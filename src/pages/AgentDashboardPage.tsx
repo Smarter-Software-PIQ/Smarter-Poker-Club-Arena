@@ -691,16 +691,21 @@ function AgentDashboardContent() {
   }, [clubId, refreshDashboard]);
 
   // ── Supabase Realtime — cross-user WebSocket updates ──
+  const loadDashboardRef = useRef(loadDashboard);
+  loadDashboardRef.current = loadDashboard;
+
   useEffect(() => {
     if (!clubId) return;
     let isMounted = true;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
+    const channelKey = `agent-dashboard-${clubId}`;
 
     const setupRealtime = async () => {
       const resolvedId = await resolveClubUUID(clubId);
       if (!isMounted) return;
 
-      const channelKey = `agent-dashboard-${clubId}`;
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
@@ -710,7 +715,7 @@ function AgentDashboardContent() {
             table: 'cashout_requests',
             filter: `club_id=eq.${resolvedId}`,
           },
-          () => loadDashboard(clubId)
+          () => loadDashboardRef.current(clubId)
         )
         .on(
           'postgres_changes',
@@ -720,7 +725,7 @@ function AgentDashboardContent() {
             table: 'chip_transactions',
             filter: `club_id=eq.${resolvedId}`,
           },
-          () => loadDashboard(clubId)
+          () => loadDashboardRef.current(clubId)
         )
         .subscribe((status: string, err?: Error) => {
           if (status === 'CHANNEL_ERROR') {
@@ -732,13 +737,19 @@ function AgentDashboardContent() {
         });
     };
 
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (isMounted) void setupRealtime();
+    });
     setupRealtime().catch((e) => console.warn('[AgentDashboardPage] Realtime setup failed:', e));
 
     return () => {
       isMounted = false;
-      masterBus.removeRegisteredChannel(`agent-dashboard-${clubId}`);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
-  }, [clubId, loadDashboard]);
+  }, [clubId]);
 
   // ── Visibility Refresh — refresh on tab focus after 30s ──
   useVisibilityRefresh(() => loadDashboard(clubId));

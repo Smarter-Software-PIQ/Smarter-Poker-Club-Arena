@@ -683,7 +683,9 @@ function RankingTabForTournament({
     }
 
     return () => {
-      masterBus.removeRegisteredChannel(channelKey);
+      if (channel) {
+        masterBus.removeRegisteredChannel(channelKey, channel);
+      }
     };
   }, [tournamentId, queuePatch, channelInstance]);
 
