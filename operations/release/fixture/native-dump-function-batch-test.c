@@ -9,7 +9,7 @@
 typedef unsigned int Oid;
 typedef struct { Oid oid; } CatalogId;
 typedef struct { int objType, dump, components; CatalogId catId; } DumpableObject;
-typedef struct { DumpableObject dobj; char relkind; } FuncInfo;
+typedef struct { DumpableObject dobj; char relkind; bool dummy_view; } FuncInfo;
 typedef FuncInfo TableInfo;
 typedef struct { int remoteVersion; } Archive;
 typedef struct { int status, rows, fields, cleared; } PGresult;
@@ -21,12 +21,16 @@ typedef Buffer *PQExpBuffer;
 #define DO_AGG 4
 #define DUMP_COMPONENT_DEFINITION 1
 #define RELKIND_SEQUENCE 'S'
+#define RELKIND_VIEW 'v'
+#define RELKIND_MATVIEW 'm'
+#define DO_RULE 5
 #define PGRES_TUPLES_OK 2
 #define fmtQualifiedDumpable(t) "synthetic_sequence"
 static const char *mode, *fault;
 static int sent, delivered, cleared, created, requests, query_open, fields;
 static PGresult results[20000];
 static const char *names[] = {"proretset","prosrc","probin","provolatile","proisstrict","prosecdef","lanname","proconfig","procost","prorows","funcargs","funciargs","funcresult","proleakproof","protrftypes","proparallel","prokind","prosupport","prosqlbody"};
+static const char *view_names[] = {"viewdef"};
 static const char *sequence_names[] = {"format_type","seqstart","seqincrement","seqmax","seqmin","seqcache","seqcycle"};
 static void check_cleanup(void);
 static void pg_fatal(const char *message) { (void)message; exit(23); }
@@ -39,12 +43,12 @@ static void appendPQExpBuffer(PQExpBuffer b,const char *format,...) {
 }
 static void *GetConnection(Archive *a) { return a; }
 static void ca_diag_query_begin(void) { if(query_open)exit(90); query_open=1; }
-static void ca_diag_query_begin_subtype(int subtype){if(subtype!=1 && subtype!=4)exit(106);ca_diag_query_begin();}
+static void ca_diag_query_begin_subtype(int subtype){if(subtype!=1 && subtype!=4 && subtype!=7)exit(106);ca_diag_query_begin();}
 static void ca_diag_query_end(void) { if(!query_open)exit(91); query_open=0; }
 static int PQsendQuery(void *connection,const char *sql) {
     const char *at=sql;(void)connection;
     if(!strcmp(fault,"send"))return 0;
-    fields=strstr(sql,"pg_catalog.pg_sequence")?7:19;
+    fields=strstr(sql,"pg_get_viewdef")?1:strstr(sql,"pg_catalog.pg_sequence")?7:19;
     sent=delivered=0;requests++;
     for(;*at;at++) {
         if(*at==';')sent++;
@@ -75,9 +79,12 @@ static PGresult *PQgetResult(void *connection) {
 static int PQresultStatus(PGresult *r){return r->status;}
 static int PQntuples(PGresult *r){return r->rows;}
 static int PQnfields(PGresult *r){return r->fields;}
-static char *PQfname(PGresult *r,int f){return (char *)(!strcmp(fault,"name")?"wrong":r->fields==7?sequence_names[f]:names[f]);}
+static char *PQfname(PGresult *r,int f){return (char *)(!strcmp(fault,"name")?"wrong":r->fields==1?view_names[f]:r->fields==7?sequence_names[f]:names[f]);}
+static int PQgetisnull(PGresult *r,int row,int f){(void)r;(void)row;(void)f;return !strcmp(fault,"null");}
 static int PQgetlength(PGresult *r,int row,int f){
     (void)row;(void)f;
+    if(!strcmp(fault,"empty"))return 0;
+    if(!strcmp(mode,"view-shared-bytes"))return r->fields==1?1050000:130000;
     if(!strcmp(mode,"shared-bytes"))return r->fields==19?50000:2097152;
     if(!strcmp(mode,"shared-bytes-sequence-first"))return r->fields==7?130000:1000000;
     return !strcmp(fault,"bytes")?128*1024*1024:1;
@@ -98,12 +105,17 @@ static PGresult *ExecuteSqlQueryForSingleRow(Archive *a,const char *sql){return 
 #else
 #include "native-dump-sequence-batch.c"
 #endif
+#ifdef CA_VIEW_STOCK_COUNTERFACTUAL
+#include "native-dump-view-stock-reader.c"
+#else
+#include "native-dump-view-batch.c"
+#endif
 static void check_cleanup(void){if(cleared!=created || ca_metadata_cached_results || ca_metadata_cached_bytes)_Exit(98);}
 int main(int argc,char **argv){
     Archive archive={170011};int i,n,selected=0;DumpableObject **objects;FuncInfo *items;
-    bool sequence,interleave;
+    bool sequence,interleave,view;
     if(argc!=3)return 94;
-    mode=argv[1];fault=!strncmp(mode,"seq-",4)?mode+4:mode;n=atoi(argv[2]);
+    mode=argv[1];view=!strncmp(mode,"view-",5);fault=view?mode+5:!strncmp(mode,"seq-",4)?mode+4:mode;n=atoi(argv[2]);
     sequence=!strncmp(mode,"seq-",4);interleave=!strncmp(mode,"interleave-",11)||!strncmp(mode,"shared-bytes",12);
     atexit(check_cleanup);
     objects=calloc(n,sizeof(*objects));items=calloc(n,sizeof(*items));
@@ -128,6 +140,25 @@ int main(int argc,char **argv){
             items[i].dobj=(DumpableObject){(i%2==0)==seqfirst?DO_TABLE:DO_FUNC,1,1,{(Oid)(i+1)}};
             items[i].relkind=RELKIND_SEQUENCE;
         }
+        if(view){
+            items[i].dobj=(DumpableObject){DO_TABLE,1,1,{(Oid)(i+1)}};
+            items[i].relkind=i%2?RELKIND_MATVIEW:RELKIND_VIEW;
+            if(!strcmp(mode,"view-filter")){
+                if(i%4==1)items[i].dobj.dump=2;
+                if(i%4==2)items[i].dummy_view=true;
+                if(i%4==3)items[i].dobj.components=0;
+            }
+            if(!strcmp(mode,"view-mixed") || !strcmp(mode,"view-partial")){
+                if(i%4==1)items[i].dobj.objType=DO_TYPE;
+                if(i%4==2)items[i].dummy_view=true;
+                if(i%4==3)items[i].dobj.objType=DO_RULE;
+            }
+            if(strstr(mode,"cross") || !strcmp(mode,"view-shared-bytes")){
+                int which=(i+(!strcmp(mode,"view-cross-function-first")?1:!strcmp(mode,"view-cross-sequence-first")?2:0))%3;
+                items[i].dobj.objType=which==1?DO_FUNC:DO_TABLE;
+                if(which==2)items[i].relkind=RELKIND_SEQUENCE;
+            }
+        }
         objects[i]=&items[i].dobj;
     }
     ca_batch_objects=objects;ca_batch_objects_count=n;
@@ -145,6 +176,20 @@ int main(int argc,char **argv){
             snprintf(query,sizeof(query),"SELECT format_type(seqtypid, NULL), seqstart, seqincrement, seqmax, seqmin, seqcache, seqcycle FROM pg_catalog.pg_sequence WHERE seqrelid = '%u'::oid",objects[i]->catId.oid);
             r=ca_sequence_batch_result(&archive,&items[i],query);selected++;PQclear(r);
             if(!strcmp(mode,"seq-partial"))exit(23);
+        }else if(view && ca_view_eligible(objects[i])){
+#ifndef CA_VIEW_STOCK_COUNTERFACTUAL
+            if(!strcmp(mode,"view-order") && i==1)ca_view_oids[ca_view_next]=99999;
+#endif
+            if(!strcmp(mode,"view-unknown"))ca_batch_position=-1;
+            if(!strcmp(mode,"view-surplus"))ca_batch_position=ca_batch_objects_count;
+            snprintf(query,sizeof(query),"SELECT pg_catalog.pg_get_viewdef('%u'::pg_catalog.oid) AS viewdef",objects[i]->catId.oid);
+            r=ca_view_batch_result(&archive,&items[i],query);selected++;PQclear(r);
+            if(!strcmp(mode,"view-partial"))exit(23);
+        }else if(view && objects[i]->objType==DO_RULE){
+            int cached=ca_metadata_cached_results;
+            snprintf(query,sizeof(query),"SELECT pg_catalog.pg_get_viewdef('%u'::pg_catalog.oid) AS viewdef",objects[i]->catId.oid);
+            r=ca_view_batch_result(&archive,&items[i],query);PQclear(r);
+            if(cached!=ca_metadata_cached_results)return 107;
         }else{
             if(query_open || delivered!=sent)return 99;
             if(!strcmp(mode,"partial"))exit(23);
@@ -152,7 +197,12 @@ int main(int argc,char **argv){
         if(ca_metadata_cached_results>128 || ca_metadata_cached_bytes>128*1024*1024)return 104;
     }
     if(ca_batch_count!=ca_batch_next || query_open || ca_metadata_cached_results || ca_metadata_cached_bytes)return 95;
-    if(!strcmp(mode,"mixed") || !strcmp(mode,"seq-mixed") || !strcmp(mode,"seq-filter")){
+    if(view){
+        if(!strcmp(mode,"view-valid") && requests!=(n+127)/128)return 108;
+        if((!strcmp(mode,"view-unknown") || !strcmp(mode,"view-surplus")) && requests!=n)return 111;
+        if(!strcmp(mode,"view-filter") && requests!=(selected+127)/128)return 109;
+        if(!strcmp(mode,"view-mixed") && requests!=(selected+127)/128+n/4)return 110;
+    }else if(!strcmp(mode,"mixed") || !strcmp(mode,"seq-mixed") || !strcmp(mode,"seq-filter")){
         if(requests!=(selected+127)/128 || cleared!=selected)return 97;
     }else if(sequence){if(requests!=(n+127)/128)return 97;}
     else if(interleave){if(n==257 && requests!=130)return 105;}

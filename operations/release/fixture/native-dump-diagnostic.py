@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and qualify exact-source native logging and function transport batching.
+"""Build and qualify exact-source native logging and bounded metadata batching.
 
 No database configuration is accepted. The only database this builder opens is
 its newly created disposable Unix-only cluster, before the capture secret exists.
@@ -29,7 +29,7 @@ FIRST_FAILURE_STAGE = None
 FIRST_COMMAND_FAILURE = None
 QUALIFICATION_PHASE = None
 FIRST_FAILURE_PHASE = None
-FILTER_CONTEXTS = {'EMPTY','SINGLE','SEQUENCE_SINGLE','SEQUENCE_FIRST','FUNCTION_FIRST'}
+FILTER_CONTEXTS = {'EMPTY','SINGLE','SEQUENCE_SINGLE','SEQUENCE_FIRST','FUNCTION_FIRST','VIEW_SINGLE','VIEW_MANY','VIEW_CYCLE','VIEW_EXCLUDED'}
 QUALIFICATION_PHASES = {context + '_' + phase for context in {'MAIN', *FILTER_CONTEXTS} for phase in {'STOCK','DUMP_IO','DUMP_EXIT','DUMP_WIRE','DUMP_FRAMES','PARITY','ORDER'}} | {'FD_MISSING','FD_KIND','FD_CLOSED'}
 COMMAND_SITES = {'BATCH_COMPILE', 'BATCH_EXECUTE', 'D5_CAPABILITY', 'RUNTIME_NPM', 'RUNTIME_HYDRATE'}
 COMPILER_CATEGORIES = ((b'-Werror=misleading-indentation', 'MISLEADING_INDENTATION'),
@@ -111,11 +111,13 @@ def transformations():
              '\tca_diag_init();\n\tConnectDatabase(fout, &dopt.cparams, false);'),
             (OBJECT_LOOP, DIAG_LOOP),
             ('static void help(const char *progname);',
-             '#include "native-dump-function-batch.c"\n#include "native-dump-sequence-batch.c"\n\nstatic void help(const char *progname);'),
+             '#include "native-dump-function-batch.c"\n#include "native-dump-sequence-batch.c"\n#include "native-dump-view-batch.c"\n\nstatic void help(const char *progname);'),
             ('\tres = ExecuteSqlQueryForSingleRow(fout, query->data);\n\n\tproretset =',
              '\tres = ca_function_batch_result(fout, finfo, query->data);\n\n\tproretset ='),
             ('\t\t\t\t\t\t  fmtQualifiedDumpable(tbinfo));\n\t}\n\n\tres = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);\n\n\tif (PQntuples(res) != 1)\n\t\tpg_fatal(ngettext("query to get data of sequence',
              '\t\t\t\t\t\t  fmtQualifiedDumpable(tbinfo));\n\t}\n\n\tres = ca_sequence_batch_result(fout, tbinfo, query->data);\n\n\tif (PQntuples(res) != 1)\n\t\tpg_fatal(ngettext("query to get data of sequence'),
+            ('\t\t\t\t\t  tbinfo->dobj.catId.oid);\n\n\tres = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);\n\n\tif (PQntuples(res) != 1)\n\t{\n\t\tif (PQntuples(res) < 1)',
+             '\t\t\t\t\t  tbinfo->dobj.catId.oid);\n\n\tres = ca_view_batch_result(fout, tbinfo, query->data);\n\n\tif (PQntuples(res) != 1)\n\t{\n\t\tif (PQntuples(res) < 1)'),
         ],
         'src/bin/pg_dump/pg_backup_db.c': [
             ('static void\nnotice_processor(void *arg, const char *message)',
@@ -381,7 +383,7 @@ def validate_frames(data, with_subtypes=False):
     return {'records':sequence,'query_subtypes':details} if with_subtypes else sequence
 
 
-def diagnostic_dump(executable, args, env, cwd, context='MAIN'):
+def diagnostic_dump(executable, args, env, cwd, context='MAIN', expected_view_requests=None):
     global QUALIFICATION_PHASE
     require(context in {'MAIN', *FILTER_CONTEXTS})
     QUALIFICATION_PHASE = context + '_DUMP_IO'
@@ -418,7 +420,10 @@ def diagnostic_dump(executable, args, env, cwd, context='MAIN'):
         QUALIFICATION_PHASE = context + '_DUMP_WIRE'
         require(bytes(frames).startswith(b'D5'))
         QUALIFICATION_PHASE = context + '_DUMP_FRAMES'
-        return bytes(output), validate_frames(bytes(frames))
+        facts = validate_frames(bytes(frames), with_subtypes=True)
+        if expected_view_requests is not None:
+            require(facts['query_subtypes']['VIEW_DEFINITION']['queries_completed'] == expected_view_requests)
+        return bytes(output), facts['records']
     finally:
         selector.close()
         child.close()
@@ -498,7 +503,7 @@ def qualify_batch_contract(repo, work, env):
     # Native isolated result-contract faults, not a database or production probe.
     directory = work / 'batch-contract'
     directory.mkdir()
-    for name in ['native-dump-function-batch.c', 'native-dump-sequence-batch.c', 'native-dump-function-batch-test.c']:
+    for name in ['native-dump-function-batch.c', 'native-dump-sequence-batch.c', 'native-dump-view-batch.c', 'native-dump-function-batch-test.c']:
         shutil.copyfile(repo / 'operations/release/fixture' / name, directory / name)
     executable = directory / 'contract'
     command(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
@@ -513,21 +518,27 @@ def qualify_batch_contract(repo, work, env):
     for mode in ['seq-valid', 'seq-mixed', 'seq-filter']:
         for count in [0, 1, 127, 128, 129, 512, 513]:
             command([str(executable), mode, str(count)], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
+    for mode in ['view-valid', 'view-filter', 'view-mixed', 'view-unknown', 'view-surplus']:
+        for count in [0, 1, 127, 128, 129, 512, 513]:
+            command([str(executable), mode, str(count)], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
+    for mode in ['view-cross', 'view-cross-function-first', 'view-cross-sequence-first']:
+        command([str(executable), mode, '513'], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
     for mode in ['interleave-function-first', 'interleave-sequence-first']:
         command([str(executable), mode, '257'], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
-    for mode in ['shared-bytes', 'shared-bytes-sequence-first', 'seq-partial']:
-        result = subprocess.run([str(executable), mode, '257'], cwd=directory, env=env,
+    for mode in ['shared-bytes', 'shared-bytes-sequence-first', 'seq-partial', 'view-partial', 'view-shared-bytes']:
+        result = subprocess.run([str(executable), mode, '513' if mode == 'view-shared-bytes' else '257'], cwd=directory, env=env,
                                 capture_output=True, timeout=5)
         require(result.returncode == 23 and result.stdout == b'' and result.stderr == b'')
     partial = subprocess.run([str(executable), 'partial', '129'], cwd=directory,
                              env=env, capture_output=True, timeout=5)
     require(partial.returncode == 23 and partial.stdout == b'' and partial.stderr == b'')
     for mode in ['send', 'extra', 'missing', 'status', 'rows', 'fields', 'name', 'bytes', 'order',
+                 'view-send', 'view-extra', 'view-missing', 'view-status', 'view-rows', 'view-fields', 'view-name', 'view-bytes', 'view-order', 'view-null', 'view-empty',
                  'seq-send', 'seq-extra', 'seq-missing', 'seq-status', 'seq-rows', 'seq-fields', 'seq-name', 'seq-bytes', 'seq-order']:
         result = subprocess.run([str(executable), mode, '129'], cwd=directory, env=env,
                                 capture_output=True, timeout=5)
         require(result.returncode == 23 and result.stdout == b'' and result.stderr == b'')
-    for mode in ['interrupt', 'seq-interrupt', 'partial-interrupt', 'seq-partial-interrupt']:
+    for mode in ['interrupt', 'seq-interrupt', 'partial-interrupt', 'seq-partial-interrupt', 'view-interrupt', 'view-partial-interrupt']:
         process = subprocess.Popen([str(executable), mode, '129'], cwd=directory,
                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
@@ -542,6 +553,22 @@ def qualify_batch_contract(repo, work, env):
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=5)
+    # Compile the SAME facade with the original singleton result reader.
+    # Its 129-view request-count assertion must fail, whereas the new reader
+    # above passed. No production latency claim follows from this controlled RED.
+    helper = (directory / 'native-dump-view-batch.c').read_text()
+    marker = '    PGresult *result;\n    int i;\n    /* Only an exact current'
+    require(helper.count(marker) == 1)
+    counterfactual = helper.replace(marker,
+        '    return ExecuteSqlQuery(fout, stock_query, PGRES_TUPLES_OK);\n' + marker)
+    (directory / 'native-dump-view-stock-reader.c').write_text(counterfactual)
+    stock_reader = directory / 'stock-view-contract'
+    command(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+             '-DCA_VIEW_STOCK_COUNTERFACTUAL', 'native-dump-function-batch-test.c',
+             '-o', str(stock_reader)], cwd=directory, env=env, site='BATCH_COMPILE')
+    red = subprocess.run([str(stock_reader), 'view-valid', '129'], cwd=directory,
+                         env=env, capture_output=True, timeout=5)
+    require(red.returncode == 108 and red.stdout == b'' and red.stderr == b'')
     shutil.rmtree(directory)
     return True
 
@@ -644,6 +671,20 @@ CREATE FUNCTION diagnostic_function_first.aa_free() RETURNS integer LANGUAGE SQL
 CREATE FUNCTION diagnostic_function_first.depends() RETURNS oid LANGUAGE SQL
 RETURN 'diagnostic_function_first.a_before'::regclass::oid;
 '''
+        sql += "CREATE SCHEMA diagnostic_view_many; CREATE SCHEMA diagnostic_view_single; CREATE SCHEMA diagnostic_view_cycle;\n"
+        sql += '\n'.join(f'CREATE VIEW diagnostic_view_many.v_{i} AS SELECT {i}::integer AS id;' for i in range(129))
+        sql += """
+CREATE MATERIALIZED VIEW diagnostic_view_many.materialized AS SELECT id FROM diagnostic_view_many.v_0 WITH NO DATA;
+CREATE VIEW diagnostic_view_single.one AS SELECT id FROM diagnostic_view_many.v_1;
+CREATE VIEW diagnostic_view_cycle.a AS SELECT 1::integer AS id;
+CREATE VIEW diagnostic_view_cycle.b AS SELECT id FROM diagnostic_view_cycle.a;
+CREATE OR REPLACE VIEW diagnostic_view_cycle.a AS SELECT id FROM diagnostic_view_cycle.b;
+CREATE VIEW "diagnostic Other"."View With Space" WITH (security_barrier=true,security_invoker=true)
+AS SELECT id FROM diagnostic_schema.sample WHERE id > 0 WITH LOCAL CHECK OPTION;
+REVOKE ALL ON "diagnostic Other"."View With Space" FROM PUBLIC;
+GRANT SELECT(id) ON "diagnostic Other"."View With Space" TO diagnostic_reader;
+COMMENT ON VIEW "diagnostic Other"."View With Space" IS 'private view batch fixture';
+"""
         BUILD_STAGE = 'SYNTHETIC_SEED'
         command(['node', str(runtime / 'query.mjs')], cwd=work, env=local, data=sql.encode())
         args = ['--no-password', '--schema-only', '--format=plain', '--quote-all-identifiers',
@@ -656,12 +697,14 @@ RETURN 'diagnostic_function_first.a_before'::regclass::oid;
         negative_native_fd(output / 'bin/pg_dump', args, dump_env, work)
         # Filter boundaries preserve zero/one-function and exact source-selected scope.
         for schema in ['diagnostic_empty', 'diagnostic_single', 'diagnostic_sequence_single',
-                       'diagnostic_sequence_first', 'diagnostic_function_first']:
+                       'diagnostic_sequence_first', 'diagnostic_function_first',
+                       'diagnostic_view_single', 'diagnostic_view_many', 'diagnostic_view_cycle']:
             filtered_args = args + ['--schema=' + schema]
             context = schema.removeprefix('diagnostic_').upper()
             QUALIFICATION_PHASE = context + '_STOCK'
             filtered_stock = command([str(stock_executable), *filtered_args], cwd=work, env=dump_env, timeout=45)
-            filtered, _ = diagnostic_dump(output / 'bin/pg_dump', filtered_args, dump_env, work, context=context)
+            filtered, _ = diagnostic_dump(output / 'bin/pg_dump', filtered_args, dump_env, work, context=context,
+                expected_view_requests=2 if schema == 'diagnostic_view_many' else 1 if schema == 'diagnostic_view_single' else None)
             QUALIFICATION_PHASE = context + '_PARITY'
             require(normalize_sql(filtered_stock) == normalize_sql(filtered))
             if schema in ['diagnostic_sequence_first', 'diagnostic_function_first']:
@@ -673,6 +716,15 @@ RETURN 'diagnostic_function_first.a_before'::regclass::oid;
                 require(before < function < after)
                 if schema == 'diagnostic_function_first':
                     require(filtered_stock.index(b'CREATE FUNCTION ' + prefix + b'"aa_free"') < before)
+        # Exclusion leaves only the materialized view; excluded normal views
+        # must not enter the request/cache even though the remaining view refers to one.
+        excluded_args = args + ['--schema=diagnostic_view_many', '--exclude-table=diagnostic_view_many.v_*']
+        QUALIFICATION_PHASE = 'VIEW_EXCLUDED_STOCK'
+        excluded_stock = command([str(stock_executable), *excluded_args], cwd=work, env=dump_env, timeout=45)
+        excluded, _ = diagnostic_dump(output / 'bin/pg_dump', excluded_args, dump_env, work,
+                                      context='VIEW_EXCLUDED', expected_view_requests=1)
+        QUALIFICATION_PHASE = 'VIEW_EXCLUDED_PARITY'
+        require(normalize_sql(excluded_stock) == normalize_sql(excluded))
         QUALIFICATION_PHASE = None
         BUILD_STAGE = 'SQL_EQUIVALENCE'
         require(normalize_sql(stock) == normalize_sql(instrumented))
@@ -683,13 +735,16 @@ RETURN 'diagnostic_function_first.a_before'::regclass::oid;
         require(first < view < second)
         require(stock.count(b'Type: SEQUENCE;') == 138 and b'OWNED BY' in stock and
                 b'GENERATED ALWAYS AS IDENTITY' in stock and b'CYCLE' in stock)
+        require(stock.count(b'Type: VIEW;') == 134 and stock.count(b'Type: MATERIALIZED VIEW;') == 1)
         require(b'SELECT pg_catalog.setval(' not in stock)
         require(b'GRANT SELECT("id")' in stock and b'ALTER DEFAULT PRIVILEGES' in stock and b'CREATE FUNCTION' in stock)
         return {'passed': True, 'sql_bytes_equal': True, 'fd3_records_valid': True,
                 'fd3_record_count': count, 'server_major': 17, 'cluster_absent': True,
                 'synthetic_routine_count': 5513, 'function_batch_max': 128,
                 'synthetic_sequence_count': 138, 'sequence_metadata_sql_equal': True, 'metadata_interleaved_sql_equal': True,
-                'sequence_data_reader_unchanged': True, 'metadata_total_results_max': 128,
+                'sequence_data_reader_unchanged': True, 'synthetic_view_count': 135,
+                'view_metadata_sql_equal': True, 'view_batch_stock_red_green': True,
+                'view_dummy_deferred_sql_equal': True, 'metadata_total_results_max': 128,
                 'metadata_total_bytes_max': 128 * 1024 * 1024,
                 'dependency_interleaved_sql_equal': True, 'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components',
                 'diagnostic_wire': 'D5-absolute17-tag6-delta-uleb128', 'query_subtypes_valid': True,
@@ -768,13 +823,15 @@ def build(repo, output):
         stock_executable.chmod(0o700)
         BUILD_STAGE = 'LIBPQ_INSTALL'
         command(['make', '-C', 'src/interfaces/libpq', 'install'], cwd=source, env=env, timeout=60)
-        # Same configured source/libpq: add logging and bounded function transport batching.
+        # Same configured source/libpq: add logging and bounded metadata transport batching.
         for name, content in patched.items(): (source / name).write_bytes(content)
         shutil.copyfile(helper, source / 'src/bin/pg_dump/native-dump-diagnostic.c')
         batch_helper = repo / 'operations/release/fixture/native-dump-function-batch.c'
         shutil.copyfile(batch_helper, source / 'src/bin/pg_dump/native-dump-function-batch.c')
         sequence_helper = repo / 'operations/release/fixture/native-dump-sequence-batch.c'
         shutil.copyfile(sequence_helper, source / 'src/bin/pg_dump/native-dump-sequence-batch.c')
+        view_helper = repo / 'operations/release/fixture/native-dump-view-batch.c'
+        shutil.copyfile(view_helper, source / 'src/bin/pg_dump/native-dump-view-batch.c')
         BUILD_STAGE = 'DIAGNOSTIC_BUILD'
         command(['make', '-C', 'src/bin/pg_dump', '-j1', 'pg_dump'], cwd=source, env=env, timeout=120)
         (output / 'bin').mkdir(mode=0o700)
@@ -797,8 +854,9 @@ def build(repo, output):
                     'builder_sha256': digest(Path(__file__).read_bytes()), 'helper_sha256': digest(helper.read_bytes()),
                     'function_batch_helper_sha256': digest(batch_helper.read_bytes()),
                     'sequence_batch_helper_sha256': digest(sequence_helper.read_bytes()),
+                    'view_batch_helper_sha256': digest(view_helper.read_bytes()),
                     'function_batch_contract_sha256': digest((repo / 'operations/release/fixture/native-dump-function-batch-test.c').read_bytes()),
-                    'transport': 'bounded-stock-function-sequence-metadata-v3',
+                    'transport': 'bounded-stock-function-sequence-view-metadata-v4',
                     'binary_sha256': digest((output / 'bin/pg_dump').read_bytes()),
                     'libpq_sha256': digest((output / 'lib/libpq.so.5').read_bytes()), 'qualification': proof}
         # Keep only the two executable inputs and manifest for the capture.
