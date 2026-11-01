@@ -315,36 +315,35 @@ export function CardImage({
         style={imgError ? { display: 'none' } : undefined}
         onError={() => setFallbackStep((s) => (s === 0 && effectivePath.endsWith('.webp') ? 1 : 2))}
       />
-      {/* Fallback: hide broken image, show colored text indicator */}
-      {imgError && (
-        <div
-          className="card-image__fallback"
-          /* The hidden <img> above KEEPS its alt, so this is the same card a
+      {/* Paint the authoritative face immediately, beneath the artwork. A pending
+          request or async decode must never leave a playable card blank. */}
+      <div
+        className="card-image__fallback"
+        /* The hidden <img> above KEEPS its alt, so this is the same card a
              second time. Announced twice it reads as two cards, and the suit
              here is a glyph a screen reader spells out. */
-          aria-hidden="true"
-          style={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: '#fff',
-            borderRadius: 'inherit',
-            fontWeight: 800,
-            color:
-              effectiveDeckStyle === '2color'
-                ? SUIT_MAP[card.suit] === 'hearts' || SUIT_MAP[card.suit] === 'diamonds'
-                  ? SUIT_COLOR.h
-                  : SUIT_COLOR.s
-                : SUIT_COLOR[card.suit] || '#000',
-          }}
-        >
-          <span style={{ fontSize: '0.7em', lineHeight: 1 }}>{card.rank}</span>
-          <span style={{ fontSize: '0.6em', lineHeight: 1 }}>{SUIT_CHAR[card.suit] || '?'}</span>
-        </div>
-      )}
+        aria-hidden="true"
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fff',
+          borderRadius: 'inherit',
+          fontWeight: 800,
+          color:
+            effectiveDeckStyle === '2color'
+              ? SUIT_MAP[card.suit] === 'hearts' || SUIT_MAP[card.suit] === 'diamonds'
+                ? SUIT_COLOR.h
+                : SUIT_COLOR.s
+              : SUIT_COLOR[card.suit] || '#000',
+        }}
+      >
+        <span style={{ fontSize: '0.7em', lineHeight: 1 }}>{card.rank}</span>
+        <span style={{ fontSize: '0.6em', lineHeight: 1 }}>{SUIT_CHAR[card.suit] || '?'}</span>
+      </div>
     </div>
   );
 }
