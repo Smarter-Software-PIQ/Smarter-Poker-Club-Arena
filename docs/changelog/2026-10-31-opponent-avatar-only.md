@@ -7,5 +7,3 @@ Use permanent artwork geometry rather than animated breathing frames for ownersh
 Wait for decoded metadata before validating settled chips after a layout refresh. Otherwise an empty per-effect metadata map briefly substitutes a transparent image square and wrongly relocates a valid wager. New marker candidates also account for all retained markers regardless of DOM order. Fractional CSS layout widths, rather than rounded offset widths, determine coordinate projection. Constrained nine-seat edge hands are placed before flexible cap hands without resizing cards.
 
 Regression coverage uses the real occupied portrait fixture for equal artwork height, board/control clearance, PLO5/PLO6 showdowns and settled chips, plus focused contact/precision/cascade tests and the phone/iPad custom/library artwork matrix.
-
-The required related-test hook exposed a lobby sorting fixture that crossed into tomorrow after 23:15. Its featured event now explicitly starts at local noon today, matching the existing today-only pin contract while preserving the sorting assertions and production behavior.

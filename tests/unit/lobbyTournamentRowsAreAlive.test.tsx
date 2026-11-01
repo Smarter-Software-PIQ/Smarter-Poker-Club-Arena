@@ -29,6 +29,7 @@ vi.mock('../../src/services/tableWarmup', () => ({
 vi.mock('../../src/hooks/useSpinTierAvailability', () => ({ useSpinTierAvailability: () => null }));
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   try {
     localStorage.clear();
   } catch {
@@ -119,12 +120,12 @@ describe('a tournament row says what makes it worth playing', () => {
 
 describe('a heading the player taps reorders the whole board', () => {
   it('Players reorders ordinary events while keeping top events pinned', () => {
-    // Featured pins apply only to today's local calendar. The default fixture's
-    // now +45 minutes becomes tomorrow near midnight and is correctly unpinned.
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
+    // The fixture starts in 45 minutes and must remain on the viewer's day.
+    // A real clock after 23:15 correctly makes that event ineligible for a pin.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 31, 12));
     const featured = mtt(
-      { id: 'small', name: 'Featured Small', current_players: 5, start_time: today.toISOString() },
+      { id: 'small', name: 'Featured Small', current_players: 5 },
       { featured: true }
     );
     const big = mtt({ id: 'big', name: 'Busy Big', current_players: 50 });

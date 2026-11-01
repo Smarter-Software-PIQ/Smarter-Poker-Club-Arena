@@ -83,11 +83,12 @@ describe('an announcement leaves the felt on its own, however busy the table is'
     expect(dismissed).not.toHaveBeenCalled();
   });
 
-  it('depends on the announcement TYPE, never on the callback identity', () => {
+  it('depends on the announcement event and type, never on the callback identity', () => {
     // The dependency array is the whole bug. Pin it.
     expect(OVERLAY).toContain('onDismissRef');
     expect(OVERLAY).not.toMatch(/\}, \[type, onDismiss\]\)/);
-    expect(OVERLAY).toMatch(/\}, \[type\]\)/);
+    expect(OVERLAY).toMatch(/\}, \[type, eventIdentity\]\)/);
+    expect(MODALS_LAYER).toContain('eventIdentity={announcement}');
   });
 
   it('cancels BOTH timers in the effect cleanup, not just the outer one', () => {

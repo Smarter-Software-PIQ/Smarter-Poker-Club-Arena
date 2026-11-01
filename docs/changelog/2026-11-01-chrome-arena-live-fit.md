@@ -1,0 +1,7 @@
+# Chrome Arena live display qualification
+
+The published cash cards exposed decimal stakes wrapping into the lower frame. Fit the unchanged numeric stake string inside its painted bay on both layouts. Preserve canonical Lightning variant guards and all sort and favorite handlers.
+
+The single isolated-account production case reached all five format captures and four favorite phases before its shared 120-second deadline expired during final evidence capture (run 41272366052). Give only this combined case 180 seconds; preserve individual readiness deadlines, all assertions, zero retries, account cleanup and exact stable publisher provenance. Require the fitted cash values and visible favorite control in each sampled format, and scroll the actual starred card into the evidence viewport.
+
+Owner screenshot corrections also enlarge cash descriptions, tournament phase text, game variants and field labels. Cash style, ante and VPIP phrases stack; the compact visible abbreviation Min retains the full Minimum phrase in its tooltip. Cash player and table counts use larger balanced type within their existing stacked bay. Cash Games and Tournaments labels center on the measured painted glass face rather than the canvas shadow. MTT master frames and sculpted event emblems remove their circular chip backings, including turbo/hyper symbols. Immutable versioned artwork and generation provenance are retained; cash and Spin artwork remain unchanged.
