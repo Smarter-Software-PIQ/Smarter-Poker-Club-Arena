@@ -1,3 +1,7 @@
+import {
+  installNaturalBoardReveal,
+  naturalBoardRevealEvidence,
+} from './support/naturalBoardReveal';
 import { createClient } from '@supabase/supabase-js';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -2351,6 +2355,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         /* Retained EVENT replay is explicitly excluded by its protocol marker.
          Prove action/street progress, completion, automatic next-hand start,
          and presentation of that next hand. */
+        await page.evaluate(installNaturalBoardReveal, observationDeadline);
         const initialProgressStartedAt = Date.now();
         const initialCycle = await whileConnectionBannerStaysHidden(
           page,
@@ -2368,6 +2373,23 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         await expect(banner).toBeHidden();
         await expectNoOpponentHud(page);
 
+        const boardFrames = await page.evaluate(() => window.__naturalBoardReveal?.stop() ?? []);
+        await testInfo.attach('natural-board-reveal-paint-opportunities', {
+          body: Buffer.from(
+            JSON.stringify(
+              naturalBoardRevealEvidence(
+                boardFrames,
+                journal.matchingFrames({
+                  direction: 'received',
+                  tableId,
+                  since: initialProgressStartedAt,
+                }),
+                tableId
+              )
+            )
+          ),
+          contentType: 'application/json',
+        });
         const preOutageTransports = journal.transportIdsOpenAt(Date.now());
         expect(
           preOutageTransports,
@@ -2624,6 +2646,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           if (offline) await context.setOffline(false).catch(() => {});
         }
       } finally {
+        await page.evaluate(() => window.__naturalBoardReveal?.stop()).catch(() => undefined);
         await testInfo.attach('live-table-realtime-summary', {
           body: Buffer.from(JSON.stringify(journal.summary(tableId), null, 2)),
           contentType: 'application/json',
