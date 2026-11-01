@@ -1,3 +1,4 @@
+import { registerNineSeatMobileProof } from './support/productionNineSeatMobile';
 import {
   isReadOnlySpectatorSocketType,
   requestObserverForegroundProbe,
@@ -612,3 +613,7 @@ test('the published table explains controlled seat moves without moving a player
     }
   }
 });
+
+// Explicit targeted nine-seat delivery input enables both requested mobile
+// profiles; they fail rather than skip once the owning proof supplies a table.
+if (process.env.E2E_MOBILE_TABLE_ID) registerNineSeatMobileProof();

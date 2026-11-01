@@ -104,6 +104,7 @@ const seatBoxWPx = (feltW: number) =>
   );
 
 const SEAT_CSS = readFileSync(resolve(__dirname, '../src/components/table/SeatSlot.css'), 'utf8');
+const TABLE_CSS = readFileSync(resolve(__dirname, '../src/pages/TablePage.css'), 'utf8');
 
 describe('the seat box this file measures against is the one the stylesheet draws', () => {
   it('SeatSlot.css still draws the villain box seatBoxWPx() models', () => {
@@ -249,6 +250,13 @@ describe('the dealer button is never on the community board', () => {
 });
 
 describe('the seat BOXES stand clear of the cards, not just the markers', () => {
+  it('the portrait nine-seat board uses the centre lane modelled below', () => {
+    const css = TABLE_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(
+      /@media\s*\(max-width:\s*768px\)\s*and\s*\(orientation:\s*portrait\)\s*\{\s*\.table-page\[data-seats='9'\]\s+\.community-area\s*\{\s*max-width:\s*50vw;\s*\}/
+    );
+  });
+
   /**
    * ═══════════════════════════════════════════════════════════════════════════
    * Dan 2026-08-27, item 2: the board spans the felt "LIKE FELT WINDOW 95%",
@@ -264,7 +272,7 @@ describe('the seat BOXES stand clear of the cards, not just the markers', () => 
    *
    * That is why the board could never have reached 95% from the stylesheet, and
    * it is the invariant the seat move has to keep: EVERY seat, on every ring,
-   * stands entirely above the cards or entirely below them.
+   * stands clear of the cards above, below or in the portrait side lanes.
    *
    * Measured on the phone because the box is a fixed pixel size on a table
    * whose width is continuous, so the smallest table is the tightest fit. The
@@ -279,9 +287,7 @@ describe('the seat BOXES stand clear of the cards, not just the markers', () => 
   for (const [label, table] of Object.entries(TABLES)) {
     it(`${label}: no seat box on any ring overlaps the board`, () => {
       const gapPct = (BOARD_GAP_PX / table.w) * 100;
-      const rowW = BOARD_FELT_FRACTION * FELT_WINDOW.width;
-      const cardW = (rowW - 4 * gapPct) / 5;
-      const halfH = (cardW * (92 / 64) * (table.w / table.h)) / 2;
+      const viewport = label.startsWith('phone') ? 375 : label.startsWith('tablet') ? 768 : 1440;
       const centreX = FELT_WINDOW.left + FELT_WINDOW.width / 2;
       const centreY = FELT_WINDOW.top + (BOARD_TOP_FELT_PCT / 100) * FELT_WINDOW.height;
       const pod = seatPodPx(
@@ -294,18 +300,22 @@ describe('the seat BOXES stand clear of the cards, not just the markers', () => 
       const seatHalfY = (pod.h / 2 / table.h) * 100;
 
       for (const n of SIZES) {
+        // Nine portrait seats share the real centre board lane. The stylesheet
+        // caps it at 50vw; modelling an uncapped 95%-felt row invents cards
+        // extending into the side-rail pods that the browser never paints.
+        const rowW = Math.min(
+          BOARD_FELT_FRACTION * FELT_WINDOW.width,
+          n === 9 && viewport <= 768 ? ((viewport * 0.5) / table.w) * 100 : Infinity
+        );
+        const cardW = (rowW - 4 * gapPct) / 5;
+        const halfH = (cardW * (92 / 64) * (table.w / table.h)) / 2;
         for (const raw of SEAT_LAYOUTS[n]) {
-          const viewport = label.startsWith('phone')
-            ? 375
-            : label.startsWith('tablet')
-              ? 768
-              : 1440;
           const seat = fitSeatToViewport(raw, table, viewport, pod, undefined, n);
           const overlapsX = Math.abs(seat.x - centreX) < rowW / 2 + seatHalfX;
           const overlapsY = Math.abs(seat.y - centreY) < halfH + seatHalfY;
           expect(
             overlapsX && overlapsY,
-            `${n}-max ${label}: seat ${JSON.stringify(seat)} has its 96px box over the cards ` +
+            `${n}-max ${label}: seat ${JSON.stringify(seat)} has its modelled ${pod.w.toFixed(1)}x${pod.h.toFixed(1)}px box over the cards ` +
               `(the board is x ${(centreX - rowW / 2).toFixed(1)}..${(centreX + rowW / 2).toFixed(1)}, ` +
               `y ${(centreY - halfH).toFixed(1)}..${(centreY + halfH).toFixed(1)})`
           ).toBe(false);

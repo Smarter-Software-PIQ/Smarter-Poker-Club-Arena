@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { parse as parseYaml } from 'yaml';
 import './protection-applicability.test.mjs';
 import './revision-boundaries.test.mjs';
 import './producer-boundary.test.mjs';
@@ -254,12 +255,28 @@ for(const repo of ['Smarter-Poker/Smarter-Poker-Club-Arena','Smarter-Software-PI
 for(const repo of ['evil/Smarter-Poker-Club-Arena','Smarter-Software-PIQ/evil','smarter-software-piq/Smarter-Poker-Club-Arena'])test('same ID cannot authorize an unapproved full name '+repo,()=>assert.equal(isClubArenaRepository(repo,'1132369872'),false));
 
 test('all qualification and publication jobs use only fixed standard hosted runners',()=>{
-  for(const file of ['ci.yml','publish-club-arena.yml','publish-club-arena-client.yml','publish-club-arena-transaction.yml','component-fixture-native-smoke.yml']){
+  // The locked Playwright browser supports these exact hosted Ubuntu 24.04
+  // consumers. No other job or runner expression is admitted by this exception.
+  const pinnedBrowserJobs = {
+    'ci.yml': ['build','live-e2e','css-beats-e2e','diamond-playfield-e2e'],
+    'post-deploy-e2e.yml': ['private-record-client-proof','stats-pagination-proof',
+      'production-e2e','live-table-e2e','club-channel-lifecycle-e2e'],
+  };
+  for(const file of ['ci.yml','publish-club-arena.yml','publish-club-arena-client.yml','publish-club-arena-transaction.yml','component-fixture-native-smoke.yml','post-deploy-e2e.yml']){
     const text=fs.readFileSync(new URL('../.github/workflows/'+file,import.meta.url),'utf8');
-    const routes=[...text.matchAll(/^    runs-on: (.+)$/gm)].map(match=>match[1]);
-    assert.ok(routes.length,file);
-    for(const route of routes)assert.equal(route,file==='component-fixture-native-smoke.yml'?'ubuntu-24.04':'ubuntu-latest',file);
-    assert.doesNotMatch(routes.join('\n'),/ca-linux|self-hosted|vars\./);
+    const jobs=parseYaml(text).jobs;
+    for(const name of pinnedBrowserJobs[file] || []) {
+      assert.ok(jobs[name],`${file}:${name} remains required`);
+      assert.equal(jobs[name]['runs-on'],'ubuntu-24.04',`${file}:${name}`);
+    }
+    const routed=Object.entries(jobs).filter(([,job])=>job['runs-on']);
+    assert.ok(routed.length,file);
+    for(const [name,job] of routed){
+      const expected=file==='component-fixture-native-smoke.yml' || pinnedBrowserJobs[file]?.includes(name)
+        ? 'ubuntu-24.04' : 'ubuntu-latest';
+      assert.equal(job['runs-on'],expected,`${file}:${name}`);
+      assert.doesNotMatch(job['runs-on'],/ca-linux|self-hosted|vars\./);
+    }
   }
 });
 
