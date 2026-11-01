@@ -1417,8 +1417,17 @@ export default function MultiTablePage() {
   const announcedMovesRef = useRef<Set<string>>(new Set());
   const announceTournamentMove = useCallback(
     (fromId: string, destinationId: string, knownName?: string) => {
+      const isVisibleMove = () => {
+        const active = tablesRef.current[activeIndexRef.current];
+        return !active?.followPlayer && (active?.id === fromId || active?.id === destinationId);
+      };
+      // A background chair move must not speak over the table being watched.
+      if (!isVisibleMove()) return;
       if (!claimMoveAnnouncement(announcedMovesRef.current, fromId, destinationId)) return;
-      const say = (name: string) => toast.info(`You've Been Moved To ${name}`, 6000);
+      const say = (name: string) => {
+        // The destination-name read can finish after the user changes tabs.
+        if (isVisibleMove()) toast.info(`You've Been Moved To ${name}`, 6000);
+      };
       if (knownName) {
         say(knownName);
         return;

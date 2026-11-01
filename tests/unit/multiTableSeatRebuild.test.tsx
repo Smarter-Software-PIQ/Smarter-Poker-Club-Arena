@@ -447,6 +447,11 @@ describe('Rendered MultiTable authoritative seat rebuild', () => {
     await act(async () => state.inserts[0]({ new: { table_id: 'C', left_at: null } }));
     await waitFor(() => expect(state.moveSession).toHaveBeenCalledWith('B', 'C', 'account-a'));
     expect(state.moveSession).not.toHaveBeenCalledWith('A', 'C', 'account-a');
+    expect(screen.getByTestId('tabs').getAttribute('data-active')).toBe('A');
+    expect(state.toast.info).not.toHaveBeenCalledWith(
+      expect.stringContaining("You've Been Moved"),
+      expect.anything()
+    );
   });
 
   it('closes the final stale seated tab after successful zero-seat truth', async () => {

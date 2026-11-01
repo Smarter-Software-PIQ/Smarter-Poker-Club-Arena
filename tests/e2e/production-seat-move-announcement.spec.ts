@@ -426,11 +426,33 @@ test('the published table explains controlled seat moves without moving a player
     await expect(page.locator('.table-surface')).toBeVisible();
     await expect.poll(() => snapshotTemplate !== null).toBe(true);
     const watchedRoute = page.url();
+    // The cash roster may have changed during the cold load. Use its current
+    // rendered actor for the parser control and subsequent hero diagnostic.
+    const currentActor = page.locator('.seat[data-player-id]').first();
+    await expect(currentActor).toBeVisible();
+    const diagnosticActorId = await currentActor.getAttribute('data-player-id');
+    const diagnosticAlias = (await currentActor.locator('.seat__name').innerText()).trim();
+    expect(diagnosticActorId).toMatch(UUID);
+    expect(diagnosticActorId).not.toBe(fixtureUserId);
     // Block every write and upstream frame before delivering a synthetic own
     // seat move. It reaches the actual published parser and navigation hook.
     syntheticPhase = true;
-    inject(main, Date.now(), 'must_move');
-    await expect(toastMessage(mainText)).toBeVisible();
+    clients.at(-1)!.send(
+      JSON.stringify({
+        type: 'EVENT',
+        tableId: source.id,
+        ts: Date.now(),
+        payload: {
+          type: 'seat_moved',
+          table_id: source.id,
+          user_id: diagnosticActorId,
+          to_table_id: main.id,
+          reason: 'must_move',
+          timestamp: Date.now(),
+        },
+      })
+    );
+    await expect(toastMessage(`${diagnosticAlias} Was Moved To The Main Game`)).toBeVisible();
     clients.at(-1)!.send(
       JSON.stringify({
         type: 'EVENT',
@@ -479,7 +501,7 @@ test('the published table explains controlled seat moves without moving a player
     ).not.toBe(true);
     const input = structuredClone(template);
     const index = input.state.players.findIndex(
-      (player: { user_id?: string }) => player.user_id === actorId
+      (player: { user_id?: string }) => player.user_id === diagnosticActorId
     );
     expect(index).toBeGreaterThanOrEqual(0);
     const seat = input.state.players[index].seat;
