@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 273355,
-      "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+      "bytes": 273719,
+      "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2163,6 +2163,23 @@
     },
     "historicalEvidenceRestamped": false,
     "execution_performed": false
+  },
+  "memberStatsChicagoRegression20261101": {
+    "reason": "Reviewed six-line workflow addition executes isolated PG17 Chicago member-statistics regression in existing required accounting shard4. Existing commands, assertions, financial matrices, permissions and deadlines unchanged. Current source identity only; no historical financial or live evidence restamped.",
+    "previous": {
+      "bytes": 272761,
+      "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+    },
+    "current": {
+      "bytes": 273719,
+      "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
+    },
+    "historicalEvidenceRestamped": false,
+    "integratedMainPin": {
+      "bytes": 273355,
+      "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+    },
+    "integrationNote": "Retain concurrent protected tournament request qualification and native schedule staging. Final CI diff from integrated main remains the same six-line member stats regression addition. No historical evidence restamped."
   },
   "closureCreationIntegration20261101": {
     "reason": "Preserve both protected creation and closure histories and all native gates; current composed source fingerprints only.",
