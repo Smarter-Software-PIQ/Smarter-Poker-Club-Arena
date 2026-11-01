@@ -57,6 +57,7 @@ export function useProtectedCardLayout(
         landed: boolean;
         width: number;
         height: number;
+        translation?: [number, number];
       }
     >(),
   });
@@ -132,11 +133,33 @@ export function useProtectedCardLayout(
     const sameWager = (bet: HTMLElement, stored: { owner: string | null; kind: string }) =>
       stored.owner === (bet.closest('.seat')?.getAttribute('data-player-id') ?? null) &&
       stored.kind === wagerKind(bet);
-    const resetWagers = () =>
+    const ownedTranslations = new Map<HTMLElement, { value: string; priority: string }>();
+    const restoreTranslation = (bet: HTMLElement) => {
+      const original = ownedTranslations.get(bet);
+      if (!original) return;
+      if (original.value) bet.style.setProperty('translate', original.value, original.priority);
+      else bet.style.removeProperty('translate');
+    };
+    const translateWager = (bet: HTMLElement, shift: [number, number]) => {
+      if (!ownedTranslations.has(bet))
+        ownedTranslations.set(bet, {
+          value: bet.style.getPropertyValue('translate'),
+          priority: bet.style.getPropertyPriority('translate'),
+        });
+      restoreTranslation(bet);
+      const base = getComputedStyle(bet)
+        .translate.split(/\s+/)
+        .map((value) => parseFloat(value) || 0);
+      bet.style.translate = `${(base[0] || 0) + shift[0]}px ${(base[1] || 0) + shift[1]}px`;
+    };
+    const resetWagers = () => {
+      for (const bet of ownedTranslations.keys()) restoreTranslation(bet);
+      ownedTranslations.clear();
       wagers().forEach((bet) => {
         for (const name of ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'])
           bet.style.removeProperty(name);
       });
+    };
     const hasPendingCardMotion = (rows: HTMLElement[]) => {
       const entering = rows
         .flatMap((row) => row.getAnimations?.({ subtree: true }) ?? [])
@@ -466,6 +489,7 @@ export function useProtectedCardLayout(
         if (stored && sameWager(bet, stored)) {
           offsetNames.forEach((name, index) => bet.style.setProperty(name, stored.offsets[index]));
           if (!stored.landed) continue;
+          if (stored.translation) translateWager(bet, stored.translation);
           // A raise's label width or an all-in sibling can change the CSS rest
           // point. Keep this contribution's actual scaler-relative centre.
           const correction = retainedWagerCorrection(
@@ -477,15 +501,24 @@ export function useProtectedCardLayout(
           );
           if (!correction.x && !correction.y) continue;
           const values = stored.offsets.map((value) => parseFloat(value) || 0);
+          if (stored.translation) {
+            stored.translation = [
+              stored.translation[0] + correction.x,
+              stored.translation[1] + correction.y,
+            ];
+            translateWager(bet, stored.translation);
+          }
           stored.offsets = [
-            values[0] + correction.x,
-            values[1] + correction.y,
+            values[0] + (stored.translation ? 0 : correction.x),
+            values[1] + (stored.translation ? 0 : correction.y),
             values[2] - correction.x,
             values[3] - correction.y,
           ].map((value) => `${value}px`);
           offsetNames.forEach((name, index) => bet.style.setProperty(name, stored.offsets[index]));
         } else {
           settled.current.wagers.delete(bet);
+          restoreTranslation(bet);
+          ownedTranslations.delete(bet);
           offsetNames.forEach((name) => bet.style.removeProperty(name));
         }
       }
@@ -2248,6 +2281,28 @@ export function useProtectedCardLayout(
       // Once the original finite allocation is complete, later actions place
       // their own cards/chips around the chairs instead of moving a player.
       artwork.lock();
+      if (!phoneMarkers && artwork.ready() && !artwork.canMove()) {
+        // Desktop keeps its original rail layout. Retain the landed tower's
+        // baseline without running the portrait solver or moving its first bet.
+        for (const bet of wagers()) {
+          if (settled.current.wagers.has(bet)) continue;
+          const rect = bet.getBoundingClientRect();
+          if (!rect.width || !rect.height) continue;
+          const style = getComputedStyle(bet);
+          settled.current.wagers.set(bet, {
+            offsets: offsetNames.map(
+              (name) => `${parseFloat(style.getPropertyValue(name)) || 0}px`
+            ),
+            owner: bet.closest('.seat')?.getAttribute('data-player-id') ?? null,
+            kind: wagerKind(bet),
+            anchor: wagerAnchor(rect, scaler.getBoundingClientRect(), scale, wagerRestPoint(bet)),
+            landed: true,
+            width: rect.width,
+            height: rect.height,
+            translation: [0, 0],
+          });
+        }
+      }
       promoteWagers();
     };
     place();
@@ -2279,7 +2334,7 @@ export function useProtectedCardLayout(
     // their actual final footprint when it changes, including a later pot node.
     const observedPots = new WeakSet<Element>();
     const observePots = () => {
-      scaler.querySelectorAll('.pot-display,.pot-display__pile').forEach((pot) => {
+      scaler.querySelectorAll('.pot-display,.pot-display__pile,.seat__bet-chips').forEach((pot) => {
         if (observedPots.has(pot)) return;
         observedPots.add(pot);
         observer.observe(pot);

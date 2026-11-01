@@ -866,7 +866,9 @@ for (const [width, heightOverride] of occupiedViewports)
         ]
       : width === 652 && count === 9
         ? ['all', 'focus', 'focus tournament']
-        : ['all']
+        : width === 1024
+          ? ['all', 'focus']
+          : ['all']
     ).map((sceneGroup) => [count, sceneGroup] as const)
   ))
     test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}${sceneGroup === 'all' ? '' : ` (${sceneGroup})`}`, async ({
@@ -1011,6 +1013,7 @@ for (const [width, heightOverride] of occupiedViewports)
         sheets.map(readStyle).join('\n') +
         '\n' +
         (bundled.outputFiles.find((file) => file.path.endsWith('.css'))?.text || '');
+      let scenesRun = 0;
       for (const [revealed, jackpot, villainCards = 2, state = 'normal'] of [
         [false, 'mini'],
         [true, 'mini'],
@@ -1043,7 +1046,9 @@ for (const [width, heightOverride] of occupiedViewports)
         // Both rings exercise every occupied state at every phone width.
         const scaledPhone = state === 'scaled-phone';
         if (scaledPhone && (width !== 600 || count !== 9)) continue;
-        if (width > 480 && villainCards < 5 && !scaledPhone) continue;
+        if (width > 480 && villainCards < 5 && !scaledPhone && !sceneGroup.startsWith('focus'))
+          continue;
+        scenesRun++;
         if (villainCards >= 5)
           expect(
             count * villainCards + 5,
@@ -1163,6 +1168,7 @@ for (const [width, heightOverride] of occupiedViewports)
               .filter(
                 (animation) =>
                   (animation.playState === 'running' || animation.pending) &&
+                  !(animation as CSSAnimation).animationName?.startsWith('spTimer') &&
                   animation.effect?.getComputedTiming().iterations !== Infinity
               );
           for (let phase = 0; phase < 3; phase++) {
@@ -1445,11 +1451,12 @@ for (const [width, heightOverride] of occupiedViewports)
             await page.evaluate(async () => {
               for (let phase = 0; phase < 3; phase++) {
                 await Promise.all(
-                  document
-                    .getAnimations()
+                  Array.from(document.querySelectorAll('.seat__cards,.seat__bet-chips'))
+                    .flatMap((element) => element.getAnimations({ subtree: true }))
                     .filter(
                       (a) =>
                         a.playState === 'running' &&
+                        !(a as CSSAnimation).animationName?.startsWith('spTimer') &&
                         a.effect?.getComputedTiming().iterations !== Infinity
                     )
                     .map((a) => a.finished.catch(() => {}))
@@ -1488,15 +1495,17 @@ for (const [width, heightOverride] of occupiedViewports)
               })
             );
           const retainedContributions = await contributionCentres();
+          expect(retainedContributions).toHaveLength(count);
           const settleContributions = () =>
             page.evaluate(async () => {
               for (let phase = 0; phase < 3; phase++) {
                 await Promise.all(
-                  document
-                    .getAnimations()
+                  Array.from(document.querySelectorAll('.seat__cards,.seat__bet-chips'))
+                    .flatMap((element) => element.getAnimations({ subtree: true }))
                     .filter(
                       (animation) =>
                         animation.playState === 'running' &&
+                        !(animation as CSSAnimation).animationName?.startsWith('spTimer') &&
                         animation.effect?.getComputedTiming().iterations !== Infinity
                     )
                     .map((animation) => animation.finished.catch(() => {}))
@@ -1506,62 +1515,27 @@ for (const [width, heightOverride] of occupiedViewports)
                 );
               }
             });
-          // An appearing action footprint must not evict a landed contribution.
-          // Deliberately exercise the collision boundary, then remove the footprint.
-          if (sceneGroup === 'focus') {
+          if (width === 1024) {
+            await expect(page.locator('.seat__allin-puck')).toHaveCount(0);
             await page.evaluate(() => {
-              const bet = document.querySelector('.seat__bet-chips[data-wager-kind="chips"]')!;
-              const rect = bet.getBoundingClientRect();
-              const action = document.createElement('div');
-              action.className = 'seat__action';
-              action.dataset.retainedChipProbe = 'true';
-              action.textContent = 'Raise';
-              Object.assign(action.style, {
-                position: 'fixed',
-                left: `${rect.left}px`,
-                top: `${rect.top}px`,
-                width: `${rect.width}px`,
-                height: `${rect.height}px`,
-                transform: 'none',
-              });
-              document.querySelector('.table-page')!.append(action);
+              document.documentElement.dataset.allIn = 'true';
               document.dispatchEvent(new Event('fixture-runout'));
             });
-            const contact = await page.evaluate(() => {
-              const action = document
-                .querySelector('[data-retained-chip-probe]')!
-                .getBoundingClientRect();
-              const bet = document
-                .querySelector('.seat__bet-chips[data-wager-kind="chips"]')!
-                .getBoundingClientRect();
-              return {
-                width: Math.min(action.right, bet.right) - Math.max(action.left, bet.left),
-                height: Math.min(action.bottom, bet.bottom) - Math.max(action.top, bet.top),
-              };
-            });
-            expect(
-              contact.width,
-              'The regression presents an actual dynamic keepout'
-            ).toBeGreaterThan(0.5);
-            expect(
-              contact.height,
-              'The regression presents an actual dynamic keepout'
-            ).toBeGreaterThan(0.5);
+            await expect(page.locator('.seat__allin-puck')).toHaveCount(2);
             await settleContributions();
-            const fixed = (await contributionCentres())[0];
-            expect(fixed.x, 'An appearing action cannot evict landed chips').toBeCloseTo(
-              retainedContributions[0].x,
-              1
-            );
-            expect(fixed.y, 'An appearing action cannot evict landed chips').toBeCloseTo(
-              retainedContributions[0].y,
-              1
-            );
-            await page.evaluate(() => {
-              document.querySelector('[data-retained-chip-probe]')!.remove();
-              document.dispatchEvent(new Event('fixture-runout'));
-            });
-            await settleContributions();
+            for (const contribution of await contributionCentres()) {
+              const previous = retainedContributions.find(
+                (row) => row.owner === contribution.owner
+              )!;
+              expect(
+                contribution.x,
+                'A desktop all-in marker cannot shift already landed chips'
+              ).toBeCloseTo(previous.x, 1);
+              expect(
+                contribution.y,
+                'A desktop all-in marker cannot shift already landed chips'
+              ).toBeCloseTo(previous.y, 1);
+            }
           }
           await page.evaluate(() => {
             document.documentElement.dataset.betAmount = '120000';
@@ -2366,6 +2340,7 @@ for (const [width, heightOverride] of occupiedViewports)
         }
         await page.unroute('https://smarter.poker/hub/club-arena/__isolated_rail_fixture');
       }
+      expect(scenesRun, 'Every admitted layout case must execute a scene').toBeGreaterThan(0);
     });
 
 // The full page has a ticker/tab strip above the embedded gameplay slot.
