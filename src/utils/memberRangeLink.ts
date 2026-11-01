@@ -1,9 +1,4 @@
-import {
-  RANGE_OVERALL,
-  isoDate,
-  lastDaysRange,
-  type MemberRange,
-} from '../services/ClubRosterService';
+import { RANGE_OVERALL, lastDaysRange, type MemberRange } from '../services/ClubRosterService';
 
 /**
  * THE RANGE TRAVELS WITH THE LINK. The Player Record opens Player Statistics
@@ -26,7 +21,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 function validDate(value: string | null): value is string {
   if (!value || !ISO_DATE.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && isoDate(parsed) === value;
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 /** The query string (without "?") that carries a range to Player Statistics. */
