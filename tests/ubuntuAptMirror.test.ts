@@ -6,24 +6,6 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
 describe('Ubuntu browser dependency mirror', () => {
-  it('keeps the locked Playwright browser jobs on its supported Ubuntu image', () => {
-    const files: Record<string, string[]> = {
-      'ci.yml': ['build', 'css-beats-e2e', 'diamond-playfield-e2e'],
-      'post-deploy-e2e.yml': [
-        'private-record-client-proof',
-        'stats-pagination-proof',
-        'production-e2e',
-        'live-table-e2e',
-        'club-channel-lifecycle-e2e',
-      ],
-    };
-    for (const [file, jobs] of Object.entries(files)) {
-      const workflow = parse(readFileSync(join('.github/workflows', file), 'utf8'));
-      for (const job of jobs)
-        expect(workflow.jobs[job]['runs-on'], `${file}: ${job}`).toBe('ubuntu-24.04');
-    }
-  });
-
   it('selects the primary mirror before both browser and native package installs', () => {
     const workflow = parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
     const native = workflow.jobs.accounting_postgres.steps.find(

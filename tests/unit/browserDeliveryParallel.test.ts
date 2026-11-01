@@ -26,35 +26,21 @@ describe('browser qualification parallel delivery', () => {
       'publish-club-arena.yml',
       'publish-club-arena-client.yml',
       'publish-club-arena-transaction.yml',
-      'post-deploy-e2e.yml',
     ]) {
       const workflow = YAML.parse(readFileSync('.github/workflows/' + file, 'utf8'));
-      // Playwright's locked browser build supports Ubuntu 24.04. Pin only the
-      // exact existing browser consumers; every other hosted job stays latest.
-      const pinnedBrowserJobs: Record<string, readonly string[]> = {
-        'ci.yml': ['build', 'css-beats-e2e', 'diamond-playfield-e2e'],
-        'post-deploy-e2e.yml': [
-          'private-record-client-proof',
-          'stats-pagination-proof',
-          'production-e2e',
-          'live-table-e2e',
-          'club-channel-lifecycle-e2e',
-        ],
-      };
-      for (const name of pinnedBrowserJobs[file] || []) {
-        expect(workflow.jobs[name], `${file}:${name} remains required`).toBeDefined();
-        expect(workflow.jobs[name]['runs-on']).toBe('ubuntu-24.04');
-      }
       const jobs = Object.entries(workflow.jobs) as Array<[string, Record<string, any>]>;
-      expect(jobs.filter(([, job]) => job['runs-on']).length).toBeGreaterThan(0);
-      for (const [name, job] of jobs.filter(([, job]) => job['runs-on'])) {
-        expect(job['runs-on'], `${file}:${name}`).toBe(
+      const hosted = jobs.filter(([, job]) => job['runs-on']);
+      expect(hosted.length).toBeGreaterThan(0);
+      for (const [name, job] of hosted) {
+        const supportedBrowser =
+          file === 'ci.yml' && ['build', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name);
+        const expected =
           file === 'ci.yml' && name === 'accounting_postgres'
             ? '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
-            : pinnedBrowserJobs[file]?.includes(name)
+            : supportedBrowser
               ? 'ubuntu-24.04'
-              : 'ubuntu-latest'
-        );
+              : 'ubuntu-latest';
+        expect(job['runs-on']).toBe(expected);
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
     }

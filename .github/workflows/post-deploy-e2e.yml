@@ -82,7 +82,7 @@ jobs:
     # explicitly so that skipped ancestor cannot suppress the actual proof.
     if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-private-record-client-proof'
     name: Exact published private record client failover proof
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
@@ -195,7 +195,7 @@ jobs:
     # lane despite that ancestor, but never bypass cleanup qualification.
     if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-stats-pagination-proof'
     name: Exact published Stats pagination proof
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
@@ -642,7 +642,7 @@ jobs:
     # This trusted workflow can receive production database credentials. Run it
     # on a fresh hosted image, never on a persistent runner that has executed
     # pull-request code.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # Serialize only jobs that will really touch the shared production test
     # accounts. Gate-only no-op runs never occupy this lock.
     #
@@ -1710,7 +1710,7 @@ jobs:
     needs: [publication-gate, certification-cleanup-safety]
     if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
     name: Live-table and engine verification
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # Preserve the existing prerequisite, maintenance-wait and cleanup margin.
     # The daily maintenance announcement can defer a certificate's start;
     # await-engine-gameplay separately waits for the exact engine to resume.
@@ -2342,7 +2342,7 @@ jobs:
     name: Exact engine club channel lifecycle
     needs: [publication-gate, certification-cleanup-safety]
     if: "needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && github.event_name == 'repository_dispatch' && github.event.client_payload.engine_sha != ''"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # Up to 15m schedule lead + 12m thaw prerequisite + 15m case/fixture
     # allowance + setup and reserved-account cleanup, all bounded below.
     timeout-minutes: 60
