@@ -241,26 +241,42 @@ export function mapRosterRow(row: Record<string, unknown>): RosterMember {
 }
 
 export interface MemberRange {
-  /** UTC calendar date, yyyy-mm-dd, inclusive at both ends. Both null means all recorded activity. */
+  /** Chicago calendar date, yyyy-mm-dd, inclusive at both ends. Both null means all recorded activity. */
   from: string | null;
   to: string | null;
 }
 
 export const RANGE_OVERALL: MemberRange = { from: null, to: null };
 
-/** The last N UTC calendar days inclusive of today, matching the RPC day buckets. */
+/** Last N Chicago calendar days, inclusive of today, independent of the device zone. */
 export function lastDaysRange(days: number): MemberRange {
-  const to = new Date();
-  const from = new Date(to);
+  const to = isoDate(new Date());
+  const from = new Date(`${to}T12:00:00Z`);
   from.setUTCDate(from.getUTCDate() - (days - 1));
-  return { from: isoDate(from), to: isoDate(to) };
+  return { from: from.toISOString().slice(0, 10), to };
 }
 
+/** A date-only label in the reporting zone, including IANA daylight-saving rules. */
 export function isoDate(d: Date): string {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+/** Find the next Chicago date boundary without assuming a 24-hour local day. */
+export function nextMemberDay(now = new Date()): number {
+  const today = isoDate(now);
+  let lo = now.getTime();
+  let hi = lo + 26 * 60 * 60 * 1000;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (isoDate(new Date(mid)) === today) lo = mid;
+    else hi = mid;
+  }
+  return hi;
 }
 
 /** One level of a player's upline, closest agent first (depth 1). */
