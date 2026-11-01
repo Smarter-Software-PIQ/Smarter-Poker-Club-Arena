@@ -413,22 +413,20 @@ describe('4. the ramp queue rotates per event', () => {
 });
 
 describe('5. the bankroll gate reads the wallet the database debits', () => {
-  it('reads every member-club wallet the resolver could pick and judges the smallest', () => {
+  it('reads the exact paying wallet through the ordinary resolver snapshot', () => {
     const body = method(SRC, 'private async registerHorses(');
     expect(body).toContain("select('club_id, union_id, buy_in_amount, buy_in_fee')");
-    expect(body).toContain('await this.walletClubsForScope(clubId, unionId)');
-    expect(body).toContain(".in('club_id', walletClubs)");
-    expect(body).toContain("select('user_id, club_id, chip_balance')");
-    expect(body).toContain('rolls.set(r.user_id, prev === undefined ? v : Math.min(prev, v));');
-    // The fail-open shape the bankroll suite pins is untouched.
+    expect(body).toContain("supabase.rpc('fn_ca_horse_tournament_bankrolls', {");
+    expect(body).toContain('p_tournament_id: tournamentId');
+    expect(body).toContain('p_horse_ids: batch');
+    expect(body).toContain('rolls.set(r.user_id, v);');
+    expect(body).not.toContain('Math.min(prev, v)');
     expect(body).toMatch(/if \(roll === undefined\) return true;/);
     expect(body).toMatch(/if \(rollPage\.complete\) \{/);
   });
 
-  it('a standalone club is its own wallet; a union event is its member clubs', () => {
-    const helper = method(SRC, 'private async walletClubsForScope(');
-    expect(helper).toContain('if (!unionId) return [hostClubId];');
-    expect(helper).toContain("from('union_clubs')");
-    expect(helper).toContain('if (joined.error) return null;');
+  it('does not treat a null paying balance as a known zero', () => {
+    const body = method(SRC, 'private async registerHorses(');
+    expect(body).toContain('if (r.chip_balance === null) continue;');
   });
 });

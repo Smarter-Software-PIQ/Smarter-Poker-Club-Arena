@@ -130,4 +130,6 @@ INSERT INTO purchases VALUES($1,$2);INSERT INTO tournament_players(tournament_id
             check('followup replay fails closed','horse_mtt_arrival_window_preimage_changed' in run(followup,True))
             print(json.dumps({'passed':len(passed),'checks':passed,'scope':'actual registration wrapper, one-hour paid and six-hour free predicates; unchanged economic delegates are sinks'}))
         finally: cmd([PG/'pg_ctl','-D',d/'db','-m','immediate','-w','stop'])
-if __name__=='__main__':main()
+if __name__=='__main__':
+    main()
+    subprocess.run([__import__('sys').executable, '-B', str(ROOT/'scripts/ci/test-horse-tournament-paying-wallet.py')], cwd=ROOT, env={**ENV, 'PG_BIN':str(PG), 'TMPDIR':str(BASE)}, check=True, timeout=60)

@@ -5765,30 +5765,6 @@ export class TournamentRecurringService {
     return new Set(memberPage.rows.map((r) => r.user_id));
   }
 
-  /**
-   * The club wallets an entry into this event can be charged to, or null when
-   * that is unknowable right now.
-   *
-   * Mirrors `fn_tournament_club_for_user`, which `atomic_deduct_wallet_and_log`
-   * consults for every tournament buy-in: a standalone event charges the host
-   * club's wallet; a union event charges one of the player's wallets at the
-   * union's MEMBER clubs (`union_clubs`), never the union's own house row.
-   */
-  private async walletClubsForScope(
-    hostClubId: string,
-    unionId: string | undefined
-  ): Promise<string[] | null> {
-    if (!unionId) return [hostClubId];
-    const joined = await supabase.from('union_clubs').select('club_id').eq('union_id', unionId);
-    if (joined.error) return null;
-    const ids = new Set<string>();
-    for (const r of joined.data ?? []) {
-      const id = (r as { club_id?: string }).club_id;
-      if (id) ids.add(id);
-    }
-    return [...ids];
-  }
-
   private async pickFreeHorses(
     count: number,
     allLanes = false,
@@ -7377,22 +7353,10 @@ export class TournamentRecurringService {
         if (clubId && eligible.length > 0) {
           const ids = eligible.map((h) => h.id);
           const rolls = new Map<string, number>();
-          /* THE WALLET THE DATABASE DEBITS, NOT THE ROW THE EVENT HANGS OFF
-             (2026-09-11). This read `club_members` at `tournaments.club_id`. For
-             a union event that is the union's own house row (fade0000...),
-             which `atomic_deduct_wallet_and_log` -> `fn_tournament_club_for_user`
-             never charges: it resolves one of the horse's MEMBER-club wallets
-             (JAQK or SHARK for Midway). So for the 323 horses holding a wallet
-             on the house row the gate judged a wallet that is never debited,
-             and for the other 261 it read nothing and let them through - the
-             same wrong-wallet shape lane A found in the fleet's sit verdict and
-             lane B in the rebuy path. Read every wallet the resolver could pick
-             (walletClubsForScope mirrors it) and judge the smallest, so the
-             verdict holds whichever one the hash lands on; a standalone club
-             still reads exactly its own wallet. Chunked, because `ids` is the
-             whole eligible fleet and one `.in()` past ~675 ids is an HTTP 400
-             that used to read as "no rolls". Fail-open shape unchanged: an
-             incomplete read or an unread horse leaves the pool as it was. */
+          // Judge the exact wallet selected by the ordinary registration door.
+          // Taking the minimum over unrelated memberships strands funded Horses.
+          // The DB read uses the same default/fallback and stamped-entry rules;
+          // it does not reserve funds, so the purchase still rechecks atomically.
           /* A DIAMOND ARENA EVENT IS PAID FROM THE HORSE'S OWN DIAMONDS
              (2026-10-06). The arena has no `club_members.chip_balance` for a
              Deep Stack horse to be judged on, so this gate read nothing and
@@ -7409,11 +7373,9 @@ export class TournamentRecurringService {
                 () => this.diamondArenaHost(clubId),
                 (v) => v !== null
               );
-          const walletClubs =
-            diamondEvent === false ? await this.walletClubsForScope(clubId, unionId) : [];
           const rollPage = diamondEvent
             ? await this.diamondRollsFor(ids)
-            : diamondEvent === null || walletClubs === null || walletClubs.length === 0
+            : diamondEvent === null
               ? {
                   rows: [] as Array<{ user_id: string; chip_balance: number | null }>,
                   complete: false,
@@ -7421,20 +7383,18 @@ export class TournamentRecurringService {
               : await selectInChunks<{ user_id: string; chip_balance: number | null }>(
                   ids,
                   (batch) =>
-                    supabase
-                      .from('club_members')
-                      .select('user_id, club_id, chip_balance')
-                      .in('club_id', walletClubs)
-                      .in('user_id', batch)
-                      .in('status', ['active', 'approved']),
+                    supabase.rpc('fn_ca_horse_tournament_bankrolls', {
+                      p_tournament_id: tournamentId,
+                      p_horse_ids: batch,
+                    }),
                   'TournamentRecurring.bankrolls'
                 );
           if (rollPage.complete) {
             for (const r of rollPage.rows) {
+              if (r.chip_balance === null) continue;
               const v = Number(r.chip_balance);
               if (!Number.isFinite(v)) continue;
-              const prev = rolls.get(r.user_id);
-              rolls.set(r.user_id, prev === undefined ? v : Math.min(prev, v));
+              rolls.set(r.user_id, v);
             }
 
             if (cost > 0) {
@@ -7506,8 +7466,18 @@ export class TournamentRecurringService {
       const hour = new Date().getUTCHours();
       const ticketRot = rampQueueRotation(tournamentId, hour, ticketPool.length);
       const walletRot = rampQueueRotation(tournamentId, hour, walletPool.length);
-      const orderedTickets = ticketPool.slice(ticketRot).concat(ticketPool.slice(0, ticketRot));
-      const orderedWallets = walletPool.slice(walletRot).concat(walletPool.slice(0, walletRot));
+      // Backoff must be applied before the bounded offer slice. Otherwise
+      // deferred Horses occupy every offer and hide eligible candidates.
+      const offerable = (horse: { id: string }) =>
+        this.horseEntryBackoff.shouldAttempt(tournamentId, horse.id);
+      const orderedTickets = ticketPool
+        .slice(ticketRot)
+        .concat(ticketPool.slice(0, ticketRot))
+        .filter(offerable);
+      const orderedWallets = walletPool
+        .slice(walletRot)
+        .concat(walletPool.slice(0, walletRot))
+        .filter(offerable);
       // Already-paid awards are not constrained by the ordinary funding quota.
       // Bound extra ticket offers, and never increase the ordinary wallet count.
       const recoveryTickets = orderedTickets.slice(0, Math.max(count, 25));
@@ -7596,9 +7566,9 @@ export class TournamentRecurringService {
           }
           continue;
         }
-        this.horseEntryBackoff.settled(tournamentId, horse.id);
         const ok = (res as { ok?: boolean } | null)?.ok === true;
         if (ok) {
+          this.horseEntryBackoff.settled(tournamentId, horse.id);
           registered++;
         } else {
           const reason = (res as { reason?: string } | null)?.reason || 'unknown';
@@ -7613,6 +7583,10 @@ export class TournamentRecurringService {
             ].includes(reason)
           )
             break;
+          // An answered refusal is still a refused purchase. Reusing the
+          // existing per-Horse backoff lets later candidates be considered.
+          if (reason !== 'already_registered')
+            this.horseEntryBackoff.refused(tournamentId, horse.id);
         }
       }
 
@@ -7624,7 +7598,8 @@ export class TournamentRecurringService {
       }
 
       return registered;
-    } catch {
+    } catch (err) {
+      reportError(err, 'TournamentRecurring.horse_registration_failed');
       return 0;
     }
   }
