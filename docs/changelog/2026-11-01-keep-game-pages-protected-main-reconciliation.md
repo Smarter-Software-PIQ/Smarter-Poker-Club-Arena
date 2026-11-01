@@ -29,3 +29,5 @@ property into three disjoint lexical groups. Every SQL migration, parser call
 and remedy assertion remains selected exactly once; preserve 15 seconds per
 case. No parser, financial rule or production behavior changes. The previous
 partial hook is not passing evidence.
+
+Reconcile protected84c6454 card rendering without losing either newer readable underpaint assertion. Preserve the twelve-case default geometry group, all96 cold scenes, original waits and bounds. The affected twelve cases pass in101.781seconds with zero skips, failures, flaky cases or retries; root TypeScript passes. Server inputs are byte-unchanged from the prior qualified lifecycle composition.

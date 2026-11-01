@@ -37,6 +37,7 @@ import { featuredNow, hasStarted } from '../../lib/featuredOnItsDay';
 import styles from './TournamentLobbyPage.module.css';
 
 import { useIsMounted } from '../../hooks/useIsMounted';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 // Whole-number tournament money (Dan 2026-08-20).
 import { totalBuyIn, formatBuyInShort } from '../../utils/buyIn';
@@ -103,6 +104,15 @@ interface Tournament extends TournamentEntryWindowRow {
 }
 
 export default function TournamentLobbyPage() {
+  const { clubId: routeClubId } = useParams<{ clubId?: string }>();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuthUser();
+  const clubId = routeClubId || readClubContextParam(searchParams) || undefined;
+  // Retire the entire read owner before a different club or viewer can paint.
+  return <TournamentLobbyBoard key={JSON.stringify([clubId, user?.id])} />;
+}
+
+function TournamentLobbyBoard() {
   /* Only `register` is bound. The hook's `isRegistering` was destructured and
      never read - each card owns the busy state for its own plate, because the
      board shows many and one shared flag would grey out every Take A Seat on
@@ -114,6 +124,8 @@ export default function TournamentLobbyPage() {
   const toast = useToast();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const listAbort = useRef<AbortController | null>(null);
   const [statusFilter, setStatusFilter] = usePlayerPreference<TournamentStatus>(
     'TournamentLobbyPage:status',
     'upcoming'
@@ -141,37 +153,35 @@ export default function TournamentLobbyPage() {
 
   const isMounted = useIsMounted();
 
-  // Check if club is in a union (clubs in unions cannot create tournaments)
+  // Membership belongs to this mounted club/viewer, including late answers.
   useEffect(() => {
-    if (!clubId) return;
-    (async () => {
-      try {
-        const resolvedId = await resolveClubUUID(clubId);
-        /* The error is bound, because PostgREST RESOLVES with `{ error }`
-           rather than throwing: `const { data }` alone put a failed read and
-           "this club is in no union" in the same shape, and the catch below
-           never saw it. The outcome on a failed read is unchanged and
-           deliberate - fail OPEN, leaving Create Tournament offered, because
-           refusing the affordance on an unreadable row would hide the one way
-           out of an empty board from every standalone club during a blip; the
-           server refuses a union club's create anyway. What changes is that
-           the failure is now reported instead of silently read as "no union". */
-        const { data, error } = await supabase
-          .from('union_clubs')
-          .select('union_id')
-          .eq('club_id', resolvedId)
-          .limit(1)
-          .maybeSingle();
-        if (error) {
+    const controller = new AbortController();
+    setIsInUnion(false);
+    if (clubId) {
+      void runWithRequestDeadline(
+        async (signal) => {
+          const resolvedId = await resolveClubUUID(clubId, signal);
+          if (signal.aborted) return;
+          const { data, error } = await supabase
+            .from('union_clubs')
+            .select('union_id')
+            .eq('club_id', resolvedId)
+            .limit(1)
+            .abortSignal(signal)
+            .maybeSingle();
+          if (error) throw error;
+          if (!signal.aborted && !controller.signal.aborted && isMounted.current) {
+            setIsInUnion(Boolean(data?.union_id));
+          }
+        },
+        { signal: controller.signal }
+      ).catch((error) => {
+        // Preserve the existing fail-open creation affordance; server authority remains final.
+        if (!controller.signal.aborted)
           reportError(error, 'TournamentLobbyPage.unionMembershipUnreadable');
-          return;
-        }
-        if (isMounted.current && data) setIsInUnion(true);
-      } catch (e) {
-        reportError(e, 'TournamentLobbyPage.async');
-        /* fail-open */
-      }
-    })();
+      });
+    }
+    return () => controller.abort();
   }, [clubId]);
 
   // Ref to avoid stale closure in subscription callback
@@ -190,7 +200,11 @@ export default function TournamentLobbyPage() {
 
   useEffect(() => {
     loadTournaments();
-  }, [clubId, statusFilter]);
+    return () => {
+      loadSeqRef.current++;
+      listAbort.current?.abort();
+    };
+  }, [clubId, statusFilter, user?.id]);
 
   // 2026-08-24: a useMasterBusChannel({ table: 'tournaments', filter: null })
   // used to sit here and NEVER SUBSCRIBED - the hook early-returns on a null
@@ -289,7 +303,13 @@ export default function TournamentLobbyPage() {
   const loadTournaments = async (opts?: { quiet?: boolean }) => {
     loadTournamentsRef.current = loadTournaments;
     const seq = ++loadSeqRef.current;
+    listAbort.current?.abort();
+    const controller = new AbortController();
+    listAbort.current = controller;
     if (!opts?.quiet) setLoading(true);
+    const signal = controller.signal;
+    const read = <T,>(operation: (readSignal: AbortSignal) => PromiseLike<T>) =>
+      runWithRequestDeadline(operation, { signal });
     try {
       // Fetch active tournaments first (REGISTERING/RUNNING/ANNOUNCED), then completed
       // Two queries to ensure active tournaments always appear regardless of limit
@@ -389,30 +409,28 @@ export default function TournamentLobbyPage() {
       let unionId: string | null = null;
       let resolvedClubId: string | null = null;
       if (clubId) {
-        try {
-          resolvedClubId = await resolveClubUUID(clubId);
-          /* Bound for the same reason as the membership read above: an
+        resolvedClubId = await read((readSignal) => resolveClubUUID(clubId, readSignal));
+        if (signal.aborted) return;
+        /* Bound for the same reason as the membership read above: an
              unreadable `union_clubs` row and "not in a union" were the same
              value here, and this one decides SCOPE. The fallback is already
              the safe direction - no union id means this club's own games
              only, never a sibling's private ones - so the behaviour does not
              change; the difference is that a union player seeing a board with
              every union game missing now leaves a trace of why. */
-          const { data: ucRow, error: ucError } = await supabase
+        const { data: ucRow, error: ucError } = await read((readSignal) =>
+          supabase
             .from('union_clubs')
             .select('union_id')
             .eq('club_id', resolvedClubId)
             .limit(1)
-            .maybeSingle();
-          if (ucError) {
-            reportError(ucError, 'TournamentLobbyPage.unionScopeUnreadable');
-          }
-          unionId = ucRow?.union_id ?? null;
-        } catch (e) {
-          reportError(e, 'TournamentLobbyPage.map');
-          // Fail closed on scope: fall back to this club only.
-          unionId = null;
+            .abortSignal(readSignal)
+            .maybeSingle()
+        );
+        if (ucError) {
+          reportError(ucError, 'TournamentLobbyPage.unionScopeUnreadable');
         }
+        unionId = ucRow?.union_id ?? null;
       }
 
       const applyScope = (q: any) => {
@@ -428,18 +446,19 @@ export default function TournamentLobbyPage() {
         return q.or('is_private.is.null,is_private.eq.false');
       };
 
-      activeQuery = applyScope(activeQuery);
-      pinnedQuery = applyScope(pinnedQuery);
-      completedQuery = applyScope(completedQuery);
+      if (signal.aborted) return;
+      activeQuery = applyScope(activeQuery).abortSignal(signal);
+      pinnedQuery = applyScope(pinnedQuery).abortSignal(signal);
+      completedQuery = applyScope(completedQuery).abortSignal(signal);
 
       // Apply status filter
       let data: any[] = [];
       let error: any = null;
       if (statusFilter === 'all' || statusFilter === 'upcoming') {
         const [activeRes, pinnedRes, completedRes] = await Promise.all([
-          activeQuery,
-          pinnedQuery,
-          completedQuery,
+          read((readSignal) => activeQuery.abortSignal(readSignal)),
+          read((readSignal) => pinnedQuery.abortSignal(readSignal)),
+          read((readSignal) => completedQuery.abortSignal(readSignal)),
         ]);
         error = activeRes.error || pinnedRes.error || completedRes.error;
         const active = activeRes.data || [];
@@ -462,8 +481,8 @@ export default function TournamentLobbyPage() {
           .eq('status', 'REGISTERING')
           .order('start_time', { ascending: true })
           .limit(50);
-        q = applyScope(q);
-        const res = await q;
+        q = applyScope(q).abortSignal(signal);
+        const res = await read((readSignal) => q.abortSignal(readSignal));
         data = res.data || [];
         error = res.error;
       } else if (statusFilter === 'RUNNING') {
@@ -473,8 +492,8 @@ export default function TournamentLobbyPage() {
           .eq('status', 'RUNNING')
           .order('start_time', { ascending: true })
           .limit(50);
-        q = applyScope(q);
-        const res = await q;
+        q = applyScope(q).abortSignal(signal);
+        const res = await read((readSignal) => q.abortSignal(readSignal));
         data = res.data || [];
         error = res.error;
       } else if (statusFilter === 'COMPLETED') {
@@ -484,12 +503,13 @@ export default function TournamentLobbyPage() {
           .eq('status', 'COMPLETED')
           .order('start_time', { ascending: false })
           .limit(50);
-        q = applyScope(q);
-        const res = await q;
+        q = applyScope(q).abortSignal(signal);
+        const res = await read((readSignal) => q.abortSignal(readSignal));
         data = res.data || [];
         error = res.error;
       }
 
+      if (error) throw error;
       if (!error && data) {
         /* WHICH TOURNAMENTS THIS PLAYER IS ALREADY IN - ONE QUERY, AND THE
            THIRD OUTCOME IS KEPT (2026-09-21).
@@ -504,10 +524,13 @@ export default function TournamentLobbyPage() {
            batch query failed, go and look for yourself". */
         let registrations: string[] | null = [];
         if (user?.id) {
-          const { data: regData, error: regError } = await supabase
-            .from('tournament_players')
-            .select('tournament_id')
-            .eq('user_id', user.id);
+          const { data: regData, error: regError } = await read((readSignal) =>
+            supabase
+              .from('tournament_players')
+              .select('tournament_id')
+              .eq('user_id', user.id)
+              .abortSignal(readSignal)
+          );
           if (regError) {
             reportError(regError, 'TournamentLobbyPage.registrationsUnreadable');
             registrations = null;
@@ -518,6 +541,7 @@ export default function TournamentLobbyPage() {
 
         /* A Diamond Spin advertises the top of the table its creation
            pinned; a board with no Diamond Spin on it asks nothing. */
+        if (signal.aborted) return;
         data = await withDiamondSpinCeilings(data);
         if (!isMounted.current) return;
 
@@ -588,11 +612,14 @@ export default function TournamentLobbyPage() {
           m.isPinned && !featuredToday.has(m) ? { ...m, isPinned: false } : m
         );
 
+        if (signal.aborted) return;
         if (seq !== loadSeqRef.current) return;
         setTournaments(mapped);
+        setLoadError(false);
       }
     } catch (error) {
-      if (!isMounted.current) return;
+      if (!isMounted.current || controller.signal.aborted || seq !== loadSeqRef.current) return;
+      setLoadError(true);
       reportError(error, 'TournamentLobbyPage.Failed_to_load_tournaments');
     }
     if (isMounted.current && seq === loadSeqRef.current) setLoading(false);
@@ -878,6 +905,27 @@ export default function TournamentLobbyPage() {
               <CardSkeleton key={i} hasImage={false} lines={4} />
             ))}
           </div>
+        ) : loadError ? (
+          <SpadeConsole
+            as="section"
+            className={styles.board}
+            eyebrow="Tournament Lobby"
+            title="Tournament List Unavailable"
+            foot="foot"
+          >
+            <p className={`sc-copy sc-copy--center ${styles.emptyCopy}`}>
+              The Tournament List Could Not Be Loaded
+            </p>
+            <p className={styles.emptyWay}>
+              <button
+                type="button"
+                className={`${styles.link} sc-ink--blue`}
+                onClick={() => loadTournaments()}
+              >
+                Retry
+              </button>
+            </p>
+          </SpadeConsole>
         ) : filteredTournaments.length === 0 ? (
           <SpadeConsole
             as="section"
