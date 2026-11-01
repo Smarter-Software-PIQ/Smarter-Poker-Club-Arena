@@ -127,6 +127,137 @@ function client(over: Partial<Record<string, unknown>> = {}) {
 
 const live = () => FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
 
+describe('a turn uses the wager state belonging to its decision', () => {
+  it('waits for authoritative recovery after a dropped street state, then delivers the turn once', async () => {
+    const events: Record<string, unknown>[] = [];
+    const order: string[] = [];
+    const { c } = client({
+      onEvent: (event: Record<string, unknown>) => {
+        events.push(event);
+        order.push(`event:${event.type}`);
+      },
+      onSnapshot: () => order.push('snapshot'),
+    });
+    c.connect();
+    await flush();
+    const ws = live();
+    ws._open();
+    ws._frame({ type: 'SUBSCRIBED', tableId: TABLE });
+    const prior = {
+      hand_number: 9,
+      stage: 'preflop',
+      action_context: 'preflop-decision',
+      current_player: 'hero',
+      current_bet: 15,
+      min_raise: 10,
+      players: [],
+    };
+    try {
+      ws._frame({ type: 'SNAPSHOT', tableId: TABLE, seq: 5, state: prior });
+      // The new-street state at seq 6 was soft-dropped. Preserve wire order:
+      // the subsequent delta exposes the hole before the new turn event.
+      ws._frame({ type: 'DELTA', tableId: TABLE, prev: 6, seq: 7, patch: [] });
+      ws._frame({
+        type: 'EVENT',
+        tableId: TABLE,
+        seq: 1,
+        payload: { type: 'turn_change', seat: 2, action_context: 'flop-decision' },
+      });
+      await vi.advanceTimersByTimeAsync(20);
+      expect(events.filter((event) => event.type === 'turn_change')).toHaveLength(0);
+      expect(ws.sent.some((frame) => JSON.parse(frame).type === 'RESYNC')).toBe(true);
+      ws._frame({ type: 'SNAPSHOT', tableId: TABLE, seq: 6, state: prior });
+      await vi.advanceTimersByTimeAsync(20);
+      expect(events.filter((event) => event.type === 'turn_change')).toHaveLength(0);
+      order.length = 0;
+      ws._frame({
+        type: 'SNAPSHOT',
+        tableId: TABLE,
+        seq: 7,
+        state: {
+          ...prior,
+          stage: 'flop',
+          action_context: 'flop-decision',
+          current_bet: 0,
+          min_raise: 5,
+        },
+      });
+      await vi.advanceTimersByTimeAsync(20);
+      expect(events.filter((event) => event.type === 'turn_change')).toHaveLength(1);
+      expect(order).toEqual(['snapshot', 'event:turn_change']);
+      ws._frame({
+        type: 'EVENT',
+        tableId: TABLE,
+        seq: 1,
+        payload: { type: 'turn_change', seat: 2, action_context: 'flop-decision' },
+      });
+      await vi.advanceTimersByTimeAsync(20);
+      expect(events.filter((event) => event.type === 'turn_change')).toHaveLength(1);
+    } finally {
+      c.disconnect();
+    }
+  });
+
+  it('delivers a turn immediately when the snapshot already carries its token', async () => {
+    const events = vi.fn();
+    const { c } = client({ onEvent: events });
+    c.connect();
+    await flush();
+    const ws = live();
+    ws._open();
+    ws._frame({ type: 'SUBSCRIBED', tableId: TABLE });
+    try {
+      ws._frame({ type: 'SNAPSHOT', tableId: TABLE, seq: 1, state: { action_context: 'ready' } });
+      const sentBefore = ws.sent.length;
+      const turn = { type: 'turn_change', seat: 2, action_context: 'ready' };
+      ws._frame({ type: 'EVENT', tableId: TABLE, seq: 1, payload: turn });
+      await vi.advanceTimersByTimeAsync(20);
+      expect(events).toHaveBeenCalledExactlyOnceWith(turn);
+      expect(
+        ws.sent.slice(sentBefore).filter((frame) => JSON.parse(frame).type === 'RESYNC')
+      ).toHaveLength(0);
+    } finally {
+      c.disconnect();
+    }
+  });
+
+  it('discards the retained notification when its connection is replaced', async () => {
+    const events = vi.fn();
+    const { c } = client({ onEvent: events });
+    c.connect();
+    await flush();
+    const first = live();
+    first._open();
+    first._frame({ type: 'SUBSCRIBED', tableId: TABLE });
+    first._frame({ type: 'SNAPSHOT', tableId: TABLE, seq: 1, state: { action_context: 'old' } });
+    first._frame({
+      type: 'EVENT',
+      tableId: TABLE,
+      seq: 1,
+      payload: { type: 'turn_change', seat: 2, action_context: 'pending' },
+    });
+    await vi.advanceTimersByTimeAsync(20);
+    c.disconnect();
+    c.connect();
+    await flush();
+    const second = live();
+    second._open();
+    second._frame({ type: 'SUBSCRIBED', tableId: TABLE });
+    try {
+      second._frame({
+        type: 'SNAPSHOT',
+        tableId: TABLE,
+        seq: 1,
+        state: { action_context: 'pending' },
+      });
+      await vi.advanceTimersByTimeAsync(20);
+      expect(events.mock.calls.filter(([event]) => event.type === 'turn_change')).toHaveLength(0);
+    } finally {
+      c.disconnect();
+    }
+  });
+});
+
 describe('EngineStateClient — heartbeats cannot acknowledge missing game state', () => {
   async function openTable() {
     const snapshots = vi.fn();

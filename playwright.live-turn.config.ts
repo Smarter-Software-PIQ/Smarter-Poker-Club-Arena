@@ -38,11 +38,19 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${PORT}/hub/club-arena/`,
     serviceWorkers: 'block',
     trace: 'retain-on-failure',
-    launchOptions: process.env.LIVE_TURN_CHROMIUM
-      ? { executablePath: process.env.LIVE_TURN_CHROMIUM }
-      : {},
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: process.env.LIVE_TURN_CHROMIUM
+          ? { executablePath: process.env.LIVE_TURN_CHROMIUM }
+          : {},
+      },
+    },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+  ],
   webServer: {
     command: `npx vite preview --outDir "${DIST}" --port ${PORT} --strictPort --host 127.0.0.1`,
     url: `http://127.0.0.1:${PORT}/hub/club-arena/`,

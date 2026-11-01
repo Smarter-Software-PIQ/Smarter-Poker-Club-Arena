@@ -35,8 +35,40 @@
   "original_fees": "11.52",
   "raw_sources_per_event": 1,
   "recognized_contributors_per_event": 3,
+  "cashDecisionBrowserSourceIdentity20261101": {
+    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
+    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
+    "execution_performed": false,
+    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
+    "pins": [
+      {
+        "file": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+      }
+    ]
+  },
+  "cashDecisionClosureProtectedMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 11f78015fa2598900df3556864763bc09502a7f1.",
+    "review": "Preserve both parents audit metadata and all historical financial qualification states. Compose current workflow, classifier, completion receipt and nested active source-binding identities from merged bytes. Frozen and historical qualifications are not restamped.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "ours": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
+        "incoming": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+      },
+      "server/src/tournament/completionSettlementReceipt.ts": {
+        "ours": "a59a97b5b0f76d5c54d01b1fe47f3284efb2fcbd3e7742bb4e9e1ac6f0207dd4",
+        "incoming": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
+        "current": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018"
+      }
+    }
+  },
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+    "scripts/ci/classify-ci-changes.mjs": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",

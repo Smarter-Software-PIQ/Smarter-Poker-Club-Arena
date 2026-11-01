@@ -85,10 +85,121 @@
       "sha256": "05b3622404fdb60118a014bde5306f33d5dd7a0da566f954ece9aa3ccef84be3"
     }
   },
+  "cashDecisionBrowserSourceIdentity20261101": {
+    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
+    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
+    "execution_performed": false,
+    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
+    "pins": [
+      {
+        "file": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 272761,
+          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+        },
+        "current": {
+          "bytes": 273180,
+          "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
+        }
+      }
+    ]
+  },
+  "cashDecisionProtectedMainMergeIdentity20261101": {
+    "scope": "Source identity only for semantic integration with protected main 4fd0c3aee0310a59e8cac33feac0e3d7a8bc2130.",
+    "review": "Preserve all historical audit records and qualification states from both parents. Current merged workflow retains incoming native gate additions and the cash Chromium/WebKit browser gate; current classifier retains cash .pw selection. Refresh only current active input identities.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 273180,
+          "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
+        },
+        "incoming": {
+          "bytes": 273355,
+          "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+        },
+        "current": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        }
+      }
+    }
+  },
+  "cashDecisionClosureProtectedMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 11f78015fa2598900df3556864763bc09502a7f1.",
+    "review": "Preserve both parents audit metadata and all historical financial qualification states. Compose current workflow, classifier, completion receipt and nested active source-binding identities from merged bytes. Frozen and historical qualifications are not restamped.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        },
+        "incoming": {
+          "bytes": 273355,
+          "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+        },
+        "current": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        }
+      }
+    }
+  },
+  "cashDecisionMemberStatsProtectedMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 6becc343c8299495ca4888f0fe07a3d99837fde6.",
+    "review": "Preserve both parents complete non-pin metadata, historical audits and financial qualification states; current merged CI retains member stats Chicago regression and cash browser gates. Active source pins alone follow merged bytes with protected-main representation retained.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        },
+        "incoming": {
+          "bytes": 273719,
+          "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
+        },
+        "current": {
+          "bytes": 274138,
+          "sha256": "417e3086a1f5b7301fc9bf5ed9a074f08d45dba04007f9757f2250ee37c04b99"
+        }
+      }
+    }
+  },
+  "cashDecisionCurrentMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 33fec4f7cb6300a0fd3d8fbab224ebc5513aba67.",
+    "review": "Preserve protected-main metadata ordering, then add absent cash-branch metadata before the active files map. All both-parent historical audits and financial states are retained exactly; divergent active source pins alone follow merged bytes and protected-main string/object representations.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 274138,
+          "sha256": "417e3086a1f5b7301fc9bf5ed9a074f08d45dba04007f9757f2250ee37c04b99"
+        },
+        "incoming": {
+          "bytes": 273932,
+          "sha256": "bb86a60ef227c84fc59ae7a9aac49323bf07262cfab180c9715a39bdef4188f2"
+        },
+        "current": {
+          "bytes": 274351,
+          "sha256": "996e00b3e805d9214c6546b207c6a642e906bd32db52e8796feedeb6043b2ae9"
+        }
+      }
+    }
+  },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 273932,
-      "sha256": "bb86a60ef227c84fc59ae7a9aac49323bf07262cfab180c9715a39bdef4188f2"
+      "bytes": 274351,
+      "sha256": "996e00b3e805d9214c6546b207c6a642e906bd32db52e8796feedeb6043b2ae9"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,

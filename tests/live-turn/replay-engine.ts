@@ -127,10 +127,62 @@ export class ReplayEngine {
     }
   }
 
+  /** A hub soft-drop loses delivery, not authoritative state or sequence.
+   * Opt-in fault seam: preserve every later frame's recorded order and time.
+   */
+  dropStateDeliveryOnce(seq: number, prev: number): void {
+    this.stateDeliveryDrop = { seq, prev };
+  }
+  readonly droppedStateFrames: Array<{ seq: number; prev: number }> = [];
+  private stateDeliveryDrop: { seq: number; prev: number } | null = null;
+  private heldResyncSockets = new Set<WebSocketRoute>();
+  private resyncReplyRelease: (() => void) | null = null;
+  private startResyncReplyLease: (() => void) | null = null;
+
+  get resyncRepliesHeld(): boolean {
+    return this.resyncReplyRelease !== null;
+  }
+
+  /** A finite delayed response, measured from the first state-gap RESYNC. */
+  holdResyncReplies(ms: number): () => void {
+    if (!Number.isFinite(ms) || ms <= 0 || ms > 5_000)
+      throw new Error('Replay RESYNC hold must be between 1 and 5000 ms');
+    this.resyncReplyRelease?.();
+    let released = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        this.timers.delete(timer);
+      }
+      if (this.resyncReplyRelease === release) {
+        this.resyncReplyRelease = null;
+        this.startResyncReplyLease = null;
+      }
+      for (const socket of this.heldResyncSockets) {
+        if (this.sockets.has(socket)) this.sendSnapshotTo(socket);
+      }
+      this.heldResyncSockets.clear();
+    };
+    // Arming before a click must not spend the response budget on action
+    // setup. Start once a real response is held; later requests cannot renew it.
+    this.startResyncReplyLease = () => {
+      if (released || timer !== undefined) return;
+      timer = setTimeout(release, ms);
+      this.timers.add(timer);
+    };
+    this.resyncReplyRelease = release;
+    return release;
+  }
+
   /** Anything the page did that the real engine would have refused. */
   readonly problems: string[] = [];
   /** Requests for a time bank; a page that is shown its turns makes none. */
   readonly timeBankRequests: number[] = [];
+  /** Account preference actually sent by the mounted page, not fixture intent. */
+  readonly autoTimeBankPreferences: boolean[] = [];
   /** Every frame sent, for the test's own report. */
   readonly sent: Array<{ at: number; type: string; detail: string }> = [];
   /**
@@ -176,6 +228,9 @@ export class ReplayEngine {
   }
 
   dispose(): void {
+    this.resyncReplyRelease = null;
+    this.startResyncReplyLease = null;
+    this.heldResyncSockets.clear();
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
     if (this.pinger) clearInterval(this.pinger);
@@ -219,13 +274,18 @@ export class ReplayEngine {
         }
       } else if (msg.type === 'RESYNC') {
         this.resyncRequests++;
-        this.sendSnapshotTo(ws);
+        if (this.resyncReplyRelease) {
+          this.heldResyncSockets.add(ws);
+          this.startResyncReplyLease?.();
+        } else this.sendSnapshotTo(ws);
       } else if (msg.type === 'UNSUBSCRIBE') {
         this.sockets.delete(ws);
+        this.heldResyncSockets.delete(ws);
       }
     });
     ws.onClose(() => {
       this.sockets.delete(ws);
+      this.heldResyncSockets.delete(ws);
     });
   }
 
@@ -296,6 +356,12 @@ export class ReplayEngine {
       this.state = jsonPatch.applyPatch(structuredClone(this.state), frame.patch).newDocument;
       this.lastSeq = frame.seq;
     }
+    const drop = this.stateDeliveryDrop;
+    if (frame.type === 'DELTA' && drop && frame.seq === drop.seq && frame.prev === drop.prev) {
+      this.stateDeliveryDrop = null;
+      this.droppedStateFrames.push({ seq: frame.seq, prev: frame.prev });
+      return;
+    }
     const state = this.state as Record<string, any> | null;
     this.sent.push({
       at: Date.now(),
@@ -338,6 +404,9 @@ export class ReplayEngine {
       return this.onAction(route, request);
     }
     if (url.pathname === '/heartbeat') {
+      const body = request.postDataJSON() as { autoTimeBank?: unknown } | null;
+      if (typeof body?.autoTimeBank === 'boolean')
+        this.autoTimeBankPreferences.push(body.autoTimeBank);
       return this.json(route, { success: true, connected: true, gracePeriodRemaining: 0 });
     }
     if (url.pathname === '/preaction') return this.json(route, { success: true });
