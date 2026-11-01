@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
-vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc } }));
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: {
+    rpc: (...args: unknown[]) => {
+      const response = rpc(...args);
+      return Object.assign(Promise.resolve(response), { abortSignal: () => response });
+    },
+  },
+}));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 import {
   MysteryBountyService,
