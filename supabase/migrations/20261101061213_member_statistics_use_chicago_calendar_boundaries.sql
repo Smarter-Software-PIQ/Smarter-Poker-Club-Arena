@@ -139,6 +139,10 @@ BEGIN
     RETURN jsonb_build_object('identity', jsonb_build_object('user_id', NULL));
   END IF;
 
+  IF p_from IS NOT NULL AND p_to IS NOT NULL AND p_from > p_to THEN
+    RAISE EXCEPTION 'The Start Date Must Come Before The End Date' USING ERRCODE='22023';
+  END IF;
+
   IF NOT EXISTS(SELECT 1 FROM public.club_member_daily_facts_state WHERE singleton AND initialized)
   THEN RAISE EXCEPTION 'Member daily facts are not initialized'; END IF;
 
@@ -317,6 +321,10 @@ BEGIN
                      THEN 'not_member' ELSE 'restricted' END);
   END IF;
 
+  IF p_from IS NOT NULL AND p_to IS NOT NULL AND p_from > p_to THEN
+    RAISE EXCEPTION 'The Start Date Must Come Before The End Date' USING ERRCODE='22023';
+  END IF;
+
   IF NOT EXISTS(SELECT 1 FROM public.club_member_daily_facts_state WHERE singleton AND initialized)
   THEN RAISE EXCEPTION 'Member daily facts are not initialized'; END IF;
 
@@ -409,6 +417,11 @@ DECLARE
   v_access text := public.ca_club_roster_access(p_club_id, p_user_id);
 BEGIN
   IF v_access NOT IN ('staff', 'downline', 'service') OR v_scope IS NULL THEN RETURN; END IF;
+
+  IF p_from IS NOT NULL AND p_to IS NOT NULL AND p_from > p_to THEN
+    RAISE EXCEPTION 'The Start Date Must Come Before The End Date' USING ERRCODE='22023';
+  END IF;
+
 
   RETURN QUERY
   WITH RECURSIVE edges AS MATERIALIZED (

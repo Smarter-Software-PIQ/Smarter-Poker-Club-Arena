@@ -70,6 +70,14 @@ def main():
   yes(f"SELECT (SELECT total_fees FROM ca_club_member_downline_in_range({c},{other},'2026-11-02','2026-11-02'))=(SELECT total_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{u}))")
   yes(f"SELECT (SELECT total_fees FROM ca_club_member_downline_in_range({c},{other},NULL,NULL))=(SELECT total_fees FROM ca_club_member_fee_totals({c},NULL,NULL,{u}))")
   print('PASS downline uses selected Chicago fee window and preserves Overall bulk result')
+  for name,invalid in [
+   ('detail',f"SELECT ca_club_member_detail({c},{u},'2026-11-03','2026-11-01')"),
+   ('statistics',f"SELECT ca_club_member_statistics({c},{u},NULL,'2026-11-03','2026-11-01')"),
+   ('downline',f"SELECT * FROM ca_club_member_downline_in_range({c},{other},'2026-11-03','2026-11-01')")]:
+   try:q(invalid)
+   except RuntimeError as error:assert 'The Start Date Must Come Before The End Date' in str(error)
+   else:raise AssertionError(name+' accepted a reversed date range')
+  print('PASS all three RPCs reject reversed ranges instead of negative edge totals')
   # Overall identity, one-sided ranges, date inputs, and preserved access.
   yes(f"SELECT (SELECT sum(hands) FROM ca_member_record_chicago_facts({c},{u},NULL,NULL))=(SELECT count(*)FROM ca_hand_facts)")
   yes(f"SELECT (SELECT sum(hands) FROM ca_member_record_chicago_facts({c},{u},'2026-11-02',NULL))=(SELECT count(*)FROM ca_hand_facts WHERE played_at>='2026-11-02 06:00Z')")
