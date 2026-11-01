@@ -58,7 +58,15 @@ function harness() {
   const query: any = {
     select: () => query,
     eq: () => query,
-    in: async () => ({ data: [{ id: PENDING }, { id: EXISTING }], error: null }),
+    in: () => query,
+    order: () => query,
+    limit: () => query,
+    gt: () => query,
+    then: (resolve: any, reject: any) =>
+      Promise.resolve({ data: [{ id: PENDING }, { id: EXISTING }], error: null }).then(
+        resolve,
+        reject
+      ),
   };
   vi.spyOn(supabase, 'from').mockReturnValue(query);
   const call = vi.spyOn(supabase, 'rpc').mockImplementation((async (name: string) => {

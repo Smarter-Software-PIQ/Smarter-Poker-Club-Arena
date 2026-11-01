@@ -40,6 +40,8 @@ def main():
   original_query="SELECT jsonb_object_agg(signature,md5(pg_get_functiondef(signature::regprocedure))) FROM unnest(ARRAY["+','.join("'"+x+"'" for x in originals)+"]) signature;"
   _,originals_before,_=e.sql(db,original_query,label='v3-owners-before')
   e.sql(db,file=MIGRATION,label='exact-equal-share-migration')
+  from closure_boundary_fixture import install_closure_boundary
+  install_closure_boundary(e,db,ROOT)
   _,postimages,_=e.sql(db,"SELECT jsonb_object_agg(p.oid::regprocedure::text,md5(pg_get_functiondef(p.oid))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','smarter_private') AND p.proname IN ('fn_ca_preview_tournament_abort_equal_share','fn_ca_settle_tournament_abort_equal_share','tournament_equal_share_receipt','equal_share_retirement_must_close','fn_refuse_zero_chip_field_elimination','fn_credit_and_log','fn_ca_tournament_cancellation_receipt');",label='equal-share-installed-postimages')
   e.report['postimages']=json.loads(postimages.strip())
   proof=next(line.removeprefix('-- @live-proof: ') for line in MIGRATION.read_text().splitlines() if line.startswith('-- @live-proof: '))

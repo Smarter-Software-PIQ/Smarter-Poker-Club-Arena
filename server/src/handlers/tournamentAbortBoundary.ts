@@ -20,7 +20,8 @@ export async function handleTournamentAbortBoundary(
     gameServer: {
       acknowledgeTournamentAbortBoundary?: (
         operationId: string,
-        tournamentId: string
+        tournamentId: string,
+        closureMode?: 'equal_share'
       ) => Promise<unknown>;
     };
   }
@@ -39,7 +40,8 @@ export async function handleTournamentAbortBoundary(
       Array.isArray(body) ||
       !UUID.test(body.operationId || '') ||
       !UUID.test(body.tournamentId || '') ||
-      Object.keys(body).some((key) => !['operationId', 'tournamentId'].includes(key))
+      (body.closureMode !== undefined && body.closureMode !== 'equal_share') ||
+      Object.keys(body).some((key) => !['operationId', 'tournamentId', 'closureMode'].includes(key))
     )
       return sendJSON(res, 400, {
         success: false,
@@ -50,13 +52,20 @@ export async function handleTournamentAbortBoundary(
     // The manager retains the actual promise. A lost/aborted HTTP response
     // never cancels accepted work or releases any closeout fence.
     const runtime = await Promise.race([
-      deps.gameServer.acknowledgeTournamentAbortBoundary(body.operationId, body.tournamentId),
+      body.closureMode === undefined
+        ? deps.gameServer.acknowledgeTournamentAbortBoundary(body.operationId, body.tournamentId)
+        : deps.gameServer.acknowledgeTournamentAbortBoundary(
+            body.operationId,
+            body.tournamentId,
+            body.closureMode
+          ),
       new Promise((resolve) => {
         timer = setTimeout(
           () =>
             resolve({
               state: 'pending',
               operation_id: body.operationId,
+              tournament_id: body.tournamentId,
               reason: 'original_drain_in_flight',
             }),
           30_000
