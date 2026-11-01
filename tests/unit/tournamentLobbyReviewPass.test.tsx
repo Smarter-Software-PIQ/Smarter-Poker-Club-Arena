@@ -470,7 +470,8 @@ describe('9. the rebuy window is read, not assumed', () => {
   it('prints no level when the event configured none', () => {
     const shown = rebuyRow({});
     expect(shown.Rebuy).toBe('10K');
-    expect(shown['Add-On']).toBe('10K');
+    expect(shown['Add-On']).toBe('Yes');
+    expect(shown['Add-On Stack']).toBe('10K Chips');
   });
 
   it('reads the columns in the order the rebuy rule does', () => {
