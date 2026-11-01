@@ -10842,7 +10842,24 @@ export class HorseLogic {
       !v66Class &&
       drawsLive &&
       equity >= 0.33 &&
-      equity < (pressure53 ? pressure53.semiBluffTop : 0.52) &&
+      (equity < (pressure53 ? pressure53.semiBluffTop : 0.52) ||
+        // V40 caps the current weak made class, including air with a real
+        // nut combo draw. A higher raw estimate must not strand that draw
+        // above the semi-bluff band while its capped value estimate is below
+        // the value-raise band. Retain the cap; admit only the physical draw
+        // to the existing bounded mix against one measured aggressive bettor.
+        (pressure53 !== null &&
+          vi.isOmaha &&
+          !vi.isHiLo &&
+          oppCount === 1 &&
+          !multiBoard36 &&
+          !gs.bombPot &&
+          !isTournamentMode(gs) &&
+          !raisedAfterAggr &&
+          HorseMind.opponentRead(opponents[0].user_id)?.presumed !== true &&
+          eq15 >= 0.33 &&
+          eq15 < pressure53.semiBluffTop &&
+          hasStrongPressureDraw(player.cards, board, gs.gameVariant, drawInfo40()))) &&
       (cat <= 2 || !useIQ) &&
       oppCount <= 2 &&
       // Was `betRatio <= 0.85` — ALWAYS TRUE on the legacy scale (it maxes
@@ -10863,6 +10880,8 @@ export class HorseLogic {
         )
     ) {
       if (tele15 && pressure53) noteFire('v53_pressure_semibluff_raise');
+      if (tele15 && pressure53 && equity >= pressure53.semiBluffTop)
+        noteFire('v53_pressure_strong_draw_band');
       // V13: register the barrel plan. planBarrel was called on all three BET
       // paths and none of the RAISE paths, so a flop semi-bluff raise arrived
       // at the turn with no plan, skipped the barrel block entirely and
