@@ -44,6 +44,7 @@ const ROOT = resolve(__dirname, '../..');
 const WORKFLOWS = [
   readFileSync(resolve(ROOT, '.github/workflows/post-deploy-e2e.yml'), 'utf8'),
   readFileSync(resolve(ROOT, '.github/workflows/club-create-certification.yml'), 'utf8'),
+  readFileSync(resolve(ROOT, '.github/workflows/session-hand-stats-proof.yml'), 'utf8'),
 ].join('\n');
 const DECLARED = JSON.parse(
   readFileSync(resolve(ROOT, 'scripts/ci/e2e-not-in-post-deploy.json'), 'utf8')
