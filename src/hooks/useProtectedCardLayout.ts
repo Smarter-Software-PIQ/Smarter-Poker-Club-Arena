@@ -1457,9 +1457,10 @@ export function useProtectedCardLayout(
               : 0;
             const contacts = Array.from(
               page.querySelectorAll(
-                '.community-area,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat--hero .seat__cards .seat__card'
+                '.community-area,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge'
               )
             )
+              .concat(artwork.anchorCards())
               .filter((element) => !seat.contains(element))
               .map(visibleBox)
               .filter((r): r is CardBox => r !== null);

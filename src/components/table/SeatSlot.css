@@ -388,26 +388,23 @@
 
 /* Opponent art matches the unchanged hero's painted subject. These paint-only
    properties do not feed avatar/card/panel dimensions or the table geometry. */
-.table-page[data-hero='true'] .seat:not(.seat--hero) .seat__avatar {
+.table-page .seat:not(.seat--hero) .seat__avatar {
   scale: var(--sp-opponent-art-scale, 1);
   transform-origin: 50% 100%;
 }
-.table-page[data-hero='true'] .seat:not(.seat--hero) {
+.table-page .seat:not(.seat--hero) {
   translate: var(--sp-opponent-x, 0px) var(--sp-opponent-y, 0px);
 }
 /* Whole-pod spacing must not carry an already placed contribution with it.
    Preserve the existing bet/collect transforms and every animation. */
-.table-page[data-hero='true'] .seat:not(.seat--hero) .seat__bet-chips {
+.table-page .seat:not(.seat--hero) .seat__bet-chips {
   translate: calc(-1 * var(--sp-opponent-x, 0px)) calc(-1 * var(--sp-opponent-y, 0px));
 }
 @media (min-width: 769px), (orientation: landscape) {
-  .table-page[data-hero='true'] .seat:not(.seat--hero) .seat__wager-group:has(.seat__allin-puck) {
+  .table-page .seat:not(.seat--hero) .seat__wager-group:has(.seat__allin-puck) {
     translate: calc(-1 * var(--sp-opponent-x, 0px)) calc(-1 * var(--sp-opponent-y, 0px));
   }
-  .table-page[data-hero='true']
-    .seat:not(.seat--hero)
-    .seat__wager-group:has(.seat__allin-puck)
-    > .seat__bet-chips {
+  .table-page .seat:not(.seat--hero) .seat__wager-group:has(.seat__allin-puck) > .seat__bet-chips {
     translate: none;
   }
 }

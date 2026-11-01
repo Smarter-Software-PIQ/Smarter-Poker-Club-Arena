@@ -1175,30 +1175,15 @@ for (const [width, heightOverride] of occupiedViewports)
           throw new Error('Finite Card Layout Animation Did Not Settle');
         });
         const art = await page.locator('.seat:not(.seat--empty)').evaluateAll((seats) =>
-          seats.map((seat) => {
-            const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img')!;
-            const style = getComputedStyle(image);
-            const matrix = style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d;
-            const scale = parseFloat(getComputedStyle(image.closest('.seat__avatar')!).scale) || 1;
-            return {
-              hero: seat.classList.contains('seat--hero'),
-              height:
-                image.offsetHeight *
-                matrix *
-                scale *
-                (seat.classList.contains('seat--active')
-                  ? new DOMMatrix(getComputedStyle(image.closest('.seat__avatar')!).transform).d
-                  : 1) *
-                (seat.closest('.seat-wrapper--spot')
-                  ? new DOMMatrix(getComputedStyle(seat).transform).d
-                  : 1),
-            };
-          })
+          seats.map((seat) => ({
+            hero: seat.classList.contains('seat--hero'),
+            height: seat.querySelector('.seat__avatar-img')!.getBoundingClientRect().height,
+          }))
         );
-        // This maintained fixture gives every chair the same decoded artwork;
-        // equal image height is therefore equal painted subject height.
+        // Each scene uses identical decoded artwork at every seat. Compare the
+        // actual painted image rectangles, not rounded offsetHeight surrogates.
         const heroArt = art.find((seat) => seat.hero)!;
-        for (const seat of art) expect(seat.height).toBeCloseTo(heroArt.height, 0);
+        for (const seat of art) expect(Math.abs(seat.height - heroArt.height)).toBeLessThan(0.05);
         if (!revealed) {
           const chips = () =>
             page.locator('.seat__bet-chips').evaluateAll((bets) =>
@@ -3206,3 +3191,7 @@ test('the phone pot shine and on-turn avatar scan retain their paths without rep
   expect(result.potWidth).toBeGreaterThan(0);
   await page.screenshot({ path: testInfo.outputPath('phone-energy-cues.png') });
 });
+
+// Spectator artwork shares the occupied bottom chair's unchanged display size.
+import { registerObserverAvatarSizingCases } from './support/observerAvatarSizingCases';
+registerObserverAvatarSizingCases();
