@@ -111,6 +111,9 @@ export function Review() {
         <div className="table-tab-bar">
           <button className="table-tab-bar__tab table-tab-bar__tab--active">NLH 1/2</button>
         </div>
+        <button className="mtp-lobby-btn" aria-label="Open Must Move Lobby">
+          <img className="mtp-lobby-btn__img" src={lobbyArt} alt="" draggable={false} />
+        </button>
       </div>
       <div
         className="multi-table-page__container"
@@ -131,10 +134,7 @@ export function Review() {
             data-bbj-mini={jackpot === 'mini' ? '1' : '0'}
             style={{ background: '#080808' }}
           >
-            <button className="mtp-lobby-btn" style={{ position: 'fixed', top: 0, right: 0 }}>
-              <img src={lobbyArt} style={{ width: '100%', height: '100%' }} />
-            </button>
-            <button className="chat-collapsed" style={{ top: 50, bottom: 'auto' }}>
+            <button className="chat-collapsed">
               <img
                 className="chat-collapsed__icon-img"
                 src="https://kuklfnapbkmacvwxktbh.supabase.co/storage/v1/object/public/assets/buttons/black/icon-chat.webp"

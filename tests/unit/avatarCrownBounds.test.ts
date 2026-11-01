@@ -4,6 +4,8 @@ import {
   avatarCrownTop,
   paintedAvatarTop,
   restingAvatarTop,
+  restingAvatarBox,
+  tableRenderScale,
 } from '../../src/components/table/avatarCrownBounds';
 
 describe('visible avatar crowns', () => {
@@ -38,13 +40,21 @@ describe('visible avatar crowns', () => {
     vi.stubGlobal(
       'DOMMatrix',
       class {
+        a: number;
+        b: number;
+        c: number;
         d: number;
+        e: number;
         f: number;
         constructor(transform: string) {
           const values = transform
             .replace(/^matrix\(|\)$/g, '')
             .split(',')
             .map(Number);
+          this.a = values[0];
+          this.b = values[1];
+          this.c = values[2];
+          this.e = values[4];
           this.d = values[3];
           this.f = values[5];
         }
@@ -66,6 +76,7 @@ describe('visible avatar crowns', () => {
     seat.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
     image.getBoundingClientRect = () => ({ top: -900, height: 500 }) as DOMRect;
     Object.defineProperty(image, 'offsetHeight', { value: 100 });
+    Object.defineProperty(image, 'offsetWidth', { value: 100 });
     for (const [element, parent, top] of [
       [image, avatar, 0],
       [avatar, wrap, 0],
@@ -89,6 +100,40 @@ describe('visible avatar crowns', () => {
       100 + (10 + 50 + (100 + (100 * (54 / 340) - 100) * 1.45 - 50) * 0.97 + 3) * 0.75,
       3
     );
+    const computed = getComputedStyle;
+    vi.stubGlobal('getComputedStyle', (element: Element) => {
+      const style = computed(element);
+      return element === avatar
+        ? new Proxy(style, {
+            get: (target, key) => (key === 'scale' ? '1.2' : Reflect.get(target, key, target)),
+          })
+        : style;
+    });
+    const permanent = restingAvatarBox(image, 0.75);
+    expect(permanent.height).toBeCloseTo(100 * 1.45 * 1.2 * 0.97 * 0.75, 3);
+    wrap.style.transform = 'translateY(-99px) scale(1.6)';
+    expect(restingAvatarBox(image, 0.75).height).toBeCloseTo(permanent.height, 6);
     seat.remove();
+  });
+});
+
+describe('fractional table layout projection', () => {
+  it('keeps an untransformed fractional canvas at scale one', () => {
+    const canvas = document.createElement('div');
+    document.body.append(canvas);
+    canvas.style.width = '262.390625px';
+    Object.defineProperty(canvas, 'offsetWidth', { value: 262 });
+    canvas.getBoundingClientRect = () => ({ width: 262.390625 }) as DOMRect;
+    expect(tableRenderScale(canvas)).toBe(1);
+    canvas.remove();
+  });
+  it('preserves a real transform and content-box edges', () => {
+    const canvas = document.createElement('div');
+    document.body.append(canvas);
+    canvas.style.cssText =
+      'width:262.390625px;padding:0 2px;border:1px solid black;box-sizing:content-box';
+    canvas.getBoundingClientRect = () => ({ width: 134.1953125 }) as DOMRect;
+    expect(tableRenderScale(canvas)).toBe(0.5);
+    canvas.remove();
   });
 });

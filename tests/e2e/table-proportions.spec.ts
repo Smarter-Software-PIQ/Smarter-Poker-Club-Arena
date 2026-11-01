@@ -846,10 +846,28 @@ test('Safari toolbar space is reclaimed by portrait gameplay without narrowing t
 const occupiedViewports: Array<[number, number?]> = [
   ...[320, 375, 393, 430, 480, 600, 768, 1024].map((width): [number] => [width]),
   [600, 852],
+  [652, 996],
 ];
 for (const [width, heightOverride] of occupiedViewports)
-  for (const count of heightOverride || width === 1024 ? [6] : [6, 9])
-    test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}`, async ({
+  for (const [count, sceneGroup] of (width === 652
+    ? [9]
+    : heightOverride || width === 1024
+      ? [6]
+      : [6, 9]
+  ).flatMap((count) =>
+    (width === 320 && count === 9
+      ? [
+          'normal mini',
+          'normal main',
+          'normal none',
+          'large normal',
+          'large all-in',
+          'large all-shown',
+        ]
+      : ['all']
+    ).map((sceneGroup) => [count, sceneGroup] as const)
+  ))
+    test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}${sceneGroup === 'all' ? '' : ` (${sceneGroup})`}`, async ({
       page,
     }, testInfo) => {
       // Keep each ring independently bounded on hosted runners while retaining
@@ -998,16 +1016,32 @@ for (const [width, heightOverride] of occupiedViewports)
         [true, 'main'],
         [false, 'none'],
         [true, 'none'],
-        [true, 'mini', 6],
+        [true, 'mini', count === 9 ? 5 : 6],
         [true, 'mini', 5, 'all-in'],
-        [true, 'mini', 6, 'all-in'],
-        [true, 'mini', 6, 'all-shown'],
+        ...(count === 6 ? ([[true, 'mini', 6, 'all-in']] as const) : []),
+        // Nine six-card hands would need 54 hole cards before the board.
+        // Full-ring tournaments can show five-card hands; six-max still
+        // exercises the complete six-card showdown at every viewport.
+        [true, 'mini', count === 9 ? 5 : 6, 'all-shown'],
         [false, 'none', 2, 'scaled-phone'],
       ] as const) {
+        // Split the dense raw-phone cold mounts, preserving every scene and
+        // assertion under the same per-test deadline.
+        if (sceneGroup !== 'all') {
+          const largeHandGroup = sceneGroup.startsWith('large ');
+          if (villainCards >= 5 !== largeHandGroup) continue;
+          if (largeHandGroup && sceneGroup !== `large ${state}`) continue;
+          if (!largeHandGroup && sceneGroup !== `normal ${jackpot}`) continue;
+        }
         // Both rings exercise every occupied state at every phone width.
         const scaledPhone = state === 'scaled-phone';
         if (scaledPhone && (width !== 600 || count !== 9)) continue;
         if (width > 480 && villainCards < 5 && !scaledPhone) continue;
+        if (villainCards >= 5)
+          expect(
+            count * villainCards + 5,
+            'The complete deal must fit the deck'
+          ).toBeLessThanOrEqual(52);
         await page.setViewportSize({
           width: scaledPhone ? 599 : width,
           height: scaledPhone
@@ -1097,19 +1131,79 @@ for (const [width, heightOverride] of occupiedViewports)
               '.community-area [data-rs-animating="true"],.community-cards__card--flop-deal'
             )
         );
-        await page.evaluate(async () => {
-          await Promise.all(
-            document
-              .getAnimations()
-              .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
-              .map((a) => a.finished.catch(() => {}))
-          );
-          // Animation completion schedules protected-card placement on the next
-          // frame. Consume that frame and its layout before measuring geometry.
-          await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        // Opponent artwork matches the unchanged hero without scaling the
+        // seat, its cards or its panel. Permanent art gain must settle first.
+        await test.step(`Artwork settles: ${width}px ${count}-max ${jackpot} ${revealed ? 'revealed' : 'playing'} ${villainCards} cards ${state}`, async () => {
+          await page.waitForFunction(() =>
+            [
+              ...document.querySelectorAll(
+                '.seat:not(.seat--hero):not(.seat--empty) .seat__avatar'
+              ),
+            ].every(
+              (avatar) =>
+                avatar.style.getPropertyValue('--sp-opponent-art-scale') &&
+                avatar.closest<HTMLElement>('.seat')!.style.getPropertyValue('--sp-opponent-x')
+            )
           );
         });
+        // Metadata can legitimately start the existing reveal-size transition.
+        // Observe its actual completion after artwork placement; never measure
+        // an intermediate card width or suppress an owed animation.
+        await page.evaluate(async () => {
+          const pending = () =>
+            document
+              .getAnimations()
+              .filter(
+                (animation) =>
+                  (animation.playState === 'running' || animation.pending) &&
+                  animation.effect?.getComputedTiming().iterations !== Infinity
+              );
+          for (let phase = 0; phase < 3; phase++) {
+            await Promise.all(pending().map((animation) => animation.finished.catch(() => {})));
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+            );
+            if (!pending().length) return;
+          }
+          throw new Error('Finite Card Layout Animation Did Not Settle');
+        });
+        const art = await page.locator('.seat:not(.seat--empty)').evaluateAll((seats) =>
+          seats.map((seat) => {
+            const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img')!;
+            const style = getComputedStyle(image);
+            const matrix = style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d;
+            const scale = parseFloat(getComputedStyle(image.closest('.seat__avatar')!).scale) || 1;
+            return {
+              hero: seat.classList.contains('seat--hero'),
+              height: image.offsetHeight * matrix * scale,
+            };
+          })
+        );
+        // This maintained fixture gives every chair the same decoded artwork;
+        // equal image height is therefore equal painted subject height.
+        const heroArt = art.find((seat) => seat.hero)!;
+        for (const seat of art) expect(seat.height).toBeCloseTo(heroArt.height, 0);
+        if (!revealed) {
+          const chips = () =>
+            page.locator('.seat__bet-chips').evaluateAll((bets) =>
+              bets.map((bet) => ({
+                x: (bet as HTMLElement).style.getPropertyValue('--bet-offset-x'),
+                y: (bet as HTMLElement).style.getPropertyValue('--bet-offset-y'),
+              }))
+            );
+          const resting = await chips();
+          await page.evaluate(() => document.dispatchEvent(new Event('fixture-runout')));
+          await page.evaluate(
+            () =>
+              new Promise<void>((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+              )
+          );
+          expect(
+            await chips(),
+            'settled chips retain their offsets after artwork placement'
+          ).toEqual(resting);
+        }
         if (scaledPhone) {
           const proof = await page.evaluate(readMobileTableLayout, AVATAR_CROWN_TOP);
           expect(proof.occupied).toBe(count);
@@ -1117,6 +1211,37 @@ for (const [width, heightOverride] of occupiedViewports)
             proof.violations,
             'Decoded crowns and plates clear the scaled phone board'
           ).toEqual([]);
+          const projection = await page.context().newPage();
+          try {
+            await projection.setContent(
+              `<div class="table-page" data-seats="9" style="position:relative;width:300px;height:300px"><div class="community-area" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div><img class="seat__avatar-img" style="position:absolute;left:0;top:0;width:100px;height:100px;object-fit:contain;scale:1.5;transform-origin:0 0" /></div>`
+            );
+            await projection.evaluate(async () => {
+              const canvas = document.createElement('canvas');
+              canvas.width = canvas.height = 100;
+              const context = canvas.getContext('2d')!;
+              context.fillRect(80, 80, 20, 20);
+              const image = document.querySelector<HTMLImageElement>('img')!;
+              image.src = canvas.toDataURL();
+              await image.decode();
+            });
+            expect(
+              (await projection.evaluate(readMobileTableLayout, AVATAR_CROWN_TOP)).violations,
+              'Individual scale does not turn transparent pixels into a collision'
+            ).toEqual([]);
+            await projection.locator('.community-area').evaluate((element) => {
+              (element as HTMLElement).style.left = '120px';
+              (element as HTMLElement).style.top = '120px';
+            });
+            expect(
+              (await projection.evaluate(readMobileTableLayout, AVATAR_CROWN_TOP)).violations.some(
+                (violation) => violation.startsWith('Player Or Bet Covers Board: seat__avatar-img')
+              ),
+              'The same scaled opaque pixels still refuse an actual collision'
+            ).toBe(true);
+          } finally {
+            await projection.close();
+          }
         }
         // Dan 2026-10-23: shown cards never move once tabled, in every game.
         // Hold'em-sized shown hands get the same no-movement proof as PLO5/6.
@@ -1128,7 +1253,74 @@ for (const [width, heightOverride] of occupiedViewports)
                 return { x: b.x, y: b.y, w: b.width, h: b.height };
               })
             );
+          const layoutVectors = () =>
+            page.locator('.seat__cards--revealed').evaluateAll((rows) =>
+              rows.map((row) => {
+                const chain: Array<{
+                  width: number;
+                  height: number;
+                  translate: string;
+                  inline: string;
+                }> = [];
+                let element: HTMLElement | null = row as HTMLElement;
+                while (element && !element.classList.contains('table-scaler')) {
+                  chain.push({
+                    width: element.offsetWidth,
+                    height: element.offsetHeight,
+                    translate: getComputedStyle(element).translate,
+                    inline: element.style.translate,
+                  });
+                  element = element.parentElement;
+                }
+                return chain;
+              })
+            );
+          const checkInitialChrome =
+            width === 320 && count === 9 && jackpot === 'mini' && villainCards === 2;
+          const wagerChromeContacts = () =>
+            page.evaluate(() => {
+              const chrome = Array.from(
+                document.querySelectorAll(
+                  '.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed'
+                )
+              )
+                .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+                .filter(({ rect }) => rect.width > 0 && rect.height > 0);
+              return Array.from(document.querySelectorAll('.seat__bet-chips')).flatMap((bet) => {
+                const rect = bet.getBoundingClientRect();
+                if (!rect.width || !rect.height) return [];
+                return chrome
+                  .filter(
+                    ({ rect: other }) =>
+                      Math.min(rect.right, other.right) - Math.max(rect.left, other.left) > 0.5 &&
+                      Math.min(rect.bottom, other.bottom) - Math.max(rect.top, other.top) > 0.5
+                  )
+                  .map(
+                    ({ element }) =>
+                      `${bet.closest('.seat')?.getAttribute('data-player-id')}:${element.className}`
+                  );
+              });
+            });
+          const wagerOffsets = () =>
+            page
+              .locator('.seat__bet-chips')
+              .evaluateAll((bets) =>
+                bets.map((bet) =>
+                  ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'].map((name) =>
+                    (bet as HTMLElement).style.getPropertyValue(name)
+                  )
+                )
+              );
+          if (checkInitialChrome)
+            expect(await wagerChromeContacts(), 'Initial wagers clear fixed table chrome').toEqual(
+              []
+            );
+          const beforeWagers = checkInitialChrome ? await wagerOffsets() : null;
           const before = await measure();
+          const beforeLayout = await layoutVectors();
+          const retainedTranslations = await page
+            .locator('.seat__cards--revealed')
+            .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).style.translate));
           expect(before.length).toBeGreaterThanOrEqual(villainCards);
           // Same dimensions at every chair, including the all-in hero.
           if (villainCards >= 5)
@@ -1156,7 +1348,33 @@ for (const [width, heightOverride] of occupiedViewports)
                 requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
               )
           );
-          expect(await measure()).toEqual(before);
+          expect(
+            await page
+              .locator('.seat__cards--revealed')
+              .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).style.translate))
+          ).toEqual(retainedTranslations);
+          expect(
+            await layoutVectors(),
+            'card layout and every ancestor translation remain exact'
+          ).toEqual(beforeLayout);
+          if (checkInitialChrome) {
+            expect(
+              await wagerChromeContacts(),
+              'Runout keeps wagers clear of fixed table chrome'
+            ).toEqual([]);
+            expect(
+              await wagerOffsets(),
+              'Placed chips and collection origins remain exact'
+            ).toEqual(beforeWagers);
+          }
+          const after = await measure();
+          expect(after).toHaveLength(before.length);
+          for (let i = 0; i < before.length; i++)
+            for (const axis of ['x', 'y', 'w', 'h'] as const)
+              expect(
+                Math.abs(after[i][axis] - before[i][axis]),
+                'unchanged tabled hand (compositor precision)'
+              ).toBeLessThan(0.001);
           const steps = await page
             .locator('.seat__cards--opponent.seat__cards--revealed')
             .evaluateAll((rows) =>
@@ -1307,21 +1525,206 @@ for (const [width, heightOverride] of occupiedViewports)
         }
         const result = await page.evaluate(() => {
           const box = (e: Element) => e.getBoundingClientRect();
-          const overlaps = (a: DOMRect, b: DOMRect) =>
-            a.left < b.right - 0.5 &&
-            a.right > b.left + 0.5 &&
-            a.top < b.bottom - 0.5 &&
-            a.bottom > b.top + 0.5;
+          type PaintedRect = DOMRect & { paintQuad?: Array<{ x: number; y: number }> };
+          const overlaps = (a: PaintedRect, b: PaintedRect) => {
+            if (
+              !(
+                a.left < b.right - 0.5 &&
+                a.right > b.left + 0.5 &&
+                a.top < b.bottom - 0.5 &&
+                a.bottom > b.top + 0.5
+              )
+            )
+              return false;
+            if (!a.paintQuad && !b.paintQuad) return true;
+            const corners = (r: PaintedRect) =>
+              r.paintQuad || [
+                { x: r.left, y: r.top },
+                { x: r.right, y: r.top },
+                { x: r.right, y: r.bottom },
+                { x: r.left, y: r.bottom },
+              ];
+            const first = corners(a),
+              second = corners(b);
+            // A rotated opaque span is a quadrilateral, not its bounding box.
+            // Separating-axis intersection retains every painted pixel while
+            // refusing the empty triangles introduced by an enclosing AABB.
+            for (const points of [first, second])
+              for (let i = 0; i < points.length; i++) {
+                const p = points[i],
+                  q = points[(i + 1) % points.length];
+                const nx = p.y - q.y,
+                  ny = q.x - p.x;
+                const one = first.map((v) => v.x * nx + v.y * ny),
+                  two = second.map((v) => v.x * nx + v.y * ny);
+                if (Math.max(...one) <= Math.min(...two) || Math.max(...two) <= Math.min(...one))
+                  return false;
+              }
+            return true;
+          };
           const board = box(document.querySelector('.community-area')!);
           const violations: string[] = [];
           // Top all-in hands must stay below the visible mobile clipping edge.
           const pageTop = box(document.querySelector('.table-page')!).top;
           for (const row of document.querySelectorAll(
-            '.seat-wrapper--cap .seat__cards--revealed'
+            '.seat-wrapper--cap .seat__cards--revealed,.seat[data-opponent-lane="cap"] .seat__cards--revealed'
           )) {
             if (box(row).top < pageTop + 7.5)
               violations.push('Top Revealed Hand Clips Mobile Header');
           }
+          // Transparent image corners are not artwork. Retain every decoded
+          // painted span; unknown, tainted or 3D images keep the full box.
+          const readPaintedRows = (element: Element): DOMRect[] => {
+            const raw = box(element);
+            if (!(element instanceof HTMLImageElement)) return [raw];
+            try {
+              const style = getComputedStyle(element);
+              if (
+                !['contain', 'scale-down'].includes(style.objectFit) ||
+                !element.naturalWidth ||
+                !element.naturalHeight ||
+                element.naturalWidth * element.naturalHeight > 4_000_000
+              )
+                return [raw];
+              const width = parseFloat(style.width),
+                height = parseFloat(style.height);
+              if (!(width > 0 && height > 0)) return [raw];
+              let linear = new DOMMatrix();
+              for (let node: Element | null = element; node; node = node.parentElement) {
+                const css = getComputedStyle(node);
+                if (css.rotate && css.rotate !== 'none' && css.rotate !== '0deg') return [raw];
+                const m = new DOMMatrix(css.transform === 'none' ? undefined : css.transform);
+                // GPU-promoted matrix3d can still be a purely 2D affine map.
+                // Reject actual depth/perspective, rather than its serialization.
+                if (
+                  [m.m13, m.m14, m.m23, m.m24, m.m31, m.m32, m.m34, m.m43].some((v) => v !== 0) ||
+                  m.m33 !== 1 ||
+                  m.m44 !== 1
+                )
+                  return [raw];
+                const axes =
+                  css.scale && css.scale !== 'none'
+                    ? css.scale
+                        .split(/\s+/)
+                        .map((v) => (v.endsWith('%') ? Number(v.slice(0, -1)) / 100 : Number(v)))
+                    : [1];
+                if (
+                  axes.length > 3 ||
+                  axes.some((v) => !Number.isFinite(v) || v <= 0) ||
+                  (axes.length === 3 && axes[2] !== 1)
+                )
+                  return [raw];
+                linear = new DOMMatrix([axes[0], 0, 0, axes[1] ?? axes[0], 0, 0])
+                  .multiply(new DOMMatrix([m.a, m.b, m.c, m.d, 0, 0]))
+                  .multiply(linear);
+              }
+              const project = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(linear);
+              const corners = [
+                project(0, 0),
+                project(width, 0),
+                project(0, height),
+                project(width, height),
+              ];
+              const minX = Math.min(...corners.map((p) => p.x)),
+                minY = Math.min(...corners.map((p) => p.y));
+              if (
+                Math.abs(Math.max(...corners.map((p) => p.x)) - minX - raw.width) > 0.5 ||
+                Math.abs(Math.max(...corners.map((p) => p.y)) - minY - raw.height) > 0.5
+              )
+                return [raw];
+              const dx = raw.left - minX,
+                dy = raw.top - minY;
+              const canvas = document.createElement('canvas');
+              canvas.width = element.naturalWidth;
+              canvas.height = element.naturalHeight;
+              const context = canvas.getContext('2d', { willReadFrequently: true });
+              if (!context) return [raw];
+              context.drawImage(element, 0, 0);
+              const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+              const fit = Math.min(width / canvas.width, height / canvas.height);
+              const x = (width - canvas.width * fit) / 2;
+              const align = style.objectPosition.split(/\s+/)[1] || '50%';
+              const y =
+                (height - canvas.height * fit) *
+                (align.endsWith('%') ? parseFloat(align) / 100 : 0.5);
+              const clip = { left: 0, top: 0, right: width, bottom: height };
+              if (style.clipPath && style.clipPath !== 'none') {
+                const inset = /^inset\(([^)]*)\)$/.exec(style.clipPath);
+                if (!inset || inset[1].includes('round')) return [raw];
+                const values = inset[1].trim().split(/\s+/);
+                const edges =
+                  values.length === 1
+                    ? [values[0], values[0], values[0], values[0]]
+                    : values.length === 2
+                      ? [values[0], values[1], values[0], values[1]]
+                      : values.length === 3
+                        ? [values[0], values[1], values[2], values[1]]
+                        : values;
+                if (edges.length !== 4) return [raw];
+                const length = (v: string, extent: number) =>
+                  v.endsWith('%')
+                    ? (parseFloat(v) * extent) / 100
+                    : v.endsWith('px')
+                      ? parseFloat(v)
+                      : v === '0'
+                        ? 0
+                        : NaN;
+                clip.top = length(edges[0], height);
+                clip.right = width - length(edges[1], width);
+                clip.bottom = height - length(edges[2], height);
+                clip.left = length(edges[3], width);
+                if (!Object.values(clip).every(Number.isFinite)) return [raw];
+              }
+              const rows: DOMRect[] = [];
+              for (let row = 0; row < canvas.height; row++) {
+                let first = -1;
+                for (let col = 0; col <= canvas.width; col++) {
+                  const painted =
+                    col < canvas.width && pixels[(row * canvas.width + col) * 4 + 3] > 12;
+                  if (painted && first < 0) first = col;
+                  if (!painted && first >= 0) {
+                    // Contiguous spans retain internal transparent gaps such as
+                    // the space between ears. Each transformed span's AABB is
+                    // conservative even during the real 2D idle rotation.
+                    const x0 = Math.max(clip.left, x + first * fit),
+                      x1 = Math.min(clip.right, x + col * fit),
+                      y0 = Math.max(clip.top, y + row * fit),
+                      y1 = Math.min(clip.bottom, y + (row + 1) * fit);
+                    first = -1;
+                    if (!(x1 > x0 && y1 > y0)) continue;
+                    const points = [
+                      project(x0, y0),
+                      project(x1, y0),
+                      project(x1, y1),
+                      project(x0, y1),
+                    ];
+                    const left = Math.min(...points.map((p) => p.x)),
+                      top = Math.min(...points.map((p) => p.y));
+                    const span: PaintedRect = new DOMRect(
+                      dx + left,
+                      dy + top,
+                      Math.max(...points.map((p) => p.x)) - left,
+                      Math.max(...points.map((p) => p.y)) - top
+                    );
+                    span.paintQuad = points.map((point) => ({ x: dx + point.x, y: dy + point.y }));
+                    rows.push(span);
+                    first = -1;
+                  }
+                }
+              }
+              return rows;
+            } catch {
+              return [raw];
+            }
+          };
+          const paintedRowCache = new WeakMap<Element, DOMRect[]>();
+          const paintedRows = (element: Element): DOMRect[] => {
+            const cached = paintedRowCache.get(element);
+            if (cached) return cached;
+            const rows = readPaintedRows(element);
+            paintedRowCache.set(element, rows);
+            return rows;
+          };
           // Above 480px the ring keeps its tablet positions. Dense 7-9 max
           // pods retain their compact sizes through the phone's desktop
           // reference viewport; the scaled-phone scene below also reads
@@ -1340,7 +1743,8 @@ for (const [width, heightOverride] of occupiedViewports)
               ? '.seat__bet-chips,.seat__cards--opponent .seat__card,.dealer-button'
               : '.seat__info,.seat__avatar-img,.seat__action,.seat__bet-chips,.seat__cards--opponent .seat__card,.dealer-button'
           )) {
-            if (overlaps(box(e), board)) violations.push(`${e.className} Covers Board`);
+            if (paintedRows(e).some((paint) => overlaps(paint, board)))
+              violations.push(`${e.className} Covers Board`);
           }
           /* Dan 2026-10-25: a bet is always in front of the player who made
              it. A portrait phone now lays the table out at the desktop's
@@ -1364,7 +1768,7 @@ for (const [width, heightOverride] of occupiedViewports)
                   (pod.classList.contains('table-brand') ||
                     pod.classList.contains('pot-display__pile'))
                 ) &&
-                overlaps(box(bet), box(pod))
+                paintedRows(pod).some((paint) => overlaps(box(bet), paint))
               )
                 violations.push(
                   `Bet ${bet.closest('.seat')?.querySelector('.seat__name')?.textContent} Covers Player ${pod.closest('.seat')?.querySelector('.seat__name')?.textContent} ${pod.className} bet=${JSON.stringify(box(bet))} player=${JSON.stringify(box(pod))}`
@@ -1481,7 +1885,11 @@ for (const [width, heightOverride] of occupiedViewports)
                   for (const b of other.querySelectorAll(
                     '.seat__info,.seat__avatar-img,.seat__action'
                   ))
-                    if (overlaps(box(a), box(b)))
+                    if (
+                      paintedRows(a).some((paint) =>
+                        paintedRows(b).some((other) => overlaps(paint, other))
+                      )
+                    )
                       violations.push('Neighbouring Player Lanes Overlap');
               }
             }
@@ -1585,29 +1993,64 @@ for (const [width, heightOverride] of occupiedViewports)
           for (const e of document.querySelectorAll(
             '.seat-wrapper:not(.seat-wrapper--hero):not(.seat-wrapper--top) .seat__info,.seat-wrapper:not(.seat-wrapper--hero):not(.seat-wrapper--top) .seat__avatar-img'
           )) {
-            const r = box(e);
-            const corners = [
-              unpaint(r.left, r.top),
-              unpaint(r.right, r.top),
-              unpaint(r.right, r.bottom),
-              unpaint(r.left, r.bottom),
-            ];
-            const touches = corners.some((a, i) => {
-              const b = corners[(i + 1) % 4];
-              const crosses =
-                cross(a, b, spineA) * cross(a, b, spineB) <= 0 &&
-                cross(spineA, spineB, a) * cross(spineA, spineB, b) <= 0;
-              return (
-                crosses ||
-                Math.min(
-                  distance(a, spineA, spineB),
-                  distance(spineA, a, b),
-                  distance(spineB, a, b)
-                ) <
-                  radius - 0.5
-              );
+            const touches = paintedRows(e).some((r) => {
+              const corners = [
+                unpaint(r.left, r.top),
+                unpaint(r.right, r.top),
+                unpaint(r.right, r.bottom),
+                unpaint(r.left, r.bottom),
+              ];
+              return corners.some((a, i) => {
+                const b = corners[(i + 1) % 4];
+                const crosses =
+                  cross(a, b, spineA) * cross(a, b, spineB) <= 0 &&
+                  cross(spineA, spineB, a) * cross(spineA, spineB, b) <= 0;
+                return (
+                  crosses ||
+                  Math.min(
+                    distance(a, spineA, spineB),
+                    distance(spineA, a, b),
+                    distance(spineB, a, b)
+                  ) <
+                    radius - 0.5
+                );
+              });
             });
-            if (touches && !largePortrait)
+            const compactCap = e.closest<HTMLElement>('.seat[data-opponent-lane="cap"]');
+            const lowerLane = e.closest<HTMLElement>('.seat[data-opponent-lane="lower"]');
+            if (lowerLane) {
+              const parts = Array.from(
+                lowerLane.querySelectorAll(
+                  '.seat__avatar-img,:scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
+                )
+              ).flatMap(paintedRows);
+              const heroParts = Array.from(
+                document.querySelectorAll(
+                  '.seat--hero .seat__avatar-img,.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card'
+                )
+              )
+                .flatMap(paintedRows)
+                .filter((part) => part.width > 0 && part.height > 0);
+              if (
+                Math.min(...parts.map((part) => part.top)) < board.bottom - 0.5 ||
+                Math.max(...parts.map((part) => part.bottom)) >
+                  Math.min(...heroParts.map((part) => part.top)) + 0.5
+              )
+                violations.push('Inset Opponent Leaves Clear Board To Hero Lane');
+            } else if (compactCap) {
+              // Minimum compact spacing may promote an upper side chair into
+              // the cap lane. It earns the same exception as an original cap
+              // only while its complete artwork and facts remain above board.
+              const capBottom = Math.max(
+                ...Array.from(
+                  compactCap.querySelectorAll(
+                    '.seat__avatar-img,:scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
+                  )
+                ).flatMap((part) => paintedRows(part).map((row) => row.bottom))
+              );
+              if (capBottom > board.top + 0.5)
+                violations.push('Compact Cap Player Enters Board Lane');
+            } else if (touches && !largePortrait)
               violations.push(`Player On Painted Felt: ${e.className}`);
           }
           const contextualTools = ['.tbc-widget', '.rabbit-hunt__button'].filter((selector) =>
@@ -2368,6 +2811,41 @@ test('painted coverage rejects opaque avatar pixels through rotation and clippin
       null) as typeof HTMLCanvasElement.prototype.getContext;
   });
   expect(await covered(), 'Unreadable pixels fail closed under the original bounds').toBe(true);
+});
+
+test('nine-seat top proximity measures decoded crowns and still rejects overlap, distance and unreadable paint', async ({
+  page,
+}) => {
+  await page.setContent(
+    `<div class="table-page" data-seats="9" style="position:relative;width:200px;height:200px"><div class="bbj-mini-plate" style="position:absolute;left:0;top:50px;width:100px;height:20px"></div><div class="seat-wrapper--top"><img class="seat__avatar-img" style="position:absolute;left:0;top:60px;width:100px;height:100px;object-fit:contain"></div></div>`
+  );
+  const paint = async (top: number) =>
+    page.evaluate(async (top) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 100;
+      canvas.getContext('2d')!.fillRect(20, top, 60, 100 - top);
+      const image = document.querySelector<HTMLImageElement>('img')!;
+      image.src = canvas.toDataURL();
+      await image.decode();
+    }, top);
+  const refused = async () =>
+    (await page.evaluate(readMobileTableLayout, {})).violations.includes(
+      'Top Player Does Not Sit Immediately Below Mini BBJ'
+    );
+  await paint(20);
+  expect(await refused(), 'Transparent canvas may cross Mini BBJ while its crown stays close').toBe(
+    false
+  );
+  await paint(0);
+  expect(await refused(), 'Opaque overlap is still refused').toBe(true);
+  await paint(40);
+  expect(await refused(), 'A distant painted crown is still refused').toBe(true);
+  await paint(20);
+  await page.evaluate(() => {
+    HTMLCanvasElement.prototype.getContext = (() =>
+      null) as typeof HTMLCanvasElement.prototype.getContext;
+  });
+  expect(await refused(), 'Unreadable pixels retain the original conservative refusal').toBe(true);
 });
 
 test('painted action coverage protects the pill face without inventing paint in its rounded corners', async ({
