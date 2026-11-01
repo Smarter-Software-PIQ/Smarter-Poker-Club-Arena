@@ -162,27 +162,28 @@ function opponentShiftCandidates(
       }
     }
   }
+  // The inward clamp and horizontal checks are independent of y. Reject the
+  // same candidates once per x without rebuilding every rectangle for each y.
+  const inward =
+    side < 0
+      ? Math.max(0, bounds.left - Math.min(...parts.map((part) => part.left)))
+      : Math.max(
+          0,
+          Math.max(...parts.map((part) => part.left + part.width)) - bounds.left - bounds.width
+        );
   const candidates: Array<[number, number]> = [];
-  for (const x of xs)
+  for (const x of xs) {
+    if (outwardOnly && side && x * side < -inward - 0.01) continue;
+    const centre = parts[0].left + parts[0].width / 2 + x;
+    if (side && (centre - bounds.left - bounds.width / 2) * side < 0) continue;
+    if (
+      !parts.every(
+        (part) =>
+          part.left + x >= bounds.left && part.left + x + part.width <= bounds.left + bounds.width
+      )
+    )
+      continue;
     for (const y of ys) {
-      if (outwardOnly && side) {
-        // Enlarged edge artwork may require only the minimum inward clamp
-        // that puts its paint back inside this viewport. It may never move
-        // farther inward merely to escape another rail obstacle.
-        const inward =
-          side < 0
-            ? Math.max(0, bounds.left - Math.min(...parts.map((part) => part.left)))
-            : Math.max(
-                0,
-                Math.max(...parts.map((part) => part.left + part.width)) -
-                  bounds.left -
-                  bounds.width
-              );
-        if (x * side < -inward - 0.01) continue;
-      }
-
-      const centre = parts[0].left + parts[0].width / 2 + x;
-      if (side && (centre - bounds.left - bounds.width / 2) * side < 0) continue;
       if (
         parts.every((part) => {
           const next = moved(part, x, y);
@@ -194,10 +195,10 @@ function opponentShiftCandidates(
             obstacles.every((other) => !overlap(next, other, gap))
           );
         })
-      ) {
+      )
         candidates.push([x, y]);
-      }
     }
+  }
   return candidates.sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1]);
 }
 
@@ -480,6 +481,52 @@ export function jointOpponentShifts(
   const shapes = items.map((item, i) =>
     options[i].map((shift) => item.parts.map((part) => moved(part, ...shift)))
   );
+  // Preserve overlap's addition order while preparing immutable part edges.
+  // Union bounds only reject disjoint pairs; every possible contact still
+  // checks all parts with the same four strict overlap inequalities.
+  const preparedShapes = shapes.map((list) =>
+    list.map((parts) =>
+      parts.map((p) => ({
+        left: p.left,
+        top: p.top,
+        right: p.left + p.width + gap,
+        bottom: p.top + p.height + gap,
+      }))
+    )
+  );
+  const shapeExtents = preparedShapes.map((list) =>
+    list.map((parts) => ({
+      left: Math.min(...parts.map((p) => p.left)),
+      top: Math.min(...parts.map((p) => p.top)),
+      right: Math.max(...parts.map((p) => p.right)),
+      bottom: Math.max(...parts.map((p) => p.bottom)),
+    }))
+  );
+  const boundsTouch = (
+    a: (typeof shapeExtents)[number][number],
+    b: (typeof shapeExtents)[number][number]
+  ) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  const seatExtents = shapeExtents.map((list) => ({
+    left: Math.min(...list.map((p) => p.left)),
+    top: Math.min(...list.map((p) => p.top)),
+    right: Math.max(...list.map((p) => p.right)),
+    bottom: Math.max(...list.map((p) => p.bottom)),
+  }));
+  const shapesClear = (
+    first: (typeof preparedShapes)[number][number],
+    second: (typeof preparedShapes)[number][number]
+  ) => {
+    for (const part of first)
+      for (const peer of second)
+        if (
+          part.left < peer.right &&
+          part.right > peer.left &&
+          part.top < peer.bottom &&
+          part.bottom > peer.top
+        )
+          return false;
+    return true;
+  };
   const costs = options.map((list) => list.map(([x, y]) => x * x + y * y));
   // Pair geometry is immutable for this allocation. Compute it once instead
   // of rebuilding every composite rectangle inside each search branch.
@@ -487,11 +534,22 @@ export function jointOpponentShifts(
   for (let i = 0; i < items.length; i++)
     for (let j = i + 1; j < items.length; j++) {
       const table = new Uint8Array(options[i].length * options[j].length);
-      for (let a = 0; a < options[i].length; a++)
+      if (!boundsTouch(seatExtents[i], seatExtents[j])) {
+        table.fill(1);
+        compatibility[i][j] = table;
+        continue;
+      }
+      for (let a = 0; a < options[i].length; a++) {
+        if (!boundsTouch(shapeExtents[i][a], seatExtents[j])) {
+          table.fill(1, a * options[j].length, (a + 1) * options[j].length);
+          continue;
+        }
         for (let b = 0; b < options[j].length; b++)
           table[a * options[j].length + b] = Number(
-            shapes[i][a].every((part) => shapes[j][b].every((peer) => !overlap(part, peer, gap)))
+            !boundsTouch(shapeExtents[i][a], shapeExtents[j][b]) ||
+              shapesClear(preparedShapes[i][a], preparedShapes[j][b])
           );
+      }
       compatibility[i][j] = table;
     }
   const compatible = (i: number, a: number, j: number, b: number) =>

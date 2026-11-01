@@ -1267,6 +1267,47 @@ for (const [width, heightOverride] of occupiedViewports)
                 return chain;
               })
             );
+          const checkInitialChrome =
+            width === 320 && count === 9 && jackpot === 'mini' && villainCards === 2;
+          const wagerChromeContacts = () =>
+            page.evaluate(() => {
+              const chrome = Array.from(
+                document.querySelectorAll(
+                  '.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed'
+                )
+              )
+                .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+                .filter(({ rect }) => rect.width > 0 && rect.height > 0);
+              return Array.from(document.querySelectorAll('.seat__bet-chips')).flatMap((bet) => {
+                const rect = bet.getBoundingClientRect();
+                if (!rect.width || !rect.height) return [];
+                return chrome
+                  .filter(
+                    ({ rect: other }) =>
+                      Math.min(rect.right, other.right) - Math.max(rect.left, other.left) > 0.5 &&
+                      Math.min(rect.bottom, other.bottom) - Math.max(rect.top, other.top) > 0.5
+                  )
+                  .map(
+                    ({ element }) =>
+                      `${bet.closest('.seat')?.getAttribute('data-player-id')}:${element.className}`
+                  );
+              });
+            });
+          const wagerOffsets = () =>
+            page
+              .locator('.seat__bet-chips')
+              .evaluateAll((bets) =>
+                bets.map((bet) =>
+                  ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'].map((name) =>
+                    (bet as HTMLElement).style.getPropertyValue(name)
+                  )
+                )
+              );
+          if (checkInitialChrome)
+            expect(await wagerChromeContacts(), 'Initial wagers clear fixed table chrome').toEqual(
+              []
+            );
+          const beforeWagers = checkInitialChrome ? await wagerOffsets() : null;
           const before = await measure();
           const beforeLayout = await layoutVectors();
           const retainedTranslations = await page
@@ -1308,6 +1349,16 @@ for (const [width, heightOverride] of occupiedViewports)
             await layoutVectors(),
             'card layout and every ancestor translation remain exact'
           ).toEqual(beforeLayout);
+          if (checkInitialChrome) {
+            expect(
+              await wagerChromeContacts(),
+              'Runout keeps wagers clear of fixed table chrome'
+            ).toEqual([]);
+            expect(
+              await wagerOffsets(),
+              'Placed chips and collection origins remain exact'
+            ).toEqual(beforeWagers);
+          }
           const after = await measure();
           expect(after).toHaveLength(before.length);
           for (let i = 0; i < before.length; i++)

@@ -806,6 +806,17 @@ export function useProtectedCardLayout(
             .map(visibleBox)
             .filter((value): value is CardBox => value !== null),
         ];
+        // A retained slot keeps its placement air until actual paint overlaps.
+        // Use the same physical test when a partial assignment becomes a keeper.
+        const retainedWagerTouches = (candidate: CardBox, other: CardBox) =>
+          paintedSources.has(other)
+            ? paintedTests.get(other)!(candidate, 0)
+            : Math.min(candidate.left + candidate.width, other.left + other.width) -
+                Math.max(candidate.left, other.left) >
+                0.5 &&
+              Math.min(candidate.top + candidate.height, other.top + other.height) -
+                Math.max(candidate.top, other.top) >
+                0.5;
         const buildEntries = (bets = wagers(), trial = false, retainedBoxes = fixedWagers) => {
           const obstacles = trial
             ? Array.from(
@@ -874,18 +885,7 @@ export function useProtectedCardLayout(
                 Math.abs(stored.width - box.width) < 0.5 &&
                 Math.abs(stored.height - box.height) < 0.5 &&
                 !fixedWagers.some((other) => wagerBoxesOverlap(box!, other)) &&
-                !permanentKeepouts.some((other) =>
-                  // Placement reserves 2px air; transient subpixel loss of that
-                  // margin is not a new painted collision or a new chip slot.
-                  paintedSources.has(other)
-                    ? paintedTests.get(other)!(box!, 0)
-                    : Math.min(box!.left + box!.width, other.left + other.width) -
-                        Math.max(box!.left, other.left) >
-                        0.5 &&
-                      Math.min(box!.top + box!.height, other.top + other.height) -
-                        Math.max(box!.top, other.top) >
-                        0.5
-                )
+                !permanentKeepouts.some((other) => retainedWagerTouches(box!, other))
               ) {
                 fixedWagers.push(box);
                 obstacles.push(box);
@@ -2064,11 +2064,22 @@ export function useProtectedCardLayout(
             return;
           }
         }
+        const finishPartialAssignment =
+          artwork.ready() && page.getAttribute('data-seats') === '9' && window.innerWidth <= 340;
+        const cachedBefore = wagers().filter((bet) => settled.current.wagers.has(bet)).length;
+        let unresolved = false;
         const placedWagers: CardBox[] = [...fixedWagers];
         for (let i = 0; i < entries.length; i++) {
           const { bet, box } = entries[i];
           const next = placements?.[i];
-          if (!next) {
+          if (
+            !next ||
+            (finishPartialAssignment &&
+              [...permanentKeepouts, ...placedWagers].some((other) =>
+                retainedWagerTouches(next, other)
+              ))
+          ) {
+            unresolved = true;
             // No clear spot of its own: it stays at its rest point in front of
             // its player, never in front of somebody else.
             for (const name of ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'])
@@ -2079,6 +2090,20 @@ export function useProtectedCardLayout(
           obstacles.push(next);
           hardObstacles.push(next);
           placedWagers.push(next);
+        }
+        // Complete the original finite allocation with the safe slots already
+        // proved above. Never cache a covered last resort and wait for a runout
+        // to discover that the remaining owner's lane needs a little spacing.
+        // Each continuation adds a valid keeper and consumes the existing pass
+        // budget, preserving its cumulative opponent-motion origins.
+        if (
+          finishPartialAssignment &&
+          unresolved &&
+          remainingOwnerSpacingPasses > 0 &&
+          wagers().filter((bet) => settled.current.wagers.has(bet)).length > cachedBefore
+        ) {
+          place(remainingOwnerSpacingPasses - 1, spacingOrigins);
+          return;
         }
         // A terminal metadata/owner gap may leave the baseline slot unresolved.
         // Retry that same owned placement against the actual assigned wagers.
