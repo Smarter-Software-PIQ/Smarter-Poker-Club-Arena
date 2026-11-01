@@ -53,27 +53,63 @@ test('predicate22 diagnostics expose only bounded closed states and exact tuple 
 });
 
 test('discovery observation records the connected tuple without changing the close boundary', async () => {
-  const entry = readFileSync(new URL('../../server/scripts/main-inspector-retirement-entry.mjs', import.meta.url), 'utf8');
+  const entry = readFileSync(
+    new URL('../../server/scripts/main-inspector-retirement-entry.mjs', import.meta.url),
+    'utf8'
+  );
   const observed = observeFixtureDiscoverySocket(entry);
-  const fragment = observed.slice(observed.indexOf('async function retirementDiscover()'), observed.indexOf('async function retirementEntry()'));
-  const request = new EventEmitter(), socket = new EventEmitter(), response = new EventEmitter();
-  Object.assign(socket, {localAddress:'127.0.0.1',remoteAddress:'127.0.0.1',localPort:43981,remotePort:9229});
-  Object.assign(response, {statusCode:200,setEncoding:()=>{}});
+  const fragment = observed.slice(
+    observed.indexOf('async function retirementDiscover()'),
+    observed.indexOf('async function retirementEntry()')
+  );
+  const socket = new EventEmitter();
+  Object.assign(socket, {
+    localAddress: '127.0.0.1',
+    remoteAddress: '127.0.0.1',
+    localPort: 43981,
+    remotePort: 9229,
+    setTimeout: () => {},
+    write: () => {},
+    end: () => {},
+    destroy: () => {},
+  });
   const sandbox = {};
-  let callback;
-  const discover = new Function('retirementHttp','retirementRemaining','globalThis', fragment + '\nreturn retirementDiscover;')({get:(_options,cb)=>{callback=cb;return request;}},()=>10000,sandbox);
+  const discover = new Function(
+    'retirementNet',
+    'retirementRemaining',
+    'globalThis',
+    fragment + '\nreturn retirementDiscover;'
+  )(
+    {
+      createConnection: () => socket,
+    },
+    () => 10000,
+    sandbox
+  );
   let settled = false;
-  const pending = discover().then(v => {settled=true;return v;});
-  request.emit('socket',socket);
+  const pending = discover().then((v) => {
+    settled = true;
+    return v;
+  });
   socket.emit('connect');
-  callback(response);
-  const endpoint='ws://127.0.0.1:9229/00000000-0000-4000-8000-000000000001';
-  response.emit('data',JSON.stringify([{webSocketDebuggerUrl:endpoint}]));
-  response.emit('end');
+  const endpoint = 'ws://127.0.0.1:9229/00000000-0000-4000-8000-000000000001';
+  const body = JSON.stringify([{ webSocketDebuggerUrl: endpoint }]);
+  socket.emit(
+    'data',
+    Buffer.from(`HTTP/1.0 200 OK\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
+  );
   await Promise.resolve();
-  assert.equal(settled,false);
-  socket.emit('close');
-  assert.equal(await pending,endpoint);
-  assert.deepEqual(sandbox[Symbol.for('fixture.main-inspector.discovery-tuple')], {local:'0100007F:ABCD',remote:'0100007F:240D'});
-  assert.throws(()=>observeFixtureDiscoverySocket(entry.replace("request.on('socket'", "request.on('unknown'")));
+  assert.equal(settled, false);
+  socket.emit('end');
+  await Promise.resolve();
+  assert.equal(settled, false);
+  socket.emit('close', false);
+  assert.equal(await pending, endpoint);
+  assert.deepEqual(sandbox[Symbol.for('fixture.main-inspector.discovery-tuple')], {
+    local: '0100007F:ABCD',
+    remote: '0100007F:240D',
+  });
+  assert.throws(() =>
+    observeFixtureDiscoverySocket(entry.replace("socket.once('connect'", "socket.once('unknown'"))
+  );
 });

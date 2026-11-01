@@ -32,18 +32,20 @@ export function observeFixtureKernelRefusals(source, scenario) {
 }
 
 // Observe only the actual initial discovery socket. Preserve response parsing,
-// close resolution, deadlines and every maintained call byte around it.
+// peer/local close resolution, deadlines and every maintained call byte around it.
 export function observeFixtureDiscoverySocket(source) {
-  const needle = "request.on('socket', (socket) =>\n      socket.once('close', () => {";
-  if (source.split(needle).length !== 2) throw new Error('The isolated discovery source shape changed');
-  return source.replace(needle, `request.on('socket', (socket) =>
-      (socket.once('connect', () => {
+  const needle = "socket.once('connect', () => {";
+  if (source.split(needle).length !== 2)
+    throw new Error('The isolated discovery source shape changed');
+  return source.replace(
+    needle,
+    `socket.once('connect', () => {
         try {
           if (socket.localAddress === '127.0.0.1' && socket.remoteAddress === '127.0.0.1' &&
               Number.isInteger(socket.localPort) && socket.localPort > 0 && socket.localPort <= 65535 && socket.remotePort === 9229) {
             const endpoint = port => '0100007F:' + (0x10000 + port).toString(16).slice(1).toUpperCase();
             globalThis[Symbol.for('fixture.main-inspector.discovery-tuple')] = Object.freeze({local:endpoint(socket.localPort),remote:endpoint(socket.remotePort)});
           }
-        } catch { /* Observation never changes discovery. */ }
-      }), socket).once('close', () => {`);
+        } catch { /* Observation never changes discovery. */ }`
+  );
 }
