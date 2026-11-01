@@ -2716,5 +2716,125 @@ class IntakeCustodyTests(unittest.TestCase):
         self.assertTrue(all(p.poll() is not None and p.stdout.closed for p in children))
 
 
+class CanonicalRoutineOwnerTests(unittest.TestCase):
+    def fixture(self, root):
+        root.chmod(0o700)
+        (root / 'engine-release-results').mkdir(mode=0o700)
+        start = 1793570400  # Fixed real UTC hour; never a current admission.
+        start -= start % 3600
+        cycle = {'runId': '41349091113-1', 'sha': '3e3c6d4752cd587fad0db521ebd262f1b485514c',
+                 'controlSha': '3e3c6d4752cd587fad0db521ebd262f1b485514c',
+                 'policyId': 'phase1-hourly-01a1944f', 'policyDigest': 'a' * 64,
+                 'kind': 'hourly-reset', 'status': 'reserved', 'startsAt': start, 'endsAt': start + 300}
+        result = {'schema': 1, 'runId': cycle['runId'], 'sha': cycle['sha'],
+                  'controlSha': cycle['controlSha'], 'result': 'failed', 'completedAt': start - 60,
+                  'private_capsule': 'NEVER-EXPORT-THIS-BODY'}
+        cycle['failure'] = copy.deepcopy(result)
+        state = {'schema': 1, 'generation': 44,
+                 'desired': {'sha': R.EED, 'imageId': 'sha256:' + 'b' * 64},
+                 'committedRuns': {}, 'routineMaintenanceCycles': {str(start): cycle},
+                 'pending': None, 'finalization': None}
+        self.write(root / 'engine-release-seal.json', state)
+        self.write(root / 'engine-release-results' / (cycle['runId'] + '.json'), result)
+        return state, cycle, result
+
+    def write(self, path, value):
+        path.write_text(json.dumps(value)); path.chmod(0o600)
+
+    def read(self, root):
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try: return R.routine_remote(dict(R.ROUTINE_REQUEST), fd)
+        finally: os.close(fd)
+
+    def test_exact_failed_selector_and_dispatch_decoder(self):
+        self.assertEqual(R.selection(R.ROUTINE_REQUEST), R.ROUTINE_REQUEST)
+        for key, value in [('runKey', '41349091113-1'), ('releaseSha', R.EED), ('path', '/private')]:
+            request = R.ROUTINE_REQUEST | {key: value}
+            with self.assertRaises(ValueError): R.selection(request)
+        source = (ROOT / 'scripts/ci/read-scoped-release-recovery.py').read_text()
+        self.assertIn("return routine_remote(request, root_fd)", source)
+        self.assertIn("return validate_routine_reply(value, request)", source)
+
+    def test_actual_private_files_identify_original_owner_without_cleanup_authority(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); _, cycle, _ = self.fixture(root)
+            before = {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
+                      for p in root.rglob('*') if p.is_file()}
+            answer = self.read(root)
+            self.assertEqual(answer['owners'][0]['runId'], cycle['runId'])
+            self.assertTrue(answer['owners'][0]['result']['identityMatches'])
+            self.assertTrue(answer['owners'][0]['result']['cycleFailureMatches'])
+            self.assertEqual(answer['limitation'], R.ROUTINE_LIMITATION)
+            self.assertNotIn('NEVER-EXPORT', json.dumps(answer))
+            self.assertEqual(R.validate_reply(answer, R.ROUTINE_REQUEST), answer)
+            after = {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
+                     for p in root.rglob('*') if p.is_file()}
+            self.assertEqual(before, after)
+            for target, key, value in [(answer, 'retryAllowed', True),
+                    (answer['owners'][0], 'status', 'cleared'),
+                    (answer['owners'][0]['result'], 'identityMatches', 'true')]:
+                bad = copy.deepcopy(answer)
+                if target is answer: bad[key] = value
+                elif target is answer['owners'][0]: bad['owners'][0][key] = value
+                else: bad['owners'][0]['result'][key] = value
+                with self.assertRaises(ValueError): R.validate_reply(bad, R.ROUTINE_REQUEST)
+
+    def test_missing_and_mismatched_original_result_remain_visible_unknown_or_false(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); _, cycle, result = self.fixture(root)
+            path = root / 'engine-release-results' / (cycle['runId'] + '.json')
+            result['sha'] = 'c' * 40; self.write(path, result)
+            answer = self.read(root)['owners'][0]['result']
+            self.assertFalse(answer['identityMatches']); self.assertFalse(answer['cycleFailureMatches'])
+            path.unlink()
+            answer = self.read(root)['owners'][0]['result']
+            self.assertFalse(answer['present']); self.assertIsNone(answer['identityMatches'])
+
+    def test_no_follow_private_mode_bounds_duplicate_json_and_malformed_cycle(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); state, cycle, _ = self.fixture(root)
+            path = root / 'engine-release-seal.json'
+            for key, value in [('startsAt', True), ('endsAt', cycle['endsAt'] + 1),
+                    ('policyDigest', 'bad'), ('status', 'withdrawn'),
+                    ('window', {'announcedAt': 1, 'startsAt': 2, 'endsAt': 3, 'verified': True})]:
+                bad = copy.deepcopy(state); bad['routineMaintenanceCycles'][str(cycle['startsAt'])][key] = value
+                self.write(path, bad)
+                with self.assertRaises(ValueError): self.read(root)
+            self.write(path, state); path.chmod(0o644)
+            with self.assertRaises(ValueError): self.read(root)
+            path.chmod(0o600); path.write_text('{"schema":1,"schema":1}')
+            with self.assertRaises(ValueError): self.read(root)
+            path.write_bytes(b'x' * (R.MAX_BYTES + 1))
+            with self.assertRaises(ValueError): self.read(root)
+            path.unlink(); path.symlink_to('/does-not-exist')
+            with self.assertRaises(OSError): self.read(root)
+
+    def test_racing_canonical_file_and_new_result_are_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); state, cycle, result = self.fixture(root)
+            original = R.read_json; count = 0
+            def changed(fd, name, **kwargs):
+                nonlocal count
+                value = original(fd, name, **kwargs)
+                if name == 'engine-release-seal.json':
+                    count += 1
+                    if count == 1:
+                        state['generation'] += 1; self.write(root / name, state)
+                return value
+            with patch.object(R, 'read_json', side_effect=changed):
+                with self.assertRaises(ValueError): self.read(root)
+            self.write(root / 'engine-release-seal.json', state)
+            path = root / 'engine-release-results' / (cycle['runId'] + '.json'); path.unlink()
+            original_stat = R.os.stat; result_reads = 0
+            def appearing(name, *args, **kwargs):
+                nonlocal result_reads
+                if name == cycle['runId'] + '.json':
+                    result_reads += 1
+                    if result_reads == 2: self.write(path, result)
+                return original_stat(name, *args, **kwargs)
+            with patch.object(R.os, 'stat', side_effect=appearing):
+                with self.assertRaises(ValueError): self.read(root)
+
+
 if __name__ == "__main__":
     unittest.main()
