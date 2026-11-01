@@ -15,6 +15,11 @@ export function safeNativeDumpDiagnostic(value) {
   const legacyScope=value?.version===1 && value.object_scope===undefined && value.query_scope===undefined;
   if((!currentScope && !legacyScope) || !uint(value.records,100000) || !uint(value.bytes,MAX_BYTES) ||
     typeof value.stream_closed!=='boolean' || typeof value.pairs_complete!=='boolean')return null;
+  const limit=value.limit;
+  if(limit!==undefined && (!limit || Object.keys(limit).sort().join(',')!=='kind,observed_at_least' ||
+    !((limit.kind==='TOTAL_BYTES' && limit.observed_at_least===MAX_BYTES+1) ||
+      (limit.kind==='LINE_BYTES' && limit.observed_at_least===MAX_LINE+1)) ||
+    value.stream_closed!==false || value.pairs_complete!==false))return null;
   const types={};
   for(const type of TYPES){
     const bucket=value.types?.[type];if(!bucket)return null;
@@ -29,19 +34,18 @@ export function safeNativeDumpDiagnostic(value) {
   const object=span(value.last_unpaired_object),query=span(value.last_unpaired_query);
   if(object===undefined || query===undefined)return null;
   return {version:value.version,...(currentScope?{object_scope:value.object_scope,query_scope:value.query_scope}:{}),records:value.records,bytes:value.bytes,stream_closed:value.stream_closed,
-    pairs_complete:value.pairs_complete,types,last_unpaired_object:object,last_unpaired_query:query};
+    pairs_complete:value.pairs_complete,types,last_unpaired_object:object,last_unpaired_query:query,
+    ...(limit?{limit:{kind:limit.kind,observed_at_least:limit.observed_at_least}}:{})};
 }
 
 // The only retained strings are closed types. Raw frames are discarded as soon
 // as parsed; counters, two open spans and a short partial frame are constant state.
 export function createNativeDumpDiagnostic() {
-  let partial='',bytes=0,sequence=0,lastUs=0,object=null,query=null,closed=false,retired=false;
+  let partial='',bytes=0,sequence=0,lastUs=0,object=null,query=null,closed=false,retired=false,limit=null,wire=null,binaryAt=0;
+  const binary=Buffer.alloc(12);
   const buckets=Object.fromEntries(TYPES.map(type=>[type,{objects_started:0,objects_completed:0,
     object_elapsed_us:0,queries_started:0,queries_completed:0,query_elapsed_us:0,query_max_us:0}]));
-  const frame=(line,receivedMs)=>{
-    const match=/^D1 ([1-9][0-9]{0,5}) ([OQ]) ([BE]) (FUNCTION|RELATION|TYPE|OTHER) (0|[1-9][0-9]{0,7})$/.exec(line);
-    requireFrame(match);
-    const [,seqText,kind,edge,type,timeText]=match,seq=Number(seqText),us=Number(timeText);
+  const accept=(seq,kind,edge,type,us,receivedMs)=>{
     requireFrame(seq===sequence+1 && seq<=100000 && us>=lastUs && us<=MAX_US);
     sequence=seq;lastUs=us;const bucket=buckets[type];
     if(kind==='O' && edge==='B'){
@@ -57,17 +61,39 @@ export function createNativeDumpDiagnostic() {
       bucket.query_max_us=Math.max(bucket.query_max_us,elapsed);query=null;
     }
   };
+  const frame=(line,receivedMs)=>{
+    const match=/^D1 ([1-9][0-9]{0,5}) ([OQ]) ([BE]) (FUNCTION|RELATION|TYPE|OTHER) (0|[1-9][0-9]{0,7})$/.exec(line);
+    requireFrame(match);
+    const [,seq,kind,edge,type,us]=match;
+    accept(Number(seq),kind,edge,type,Number(us),receivedMs);
+  };
+  const binaryFrame=receivedMs=>{
+    requireFrame(binary[0]===68 && binary[1]===50 && binary[6]<16 && binary[11]===10);
+    const tag=binary[6];
+    accept(binary.readUInt32BE(2),(tag&2)?'Q':'O',(tag&1)?'E':'B',TYPES[tag>>>2],binary.readUInt32BE(7),receivedMs);
+  };
+  const refuseLimit=kind=>{limit??={kind,observed_at_least:kind==='TOTAL_BYTES'?MAX_BYTES+1:MAX_LINE+1};refuse('FD3_LIMIT');};
   return {
     push(chunk,receivedMs){
+      if(limit)refuse('FD3_LIMIT');
       requireFrame(!retired && !closed && Number.isSafeInteger(receivedMs) && receivedMs>=0 && receivedMs<=45000);
-      bytes+=chunk.length;if(bytes>MAX_BYTES)refuse('FD3_LIMIT');
-      // Latin1 preserves byte length. Non-ASCII bytes cannot match the grammar.
-      for(const char of chunk.toString('latin1')){
-        if(char==='\n'){frame(partial,receivedMs);partial='';}
-        else {partial+=char;if(partial.length>MAX_LINE)refuse('FD3_LIMIT');}
+      if(chunk.length>MAX_BYTES-bytes)refuseLimit('TOTAL_BYTES');
+      bytes+=chunk.length;
+      for(const byte of chunk){
+        if(wire===null){
+          partial+=String.fromCharCode(byte);
+          if(partial.length===2){
+            wire=partial==='D2'?'D2':'D1';
+            if(wire==='D2'){binary[0]=68;binary[1]=50;binaryAt=2;partial='';}
+          }
+        }else if(wire==='D2'){
+          binary[binaryAt++]=byte;
+          if(binaryAt===12){binaryFrame(receivedMs);binaryAt=0;}
+        }else if(byte===10){frame(partial,receivedMs);partial='';}
+        else {partial+=String.fromCharCode(byte);if(partial.length>MAX_LINE)refuseLimit('LINE_BYTES');}
       }
     },
-    finish({allowEmpty=false}={}){requireFrame(!retired && !closed && partial==='' && (sequence>0 || allowEmpty));closed=true;},
+    finish({allowEmpty=false}={}){if(limit)refuse('FD3_LIMIT');requireFrame(!retired && !closed && partial==='' && binaryAt===0 && (sequence>0 || allowEmpty));closed=true;},
     snapshot(observedMs){
       requireFrame(!retired && Number.isSafeInteger(observedMs) && observedMs>=0 && observedMs<=45000);
       const open=span=>span?{type:span.type,started_at_us:span.us,
@@ -75,9 +101,9 @@ export function createNativeDumpDiagnostic() {
       return {version:2,object_scope:'effective-selected-components',query_scope:'actual-network-requests',records:sequence,bytes,stream_closed:closed,
         pairs_complete:closed && sequence>0 && !object && !query,
         types:Object.fromEntries(TYPES.map(type=>[type,{...buckets[type]}])),
-        last_unpaired_object:open(object),last_unpaired_query:open(query)};
+        last_unpaired_object:open(object),last_unpaired_query:open(query),...(limit?{limit:{...limit}}:{})};
     },
-    clear(){partial='';object=null;query=null;retired=true;}
+    clear(){partial='';binary.fill(0);object=null;query=null;retired=true;}
   };
 }
 

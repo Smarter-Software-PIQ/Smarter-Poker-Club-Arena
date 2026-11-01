@@ -30,6 +30,14 @@ import {
   noteRealtimeTransportRecovered,
 } from '../lib/realtimeTransportLoss';
 import { reportError } from '../utils/errorReporter';
+import {
+  claimDegradedToast,
+  createDegradationGate,
+  createResubscribeScheduler,
+  noteChannelRecovered,
+  showDegradedToast,
+  type DegradationGate,
+} from '../lib/realtimeDegradationPolicy';
 
 export type PostgresChangeEvent = 'INSERT' | 'UPDATE' | 'DELETE' | '*';
 
@@ -58,6 +66,12 @@ export interface UseMasterBusChannelOptions {
   onSubscriptionError?: (status: string, err?: Error) => void;
   /** Receives every channel lifecycle status, including SUBSCRIBED after recovery. */
   onSubscriptionStatus?: (status: string) => void;
+  /**
+   * Player-facing error toast for a degraded channel. Shown at most once per
+   * channel per degradation episode (src/lib/realtimeDegradationPolicy.ts).
+   * Pages must use this instead of toasting from onSubscriptionError.
+   */
+  degradedToast?: string;
 }
 
 /**
@@ -104,6 +118,7 @@ export function useMasterBusChannel({
   restartKey = 0,
   onSubscriptionError,
   onSubscriptionStatus,
+  degradedToast,
 }: UseMasterBusChannelOptions) {
   // A row binding belongs to this mounted consumer. A second club lobby can
   // mount after the first has joined; the SDK cannot add a Postgres binding to
@@ -113,6 +128,17 @@ export function useMasterBusChannel({
   const callbackRef = useRef(onPayload);
   const errorCallbackRef = useRef(onSubscriptionError);
   const statusCallbackRef = useRef(onSubscriptionStatus);
+  const degradedToastRef = useRef(degradedToast);
+  degradedToastRef.current = degradedToast;
+  /* One degradation episode per channel name for this mount, kept across
+     restartKey re-runs so a consumer that restarts on failure is not told
+     again about the same outage. */
+  const gateRef = useRef<{ channel: string | null | undefined; gate: DegradationGate } | null>(
+    null
+  );
+  if (!gateRef.current || gateRef.current.channel !== channelName) {
+    gateRef.current = { channel: channelName, gate: createDegradationGate() };
+  }
 
   // Update refs when callbacks change (but doesn't trigger re-subscription)
   useEffect(() => {
@@ -162,6 +188,8 @@ export function useMasterBusChannel({
     let subscriptionGeneration = 0;
     let admission: AbortController | null = null;
     let acquiredChannel: RealtimeChannel | null = null;
+    const gate = gateRef.current!.gate;
+    const backoff = createResubscribeScheduler();
 
     const subscribeChannel = () => {
       if (!alive) return;
@@ -211,7 +239,12 @@ export function useMasterBusChannel({
         channel,
         (status: string, err?: Error) => {
           if (!alive || generation !== subscriptionGeneration) return;
-          if (status === 'SUBSCRIBED') noteRealtimeTransportRecovered();
+          if (status === 'SUBSCRIBED') {
+            noteRealtimeTransportRecovered();
+            backoff.noteSubscribed();
+            gate.recovered();
+            noteChannelRecovered(channelName);
+          }
           try {
             statusCallbackRef.current?.(status);
           } catch (cbErr) {
@@ -221,6 +254,10 @@ export function useMasterBusChannel({
              removes a shared channel, and it was not handled at all - so the
              consumer went blind with nothing to tell it. */
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            backoff.noteFailure(generation);
+            // One degradation episode reports, notifies and toasts ONCE; the
+            // retries inside it stay quiet (realtimeDegradationPolicy.ts).
+            if (!gate.shouldNotify()) return;
             // P2-3: do NOT silently swallow. Surface via the error reporter so
             // there is a metric/log, and forward to the consumer so it can flip
             // a degraded-connection state and/or force a recovery fetch. The
@@ -242,6 +279,14 @@ export function useMasterBusChannel({
             } catch (cbErr) {
               reportError(cbErr, 'useMasterBusChannel.onSubscriptionError_threw');
             }
+            const message = degradedToastRef.current;
+            if (message && claimDegradedToast(channelName)) {
+              try {
+                showDegradedToast(message, channelName);
+              } catch (toastErr) {
+                reportError(toastErr, 'useMasterBusChannel.degradedToast_threw');
+              }
+            }
           }
         },
         signal
@@ -249,8 +294,9 @@ export function useMasterBusChannel({
     };
 
     // Register the factory FIRST so that if the very first subscribe attempt
-    // dies, the health monitor can recover it.
-    masterBus.registerChannelFactory(registryKey, subscribeChannel);
+    // dies, the health monitor can recover it. Recovery goes through the
+    // shared backoff: immediate after one failure, then 1 s .. 30 s + jitter.
+    masterBus.registerChannelFactory(registryKey, () => backoff.run(subscribeChannel));
 
     // Initial subscription
     subscribeChannel();
@@ -259,6 +305,7 @@ export function useMasterBusChannel({
     // this component intentionally tore down) and remove the channel.
     return () => {
       alive = false;
+      backoff.cancel();
       admission?.abort();
       masterBus.removeChannelFactory(registryKey);
       if (acquiredChannel) masterBus.removeRegisteredChannel(registryKey, acquiredChannel);

@@ -244,6 +244,9 @@ vi.mock('react-router-dom', () => ({
   useSearchParams: () => [new URLSearchParams()],
 }));
 
+// Its own reads are pinned in ClubRakebackVerifiedSoFar.test.tsx; here it would
+// take a place in this page's ordered RPC answers.
+vi.mock('../../src/components/club/ClubRakebackVerifiedSoFar', () => ({ default: () => null }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     rpc: rpcMock,
@@ -410,8 +413,10 @@ it('does not amplify failed rake reads through successful ledger invalidations',
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Club Ledger' }));
   await screen.findByText('Rake Agent');
   expect(rakeCalls()).toHaveLength(2);
-  // On the first of a month, Month and Day ask the same cached question.
-  // Yesterday always changes the range, so one additional read is owed.
+  // A period change must start a new read. Not Day: on the first of a month
+  // the default Month-to-date range IS today, so Day asks the same question
+  // and correctly reads nothing new (publish shard 13 failed on 2026-11-01
+  // for exactly that). Yesterday never equals month-to-date.
   fireEvent.click(screen.getByRole('button', { name: 'Yesterday', exact: true }));
   await waitFor(() => expect(rakeCalls()).toHaveLength(3));
 });
