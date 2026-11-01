@@ -17,8 +17,10 @@ it('retains natural reveal receipts even when the production case passes', () =>
   expect(artifact?.if).toBe("always() && steps.live.outputs.ready == 'true'");
   expect(artifact?.with?.path).toContain('test-results/live-table-realtime/**/mobile-live-table-*');
   const spec = readFileSync('tests/e2e/production-live-table-realtime.spec.ts', 'utf8');
-  expect(spec).toContain("testInfo.outputPath('mobile-live-table-natural-board-reveal.json')");
-  expect(spec).toMatch(/writeFileSync\(boardEvidencePath,/);
+  expect(spec).toMatch(
+    /testInfo\.outputPath\(\s*'mobile-live-table-natural-board-reveal\.json'\s*,?\s*\)/
+  );
+  expect(spec).toMatch(/writeFileSync\(\s*boardEvidencePath\s*,/);
 });
 let callbacks: FrameRequestCallback[], angle: number, currentTime: number, finished: boolean;
 const frame = () => {
