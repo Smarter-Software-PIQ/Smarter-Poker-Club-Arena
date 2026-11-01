@@ -594,24 +594,35 @@ export function fitSeatToViewport(
     (viewportWidthPx > 480 || canvas.portraitTaper === 0) &&
     viewportWidthPx <= PORTRAIT_CARD_LANE_MAX_VIEWPORT_PX &&
     canvas.h > canvas.w;
+  // Owner October 31: lift the upper side pair away from the board and
+  // lower the bottom corners. Positions follow visual slots, never aliases.
+  // Keep the middle pair, hero and shared pod dimensions unchanged.
+  const densePortraitRing = portraitPhone && maxPlayers >= 7 && !compactNine;
   const y =
-    fullPortraitRing && seat.y >= 50 && seat.y < 100
-      ? seat.y < 70
-        ? 67
-        : 94
-      : compactNine && canvas.h <= LOW_SIDE_SEAT_LIFT_MIN_CANVAS_PX && seat.y >= 20 && seat.y < 100
-        ? seat.y < 35
-          ? 23
-          : seat.y < 70
-            ? 52.75
-            : 82.5
-        : portraitPhone &&
-            canvas.h >= LOW_SIDE_SEAT_LIFT_MIN_CANVAS_PX &&
-            seat.x !== 50 &&
-            seat.y > 50 &&
-            seat.y < 70
-          ? seat.y - PORTRAIT_LOW_SIDE_SEAT_LIFT
-          : seat.y;
+    densePortraitRing && seat.y >= 20 && seat.y < 35
+      ? 22
+      : fullPortraitRing && seat.y >= 50 && seat.y < 100
+        ? seat.y < 70
+          ? 67
+          : 98
+        : densePortraitRing && seat.y >= 80 && seat.y < 100
+          ? 90
+          : compactNine &&
+              canvas.h <= LOW_SIDE_SEAT_LIFT_MIN_CANVAS_PX &&
+              seat.y >= 20 &&
+              seat.y < 100
+            ? seat.y < 35
+              ? 23
+              : seat.y < 70
+                ? 52.75
+                : 82.5
+            : portraitPhone &&
+                canvas.h >= LOW_SIDE_SEAT_LIFT_MIN_CANVAS_PX &&
+                seat.x !== 50 &&
+                seat.y > 50 &&
+                seat.y < 70
+              ? seat.y - PORTRAIT_LOW_SIDE_SEAT_LIFT
+              : seat.y;
   return x === seat.x && y === seat.y ? seat : { ...seat, x, y };
 }
 

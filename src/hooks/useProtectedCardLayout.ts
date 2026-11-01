@@ -452,9 +452,26 @@ export function useProtectedCardLayout(
             // plates do not reserve a band across this centred seat. Anchor
             // the actual art, not its transparent slot or position badge.
             const anchorTop = sixMax && avatar ? restingAvatarTop(avatar, scale) : highest;
+            // Dense portrait caps use the highest available painted lane.
+            // An absent jackpot must not reserve an invisible plate band;
+            // corner chrome only blocks a cap when it overlaps that cap.
+            const densePortrait =
+              Number(page.getAttribute('data-seats')) >= 7 &&
+              window.innerWidth > 340 &&
+              window.innerWidth <= PORTRAIT_CARD_LANE_MAX_VIEWPORT_PX &&
+              window.innerHeight > window.innerWidth;
+            const capBox = pod.getBoundingClientRect();
+            const capChromeBottom = densePortrait
+              ? Math.max(
+                  pageBox.top,
+                  ...chrome
+                    .filter((box) => box.left < capBox.right && box.right > capBox.left)
+                    .map((box) => box.bottom)
+                )
+              : chromeBottom;
             const naturalTarget = sixMax
               ? pageBox.top - 2 * scale
-              : chromeBottom + clearance * scale;
+              : capChromeBottom + clearance * scale;
             // A revealed top hand needs its full height above its own plate.
             // Lower the pod as one unit instead of forcing the cards sideways
             // into a neighbour when the compact crown anchor clips that lane.
