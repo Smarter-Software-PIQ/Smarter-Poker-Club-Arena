@@ -143,9 +143,10 @@
 }
 .has-premium-chassis .lt-tournament-heading__guarantee {
   position: absolute;
-  top: 3.9cqw;
-  left: 67.7%;
-  width: 25%;
+  /* Native plaque glass: x1330..1843, y217..354 after the y125 head crop. */
+  top: 4.65cqw;
+  left: 67.2%;
+  width: 25.6%;
   height: 6.9cqw;
   display: flex;
   align-items: center;
