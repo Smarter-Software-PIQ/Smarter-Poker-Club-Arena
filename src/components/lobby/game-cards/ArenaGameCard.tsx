@@ -357,7 +357,7 @@ function SpinMachine({ data, actions }: ArenaGameCardProps) {
     <div className="agc-machine agc-machine--spin">
       <PremiumHeader data={data} />
       <div className="agc-premium-promotion" data-zone="promotion">
-        {data.featured ? '100x Live' : 'Prize Ladder Live'}
+        {data.featured ? `${payout.hero} Live` : 'Prize Ladder Live'}
       </div>
       <div className="agc-premium-payout" data-zone="maxPayout">
         {payout.lead && <span>{payout.lead}</span>}
