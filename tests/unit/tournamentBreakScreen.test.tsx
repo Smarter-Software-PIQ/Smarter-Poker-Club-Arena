@@ -183,7 +183,8 @@ describe('the tournament break card', () => {
       />
     );
     expect(screen.getByText('Loading Standings')).toBeVisible();
-    expect(screen.getAllByText('...')).toHaveLength(3);
+    expect(screen.getAllByText('...')).toHaveLength(4);
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('...');
     reads.result = Promise.resolve({ data: null, error: { message: 'Unavailable' } });
     await act(async () =>
       view.rerender(
@@ -197,7 +198,8 @@ describe('the tournament break card', () => {
       )
     );
     expect(screen.getByText('Standings Unavailable')).toBeVisible();
-    expect(screen.getAllByText('N/A')).toHaveLength(3);
+    expect(screen.getAllByText('N/A')).toHaveLength(4);
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('N/A');
   });
 
   it('renders a real empty field without fake leader rows and renders nothing when hidden', () => {
