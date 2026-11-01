@@ -47,7 +47,7 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     expect(transactionCode).toContain('target $SHA does not contain the sealed high-water release');
   });
 
-  it('detects protected-main server SHAs and gates routine dispatch on daily admission', () => {
+  it('detects protected-main server SHAs and gates the single scheduled producer on source admission', () => {
     const triggers = engineSignal.slice(
       engineSignal.indexOf('\non:'),
       engineSignal.indexOf('\npermissions:')
@@ -61,8 +61,8 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     // The explicit migration continuation skips detection and every dependent engine signal.
     expect(engineSignal).toContain("if: github.event_name != 'workflow_dispatch'");
     expect(engineSignal).toContain('needs: detect');
-    expect(triggers).toContain("cron: '30 8 * * *'");
-    expect(triggers).toContain("cron: '30 9 * * *'");
+    expect(triggers).toContain("cron: '30 * * * *'");
+    expect((triggers.match(/cron:/g) ?? []).length).toBe(1);
     expect(engineSignalCode).toContain('RUN_CREATED_AT=$(gh api');
     expect(engineSignalCode).toContain('local = nominal.astimezone(ZoneInfo("America/Chicago"))');
     expect(engineSignal).toMatch(/^permissions:\s*\{\}\s*$/m);

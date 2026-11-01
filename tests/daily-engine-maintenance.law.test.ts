@@ -1,6 +1,6 @@
 import { queuedDailyRelease } from '../scripts/ci/daily-engine-provenance.mjs';
 import { describe, expect, it } from 'vitest';
-import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -18,7 +18,7 @@ function admit(
   hour: string,
   message: string,
   health: string,
-  schedule = '30 8 * * *',
+  schedule = '30 * * * *',
   createdAt = '2026-10-21T08:30:01Z',
   owner?: { windows: string; ancestor: boolean; served?: boolean; witness?: string; floor?: string }
 ) {
@@ -33,6 +33,31 @@ function admit(
       if (owner.floor)
         writeFileSync(join(dir, 'server/release/activation-floor.json'), owner.floor);
     }
+    // Daily/owner-window authority remains independently qualified with the
+    // explicit completed/off source policy. The maintained helper reads its
+    // exact immutable Git bytes rather than inheriting today's active policy.
+    const policy = JSON.parse(
+      readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
+    );
+    policy.phase1Status = 'off';
+    policy.completionEvidence = 'isolated daily-admission fixture';
+    mkdirSync(join(dir, 'server/scripts'), { recursive: true });
+    writeFileSync(
+      join(dir, 'server/scripts/engine-release-seal.py'),
+      readFileSync(join(root, 'server/scripts/engine-release-seal.py'))
+    );
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'policy.json'), JSON.stringify(policy));
+    writeFileSync(
+      join(dir, 'bin/git'),
+      `#!/usr/bin/env bash
+set -eu
+[ "$1" = -C ] && [ "$2" = . ] && [ "$3" = show ]
+[ "$4" = '${'a'.repeat(40)}:server/src/maintenance/maintenanceSchedulePolicy.json' ]
+cat '${join(dir, 'policy.json')}'
+`
+    );
+    chmodSync(join(dir, 'bin/git'), 0o755);
     const result = spawnSync(
       'bash',
       [
@@ -75,6 +100,8 @@ function admit(
         cwd: dir,
         env: {
           ...process.env,
+          PATH: `${join(dir, 'bin')}:${process.env.PATH ?? ''}`,
+          GITHUB_SHA: 'a'.repeat(40),
           OWNER_ANCESTOR: owner?.ancestor ? '1' : '0',
           OWNER_SERVED: owner?.served ? '1' : '0',
           WITNESS_MODE: owner?.witness ?? 'unserved',
@@ -102,7 +129,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
   it('queues ordinary daytime pushes even when they change server code', () => {
     expect(admit('push', '14', 'normal server change', '{"liveness":"ok"}')).toBe(false);
   });
-  it('admits only the 03:30 Chicago candidate of the UTC DST pair', () => {
+  it('admits only nominal 03:30 Chicago ticks when the temporary policy is off', () => {
     expect(admit('schedule', '03', 'routine', '{"liveness":"ok"}')).toBe(true);
     // The actual runner hour does not change nominal admission.
     expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}')).toBe(true);
@@ -111,22 +138,22 @@ describe('daily routine admission uses the existing protected receiver only', ()
       admit('schedule', '03', 'routine', '{"liveness":"ok"}', '30 9 * * *', '2026-10-21T09:30:01Z')
     ).toBe(false);
     expect(
-      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 9 * * *', '2026-12-21T09:30:01Z')
+      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-12-21T09:30:01Z')
     ).toBe(true);
     expect(
-      admit('schedule', '03', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-12-21T08:30:01Z')
+      admit('schedule', '03', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-12-21T08:30:01Z')
     ).toBe(false);
     expect(
-      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-03-08T08:30:01Z')
+      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-03-08T08:30:01Z')
     ).toBe(true);
     expect(
-      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 9 * * *', '2026-11-01T09:30:01Z')
+      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-11-01T09:30:01Z')
     ).toBe(true);
-    expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', 'malformed')).toBe(
+    expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', 'malformed')).toBe(
       false
     );
     expect(
-      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-10-22T00:01:00Z')
+      admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-10-22T00:01:00Z')
     ).toBe(false);
   });
   it('refuses commit urgency while retaining measured engine emergencies', () => {

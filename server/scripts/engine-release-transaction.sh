@@ -2572,8 +2572,11 @@ record_floor_runtime_entry() {
 
 # Duplicate certification and interrupted recovery retain their original owner.
 acquire_engine_lock 'duplicate certification'
-source_target_is_current
-initialise_phase1_cycle
+# Pure durable ownership read precedes any desired-runtime restoration. New
+# source policy/cycle admission still follows canonical committed-run replay.
+legacy_entry_read timeout --signal=TERM --kill-after=1s 15s \
+  "$RELEASE_SEAL" check-routine-owner --run-id "$RUN_ID" >/dev/null \
+  || die 'a prior routine cycle owner remains unresolved'
 refuse_foreign_floor_owner
 while :; do
   read_pending_owner
@@ -2647,6 +2650,7 @@ fi
 [ "$(date +%s)" -lt "$MUTATION_DEADLINE_EPOCH" ] \
   || die 'immutable release not-after epoch expired before new release mutation'
 source_target_is_current
+initialise_phase1_cycle
 if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then
   emit_already_released "$EXACT_INSTANCE"
 fi

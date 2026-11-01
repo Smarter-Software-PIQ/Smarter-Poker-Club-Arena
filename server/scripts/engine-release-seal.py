@@ -620,7 +620,6 @@ def routine_cycles(state: dict[str, Any]) -> dict[str, Any]:
             if (any(result.get(k) != actual.get(k) for k in immutable) or
                     state['committedRuns'][c['runId']].get('imageId') != actual['imageId']):
                 die('routine cycle receipt differs from its canonical completion')
-    state['routineMaintenanceCycles'] = cycles
     return cycles
 
 
@@ -711,6 +710,7 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
         c = {'kind': kind, 'policyId': p['policyId'], 'policyDigest': p['digest'], 'startsAt': starts, 'endsAt': starts+300,
              'runId': run_id, 'sha': valid_sha(args.sha), 'controlSha': valid_sha(args.control_sha), 'status': 'reserved'}
         cycles[key] = c
+        state['routineMaintenanceCycles'] = cycles
         state['updatedAt'] = now
         write_state(state)
         audit_once('routine_cycle_reserved', state, f'routine_cycle:{starts}', cycle=c)
