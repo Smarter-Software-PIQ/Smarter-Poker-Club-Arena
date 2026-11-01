@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { lobbyLedAttributes } from '../../src/components/lobby/lobbyLedSchema';
 
@@ -11,6 +12,34 @@ const row = (kind = 'cash', gameLabel = 'NLH', keys: string[] = []) => ({
 const color = (entry: ReturnType<typeof row>) => lobbyLedAttributes(entry)['data-led-color'];
 
 describe('native lobby exterior lights', () => {
+  it('keeps legacy freezeout paint from overriding recorded Spin and Sit & Go lights', () => {
+    const css = readFileSync('src/components/lobby/PremiumMttRows.css', 'utf8').replace(
+      /\/\*[\s\S]*?\*\//g,
+      ''
+    );
+    const legacy = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((match) => match[1].includes('.is-freezeout') && /filter\s*:/.test(match[2]))
+      .flatMap((match) =>
+        match[1].split(',').map((selector) =>
+          selector
+            .replace(/::after\s*$/, '')
+            .replace(/\(\s+/g, '(')
+            .replace(/\s+\)/g, ')')
+            .trim()
+        )
+      );
+    expect(legacy.length).toBeGreaterThan(0);
+    const table = document.createElement('table');
+    table.className = 'has-premium-chassis';
+    table.innerHTML = '<tbody><tr class="is-freezeout"></tr></tbody>';
+    const event = table.querySelector('tr')!;
+    expect(legacy.some((selector) => event.matches(selector))).toBe(true);
+    for (const color of ['red', 'green']) {
+      event.dataset.ledColor = color;
+      expect(legacy.some((selector) => event.matches(selector))).toBe(false);
+    }
+  });
+
   it('distinguishes every Omaha variant and the requested cash families', () => {
     expect(['NLH', 'PNPL', '6+'].map((variant) => color(row('cash', variant)))).toEqual([
       'blue',

@@ -45,10 +45,12 @@ test.describe.configure({ mode: 'default', timeout: 180_000 });
 
 const actionTimelines = new WeakMap<Page, unknown[]>();
 const diagnosticRows = new WeakMap<Page, Map<string, Row>>();
+const diagnosticScopes = new WeakMap<Page, unknown[]>();
 const publicRowFields = [
   'id',
   'club_id',
   'union_id',
+  'is_private',
   'game_type',
   'game_variant',
   'variant',
@@ -96,6 +98,7 @@ function persistProgress(page: Page) {
           publicRowFields.filter((key) => row[key] !== undefined).map((key) => [key, row[key]])
         )
       ),
+      membershipScopes: diagnosticScopes.get(page),
       observerErrors: observer?.errors,
       lifecycleWitnesses: observer?.witnesses,
     })
@@ -609,6 +612,63 @@ async function assertExteriorLeds(
   }
   return readings;
 }
+type ObservedLobbyScope = { unionId: string | null; clubIds: string[] };
+function scopeFromTournamentQuery(url: URL): ObservedLobbyScope | undefined {
+  const uuid = /^[0-9a-f-]{36}$/i;
+  const expression = url.searchParams.get('or')?.replace(/^\((.*)\)$/, '$1');
+  if (expression) {
+    const union =
+      /^union_id\.eq\.([0-9a-f-]{36}),and\(club_id\.eq\.([0-9a-f-]{36}),is_private\.eq\.true\)$/i.exec(
+        expression
+      );
+    if (union && union[2].toLowerCase() === CLUB_ID.toLowerCase())
+      return { unionId: union[1].toLowerCase(), clubIds: [CLUB_ID] };
+  }
+  const filter = url.searchParams.get('club_id');
+  const clubs =
+    filter?.startsWith('in.(') && filter.endsWith(')')
+      ? filter
+          .slice(4, -1)
+          .split(',')
+          .map((value) => value.replace(/^"|"$/g, '').trim().toLowerCase())
+      : filter?.startsWith('eq.')
+        ? [filter.slice(3).toLowerCase()]
+        : [];
+  if (
+    clubs.length &&
+    clubs.every((value) => uuid.test(value)) &&
+    clubs.includes(CLUB_ID.toLowerCase())
+  )
+    return { unionId: null, clubIds: [...new Set(clubs)].sort() };
+  if ([expression, filter].some((value) => value?.includes(CLUB_ID)))
+    throw new Error('The observed tournament membership query has an unrecognized scope');
+  return undefined;
+}
+function independentlyInScope(row: Row, scope: ObservedLobbyScope): boolean {
+  return scope.unionId
+    ? row.union_id === scope.unionId ||
+        (scope.clubIds.includes(text(row.club_id)) && row.is_private === true)
+    : scope.clubIds.includes(text(row.club_id));
+}
+function completeTournamentMembership(row: Row): boolean {
+  return (
+    /^[0-9a-f-]{36}$/i.test(text(row.id)) &&
+    ['mtt-v1', 'mtt-v2', 'spin-v1', 'sng-v1', 'seat-first-satellite-v1'].includes(
+      text(row.format_contract)
+    ) &&
+    [
+      'club_id',
+      'union_id',
+      'is_private',
+      'status',
+      'game_type',
+      'buy_in_amount',
+      'buy_in_fee',
+      'current_players',
+      'max_players',
+    ].every((key) => Object.hasOwn(row, key))
+  );
+}
 function belongsToObservedFamily(row: Row, type: Tab): boolean {
   if (row.proof_board_census !== true) return false;
   const contract = text(row.format_contract);
@@ -1038,6 +1098,9 @@ async function setup(page: Page) {
   );
   const rawRows = new Map<string, Row>();
   diagnosticRows.set(page, rawRows);
+  let observedScope: ObservedLobbyScope | undefined;
+  const scopeWitnesses: unknown[] = [];
+  diagnosticScopes.set(page, scopeWitnesses);
   const reads: Promise<void>[] = [];
   const observerErrors: { source: string; message: string }[] = [];
   const lifecycleWitnesses: unknown[] = [];
@@ -1053,7 +1116,7 @@ async function setup(page: Page) {
   };
   const saves: Record<string, unknown>[] = [];
   const pools = new Map<string, { eligible?: number; players?: number }>();
-  const accept = (rows: unknown, boardCensus = false) => {
+  const accept = (rows: unknown, boardCensus?: boolean) => {
     if (!Array.isArray(rows)) return;
     for (const value of rows) {
       const row = object(value);
@@ -1063,7 +1126,7 @@ async function setup(page: Page) {
           ...rawRows.get(row.id),
           ...row,
           id: row.id,
-          ...(boardCensus ? { proof_board_census: true } : {}),
+          ...(boardCensus !== undefined ? { proof_board_census: boardCensus } : {}),
           ...(cluster.template_name !== undefined
             ? { cluster_template: cluster.template_name }
             : {}),
@@ -1088,13 +1151,21 @@ async function setup(page: Page) {
           const data = object(value);
           if (
             typeof data.id === 'string' &&
-            rawRows.has(data.id) &&
+            (rawRows.has(data.id) ||
+              (observedScope &&
+                completeTournamentMembership(data) &&
+                independentlyInScope(data, observedScope))) &&
             ('current_players' in data ||
               'status' in data ||
               'game_variant' in data ||
               'game_type' in data)
           )
-            accept([data]);
+            accept(
+              [data],
+              observedScope && completeTournamentMembership(data)
+                ? independentlyInScope(data, observedScope)
+                : undefined
+            );
           for (const field of ['payload', 'data', 'record', 'new', 'records'])
             if (data[field] !== undefined) visit(data[field]);
         };
@@ -1157,6 +1228,20 @@ async function setup(page: Page) {
       }
       if (response.request().method() !== 'GET' && !url.pathname.endsWith('/get_club_home')) return;
       if (!/\/(?:tables|tournaments|get_club_home)$/.test(url.pathname)) return;
+      if (url.pathname.endsWith('/tournaments')) {
+        const scope = scopeFromTournamentQuery(url);
+        if (scope) {
+          if (observedScope && JSON.stringify(observedScope) !== JSON.stringify(scope))
+            throw new Error('The observed tournament membership scope changed during this case');
+          if (!observedScope)
+            scopeWitnesses.push({
+              source: 'scoped-tournament-query',
+              observedAt: Date.now(),
+              ...scope,
+            });
+          observedScope = scope;
+        }
+      }
       observe(
         url.pathname,
         (async () => {
@@ -1170,10 +1255,10 @@ async function setup(page: Page) {
             url.pathname.endsWith('/get_club_home') &&
             object(response.request().postDataJSON()).p_club_key === CLUB_ID;
           const boardCensus = queryScope || homeScope;
-          if (Array.isArray(body)) accept(body, boardCensus);
+          if (Array.isArray(body)) accept(body, boardCensus ? true : undefined);
           else {
-            accept(body.tables, boardCensus);
-            accept(body.tournaments, boardCensus);
+            accept(body.tables, boardCensus ? true : undefined);
+            accept(body.tournaments, boardCensus ? true : undefined);
           }
         })()
       );
@@ -1228,6 +1313,31 @@ async function setup(page: Page) {
       'start_time',
       'started_at',
       'format_contract',
+      'club_id',
+      'union_id',
+      'is_private',
+      'buy_in_amount',
+      'buy_in_fee',
+      'name',
+      'created_at',
+      'is_bounty',
+      'is_pko',
+      'is_mystery_bounty',
+      'is_rebuy',
+      'is_reentry',
+      'add_on_available',
+      'guaranteed_prize',
+      'blind_speed',
+      'blind_structure',
+      'current_level',
+      'late_reg_levels',
+      'late_reg_mins',
+      'rebuy_levels',
+      'prize_pool_finalized',
+      'is_xmtt',
+      'satellite_target_id',
+      'satellite_target',
+      'is_pinned',
     ];
     const before = ids.map((id) =>
       Object.fromEntries(fields.map((key) => [key, rawRows.get(id)?.[key]]))
@@ -1252,7 +1362,11 @@ async function setup(page: Page) {
       sorted(rows.map((row) => row.id)),
       'Every disputed lifecycle must be independently readable'
     ).toEqual(sorted(ids));
-    accept(rows);
+    if (!observedScope)
+      throw new Error('No independent tournament membership query scope was observed');
+    for (const row of rows)
+      accept([row], completeTournamentMembership(row) && independentlyInScope(row, observedScope));
+    persistProgress(page);
   };
   const cache = `ca_advanced_filters_${owner}:${CLUB_ID}`;
   const viewCache = `ca_lobby_view_${owner}:${CLUB_ID}`;

@@ -71,17 +71,19 @@
   display: none;
   clip-path: inset(0 94% 0 0);
 }
-.has-premium-chassis tbody tr.is-bounty::after {
+.has-premium-chassis tbody tr.is-bounty:not([data-led-color])::after {
   display: block;
   filter: hue-rotate(-75deg);
 }
-.has-premium-chassis tbody tr.is-satellite::after {
+.has-premium-chassis tbody tr.is-satellite:not([data-led-color])::after {
   display: block;
   filter: hue-rotate(-155deg);
 }
 .has-premium-chassis
   tbody
-  tr.is-freezeout:not(.is-satellite):not(.is-bounty):not(.is-freeroll)::after {
+  tr.is-freezeout:not([data-led-color]):not(.is-satellite):not(.is-bounty):not(
+    .is-freeroll
+  )::after {
   display: block;
   filter: grayscale(1) brightness(1.3);
 }
