@@ -313,5 +313,72 @@ class PreNoticeGateTests(unittest.TestCase):
         self.assertIn("refusing before any notice so no break is spent", block)
 
 
+class ErrexitTests(unittest.TestCase):
+    """The REAL witness function and the REAL pre-notice gate, run under the
+    script's own `set -euo pipefail`. Receiver 41272121963 (ca8250444e,
+    2026-11-01 04:32Z) logged "no cutover this pass" and then the transaction
+    exited 1 at once: the function's bare `set -e` re-armed errexit inside the
+    caller's `set +e`, so its own `return 1` ended the run. The queue doubles
+    above replace the function, which is why they never saw it."""
+
+    def real(self, start, end):
+        body = TRANSACTION[TRANSACTION.index(start):]
+        return body[:body.index(end) + len(end)]
+
+    def gate(self, helper_rc):
+        function = self.real('drained_predecessor_witness() {', '\n  return "$rc"\n}\n')
+        gate = self.real('DRAINED_PREDECESSOR_CUTOVER=0\nswitch_to_drained_predecessor_cutover() {',
+                         "refusing before any notice so no break is spent'\n  fi\nfi\n")
+        script = f"""set -euo pipefail
+INFLIGHT_HANDS=/nonexistent ENV_FILE=/nonexistent CHECKPOINT_EED_SHA={EED}
+CHECKPOINT_PREDECESSOR_SHA={EED} LEGACY_CHECKPOINT_REQUIRED=1
+legacy_entry_read() {{ return {helper_rc}; }}
+legacy_census_fits() {{ return 1; }}
+die() {{ echo "DIED: $*"; exit 9; }}
+{function}
+{gate}
+case "$-" in *e*) ERREXIT=on ;; *) ERREXIT=off ;; esac
+echo "REACHED_WAIT_LOOP rc=$DRAINED_WITNESS_RC errexit=$ERREXIT"
+false
+echo 'ERREXIT_LOST'
+"""
+        return NATIVE_RUN(['bash', '-c', script], text=True, capture_output=True, timeout=10,
+                          env={'PATH': '/usr/bin:/bin'})
+
+    def test_a_predecessor_that_is_not_drained_at_intake_still_reaches_the_wait_loop(self):
+        result = self.gate(1)
+        self.assertIn('REACHED_WAIT_LOOP rc=1 errexit=on', result.stdout, result.stderr)
+        self.assertIn('no cutover this pass', result.stderr)
+        # errexit is still in force for everything after the gate.
+        self.assertNotIn('ERREXIT_LOST', result.stdout)
+        self.assertEqual(result.returncode, 1)
+
+    def test_a_drained_predecessor_at_intake_reaches_the_wait_loop(self):
+        self.assertIn('REACHED_WAIT_LOOP rc=0 errexit=on', self.gate(0).stdout)
+
+    def test_an_unreadable_witness_at_intake_still_refuses_before_notice(self):
+        for rc in (3, 4, 127):
+            with self.subTest(rc=rc):
+                result = self.gate(rc)
+                self.assertIn('DIED: the legacy census cannot fit', result.stdout)
+                self.assertEqual(result.returncode, 9)
+
+    def test_the_locked_read_keeps_errexit_for_the_rest_of_the_pass(self):
+        function = self.real('drained_predecessor_witness() {', '\n  return "$rc"\n}\n')
+        script = f"""set -euo pipefail
+INFLIGHT_HANDS=/nonexistent ENV_FILE=/nonexistent
+legacy_entry_read() {{ return 1; }}
+{function}
+if ! drained_predecessor_witness; then echo NOT_DRAINED; fi
+false
+echo ERREXIT_LOST
+"""
+        result = NATIVE_RUN(['bash', '-c', script], text=True, capture_output=True, timeout=10,
+                            env={'PATH': '/usr/bin:/bin'})
+        self.assertIn('NOT_DRAINED', result.stdout)
+        self.assertNotIn('ERREXIT_LOST', result.stdout)
+        self.assertEqual(result.returncode, 1)
+
+
 if __name__ == '__main__':
     unittest.main()

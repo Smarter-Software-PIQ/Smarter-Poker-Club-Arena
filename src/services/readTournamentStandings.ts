@@ -7,7 +7,8 @@ import { runWithRequestDeadline } from '../utils/requestDeadline';
 export async function readTournamentStandings(
   tournamentId: string,
   projection: string,
-  activeOnly = false
+  activeOnly = false,
+  signal?: AbortSignal
 ) {
   const rows: Record<string, unknown>[] = [];
   const pageSize = 1000;
@@ -24,7 +25,9 @@ export async function readTournamentStandings(
     if (activeOnly) query = query.in('status', ['playing', 'registered']);
     let result;
     try {
-      result = await runWithRequestDeadline((signal) => query.abortSignal(signal));
+      result = await runWithRequestDeadline((requestSignal) => query.abortSignal(requestSignal), {
+        signal,
+      });
     } catch (error) {
       return {
         data: null,

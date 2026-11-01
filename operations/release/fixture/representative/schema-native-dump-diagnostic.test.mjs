@@ -235,3 +235,68 @@ print('closed command failure facts passed')`;
     assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed command failure facts passed');
   }
 });
+
+function compactRecord(seq,kind,edge,type,us){
+  const record=Buffer.alloc(12);record.write('D2');record.writeUInt32BE(seq,2);
+  record[6]=(['FUNCTION','RELATION','TYPE','OTHER'].indexOf(type)<<2)|(kind==='Q'?2:0)|(edge==='E'?1:0);
+  record.writeUInt32BE(us,7);record[11]=10;return record;
+}
+test('compact native wire preserves every legacy semantic fact across arbitrary chunk boundaries',()=>{
+  const frames=[[1,'O','B','FUNCTION',0],[2,'Q','B','FUNCTION',10],[3,'Q','E','FUNCTION',1010],[4,'O','E','FUNCTION',1020]];
+  const old=createNativeDumpDiagnostic();old.push(Buffer.from(frames.map(f=>`D1 ${f.join(' ')}\n`).join('')),1);old.finish();
+  const bytes=Buffer.concat(frames.map(f=>compactRecord(...f)));
+  for(const size of [1,2,3,7,12,13,48]){
+    const parser=createNativeDumpDiagnostic();for(let i=0;i<bytes.length;i+=size)parser.push(bytes.subarray(i,i+size),1);
+    parser.finish();const a=parser.snapshot(2),b=old.snapshot(2);assert.equal(a.bytes,48);delete a.bytes;delete b.bytes;
+    assert.deepEqual(a,b);parser.clear();
+  }
+  old.clear();
+});
+test('compact wire fits forty thousand real typed edges inside unchanged512KiB cap and refuses malformed facts',()=>{
+  const records=[];for(let i=0;i<20000;i++)records.push(compactRecord(i*2+1,'O','B','FUNCTION',i*2),compactRecord(i*2+2,'O','E','FUNCTION',i*2+1));
+  const parser=createNativeDumpDiagnostic();parser.push(Buffer.concat(records),1);parser.finish();const proof=parser.snapshot(2);
+  assert.equal(proof.bytes,480000);assert.equal(proof.records,40000);assert.equal(proof.types.FUNCTION.objects_completed,20000);assert.equal(proof.pairs_complete,true);parser.clear();
+  for(const mutate of [b=>b[6]=16,b=>b[11]=0,b=>b.writeUInt32BE(0,2),b=>b.writeUInt32BE(45000001,7)]){
+    const bad=compactRecord(1,'O','B','FUNCTION',0);mutate(bad);const p=createNativeDumpDiagnostic();assert.throws(()=>p.push(bad,1));p.clear();
+  }
+  for(const size of [1,2,11]){const p=createNativeDumpDiagnostic();p.push(compactRecord(1,'O','B','FUNCTION',0).subarray(0,size),1);assert.throws(()=>p.finish());p.clear();}
+  const capped=createNativeDumpDiagnostic();assert.throws(()=>capped.push(Buffer.alloc(512*1024+1),1),e=>e.diagnosticKind==='FD3_LIMIT');capped.clear();
+});
+
+test('actual native C producer and both independent decoders agree on compact wire',async()=>{
+  const root=await mkdtemp(path.join(process.env.TMPDIR ?? process.env.RUNNER_TEMP,'compact-native-wire-'));
+  try{
+    const source=path.join(root,'wire.c'),binary=path.join(root,'wire');
+    const helper=new URL('../native-dump-diagnostic.c',import.meta.url).pathname;
+    await writeFile(source,'#include <stdbool.h>\n#include <stdlib.h>\nstatic void pg_fatal(const char *format,...) {(void)format;_Exit(71);}\n#include '+JSON.stringify(helper)+'\nint main(void){ca_diag_init();ca_diag_object_begin(1);ca_diag_query_begin();ca_diag_query_end();ca_diag_object_end();return 0;}\n');
+    const built=spawnSync('cc',['-std=c11','-D_POSIX_C_SOURCE=200809L','-Wall','-Wextra','-Werror',source,'-o',binary],{encoding:'utf8',timeout:15000});
+    assert.equal(built.status,0,built.stderr);
+    const native=spawnSync(binary,[],{stdio:['ignore','pipe','pipe','pipe'],timeout:5000});
+    assert.equal(native.status,0,native.stderr?.toString());const frames=native.output[3];assert.equal(frames.length,48);
+    const parser=createNativeDumpDiagnostic();parser.push(frames,1);parser.finish();assert.equal(parser.snapshot(2).types.FUNCTION.queries_completed,1);parser.clear();
+    const script="import importlib.util,sys;spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);print(m.validate_frames(sys.stdin.buffer.read()))";
+    const valid=spawnSync('python3',['-B','-c',script],{input:frames,encoding:'utf8',timeout:5000});assert.equal(valid.status,0,valid.stderr);assert.equal(valid.stdout.trim(),'4');
+    const invalid=Buffer.from(frames);invalid[6]=16;
+    assert.notEqual(spawnSync('python3',['-B','-c',script],{input:invalid,encoding:'utf8',timeout:5000}).status,0);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+// The direct target bypasses src/Makefile's interdirectory serialization.
+test('both native direct target builds serialize shared prerequisite writers within original deadlines',()=>{
+  const script=`import ast
+from pathlib import Path
+root=ast.parse(Path('operations/release/fixture/native-dump-diagnostic.py').read_text())
+build=next(n for n in root.body if isinstance(n,ast.FunctionDef) and n.name=='build')
+commands=[]
+for node in ast.walk(build):
+ if not isinstance(node,ast.Call) or not isinstance(node.func,ast.Name) or node.func.id!='command' or not node.args:continue
+ try:args=ast.literal_eval(node.args[0])
+ except (ValueError,TypeError):continue
+ if args[:3]==['make','-C','src/bin/pg_dump']:
+  timeout=next(ast.literal_eval(k.value) for k in node.keywords if k.arg=='timeout')
+  commands.append((args,timeout))
+assert commands==[(['make','-C','src/bin/pg_dump','-j1','pg_dump'],420),(['make','-C','src/bin/pg_dump','-j1','pg_dump'],120)]
+print('original bounded serialized stock and diagnostic target builds')`;
+  const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000});
+  assert.equal(result.status,0,result.stderr);
+});

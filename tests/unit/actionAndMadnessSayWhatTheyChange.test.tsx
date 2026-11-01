@@ -233,8 +233,16 @@ describe('the desktop board prints the note after the style word', () => {
         />
       </MemoryRouter>
     );
-    expect(screen.getAllByText(ACTION_NOTE).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(MADNESS_NOTE).length).toBeGreaterThan(0);
+    for (const note of [ACTION_NOTE, MADNESS_NOTE]) {
+      for (const phrase of note.split(/,\s*/)) {
+        const lines = screen.getAllByTitle(phrase);
+        expect(lines.length).toBeGreaterThan(0);
+        for (const line of lines) {
+          expect(line).toHaveTextContent(phrase.replace(/\bMinimum\b/g, 'Min'));
+          expect(line.closest('.premium-cash-style')).not.toBeNull();
+        }
+      }
+    }
     expect(screen.queryByText(/No Antes, No Bombs/)).toBeNull();
   });
 });

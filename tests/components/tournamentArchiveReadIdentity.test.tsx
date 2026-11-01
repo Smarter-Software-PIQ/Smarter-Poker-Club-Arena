@@ -21,6 +21,7 @@ function chain(table: string) {
     'eq',
     'in',
     'gte',
+    'gt',
     'order',
     'limit',
     'maybeSingle',
@@ -28,6 +29,7 @@ function chain(table: string) {
   ]) {
     query[method] = (...values: unknown[]) => {
       if (method === 'eq' || method === 'gte') args[String(values[0])] = values[1];
+      else if (method === 'gt') args.gt = values[1];
       else args[method] = values[0];
       return query;
     };
@@ -514,4 +516,116 @@ it('shows unreadable mystery awards instead of an empty successful result', asyn
   await screen.findByText('Could Not Load These Mystery Awards. Please Retry.');
   expect(mocks.leaderboard).toHaveBeenCalledWith('A', { strict: true });
   expect(mocks.awards).toHaveBeenCalledWith('A', { strict: true });
+});
+
+describe('complete archived tournament standings', () => {
+  it('reads the finisher beyond the first REST response', async () => {
+    const rows = Array.from({ length: 1001 }, (_, index) => ({
+      ...winner(`Finisher ${index + 1}`),
+      id: String(index + 1).padStart(5, '0'),
+      position: index + 1,
+    }));
+    mocks.query.mockImplementation((table, args) => {
+      if (table === 'tournaments') return success([tournament('A')]);
+      if (table !== 'tournament_players') return success([]);
+      const cursor = args.gt ? Number(args.gt) : 0;
+      return { data: rows.slice(cursor, cursor + 1000), error: null, count: rows.length };
+    });
+    mount();
+    await select('A');
+    await screen.findByText('Finisher 1001');
+    expect(mocks.query.mock.calls.filter(([table]) => table === 'tournament_players')).toHaveLength(
+      2
+    );
+  });
+
+  it('refuses partial standings when a later response fails', async () => {
+    const rows = Array.from({ length: 1000 }, (_, index) => ({
+      ...winner(`First Page ${index + 1}`),
+      id: String(index + 1).padStart(5, '0'),
+      position: index + 1,
+    }));
+    mocks.query.mockImplementation((table, args) => {
+      if (table === 'tournaments') return success([tournament('A')]);
+      if (table !== 'tournament_players') return success([]);
+      return args.gt
+        ? { data: null, error: new Error('later page unavailable') }
+        : { data: rows, error: null, count: 1001 };
+    });
+    mount();
+    await select('A');
+    await screen.findByText('Could Not Load These Standings. Please Retry.');
+    expect(screen.queryByText('First Page 1')).toBeNull();
+  });
+});
+
+describe('archive read completion and selection ownership', () => {
+  it('expires an unanswered hand read and ignores its late result', async () => {
+    vi.useFakeTimers();
+    const pending = deferred();
+    let retry = false;
+    mocks.query.mockImplementation((table) =>
+      table === 'tournaments'
+        ? success([tournament('A')])
+        : table === 'hand_history' && !retry
+          ? pending.promise
+          : success([])
+    );
+    mount();
+    await act(async () => {});
+    fireEvent.click(screen.getByText('Event A'));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Hand History (0)' }));
+    await act(async () => vi.advanceTimersByTimeAsync(12_000));
+    expect(screen.getByText('Could Not Load These Hands. Please Retry.')).toBeTruthy();
+    const call = mocks.query.mock.calls.find(([table]) => table === 'hand_history')!;
+    expect((call[1].abortSignal as AbortSignal).aborted).toBe(true);
+    await act(async () => pending.resolve(success([])));
+    expect(screen.getByText('Could Not Load These Hands. Please Retry.')).toBeTruthy();
+    retry = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Hands' }));
+    await act(async () => {});
+    expect(screen.getByText('No Hands Recorded')).toBeTruthy();
+  });
+
+  it.each(['select', 'close'])(
+    'does not let a delayed biggest hit replace a later %s',
+    async (action) => {
+      const pending = deferred();
+      mocks.query.mockImplementation((table, args) =>
+        table === 'tournaments'
+          ? args.id === 'Old'
+            ? pending.promise
+            : args.spin_multiplier
+              ? success([{ id: 'Old', buy_in_amount: 1, spin_multiplier: 50 }])
+              : success([tournament('B')])
+          : table === 'tournament_players' && args.in
+            ? success([{ tournament_id: 'Old', username: 'Older Hit', prize: 50 }])
+            : success([])
+      );
+      mount('/tournament-results?type=spin');
+      fireEvent.click(await screen.findByText('Older Hit'));
+      await select('B');
+      if (action === 'close') await select('B');
+      await act(async () => pending.resolve(success(tournament('Old'))));
+      if (action === 'close') expect(screen.queryByTestId('payment-event')).toBeNull();
+      else expect(screen.getByTestId('payment-event').textContent).toBe('B');
+    }
+  );
+});
+
+it('keeps an explicit selection when an earlier deep link finishes late', async () => {
+  const pending = deferred();
+  mocks.query.mockImplementation((table, args) =>
+    table === 'tournaments'
+      ? args.id === 'Old'
+        ? pending.promise
+        : success([tournament('B')])
+      : success([])
+  );
+  mount('/tournament-results?id=Old');
+  await select('B');
+  await act(async () => pending.resolve(success(tournament('Old'))));
+  expect(screen.getByTestId('payment-event').textContent).toBe('B');
+  expect(screen.queryByText('Event Old')).toBeNull();
 });

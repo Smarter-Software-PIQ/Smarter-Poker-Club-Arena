@@ -13,6 +13,8 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { readTournamentStandings } from '../../services/readTournamentStandings';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { useVisibleRead } from '../../hooks/useVisibleRead';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useToast } from '../../components/common/Toast';
@@ -172,6 +174,12 @@ export default function TournamentResultsPage() {
   });
   const results = resultsRead.tournamentId === selectedTournament?.id ? resultsRead.data : [];
   const deepLinkedRef = useRef(false);
+  const selectionRequestRef = useRef(0);
+  const selectTournament = (tournament: CompletedTournament | null) => {
+    selectionRequestRef.current += 1;
+    deepLinkedRef.current = true;
+    setSelectedTournament(tournament);
+  };
   const [handsRead, setHandsRead] = useState<ArchiveRead<HandHistoryRecord[]>>({
     tournamentId: null,
     data: [],
@@ -449,6 +457,7 @@ export default function TournamentResultsPage() {
     // If not in list yet (might still be COMPLETING), load it directly
     if (!isLoading && !found) {
       let cancelled = false;
+      const selectionRequest = selectionRequestRef.current;
       // Tournament list loaded but ID not found — try direct load
       (async () => {
         const { data, error: deepLinkErr } = await supabase
@@ -466,7 +475,14 @@ export default function TournamentResultsPage() {
             tournamentId,
           });
         }
-        if (cancelled || !isMounted.current || deepLinkErr || !data) return;
+        if (
+          cancelled ||
+          !isMounted.current ||
+          selectionRequest !== selectionRequestRef.current ||
+          deepLinkErr ||
+          !data
+        )
+          return;
         const linkedTournament = data as CompletedTournament;
         setTournaments((current) =>
           current.some((t) => t.id === tournamentId) ? current : [linkedTournament, ...current]
@@ -495,26 +511,13 @@ export default function TournamentResultsPage() {
       }),
     read: async (signal) => {
       const tournamentId = selectedTournament!.id;
-      const { data, error: standingsErr } = await supabase
-        .from('tournament_players')
-        /* bounty_winnings / bounties_collected are the record of record for
-           EVERY bounty format, mystery included: fn_mystery_bounty_pay updates
-           both as it credits a chest. Reading them here means the results table
-           is right for a plain KO event and a PKO as well, and the mystery
-           split below is an extra breakdown rather than the only source. */
-        .select(
-          'user_id, username, position, prize, bounty_winnings, bounties_collected, status, chips'
-        )
-        .eq('tournament_id', tournamentId)
-        .order('position', { ascending: true, nullsFirst: false })
-        /* A 1,001-entrant field would have lost its tail - and the tail of a
-           results table is the players who busted first, i.e. most of the
-           field (2026-08-27). Kept as a single read with a ceiling far above
-           any field this room runs, rather than paging a screen that renders
-           one list; the ceiling is now stated as a rendering bound, not
-           mistaken for the size of the field. */
-        .limit(50000)
-        .abortSignal(signal);
+      // Read the complete recorded field before ranking any prizes or bounties.
+      const { data, error: standingsErr } = await readTournamentStandings(
+        tournamentId,
+        'id, user_id, username, position, prize, bounty_winnings, bounties_collected, status, chips',
+        false,
+        signal
+      );
       if (standingsErr) throw standingsErr;
       return (data || []).map((r) => ({
         user_id: String((r as { user_id: string }).user_id),
@@ -604,14 +607,17 @@ export default function TournamentResultsPage() {
     try {
       // ROUND 10 (2026-08-29): same shape - a resolved error read as "no
       // hands recorded". Throwing routes it to the report below.
-      const { data, error: handsErr } = await supabase
-        .from('hand_history')
-        .select(
-          'id, hand_number, small_blind, big_blind, pot_size, game_variant, community_cards, winners, players, created_at'
-        )
-        .eq('tournament_id', tournamentId)
-        .order('hand_number', { ascending: false })
-        .limit(100);
+      const { data, error: handsErr } = await runWithRequestDeadline((signal) =>
+        supabase
+          .from('hand_history')
+          .select(
+            'id, hand_number, small_blind, big_blind, pot_size, game_variant, community_cards, winners, players, created_at'
+          )
+          .eq('tournament_id', tournamentId)
+          .order('hand_number', { ascending: false })
+          .limit(100)
+          .abortSignal(signal)
+      );
       if (handsErr) throw handsErr;
 
       if (isMounted.current && request === handsRequestRef.current) {
@@ -876,12 +882,14 @@ export default function TournamentResultsPage() {
                 onClick={() => {
                   const t = tournaments.find((x) => x.id === h.tournamentId);
                   if (t) {
-                    setSelectedTournament(t);
+                    selectTournament(t);
                     return;
                   }
                   /* A hit older than the list's top 100 is not in
                      `tournaments` - load its row directly, the same shape
                      as the ?id= deep link. Error-bound per the ratchet. */
+                  const selectionRequest = ++selectionRequestRef.current;
+                  deepLinkedRef.current = true;
                   void (async () => {
                     const { data, error: hitRowErr } = await supabase
                       .from('tournaments')
@@ -896,7 +904,11 @@ export default function TournamentResultsPage() {
                       });
                       return;
                     }
-                    if (data && isMounted.current) {
+                    if (
+                      data &&
+                      isMounted.current &&
+                      selectionRequest === selectionRequestRef.current
+                    ) {
                       setSelectedTournament(data as CompletedTournament);
                     }
                   })();
@@ -1033,7 +1045,7 @@ export default function TournamentResultsPage() {
           {tournaments.map((t) => (
             <div
               key={t.id}
-              onClick={() => setSelectedTournament(selectedTournament?.id === t.id ? null : t)}
+              onClick={() => selectTournament(selectedTournament?.id === t.id ? null : t)}
               style={{
                 background: selectedTournament?.id === t.id ? '#1e293b' : '#0f172a',
                 border: `1px solid ${selectedTournament?.id === t.id ? '#10b981' : '#1e293b'}`,

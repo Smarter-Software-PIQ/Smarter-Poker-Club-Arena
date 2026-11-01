@@ -527,7 +527,13 @@ function CardFace({
           </div>
         </div>
       ) : (
-        <CardImage card={card} deckStyle={deckStyle} size="lg" isHighlighted={isHighlighted} />
+        <CardImage
+          card={card}
+          deckStyle={deckStyle}
+          size="lg"
+          isHighlighted={isHighlighted}
+          loading="eager"
+        />
       )}
       {/* Highlight Glow */}
       {isHighlighted && <div className="community-cards__highlight-glow" />}
