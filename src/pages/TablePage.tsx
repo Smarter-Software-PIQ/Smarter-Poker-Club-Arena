@@ -336,6 +336,7 @@ import TimebankCounter from '../components/table/TimebankCounter';
 // Dan 2026-08-21, item 3: buy more time banks with diamonds (1/10/25/100/500).
 import TimeBankStoreModal from '../components/table/TimeBankStoreModal';
 import { sessionStatsService } from '../services/SessionStatsService';
+import { useSessionHandStats } from '../hooks/useSessionHandStats';
 import {
   parseTableArenaIdentity,
   seatCanAddFunds,
@@ -11548,6 +11549,7 @@ function LiveTablePage({
     // close handler, and by then heroSeat has already been zeroed just below.
     // Capture it while it is still valid.
     const seatAtLeave = tableState.heroSeat;
+    const handStatsAsOf = Date.now();
 
     // The lobby first (rule above). Everything below completes behind it.
     showLobbyNow();
@@ -11636,6 +11638,7 @@ function LiveTablePage({
           });
         } else
           publishSessionSummary({
+            handStatsTarget: tableId ? { tableId, userId, asOf: handStatsAsOf } : undefined,
             closeTableId: tableId,
             closeSeat: seatAtLeave,
             closeOccupancyId: result.occupancyId,
@@ -11822,6 +11825,7 @@ function LiveTablePage({
       });
     } else {
       publishSessionSummary({
+        handStatsTarget: tableId ? { tableId, userId, asOf: Date.now() } : undefined,
         closeTableId: tableId,
         closeSeat: remoteSessionSeat,
         closeOccupancyId:
@@ -11927,6 +11931,7 @@ function LiveTablePage({
          down, so there is no session to report — and a card reading "0 hands,
          0 profit" is a claim, not a blank (house rule 5). */
       const forceHadSession = forceHeroSeat > 0;
+      const forceHandStatsAsOf = Date.now();
       /* THE LOBBY FIRST (rule beside `showLobbyNow`). This door is the tab
          strip's, so which view replaces the felt is the container's call: it
          puts the lobby up when this was the last table and otherwise keeps
@@ -12022,6 +12027,7 @@ function LiveTablePage({
           });
         } else
           publishSessionSummary({
+            handStatsTarget: tableId ? { tableId, userId, asOf: forceHandStatsAsOf } : undefined,
             closeTableId: tableId,
             closeSeat: forceHeroSeat,
             closeOccupancyId: forced.occupancyId,
@@ -15235,6 +15241,7 @@ function LiveTablePage({
                    close signals and navigation below. */
                 const full = await resultEnrichment;
                 publishSessionSummary({
+                  handStatsTarget: tableId ? { tableId, userId, asOf: Date.now() } : undefined,
                   // Initial result recovery has no surviving play-session counters.
                   resultOnly: loadedFinishedReportReady || loadedTournamentStatus === 'COMPLETED',
                   arenaAsset: tableState.arenaAsset,
@@ -23706,6 +23713,14 @@ function LiveTablePage({
     const heroPlayer = tableState.heroSeat > 0 ? getPlayerAtSeat(tableState.heroSeat) : null;
     return heroPlayer?.name || username || undefined;
   })();
+  const { stats: persistedHeroHands, refresh: refreshHeroHands } = useSessionHandStats(
+    tableId,
+    userId,
+    showHeroHub
+  );
+  useEffect(() => {
+    if (engineWsStatus === 'connected') void refreshHeroHands();
+  }, [engineWsStatus, refreshHeroHands]);
   const heroHubStats = (() => {
     if (!showHeroHub) return undefined; // only computed while the hub is open
     const s = tableId ? sessionStatsService.getStats(tableId) : null;
@@ -23715,9 +23730,9 @@ function LiveTablePage({
     return {
       stack,
       profitLoss: s?.profitLoss ?? null,
-      handsPlayed: s?.handsPlayed ?? null,
-      vpipPercent: s?.vpipPercent ?? null,
-      pfrPercent: s?.pfrPercent ?? null,
+      handsPlayed: persistedHeroHands?.handsPlayed ?? null,
+      vpipPercent: persistedHeroHands?.vpipPercent ?? null,
+      pfrPercent: persistedHeroHands?.pfrPercent ?? null,
       bigBlindsWon: s?.bigBlindsWon ?? null,
     };
   })();
@@ -30704,6 +30719,7 @@ function LiveTablePage({
         leaveLockedLabel={heroLeaveLocked ? leaveAvailableLabel(heroLeaveMs) : null}
         // Session Stats
         showSessionStats={showSessionStats}
+        sessionStatsRevision={engineWsStatus}
         onCloseSessionStats={() => setShowSessionStats(false)}
         // Settings
         showSettings={showSettings}
