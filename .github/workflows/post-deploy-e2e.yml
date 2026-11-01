@@ -1710,7 +1710,8 @@ jobs:
     needs: [publication-gate, certification-cleanup-safety]
     if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
     name: Live-table and engine verification
-    runs-on: ubuntu-latest
+    # Playwright 1.58 supports this fixed standard hosted image, not Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     # Preserve the existing prerequisite, maintenance-wait and cleanup margin.
     # The daily maintenance announcement can defer a certificate's start;
     # await-engine-gameplay separately waits for the exact engine to resume.
