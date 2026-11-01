@@ -49,11 +49,12 @@ import { join } from 'node:path';
 const ROOT = join(__dirname, '..');
 const WORKFLOWS = join(ROOT, '.github', 'workflows');
 
-/** Every timer this repository runs; daily DST twins remain one business schedule. */
+/** Every timer this repository runs, pinned to its exact workflow and cadence. */
 const TIMERS: ReadonlyArray<readonly [string, string]> = [
-  // Owner explicitly requested daily 04:00 Chicago engine updates, 2026-10-20.
-  ['stage-engine-release.yml', '30 8 * * *'],
-  ['stage-engine-release.yml', '30 9 * * *'],
+  // Explicit temporary Phase1 hourly owner exception, 2026-10-31
+  // (01a1944f-7131-7f11-8dcc-873d576e781c). Source policy restores daily
+  // 04:00 Chicago admission when Phase1 completes or is explicitly off.
+  ['stage-engine-release.yml', '30 * * * *'],
   ['applied-migrations-recorded.yml', '25 7,19 * * *'],
   ['ci.yml', '17 */2 * * *'],
   ['ci.yml', '35 6 * * *'],
@@ -140,7 +141,7 @@ describe('no workflow gains a new timer', () => {
 
   it('the surface is the size it was measured at', () => {
     expect(found).toHaveLength(TIMERS.length);
-    expect(TIMERS).toHaveLength(14);
+    expect(TIMERS).toHaveLength(13);
     expect(new Set(TIMERS.map(([f]) => f)).size).toBe(11);
   });
 
