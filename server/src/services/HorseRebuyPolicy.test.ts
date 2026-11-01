@@ -200,7 +200,9 @@ describe('WIRING - both engine sites ask, and a zero is a decision to leave', ()
   }
 
   it('the settlement stop-loss reads the temperament, not >= 2', () => {
-    expect(SETTLE).toMatch(/if \(atRebuyStopLoss\(horse\.user_id, currentRebuys\)\) \{/);
+    expect(SETTLE).toMatch(
+      /if \(atRebuyStopLoss\(horse\.user_id, currentRebuys, this\.tableInfo\)\) \{/
+    );
     expect(SETTLE).not.toMatch(/if \(currentRebuys >= 2\) \{/);
   });
 

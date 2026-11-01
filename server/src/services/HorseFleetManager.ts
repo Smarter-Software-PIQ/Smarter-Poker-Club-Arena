@@ -118,6 +118,7 @@ import {
 import {
   applyStakeBandSupply,
   horseMaximumBuyIn,
+  isMaximumHorseCashStake,
   horseCashMinimum,
   gameLaneFor,
   horseHash,
@@ -582,9 +583,14 @@ export class HorseFleetManager {
   /** Does this horse sit at this table with Auto Top Up on? (HorseTopUpStyle) */
   private async sitsWithAutoTopUp(
     horseId: string,
-    table: { game_variant?: unknown; cluster_id?: string | null }
+    table: {
+      game_variant?: unknown;
+      cluster_id?: string | null;
+      small_blind?: unknown;
+      big_blind?: unknown;
+    }
   ): Promise<boolean> {
-    if (!horseSitsWithAutoTopUp(horseId, table.game_variant)) return false;
+    if (!horseSitsWithAutoTopUp(horseId, table.game_variant, table)) return false;
     if (!table.cluster_id) return true;
     const lightning = await this.lightningClusterIds();
     return lightning !== null && !lightning.has(table.cluster_id);
@@ -3375,7 +3381,11 @@ export class HorseFleetManager {
                 Number((table as any).min_buy_in) || undefined,
                 Number((table as any).max_buy_in) || undefined
               );
-              if (!canSit(roll, ref, bankrollPolicyFor(h.id))) {
+              if (
+                isMaximumHorseCashStake(table)
+                  ? roll < Number((table as any).max_buy_in || table.big_blind * 200)
+                  : !canSit(roll, ref, bankrollPolicyFor(h.id))
+              ) {
                 bankrollEvent('seat_refused_underrolled');
                 return false;
               }
@@ -4939,13 +4949,17 @@ export class HorseFleetManager {
          where no wallet ever lives, so the roll read as zero and every union
          horse was sized a zero buy-in and skipped (2026-09-02). */
       const roll = (seatClub ? bankrolls.get(`${seatClub}:${horseId}`) : undefined) ?? 0;
-      const capped = bankrollBuyIn({
-        bankroll: roll,
-        desired: buyIn,
-        minBuyIn: minB,
-        maxBuyIn: maxB,
-        policy: bankrollPolicyFor(horseId),
-      });
+      const capped = isMaximumHorseCashStake(table)
+        ? Number.isFinite(roll) && roll >= buyIn
+          ? buyIn
+          : 0
+        : bankrollBuyIn({
+            bankroll: roll,
+            desired: buyIn,
+            minBuyIn: minB,
+            maxBuyIn: maxB,
+            policy: bankrollPolicyFor(horseId),
+          });
       if (capped <= 0) {
         note('seat_refused_share_below_min');
         return 0;

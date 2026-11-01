@@ -1,6 +1,11 @@
 /**
  * What a busted horse should do next — and for how much.
  *
+ * Owner October 31, 2026: 1/2 cash horses request the legal maximum after
+ * every bust, independent of discretionary stop-loss/exposure preferences.
+ * A known wallet must cover the entire request; the ordinary atomic funding
+ * door still validates and moves it. Other stakes retain the rules below.
+ *
  * ─────────────────────────────────────────────────────────────────────────
  * THE HOLE THIS FILLS
  * ─────────────────────────────────────────────────────────────────────────
@@ -50,7 +55,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { horseCashMinimum, horseMaximumBuyIn } from './HorseBehavior.js';
+import { horseCashMinimum, horseMaximumBuyIn, isMaximumHorseCashStake } from './HorseBehavior.js';
 import { bankrollPolicyFor, rebuyDecision, referenceBuyIn } from './HorseBankroll.js';
 import { bankrollEvent } from './HorseBankrollTelemetry.js';
 
@@ -127,12 +132,32 @@ export function legacyRebuyAmount(bigBlind: number): number {
  * third reload got no pause and reloaded anyway, and a nit on its second got
  * a pause for a reload it was never going to make.
  */
-export function rebuyStopLossReached(userId: string, rebuysTaken: number): boolean {
+export function rebuyStopLossReached(
+  userId: string,
+  rebuysTaken: number,
+  stake?: {
+    small_blind?: unknown;
+    big_blind?: unknown;
+    tournament_id?: unknown;
+    is_tournament?: unknown;
+  } | null
+): boolean {
+  if (isMaximumHorseCashStake(stake)) return false;
   return rebuysTaken + 1 >= bankrollPolicyFor(userId).stopLossBuyIns;
 }
 
 /** Is this horse done reloading, on temperament alone? Cheap and synchronous. */
-export function atRebuyStopLoss(userId: string, rebuysTaken: number): boolean {
+export function atRebuyStopLoss(
+  userId: string,
+  rebuysTaken: number,
+  stake?: {
+    small_blind?: unknown;
+    big_blind?: unknown;
+    tournament_id?: unknown;
+    is_tournament?: unknown;
+  } | null
+): boolean {
+  if (isMaximumHorseCashStake(stake)) return false;
   // rebuysTaken + 1 is the buy-ins COMMITTED - see rebuyDecision for why the
   // off-by-one matters to six in ten of the fleet.
   const done = rebuysTaken + 1 >= bankrollPolicyFor(userId).stopLossBuyIns;
@@ -150,8 +175,9 @@ export async function horseRebuyAmount(req: HorseRebuyRequest): Promise<number> 
   const { clubId, userId, bigBlind, rebuysTaken } = req;
   const legacy = legacyRebuyAmount(bigBlind);
   const policy = bankrollPolicyFor(userId);
+  const maximumCash = isMaximumHorseCashStake({ small_blind: req.smallBlind, big_blind: bigBlind });
 
-  if (rebuysTaken + 1 >= policy.stopLossBuyIns) {
+  if (!maximumCash && rebuysTaken + 1 >= policy.stopLossBuyIns) {
     bankrollEvent('rebuy_refused_stop_loss');
     return 0;
   }
@@ -185,6 +211,8 @@ export async function horseRebuyAmount(req: HorseRebuyRequest): Promise<number> 
     return maxB; // a thrown read is an unknown balance, not a poor one
   }
   if (roll === undefined) return maxB; // ABSENT means unread. Fail open.
+
+  if (maximumCash) return Number.isFinite(roll) && roll >= maxB ? maxB : 0;
 
   const amount = rebuyDecision({
     bankroll: roll,
