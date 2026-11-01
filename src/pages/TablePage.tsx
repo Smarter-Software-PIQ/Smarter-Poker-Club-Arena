@@ -12873,6 +12873,10 @@ function LiveTablePage({
         if (heroOffer) {
           const equityPercent = insuranceOfferEquity(heroOffer.equity);
           if (equityPercent === null) {
+            setInsuranceOffer(null);
+            setShowInsurance(false);
+            setInsuranceWaitingOn(null);
+            setDecisionDeadline((prev) => (prev?.kind === 'insurance' ? null : prev));
             reportError(new Error('Invalid Insurance Equity'), 'TablePage.insurance_offer_equity');
             return;
           }
