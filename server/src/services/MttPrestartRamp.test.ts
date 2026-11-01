@@ -12,6 +12,7 @@
  * BOUGHT and never on registrations. Most of what follows pins those.
  */
 import { describe, it, expect } from 'vitest';
+import { mttPlannedField, mttPrestartPlan } from './mttHorseArrivalPlan.js';
 import {
   mttPrestartHorseTarget as recordedMttPrestartHorseTarget,
   startsOnBoughtSeats,
@@ -23,9 +24,13 @@ import {
 } from './TournamentRecurringService.js';
 
 const mttPrestartHorseTarget = (
-  opts: Omit<Parameters<typeof recordedMttPrestartHorseTarget>[0], 'format_contract'>
+  opts: Omit<
+    Parameters<typeof recordedMttPrestartHorseTarget>[0],
+    'format_contract' | 'tournamentId'
+  >
 ) =>
   recordedMttPrestartHorseTarget({
+    tournamentId: 'ramp-fixture',
     ...opts,
     format_contract:
       opts.variant === 'spin' ? 'spin-v1' : opts.variant === 'sng' ? 'sng-v1' : 'mtt-v1',
@@ -69,9 +74,9 @@ describe('mttPrestartHorseTarget - the window', () => {
     expect(mtt(-5 * MIN)).toBe(0);
   });
 
-  it('puts at least one entrant on the board the moment the ten-minute window opens', () => {
-    // A lobby row reading 1 is a game somebody is in. 0 is a game nobody joins.
-    expect(mtt(MTT_PRESTART_RAMP_MS - 1)).toBeGreaterThanOrEqual(1);
+  it('starts with no forced arrival at the opening instant and admits arrivals inside the window', () => {
+    expect(mtt(MTT_PRESTART_RAMP_MS)).toBe(0);
+    expect(mtt(8 * MIN)).toBeGreaterThan(0);
   });
 
   it('ignores a nonsense clock rather than seeding on it', () => {
@@ -120,12 +125,14 @@ describe('mttPrestartHorseTarget - safety', () => {
     }
   });
 
-  it('caps the draw on the horse pool however big the field is', () => {
+  it('keeps a non-guaranteed field bounded however large its capacity is', () => {
     // Read through the step cap: the curve itself must never exceed the pool
     // cap, whatever the field size. 584 horses exist and most are already
     // dealing cash or in another event.
-    expect(curveOnly(1, 200)).toBe(MTT_PRESTART_MAX_HORSES);
-    expect(curveOnly(1, 5000)).toBe(MTT_PRESTART_MAX_HORSES);
+    const plan = mttPrestartPlan(mttPlannedField(0, 0, 'ramp-fixture'), null, 'ramp-fixture');
+    expect(curveOnly(1, 200)).toBe(plan);
+    expect(curveOnly(1, 5000)).toBe(plan);
+    expect(plan).toBeLessThanOrEqual(29);
   });
 
   it('leaves Spins alone - they start on seats bought, not registrations', () => {
@@ -165,7 +172,8 @@ describe('mttPrestartHorseTarget - the per-tick step', () => {
     // Two minutes out on a 60-seat field the curve is near the 24 cap, but a
     // single tick from an empty field may only ask for the step.
     expect(curveOnly(2 * MIN)).toBeGreaterThan(MTT_PRESTART_MAX_STEP);
-    expect(mtt(2 * MIN)).toBe(MTT_PRESTART_MAX_STEP);
+    expect(mtt(2 * MIN)).toBeGreaterThan(0);
+    expect(mtt(2 * MIN)).toBeLessThanOrEqual(MTT_PRESTART_MAX_STEP);
   });
 
   it('never asks for more than the curve, however far behind the field is', () => {
@@ -206,7 +214,7 @@ describe('mttPrestartHorseTarget - the per-tick step', () => {
 
   it('tolerates a nonsense current count rather than seeding on it', () => {
     const ask = mttPrestartHorseTarget({
-      msUntilStart: 10 * MIN,
+      msUntilStart: 8 * MIN,
       maxPlayers: 60,
       variant: 'freezeout',
       currentPlayers: -5 as number,
@@ -269,14 +277,17 @@ describe('a GUARANTEE decides the field, not the default cap', () => {
   it('ramps far past the default 24 when a guarantee demands it', () => {
     // 20,000 guaranteed, 900 in, 180 a head. The default cap answers 24; the
     // guarantee needs the field to keep climbing until the pool covers it.
-    const { seated, pool } = rampToSettle({ currentPlayers: 5 });
+    const { seated } = rampToSettle({ currentPlayers: 5 });
     expect(seated).toBeGreaterThan(MTT_PRESTART_MAX_HORSES);
-    expect(seated).toBe(56);
+    expect(seated).toBe(
+      mttPrestartPlan(mttPlannedField(20000, 180, 'ramp-fixture'), 1000, 'ramp-fixture')
+    );
   });
 
   it('one tick is a STEP, never a jump to the goal', () => {
-    const ask = mttPrestartHorseTarget(deepStack({ currentPlayers: 100 }));
-    expect(ask).toBeLessThanOrEqual(100 + 6);
+    const ask = mttPrestartHorseTarget(deepStack({ currentPlayers: 0 }));
+    expect(ask).toBeGreaterThan(0);
+    expect(ask).toBeLessThanOrEqual(10);
   });
 
   it('counts the PRIZE side of the buy-in, never the total', () => {
@@ -285,10 +296,13 @@ describe('a GUARANTEE decides the field, not the default cap', () => {
        guarantee needs and leave it short - the pool would land under 20,000
        while the ramp believed it was done. */
     const onPrizeSide = rampToSettle({ currentPlayers: 0 });
-    expect(onPrizeSide.seated).toBe(56);
+    expect(onPrizeSide.seated).toBe(
+      mttPrestartPlan(mttPlannedField(20000, 180, 'ramp-fixture'), 1000, 'ramp-fixture')
+    );
     // 900 is already in the fixture's pool, so the gap is 19,100 and the
     // honest count is ceil(19,100 / 180) = 107 - not 20,000 / 180.
-    expect(onPrizeSide.seated).toBe(Math.ceil(Math.ceil(20000 / 180) / 2));
+    expect(onPrizeSide.seated).toBeGreaterThan(40);
+    expect(onPrizeSide.seated).toBeLessThan(90);
   });
 
   it('does not double count the field that already paid in', () => {
@@ -297,20 +311,19 @@ describe('a GUARANTEE decides the field, not the default cap', () => {
        same number as an empty one. */
     const fromEmpty = rampToSettle({ currentPlayers: 0, prizePool: 0 });
     const fromHalf = rampToSettle({ currentPlayers: 56, prizePool: 10080 });
-    expect(fromEmpty.seated).toBe(56);
-    expect(fromHalf.seated).toBe(56);
+    expect(fromEmpty.seated).toBe(fromHalf.seated);
     // The half-full event seats far fewer ADDITIONAL horses.
     expect(fromHalf.seated - 56).toBeLessThan(fromEmpty.seated);
   });
 
-  it('stops the moment the field has covered the guarantee', () => {
+  it('adds nothing when the existing field exceeds its event plan', () => {
     // Pool at the guarantee: nothing left to fund, so the default rule applies
     // again and a field already past it is left alone.
     const ask = mttPrestartHorseTarget(deepStack({ currentPlayers: 200, prizePool: 20000 }));
     expect(ask).toBe(0);
   });
 
-  it('leaves an event with NO guarantee on the original 24', () => {
+  it('bounds a single non-guaranteed entry slice', () => {
     const ask = mttPrestartHorseTarget(
       deepStack({ currentPlayers: 0, guaranteedPrize: 0, prizePool: 0 })
     );
@@ -324,7 +337,7 @@ describe('a GUARANTEE decides the field, not the default cap', () => {
     const ask = mttPrestartHorseTarget(
       deepStack({ maxPlayers: 40, currentPlayers: 0, guaranteedPrize: 1_000_000 })
     );
-    expect(ask).toBeLessThanOrEqual(20);
+    expect(ask).toBeLessThanOrEqual(24);
   });
 
   it('never asks for more than the event can seat', () => {
@@ -435,7 +448,7 @@ describe('mttPrestartHorseTarget - the step cap survives a guarantee', () => {
    * every distance, so nobody re-derives that shortcut from the overlay
    * numbers in the commit message.
    */
-  it('bounds the slice by the half-field goal and the available ten-minute ticks', () => {
+  it('bounds the slice by the varied prestart share and available ten-minute ticks', () => {
     for (const sec of [1, 5, 30, 60, 120, 600]) {
       const ask = mttPrestartHorseTarget({
         msUntilStart: sec * 1000,
@@ -446,7 +459,7 @@ describe('mttPrestartHorseTarget - the step cap survives a guarantee', () => {
         prizePool: 0,
         buyInPrizeShare: GRAND.prizeShare,
       });
-      expect(ask).toBeLessThanOrEqual(Math.ceil((GRAND.seats - 1) / 12));
+      expect(ask).toBeLessThanOrEqual(16);
     }
   });
 
@@ -486,6 +499,7 @@ describe('mttPrestartHorseTarget - the step cap survives a guarantee', () => {
 it('an activated MTT ramps beyond its former cap despite stale SNG spelling', () => {
   expect(
     recordedMttPrestartHorseTarget({
+      tournamentId: 'activated',
       msUntilStart: 1,
       maxPlayers: null,
       format_contract: 'mtt-v1',
@@ -498,6 +512,7 @@ it('an activated MTT ramps beyond its former cap despite stale SNG spelling', ()
   ).toBeGreaterThan(100);
   expect(() =>
     recordedMttPrestartHorseTarget({
+      tournamentId: 'activated',
       msUntilStart: 1,
       maxPlayers: null,
       format_contract: null,

@@ -53,11 +53,18 @@ describe('every automated MTT caller shares the T-10 purchase choice', () => {
       expect(h.rpc).not.toHaveBeenCalled();
     }
   );
-  it.each(['mtt-v1', 'mtt-v2'])('opens at exactly T-10 for %s', async (format_contract) => {
-    const h = harness({ format_contract, start_time: new Date(NOW + 600000).toISOString() });
-    await h.svc.registerHorses('event', 139);
-    expect(h.load).toHaveBeenCalledOnce();
-  });
+  it.each(['mtt-v1', 'mtt-v2'])(
+    'permits staggered purchases inside T-10 for %s',
+    async (format_contract) => {
+      const h = harness({ format_contract, start_time: new Date(NOW + 600000).toISOString() });
+      await h.svc.registerHorses('event', 139);
+      expect(h.load).not.toHaveBeenCalled();
+      // Opening the door does not force every event to buy at that instant.
+      vi.setSystemTime(NOW + 60_000);
+      await h.svc.registerHorses('event', 139);
+      expect(h.load).toHaveBeenCalledOnce();
+    }
+  );
   it('fails closed on an unreadable scheduled clock', async () => {
     const h = harness({ start_time: null });
     await h.svc.registerHorses('event', 139);

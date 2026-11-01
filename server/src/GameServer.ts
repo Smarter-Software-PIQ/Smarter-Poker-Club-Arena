@@ -9046,6 +9046,7 @@ export class GameServer {
               // rule is tested without a database and this call site cannot
               // drift from it.
               const rampTarget = mttPrestartHorseTarget({
+                tournamentId: tournament.id,
                 msUntilStart,
                 maxPlayers: tournament.effective_max_players,
                 format_contract: tournament.format_contract,

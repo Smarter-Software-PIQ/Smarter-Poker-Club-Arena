@@ -1,4 +1,9 @@
-import { mttPlannedField, mttPrestartPlan, mttPrizeShare } from './mttHorseArrivalPlan.js';
+import {
+  mttPlannedField,
+  mttPrestartPlan,
+  mttPrizeShare,
+  mttArrivalTarget,
+} from './mttHorseArrivalPlan.js';
 import { projectTournamentAdmission } from '../tournament/tournamentAdmission.js';
 import { fixedSngHorseCount } from './FixedSngHorsePlan.js';
 import {
@@ -2096,6 +2101,8 @@ export function seatFirstStartStalled(opts: {
  * do. The whole decision lives here so it is testable without a database.
  */
 export function mttPrestartHorseTarget(opts: {
+  /** Event identity keeps the random plan stable across retries and restarts. */
+  tournamentId: string;
   /** Milliseconds until the scheduled start. Negative means already past. */
   msUntilStart: number;
   maxPlayers: number | null;
@@ -2131,24 +2138,27 @@ export function mttPrestartHorseTarget(opts: {
   const seats = maxPlayers === null ? null : Number(maxPlayers);
   if (seats !== null && (!Number.isSafeInteger(seats) || seats <= 1)) return 0;
 
-  // Half the planned funded field arrives in the owner's ten-minute window.
-  // Reach that mark one tick before the gun, preserving scheduling margin.
+  // Vary the field and its roughly half-before-start split for each event.
+  // Repeated discovery and registration checks must use the same identity.
   const field = mttPlannedField(
     Math.max(0, Number(opts.guaranteedPrize) || 0),
-    Math.max(0, Number(opts.buyInPrizeShare) || 0)
+    Math.max(0, Number(opts.buyInPrizeShare) || 0),
+    opts.tournamentId
   );
-  const fieldGoal = mttPrestartPlan(field, seats);
+  const fieldGoal = mttPrestartPlan(field, seats, opts.tournamentId);
   if (fieldGoal < 1) return 0;
   const elapsed = Math.min(
     1,
     (MTT_PRESTART_RAMP_MS - msUntilStart) / (MTT_PRESTART_RAMP_MS - MTT_PRESTART_TICK_MS)
   );
-  const onCurve = Math.max(1, Math.ceil(fieldGoal * elapsed));
+  const onCurve = mttArrivalTarget(opts.tournamentId, 'prestart', fieldGoal, elapsed);
   if (onCurve <= current) return 0;
   // A fixed six-per-45s ceiling cannot deliver half a large guarantee in ten
   // minutes. Size the bounded slice from the actual goal and available ticks.
   const ticks = Math.max(1, Math.floor(MTT_PRESTART_RAMP_MS / MTT_PRESTART_TICK_MS) - 1);
-  const step = Math.max(MTT_PRESTART_MAX_STEP, Math.ceil(fieldGoal / ticks));
+  // The latest-arriving curve has exponent at most 1.5. Leave enough
+  // per-tick room for its closing segment without a last-tick burst.
+  const step = Math.max(MTT_PRESTART_MAX_STEP, Math.ceil((1.5 * fieldGoal) / ticks) + 1);
   return Math.min(onCurve, current + step);
 }
 
@@ -7075,6 +7085,7 @@ export class TournamentRecurringService {
         // Its existing past-start and late-entry paths retain that decision.
         if (startMs > now) {
           const target = mttPrestartHorseTarget({
+            tournamentId,
             msUntilStart: startMs - now,
             maxPlayers: entryEvent.max_players,
             format_contract: entryEvent.format_contract,

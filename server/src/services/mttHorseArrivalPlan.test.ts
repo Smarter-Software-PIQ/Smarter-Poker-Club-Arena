@@ -9,10 +9,16 @@ import { mttPrestartHorseTarget, MTT_PRESTART_TICK_MS } from './TournamentRecurr
 import { lateRegArrivalsFor } from './HorseOverlayGuard.js';
 
 const MIN = 60_000;
-function beforeStart(guarantee: number, prize: number, maxPlayers: number | null = null) {
+function beforeStart(
+  guarantee: number,
+  prize: number,
+  maxPlayers: number | null = null,
+  tournamentId = 'arrival-test'
+) {
   let current = 0;
   for (let remaining = 10 * MIN; remaining > 0; remaining -= MTT_PRESTART_TICK_MS) {
     const target = mttPrestartHorseTarget({
+      tournamentId,
       msUntilStart: remaining,
       maxPlayers,
       format_contract: 'mtt-v2',
@@ -27,20 +33,31 @@ function beforeStart(guarantee: number, prize: number, maxPlayers: number | null
   return current;
 }
 
-describe('half before start and the other half throughout late registration', () => {
+describe('varied prestart fields and arrivals throughout late registration', () => {
   it.each([
-    [5000, 36, 70],
-    [1000, 6.5, 77],
-    [50000, 90, 278],
-    [0, 0, 24],
-  ])('delivers half of %s at %s per entry inside ten minutes', (guarantee, share, expected) => {
-    expect(beforeStart(guarantee, share)).toBe(expected);
-  });
-  it('splits the actual capped field before start instead of filling nearly every seat', () => {
-    expect(mttPrestartPlan(139, 40)).toBe(20);
-    expect(mttPrestartPlan(48, 9)).toBe(5);
-    expect(mttPrestartPlan(48, 1)).toBe(0);
-    expect(beforeStart(5000, 36, 40)).toBe(20);
+    [5000, 36],
+    [1000, 6.5],
+    [50000, 90],
+    [0, 0],
+  ])(
+    "delivers this event's stable random prestart plan for %s at %s per entry",
+    (guarantee, share) => {
+      const id = 'arrival-test';
+      const field = mttPlannedField(guarantee, share, id);
+      const expected = mttPrestartPlan(field, null, id);
+      expect(beforeStart(guarantee, share, null, id)).toBe(expected);
+      expect(expected).toBeGreaterThanOrEqual(field * 0.4);
+      expect(expected).toBeLessThanOrEqual(Math.ceil(field * 0.6));
+    }
+  );
+  it('splits a capped field while retaining late-entry room', () => {
+    for (const cap of [9, 40]) {
+      const plan = mttPrestartPlan(139, cap, 'capped');
+      expect(plan).toBeGreaterThanOrEqual(cap * 0.4);
+      expect(plan).toBeLessThanOrEqual(Math.ceil(cap * 0.6));
+      expect(beforeStart(5000, 36, cap, 'capped')).toBe(plan);
+    }
+    expect(mttPrestartPlan(48, 1, 'capped')).toBe(0);
   });
   it.each([20, 25])(
     'paces only remaining capped seats when %s entered before the start',
@@ -70,7 +87,7 @@ describe('half before start and the other half throughout late registration', ()
   );
   it('subtracts the bounty head, not just the fee', () => {
     expect(mttPrizeShare({ buy_in_amount: '13.50', bounty_amount: '7.00' })).toBe(6.5);
-    expect(mttPlannedField(1000, 6.5)).toBe(154);
+    expect(mttPlannedField(1000, 6.5, 'bounty')).toBeGreaterThanOrEqual(154);
   });
   it('reads the real stored JSON ladder and seconds-shaped ladders', () => {
     expect(
@@ -83,7 +100,7 @@ describe('half before start and the other half throughout late registration', ()
     expect(mttLevelWindowMs('bad', 2)).toBeUndefined();
     expect(mttLevelWindowMs([{ duration: 60 }], 2)).toBeUndefined();
   });
-  it('trickles the remaining 77 entries across the entire 48-minute mystery window', () => {
+  it('trickles the remaining planned entries across the entire 48-minute mystery window', () => {
     let late = 0;
     const arrivals: number[] = [];
     for (let minute = 0; minute < 48; minute += 2) {
@@ -99,11 +116,11 @@ describe('half before start and the other half throughout late registration', ()
         entriesAtStart: 77,
         lateEntries: late,
       });
-      expect(n).toBeLessThanOrEqual(5);
+      expect(n).toBeLessThanOrEqual(6);
       late += n;
       if (n) arrivals.push(minute);
     }
-    expect(late).toBeGreaterThanOrEqual(73);
+    expect(late).toBeGreaterThanOrEqual(70);
     expect(late).toBeLessThanOrEqual(77);
     expect(arrivals.some((minute) => minute > 40)).toBe(true);
   });
@@ -136,7 +153,8 @@ describe('half before start and the other half throughout late registration', ()
       entriesAtStart: 77,
       lateEntries: 1,
     };
-    expect(lateRegArrivalsFor({ ...paused, registrationOpen: true })).toBe(5);
+    expect(lateRegArrivalsFor({ ...paused, registrationOpen: true })).toBeGreaterThan(0);
+    expect(lateRegArrivalsFor({ ...paused, registrationOpen: true })).toBeLessThanOrEqual(6);
     expect(lateRegArrivalsFor({ ...paused, registrationOpen: false })).toBe(0);
     expect(lateRegArrivalsFor(paused)).toBe(0);
     expect(lateRegArrivalsFor({ ...paused, registrationOpen: true, lateEntries: 77 })).toBe(0);
@@ -144,6 +162,7 @@ describe('half before start and the other half throughout late registration', ()
   it('never opens purchases early or after late registration closes', () => {
     expect(
       mttPrestartHorseTarget({
+        tournamentId: 'closed',
         msUntilStart: 11 * MIN,
         maxPlayers: null,
         format_contract: 'mtt-v2',
