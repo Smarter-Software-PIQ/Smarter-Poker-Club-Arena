@@ -3162,7 +3162,17 @@ function LiveTablePage({
         // stats + the deal animation never re-fired. Carry it through.
         handNumber: mapped.handNumber > 0 ? mapped.handNumber : prev.handNumber,
         handBlinds: mapped.handBlinds,
-        actionContext: mapped.actionContext,
+        actionContext:
+          mapped.actionContext ??
+          (sameHand &&
+          prev.actionContext &&
+          nextCurrentSeat > 0 &&
+          prev.currentPlayerSeat === nextCurrentSeat &&
+          prev.boardStage === nextStage &&
+          prev.currentBet === mapped.currentBet &&
+          mapped.isTimeBankActive
+            ? prev.actionContext
+            : undefined),
         players: nextPlayers,
         positions: mapped.positions as PositionBadge[],
         lastActions: mapped.lastActions as LastAction[],
@@ -7468,6 +7478,47 @@ function LiveTablePage({
       tableState.players[tableState.heroSeat - 1]?.status === 'folded',
   });
   const heroPromptedToAct = isHeroTurnContext && !suppressPanelForPreAction;
+
+  useEffect(() => {
+    if (
+      !isHeroTurnContext ||
+      heroDecisionReady ||
+      Boolean(lightningRoom) ||
+      engineWsStatus !== 'connected'
+    ) {
+      return;
+    }
+    let attempts = 0;
+    const maxAttempts = 6;
+    const requestMissingDecision = () => {
+      if (attempts >= maxAttempts) return;
+      attempts += 1;
+      requestEngineSnapshot();
+    };
+    const initialTimer = window.setTimeout(requestMissingDecision, 120);
+    const retryInterval = window.setInterval(() => {
+      if (attempts >= maxAttempts) {
+        window.clearInterval(retryInterval);
+        return;
+      }
+      requestMissingDecision();
+    }, 350);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(retryInterval);
+    };
+  }, [
+    isHeroTurnContext,
+    heroDecisionReady,
+    lightningRoom,
+    engineWsStatus,
+    tableState.handNumber,
+    tableState.boardStage,
+    tableState.currentPlayerSeat,
+    tableState.currentBet,
+    tableState.isTimeBankActive,
+    requestEngineSnapshot,
+  ]);
 
   useEffect(() => {
     if (
