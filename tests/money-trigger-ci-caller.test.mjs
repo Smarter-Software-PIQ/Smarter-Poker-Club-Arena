@@ -256,9 +256,16 @@ for(const repo of ['evil/Smarter-Poker-Club-Arena','Smarter-Software-PIQ/evil','
 test('all qualification and publication jobs use only fixed standard hosted runners',()=>{
   for(const file of ['ci.yml','publish-club-arena.yml','publish-club-arena-client.yml','publish-club-arena-transaction.yml','component-fixture-native-smoke.yml']){
     const text=fs.readFileSync(new URL('../.github/workflows/'+file,import.meta.url),'utf8');
-    const routes=[...text.matchAll(/^    runs-on: (.+)$/gm)].map(match=>match[1]);
+    const jobBlocks=[...text.matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:\n|$(?![\s\S]))/gm)];
+    const routes=[];
+    for(const [,job,body] of jobBlocks){
+      const route=/^    runs-on: (.+)$/m.exec(body)?.[1];
+      if(!route)continue;
+      routes.push(route);
+      const browserPinned=file==='ci.yml'&&['build','css-beats-e2e','diamond-playfield-e2e'].includes(job);
+      assert.equal(route,file==='component-fixture-native-smoke.yml'||browserPinned?'ubuntu-24.04':'ubuntu-latest',file+':'+job);
+    }
     assert.ok(routes.length,file);
-    for(const route of routes)assert.equal(route,file==='component-fixture-native-smoke.yml'?'ubuntu-24.04':'ubuntu-latest',file);
     assert.doesNotMatch(routes.join('\n'),/ca-linux|self-hosted|vars\./);
   }
 });
