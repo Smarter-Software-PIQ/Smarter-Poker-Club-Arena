@@ -2220,7 +2220,8 @@ export interface HorseDecideOpts {
   /** V73 (2026-11-01): Hold'em opener facing one 3-bet with nobody else in
    *  (three or more dealt in, 25bb+ effective, 3-bet 1.8x-7x the open) - the
    *  call-or-4-bet width is a share of the opener seat's own open width
-   *  (in / out of position, 3-bet size, depth, ante) read on a reference
+   *  (the 3-bet's minimum defence frequency into this pot times a per-seat,
+   *  in / out of position equity multiplier, then depth) read on a reference
    *  continue order of pairs, suited hands and AKo/AQo, instead of a fixed
    *  top-of-the-deck bar. Value 4-bets, the 4-bet bluff, the 5-bet branch
    *  and the dominated-offsuit fold are unchanged. Default on; explicit
@@ -6503,12 +6504,25 @@ export class HorseLogic {
       // Hero has position on every later street when the 3-bettor is a blind
       // and hero is not (the small blind is out of position to the big blind).
       const ip73 = reRaiserBehind <= 1 && openerBehind >= 2;
+      // The price: the blind the 3-bettor had posted is not new money, so the
+      // 3-bet's risk is its raise-to less that blind, and the pot it attacks
+      // is everything else in the middle (the open, blinds, any ante).
+      const posted73 =
+        reRaiserBehind === 0
+          ? Math.min(bb, reRaiser.bet)
+          : reRaiserBehind === 1
+            ? Math.min(gs.smallBlind ?? bb / 2, reRaiser.bet)
+            : 0;
+      const risk73 = Math.max(0, reRaiser.bet - posted73);
+      const potBefore73 = Math.max(0, gs.pot - risk73);
       const r73 = gtoVs3Bet(player.cards[0], player.cards[1], {
         openerBehind,
         ip: ip73,
         ante: (gs.ante ?? 0) > 0,
         dealt: dealt73,
         threeBetX,
+        potBeforeBB: potBefore73 / bb,
+        reRaiseRiskBB: risk73 / bb,
         effectiveBB: effBB,
         deepDiscipline: (opts.v21Deep ?? true) !== false,
         tightness: params.tightness,
