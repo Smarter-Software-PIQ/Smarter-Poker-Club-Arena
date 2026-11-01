@@ -185,6 +185,33 @@ export const V73_MAX_THREEBET_X = 7;
 /** Shallowest effective depth (big blinds): below it the jam-or-fold zones own the spot. */
 export const V73_MIN_EFFECTIVE_BB = 25;
 
+/**
+ * ═══ V75 THE SQUEEZED OPENER (2026-11-01) ═══════════════════════════════
+ * Per-live-caller realisation factor on the continue SHARE when hero's open
+ * was called before the 3-bet landed (the squeeze). Two things change
+ * against the heads-up 3-bet node, and they pull in opposite directions:
+ *
+ *  - PRICE (wider): each caller's chips are dead money in the pot the 3-bet
+ *    attacks, so the MDF rises. That is already inside `vs3BetMdf` via
+ *    `potBeforeBB`; nothing here duplicates it.
+ *  - REALISATION (narrower): the caller still holds live cards and acts
+ *    AFTER hero. Its calling range overlaps exactly the middle of hero's
+ *    continue region (pairs, suited broadways, suited connectors), taking
+ *    equity from hero's marginal continues, and it can re-raise after hero's
+ *    call, so a share of hero's calls realise nothing at all. MDF arithmetic
+ *    assumes the call closes the action; behind a live caller it does not.
+ *
+ * The factor is the reference solver shape, not a frequency target: at the
+ * reference geometry (100bb 6-max cash, a 2.5bb cutoff open, a button call,
+ * a blind squeeze to ~11bb) the opener continues roughly 0.8x the share it
+ * continues against the same price heads-up, even though the dead button
+ * call improved the price. A second live caller compounds once more; past
+ * two the node is a family pot the reference shapes do not describe, so the
+ * count is capped there (the floor in `continueShare` still applies).
+ */
+export const V75_LIVE_CALLER_FACTOR = 0.8;
+export const V75_MAX_LIVE_CALLERS = 2;
+
 function clampIndex(k: number): number {
   return Math.max(1, Math.min(8, Math.round(k)));
 }
@@ -218,6 +245,16 @@ export interface Vs3BetSpot {
    * opened, so every style folds the same share of its own open.
    */
   tightness?: number;
+  /**
+   * V75 (2026-11-01): callers of hero's open who are still live and act
+   * AFTER hero against the 3-bet (the squeeze shape: hero opened, they
+   * called, one player squeezed). Their chips are already dead money inside
+   * `potBeforeBB` - that side of the squeeze (a better price) is the MDF
+   * arithmetic's job, not this field's. This field carries the other side:
+   * realisation (see V75_LIVE_CALLER_FACTOR). Zero / undefined is the pure
+   * V73 heads-up 3-bet node, unchanged.
+   */
+  liveCallersBehind?: number;
 }
 
 /** The share (0..1) whose scoreAtShare is `score`: the inverse, by bisection. */
@@ -282,6 +319,10 @@ export function continueShare(spot: Vs3BetSpot): number {
     const deepT = Math.min(0.05, (spot.effectiveBB - 120) / 2600);
     share *= 1 - deepT;
   }
+  // V75: a live caller behind costs realisation (its dead money already
+  // widened the MDF above). See V75_LIVE_CALLER_FACTOR.
+  const live = Math.max(0, Math.min(V75_MAX_LIVE_CALLERS, spot.liveCallersBehind ?? 0));
+  if (live > 0) share *= Math.pow(V75_LIVE_CALLER_FACTOR, live);
   return Math.max(10, Math.min(85, share));
 }
 
