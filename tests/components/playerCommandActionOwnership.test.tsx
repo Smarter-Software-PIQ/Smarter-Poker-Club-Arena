@@ -49,15 +49,29 @@ vi.mock('../../src/hooks/useMasterBusChannel', () => ({
     state.memberChannel = options;
   },
 }));
-vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
-  useMasterBusBroadcastChannel: (options: {
-    event: string;
-    onPayload: (value: unknown) => void;
-  }) => {
-    if (options.event === 'record_changed') state.recordChannel = options;
-    if (options.event === 'wallet_changed') state.walletChannel = options;
-  },
-}));
+vi.mock('../../src/hooks/useMasterBusBroadcastChannel', async () => {
+  const { useEffect } = await import('react');
+  return {
+    useMasterBusBroadcastChannel: (options: {
+      channelName: string | null;
+      enabled?: boolean;
+      event: string;
+      onPayload: (value: unknown) => void;
+    }) => {
+      // A render is not a subscription: install and retire the callback with
+      // the same enabled, effect-owned lifecycle as the real channel hook.
+      useEffect(() => {
+        if (!options.channelName || options.enabled === false) return;
+        if (options.event === 'record_changed') state.recordChannel = options;
+        if (options.event === 'wallet_changed') state.walletChannel = options;
+        return () => {
+          if (state.recordChannel === options) state.recordChannel = null;
+          if (state.walletChannel === options) state.walletChannel = null;
+        };
+      }, [options]);
+    },
+  };
+});
 vi.mock('../../src/contexts/ClubWorkspaceContext', () => ({
   useClubWorkspace: () => ({ clubUUID: '22222222-2222-4222-8222-222222222222' }),
 }));
@@ -221,6 +235,7 @@ beforeEach(() => {
   state.viewerRole = 'owner';
   state.viewerRoleError = null;
   state.memberChannel = null;
+  state.recordChannel = null;
   state.walletChannel = null;
   state.wallet.mockResolvedValue({ data: { balance: 100 }, error: null });
   state.rpc.mockReset();
@@ -1058,7 +1073,10 @@ it('renders the member before an independent downline request settles', async ()
 });
 
 it('does not apply a delayed live stats response after a newer explicit range read', async () => {
-  render(<MemberManagementPage />);
+  // Settle the initial read and its subscription effects before delivering a live event.
+  await act(async () => {
+    render(<MemberManagementPage />);
+  });
   await screen.findByText('River Shark');
   const pending = deferred<typeof memberDetail>();
   state.getMemberDetail.mockReturnValueOnce(pending.promise);
