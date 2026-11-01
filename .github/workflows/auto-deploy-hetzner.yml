@@ -230,6 +230,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # Phase 6: a refused door names itself in the deploy receipt's reason
+    # (e.g. "missing database function fn_x()"), not only in a job log.
+    outputs:
+      refusal: ${{ steps.doors.outputs.refusal || '' }}
     steps:
       - name: Checkout the requested immutable commit
         uses: actions/checkout@v4
@@ -264,6 +268,10 @@ jobs:
       contents: read
     outputs:
       release_result: ${{ steps.release.outputs.result || 'not completed' }}
+      release_failure: ${{ steps.release.outputs.failed_stage || '' }}
+      exit_stage: ${{ steps.exit_path.outputs.stage || 'unknown' }}
+      exit_outcome: ${{ steps.exit_path.outputs.outcome || 'unknown' }}
+      exit_error: ${{ steps.exit_path.outputs.error || '' }}
       superseded_by: ${{ steps.release.outputs.superseded_by || '' }}
       verified: ${{ steps.verify.outputs.verified || 'false' }}
       shipped: ${{ (steps.release.outputs.result == 'sealed' || steps.release.outputs.result == 'already-released') && steps.verify.outputs.verified == 'true' }}
@@ -281,6 +289,7 @@ jobs:
 
     steps:
       - name: Establish one absolute deploy-job deadline
+        id: deadline
         run: |
           set -euo pipefail
           # The Actions job is capped at 210 minutes. Our own clock stops ten
@@ -311,6 +320,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Checkout the exact workflow control and authenticated main history
+        id: checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -318,6 +328,7 @@ jobs:
           filter: blob:none
 
       - name: Recheck freshness after the FIFO wait
+        id: freshness
         run: |
           set -euo pipefail
           [ "$(date +%s)" -lt "$RELEASE_DISPATCH_DEADLINE_EPOCH" ] \
@@ -345,6 +356,7 @@ jobs:
           fi
 
       - name: Admit only the immutable target's preparation window
+        id: admit
         run: |
           set -euo pipefail
           python3 server/scripts/engine-release-activation-floor.py prepare \
@@ -388,6 +400,7 @@ jobs:
             "$HSSH" 'test "$(id -u)" = 0 && printf "%s\n" club-arena-engine-host'
 
       - name: Stage exact control bytes without mutating the host checkout
+        id: stage
         run: |
           set -euo pipefail
           STAGING_REMAINING=$((RELEASE_DISPATCH_DEADLINE_EPOCH - $(date +%s)))
@@ -468,6 +481,7 @@ jobs:
           REMOTE
 
       - name: Prepare the scheduled immutable image without entering release intake
+        id: prepare
         run: |
           set -euo pipefail
           if python3 - "$RUNNER_TEMP/engine-activation-floor-$RUN_KEY.json" "$SHA" <<'PYTHON'
@@ -525,6 +539,7 @@ jobs:
           fi
 
       - name: Wait for the immutable activation floor before creating any intake
+        id: floor
         run: |
           set -euo pipefail
           python3 server/scripts/engine-release-activation-floor.py wait \
@@ -538,6 +553,21 @@ jobs:
           # Every observer and retry shares the absolute deadline established
           # before checkout. The final ten minutes can never be borrowed by
           # dispatch; they belong to proof, the strict receipt, and cleanup.
+          # THE STEP ALWAYS SAYS WHAT HAPPENED (Phase 6, 2026-10-31). Every
+          # release since 2026-10-29 was recorded "did not prove a completed
+          # durable Hetzner release transaction" because an exit path here
+          # wrote no result at all. Whatever ends this script, result= is
+          # written: the outcome, or failed:<stage> naming where it stopped.
+          RELEASE_STAGE=budget
+          RESULT_EMITTED=false
+          name_release_exit() {
+            local rc=$?
+            if [ "$RESULT_EMITTED" != true ]; then
+              echo "result=failed:$RELEASE_STAGE" >> "$GITHUB_OUTPUT"
+              echo "failed_stage=$RELEASE_STAGE (exit $rc)" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          trap name_release_exit EXIT
           [ $((RELEASE_JOB_DEADLINE_EPOCH - RELEASE_DISPATCH_DEADLINE_EPOCH)) -ge "$POST_RELEASE_RESERVE_SECONDS" ]
           DISPATCH_FINALIZE_RESERVE_SECONDS=15
           ACTOR_B64="$(printf '%s' "$RUN_ACTOR" | base64 -w 0)"
@@ -555,6 +585,7 @@ jobs:
             [[ "$stale" =~ ^[0-9a-f]{40}$ ]] || return 0
             echo "result=superseded" >> "$GITHUB_OUTPUT"
             echo "superseded_by=$stale" >> "$GITHUB_OUTPUT"
+            RESULT_EMITTED=true
           }
           uncertain_status() {
             local status="$1"
@@ -605,14 +636,17 @@ jobs:
               "$HSSH" "ENGINE_RELEASE_OBSERVE_SECONDS='$observe_seconds' ENGINE_RELEASE_INVOCATION_WAIT_SECONDS='$invocation_wait' exec '/var/lib/club-arena/control-staging/$RUN_KEY/server/scripts/observe-engine-release.sh' --sha '$SHA' --run-id '$RUN_KEY'"
           }
           set +e
+          RELEASE_STAGE=intake
           run_remote_intake | tee "$RUNNER_TEMP/engine-release-$RUN_KEY.log"
           SSH_RC=${PIPESTATUS[0]}
           if [ "$SSH_RC" -eq 0 ]; then
+            RELEASE_STAGE=observe
             observe_remote_release | tee -a "$RUNNER_TEMP/engine-release-$RUN_KEY.log"
             SSH_RC=${PIPESTATUS[0]}
           fi
           set -e
           if uncertain_status "$SSH_RC"; then
+            RELEASE_STAGE=reattach
             echo '::warning::Release intake transport/acknowledgement was uncertain; reattaching to durable host state.'
             for attempt in $(seq 1 40); do
               if [ "$attempt" -ne 1 ]; then
@@ -644,12 +678,14 @@ jobs:
           fi
           [ "$SSH_RC" -eq 0 ] \
             || { classify_release_failure; echo "::error::could not reattach to the durable Hetzner release transaction ($SSH_RC)"; exit "$SSH_RC"; }
+          RELEASE_STAGE=receipt
           RESULT="$(sed -n 's/^ENGINE_RELEASE_RESULT=//p' "$RUNNER_TEMP/engine-release-$RUN_KEY.log" | tail -1)"
           UNIT_RESULT="$(sed -n 's/^ENGINE_RELEASE_UNIT_RESULT=//p' "$RUNNER_TEMP/engine-release-$RUN_KEY.log" | tail -1)"
           RESULT_SHA="$(sed -n 's/^ENGINE_RELEASE_SHA=//p' "$RUNNER_TEMP/engine-release-$RUN_KEY.log" | tail -1)"
           [ "$UNIT_RESULT" = success ] && [ "$RESULT_SHA" = "$SHA" ]
           case "$RESULT" in sealed|already-released) ;; *) echo '::error::invalid durable release receipt'; exit 1 ;; esac
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          RESULT_EMITTED=true
           echo 'completed=true' >> "$GITHUB_OUTPUT"
 
       - name: Independently prove the sealed local, public, and leader identity
@@ -801,6 +837,68 @@ jobs:
             exit "$REMOTE_CLEANUP_RC"
           fi
 
+      # EVERY EXIT PATH HAS A NAME (Phase 6, 2026-10-31). The first step that
+      # did not succeed is this job's exit stage; record-receipt writes it,
+      # with the error, outcome, target sha and run id, to
+      # engine_deploy_exit_paths. Pure: reads step outcomes, touches nothing.
+      - name: Name this deploy job's exit path
+        id: exit_path
+        if: always()
+        env:
+          STEP_OUTCOMES: >-
+            deadline=${{ steps.deadline.outcome }}
+            checkout=${{ steps.checkout.outcome }}
+            freshness=${{ steps.freshness.outcome }}
+            admit=${{ steps.admit.outcome }}
+            ssh=${{ steps.ssh.outcome }}
+            stage=${{ steps.stage.outcome }}
+            prepare=${{ steps.prepare.outcome }}
+            floor=${{ steps.floor.outcome }}
+            release=${{ steps.release.outcome }}
+            verify=${{ steps.verify.outcome }}
+          RELEASE_RESULT: ${{ steps.release.outputs.result || '' }}
+          RELEASE_FAILED_STAGE: ${{ steps.release.outputs.failed_stage || '' }}
+          VERIFIED: ${{ steps.verify.outputs.verified || 'false' }}
+        run: |
+          set -euo pipefail
+          STAGE=complete
+          OUTCOME=success
+          ERROR=''
+          for pair in $STEP_OUTCOMES; do
+            name="${pair%%=*}"
+            outcome="${pair#*=}"
+            case "$outcome" in
+              success) continue ;;
+              '' | skipped)
+                # Skipped after an earlier failure is not its own exit.
+                continue ;;
+              *)
+                STAGE="$name"
+                OUTCOME="$outcome"
+                ERROR="step $name ended $outcome"
+                break ;;
+            esac
+          done
+          if [ "$STAGE" = release ] && [ -n "$RELEASE_FAILED_STAGE" ]; then
+            ERROR="release failed at $RELEASE_FAILED_STAGE"
+          fi
+          if [ "$STAGE" = complete ]; then
+            case "$RELEASE_RESULT" in
+              sealed | already-released)
+                [ "$VERIFIED" = true ] && OUTCOME=shipped || OUTCOME=unverified ;;
+              superseded) OUTCOME=superseded ;;
+              *) OUTCOME="${RELEASE_RESULT:-unknown}" ;;
+            esac
+          elif [ "$RELEASE_RESULT" = superseded ]; then
+            OUTCOME=superseded
+          fi
+          {
+            echo "stage=$STAGE"
+            echo "outcome=$OUTCOME"
+            echo "error=$(printf '%s' "$ERROR" | tr -d '\r\n' | cut -c1-400)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Deploy exit path: stage=$STAGE outcome=$OUTCOME ${ERROR:+error=$ERROR}"
+
   record-receipt:
     name: Record The Append-Only Engine Release Receipt
     needs: [preflight, engine-doors, deploy]
@@ -833,7 +931,7 @@ jobs:
           # Prerequisite refusal, skipped/cancelled deployment and sealed-release
           # proof are distinct outcomes. A job that never reached host intake
           # cannot claim the transaction sealed or describe production identity.
-          REASON: ${{ needs['engine-doors'].result != 'success' && format('release refused before host intake; production database prerequisite job ended {0}', needs['engine-doors'].result) || needs.deploy.outputs.release_result == 'already-released' && needs.deploy.outputs.verified == 'true' && 'production already proved this exact release' || needs.deploy.outputs.release_result == 'sealed' && needs.deploy.outputs.verified == 'true' && 'Hetzner transaction sealed and independently verified' || needs.deploy.outputs.release_result == 'superseded' && format('stood down before cutover; protected main had moved to {0}', needs.deploy.outputs.superseded_by) || needs.deploy.result == 'cancelled' && 'deployment job cancelled before a sealed release was independently proved' || needs.deploy.result == 'skipped' && 'deployment job did not run; no host intake or production identity was proved' || needs.deploy.outputs.release_result == 'not completed' && 'this attempt did not prove a completed durable Hetzner release transaction; read its owning state and current production identity before retrying' || (needs.deploy.outputs.release_result == 'sealed' || needs.deploy.outputs.release_result == 'already-released') && 'the release sealed but production identity could not be independently proved' || 'release outcome unknown; no sealed production identity was established' }}
+          REASON: ${{ needs['engine-doors'].result != 'success' && format('release refused before host intake; production database prerequisite job ended {0}; {1}', needs['engine-doors'].result, needs['engine-doors'].outputs.refusal || 'the refusal did not name itself') || needs.deploy.outputs.release_result == 'already-released' && needs.deploy.outputs.verified == 'true' && 'production already proved this exact release' || needs.deploy.outputs.release_result == 'sealed' && needs.deploy.outputs.verified == 'true' && 'Hetzner transaction sealed and independently verified' || needs.deploy.outputs.release_result == 'superseded' && format('stood down before cutover; protected main had moved to {0}', needs.deploy.outputs.superseded_by) || needs.deploy.result == 'cancelled' && 'deployment job cancelled before a sealed release was independently proved' || needs.deploy.result == 'skipped' && 'deployment job did not run; no host intake or production identity was proved' || needs.deploy.outputs.release_failure && format('the durable Hetzner release step failed at stage {0}; read its owning state and current production identity before retrying', needs.deploy.outputs.release_failure) || needs.deploy.outputs.release_result == 'not completed' && 'this attempt did not prove a completed durable Hetzner release transaction; read its owning state and current production identity before retrying' || (needs.deploy.outputs.release_result == 'sealed' || needs.deploy.outputs.release_result == 'already-released') && 'the release sealed but production identity could not be independently proved' || 'release outcome unknown; no sealed production identity was established' }}
         run: |
           set -euo pipefail
           RECEIPT_REMAINING=$((RELEASE_RECEIPT_DEADLINE_EPOCH - $(date +%s)))
@@ -851,6 +949,25 @@ jobs:
           RECEIPT_TIMEOUT=$((RECEIPT_REMAINING - 5))
           timeout --signal=TERM --kill-after=5s "${RECEIPT_TIMEOUT}s" \
             node scripts/ci/record-engine-deploy-attempt.mjs
+
+      # Phase 6: one append-only row per deploy run naming where it exited.
+      # Best-effort like the receipt's warnings: it never fails the run.
+      - name: Record this run's deploy exit path
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_SHA: ${{ needs.preflight.outputs.target_sha }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          DOORS_RESULT: ${{ needs['engine-doors'].result }}
+          DOORS_REFUSAL: ${{ needs['engine-doors'].outputs.refusal }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          EXIT_STAGE: ${{ needs.deploy.outputs.exit_stage }}
+          EXIT_OUTCOME: ${{ needs.deploy.outputs.exit_outcome }}
+          EXIT_ERROR: ${{ needs.deploy.outputs.exit_error }}
+          RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 60s node scripts/ci/record-engine-deploy-exit.mjs || true
 
       - name: Publish release summary
         if: always()

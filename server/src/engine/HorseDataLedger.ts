@@ -831,6 +831,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V72'
   ),
   flag(
+    'v73Vs3BetDefence',
+    "2026-11-01 Hold'em opener facing one 3-bet with nobody else in (hero made the only open, exactly one re-raise, nobody calling, three or more dealt in, 25bb+ effective against the 3-bettor, 3-bet 1.8x-7x the open, not all-in): the call-or-4-bet width is a share of the opener seat's own V70 open width (style tightness applied to the open, not to the share), the share derived from the price - the minimum defence frequency P/(P+R) of this 3-bet's new chips R into the pot P (open, blinds, ante) - times a per-seat equity multiplier for range strength and realisation (in position BTN 1.50 / CO 1.62 / HJ 1.75 / LJ 1.88 .. UTG 2.01; out of position SB 1.32 / CO 1.44 / HJ 1.52 / LJ 1.61 .. UTG 1.72), off the reference geometry by the MDF ratio with elasticity 0.5 (ratio held 0.7-1.4), widened up to 15% at 25bb and narrowed up to 5% by the V21 deep scale past 120bb; hands read on a continue order blended between a late-opener and an early-opener reference chart of pairs, suited hands and AKo/AQo (every other offsuit unpaired hand folds to a big 3-bet by the 2026-10-25 owner rule); no bet size changes; the ICM premium applies, the general price relief does not; value 4-bets, the 4-bet bluff, rule 4, the 5-bet branch, the deep 5-bet rule and the dominated-offsuit fold unchanged; measured on production (3 hours to 2026-11-01 03:00 UTC, 25bb+) the button folded 85-87%, the cutoff 75-76%, under the gun 43-60%; explicit off arm retained",
+    'V73'
+  ),
+  flag(
     'v52RangeAdvantage',
     'heads-up postflop public-range advantage drives the range c-bet, V38 initiative and PLO small sizes (league v52_range_advantage)',
     'V52'
@@ -2141,6 +2146,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     0.005
   ),
   receipt(
+    'v73_vs3bet_defence',
+    'HorsePreflop (V73)',
+    "Hold'em opener facing one 3-bet with nobody else in, continued on a share of its own seat's open width",
+    'V73',
+    'decide_nlh',
+    0.002
+  ),
+  receipt(
     'v27_gto_open_jam',
     'HorsePreflop (V27)',
     'solver open/jam chart hit',
@@ -2372,6 +2385,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_premium_postflop_bet',
     'HorseLogic.decide (HorseHoldemPremiumAggression)',
     'NLH overpair QQ+ or AK top pair check postflop turned into a value bet',
+    'Hold em premium aggression'
+  ),
+  receipt(
+    'holdem_no_four_bet_bluff',
+    'HorseLogic.decide (HorseHoldemPremiumAggression)',
+    'NLH sized re-raise over a 3-bet with a hand below QQ+/AK turned into a call (no 4-bet made to fold)',
+    'Hold em premium aggression'
+  ),
+  receipt(
+    'holdem_premium_flat_deep_three_bet',
+    'HorseLogic.decide (HorseHoldemPremiumAggression)',
+    'NLH QQ/AK 4-bet too deep to call the 5-bet jam it invites turned into a flat call of the 3-bet',
+    'Hold em premium aggression'
+  ),
+  receipt(
+    'holdem_four_bettor_continues',
+    'HorseLogic.decide (HorseHoldemPremiumAggression)',
+    'NLH fold after the horse own 4-bet was re-raised turned into a call (AA/KK jam)',
     'Hold em premium aggression'
   ),
   receipt(

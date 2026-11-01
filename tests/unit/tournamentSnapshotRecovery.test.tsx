@@ -233,15 +233,17 @@ function update(id = 'a') {
 }
 function Page({
   id = 'a',
+  search = '',
   embedded = true,
   suppressAutoOpenTable = true,
 }: {
   id?: string;
+  search?: string;
   embedded?: boolean;
   suppressAutoOpenTable?: boolean;
 }) {
   return (
-    <MemoryRouter initialEntries={[`/tournaments/${id}`]}>
+    <MemoryRouter initialEntries={[`/tournaments/${id}${search}`]}>
       <Routes>
         <Route
           path="/tournaments/:tournamentId"
@@ -281,6 +283,12 @@ afterEach(() => {
 });
 
 describe('Tournament details snapshot recovery', () => {
+  it.each(['__proto__', 'constructor'])('opens Detail for inherited tab key %s', async (tab) => {
+    render(<Page search={`?tab=${tab}`} />);
+    await flush();
+    expect(screen.getByTestId('snapshot')).toBeTruthy();
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('tl-tab-detail');
+  });
   it('carries received bounties through initial load, realtime and reconnect', async () => {
     rows('tournament_players', {
       data: [entry('entry-a', { bounty_winnings: '12.25' })],

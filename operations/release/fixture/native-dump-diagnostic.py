@@ -26,6 +26,7 @@ ARCHIVE_URL = 'https://ftp.postgresql.org/pub/source/v17.11/postgresql-17.11.tar
 PREFIX = 'postgresql-17.11/'
 BUILD_STAGE = 'INPUT'
 FIRST_FAILURE_STAGE = None
+FIRST_COMMAND_FAILURE = None
 STAGES = {'INPUT','DOWNLOAD','SOURCE_GUARDS','CONFIGURE','GENERATED_HEADERS','STOCK_BUILD','LIBPQ_INSTALL',
           'DIAGNOSTIC_BUILD','VERSION','SYNTHETIC_RUNTIME','SYNTHETIC_CLUSTER','SYNTHETIC_SEED',
           'SYNTHETIC_STOCK','SYNTHETIC_DIAGNOSTIC','SQL_EQUIVALENCE','SYNTHETIC_CLEANUP','OUTPUT','CLEANUP'}
@@ -199,6 +200,7 @@ def command(args, *, cwd, env, timeout=120, data=None):
     output, errors = bytearray(), bytearray()
     selector = selectors.DefaultSelector()
     proc = None
+    failure_kind = 'SPAWN'
     try:
         with tempfile.TemporaryFile(dir=cwd) as incoming:
             if data is not None: incoming.write(data)
@@ -209,6 +211,7 @@ def command(args, *, cwd, env, timeout=120, data=None):
             for source, target in [(proc.stdout, output), (proc.stderr, errors)]:
                 os.set_blocking(source.fileno(), False)
                 selector.register(source, selectors.EVENT_READ, target)
+            failure_kind = 'DEADLINE'
             until = time.monotonic() + timeout
             while selector.get_map():
                 require(time.monotonic() < until)
@@ -218,9 +221,22 @@ def command(args, *, cwd, env, timeout=120, data=None):
                         selector.unregister(key.fileobj)
                         continue
                     key.data.extend(block)
-                    require(len(output) <= 8 * 1024 * 1024 and len(errors) <= 8 * 1024 * 1024)
-            require(proc.wait(timeout=max(0.1, until - time.monotonic())) == 0)
+                    if len(output) > 8 * 1024 * 1024 or len(errors) > 8 * 1024 * 1024:
+                        failure_kind = 'OUTPUT_LIMIT'
+                        require(False)
+            code = proc.wait(timeout=max(0.1, until - time.monotonic()))
+            failure_kind = 'EXIT_NONZERO'
+            require(code == 0)
             return bytes(output)
+    except Exception:
+        global FIRST_COMMAND_FAILURE
+        if FIRST_COMMAND_FAILURE is None:
+            code = proc.poll() if proc is not None else None
+            FIRST_COMMAND_FAILURE = {'kind': failure_kind,
+                'exit_code': code if type(code) is int and 0 <= code <= 255 else None,
+                'stdout_bytes': min(len(output), 8 * 1024 * 1024 + 65536),
+                'stderr_bytes': min(len(errors), 8 * 1024 * 1024 + 65536)}
+        raise
     finally:
         selector.close()
         if proc is not None and proc.poll() is None:
@@ -676,5 +692,6 @@ if __name__ == '__main__':
         print(json.dumps({'scope':'isolated-native-dump-diagnostic','status':'failed',
                           'stage':FIRST_FAILURE_STAGE if FIRST_FAILURE_STAGE is not None else
                             error.stage if isinstance(error, DiagnosticFailure) else 'UNKNOWN',
-                          'code':'ISOLATED_DUMP_DIAGNOSTIC_REFUSED'}), file=sys.stderr)
+                          'code':'ISOLATED_DUMP_DIAGNOSTIC_REFUSED',
+                          **({'command_failure': FIRST_COMMAND_FAILURE} if FIRST_COMMAND_FAILURE is not None else {})}), file=sys.stderr)
         sys.exit(1)

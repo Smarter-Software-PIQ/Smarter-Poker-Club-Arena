@@ -125,7 +125,7 @@ const LEGACY_TAB_IDS: Record<string, TabId> = {
 export function normaliseTabId(raw: string | null | undefined): TabId {
   const key = (raw || '').trim().toLowerCase();
   if ((TAB_IDS as readonly string[]).includes(key)) return key as TabId;
-  return LEGACY_TAB_IDS[key] ?? 'detail';
+  return Object.prototype.hasOwnProperty.call(LEGACY_TAB_IDS, key) ? LEGACY_TAB_IDS[key] : 'detail';
 }
 
 /** One registered player, as the lobby understands them. */

@@ -59,7 +59,7 @@ const LOBBY_CARD = read('src/components/lobby/game-cards/ArenaLobbyGameCard.tsx'
 describe('compact mobile browsing', () => {
   it('uses shared column sorting and no duplicate toolbar', () => {
     expect(TABLE).toContain(
-      "className={`compact-lobby${hasTournamentHeadings ? ' has-tournament-headings' : ''}`}"
+      "className={`compact-lobby has-premium-chassis${hasTournamentHeadings ? ' has-tournament-headings' : ''}`}"
     );
     expect(TABLE).toContain('handleHeaderClick(col)');
     expect(TABLE).not.toContain('className="lobby-sortbar"');
