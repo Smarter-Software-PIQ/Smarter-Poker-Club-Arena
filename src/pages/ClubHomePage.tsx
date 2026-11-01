@@ -3918,6 +3918,8 @@ function ClubHomePageContent({
         return rows.sort((a, b) => cmpPlayersTourn(a, b) || cmpBuyIn(a, b) || cmpNameTourn(a, b));
       case 'starting_soon': {
         const at = (t: TournamentData) => {
+          // Seat-first games start on fill, not their recycler's stored timestamp.
+          if (isSeatFirstTournament(t)) return Infinity;
           const ms = new Date(t.start_time).getTime();
           return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
         };
@@ -5953,7 +5955,7 @@ function ClubHomePageContent({
               onSortChange={selectSortKey}
               onTypeChange={selectGameType}
               sortOptions={
-                showsCash
+                showsCash || gameType === 'SPIN' || gameType === 'SNG'
                   ? SORT_OPTIONS.filter((option) => option.key !== 'starting_soon')
                   : SORT_OPTIONS
               }

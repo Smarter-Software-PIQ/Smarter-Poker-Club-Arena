@@ -221,3 +221,21 @@ describe('waiting-game tabs default to the current player count', () => {
     expect(defaultSortForTab('ALL')).toBe('starting_soon');
   });
 });
+
+it.each(['SPIN', 'SNG'] as const)(
+  '%s reads an obsolete scheduled-start sort as Players without writing a reset',
+  (tab) => {
+    const raw = JSON.stringify({
+      tab,
+      sortByTab: { [tab]: 'starting_soon', MTT: 'starting_soon' },
+      favoritesOnly: false,
+    });
+    seed(raw);
+    const prefs = loadViewPrefs(CLUB);
+    expect(prefs.sortByTab[tab]).toBe('players');
+    expect(sortForTab(prefs, tab)).toBe('players');
+    expect(sortForTab({ ...prefs, sortByTab: { [tab]: 'starting_soon' } }, tab)).toBe('players');
+    expect(prefs.sortByTab.MTT).toBe('starting_soon');
+    expect(localStorage.getItem(`ca_lobby_view_${CLUB}`)).toBe(raw);
+  }
+);

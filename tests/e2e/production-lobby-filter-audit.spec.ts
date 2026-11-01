@@ -526,6 +526,13 @@ async function assertSort(page: Page, type: Tab, sort: string, raw: Map<string, 
             ? number(row.big_blind) * (/^(flh|flo8)$/.test(variant(row, true)) ? 2 : 1)
             : number(row.buy_in_amount) + number(row.buy_in_fee);
           const start = Date.parse(text(row.start_time));
+          const scheduledStart =
+            type === 'SATELLITE' &&
+            (row.format_contract === 'seat-first-satellite-v1' ||
+              row.format_contract === 'spin-v1' ||
+              (row.format_contract === 'sng-v1' && number(row.max_players) === 2))
+              ? Infinity
+              : Date.parse(text(row.start_time));
           const phase = lateOpen(row)
             ? 0
             : ['REGISTERING', 'OPEN', 'PENDING'].includes(text(row.status).toUpperCase())
@@ -572,7 +579,7 @@ async function assertSort(page: Page, type: Tab, sort: string, raw: Map<string, 
                 : effective === 'tournament-recommended'
                   ? [statusRank, start, -price, -clusterPlayers]
                   : effective === 'starting_soon'
-                    ? [enterable ? 0 : 1, start, -price, -clusterPlayers]
+                    ? [enterable ? 0 : 1, scheduledStart, -price, -clusterPlayers]
                     : [
                         effective === 'players'
                           ? -clusterPlayers
@@ -1038,7 +1045,9 @@ for (const type of TYPES) {
         await summary.click();
         await expect(details).toHaveAttribute('open', '');
       }
-      for (const [key, label] of SORTS.filter(([key]) => !cash || key !== 'starting_soon')) {
+      for (const [key, label] of SORTS.filter(
+        ([key]) => !(cash || type === 'SPIN' || type === 'SNG') || key !== 'starting_soon'
+      )) {
         const button = section('Sort The Board').getByRole('button', { name: label, exact: true });
         await button.click();
         await expect(button).toHaveAttribute('aria-pressed', 'true');

@@ -187,7 +187,8 @@ function sanitizeViewPrefs(parsed: unknown): LobbyViewPrefs {
   if (rawSorts && typeof rawSorts === 'object' && !Array.isArray(rawSorts)) {
     for (const [k, v] of Object.entries(rawSorts as Record<string, unknown>)) {
       if (VALID_TABS.has(k) && typeof v === 'string' && VALID_SORTS.has(v)) {
-        sortByTab[k as LobbyTabKey] = v as LobbySortKey;
+        sortByTab[k as LobbyTabKey] =
+          (k === 'SPIN' || k === 'SNG') && v === 'starting_soon' ? 'players' : (v as LobbySortKey);
       }
     }
   }
@@ -378,5 +379,9 @@ export function defaultSortForTab(tab: LobbyTabKey): LobbySortKey {
 }
 
 export function sortForTab(prefs: LobbyViewPrefs, tab: LobbyTabKey): LobbySortKey {
-  return prefs.sortByTab[tab] ?? defaultSortForTab(tab);
+  const saved = prefs.sortByTab[tab];
+  // A seat-first event has no scheduled start; legacy choices read as Players
+  // without creating a preference write merely because the lobby opened.
+  if ((tab === 'SPIN' || tab === 'SNG') && saved === 'starting_soon') return 'players';
+  return saved ?? defaultSortForTab(tab);
 }

@@ -580,3 +580,76 @@ describe('lobby filters stay attached to the selected game', () => {
     expect(h.register).not.toHaveBeenCalled();
   });
 });
+
+it.each(['SPINS', "SIT N GO'S"])(
+  '%s does not advertise a recycler timestamp as a scheduled start sort',
+  async (label) => {
+    h.setupReads = [DONE];
+    await mountLobby();
+    fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+    fireEvent.click(screen.getByRole('tab', { name: label, exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: 'Advanced Filters' });
+    expect(within(dialog).queryByRole('button', { name: 'Starting Time', exact: true })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Most Players', exact: true })).toBeTruthy();
+  }
+);
+
+it('Satellite Starting Time puts scheduled MTT dates ahead of seat-first recycler timestamps', async () => {
+  h.setupReads = [DONE];
+  const base = {
+    club_id: 'club-a',
+    game_type: 'NLH',
+    status: 'REGISTERING',
+    current_players: 0,
+    buy_in_amount: 10,
+    buy_in_fee: 1,
+    starting_chips: 1000,
+    table_size: 9,
+    tournament_type: 'SATELLITE',
+    satellite_target_id: 'target',
+  };
+  h.tournaments = [
+    {
+      ...base,
+      id: 'seat-first-satellite',
+      name: 'Seat First Qualifier',
+      format_contract: 'seat-first-satellite-v1',
+      max_players: 2,
+      start_time: new Date(Date.now() - 172_800_000).toISOString(),
+    },
+    {
+      ...base,
+      id: 'scheduled-satellite',
+      name: 'Scheduled Qualifier',
+      format_contract: 'mtt-v1',
+      max_players: null,
+      start_time: new Date(Date.now() + 3_600_000).toISOString(),
+    },
+  ];
+  await mountLobby();
+  fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+  fireEvent.click(screen.getByRole('tab', { name: 'SATELLITES', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
+  await flush();
+  fireEvent.click(
+    within(screen.getByRole('dialog', { name: 'Advanced Filters' })).getByRole('button', {
+      name: 'Starting Time',
+      exact: true,
+    })
+  );
+  await flush();
+  let witnessed = 0;
+  for (const body of document.querySelectorAll('tbody')) {
+    const ids = Array.from(body.querySelectorAll('.lt-row[data-id]')).map((row) =>
+      row.getAttribute('data-id')
+    );
+    if (ids.includes('scheduled-satellite')) {
+      expect(ids).toEqual(['scheduled-satellite', 'seat-first-satellite']);
+      witnessed += 1;
+    }
+  }
+  expect(witnessed).toBeGreaterThan(0);
+  expect(h.register).not.toHaveBeenCalled();
+});
