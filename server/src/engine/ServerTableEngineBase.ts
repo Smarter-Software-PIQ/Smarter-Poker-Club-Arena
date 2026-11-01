@@ -2285,6 +2285,18 @@ export abstract class ServerTableEngineBase {
    * longer. Reset with the showdown results at every deal.
    */
   protected currentHandAllInShowdown = false;
+  protected completedOriginalShowdownReadMs = 0;
+
+  protected async awaitHandCompletionDisplay(totalMs: number): Promise<void> {
+    // Multi-board and BBJ hold formulas do not contain this showdown-read
+    // term. Their complete presentation must remain untouched.
+    const completedRead =
+      this.currentHandRitBoards < 2 && !this.currentHandBBJHit?.hit
+        ? this.completedOriginalShowdownReadMs
+        : 0;
+    this.completedOriginalShowdownReadMs = 0;
+    await this.sleep(Math.max(0, totalMs - completedRead));
+  }
 
   /**
    * SHOWDOWN SYSTEM 2026-08-25: true when the player mucked at showdown and
@@ -12300,7 +12312,9 @@ export abstract class ServerTableEngineBase {
   protected abstract handleHandEvent(
     event: HandEvent,
     players: SeatedPlayer[],
-    persistenceGeneration?: number
+    persistenceGeneration?: number,
+    turnAlreadySettled?: boolean,
+    orderedOriginal?: boolean
   ): Promise<void>;
 
   // ── Implemented by ServerTableEngine (layer 8/8) ──
