@@ -13,11 +13,12 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 // This fixture spawns the complete audit across the mocked estate. In the
-// 302-file hook, the unreadable-detail case completed in 16.442s against its
-// old 15s cap. Bound the actual child at 30s and allow its parent 45s for
-// process startup and cleanup; all production deadlines and assertions stay.
-const AUDIT_CHILD_TIMEOUT_MS = 30_000;
-const AUDIT_CASE_TIMEOUT_MS = 45_000;
+// current hook, complete mocked audits took up to 36.287s; the valid-detail
+// child was killed at 30s even with one worker. Bound this functional fixture
+// at 45s with 15s parent cleanup headroom. This is not an engine, network,
+// native-capture or gameplay deadline; every audit assertion remains required.
+const AUDIT_CHILD_TIMEOUT_MS = 45_000;
+const AUDIT_CASE_TIMEOUT_MS = 60_000;
 
 const ROOT = resolve(__dirname, '..');
 const AUDIT = resolve(ROOT, '.github/scripts/estate-integrity.sh');

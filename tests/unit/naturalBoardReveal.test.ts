@@ -42,11 +42,11 @@ beforeEach(() => {
   currentTime = 0;
   finished = false;
   document.body.innerHTML =
-    '<span class="header-hand-number">#42</span><div class="community-cards"><div class="community-cards__container">' +
+    '<section class="table-page"><span class="header-hand-number">#42</span><div class="community-cards"><div class="community-cards__container">' +
     card() +
     card() +
     card() +
-    '</div></div>';
+    '</div></div></section>';
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
@@ -418,4 +418,153 @@ it('captures and always retains both existing intervals in the shared MTT SPIN S
   );
   expect(shared).toContain('mobile-live-table-${tag}-natural-board-reveal.json');
   expect(shared).toMatch(/writeFileSync\(\s*boardEvidencePath,/);
+});
+
+it('does not borrow a hidden mounted table hand label for the visible board', () => {
+  const original = document.body.innerHTML;
+  document.body.innerHTML =
+    '<div class="multi-table-page__table-slot" style="display:none"><section class="table-page"><span class="header-hand-number">#999</span><div class="community-cards"><div class="community-cards__container">' +
+    card() +
+    card() +
+    card() +
+    '</div></div></section></div>' +
+    '<div class="multi-table-page__table-slot multi-table-page__table-slot--active">' +
+    original +
+    '</div>';
+  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (
+    this: HTMLElement
+  ) {
+    return { width: this.closest('[style="display:none"]') ? 0 : 300, height: 80 } as DOMRect;
+  });
+  const activeContainer = document.querySelector(
+    '.multi-table-page__table-slot--active .community-cards__container'
+  )!;
+  installNaturalBoardReveal(10000);
+  frame();
+  frame();
+  for (const to of [4, 5]) {
+    activeContainer.insertAdjacentHTML('beforeend', card(true));
+    angle = 0;
+    currentTime = 0;
+    finished = false;
+    frame();
+    angle = 180;
+    currentTime = 350;
+    finished = true;
+    frame();
+    frame();
+  }
+  const receipts = window.__naturalBoardReveal!.stop();
+  expect(
+    naturalBoardRevealEvidence(
+      receipts,
+      receipts.map((r) => wire(r)),
+      'table'
+    ).verdict
+  ).toBe('qualified');
+  expect(window.__naturalBoardReveal!.diagnostics.hand.scopedMismatchTicks).toBeGreaterThan(0);
+});
+
+it.each(['missing-owner', 'ambiguous-hand'])(
+  'refuses %s without borrowing a global hand and retains its bounded reason',
+  (reason) => {
+    if (reason === 'missing-owner')
+      document.body.innerHTML = document.querySelector('.table-page')!.innerHTML;
+    else
+      document
+        .querySelector('.table-page')!
+        .insertAdjacentHTML('beforeend', '<span class="table-brand__hand">Hand #43</span>');
+    installNaturalBoardReveal(10000);
+    frame();
+    frame();
+    add();
+    frame();
+    const capture = window.__naturalBoardReveal!;
+    expect(capture.stop()).toEqual([]);
+    expect(
+      capture.diagnostics.reasons[
+        reason === 'missing-owner' ? 'missing-table-owner' : 'ambiguous-hand'
+      ]
+    ).toBe(3);
+    expect(capture.diagnostics.eligibleTicks).toBe(0);
+    expect(capture.diagnostics.stopReason).toBe('manual');
+  }
+);
+
+it('retains empty-observation eligibility and histogram counters without card or player data', () => {
+  vi.mocked(document.hasFocus).mockReturnValue(false);
+  installNaturalBoardReveal(10000);
+  frame();
+  frame();
+  add();
+  frame();
+  const capture = window.__naturalBoardReveal!;
+  capture.stop();
+  expect(capture.diagnostics).toMatchObject({
+    ticks: 3,
+    eligibleTicks: 0,
+    firstTickAt: 1016,
+    lastTickAt: 1048,
+    maxRafGapMs: 16,
+    reasons: { unfocused: 3 },
+    boardCounts: { '1': 3 },
+    cardCounts: { '3': 2, '4': 1 },
+    hand: { validTicks: 3 },
+  });
+  const result = naturalBoardRevealIntervalsEvidence(
+    [
+      {
+        name: 'before-outage',
+        receipts: capture.receipts,
+        frames: [],
+        diagnostics: capture.diagnostics,
+      },
+    ],
+    'table'
+  );
+  expect(result.verdict).toBe('unknown');
+  expect(result.intervals[0].diagnostics).toEqual(capture.diagnostics);
+  expect(JSON.stringify(capture.diagnostics)).not.toMatch(/PUBLIC|#42|rank|suit|user_id/);
+});
+
+it('counts hidden, multi-board and banner exclusions without granting eligibility', () => {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    '<div class="community-cards"></div><div data-testid="table-connection-banner"></div>'
+  );
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+  installNaturalBoardReveal(10000);
+  frame();
+  const d = window.__naturalBoardReveal!.diagnostics;
+  expect(d).toMatchObject({
+    ticks: 1,
+    eligibleTicks: 0,
+    reasons: { hidden: 1, 'multiple-boards': 1, banner: 1 },
+    boardCounts: { '2+': 1 },
+  });
+});
+
+it('records bounded stop and sampling gaps without manufacturing coverage', () => {
+  installNaturalBoardReveal(1100);
+  frame();
+  vi.advanceTimersByTime(1100);
+  frame();
+  const capture = window.__naturalBoardReveal!;
+  expect(capture.diagnostics.stopReason).toBe('deadline');
+  expect(capture.diagnostics.ticks).toBe(1);
+  expect(capture.receipts).toEqual([]);
+});
+
+it('caps diagnostic counters and gaps while preserving unknown animation evidence', () => {
+  installNaturalBoardReveal(1_000_000);
+  frame();
+  const capture = window.__naturalBoardReveal!;
+  capture.diagnostics.ticks = 1_000_000;
+  vi.advanceTimersByTime(65_000);
+  frame();
+  expect(capture.diagnostics.ticks).toBe(1_000_000);
+  expect(capture.diagnostics.maxRafGapMs).toBe(60_000);
+  expect(capture.diagnostics.gapCapReached).toBe(true);
+  expect(capture.diagnostics.gapsOverOneSecond).toBe(1);
+  expect(capture.stop()).toEqual([]);
 });

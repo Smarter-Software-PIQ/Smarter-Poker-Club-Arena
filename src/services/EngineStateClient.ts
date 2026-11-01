@@ -1085,6 +1085,19 @@ export class EngineStateClient {
    * the real event instead of reporting the same gap forever.
    */
   private eventGapReportedForSeq = 0;
+  /** A decision event cannot authorize controls using another street's wagers. */
+  private pendingTurnChange: Record<string, unknown> | null = null;
+
+  private releaseRecoveredTurn(): void {
+    const pending = this.pendingTurnChange;
+    if (!pending || pending.action_context !== this.snapshot?.action_context) return;
+    this.pendingTurnChange = null;
+    try {
+      this.opts.onEvent(pending);
+    } catch (err) {
+      console.error('[EngineStateClient] onEvent listener threw', err);
+    }
+  }
 
   private reportEventGap(
     reason: 'reconnect' | 'event_sequence_gap',
@@ -1139,6 +1152,7 @@ export class EngineStateClient {
       this.inbox = [];
       this.lastEventSeq = 0;
       this.eventGapReportedForSeq = 0;
+      this.pendingTurnChange = null;
       this.seq = 0;
       this.snapshot = null;
       this.pendingSnapshotSince ??= Date.now();
@@ -1250,6 +1264,23 @@ export class EngineStateClient {
           this.eventGapReportedForSeq = 0;
           this.lastEventSeq = seq;
         }
+        const decision = msg.payload?.action_context;
+        if (
+          msg.payload?.type === 'turn_change' &&
+          typeof decision === 'string' &&
+          decision.length > 0 &&
+          decision !== this.snapshot?.action_context
+        ) {
+          // A state frame can be soft-dropped independently of EVENT frames.
+          // Never combine this new token with cached bets/action labels from
+          // the previous street. The existing bounded RESYNC recovers the
+          // whole decision; keep only its latest notification, never an input.
+          this.pendingTurnChange = msg.payload;
+          this.requestResync();
+          if (this.inbox.length > 0) this.scheduleDrain();
+          return;
+        }
+        if (msg.payload?.type === 'turn_change') this.pendingTurnChange = null;
         try {
           this.opts.onEvent(msg.payload);
         } catch (err) {
@@ -1281,6 +1312,7 @@ export class EngineStateClient {
       this.clearForegroundStateProbe();
       this.unansweredSnapshotResyncs = 0;
       this.opts.onSnapshot(this.snapshot, this.seq);
+      this.releaseRecoveredTurn();
       return;
     }
     if (msg.type !== 'DELTA') return;
@@ -1302,6 +1334,7 @@ export class EngineStateClient {
       this.snapshot = next;
       this.seq = msg.seq;
       this.opts.onSnapshot(this.snapshot, this.seq);
+      this.releaseRecoveredTurn();
     } catch {
       // Patch failed — force a resync
       this.requestResync();
@@ -1318,6 +1351,7 @@ export class EngineStateClient {
     this.inbox = [];
     this.lastEventSeq = 0;
     this.eventGapReportedForSeq = 0;
+    this.pendingTurnChange = null;
     /**
      * EPOCH RESET 2026-08-27 (security/realtime audit): the table froze
      * permanently after ANY engine restart.

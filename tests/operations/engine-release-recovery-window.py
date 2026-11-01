@@ -699,5 +699,64 @@ class OwnerWitnessRealHistory(unittest.TestCase):
                         admitted = ('owner-ordered fixture' if selector == 'host' else 'allowed=true') in result.stdout
                         self.assertEqual(admitted, expected, result.stdout + result.stderr)
 
+
+class FreshEngineOwnerWindow(unittest.TestCase):
+    """withinSecondsOfEngineStart: a window opens only right after an engine start."""
+
+    def reason(self, window, health):
+        with tempfile.TemporaryDirectory(prefix='fresh-engine-window-') as tmp:
+            repo = Path(tmp)
+            env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+            empty = repo / 'empty-gitconfig'
+            empty.write_text('')
+            env.update({'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': str(empty),
+                        'GIT_AUTHOR_NAME': 'f', 'GIT_AUTHOR_EMAIL': 'f@example.invalid',
+                        'GIT_COMMITTER_NAME': 'f', 'GIT_COMMITTER_EMAIL': 'f@example.invalid'})
+            def git(*args):
+                r = subprocess.run(['git', '-C', tmp, *args], text=True, capture_output=True, env=env, timeout=10)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                return r.stdout.strip()
+            git('init', '-q'); git('config', 'commit.gpgsign', 'false')
+            (repo / 'base').write_text('base\n'); git('add', '.'); git('commit', '-qm', 'base')
+            contains = git('rev-parse', 'HEAD')
+            now = 1793600000
+            doc = {'version': 1, 'windows': [{
+                'id': 'fresh-fixture', 'ownerOrder': 'Owner ordered this fixture window.',
+                'contains': contains, 'notBefore': '2026-11-01T00:00:00Z', 'notAfter': '2026-11-01T06:00:00Z',
+                'migrations': [], **window}], 'databaseWindows': []}
+            manifest = repo / 'server/release/owner-maintenance-windows.json'
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(json.dumps(doc))
+            git('add', '.'); git('commit', '-qm', 'window')
+            target = git('rev-parse', 'HEAD')
+            function = SOURCE[SOURCE.index('owner_window_reason() {'):SOURCE.index(
+                '\n# The seal and the serving engine already know')]
+            # 2026-11-01T03:00Z, inside the fixture window; serving is unrelated.
+            script = ('set -euo pipefail\ntimeout() { shift 3; "$@"; }\ndate() { echo 1793502000; }\n'
+                      + function + '\nowner_window_reason "$HEALTH"\n')
+            result = subprocess.run(['bash', '-c', script], cwd=repo, text=True, capture_output=True, timeout=15,
+                                    env={**env, 'REPO_DIR': tmp, 'SHA': target,
+                                         'HEALTH': json.dumps({'releaseSha': 'f' * 40, **health})})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout.strip()
+
+    def test_opens_only_while_the_serving_process_is_fresh(self):
+        fresh = {'withinSecondsOfEngineStart': 240}
+        self.assertEqual(self.reason(fresh, {'uptime': 0}), 'owner-ordered fresh-fixture')
+        self.assertEqual(self.reason(fresh, {'uptime': 240}), 'owner-ordered fresh-fixture')
+        self.assertEqual(self.reason(fresh, {'uptime': 241}), '')
+        self.assertEqual(self.reason(fresh, {}), '')
+        self.assertEqual(self.reason(fresh, {'uptime': '60'}), '')
+        self.assertEqual(self.reason(fresh, {'uptime': True}), '')
+        self.assertEqual(self.reason(fresh, {'uptime': -1}), '')
+
+    def test_an_out_of_band_bound_grants_nothing(self):
+        for bound in (29, 601, '240', True, 240.0):
+            self.assertEqual(self.reason({'withinSecondsOfEngineStart': bound}, {'uptime': 10}), '', bound)
+
+    def test_a_window_without_the_field_is_unchanged(self):
+        self.assertEqual(self.reason({}, {}), 'owner-ordered fresh-fixture')
+        self.assertEqual(self.reason({}, {'uptime': 99999}), 'owner-ordered fresh-fixture')
+
 if __name__ == '__main__':
     unittest.main()

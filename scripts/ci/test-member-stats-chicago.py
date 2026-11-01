@@ -8,6 +8,31 @@ import argparse,json,os,subprocess,tempfile,shutil
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 FIX=ROOT/'scripts/ci/fixtures/member-stats-chicago'
+REPORTING_FUNCTIONS = {
+ 'ca_member_record_chicago_facts', 'ca_club_member_chicago_fee_totals',
+ 'ca_club_member_detail', 'ca_club_member_statistics', 'ca_club_member_downline_in_range',
+}
+
+def latest_reporting_overlay(directory, baseline):
+ # Reuse the estate's adversarially tested SQL lexer. Import only its pure
+ # parser definitions, never the chip-journal runner or its database actions.
+ source = ROOT/'scripts/ci/probes/chip-journal-atomicity/test_atomicity.py'
+ prefix = source.read_text().split('\npg=os.environ', 1)[0]
+ parser = {'__name__': 'member_reporting_history_parser'}
+ exec(compile(prefix, str(source), 'exec'), parser)
+ overlay = []
+ for path in sorted(directory.glob('*.sql')):
+  if path.name <= baseline:
+   continue
+  for event, payload in parser['_history_events'](path.read_text(), path.name):
+   name = payload.name if event == 'create' else payload[0]
+   if name not in REPORTING_FUNCTIONS:
+    continue
+   if event != 'create':
+    raise RuntimeError(f'Reporting function {event} requires fixture qualification: {path.name}: {name}')
+   overlay.append((path.name, payload.declaration))
+ return overlay
+
 def main():
  ap=argparse.ArgumentParser();ap.add_argument('--scratch',type=Path,required=True);ap.add_argument('--migration',type=Path,required=True);a=ap.parse_args()
  pg=Path(os.environ.get('PG_BIN','/opt/homebrew/opt/postgresql@17/bin'))
@@ -20,12 +45,13 @@ def main():
  def q(s):return run(ps,s)
  def yes(s):assert q(s)=='t',s
  c="md5('club')::uuid";u="md5('user')::uuid";other="md5('other')::uuid"
- def seed(day):
-  q('TRUNCATE ca_hand_facts,member_record_daily_facts,rake_attributions,rake_records,accounting_tournament_fee_sources,ca_club_rake_daily_user,ca_club_member_tournament_fee_daily,chip_transactions,test_money;')
+ def seed(day, reset=True):
+  if reset:q('TRUNCATE ca_hand_facts,member_record_daily_facts,rake_attributions,rake_records,accounting_tournament_fee_sources,ca_club_rake_daily_user,ca_club_member_tournament_fee_daily,chip_transactions,test_money;')
   q(f"""WITH b AS(SELECT '{day}'::date::timestamp AT TIME ZONE 'America/Chicago' s,('{day}'::date+1)::timestamp AT TIME ZONE 'America/Chicago' e), times AS(
    SELECT s-interval '1 microsecond' ts FROM b UNION SELECT s FROM b UNION SELECT e-interval '1 microsecond' FROM b UNION SELECT e FROM b
    UNION SELECT generate_series(s+interval '30 minutes',e-interval '1 minute',interval '1 hour') FROM b
-  ) INSERT INTO ca_hand_facts SELECT md5(ts::text)::uuid,{u},{c},md5('table')::uuid,CASE WHEN row_number()OVER(ORDER BY ts)%3=0 THEN md5('mtt')::uuid END,ts,'nlh',row_number()OVER(ORDER BY ts),0.23,true,true,true,true,true,true,true FROM times;
+  ) INSERT INTO ca_hand_facts SELECT md5(ts::text)::uuid,{u},{c},md5('table')::uuid,CASE WHEN row_number()OVER(ORDER BY ts)%3=0 THEN md5('mtt')::uuid END,ts,'nlh',row_number()OVER(ORDER BY ts),0.23,true,true,true,true,true,true,true FROM times WHERE NOT EXISTS(SELECT 1 FROM ca_hand_facts f WHERE f.hand_id=md5(ts::text)::uuid);
+  TRUNCATE member_record_daily_facts,rake_attributions,rake_records,accounting_tournament_fee_sources,ca_club_rake_daily_user,ca_club_member_tournament_fee_daily,chip_transactions,test_money;
   INSERT INTO member_record_daily_facts SELECT club_id,user_id,(played_at AT TIME ZONE 'UTC')::date,game_variant,tournament_id IS NOT NULL,count(*),count(*)FILTER(WHERE net>0),count(*),count(*),count(*),count(*),count(*),count(*),count(*),sum(rake_paid),sum(net),NULL FROM ca_hand_facts GROUP BY 1,2,3,4,5;
   INSERT INTO rake_records SELECT hand_id,played_at FROM ca_hand_facts;
   INSERT INTO rake_attributions SELECT hand_id,club_id,user_id,hand_id,played_at,rake_paid FROM ca_hand_facts;
@@ -48,6 +74,12 @@ def main():
   yes(f"SELECT (public.ca_club_member_detail({args('2026-11-01')})->'stats'->>'claimed_back')::numeric IS DISTINCT FROM (SELECT count(*) FROM({expected('2026-11-01')})e)")
   print('PASS preimage reproduces UTC day defect')
   q(a.migration.read_text())
+  # Execute later definitions in migration order before every behavioral assertion.
+  # A new UTC regression must fail even though the original repair still passes.
+  for filename, declaration in latest_reporting_overlay(a.migration.parent, a.migration.name):
+   q(declaration)
+   print('QUALIFY latest reporting definition:', filename)
+
   for day,hours in [('2026-03-08',23),('2026-11-01',25),('2027-03-14',23),('2026-10-31',24),('2026-11-02',24)]:
    seed(day)
    yes(f"SELECT extract(epoch FROM (('{day}'::date+1)::timestamp AT TIME ZONE 'America/Chicago')-('{day}'::date::timestamp AT TIME ZONE 'America/Chicago'))/3600={hours}")
@@ -59,12 +91,25 @@ def main():
    if day>='2026-10-12':
     yes(f"SELECT cash_fees=(SELECT count(*)*.23 FROM({raw})e) AND tournament_fees=(SELECT count(*)*.37 FROM({raw})e)FROM ca_club_member_chicago_fee_totals({c},'{day}','{day}',{u})")
    print('PASS',day,hours,'hours, actual RPC hands/transfers/tournament/fee bounds')
+  # Multi-week windows exercise daily core buckets as well as both partial edges.
+  for day in ['2026-10-10','2026-10-13','2026-10-25','2026-10-31','2026-11-01']:
+   seed(day, reset=False)
+  for start,end in [('2026-10-03','2026-11-01'),('2026-10-26','2026-11-02'),(None,'2026-11-01'),('2026-10-26',None)]:
+   first="NULL::date" if start is None else "'"+start+"'::date"
+   last="NULL::date" if end is None else "'"+end+"'::date"
+   raw=f"SELECT * FROM ca_hand_facts WHERE played_at>=greatest({first}::timestamp AT TIME ZONE 'America/Chicago',fn_ca_fee_counting_start()::timestamp AT TIME ZONE 'UTC') AND ({last} IS NULL OR played_at<({last}+1)::timestamp AT TIME ZONE 'America/Chicago')"
+   yes(f"SELECT cash_fees=(SELECT sum(round(rake_paid*100))/100 FROM({raw})e) AND tournament_fees=(SELECT count(*)*.37 FROM({raw})e) FROM ca_club_member_chicago_fee_totals({c},{first},{last},{u})")
+  print('PASS multi-week, cutoff and open-ended fee windows match independent raw receipts')
   # Standing shares remain per-rule/per-UTC-day rounded, restricted to the selected timestamps.
   q(f"INSERT INTO smarter_private.player_rake_share_rules VALUES('fixture',{c},{u},{other},5000,'2026-01-01Z',NULL);")
   yes(f"SELECT coalesce((SELECT cash_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{u})),0)+coalesce((SELECT cash_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{other})),0)=(SELECT count(*)*.23 FROM({expected('2026-11-02')})e)")
   q(f"INSERT INTO smarter_private.player_fee_redemptions VALUES({c},{u},'2026-11-03',100);")
   # Fixed UTC-midnight redemption belongs to the preceding Chicago date.
   yes(f"SELECT (SELECT cash_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{u}))=(SELECT count(*)*.23 FROM({expected('2026-11-02')})e)-(SELECT sum(round(n*.23*5000/100)) FROM(SELECT count(*) n FROM({expected('2026-11-02')})e GROUP BY (played_at AT TIME ZONE 'UTC')::date)x)/100-1")
+  yes(f"SELECT coalesce(sum(cash_fees),0)=(SELECT count(*)*.23 FROM({expected('2026-11-02')})e)-1 FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',NULL)")
+  for member in [u,other]:
+   yes(f"SELECT (SELECT total_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',NULL) WHERE user_id={member})=(SELECT total_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{member}))")
+  print('PASS bulk fees conserve receipts and exactly match each selected-member result')
   print('PASS standing shares conserve selected-window fees; fixed redemption timestamp retained')
   q(f"UPDATE club_members SET agent_id={other} WHERE user_id={u};")
   yes(f"SELECT (SELECT total_fees FROM ca_club_member_downline_in_range({c},{other},'2026-11-02','2026-11-02'))=(SELECT total_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{u}))")

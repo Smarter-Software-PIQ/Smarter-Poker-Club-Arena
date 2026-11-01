@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 // run but never withhold a check.
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CSS_BEAT_SHARED_INPUTS =
-  /^tests\/e2e\/(?:global-setup\.ts|support\/|fixtures\/|helpers\/[^/]+\.mjs$|__screenshots__\/)|^playwright(?:\.[a-z-]+)?\.config\.ts$/;
+  /^tests\/e2e\/(?:global-setup\.ts|support\/|fixtures\/|helpers\/[^/]+\.mjs$|__screenshots__\/)|^tests\/live-turn\/(?:replay-engine\.ts$|wire\/)|^tests\/stale-client\/mock-backend\.ts$|^playwright(?:\.[a-z-]+)?\.config\.ts$/;
 export function cssBeatJobInputs(root = REPO_ROOT) {
   const read = (file) => readFileSync(resolve(root, file), 'utf8');
   try {
@@ -36,7 +36,7 @@ export function cssBeatJobInputs(root = REPO_ROOT) {
     const rest = workflow.slice(start + 1);
     const next = rest.search(/^  [A-Za-z0-9_-]+:\s*$/m);
     const block = next < 0 ? rest : rest.slice(0, next);
-    const specs = new Set(block.match(/tests\/[A-Za-z0-9_./-]+\.spec\.ts/g) || []);
+    const specs = new Set(block.match(/tests\/[A-Za-z0-9_./-]+\.(?:spec|pw)\.ts/g) || []);
     const matchers = [];
     const scripts = JSON.parse(read('package.json')).scripts || {};
     const visited = new Set();
@@ -113,7 +113,8 @@ export function cssBeatJobInputs(root = REPO_ROOT) {
 const cssBeatInput =
   cssBeatJobInputs() ||
   ((p) =>
-    !p.endsWith('.md') && (/^tests\/(?:e2e|browser)\//.test(p) || CSS_BEAT_SHARED_INPUTS.test(p)));
+    !p.endsWith('.md') &&
+    (/^tests\/(?:e2e|browser|live-turn)\//.test(p) || CSS_BEAT_SHARED_INPUTS.test(p)));
 
 const all = () => ({ src: true, server: true, tests: true, phase4: true, fixture: true });
 const wide =

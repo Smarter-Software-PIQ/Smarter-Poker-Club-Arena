@@ -1,3 +1,8 @@
+import {
+  chicagoDay as isoDate,
+  lastDaysRange,
+  nextChicagoDay as nextMemberDay,
+} from '../lib/clubDataDay';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -51,9 +56,6 @@ import { isUUID } from '../utils/clubIdResolver';
 import { ClubNotFoundError, resolveClubUUIDStrict } from '../utils/strictClubIdResolver';
 import ClubRosterService, {
   RANGE_OVERALL,
-  lastDaysRange,
-  isoDate,
-  nextMemberDay,
   type MemberRange,
   type MemberStatistics,
 } from '../services/ClubRosterService';
@@ -514,7 +516,7 @@ export default function PlayerStatisticsPage() {
               : `Showing ${stats?.from ?? range.from ?? '?'} To ${stats?.to ?? range.to ?? '?'} Chicago Time · ${variantLabel(stats ? stats.variant : variant)}`}
         </p>
         <p className="ps-range__caption">
-          Chicago Dates Include Both From And To. Custom Dates Need Confirm.
+          Chicago Time, DST Automatic. Both Dates Included. Custom Dates Need Confirm.
         </p>
         {rangeMode === 'custom' && (customFrom !== range.from || customTo !== range.to) && (
           <p className="ps-range__draft" role="status">

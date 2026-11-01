@@ -1591,10 +1591,18 @@ print(",".join(signs))
 # certificate, rollback reserve and thaw.
 # Prints "owner-ordered <id>" or nothing; never fails the caller.
 owner_window_reason() {
-  local windows now picked id contains serving witness_path witness_sha target_witness served_witness
+  local windows now picked id contains serving witness_path witness_sha target_witness served_witness engine_uptime
   windows="$(timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \
     git -C "$REPO_DIR" show "$SHA:server/release/owner-maintenance-windows.json" 2>/dev/null)" || return 0
   now="$(date +%s)"
+  # The serving process's own uptime, for a window that may only open right
+  # after an engine start (withinSecondsOfEngineStart). Unreadable is "".
+  engine_uptime="$(printf '%s' "${1:-}" | python3 -c '
+import json, sys
+try: v = json.load(sys.stdin).get("uptime")
+except Exception: v = None
+print(v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else "")
+' 2>/dev/null)" || engine_uptime=''
   picked="$(printf '%s' "$windows" | python3 -c '
 import json, re, sys
 from datetime import datetime, timezone
@@ -1623,6 +1631,16 @@ for w in entries:
     if nb.tzinfo is None or na.tzinfo is None: continue
     if not (0 < (na - nb).total_seconds() <= 6 * 3600) or not (nb <= now <= na): continue
     if minutes is not None and (not isinstance(minutes, list) or local.minute not in minutes): continue
+    # FRESH-ENGINE WINDOW (2026-11-01). eed06fe5 restarts on its own every
+    # 90-120 minutes; within minutes of a start it has re-adopted almost none of
+    # the tables it can never finish and its heap is small enough for the
+    # census, so the unchanged certificate and census can both pass. A window
+    # carrying this field grants its reason only while the serving process is
+    # at most that many seconds old; an unreadable uptime grants nothing.
+    fresh = w.get("withinSecondsOfEngineStart")
+    if fresh is not None:
+        if not (isinstance(fresh, int) and not isinstance(fresh, bool) and 30 <= fresh <= 600): continue
+        if not re.fullmatch(r"[0-9]+", sys.argv[2]) or int(sys.argv[2]) > fresh: continue
     witness = w.get("releaseWitness")
     path, digest = "-", "-"
     if "releaseWitness" in w:
@@ -1633,7 +1651,7 @@ for w in entries:
             print("invalid - - -")
             break
     print(wid, contains, path, digest)
-' "$now" 2>/dev/null)" || return 0
+' "$now" "$engine_uptime" 2>/dev/null)" || return 0
   [ -n "$picked" ] || return 0
   while read -r id contains witness_path witness_sha; do
   timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \

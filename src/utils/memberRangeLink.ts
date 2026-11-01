@@ -1,4 +1,5 @@
-import { RANGE_OVERALL, lastDaysRange, type MemberRange } from '../services/ClubRosterService';
+import { lastDaysRange } from '../lib/clubDataDay';
+import { RANGE_OVERALL, type MemberRange } from '../services/ClubRosterService';
 
 /**
  * THE RANGE TRAVELS WITH THE LINK. The Player Record opens Player Statistics
