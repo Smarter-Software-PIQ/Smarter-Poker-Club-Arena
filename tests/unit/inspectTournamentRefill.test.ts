@@ -308,6 +308,8 @@ finally: os.unlink(path)
         '\n'
     ),
     encoding: 'utf8',
+    // The reader owns a 5s scan and up to 2s child cleanup. Keep the
+    // existing 12s harness convention so startup and serialization fit too.
     timeout: historyFixtureTimeoutMs,
   });
   expect(ran.status, ran.stderr).toBe(0);
