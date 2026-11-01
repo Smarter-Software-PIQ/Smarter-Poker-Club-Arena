@@ -2717,6 +2717,30 @@ for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9])
         await document.fonts.load('600 14px Inter');
         await document.fonts.ready;
       });
+      // Font readiness alone does not complete asynchronous portrait decoding
+      // and the original finite chair allocation. Observe its real output.
+      await page.waitForFunction(() => {
+        const images = [...document.querySelectorAll<HTMLImageElement>('.seat__avatar-img')];
+        return (
+          images.length > 0 &&
+          images.every((image) => {
+            if (!image.complete || !image.naturalWidth) return false;
+            if (image.closest('.seat-wrapper--hero')) return true;
+            return Boolean(
+              image
+                .closest<HTMLElement>('.seat__avatar')
+                ?.style.getPropertyValue('--sp-opponent-art-scale') &&
+              image.closest<HTMLElement>('.seat')?.style.getPropertyValue('--sp-opponent-x')
+            );
+          })
+        );
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => done()))
+          )
+      );
       const boardCollisions = await page.evaluate(() => {
         const board = document.querySelector('.community-area')!.getBoundingClientRect();
         return [...document.querySelectorAll('.seat__info,.seat__action')]

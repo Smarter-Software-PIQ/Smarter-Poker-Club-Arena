@@ -1227,23 +1227,6 @@ export function createOpponentAvatarLayout(
         seat.style.removeProperty('--sp-opponent-x');
         seat.style.removeProperty('--sp-opponent-y');
       });
-      // The bottom display reference is still an opponent when spectating.
-      // Keep its native size, fitting only an actual footer intrusion once
-      // before the ring is allocated and locked. Real Hero never enters here.
-      const referenceSeat = anchorSeat();
-      const footer = page.querySelector('.spectator-footer-bar');
-      if (referenceSeat && !referenceSeat.classList.contains('seat--hero') && footer) {
-        const panel = referenceSeat.querySelector(':scope > .seat__info');
-        if (panel) {
-          const panelBox = box(panel);
-          const intrusion = panelBox.top + panelBox.height + 3 - box(footer).top;
-          if (intrusion > 0)
-            referenceSeat.style.setProperty(
-              '--sp-opponent-y',
-              `${-intrusion / tableRenderScale(scaler)}px`
-            );
-        }
-      }
     }
     // SeatSlot measures caption clearance on the existing animation frame.
     // Allocate once that permanent artwork rise has reached its caption.
@@ -1549,6 +1532,23 @@ export function createOpponentAvatarLayout(
     }
     let changed = false;
     const ratio = tableRenderScale(scaler);
+    // Fit the observer reference only during the original allocation, after
+    // SeatSlot's caption clearance has settled. Include the current offset so
+    // another initial pass cannot undo or compound an already applied fit.
+    const referenceSeat = anchorSeat();
+    const footer = page.querySelector('.spectator-footer-bar');
+    if (referenceSeat && !referenceSeat.classList.contains('seat--hero') && footer) {
+      const panel = referenceSeat.querySelector(':scope > .seat__info');
+      if (panel) {
+        const panelBox = box(panel);
+        const intrusion = panelBox.top + panelBox.height + 3 - box(footer).top;
+        if (intrusion > 0) {
+          const current = parseFloat(referenceSeat.style.getPropertyValue('--sp-opponent-y')) || 0;
+          referenceSeat.style.setProperty('--sp-opponent-y', `${current - intrusion / ratio}px`);
+          changed = true;
+        }
+      }
+    }
     const pageBox = box(page);
     const header = page
       .closest('.multi-table-page')
