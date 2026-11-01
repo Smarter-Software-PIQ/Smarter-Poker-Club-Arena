@@ -345,3 +345,34 @@ test('mobile all-in equity badges are half size', async ({ page }) => {
     expect(mobile.trackH).toBe(3);
   }
 });
+
+test('full portrait caps reclaim an absent jackpot band at the highest clear point', async ({
+  page: p,
+}) => {
+  await p.setViewportSize({ width: 393, height: 852 });
+  await mount(
+    p,
+    page(TOP_CAP_Y, 'seat-wrapper--top', { canvas: 660, seats: 9 }) +
+      '<style>.table-page{position:relative;--sp-bbj-plate-h:36px}.table-scaler{width:393px;--table-w:393px}</style>'
+  );
+  const empty = await p.evaluate(() => ({
+    top: document.querySelector('.seat__avatar-img')!.getBoundingClientRect().top,
+    page: document.querySelector('.table-page')!.getBoundingClientRect().top,
+  }));
+  expect(empty.top - empty.page).toBeCloseTo(8, 0);
+  // A real plate crossing the cap still owns its pixels.
+  await mount(
+    p,
+    page(TOP_CAP_Y, 'seat-wrapper--top', { canvas: 660, seats: 9 }).replace(
+      '<div class="table-scaler">',
+      '<div class="bbj-widget"></div><div class="table-scaler">'
+    ) +
+      '<style>.table-page{position:relative;--sp-bbj-plate-h:36px}.table-scaler{width:393px;--table-w:393px}.bbj-widget{position:absolute;left:120px;top:0;width:150px;height:36px}</style>'
+  );
+  const gap = await p.evaluate(
+    () =>
+      document.querySelector('.seat__avatar-img')!.getBoundingClientRect().top -
+      document.querySelector('.bbj-widget')!.getBoundingClientRect().bottom
+  );
+  expect(gap).toBeCloseTo(8, 0);
+});
