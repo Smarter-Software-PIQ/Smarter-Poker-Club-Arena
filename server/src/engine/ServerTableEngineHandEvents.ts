@@ -133,7 +133,8 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
     event: HandEvent,
     players: SeatedPlayer[],
     persistenceGeneration?: number,
-    turnAlreadySettled = false
+    turnAlreadySettled = false,
+    orderedOriginal = false
   ): Promise<void> {
     switch (event.type) {
       case 'HAND_START':
@@ -1216,6 +1217,10 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             if (!this.running || this.handCount !== emitHandNumber) {
               break;
             }
+            // The retained dispatcher awaits this read before HAND_COMPLETE.
+            // Credit only its completed visual duration, never database waits
+            // or event-loop lateness; the full pot push still follows it.
+            if (orderedOriginal) this.completedOriginalShowdownReadMs = this.showdownSettleMs;
           }
           /**
            * WHICH CARDS WON (Dan 2026-08-21).

@@ -718,3 +718,32 @@
 .has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='hyper'] {
   background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/lightning.png');
 }
+
+/* Exact start time uses the same two native clock lines, available by touch. */
+.has-premium-chassis tbody tr[data-id] .premium-lobby-start-toggle {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  text-align: center;
+}
+.has-premium-chassis .premium-lobby-start-toggle[aria-pressed='true'] .premium-lobby-clock__value {
+  font-size: clamp(12px, 2.8cqw, 20px);
+}
+
+.compact-lobby.has-premium-chassis
+  tbody
+  tr[data-id][data-kind='mtt']
+  > td:first-child
+  > .lt-name__meta {
+  position: absolute;
+  inset: 0.4cqw auto 1.6cqw 6cqw;
+  width: 23.5%;
+  z-index: 1;
+}

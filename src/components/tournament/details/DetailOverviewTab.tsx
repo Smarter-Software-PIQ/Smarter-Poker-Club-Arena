@@ -944,7 +944,7 @@ export default function DetailOverviewTab({
     : isRunning
       ? lateRegOpen
         ? 'Late Reg Ends In'
-        : 'Late Reg Closed'
+        : 'Registration Closed'
       : isBagged
         ? 'Day Complete'
         : isCancelled

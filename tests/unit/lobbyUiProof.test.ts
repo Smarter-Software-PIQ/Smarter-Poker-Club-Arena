@@ -12,6 +12,9 @@ import {
   FAVORITE_ACTION,
   FAVORITE_CASES,
   FAVORITE_COMPONENT_PATHS,
+  FILTER_ACTION,
+  FILTER_CASES,
+  FILTER_COMPONENT_PATHS,
 } from '../../scripts/verification-harness/lobby-ui-proof.mjs';
 const sha = 'a'.repeat(40);
 const env = {
@@ -172,9 +175,17 @@ describe('closed spectator and notification recovery proof', () => {
 it('keeps each closed mode limited to its owned browser journeys with cleanup', async () => {
   const { readFileSync } = await import('node:fs');
   const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
-  expect(workflow).toContain(
-    'types: [verify-lobby-ui, verify-spectator-notifications, verify-tournament-favorites]'
-  );
+  const dispatchTypes = workflow
+    .match(/types:\s*\[([\s\S]*?)\]/)?.[1]
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  expect(dispatchTypes).toEqual([
+    'verify-lobby-ui',
+    'verify-spectator-notifications',
+    'verify-tournament-favorites',
+    'verify-lobby-filters',
+  ]);
   expect(workflow).toContain('npx playwright install --with-deps chromium webkit');
   expect(readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8')).toContain(
     "...devices['iPhone 13']"
@@ -313,5 +324,80 @@ describe('closed tournament favorite priority proof', () => {
       "route.abort('blockedbyclient')",
     ])
       expect(journey).toContain(contract);
+  });
+});
+
+describe('closed complete lobby filter proof', () => {
+  const filterReport = () => ({
+    suites: [
+      {
+        specs: FILTER_CASES.map(({ file, title, project }) => ({
+          file,
+          title,
+          ok: true,
+          tests: [
+            {
+              projectName: project,
+              status: 'expected',
+              expectedStatus: 'passed',
+              results: [{ status: 'passed', retry: 0 }],
+            },
+          ],
+        })),
+      },
+    ],
+  });
+  const filterPin = () => ({
+    ...pin(),
+    action: FILTER_ACTION,
+    components: Object.fromEntries(FILTER_COMPONENT_PATHS.map((path) => [path, sha])),
+  });
+  it('admits exactly seven tab audits and the shared controls journey without caller input', () => {
+    expect(() => admitDispatch(env, { action: FILTER_ACTION, client_payload: {} })).not.toThrow();
+    expect(() =>
+      admitDispatch(env, { action: FILTER_ACTION, client_payload: { type: 'MTT' } })
+    ).toThrow();
+    expect(assertCases(filterReport(), FILTER_ACTION)).toHaveLength(8);
+    for (const change of [
+      (r) => r.suites[0].specs.pop(),
+      (r) => r.suites[0].specs.push(r.suites[0].specs[0]),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].retry = 1),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].status = 'skipped'),
+      (r) => (r.suites[0].specs[0].tests[0].projectName = 'firefox'),
+    ]) {
+      const value = filterReport();
+      change(value);
+      expect(() => assertCases(value, FILTER_ACTION)).toThrow();
+    }
+  });
+  it('requires all filter producers, consumers and sticky art consumers with stable publication', () => {
+    const cleanup = { verified: true, runId: '123' };
+    expect(() => assertPins(filterPin(), filterPin(), cleanup, FILTER_ACTION)).not.toThrow();
+    for (const path of FILTER_COMPONENT_PATHS) {
+      const after = filterPin();
+      delete after.components[path];
+      expect(() => assertPins(filterPin(), after, cleanup, FILTER_ACTION)).toThrow();
+    }
+    expect(() =>
+      assertPins(filterPin(), filterPin(), { verified: false, runId: '123' }, FILTER_ACTION)
+    ).toThrow();
+    const drift = filterPin();
+    drift.publisherRunId = '999';
+    expect(() => assertPins(filterPin(), drift, cleanup, FILTER_ACTION)).toThrow();
+  });
+  it('uses only the fixed live audit file and preserves the original modes', async () => {
+    const { readFileSync } = await import('node:fs');
+    const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
+    const block = workflow.slice(
+      workflow.indexOf('- name: Verify every lobby filter'),
+      workflow.indexOf('- name: Pin the published client after')
+    );
+    expect(block).toContain("if: github.event.action == 'verify-lobby-filters'");
+    expect(block).toContain('tests/e2e/production-lobby-filter-audit.spec.ts');
+    expect(block).toContain('--project=chromium --workers=1 --retries=0 --trace=off');
+    expect(block).not.toContain('production-mobile-lobby-chrome.spec.ts');
+    expect(workflow).toContain('cleanupProductionE2EAccount() !== true');
+    for (const mode of ['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION])
+      expect(workflow).toContain(`if: github.event.action == '${mode}'`);
   });
 });

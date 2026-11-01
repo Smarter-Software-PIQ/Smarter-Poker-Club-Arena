@@ -1392,10 +1392,10 @@ export default function TournamentPage() {
 
   /** The state, as one short word for the well's painted pill slot. */
   const statePill = (t: Tournament): { label: string; ink: ConsoleInk } => {
-    if (t.status === 'REGISTERING') return { label: 'Open', ink: 'green' };
+    if (t.status === 'REGISTERING') return { label: 'Open Registration', ink: 'green' };
     if (t.status === 'RUNNING')
       return isLateRegOpen(t)
-        ? { label: 'Late Reg', ink: 'gold' }
+        ? { label: 'Late Reg Open', ink: 'gold' }
         : { label: 'Running', ink: 'blue' };
     // Multi-day, between days: live, closed to entry, not done.
     if (isBaggedStatus(t.status)) return { label: DAY_COMPLETE_LABEL, ink: 'gold' };

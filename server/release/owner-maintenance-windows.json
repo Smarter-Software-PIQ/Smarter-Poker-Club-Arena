@@ -736,6 +736,19 @@
         "20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
         "20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql"
       ]
+    },
+    {
+      "id": "2026-11-01-fresh-engine-crash-boundary",
+      "ownerOrder": "Dan, directly in this platform-health chat (session_01UxDLnGkMy6P1dzYLqDzBRr). On 2026-11-01 at 07:28 America/Chicago, told that eed06fe5 could not be replaced and asked which override to build, he wrote verbatim: \"YOU DECIDE WHATS BEST, AND HOW TO RESOLVE THE ISSUES.\" At 11:18 America/Chicago, replying to the open item \"Engine swap: the crash-time swap needs to be built and tested on the server\", he wrote verbatim: \"FINISH THESE UP NOW\". This NEW owner-ordered window implements that order with the fresh-engine gate (withinSecondsOfEngineStart, #9172): it grants its reason only in the first 240 seconds after eed06fe5 starts, which it does on its own every 90-120 minutes. At that moment eed06fe5 has re-adopted almost none of the tables it can never finish and its heap fits the census, so the unchanged certificate and census can both pass. At 12:13 America/Chicago he added verbatim: \"NO I DON'T DO ANYTHING, AND YOU CAN DO THE ENGINE RESET NOW IF YOU WANT TO, IF THATS ALL THATS PREVENTING THIS FROM FINISHING\", so this window takes the activation floor now. It is eligible 18:40Z on 2026-11-01 to 00:40Z on 2026-11-02, before the 04:00 Chicago (10:00 UTC) daily window. ONE actual activation; the one-window-per-hour seal bounds any repeat after a refused pass, and a pass that is not drained or whose certificate does not open refuses cleanly and thaws on its own clock. If nothing activates, the floor expires and a waiting request falls back to the routine daily break. It is agent-selected timing within that order, not a heartbeat, timer, retry loop, automatic renewal or authority inferred from a missed deadline; an UNKNOWN or typed retirement grants nothing more. Diamond remains closed. Preserve the 120s last-hand lead, actual hand-boundary drain, 300s durable database freeze and reservation-bound certificate, rolling one-window-per-hour seal, full 285s cutover/proof/rollback reserve, 245s post-checkpoint proof, 135s rollback, 40s checkpoint including 5s cleanup, 20s MAIN with full 5s remote-close reserve, and completed own-window healthy v3 thaw. No MAIN signal/kill, foreign Inspector close, forced hands, invented winners, chip/seat/balance edits, migration/payment replay, second publisher, watcher, timer or recurring repair. Require sealed serving identity and natural committed-hand progress before claiming delivery; this source entry neither deploys nor certifies live behavior.",
+      "contains": "45a2fe1e720a8c509e4b77769c2028d23ffd400b",
+      "notBefore": "2026-11-01T18:40:00Z",
+      "notAfter": "2026-11-02T00:40:00Z",
+      "withinSecondsOfEngineStart": 240,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "64936086ecbc482946350374924c29cfec2b721dbce6f4683cc4ac786b9f4acd"
+      }
     }
   ],
   "databaseWindows": [

@@ -1,0 +1,137 @@
+{
+  "packSHA256": "49a43ae3ec955ea414f1a23b7e65e408ed5ae1a28667028735b7ad0d06128c6f",
+  "objects": {
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/build-engine-image.sh": {
+      "oid": "5f772e9d3fd71e125750ee621b67c6e1fb0c702d",
+      "sha256": "7f84e871cfc3946167b90c71b847db8be757132b1326c3617d3dd4502331f65a"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/collect-monitoring-health.sh": {
+      "oid": "479a6b2244b54a0ec4c438e0247b1b3978ed68fe",
+      "sha256": "d48c0b09800008d1436cfbc9050033b11f5663508b94b0116c4c41c17c70fe87"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-activation-floor.py": {
+      "oid": "1a6cdf5772fada964290bea167a7517f8c8f3781",
+      "sha256": "850c6056e1eb630b8ca6729b5b654c40612f1c25d692999c8cf5fe3b985ddef2"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-database-proof.py": {
+      "oid": "7708b5e6d1e1da46131f949336127fd1ca23fdd6",
+      "sha256": "7034aa6f2d42a7a321c1e610fa517acd165367512aa8f3e62aaee719a4703155"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-inflight-hands.py": {
+      "oid": "560b398591cc4db1f1cdecb99cb038ae56a2c727",
+      "sha256": "780a118d1a1e738c93922741ea0945b3b0fdf6329dc4834fe5975fd0f8928892"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-intake.sh": {
+      "oid": "a92507041ab42a44af8fbe0f6d2105b3bcd46b1a",
+      "sha256": "9fd3ff4635fa6b3c5915f19d8e5cb216c184bc414fdaac297c4c1003c90d5fdd"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-lightning-hold.py": {
+      "oid": "1d675c988eab65149ec97d73eb26a729103774e0",
+      "sha256": "401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-protocol-v1.schema": {
+      "oid": "ce24b57ae349747ca8fb2e7305c1e07e2af1ed0c",
+      "sha256": "7c5aba4d2bc572edc5ef84c5280e1ffe517e5949b41788c18eeb003abea74044"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-recover.sh": {
+      "oid": "71e56640a10acad396ef493331f6276f0591c3b3",
+      "sha256": "b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-seal.py": {
+      "oid": "41860066761f743337ec182bee9cac48b128cb04",
+      "sha256": "7ea266198c0a59e223ba662027352f5a45291d7d9fe25753d3c7dd2ec63916b2"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-transaction.sh": {
+      "oid": "caaaa224bd53459631bccf8ad132d8815dd31e32",
+      "sha256": "e87f2c5d97039656eb953c2155cab1b2948d93e8bbff85efa30385a95e841e20"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-release-unit-wrapper.sh": {
+      "oid": "804b6f83ae2484eeb39284aad28e20f95e89c899",
+      "sha256": "e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-supervisor.sh": {
+      "oid": "893340bc44df304f7575ae5b611363072d991e62",
+      "sha256": "0f25f0945300a691295c9b1359ecf83561950f25ac6aec4f237a721642872a46"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/engine-up.sh": {
+      "oid": "c5006fa1c2e9b9ca119521da0c3bee8833376f87",
+      "sha256": "1653b4675d6b52942a16c41de42548247b05c9607c37831a63e5c02a35866bde"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/install-engine-drill.sh": {
+      "oid": "c5a91ed80ecab5c5dfde06b6b5a594e8815ad3f5",
+      "sha256": "1960c2d0fdeef2c263b74096867796f1507a8cf651bd2c422c11323725a24fbd"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/install-engine-intake.sh": {
+      "oid": "503de3a3af3179be36571d5329f2383252277cd2",
+      "sha256": "5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/install-engine-supervisor.sh": {
+      "oid": "6de1c2759d510bb2a7afd277eff5d74ac2c98f41",
+      "sha256": "e48dacd744696866cef81cba7fba0cc8dd5adc2d69ec7aea0b2c22eadf2cca69"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/launch-engine-release.sh": {
+      "oid": "99cdac0d56223a97557c212a94c2b7e052649774",
+      "sha256": "6ce9a4026a73fe42629b2f123346eeff0e3d3fccd3fa02a6615dfc9cf1b44fa5"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/legacy-census-scale-fixture.mjs": {
+      "oid": "d68d2c99db977651ed1d36b504a4e51d8e0d324d",
+      "sha256": "acfe13daa5f2e2497e662ec9bb2ff105bcb5a618b0ede81a16aab90afaba99c1"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/legacy-census-scale-preflight.py": {
+      "oid": "6a4e0ed317fbfe85cd50e72cd2f8255c34444820",
+      "sha256": "6b500d614771a05f611ffe594e24f54312f15a72e496f8692d6e9e7a7cf5f719"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/legacy-engine-checkpoint-guard.mjs": {
+      "oid": "1d377e4c3c4d745bdbd10b1647545ffdda0a75cc",
+      "sha256": "f8d47b7a6c3b4191b84ec124994428f96e037de49001cc5c5d53c456dcc42b50"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/legacy-engine-checkpoint.mjs": {
+      "oid": "ea912313c2791a21c1a71a7120e07054b8579276",
+      "sha256": "c94820db1f5b6619b66c36cab6a6b987bc4e54f80b187596ccb6770c8f5b3ee7"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/legacy-engine-checkpoint.sh": {
+      "oid": "ec8d9c73cf82675dd8dd5ac94094398ab4a7621b",
+      "sha256": "daf6b20dfe7ac3275c9002fbe2b3b8a87beed7d28f165a6deb2d6b32bd7dbddb"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/main-inspector-retirement-entry.mjs": {
+      "oid": "6758c89ac709557a0addaa9618ffc5b6e3a4c71f",
+      "sha256": "b1a6141c4f11455f96d55b81acd24ba950f90902b96720467701f5ad0e2fa801"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/main-inspector-retirement.py": {
+      "oid": "dd61360af9b084061a09bbf80a69c63a05ceadd3",
+      "sha256": "80cc6afcd4aa40540603132b893e9d0880f08606b9a2aac6494aac1bea8bd7e5"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/main-inspector-socket-qualification.mjs": {
+      "oid": "505bf3010770147015f1ec9d02820a6fb6823594",
+      "sha256": "a34c84ab8e1cd0f92b645a02e89a379d863f07da0021a9930643f90eea8a5482"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/observe-engine-release.sh": {
+      "oid": "769c927a51884981de9358c49ecd0d30de170840",
+      "sha256": "ef8222a00e0146bba4735ad2aa2132ebddff578f7c59f935f22ab971d66d341f"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/prewarm-engine-image.sh": {
+      "oid": "34513ed077e596d216d5aa34f56d81f3086cb2bc",
+      "sha256": "c97247de8ec5fa859694e72a36ec520df2650f3441e43ff2df5681d63a6b5cfa"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/retain-engine-images.sh": {
+      "oid": "6348158406986607ec02a6845388f007f9906bc5",
+      "sha256": "8a75da29f558fa63f67e58d7a9b25db206847fbfc2f0c9934ced91e547934d4b"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/retained-original-checkpoint-guard.mjs": {
+      "oid": "cb71347dcbbe59146ab630c36b845ca5f42a3ef2",
+      "sha256": "b8e43e73864d46db088096474d0334f22076e83c1ce70b8a50c382a3a2cae312"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/retire-owned-main-inspector.mjs": {
+      "oid": "8359e8e9cb40e697432126a3c46880ab605284d1",
+      "sha256": "dd91b8fa3e514a032b8b1133b1985988710c07239f692e8aeef65d21427f5d44"
+    },
+    "303d8cc7d38a97c3bcdc32a577b555232ad726bf:server/scripts/verify-recovery-stack.sh": {
+      "oid": "ebb8af0b9b211cb74cd351f71ef87464759303d7",
+      "sha256": "6715f90d51bd897d8797f9ce5895f235808e941c6bada3969c43391964dbb780"
+    },
+    "41551479ba47a4f077d6ed83f1b388c2b068fdd3:server/scripts/install-engine-supervisor.sh": {
+      "oid": "7515802a545e445becbd262d2c80530c363c2ae8",
+      "sha256": "913cd47a54ca7a6ad5f30cc148bfd6a7a9b7de4dedd27287442a8667e1907148"
+    }
+  }
+}

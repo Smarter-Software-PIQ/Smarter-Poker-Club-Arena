@@ -202,14 +202,14 @@ describe('MTT schedule upgrade', () => {
       }),
     ]);
     for (const row of document.querySelectorAll('tr[data-id="late"]')) {
-      expect(within(row as HTMLElement).getByText('Late Reg', { exact: true })).toBeTruthy();
+      expect(within(row as HTMLElement).getByText('Late Reg Open', { exact: true })).toBeTruthy();
       expect(within(row as HTMLElement).queryByText('Running', { exact: true })).toBeNull();
     }
     vi.setSystemTime(now + 80 * 60000);
     act(() => vi.advanceTimersByTime(1000));
     for (const row of document.querySelectorAll('tr[data-id="late"]')) {
       expect(within(row as HTMLElement).getByText('Running', { exact: true })).toBeTruthy();
-      expect(within(row as HTMLElement).queryByText('Late Reg', { exact: true })).toBeNull();
+      expect(within(row as HTMLElement).queryByText('Late Reg Open', { exact: true })).toBeNull();
     }
   });
   it.each([

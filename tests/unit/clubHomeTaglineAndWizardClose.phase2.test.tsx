@@ -29,6 +29,7 @@ const h = vi.hoisted(() => ({
   tagline: null as string | null,
   tournaments: [] as any[],
   tables: [] as any[],
+  lightningStates: {} as Record<string, any>,
   register: vi.fn(),
 }));
 
@@ -56,6 +57,9 @@ vi.mock('../../src/core/MasterBus', () => ({
     emit: vi.fn(),
   },
   busToast: vi.fn(),
+}));
+vi.mock('../../src/lightning/lightningLobbyFeed', () => ({
+  useLightningLobbyStates: () => h.lightningStates,
 }));
 vi.mock('../../src/lib/bbjPoolFeed', () => ({ watchBbjPool: () => vi.fn() }));
 vi.mock('../../src/lib/bbjHitFeed', () => ({ watchBbjHits: () => vi.fn() }));
@@ -160,6 +164,7 @@ beforeEach(() => {
   h.tagline = null;
   h.tournaments = [];
   h.tables = [];
+  h.lightningStates = {};
   h.rpc.mockImplementation((name: string) => {
     if (name === 'fn_club_opening_checklist_state') {
       return Promise.resolve({
@@ -457,3 +462,255 @@ it('shows only recorded MTT and SNG satellites when Satellites is selected', asy
     expect(document.querySelector(`.lt-row[data-id="${id}"]`)).toBeNull();
   expect(h.register).not.toHaveBeenCalled();
 });
+
+/** Filter regressions exercise the real page, sheet and row predicate together. */
+describe('lobby filters stay attached to the selected game', () => {
+  const tournament = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    club_id: 'club-a',
+    name: id,
+    game_type: 'NLH',
+    variant: 'mtt',
+    format_contract: 'mtt-v1',
+    status: 'REGISTERING',
+    start_time: new Date(Date.now() + 3_600_000).toISOString(),
+    current_players: 0,
+    max_players: 100,
+    buy_in_amount: 10,
+    buy_in_fee: 1,
+    starting_chips: 1000,
+    table_size: 9,
+    ...extra,
+  });
+
+  it('filters a satellite by poker game instead of its satellite subtype', async () => {
+    h.setupReads = [DONE];
+    h.tournaments = [
+      tournament('nlh-satellite', { variant: 'satellite', tournament_type: 'SATELLITE' }),
+      tournament('plo-satellite', {
+        variant: 'satellite',
+        tournament_type: 'SATELLITE',
+        game_type: 'PLO4',
+      }),
+    ];
+    localStorage.setItem(
+      'ca_advanced_filters_viewer:club-a',
+      JSON.stringify({
+        SATELLITE: {
+          games: ['nlh'],
+          format: [],
+          styles: [],
+          statuses: [],
+          mustHave: [],
+          hide: [],
+          rangeMin: 0,
+          rangeMax: 15000,
+          seatMin: 2,
+          seatMax: 9,
+        },
+      })
+    );
+    await mountLobby();
+    fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+    fireEvent.click(screen.getByRole('tab', { name: 'SATELLITES', exact: true }));
+    await flush();
+    expect(document.querySelector('.lt-row[data-id="nlh-satellite"]')).not.toBeNull();
+    expect(document.querySelector('.lt-row[data-id="plo-satellite"]')).toBeNull();
+    expect(h.register).not.toHaveBeenCalled();
+  });
+
+  it('keeps Favorites available to undo when moving from cash to tournaments', async () => {
+    h.setupReads = [DONE];
+    h.tournaments = [tournament('ordinary-mtt')];
+    await mountLobby();
+    fireEvent.click(screen.getByRole('button', { name: 'Cash Games', exact: true }));
+    fireEvent.click(screen.getByRole('tab', { name: 'NLH', exact: true }));
+    await flush();
+    fireEvent.click(
+      within(screen.getByLabelText('Game Status')).getByRole('button', {
+        name: 'Favorites',
+        exact: true,
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+    await flush();
+    const favorites = within(screen.getByLabelText('Game Status')).getByRole('button', {
+      name: 'Favorites',
+      exact: true,
+    });
+    expect(favorites).toHaveAttribute('aria-pressed', 'true');
+    expect(document.querySelector('.lt-row[data-id="ordinary-mtt"]')).toBeNull();
+    fireEvent.click(favorites);
+    await flush();
+    expect(favorites).toHaveAttribute('aria-pressed', 'false');
+    expect(document.querySelector('.lt-row[data-id="ordinary-mtt"]')).not.toBeNull();
+  });
+
+  it('sheet tab changes switch the board and save sorting under the new tab only', async () => {
+    h.setupReads = [DONE];
+    h.tournaments = [
+      tournament('mtt'),
+      tournament('spin', { variant: 'spin', format_contract: 'spin-v1', max_players: 3 }),
+    ];
+    await mountLobby();
+    fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: 'Advanced Filters' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Spins', exact: true }));
+    await flush();
+    expect(screen.getByRole('tab', { name: 'SPINS', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Most Players', exact: true })
+    ).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Stakes: Low To High', exact: true })
+    );
+    await flush();
+    const prefs = JSON.parse(localStorage.getItem('ca_lobby_view_viewer:club-a')!);
+    expect(prefs.sortByTab.SPIN).toBe('stakes_low');
+    expect(prefs.sortByTab.MTT).toBeUndefined();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'MTT', exact: true }));
+    await flush();
+    expect(screen.getByRole('tab', { name: "MTT'S", exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Recommended', exact: true })
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(h.register).not.toHaveBeenCalled();
+  });
+});
+
+it.each(['SPINS', "SIT N GO'S"])(
+  '%s does not advertise a recycler timestamp as a scheduled start sort',
+  async (label) => {
+    h.setupReads = [DONE];
+    await mountLobby();
+    fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+    fireEvent.click(screen.getByRole('tab', { name: label, exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: 'Advanced Filters' });
+    expect(within(dialog).queryByRole('button', { name: 'Starting Time', exact: true })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Most Players', exact: true })).toBeTruthy();
+  }
+);
+
+it('Satellite Starting Time puts scheduled MTT dates ahead of seat-first recycler timestamps', async () => {
+  h.setupReads = [DONE];
+  const base = {
+    club_id: 'club-a',
+    game_type: 'NLH',
+    status: 'REGISTERING',
+    current_players: 0,
+    buy_in_amount: 10,
+    buy_in_fee: 1,
+    starting_chips: 1000,
+    table_size: 9,
+    tournament_type: 'SATELLITE',
+    satellite_target_id: 'target',
+  };
+  h.tournaments = [
+    {
+      ...base,
+      id: 'seat-first-satellite',
+      name: 'Seat First Qualifier',
+      format_contract: 'seat-first-satellite-v1',
+      max_players: 2,
+      start_time: new Date(Date.now() - 172_800_000).toISOString(),
+    },
+    {
+      ...base,
+      id: 'scheduled-satellite',
+      name: 'Scheduled Qualifier',
+      format_contract: 'mtt-v1',
+      max_players: null,
+      start_time: new Date(Date.now() + 3_600_000).toISOString(),
+    },
+  ];
+  await mountLobby();
+  fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+  fireEvent.click(screen.getByRole('tab', { name: 'SATELLITES', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
+  await flush();
+  fireEvent.click(
+    within(screen.getByRole('dialog', { name: 'Advanced Filters' })).getByRole('button', {
+      name: 'Starting Time',
+      exact: true,
+    })
+  );
+  await flush();
+  let witnessed = 0;
+  for (const body of document.querySelectorAll('tbody')) {
+    const ids = Array.from(body.querySelectorAll('.lt-row[data-id]')).map((row) =>
+      row.getAttribute('data-id')
+    );
+    if (ids.includes('scheduled-satellite')) {
+      expect(ids).toEqual(['scheduled-satellite', 'seat-first-satellite']);
+      witnessed += 1;
+    }
+  }
+  expect(witnessed).toBeGreaterThan(0);
+  expect(h.register).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  'ALL Most Players sorts whole games, including Lightning pools (%s)',
+  async (lightning) => {
+    h.setupReads = [DONE];
+    const table = (id: string, cluster: string, players: number, main = true) => ({
+      id,
+      club_id: 'club-a',
+      name: id,
+      game_variant: 'nlh',
+      status: 'running',
+      lifecycle: 'live',
+      current_players: players,
+      max_players: 6,
+      small_blind: 1,
+      big_blind: 2,
+      cluster_id: cluster,
+      role: main ? 'main' : 'feeder',
+      main_index: main ? 1 : null,
+      cluster_mode: lightning && cluster === 'large' ? 'lightning' : 'must_move',
+      cluster_template: 'action',
+      cluster_handedness: 6,
+    });
+    h.tables = [
+      table('large-main', 'large', 1),
+      table('large-feeder', 'large', 19, false),
+      table('small-main', 'small', 5),
+      table('small-feeder', 'small', 3, false),
+    ];
+    if (lightning)
+      h.lightningStates.large = {
+        clusterMode: 'lightning',
+        poolPlayers: 30,
+        liveEligible: 20,
+        onThreshold: 18,
+        offThreshold: 12,
+      };
+    localStorage.setItem(
+      'ca_lobby_view_viewer:club-a',
+      JSON.stringify({ tab: 'ALL', sortByTab: { ALL: 'players' }, favoritesOnly: false })
+    );
+    await mountLobby();
+    let witnessed = 0;
+    for (const body of document.querySelectorAll('tbody')) {
+      const rows = Array.from(body.querySelectorAll('.lt-row[data-kind="cash"][data-id]'));
+      if (!rows.length) continue;
+      expect(rows.map((row) => row.getAttribute('data-id'))).toEqual(['large-main', 'small-main']);
+      expect(rows[0].querySelector('.lt-col-players')?.textContent).toContain(
+        String(lightning ? 30 : 20)
+      );
+      witnessed += 1;
+    }
+    expect(witnessed).toBeGreaterThan(0);
+    expect(h.register).not.toHaveBeenCalled();
+  }
+);

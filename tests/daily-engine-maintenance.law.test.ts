@@ -1659,3 +1659,76 @@ it('binds the owner-ordered window that unblocks the engine door and installs it
   ])
     expect(entry.ownerOrder).toContain(boundary);
 });
+
+it('binds the owner-ordered fresh-engine crash-boundary window without renewing any historical window', () => {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const doc = JSON.parse(raw);
+  const id = '2026-11-01-fresh-engine-crash-boundary';
+  const entry = doc.windows.find((w: { id: string }) => w.id === id);
+  expect(doc.windows.filter((w: { id: string }) => w.id === id)).toHaveLength(1);
+  expect(doc.windows[72]).toEqual(entry);
+  // Contains the fresh-engine gate (#9172) and the generation bytecode fix (#9167).
+  expect(entry.contains).toBe('45a2fe1e720a8c509e4b77769c2028d23ffd400b');
+  expect(entry.withinSecondsOfEngineStart).toBe(240);
+  expect(entry.announceAtChicagoMinutes).toBeUndefined();
+  expect(entry.migrations).toEqual([]);
+  expect(entry.notBefore).toBe('2026-11-01T18:40:00Z');
+  expect(entry.notAfter).toBe('2026-11-02T00:40:00Z');
+  const span = Date.parse(entry.notAfter) - Date.parse(entry.notBefore);
+  expect(span).toBeLessThanOrEqual(21_600_000);
+  // Starts after the v74 floor expires and never reaches the 2026-11-02 daily window.
+  expect(Date.parse(entry.notBefore)).toBeGreaterThan(Date.parse('2026-11-01T18:00:00Z'));
+  expect(Date.parse(entry.notAfter)).toBeLessThan(Date.parse('2026-11-02T09:30:00Z'));
+  const expectedFloor = Buffer.from(
+    JSON.stringify(
+      {
+        schema: 'engine-release-activation-floor/v2-owner-window',
+        preparationAt: entry.notBefore,
+        activationAt: entry.notBefore,
+        expiresAt: entry.notAfter,
+        timeZone: 'America/Chicago',
+        ownerWindowId: id,
+        clientPublicationAt: entry.notBefore,
+      },
+      null,
+      2
+    ) + '\n'
+  );
+  expect(entry.releaseWitness).toEqual({
+    path: 'server/release/activation-floor.json',
+    sha256: createHash('sha256').update(expectedFloor).digest('hex'),
+  });
+  const selected = readFileSync(join(root, 'server/release/activation-floor.json'));
+  if (JSON.parse(selected.toString()).ownerWindowId === id) expect(selected).toEqual(expectedFloor);
+  const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
+  const end = raw.indexOf('\n  ],\n  "databaseWindows":', start);
+  expect(start).toBeGreaterThan(0);
+  const historical = raw.slice(0, start) + raw.slice(end);
+  expect(createHash('sha256').update(historical).digest('hex')).toBe(
+    'b24f0dc9f249f106503242ddc4479e4a75934c6f3ce8a8bb72dc99275cd88550'
+  );
+  for (const boundary of [
+    'YOU DECIDE WHATS BEST, AND HOW TO RESOLVE THE ISSUES.',
+    'FINISH THESE UP NOW',
+    'YOU CAN DO THE ENGINE RESET NOW',
+    'NEW owner-ordered window',
+    'first 240 seconds after eed06fe5 starts',
+    'agent-selected',
+    'typed retirement',
+    'UNKNOWN',
+    'Diamond remains closed',
+    'ONE actual activation',
+    '120s',
+    '300s',
+    '285s',
+    '245s',
+    '135s',
+    '40s',
+    '5s cleanup',
+    '20s MAIN',
+    'full 5s remote-close',
+    'v3 thaw',
+    'migration/payment replay',
+  ])
+    expect(entry.ownerOrder).toContain(boundary);
+});

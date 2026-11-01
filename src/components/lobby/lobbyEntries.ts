@@ -1081,7 +1081,7 @@ export function cashStatus(t: LobbyTableRow, waiting = 0): { key: LobbyStatusKey
   if (isFull && waiting > 0) return { key: 'waitlist', label: `Waitlist ${waiting}` };
   if (isFull) return { key: 'full', label: 'Full' };
   if ((t.current_players || 0) > 0) return { key: 'running', label: 'Running' };
-  return { key: 'open', label: 'Open' };
+  return { key: 'open', label: 'Seats Available' };
 }
 
 export function tournamentStatus(
@@ -1122,7 +1122,7 @@ export function tournamentStatus(
         now
       )
     )
-      return { key: 'late_reg', label: 'Late Reg' };
+      return { key: 'late_reg', label: 'Late Reg Open' };
     return { key: 'running', label: 'Running' };
   }
   /**
@@ -1139,7 +1139,7 @@ export function tournamentStatus(
   if (status === 'LATE_REG' || status === 'LATE_REGISTRATION') {
     if (classifyTournament(t) === 'mtt') {
       return isInLateRegistration(t, now)
-        ? { key: 'late_reg', label: 'Late Reg' }
+        ? { key: 'late_reg', label: 'Late Reg Open' }
         : { key: 'running', label: 'Running' };
     }
   }
@@ -1178,8 +1178,7 @@ export function tournamentStatus(
          tap that can only fail. Running is also what pushes the card to the
          bottom of the board (see seatFirstJoinable). */
       if (cap > 0 && taken >= cap) return { key: 'running', label: 'Running' };
-      if (taken > 0) return { key: 'registering', label: 'Filling' };
-      return { key: 'registering', label: 'Open Seats' };
+      return { key: 'registering', label: 'Seats Available' };
     }
 
     // A passed schedule is not evidence of a start. Only started_at or the
@@ -1544,7 +1543,7 @@ export function cashEntry(t: LobbyTableRow, waiting = 0): LobbyEntry {
         ? { key: 'closed' as LobbyStatusKey, label: modeClosedLabel }
         : gamePlayers > 0
           ? { key: 'running' as LobbyStatusKey, label: 'Running' }
-          : { key: 'open' as LobbyStatusKey, label: 'Open' }
+          : { key: 'open' as LobbyStatusKey, label: 'Seats Available' }
     : cashStatus(t, waiting);
   /* Dan 2026-08-25: the lobby used to print tables.max_buy_in raw, which on 42
      of 46 live tables is 200bb — a ceiling the table's own BuyInModal will not
@@ -1715,10 +1714,11 @@ export function tournamentEntry(
  */
 // ─── MTT title helpers (pure — LobbyTable renders them, tests pin them) ────
 
-/** "17:33" under an hour, "1:02:33" above it. Never negative. */
+/** Exact seconds below a day; compact whole days and hours for longer waits. */
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
+  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
@@ -2089,11 +2089,12 @@ export function mttPhaseText(entry: LobbyEntry, now: number): string | null {
       const seconds = Math.max(0, Math.ceil((end - now) / 1000));
       return `Late Reg Ends In ${Math.floor(seconds / 60)}:${(seconds % 60).toLocaleString('en-US', { minimumIntegerDigits: 2, useGrouping: false })}`;
     }
-    return end == null && isInLateRegistration(row, now) ? 'Late Reg Open' : 'Late Reg Closed';
+    return end == null && isInLateRegistration(row, now) ? 'Late Reg Open' : 'Registration Closed';
   }
   if (entry.status === 'registering' || entry.status === 'starting_soon') {
     const startMs = entry.startTime ? new Date(entry.startTime).getTime() : NaN;
-    if (Number.isFinite(startMs) && startMs > now) return `Starts In ${formatClock(startMs - now)}`;
+    if (Number.isFinite(startMs) && startMs > now)
+      return `Starts In ${formatClock(Math.max(1000, startMs - now))}`;
     return Number.isFinite(startMs) ? 'Start Pending' : 'Starting Soon';
   }
   return null;
