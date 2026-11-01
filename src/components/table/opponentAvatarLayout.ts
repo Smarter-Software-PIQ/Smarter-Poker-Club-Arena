@@ -110,7 +110,13 @@ export function opponentShiftTransaction(
 }
 const metadata = new Map<string, Promise<Alpha | null>>();
 const box = (element: Element): Box => {
-  const r = element.getBoundingClientRect();
+  // Position badges share the character's gesture wrapper. Their permanent
+  // footprint, rather than a breathing/winner frame, owns the lower lane.
+  const scaler = element.closest<HTMLElement>('.table-scaler');
+  const r =
+    element instanceof HTMLElement && element.matches('.seat__position-badge') && scaler
+      ? restingAvatarBox(element, tableRenderScale(scaler))
+      : element.getBoundingClientRect();
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 };
 const moved = (r: Box, x: number, y: number): Box => ({ ...r, left: r.left + x, top: r.top + y });

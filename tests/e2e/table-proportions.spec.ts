@@ -855,9 +855,10 @@ for (const [width, heightOverride] of occupiedViewports)
       ? [6]
       : [6, 9]
   ).flatMap((count) =>
-    (width === 320 && count === 9 ? ['normal', 'large hands'] : ['all']).map(
-      (sceneGroup) => [count, sceneGroup] as const
-    )
+    (width === 320 && count === 9
+      ? ['normal', 'large normal', 'large all-in', 'large all-shown']
+      : ['all']
+    ).map((sceneGroup) => [count, sceneGroup] as const)
   ))
     test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}${sceneGroup === 'all' ? '' : ` (${sceneGroup})`}`, async ({
       page,
@@ -1019,7 +1020,11 @@ for (const [width, heightOverride] of occupiedViewports)
       ] as const) {
         // Split the dense raw-phone cold mounts, preserving every scene and
         // assertion under the same per-test deadline.
-        if (sceneGroup !== 'all' && villainCards >= 5 !== (sceneGroup === 'large hands')) continue;
+        if (sceneGroup !== 'all') {
+          const largeHandGroup = sceneGroup.startsWith('large ');
+          if (villainCards >= 5 !== largeHandGroup) continue;
+          if (largeHandGroup && sceneGroup !== `large ${state}`) continue;
+        }
         // Both rings exercise every occupied state at every phone width.
         const scaledPhone = state === 'scaled-phone';
         if (scaledPhone && (width !== 600 || count !== 9)) continue;
