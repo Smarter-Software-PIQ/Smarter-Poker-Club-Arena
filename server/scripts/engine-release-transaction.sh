@@ -1980,12 +1980,23 @@ raise SystemExit(0 if fits else 1)
 # The database half of a drained hand boundary for eed06fe5. Exit 0 only when
 # the helper read every witness and every one is quiet; 1 is "a hand is
 # reserved, retained or moving"; anything else is UNKNOWN and refuses.
+#
+# IT NEVER RE-ARMS THE CALLER'S ERREXIT (2026-11-01). This function used to end
+# its read with a bare `set -e`. The pre-notice gate calls it under `set +e`
+# so that a "not drained" answer (1) is recorded, not fatal - but the bare
+# `set -e` switched errexit back on inside the function, so its own `return 1`
+# then terminated the whole transaction at the call site. Receiver 41272121963
+# (ca8250444e, 04:32Z) logged "no cutover this pass" and died 0 s later with
+# status 1, 22 s after intake: every mid-play intake whose census cannot fit
+# was killed before it could wait for a break. The caller's state is restored
+# exactly as it was found.
 drained_predecessor_witness() {
-  local rc
+  local rc restore_errexit=0
+  case "$-" in *e*) restore_errexit=1 ;; esac
   set +e
   legacy_entry_read "$INFLIGHT_HANDS" --env-file "$ENV_FILE" --drained-predecessor --timeout-seconds 5 >&2
   rc=$?
-  set -e
+  [ "$restore_errexit" = 0 ] || set -e
   case "$rc" in
     0) echo "[engine-release-transaction] the database confirms a drained hand boundary: no tournament hand or incomplete snapshot moving, no recently formed Lightning hand unsettled" >&2 ;;
     1) echo "[engine-release-transaction] the database says the predecessor is not at a drained hand boundary; no cutover this pass" >&2 ;;
@@ -2554,10 +2565,10 @@ switch_to_drained_predecessor_cutover() {
 if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ] && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ]; then
   if ! legacy_census_fits; then
     switch_to_drained_predecessor_cutover
-    set +e
-    drained_predecessor_witness
-    DRAINED_WITNESS_RC=$?
-    set -e
+    # A list, not `set +e`: "not drained" (1) must never end the transaction
+    # here, whatever the function does with errexit (see its header).
+    DRAINED_WITNESS_RC=0
+    drained_predecessor_witness || DRAINED_WITNESS_RC=$?
     [ "$DRAINED_WITNESS_RC" = 0 ] || [ "$DRAINED_WITNESS_RC" = 1 ] \
       || die 'the legacy census cannot fit and the drained-boundary database witness cannot be read; refusing before any notice so no break is spent'
   fi

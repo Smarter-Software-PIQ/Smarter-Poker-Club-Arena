@@ -599,7 +599,11 @@ missing, extra, malformed or failed result refuses the capture without retry.
 The original45-second capture deadline, TLS, complete schema and private output
 limits remain unchanged. The batch is bounded to128MiB private metadata.
 
-Diagnostic wire protocol D1 is unchanged. New cost receipts are version2 with
+Diagnostic wire protocol D2 uses fixed12-byte closed records for sequence,
+kind/edge/type and monotonic microseconds; legacy D1 reading remains supported.
+The compact wire preserves every semantic fact within the same512KiB cap,
+rather than stopping the complete schema export because verbose diagnostics
+exhausted that cap. New cost receipts remain version2 with
 closed object_scope and query_scope fields; historical version1 receipts keep
 their original unlabelled semantics. Object counts now mean effective selected
 components; zero-component dispatcher visits are no longer logged. Query spans
@@ -607,7 +611,7 @@ measure actual network requests, including a whole function batch, rather than
 cached per-function reads. The512KiB fixed-channel cap remains enforced.
 
 Before any capture credential is present, the existing reusable native job
-builds stock and changed clients from the same pinned upstream archive. It
+builds stock and changed clients from the same pinned upstream archive. Both direct pg_dump builds serialize overlapping recursive library prerequisites with one job, retaining their original420/120-second deadlines. It
 requires identical SQL output (apart from the existing random restrict nonce)
 on a private Unix-only database containing5507 functions/procedures with
 mixed signatures, defaults, SQL bodies, PL/pgSQL and ACLs, plus zero/one-function
