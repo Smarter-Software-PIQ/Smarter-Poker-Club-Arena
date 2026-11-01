@@ -16,6 +16,28 @@ MANIFEST = 'server/release/activation-floor.json'
 HELPER = 'server/scripts/engine-release-activation-floor.py'
 CAPABILITY = 'engine-release-activation-floor/v1'
 OWNER_CAPABILITY = 'engine-release-activation-floor/v2-owner-window'
+PHASE1_CAPABILITY = 'engine-release-activation-floor/v3-phase1'
+
+
+def phase1_policy(repo, target, control):
+    """The later immutable Phase1 policy owns fresh scheduling, never old entries."""
+    schedule = 'server/src/maintenance/maintenanceSchedulePolicy.json'
+    if not git(repo, 'ls-tree', target, '--', schedule).strip():
+        return None
+    if git(repo, 'show', control + ':' + HELPER) != Path(__file__).read_bytes():
+        raise ValueError('Phase1 activation-floor control is not exact')
+    import importlib.util
+    seal_path = Path(__file__).with_name('engine-release-seal.py')
+    if git(repo, 'show', control + ':server/scripts/engine-release-seal.py') != seal_path.read_bytes():
+        raise ValueError('Phase1 canonical policy validator is not exact')
+    spec = importlib.util.spec_from_file_location('activation_floor_seal', seal_path)
+    seal = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(seal)
+    policy = seal.current_cycle_policy(repo, target, control)
+    return {'schema': PHASE1_CAPABILITY, 'ownerWindowId': None,
+            'targetSha': target, 'controlSha': control, 'manifestSha256': policy['digest'],
+            'phase1Status': policy['phase1Status'], 'preparationEpoch': 0,
+            'activationEpoch': 0, 'expiresEpoch': 0, 'clientPublicationEpoch': 0}
 
 
 def git(repo, *args):
@@ -144,6 +166,8 @@ def check_window(record, now, deadline, mode):
         raise ValueError('activation floor clock/deadline unavailable')
     if record is None:
         return
+    if record['schema'] == PHASE1_CAPABILITY:
+        return  # The canonical routine-cycle seal owns the actual window.
     # Static publication has no five-minute engine replacement deadline.
     if mode == 'publish':
         if now < record.get('clientPublicationEpoch', record['activationEpoch']):
@@ -179,14 +203,14 @@ def existing_entry(root, run_id, target, control):
         raise ValueError('runtime entry ownership/type refused')
     value = json.loads(path.read_bytes())
     keys = {'schema', 'runId', 'targetSha', 'controlSha', 'manifestSha256'}
-    if isinstance(value, dict) and value.get('schema') == OWNER_CAPABILITY: keys.add('phase')
+    if isinstance(value, dict) and value.get('schema') in (OWNER_CAPABILITY, PHASE1_CAPABILITY): keys.add('phase')
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError('runtime entry shape refused')
-    if value['schema'] not in (CAPABILITY, OWNER_CAPABILITY) or value['runId'] != run_id or value['targetSha'] != target or value['controlSha'] != control:
+    if value['schema'] not in (CAPABILITY, OWNER_CAPABILITY, PHASE1_CAPABILITY) or value['runId'] != run_id or value['targetSha'] != target or value['controlSha'] != control:
         raise ValueError('runtime entry does not bind this request')
     if not isinstance(value['manifestSha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', value['manifestSha256']):
         raise ValueError('runtime entry manifest identity refused')
-    if value['schema'] == OWNER_CAPABILITY and value.get('phase') not in ('announcement', 'runtime'):
+    if value['schema'] in (OWNER_CAPABILITY, PHASE1_CAPABILITY) and value.get('phase') not in ('announcement', 'runtime'):
         raise ValueError('runtime entry phase refused')
     return value
 
@@ -203,7 +227,7 @@ def entry_state(record, root, run_id, create, now, deadline, announcement=False)
     expected = {'schema': record['schema'], 'runId': run_id,
                 'targetSha': record['targetSha'], 'controlSha': record['controlSha'],
                 'manifestSha256': record['manifestSha256']}
-    if record['schema'] == OWNER_CAPABILITY:
+    if record['schema'] in (OWNER_CAPABILITY, PHASE1_CAPABILITY):
         expected['phase'] = 'announcement' if announcement else 'runtime'
     prior = existing_entry(root, run_id, record['targetSha'], record['controlSha'])
     if prior is not None:
@@ -246,7 +270,8 @@ def entry_state(record, root, run_id, create, now, deadline, announcement=False)
 
 
 def reservation(record, root, run_id):
-    if not record or not record.get('ownerWindowId') or not re.fullmatch(r'[1-9][0-9]*(-[1-9][0-9]*)?', run_id or ''):
+    phase1 = record is not None and record['schema'] == PHASE1_CAPABILITY
+    if not record or (not record.get('ownerWindowId') and not phase1) or not re.fullmatch(r'[1-9][0-9]*(-[1-9][0-9]*)?', run_id or ''):
         raise ValueError('owner reservation identity unavailable')
     path = Path(root) / ('engine-recovery-window-' + run_id + '.json')
     import stat
@@ -255,6 +280,19 @@ def reservation(record, root, run_id):
         raise ValueError('owner reservation type/ownership refused')
     value = json.loads(path.read_bytes())
     stamp = value.get('announcedAt')
+    if phase1:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('activation_floor_custody_seal', Path(__file__).with_name('engine-release-seal.py'))
+        seal = importlib.util.module_from_spec(spec); spec.loader.exec_module(seal)
+        seal.STATE_FILE = Path(root) / 'engine-release-seal.json'
+        cycle = seal.own_routine_cycle(seal.load_state(), run_id)
+        window = seal.routine_window(cycle, verified=True) if cycle is not None else None
+        if (value.get('runId') != run_id or value.get('sha') != record['targetSha'] or value.get('cause') != 'urgent'
+                or type(stamp) is not int or cycle is None or cycle['status'] != 'reserved'
+                or cycle['sha'] != record['targetSha'] or cycle['controlSha'] != record['controlSha']
+                or cycle['policyDigest'] != record['manifestSha256'] or window['announcedAt'] != stamp):
+            raise ValueError('Phase1 reservation does not bind the canonical owned cycle')
+        return stamp
     if (value.get('runId') != run_id or value.get('sha') != record['targetSha'] or value.get('cause') != 'urgent'
             or type(stamp) is not int or stamp < record['activationEpoch'] * 1000
             or stamp + 420000 > record['expiresEpoch'] * 1000):
@@ -268,7 +306,7 @@ def checkpoint_no_action(record, root, state_root, run_id):
         raise ValueError('checkpoint intent exists; runtime ownership retained')
     reservation(record, state_root, run_id)
     value = existing_entry(root, run_id, record['targetSha'], record['controlSha'])
-    if not value or value['schema'] != OWNER_CAPABILITY or value['manifestSha256'] != record['manifestSha256']:
+    if not value or value['schema'] not in (OWNER_CAPABILITY, PHASE1_CAPABILITY) or value['schema'] != record['schema'] or value['manifestSha256'] != record['manifestSha256']:
         raise ValueError('checkpoint no-action ownership unavailable')
     value['phase'] = 'announcement'
     import tempfile
@@ -298,20 +336,28 @@ def main():
     parser.add_argument('--state-root', default='/var/lib/club-arena')
     args = parser.parse_args()
     prior = None
-    if args.mode in ('entry', 'entry-check', 'disposition', 'announcement-entry'):
-        prior = existing_entry(args.request_root, args.run_id, args.target, args.control)
-        if prior and not (args.mode == 'entry' and prior.get('phase') == 'announcement'):
+    if args.mode in ('entry', 'entry-check', 'disposition', 'announcement-entry', 'admit', 'checkpoint-no-action', 'reservation') and args.request_root and args.run_id:
+        if args.mode != 'admit' or os.path.lexists(args.request_root):
+            prior = existing_entry(args.request_root, args.run_id, args.target, args.control)
+        if args.mode in ('entry', 'entry-check', 'disposition', 'announcement-entry') and prior and not (args.mode == 'entry' and prior.get('phase') == 'announcement'):
             # Runtime recovery never gains a mutable Git dependency. An
             # announcement-only owner is retained but cannot restore runtime.
             print('announced' if prior.get('phase') == 'announcement' else 'entered')
             return
     record = policy(args.repo, args.target, args.control)
+    if (args.mode not in ('checkpoint-no-action', 'reservation') and prior is None) or (prior is not None and prior['schema'] == PHASE1_CAPABILITY):
+        selected = phase1_policy(args.repo, args.target, args.control)
+        if prior is not None and selected is None:
+            raise ValueError('owned Phase1 scheduling capability disappeared')
+        if selected is not None:
+            record = selected
     if args.mode not in ('checkpoint-no-action', 'reservation') and prior is None:
         # In-flight owner reads (a reservation, a checkpoint no-action, or an
         # announced entry being promoted) keep the exact record; every fresh
         # admission, entry and publication read reads an expired floor as no
         # floor.
-        record = effective(record, int(time.time()))
+        if record is None or record['schema'] != PHASE1_CAPABILITY:
+            record = effective(record, int(time.time()))
     if args.mode == 'checkpoint-no-action':
         print(checkpoint_no_action(record, args.request_root, args.state_root, args.run_id))
         return
@@ -325,7 +371,7 @@ def main():
         print(state)
         return
     check_window(record, int(time.time()), args.deadline, args.mode if args.mode in ('admit', 'publish') else 'prepare')
-    if args.mode == 'wait' and record:
+    if args.mode == 'wait' and record and record['schema'] != PHASE1_CAPABILITY:
         # Passive wait inside the existing owning workflow, never an engine timer.
         # Re-read the immutable source and actual clock before admitting intake.
         while int(time.time()) < record['activationEpoch']:

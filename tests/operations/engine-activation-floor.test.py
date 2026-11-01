@@ -76,6 +76,115 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
+    def test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner(self):
+        import contextlib
+        import io
+        import sys
+        record = self.owner_record()
+        self.assertEqual(record['ownerWindowId'], '2026-10-31-horse-v63-v70-drained-next-55')
+        for name in ('server/scripts/engine-release-seal.py', 'server/src/maintenance/maintenanceSchedulePolicy.json'):
+            path = self.repo / name; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes((ROOT / name).read_bytes())
+        self.sha = self.commit()
+        record = floor.policy(str(self.repo), self.sha, self.sha)
+        requests = self.repo / 'requests'; requests.mkdir()
+        now = record['activationEpoch'] + 1800
+        deadline = record['expiresEpoch'] + 3600
+        args = ['floor', 'admit', '--repo', str(self.repo), '--target', self.sha,
+                '--control', self.sha, '--deadline', str(deadline),
+                '--request-root', str(requests), '--run-id', '123-1']
+        out = io.StringIO()
+        with patch.object(sys, 'argv', args), patch.object(floor.time, 'time', return_value=now), contextlib.redirect_stdout(out):
+            floor.main()
+        selected = json.loads(out.getvalue())
+        self.assertEqual(selected['schema'], 'engine-release-activation-floor/v3-phase1')
+        self.assertEqual(selected['expiresEpoch'], 0)
+        self.assertIsNone(selected['ownerWindowId'])
+        self.assertEqual(floor.entry_state(selected, str(requests), '123-1', False, now, deadline), 'never-entered')
+        self.assertEqual(floor.entry_state(selected, str(requests), '123-1', True, now, deadline, announcement=True), 'announced')
+        # Typed Phase1 entries preserve announcement-only recovery even if
+        # Git becomes unavailable; they never fall through to legacy restore.
+        self.git('update-ref', '-d', 'refs/remotes/origin/main')
+        out = io.StringIO()
+        disposition_args = [*args]; disposition_args[1] = 'disposition'
+        with patch.object(sys, 'argv', disposition_args), contextlib.redirect_stdout(out):
+            floor.main()
+        self.assertEqual(out.getvalue().strip(), 'announced')
+        self.assertEqual(floor.entry_state(selected, str(requests), '123-1', True, now, deadline), 'entered')
+        out = io.StringIO()
+        with patch.object(sys, 'argv', disposition_args), contextlib.redirect_stdout(out):
+            floor.main()
+        self.assertEqual(out.getvalue().strip(), 'entered')
+        state = self.repo / 'state'; state.mkdir()
+        cycle_start = (now // 3600 + 1) * 3600
+        stamp = (cycle_start - 120) * 1000
+        cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+                 'policyDigest': selected['manifestSha256'], 'startsAt': cycle_start, 'endsAt': cycle_start+300,
+                 'runId': '123-1', 'sha': self.sha, 'controlSha': self.sha, 'status': 'reserved',
+                 'window': {'announcedAt': stamp, 'startsAt': stamp+120000, 'endsAt': stamp+420000, 'verified': True}}
+        (state / 'engine-release-seal.json').write_text(json.dumps({'schema': 1, 'generation': 1,
+            'desired': {'sha': self.sha, 'imageId': 'sha256:'+'a'*64}, 'highWaterSha': self.sha,
+            'committedRuns': {}, 'pending': None, 'finalization': None,
+            'routineMaintenanceCycles': {str(cycle_start): cycle}}))
+        receipt = state / 'engine-recovery-window-123-1.json'
+        receipt.write_text(json.dumps({'runId': '123-1', 'sha': self.sha, 'cause': 'urgent', 'announcedAt': stamp})); receipt.chmod(0o600)
+        intent = requests / '123-1.legacy-checkpoint-intent'; intent.write_text('unknown')
+        with self.assertRaises(ValueError): floor.checkpoint_no_action(selected, str(requests), str(state), '123-1')
+        intent.unlink()
+        self.assertEqual(floor.checkpoint_no_action(selected, str(requests), str(state), '123-1'), 'announced')
+        self.assertEqual(floor.existing_entry(str(requests), '123-1', self.sha, self.sha)['phase'], 'announcement')
+        self.git('update-ref', 'refs/remotes/origin/main', self.sha)
+        (requests / '123-1.activation-entry').unlink()
+        floor.entry_state(record, str(requests), '123-1', True, now, deadline, announcement=True)
+        original = (requests / '123-1.activation-entry').read_bytes()
+        out = io.StringIO()
+        with patch.object(sys, 'argv', args), patch.object(floor.time, 'time', return_value=now), contextlib.redirect_stdout(out):
+            floor.main()
+        self.assertEqual(json.loads(out.getvalue())['ownerWindowId'], record['ownerWindowId'])
+        self.assertEqual((requests / '123-1.activation-entry').read_bytes(), original)
+        # The canonical complete/off policy restores daily admission, without
+        # reviving the superseded53-minute owner window or its old expiry.
+        (requests / '123-1.activation-entry').unlink()
+        schedule_path = self.repo / 'server/src/maintenance/maintenanceSchedulePolicy.json'
+        for status in ('active', 'complete', 'off'):
+            policy = json.loads(schedule_path.read_text())
+            policy.update(phase1Status=status, completionEvidence=None if status == 'active' else 'Verified Phase1 completion fixture')
+            schedule_path.write_text(json.dumps(policy)); self.sha = self.commit()
+            for mode in ('prepare', 'admit', 'entry-check', 'disposition'):
+                current_args = ['floor', mode, '--repo', str(self.repo), '--target', self.sha,
+                                '--control', self.sha, '--deadline', str(deadline),
+                                '--request-root', str(requests), '--run-id', '123-1']
+                out = io.StringIO()
+                with patch.object(sys, 'argv', current_args), patch.object(floor.time, 'time', return_value=now), contextlib.redirect_stdout(out):
+                    floor.main()
+                if mode in ('entry-check', 'disposition'):
+                    self.assertEqual(out.getvalue().strip(), 'never-entered')
+                else:
+                    selected = json.loads(out.getvalue())
+                    self.assertEqual(selected['phase1Status'], status)
+                    self.assertEqual(selected['expiresEpoch'], 0)
+        # Exercise the actual recovery selector with old-engine health. A
+        # reserved cycle can announce58->00 only, even if degradation exists.
+        import shlex
+        source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+        start = source.index('recovery_window_reason() {')
+        end = source.index('\n# OWNER-ORDERED WINDOW', start)
+        fn = source[start:end]
+        cycle = (now // 3600 + 1) * 3600
+        health = json.dumps({'running': True, 'wholeFleetStalled': True, 'maintenance': {'recoveryWindowProtocol': 'engine-recovery-window-v1'}})
+        for offset, expected in ((420, ''), (120, 'phase1-hourly'), (60, '')):
+            script = 'date() { echo ' + str(cycle-offset) + '; }; PHASE1_CYCLE_START=' + str(cycle) + '\n' + fn
+            result = subprocess.run([BASH, '-c', script + '\nrecovery_window_reason ' + shlex.quote(health)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), expected)
+        # Both independent host admit reloads retain the request identity.
+        reloads = source.split('ACTIVATION_FLOOR_JSON="$(python3 ')[1:]
+        self.assertEqual(len(reloads), 2)
+        for reload in reloads:
+            command = reload.split('|| die', 1)[0]
+            self.assertIn('--request-root "$REQUEST_ROOT" --run-id "$RUN_ID"', command)
+        self.assertIn('--request-root "${ENGINE_RELEASE_REQUEST_ROOT:-/var/lib/club-arena/engine-release-requests}"', (ROOT / INTAKE).read_text())
+
     def test_actual_floor_reads_share_legacy_entry_budget_and_retain_announcement(self):
         import shlex
         import shutil
@@ -228,7 +337,7 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_actual_reservation_entry_survives_unknown_ack_and_checkpoint_no_action(self):
         r = self.owner_record(); root=self.repo/'requests';root.mkdir()
         source=(ROOT/'server/scripts/engine-release-transaction.sh').read_text()
-        start=source.index('  FLOOR_RESERVATION_FRESH=0\n  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then')
+        start=source.index('  FLOOR_RESERVATION_FRESH=0\n  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then')
         end=source.index('  reserve_args=',start)
         body=source[start:end]
         import shlex

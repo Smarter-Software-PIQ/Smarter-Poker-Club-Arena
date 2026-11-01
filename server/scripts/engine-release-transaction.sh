@@ -1555,6 +1555,7 @@ raise SystemExit(0 if h.get("running") is True and s.get("frequency")!="phase1-h
       fi
     fi
   fi
+  [ "${PHASE1_CYCLE_START:-0}" = 0 ] || return 0
   degraded="$(printf '%s' "$health" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -1822,12 +1823,16 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
     fi
     return 0
   fi
-  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
+    reason="$(recovery_window_reason "$health")"
+  elif [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
     reason="$(owner_window_reason "$health")"
     [ "$reason" = "owner-ordered $ACTIVATION_FLOOR_OWNER_WINDOW" ] || reason=''
   else
     reason="$(recovery_window_reason "$health")"
-    [ -n "$reason" ] || reason="$(owner_window_reason "$health")"
+    if [ "${PHASE1_FLOOR_SELECTED:-0}" = 0 ]; then
+      [ -n "$reason" ] || reason="$(owner_window_reason "$health")"
+    fi
   fi
   # NO LOCK WITHOUT AN EMERGENCY (2026-10-04). The seal answers `unavailable`
   # to every reservation that names no cause, so a routine release (no
@@ -1862,12 +1867,16 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
     release_engine_lock
     return 0
   }
-  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
+    reason="$(recovery_window_reason "$health")"
+  elif [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
     reason="$(owner_window_reason "$health")"
     [ "$reason" = "owner-ordered $ACTIVATION_FLOOR_OWNER_WINDOW" ] || reason=''
   else
     reason="$(recovery_window_reason "$health")"
-    [ -n "$reason" ] || reason="$(owner_window_reason "$health")"
+    if [ "${PHASE1_FLOOR_SELECTED:-0}" = 0 ]; then
+      [ -n "$reason" ] || reason="$(owner_window_reason "$health")"
+    fi
   fi
   case "${reason%% *}" in
     engine-degraded|owner-ordered|phase1-hourly) ;;
@@ -1905,7 +1914,7 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
     fi
   fi
   FLOOR_RESERVATION_FRESH=0
-  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
+  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
     [ "$FLOOR_DISPOSITION" != never-entered ] || FLOOR_RESERVATION_FRESH=1
     # The existing reservation/announcement is this fresh request's first
     # runtime-capable action. Persist ownership before any unknown outcome.
@@ -1935,13 +1944,13 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
     # a blind sixty seconds can skip the owner's only permitted minute.
     # The next pass still rechecks owner minute, health, source and ownership.
     RECOVERY_NEXT_EVALUATION=$(( (BASH_REMATCH[1] + 999) / 1000 ))
-    if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then retire_unannounced_floor_entry; fi
+    if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
     release_engine_lock
     echo "[engine-release-transaction] off-cycle window wanted ($reason) but the seal's rolling-hour boundary has not elapsed; re-evaluate at $RECOVERY_NEXT_EVALUATION"
     return 0
   fi
   if [ "$stamp" = rate-limited ]; then
-    if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then retire_unannounced_floor_entry; fi
+    if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
     release_engine_lock
     RECOVERY_NEXT_EVALUATION=$(( $(date +%s) + RECOVERY_DEFER_SECONDS ))
     echo "[engine-release-transaction] off-cycle window wanted ($reason) but one was already announced in the last hour; waiting for the scheduled break"
@@ -1949,7 +1958,7 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
   fi
   RECOVERY_CHECKED_CAUSE="$cause_key"
   if [ "$stamp" = unavailable ]; then
-    if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then retire_unannounced_floor_entry; fi
+    if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
     release_engine_lock
     return 0
   fi
@@ -2551,7 +2560,7 @@ export ACTIVATION_FLOOR_OWNER_WINDOW=
 if [ "$FLOOR_DISPOSITION" = never-entered ] || [ "$FLOOR_DISPOSITION" = announced ]; then
   ACTIVATION_FLOOR_JSON="$(python3 "$CONTROL_DIR/engine-release-activation-floor.py" admit \
     --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" \
-    --deadline "$MUTATION_DEADLINE_EPOCH")" || die 'immutable daily activation intent refused'
+    --deadline "$MUTATION_DEADLINE_EPOCH" --request-root "$REQUEST_ROOT" --run-id "$RUN_ID")" || die 'immutable daily activation intent refused'
   # An announced owner whose window has since expired reads 'legacy' from a
   # fresh admit (an expired floor is no floor, 2026-10-30). Its announcement
   # was made under that window, so it ends here by name rather than carrying
@@ -2561,6 +2570,8 @@ if [ "$FLOOR_DISPOSITION" = never-entered ] || [ "$FLOOR_DISPOSITION" = announce
   fi
   ACTIVATION_FLOOR_END_EPOCH="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("expiresEpoch", 0))')"
   ACTIVATION_FLOOR_OWNER_WINDOW="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ownerWindowId") or "")')"
+  PHASE1_FLOOR_SELECTED="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(1 if json.load(sys.stdin).get("schema")=="engine-release-activation-floor/v3-phase1" else 0)')"
+  export PHASE1_FLOOR_SELECTED
 fi
 
 record_floor_runtime_entry() {
@@ -2684,9 +2695,11 @@ NEXT_FRESHNESS_CHECK=$(( $(date +%s) + 60 ))
 # retains its original authority and is never blocked by a later expiry.
 ACTIVATION_FLOOR_JSON="$(python3 "$CONTROL_DIR/engine-release-activation-floor.py" admit \
   --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" \
-  --deadline "$MUTATION_DEADLINE_EPOCH")" || die 'immutable daily activation intent refused'
+  --deadline "$MUTATION_DEADLINE_EPOCH" --request-root "$REQUEST_ROOT" --run-id "$RUN_ID")" || die 'immutable daily activation intent refused'
 ACTIVATION_FLOOR_END_EPOCH="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("expiresEpoch",0))')"
 ACTIVATION_FLOOR_OWNER_WINDOW="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ownerWindowId") or "")')"
+PHASE1_FLOOR_SELECTED="$(printf '%s' "$ACTIVATION_FLOOR_JSON" | python3 -c 'import json,sys; print(1 if json.load(sys.stdin).get("schema")=="engine-release-activation-floor/v3-phase1" else 0)')"
+export PHASE1_FLOOR_SELECTED
 if [ "$ACTIVATION_FLOOR_END_EPOCH" -gt 0 ] && [ "$CERTIFICATE_DEADLINE" -gt "$ACTIVATION_FLOOR_END_EPOCH" ]; then
   CERTIFICATE_DEADLINE="$ACTIVATION_FLOOR_END_EPOCH"
 fi
