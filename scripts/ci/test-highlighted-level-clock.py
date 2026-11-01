@@ -99,6 +99,7 @@ try:
     run("""INSERT INTO tournaments(name,buy_in_amount,tournament_type,variant,blind_structure) VALUES
       ('Immutable Spin Projection',50,'SPIN','spin','[{"duration":180,"bigBlind":50}]');""")
     check('funded Spin source terms are not rewritten',run("SELECT blind_structure::jsonb->0->>'duration' FROM tournaments WHERE name='Immutable Spin Projection'")=='180')
+    check('nonpositive minute alias falls back to seconds before applying the floor',run("SELECT public.fn_ca_high_buyin_structure_clock('[{\"durationMinutes\":-1,\"duration\":180}]'::jsonb)->0->>'durationMinutes'")=='7')
     check('repeat and changed trigger bodies are refused', 'HIGH_BUYIN_LEVEL_CLOCK_PREIMAGE_CHANGED' in call(PSQL,high,False).stderr)
     print(json.dumps({'checks':checks,'production_mutations':False},indent=2))
 finally:

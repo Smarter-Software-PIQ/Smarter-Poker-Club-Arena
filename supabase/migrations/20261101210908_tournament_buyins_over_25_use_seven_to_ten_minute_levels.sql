@@ -15,10 +15,10 @@ RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=public AS $clock$
     THEN (e-'duration'-'duration_minutes') || jsonb_build_object('durationMinutes',LEAST(10,GREATEST(7,minutes)))
     ELSE e END ORDER BY ord),'[]'::jsonb)
   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p_structure)='array' THEN p_structure ELSE '[]'::jsonb END) WITH ORDINALITY x(e,ord)
-  CROSS JOIN LATERAL (SELECT COALESCE(
-    NULLIF(public.fn_ca_blind_contract_number(e->'durationMinutes'),0),
-    NULLIF(public.fn_ca_blind_contract_number(e->'duration_minutes'),0),
-    public.fn_ca_blind_contract_number(e->'duration')/60) AS minutes) m;
+  CROSS JOIN LATERAL (SELECT public.fn_ca_blind_contract_number(
+    COALESCE(NULLIF(e->'durationMinutes','null'::jsonb),e->'duration_minutes')) AS authored_minutes) a
+  CROSS JOIN LATERAL (SELECT CASE WHEN authored_minutes>0 THEN authored_minutes
+    ELSE public.fn_ca_blind_contract_number(e->'duration')/60 END AS minutes) m;
 $clock$;
 
 DO $patch$

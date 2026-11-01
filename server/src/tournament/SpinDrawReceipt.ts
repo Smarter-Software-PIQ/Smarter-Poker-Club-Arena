@@ -60,6 +60,7 @@ export function spinRuleManifest(buyIn: number, startingChips: number) {
     starting_chips: startingChips,
     tiers: SPIN_TIERS.map((tier) => ({
       ...tier,
+      levelMinutes: buyIn > 25 ? Math.min(10, Math.max(7, tier.levelMinutes)) : tier.levelMinutes,
       payouts: [...tier.payouts],
       blind_structure: Array.from({ length: 12 }, (_, i) => {
         const b = spinBlindsForLevel(i + 1);

@@ -80,6 +80,11 @@ describe('owner November 1: buy-ins above 25 use seven to ten minute levels', ()
     expect(playableSpinBlinds(raw, 25)[0]).toMatchObject({ duration: 300, durationMinutes: 5 });
     expect(raw[0].duration).toBe(180);
     for (const tier of spinRuleManifest(50, 500).tiers) {
+      expect(tier.levelMinutes).toBeGreaterThanOrEqual(7);
+      expect(tier.levelMinutes).toBeLessThanOrEqual(10);
+      expect(tier.blind_structure.every((level) => level.duration === tier.levelMinutes * 60)).toBe(
+        true
+      );
       expect(
         tier.blind_structure.every((level) => level.duration >= 420 && level.duration <= 600)
       ).toBe(true);
