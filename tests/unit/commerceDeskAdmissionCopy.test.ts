@@ -1,4 +1,7 @@
 import { mockTournamentCreateReply } from '../helpers/tournamentCreateFixture';
+import { scheduleRpcResponse } from '../helpers/scheduleCreateFixture';
+import { installScheduleCreateFixture } from '../helpers/scheduleCreateFixture';
+installScheduleCreateFixture();
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  AN ENFORCED ADMISSION REFUSAL READS AS THE SERVER WROTE IT (20260924102056)
@@ -145,25 +148,29 @@ describe('member approval shows the refusal sentence', () => {
 
 describe('a refused member door reads as the server wrote it', () => {
   it.each(sentences('join_member'))('the join modal and invite page show: %s', async (sentence) => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: null,
-      error: { message: sentence, code: 'P0001', hint: 'operating_access_required', details: '' },
-    } as never);
+    vi.spyOn(supabase, 'rpc').mockReturnValue(
+      scheduleRpcResponse({
+        data: null,
+        error: { message: sentence, code: 'P0001', hint: 'operating_access_required', details: '' },
+      } as never) as never
+    );
     await expect(ClubJoinService.join({ identifier: '123456' })).rejects.toThrow(
       new Error(sentence)
     );
   });
 
   it.each(sentences('approve_member'))('an agent add shows: %s', async (sentence) => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: {
-        success: false,
-        code: 'operating_access_required',
-        error: sentence,
-        reason: 'capacity_reached',
-      },
-      error: null,
-    } as never);
+    vi.spyOn(supabase, 'rpc').mockReturnValue(
+      scheduleRpcResponse({
+        data: {
+          success: false,
+          code: 'operating_access_required',
+          error: sentence,
+          reason: 'capacity_reached',
+        },
+        error: null,
+      } as never) as never
+    );
     const res = await AgentService.attachPlayerToAgent('club', 'agent', 'player');
     expect(res).toEqual({ success: false, code: 'operating_access_required', error: sentence });
     expect(read('src/components/agent/PlayerInviteModal.tsx')).toMatch(
@@ -234,14 +241,16 @@ describe('tournament creation shows the server message', () => {
   });
 
   it('a recurring schedule shows it too', async () => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: {
-        error: 'operating_access_required',
-        message: sentence,
-        reason: 'no_effective_entitlement',
-      },
-      error: null,
-    } as never);
+    vi.spyOn(supabase, 'rpc').mockReturnValue(
+      scheduleRpcResponse({
+        data: {
+          error: 'operating_access_required',
+          message: sentence,
+          reason: 'no_effective_entitlement',
+        },
+        error: null,
+      } as never) as never
+    );
     await expect(
       tournamentScheduleService.upsert({
         clubId: 'club',

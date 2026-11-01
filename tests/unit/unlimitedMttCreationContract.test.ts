@@ -1,3 +1,5 @@
+import { installScheduleCreateFixture, scheduleReceipt } from '../helpers/scheduleCreateFixture';
+installScheduleCreateFixture();
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tournamentService, type TournamentConfig } from '../../src/services/TournamentService';
 import { tournamentScheduleService } from '../../src/services/TournamentScheduleService';
@@ -123,10 +125,9 @@ describe('unlimited MTT creation and saved schedules', () => {
   );
 
   it('removes both spellings from stale schedule drafts without mutating the draft', async () => {
-    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: { ok: true, schedule_id: 'schedule' },
-      error: null,
-    } as never);
+    const rpc = vi
+      .spyOn(supabase, 'rpc')
+      .mockImplementation((_name, args) => scheduleReceipt(args, 'schedule') as never);
     // A schedule satellite names its target; the spawner resolves it by name.
     const config = Object.freeze({
       type: 'satellite',
@@ -143,7 +144,7 @@ describe('unlimited MTT creation and saved schedules', () => {
       config,
     });
     expect(rpc).toHaveBeenCalledWith(
-      'fn_upsert_tournament_schedule',
+      'fn_create_tournament_schedule_request',
       expect.objectContaining({
         p_schedule: expect.objectContaining({
           config: {
@@ -166,10 +167,9 @@ describe('unlimited MTT creation and saved schedules', () => {
   });
 
   it('normalizes an old SNG satellite schedule in the serializer spelling', async () => {
-    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: { ok: true, schedule_id: 'schedule' },
-      error: null,
-    } as never);
+    const rpc = vi
+      .spyOn(supabase, 'rpc')
+      .mockImplementation((_name, args) => scheduleReceipt(args, 'schedule') as never);
     const config = Object.freeze({ type: 'sng', satelliteTargetId: 'target', maxPlayers: 2 });
     await tournamentScheduleService.upsert({
       clubId: 'club',
@@ -179,7 +179,7 @@ describe('unlimited MTT creation and saved schedules', () => {
       config,
     });
     expect(rpc).toHaveBeenCalledWith(
-      'fn_upsert_tournament_schedule',
+      'fn_create_tournament_schedule_request',
       expect.objectContaining({
         p_schedule: expect.objectContaining({
           config: expect.objectContaining({

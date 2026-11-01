@@ -10,6 +10,8 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installScheduleCreateFixture, scheduleReceipt } from '../helpers/scheduleCreateFixture';
+installScheduleCreateFixture();
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -242,19 +244,19 @@ describe('the tournament category is reachable from an event', () => {
 });
 
 function spyScheduleRpc() {
-  return vi.spyOn(supabase, 'rpc').mockResolvedValue({
-    data: { ok: true, schedule_id: 'synthetic-schedule' },
-    error: null,
-  } as never);
+  return vi
+    .spyOn(supabase, 'rpc')
+    .mockImplementation((_name, args: any) => scheduleReceipt(args, 'synthetic-schedule') as never);
 }
 async function savedSchedule(rpc: ReturnType<typeof spyScheduleRpc>, container: HTMLElement) {
   fireEvent.submit(container.querySelector('form')!);
   await waitFor(() =>
-    expect(rpc).toHaveBeenCalledWith('fn_upsert_tournament_schedule', expect.any(Object))
+    expect(rpc).toHaveBeenCalledWith('fn_create_tournament_schedule_request', expect.any(Object))
   );
   expect(mocks.error).not.toHaveBeenCalled();
-  return (rpc.mock.calls.find(([name]) => name === 'fn_upsert_tournament_schedule')![1] as any)
-    .p_schedule;
+  return (
+    rpc.mock.calls.find(([name]) => name === 'fn_create_tournament_schedule_request')![1] as any
+  ).p_schedule;
 }
 const repeat = () => screen.getByLabelText('Repeat') as HTMLSelectElement;
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
@@ -280,7 +282,10 @@ describe('one recurrence control at the foot of the form', () => {
     const rpc = spyScheduleRpc();
     const { container } = mount();
     await submit(container);
-    expect(rpc).not.toHaveBeenCalledWith('fn_upsert_tournament_schedule', expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith(
+      'fn_create_tournament_schedule_request',
+      expect.anything()
+    );
   });
 
   it('Daily saves set times on every day with the daily cadence and no interval', async () => {

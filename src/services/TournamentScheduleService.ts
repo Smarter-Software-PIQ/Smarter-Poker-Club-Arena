@@ -18,7 +18,12 @@
  * are plain authenticated selects (RLS allows read only).
  */
 
-import { supabase } from '../lib/supabase';
+import { supabase, getAuthUser } from '../lib/supabase';
+import {
+  withTournamentScheduleCreateIntent,
+  ScheduleCreateRefusedError,
+  ScheduleCreateRetiredError,
+} from './TournamentScheduleCreateIntent';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
 import { reportError } from '../utils/errorReporter';
 import { isUnlimitedMtt } from '../../server/src/tournament/tournamentEntryCapacity';
@@ -86,6 +91,9 @@ export interface TournamentScheduleDraft {
 }
 
 const SCHEDULE_ERRORS: Record<string, string> = {
+  schedule_request_payload_changed: 'This Request Already Belongs To Different Schedule Settings.',
+  schedule_request_target_changed:
+    'The Original Schedule Changed Or Was Removed. It Was Not Created Again.',
   not_authenticated: 'You need to be signed in to manage schedules.',
   not_authorised: 'Only the union owner or an admin can manage this schedule.',
   schedule_not_found: 'That schedule no longer exists.',
@@ -131,37 +139,96 @@ class TournamentScheduleService {
     // owner-facing reason before the round trip, and again by
     // fn_upsert_tournament_schedule for any caller that skips this.
     assertTournamentRpcConfig(draft.config, { surface: 'schedule' });
-    const { data, error } = await supabase.rpc('fn_upsert_tournament_schedule', {
-      p_schedule: {
-        id: draft.id ?? null,
-        unionId: draft.unionId ?? null,
-        clubId: draft.clubId,
-        name: draft.name,
-        description: draft.description ?? null,
-        active: draft.active ?? true,
-        daysOfWeek: draft.daysOfWeek,
-        startTimesUtc: draft.startTimesUtc,
-        ...(draft.timeZone !== undefined ? { timeZone: draft.timeZone } : {}),
-        intervalMinutes: draft.intervalMinutes ?? null,
-        config: isUnlimitedMtt({ ...draft.config, type: draft.config.type ?? 'mtt' })
-          ? { ...draft.config, maxPlayers: null, max_players: null }
-          : draft.config,
-      },
-    });
-    if (error) {
-      reportError(error, 'TournamentScheduleService.upsert');
-      throw new Error('Could not save the schedule.');
-    }
-    const res = data as {
-      ok?: boolean;
-      schedule_id?: string;
-      error?: string;
-      message?: string;
-    } | null;
-    if (res?.ok !== true || typeof res.schedule_id !== 'string' || !res.schedule_id.trim()) {
-      throw new Error(scheduleErrorText(res?.error, res?.message));
-    }
-    return res.schedule_id;
+    const payload = {
+      id: draft.id ?? null,
+      unionId: draft.unionId ?? null,
+      clubId: draft.clubId,
+      name: draft.name,
+      description: draft.description ?? null,
+      active: draft.active ?? true,
+      daysOfWeek: draft.daysOfWeek,
+      startTimesUtc: draft.startTimesUtc,
+      ...(draft.timeZone !== undefined ? { timeZone: draft.timeZone } : {}),
+      intervalMinutes: draft.intervalMinutes ?? null,
+      config: isUnlimitedMtt({ ...draft.config, type: draft.config.type ?? 'mtt' })
+        ? { ...draft.config, maxPlayers: null, max_players: null }
+        : draft.config,
+    };
+    const save = async (requestId?: string, userId?: string): Promise<string> => {
+      const { data, error } = requestId
+        ? await runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .rpc('fn_create_tournament_schedule_request', {
+                  p_schedule: payload,
+                  p_request_id: requestId,
+                  p_user_id: userId,
+                })
+                .abortSignal(signal),
+            {
+              timeoutError: () =>
+                new Error(
+                  'The Schedule Save Could Not Be Confirmed. Submit The Same Settings To Check Its Original Request.'
+                ),
+            }
+          )
+        : await supabase.rpc('fn_upsert_tournament_schedule', { p_schedule: payload });
+      if (error) {
+        reportError(error, 'TournamentScheduleService.upsert');
+        if (requestId && error.code === 'PGRST202')
+          throw new Error(
+            'Safe Schedule Creation Is Not Available Yet. The Original Request Is Retained.'
+          );
+        throw new Error(
+          'The Schedule Save Could Not Be Confirmed. Submit The Same Settings To Check Its Original Request.'
+        );
+      }
+      const res = data as {
+        ok?: boolean;
+        schedule_id?: string;
+        request_id?: string;
+        user_id?: string;
+        request_state?: string;
+        error?: string;
+        message?: string;
+      } | null;
+      if (
+        requestId &&
+        res?.request_id === requestId &&
+        res.user_id === userId &&
+        res.request_state === 'retired' &&
+        res.error === 'schedule_request_target_changed' &&
+        typeof res.schedule_id === 'string' &&
+        res.schedule_id.trim()
+      )
+        throw new ScheduleCreateRetiredError(
+          res.schedule_id,
+          'The Original Schedule Was Changed Or Removed. Submit Again To Create A New Schedule.'
+        );
+      if (res?.ok !== true || typeof res.schedule_id !== 'string' || !res.schedule_id.trim()) {
+        if (
+          requestId &&
+          res?.request_id === requestId &&
+          res.user_id === userId &&
+          res.request_state === 'not_created'
+        )
+          throw new ScheduleCreateRefusedError(scheduleErrorText(res.error, res.message));
+        throw new Error(scheduleErrorText(res?.error, res?.message));
+      }
+      if (requestId && (res.request_id !== requestId || res.user_id !== userId))
+        throw new Error(
+          'The Schedule Receipt Could Not Be Verified. Submit The Same Settings To Check Its Original Request.'
+        );
+      return res.schedule_id;
+    };
+    if (draft.id) return save();
+    const { data: auth, error: authError } = await runWithRequestDeadline(() => getAuthUser());
+    if (authError || !auth.user) throw new Error('Sign In Before Creating A Schedule.');
+    return withTournamentScheduleCreateIntent(
+      { userId: auth.user.id, clubId: draft.clubId, unionId: draft.unionId ?? null },
+      payload,
+      (requestId) => save(requestId, auth.user!.id)
+    );
   }
 
   /** Flip active on an existing schedule without touching anything else. */
