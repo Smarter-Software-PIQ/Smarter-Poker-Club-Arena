@@ -377,7 +377,7 @@ jobs:
           echo "Proceeding to publish to the origin..." >> $GITHUB_STEP_SUMMARY
 
   publication-floor:
-    name: Admit The Selected Client Publication Window
+    name: Validate The Selected Client Publication Source
     if: inputs.component == 'client'
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -390,7 +390,7 @@ jobs:
           ref: ${{ inputs.target_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Refuse early publication independently of backlog or runtime reuse
+      - name: Validate exact protected source independently of backlog or runtime reuse
         env:
           TARGET_SHA: ${{ inputs.target_sha }}
         run: |
