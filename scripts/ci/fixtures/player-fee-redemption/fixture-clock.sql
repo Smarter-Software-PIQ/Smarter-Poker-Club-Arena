@@ -13,3 +13,5 @@ END $$;
 CREATE OR REPLACE FUNCTION pg_catalog.now() RETURNS timestamptz
 LANGUAGE sql STABLE PARALLEL SAFE
 AS $$ SELECT '2026-10-25 12:00:00+00'::timestamptz $$;
+
+DO $$ BEGIN ASSERT now() = timestamptz '2026-10-25 12:00:00+00', 'historical fixture clock not installed'; END $$;

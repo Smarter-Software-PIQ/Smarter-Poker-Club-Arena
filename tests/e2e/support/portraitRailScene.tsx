@@ -17,6 +17,7 @@ import { useProtectedCardLayout } from '../../../src/hooks/useProtectedCardLayou
 import BadBeatJackpot from '../../../src/components/table/BadBeatJackpot';
 import ActionPanel from '../../../src/components/table/ActionPanel';
 import PreActionBar from '../../../src/components/table/PreActionBar';
+import { WaitlistCallToAction } from '../../../src/components/table/WaitlistCallToAction';
 import PotDisplay from '../../../src/components/table/PotDisplay';
 import HeroVpipTracker from '../../../src/components/table/HeroVpipTracker';
 import PreviousHandCard from '../../../src/components/table/PreviousHandCard';
@@ -306,7 +307,11 @@ export function Review() {
             <div className="action-panel-wrapper">
               {spectator ? (
                 <div className="spectator-footer-bar">
-                  <span className="spectator-footer-bar__label">Spectating</span>
+                  {!tournament ? (
+                    <WaitlistCallToAction waitingCount={0} onClick={() => undefined} />
+                  ) : (
+                    <span className="spectator-footer-bar__label">Spectating</span>
+                  )}
                 </div>
               ) : action === 'active' ? (
                 <ActionPanel

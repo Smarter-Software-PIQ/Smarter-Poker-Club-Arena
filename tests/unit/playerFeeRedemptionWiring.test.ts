@@ -30,9 +30,12 @@ describe('the fee redemption runs with the maintained Data Console qualification
     expect(native.indexOf('fixture-clock.sql')).toBeLessThan(
       native.indexOf('-f "$FIXTURE/rake-share-out-of-band.sql"')
     );
-    const restore = native.indexOf("LANGUAGE internal STABLE PARALLEL SAFE AS 'now'");
+    const restore = native.indexOf('\nrestore_fixture_clock\n');
     expect(restore).toBeGreaterThan(native.indexOf('-f "$FIXTURE/rake-share-assert.sql"'));
     expect(restore).toBeLessThan(native.indexOf('CALENDAR='));
+    expect(native).toContain("pg_get_functiondef('pg_catalog.now()'::regprocedure)");
+    expect(native).toContain('builtin clock not restored');
+    expect(clock).toContain('historical fixture clock not installed');
     expect(clock).toContain("current_user <> 'fee_test'");
     expect(clock).toContain('inet_server_addr() IS NOT NULL');
     expect(clock).toContain(

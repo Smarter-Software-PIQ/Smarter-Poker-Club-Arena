@@ -500,3 +500,18 @@ describe('satellite archive award denominations', () => {
     expect(await screen.findByText(/Details Are Unavailable/)).toBeTruthy();
   });
 });
+
+it('shows unreadable mystery awards instead of an empty successful result', async () => {
+  mocks.query.mockImplementation((table) =>
+    success(table === 'tournaments' ? [tournament('A', { is_mystery_bounty: true })] : [])
+  );
+  mocks.awards.mockImplementation(async (_id, opts) => {
+    if (opts?.strict) throw new Error('incomplete awards');
+    return { total: 0, rows: [] };
+  });
+  mount();
+  await select('A');
+  await screen.findByText('Could Not Load These Mystery Awards. Please Retry.');
+  expect(mocks.leaderboard).toHaveBeenCalledWith('A', { strict: true });
+  expect(mocks.awards).toHaveBeenCalledWith('A', { strict: true });
+});
