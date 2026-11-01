@@ -176,13 +176,17 @@ test('the big blind can open betting after calling on the prior street', async (
   // A cold lazy table module can mount after navigation's load event. Its
   // existing 60-second readiness budget must precede preference wire checks.
   let coldTableModuleReads = 0;
+  let coldTableModuleReady: Promise<void> | undefined;
   await page.route(/\/assets\/TablePage-[^/]+\.js(?:\?.*)?$/, async (route) => {
     coldTableModuleReads++;
-    if (coldTableModuleReads === 1) await new Promise((resolve) => setTimeout(resolve, 6_000));
+    // Preload and import may each request this URL. Both must wait behind
+    // one cold-mount boundary; request count is not an application contract.
+    coldTableModuleReady ??= new Promise((resolve) => setTimeout(resolve, 6_000));
+    await coldTableModuleReady;
     await route.fallback();
   });
   const engine = await openTable(page);
-  expect(coldTableModuleReads).toBe(1);
+  expect(coldTableModuleReads).toBeGreaterThan(0);
   const bar = controls(page);
   try {
     await bar.call.click();
