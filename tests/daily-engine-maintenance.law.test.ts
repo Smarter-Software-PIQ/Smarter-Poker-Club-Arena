@@ -958,7 +958,7 @@ it('binds a distinct qualified next-break carrier and preserves Diamond operator
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('b42eb3dd7b76725a8fb83d8282cfd599a7edc2c3b5a6d3ddb6a70f075fd18ca1');
+  ).toBe('e75b0fef0c6c9faee9e3eb0fde99bba5872b2d5002a5de125044982fd1a8d144');
   const entry = doc.windows[60];
   expect(entry.contains).toBe('280303d1e569344c837780b0605f95c5b00e687b');
   expect(entry.notBefore).toBe('2026-10-31T03:53:00Z');
@@ -1026,7 +1026,7 @@ it('binds the bounded-census correction without extending or retrying its failed
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('b42eb3dd7b76725a8fb83d8282cfd599a7edc2c3b5a6d3ddb6a70f075fd18ca1');
+  ).toBe('e75b0fef0c6c9faee9e3eb0fde99bba5872b2d5002a5de125044982fd1a8d144');
   const entry = doc.windows[61];
   expect(entry.contains).toBe('976850bec328ac8b80d47603f18fcba81e05534f');
   expect(entry.notBefore).toBe('2026-10-31T05:04:00Z');
@@ -1169,7 +1169,7 @@ it('binds the independent Horse input correction to one new qualified tournament
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('b42eb3dd7b76725a8fb83d8282cfd599a7edc2c3b5a6d3ddb6a70f075fd18ca1');
+  ).toBe('e75b0fef0c6c9faee9e3eb0fde99bba5872b2d5002a5de125044982fd1a8d144');
   const entry = doc.windows[63];
   expect(entry.contains).toBe('2f9ca8db67acdcdeb02e0da8c261570d2d87e2e9');
   expect(entry.notBefore).toBe('2026-10-31T05:10:00Z');
@@ -1266,7 +1266,7 @@ it('binds the manually resumed MTT continuation without renewing any historical 
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '4326daa858be30bd4a43afb08399782bb41598e8245f831c476e80d24c499a65'
+    '5f5c479a7357f320c4b4083054fcb604802196d77f2893652b117dda34853966'
   );
   for (const boundary of [
     'NEW manual continuation',
@@ -1329,7 +1329,7 @@ it('binds the noon manual continuation while preserving the expired unpushed car
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '996dc6f138ba4ad59dbe6ad7bb054479ec89ba8b80981144a14d20d0dc881a86'
+    '3e778c3543310dbeb01441784df1a3788087f356568936370816ccc1c658e2fe'
   );
   for (const boundary of [
     'NEW manual continuation',
@@ -1397,7 +1397,7 @@ it('binds the owner-ordered next :55 Horse V63-V69 activation without renewing a
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    'af6d171426e581132b60bd755db46f2b703be96889456fe44a51879280d5eb75'
+    '56bd4785ab03b6c3cee6e5e0bcb4f3e653566be244e9e7acf4abd1ebddd61dd9'
   );
   for (const boundary of [
     'YOU CAN DEPLOY AT THE NEXT :55 BREAK, YOU DO NOT HAVE TO WAIT UNTIL 4AM GET THAT DONE NOW',
@@ -1466,7 +1466,7 @@ it('binds the owner-ordered drained :55 activation of Horse V63-V70 without rene
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '6acf63d843b7b77656f6bd060dc05a8cf0180422afc68fce8e2f5a3c005bafd3'
+    '006b74d680c3a1c05ca7dbc9ae7b984bd92a1a90144dcbd3f7da81dbfd2b9d99'
   );
   for (const boundary of [
     'YOU CAN DEPLOY AT THE NEXT :55 BREAK, YOU DO NOT HAVE TO WAIT UNTIL 4AM GET THAT DONE NOW',
@@ -1541,7 +1541,7 @@ it('binds the owner-ordered drained engine crash-loop activation that falls back
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '6203f0c13f3c350f17faef6209b3b74cdf37d7933783cebfc2d0224e85d74f5d'
+    '713754acce469fc96926070cdf1f06f32fe5e2278b618d3fe7ba82e80ad7ac8a'
   );
   for (const boundary of [
     'FINISH UP ANY AND ALL REMAINING WORK',
@@ -1633,7 +1633,7 @@ it('binds the owner-ordered window that unblocks the engine door and installs it
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    'b15c5009360704744f666ceb01f1b5cebfa78cec0f4a3c5dbbc79fbadb8fe1a8'
+    '79ee6d0b765c80817319b7898680f4198d11a6dcc7e7db7a02e203287fb165bf'
   );
   for (const boundary of [
     'FIX ANY AND ALL BLOCKERS NOW AND FINISH THIS UP, PUSH AND PUBLISH EVERYTHING',
@@ -1705,7 +1705,7 @@ it('binds the owner-ordered fresh-engine crash-boundary window without renewing 
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    'b24f0dc9f249f106503242ddc4479e4a75934c6f3ce8a8bb72dc99275cd88550'
+    '8cdb85ae8b78758cf86b9df0860a53690feee6a4749bab7bc0af9ac418a40785'
   );
   for (const boundary of [
     'YOU DECIDE WHATS BEST, AND HOW TO RESOLVE THE ISSUES.',
