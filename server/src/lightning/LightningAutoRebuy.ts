@@ -1,4 +1,5 @@
 import { requestLightningHorseTopUps } from './LightningHorseTopUp.js';
+import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  AUTO-REBUY, ASKED FOR BETWEEN HANDS (Lightning Phase 10, 2026-10-08)
@@ -15,7 +16,8 @@ import { requestLightningHorseTopUps } from './LightningHorseTopUp.js';
  *
  * THE RULES, IN ONE PLACE:
  *
- *   - config disabled, or the trigger unreadable -> no call at all. The
+ *   - config disabled, or the trigger unreadable -> no discretionary call.
+ *     A released busted 1/2 horse supplies the owner-mandated max request. The
  *     trigger is computed here only to avoid asking the database about every
  *     stack every hand; the database re-checks everything.
  *   - AT MOST ONE ATTEMPT PER PLAYER PER HAND BOUNDARY. A refusal is
@@ -31,8 +33,9 @@ import { requestLightningHorseTopUps } from './LightningHorseTopUp.js';
  *     is that hand's settlement, not this one's.
  *   - LOG-LIGHT. One rate-limited line per condition, never one per hand.
  *
- * HORSES ARE PLAYERS (CLAUDE.md 10.5). Every seat this boundary releases is
- * asked by the same rule; there is no is_horse anywhere here.
+ * HORSES ARE PLAYERS (CLAUDE.md 10.5). Every seat this boundary releases
+ * funds through the same database door and hard guards. The horse input
+ * device supplies its own owner-mandated 1/2 maximum intent.
  */
 import { supabase } from '../services/supabase/client.js';
 import { isMissingFunctionError } from './rpcErrors.js';
@@ -86,6 +89,8 @@ export interface LightningSettledBoundary {
   clusterId: string;
   handId: string;
   bigBlind: number;
+  /** Cost-filter hint only; the database rechecks the actual anchor stake. */
+  smallBlind?: number;
   config: LightningAutoRebuyConfig;
   /** The players this boundary releases, with the stack settlement left them. */
   players: Array<{ playerId: string; stackAfter: number }>;
@@ -140,16 +145,28 @@ export class LightningAutoRebuyExecutor implements LightningAutoRebuyReport {
     } catch (error) {
       this.logger.error('Lightning horse top-up request failed', error);
     }
-    if (!boundary.config.enabled) return;
+    // The owner's 1/2 horse policy is an input request, never funding authority.
+    // Only released, busted horse participants enter the existing one-attempt
+    // path without the discretionary cluster opt-in. The database independently
+    // checks the real horse, anchor, stake, session, limits and full purchase.
+    const maximumHorses = new Set(
+      isMaximumHorseCashStake({ small_blind: boundary.smallBlind, big_blind: boundary.bigBlind })
+        ? (boundary.horsePlayers ?? []).map((p) => p.playerId)
+        : []
+    );
+    const mandatoryZero = (p: { playerId: string; stackAfter: number }) =>
+      maximumHorses.has(p.playerId) && Number.isFinite(p.stackAfter) && p.stackAfter <= 0;
+    const hasMandatoryZero = boundary.players.some(mandatoryZero);
+    if (!boundary.config.enabled && !hasMandatoryZero) return;
     if (!isUuid(boundary.clusterId) || !boundary.handId) return;
     if (this.unavailableUntilMs > this.now()) return;
     const trigger = lightningAutoRebuyTriggerStack(boundary.config, boundary.bigBlind);
-    if (trigger === null) return;
+    if (trigger === null && !hasMandatoryZero) return;
     const due = boundary.players.filter(
       (p) =>
         isUuid(p.playerId) &&
         Number.isFinite(p.stackAfter) &&
-        p.stackAfter <= trigger &&
+        (mandatoryZero(p) || (trigger !== null && p.stackAfter <= trigger)) &&
         this.noteAttempt(boundary.handId, p.playerId)
     );
     if (due.length === 0) return;

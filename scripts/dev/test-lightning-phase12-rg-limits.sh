@@ -88,11 +88,11 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir "$fixture/socket"
-"$pgbin/initdb" -D "$fixture/data" -A trust --no-locale -E UTF8 >/dev/null
+"$pgbin/initdb" -D "$fixture/data" -U postgres -A trust --no-locale -E UTF8 >/dev/null
 "$pgbin/pg_ctl" -D "$fixture/data" -l "$fixture/server.log" \
   -o "-k $fixture/socket -p $port -h '' -c max_connections=40" start >/dev/null
 started=1
-PSQL=("$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$fixture/socket" -p "$port" -d postgres)
+PSQL=("$pgbin/psql" -U postgres -X -q -v ON_ERROR_STOP=1 -h "$fixture/socket" -p "$port" -d postgres)
 
 # EVERY @live-proof OF EVERY LIGHTNING FILE, evaluated as code by fxr_eval
 # (NULL when it no longer evaluates, never false).
@@ -1313,3 +1313,121 @@ if [ "$oks" != 10 ]; then
   exit 1
 fi
 echo "PASS: Lightning Phase 12 RG limits and auto-rebuy status (DB), 10 sections, under production's default function ACLs and its live autorevoke event trigger, over the real chain through Phase 11 (20261008161509): before the file a mid-session self-exclusion leaves the player open in the pool; after it no predecessor proof is falsified and Phases 10, 9r and 11 hold in full; the cash parity proof holds and bites; an idle self-excluded human and cooling-off horse are exited rg_limit without a seat, chip or cash session moving; a limit that begins mid-hand finishes the hand first; stop_playing outranks rg_limit, rg_limit never counts as an expired disconnect, and the limits normal cash does not enforce stop nobody; pool status answers the caller's own auto-rebuy status from fn_lightning_config for humans and horses alike; fn_lightning_config stays the service's alone; every @live-proof holds and the file is re-appliable"
+
+# The 1/2 horse input changes only auto-rebuy. Keep every historical Phase 12
+# assertion above, then prove the exact forward body and maintained replacements.
+forward="$M/20261101062933_lightning_one_two_horse_maximum_rebuy_input.sql"
+node --input-type=module - "$root" "$fixture" <<'MAXPROOF'
+import fs from 'node:fs';
+import path from 'node:path';
+const [root,fixture] = process.argv.slice(2);
+const registry=JSON.parse(fs.readFileSync(path.join(root,'scripts/ci/migration-live-proofs.json'),'utf8'));
+const files=['20261008111425_lightning_phase_10_responsible_gaming_stop_playing_auto_rebu.sql','20261009143757_lightning_phase_12_responsible_gaming_limits_and_auto_rebuy_.sql'];
+const entries=files.map(file=>registry.entries.find(e=>e.file===file));
+if(entries.some(e=>!e||e.replaces?.length!==1||e.proofs?.length!==1))throw Error('exact two replacement proofs missing');
+const prove=(want)=>`DO $q$ BEGIN ${entries.map(e=>`IF (${e.proofs[0]}) IS DISTINCT FROM ${want} THEN RAISE EXCEPTION 'maximum input proof expected ${want}: ${e.file}'; END IF;`).join('\n')} END $q$;\n`;
+fs.writeFileSync(path.join(fixture,'max-before.sql'),`CREATE SCHEMA IF NOT EXISTS supabase_migrations;\nCREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations(version text PRIMARY KEY);\n${prove('true')}`);
+fs.writeFileSync(path.join(fixture,'max-after.sql'),`${prove('false')}INSERT INTO supabase_migrations.schema_migrations(version) VALUES('20261101062933');\n${prove('true')}`);
+const p10=fs.readFileSync(path.join(root,'supabase/migrations',files[0]),'utf8');
+const old=p10.match(/CREATE OR REPLACE FUNCTION public\.fn_lightning_auto_rebuy\([\s\S]*?\n\$fn\$;/)?.[0];
+if(!old)throw Error('immutable auto-rebuy preimage missing');
+fs.writeFileSync(path.join(fixture,'max-history-binding.sql'),`BEGIN;\n${old}\n${prove('false')}ROLLBACK;\n${prove('true')}`);
+MAXPROOF
+cat > "$fixture/max-assertions.sql" <<'MAXASSERT'
+-- Appended to the existing Phase 12 isolated catalogue after its original ten
+-- sections. These fixture writes never target production or real player chips.
+CREATE FUNCTION harness.max_policy_player(k text, horse boolean DEFAULT true)
+RETURNS TABLE(game uuid, player uuid) LANGUAGE plpgsql AS $f$
+DECLARE g uuid; u uuid:=gen_random_uuid();
+BEGIN
+  g:=harness.lc('max-policy-'||k);
+  PERFORM harness.seat(g,u,horse);
+  INSERT INTO public.profiles(id,is_horse) VALUES(u,horse)
+    ON CONFLICT(id) DO UPDATE SET is_horse=EXCLUDED.is_horse;
+  UPDATE public.tables SET small_blind=1,big_blind=2,max_buy_in=400,
+    tournament_id=NULL WHERE cluster_id=g;
+  UPDATE public.table_seats SET stack=0 WHERE user_id=u AND left_at IS NULL;
+  PERFORM harness.cfg(g,'{"auto_rebuy_enabled":false,"auto_rebuy_target":"initial","auto_rebuy_max_count":3,"auto_rebuy_session_cap":0}'::jsonb);
+  PERFORM harness.fund(g,u,1000);
+  RETURN QUERY SELECT g,u;
+END $f$;
+DO $$
+DECLARE g uuid; u uuid; v jsonb; again jsonb; before_wallet numeric; before_events integer;
+BEGIN
+  SELECT game,player INTO g,u FROM harness.max_policy_player('full');
+  before_wallet:=harness.chips(g,u);before_events:=harness.evn(g,'auto_rebuy');
+  v:=public.fn_lightning_auto_rebuy(g,u);
+  IF (v->>'ok')::boolean IS DISTINCT FROM true OR (v->>'amount')::numeric<>400
+     OR harness.chips(g,u)<>before_wallet-400 OR harness.pending(g,u)<>1
+     OR (harness.psrow(g,u)).auto_rebuys<>1 OR (harness.psrow(g,u)).auto_rebuy_total<>400
+     OR harness.evn(g,'auto_rebuy')<>before_events+1 THEN
+    RAISE EXCEPTION 'mandatory full maximum/counters/receipt failed: %',v;
+  END IF;
+  again:=public.fn_lightning_auto_rebuy(g,u);
+  IF again->>'reason' IS DISTINCT FROM 'PENDING_ADDON'
+     OR harness.chips(g,u)<>before_wallet-400 OR (harness.psrow(g,u)).auto_rebuys<>1
+     OR harness.evn(g,'auto_rebuy')<>before_events+1 THEN
+    RAISE EXCEPTION 'mandatory duplicate purchased twice: %',again;
+  END IF;
+  PERFORM harness.deliver(g,u);
+  again:=public.fn_lightning_auto_rebuy(g,u);
+  IF again->>'reason' IS DISTINCT FROM 'DISABLED' OR harness.seat_stack(g,u)<>400 THEN
+    RAISE EXCEPTION 'positive stack bypassed disabled config: %',again;
+  END IF;
+END $$;
+DO $$
+DECLARE g uuid; u uuid; v jsonb; k text; expected text;
+BEGIN
+  FOREACH k IN ARRAY ARRAY['human','other-stake','unknown-profile','wallet','count','cap','stop','disconnect','rg','reservation'] LOOP
+    SELECT game,player INTO g,u FROM harness.max_policy_player(k,k<>'human');
+    expected:='DISABLED';
+    CASE k
+      WHEN 'other-stake' THEN UPDATE public.tables SET small_blind=2,big_blind=5 WHERE cluster_id=g;
+      WHEN 'unknown-profile' THEN DELETE FROM public.profiles WHERE id=u;
+      WHEN 'wallet' THEN PERFORM harness.fund(g,u,399.99);expected:='RELOAD_REFUSED';
+      WHEN 'count' THEN UPDATE public.lightning_pool_session SET auto_rebuys=3 WHERE cluster_id=g AND player_id=u;expected:='MAX_COUNT';
+      WHEN 'cap' THEN PERFORM harness.cfg(g,'{"auto_rebuy_session_cap":399.99}'::jsonb);expected:='SESSION_CAP';
+      WHEN 'stop' THEN UPDATE public.lightning_pool_session SET stop_requested_at=clock_timestamp() WHERE cluster_id=g AND player_id=u;expected:='STOP_REQUESTED';
+      WHEN 'disconnect' THEN UPDATE public.lightning_pool_session SET disconnected_at=clock_timestamp() WHERE cluster_id=g AND player_id=u;expected:='DISCONNECTED';
+      WHEN 'reservation' THEN
+        UPDATE public.table_seats SET stack=250 WHERE user_id=u AND left_at IS NULL;
+        PERFORM public.fx9_pool(g);
+        v:=harness.form(g,ARRAY[u,(SELECT ps.player_id FROM public.lightning_pool_session ps
+          WHERE ps.cluster_id=g AND ps.player_id<>u AND ps.state='active'
+            AND public.fn_lightning_pool_stack(ps.id)>0 LIMIT 1)]);
+        -- A real formation owns the anchor; never forge a mid-hand bust.
+        BEGIN
+          UPDATE public.table_seats SET stack=0 WHERE user_id=u AND left_at IS NULL;
+          RAISE EXCEPTION 'fixture unexpectedly changed an owned anchor';
+        EXCEPTION WHEN OTHERS THEN
+          IF SQLERRM NOT LIKE 'LIGHTNING_HAND_IN_PROGRESS:%' THEN RAISE; END IF;
+        END;
+        PERFORM harness.cfg(g,'{"auto_rebuy_enabled":true}'::jsonb);
+        expected:='IN_HAND';
+      WHEN 'rg' THEN PERFORM harness.cooloff(u,clock_timestamp()+interval '1 hour');expected:='RG_EXCLUDED';
+      ELSE NULL;
+    END CASE;
+    v:=public.fn_lightning_auto_rebuy(g,u);
+    IF v->>'reason' IS DISTINCT FROM expected OR harness.pending(g,u)<>0
+       OR (harness.psrow(g,u)).auto_rebuy_total<>0
+       OR harness.chips(g,u)<>(CASE WHEN k='wallet' THEN 399.99 ELSE 1000 END) THEN
+      RAISE EXCEPTION 'mandatory hard guard % failed expected %, got %',k,expected,v;
+    END IF;
+  END LOOP;
+END $$;
+DO $$
+DECLARE g uuid; u uuid; v jsonb;
+BEGIN
+  SELECT game,player INTO g,u FROM harness.max_policy_player('legacy-missing-profile',false);
+  DELETE FROM public.profiles WHERE id=u;
+  PERFORM harness.cfg(g,'{"auto_rebuy_enabled":true,"auto_rebuy_target":"max"}'::jsonb);
+  v:=public.fn_lightning_auto_rebuy(g,u);
+  IF (v->>'ok')::boolean IS DISTINCT FROM true OR (v->>'amount')::numeric<>400 THEN
+    RAISE EXCEPTION 'legacy optional profile changed configured maximum: %',v;
+  END IF;
+END $$;
+\echo '  ok  10 MANDATORY MAX INPUT full funded maximum, one pending purchase, disabled positive/human/other stake/unknown identity, wallet, count, whole cap, stop, disconnect and responsible gaming'
+MAXASSERT
+"${PSQL[@]}" -f "$fixture/max-before.sql" -f "$forward" -f "$fixture/max-after.sql" \
+  -f "$fixture/max-history-binding.sql" -f "$fixture/max-assertions.sql"
+echo "PASS: mandatory Lightning 1/2 input preserves exact forward proof history and hard funding guards"
