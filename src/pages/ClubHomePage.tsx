@@ -4325,6 +4325,18 @@ function ClubHomePageContent({
          is open. The entry tap still re-elects it because games can recycle. */
       if (entry.kind === 'cash') warmTable(entry.id);
       else {
+        const tournament = entry.raw as LobbyTournamentRow;
+        // A pre-start MTT card does not require a live table. Its details are not
+        // a live-table request; leave election failures visible everywhere
+        // else, including seat-first games and incomplete lifecycle evidence.
+        if (
+          entry.kind === 'mtt' &&
+          tournament.tournament_type === 'MTT' &&
+          tournament.format_contract === 'mtt-v2' &&
+          (tournament.status === 'REGISTERING' || tournament.status === 'STARTING_SOON') &&
+          tournament.started_at === null
+        )
+          return;
         void tableService
           .resolveTournamentLiveTable(entry.id)
           .then((tableId) => warmTable(tableId))

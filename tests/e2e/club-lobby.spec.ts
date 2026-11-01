@@ -1,3 +1,4 @@
+import { isTournamentPrimaryTableRequest } from './support/tournamentPrimaryTableRequest';
 import { openLobbyGameSection } from './support/lobbyGameSections';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -193,7 +194,58 @@ test.describe('Club lobby', () => {
 
   test('selecting a tournament reviews its card, then Details opens that event', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    // Observe the real public catalog before navigation; never manufacture a
+    // lifecycle or call a production RPC merely to prove the observer works.
+    const catalog = new Map<
+      string,
+      {
+        id: string;
+        tournament_type: unknown;
+        format_contract: unknown;
+        status: unknown;
+        started_at: unknown;
+      }
+    >();
+    const catalogReads: Promise<void>[] = [];
+    const catalogErrors: string[] = [];
+    page.on('response', (response) => {
+      if (new URL(response.url()).pathname !== '/rest/v1/tournaments' || !response.ok()) return;
+      catalogReads.push(
+        (async () => {
+          const rows: unknown = await response.json();
+          if (!Array.isArray(rows)) return;
+          for (const row of rows) {
+            if (
+              !row ||
+              typeof row !== 'object' ||
+              typeof row.id !== 'string' ||
+              !['tournament_type', 'format_contract', 'status', 'started_at'].every((key) =>
+                Object.hasOwn(row, key)
+              )
+            )
+              continue;
+            // Whitelist public lifecycle fields only; no headers, tokens or
+            // unrelated response payloads enter the retained receipt.
+            catalog.set(row.id, {
+              id: row.id,
+              tournament_type: row.tournament_type,
+              format_contract: row.format_contract,
+              status: row.status,
+              started_at: row.started_at,
+            });
+          }
+        })().catch(() => {
+          catalogErrors.push('unreadable tournament catalog response');
+        })
+      );
+    });
+    let selectedId: string | null = null;
+    let selectedElectionRequests = 0;
+    page.on('request', (request) => {
+      if (selectedId && isTournamentPrimaryTableRequest(request, selectedId))
+        selectedElectionRequests++;
+    });
     const ok = await expectRoute(page, LOBBY);
     if (!ok) return;
     await lobbySettled(page);
@@ -206,20 +258,63 @@ test.describe('Club lobby', () => {
     await expect(page.locator('.club-home__games .lt-row[data-kind="mtt"]').first()).toBeVisible({
       timeout: 45_000,
     });
-    const i = await firstRow(page, 'mtt');
-    expect(i, 'the maintained tournament club must expose a real MTT row').toBeGreaterThanOrEqual(
-      0
+    await Promise.all(catalogReads);
+    expect(catalogErrors, 'a tournament catalog response could not be read').toEqual([]);
+    const rows = page.locator('.club-home__games .lt-row[data-kind="mtt"]:visible');
+    const visibleIds = await rows.evaluateAll((elements) =>
+      elements.map((element) => ({
+        id: element.getAttribute('data-id'),
+        status: element.getAttribute('data-status'),
+      }))
     );
-
-    const row = page.locator('.club-home__games .lt-row:not(.lt-row--skeleton)').nth(i);
-    const id = await row.getAttribute('data-id');
-    expect(id, 'a lobby row rendered without a data-id').toBeTruthy();
-
-    await row.click();
+    const id = visibleIds.find(({ id, status }) => {
+      const event = id ? catalog.get(id) : undefined;
+      return (
+        typeof id === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) &&
+        (status === 'registering' || status === 'starting_soon') &&
+        event?.tournament_type === 'MTT' &&
+        event.format_contract === 'mtt-v2' &&
+        (event.status === 'REGISTERING' || event.status === 'STARTING_SOON') &&
+        event.started_at === null
+      );
+    })?.id;
+    expect(
+      id,
+      'the maintained catalog has no visible authoritative pre-start MTT fixture'
+    ).toBeTruthy();
+    selectedId = id!;
+    // Match the physical row directly; IDs came from its own DOM, not a name.
+    await page
+      .locator(`.club-home__games .lt-row[data-kind="mtt"][data-id="${selectedId}"]:visible`)
+      .click();
 
     const panel = page.locator('.glp');
     await expect(panel).toBeVisible();
     await expect(panel.locator('.arena-game-card')).toBeVisible();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    );
+    expect(selectedElectionRequests, 'reading pre-start MTT details requested a live table').toBe(
+      0
+    );
+    const receipt = {
+      kind: 'prestart-mtt-card-prewarm',
+      version: 1,
+      captureBoundary: 'panel-review-before-details',
+      observedAt: new Date().toISOString(),
+      lifecycle: catalog.get(selectedId),
+      selectedElectionRequests,
+    };
+    // Clean production runs retain logs even when report uploads are omitted.
+    console.log('prestart-mtt-card-prewarm', JSON.stringify(receipt));
+    await testInfo.attach('prestart-mtt-card-prewarm', {
+      body: JSON.stringify(receipt),
+      contentType: 'application/json',
+    });
     await expect(page).not.toHaveURL(new RegExp(`/tournaments/${id}(?:[/?#]|$)`));
     await panel.getByRole('button', { name: 'Details', exact: true }).click();
 

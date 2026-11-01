@@ -1,3 +1,5 @@
+import { createClient } from '@supabase/supabase-js';
+import { isTournamentPrimaryTableRequest } from '../e2e/support/tournamentPrimaryTableRequest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,6 +26,7 @@ type ClubFixture = {
 
 const h = vi.hoisted(() => ({
   prepareTable: vi.fn(),
+  reportError: vi.fn(),
   warning: vi.fn(),
   from: vi.fn(),
   rpc: vi.fn(),
@@ -117,7 +120,7 @@ vi.mock('../../src/stores/useUserStore', () => ({
 vi.mock('../../src/components/common/Toast', () => ({
   useToast: () => ({ error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: h.warning }),
 }));
-vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
+vi.mock('../../src/utils/errorReporter', () => ({ reportError: h.reportError }));
 vi.mock('../../src/components/lobby/lobbyViewPrefs', async (original) => ({
   ...(await original<any>()),
   fetchRemoteViewPrefs: async () => null,
@@ -176,7 +179,7 @@ beforeEach(() => {
     let result = table === 'clubs' ? deferred() : null;
     if (result) h.clubReads.push(result);
     const q: any = {};
-    for (const method of ['select', 'eq', 'is', 'not', 'or', 'order', 'limit', 'in', 'lte'])
+    for (const method of ['select', 'eq', 'neq', 'is', 'not', 'or', 'order', 'limit', 'in', 'lte'])
       q[method] = () => q;
     q.select = (columns: string) => {
       if (h.deferOccupancy && table === 'tables' && columns.startsWith('id, current_players')) {
@@ -463,10 +466,12 @@ async function mountWarmTournaments({
   unionId = null,
   clubUnionId = null,
   isUnion = false,
+  rowOverrides = {},
 }: {
   unionId?: string | null;
   clubUnionId?: string | null;
   isUnion?: boolean | null;
+  rowOverrides?: Partial<TournamentFixture>;
 } = {}) {
   h.authenticated = true;
   h.unionLookup = { data: unionId ? { union_id: unionId } : null, error: null };
@@ -479,13 +484,23 @@ async function mountWarmTournaments({
     union_id: clubUnionId,
     is_union: isUnion,
   };
-  const row = tournamentFixture('known-tournament', 'Known Tournament', unionId);
+  const row = {
+    ...tournamentFixture('known-tournament', 'Known Tournament', unionId),
+    ...rowOverrides,
+  };
   const view = mount();
   await flush();
   await act(async () => h.clubReads[0].resolve({ data: club, error: null }));
   expect(h.tournamentReads).toHaveLength(1);
   await act(async () => h.tournamentReads[0].resolve({ data: [row], error: null }));
   fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+  if (row.format_contract === 'spin-v1' || row.format_contract === 'sng-v1') {
+    fireEvent.click(
+      screen.getByRole('tab', {
+        name: row.format_contract === 'spin-v1' ? 'SPINS' : "SIT N GO'S",
+      })
+    );
+  }
   await flush();
   expect(
     document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]').length
@@ -716,5 +731,162 @@ describe('the actual mounted View caller awaits table preparation', () => {
     expect(h.prepareTable).toHaveBeenCalledWith('known-table');
     expect(screen.queryByText('Prepared Table Route')).toBeNull();
     expect(h.warning).toHaveBeenCalledWith('Could Not Connect To The Table. Please Try Again.');
+  });
+});
+
+describe('the mounted tournament details caller only prewarms an expected live table', () => {
+  const openDetails = async (rowOverrides: Partial<TournamentFixture>) => {
+    await mountWarmTournaments({ rowOverrides });
+    h.rpc.mockResolvedValue({ data: null, error: null });
+    h.rpc.mockClear();
+    h.reportError.mockClear();
+    fireEvent.click(
+      document.querySelector('[data-testid="lobby-game-row"][data-id="known-tournament"]')!
+    );
+    await flush();
+  };
+  it.each(['REGISTERING', 'STARTING_SOON'])(
+    'opens a known pre-start %s MTT card without an empty-election error',
+    async (status) => {
+      await openDetails({ tournament_type: 'MTT', started_at: null, status });
+      expect(document.querySelector('.glp[role="dialog"] .arena-game-card')).toBeTruthy();
+      expect(
+        h.rpc.mock.calls.filter(([name]) => name === 'fn_tournament_primary_table')
+      ).toHaveLength(0);
+      expect(h.reportError).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'TableService.resolveTournamentLiveTable_rpc_empty'
+      );
+    }
+  );
+  it.each([
+    { label: 'running', status: 'RUNNING', started_at: '2026-10-31T23:00:00Z' },
+    { label: 'late registration', status: 'LATE_REG', started_at: '2026-10-31T23:00:00Z' },
+    { label: 'missing start evidence', status: 'REGISTERING', started_at: undefined },
+    {
+      label: 'inconsistent started event',
+      status: 'REGISTERING',
+      started_at: '2026-10-31T23:00:00Z',
+    },
+    { label: 'missing type', status: 'REGISTERING', started_at: null, tournament_type: undefined },
+    {
+      label: 'different known MTT contract',
+      status: 'REGISTERING',
+      started_at: null,
+      format_contract: 'mtt-v1',
+    },
+    {
+      label: 'contradictory type',
+      status: 'REGISTERING',
+      started_at: null,
+      tournament_type: 'SNG',
+    },
+    {
+      label: 'Spin',
+      status: 'REGISTERING',
+      started_at: null,
+      tournament_type: 'SPIN',
+      format_contract: 'spin-v1',
+      max_players: 3,
+      current_players: 1,
+    },
+    {
+      label: 'heads-up SNG',
+      status: 'REGISTERING',
+      started_at: null,
+      tournament_type: 'SNG',
+      format_contract: 'sng-v1',
+      max_players: 2,
+      current_players: 1,
+    },
+  ])(
+    'preserves actual empty-election diagnostics for $label',
+    async ({ label: _label, ...row }) => {
+      await openDetails({ tournament_type: 'MTT', ...row });
+      expect(h.rpc).toHaveBeenCalledWith('fn_tournament_primary_table', {
+        p_tournament_id: 'known-tournament',
+      });
+      expect(h.reportError).toHaveBeenCalledWith(
+        expect.any(Error),
+        'TableService.resolveTournamentLiveTable_rpc_empty'
+      );
+    }
+  );
+  it('keeps the RPC outage diagnostic when preparing a running MTT', async () => {
+    await mountWarmTournaments({
+      rowOverrides: {
+        tournament_type: 'MTT',
+        status: 'RUNNING',
+        started_at: '2026-10-31T23:00:00Z',
+      },
+    });
+    const error = { code: '57014', message: 'statement timeout' };
+    h.rpc.mockResolvedValue({ data: null, error });
+    h.reportError.mockClear();
+    fireEvent.click(
+      document.querySelector('[data-testid="lobby-game-row"][data-id="known-tournament"]')!
+    );
+    await flush();
+    expect(h.reportError).toHaveBeenCalledWith(
+      error,
+      'TableService.resolveTournamentLiveTable_rpc'
+    );
+  });
+});
+
+describe('the prewarm proof observes the real Supabase request format', () => {
+  it('matches only the selected event RPC POST and refuses malformed or unrelated requests', async () => {
+    const id = '5087ada1-7403-4992-8270-39cd0bd74762';
+    const observed: Array<{ url(): string; method(): string; postDataJSON(): unknown }> = [];
+    const client = createClient('http://127.0.0.1:1', 'isolated-public-fixture-key', {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: {
+        fetch: async (input, init) => {
+          // Local transport boundary only: no production or network request.
+          const request = new Request(input, init);
+          const body: unknown = await request.json();
+          observed.push({
+            url: () => request.url,
+            method: () => request.method,
+            postDataJSON: () => body,
+          });
+          return new Response('null', {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        },
+      },
+    });
+    await client.rpc('fn_tournament_primary_table', { p_tournament_id: id });
+    expect(observed).toHaveLength(1);
+    const request = observed[0];
+    expect(isTournamentPrimaryTableRequest(request, id)).toBe(true);
+    expect(isTournamentPrimaryTableRequest(request, 'ce41b56c-7c82-433d-a1ee-b7605a311b03')).toBe(
+      false
+    );
+    expect(isTournamentPrimaryTableRequest(request, 'missing')).toBe(false);
+    expect(isTournamentPrimaryTableRequest({ ...request, method: () => 'GET' }, id)).toBe(false);
+    expect(
+      isTournamentPrimaryTableRequest(
+        { ...request, url: () => 'http://127.0.0.1:1/rest/v1/rpc/other' },
+        id
+      )
+    ).toBe(false);
+    for (const body of [null, [], {}, { p_tournament_id: null }]) {
+      expect(isTournamentPrimaryTableRequest({ ...request, postDataJSON: () => body }, id)).toBe(
+        false
+      );
+    }
+    expect(
+      isTournamentPrimaryTableRequest(
+        {
+          ...request,
+          postDataJSON: () => {
+            throw new Error('malformed JSON');
+          },
+        },
+        id
+      )
+    ).toBe(false);
   });
 });
