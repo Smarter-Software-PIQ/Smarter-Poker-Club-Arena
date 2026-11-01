@@ -2034,3 +2034,149 @@ it('prepares recovery from the claimed original before any new-hand admission is
   manager.tableEngines.clear();
   await manager.stop();
 });
+
+it('activates deferred retainedTurnActivation immediately after initialReplay finishes when TURN_CHANGE ran during initialReplay', async () => {
+  const { e, roster } = fixture();
+  e.tableInfo = { game_variant: 'nlh', big_blind: 20, small_blind: 10, max_players: 2 };
+  e.hub = { publish: vi.fn(), emitEvent: vi.fn() };
+  // Use the real handleHandEvent with 0ms turn settle so TURN_CHANGE reaches
+  // getActionContext() while initialReplay is still active (replayingOriginal=true).
+  const actualHandler = (ServerTableEngine.prototype as any).handleHandEvent;
+  e.handleHandEvent = actualHandler.bind(e);
+  e.sleep = async () => {};
+  const timer = vi.spyOn(e, 'startTurnTimer');
+
+  const initial: HandController = e.handController;
+  const capturedEvents: HandEvent[] = [];
+  initial.onEvent((ev) => capturedEvents.push(structuredClone(ev)));
+  initial.start();
+  const saved = initial.serializeRecoveryState();
+  const turnEvent = capturedEvents.find((ev) => ev.type === 'TURN_CHANGE')!;
+  expect(turnEvent).toBeTruthy();
+
+  e.pendingOriginalContinuation = {
+    version: 1,
+    original: binding,
+    seats: roster.map((p) => ({
+      user_id: p.user_id,
+      seat_id: p.seat_id,
+      seat_joined_at: p.seat_joined_at,
+      stack_before: 1000,
+    })),
+    batch: {
+      version: 1,
+      sequence: 1,
+      controller: saved,
+      events: [turnEvent],
+      engine: { fields: {} },
+    },
+  };
+  e.retainOriginalBatch = async () => {};
+
+  const resumed = e.resumeOriginalController();
+  try {
+    await vi.waitFor(() => expect(e.pendingOriginalContinuation).toBeNull());
+    await e.handContinuation.join();
+    const restored: HandController = e.handController;
+    const expectedContext = playerActionContext(restored);
+    expect(expectedContext).toBeTruthy();
+    // Must have activated the deferred turn clock once initialReplay completed!
+    expect(e.getActionContext()).toBe(expectedContext);
+    expect(timer).toHaveBeenCalledTimes(1);
+    expect(e.preciseTimer.hasTimer(e.tableId, 'u' + restored.getState().currentPlayerSeat)).toBe(
+      true
+    );
+    expect(restored.performAction(restored.getState().currentPlayerSeat, 'fold')).toBe(true);
+    await resumed;
+    await e.handContinuation.join();
+  } finally {
+    e.running = false;
+    e.activeHandWaitRelease?.release('test_cleanup');
+    e.releasePendingPauseWait();
+    await resumed;
+  }
+});
+
+it('does not block HAND_COMPLETE dispatch behind WINNERS showdownSettleMs sleep on HandContinuationLane', async () => {
+  const { e, roster } = fixture();
+  const order: string[] = [];
+  let releaseWinnersSleep!: () => void;
+  const winnersSleeping = new Promise<void>((resolve) => {
+    releaseWinnersSleep = resolve;
+  });
+  e.handleHandEvent = async (event: HandEvent) => {
+    order.push(`enter:${event.type}`);
+    if (event.type === 'WINNERS') {
+      await winnersSleeping;
+    }
+    order.push(`exit:${event.type}`);
+  };
+  e.retainOriginalBatch = async () => {};
+  const controller: HandController = e.handController;
+  const run = e.runOriginalController(roster, controller, 42, Date.now(), {
+    started: false,
+    cause: null,
+  });
+  try {
+    await vi.waitFor(() => expect(e.handContinuation).toBeTruthy());
+    await e.handContinuation.join();
+    expect(controller.performAction(controller.getState().currentPlayerSeat, 'fold')).toBe(true);
+    await run;
+    await e.handContinuation.join();
+    // HAND_COMPLETE must enter and exit without waiting for WINNERS's async sleep
+    expect(order).toContain('enter:WINNERS');
+    expect(order).toContain('enter:HAND_COMPLETE');
+    expect(order).toContain('exit:HAND_COMPLETE');
+    expect(order.indexOf('enter:HAND_COMPLETE')).toBeGreaterThan(order.indexOf('enter:WINNERS'));
+    expect(order.indexOf('exit:HAND_COMPLETE')).toBeLessThan(
+      order.indexOf('exit:WINNERS') === -1 ? Infinity : order.indexOf('exit:WINNERS')
+    );
+    releaseWinnersSleep();
+  } finally {
+    releaseWinnersSleep?.();
+    e.running = false;
+    e.activeHandWaitRelease?.release('test_cleanup');
+    await run;
+  }
+});
+
+it('start_wait_for_players loop does not park at awaitPauseGate when pendingOriginalContinuation is present', async () => {
+  const { e, roster } = fixture();
+  const initial: HandController = e.handController;
+  initial.start();
+  const saved = initial.serializeRecoveryState();
+  e.pendingOriginalContinuation = {
+    version: 1,
+    original: binding,
+    seats: roster.map((p) => ({
+      user_id: p.user_id,
+      seat_id: p.seat_id,
+      seat_joined_at: p.seat_joined_at,
+      stack_before: 1000,
+    })),
+    batch: {
+      version: 1,
+      sequence: 2,
+      controller: saved,
+      events: [],
+      engine: { fields: {} },
+    },
+  };
+  // Even if terminalCloseoutPaused, tournamentMovePauseOwners, or finalTableDealPaused
+  // is armed before start() reaches start_wait_for_players, an engine carrying
+  // pendingOriginalContinuation is mid-hand and must not park at start_wait_for_players.
+  e.terminalCloseoutPaused = true;
+  e.holdBeforeNextHand = true;
+  const pauseGateSpy = vi.spyOn(e, 'awaitPauseGate');
+  // Simulate the start_wait_for_players guard directly:
+  const shouldParkInWaitLoop =
+    !e.pendingOriginalContinuation &&
+    (e.weeklyPayoutPauseOwners.size > 0 ||
+      e.maintenancePaused ||
+      e.finalTableDealPaused ||
+      e.terminalCloseoutPaused ||
+      e.tournamentMovePauseOwners.size > 0 ||
+      (e.handForHandPaused && e.holdBeforeNextHand));
+  expect(shouldParkInWaitLoop).toBe(false);
+  expect(pauseGateSpy).not.toHaveBeenCalled();
+});

@@ -125,3 +125,17 @@ it.each([
   engine.resumeDealing();
   await parked;
 });
+
+it('parkForTerminalCloseout accepts a durably prepared sequence-zero original parked at the pause gate', async () => {
+  const { manager, engine, controller } = fixture();
+  manager.requestSuccessorDrain();
+  const parked = engine.awaitPauseGate();
+  expect(engine.isBetweenHands()).toBe(false);
+  expect(JSON.parse(controller.serializeRecoveryState()).handStarted).toBe(false);
+  expect(engine.isPreparedOriginalParkedForSuccessor()).toBe(true);
+  await expect(engine.parkForTerminalCloseout(0)).resolves.toBe(true);
+  engine.running = false;
+  engine.releaseTerminalCloseoutPause();
+  engine.resumeDealing();
+  await parked;
+});

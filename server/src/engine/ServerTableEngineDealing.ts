@@ -126,21 +126,36 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     if (event.type !== 'COMMUNITY_CARDS') return event;
     try {
       const live = controller.getState();
+      // Nothing has been raked until completeHandInner() / finalizeRunout(true)
+      // has already returned the pot to stacks and transitioned to 'showdown'.
+      // When a River COMMUNITY_CARDS event is measured after an instant runout
+      // has already settled the pot into stacks, phase 'hand_complete' uses
+      // the post-distribution conservation equation (Σ stacks === expected - rake).
+      const postDistributionShowdown = live.stage === 'showdown';
+      const deductions = postDistributionShowdown
+        ? controller.priceDeductions(live.sawFlop, live.pot)
+        : { rake: 0, bbjFee: 0 };
+      const rakeTaken = deductions.rake + deductions.bbjFee;
+      const expectedTotal = this.stateVerifier.getExpectedChipTotal(this.tableId);
       const result = this.stateVerifier.measure({
         tableId: this.tableId,
         handNumber: this.handCount,
         players: live.players,
         communityCards: live.communityCards,
         pot: live.pot,
-        stage: live.stage,
-        phase: 'in_hand',
-        rakeTaken: 0,
+        stage: postDistributionShowdown ? event.stage : live.stage,
+        phase: postDistributionShowdown ? 'hand_complete' : 'in_hand',
+        initialChipTotal:
+          postDistributionShowdown && expectedTotal !== undefined
+            ? expectedTotal - rakeTaken
+            : undefined,
+        rakeTaken: postDistributionShowdown ? 0 : rakeTaken,
       });
       return {
         ...event,
         integrityVerification: {
           handNumber: this.handCount,
-          stage: live.stage,
+          stage: postDistributionShowdown ? event.stage : live.stage,
           pot: live.pot,
           result: {
             ...result,
@@ -2128,7 +2143,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * successor drain may stop it only at its explicit owner park, after the
    * exact private write and every accepted mutation have returned. Its saved
    * original remains authoritative for the existing custody handoff. */
-  isPreparedOriginalParkedForSuccessor(): boolean {
+  override isPreparedOriginalParkedForSuccessor(): boolean {
     const controller = this.handController;
     if (
       !this.running ||
@@ -4199,7 +4214,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               : dispatch();
           if (['CARDS_DEALT', 'PINEAPPLE_DISCARDED', 'HAND_COMPLETE'].includes(event.type))
             this.trackWeeklyPayoutOriginalWork(handled);
-          if (original) await handled;
+          // WINNERS sleeps showdownSettleMs (1400ms) after synchronously capturing
+          // all winner/pot fields, specifically designed to overlap with HAND_COMPLETE
+          // and handCompletionHoldMs (which already budgets SHOWDOWN_READ_BASE_MS = 1400ms).
+          // Awaiting WINNERS here serialized that 1400ms BEFORE HAND_COMPLETE and
+          // BEFORE post_hand_hold on every retained hand, doubling the showdown wait.
+          if (original && event.type !== 'WINNERS') await handled;
           else
             void handled.catch((error) =>
               reportError(error, `ServerTableEngine.${this.tableId}.handleHandEvent_rejected`)
@@ -4230,7 +4250,21 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             releaseHandWait('hand_complete');
           }
         };
-        if (original) {
+        unsub = controllerForHand.onEvent((event: HandEvent) => {
+          event = this.captureStreetIntegrityEvent(event, controllerForHand);
+          if (this.handContinuation) this.handContinuation.enqueue(event);
+          else
+            void dispatchOriginalEvent(event).catch((error) =>
+              reportError(error, `ServerTableEngine.${this.tableId}.handleHandEvent_rejected`)
+            );
+        });
+        this.activeHandWaitRelease = {
+          controller: controllerForHand,
+          release: releaseHandWait,
+        };
+
+        const openHandContinuation = () => {
+          if (!original || this.handContinuation) return;
           this.handContinuation = new HandContinuationLane(
             recovered?.batch.sequence ?? 0,
             () => controllerForHand.serializeRecoveryState(),
@@ -4278,20 +4312,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               await this.publishRetainedInputReadiness();
             }
           );
-        }
-        unsub = controllerForHand.onEvent((event: HandEvent) => {
-          event = this.captureStreetIntegrityEvent(event, controllerForHand);
-          if (this.handContinuation) this.handContinuation.enqueue(event);
-          else
-            void dispatchOriginalEvent(event).catch((error) =>
-              reportError(error, `ServerTableEngine.${this.tableId}.handleHandEvent_rejected`)
-            );
-        });
-        this.activeHandWaitRelease = {
-          controller: controllerForHand,
-          release: releaseHandWait,
         };
-
         // Start the hand!
         try {
           // ANIMATION AUDIT 2026-08-19: defensive — a fresh hand must never
@@ -4306,6 +4327,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             attempt.started = true;
             this.weeklyPayoutStartedController = controllerForHand;
             this.retainedPreparedOriginalController = null;
+            openHandContinuation();
             controllerForHand.start();
           };
           const startWithPermit = () => {
@@ -4319,6 +4341,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               this.weeklyPayoutStartedController = controllerForHand;
               this.retainedPreparedOriginalController = null;
               this.pendingOriginalContinuation = null;
+              openHandContinuation();
               // Replay the one retained pending event batch through the original
               // consumers. It contains no invented action or replacement deal.
               const lane = this.handContinuation!;
