@@ -1099,15 +1099,19 @@ for (const [width, heightOverride] of occupiedViewports)
         });
         // Opponent artwork matches the unchanged hero without scaling the
         // seat, its cards or its panel. Permanent art gain must settle first.
-        await page.waitForFunction(() =>
-          [
-            ...document.querySelectorAll('.seat:not(.seat--hero):not(.seat--empty) .seat__avatar'),
-          ].every(
-            (avatar) =>
-              avatar.style.getPropertyValue('--sp-opponent-art-scale') &&
-              avatar.closest<HTMLElement>('.seat')!.style.getPropertyValue('--sp-opponent-x')
-          )
-        );
+        await test.step(`Artwork settles: ${width}px ${count}-max ${jackpot} ${revealed ? 'revealed' : 'playing'} ${villainCards} cards ${state}`, async () => {
+          await page.waitForFunction(() =>
+            [
+              ...document.querySelectorAll(
+                '.seat:not(.seat--hero):not(.seat--empty) .seat__avatar'
+              ),
+            ].every(
+              (avatar) =>
+                avatar.style.getPropertyValue('--sp-opponent-art-scale') &&
+                avatar.closest<HTMLElement>('.seat')!.style.getPropertyValue('--sp-opponent-x')
+            )
+          );
+        });
         const art = await page.locator('.seat:not(.seat--empty)').evaluateAll((seats) =>
           seats.map((seat) => {
             const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img')!;
@@ -1163,7 +1167,30 @@ for (const [width, heightOverride] of occupiedViewports)
                 return { x: b.x, y: b.y, w: b.width, h: b.height };
               })
             );
+          const layoutVectors = () =>
+            page.locator('.seat__cards--revealed').evaluateAll((rows) =>
+              rows.map((row) => {
+                const chain: Array<{
+                  width: number;
+                  height: number;
+                  translate: string;
+                  inline: string;
+                }> = [];
+                let element: HTMLElement | null = row as HTMLElement;
+                while (element && !element.classList.contains('table-scaler')) {
+                  chain.push({
+                    width: element.offsetWidth,
+                    height: element.offsetHeight,
+                    translate: getComputedStyle(element).translate,
+                    inline: element.style.translate,
+                  });
+                  element = element.parentElement;
+                }
+                return chain;
+              })
+            );
           const before = await measure();
+          const beforeLayout = await layoutVectors();
           const retainedTranslations = await page
             .locator('.seat__cards--revealed')
             .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).style.translate));
@@ -1199,6 +1226,10 @@ for (const [width, heightOverride] of occupiedViewports)
               .locator('.seat__cards--revealed')
               .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).style.translate))
           ).toEqual(retainedTranslations);
+          expect(
+            await layoutVectors(),
+            'card layout and every ancestor translation remain exact'
+          ).toEqual(beforeLayout);
           const after = await measure();
           expect(after).toHaveLength(before.length);
           for (let i = 0; i < before.length; i++)
@@ -1206,7 +1237,7 @@ for (const [width, heightOverride] of occupiedViewports)
               expect(
                 Math.abs(after[i][axis] - before[i][axis]),
                 'unchanged tabled hand (compositor precision)'
-              ).toBeLessThan(0.0005);
+              ).toBeLessThan(0.001);
           const steps = await page
             .locator('.seat__cards--opponent.seat__cards--revealed')
             .evaluateAll((rows) =>
@@ -1367,11 +1398,73 @@ for (const [width, heightOverride] of occupiedViewports)
           // Top all-in hands must stay below the visible mobile clipping edge.
           const pageTop = box(document.querySelector('.table-page')!).top;
           for (const row of document.querySelectorAll(
-            '.seat-wrapper--cap .seat__cards--revealed'
+            '.seat-wrapper--cap .seat__cards--revealed,.seat[data-opponent-lane="cap"] .seat__cards--revealed'
           )) {
             if (box(row).top < pageTop + 7.5)
               violations.push('Top Revealed Hand Clips Mobile Header');
           }
+          // Transparent image corners are not artwork. Retain every decoded
+          // painted row; unknown, tainted or rotated images keep the full box.
+          const readPaintedRows = (element: Element): DOMRect[] => {
+            const raw = box(element);
+            if (!(element instanceof HTMLImageElement)) return [raw];
+            try {
+              const style = getComputedStyle(element);
+              if (
+                !['contain', 'scale-down'].includes(style.objectFit) ||
+                !element.naturalWidth ||
+                !element.naturalHeight ||
+                element.naturalWidth * element.naturalHeight > 4_000_000
+              )
+                return [raw];
+              for (let node: Element | null = element; node; node = node.parentElement) {
+                const transform = getComputedStyle(node).transform;
+                if (transform && transform !== 'none') {
+                  const m = new DOMMatrix(transform);
+                  if (!m.is2D || Math.abs(m.b) > 1e-8 || Math.abs(m.c) > 1e-8) return [raw];
+                }
+              }
+              const canvas = document.createElement('canvas');
+              canvas.width = element.naturalWidth;
+              canvas.height = element.naturalHeight;
+              const context = canvas.getContext('2d', { willReadFrequently: true });
+              if (!context) return [raw];
+              context.drawImage(element, 0, 0);
+              const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+              const fit = Math.min(raw.width / canvas.width, raw.height / canvas.height);
+              const x = raw.left + (raw.width - canvas.width * fit) / 2;
+              const align = style.objectPosition.split(/\s+/)[1] || '50%';
+              const y =
+                raw.top +
+                (raw.height - canvas.height * fit) *
+                  (align.endsWith('%') ? parseFloat(align) / 100 : 0.5);
+              const rows: DOMRect[] = [];
+              for (let row = 0; row < canvas.height; row++) {
+                let first = canvas.width,
+                  last = -1;
+                for (let col = 0; col < canvas.width; col++)
+                  if (pixels[(row * canvas.width + col) * 4 + 3] > 12) {
+                    first = Math.min(first, col);
+                    last = col;
+                  }
+                if (last >= first)
+                  rows.push(
+                    new DOMRect(x + first * fit, y + row * fit, (last - first + 1) * fit, fit)
+                  );
+              }
+              return rows.length ? rows : [raw];
+            } catch {
+              return [raw];
+            }
+          };
+          const paintedRowCache = new WeakMap<Element, DOMRect[]>();
+          const paintedRows = (element: Element): DOMRect[] => {
+            const cached = paintedRowCache.get(element);
+            if (cached) return cached;
+            const rows = readPaintedRows(element);
+            paintedRowCache.set(element, rows);
+            return rows;
+          };
           // Above 480px the ring keeps its tablet positions. Dense 7-9 max
           // pods retain their compact sizes through the phone's desktop
           // reference viewport; the scaled-phone scene below also reads
@@ -1390,7 +1483,8 @@ for (const [width, heightOverride] of occupiedViewports)
               ? '.seat__bet-chips,.seat__cards--opponent .seat__card,.dealer-button'
               : '.seat__info,.seat__avatar-img,.seat__action,.seat__bet-chips,.seat__cards--opponent .seat__card,.dealer-button'
           )) {
-            if (overlaps(box(e), board)) violations.push(`${e.className} Covers Board`);
+            if (paintedRows(e).some((paint) => overlaps(paint, board)))
+              violations.push(`${e.className} Covers Board`);
           }
           /* Dan 2026-10-25: a bet is always in front of the player who made
              it. A portrait phone now lays the table out at the desktop's
@@ -1414,7 +1508,7 @@ for (const [width, heightOverride] of occupiedViewports)
                   (pod.classList.contains('table-brand') ||
                     pod.classList.contains('pot-display__pile'))
                 ) &&
-                overlaps(box(bet), box(pod))
+                paintedRows(pod).some((paint) => overlaps(box(bet), paint))
               )
                 violations.push(
                   `Bet ${bet.closest('.seat')?.querySelector('.seat__name')?.textContent} Covers Player ${pod.closest('.seat')?.querySelector('.seat__name')?.textContent} ${pod.className} bet=${JSON.stringify(box(bet))} player=${JSON.stringify(box(pod))}`
@@ -1531,7 +1625,11 @@ for (const [width, heightOverride] of occupiedViewports)
                   for (const b of other.querySelectorAll(
                     '.seat__info,.seat__avatar-img,.seat__action'
                   ))
-                    if (overlaps(box(a), box(b)))
+                    if (
+                      paintedRows(a).some((paint) =>
+                        paintedRows(b).some((other) => overlaps(paint, other))
+                      )
+                    )
                       violations.push('Neighbouring Player Lanes Overlap');
               }
             }
@@ -1635,29 +1733,44 @@ for (const [width, heightOverride] of occupiedViewports)
           for (const e of document.querySelectorAll(
             '.seat-wrapper:not(.seat-wrapper--hero):not(.seat-wrapper--top) .seat__info,.seat-wrapper:not(.seat-wrapper--hero):not(.seat-wrapper--top) .seat__avatar-img'
           )) {
-            const r = box(e);
-            const corners = [
-              unpaint(r.left, r.top),
-              unpaint(r.right, r.top),
-              unpaint(r.right, r.bottom),
-              unpaint(r.left, r.bottom),
-            ];
-            const touches = corners.some((a, i) => {
-              const b = corners[(i + 1) % 4];
-              const crosses =
-                cross(a, b, spineA) * cross(a, b, spineB) <= 0 &&
-                cross(spineA, spineB, a) * cross(spineA, spineB, b) <= 0;
-              return (
-                crosses ||
-                Math.min(
-                  distance(a, spineA, spineB),
-                  distance(spineA, a, b),
-                  distance(spineB, a, b)
-                ) <
-                  radius - 0.5
-              );
+            const touches = paintedRows(e).some((r) => {
+              const corners = [
+                unpaint(r.left, r.top),
+                unpaint(r.right, r.top),
+                unpaint(r.right, r.bottom),
+                unpaint(r.left, r.bottom),
+              ];
+              return corners.some((a, i) => {
+                const b = corners[(i + 1) % 4];
+                const crosses =
+                  cross(a, b, spineA) * cross(a, b, spineB) <= 0 &&
+                  cross(spineA, spineB, a) * cross(spineA, spineB, b) <= 0;
+                return (
+                  crosses ||
+                  Math.min(
+                    distance(a, spineA, spineB),
+                    distance(spineA, a, b),
+                    distance(spineB, a, b)
+                  ) <
+                    radius - 0.5
+                );
+              });
             });
-            if (touches && !largePortrait)
+            const compactCap = e.closest<HTMLElement>('.seat[data-opponent-lane="cap"]');
+            if (compactCap) {
+              // Minimum compact spacing may promote an upper side chair into
+              // the cap lane. It earns the same exception as an original cap
+              // only while its complete artwork and facts remain above board.
+              const capBottom = Math.max(
+                ...Array.from(
+                  compactCap.querySelectorAll(
+                    '.seat__avatar-img,:scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
+                  )
+                ).flatMap((part) => paintedRows(part).map((row) => row.bottom))
+              );
+              if (capBottom > board.top + 0.5)
+                violations.push('Compact Cap Player Enters Board Lane');
+            } else if (touches && !largePortrait)
               violations.push(`Player On Painted Felt: ${e.className}`);
           }
           const contextualTools = ['.tbc-widget', '.rabbit-hunt__button'].filter((selector) =>

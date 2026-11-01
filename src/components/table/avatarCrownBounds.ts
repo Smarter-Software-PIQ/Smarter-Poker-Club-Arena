@@ -246,10 +246,96 @@ export function restingAvatarTop(image: HTMLImageElement, scale: number): number
       const originY = parseFloat(style.transformOrigin.split(' ')[1]) || 0;
       y = originY + (y - originY) * matrix.d + matrix.f;
     }
+    // Opponent artwork uses an individual paint scale on the avatar frame.
+    // It composes outside the image bust transform and must participate in
+    // static crown projection; default/hero frames retain scale 1.
+    if (element.matches('.seat__avatar')) {
+      const axes = (style.scale || 'none').trim().split(/\s+/).map(Number);
+      const permanentScale = axes[1] ?? axes[0];
+      if (Number.isFinite(permanentScale) && permanentScale > 0) {
+        const originY = parseFloat(style.transformOrigin.split(' ')[1]) || 0;
+        y = originY + (y - originY) * permanentScale;
+      }
+    }
     const parent = element.offsetParent as HTMLElement | null;
     y += element.offsetTop + (parent?.clientTop || 0);
     element = parent;
   }
   // Detached/non-seat fixtures retain their rendered-box projection.
   return element === seat ? seat.getBoundingClientRect().top + y * scale : paintedAvatarTop(image);
+}
+
+/** Permanent image rectangle for wager ownership, excluding compositor gestures. */
+export function restingAvatarBox(image: HTMLImageElement, scale: number): DOMRect {
+  const seat = image.closest<HTMLElement>('.seat');
+  const wrap = image.closest<HTMLElement>('.seat__avatar-wrap');
+  if (!seat || !wrap || !image.offsetWidth || !image.offsetHeight)
+    return image.getBoundingClientRect();
+  const points = [
+    [0, 0],
+    [image.offsetWidth, 0],
+    [0, image.offsetHeight],
+    [image.offsetWidth, image.offsetHeight],
+  ];
+  let element: HTMLElement | null = image;
+  while (element && element !== seat) {
+    const style = getComputedStyle(element);
+    const origin = style.transformOrigin.split(/\s+/).map(parseFloat);
+    const ox = origin[0] || 0,
+      oy = origin[1] || 0;
+    const transform =
+      element === image ? style.transform : element === wrap ? avatarRestPose(image) : '';
+    if (transform && transform !== 'none') {
+      const m = new DOMMatrix(transform);
+      for (const point of points) {
+        const x = point[0] - ox,
+          y = point[1] - oy;
+        point[0] = ox + x * m.a + y * m.c + m.e;
+        point[1] = oy + x * m.b + y * m.d + m.f;
+      }
+    }
+    if (element.matches('.seat__avatar')) {
+      const axes = (style.scale || 'none').split(/\s+/).map(Number);
+      const sx = axes[0],
+        sy = axes[1] ?? sx;
+      if (Number.isFinite(sx) && sx > 0)
+        for (const point of points) {
+          point[0] = ox + (point[0] - ox) * sx;
+          point[1] = oy + (point[1] - oy) * sy;
+        }
+    }
+    const parent = element.offsetParent as HTMLElement | null;
+    for (const point of points) {
+      point[0] += element.offsetLeft + (parent?.clientLeft || 0);
+      point[1] += element.offsetTop + (parent?.clientTop || 0);
+    }
+    element = parent;
+  }
+  if (element !== seat) return image.getBoundingClientRect();
+  const base = seat.getBoundingClientRect();
+  const xs = points.map((p) => base.left + p[0] * scale),
+    ys = points.map((p) => base.top + p[1] * scale);
+  return new DOMRect(
+    Math.min(...xs),
+    Math.min(...ys),
+    Math.max(...xs) - Math.min(...xs),
+    Math.max(...ys) - Math.min(...ys)
+  );
+}
+
+/** Project CSS layout pixels without turning fractional widths into a scale. */
+export function tableRenderScale(element: HTMLElement): number {
+  const style = getComputedStyle(element);
+  let width = parseFloat(style.width);
+  if (style.boxSizing !== 'border-box')
+    for (const name of [
+      'paddingLeft',
+      'paddingRight',
+      'borderLeftWidth',
+      'borderRightWidth',
+    ] as const)
+      width += parseFloat(style[name]) || 0;
+  const layoutWidth = width > 0 ? width : element.offsetWidth;
+  const scale = element.getBoundingClientRect().width / layoutWidth;
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
