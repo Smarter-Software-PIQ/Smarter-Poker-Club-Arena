@@ -1637,11 +1637,116 @@ for (const type of TYPES) {
   });
 }
 
+async function readScheduleHeader(page: Page) {
+  const header = page.locator('.has-premium-chassis:visible thead:visible');
+  await expect(header).toHaveCount(1);
+  await header.scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect(header).toBeInViewport();
+  const geometry = await header.evaluate((element) => {
+    const row = element.querySelector('tr')!;
+    const rowBox = row.getBoundingClientRect();
+    const rowCss = getComputedStyle(row);
+    const painted = (width: string, style: string, color: string) =>
+      Number.parseFloat(width) > 0 &&
+      !['none', 'hidden'].includes(style) &&
+      color !== 'transparent' &&
+      !/rgba\([^)]*,\s*0\)/.test(color);
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      row: {
+        left: rowBox.left + Number.parseFloat(rowCss.borderLeftWidth),
+        right: rowBox.right - Number.parseFloat(rowCss.borderRightWidth),
+        top: rowBox.top,
+        bottom: rowBox.bottom,
+        width:
+          rowBox.width -
+          Number.parseFloat(rowCss.borderLeftWidth) -
+          Number.parseFloat(rowCss.borderRightWidth),
+      },
+      rules: {
+        top: painted(rowCss.borderTopWidth, rowCss.borderTopStyle, rowCss.borderTopColor),
+        bottom: painted(
+          rowCss.borderBottomWidth,
+          rowCss.borderBottomStyle,
+          rowCss.borderBottomColor
+        ),
+      },
+      cells: [...row.querySelectorAll('th')].map((cell) => {
+        const box = cell.getBoundingClientRect();
+        const css = getComputedStyle(cell);
+        const range = document.createRange();
+        range.selectNodeContents(cell.querySelector('.lt-th') || cell);
+        const ink = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+        const left = Math.min(...ink.map((rect) => rect.left));
+        const right = Math.max(...ink.map((rect) => rect.right));
+        const top = Math.min(...ink.map((rect) => rect.top));
+        const bottom = Math.max(...ink.map((rect) => rect.bottom));
+        return {
+          text: cell.textContent?.trim(),
+          left: box.left,
+          right: box.right,
+          top: box.top,
+          bottom: box.bottom,
+          width: box.width,
+          centered:
+            ink.length > 0 &&
+            Math.abs((left + right - box.left - box.right) / 2) <= 2 &&
+            Math.abs((top + bottom - box.top - box.bottom) / 2) <= 2,
+          inside:
+            ink.length > 0 &&
+            left >= box.left - 1 &&
+            right <= box.right + 1 &&
+            top >= box.top - 1 &&
+            bottom <= box.bottom + 1,
+          rules: {
+            top: painted(css.borderTopWidth, css.borderTopStyle, css.borderTopColor),
+            bottom: painted(css.borderBottomWidth, css.borderBottomStyle, css.borderBottomColor),
+            right: painted(css.borderRightWidth, css.borderRightStyle, css.borderRightColor),
+          },
+        };
+      }),
+    };
+  });
+  expect(geometry.cells).toHaveLength(4);
+  expect(geometry.row.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.row.right).toBeLessThanOrEqual(geometry.viewport.width + 1);
+  expect(geometry.row.top).toBeGreaterThanOrEqual(0);
+  expect(geometry.row.bottom).toBeLessThanOrEqual(geometry.viewport.height + 1);
+  for (const [index, cell] of geometry.cells.entries()) {
+    expect(cell.text).toMatch([/^Game/i, /^Buy-In/i, /^Players/i, /^Status/i][index]);
+    expect(cell.left).toBeCloseTo(index ? geometry.cells[index - 1].right : geometry.row.left, 0);
+    expect(cell.top).toBeCloseTo(geometry.cells[0].top, 0);
+    expect(cell.bottom).toBeCloseTo(geometry.cells[0].bottom, 0);
+    expect(cell.width).toBeCloseTo(geometry.row.width * [0.295, 0.137, 0.154, 0.414][index], 0);
+    expect(cell.centered, `${cell.text} ink centered inside its painted header cell`).toBe(true);
+    expect(cell.inside, `${cell.text} complete inside its painted header cell`).toBe(true);
+    expect(geometry.rules.top || cell.rules.top, 'continuous visible top rule').toBe(true);
+    expect(geometry.rules.bottom || cell.rules.bottom, 'continuous visible bottom rule').toBe(true);
+    if (index < 3) expect(cell.rules.right, `${cell.text} visible vertical divider`).toBe(true);
+  }
+  expect(geometry.cells[3].right).toBeCloseTo(geometry.row.right, 0);
+  return geometry;
+}
+
 test('sticky lobby controls and cross-tab sorting remain accessible and durable', async ({
   page,
 }, testInfo) => {
   const h = await test.step('Authenticated Lobby Setup', () => setup(page));
   await h.choose('MTT');
+  const rail = page.locator('.lobby-sticky-filters');
+  await page.locator('.lobby-controls__heading').scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect(rail).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Browse Game Types', exact: true })).toHaveCount(0);
+  const phoneHeader = await readScheduleHeader(page);
+  await testInfo.attach('lobby-schedule-header-phone.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await testInfo.attach('lobby-schedule-header-phone.json', {
+    body: Buffer.from(JSON.stringify(phoneHeader)),
+    contentType: 'application/json',
+  });
   await assertLobbyControlsInsidePaint(page);
   await testInfo.attach('lobby-square-controls-phone.png', {
     body: await page.locator('.lobby-controls').screenshot(),
@@ -1654,7 +1759,6 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await expect(h.rows.first()).toBeVisible({ timeout: 30000 });
   const baseline = await h.ids();
   expect(baseline.length).toBeGreaterThan(1);
-  const rail = page.getByRole('navigation', { name: 'Quick Lobby Filters', exact: true });
   await h.rows.last().scrollIntoViewIfNeeded();
   await expect(rail).toBeInViewport();
   const geometry = await rail.evaluate((element) => ({
@@ -1674,18 +1778,58 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     contentType: 'image/png',
   });
   // Favorites must remain available even after a cash choice carries to MTT.
-  const favorites = rail.getByRole('button', { name: 'Favorites', exact: true });
-  await clickControl(favorites);
-  await expect(favorites).toHaveAttribute('aria-pressed', 'true');
+  const activeFavorites = async () => {
+    await expect
+      .poll(() =>
+        rail.evaluate((element) => {
+          const controls = element
+            .closest('.club-home')!
+            .querySelector('#lobby-game-section-controls')!;
+          const top = Math.max(0, Number.parseFloat(getComputedStyle(element).top) || 0);
+          return (element as HTMLElement).hidden === controls.getBoundingClientRect().bottom > top;
+        })
+      )
+      .toBe(true);
+    return (await rail.isVisible())
+      ? rail.getByRole('button', { name: 'Favorites', exact: true })
+      : page.locator('.lobby-controls__favorites');
+  };
+  const visibleDuplicates = async () =>
+    page.locator('button').evaluateAll((buttons) => {
+      const visible = buttons.filter((button) => {
+        const box = button.getBoundingClientRect();
+        const style = getComputedStyle(button);
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          box.width > 0 &&
+          box.height > 0 &&
+          box.top >= 0 &&
+          box.bottom <= innerHeight &&
+          box.left >= 0 &&
+          box.right <= innerWidth
+        );
+      });
+      return {
+        favorites: visible.filter((button) => button.textContent?.trim() === 'Favorites').length,
+        filters: visible.filter((button) =>
+          ['Filters And Sort', 'Open Sticky Filters'].includes(
+            button.getAttribute('aria-label') || ''
+          )
+        ).length,
+      };
+    });
+  await expect.poll(visibleDuplicates).toEqual({ favorites: 1, filters: 1 });
+  await clickControl(await activeFavorites());
+  await expect(page.locator('.lobby-controls__favorites')).toHaveAttribute('aria-pressed', 'true');
   await expect(h.rows).toHaveCount(0);
-  await clickControl(favorites);
-  await expect(favorites).toHaveAttribute('aria-pressed', 'false');
+  await clickControl(await activeFavorites());
+  await expect(page.locator('.lobby-controls__favorites')).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(async () => sorted(await h.ids())).toEqual(sorted(baseline));
   const quickControls = page.locator('.lobby-refinements');
   await expect(quickControls.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(
     0
   );
-  await expect(page.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(1);
   const quickFilters = quickControls.getByRole('button', { name: 'Filters And Sort', exact: true });
   await clickControl(quickFilters);
   sheet = page.getByRole('dialog');
@@ -1694,6 +1838,9 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   // The rail returns to the real game controls, rather than opening another popup.
   await clickControl(rail.getByRole('button', { name: 'Browse Game Types', exact: true }));
   await expect(page.locator('#lobby-game-section-controls')).toBeInViewport();
+  await expect(rail).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Browse Game Types', exact: true })).toHaveCount(0);
   const filterPlacement = await quickFilters.evaluate((element) => {
     const running = [...element.parentElement!.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === 'Running'
@@ -1747,6 +1894,16 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await page.setViewportSize({ width: 1280, height: 900 });
   await clickControl(page.locator('.afx-overlay'), { position: { x: 1, y: 1 } });
   await expect(sheet).toBeHidden();
+  const wideHeader = await readScheduleHeader(page);
+  await testInfo.attach('lobby-schedule-header-wide.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await testInfo.attach('lobby-schedule-header-wide.json', {
+    body: Buffer.from(JSON.stringify(wideHeader)),
+    contentType: 'application/json',
+  });
+
   await page.setViewportSize({ width: 393, height: 852 });
   sheet = await h.open();
   expect(await h.state('MTT')).toEqual(savedMtt);

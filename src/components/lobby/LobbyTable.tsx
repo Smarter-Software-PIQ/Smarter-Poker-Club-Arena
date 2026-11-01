@@ -2289,6 +2289,19 @@ export default function LobbyTable({
     [sorted, selectedId, keyboardFocusId, onActivate]
   );
 
+  // Both painted schedules have the same four complete header fields.
+  // The favorite control lives in each card, not in an empty header column.
+  const browseColumns = [
+    COL_NAME,
+    category === 'ALL'
+      ? COL_COST
+      : ['MTT', 'SPIN', 'SNG', 'SATELLITE'].includes(category)
+        ? COL_BUYIN
+        : COL_STAKES,
+    COL_PLAYERS,
+    COL_STATUS,
+  ];
+
   const hasTournamentHeadings = sorted.length > 0;
   const warmLayoutKey = sorted.map((entry) => `${entry.kind}:${entry.id}`).join(',');
   useEffect(() => {
@@ -2328,16 +2341,7 @@ export default function LobbyTable({
         >
           <thead role="rowgroup">
             <tr role="row">
-              {[
-                COL_NAME,
-                category === 'ALL'
-                  ? COL_COST
-                  : ['MTT', 'SPIN', 'SNG', 'SATELLITE'].includes(category)
-                    ? COL_BUYIN
-                    : COL_STAKES,
-                COL_PLAYERS,
-                COL_STATUS,
-              ].map((col) => (
+              {browseColumns.map((col) => (
                 <th
                   role="columnheader"
                   key={col.key}
@@ -2534,7 +2538,7 @@ export default function LobbyTable({
               back, so on every phone the grid contained no rows and the
               aria-selected state below was attached to nothing. */}
             <tr role="row">
-              {columns.map((col) => {
+              {browseColumns.map((col) => {
                 const active = sort?.key === col.key;
                 return (
                   <th
@@ -2556,7 +2560,7 @@ export default function LobbyTable({
                     /* Sorting was mouse-only: a click handler on a <th> with
                      no role, no tab stop and no key handler, so keyboard and
                      screen-reader users could not sort the lobby at all. */
-                    role={col.sortable ? 'columnheader' : undefined}
+                    role="columnheader"
                     tabIndex={col.sortable ? 0 : undefined}
                     onClick={() => handleHeaderClick(col)}
                     onKeyDown={(e) => {

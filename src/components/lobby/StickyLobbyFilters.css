@@ -1,4 +1,7 @@
 /* The approved complete plate retains its native ratio inside a 44px touch target. */
+.club-home .lobby-sticky-filters[hidden] {
+  display: none;
+}
 .club-home .lobby-sticky-filters {
   position: sticky;
   top: calc(

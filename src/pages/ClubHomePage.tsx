@@ -5638,6 +5638,16 @@ function ClubHomePageContent({
               <section className="lobby-controls" aria-label="Browse Games">
                 <div className="lobby-controls__heading">
                   <strong className="lobby-controls__title">Find Your Game</strong>
+                  {gameSection && currentUserId && gameType !== 'ALL' && (
+                    <button
+                      type="button"
+                      className="lobby-controls__favorites"
+                      aria-pressed={favoritesOnly}
+                      onClick={() => selectFavoritesOnly(!favoritesOnly)}
+                    >
+                      <LobbyFilterLabel>Favorites</LobbyFilterLabel>
+                    </button>
+                  )}
                 </div>
                 <LobbyGameSections
                   selected={gameSection}
