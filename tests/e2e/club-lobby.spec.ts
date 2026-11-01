@@ -301,8 +301,18 @@ test.describe('Club lobby', () => {
     expect(selectedElectionRequests, 'reading pre-start MTT details requested a live table').toBe(
       0
     );
+    const receipt = {
+      kind: 'prestart-mtt-card-prewarm',
+      version: 1,
+      captureBoundary: 'panel-review-before-details',
+      observedAt: new Date().toISOString(),
+      lifecycle: catalog.get(selectedId),
+      selectedElectionRequests,
+    };
+    // Clean production runs retain logs even when report uploads are omitted.
+    console.log('prestart-mtt-card-prewarm', JSON.stringify(receipt));
     await testInfo.attach('prestart-mtt-card-prewarm', {
-      body: JSON.stringify({ lifecycle: catalog.get(selectedId), selectedElectionRequests }),
+      body: JSON.stringify(receipt),
       contentType: 'application/json',
     });
     await expect(page).not.toHaveURL(new RegExp(`/tournaments/${id}(?:[/?#]|$)`));
