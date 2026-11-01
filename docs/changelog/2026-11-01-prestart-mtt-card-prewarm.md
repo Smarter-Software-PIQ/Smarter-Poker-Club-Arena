@@ -1,0 +1,11 @@
+# Pre-start MTT details do not request a live table
+
+ClubHomePage.openEntry previously resolved a live table for every noncash card. A pre-start MTT may not have a table yet, so merely reading its details produced the resolver's empty-election ERROR. Skip only this speculative background lookup when the raw row explicitly states MTT, mtt-v2, REGISTERING or STARTING_SOON, and a null started_at. The details panel, route chunk preload and participation paths stay intact.
+
+TableService and its RPC, fallback and empty-election diagnostics are unchanged. Running games, seat-first games, unknown formats and incomplete or contradictory lifecycle evidence continue through the existing lookup. No engine or financial behavior changes.
+
+The existing mounted ClubHome fixture exercises the actual card-opening caller and actual TableService with controlled database responses: the old caller fails both pre-start cases; the repaired caller preserves details without requesting a table. Negative cases retain real empty-election and RPC failure diagnostics. Current production reads corroborate pre-start absence for the retained 33 distinct MTT IDs; they do not establish historical state for the 60 old reports or reclassify them.
+
+Real-time law: triggered by the existing explicit card click; no snapshot diff or new polling.
+
+The existing cold browser card case now observes its actual public catalog and selects a visible pre-start MTT by exact UUID and matching lifecycle, then asserts that opening the card sends no primary-table request before proceeding through Details. Its observer is qualified against the real supabase-js POST format in the existing unit fixture; malformed, other-event and other-RPC requests do not match. The retained receipt contains only whitelisted public lifecycle fields and a count. No new browser case, job, account route or production probe is added. Other resolver callers are physical-table requests: Play Again selects only seat-first sibling formats, while TablePage resolves active or watched games; they retain diagnostics.
