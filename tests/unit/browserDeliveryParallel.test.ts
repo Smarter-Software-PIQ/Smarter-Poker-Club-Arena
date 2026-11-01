@@ -49,7 +49,11 @@ describe('browser qualification parallel delivery', () => {
       expect(jobs.filter(([, job]) => job['runs-on']).length).toBeGreaterThan(0);
       for (const [name, job] of jobs.filter(([, job]) => job['runs-on'])) {
         expect(job['runs-on'], `${file}:${name}`).toBe(
-          pinnedBrowserJobs[file]?.includes(name) ? 'ubuntu-24.04' : 'ubuntu-latest'
+          file === 'ci.yml' && name === 'accounting_postgres'
+            ? '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+            : pinnedBrowserJobs[file]?.includes(name)
+              ? 'ubuntu-24.04'
+              : 'ubuntu-latest'
         );
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
@@ -76,13 +80,23 @@ describe('browser qualification parallel delivery', () => {
 
   it('defaults required native qualification to the approved standard hosted profile', () => {
     for (const job of ['accounting_postgres', 'server_shards']) {
-      expect(ci.jobs[job]['runs-on']).toBe('ubuntu-latest');
+      expect(ci.jobs[job]['runs-on']).toBe(
+        job === 'accounting_postgres'
+          ? '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+          : 'ubuntu-latest'
+      );
       expect(ci.jobs[job]['continue-on-error']).toBeUndefined();
       expect(ci.jobs[job].strategy.matrix.shard).toEqual(
         job === 'accounting_postgres' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4]
       );
       expect(ci.jobs[job].strategy['fail-fast']).toBe(false);
     }
+    const route = new Function(
+      'matrix',
+      `return (${ci.jobs.accounting_postgres['runs-on'].slice(3, -2)});`
+    );
+    for (const shard of ci.jobs.accounting_postgres.strategy.matrix.shard)
+      expect(route({ shard })).toBe(shard === 2 ? 'ubuntu-24.04' : 'ubuntu-latest');
     expect(ci.jobs.accounting_postgres['timeout-minutes']).toBe(50);
     expect(ci.jobs.server_shards['timeout-minutes']).toBe(25);
     expect(ci.jobs.server.needs).toContain('accounting_postgres');

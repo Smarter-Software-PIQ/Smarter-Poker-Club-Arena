@@ -272,8 +272,10 @@ test('all qualification and publication jobs use only fixed standard hosted runn
     const routed=Object.entries(jobs).filter(([,job])=>job['runs-on']);
     assert.ok(routed.length,file);
     for(const [name,job] of routed){
-      const expected=file==='component-fixture-native-smoke.yml' || pinnedBrowserJobs[file]?.includes(name)
-        ? 'ubuntu-24.04' : 'ubuntu-latest';
+      const expected=file==='ci.yml' && name==='accounting_postgres'
+        ? '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+        : file==='component-fixture-native-smoke.yml' || pinnedBrowserJobs[file]?.includes(name)
+          ? 'ubuntu-24.04' : 'ubuntu-latest';
       assert.equal(job['runs-on'],expected,`${file}:${name}`);
       assert.doesNotMatch(job['runs-on'],/ca-linux|self-hosted|vars\./);
     }
