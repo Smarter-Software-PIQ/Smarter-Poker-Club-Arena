@@ -1382,3 +1382,82 @@ it.each([
     }
   }
 );
+
+it('switching turn/spotlight focus across seats updates --sp-opponent-art-scale without resetting opponent pod shifts or state.key', async () => {
+  const page = document.createElement('div');
+  page.className = 'table-page';
+  page.innerHTML = `<div class="table-scaler"><div class="seat-wrapper seat-wrapper--spot"><div class="seat seat--hero seat--active" data-player-id="hero"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div></div></div><div class="seat-wrapper"><div class="seat" data-player-id="villain-1" data-opponent-lane="cap" style="--sp-opponent-x: 4px; --sp-opponent-y: -6px;"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div><div class="seat__info" style="width:112px;height:36px"></div></div></div></div>`;
+  document.body.append(page);
+  const images = [...page.querySelectorAll<HTMLImageElement>('img')];
+  images.forEach((image, i) => {
+    image.src = `https://example.invalid/turn-handoff-${i ? 'opponent' : 'hero'}.webp`;
+    image.style.transform = 'none';
+    image.style.objectFit = 'contain';
+    image.style.objectPosition = '50% 100%';
+    for (const [name, value] of Object.entries({
+      complete: true,
+      naturalWidth: 250,
+      naturalHeight: 340,
+      offsetWidth: 80,
+      offsetHeight: 80,
+    }))
+      Object.defineProperty(image, name, { configurable: true, value });
+  });
+  const canvas = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => {
+    let source: HTMLImageElement;
+    return {
+      drawImage: (image: HTMLImageElement) => {
+        source = image;
+      },
+      getImageData: () => {
+        const data = new Uint8ClampedArray(250 * 340 * 4);
+        const hero = source.src.endsWith('hero.webp');
+        for (let y = hero ? 100 : 20; y < (hero ? 300 : 320); y++)
+          for (let x = 0; x < 250; x++) data[(y * 250 + x) * 4 + 3] = 255;
+        return { data };
+      },
+    } as unknown as CanvasRenderingContext2D;
+  });
+  const scaler = page.querySelector<HTMLElement>('.table-scaler')!;
+  const heroWrapper = page.querySelectorAll<HTMLElement>('.seat-wrapper')[0]!;
+  const heroSeat = heroWrapper.querySelector<HTMLElement>('.seat')!;
+  const villainWrapper = page.querySelectorAll<HTMLElement>('.seat-wrapper')[1]!;
+  const villainSeat = villainWrapper.querySelector<HTMLElement>('.seat')!;
+  const villainAvatar = villainSeat.querySelector<HTMLElement>('.seat__avatar')!;
+  const state: OpponentAvatarState = { key: '', shifts: new WeakMap() };
+  const layout = createOpponentAvatarLayout(scaler, page, state, vi.fn());
+  try {
+    expect(layout.prepare('hand-1')).toBe(false);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(layout.prepare('hand-1')).toBe(true);
+    const initialKey = state.key;
+    expect(initialKey).not.toBe('');
+    villainSeat.style.setProperty('--sp-opponent-x', '4px');
+    villainSeat.style.setProperty('--sp-opponent-y', '-6px');
+    villainSeat.dataset.opponentLane = 'cap';
+    state.shifts.set(villainSeat, [4, -6]);
+    const initialScale = Number(villainAvatar.style.getPropertyValue('--sp-opponent-art-scale'));
+    expect(initialScale).toBeCloseTo((200 / 300) * 1.04 * 1.04, 5);
+
+    // Turn moves from Hero to Villain: focus gain changes, but ring key and shifts must stay intact!
+    heroWrapper.classList.remove('seat-wrapper--spot');
+    heroSeat.classList.remove('seat--active');
+    villainWrapper.classList.add('seat-wrapper--spot');
+    villainSeat.classList.add('seat--active');
+
+    expect(layout.prepare('hand-1')).toBe(false);
+    expect(state.key).toBe(initialKey);
+    expect(state.shifts.get(villainSeat)).toEqual([4, -6]);
+    expect(villainSeat.style.getPropertyValue('--sp-opponent-x')).toBe('4px');
+    expect(villainSeat.style.getPropertyValue('--sp-opponent-y')).toBe('-6px');
+    expect(villainSeat.dataset.opponentLane).toBe('cap');
+    expect(layout.ready()).toBe(true);
+    const nextScale = Number(villainAvatar.style.getPropertyValue('--sp-opponent-art-scale'));
+    expect(nextScale).toBeCloseTo(200 / 300 / (1.04 * 1.04), 5);
+  } finally {
+    layout.stop();
+    canvas.mockRestore();
+    page.remove();
+  }
+});

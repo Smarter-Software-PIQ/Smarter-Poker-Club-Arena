@@ -44,6 +44,7 @@ export function useProtectedCardLayout(
       { offsets: string[]; width: number; height: number; owner: string | null }
     >(),
   });
+  const placeRef = useRef<(() => void) | null>(null);
   useLayoutEffect(() => {
     const scaler = root.current;
     const page = scaler?.closest('.table-page');
@@ -86,7 +87,9 @@ export function useProtectedCardLayout(
           ownerSpacingTried: new WeakSet(),
           wagers: new WeakMap(),
         };
+        return true;
       }
+      return false;
     };
     refreshGeometry();
     const topPods = () =>
@@ -402,20 +405,22 @@ export function useProtectedCardLayout(
       remainingOwnerSpacingPasses = wagers().length,
       spacingOrigins?: Map<HTMLElement, { y: number; radius: number }>
     ) => {
-      refreshGeometry();
-      resetWagers();
-      if (artwork.prepare(handKey)) {
+      const geometryReset = refreshGeometry();
+      const ringReset = artwork.prepare(handKey);
+      if (ringReset) {
         settled.current.pods = new WeakMap();
         settled.current.dealer = null;
         settled.current.rows = new WeakMap();
         settled.current.wagers = new WeakMap();
         settled.current.ownerSpacingTried = new WeakSet();
       }
+      if (geometryReset || ringReset) resetWagers();
       const offsetNames = ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'];
       for (const bet of wagers()) {
         const stored = settled.current.wagers.get(bet);
         if (stored)
           offsetNames.forEach((name, index) => bet.style.setProperty(name, stored.offsets[index]));
+        else offsetNames.forEach((name) => bet.style.removeProperty(name));
       }
       const dealerElement = scaler.querySelector<HTMLElement>('.dealer-button');
       if (dealerElement) {
@@ -621,21 +626,42 @@ export function useProtectedCardLayout(
         const lower =
           ((FELT_WINDOW.top + FELT_WINDOW.height) * canvas.height) / 100 -
           (FELT_WINDOW.width * canvas.width) / 200;
-        const points: { x: number; y: number; depth: number }[] = [];
-        let depth = 0;
-        const add = (x: number, y: number) => {
-          const projected = projectPortraitTable(
-            {
-              x: (x / canvas.width) * 100,
-              y: (y / canvas.height) * 100,
-            },
-            portraitTaper
-          );
-          points.push({
-            x: canvas.left + (projected.x * canvas.width) / 100,
-            y: canvas.top + (projected.y * canvas.height) / 100,
-            depth,
-          });
+        let cachedPoints: { x: number; y: number; depth: number }[] | null = null;
+        const getPoints = () => {
+          if (cachedPoints) return cachedPoints;
+          const pts: { x: number; y: number; depth: number }[] = [];
+          let depth = 0;
+          const add = (x: number, y: number) => {
+            const projected = projectPortraitTable(
+              {
+                x: (x / canvas.width) * 100,
+                y: (y / canvas.height) * 100,
+              },
+              portraitTaper
+            );
+            pts.push({
+              x: canvas.left + (projected.x * canvas.width) / 100,
+              y: canvas.top + (projected.y * canvas.height) / 100,
+              depth,
+            });
+          };
+          for (const extra of [0, 10, 20, 28, 36, 44, 52, 64, 76, 88, 100]) {
+            depth = extra;
+            const band = radius - extra;
+            for (let angle = 0; angle < 360; angle += 2) {
+              const radians = (angle * Math.PI) / 180;
+              add(
+                cx + Math.cos(radians) * band,
+                (Math.sin(radians) < 0 ? upper : lower) + Math.sin(radians) * band
+              );
+            }
+            for (let y = upper; y <= lower; y += 3) {
+              add(cx - band, y);
+              add(cx + band, y);
+            }
+          }
+          cachedPoints = pts;
+          return pts;
         };
         /* Dan 2026-10-21: "MAKE SURE WHEN CHIPS ARE PUT IN THE POT THEY ARE
            ACTUALLY ON THE TABLE, AND NOT ON THE RAIL ... THEY NEED TO BE
@@ -666,21 +692,6 @@ export function useProtectedCardLayout(
             return Math.hypot(px - cx, py - spineY) <= radius + inset - margin;
           });
         const wagerOnFelt = (box: CardBox) => wagerOnFeltWithMargin(box, feltMarginPx);
-        for (const extra of [0, 10, 20, 28, 36, 44, 52, 64, 76, 88, 100]) {
-          depth = extra;
-          const band = radius - extra;
-          for (let angle = 0; angle < 360; angle += 2) {
-            const radians = (angle * Math.PI) / 180;
-            add(
-              cx + Math.cos(radians) * band,
-              (Math.sin(radians) < 0 ? upper : lower) + Math.sin(radians) * band
-            );
-          }
-          for (let y = upper; y <= lower; y += 3) {
-            add(cx - band, y);
-            add(cx + band, y);
-          }
-        }
         const obstacles = Array.from(
           page.querySelectorAll(
             '.community-area, .table-brand, .pot-display, .pot-display__pile, .seat__avatar-img, .seat__info, .seat__action, .seat__bounty, .seat__position-badge, .seat__cards--hero .seat__card, .seat__cards--revealed .seat__card, .bbj-widget, .bbj-mini-plate, .chat-collapsed, .mtp-lobby-btn'
@@ -757,7 +768,7 @@ export function useProtectedCardLayout(
           scaler,
           canvas,
           scale,
-          points,
+          getPoints,
           obstacles,
           hardObstacles,
           []
@@ -927,7 +938,7 @@ export function useProtectedCardLayout(
                   height: box.height,
                   depth: 0,
                 },
-                ...points.map((point) => ({
+                ...getPoints().map((point) => ({
                   left: point.x - box.width / 2,
                   top: point.y - box.height / 2,
                   width: box.width,
@@ -1196,6 +1207,19 @@ export function useProtectedCardLayout(
             )
             .join('|');
         const entries = buildEntries();
+        if (!entries.length) {
+          if (!reservedDealer)
+            placeDealerButton(
+              scaler,
+              canvas,
+              scale,
+              getPoints,
+              obstacles,
+              hardObstacles,
+              fixedWagers
+            );
+          return;
+        }
         // A later DOM sibling may already own a retained slot. Reserve the
         // complete retained set before assigning any newly generated pools;
         // otherwise an earlier new wager could take that later player's slot.
@@ -2110,10 +2134,19 @@ export function useProtectedCardLayout(
         // A terminal metadata/owner gap may leave the baseline slot unresolved.
         // Retry that same owned placement against the actual assigned wagers.
         if (!reservedDealer)
-          placeDealerButton(scaler, canvas, scale, points, obstacles, hardObstacles, placedWagers);
+          placeDealerButton(
+            scaler,
+            canvas,
+            scale,
+            getPoints,
+            obstacles,
+            hardObstacles,
+            placedWagers
+          );
       }
       if (!phoneMarkers) placeRows(true);
     };
+    placeRef.current = () => place();
     place();
     let frame: number | null = null;
     const schedule = () => {
@@ -2122,6 +2155,16 @@ export function useProtectedCardLayout(
         frame = null;
         place();
       });
+    };
+    const isDecorativeAnimation = (event: Event) =>
+      event.target instanceof Element &&
+      Boolean(
+        event.target.closest(
+          '.seat__timer-ring, .seat__timer-wipe, .seat__timer-ink, .seat__holo, .pot-display__main'
+        )
+      );
+    const onMotionEnd = (event: Event) => {
+      if (!isDecorativeAnimation(event)) schedule();
     };
     const observer = new ResizeObserver(schedule);
     observer.observe(scaler);
@@ -2150,18 +2193,19 @@ export function useProtectedCardLayout(
       attributeFilter: ['class'],
     });
     document.fonts?.addEventListener('loadingdone', schedule);
-    scaler.addEventListener('animationend', schedule);
-    scaler.addEventListener('transitionend', schedule);
+    scaler.addEventListener('animationend', onMotionEnd);
+    scaler.addEventListener('transitionend', onMotionEnd);
     scaler.addEventListener('load', schedule, true);
     return () => {
       active = false;
+      placeRef.current = null;
       artwork.stop();
       document.fonts?.removeEventListener('loadingdone', schedule);
       resetWagers();
       observer.disconnect();
       mutations.disconnect();
-      scaler.removeEventListener('animationend', schedule);
-      scaler.removeEventListener('transitionend', schedule);
+      scaler.removeEventListener('animationend', onMotionEnd);
+      scaler.removeEventListener('transitionend', onMotionEnd);
       scaler.querySelector<HTMLElement>('.dealer-button')?.style.removeProperty('translate');
       scaler.removeEventListener('load', schedule, true);
       if (frame !== null) cancelAnimationFrame(frame);
@@ -2176,7 +2220,10 @@ export function useProtectedCardLayout(
         .querySelectorAll<HTMLElement>('.seat__cards--revealed')
         .forEach((row) => row.style.removeProperty('translate'));
     };
-  }, [root, revision, handKey]);
+  }, [root, handKey]);
+  useLayoutEffect(() => {
+    placeRef.current?.();
+  }, [revision, handKey]);
 }
 
 /**
@@ -2214,7 +2261,7 @@ function placeDealerButton(
   scaler: HTMLElement,
   canvas: DOMRect,
   scale: number,
-  points: ReadonlyArray<{ x: number; y: number; depth: number }>,
+  getPoints: () => ReadonlyArray<{ x: number; y: number; depth: number }>,
   obstacles: ReadonlyArray<CardBox>,
   hardObstacles: ReadonlyArray<CardBox> = obstacles,
   wagers: ReadonlyArray<CardBox> = []
@@ -2283,7 +2330,7 @@ function placeDealerButton(
   for (const clear of [clearOf(obstacles), clearOf(hardObstacles)]) {
     if (best) break;
     let cost = Infinity;
-    for (const point of points) {
+    for (const point of getPoints()) {
       if (point.depth < 0) continue; // include the clear rail band before covering protected content
       if (!owned(point.x, point.y) || !clear(boxAt(point.x, point.y))) continue;
       const next = Math.hypot(point.x - own.x, point.y - own.y);
@@ -2313,7 +2360,7 @@ function placeDealerButton(
     // Ownership remains mandatory even in the most crowded printing lane.
     const offWagers = clearOf(wagers);
     let cost = Infinity;
-    for (const point of points) {
+    for (const point of getPoints()) {
       if (point.depth < 10 || !owned(point.x, point.y)) continue;
       const box = boxAt(point.x, point.y);
       if (!offWagers(box)) continue;

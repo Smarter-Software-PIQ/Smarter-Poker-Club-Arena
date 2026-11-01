@@ -1290,7 +1290,20 @@ export const SeatSlot = memo(
       resized.observe(seat);
       measure();
       // The art mounts after the seat and swaps on a skin change.
-      const changed = new MutationObserver(schedule);
+      // Ignore countdown/stack text ticks inside `.seat__info` and card flips
+      // inside `.seat__cards`: `measure()` only reads avatar art and `:scope > .seat__action`.
+      const isIrrelevantMutation = (node: Node | null) =>
+        node instanceof Node &&
+        Boolean(
+          (node instanceof Element ? node : node.parentElement)?.closest(
+            '.seat__info, .seat__cards, .seat__bet-chips'
+          )
+        );
+      const changed = new MutationObserver((records) => {
+        if (records.some((record) => !isIrrelevantMutation(record.target))) {
+          schedule();
+        }
+      });
       changed.observe(seat, { childList: true, subtree: true, characterData: true });
       seat.addEventListener('load', schedule, true);
       seat.addEventListener('opponentavatarresize', schedule);
