@@ -54,7 +54,9 @@ export async function reportRemovedTournamentSeats(
         continue;
       }
       const arena = parseTableArenaIdentity(row);
+      const reportedAt = Date.now();
       publishSessionSummary({
+        handStatsTarget: { tableId: row.id, userId, asOf: reportedAt },
         arenaAsset: arena.asset,
         resultOnly: true,
         duration: 0,
@@ -65,7 +67,7 @@ export async function reportRemovedTournamentSeats(
         biggestPot: 0,
         peakStack: 0,
         tableName: result.name || row.name,
-        sessionEnd: Date.now(),
+        sessionEnd: reportedAt,
         tournament: result,
       });
       retain.delete(row.id);

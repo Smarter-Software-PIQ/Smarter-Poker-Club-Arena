@@ -428,6 +428,7 @@ export interface TableModalsLayerProps {
 
   // Session Stats (2nd SessionHUD slot at bottom)
   showSessionStats: boolean;
+  sessionStatsRevision?: string;
   onCloseSessionStats: () => void;
 
   // Settings Panel
@@ -711,6 +712,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     leaveLockedLabel = null,
     // Session stats
     showSessionStats,
+    sessionStatsRevision,
     onCloseSessionStats,
     // Settings
     showSettings,
@@ -1290,6 +1292,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         <RealTimeResultPanel
           arenaAsset={arenaAsset}
           isOpen={showSessionStats}
+          refreshRevision={sessionStatsRevision}
           onClose={onCloseSessionStats}
           tableId={tableId}
           userId={userId}
@@ -1308,6 +1311,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         sessionStatsService.getStats(tableId) && (
           <SessionAnalytics
             isOpen={showDetailedAnalytics}
+            refreshRevision={sessionStatsRevision}
             onClose={() => setShowDetailedAnalytics(false)}
             stats={sessionStatsService.getStats(tableId)!}
           />
