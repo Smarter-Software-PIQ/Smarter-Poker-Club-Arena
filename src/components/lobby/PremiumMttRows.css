@@ -1,0 +1,573 @@
+/* Chrome Arena. Each half prints on its own native crop of one painted card.
+   Master 1983x793, painted bounds x8..1974/y125..635, seam at y407.
+   Names, prices, players, clocks and favorites remain the existing live DOM. */
+.arena-lobby-card-list,
+.lobby-table-wrap {
+  container-type: inline-size;
+  max-width: 1000px;
+  margin-inline: auto;
+}
+.has-premium-chassis {
+  width: 100%;
+  border: 0 !important;
+  border-spacing: 0 !important;
+  background: #000 !important;
+  box-shadow: none !important;
+}
+.has-premium-chassis thead {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+.has-premium-chassis tbody {
+  display: block;
+  width: 100%;
+}
+.has-premium-chassis tbody tr[data-game-heading],
+.has-premium-chassis tbody tr[data-id] {
+  position: relative;
+  width: 100%;
+  padding: 0 !important;
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: #000 !important;
+  isolation: isolate;
+}
+.has-premium-chassis tbody tr[data-game-heading] {
+  display: block;
+  height: 14.34cqw !important;
+  min-height: 0 !important;
+}
+.has-premium-chassis tbody tr[data-id] {
+  display: grid;
+  grid-template-columns: 29.5% 13.7% 15.4% 10.8% 30.6%;
+  height: max(44px, 11.6cqw) !important;
+  min-height: 0 !important;
+}
+.has-premium-chassis tbody tr[data-game-heading]::before,
+.has-premium-chassis tbody tr[data-id]::before,
+.has-premium-chassis tbody tr[data-game-heading]::after,
+.has-premium-chassis tbody tr[data-id]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/card.png');
+  background-size: 100.814% auto;
+  background-repeat: no-repeat;
+}
+.has-premium-chassis tbody tr[data-game-heading]::before,
+.has-premium-chassis tbody tr[data-game-heading]::after {
+  background-position: center -6.355cqw;
+}
+.has-premium-chassis tbody tr[data-id]::before,
+.has-premium-chassis tbody tr[data-id]::after {
+  background-position: center calc(100% + 8.03cqw);
+}
+.has-premium-chassis tbody tr[data-game-heading]::after,
+.has-premium-chassis tbody tr[data-id]::after {
+  display: none;
+  clip-path: inset(0 94% 0 0);
+}
+.has-premium-chassis tbody tr.is-bounty::after {
+  display: block;
+  filter: hue-rotate(-75deg);
+}
+.has-premium-chassis tbody tr.is-satellite::after {
+  display: block;
+  filter: hue-rotate(-155deg);
+}
+.has-premium-chassis
+  tbody
+  tr.is-freezeout:not(.is-satellite):not(.is-bounty):not(.is-freeroll)::after {
+  display: block;
+  filter: grayscale(1) brightness(1.3);
+}
+.has-premium-chassis tbody tr.is-featured::before {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/card-featured.png');
+}
+.has-premium-chassis tbody tr.is-featured::after {
+  display: none !important;
+}
+.has-premium-chassis tbody tr[data-lightning-format='true']::before {
+  filter: grayscale(1) brightness(1.35);
+}
+.has-premium-chassis tbody tr[data-game-heading] > td {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100% !important;
+  padding: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  overflow: visible !important;
+}
+.has-premium-chassis .lt-tournament-heading,
+.has-premium-chassis .lt-tournament-heading.compact-lobby__title,
+.has-premium-chassis .lt-tournament-heading.lt-name__line1 {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  font-family: 'Roboto Condensed', Inter, sans-serif;
+  font-size: calc(clamp(11px, 3.4cqw, 26px) * var(--premium-title-fit, 1));
+  font-weight: 700;
+  line-height: 1.12;
+  color: #f4f7fb;
+  white-space: normal;
+  overflow: visible;
+}
+.has-premium-chassis .lt-tournament-heading__name {
+  position: absolute;
+  top: 2.8cqw;
+  left: 18.2%;
+  width: 46%;
+  height: 8.5cqw;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  font: inherit;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 0 #000;
+}
+.has-premium-chassis .is-featured .lt-tournament-heading__name {
+  color: #f02849;
+}
+.has-premium-chassis .is-bounty:not(.is-featured) .lt-tournament-heading__name {
+  color: #35d95a;
+}
+.has-premium-chassis .lt-tournament-heading__guarantee {
+  position: absolute;
+  top: 3.9cqw;
+  left: 67.7%;
+  width: 25%;
+  height: 6.9cqw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  color: #e4e7ec;
+  white-space: normal;
+  text-align: center;
+}
+.has-premium-chassis [data-game-heading] .lt-tournament-icon,
+.has-premium-chassis [data-game-heading] .lt-lightning-icon {
+  position: absolute;
+  top: 3.7cqw;
+  left: 7.65%;
+  width: 7.5%;
+  height: 7.5cqw;
+  margin: 0;
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/standard.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.has-premium-chassis [data-game-heading] [data-tournament-icon='bounty'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/bounty.png');
+}
+.has-premium-chassis [data-game-heading] [data-tournament-icon='freezeout'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/freezeout.png');
+}
+.has-premium-chassis [data-game-heading] [data-tournament-icon='satellite'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/satellite.png');
+}
+.has-premium-chassis [data-game-heading] [data-tournament-icon='freeroll'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/freeroll.png');
+}
+.has-premium-chassis [data-game-heading] .lt-lightning-icon,
+.has-premium-chassis [data-game-heading] [data-tournament-icon='lightning'],
+.has-premium-chassis [data-game-heading] [data-tournament-icon='hyper'],
+.has-premium-chassis [data-game-heading] [data-tournament-icon='turbo'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/lightning.png');
+}
+.has-premium-chassis [data-game-heading] .lt-tournament-icon svg,
+.has-premium-chassis [data-game-heading] .lt-lightning-icon svg {
+  visibility: hidden;
+}
+/* The existing cell order remains semantic; the painted bays set its visual order. */
+.has-premium-chassis tbody tr[data-id] > td {
+  display: none;
+  box-sizing: border-box;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 0 0 2.2cqw !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible;
+  font-family: 'Roboto Condensed', Inter, sans-serif;
+  font-size: clamp(12px, 4cqw, 28px);
+  font-weight: 700;
+  line-height: 1.05;
+  text-align: center;
+}
+.has-premium-chassis tbody tr[data-id] > td.lt-col-name,
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child {
+  display: flex;
+  grid-column: 1;
+  grid-row: 1;
+  align-items: center;
+  justify-content: center;
+  padding-left: 6cqw !important;
+}
+.has-premium-chassis tbody tr[data-id] > td[data-label='Stakes'],
+.has-premium-chassis tbody tr[data-id] > td[data-label='Buy-In'] {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.has-premium-chassis tbody tr[data-kind='cash'] > td[data-label='Buy-In'] {
+  display: none;
+}
+.has-premium-chassis tbody tr[data-id] > td.lt-col-players,
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(3) {
+  display: flex;
+  grid-column: 3;
+  grid-row: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.has-premium-chassis tbody tr[data-id] > td.lt-col-fav {
+  display: flex;
+  grid-column: 4;
+  grid-row: 1;
+  align-items: center;
+  justify-content: center;
+}
+.has-premium-chassis tbody tr[data-id] > td.lt-col-status,
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(4) {
+  display: flex;
+  grid-column: 5;
+  grid-row: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-right: 6cqw !important;
+}
+.has-premium-chassis tbody tr[data-id] > td[data-label='Stakes']::before,
+.has-premium-chassis tbody tr[data-id] > td[data-label='Buy-In']::before,
+.has-premium-chassis tbody tr[data-id] > td.lt-col-players::before,
+.has-premium-chassis tbody tr[data-id] > td.lt-col-status::before,
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(3)::before,
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(4)::before {
+  content: attr(data-label);
+  margin-bottom: 0.7cqw;
+  color: #9aa5b3;
+  font-family: 'Roboto Condensed', Inter, sans-serif;
+  font-size: clamp(7px, 2.1cqw, 14px);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.has-premium-chassis .lt-status {
+  max-width: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  color: #45adff;
+  white-space: normal;
+}
+.has-premium-chassis .lt-seats {
+  gap: 0;
+}
+.has-premium-chassis .lt-seats__bar {
+  display: none;
+}
+.has-premium-chassis .lt-seats__tables {
+  margin-top: 0.6cqw;
+  font-size: clamp(7px, 1.8cqw, 12px);
+  font-weight: 400;
+}
+.has-premium-chassis .lt-fav {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: none;
+  color: #e4e7ec;
+}
+.has-premium-chassis .lt-fav svg {
+  width: clamp(18px, 5cqw, 32px);
+  height: clamp(18px, 5cqw, 32px);
+}
+.has-premium-chassis .lt-fav.is-on {
+  color: #45adff;
+}
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child {
+  position: static;
+}
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child > .lt-fav {
+  position: absolute;
+  top: 40%;
+  left: 59%;
+  right: auto;
+  width: 11%;
+  height: 44px;
+  transform: translateY(-50%);
+  z-index: 2;
+}
+.has-premium-chassis .compact-lobby__open {
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0 !important;
+  font: inherit;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.has-premium-chassis tr[data-id][data-kind='cash'] .compact-lobby__title,
+.has-premium-chassis tr[data-id][data-kind='cash'] .lt-name__line1 {
+  display: none;
+}
+.has-premium-chassis .compact-lobby__meta,
+.has-premium-chassis .lt-name__table {
+  font-family: 'Roboto Condensed', Inter, sans-serif;
+  font-size: clamp(8px, 2.6cqw, 18px);
+  line-height: 1.1;
+  color: #e4e7ec;
+  text-align: center;
+}
+.has-premium-chassis .lt-name__clockpart,
+.has-premium-chassis .lt-name__dot {
+  display: none;
+}
+.has-premium-chassis .lt-name__meta,
+.has-premium-chassis .lt-clock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4cqw;
+  font-size: clamp(9px, 2.7cqw, 20px);
+  line-height: 1.1;
+  font-weight: 600;
+  text-align: center;
+}
+.has-premium-chassis .lt-clock__dot {
+  display: none;
+}
+.has-premium-chassis .lt-signals__badges {
+  display: none;
+}
+.has-premium-chassis .lt-mine {
+  font-size: clamp(7px, 1.7cqw, 12px);
+}
+.has-premium-chassis tr.lt-event-gap,
+.has-premium-chassis tr.lt-event-gap > td {
+  display: block;
+  height: 1.6cqw !important;
+  min-height: 0;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  background: #000;
+  box-shadow: none;
+}
+.has-premium-chassis tr[data-id].is-cursor::before,
+.has-premium-chassis tr[data-id].is-selected::before {
+  filter: brightness(1.18);
+}
+.has-premium-chassis .lt-col-name::before {
+  display: none;
+}
+.has-premium-chassis tbody tr[data-id] .lt-mono,
+.has-premium-chassis tbody tr[data-id] .lt-seats__num {
+  font: inherit !important;
+}
+.has-premium-chassis tr[data-kind='mtt'] .compact-lobby__meta {
+  display: none;
+}
+.premium-lobby-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.premium-lobby-clock__label {
+  color: #9aa5b3;
+  font-family: 'Roboto Condensed', Inter, sans-serif;
+  font-size: clamp(7px, 2.1cqw, 14px);
+  font-weight: 500;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.premium-lobby-clock__value {
+  margin-top: 0.7cqw;
+  font-family: 'Roboto Condensed', Inter, sans-serif;
+  font-size: clamp(12px, 4cqw, 28px);
+  font-weight: 700;
+  line-height: 1;
+  color: #45adff;
+}
+.premium-lobby-clock[data-clock-tone='late'] .premium-lobby-clock__value {
+  color: #ff5b6e;
+}
+.has-premium-chassis tbody tr.premium-lobby-date {
+  display: block;
+  width: 100%;
+  height: 7cqw !important;
+  min-height: 0 !important;
+  margin-block: 1.5cqw 0.5cqw;
+  border: 0;
+  background: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/date-divider.png') center
+    calc(50% - 0.625cqw) / 100% auto no-repeat !important;
+  box-shadow: none !important;
+}
+.has-premium-chassis tbody tr.premium-lobby-date > td {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100% !important;
+  padding: 0 !important;
+  border: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-family: 'Roboto Condensed', Inter, sans-serif;
+  font-size: clamp(11px, 3.2cqw, 22px);
+  font-weight: 700;
+  line-height: 1;
+  color: #45adff;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.premium-lobby-title-fit {
+  display: block;
+  width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  font-size: calc(clamp(11px, 3.4cqw, 26px) * var(--fit, 1));
+  line-height: 1.12;
+  white-space: nowrap;
+}
+.premium-lobby-title-fit[data-fit-wrap='true'] {
+  white-space: normal;
+}
+
+.has-premium-chassis tr[data-id][data-kind='cash'] > td > .lt-lightning-icon {
+  display: none;
+}
+
+.has-premium-chassis [data-game-heading] [data-tournament-icon='deepstack'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/deepstack.png');
+}
+.has-premium-chassis [data-game-heading] [data-tournament-icon='rebuy'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/rebuy.png');
+}
+.has-premium-chassis [data-game-heading][data-kind='spin'] [data-tournament-icon] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/spin.png');
+}
+
+.has-premium-chassis .lt-tournament-heading__guarantee .lt-payout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3cqw;
+  font: inherit;
+  font-size: 0.72em;
+  line-height: 1.1;
+}
+.has-premium-chassis .lt-tournament-heading__guarantee .lt-payout__x,
+.has-premium-chassis .lt-tournament-heading__guarantee .lt-payout__cash {
+  font: inherit;
+  color: inherit;
+}
+.has-premium-chassis .lt-name__sep {
+  display: none;
+}
+.has-premium-chassis tr[data-id] > td:first-child > .lt-lightning-icon {
+  display: none;
+}
+/* Desktop's former fixed-width cells and pills must not repaint the master. */
+.club-home .has-premium-chassis tbody tr[data-id] > td {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  color: #e4e7ec !important;
+  text-shadow: none !important;
+}
+.club-home .has-premium-chassis tbody tr[data-id] .lt-status {
+  max-width: none !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font: inherit !important;
+  letter-spacing: 0 !important;
+  color: #45adff !important;
+}
+.club-home .has-premium-chassis tbody tr[data-id] .lt-fav {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.has-premium-chassis tbody tr[data-lightning-format='true'].is-cursor::before,
+.has-premium-chassis tbody tr[data-lightning-format='true'].is-selected::before {
+  filter: grayscale(1) brightness(1.5);
+}
+
+/* The phone sort headings align with the same five bays; the star bay is empty. */
+.compact-lobby.has-premium-chassis thead {
+  display: block;
+}
+.compact-lobby.has-premium-chassis thead tr {
+  display: grid;
+  grid-template-columns: 29.5% 13.7% 15.4% 10.8% 30.6%;
+}
+.compact-lobby.has-premium-chassis thead th {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  grid-row: 1;
+  width: 100% !important;
+  min-width: 0;
+  height: 44px;
+  padding: 0 !important;
+  box-sizing: border-box;
+  background: #000;
+}
+.compact-lobby.has-premium-chassis thead th:first-child {
+  grid-column: 1;
+  padding-left: 6cqw !important;
+  text-align: center;
+}
+.compact-lobby.has-premium-chassis thead th:nth-child(2) {
+  grid-column: 2;
+}
+.compact-lobby.has-premium-chassis thead th:nth-child(3) {
+  grid-column: 3;
+}
+.compact-lobby.has-premium-chassis thead th:nth-child(4) {
+  grid-column: 5;
+  padding-right: 6cqw !important;
+}
+
+.compact-lobby.has-premium-chassis thead,
+.compact-lobby.has-premium-chassis thead tr {
+  background: #000 !important;
+}

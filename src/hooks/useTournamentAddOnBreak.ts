@@ -6,7 +6,8 @@ import { reportError } from '../utils/errorReporter';
 import { serverNow } from '../utils/serverClock';
 
 export interface TournamentAddOnBreak {
-  endsAtMs: number;
+  phase: 'last_hand' | 'counting_down';
+  endsAtMs: number | null;
   cost: number;
   chips: number;
 }
@@ -51,9 +52,19 @@ export function useTournamentAddOnBreak(tournamentId: string | null | undefined)
         const end = Date.parse(String(row?.addon_period_ends_at ?? ''));
         const cost = Number(row?.addon_cost || row?.buy_in_amount);
         const chips = Number(row?.addon_chips || row?.starting_chips);
+        const entryClosed = tournamentAddOnEntryBoundaryPassed(row, serverNow());
+        const awaitingLastHand =
+          entryClosed &&
+          row?.add_on_available === true &&
+          row.prize_pool_finalized !== true &&
+          (row.addon_period_triggered === false ||
+            (row.addon_from_start === true &&
+              row.addon_period_triggered === true &&
+              row.addon_period_started_at === null &&
+              row.addon_period_ends_at === null));
         const eligible =
           row?.status === 'RUNNING' &&
-          tournamentAddOnEntryBoundaryPassed(row, serverNow()) &&
+          entryClosed &&
           row.add_on_available === true &&
           row.addon_period_triggered === true &&
           row.prize_pool_finalized !== true &&
@@ -68,6 +79,16 @@ export function useTournamentAddOnBreak(tournamentId: string | null | undefined)
         const paint = () => {
           if (!active) return;
           const now = serverNow();
+          if (
+            awaitingLastHand &&
+            Number.isFinite(cost) &&
+            cost > 0 &&
+            Number.isFinite(chips) &&
+            chips > 0
+          ) {
+            setShown({ tournamentId, phase: 'last_hand', endsAtMs: null, cost, chips });
+            return;
+          }
           if (!eligible || now >= end) {
             setShown(null);
             return;
@@ -78,7 +99,7 @@ export function useTournamentAddOnBreak(tournamentId: string | null | undefined)
             boundary = setTimeout(paint, noticeStarts - now);
             return;
           }
-          setShown({ tournamentId, endsAtMs: end, cost, chips });
+          setShown({ tournamentId, phase: 'counting_down', endsAtMs: end, cost, chips });
           boundary = setTimeout(paint, end - now);
         };
         paint();

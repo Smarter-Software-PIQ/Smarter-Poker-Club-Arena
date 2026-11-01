@@ -137,7 +137,8 @@ export default function MysteryBountyPanel({
   isCompleted,
   unitCents,
 }: MysteryBountyPanelProps) {
-  const { inventory, awards, awardsTotal, leaderboard, isLoading, pendingReveals } = data;
+  const { inventory, awards, awardsTotal, leaderboard, isLoading, isUnavailable, pendingReveals } =
+    data;
 
   const [showAllAwards, setShowAllAwards] = usePlayerPreference(
     'mysteryBounty.showAllAwards',
@@ -193,6 +194,7 @@ export default function MysteryBountyPanel({
     tournamentId,
     isMysteryBounty &&
       !isLoading &&
+      !isUnavailable &&
       (inventory?.tiers?.length ?? 0) === 0 &&
       (inventory?.stage ?? 'pending') === 'pending',
     unitCents
@@ -249,6 +251,32 @@ export default function MysteryBountyPanel({
   }, [selectedUserId, tournamentId, isMysteryBounty, payoutScope]);
 
   if (!isMysteryBounty) return null;
+  if (isLoading || isUnavailable) {
+    return (
+      <SpadeConsole
+        as="div"
+        className={styles.panel}
+        eyebrow="Mystery Bounty"
+        title="Bounties"
+        pill={isLoading ? 'Loading' : 'Unavailable'}
+        pillInk="muted"
+        foot="foot"
+      >
+        <div className={`${styles.empty} sc-copy sc-copy--center`}>
+          {isLoading ? 'Loading The Mystery Bounty Ladder' : 'Mystery Bounty Data Unavailable'}
+        </div>
+        {!isLoading && (
+          <button
+            type="button"
+            className={`${styles.collapseBtn} sc-ink--blue`}
+            onClick={data.refresh}
+          >
+            Try Again
+          </button>
+        )}
+      </SpadeConsole>
+    );
+  }
 
   const tiers = inventory?.tiers ?? [];
   const top = topBountyCents(inventory);
