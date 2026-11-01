@@ -131,6 +131,9 @@ CONTROL_CORE = {'engine-supervisor.sh','engine-up.sh','engine-release-protocol-v
 
 
 def selection(value):
+    if isinstance(value, dict) and value.get('mode') == 'intake_staging_records':
+        if value != INTAKE_REQUEST: raise ValueError('Exact failed intake required')
+        return dict(value)
     if isinstance(value, dict) and value.get('mode') == 'active_control_inventory':
         if value != CONTROL_REQUEST: raise ValueError('Exact failed intake required')
         return dict(value)
@@ -1366,6 +1369,232 @@ def _inspector_command(args, deadline, *, stderr=False, input_bytes=None, limit=
         child.stderr.close()
 
 
+# Closed evidence for one permanently failed, pre-handoff intake. No actions.
+INTAKE_REQUEST = {'mode':'intake_staging_records','runKey':'41339482095-1',
+                  'releaseSha':'0045d4c8a536c2b43259b3f400b5a8e7b0f8a33d'}
+INTAKE_SCHEMA = 'failed-intake-custody/v1'
+INTAKE_LIMITATION = 'Point-in-time custody only; no cleanup, retry, release, runtime or business authority.'
+INTAKE_FILES = {
+    'engine-release-intake.sh':'b78e3de906d645173a28a89db76b16b0f68c5c0e3042ffd2f0e3e5a05c333abf',
+    'install-engine-intake.sh':'5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+    'install-engine-supervisor.sh':'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'quarantine-generated-control-cache.py':'fd35b78cd3d15c5222d7a80e0bd5c2a655c2980b2adbe0efb8aa21b3c81e77a4',
+}
+INTAKE_RECORDS = ('request','intent','releaseResult','activationEntry')
+INTAKE_UNITS = ('intakeService','intakePath','releaseService')
+
+
+def intake_identity(info):
+    return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns,info.st_uid,info.st_mode)
+
+
+def intake_record(root, components, private, deadline):
+    """Fixed no-follow components; unsafe staged modes disclose metadata only."""
+    fds=[];staged=components[0]=='control-staging';unsafe=False;owner=True
+    try:
+        current=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW);fds.append(current)
+        for index,part in enumerate(components[:-1]):
+            if time.monotonic()>=deadline: raise ValueError('deadline')
+            info=os.fstat(current)
+            # root/control-staging and the exact private stage are custody roots.
+            if not staged or index<=2:
+                if info.st_uid!=os.geteuid() or info.st_mode&0o022 or staged and index==2 and stat.S_IMODE(info.st_mode)!=0o700: raise ValueError('custody')
+            owner=owner and info.st_uid==os.geteuid();unsafe=unsafe or bool(info.st_mode&0o022)
+            current=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=current);fds.append(current)
+        info=os.fstat(current)
+        if not staged and (info.st_uid!=os.geteuid() or info.st_mode&0o022): raise ValueError('custody')
+        owner=owner and info.st_uid==os.geteuid();unsafe=unsafe or bool(info.st_mode&0o022)
+        fd=os.open(components[-1],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=current);fds.append(fd)
+        before=os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode): raise ValueError('custody')
+        owner=owner and before.st_uid==os.geteuid();unsafe=unsafe or bool(before.st_mode&0o022)
+        directories=[stat.S_IMODE(os.fstat(item).st_mode) for item in fds[:-1]]
+        if staged and (not owner or unsafe or before.st_size>65536):
+            row={'status':'metadata_only','code':'owner_unproved' if not owner else 'unsafe_mode' if unsafe else 'size_bound',
+                 'sha256':None,'mode':stat.S_IMODE(before.st_mode),'directoryModes':directories,'ownerQualified':owner}
+            after=tuple(intake_identity(os.fstat(item)) for item in fds)
+            if intake_identity(before)!=after[-1]: raise ValueError('changed')
+            return row,None,after
+        if (not owner or unsafe or before.st_size>65536 or private and stat.S_IMODE(before.st_mode)!=0o600): raise ValueError('custody')
+        raw=b''
+        while len(raw)<=65536:
+            if time.monotonic()>=deadline: raise ValueError('deadline')
+            chunk=os.read(fd,min(4096,65537-len(raw)))
+            if not chunk: break
+            raw+=chunk
+        if intake_identity(before)!=intake_identity(os.fstat(fd)) or len(raw)!=before.st_size: raise ValueError('changed')
+        return {'status':'present','code':'observed','sha256':hashlib.sha256(raw).hexdigest(),
+                'mode':stat.S_IMODE(before.st_mode),'directoryModes':directories,
+                **({'ownerQualified':True} if staged else {})},raw,tuple(intake_identity(os.fstat(item)) for item in fds)
+    except FileNotFoundError:
+        return {'status':'absent','code':'not_found','sha256':None,'mode':None,'directoryModes':None,**({'ownerQualified':None} if staged else {})},None,None
+    except (OSError,ValueError):
+        return {'status':'unknown','code':'unproved','sha256':None,'mode':None,'directoryModes':None,**({'ownerQualified':None} if staged else {})},None,None
+    finally:
+        for fd in reversed(fds): os.close(fd)
+
+
+def validate_intake_unit_properties(d):
+    if not isinstance(d,dict) or set(d)!={'LoadState','ActiveState','SubState','UnitFileState','Result','ExecMainStatus','MainPID','InvocationID'} or any(not isinstance(v,str) for v in d.values()): raise ValueError('Intake unit shape refused')
+    if (d['LoadState'] not in {'loaded','not-found','masked','error','bad-setting','stub','merged'}
+                or d['ActiveState'] not in {'active','activating','reloading','inactive','failed','deactivating'}
+                or d['SubState'] not in {'running','start','start-pre','start-post','exited','dead','failed','auto-restart','stop','stop-sigterm','stop-sigkill','stop-post','final-sigterm','final-sigkill','waiting'}
+                or d['UnitFileState'] not in {'enabled','enabled-runtime','disabled','static','indirect','masked','masked-runtime','generated','transient','linked','linked-runtime','alias',''}
+                or d['Result'] not in {'success','exit-code','signal','core-dump','timeout','watchdog','start-limit-hit','resources','protocol','dependency','oom-kill',''}
+                or not re.fullmatch('[0-9]{1,10}',d['MainPID']) or not re.fullmatch('[0-9]{1,3}',d['ExecMainStatus'])
+                or not (d['InvocationID']=='' or re.fullmatch('[0-9a-f]{32}',d['InvocationID']))): raise ValueError('Intake unit values refused')
+
+
+def intake_unit(unit, deadline):
+    """Fixed systemctl show only: one second and 2KiB, including drainage."""
+    args=['systemctl','show',unit,'--no-pager',
+          '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID']
+    process=None
+    try:
+        if deadline-time.monotonic()<2: raise ValueError('deadline')
+        process=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+        raw=b'';end=min(deadline,time.monotonic()+1)
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout,selectors.EVENT_READ)
+            while True:
+                if time.monotonic()>=end or not selector.select(max(0,end-time.monotonic())): raise ValueError('deadline')
+                chunk=os.read(process.stdout.fileno(),min(2049-len(raw),1024))
+                if not chunk: break
+                raw+=chunk
+                if len(raw)>2048: raise ValueError('size')
+        if process.wait(timeout=max(.001,end-time.monotonic()))!=0: raise ValueError('command')
+        d=unique_object([line.split('=',1) for line in raw.decode('ascii').splitlines()])
+        if set(d)!={'LoadState','ActiveState','SubState','UnitFileState','Result','ExecMainStatus','MainPID','InvocationID'}: raise ValueError('shape')
+        validate_intake_unit_properties(d)
+        return {'status':'observed','properties':d}
+    except (OSError,ValueError,subprocess.SubprocessError):
+        return {'status':'unknown','properties':None}
+    finally:
+        if process is not None:
+            if process.poll() is None: process.kill()
+            process.wait(timeout=1);process.stdout.close()
+
+
+def intake_snapshot(root, deadline):
+    key=INTAKE_REQUEST['runKey'];sha=INTAKE_REQUEST['releaseSha']
+    rows={};raws={};stable={}
+    paths={'request':('engine-intake-requests',key+'.request'),
+           'intent':('engine-intake-requests',key+'.intent'),
+           'releaseResult':('engine-release-results',key+'.json'),
+           'activationEntry':('engine-release-requests',key+'.activation-entry')}
+    for name,path in paths.items():
+        rows[name],raws[name],stable[name]=intake_record(root,path,True,deadline)
+    binding='unavailable';deadline_epoch=None
+    present=[raws[x] for x in ('request','intent') if raws[x] is not None]
+    if present:
+        lines=present[0].decode('utf8').splitlines()
+        if (len(lines)!=5 or lines[:2]!=[sha,sha]
+                or lines[2]!='https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41339482095'
+                or not lines[3] or len(lines[3])>128 or any(ord(c)<32 or ord(c)==127 for c in lines[3])
+                or not re.fullmatch('[1-9][0-9]{8,9}',lines[4]) or any(raw!=present[0] for raw in present)):
+            raise ValueError('Intake request binding refused')
+        binding='matched';deadline_epoch=int(lines[4])
+    entry=None
+    if raws['activationEntry'] is not None:
+        v=json.loads(raws['activationEntry'],object_pairs_hook=unique_object)
+        base={'schema','runId','targetSha','controlSha','manifestSha256'}
+        schemas={'engine-release-activation-floor/v1','engine-release-activation-floor/v2-owner-window','engine-release-activation-floor/v3-phase1'}
+        if (not isinstance(v,dict) or v.get('schema') not in schemas
+                or set(v)!=(base if v['schema']=='engine-release-activation-floor/v1' else base|{'phase'})
+                or v['runId']!=key or v['targetSha']!=sha or v['controlSha']!=sha
+                or not re.fullmatch('[0-9a-f]{64}',v.get('manifestSha256',''))
+                or 'phase' in v and v['phase'] not in {'announcement','runtime'}): raise ValueError('Intake entry binding refused')
+        entry={'schema':v['schema'],'phase':v.get('phase'),'manifestSha256':v['manifestSha256']}
+    result=None
+    if raws['releaseResult'] is not None:
+        v=json.loads(raws['releaseResult'],object_pairs_hook=unique_object)
+        # There is no intake-result producer. This is only the later transaction's
+        # existing result identity; other result fields never leave the host.
+        if (not isinstance(v,dict) or v.get('runId')!=key or v.get('sha')!=sha
+                or v.get('controlSha')!=sha or v.get('schema')!=1 or v.get('result') not in {'failed','sealed','already-released'}): raise ValueError('Intake release result unbound')
+        exit_status=v.get('transactionExitStatus')
+        if v['result']=='failed' and (type(exit_status) is not int or not 1<=exit_status<=255 or exit_status==75 or not isinstance(v.get('invocationId'),str) or not re.fullmatch('[0-9a-f]{32}',v['invocationId'])): raise ValueError('Intake failure result refused')
+        if type(v.get('completedAt')) is not int or v['completedAt']<1: raise ValueError('Intake result timestamp refused')
+        result={'result':v['result'],'transactionExitStatus':exit_status if v['result']=='failed' else None}
+    stage={}
+    for name in INTAKE_FILES:
+        path=('control-staging',key,'server','scripts',name)
+        row,raw,identity=intake_record(root,path,False,deadline)
+        row['sourceMatches']=row['sha256']==INTAKE_FILES[name] if raw is not None else None
+        stage[name]=row;stable['stage/'+name]=identity
+    units={label:intake_unit('club-arena-engine-'+kind+'-v1@'+key+suffix,deadline)
+           for label,kind,suffix in [('intakeService','intake','.service'),('intakePath','intake','.path'),('releaseService','release','.service')]}
+    return {'records':rows,'intakeBinding':binding,'requestDeadlineEpoch':deadline_epoch,
+            'activationEntry':entry,'releaseResult':result,'stageFiles':stage,'units':units},stable
+
+
+def intake_records_at(request, root):
+    if request!=INTAKE_REQUEST: raise ValueError('Exact failed intake required')
+    deadline=time.monotonic()+20
+    before,identities=intake_snapshot(root,deadline)
+    after,again=intake_snapshot(root,deadline)
+    if before!=after or identities!=again or time.monotonic()>=deadline: raise ValueError('Intake custody changed across read')
+    return {'schema':INTAKE_SCHEMA,'readOnly':True,**request,**before,
+            'intakeResultContract':'not_produced','stageScope':'four_fixed_public_source_files_only',
+            'retryAllowed':False,'limitation':INTAKE_LIMITATION}
+
+
+def intake_remote(request):
+    if os.geteuid()!=0: raise ValueError('Root read custody required')
+    return intake_records_at(request,Path('/var/lib/club-arena'))
+
+
+def validate_intake_reply(value, request):
+    fields={'schema','readOnly','mode','runKey','releaseSha','records','intakeBinding','requestDeadlineEpoch',
+            'activationEntry','releaseResult','stageFiles','units','intakeResultContract','stageScope','retryAllowed','limitation'}
+    if (not isinstance(value,dict) or set(value)!=fields or request!=INTAKE_REQUEST
+            or any(value.get(k)!=v for k,v in request.items()) or value['schema']!=INTAKE_SCHEMA
+            or value['readOnly'] is not True or value['retryAllowed'] is not False
+            or value['limitation']!=INTAKE_LIMITATION or value['intakeResultContract']!='not_produced'
+            or value['stageScope']!='four_fixed_public_source_files_only'
+            or value['intakeBinding'] not in {'matched','unavailable'}): raise ValueError('Intake export refused')
+    stamp=value['requestDeadlineEpoch']
+    if (value['intakeBinding']=='matched' and not (type(stamp) is int and 100000000<=stamp<=9999999999)) or (value['intakeBinding']=='unavailable' and stamp is not None): raise ValueError('Intake deadline export refused')
+    for key,names in [('records',INTAKE_RECORDS),('stageFiles',tuple(INTAKE_FILES))]:
+        if not isinstance(value[key],dict) or set(value[key])!=set(names): raise ValueError('Intake file export refused')
+        for name,row in value[key].items():
+            if not isinstance(row,dict) or set(row)!=({'status','code','sha256','mode','directoryModes'}|({'sourceMatches','ownerQualified'} if key=='stageFiles' else set())): raise ValueError('Intake file shape refused')
+            if row['status']=='present':
+                if row['code']!='observed' or not isinstance(row['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',row['sha256']) or type(row['mode']) is not int or row['mode']&0o022 or not 0<=row['mode']<=0o7777: raise ValueError('Intake file custody refused')
+                if not isinstance(row['directoryModes'],list) or not 1<=len(row['directoryModes'])<=5 or any(type(m) is not int or not 0<=m<=0o7777 or m&0o022 for m in row['directoryModes']): raise ValueError('Intake directory modes refused')
+                if key=='records' and row['mode']!=0o600: raise ValueError('Intake private mode refused')
+            elif key=='stageFiles' and row['status']=='metadata_only':
+                if (row['sha256'] is not None or row['sourceMatches'] is not None or type(row['ownerQualified']) is not bool
+                        or row['code'] not in {'unsafe_mode','owner_unproved','size_bound'}
+                        or type(row['mode']) is not int or not 0<=row['mode']<=0o7777
+                        or not isinstance(row['directoryModes'],list) or len(row['directoryModes'])!=5
+                        or any(type(m) is not int or not 0<=m<=0o7777 for m in row['directoryModes'])
+                        or row['directoryModes'][2]!=0o700
+                        or (row['code']=='owner_unproved') != (row['ownerQualified'] is False)
+                        or row['code']=='unsafe_mode' and not any(m&0o022 for m in [row['mode'],*row['directoryModes']])): raise ValueError('Intake staged metadata refused')
+            elif row not in ({'status':s,'code':c,'sha256':None,'mode':None,'directoryModes':None,**({'sourceMatches':None,'ownerQualified':None} if key=='stageFiles' else {})} for s,c in [('absent','not_found'),('unknown','unproved')]): raise ValueError('Intake absence export refused')
+            if key=='stageFiles' and row['status']=='present' and row['ownerQualified'] is not True: raise ValueError('Intake staged owner refused')
+            if key=='stageFiles' and row['sourceMatches'] is not (row['sha256']==INTAKE_FILES[name] if row['status']=='present' else None): raise ValueError('Intake source match refused')
+    if not isinstance(value['units'],dict) or set(value['units'])!=set(INTAKE_UNITS): raise ValueError('Intake unit export refused')
+    for row in value['units'].values():
+        if not isinstance(row,dict) or set(row)!={'status','properties'} or row['status'] not in {'observed','unknown'}: raise ValueError('Intake unit shape refused')
+        if row['status']=='unknown':
+            if row['properties'] is not None: raise ValueError('Intake unit unknown refused')
+        else:
+            validate_intake_unit_properties(row['properties'])
+    entry=value['activationEntry'];result=value['releaseResult']
+    if entry is not None:
+        if (not isinstance(entry,dict) or set(entry)!={'schema','phase','manifestSha256'}
+                or entry['schema'] not in {'engine-release-activation-floor/v1','engine-release-activation-floor/v2-owner-window','engine-release-activation-floor/v3-phase1'}
+                or entry['phase'] not in ({None} if entry['schema']=='engine-release-activation-floor/v1' else {'announcement','runtime'})
+                or not isinstance(entry['manifestSha256'],str) or not re.fullmatch('[0-9a-f]{64}',entry['manifestSha256'])): raise ValueError('Intake entry export refused')
+    if result is not None and (not isinstance(result,dict) or set(result)!={'result','transactionExitStatus'} or result['result'] not in {'failed','sealed','already-released'} or (result['result']=='failed' and (type(result['transactionExitStatus']) is not int or not 1<=result['transactionExitStatus']<=255 or result['transactionExitStatus']==75)) or (result['result']!='failed' and result['transactionExitStatus'] is not None)): raise ValueError('Intake result export refused')
+    for name,summary in [('activationEntry',entry),('releaseResult',result)]:
+        if (value['records'][name]['status']=='present') != (summary is not None): raise ValueError('Intake summary presence refused')
+    if value['intakeBinding']=='matched' and not any(value['records'][name]['status']=='present' for name in ('request','intent')): raise ValueError('Intake binding export refused')
+    return value
+
+
 def inspector_identity(deadline, *, stage='container'):
     fmt = '{{.Id}} {{.Image}} {{.State.Running}} {{.State.StartedAt}} {{.State.Pid}} {{.RestartCount}}'
     raw = inspector_command(['docker', 'inspect', '--format', fmt, 'club-arena-engine'], deadline, limit=2048, stage=stage).decode().strip().split()
@@ -2578,6 +2807,8 @@ def validate_control_inventory(value,request):
 
 def remote(request):
     request = selection(request)
+    if request.get('mode') == 'intake_staging_records':
+        return validate_intake_reply(intake_remote(request),request)
     if request.get('mode') == 'native_scale_composition_records':
         return validate_composition_scale_reply(composition_scale_remote(request),request)
     if request.get('mode') == 'active_control_inventory':
@@ -2617,6 +2848,8 @@ def remote(request):
 
 
 def validate_reply(value, request):
+    if request.get('mode') == 'intake_staging_records':
+        return validate_intake_reply(value,request)
     if request.get('mode') == 'native_scale_composition_records':
         return validate_composition_scale_reply(value,request)
     if request.get('mode') == 'active_control_inventory':
