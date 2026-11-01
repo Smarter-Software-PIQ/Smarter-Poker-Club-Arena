@@ -613,7 +613,9 @@ test.describe('the mobile lobby chrome on production', () => {
       const format =
         mode === 'satellites'
           ? '[data-kind="mtt"].is-satellite'
-          : `[data-kind="${mode === 'spins' ? 'spin' : mode}"]`;
+          : mode === 'mtt'
+            ? '[data-kind="mtt"]:not(.is-satellite)'
+            : `[data-kind="${mode === 'spins' ? 'spin' : mode}"]`;
       const currentRows = page.locator(`[data-testid="lobby-game-row"][data-id]${format}:visible`);
       await expect(currentRows.first()).toBeVisible({ timeout: 30_000 });
       const id = await currentRows.first().getAttribute('data-id');
