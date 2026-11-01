@@ -56,6 +56,18 @@ def qualifies(receipt, failure):
             and receipt.get('cleanup', {}).get('stopped') is True)
 
 
+def provisional_set_feedback(result):
+    # Pinned pg_cron1.6.4 commits feedback separately for each libpq result.
+    # The first SET can be visible after backend exit, before SELECT feedback.
+    return (result.get('status')=='succeeded'
+            and result.get('provisional_set') is True)
+
+
+def validate_native_terminal(result, expected, label):
+    require(result['status']==expected,label+' original scheduler status changed')
+    if expected=='failed': require(result['has_error'],label+' lost actual checker error')
+
+
 def validate_outcome(result, state):
     require(result=={'count':1,'state':state,'same_failure':True,'receipt_exact':True},
             'outcome/receipt not exact')
@@ -171,9 +183,18 @@ def main():
             psql("UPDATE cron.job SET schedule='34 */6 * * *',nodename='localhost',nodeport=5432 WHERE jobid=259;",label+'-restore-contract')
             holder.stdin.write(b'ROLLBACK;\n\\q\n');holder.stdin.flush();holder.stdin.close();holder.wait(timeout=5)
             require(holder.returncode==0,'Source holder failed');holder=None
-            terminal=poll("SELECT jsonb_build_object('runid',runid,'status',status,'message_md5',md5(return_message),'has_error',return_message LIKE '%fixture-invalid-number%','snapshot_md5',md5(to_jsonb(r)::text)) FROM cron.job_run_details r WHERE runid="+str(witness['runid'])+" AND status IN ('failed','succeeded') AND NOT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.pid=r.job_pid);",lambda s:bool(s),label+'-terminal')
-            result=json.loads(terminal);require(result['status']==expected,label+' original scheduler status changed')
-            if expected=='failed': require(result['has_error'],label+' lost actual checker error')
+            def final_feedback(value):
+                if not value: return False
+                result=json.loads(value)
+                if provisional_set_feedback(result):
+                    observation={'label':label,'runid':result['runid'],'status':'succeeded','messageTag':'SET'}
+                    pending=receipt.setdefault('provisionalSchedulerFeedback',[])
+                    if observation not in pending:
+                        pending.append(observation);persist()
+                    return False
+                return True
+            terminal=poll("SELECT jsonb_build_object('runid',runid,'status',status,'provisional_set',return_message='SET','message_md5',md5(return_message),'has_error',return_message LIKE '%fixture-invalid-number%','snapshot_md5',md5(to_jsonb(r)::text)) FROM cron.job_run_details r WHERE runid="+str(witness['runid'])+" AND status IN ('failed','succeeded') AND NOT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.pid=r.job_pid);",final_feedback,label+'-terminal')
+            result=json.loads(terminal);validate_native_terminal(result,expected,label)
             require(psql('SELECT count(*) FROM cron.job_run_details WHERE jobid=259 AND runid>'+str(before),label+'-single-run')=='1','Unexpected additional scheduled fixture run')
             receipt['cases'].append({'label':label,'nativeWitness':witness,'terminal':result});persist()
             return result

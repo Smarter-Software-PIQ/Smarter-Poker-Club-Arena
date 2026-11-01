@@ -273,7 +273,7 @@ it('mobile top-cap cards stay below the visible page edge', async () => {
   expect(card.top).toBeGreaterThanOrEqual(page.top + 8);
 });
 
-it('live-table handKey keeps opponent avatars at fixed positions while retaining normalized bust scale', () => {
+it('does not throw when an occupied opponent seat temporarily has zero measured parts during a render', () => {
   stubGeometry();
   const ref = { current: null as HTMLDivElement | null };
   function LiveTableScene({ handKey }: { handKey: string }) {
@@ -302,28 +302,14 @@ it('live-table handKey keeps opponent avatars at fixed positions while retaining
             </div>
           </div>
           <div className="seat-wrapper seat-wrapper--left" data-box="5,160,66,110">
-            <div className="seat seat--compact" data-box="5,160,66,110">
-              <div className="seat__avatar" data-box="5,160,62,85">
-                <img
-                  className="seat__avatar-img"
-                  src="/avatars/vip/fox.png"
-                  data-box="5,160,62,85"
-                  alt=""
-                />
-              </div>
-              <div className="seat__info" data-box="2,235,66,35" />
+            <div className="seat seat--compact" data-box="5,160,0,0">
+              <div className="seat__avatar" data-box="5,160,0,0" />
+              <div className="seat__info" data-box="2,235,0,0" />
             </div>
           </div>
         </div>
       </div>
     );
   }
-  const h = render(<LiveTableScene handKey="table-8:53819612" />);
-  const seats = h.container.querySelectorAll<HTMLElement>('.seat--compact');
-  expect(seats).toHaveLength(2);
-  for (const seat of seats) {
-    expect(seat.style.getPropertyValue('--sp-opponent-x')).toBe('');
-    expect(seat.style.getPropertyValue('--sp-opponent-y')).toBe('');
-    expect(seat.getAttribute('data-opponent-lane')).toBeNull();
-  }
+  expect(() => render(<LiveTableScene handKey="table-8:53819612" />)).not.toThrow();
 });

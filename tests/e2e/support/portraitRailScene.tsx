@@ -31,14 +31,23 @@ export function Review() {
   const [size, setSize] = useState({ w: 300, h: 650 });
   const [layoutRevision, setLayoutRevision] = useState(0);
   const [handRevision, setHandRevision] = useState(0);
+  const [activeSeat, setActiveSeat] = useState(
+    Number(document.documentElement.dataset.activeSeat ?? -1)
+  );
   useLayoutEffect(() => {
     const advance = () => setLayoutRevision((revision) => revision + 1);
     const nextHand = () => setHandRevision((revision) => revision + 1);
+    const focus = (event: Event) => {
+      setActiveSeat((event as CustomEvent<number>).detail);
+      advance();
+    };
     document.addEventListener('fixture-runout', advance);
     document.addEventListener('fixture-next-hand', nextHand);
+    document.addEventListener('fixture-focus', focus);
     return () => {
       document.removeEventListener('fixture-runout', advance);
       document.removeEventListener('fixture-next-hand', nextHand);
+      document.removeEventListener('fixture-focus', focus);
     };
   }, []);
   const [armed, setArmed] = useState<'fold' | 'check' | 'call' | 'callAny' | null>(null);
@@ -221,7 +230,7 @@ export function Review() {
                   return (
                     <div
                       key={i}
-                      className={`seat-wrapper${i === 0 && !spectator ? ' seat-wrapper--hero' : ''}${p.y < 20 && !tournament ? ' seat-wrapper--top' : ''}${p.y < 20 ? ' seat-wrapper--cap' : ''}`}
+                      className={`seat-wrapper${i === activeSeat ? ' seat-wrapper--spot' : ''}${i === 0 && !spectator ? ' seat-wrapper--hero' : ''}${p.y < 20 && !tournament ? ' seat-wrapper--top' : ''}${p.y < 20 ? ' seat-wrapper--cap' : ''}`}
                       style={
                         {
                           left: `${p.x}%`,
@@ -272,7 +281,7 @@ export function Review() {
                           isHero: i === 0 && !spectator,
                         }}
                         position={i === 1 ? 'SB' : null}
-                        isActive={false}
+                        isActive={i === activeSeat}
                         lastAction={revealed && i % 3 === 0 ? 'all_in' : 'call'}
                         lastBetAmount={
                           /* data-bets="0,3,5" bets only those chairs; absent, every chair bets. */

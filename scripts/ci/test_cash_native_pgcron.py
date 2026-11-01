@@ -8,6 +8,30 @@ spec.loader.exec_module(module)
 
 
 class NativeCashOracles(unittest.TestCase):
+    def test_multistatement_set_feedback_is_not_terminal_even_after_backend_exit(self):
+        # Captured run41344782383/runid2: libpq's first SET result was committed
+        # before the scheduler consumed the failing SELECT, after backend exit.
+        provisional={'runid':2,'status':'succeeded','has_error':False,'provisional_set':True,
+                     'message_md5':'8c52684db8f49511e9b44471716bf164'}
+        self.assertTrue(module.provisional_set_feedback(provisional))
+        final=dict(provisional,status='failed',has_error=True,provisional_set=False,message_md5='2cd3fed246a55ea3e8005d091c48b486')
+        self.assertFalse(module.provisional_set_feedback(final))
+        module.validate_native_terminal(final,'failed','after-intake')
+
+    def test_non_set_success_is_still_an_unexpected_failure_outcome(self):
+        unexpected={'status':'succeeded','has_error':False,'provisional_set':False,'message_md5':'1dfff85bd1556bff3fbb9e8c46c2334b'}
+        self.assertFalse(module.provisional_set_feedback(unexpected))
+        with self.assertRaisesRegex(RuntimeError,'original scheduler status changed'):
+            module.validate_native_terminal(unexpected,'failed','after-intake')
+        module.validate_native_terminal(unexpected,'succeeded','successful-check')
+        with self.assertRaisesRegex(RuntimeError,'lost actual checker error'):
+            module.validate_native_terminal(dict(unexpected,status='failed'),'failed','after-intake')
+
+    def test_pinned_command_has_only_the_known_set_then_select_results(self):
+        self.assertTrue(module.COMMAND.startswith("SET statement_timeout = '600s'; SELECT "))
+        self.assertEqual(module.COMMAND.count(';'),2)
+        self.assertEqual(module.COMMAND.count('SET '),1)
+
     def test_current_checkout_matches_every_pinned_cash_input(self):
         # Run the real preflight before allocating PostgreSQL. This catches a
         # stale nested manifest when a directly connected qualifier changes.

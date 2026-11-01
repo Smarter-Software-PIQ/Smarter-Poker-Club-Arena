@@ -1,4 +1,4 @@
-import { restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
+import { permanentAvatarFocusScale, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 /** Opponent artwork only: the hero, slot dimensions and table tokens stay owned
  * by their existing renderers. Image metadata never changes the source image. */
 type Alpha = {
@@ -899,7 +899,9 @@ function subject(image: HTMLImageElement, a: Alpha, rendered: boolean, override?
     bottom = Math.min(bottom, rect.top + rect.height);
   }
   if (!rendered) {
-    const transform = style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d;
+    const transform =
+      (style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d) *
+      permanentAvatarFocusScale(image);
     top = rect.height + (top - rect.height) * transform;
     bottom = rect.height + (bottom - rect.height) * transform;
   }
@@ -918,7 +920,6 @@ export function createOpponentAvatarLayout(
   const pending = new Set<string>();
   const source = (image: HTMLImageElement) => image.currentSrc || image.src;
   let spacingReady = false;
-  let liveTableMode = false;
   const images = () => Array.from(scaler.querySelectorAll<HTMLImageElement>('.seat__avatar-img'));
   const paintedParts = (image: HTMLImageElement, permanent = true): Box[] => {
     const own = resolved.get(source(image));
@@ -1037,7 +1038,6 @@ export function createOpponentAvatarLayout(
     (Boolean(scaler.querySelector('.seat__allin-puck')) || fullRingShowdown()) &&
     Boolean(scaler.querySelector('.seat__cards--revealed > :nth-child(5)'));
   const prepare = (handKey = 'current') => {
-    liveTableMode = handKey.includes(':');
     syncOpponentCaptionBoundary(
       state,
       captions(),
@@ -1065,7 +1065,10 @@ export function createOpponentAvatarLayout(
         const url = source(image);
         pending.add(url);
         void alpha(image).then((value) => {
-          if (active && image.isConnected) {
+          // Decoded bytes belong to the URL, not the DOM node that began
+          // the read. A roster/profile render can replace that node while a
+          // current portrait still needs the same pending metadata.
+          if (active) {
             resolved.set(url, value);
             schedule();
           }
@@ -1157,7 +1160,6 @@ export function createOpponentAvatarLayout(
     return changed;
   };
   const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
-    if (liveTableMode) return false;
     const old = state.shifts.get(seat);
     if (!old || !Number.isFinite(deltaY) || seat.classList.contains('seat--hero')) return false;
     const ratio = tableRenderScale(scaler);
@@ -1483,16 +1485,6 @@ export function createOpponentAvatarLayout(
     const seats = Array.from(
       scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
     );
-    if (liveTableMode) {
-      for (const seat of seats) {
-        delete seat.dataset.opponentLane;
-        seat.style.removeProperty('--sp-opponent-x');
-        seat.style.removeProperty('--sp-opponent-y');
-        state.shifts.set(seat, [0, 0]);
-      }
-      state.lowerLaneKey = undefined;
-      return false;
-    }
     const parts = (seat: HTMLElement) => {
       const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
       const own = image && resolved.get(source(image));
@@ -1584,8 +1576,8 @@ export function createOpponentAvatarLayout(
     for (const seat of seats) {
       if (!ordered.some((item) => item.seat === seat)) {
         delete seat.dataset.opponentLane;
-        seat.style.removeProperty('--sp-opponent-x');
-        seat.style.removeProperty('--sp-opponent-y');
+        seat.style.setProperty('--sp-opponent-x', '0px');
+        seat.style.setProperty('--sp-opponent-y', '0px');
         state.shifts.set(seat, [0, 0]);
       }
     }
@@ -1641,8 +1633,8 @@ export function createOpponentAvatarLayout(
       const item = descriptions[i];
       if (!item.parts.length) {
         delete seat.dataset.opponentLane;
-        seat.style.removeProperty('--sp-opponent-x');
-        seat.style.removeProperty('--sp-opponent-y');
+        seat.style.setProperty('--sp-opponent-x', '0px');
+        seat.style.setProperty('--sp-opponent-y', '0px');
         state.shifts.set(seat, [0, 0]);
         continue;
       }

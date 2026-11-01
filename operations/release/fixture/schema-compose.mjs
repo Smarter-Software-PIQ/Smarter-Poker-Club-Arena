@@ -4,7 +4,34 @@ import { applicationTriggerWitness } from './schema-application-hooks.mjs';
 
 export const schemaHash = (value) => createHash('sha256').update(value).digest('hex');
 export const MANAGED_SCHEMAS = Object.freeze(['auth', 'realtime', '_realtime', 'cron', 'extensions']);
-const refused = () => { throw new Error('SCHEMA_COMPOSITION_PREIMAGE_REQUIRED'); };
+const failureSites = new WeakMap();
+const markFailure = (error, site) => {
+  failureSites.set(error, { site, descriptors: Object.getOwnPropertyDescriptors(error) });
+  return error;
+};
+export function schemaCompositionFailureSite(error) {
+  const known = failureSites.get(error);
+  if (!known || Object.getPrototypeOf(error) !== Error.prototype) return 'UNKNOWN';
+  const actual = Object.getOwnPropertyDescriptors(error);
+  if (
+    Reflect.ownKeys(actual).length !== Reflect.ownKeys(known.descriptors).length ||
+    !Reflect.ownKeys(known.descriptors).every((key) => {
+      const a = actual[key],
+        b = known.descriptors[key];
+      return (
+        a &&
+        ['value', 'get', 'set', 'writable', 'enumerable', 'configurable'].every(
+          (k) => a[k] === b[k]
+        )
+      );
+    })
+  )
+    return 'UNKNOWN';
+  return known.site;
+}
+const refused = (site) => {
+  throw markFailure(new Error('SCHEMA_COMPOSITION_PREIMAGE_REQUIRED'), site);
+};
 const managedObject = (item) => MANAGED_SCHEMAS.includes(item.schema) ||
   (item.type === 'SCHEMA' && [...MANAGED_SCHEMAS, 'public'].includes(item.name)) ||
   (item.type === 'ACL' && [...MANAGED_SCHEMAS, 'public'].some((name) => item.name === `SCHEMA ${name}`)) ||
@@ -44,31 +71,31 @@ export function dumpObjects(sql) {
       if (match) { dollar = match[0]; i += dollar.length - 1; }
     }
   }
-  if (quote || dollar || block || starts.length === 0) refused();
+  if (quote || dollar || block || starts.length === 0) refused('DUMP_BOUNDARIES');
   const objects = starts.map((start, index) => {
     const end = starts[index + 1] ?? footerAt;
     const text = sql.slice(start, end);
     const header = /^-- Name: ([^\n]+); Type: ([A-Z ]+); Schema: ([a-z_][a-z_0-9]*|-); Owner: ([a-z_][a-z_0-9]*|-)\r?\n/.exec(text);
-    if (!header) refused();
+    if (!header) refused('DUMP_HEADER');
     const [, name, type, schema, owner] = header;
     // Names containing header delimiters cannot be given an ambiguous identity.
-    if (name.includes('; Type:') || name.length > 4096) refused();
+    if (name.includes('; Type:') || name.length > 4096) refused('DUMP_NAME_SHAPE');
     // Default privileges belong to their creator role. pg_dump uses the same
     // display name for different creators in one schema; they are not one ACL.
     const key = JSON.stringify(type === 'DEFAULT ACL' ? [type, schema, name, owner] : [type, schema, name]);
     return { key, type, schema, name, owner, start, end, text, sha256: schemaHash(text) };
   });
-  if (new Set(objects.map((item) => item.key)).size !== objects.length) refused();
+  if (new Set(objects.map((item) => item.key)).size !== objects.length) refused('DUMP_DUPLICATE_KEY');
   return { prefix: sql.slice(0, starts[0]), footer: sql.slice(footerAt), objects };
 }
 
 export function assertSchemaOnly(sql) {
   // No raw refusal contents are reported. Credential-bearing metadata is not
   // a safe schema artifact, even when it happens to be inside a SQL body.
-  if (/-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:postgres(?:ql)?|https?):\/\/[^\s'"/]+:[^\s'"@]+@|\bAKIA[A-Z0-9]{16}\b|\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/.test(sql)) refused();
+  if (/-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:postgres(?:ql)?|https?):\/\/[^\s'"/]+:[^\s'"@]+@|\bAKIA[A-Z0-9]{16}\b|\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/.test(sql)) refused('SCHEMA_CREDENTIAL_PATTERN');
   const parsed = dumpObjects(sql);
   const deniedTypes = new Set(['TABLE DATA', 'SEQUENCE SET', 'BLOB', 'BLOBS', 'LARGE OBJECT', 'FOREIGN SERVER', 'SERVER', 'USER MAPPING', 'SUBSCRIPTION']);
-  for (const item of parsed.objects) if (deniedTypes.has(item.type)) refused();
+  for (const item of parsed.objects) if (deniedTypes.has(item.type)) refused('SCHEMA_DENIED_TYPE');
   return parsed;
 }
 
@@ -84,17 +111,25 @@ export function composeSchema(capture, serviceDump) {
   // in the restored application while only one direction was compared.
   for (const item of service.objects) {
     const expected = source.get(item.key);
-    if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256) refused();
+    if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256)
+      refused(!expected ? 'NATIVE_OBJECT_MISSING' : expected.owner !== item.owner ? 'NATIVE_OWNER_DIFFERENT' : 'NATIVE_BLOCK_DIFFERENT');
   }
   const removed = [], retained = [], applicationHooks = [];
   let sql = original.prefix;
   for (const item of original.objects) {
-    const applicationHook = applicationTriggerWitness(item);
-    if (applicationHook && native.has(item.key)) refused();
+    let applicationHook;
+    try { applicationHook = applicationTriggerWitness(item); }
+    catch (error) {
+      if (error instanceof Error && error.message === 'SCHEMA_APPLICATION_TRIGGER_REFUSED')
+        throw markFailure(error, 'APPLICATION_HOOK');
+      throw error;
+    }
+    if (applicationHook && native.has(item.key)) refused('APPLICATION_HOOK_IN_NATIVE');
     const managed = !applicationHook && (managedObject(item) || native.has(item.key));
     if (managed) {
       const expected = native.get(item.key);
-      if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256) refused();
+      if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256)
+        refused(!expected ? 'MANAGED_OBJECT_MISSING' : expected.owner !== item.owner ? 'MANAGED_OWNER_DIFFERENT' : 'MANAGED_BLOCK_DIFFERENT');
       removed.push({ key: item.key, sha256: item.sha256 });
     } else {
       sql += item.text;
@@ -105,8 +140,8 @@ export function composeSchema(capture, serviceDump) {
   // A whole managed namespace may never disappear because of an empty or
   // unrelated bootstrap. Exact Auth helper and cron contracts must be present.
   for (const name of ['email()', 'jwt()', 'role()', 'uid()'])
-    if (!original.objects.some((item) => item.schema === 'auth' && item.type === 'FUNCTION' && item.name === name)) refused();
-  if (original.objects.filter((item) => item.schema === 'cron' && item.type === 'FUNCTION').length < 3 || removed.length < 7) refused();
+    if (!original.objects.some((item) => item.schema === 'auth' && item.type === 'FUNCTION' && item.name === name)) refused('AUTH_HELPER_REQUIRED');
+  if (original.objects.filter((item) => item.schema === 'cron' && item.type === 'FUNCTION').length < 3 || removed.length < 7) refused('CRON_CONTRACT_REQUIRED');
   return {
     sql: sql + original.footer,
     manifest: { version: 1, scope: 'exact-native-service-schema-composition',

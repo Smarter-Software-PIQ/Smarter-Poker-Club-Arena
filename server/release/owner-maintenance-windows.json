@@ -775,6 +775,17 @@
       "notBefore": "2026-10-27T05:00:00Z",
       "notAfter": "2026-10-27T08:00:00Z",
       "migrations": ["20261026110858_a_lightning_game_stays_in_its_mode_long_enough_to_play_it.sql"]
+    },
+    {
+      "id": "2026-11-01-two-migration-database-continuation",
+      "ownerOrder": "Dan, directly in FINISHWORK3 chat 01a190a0-8fe0-7ef0-9fe5-6c4eb3b7e40f, renewed the same assigned work: \"Please pick up where you left off, complete the task in full and do not claim success until you have verified that everything is 100% accomplished for this task.\" His existing corrections assign engine recovery here, preserve new tournament starts and require completion of the already scoped equal-share closure work. This is a new bounded database-only continuation for the same two protected, qualified and still-queued migrations after the earlier 14:30 through 20:25 UTC carrier ends; it does not reuse that entry or its failed/unknown operations. Read durable history and the original operation outcome before any dispatch, never replay an installed migration. Use the existing stage-engine-release owner_window_id route with request_database_break=false only to join an independently owned, confirmed Deployment Recovery freeze. This entry cannot request a break or replace the engine. Preserve its ownership token, actual hand-boundary drain, durable freeze, full 285-second engine proof/rollback reserve, at least150seconds opening and100seconds commit reserve, one transaction and one attempt per file,1s lock_timeout,5s statement_timeout,8s transaction budget, stop at first refusal and verified own-window v3 thaw. Exactly04247 then05048; no added migration, financial payment, balance edit, start hold, scheduler, watcher, second publisher or retry loop is authorized by this carrier.",
+      "contains": "4e9c32285477176df8e4afcef4e743d5fe961047",
+      "notBefore": "2026-11-01T20:25:00Z",
+      "notAfter": "2026-11-01T23:25:00Z",
+      "migrations": [
+        "20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
+        "20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql"
+      ]
     }
   ]
 }

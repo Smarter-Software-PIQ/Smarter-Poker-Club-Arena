@@ -331,6 +331,75 @@ def published_web_source(run, info, engine_sha):
     return web_sha
 
 
+COMPOSITION_SITES = frozenset({
+    'UNKNOWN', 'DUMP_BOUNDARIES', 'DUMP_HEADER', 'DUMP_NAME_SHAPE', 'DUMP_DUPLICATE_KEY',
+    'SCHEMA_CREDENTIAL_PATTERN', 'SCHEMA_DENIED_TYPE', 'NATIVE_OBJECT_MISSING',
+    'NATIVE_OWNER_DIFFERENT', 'NATIVE_BLOCK_DIFFERENT', 'APPLICATION_HOOK',
+    'APPLICATION_HOOK_IN_NATIVE', 'MANAGED_OBJECT_MISSING', 'MANAGED_OWNER_DIFFERENT',
+    'MANAGED_BLOCK_DIFFERENT', 'AUTH_HELPER_REQUIRED', 'CRON_CONTRACT_REQUIRED'})
+COMPOSITION_PHASES = frozenset({'import', 'input-read', 'compose', 'sql-write', 'manifest-write', 'unknown'})
+COMPOSITION_COMMAND = """
+import {readFile,writeFile} from 'node:fs/promises';
+const [modulePath,a,b,c,d,diagnostic]=process.argv.slice(1);
+let phase='import', classify=()=> 'UNKNOWN';
+try {
+  const module=await import(modulePath); classify=module.schemaCompositionFailureSite;
+  phase='input-read'; const capture=await readFile(a,'utf8'), service=await readFile(b,'utf8');
+  phase='compose'; const r=module.composeSchema(capture,service);
+  phase='sql-write'; await writeFile(c,r.sql,{flag:'wx',mode:0o600});
+  phase='manifest-write'; await writeFile(d,JSON.stringify(r.manifest),{flag:'wx',mode:0o600});
+} catch(error) {
+  const site=phase==='compose' ? classify(error) : 'UNKNOWN';
+  const value={version:1,scope:'exact-service-composition-failure',phase,site};
+  try { await writeFile(diagnostic,JSON.stringify(value),{flag:'wx',mode:0o600}); } catch {}
+  process.exitCode=1;
+}
+"""
+
+
+def composition_failure(path):
+    unknown = {'version': 1, 'scope': 'exact-service-composition-failure', 'phase': 'unknown', 'site': 'UNKNOWN'}
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            before = os.fstat(fd)
+            require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and
+                    before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == 0o600 and 0 < before.st_size <= 512)
+            raw = os.read(fd, 513)
+            after = os.fstat(fd)
+            require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
+                    (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) and len(raw) == before.st_size)
+        finally:
+            os.close(fd)
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                require(key not in result)
+                result[key] = value
+            return result
+        value = json.loads(raw, object_pairs_hook=unique)
+        require(isinstance(value, dict) and set(value) == set(unknown) and type(value['version']) is int and
+                value['version'] == 1 and value['scope'] == unknown['scope'] and
+                isinstance(value['phase'], str) and value['phase'] in COMPOSITION_PHASES and
+                isinstance(value['site'], str) and value['site'] in COMPOSITION_SITES and
+                (value['phase'] == 'compose' or value['site'] == 'UNKNOWN'))
+        return value
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return unknown
+
+
+def compose_private_schema(repo, candidate, temp, report):
+    require(report.get('stage') == 'exact-service-composition', 'RELEASE_OBSERVATION_COMPOSITION_STAGE_REQUIRED')
+    diagnostic = temp / 'composition-failure.json'
+    result = native.command(['node', '--input-type=module', '-e', COMPOSITION_COMMAND,
+        (repo / 'operations/release/fixture/schema-compose.mjs').as_uri(),
+        str(candidate / 'schema.sql'), str(temp / 'service-schema.sql'),
+        str(temp / 'composed.sql'), str(temp / 'composition-manifest.json'), str(diagnostic)], check=False)
+    if result.returncode != 0:
+        report['composition_failure'] = composition_failure(diagnostic)
+    require(result.returncode == 0 and not diagnostic.exists(), 'RELEASE_SEMANTIC_NATIVE_EXECUTION_FAILED')
+
+
 def write_schema_zip(path, sql, template):
     with zipfile.ZipFile(path, 'x') as archive:
         archive.writestr('schema.sql', sql)
@@ -390,16 +459,7 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
             temp = Path(temp_name)
             private_bootstrap(runtime_image, repo, None, temp, 'schema-preimage', min(deadline, time.monotonic() + 300), report['preflight_lifecycles'])
             report['stage'] = 'exact-service-composition'
-            native.command(['node', '--input-type=module', '-e',
-                "import {readFile,writeFile} from 'node:fs/promises';"
-                "const {composeSchema}=await import(process.argv[1]);"
-                "const [a,b,c,d]=process.argv.slice(2);"
-                "const r=composeSchema(await readFile(a,'utf8'),await readFile(b,'utf8'));"
-                "await writeFile(c,r.sql,{flag:'wx',mode:0o600});"
-                "await writeFile(d,JSON.stringify(r.manifest),{flag:'wx',mode:0o600});",
-                (repo / 'operations/release/fixture/schema-compose.mjs').as_uri(),
-                str(candidate / 'schema.sql'), str(temp / 'service-schema.sql'),
-                str(temp / 'composed.sql'), str(temp / 'composition-manifest.json')])
+            compose_private_schema(repo, candidate, temp, report)
             inputs = temp / 'inputs'
             inputs.mkdir(mode=0o755)
             template = json.loads((candidate / 'candidate-fixture.json').read_text())

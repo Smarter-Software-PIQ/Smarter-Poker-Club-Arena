@@ -864,7 +864,9 @@ for (const [width, heightOverride] of occupiedViewports)
           'large all-in',
           'large all-shown',
         ]
-      : ['all']
+      : width === 652 && count === 9
+        ? ['all', 'focus']
+        : ['all']
     ).map((sceneGroup) => [count, sceneGroup] as const)
   ))
     test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}${sceneGroup === 'all' ? '' : ` (${sceneGroup})`}`, async ({
@@ -1027,7 +1029,12 @@ for (const [width, heightOverride] of occupiedViewports)
       ] as const) {
         // Split the dense raw-phone cold mounts, preserving every scene and
         // assertion under the same per-test deadline.
-        if (sceneGroup !== 'all') {
+        if (
+          sceneGroup === 'focus' &&
+          !(revealed && jackpot === 'mini' && villainCards === 2 && state === 'normal')
+        )
+          continue;
+        if (sceneGroup !== 'all' && sceneGroup !== 'focus') {
           const largeHandGroup = sceneGroup.startsWith('large ');
           if (villainCards >= 5 !== largeHandGroup) continue;
           if (largeHandGroup && sceneGroup !== `large ${state}`) continue;
@@ -1062,7 +1069,7 @@ for (const [width, heightOverride] of occupiedViewports)
         await page.route('https://smarter.poker/hub/club-arena/__isolated_rail_fixture', (route) =>
           route.fulfill({
             contentType: 'text/html',
-            body: `<html data-avatar="${scaledPhone ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp'}" data-seats="${count}" data-cards="${villainCards >= 5 ? villainCards : 4}" data-all-in="${state === 'all-in'}" data-show-all="${state === 'all-shown'}" data-revealed="${revealed}" data-jackpot="${jackpot}" data-villain-cards="${villainCards}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
+            body: `<html data-active-seat="${sceneGroup === 'focus' ? 7 : -1}" data-avatar="${scaledPhone ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp'}" data-seats="${count}" data-cards="${villainCards >= 5 ? villainCards : 4}" data-all-in="${state === 'all-in'}" data-show-all="${state === 'all-shown'}" data-revealed="${revealed}" data-jackpot="${jackpot}" data-villain-cards="${villainCards}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
           })
         );
         await page.goto('https://smarter.poker/hub/club-arena/__isolated_rail_fixture', {
@@ -1175,7 +1182,16 @@ for (const [width, heightOverride] of occupiedViewports)
             const scale = parseFloat(getComputedStyle(image.closest('.seat__avatar')!).scale) || 1;
             return {
               hero: seat.classList.contains('seat--hero'),
-              height: image.offsetHeight * matrix * scale,
+              height:
+                image.offsetHeight *
+                matrix *
+                scale *
+                (seat.classList.contains('seat--active')
+                  ? new DOMMatrix(getComputedStyle(image.closest('.seat__avatar')!).transform).d
+                  : 1) *
+                (seat.closest('.seat-wrapper--spot')
+                  ? new DOMMatrix(getComputedStyle(seat).transform).d
+                  : 1),
             };
           })
         );
@@ -1390,6 +1406,75 @@ for (const [width, heightOverride] of occupiedViewports)
               requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
             );
           });
+        }
+        if (sceneGroup === 'focus') {
+          const permanent = () =>
+            page.locator('.seat__cards--revealed').evaluateAll((rows) =>
+              rows.map((row) => {
+                const chain = [];
+                let node: HTMLElement | null = row as HTMLElement;
+                while (node && !node.classList.contains('table-scaler')) {
+                  chain.push([
+                    node.offsetWidth,
+                    node.offsetHeight,
+                    getComputedStyle(node).translate,
+                    node.style.translate,
+                  ]);
+                  node = node.parentElement;
+                }
+                return chain;
+              })
+            );
+          const chips = () =>
+            page
+              .locator('.seat__bet-chips')
+              .evaluateAll((bets) =>
+                bets.map((bet) =>
+                  ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'].map((name) =>
+                    getComputedStyle(bet).getPropertyValue(name)
+                  )
+                )
+              );
+          const retainedRows = await permanent(),
+            retainedChips = await chips();
+          for (const acting of [0, 7]) {
+            await page.evaluate(
+              (index) =>
+                document.dispatchEvent(new CustomEvent('fixture-focus', { detail: index })),
+              acting
+            );
+            await page.waitForFunction(
+              (index) =>
+                document.querySelector('.seat--active')?.getAttribute('data-seat-num') ===
+                String(index + 1),
+              acting
+            );
+            await page.evaluate(async () => {
+              for (let phase = 0; phase < 3; phase++) {
+                await Promise.all(
+                  document
+                    .getAnimations()
+                    .filter(
+                      (a) =>
+                        a.playState === 'running' &&
+                        a.effect?.getComputedTiming().iterations !== Infinity
+                    )
+                    .map((a) => a.finished.catch(() => {}))
+                );
+                await new Promise<void>((resolve) =>
+                  requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+                );
+              }
+            });
+            expect(
+              await permanent(),
+              'Turn focus preserves tabled row geometry and ancestor placement'
+            ).toEqual(retainedRows);
+            expect(
+              await chips(),
+              'Turn focus preserves settled chips and collection origins'
+            ).toEqual(retainedChips);
+          }
         }
         if (state !== 'normal') {
           await page.screenshot({
