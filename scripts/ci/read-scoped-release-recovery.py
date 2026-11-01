@@ -134,6 +134,9 @@ def selection(value):
     if isinstance(value, dict) and value.get('mode') == 'active_control_inventory':
         if value != CONTROL_REQUEST: raise ValueError('Exact failed intake required')
         return dict(value)
+    if isinstance(value, dict) and value.get('mode') == 'native_scale_composition_records':
+        if value != COMPOSITION_SCALE_REQUEST: raise ValueError('Exact failed composition operation required')
+        return dict(value)
     if isinstance(value, dict) and value.get('mode') == 'native_scale_records':
         if value != SCALE_REQUEST:
             raise ValueError('Exact original scale operation required')
@@ -2270,6 +2273,208 @@ def validate_scale_reply(value,request):
     if value['bindingStatus']!='bound_original_records' and (value['receipt'] is not None or value['output'] is not None): raise ValueError('Scale unbound result refused')
     return value
 
+
+# A separate closed retained read. Never retarget the earlier SCALE_REQUEST.
+COMPOSITION_SCALE_REQUEST = {'mode':'native_scale_composition_records','runKey':'41331258441-1',
+    'releaseSha':'9a11ed13cceae561dfb37a8ed313d55046bc6bc5'}
+COMPOSITION_SCALE_IMAGE = 'sha256:e913c2ce7cfa14893c74e2bb7c5270ebab76f908c990f1f64daf94e76d77542e'
+COMPOSITION_SCALE_TREE = '4ccbfbc05c815c3034c41e47a56fbb27a5a035f9'
+COMPOSITION_SCALE_BINDING = {'schema':'legacy-native-scale-binding/v1','image':COMPOSITION_SCALE_IMAGE,
+    'fixtureSHA256':'51f79e00e63d0e3e72b81cf7a23968da957b5ca6a663869634c3cad4d9c04725',
+    'controllerSHA256':'74d8827ccc7f9443f1239edb9ca8003b9bb796b90986cf4429abcdbac20407af',
+    'collectorSHA256':'c94820db1f5b6619b66c36cab6a6b987bc4e54f80b187596ccb6770c8f5b3ee7',
+    'compositionSHA256':'40601a15696fbf4574af7e305e5ad19918674d32c98a1912c40bdb1921883858',
+    'profile':{**SCALE_PROFILE,'fixtureDeadlineMarginMs':2000,'measurementsPerImage':2}}
+COMPOSITION_SCALE_KEY = hashlib.sha256(json.dumps(COMPOSITION_SCALE_BINDING,sort_keys=True).encode()).hexdigest()
+COMPOSITION_SCALE_SCHEMA = 'existing-composition-scale-records/v1'
+COMPOSITION_SCALE_LIMITATION = 'Retained original synthetic output only; no current cleanup, retry, release, Inspector or business authority.'
+
+
+def composition_scale_output(raw):
+    # Classify the whole original combined file; never extract a JSON line or
+    # export banners, Inspector URLs, code, error text or private payloads.
+    answer={'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),
+        'inspectorBanner':any(line.startswith(b'Debugger listening on ws://') for line in raw.splitlines()),
+        'inspectorHelpBanner':any(line.startswith(b'For help, see: https://nodejs.org/') for line in raw.splitlines()),
+        'firstNonWhitespaceIsObject':raw.lstrip().startswith(b'{'),
+        'jsonStatus':'valid_document','jsonErrorLine':None,'jsonErrorColumn':None}
+    try: json.loads(raw,object_pairs_hook=unique_object)
+    except json.JSONDecodeError as error:
+        answer.update(jsonStatus='invalid_document',jsonErrorLine=error.lineno,jsonErrorColumn=error.colno)
+    except (UnicodeError,ValueError,TypeError): answer['jsonStatus']='unqualified_document'
+    return answer
+
+
+def composition_scale_attempt(value,index,exported=False):
+    if not isinstance(value,dict) or value.get('attempt')!=index or type(value.get('attempt')) is not int:
+        raise ValueError('Composition attempt index refused')
+    code=value.get('exitCode')
+    if code is not None and (type(code) is not int or not -255<=code<=255):
+        raise ValueError('Composition attempt exit refused')
+    answer={'attempt':index,'exitCode':code,'resultPresent':value.get('resultPresent') if exported else value.get('result') is not None,
+        'error':value.get('error') if exported else scale_error(value.get('error'))}
+    for field in ('timedOut','cleanupProved','executionAcknowledged','observedOwnedContainer'):
+        if type(value.get(field)) is not bool: raise ValueError('Composition attempt flag refused')
+        answer[field]=value[field]
+    if type(answer['resultPresent']) is not bool: raise ValueError('Composition result presence refused')
+    return answer
+
+
+def composition_scale_receipt(value,exported=False):
+    if not isinstance(value,dict) or value.get('status') not in {'qualified','refused'}:
+        raise ValueError('Composition receipt refused')
+    answer={'status':value['status'],'error':value.get('error') if exported else scale_error(value.get('error')),
+        'resultPresent':value.get('resultPresent') if exported else value.get('result') is not None}
+    if type(answer['resultPresent']) is not bool: raise ValueError('Composition result presence refused')
+    for field in ('cleanupProved','executionAcknowledged','observedOwnedContainer'):
+        if type(value.get(field)) is not bool: raise ValueError('Composition flag refused')
+        answer[field]=value[field]
+    for field in ('elapsedMs','hostAvailableBytes'):
+        number=value.get(field)
+        if type(number) not in (int,float) or not 0<=number<=2**63:
+            raise ValueError('Composition number refused')
+        answer[field]=number
+    for field in ('servingBefore','servingAfter'):
+        answer[field]=scale_serving_value(value[field]) if value.get(field) is not None else None
+    attempts=value.get('attempts')
+    if not isinstance(attempts,list) or not 1<=len(attempts)<=2:
+        raise ValueError('Composition bounded attempts refused')
+    answer['attempts']=[composition_scale_attempt(row,index,exported) for index,row in enumerate(attempts,1)]
+    fresh=value.get('freshRemeasurement')
+    if fresh not in {'unused','available','none','used'} or (fresh=='used')!=(len(attempts)==2):
+        raise ValueError('Composition retained remeasurement refused')
+    answer['freshRemeasurement']=fresh
+    if len(attempts)==2:
+        first=answer['attempts'][0]
+        if not first['timedOut'] or first['error'] is None or not any(first[k] for k in ('cleanupProved','executionAcknowledged','observedOwnedContainer')):
+            raise ValueError('Composition first attempt did not qualify remeasurement')
+    latest=answer['attempts'][-1]
+    for field in ('cleanupProved','executionAcknowledged','observedOwnedContainer','resultPresent','error'):
+        if answer[field]!=latest[field]: raise ValueError('Composition latest attempt disagrees')
+    qualified=latest['error'] is None and latest['cleanupProved'] is True
+    if answer['status']!=('qualified' if qualified else 'refused'):
+        raise ValueError('Composition retained status disagrees')
+    if len(attempts)==1:
+        expected='unused' if qualified else 'available' if latest['timedOut'] and any(latest[k] for k in
+            ('cleanupProved','executionAcknowledged','observedOwnedContainer')) else 'none'
+        if fresh!=expected: raise ValueError('Composition retained retry state disagrees')
+    if not exported and any(value[k]!=attempts[-1].get(k) for k in ('elapsedMs','hostAvailableBytes')):
+        raise ValueError('Composition latest measurement disagrees')
+    return answer
+
+
+def composition_scale_snapshot(directory):
+    answer={}
+    for suffix in ('intent','json','output'):
+        try:
+            raw=scale_read_file(directory,COMPOSITION_SCALE_KEY+'.'+suffix) if directory is not None else None
+            if raw is None: raise FileNotFoundError()
+            value=json.loads(raw,object_pairs_hook=unique_object) if suffix!='output' else None
+            answer[suffix]=('present_at_read',raw,value)
+        except FileNotFoundError: answer[suffix]=('absent_at_read',None,None)
+        except (OSError,ValueError): answer[suffix]=('unknown',None,None)
+    return answer
+
+
+def composition_scale_records(request,directory):
+    selection(request)
+    deadline=time.monotonic()+8
+    before=composition_scale_snapshot(directory)
+    answer={'schema':COMPOSITION_SCALE_SCHEMA,'readOnly':True,**request,
+        'controlSha':request['releaseSha'],'image':COMPOSITION_SCALE_IMAGE,'bindingKey':COMPOSITION_SCALE_KEY,
+        'records':{key:{'status':status,'sha256':hashlib.sha256(raw).hexdigest() if raw is not None else None}
+                   for key,(status,raw,_) in before.items()},
+        'bindingStatus':'unknown','receipt':None,'output':None,'retryAllowed':False,
+        'limitation':COMPOSITION_SCALE_LIMITATION}
+    try:
+        intent,receipt=before['intent'][2],before['json'][2]
+        if any(row[0]=='unknown' for row in before.values()): raise ValueError('Composition read refused')
+        if (not isinstance(intent,dict) or intent.get('binding')!=COMPOSITION_SCALE_BINDING
+                or intent.get('runId')!=request['runKey']
+                or intent.get('container')!='ca-native-scale-'+COMPOSITION_SCALE_KEY[:32]):
+            raise ValueError('Composition intent refused')
+        if receipt is not None:
+            candidate={'image':COMPOSITION_SCALE_IMAGE,'revision':request['releaseSha'],
+                'serverTree':COMPOSITION_SCALE_TREE,'buildContract':'clean-server-archive-v1'}
+            if (not isinstance(receipt,dict) or receipt.get('binding')!=COMPOSITION_SCALE_BINDING
+                    or receipt.get('runId')!=request['runKey'] or receipt.get('candidate')!=candidate):
+                raise ValueError('Composition receipt identity refused')
+            answer['receipt']=composition_scale_receipt(receipt)
+        if before['output'][0]=='present_at_read':
+            answer['output']=composition_scale_output(before['output'][1])
+        answer['bindingStatus']='bound_original_records'
+    except (ValueError,TypeError,KeyError): answer['receipt']=answer['output']=None
+    if before!=composition_scale_snapshot(directory) or time.monotonic()>=deadline:
+        answer['bindingStatus']='changed_or_deadline';answer['receipt']=answer['output']=None
+    return answer
+
+
+def composition_scale_remote(request):
+    if os.geteuid()!=0: raise ValueError('Root read custody required')
+    fd=os.open('/',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:
+        for part in ('var','lib','club-arena','native-census-scale'):
+            try: child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd)
+            except FileNotFoundError: return composition_scale_records(request,None)
+            os.close(fd);fd=child;info=os.fstat(fd)
+            if info.st_uid!=0 or info.st_mode&0o022: raise ValueError('Composition directory custody refused')
+        return composition_scale_records(request,fd)
+    finally: os.close(fd)
+
+
+def validate_composition_scale_reply(value,request):
+    selection(request)
+    fields={'schema','readOnly','mode','runKey','releaseSha','controlSha','image','bindingKey',
+        'records','bindingStatus','receipt','output','retryAllowed','limitation'}
+    if (not isinstance(value,dict) or set(value)!=fields or value['schema']!=COMPOSITION_SCALE_SCHEMA
+            or value['readOnly'] is not True or value['retryAllowed'] is not False
+            or any(value.get(k)!=v for k,v in request.items()) or value['controlSha']!=request['releaseSha']
+            or value['image']!=COMPOSITION_SCALE_IMAGE or value['bindingKey']!=COMPOSITION_SCALE_KEY
+            or value['limitation']!=COMPOSITION_SCALE_LIMITATION
+            or value['bindingStatus'] not in {'unknown','bound_original_records','changed_or_deadline'}):
+        raise ValueError('Composition export refused')
+    if not isinstance(value['records'],dict) or set(value['records'])!={'intent','json','output'}:
+        raise ValueError('Composition records refused')
+    for row in value['records'].values():
+        if (not isinstance(row,dict) or set(row)!={'status','sha256'}
+                or row['status'] not in {'present_at_read','absent_at_read','unknown'}
+                or (row['status']=='present_at_read' and (not isinstance(row['sha256'],str) or not DIGEST.fullmatch(row['sha256'])))
+                or (row['status']!='present_at_read' and row['sha256'] is not None)):
+            raise ValueError('Composition record refused')
+    receipt=value['receipt']
+    if receipt is not None:
+        allowed={'status','error','cleanupProved','executionAcknowledged','observedOwnedContainer',
+            'elapsedMs','hostAvailableBytes','servingBefore','servingAfter','attempts','freshRemeasurement','resultPresent'}
+        if not isinstance(receipt,dict) or set(receipt)!=allowed: raise ValueError('Composition receipt export refused')
+        # Validate public fields independently; error text never crosses transport.
+        if composition_scale_receipt(receipt,exported=True)!=receipt:
+            raise ValueError('Composition nested receipt export refused')
+        for error in [receipt['error'],*(row['error'] for row in receipt['attempts'])]:
+            if error is not None and (not isinstance(error,dict) or set(error)!={'bytes','sha256','categories'}
+                    or type(error['bytes']) is not int or not 0<=error['bytes']<=131072
+                    or not isinstance(error['sha256'],str) or not DIGEST.fullmatch(error['sha256'])
+                    or not isinstance(error['categories'],list) or not error['categories']
+                    or any(category not in (*SCALE_ERRORS,'unclassified') for category in error['categories'])):
+                raise ValueError('Composition error export refused')
+    output=value['output']
+    if output is not None:
+        allowed={'bytes','sha256','inspectorBanner','inspectorHelpBanner','firstNonWhitespaceIsObject',
+            'jsonStatus','jsonErrorLine','jsonErrorColumn'}
+        if (not isinstance(output,dict) or set(output)!=allowed or type(output['bytes']) is not int
+                or not 0<=output['bytes']<=131072 or not isinstance(output['sha256'],str)
+                or not DIGEST.fullmatch(output['sha256']) or output['sha256']!=value['records']['output']['sha256']
+                or any(type(output[k]) is not bool for k in ('inspectorBanner','inspectorHelpBanner','firstNonWhitespaceIsObject'))
+                or output['jsonStatus'] not in {'valid_document','invalid_document','unqualified_document'}):
+            raise ValueError('Composition output export refused')
+        for field in ('jsonErrorLine','jsonErrorColumn'):
+            if (output['jsonStatus']=='invalid_document' and (type(output[field]) is not int or not 1<=output[field]<=131073)
+                    or output['jsonStatus']!='invalid_document' and output[field] is not None):
+                raise ValueError('Composition JSON position refused')
+    if value['bindingStatus']!='bound_original_records' and (receipt is not None or output is not None):
+        raise ValueError('Composition unbound data refused')
+    return value
+
+
 def control_inventory(request):
     """Fixed active generation only: metadata and digests; never execute its bytes."""
     if os.geteuid() != 0: raise ValueError('Root read custody required')
@@ -2373,6 +2578,8 @@ def validate_control_inventory(value,request):
 
 def remote(request):
     request = selection(request)
+    if request.get('mode') == 'native_scale_composition_records':
+        return validate_composition_scale_reply(composition_scale_remote(request),request)
     if request.get('mode') == 'active_control_inventory':
         return validate_control_inventory(control_inventory(request),request)
     if request.get('mode') == 'native_scale_records':
@@ -2410,6 +2617,8 @@ def remote(request):
 
 
 def validate_reply(value, request):
+    if request.get('mode') == 'native_scale_composition_records':
+        return validate_composition_scale_reply(value,request)
     if request.get('mode') == 'active_control_inventory':
         return validate_control_inventory(value,request)
     if request.get('mode') == 'native_scale_records':
@@ -2506,7 +2715,7 @@ def main():
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
         reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
-        if len(reply.stdout) > (32768 if request.get('mode') == 'active_control_inventory' else 8192 if request.get('mode') == 'native_scale_records' else 4096):
+        if len(reply.stdout) > (32768 if request.get('mode') == 'active_control_inventory' else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records'} else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:
             try:

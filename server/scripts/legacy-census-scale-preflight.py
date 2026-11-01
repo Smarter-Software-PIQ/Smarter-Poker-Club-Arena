@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import resource
+import selectors
 import signal
 import stat
 import subprocess
@@ -274,6 +275,51 @@ def admit_measurement(run_id, before_serving):
     return int(available[1]) * 1024
 
 
+def capture_fixture(args, *, stdin, stdout, stderr, timeout, preexec_fn):
+    """Drain both child channels under one unchanged total byte/deadline bound."""
+    deadline = time.monotonic() + timeout
+    total = 0
+    with subprocess.Popen(args, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          preexec_fn=preexec_fn) as child, selectors.DefaultSelector() as selector:
+        for stream, destination in ((child.stdout, stdout), (child.stderr, stderr)):
+            selector.register(stream, selectors.EVENT_READ, destination)
+        def drain(events):
+            nonlocal total
+            for key, _ in events:
+                raw = os.read(key.fd, min(65536, OUTPUT_CAP - total + 1))
+                if not raw:
+                    selector.unregister(key.fileobj)
+                    continue
+                remaining = OUTPUT_CAP - total
+                accepted = raw[:remaining]
+                key.data.write(accepted)
+                total += len(accepted)
+                require(len(raw) <= remaining, 'fixture output exceeded bound')
+        try:
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(args, timeout)
+                drain(selector.select(remaining))
+            return subprocess.CompletedProcess(args, child.wait(timeout=max(0, deadline-time.monotonic())))
+        except BaseException as original:
+            child.kill()
+            child.wait()
+            # Preserve already available bytes after termination without waiting
+            # for an inherited pipe or granting a new execution/drain budget.
+            try:
+                while selector.get_map():
+                    ready = selector.select(0)
+                    if not ready:
+                        break
+                    drain(ready)
+            except Exception as drainage:
+                # Never replace the owning timeout/signal/refusal with a second
+                # error from draining its already terminated child.
+                raise original from drainage
+            raise
+
+
 def measure(attempt, name, key, image, fixture_sha, output_path, host_available):
     """One bounded disposable measurement. Returns its record; never repeats."""
     started = time.monotonic()
@@ -290,8 +336,9 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
         def cap_output():
             resource.setrlimit(resource.RLIMIT_FSIZE, (OUTPUT_CAP, OUTPUT_CAP))
             resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-        with open(output_path, 'xb', buffering=0) as output:
-            os.chmod(output_path, 0o600)
+        stderr_path = output_path.with_name(output_path.name + '.stderr')
+        with os.fdopen(os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb', buffering=0) as output, \
+                os.fdopen(os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb', buffering=0) as errors_output:
             args = ['docker', 'run', '--pull', 'never', '--name', name, '--label', LABEL+'='+key,
                     '--restart', 'no', '--no-healthcheck', '--network', 'none', '--read-only', '--memory', str(CAP),
                     '--memory-swap', str(CAP), '--cpus', '1', '--pids-limit', '32', '--log-driver', 'none',
@@ -303,7 +350,7 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
                     digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
                     digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes())]
             try:
-                execution = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                execution = capture_fixture(args, stdin=subprocess.DEVNULL, stdout=output, stderr=errors_output,
                                            timeout=max(0.1, client_deadline - time.monotonic()),
                                            preexec_fn=cap_output)
             except subprocess.TimeoutExpired:
@@ -311,9 +358,10 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
                 raise FixtureDeadline()
             acknowledged = True
             exit_code = execution.returncode
-        require(output_path.stat().st_size <= OUTPUT_CAP, 'fixture output exceeded bound')
+        require(output_path.stat().st_size + stderr_path.stat().st_size <= OUTPUT_CAP, 'fixture output exceeded bound')
         if exit_code != 0:
-            if any(marker in output_path.read_bytes() for marker in DEADLINE_MARKERS):
+            if any(marker in raw for raw in (output_path.read_bytes(), stderr_path.read_bytes())
+                   for marker in DEADLINE_MARKERS):
                 errors.append(('disposable fixed scale fixture refused at its own deadline', True))
                 raise FixtureDeadline()
             raise RuntimeError('disposable fixed scale fixture failed')

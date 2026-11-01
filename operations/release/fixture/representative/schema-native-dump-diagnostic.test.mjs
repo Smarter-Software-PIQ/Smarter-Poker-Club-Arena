@@ -120,9 +120,10 @@ async function binaryFixture(run){
       helper_sha256:hash(await readFile(new URL('../native-dump-diagnostic.c',import.meta.url))),
       function_batch_helper_sha256:hash(await readFile(new URL('../native-dump-function-batch.c',import.meta.url))),
       sequence_batch_helper_sha256:hash(await readFile(new URL('../native-dump-sequence-batch.c',import.meta.url))),
+      view_batch_helper_sha256:hash(await readFile(new URL('../native-dump-view-batch.c',import.meta.url))),
       function_batch_contract_sha256:hash(await readFile(new URL('../native-dump-function-batch-test.c',import.meta.url))),
-      transport:'bounded-stock-function-sequence-metadata-v3',
-      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5513,function_batch_max:128,synthetic_sequence_count:138,sequence_metadata_sql_equal:true,metadata_interleaved_sql_equal:true,sequence_data_reader_unchanged:true,metadata_total_results_max:128,metadata_total_bytes_max:128*1024*1024,native_batch_result_faults_refused:true,dependency_interleaved_sql_equal:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components',diagnostic_wire:'D5-absolute17-tag6-delta-uleb128',query_subtypes_valid:true,absolute_event_ids_valid:true,diagnostic_full_record_capacity_valid:true,diagnostic_full_stream_bytes_max:502769}};
+      transport:'bounded-stock-function-sequence-view-metadata-v4',
+      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5513,function_batch_max:128,synthetic_sequence_count:138,synthetic_view_count:135,view_metadata_sql_equal:true,view_batch_stock_red_green:true,view_dummy_deferred_sql_equal:true,sequence_metadata_sql_equal:true,metadata_interleaved_sql_equal:true,sequence_data_reader_unchanged:true,metadata_total_results_max:128,metadata_total_bytes_max:128*1024*1024,native_batch_result_faults_refused:true,dependency_interleaved_sql_equal:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components',diagnostic_wire:'D5-absolute17-tag6-delta-uleb128',query_subtypes_valid:true,absolute_event_ids_valid:true,diagnostic_full_record_capacity_valid:true,diagnostic_full_stream_bytes_max:502769}};
     const save=()=>writeFile(path.join(output,'manifest.json'),JSON.stringify(manifest),{mode:0o600});await save();
     await run({root,output,manifest,save,env:{RUNNER_TEMP:root,GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
   }finally{await rm(root,{recursive:true,force:true});}
@@ -130,17 +131,17 @@ async function binaryFixture(run){
 
 test('only exact qualified owned native binary and source manifest creates an execution capability',async()=>binaryFixture(async({env,output,manifest,save})=>{
   const client=await verifyNativeDumpBinary(env);assert.equal(nativeDumpCapability(client).postgres_version,'17.11');
-  for(const key of ['archive_sha256','builder_sha256','helper_sha256','function_batch_helper_sha256','sequence_batch_helper_sha256','function_batch_contract_sha256','binary_sha256','libpq_sha256','control_sha']){
+  for(const key of ['archive_sha256','builder_sha256','helper_sha256','function_batch_helper_sha256','sequence_batch_helper_sha256','view_batch_helper_sha256','function_batch_contract_sha256','binary_sha256','libpq_sha256','control_sha']){
     const old=manifest[key];manifest[key]='b'.repeat(old.length);await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest[key]=old;
   }
-  for(const [key,bad] of [['synthetic_routine_count',5512],['function_batch_max',129],['synthetic_sequence_count',137],['sequence_metadata_sql_equal',false],['metadata_interleaved_sql_equal',false],['sequence_data_reader_unchanged',false],['metadata_total_results_max',256],['metadata_total_bytes_max',256*1024*1024],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['dependency_interleaved_sql_equal',false],['diagnostic_object_scope','all-visits'],['diagnostic_wire','D2-fixed12'],['diagnostic_wire','D3-fixed12'],['diagnostic_wire','D4-header2-record8'],['query_subtypes_valid',false],['absolute_event_ids_valid',false],['diagnostic_full_record_capacity_valid',false],['diagnostic_full_stream_bytes_max',502770]]){
+  for(const [key,bad] of [['synthetic_routine_count',5512],['function_batch_max',129],['synthetic_sequence_count',137],['synthetic_view_count',134],['view_metadata_sql_equal',false],['view_batch_stock_red_green',false],['view_dummy_deferred_sql_equal',false],['sequence_metadata_sql_equal',false],['metadata_interleaved_sql_equal',false],['sequence_data_reader_unchanged',false],['metadata_total_results_max',256],['metadata_total_bytes_max',256*1024*1024],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['dependency_interleaved_sql_equal',false],['diagnostic_object_scope','all-visits'],['diagnostic_wire','D2-fixed12'],['diagnostic_wire','D3-fixed12'],['diagnostic_wire','D4-header2-record8'],['query_subtypes_valid',false],['absolute_event_ids_valid',false],['diagnostic_full_record_capacity_valid',false],['diagnostic_full_stream_bytes_max',502770]]){
     const old=manifest.qualification[key];manifest.qualification[key]=bad;await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.qualification[key]=old;
   }
   for(const key of ['diagnostic_wire','query_subtypes_valid','absolute_event_ids_valid','diagnostic_full_record_capacity_valid','diagnostic_full_stream_bytes_max']){const old=manifest.qualification[key];delete manifest.qualification[key];await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.qualification[key]=old;}
   const oldTransport=manifest.transport;
-  for(const transport of ['logging-only','consecutive-stock-function-executions-v1','bounded-stock-function-read-ahead-v2']){
+  for(const transport of ['logging-only','consecutive-stock-function-executions-v1','bounded-stock-function-read-ahead-v2','bounded-stock-function-sequence-metadata-v3']){
     manifest.transport=transport;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);
   }
   manifest.transport=oldTransport;

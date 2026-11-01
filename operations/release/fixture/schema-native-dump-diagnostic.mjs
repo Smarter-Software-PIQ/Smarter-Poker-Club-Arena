@@ -178,11 +178,16 @@ export async function verifyNativeDumpBinary(env) {
     manifest.helper_sha256!==await sourceHash('./native-dump-diagnostic.c') ||
     manifest.function_batch_helper_sha256!==await sourceHash('./native-dump-function-batch.c') ||
     manifest.sequence_batch_helper_sha256!==await sourceHash('./native-dump-sequence-batch.c') ||
+    manifest.view_batch_helper_sha256!==await sourceHash('./native-dump-view-batch.c') ||
     manifest.function_batch_contract_sha256!==await sourceHash('./native-dump-function-batch-test.c') ||
-    manifest.transport!=='bounded-stock-function-sequence-metadata-v3' ||
+    manifest.transport!=='bounded-stock-function-sequence-view-metadata-v4' ||
     manifest.qualification?.synthetic_routine_count!==5513 ||
     manifest.qualification?.function_batch_max!==128 ||
     manifest.qualification?.synthetic_sequence_count!==138 ||
+    manifest.qualification?.synthetic_view_count!==135 ||
+    manifest.qualification?.view_metadata_sql_equal!==true ||
+    manifest.qualification?.view_batch_stock_red_green!==true ||
+    manifest.qualification?.view_dummy_deferred_sql_equal!==true ||
     manifest.qualification?.sequence_metadata_sql_equal!==true ||
     manifest.qualification?.metadata_interleaved_sql_equal!==true ||
     manifest.qualification?.sequence_data_reader_unchanged!==true ||

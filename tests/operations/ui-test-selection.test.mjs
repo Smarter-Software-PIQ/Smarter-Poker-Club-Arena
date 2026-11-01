@@ -92,6 +92,33 @@ const browserReaderFixture = (root) => {
   return scripts;
 };
 
+test('the cash decision browser gate admits its exact spec and recorded inputs', () =>
+  owned((root) => {
+    write(
+      root,
+      '.github/workflows/ci.yml',
+      'jobs:\n  css-beats-e2e:\n    steps:\n      - run: npx playwright test --config=playwright.live-turn.config.ts tests/live-turn/cash-street-decision.pw.ts\n  verdict:\n'
+    );
+    write(root, 'package.json', JSON.stringify({ scripts: {} }));
+    const input = cssBeatJobInputs(root);
+    assert.equal(typeof input, 'function');
+    for (const path of [
+      'tests/live-turn/cash-street-decision.pw.ts',
+      'tests/live-turn/replay-engine.ts',
+      'tests/live-turn/wire/same-seat-street-boundary.jsonl',
+      'tests/stale-client/mock-backend.ts',
+      'playwright.live-turn.config.ts',
+    ])
+      assert.equal(input(path), true, path);
+    for (const path of [
+      'tests/live-turn/cash-street-decision.pw.ts.md',
+      'tests/live-turn/wire/README.md',
+      'tests/live-turn/unrelated.pw.ts',
+      'tests/stale-client/unrelated.ts',
+    ])
+      assert.equal(input(path), false, path);
+  }));
+
 test('browser reader follows generic chained scripts and every literal config', () =>
   owned((root) => {
     browserReaderFixture(root);
@@ -159,12 +186,18 @@ test('unknown browser chains decline proof and conservatively admit both browser
        console.log(JSON.stringify([
          'tests/browser/unknown.spec.ts', 'tests/e2e/unknown.spec.ts',
          'playwright.unknown.config.ts', 'tests/browser/fixtures/README.md',
-         'tests/unit/unrelated.test.ts'
+         'tests/unit/unrelated.test.ts', 'tests/live-turn/cash-street-decision.pw.ts',
+         'tests/live-turn/replay-engine.ts', 'tests/live-turn/wire/hand.jsonl',
+         'tests/stale-client/mock-backend.ts', 'tests/live-turn/wire/README.md'
        ].map(path => classify([path]).src)));`,
         ],
         { cwd: root, encoding: 'utf8', env: gitEnvironmentForCwd() }
       );
-      assert.deepEqual(JSON.parse(output), [true, true, true, false, false], fault);
+      assert.deepEqual(
+        JSON.parse(output),
+        [true, true, true, false, false, true, true, true, true, false],
+        fault
+      );
     });
 });
 
@@ -361,7 +394,10 @@ test('exact Git proof refuses missing inputs, executable companions, deletes and
       GITHUB_OUTPUT: output,
       GITHUB_STEP_SUMMARY: '',
     });
-    assert.equal(readFileSync(output, 'utf8'), 'presentation_only=true\nisolated_simulations_unchanged=true\n');
+    assert.equal(
+      readFileSync(output, 'utf8'),
+      'presentation_only=true\nisolated_simulations_unchanged=true\n'
+    );
     runSelection(root, ['scope'], {
       ...process.env,
       CI_BASE_SHA: '',
@@ -369,7 +405,11 @@ test('exact Git proof refuses missing inputs, executable companions, deletes and
       GITHUB_OUTPUT: output,
       GITHUB_STEP_SUMMARY: '',
     });
-    assert.ok(readFileSync(output, 'utf8').endsWith('presentation_only=false\nisolated_simulations_unchanged=false\n'));
+    assert.ok(
+      readFileSync(output, 'utf8').endsWith(
+        'presentation_only=false\nisolated_simulations_unchanged=false\n'
+      )
+    );
     assert.equal(selectionInputs(root, undefined, head).focused, false);
     write(root, p, 'export const Control = () => <button onClick={pay}>Proceed</button>;');
     assert.equal(selectionInputs(root, base, head).focused, false);
@@ -585,38 +625,64 @@ test('real Playwright lists only the proved relevant fixture and never accepts a
     assert.match(fallback, /unrelated.spec.ts/);
   }));
 
-
-test('isolated simulations accept exact CSS and binary artwork without narrowing presentation checks', () => owned((root) => {
-  const git = (...args) => execFileSync('git', args, {cwd: root, env: gitEnvironmentForCwd(), encoding: 'utf8'}).trim();
-  git('init', '-q'); git('config', 'user.name', 'Selection Test'); git('config', 'user.email', 'selection@example.invalid');
-  write(root, 'src/styles/global.css', 'body { color: red }');
-  write(root, 'public/assets/table.png', Buffer.from([137, 80, 78, 71, 255, 0]));
-  write(root, 'server/guard.ts', 'export const guard = true;');
-  git('add', '.'); git('commit', '-qm', 'base'); const base = git('rev-parse', 'HEAD');
-  write(root, 'src/styles/global.css', 'body { color: blue }');
-  write(root, 'public/assets/table.png', Buffer.from([137, 80, 78, 71, 254, 0]));
-  write(root, 'docs/changelog/2026-10-31-colors.md', 'Scoped colors.');
-  git('add', '.'); git('commit', '-qm', 'styles'); const head = git('rev-parse', 'HEAD');
-  assert.equal(isolatedSimulationsUnchanged(root, base, head), true);
-  assert.equal(selectionInputs(root, base, head).focused, false);
-  const output = join(root, 'scope-output');
-  runSelection(root, ['scope'], {...process.env, CI_BASE_SHA:base, CI_HEAD_SHA:head, GITHUB_OUTPUT:output, GITHUB_STEP_SUMMARY:''});
-  assert.equal(readFileSync(output, 'utf8'), 'presentation_only=false\nisolated_simulations_unchanged=true\n');
-  for (const file of ['src/styles/global.css', 'public/assets/table.png', 'server/guard.ts']) {
-    write(root, file, 'dirty candidate');
-    assert.equal(isolatedSimulationsUnchanged(root, base, head), false, file);
-    git('restore', '--', file);
-  }
-  for (const [file, content] of [
-    ['server/new.ts', 'export const x = 1;'], ['supabase/migrations/new.sql', 'SELECT 1;'],
-    ['.github/workflows/ci.yml', 'name: changed'], ['src/styles/global.css', 'body {'],
-    ['public/assets/vector.svg', '<svg/>'], ['src/styles/added.css', 'body {}'],
-  ]) {
-    write(root, file, content); git('add', '.'); git('commit', '-qm', 'mixed');
-    assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false, file);
-    git('reset', '--hard', head);
-  }
-  git('rm', 'public/assets/table.png'); git('commit', '-qm', 'delete');
-  assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false);
-  assert.equal(isolatedSimulationsUnchanged(root, '', head), false);
-}));
+test('isolated simulations accept exact CSS and binary artwork without narrowing presentation checks', () =>
+  owned((root) => {
+    const git = (...args) =>
+      execFileSync('git', args, {
+        cwd: root,
+        env: gitEnvironmentForCwd(),
+        encoding: 'utf8',
+      }).trim();
+    git('init', '-q');
+    git('config', 'user.name', 'Selection Test');
+    git('config', 'user.email', 'selection@example.invalid');
+    write(root, 'src/styles/global.css', 'body { color: red }');
+    write(root, 'public/assets/table.png', Buffer.from([137, 80, 78, 71, 255, 0]));
+    write(root, 'server/guard.ts', 'export const guard = true;');
+    git('add', '.');
+    git('commit', '-qm', 'base');
+    const base = git('rev-parse', 'HEAD');
+    write(root, 'src/styles/global.css', 'body { color: blue }');
+    write(root, 'public/assets/table.png', Buffer.from([137, 80, 78, 71, 254, 0]));
+    write(root, 'docs/changelog/2026-10-31-colors.md', 'Scoped colors.');
+    git('add', '.');
+    git('commit', '-qm', 'styles');
+    const head = git('rev-parse', 'HEAD');
+    assert.equal(isolatedSimulationsUnchanged(root, base, head), true);
+    assert.equal(selectionInputs(root, base, head).focused, false);
+    const output = join(root, 'scope-output');
+    runSelection(root, ['scope'], {
+      ...process.env,
+      CI_BASE_SHA: base,
+      CI_HEAD_SHA: head,
+      GITHUB_OUTPUT: output,
+      GITHUB_STEP_SUMMARY: '',
+    });
+    assert.equal(
+      readFileSync(output, 'utf8'),
+      'presentation_only=false\nisolated_simulations_unchanged=true\n'
+    );
+    for (const file of ['src/styles/global.css', 'public/assets/table.png', 'server/guard.ts']) {
+      write(root, file, 'dirty candidate');
+      assert.equal(isolatedSimulationsUnchanged(root, base, head), false, file);
+      git('restore', '--', file);
+    }
+    for (const [file, content] of [
+      ['server/new.ts', 'export const x = 1;'],
+      ['supabase/migrations/new.sql', 'SELECT 1;'],
+      ['.github/workflows/ci.yml', 'name: changed'],
+      ['src/styles/global.css', 'body {'],
+      ['public/assets/vector.svg', '<svg/>'],
+      ['src/styles/added.css', 'body {}'],
+    ]) {
+      write(root, file, content);
+      git('add', '.');
+      git('commit', '-qm', 'mixed');
+      assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false, file);
+      git('reset', '--hard', head);
+    }
+    git('rm', 'public/assets/table.png');
+    git('commit', '-qm', 'delete');
+    assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false);
+    assert.equal(isolatedSimulationsUnchanged(root, '', head), false);
+  }));

@@ -407,13 +407,27 @@ echo CHECKPOINT_MUST_NOT_RUN
         prefix='set -eu\ntimeout() { shift 3; "$@"; }\ndate() { echo '+str(now)+'; }\n'
         env={**os.environ,'REPO_DIR':str(self.repo),'SHA':self.sha,'ACTIVATION_FLOOR_OWNER_WINDOW':r['ownerWindowId']}
         import shlex
-        def reason(serving):
-            result=subprocess.run([BASH,'-c',prefix+body+'\nowner_window_reason '+shlex.quote(json.dumps({'releaseSha':serving}))],env=env,capture_output=True,text=True)
+        fresh=selected.get('withinSecondsOfEngineStart')
+        def reason(serving,uptime='fresh'):
+            health={'releaseSha':serving}
+            if uptime=='fresh':
+                if fresh is not None: health['uptime']=fresh//2
+            elif uptime is not None:
+                health['uptime']=uptime
+            result=subprocess.run([BASH,'-c',prefix+body+'\nowner_window_reason '+shlex.quote(json.dumps(health))],env=env,capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
             return result.stdout.strip()
         # The protected base already served, including the old daily manifest;
         # only this exact v2 blob consumes its new authorization.
         self.assertEqual(reason(base),'owner-ordered '+r['ownerWindowId'])
+        if fresh is not None:
+            # A fresh-engine window opens only while the serving process is at
+            # most that old; an older, absent or malformed uptime grants nothing.
+            self.assertEqual(reason(base,fresh),'owner-ordered '+r['ownerWindowId'])
+            self.assertEqual(reason(base,fresh+1),'')
+            self.assertEqual(reason(base,None),'')
+            self.assertEqual(reason(base,'60'),'')
+            self.assertEqual(reason(base,True),'')
         self.assertEqual(reason(self.sha),'')
         (self.repo/MANIFEST).unlink();removed=self.commit()
         self.assertEqual(reason(removed),'')
