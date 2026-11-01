@@ -1327,13 +1327,16 @@ async function observeTournamentBoard(
     if (!activeBoardInterval) return;
     const interval = activeBoardInterval;
     activeBoardInterval = null;
-    const receipts = await page
-      .evaluate(() => window.__naturalBoardReveal?.stop() ?? [])
-      .catch(() => []);
+    const captured = await page
+      .evaluate(() => {
+        const observer = window.__naturalBoardReveal;
+        return { receipts: observer?.stop() ?? [], diagnostics: observer?.diagnostics ?? null };
+      })
+      .catch(() => ({ receipts: [], diagnostics: null }));
     const until = Date.now();
     boardIntervals.push({
       name: interval.name,
-      receipts,
+      ...captured,
       frames: journal
         .matchingFrames({ direction: 'received', tableId: candidate.id, since: interval.since })
         .filter((frame) => frame.at <= until),
@@ -2324,13 +2327,16 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         if (!activeBoardInterval) return;
         const interval = activeBoardInterval;
         activeBoardInterval = null;
-        const receipts = await page
-          .evaluate(() => window.__naturalBoardReveal?.stop() ?? [])
-          .catch(() => []);
+        const captured = await page
+          .evaluate(() => {
+            const observer = window.__naturalBoardReveal;
+            return { receipts: observer?.stop() ?? [], diagnostics: observer?.diagnostics ?? null };
+          })
+          .catch(() => ({ receipts: [], diagnostics: null }));
         const until = Date.now();
         boardIntervals.push({
           name: interval.name,
-          receipts,
+          ...captured,
           frames: journal
             .matchingFrames({ direction: 'received', tableId, since: interval.since })
             .filter((frame) => frame.at <= until),
