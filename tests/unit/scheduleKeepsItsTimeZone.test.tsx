@@ -1,3 +1,5 @@
+import { installScheduleCreateFixture, scheduleReceipt } from '../helpers/scheduleCreateFixture';
+installScheduleCreateFixture();
 /**
  * A schedule keeps its time zone (migration 20260924045822): the client half.
  *
@@ -55,10 +57,9 @@ afterEach(() => {
 function mockRpc() {
   const rpc = vi.spyOn(supabase, 'rpc');
   rpc.mockClear();
-  return rpc.mockResolvedValue({
-    data: { ok: true, schedule_id: 'synthetic-schedule' },
-    error: null,
-  } as never);
+  return rpc.mockImplementation(
+    (_name, args) => scheduleReceipt(args, 'synthetic-schedule') as never
+  );
 }
 
 describe('the device zone', () => {
@@ -204,10 +205,12 @@ describe('a schedule is written with a zone only once the engine reads zones', (
     );
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() =>
-      expect(rpc).toHaveBeenCalledWith('fn_upsert_tournament_schedule', expect.any(Object))
+      expect(rpc).toHaveBeenCalledWith('fn_create_tournament_schedule_request', expect.any(Object))
     );
     const sent = (
-      rpc.mock.calls.find(([name]) => name === 'fn_upsert_tournament_schedule')![1] as {
+      rpc.mock.calls.find(([name]) =>
+        ['fn_upsert_tournament_schedule', 'fn_create_tournament_schedule_request'].includes(name)
+      )![1] as {
         p_schedule: Record<string, unknown>;
       }
     ).p_schedule;
@@ -242,7 +245,9 @@ describe('an acknowledged schedule survives a later one-off failure', () => {
     await waitFor(() => expect(mocks.error).toHaveBeenCalledWith('One-Off Refused'));
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-    const writes = rpc.mock.calls.filter(([name]) => name === 'fn_upsert_tournament_schedule');
+    const writes = rpc.mock.calls.filter(([name]) =>
+      ['fn_upsert_tournament_schedule', 'fn_create_tournament_schedule_request'].includes(name)
+    );
     expect(writes).toHaveLength(2);
     expect((writes[0][1] as any).p_schedule.id).toBeNull();
     expect((writes[1][1] as any).p_schedule.id).toBe('synthetic-schedule');

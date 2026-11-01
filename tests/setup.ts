@@ -96,6 +96,7 @@ Object.defineProperty(navigator, 'locks', {
 // calls .single() / .maybeSingle() first. Suites that need specific rows still
 // override with their own vi.mock — this only stops the default from crashing.
 vi.mock('../src/lib/supabase', () => ({
+  getAuthUser: vi.fn(async () => ({ data: { user: null }, error: null })),
   supabase: {
     auth: {
       signInWithPassword: vi.fn(() => Promise.resolve({ data: { user: null }, error: null })),

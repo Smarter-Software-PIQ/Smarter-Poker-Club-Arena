@@ -1,3 +1,6 @@
+import { scheduleRpcResponse } from '../helpers/scheduleCreateFixture';
+import { installScheduleCreateFixture } from '../helpers/scheduleCreateFixture';
+installScheduleCreateFixture();
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { supabase } from '../../src/lib/supabase';
 import { tournamentScheduleService } from '../../src/services/TournamentScheduleService';
@@ -51,7 +54,9 @@ describe('schedule reads preserve unknown outcomes', () => {
 });
 describe('schedule acknowledgements require a positive receipt', () => {
   it.each(['activate', 'deactivate'])('rejects a malformed %s receipt', async (action) => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: { ok: 'false' }, error: null } as never);
+    vi.spyOn(supabase, 'rpc').mockReturnValue(
+      scheduleRpcResponse({ data: { ok: 'false' }, error: null } as never) as never
+    );
     await expect(
       tournamentScheduleService.setActive('schedule', action === 'activate')
     ).rejects.toThrow();
@@ -64,7 +69,9 @@ describe('schedule create receipt', () => {
     { ok: true, schedule_id: 5 },
     { ok: true, schedule_id: ' ' },
   ])('rejects an unproven create receipt %j', async (data) => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({ data, error: null } as never);
+    vi.spyOn(supabase, 'rpc').mockReturnValue(
+      scheduleRpcResponse({ data, error: null } as never) as never
+    );
     await expect(
       tournamentScheduleService.upsert({
         clubId: 'club',
