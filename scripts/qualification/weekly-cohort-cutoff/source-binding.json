@@ -586,7 +586,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -1965,33 +1965,33 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false
   },
-  "standardUbuntuCompatibility20261101": {
-    "scope": "Reuse only supported standard Ubuntu24.04 runner correction from57e8375; preserve this branch current CI commands, assertions and all historical evidence. Resolve source identity against actual integrated bytes, excluding unrelated shard/performance changes. Hosted validation pending.",
-    "upstreamCommit": "57e8375c17ab705b638649f9927b25a932f45891",
-    "sourceChanges": {
-      ".github/workflows/ci.yml": {
-        "previous": {
-          "bytes": 272197,
-          "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
-        },
-        "current": {
-          "bytes": 272192,
-          "sha256": "eee56621ab0b351bd63a42bb1fb425e20ede9d8360446df8f934d68057aa323b"
-        }
-      }
+  "browserRunnerCompatibility20261101": {
+    "reason": "Four browser-bearing CI jobs use standard hosted Ubuntu24.04 because locked Playwright1.58 refuses the advanced Ubuntu26.04 image. Reviewed diff changes only runner labels; exhaustive normalized workflow contracts preserve every command, permission, assertion, financial matrix and deadline. Current source identity only, no financial or live recertification.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     },
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false
+    "current": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    }
   },
-  "prestartClientRunnerIntegration20261101": {
-    "reason": "Preserve protected-main conditional accounting route and all historical qualification evidence while retaining only the existing client live-e2e and post-deploy browser Ubuntu24.04 compatibility correction. Current source identity only; no financial execution or qualification restamp.",
-    "protectedMain": "38a1c453c2eac2515e55cd94b439702e1b35be7c",
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false,
-    "sourceChanges": {
-      ".github/workflows/ci.yml": {
+  "nativeRunnerCompatibility20261101": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "current": {
+      "bytes": 272348,
+      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
+    }
+  },
+  "equalShareMainIntegration20261101": {
+    "reason": "Integrate protected main shard2-only accounting runner and three browser pins; preserve live-e2e Ubuntu24.04. Reviewed current source identity only; no financial SQL or historical qualification restamp.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
         "previous": {
           "bytes": 272484,
           "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
@@ -2001,6 +2001,7 @@
           "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
         }
       }
-    }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

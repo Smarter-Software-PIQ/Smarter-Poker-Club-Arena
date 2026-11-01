@@ -1741,18 +1741,10 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false
   },
-  "standardUbuntuCompatibility20261101": {
-    "scope": "Only four accounting standard-hosted OS assertions now pin ubuntu-24.04 after latest moved to unsupported Ubuntu26.04. No financial assertion or qualification status changed.",
-    "previousFixtureContractSha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
-    "currentFixtureContractSha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2",
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false
-  },
-  "prestartClientRunnerIntegration20261101": {
-    "reason": "Preserve protected-main conditional accounting route and all historical qualification evidence while retaining only the existing client live-e2e and post-deploy browser Ubuntu24.04 compatibility correction. Current source identity only; no financial execution or qualification restamp.",
-    "protectedMain": "38a1c453c2eac2515e55cd94b439702e1b35be7c",
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false
+  "nativeAccountingRunnerContract20261101": {
+    "reason": "Four existing accounting runner assertions now require Ubuntu24.04 after the observed Ubuntu26.04 pg_net compilation failure; native commands, assertions, budgets and historical evidence are unchanged. 764 focused fixture and runner contracts passed.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous_sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+    "current_sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
   }
 }

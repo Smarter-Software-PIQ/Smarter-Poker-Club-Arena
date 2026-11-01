@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and qualify a logging-only exact-source native schema diagnostic.
+"""Build and qualify exact-source native logging and function transport batching.
 
 No database configuration is accepted. The only database this builder opens is
 its newly created disposable Unix-only cluster, before the capture secret exists.
@@ -45,12 +45,23 @@ DECLARATIONS = '''\n/* Fixed private diagnostic channel; logging only. */
 extern void ca_diag_init(void);
 extern void ca_diag_object_begin(int group);
 extern void ca_diag_object_end(void);
+extern void ca_diag_query_begin(void);
+extern void ca_diag_query_end(void);
 '''
 OBJECT_LOOP = '''\tfor (i = 0; i < numObjs; i++)
 \t\tdumpDumpableObject(fout, dobjs[i]);'''
-DIAG_LOOP = '''\tfor (i = 0; i < numObjs; i++)
+DIAG_LOOP = '''\tca_batch_objects = dobjs;
+\tca_batch_objects_count = numObjs;
+\tfor (i = 0; i < numObjs; i++)
 \t{
 \t\tint ca_group = 4;
+\t\tca_batch_position = i;
+\t\t/* Skipped components issue no query and have no object-cost frame. */
+\t\tif ((dobjs[i]->dump & dobjs[i]->components) == 0)
+\t\t{
+\t\t\tdumpDumpableObject(fout, dobjs[i]);
+\t\t\tcontinue;
+\t\t}
 \t\tswitch (dobjs[i]->objType)
 \t\t{
 \t\t\tcase DO_FUNC: case DO_AGG: ca_group = 1; break;
@@ -86,6 +97,10 @@ def transformations():
             ('\tConnectDatabase(fout, &dopt.cparams, false);',
              '\tca_diag_init();\n\tConnectDatabase(fout, &dopt.cparams, false);'),
             (OBJECT_LOOP, DIAG_LOOP),
+            ('static void help(const char *progname);',
+             '#include "native-dump-function-batch.c"\n\nstatic void help(const char *progname);'),
+            ('\tres = ExecuteSqlQueryForSingleRow(fout, query->data);\n\n\tproretset =',
+             '\tres = ca_function_batch_result(fout, finfo);\n\n\tproretset ='),
         ],
         'src/bin/pg_dump/pg_backup_db.c': [
             ('static void\nnotice_processor(void *arg, const char *message)',
@@ -368,9 +383,43 @@ def negative_native_fd(executable, args, env, cwd):
         if reserved_fd3: os.close(3)
 
 
+def qualify_batch_contract(repo, work, env):
+    # Native isolated result-contract faults, not a database or production probe.
+    directory = work / 'batch-contract'
+    directory.mkdir()
+    for name in ['native-dump-function-batch.c', 'native-dump-function-batch-test.c']:
+        shutil.copyfile(repo / 'operations/release/fixture' / name, directory / name)
+    executable = directory / 'contract'
+    command(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+             'native-dump-function-batch-test.c', '-o', str(executable)], cwd=directory, env=env)
+    for count in [0, 1, 127, 128, 129, 5507]:
+        command([str(executable), 'valid', str(count)], cwd=directory, env=env, timeout=5)
+    for mode in ['send', 'extra', 'missing', 'status', 'rows', 'fields', 'name', 'bytes', 'order']:
+        result = subprocess.run([str(executable), mode, '129'], cwd=directory, env=env,
+                                capture_output=True, timeout=5)
+        require(result.returncode == 23 and result.stdout == b'' and result.stderr == b'')
+    process = subprocess.Popen([str(executable), 'interrupt', '129'], cwd=directory,
+                               env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(process.stdout, selectors.EVENT_READ)
+            require(ready.select(timeout=5))
+            require(os.read(process.stdout.fileno(), 5) == b'WAIT\n')
+        process.send_signal(signal.SIGINT)
+        stdout, stderr = process.communicate(timeout=5)
+        require(process.returncode == -signal.SIGINT and stdout == b'' and stderr == b'')
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+    shutil.rmtree(directory)
+    return True
+
+
 def qualify(repo, work, output, env, stock_executable):
     global BUILD_STAGE
     BUILD_STAGE = 'SYNTHETIC_RUNTIME'
+    require(qualify_batch_contract(repo, work, env))
     runtime = work / 'runtime'
     runtime.mkdir()
     existing = repo / 'scripts/ci/probes/chip-journal-atomicity/postgres-runtime'
@@ -397,7 +446,22 @@ def qualify(repo, work, output, env, stock_executable):
                "GRANT USAGE ON SCHEMA diagnostic_schema TO diagnostic_reader; "
                "GRANT SELECT(id) ON diagnostic_schema.sample TO diagnostic_reader; "
                "ALTER DEFAULT PRIVILEGES IN SCHEMA diagnostic_schema GRANT SELECT ON TABLES TO diagnostic_reader;\n")
-        sql += '\n'.join(f'CREATE FUNCTION diagnostic_schema.f_{i}() RETURNS integer LANGUAGE sql AS $$SELECT {i}$$;' for i in range(140))
+        sql += '\n'.join(f'CREATE FUNCTION diagnostic_schema.f_{i}() RETURNS integer LANGUAGE sql AS $$SELECT {i}$$;' for i in range(5500))
+        sql += """
+CREATE FUNCTION diagnostic_schema.f_default(a integer DEFAULT 7) RETURNS integer LANGUAGE sql IMMUTABLE STRICT SECURITY DEFINER SET search_path TO pg_catalog AS $$SELECT a$$;
+CREATE FUNCTION diagnostic_schema.f_default(a text) RETURNS text LANGUAGE plpgsql AS $$BEGIN RETURN a; END$$;
+CREATE FUNCTION diagnostic_schema.f_out(IN a integer, OUT b integer) LANGUAGE sql AS $$SELECT a$$;
+CREATE FUNCTION diagnostic_schema.f_variadic(VARIADIC a integer[]) RETURNS integer LANGUAGE sql AS $$SELECT cardinality(a)$$;
+CREATE FUNCTION diagnostic_schema.f_body(a integer) RETURNS integer LANGUAGE SQL RETURN a+1;
+CREATE PROCEDURE diagnostic_schema.p_one(IN a integer) LANGUAGE SQL AS $$SELECT a$$;
+COMMENT ON FUNCTION diagnostic_schema.f_default(integer) IS 'native private batch fixture';
+REVOKE ALL ON FUNCTION diagnostic_schema.f_default(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION diagnostic_schema.f_default(integer) TO diagnostic_reader;
+CREATE SCHEMA diagnostic_empty;
+CREATE TYPE diagnostic_empty.zero_function_enum AS ENUM ('one','two');
+CREATE SCHEMA diagnostic_single;
+CREATE FUNCTION diagnostic_single.one() RETURNS integer LANGUAGE sql AS $$SELECT 1$$;
+"""
         BUILD_STAGE = 'SYNTHETIC_SEED'
         command(['node', str(runtime / 'query.mjs')], cwd=work, env=local, data=sql.encode())
         args = ['--no-password', '--schema-only', '--format=plain', '--quote-all-identifiers',
@@ -408,11 +472,19 @@ def qualify(repo, work, output, env, stock_executable):
         BUILD_STAGE = 'SYNTHETIC_DIAGNOSTIC'
         instrumented, count = diagnostic_dump(output / 'bin/pg_dump', args, dump_env, work)
         negative_native_fd(output / 'bin/pg_dump', args, dump_env, work)
+        # Filter boundaries preserve zero/one-function and exact source-selected scope.
+        for schema in ['diagnostic_empty', 'diagnostic_single']:
+            filtered_args = args + ['--schema=' + schema]
+            filtered_stock = command([str(stock_executable), *filtered_args], cwd=work, env=dump_env, timeout=45)
+            filtered, _ = diagnostic_dump(output / 'bin/pg_dump', filtered_args, dump_env, work)
+            require(normalize_sql(filtered_stock) == normalize_sql(filtered))
         BUILD_STAGE = 'SQL_EQUIVALENCE'
         require(normalize_sql(stock) == normalize_sql(instrumented))
         require(b'GRANT SELECT("id")' in stock and b'ALTER DEFAULT PRIVILEGES' in stock and b'CREATE FUNCTION' in stock)
         return {'passed': True, 'sql_bytes_equal': True, 'fd3_records_valid': True,
-                'fd3_record_count': count, 'server_major': 17, 'cluster_absent': True}
+                'fd3_record_count': count, 'server_major': 17, 'cluster_absent': True,
+                'synthetic_routine_count': 5507, 'function_batch_max': 128,
+                'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components'}
     except Exception as error:
         retain_first_failure(error)
         raise
@@ -483,9 +555,11 @@ def build(repo, output):
         stock_executable.chmod(0o700)
         BUILD_STAGE = 'LIBPQ_INSTALL'
         command(['make', '-C', 'src/interfaces/libpq', 'install'], cwd=source, env=env, timeout=60)
-        # Same configured source and libpq: rebuild only the logging additions.
+        # Same configured source/libpq: add logging and bounded function transport batching.
         for name, content in patched.items(): (source / name).write_bytes(content)
         shutil.copyfile(helper, source / 'src/bin/pg_dump/native-dump-diagnostic.c')
+        batch_helper = repo / 'operations/release/fixture/native-dump-function-batch.c'
+        shutil.copyfile(batch_helper, source / 'src/bin/pg_dump/native-dump-function-batch.c')
         BUILD_STAGE = 'DIAGNOSTIC_BUILD'
         command(['make', '-C', 'src/bin/pg_dump', '-j2', 'pg_dump'], cwd=source, env=env, timeout=120)
         (output / 'bin').mkdir(mode=0o700)
@@ -506,6 +580,9 @@ def build(repo, output):
         manifest = {**ownership, 'source_version': VERSION,
                     'archive_sha256': ARCHIVE_SHA, 'control_sha': source_sha,
                     'builder_sha256': digest(Path(__file__).read_bytes()), 'helper_sha256': digest(helper.read_bytes()),
+                    'function_batch_helper_sha256': digest(batch_helper.read_bytes()),
+                    'function_batch_contract_sha256': digest((repo / 'operations/release/fixture/native-dump-function-batch-test.c').read_bytes()),
+                    'transport': 'consecutive-stock-function-executions-v1',
                     'binary_sha256': digest((output / 'bin/pg_dump').read_bytes()),
                     'libpq_sha256': digest((output / 'lib/libpq.so.5').read_bytes()), 'qualification': proof}
         # Keep only the two executable inputs and manifest for the capture.

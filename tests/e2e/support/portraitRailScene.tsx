@@ -17,7 +17,6 @@ import { useProtectedCardLayout } from '../../../src/hooks/useProtectedCardLayou
 import BadBeatJackpot from '../../../src/components/table/BadBeatJackpot';
 import ActionPanel from '../../../src/components/table/ActionPanel';
 import PreActionBar from '../../../src/components/table/PreActionBar';
-import { WaitlistCallToAction } from '../../../src/components/table/WaitlistCallToAction';
 import PotDisplay from '../../../src/components/table/PotDisplay';
 import HeroVpipTracker from '../../../src/components/table/HeroVpipTracker';
 import PreviousHandCard from '../../../src/components/table/PreviousHandCard';
@@ -274,9 +273,7 @@ export function Review() {
                         }}
                         position={i === 1 ? 'SB' : null}
                         isActive={false}
-                        lastAction={
-                          revealed && i % 3 === 0 ? 'all_in' : i % 2 === 0 ? 'check' : 'call'
-                        }
+                        lastAction={revealed && i % 3 === 0 ? 'all_in' : 'call'}
                         lastBetAmount={
                           /* data-bets="0,3,5" bets only those chairs; absent, every chair bets. */
                           document.documentElement.dataset.bets === undefined ||
@@ -307,11 +304,7 @@ export function Review() {
             <div className="action-panel-wrapper">
               {spectator ? (
                 <div className="spectator-footer-bar">
-                  {!tournament ? (
-                    <WaitlistCallToAction waitingCount={0} onClick={() => undefined} />
-                  ) : (
-                    <span className="spectator-footer-bar__label">Spectating</span>
-                  )}
+                  <span className="spectator-footer-bar__label">Spectating</span>
                 </div>
               ) : action === 'active' ? (
                 <ActionPanel

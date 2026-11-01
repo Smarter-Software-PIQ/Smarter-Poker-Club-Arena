@@ -455,13 +455,17 @@ class SoundService {
       clearTimeout(this.idleSuspendTimer);
       this.idleSuspendTimer = null;
     }
-    // Mobile energy optimization:
-    // If no sounds have played for 20 seconds, suspend the AudioContext so
-    // mobile OS audio daemons (iOS CoreAudio / Android AudioFlinger) can enter
-    // low-power deep sleep mode instead of continuously drawing hardware power.
-    if (typeof window !== 'undefined' && this.ctx && this.ctx.state === 'running') {
+    // Only a hidden document may relinquish its idle audio session. Suspending
+    // visible play after a quiet level/hand gap can require another hardware
+    // gesture to wake CoreAudio, even though Sounds remains enabled.
+    if (
+      typeof document !== 'undefined' &&
+      document.hidden &&
+      this.ctx &&
+      this.ctx.state === 'running'
+    ) {
       this.idleSuspendTimer = setTimeout(() => {
-        if (this.ctx && this.ctx.state === 'running') {
+        if (document.hidden && this.ctx && this.ctx.state === 'running') {
           void this.ctx.suspend().catch(() => {});
         }
       }, 20_000);
@@ -489,6 +493,7 @@ class SoundService {
       // driven from a frame loop that stops while the tab is hidden, so the
       // voice must stop with it rather than drone on under another app.
       if (document.hidden) this.stopAllMotors(0.05);
+      this.resetIdleSuspendTimer();
       if (
         !document.hidden &&
         this.ctx &&
