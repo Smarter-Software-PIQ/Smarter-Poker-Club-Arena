@@ -8,11 +8,14 @@
  * embed through `tournamentRowUnitCents`, the reading the rest of this page
  * already prices its ladders through.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
-const state = vi.hoisted(() => ({ rows: [] as unknown[] }));
+const state = vi.hoisted(() => ({
+  rows: [] as unknown[],
+  broadcasts: new Map<string, (payload: any) => void>(),
+}));
 
 /** Any supabase chain, awaited, answers "nothing": this page's side reads are not under test. */
 vi.mock('../../src/lib/supabase', () => {
@@ -48,7 +51,13 @@ vi.mock('../../src/core/MasterBus', () => {
       emit: vi.fn(),
       subscribe: () => () => {},
       subscribeDebounced: () => () => {},
-      getOrCreateChannel: () => channel,
+      getOrCreateChannel: (key: string) => ({
+        ...channel,
+        on: (kind: string, _filter: unknown, callback: (payload: any) => void) => {
+          if (kind === 'broadcast') state.broadcasts.set(key, callback);
+          return channel;
+        },
+      }),
       removeRegisteredChannel: vi.fn(),
     },
   };
@@ -95,10 +104,13 @@ vi.mock('../../src/utils/observeTable', () => ({ openTableAsObserver: vi.fn() })
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 
 import TournamentPage from '../../src/pages/TournamentPage';
+import { tournamentService } from '../../src/services/TournamentService';
 
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
+  state.broadcasts.clear();
+  vi.mocked(tournamentService.getTournament).mockReset();
 });
 
 const CHIP_CLUB = { id: 'club-1', asset: 'chips', is_platform: false, union_id: null };
@@ -167,3 +179,87 @@ describe('the tournament page names the head in the event unit', () => {
     expect(screen.queryByText(/Chips Starting Bounty/)).toBeNull();
   });
 });
+
+describe('tournament detail refresh belongs to the selected event', () => {
+  it.each(['level_up', 'player_eliminated', 'late_reg_closed', 'table_rebalance'])(
+    'does not restore the previous event after a delayed %s refresh',
+    async (type) => {
+      const first = bountyEvent(CHIP_CLUB, false);
+      const second = { ...first, id: 't-2', name: 'Second Event' };
+      state.rows = [first, second];
+      let finish!: (row: any) => void;
+      vi.mocked(tournamentService.getTournament).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          })
+      );
+      render(
+        <MemoryRouter initialEntries={['/clubs/club-1/tournaments/t-1']}>
+          <Routes>
+            <Route path="/clubs/:clubId/tournaments/:tournamentId" element={<TournamentPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+      await waitFor(() => expect(state.broadcasts.has('t-break-t-1')).toBe(true));
+      act(() => state.broadcasts.get('t-break-t-1')!({ payload: { type, payload: {} } }));
+      const cards = document.querySelectorAll('.tournament-card');
+      fireEvent.click(cards[1]);
+      await waitFor(() =>
+        expect(document.querySelector('.tourn-detail')?.textContent).toContain('Second Event')
+      );
+      await act(async () => finish({ ...first, name: 'Old Event Refreshed' }));
+      expect(document.querySelector('.tourn-detail')?.textContent).toContain('Second Event');
+      expect(document.querySelector('.tourn-detail')?.textContent).not.toContain(
+        'Old Event Refreshed'
+      );
+    }
+  );
+});
+
+it.each(['same event', 'back to list', 'return to original event'])(
+  'keeps broadcast refresh authority for %s',
+  async (transition) => {
+    const first = bountyEvent(CHIP_CLUB, false);
+    state.rows = [first, { ...first, id: 't-2', name: 'Second Event' }];
+    let finish!: (row: any) => void;
+    vi.mocked(tournamentService.getTournament).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    render(
+      <MemoryRouter initialEntries={['/clubs/club-1/tournaments/t-1']}>
+        <Routes>
+          <Route path="/clubs/:clubId/tournaments/:tournamentId" element={<TournamentPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(state.broadcasts.has('t-break-t-1')).toBe(true));
+    act(() => state.broadcasts.get('t-break-t-1')!({ payload: { type: 'level_up', payload: {} } }));
+    if (transition === 'back to list') {
+      fireEvent.click(screen.getByRole('button', { name: 'Back To The Tournament List' }));
+    } else if (transition === 'return to original event') {
+      fireEvent.click(document.querySelectorAll('.tournament-card')[1]);
+      await waitFor(() =>
+        expect(document.querySelector('.tourn-detail')?.textContent).toContain('Second Event')
+      );
+      fireEvent.click(document.querySelectorAll('.tournament-card')[0]);
+      await waitFor(() =>
+        expect(document.querySelector('.tourn-detail')?.textContent).toContain('Head Hunter')
+      );
+    }
+    await act(async () => finish({ ...first, name: 'Refreshed Original' }));
+    if (transition === 'same event') {
+      expect(document.querySelector('.tourn-detail')?.textContent).toContain('Refreshed Original');
+    } else if (transition === 'back to list') {
+      expect(document.querySelector('.tourn-detail')).toBeNull();
+    } else {
+      expect(document.querySelector('.tourn-detail')?.textContent).toContain('Head Hunter');
+      expect(document.querySelector('.tourn-detail')?.textContent).not.toContain(
+        'Refreshed Original'
+      );
+    }
+  }
+);

@@ -24,7 +24,7 @@ describe('eed06fe5 is replaced at a drained hand boundary', () => {
       timeout: 60_000,
     });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stderr).toContain('Ran 21 tests');
+    expect(result.stderr).toContain('Ran 25 tests');
   }, 70_000);
 
   it('keeps the measured census rule beside its measurement', () => {
