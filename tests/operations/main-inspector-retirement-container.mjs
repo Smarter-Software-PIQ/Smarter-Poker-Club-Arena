@@ -1,5 +1,6 @@
 // Isolated qualification only: no production host, credentials or game API.
 import assert from 'node:assert/strict';
+import { observeFixtureKernelRefusals } from './main-inspector-kernel-diagnostic.mjs';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -82,9 +83,12 @@ async function fixtureNativeEntry(container, identity, scenario = 'success', hos
     'main-inspector-socket-qualification.mjs',
     'main-inspector-retirement-entry.mjs',
   ]
-    .map((name) =>
-      fs.readFileSync(new URL('../../server/scripts/' + name, import.meta.url), 'utf8')
-    )
+    .map((name) => {
+      const maintained = fs.readFileSync(new URL('../../server/scripts/' + name, import.meta.url), 'utf8');
+      return name === 'main-inspector-socket-qualification.mjs'
+        ? observeFixtureKernelRefusals(maintained, `direct-${scenario}`)
+        : maintained;
+    })
     .join('\n');
   const busyNonce = randomUUID();
   const busyMarker = '/fixture-state/busy-' + busyNonce + '.json';
@@ -247,7 +251,10 @@ process.once('exit', () => process.getBuiltinModule('node:fs').writeSync(2, 'fix
       );
       fs.writeFileSync(
         join(control, name),
-        (name === 'main-inspector-retirement-entry.mjs' ? closeBoundaryLoad : '') + maintained
+        (name === 'main-inspector-retirement-entry.mjs' ? closeBoundaryLoad : '') +
+          (name === 'main-inspector-socket-qualification.mjs'
+            ? observeFixtureKernelRefusals(maintained, `host-${scenario}`)
+            : maintained)
       );
     }
     const inspected = await fixtureInspect();
@@ -388,7 +395,13 @@ process.once('exit', () => process.getBuiltinModule('node:fs').writeSync(2, 'fix
     });
     child.once('close', (code, signal) => {
       clearTimeout(timer);
-      if (protocolFailure) return reject(protocolFailure);
+      if (protocolFailure) {
+        // Only the closed fixture tags survive; native paths/FDs never leave the child.
+        const diagnostic = stderr.split('\n').filter((line) =>
+          /^fixture-kernel-diagnostic:(direct|host)-(success|deferred-close-timeout):(predicate-[0-9]{1,2}|syscall-(ENOENT|EACCES|EPERM|EBADF|EIO|EINTR|unknown))$/.test(line)
+        ).slice(0, 4).join(';');
+        return reject(new Error(`native fixture ${scenario}: ${protocolFailure.message}; ${diagnostic || 'no closed kernel diagnostic'}`));
+      }
       try {
         assert.equal(signal, null, 'native entry must exit normally');
         assert.equal(

@@ -687,23 +687,7 @@ test.describe('the mobile lobby chrome on production', () => {
     const all = page
       .getByRole('group', { name: 'Filter Notifications' })
       .getByRole('button', { name: /^All/ });
-    const interrupted = page.waitForEvent('requestfailed', {
-      predicate: (request) =>
-        request.url().includes('/rest/v1/user_page_preferences') &&
-        request.method() === 'POST' &&
-        request.postDataJSON()?.user_id === preferenceOwner &&
-        request.postDataJSON()?.preference_key === preferenceKey &&
-        request.postDataJSON()?.value === 'all',
-    });
-    try {
-      await page.context().setOffline(true);
-      await all.click();
-      await expect(all).toHaveAttribute('aria-pressed', 'true');
-      await interrupted;
-      await expect(all).toHaveAttribute('aria-pressed', 'true');
-    } finally {
-      await page.context().setOffline(false);
-    }
+    const intentKey = `ca_table_setting_intent:${preferenceOwner}:page:${preferenceKey}`;
     const recovered = page.waitForResponse(
       (response) =>
         response.url().includes('/rest/v1/user_page_preferences') &&
@@ -713,8 +697,40 @@ test.describe('the mobile lobby chrome on production', () => {
         response.request().postDataJSON()?.preference_key === preferenceKey &&
         response.request().postDataJSON()?.value === 'all'
     );
-    await page.reload({ waitUntil: 'domcontentloaded' });
+    try {
+      await page.context().setOffline(true);
+      const offlineStarted = await page.evaluate(() => performance.now());
+      await all.click();
+      await expect(all).toHaveAttribute('aria-pressed', 'true');
+      // Known-offline browsers need not emit a failed HTTP request. The actual
+      // contract is a durable choice, then its owned save on reconnect.
+      await expect
+        .poll(() =>
+          page.evaluate((key) => {
+            const raw = localStorage.getItem(key);
+            return raw ? JSON.parse(raw)?.value : null;
+          }, intentKey)
+        )
+        .toBe('all');
+      // Stay offline beyond the existing 500ms save debounce so this proves
+      // reconnect continuation rather than an ordinary timer firing online.
+      await expect
+        .poll(() =>
+          page.evaluate(
+            (started) => navigator.onLine === false && performance.now() - started >= 600,
+            offlineStarted
+          )
+        )
+        .toBe(true);
+      await expect(all).toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      await page.context().setOffline(false);
+    }
     await recovered;
+    await expect(all).toHaveAttribute('aria-pressed', 'true');
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key), intentKey))
+      .toBeNull();
     const recoveredReadback = page.waitForResponse(
       (response) =>
         response.url().includes('/rest/v1/user_page_preferences') &&

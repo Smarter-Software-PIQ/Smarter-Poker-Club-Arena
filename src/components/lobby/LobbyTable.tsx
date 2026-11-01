@@ -1405,6 +1405,7 @@ const LobbyRow = memo(function LobbyRow({
   entry,
   columns,
   visibleColumnCount,
+  lastVisibleColumnIndex,
   ctx,
   selected,
   cursor,
@@ -1414,6 +1415,7 @@ const LobbyRow = memo(function LobbyRow({
   entry: LobbyEntry;
   columns: ColumnDef[];
   visibleColumnCount: number;
+  lastVisibleColumnIndex: number;
   ctx: LobbyRowContext;
   selected: boolean;
   /** The keyboard cursor is here. Not the same as selected — see handleKeyDown. */
@@ -1474,9 +1476,10 @@ const LobbyRow = memo(function LobbyRow({
         onClick={() => onSelect(entry)}
         onDoubleClick={() => onActivate(entry)}
       >
-        {columns.map((col) => (
+        {columns.map((col, index) => (
           <td
             key={col.key}
+            data-last-visible={index === lastVisibleColumnIndex ? 'true' : undefined}
             role="gridcell"
             /* data-label carries the column's own heading down to the cell. On a
              phone the header row is gone, so the card layout prints it above
@@ -1707,13 +1710,17 @@ export default function LobbyTable({
   const columns = useMemo(() => columnsFor(category), [category]);
   const desktopHeadingRef = useRef<HTMLTableSectionElement>(null);
   const [visibleColumnCount, setVisibleColumnCount] = useState(columns.length);
+  const [lastVisibleColumnIndex, setLastVisibleColumnIndex] = useState(columns.length - 1);
   useLayoutEffect(() => {
     const measure = () => {
       const cells = desktopHeadingRef.current?.querySelectorAll('th');
-      const count = cells
-        ? Array.from(cells).filter((cell) => getComputedStyle(cell).display !== 'none').length
-        : columns.length;
-      setVisibleColumnCount(count || columns.length);
+      const visible = cells
+        ? Array.from(cells)
+            .map((cell, index) => ({ cell, index }))
+            .filter(({ cell }) => getComputedStyle(cell).display !== 'none')
+        : [];
+      setVisibleColumnCount(visible.length || columns.length);
+      setLastVisibleColumnIndex(visible[visible.length - 1]?.index ?? columns.length - 1);
     };
     measure();
     window.addEventListener('resize', measure);
@@ -2247,7 +2254,10 @@ export default function LobbyTable({
           for the ALL and MTT boards, which carry eight columns; the SPIN board
           carries five, so dropping its Max Payout at 1340px starved a table
           that had room to spare — and the payout IS the Spin. */}
-        <table className={`lobby-table lobby-table--${category.toLowerCase()}`} role="grid">
+        <table
+          className={`lobby-table lobby-table--${category.toLowerCase()}${hasTournamentHeadings ? ' has-tournament-headings' : ''}`}
+          role="grid"
+        >
           <thead ref={desktopHeadingRef} role="rowgroup">
             {/* The explicit row/gridcell roles below are not redundant. Under
               640px this table stops being a table - thead/tbody/tr/td all
@@ -2320,18 +2330,25 @@ export default function LobbyTable({
                   ))}
                 </tr>
               ))}
-            {sorted.map((entry) => (
-              <LobbyRow
-                key={entry.id}
-                entry={entry}
-                columns={columns}
-                visibleColumnCount={visibleColumnCount}
-                ctx={rowCtx}
-                selected={entry.id === selectedId}
-                cursor={entry.id === keyboardFocusId}
-                onSelect={onSelect}
-                onActivate={onActivate}
-              />
+            {sorted.map((entry, index) => (
+              <Fragment key={entry.id}>
+                {hasTournamentHeadings && index > 0 && (
+                  <tr className="lt-event-gap" aria-hidden="true">
+                    <td colSpan={visibleColumnCount} />
+                  </tr>
+                )}
+                <LobbyRow
+                  entry={entry}
+                  columns={columns}
+                  visibleColumnCount={visibleColumnCount}
+                  lastVisibleColumnIndex={lastVisibleColumnIndex}
+                  ctx={rowCtx}
+                  selected={entry.id === selectedId}
+                  cursor={entry.id === keyboardFocusId}
+                  onSelect={onSelect}
+                  onActivate={onActivate}
+                />
+              </Fragment>
             ))}
           </tbody>
         </table>

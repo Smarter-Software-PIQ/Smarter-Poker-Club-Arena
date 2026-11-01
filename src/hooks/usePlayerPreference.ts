@@ -59,8 +59,12 @@ function cache(owner: string, name: string, value: unknown): void {
   window.dispatchEvent(new CustomEvent(CHANGED, { detail: { owner, name, value } }));
 }
 
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
 async function save(owner: string, name: string, value: unknown, id: string): Promise<void> {
-  if (owner === 'guest') return;
+  if (owner === 'guest' || useUserStore.getState().user?.id !== owner || isOffline()) return;
   const selectionKey = `${owner}:${name}`;
   if (
     readTableSettingIntent(owner, `page:${name}`)?.id === id &&
@@ -70,7 +74,13 @@ async function save(owner: string, name: string, value: unknown, id: string): Pr
   await orderTableSettingWrite(owner, `page:${name}`, async () => {
     const held = readTableSettingIntent(owner, `page:${name}`);
     const latest = latestSelections.get(selectionKey);
-    if (latest?.id !== id || (latest.journaled && held && held.id !== id)) return;
+    if (
+      useUserStore.getState().user?.id !== owner ||
+      isOffline() ||
+      latest?.id !== id ||
+      (latest.journaled && held?.id !== id)
+    )
+      return;
     try {
       const { error } = await awaitPreferenceSave(
         supabase.from('user_page_preferences').upsert(
@@ -121,11 +131,30 @@ export function usePlayerPreference<T>(
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
     const pending = pendingRef.current;
+    // The original choice stays in memory as well as its journal while offline.
+    if (isOffline()) return;
     pendingRef.current = null;
     if (pending) return save(pending.owner, pending.name, pending.value, pending.id);
   }, []);
 
   useEffect(() => registerPreferenceFlush(owner, flush), [owner, flush]);
+
+  useEffect(() => {
+    const reconnect = () => {
+      if (isOffline()) return;
+      const queued = pendingRef.current;
+      if (queued?.owner === owner && queued.name === scopedName) {
+        void flush();
+        return;
+      }
+      // Resume this account's original intent, including after an offline remount.
+      // No new intent or default is created by a connectivity event.
+      const pending = readTableSettingIntent(owner, `page:${scopedName}`);
+      if (pending) void save(owner, scopedName, pending.value, pending.id);
+    };
+    window.addEventListener('online', reconnect);
+    return () => window.removeEventListener('online', reconnect);
+  }, [owner, scopedName, flush]);
 
   // Closed, mounted settings sheets share the same preference owner too.
   // A second instance must not reopen with the value from before the last gesture.

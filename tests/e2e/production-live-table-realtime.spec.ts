@@ -41,6 +41,7 @@ import { createProgressSilenceGuard } from './support/progressSilence';
 import { captureEngineFailureHealth } from './support/liveTableFailureHealth';
 import {
   refreshPreNavigationSelection,
+  retirePausedPreNavigationSubjects,
   nextHandAdvanced,
   endedBeforeNextHand,
 } from './support/preNavigationBoard';
@@ -160,6 +161,7 @@ interface EngineTableLiveness {
   msSinceProgress: number;
   loopPhase: string;
   paused: boolean;
+  running?: boolean;
 }
 
 interface EngineHealth {
@@ -600,6 +602,7 @@ async function selectProgressingTournamentTable(
   boardFacts: TournamentBoardFacts | null;
 }> {
   const excluded = new Set(options.excludeTableIds ?? []);
+  const retiredBeforeNavigation = new Set<string>();
   const pollBudgetMs = () =>
     Math.min(CAUSAL_HAND_TIMEOUT_MS, remainingObservationMs(options.deadline));
   /* The live SNG board is presently heads-up, so two seats is a real SNG,
@@ -631,7 +634,9 @@ async function selectProgressingTournamentTable(
     tables: EngineTableLiveness[],
     deadline: number
   ): Promise<EngineTableLiveness[]> => {
-    const fresh = tables.filter((table) => !excluded.has(table.tableId));
+    const fresh = tables.filter(
+      (table) => !excluded.has(table.tableId) && !retiredBeforeNavigation.has(table.tableId)
+    );
     if (options.hudReader && fresh.length > 0) {
       const clocks = await options.hudReader.clocks(
         fresh.map((table) => table.tableId),
@@ -918,8 +923,10 @@ async function selectProgressingTournamentTable(
       : new Map<string, TournamentBoardFacts>(),
     excluded,
     failed: new Set<string>(),
+    retired: retiredBeforeNavigation,
     deadline: progressReadDeadline,
   };
+  const pausedCandidates: ReturnType<typeof retirePausedPreNavigationSubjects> = [];
   try {
     await expect
       .poll(
@@ -946,7 +953,21 @@ async function selectProgressingTournamentTable(
               },
               readinessReadTimeout(progressReadDeadline)
             );
+            // Consolidation may park a healthy candidate before any browser
+            // observes it. Retire that admission subject while its activity
+            // evidence is still fresh; never forgive an already sampled stall.
+            // Readmission keeps this deadline and still needs a new actual hand.
+            if (gameFormat === 'mtt')
+              pausedCandidates.push(
+                ...retirePausedPreNavigationSubjects(
+                  selection,
+                  after.tableLiveness,
+                  MAX_GAMEPLAY_SILENCE_MS,
+                  Date.now()
+                )
+              );
             for (const baseline of baselines) {
+              if (selection.retired.has(baseline.tableId)) continue;
               const sampled = after.tableLiveness.find(
                 (table) => table.tableId === baseline.tableId
               );
@@ -994,6 +1015,12 @@ async function selectProgressingTournamentTable(
   } catch (error) {
     operationalPollFailure.rethrowIfPresent();
     throw error;
+  } finally {
+    if (pausedCandidates.length)
+      await testInfo.attach(`${gameFormat}-pre-navigation-paused-candidates`, {
+        body: Buffer.from(JSON.stringify({ pausedCandidates, deadline: progressReadDeadline })),
+        contentType: 'application/json',
+      });
   }
   operationalPollFailure.rethrowIfPresent();
 
