@@ -130,7 +130,9 @@ describe('the engine side of the sweep', () => {
     expect(SETTLEMENT).toMatch(/releaseBustedSeat\(horse, 'busted_stop_loss'\)/);
     expect(SETTLEMENT).toMatch(/releaseBustedSeat\(horse, 'busted_unfunded'\)/);
     // The Dealing sweep and Settlement stop at the SAME rule.
-    expect(DEALING).toMatch(/if \(atRebuyStopLoss\(horse\.user_id, currentRebuys\)\)/);
+    expect(DEALING).toMatch(
+      /if \(atRebuyStopLoss\(horse\.user_id, currentRebuys, this\.tableInfo\)\)/
+    );
     expect(DEALING).not.toMatch(/if \(currentRebuys >= 2\)/);
   });
 
