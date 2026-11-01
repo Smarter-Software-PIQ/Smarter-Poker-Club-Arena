@@ -4897,9 +4897,9 @@ export class GameServer {
       // Phase 6: whatever a previous process committed but never finished
       // (LightningHandHost gives up after its budget) is drained once now,
       // then counted for /health and /metrics. One-shot; never recurs.
-      void recoverPendingPostCommitObligations('startup').then(() =>
-        readPendingPostCommitCount('startup')
-      );
+      void recoverPendingPostCommitObligations('startup')
+        .then(() => readPendingPostCommitCount('startup'))
+        .catch((error) => reportError(error, 'GameServer.startup_post_commit_obligations_unread'));
       if (!this.directAdmissionIsCurrent(generation)) return;
 
       // Subscribe before tournament discovery starts. Any action committed
