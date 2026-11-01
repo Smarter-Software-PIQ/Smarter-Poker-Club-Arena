@@ -241,6 +241,8 @@ describe('Horse commitment audit remains in the existing accounting PostgreSQL g
     'scripts/ci/test-horse-daily-counts.py',
     'scripts/ci/test-horse-future-purchase-budget.py',
     'scripts/ci/test-horse-registration-timing.py',
+    'scripts/ci/test-horse-tournament-paying-wallet.py',
+    'tests/sql/fixtures/horse-overlay-risk-before.sql',
     'tests/sql/fixtures/horse-daily-counts/schema.sql',
     'tests/sql/fixtures/horse-daily-counts/add.sql',
     'tests/sql/fixtures/horse-daily-counts/projector-before.sql',
@@ -273,6 +275,8 @@ describe('Horse commitment audit remains in the existing accounting PostgreSQL g
 
   it.each([
     'scripts/ci/test-horse-commitment-audit.py.example',
+    'scripts/ci/test-horse-tournament-paying-wallet.py.example',
+    'tests/sql/fixtures/horse-overlay-risk-before-notes.sql',
     'scripts/ci/probes/horse-commitment-audit-other/setup.sql',
     'docs/horse-commitment-audit.md',
   ])('does not admit accounting for an unrelated neighbor: %s', (path) => {

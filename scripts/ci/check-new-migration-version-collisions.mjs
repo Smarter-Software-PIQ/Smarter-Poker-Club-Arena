@@ -46,6 +46,14 @@ export function namingProblems(file) {
         'so the ledger will hold this file under a different version. Use scripts/new-migration.mjs.'
     );
   }
+  // Match the production applier's existing filename contract. A longer
+  // numeric stamp can be unique yet still be impossible to install.
+  if (!stamp && !/^\d{14}_[a-z0-9_]+\.sql$/.test(base)) {
+    problems.push(
+      'a new executable migration must use 14 digits, underscore, lower-case slug, and .sql; ' +
+        'otherwise the production applier refuses the file. Use scripts/new-migration.mjs.'
+    );
+  }
   const m = /^\d+[A-Za-z]*[_-](.*)\.sql$/.exec(base);
   const name = m ? m[1] : base.replace(/\.sql$/, '');
   if (name.length > MAX_MIGRATION_NAME) {
@@ -145,11 +153,15 @@ function main() {
     }
 
     if (misnamed.length > 0) {
-      console.error('[migration-version-collisions] newly added migration name cannot be tied to its ledger row:');
+      console.error(
+        '[migration-version-collisions] newly added migration name cannot be tied to its ledger row:'
+      );
       for (const { path, problems } of misnamed) {
         for (const p of problems) console.error(`  ${path}: ${p}`);
       }
-      console.error('Rename it before it is applied (scripts/new-migration.mjs keeps both rules).');
+      console.error(
+        'Rename it before it is applied (scripts/new-migration.mjs keeps the name and version rules).'
+      );
     }
 
     if (collisions.length > 0) {

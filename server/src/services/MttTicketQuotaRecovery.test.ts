@@ -79,8 +79,8 @@ describe('prestart ticket entry survives a satisfied ordinary funding quota', ()
   );
   it.each([
     { label: 'paid at one hour', amount: 20, minutes: 60, admitted: true },
-    { label: 'freeroll at six hours', amount: 0, minutes: 360, admitted: true },
-    { label: 'freeroll before six hours', amount: 0, minutes: 361, admitted: false },
+    { label: 'freeroll at a full day', amount: 0, minutes: 1440, admitted: true },
+    { label: 'freeroll before a full day', amount: 0, minutes: 1441, admitted: false },
   ])('keeps ticket-only recovery timing for $label', async ({ amount, minutes, admitted }) => {
     const { svc, target, entries } = harness();
     target.buy_in_amount = amount;
