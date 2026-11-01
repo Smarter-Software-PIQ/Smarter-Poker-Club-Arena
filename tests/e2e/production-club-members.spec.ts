@@ -957,7 +957,7 @@ test.describe('Production Kings Club Players', () => {
       await expect(control).toHaveAttribute('aria-pressed', 'true');
     }
     await expect(page.locator('.ps-range__custom input[type="date"]')).toHaveCount(2);
-    await expect(page.locator('.ps-range')).toContainText('Chicago Time, DST Automatic.');
+    await expect(page.locator('.ps-controls')).toContainText('Chicago Time, DST Automatic.');
     await expect(page.getByRole('status', { name: 'Displayed Performance Scope' })).toContainText(
       'Chicago Time'
     );
