@@ -59,3 +59,22 @@ export function allInEquityBoardKey(boards: unknown[]): string {
 export function allInEquityHandMatches(currentHand: number, eventHand: number): boolean {
   return Number.isSafeInteger(currentHand) && currentHand > 0 && eventHand === currentHand;
 }
+
+/** A received result remains bound to its hand while snapshots advance. */
+export function visibleAllInEquities<T extends { handNumber: number; boardKey: string }>(
+  entries: T[],
+  currentHand: number,
+  boardKey: string,
+  squeezeHolding: boolean
+): T[] {
+  return entries.filter(
+    (e) =>
+      allInEquityHandMatches(currentHand, e.handNumber) &&
+      (squeezeHolding || e.boardKey === boardKey)
+  );
+}
+
+/** Preserve zero; unavailable financial-decision equity has no invented fallback. */
+export function insuranceOfferEquity(value: unknown): number | null {
+  return typeof value === 'number' && formatAllInEquity(value) !== null ? value : null;
+}

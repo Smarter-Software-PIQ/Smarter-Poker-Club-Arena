@@ -1,3 +1,4 @@
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import type { FollowTournamentPlayer } from '../utils/followTournamentPlayer';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
@@ -134,8 +135,45 @@ export default function TournamentPage() {
 
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [selectedTournament, setSelectedTournament] = useState<TournamentWithArena | null>(null);
+  // A new visit owns its completions, including A -> B -> A navigation.
+  const selectionKey = `${clubId}:${currentUser.id}:${selectedTournament?.id ?? ''}`;
+  const selectionRef = useRef({ key: selectionKey, controller: new AbortController() });
+  if (selectionRef.current.key !== selectionKey) {
+    selectionRef.current = { key: selectionKey, controller: new AbortController() };
+  }
+  const selectionOwner = selectionRef.current;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (selectionOwner.controller.signal.aborted) selectionOwner.controller = new AbortController();
+    return () => selectionOwner.controller.abort();
+  }, [selectionOwner]);
+  const ownsSelection = (owner: typeof selectionOwner) =>
+    mountedRef.current && selectionRef.current === owner && !owner.controller.signal.aborted;
+  const refreshSelectedTournament = async (owner: typeof selectionOwner, id: string) => {
+    if (!ownsSelection(owner)) return;
+    try {
+      const updated = await runWithRequestDeadline(
+        (signal) => tournamentService.getTournament(id, { throwOnError: true, signal }),
+        { signal: owner.controller.signal }
+      );
+      if (!ownsSelection(owner)) return;
+      if (!updated) throw new Error('Tournament refresh unavailable');
+      setSelectedTournament(updated);
+      setTournaments((previous) => previous.map((row) => (row.id === id ? updated : row)));
+    } catch (error) {
+      if (!ownsSelection(owner)) return;
+      reportError(error, 'TournamentPage.refreshSelectedTournament');
+      toast.error('Tournament Details Could Not Be Refreshed.');
+    }
+  };
   /** Tables in the selected RUNNING tournament (see the live pane below). */
-  const [tourneyTables, setTourneyTables] = useState<
+  const [tableRows, setTableRows] = useState<
     Array<{
       id: string;
       name: string | null;
@@ -146,22 +184,33 @@ export default function TournamentPage() {
       big_blind: number | null;
     }>
   >([]);
+  const [tableOwner, setTableOwner] = useState<typeof selectionOwner | null>(null);
+  const [tableReadState, setTableReadState] = useState<'loading' | 'ready' | 'unknown'>('loading');
+  const tourneyTables = tableOwner === selectionOwner ? tableRows : [];
+  const tablesState = tableOwner === selectionOwner ? tableReadState : 'loading';
   const [filter, setFilter] = usePlayerPreference<TournFilter>('TournamentPage:filter', 'all');
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
+  const membershipRevision = useRef(0);
   const [isOwner, setIsOwner] = useState(false);
   const [isInUnion, setIsInUnion] = useState(false);
   const [canRebuyNow, setCanRebuyNow] = useState(false);
   const [canAddOnNow, setCanAddOnNow] = useState(false);
-  const [isProcessingRebuy, setIsProcessingRebuy] = useState(false);
+  const addOnEligibilityRevision = useRef(0);
+  const [processingOwner, setProcessingOwner] = useState<object | null>(null);
+  const processingRef = useRef<{ owner: typeof selectionOwner; token: object } | null>(null);
+  const isProcessingRebuy =
+    processingRef.current?.owner === selectionOwner &&
+    processingOwner === processingRef.current.token;
   /** One immutable token for one visible rebuy offer. A failed request keeps
    * this token so a retry can only replay the same purchase. */
-  const rebuyPromptTokenRef = useRef<string | null>(null);
+  const rebuyPromptTokenRef = useRef<{ owner: typeof selectionOwner; token: string } | null>(null);
   const beginRebuyPrompt = useCallback((): string => {
-    if (rebuyPromptTokenRef.current) return rebuyPromptTokenRef.current;
+    if (rebuyPromptTokenRef.current?.owner === selectionRef.current)
+      return rebuyPromptTokenRef.current.token;
     const token = uuid();
-    rebuyPromptTokenRef.current = token;
+    rebuyPromptTokenRef.current = { owner: selectionRef.current, token };
     return token;
   }, []);
   const endRebuyPrompt = useCallback(() => {
@@ -227,10 +276,7 @@ export default function TournamentPage() {
     );
   }, []);
 
-  // Keep ref in sync with state
-  useEffect(() => {
-    selectedTournamentRef.current = selectedTournament;
-  }, [selectedTournament]);
+  selectedTournamentRef.current = selectedTournament;
 
   // Opening an offer mints its token before the player confirms. Closing it or
   // changing its player/tournament identity retires that token first.
@@ -306,7 +352,8 @@ export default function TournamentPage() {
     setIsInUnion(false);
     setCanRebuyNow(false);
     setCanAddOnNow(false);
-    setIsProcessingRebuy(false);
+    processingRef.current = null;
+    setProcessingOwner(null);
     setVisibleTournaments(new Set());
     loadingRef.current = false;
   }, [clubId]);
@@ -530,6 +577,7 @@ export default function TournamentPage() {
 
   // ─── Sync registration state when selected tournament changes ───
   useEffect(() => {
+    const revision = ++membershipRevision.current;
     if (!selectedTournament || !currentUser.id || currentUser.id === 'guest') {
       setIsRegistered(false);
       return;
@@ -543,7 +591,7 @@ export default function TournamentPage() {
           .eq('tournament_id', selectedTournament.id)
           .eq('user_id', currentUser.id)
           .maybeSingle();
-        if (isMounted) setIsRegistered(!!data);
+        if (isMounted && revision === membershipRevision.current) setIsRegistered(!!data);
       } catch (e) {
         reportError(e, 'TournamentPage.Registration_sync_error');
       }
@@ -579,27 +627,11 @@ export default function TournamentPage() {
         club_id: (selectedTournament as any).club_id ?? null,
         status: selectedTournament.status,
       },
-      () => {
+      async () => {
+        if (!ownsSelection(selectionOwner)) return;
+        membershipRevision.current += 1;
         setIsRegistered(true);
-        const prizeContribution = Math.round(Number(selectedTournament.buy_in_amount) || 0);
-        setTournaments((prev) =>
-          prev.map((t) =>
-            t.id === selectedTournament.id
-              ? {
-                  ...t,
-                  current_players: (t.current_players || 0) + 1,
-                  prize_pool: (t.prize_pool || 0) + prizeContribution,
-                }
-              : t
-          )
-        );
-        if (selectedTournament) {
-          setSelectedTournament({
-            ...selectedTournament,
-            current_players: (selectedTournament.current_players || 0) + 1,
-            prize_pool: (selectedTournament.prize_pool || 0) + prizeContribution,
-          });
-        }
+        await refreshSelectedTournament(selectionOwner, selectedTournament.id);
       }
     );
   };
@@ -608,13 +640,10 @@ export default function TournamentPage() {
     if (!selectedTournament || !clubId) return;
     try {
       await tournamentService.startTournament(selectedTournament.id);
-      // Refresh
-      const data = await tournamentService.getTournaments(clubId);
-      applyTournaments(data);
-      const updated = data.find((t) => t.id === selectedTournament.id);
-      if (updated) setSelectedTournament(updated);
+      await refreshSelectedTournament(selectionOwner, selectedTournament.id);
     } catch (error) {
-      toast.error('Failed to start: ' + (error as Error).message);
+      if (ownsSelection(selectionOwner))
+        toast.error('Failed to start: ' + (error as Error).message);
     }
   };
 
@@ -703,13 +732,16 @@ export default function TournamentPage() {
         currentUser.id
       );
 
+      if (!ownsSelection(selectionOwner)) return;
+      membershipRevision.current += 1;
       setIsRegistered(false);
       // The database owns the exact pool, bounty, fee and wallet/ticket split.
       // Realtime refreshes the tournament row; this page must not reconstruct
       // financial state from a mutable buy-in display value.
       toast.success(tournamentUnregisterSuccessText(result));
     } catch (error) {
-      toast.error('Unregister failed: ' + (error as Error).message);
+      if (ownsSelection(selectionOwner))
+        toast.error('Unregister failed: ' + (error as Error).message);
     }
   };
 
@@ -717,6 +749,7 @@ export default function TournamentPage() {
   useEffect(() => {
     let isMounted = true;
     async function checkRebuyAddOn() {
+      const revision = ++addOnEligibilityRevision.current;
       if (!selectedTournament || !currentUser.id || currentUser.id === 'guest') {
         if (isMounted) {
           setCanRebuyNow(false);
@@ -741,6 +774,7 @@ export default function TournamentPage() {
         ]);
         if (!isMounted) return;
         setCanRebuyNow(rebuyCheck.allowed);
+        if (revision !== addOnEligibilityRevision.current) return;
         setCanAddOnNow(
           addOnCheck.allowed && !mine.error && String(mine.data?.status ?? '') === 'playing'
         );
@@ -918,12 +952,49 @@ export default function TournamentPage() {
                animation; the lobby's dead half-wiring is gone. */
             break;
 
-          case 'ADDON_PERIOD_START':
-            setCanAddOnNow(true);
-            toast.success('Add-on period now available');
+          case 'ADDON_PERIOD_START': {
+            const revision = ++addOnEligibilityRevision.current;
+            setCanAddOnNow(false);
+            // The event opens a window, not an entitlement for every observer.
+            void runWithRequestDeadline(
+              async (signal) => {
+                const [addOnCheck, mine] = await Promise.all([
+                  tournamentService.canAddOn(selectedTournament.id),
+                  supabase
+                    .from('tournament_players')
+                    .select('status')
+                    .eq('tournament_id', selectedTournament.id)
+                    .eq('user_id', currentUser.id)
+                    .abortSignal(signal)
+                    .maybeSingle(),
+                ]);
+                return addOnCheck.allowed && !mine.error && mine.data?.status === 'playing';
+              },
+              { signal: selectionOwner.controller.signal }
+            )
+              .then((allowed) => {
+                if (
+                  !alive ||
+                  !ownsSelection(selectionOwner) ||
+                  revision !== addOnEligibilityRevision.current
+                )
+                  return;
+                setCanAddOnNow(allowed);
+                if (allowed) toast.success('Add-on period now available');
+              })
+              .catch((error) => {
+                if (
+                  alive &&
+                  ownsSelection(selectionOwner) &&
+                  revision === addOnEligibilityRevision.current
+                )
+                  reportError(error, 'TournamentPage.AddOn_eligibility_refresh');
+              });
             break;
+          }
 
           case 'ADDON_PERIOD_END':
+            addOnEligibilityRevision.current += 1;
             setCanAddOnNow(false);
             toast.info('Add-on period has ended');
             break;
@@ -958,12 +1029,14 @@ export default function TournamentPage() {
       alive = false;
       masterBus.removeRegisteredChannel(channelKey);
     };
-  }, [selectedTournament?.id, toast]);
+  }, [selectedTournament?.id, toast, selectionOwner]);
 
   // Handle Rebuy
   const handleRebuy = async () => {
-    if (!selectedTournament) return;
-    setIsProcessingRebuy(true);
+    if (!selectedTournament || processingRef.current?.owner === selectionOwner) return;
+    const operation = { owner: selectionOwner, token: {} };
+    processingRef.current = operation;
+    setProcessingOwner(operation.token);
     try {
       const clientToken = beginRebuyPrompt();
       const result = await tournamentService.processRebuy(
@@ -971,43 +1044,55 @@ export default function TournamentPage() {
         currentUser.id,
         clientToken
       );
+      if (!ownsSelection(selectionOwner)) return;
       if (result.success) {
         toast.success(`Rebuy successful! New stack: ${result.newStack?.toLocaleString()}`);
         endRebuyPrompt();
         setCanRebuyNow(false);
         // Refresh tournament
-        const updated = await tournamentService.getTournament(selectedTournament.id);
-        if (updated) setSelectedTournament(updated);
+        await refreshSelectedTournament(selectionOwner, selectedTournament.id);
       } else {
         toast.error('Rebuy failed');
       }
     } catch (error) {
+      if (!ownsSelection(selectionOwner)) return;
       // Maintenance break refusal is definitive (2026-10-16).
       toast.error(platformFrozenMessage(error) ?? 'Rebuy failed: ' + (error as Error).message);
+    } finally {
+      if (processingRef.current === operation) {
+        processingRef.current = null;
+        if (ownsSelection(selectionOwner)) setProcessingOwner(null);
+      }
     }
-    setIsProcessingRebuy(false);
   };
 
   // Handle Add-On
   const handleAddOn = async () => {
-    if (!selectedTournament) return;
-    setIsProcessingRebuy(true);
+    if (!selectedTournament || processingRef.current?.owner === selectionOwner) return;
+    const operation = { owner: selectionOwner, token: {} };
+    processingRef.current = operation;
+    setProcessingOwner(operation.token);
     try {
       const result = await tournamentService.processAddOn(selectedTournament.id, currentUser.id);
+      if (!ownsSelection(selectionOwner)) return;
       if (result.success) {
         toast.success(`Add-on successful! New stack: ${result.newStack?.toLocaleString()}`);
         setCanAddOnNow(false);
         // Refresh tournament
-        const updated = await tournamentService.getTournament(selectedTournament.id);
-        if (updated) setSelectedTournament(updated);
+        await refreshSelectedTournament(selectionOwner, selectedTournament.id);
       } else {
         toast.error('Add-on failed');
       }
     } catch (error) {
+      if (!ownsSelection(selectionOwner)) return;
       // Maintenance break refusal is definitive (2026-10-16).
       toast.error(platformFrozenMessage(error) ?? 'Add-on failed: ' + (error as Error).message);
+    } finally {
+      if (processingRef.current === operation) {
+        processingRef.current = null;
+        if (ownsSelection(selectionOwner)) setProcessingOwner(null);
+      }
     }
-    setIsProcessingRebuy(false);
   };
 
   const filteredTournaments = useMemo(() => {
@@ -1088,33 +1173,46 @@ export default function TournamentPage() {
   // events costs nothing extra.
   useEffect(() => {
     const t = selectedTournament;
-    if (!t || t.status !== 'RUNNING') {
-      setTourneyTables([]);
-      return;
-    }
-    let cancelled = false;
+    setTableOwner(selectionOwner);
+    setTableRows([]);
+    setTableReadState('loading');
+    if (!t || t.status !== 'RUNNING') return;
+    const controller = new AbortController();
+    let busy = false;
     const load = async () => {
+      if (busy || controller.signal.aborted) return;
+      busy = true;
       try {
-        const { data, error } = await supabase
-          .from('tables')
-          .select('id, name, status, current_players, max_players, small_blind, big_blind')
-          .eq('tournament_id', t.id)
-          .order('name', { ascending: true });
+        const { data, error } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .from('tables')
+              .select('id, name, status, current_players, max_players, small_blind, big_blind')
+              .eq('tournament_id', t.id)
+              .order('name', { ascending: true })
+              .abortSignal(signal),
+          { signal: controller.signal }
+        );
         if (error) throw error;
-        if (!cancelled) setTourneyTables(data || []);
-      } catch (e) {
-        if (!cancelled) reportError(e, 'TournamentPage.loadTournamentTables');
+        if (!Array.isArray(data)) throw new Error('Tournament tables unavailable');
+        if (controller.signal.aborted || !ownsSelection(selectionOwner)) return;
+        setTableRows(data);
+        setTableReadState('ready');
+      } catch (error) {
+        if (controller.signal.aborted || !ownsSelection(selectionOwner)) return;
+        reportError(error, 'TournamentPage.loadTournamentTables');
+        setTableReadState('unknown');
+      } finally {
+        busy = false;
       }
     };
-    load();
-    // Tables merge and break as the field shrinks; 20s tracks that without
-    // hammering the lobby.
+    void load();
     const iv = setInterval(load, 20_000);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearInterval(iv);
     };
-  }, [selectedTournament]);
+  }, [selectionOwner, selectedTournament?.status]);
 
   /* ═══════════════════════════════════════════════════════════════════════════
      THE LIVE PANE'S RANKING BOARD
@@ -1736,9 +1834,18 @@ export default function TournamentPage() {
 
               <div className="tourney-live-section">
                 <h3 className="tourn-heading sc-ink--silver">Tables ({tourneyTables.length})</h3>
+                {tablesState === 'unknown' && (
+                  <p className="tourney-live-empty sc-copy sc-copy--center">
+                    Tables Could Not Be Refreshed.
+                  </p>
+                )}
                 {tourneyTables.length === 0 ? (
                   <p className="tourney-live-empty sc-copy sc-copy--center">
-                    No Tables Running Yet.
+                    {tablesState === 'loading'
+                      ? 'Loading The Tables.'
+                      : tablesState === 'unknown'
+                        ? 'Table Availability Is Unknown.'
+                        : 'No Tables Running Yet.'}
                   </p>
                 ) : (
                   <div className="tourn-rows">

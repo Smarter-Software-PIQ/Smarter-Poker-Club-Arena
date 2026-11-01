@@ -1041,31 +1041,48 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             // LATEST whatever its state (bustOrder.ts). Keeping the earliest
             // pending hand ranked a player by an orphan the 2026-09-08/09 rebuy
             // chain left behind, a day before the bust the door records.
-            // PostgREST truncates a response at its row cap without saying so,
-            // so the exact match count comes back with the rows and a short
-            // read is an unreadable order (knockoutCandidateReadIsComplete).
-            // Forty players would need more than 25 generations each to reach
-            // the default cap of 1000.
-            const {
-              data: bustHands,
-              error: bustHandsErr,
-              count: bustHandsCount,
-            } = await supabase
-              .from('tournament_knockout_candidates')
-              .select(
-                'id, eliminated_user_id, hand_number, stack_before, state, created_at, rebuy_prompt_until',
-                { count: 'exact' }
-              )
-              .eq('tournament_id', this.tournamentId)
-              .in('eliminated_user_id', userIds)
-              .order('hand_number', { ascending: false });
+            // Rebuys have no generation ceiling. Page the complete history by
+            // immutable id, then bind by hand number below. Exact per-page
+            // counts also refuse a silently shortened transport response.
+            const bustHistory = await fetchAllRows<Record<string, unknown>>(
+              async (cursor, pageSize) => {
+                let query = supabase
+                  .from('tournament_knockout_candidates')
+                  .select(
+                    'id, eliminated_user_id, hand_number, stack_before, state, created_at, rebuy_prompt_until',
+                    { count: 'exact' }
+                  )
+                  .eq('tournament_id', this.tournamentId)
+                  .in('eliminated_user_id', userIds)
+                  .order('id', { ascending: true })
+                  .limit(pageSize);
+                if (cursor) query = query.gt('id', cursor);
+                const { data, error, count } = await query;
+                const expected =
+                  typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
+                    ? Math.min(count, pageSize)
+                    : null;
+                return {
+                  data,
+                  error:
+                    error ??
+                    (knockoutCandidateReadIsComplete(data, expected)
+                      ? null
+                      : new Error('incomplete knockout history page')),
+                };
+              },
+              {
+                label: 'Tournament.bustOrder',
+                pageAttempts: 1,
+                shouldContinue: () => !sweepStopped(),
+              }
+            );
             if (sweepStopped()) return;
-            if (bustHandsErr || !knockoutCandidateReadIsComplete(bustHands, bustHandsCount)) {
+            if (!bustHistory.complete) {
               reportError(
-                bustHandsErr ??
-                  new Error(
-                    `[Tournament:${this.tournamentId.slice(0, 8)}] knockout generations read ${bustHands?.length ?? 0} of ${bustHandsCount ?? 'an unknown number of'} rows; the bust order is not known`
-                  ),
+                new Error(
+                  `[Tournament:${this.tournamentId.slice(0, 8)}] knockout history is incomplete; the bust order is not known`
+                ),
                 'Tournament.bust_order_unreadable'
               );
               this.requestUrgentEliminationSweepAfter(
@@ -1073,6 +1090,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               );
               return;
             }
+            const bustHands = bustHistory.rows;
             for (const [uid, bust] of bindLatestKnockoutCandidates(bustHands ?? [])) {
               bustHandNumbers.set(uid, bust.handNumber);
               bustStartingStacks.set(uid, bust.stackBefore);
@@ -2150,6 +2168,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 if (this.handForHandActive) {
                   this.handForHandActive = false;
                   this.stopHandForHandSync();
+                  if (!this.isOnBreak() && !this.successorDrainRequested) {
+                    for (const engine of this.tableEngines.values()) engine.resumeDealing();
+                  }
                   this.noteEliminationSweepStep('broadcast');
                   await this.broadcast('bubble_burst', {
                     playersRemaining: playingNow,
@@ -2157,9 +2178,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                     reason: 'satellite_has_no_awards',
                   });
                   if (sweepStopped()) return;
-                  if (!this.isOnBreak() && !this.successorDrainRequested) {
-                    for (const engine of this.tableEngines.values()) engine.resumeDealing();
-                  }
                 }
                 break handForHandStage;
               }
@@ -2212,13 +2230,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 console.log(
                   `[Tournament:${this.tournamentId.slice(0, 8)}] HAND-FOR-HAND - ${playingNow} players, paid through place ${payoutCount}`
                 );
-                this.noteEliminationSweepStep('broadcast');
-                await this.broadcast('hand_for_hand', {
-                  active: true,
-                  playersRemaining: playingNow,
-                  paidPositions: payoutCount,
-                });
-                if (sweepStopped()) return;
                 // A current break already parks these tables with its longer budget.
                 if (!this.isOnBreak()) {
                   for (const engine of this.tableEngines.values()) {
@@ -2227,6 +2238,15 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 }
                 // Start hand-for-hand sync check
                 this.startHandForHandSync();
+                // Gameplay custody is synchronous; announcement transport cannot
+                // leave fast tables dealing while the bubble waits for delivery.
+                this.noteEliminationSweepStep('broadcast');
+                await this.broadcast('hand_for_hand', {
+                  active: true,
+                  playersRemaining: playingNow,
+                  paidPositions: payoutCount,
+                });
+                if (sweepStopped()) return;
               }
             } else if (this.handForHandActive && playingNow <= payoutCount) {
               // Bubble burst — resume normal play
@@ -2235,9 +2255,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               console.log(
                 `[Tournament:${this.tournamentId.slice(0, 8)}] BUBBLE BURST - ${playingNow} players ITM`
               );
-              this.noteEliminationSweepStep('broadcast');
-              await this.broadcast('bubble_burst', { playersRemaining: playingNow });
-              if (sweepStopped()) return;
               // The bubble does not own an overlapping mystery activation.
               // Keep every table parked until its chest inventory is sealed.
               if (
@@ -2249,6 +2266,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                   engine.resumeDealing();
                 }
               }
+              this.noteEliminationSweepStep('broadcast');
+              await this.broadcast('bubble_burst', { playersRemaining: playingNow });
+              if (sweepStopped()) return;
             }
           }
         }
@@ -4685,11 +4705,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
    * announced as the top mystery bounty. The pre-phase ladder was removed on
    * 2026-10-05; `bounty_collected` carries no rank.
    *
-   * THE TOP SLICE. The read is ordered largest-first and capped, rather than
-   * pulling a whole field. PostgREST caps an uncapped select at 1,000 rows in
-   * an unspecified order, so ordering makes the slice the TOP of the ladder by
-   * construction: a prize outside it comes back ranked past the end of it,
-   * which every consumer reads as "not the top three".
+   * Read the complete tier aggregate, not a slice of individual chests:
+   * duplicate top amounts can fill that slice and hide lower distinct rungs.
+   * The existing inventory RPC aggregates all statuses in one snapshot.
    *
    * The chest's rung, in CENTS, against the inventory seeded at activation.
    *
@@ -4701,16 +4719,19 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
    */
   private async chestPrizeRank(amountCents: number | undefined): Promise<number | undefined> {
     try {
-      const { data } = await supabase
-        .from('tournament_bounty_chests')
-        .select('amount_cents')
-        .eq('tournament_id', this.tournamentId)
-        .order('amount_cents', { ascending: false })
-        .limit(200);
-
-      const ladder = buildPrizeLadder(
-        ((data ?? []) as Array<{ amount_cents: unknown }>).map((r) => r.amount_cents)
-      );
+      const { data, error } = await supabase.rpc('fn_mystery_bounty_inventory', {
+        p_tournament_id: this.tournamentId,
+      });
+      const tiers = (data as { tiers?: unknown } | null)?.tiers;
+      if (error || !Array.isArray(tiers)) return undefined;
+      const amounts: number[] = [];
+      for (const tier of tiers) {
+        const amount = (tier as { amount_cents?: unknown } | null)?.amount_cents;
+        if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount <= 0)
+          return undefined;
+        amounts.push(amount);
+      }
+      const ladder = buildPrizeLadder(amounts);
       const rank = prizeRankOf(amountCents, ladder);
       return rank > 0 ? rank : undefined;
     } catch {
@@ -5716,12 +5737,32 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
 
       if (this.satelliteQualifierBoundaryPending) {
         const generation = this.satelliteQualifierBoundaryGeneration;
-        const { data: tables, error } = await supabase
-          .from('tables')
-          .select('id')
-          .eq('tournament_id', this.tournamentId)
-          .in('status', ['running', 'waiting']);
-        if (error || !tables?.length) return 'pending';
+        const currentBoundary = () =>
+          this.isRunning() &&
+          !isMaintenanceFrozen() &&
+          this.eliminationMutationAllowed() &&
+          generation === this.satelliteQualifierBoundaryGeneration;
+        const inventory = await fetchAllRows<{ id: string }>(
+          (cursor, pageSize) => {
+            let query = supabase
+              .from('tables')
+              .select('id')
+              .eq('tournament_id', this.tournamentId)
+              .in('status', ['running', 'waiting'])
+              .order('id', { ascending: true })
+              .limit(pageSize);
+            if (cursor !== null) query = query.gt('id', cursor);
+            return query;
+          },
+          {
+            label: 'Tournament.satellite_boundary_tables',
+            pageAttempts: 1,
+            shouldContinue: currentBoundary,
+          }
+        );
+        if (!inventory.complete || !currentBoundary() || inventory.rows.length === 0)
+          return 'pending';
+        const tables = inventory.rows;
         const owned = tables.map((table: { id: string }) => ({
           tableId: table.id,
           engine: this.tableEngines.get(table.id),

@@ -8,6 +8,8 @@ import { useGameSessionLifecycle } from '../hooks/useGameSessionLifecycle';
 import {
   allInEquityBoardKey,
   allInEquityHandMatches,
+  visibleAllInEquities,
+  insuranceOfferEquity,
   validAllInEquityEntries,
 } from '../lib/allInEquityDisplay';
 import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
@@ -5948,6 +5950,7 @@ function LiveTablePage({
      TOURNAMENT"). '' until the tournament row has been read. */
   const [tournamentEventName, setTournamentEventName] = useState('');
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
+  const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
   const [spinHeadsUpNote, setSpinHeadsUpNote] = useState(false);
   const spinPlayersRemaining = tableState.players.filter(
     (player) => player && String(player.status) !== 'eliminated'
@@ -9743,7 +9746,8 @@ function LiveTablePage({
       username: string;
       equity: number;
       seat: number;
-      boardKey?: string;
+      handNumber: number;
+      boardKey: string;
       exact?: boolean;
     }>
   >([]);
@@ -9766,6 +9770,7 @@ function LiveTablePage({
       const eq = allInEquities.find(
         (e) =>
           e.userId === pid &&
+          allInEquityHandMatches(tableState.handNumber ?? 0, e.handNumber) &&
           e.boardKey ===
             allInEquityBoardKey([
               tableState.communityCards,
@@ -9787,6 +9792,7 @@ function LiveTablePage({
     ritAcceptedIds,
     ritChooserId,
     tableState.players,
+    tableState.handNumber,
     tableState.communityCards,
     tableState.communityCards2,
     tableState.communityCards3,
@@ -9932,9 +9938,12 @@ function LiveTablePage({
   ]);
   // Until this street's exact answer arrives, never label it with the prior
   // street's chance. A viewer still squeezing keeps the intentional prior view.
-  const displayedEquities = squeezeHolding
-    ? heldEquities
-    : heldEquities.filter((e) => e.boardKey === undefined || e.boardKey === liveEquityBoardKey);
+  const displayedEquities = visibleAllInEquities(
+    heldEquities,
+    tableState.handNumber ?? 0,
+    liveEquityBoardKey,
+    squeezeHolding
+  );
 
   // FIX-232: Ref for cards_pre_sort to avoid stale closure in hole card callbacks
   const cardsPreSortRef = useRef(v8Settings.cards_pre_sort);
@@ -12960,10 +12969,19 @@ function LiveTablePage({
         // Find the offer for the current hero player
         const heroOffer = serverOffers.find((o: any) => o.playerId === userId);
         if (heroOffer) {
+          const equityPercent = insuranceOfferEquity(heroOffer.equity);
+          if (equityPercent === null) {
+            setInsuranceOffer(null);
+            setShowInsurance(false);
+            setInsuranceWaitingOn(null);
+            setDecisionDeadline((prev) => (prev?.kind === 'insurance' ? null : prev));
+            reportError(new Error('Invalid Insurance Equity'), 'TablePage.insurance_offer_equity');
+            return;
+          }
           // Map server offer format to InsuranceModal's InsuranceOffer format
           setInsuranceOffer({
             maxCoverage: heroOffer.fullInsuredAmount || heroOffer.insuredAmount || 0,
-            equityPercent: heroOffer.equity || 50,
+            equityPercent,
             premiumRate:
               heroOffer.fullPremium && heroOffer.fullInsuredAmount
                 ? heroOffer.fullPremium / heroOffer.fullInsuredAmount
@@ -13869,6 +13887,7 @@ function LiveTablePage({
           setAllInEquities(
             equities.map((e) => ({
               ...e,
+              handNumber: equityHand,
               boardKey,
               equity: e.equityRaw ?? e.equity,
               exact: handState.exact === true && e.equityRaw !== undefined,
@@ -15965,6 +15984,11 @@ function LiveTablePage({
                   const fmt = tournamentFormatRef.current;
                   const tid = fmt === 'mtt' ? tableStateRef.current.tournamentId : null;
                   const ftName = tableStateRef.current.tableName || 'Tournament';
+                  // The owner can receive an ambiguous transport reply after
+                  // delivery. Claim presentation before async roster reads so
+                  // replay cannot restart the celebration or duplicate its toast.
+                  if (!tid || finalTableAnnouncedRef.current.has(tid)) return;
+                  finalTableAnnouncedRef.current.add(tid);
                   if (tid) {
                     setTableState((prev) => ({ ...prev, isFinalTable: true }));
                     (async () => {

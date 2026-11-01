@@ -130,18 +130,24 @@ export async function retainHandContinuation(
     p_sha256: encoded.sha256,
   });
   const row = result.data as Record<string, unknown> | null;
-  if (
-    !current() ||
-    result.error ||
-    !row ||
-    row.ok !== true ||
-    row.table_id !== original.table_id ||
-    row.hand_number !== original.hand_number ||
-    row.sequence !== String(batch.sequence) ||
-    row.sha256 !== encoded.sha256 ||
-    row.writer_generation !== writerGeneration
-  )
-    throw new Error('Hand Continuation Write Is Unproven');
+  // Closed labels and a five-character SQLSTATE only. Never retain the error
+  // object/message, receipt values or private capsule as diagnostic context.
+  // Keep the original refusal and retry classification: SQLSTATE is text here,
+  // not Error.code/cause, which would change the dealer's transient policy.
+  const unproven = (reason: string) => new Error(`Hand Continuation Write Is Unproven [${reason}]`);
+  if (!current()) throw unproven('owner_changed');
+  if (result.error) {
+    const code = (result.error as { code?: unknown }).code;
+    const sqlstate = typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? code : 'unknown';
+    throw unproven(`transport_error sqlstate=${sqlstate}`);
+  }
+  if (!row) throw unproven('receipt_missing');
+  if (row.ok !== true) throw unproven('receipt_not_ok');
+  if (row.table_id !== original.table_id) throw unproven('receipt_table_id');
+  if (row.hand_number !== original.hand_number) throw unproven('receipt_hand_number');
+  if (row.sequence !== String(batch.sequence)) throw unproven('receipt_sequence');
+  if (row.sha256 !== encoded.sha256) throw unproven('receipt_sha256');
+  if (row.writer_generation !== writerGeneration) throw unproven('receipt_writer_generation');
 }
 
 export async function claimHandContinuation(

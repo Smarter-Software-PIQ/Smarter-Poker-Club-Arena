@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   allInEquityBoardKey,
+  visibleAllInEquities,
+  insuranceOfferEquity,
   allInEquityHandMatches,
   formatAllInEquity,
   validAllInEquityEntries,
@@ -55,5 +57,28 @@ describe('all-in probabilities never invent endpoints', () => {
       [a, { ...b, equity: 101 }],
     ])
       expect(validAllInEquityEntries(field)).toBe(false);
+  });
+});
+
+describe('all-in result lifetime and insurance truthfulness', () => {
+  it('never carries the prior hand through a snapshot change, including a squeeze', () => {
+    const old = { handNumber: 17, boardKey: 'flop', equity: 18 };
+    expect(visibleAllInEquities([old], 18, 'flop', false)).toEqual([]);
+    expect(visibleAllInEquities([old], 18, 'turn', true)).toEqual([]);
+    expect(visibleAllInEquities([old], 0, 'flop', false)).toEqual([]);
+  });
+  it('holds the same hand until its squeezed card is revealed, then requires its board', () => {
+    const flop = { handNumber: 17, boardKey: 'flop', equity: 18 };
+    expect(visibleAllInEquities([flop], 17, 'turn', true)).toEqual([flop]);
+    expect(visibleAllInEquities([flop], 17, 'turn', false)).toEqual([]);
+    const turn = { handNumber: 17, boardKey: 'turn', equity: 0 };
+    expect(visibleAllInEquities([turn], 17, 'turn', false)).toEqual([turn]);
+  });
+  it('preserves insurance zero and refuses missing or malformed equity instead of inventing 50%', () => {
+    expect(insuranceOfferEquity(0)).toBe(0);
+    expect(insuranceOfferEquity(100)).toBe(100);
+    expect(insuranceOfferEquity(0.001)).toBe(0.001);
+    for (const value of [undefined, null, NaN, Infinity, -1, 101, '50'])
+      expect(insuranceOfferEquity(value)).toBeNull();
   });
 });

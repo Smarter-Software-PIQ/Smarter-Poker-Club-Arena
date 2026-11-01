@@ -620,3 +620,14 @@ schema filters. Its separate credential-free C result contract exercises batch
 boundaries, excluded objects, malformed/error/missing/extra results, ordinal
 mismatch and interruption. These checks do not certify production capture,
 full-schema restoration, connected tournament/RIT cases or live behavior.
+
+### Bounded snapshot-reader overlap
+
+After metadata safety and snapshot export, the native transport proof completes
+before either full reader starts. The canonical catalogue and role queries keep
+their serial order on the exporting read-only transaction while the native dump
+imports that same snapshot on its separate read-only connection. Both readers
+must complete before rollback or private output. The first closed failure stage
+owns the receipt; failure cancels and drains the sibling, including native
+SIGINT/bounded SIGKILL handling. The original45-second whole-capture deadline,
+full catalogue/ACL/digest checks, schema output and diagnostic bounds remain.

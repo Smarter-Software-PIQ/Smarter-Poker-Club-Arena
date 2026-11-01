@@ -1,0 +1,690 @@
+{
+  "schemaVersion": 1,
+  "source": "unfinished-started-posthold-20261101T0041.json",
+  "sourceSha256": "82eab1ed183c85fba0045ac6dd29cd499e219ad1221a87b01a034d9833733e93",
+  "observedAt": "2026-11-01 00:41:32.469812+00",
+  "holdOperationId": "db3aa18f-9e00-4d71-924a-649af0e3df5c",
+  "reason": "Owner requested closure of all unfinished started tournaments and equal distribution of remaining prize money among remaining players, preserving earned payments and history.",
+  "members": [
+    {
+      "tournamentId": "0903a95a-d53e-41f5-955f-6ea8c2150cf1",
+      "operationId": "170fcc59-2856-5d43-8920-ffa6b373f0a5"
+    },
+    {
+      "tournamentId": "095d7449-3282-46c5-8a39-768fe14dce5a",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "0cb8e80f-4031-4b72-bbd6-f076605f1575",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "0d98f87e-65bb-483c-b34d-0cc6af4a4e29",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "0ef3dbfb-c092-4008-b7bd-bde65a474e83",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "0fc27b7b-4290-4e73-8680-9791e021f114",
+      "operationId": "12b8f9d4-0e17-579b-a19d-6e53ad956bb1"
+    },
+    {
+      "tournamentId": "10146b16-aaac-4606-a2aa-7bbc3863b750",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "112ea67a-3885-4755-84cc-5f8523d3f82c",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "11615efe-bd76-4f8d-807c-f1f22bf345f9",
+      "operationId": "71d6aa23-921b-5503-8211-14566d51ec78"
+    },
+    {
+      "tournamentId": "120ffb44-a3e6-4691-a52c-450768a09056",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "1294ab27-2191-484c-aa3e-98192de09e44",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "135b187e-c096-483a-b347-10be69df956b",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "15202cb0-648c-4583-a6f9-9512a6e678c6",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "16761305-83ad-4282-be72-5b9cb2dd88bc",
+      "operationId": "12cc90ca-05b9-5a9b-bac8-31cac7c60e37"
+    },
+    {
+      "tournamentId": "19349646-5d29-4e79-a65d-c01be5c0a7e6",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "19486d1f-2959-41e5-9268-5e0908e0d356",
+      "operationId": "ae07daa2-59ab-52f2-9b61-7ecda18e2094"
+    },
+    {
+      "tournamentId": "197ed0bd-8fdb-4897-b001-dfe902139f9c",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "19cf1192-d926-4042-a13c-67eca5ebf9a3",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "19d83ee0-03ed-4603-b4f0-2d5a944c7f15",
+      "operationId": "d4bd4eb6-8937-526b-ba71-bf1845c5d957"
+    },
+    {
+      "tournamentId": "2305ddd2-58af-43fb-9089-567108e4ca77",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "2577a6f8-aecc-4d0c-a5fb-ec9770cd368d",
+      "operationId": "b41f9f93-f579-51ed-9e9b-7cf2988f312c"
+    },
+    {
+      "tournamentId": "26ebb662-63bf-4bc5-9ac8-962bc5ad8849",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "2781bcd7-cc8a-4713-ab3e-0d0a81fdf110",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "27b49998-863d-44f7-8f11-f38d4de476b8",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "285f2f51-13ec-412a-b8fb-68b5a1d4896c",
+      "operationId": "7d8b1f31-e236-547f-b843-bd89f980b72b"
+    },
+    {
+      "tournamentId": "28fd0051-32fa-408d-950e-3a556c5979b2",
+      "operationId": "4523b4a2-6106-583f-9e5b-4d297292ac9f"
+    },
+    {
+      "tournamentId": "295fbdf9-653b-4389-961b-26bc83589219",
+      "operationId": "bfbed3e6-9c46-50ca-8f38-b04368e8e59e"
+    },
+    {
+      "tournamentId": "2a46d468-818b-447d-a0fc-1b99c6784a7b",
+      "operationId": "d90a9e14-01d7-5354-bf4b-1fb7bce83e25"
+    },
+    {
+      "tournamentId": "30bac12f-028e-4d05-841a-9c900c779850",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "31344262-9b72-4f36-993a-605d13346dbe",
+      "operationId": "1d9bd477-33dd-5f9c-a924-9527b2b638e5"
+    },
+    {
+      "tournamentId": "34f202b3-fc7a-47c8-8216-af34be5f1601",
+      "operationId": "68500f83-2576-5b0f-8552-6e9ec20c2940"
+    },
+    {
+      "tournamentId": "369d46bd-1eba-44bf-a80f-fb19ec980614",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "36c4dd29-99ca-4bc8-b719-416b82036b1f",
+      "operationId": "0b9ad1a2-2e35-5fa1-bbd5-629aaa21bd21"
+    },
+    {
+      "tournamentId": "37b4adc0-f9f4-484e-a914-3c50749055df",
+      "operationId": "2b925cdd-aaa7-4d16-aff9-ef1fa22496f2"
+    },
+    {
+      "tournamentId": "3859e739-513e-4ed5-af23-5a190aa40f46",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "387c6c5a-99db-4f19-b275-78b7dd692ba7",
+      "operationId": "84d7616c-379d-5748-b179-00790008103a"
+    },
+    {
+      "tournamentId": "4163a647-780e-4a5e-910f-ccc0fe5cf218",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "43252be9-fae5-49cc-b84e-84a524a0dc6a",
+      "operationId": "08782a8c-021e-5a64-87bb-e9256c9c66e8"
+    },
+    {
+      "tournamentId": "44126b78-d8cc-4d7b-bfc8-668df7e57363",
+      "operationId": "9380a95e-2652-576c-9ae7-51928fc0b194"
+    },
+    {
+      "tournamentId": "45072749-ed7a-4e27-9891-f21cdd44a20a",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "460f9ef9-54e1-4efe-a78b-34b1a78c1252",
+      "operationId": "1ac8b873-2b82-5051-9781-7a5018faed11"
+    },
+    {
+      "tournamentId": "46ba2e7c-c9f8-42b6-b416-d7342a676531",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "4908686b-aade-485e-b16f-a473a9ccdbca",
+      "operationId": "e61b76ce-66c0-5eb7-804f-79da95da10ab"
+    },
+    {
+      "tournamentId": "4b7f3840-cc55-49b7-acd0-57216a89d044",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "4d88fc8c-a6d7-4e93-8cb6-ac45acb4e35d",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "4dfe400c-c942-41df-9e6b-bbd8336c9cf7",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "4e2cc712-8773-4d00-8927-6319153bddf4",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "4e52ea42-1bcc-4bfb-874e-c8cd1f7f2b71",
+      "operationId": "c039d0c5-e7b9-509c-9f2d-86f8065f4014"
+    },
+    {
+      "tournamentId": "53bf479c-1d5a-4736-ad42-3d202eafa424",
+      "operationId": "22ec614f-2b3a-5dbe-a633-2ac7bf7694b3"
+    },
+    {
+      "tournamentId": "54abdabf-d625-4785-9b0e-099037446189",
+      "operationId": "0a7a56f1-d85c-5bd0-b8c5-51bb446183e5"
+    },
+    {
+      "tournamentId": "551125c0-4129-4f28-b174-caedb576cd99",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "5638ff13-7d12-4a54-b784-4f309792db60",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "573be3e0-014c-42e8-99ff-fca9c27f792d",
+      "operationId": "d0a25be6-b8a3-55ec-8652-c959c306d410"
+    },
+    {
+      "tournamentId": "57af2978-595b-41b8-b302-d68de81c0c3a",
+      "operationId": "c8405dfd-cead-50ba-a376-d41a0ac9751f"
+    },
+    {
+      "tournamentId": "5a3e686c-8a9e-4c7c-b2c3-829c6a1ce096",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "5b375b94-4385-4620-bbe3-ce83c99a10b2",
+      "operationId": "3f3ad848-1fe5-50ee-bff6-c058a2d78c2b"
+    },
+    {
+      "tournamentId": "5e251560-2752-4fff-8718-e180af44701f",
+      "operationId": "6cd4c02b-541d-58ca-a3a5-a040e3a37e89"
+    },
+    {
+      "tournamentId": "5ef9868a-03d3-4d3b-bc92-41c63bd8b10c",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "5fe299ba-60cc-4381-b491-6fa6dca7f2e5",
+      "operationId": "d02bf818-3291-53fb-a911-234b32b0b657"
+    },
+    {
+      "tournamentId": "6336bb0b-40b5-413d-bbcf-45b473467866",
+      "operationId": "026c32c3-c34d-514d-9875-0ece92a71217"
+    },
+    {
+      "tournamentId": "6379b29e-1307-4e8b-91e7-e9a0975cd64d",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "6429087f-a9d1-49a3-b7cf-85e1ee283ac9",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "644379fb-3252-412a-a843-378a77470790",
+      "operationId": "01be3a8a-ff69-5bfe-bb80-d9dec97170ff"
+    },
+    {
+      "tournamentId": "64599cc4-03bb-4f1d-8df7-ef610abe10af",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "65701c35-2ab3-4111-a0f0-0307f792985c",
+      "operationId": "1a42f78b-e4d8-52ae-81ac-26576d8207b4"
+    },
+    {
+      "tournamentId": "68383ed0-4d25-46e9-8f7c-abcc317272c4",
+      "operationId": "fd7ecebf-740b-518a-932b-5c9568b6e08b"
+    },
+    {
+      "tournamentId": "68af0f95-82f5-4047-b424-6780a4236f4d",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "6acde8fb-5631-4320-965d-bf9dbf01c4d8",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "6c6724e5-1ee4-40c0-ad21-44e9f9b6d800",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "6d047305-e5ac-4200-803f-399c83cf76f3",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "6f25fd3f-b96a-40be-b32b-e9f8a39c22e8",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "745cdddd-4fca-4fc2-8ca7-0717043331ea",
+      "operationId": "55976323-029d-57a3-917d-dd766bc26743"
+    },
+    {
+      "tournamentId": "760269af-0bef-4aa3-ba13-dcd74b0d1246",
+      "operationId": "803933b1-3a7c-503a-b9ae-1d64e94974b3"
+    },
+    {
+      "tournamentId": "768cb55b-e915-4a01-9c74-f97535f700a3",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "77b81eb2-038a-4205-909b-bc6b56c61810",
+      "operationId": "83bf6834-6ff7-520d-95c4-e05d05f1936b"
+    },
+    {
+      "tournamentId": "7850aedc-640b-4905-b9e1-61d75d9543d0",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "78d24c32-683a-42fa-8d7a-b5cf6dadf251",
+      "operationId": "7ea582b3-0ecc-5d3c-9224-2d5a32615e79"
+    },
+    {
+      "tournamentId": "78ed8458-4ffd-416a-a8fd-d0f0c5e3509e",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "7932d2bb-7cfb-4b0e-ae99-75fcbae82d52",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "7986217a-0a67-4585-bd43-254356a9cb54",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "7ab02286-fa29-44a2-a64f-0cb3d60ca572",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "7de6c45c-ac37-4c32-a22a-4faea11d6cfa",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "7e6ec833-ac48-460f-8f26-7f821ea8642d",
+      "operationId": "980225f2-a1d2-576b-833b-3194a74c7d7c"
+    },
+    {
+      "tournamentId": "8000bf14-609e-4d3a-8242-51944af49f9f",
+      "operationId": "b0893bb1-2498-5df7-a730-0aad0a9e2bc5"
+    },
+    {
+      "tournamentId": "80861496-ee6c-498e-bae4-4d6acd8381c2",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "809ce667-3e17-46b9-9808-50532ab4b22b",
+      "operationId": "f0661946-b514-5962-9fcf-6f380cc669b1"
+    },
+    {
+      "tournamentId": "8229a0af-3c5a-4672-b9df-3d8523613086",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "83d66653-e765-4cb8-943e-0ac3d510ad06",
+      "operationId": "35109279-e158-59e3-aa23-3fb39734031c"
+    },
+    {
+      "tournamentId": "856ac893-dd11-424d-911f-9740cbcba65f",
+      "operationId": "96f725e7-f8e5-5248-a932-7e3eabdadbb5"
+    },
+    {
+      "tournamentId": "85bec2f4-0aa8-42b8-8799-d9d3acff2275",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "8855c50e-c4ed-4235-91c1-323627023b15",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "8aae8210-0444-455f-97f6-19a3a072eda0",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "8b33a780-1dc9-471d-ae46-7ac64aa8b032",
+      "operationId": "20125724-886f-545a-bcf3-b2b496af5d91"
+    },
+    {
+      "tournamentId": "8b7cc4f1-b7d8-48f9-b3da-b15dff5cbed3",
+      "operationId": "b62e4193-3dc3-574f-88d4-47a3100a28d1"
+    },
+    {
+      "tournamentId": "8d8a5ecf-29c6-49e7-82fa-3109b6681fb6",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "90fc40a9-0f76-4835-a1e9-5c487f32b2c8",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "92440036-84f9-4b30-ab50-961f30d1ccce",
+      "operationId": "191b9280-65df-5d22-8cc1-cd12bb8b88da"
+    },
+    {
+      "tournamentId": "928dc47d-14b8-4721-9990-a5ccfd57a41e",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "94beb183-6b2a-4dbf-b1ea-556bf9681124",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "95760eed-827d-4502-8be6-cfb8ec610e1b",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "960df894-fdb4-4080-8ff2-2c3303eba868",
+      "operationId": "8ec68bd2-fbb4-5879-9399-ae8bb4bc0557"
+    },
+    {
+      "tournamentId": "962cb5ce-3255-4ac3-9672-769752b4d169",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "97b69931-4644-4e90-8f50-b70b9a247715",
+      "operationId": "ce49e075-6cdf-58a1-a265-f3f57651b850"
+    },
+    {
+      "tournamentId": "99a36007-9deb-4049-9c0c-9b2418e55515",
+      "operationId": "a2764256-fc3b-578a-b22b-9d9aec12b77b"
+    },
+    {
+      "tournamentId": "9b0e7b08-17ad-46ad-be00-9745f788cdd3",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "9b23a2ec-d514-457f-ac61-fc80722068ad",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "a3a40a12-5c91-4931-a74a-433db73c4856",
+      "operationId": "01f06f9f-3221-5ae5-b00e-cfddd01f1903"
+    },
+    {
+      "tournamentId": "a3e9d95e-9f0a-4b6b-9652-f6c697baadac",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "a54bdd4f-26b8-47c5-aa24-2c2b97b14015",
+      "operationId": "407dc27c-1042-56dd-962e-67cd6a720c81"
+    },
+    {
+      "tournamentId": "a89ae676-2f98-4714-90e4-cbee7eeb9db5",
+      "operationId": "7954e2c7-1df6-5ac2-8697-478e8bbf9e78"
+    },
+    {
+      "tournamentId": "a9dcca84-ab41-4492-8312-bb614aed67a9",
+      "operationId": "1d692351-1fac-58f2-8a96-a306e9bfd3b6"
+    },
+    {
+      "tournamentId": "aba4d197-0811-4ab1-a7b2-13351548c4c0",
+      "operationId": "847f9047-aaf8-50b2-bf9d-e1f3d0193984"
+    },
+    {
+      "tournamentId": "af274f83-0cf1-4f76-846d-76cdce65f2fa",
+      "operationId": "24283393-0c08-58c8-9b35-9b21e02ed998"
+    },
+    {
+      "tournamentId": "af4e1102-9ff5-4803-b3d0-5b74486935f5",
+      "operationId": "d6fb548b-bd27-5b18-a803-f3e473a56615"
+    },
+    {
+      "tournamentId": "b2870f16-db00-4820-a2d7-b5fc76e627ab",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "b5babffa-cfc5-46ec-98b1-698e139dd5df",
+      "operationId": "486f680f-5ea7-5539-879a-f025a03c3499"
+    },
+    {
+      "tournamentId": "b6435b76-7225-4d40-87fe-52f3a9d4521e",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "b67b1975-f8cb-417b-87f9-9910c8290178",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "b8484257-68b3-4961-aad3-4b096bb7c7b5",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "bab7002d-4e6c-4845-a6e0-af16a35a70cc",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "be27c5a4-8282-4dd1-8881-fe1145a94b5e",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "bed32f92-c2e5-485e-aa90-5ff62bdfd325",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "bf050b4a-afd3-43d4-82f4-5eab0983d490",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "bfad9be3-52f8-4f08-863b-cb8790ab4b75",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "c2835ddc-d3b6-4b91-9e1b-895028435b3c",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "c39cbdb3-53da-40aa-a58b-dd4baff8304c",
+      "operationId": "b5789a22-9216-5293-94c1-98c5163831cd"
+    },
+    {
+      "tournamentId": "c3d83ade-5446-4771-ba8b-27267b153ed7",
+      "operationId": "7b952a00-c913-5f91-873e-56fcd289e50c"
+    },
+    {
+      "tournamentId": "c48b7118-a0e5-4b33-98df-79dcf29f15af",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "c49f8482-fb86-46e3-ac63-b3b3ef5cd6d7",
+      "operationId": "c354be00-7e9f-533f-9e0e-610a93f88fa8"
+    },
+    {
+      "tournamentId": "c527b1c9-e9cc-4968-8f6c-e0d62b5de0a5",
+      "operationId": "96c6343f-f492-59b1-b3ac-3f8eb1546bd9"
+    },
+    {
+      "tournamentId": "c685ebb7-954d-4a38-a26d-9c23c23600a4",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "cac66082-1e22-4037-b700-6b5513350285",
+      "operationId": "e4bc5e9a-a8ed-5c49-9fe2-46e1cde82206"
+    },
+    {
+      "tournamentId": "cc73fe07-8ab2-4282-9ba6-633563de2fec",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "d110fd05-846e-46c1-adca-a2e515e95144",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "d380a511-6b02-4cc1-b310-c87f64794c59",
+      "operationId": "f5732279-babd-5398-a941-cdfb35246d67"
+    },
+    {
+      "tournamentId": "d4fe7c06-14eb-4ded-a2fd-07a57559f2dd",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "d5decc98-cd0f-417f-aa28-6df009a74c76",
+      "operationId": "59374492-3591-5e40-b894-146568358b43"
+    },
+    {
+      "tournamentId": "d8b96746-98a8-444f-a779-76904bbca946",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "d9393e4e-63da-4a5b-8571-fbbf9654ad1a",
+      "operationId": "fb9646f9-c5ab-55a2-ba2a-253cf2e819da"
+    },
+    {
+      "tournamentId": "da7a898e-2cae-4446-946e-29636b5428f6",
+      "operationId": "3907fe87-f9f1-59f2-be86-c2494b3ce06d"
+    },
+    {
+      "tournamentId": "dbaca4cd-8959-427d-8b91-2d97310e6fd6",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "dcffef19-4c19-4c5a-b433-d043d3641bc9",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "deaa61a7-0553-4c81-a178-e9ba822a1ba2",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "debf5e04-6f4d-4858-88a0-84b6fe1ba598",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "e287e6b9-630d-4f2e-a205-d21841a490d8",
+      "operationId": "b182897f-d83b-5017-aa9f-172e1a9eddba"
+    },
+    {
+      "tournamentId": "e33e9b45-6d39-495b-88f7-3b9ff1ee1b82",
+      "operationId": "ada35d2a-0f3d-5dd9-bc5a-06ac1705c8b4"
+    },
+    {
+      "tournamentId": "e507f99a-fc33-45f7-9f7a-60f2793d3876",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "e57cff90-854f-4e04-9064-1b03a8039364",
+      "operationId": "84bb4183-d215-5b2a-8298-3890bf9192b5"
+    },
+    {
+      "tournamentId": "e9e505d4-13ed-48ee-b7bf-1bdbb28cc8f2",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "eb484eea-c4ae-4457-9032-23dd8408e902",
+      "operationId": "8bc71a69-6883-5065-b88b-7f63b46ec7f8"
+    },
+    {
+      "tournamentId": "eb82f8d7-53b9-4e2a-9fd5-c2b76ec73d19",
+      "operationId": "b43b91e4-d1d6-5067-af30-0f5efb54b25b"
+    },
+    {
+      "tournamentId": "eb916895-36f9-49e9-a364-486ad4555744",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "ec05c0ac-6ebb-4b16-870c-edef337bf214",
+      "operationId": "29dd1d6e-97f0-5008-a395-f85f6e976a82"
+    },
+    {
+      "tournamentId": "ee2f9772-3c29-49c1-8ed4-20edcd8f0eab",
+      "operationId": "5c8f5cc6-3751-5a2c-bc66-04b9291d7033"
+    },
+    {
+      "tournamentId": "ef75f627-1f29-4729-97cd-9988495b49f1",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "f3d25327-13ee-40d1-8677-4990a8cc74e0",
+      "operationId": "90bf436e-5f75-5a95-86cf-c05070f8817d"
+    },
+    {
+      "tournamentId": "f4c2dd81-58d7-4a11-99de-da923b70d5f7",
+      "operationId": "3d4bed03-02b0-5862-a61e-894cd0fd3e62"
+    },
+    {
+      "tournamentId": "f5125035-0e03-4c2f-8cd0-6903b3fb8bd5",
+      "operationId": "ce54ba81-2a84-5e79-9d22-ac55daba04a1"
+    },
+    {
+      "tournamentId": "f55d1faf-380b-4aeb-a0bf-e0151531dab5",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "f7fdbfd5-18a4-4e05-909f-147332f7abc9",
+      "operationId": "9cd5f49f-e361-5763-93cf-aa65be185ddb"
+    },
+    {
+      "tournamentId": "f8ac4637-6469-48a2-bfbb-904b6dccf7fa",
+      "operationId": "58bade86-12d1-5ac3-94f3-7c972cbca80d"
+    },
+    {
+      "tournamentId": "f9006bab-1a31-4999-8bc2-e6d04cec31d3",
+      "operationId": "d19fa0e1-84b9-5d07-a393-a07a8bf2ccce"
+    },
+    {
+      "tournamentId": "fac51189-3bcc-4bd6-b5b5-34316c034edb",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "fcb7f99f-b43e-4043-88ad-4ed13c17d40a",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "fdfcadfd-4044-4696-874d-5ec50cf93a48",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "fe9145bb-acc1-4a51-97d1-e473d3c39c6e",
+      "operationId": "d44c4440-2911-430c-8ee7-376611ef3f38"
+    },
+    {
+      "tournamentId": "ff1ec3f2-f2f2-46d6-b30e-e9ef612532b1",
+      "operationId": "d12d4e40-ac78-5350-82bc-56359113278d"
+    },
+    {
+      "tournamentId": "ff302eb0-0a32-4200-9a6f-f14b1668fbdc",
+      "operationId": "876bc46b-b3b1-55c4-a0ff-ea565e17d92f"
+    },
+    {
+      "tournamentId": "ff769dcb-bc43-4c5d-88f9-126b9e9580ba",
+      "operationId": "18cc526b-86d9-5aac-91b9-bd66567bae47"
+    },
+    {
+      "tournamentId": "ff83fd35-a6d9-4111-a4dd-849f574264bc",
+      "operationId": "cd5390e1-36b2-5284-bad0-ceebdf9fff4f"
+    }
+  ]
+}

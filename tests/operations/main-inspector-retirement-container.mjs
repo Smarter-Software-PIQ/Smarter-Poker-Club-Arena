@@ -167,6 +167,8 @@ WebSocket.prototype.send = function(bytes) {
   const discoveryObservation = `
 const fixtureHttpNative = process.getBuiltinModule('node:http');
 const fixtureHttpGet = fixtureHttpNative.get;
+const fixtureNetNative = process.getBuiltinModule('node:net');
+const fixtureNetCreateConnection = fixtureNetNative.createConnection;
 let fixtureClaimAckSeen = false, fixtureCloseSent = false;
 let fixtureInitialDiscovery = 0, fixturePostAckDiscovery = 0;
 process.stdin.prependListener('data', () => { fixtureClaimAckSeen = true; });
@@ -177,6 +179,21 @@ fixtureHttpNative.get = function(...args) {
   else fixtureInitialDiscovery++;
  }
  return fixtureHttpGet.apply(this, args);
+};
+fixtureNetNative.createConnection = function(...args) {
+ const socket = fixtureNetCreateConnection.apply(this, args);
+ const options = args[0];
+ if(options?.host === '127.0.0.1' && options.port === 9229) {
+  const write = socket.write;
+  socket.write = function(bytes, ...rest) {
+   if(typeof bytes === 'string' && bytes.startsWith('GET /json/list HTTP/1.1\\r\\n') && !fixtureCloseSent) {
+    if(fixtureClaimAckSeen) fixturePostAckDiscovery++;
+    else fixtureInitialDiscovery++;
+   }
+   return write.call(this, bytes, ...rest);
+  };
+ }
+ return socket;
 };
 process.getBuiltinModule('node:module').syncBuiltinESMExports();
 const fixtureObservedSend = WebSocket.prototype.send;

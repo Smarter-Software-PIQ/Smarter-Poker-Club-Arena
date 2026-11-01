@@ -1,0 +1,735 @@
+[
+  {
+    "relation": "smarter_private.hand_submissions",
+    "columns": [
+      {
+        "name": "submission_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "table_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "hand_number",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "instance_id",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "lease_generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "request",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "request_hash",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "retained_at",
+        "type": "timestamp with time zone",
+        "default": "clock_timestamp()",
+        "notnull": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "hand_submissions_hand_number_check",
+        "definition": "CHECK ((hand_number > 0))"
+      },
+      {
+        "name": "hand_submissions_instance_id_check",
+        "definition": "CHECK ((length(btrim(instance_id)) > 0))"
+      },
+      {
+        "name": "hand_submissions_pkey",
+        "definition": "PRIMARY KEY (submission_id)"
+      },
+      {
+        "name": "hand_submissions_request_check",
+        "definition": "CHECK ((jsonb_typeof(request) = 'object'::text))"
+      },
+      {
+        "name": "hand_submissions_request_hash_check",
+        "definition": "CHECK ((request_hash ~ '^[0-9a-f]{64}$'::text))"
+      },
+      {
+        "name": "hand_submissions_table_id_hand_number_key",
+        "definition": "UNIQUE (table_id, hand_number)"
+      }
+    ]
+  },
+  {
+    "relation": "smarter_private.hand_submission_dispositions",
+    "columns": [
+      {
+        "name": "table_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "hand_number",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "permit_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      },
+      {
+        "name": "disposition",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "submission_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      }
+    ],
+    "constraints": [
+      {
+        "name": "hand_submission_dispositions_check",
+        "definition": "CHECK (((disposition = 'retained'::text) = (submission_id IS NOT NULL)))"
+      },
+      {
+        "name": "hand_submission_dispositions_disposition_check",
+        "definition": "CHECK ((disposition = ANY (ARRAY['retained'::text, 'disposed'::text])))"
+      },
+      {
+        "name": "hand_submission_dispositions_hand_number_check",
+        "definition": "CHECK ((hand_number > 0))"
+      },
+      {
+        "name": "hand_submission_dispositions_permit_id_key",
+        "definition": "UNIQUE (permit_id)"
+      },
+      {
+        "name": "hand_submission_dispositions_pkey",
+        "definition": "PRIMARY KEY (table_id, hand_number)"
+      }
+    ]
+  },
+  {
+    "relation": "smarter_private.hand_continuations",
+    "columns": [
+      {
+        "name": "table_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "hand_number",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "tournament_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "permit_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "original_generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "writer_generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "sequence",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "payload",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "payload_sha256",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": "clock_timestamp()",
+        "notnull": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": "clock_timestamp()",
+        "notnull": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "hand_continuations_hand_number_check",
+        "definition": "CHECK ((hand_number > 0))"
+      },
+      {
+        "name": "hand_continuations_payload_check",
+        "definition": "CHECK ((octet_length(payload) <= 1048576))"
+      },
+      {
+        "name": "hand_continuations_payload_sha256_check",
+        "definition": "CHECK ((payload_sha256 ~ '^[a-f0-9]{64}$'::text))"
+      },
+      {
+        "name": "hand_continuations_permit_id_key",
+        "definition": "UNIQUE (permit_id)"
+      },
+      {
+        "name": "hand_continuations_pkey",
+        "definition": "PRIMARY KEY (table_id, hand_number)"
+      },
+      {
+        "name": "hand_continuations_sequence_check",
+        "definition": "CHECK ((sequence >= 0))"
+      }
+    ]
+  },
+  {
+    "relation": "smarter_private.hand_continuation_dispositions",
+    "columns": [
+      {
+        "name": "table_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "hand_number",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "disposition",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "hand_continuation_dispositions_disposition_check",
+        "definition": "CHECK ((disposition = ANY (ARRAY['retained'::text, 'disposed'::text])))"
+      },
+      {
+        "name": "hand_continuation_dispositions_pkey",
+        "definition": "PRIMARY KEY (table_id, hand_number)"
+      }
+    ]
+  },
+  {
+    "relation": "smarter_private.tournament_abort_recoveries",
+    "columns": [
+      {
+        "name": "tournament_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "operation_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "recovery_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "owner_instruction",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "instance_id",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "lease_generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "release_sha",
+        "type": "text",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "freeze_started_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "ownership_token",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "original_target",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "original_custody",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "money_snapshot",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "recorded_at",
+        "type": "timestamp with time zone",
+        "default": "clock_timestamp()",
+        "notnull": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "tournament_abort_recoveries_pkey",
+        "definition": "PRIMARY KEY (tournament_id)"
+      },
+      {
+        "name": "tournament_abort_recoveries_release_sha_check",
+        "definition": "CHECK ((release_sha ~ '^[0-9a-f]{40}$'::text))"
+      }
+    ]
+  },
+  {
+    "relation": "smarter_private.f06_unsettled_hand_aborts",
+    "columns": [
+      {
+        "name": "receipt_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "tournament_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "table_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "permit_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "hand_number",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "break_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "expected",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "outcome",
+        "type": "text",
+        "default": "'aborted_unsettled'::text",
+        "notnull": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": "clock_timestamp()",
+        "notnull": true
+      },
+      {
+        "name": "retired_lease_generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      }
+    ],
+    "constraints": [
+      {
+        "name": "f06_abort_successor_distinct",
+        "definition": "CHECK (((retired_lease_generation IS NULL) OR (retired_lease_generation <> generation)))"
+      },
+      {
+        "name": "f06_unsettled_hand_aborts_break_id_key",
+        "definition": "UNIQUE (break_id)"
+      },
+      {
+        "name": "f06_unsettled_hand_aborts_outcome_check",
+        "definition": "CHECK ((outcome = 'aborted_unsettled'::text))"
+      },
+      {
+        "name": "f06_unsettled_hand_aborts_permit_id_key",
+        "definition": "UNIQUE (permit_id)"
+      },
+      {
+        "name": "f06_unsettled_hand_aborts_pkey",
+        "definition": "PRIMARY KEY (receipt_id)"
+      },
+      {
+        "name": "f06_unsettled_hand_aborts_table_id_hand_number_key",
+        "definition": "UNIQUE (table_id, hand_number)"
+      },
+      {
+        "name": "f06_unsettled_hand_aborts_tournament_id_generation_key",
+        "definition": "UNIQUE (tournament_id, generation)"
+      }
+    ]
+  },
+  {
+    "relation": "smarter_private.f06_generation_abort_hands",
+    "columns": [
+      {
+        "name": "permit_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "receipt_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "tournament_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "table_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "hand_number",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "snapshot_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      },
+      {
+        "name": "break_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      },
+      {
+        "name": "expected",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "f06_generation_abort_hands_break_id_key",
+        "definition": "UNIQUE (break_id)"
+      },
+      {
+        "name": "f06_generation_abort_hands_pkey",
+        "definition": "PRIMARY KEY (permit_id)"
+      },
+      {
+        "name": "f06_generation_abort_hands_snapshot_or_misdeal",
+        "definition": "CHECK (((snapshot_id IS NOT NULL) OR ((expected ->> 'ruling'::text) = 'misdeal_voided'::text)))"
+      },
+      {
+        "name": "f06_generation_abort_hands_table_id_hand_number_key",
+        "definition": "UNIQUE (table_id, hand_number)"
+      }
+    ]
+  },
+  {
+    "relation": "smarter_private.f06_mixed_abort_hands",
+    "columns": [
+      {
+        "name": "permit_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "receipt_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "tournament_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "table_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "hand_number",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "snapshot_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      },
+      {
+        "name": "break_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      },
+      {
+        "name": "prior_hand_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      },
+      {
+        "name": "prior_abort_receipt_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false
+      },
+      {
+        "name": "expected",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "f06_mixed_abort_hands_break_id_key",
+        "definition": "UNIQUE (break_id)"
+      },
+      {
+        "name": "f06_mixed_abort_hands_check",
+        "definition": "CHECK ((((((snapshot_id IS NOT NULL))::integer + ((prior_hand_id IS NOT NULL))::integer) + ((prior_abort_receipt_id IS NOT NULL))::integer) = 1))"
+      },
+      {
+        "name": "f06_mixed_abort_hands_pkey",
+        "definition": "PRIMARY KEY (permit_id)"
+      },
+      {
+        "name": "f06_mixed_abort_hands_table_id_hand_number_key",
+        "definition": "UNIQUE (table_id, hand_number)"
+      }
+    ]
+  },
+  {
+    "relation": "smarter_private.f06_no_start_continuations",
+    "columns": [
+      {
+        "name": "receipt_id",
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notnull": true
+      },
+      {
+        "name": "break_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "permit_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "tournament_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "table_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "lifecycle",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "hand_number",
+        "type": "bigint",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "original_generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "current_generation",
+        "type": "uuid",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "park",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "permit",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "roster",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "prior_committed",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": "clock_timestamp()",
+        "notnull": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "f06_no_start_continuations_break_id_key",
+        "definition": "UNIQUE (break_id)"
+      },
+      {
+        "name": "f06_no_start_continuations_permit_id_key",
+        "definition": "UNIQUE (permit_id)"
+      },
+      {
+        "name": "f06_no_start_continuations_pkey",
+        "definition": "PRIMARY KEY (receipt_id)"
+      },
+      {
+        "name": "f06_no_start_continuations_table_id_hand_number_key",
+        "definition": "UNIQUE (table_id, hand_number)"
+      }
+    ]
+  }
+]

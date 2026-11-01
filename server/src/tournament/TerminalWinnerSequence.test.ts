@@ -388,10 +388,17 @@ function cohortManager(
     const q: any = {
       select: vi.fn(() => q),
       eq: vi.fn(() => q),
-      in: vi.fn().mockResolvedValue({ data: [{ id: tableId }], error: null }),
+      in: vi.fn(() => q),
+      order: vi.fn(() => q),
+      limit: vi.fn(() => q),
+      gt: vi.fn(() => q),
       // Original-source control has no cohort stage and only sees two live players.
-      then: (resolve: any) =>
-        Promise.resolve({ count: raw.qualifier_ids.length, data: null, error: null }).then(resolve),
+      then: (resolve: any, reject: any) =>
+        Promise.resolve(
+          name === 'tables'
+            ? { data: [{ id: tableId }], error: null }
+            : { count: raw.qualifier_ids.length, data: null, error: null }
+        ).then(resolve, reject),
     };
     expect(['tables', 'tournament_players']).toContain(name);
     return q;

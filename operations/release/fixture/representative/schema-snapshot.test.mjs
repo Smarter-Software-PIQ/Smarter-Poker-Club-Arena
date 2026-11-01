@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
@@ -491,7 +492,7 @@ test('catalogue facade preserves exact canonical/role query arguments and payloa
   assert.deepEqual(normalize(observed.calls),normalize(original.calls));assert.equal(cause.snapshot(),null);
 });
 
-test('first schema query cause survives later savepoint cleanup error and never starts dump', async () => workspace(async root => {
+test('first schema query cause survives later savepoint cleanup error and cancels overlapping dump', async () => workspace(async root => {
   const {Client,calls}=fakeClient();const query=Client.prototype.query;let dumped=false;
   Client.prototype.query=async function(sql){
     if(sql.includes('WITH user_schemas')){calls.push(sql);throw Object.assign(Error('private original'),{code:'57014'});}
@@ -499,13 +500,13 @@ test('first schema query cause survives later savepoint cleanup error and never 
     return query.call(this,sql);
   };
   await assert.rejects(captureSchema({output:path.join(root,'isolated-schema-cause'),
-    env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client,dump:()=>{dumped=true;}}),error=>{
+    env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client,nativeCheck:nativeProof,dump:async(_,__,{signal})=>{dumped=true;await new Promise(resolve=>{if(signal.aborted)resolve();else signal.addEventListener('abort',resolve,{once:true});});throw Error('cancelled sibling');}}),error=>{
       assert.equal(error.captureStage,'catalogue');assert.equal(error.connectionFailure,'NOT_CONNECTION');
       assert.equal(error.catalogueDiagnostic.kind,'QUERY_CANCELLED');assert.equal(error.catalogueDiagnostic.query,'SCHEMA_PAYLOAD');
       assert.equal(error.catalogueDiagnostic.subphase,'schema');assert.ok(error.catalogueDiagnostic.elapsed_ms<=45000);
       assert.ok(!JSON.stringify(error).includes('private'));assert.equal(error.cause,undefined);return true;
     });
-  assert.equal(dumped,false);assert.equal(calls.filter(sql=>sql.includes('WITH user_schemas')).length,1);
+  assert.equal(dumped,true);assert.equal(calls.filter(sql=>sql.includes('WITH user_schemas')).length,1);
   assert.equal(calls.filter(sql=>sql.startsWith('ROLLBACK TO SAVEPOINT')).length,1);
   assert.ok(calls.includes('ROLLBACK'));assert.deepEqual(await readdir(root),[]);
 }));
@@ -532,4 +533,69 @@ test('role failures stay distinct, and first cause/elapsed bounds remain immutab
     await assert.rejects(diagnostic.db.query('unknown private SQL'));
     assert.equal(diagnostic.snapshot().elapsed_ms,null);
   }
+});
+
+
+test('native dump starts while canonical catalogue is held and waits for both before output', {timeout:1000}, async () => workspace(async root=>{
+  const {Client,calls}=fakeClient();const query=Client.prototype.query;
+  let releaseCatalogue, releaseDump, dumpStarted;
+  const started=new Promise(resolve=>{dumpStarted=resolve;});
+  const catalogueGate=new Promise(resolve=>{releaseCatalogue=resolve;});
+  const dumpGate=new Promise(resolve=>{releaseDump=resolve;});
+  Client.prototype.query=async function(sql){if(sql.includes('WITH user_schemas'))await catalogueGate;return query.call(this,sql);};
+  let completed=false;
+  const capture=captureSchema({output:path.join(root,'isolated-schema-overlap'),
+    env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client,nativeCheck:nativeProof,
+    dump:async()=>{dumpStarted();await dumpGate;return prefix+managed+ordinary+footer;}}).then(value=>{completed=true;return value;});
+  await started;
+  assert.equal(completed,false);assert.ok(!calls.includes('ROLLBACK'));assert.deepEqual(await readdir(root),[]);
+  releaseDump();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(completed,false);assert.ok(!calls.includes('ROLLBACK'));assert.deepEqual(await readdir(root),[]);
+  releaseCatalogue();await capture;assert.ok(calls.includes('ROLLBACK'));
+}));
+
+test('dump failure closes and drains a held catalogue and retains the original dump stage', async () => workspace(async root=>{
+  const {Client}=fakeClient();const query=Client.prototype.query;const end=Client.prototype.end;
+  let held,drained=false;
+  const catalogueHeld=new Promise(resolve=>{held=resolve;});
+  let rejectQuery;
+  Client.prototype.query=async function(sql){
+    if(sql.includes('WITH user_schemas')){held();try{await new Promise((_,reject)=>{rejectQuery=reject;});}finally{drained=true;}}
+    return query.call(this,sql);
+  };
+  Client.prototype.end=async function(){rejectQuery?.(Error('cancelled catalogue'));return end.call(this);};
+  await assert.rejects(captureSchema({output:path.join(root,'isolated-schema-drain'),
+    env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client,nativeCheck:nativeProof,
+    dump:async()=>{await catalogueHeld;throw Error('private dump cause');}}),error=>{
+      assert.equal(error.captureStage,'schema-only-dump');assert.equal(drained,true);return true;
+    });
+  assert.deepEqual(await readdir(root),[]);
+}));
+
+test('already aborted dump refuses before starting a child', async()=>{
+  const controller=new AbortController();controller.abort();let spawned=false;
+  await assert.rejects(dumpSnapshot(databaseConfiguration(fixtureURL),'00000003-0000001B-1',{
+    signal:controller.signal,spawnProcess:()=>{spawned=true;throw Error('must not spawn');}}),/CAPTURE_REFUSED/);
+  assert.equal(spawned,false);
+});
+
+
+test('external abort drains an actual child with partial output before rejecting', async()=>{
+  const controller=new AbortController();let child,closed=false;
+  const spawnProcess=()=>{
+    child=spawn(process.execPath,['-e',"process.stdout.write('private partial');setInterval(()=>{},1000)"],
+      {env:{},stdio:['ignore','pipe','pipe']});
+    child.stdout.once('data',()=>controller.abort());
+    child.once('close',()=>{closed=true;});
+    return child;
+  };
+  await assert.rejects(dumpSnapshot(databaseConfiguration(fixtureURL),'00000003-0000001B-1',{
+    spawnProcess,deadlineMs:3000,signal:controller.signal}),error=>{
+      assert.equal(closed,true);assert.equal(error.dumpDiagnostic.kind,'CANCELLED');
+      assert.equal(error.dumpDiagnostic.cancellation.child_close_observed,true);
+      assert.equal(error.dumpDiagnostic.cancellation.sigint_attempted,true);
+      assert.ok(!JSON.stringify(error).includes('private partial'));return true;
+    });
+  assert.throws(()=>process.kill(child.pid,0),{code:'ESRCH'});
+  controller.abort(); // A late abort cannot signal a retired child.
 });

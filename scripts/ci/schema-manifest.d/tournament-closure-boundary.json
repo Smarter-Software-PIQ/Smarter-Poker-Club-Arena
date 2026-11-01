@@ -1,0 +1,11 @@
+{
+  "_owner": "fix/tournament-closure-boundary-01a193b0",
+  "_comment": "Explicit stopped-original archival cancellation with retained images and serialized late writers.",
+  "functions": [
+    "fn_ca_cancel_tournament_abort_unsettled_hand",
+    "smarter_private.tournament_abort_hand_image",
+    "smarter_private.assert_tournament_abort_absence",
+    "smarter_private.tournament_abort_archived_write_guard"
+  ],
+  "tables": ["smarter_private.tournament_abort_hand_dispositions"]
+}
