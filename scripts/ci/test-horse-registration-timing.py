@@ -9,7 +9,7 @@ if __import__('sys').platform=='darwin' and not str(BASE).startswith('/Volumes/S
     raise RuntimeError('Use task-owned external SSD scratch')
 ENV={k:v for k,v in os.environ.items() if not k.startswith('PG')}
 MIGRATION='20261028195328_horse_scheduled_mtt_purchases_begin_ten_minutes_before_start.sql'
-FOLLOWUP_MIGRATION='20261101060819_horse_mtt_freerolls_build_hours_ahead_paid_events_begin_one_hour.sql'
+FOLLOWUP_MIGRATION='20261101060819_horse_mtt_free_six_hours_paid_one_hour.sql'
 def main():
     passed=[]
     def check(label,ok):
