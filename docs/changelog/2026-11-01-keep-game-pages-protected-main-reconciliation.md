@@ -20,3 +20,5 @@ ubuntu-latest. Restore its two exact protected-main identity-check postimages,
 superseding this branch's earlier all-shards24.04 expectation. Keep the same
 reporter, job, run, attempt, checkout, finite budgets and every wrong-identity
 refusal. This is source-route alignment, not a financial execution or receipt.
+
+Protected main 195b3c6872a0c7df34155b07ef7bbf236e9cee05 adds the natural add-on observer. Preserve its selector, exact engine pin, dedicated artifact and mutual exclusion; combine the two declared outputs and admission branches. All 61 focused workflow/certificate tests pass. Every incoming path other than the combined post-deploy workflow remains byte-identical to protected main. The original fixed two-browser mode is unchanged.
