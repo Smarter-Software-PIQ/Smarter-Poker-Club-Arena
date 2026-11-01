@@ -6,7 +6,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PG_BIN="${PG_BIN:?Set PG_BIN to PostgreSQL 17 binaries}"
 WORK="$(mktemp -d "${FEE_REDEMPTION_SCRATCH:?Set an external SSD scratch path on macOS}/fee-redemption.XXXXXX")"
 FIXTURE="$ROOT/scripts/ci/fixtures/player-fee-redemption"
+restore_fixture_clock() {
+  if [ -f "$WORK/restore-now.sql" ]; then
+    "${PSQL[@]}" -f "$WORK/restore-now.sql"
+    rm "$WORK/restore-now.sql"
+  fi
+}
 cleanup() {
+  restore_fixture_clock || true
   "$PG_BIN/pg_ctl" -D "$WORK/data" -m immediate stop >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -36,15 +43,44 @@ SHARE=("$ROOT"/supabase/migrations/*_a_standing_rake_share_replaces_the_woowoo_c
 test "${#SHARE[@]}" = 1
 test -f "${OUT_OF_BAND[0]}"
 test -f "${SHARE[0]}"
-"${PSQL[@]}" -f "$FIXTURE/rake-share-out-of-band.sql" -f "${OUT_OF_BAND[0]}" -f "$FIXTURE/rake-share-lag.sql"
+# Replay the historical cutover at its recorded day, not a drifting seven-day
+# boundary. This changes only this disposable database's zero-argument clock;
+# the original builtin definition is restored normally and by the EXIT trap.
+"${PSQL[@]}" -At -c "SELECT pg_get_functiondef('pg_catalog.now()'::regprocedure)" > "$WORK/restore-now.sql"
+"${PSQL[@]}" <<'FIXTURE_CLOCK'
+CREATE OR REPLACE FUNCTION pg_catalog.now() RETURNS timestamptz LANGUAGE sql STABLE PARALLEL SAFE AS $$ SELECT timestamptz '2026-10-25 12:00:00+00' $$;
+DO $$ BEGIN ASSERT now() = timestamptz '2026-10-25 12:00:00+00', 'historical fixture clock not installed'; END $$;
+FIXTURE_CLOCK
+# THE REPLAY READS THE CLOCK THE MIGRATION WAS INSTALLED UNDER (2026-10-31).
+# Its proof compares a seven-day window that starts at now() - 7 days with
+# cron splits filtered from that day's UTC midnight. The fixture's hands are
+# fixed on Oct 24-25, so a replay failed whenever now() - 7 days fell between
+# a fixture hand and the end of that hand's UTC day (first seen 23:00Z Oct 31,
+# blocking every pull request's required accounting check). The migration,
+# its lag fixture and its assertions are replayed as of its own install moment
+# (version 20261025030629), byte-for-byte otherwise; nothing outside this
+# section and no recorded migration file is changed.
+SHARE_CLOCK="${RAKE_SHARE_REPLAY_CLOCK:-2026-10-25 03:06:29+00}"
+pin_share_clock() {
+  python3 -c 'import sys; src=open(sys.argv[1]).read(); assert "now()" in src or sys.argv[3]=="optional"; open(sys.argv[2],"w").write(src.replace("now()", "\x27"+sys.argv[4]+"\x27::timestamptz"))' "$1" "$2" "${3:-required}" "$SHARE_CLOCK"
+}
+pin_share_clock "$FIXTURE/rake-share-lag.sql" "$WORK/rake-share-lag.sql"
+"${PSQL[@]}" -f "$FIXTURE/rake-share-out-of-band.sql" -f "${OUT_OF_BAND[0]}" -f "$WORK/rake-share-lag.sql"
 # The cron trails the hands: before the fix KingFish's statistics miss hand D.
 if "${PSQL[@]}" -c "DO \$\$ BEGIN ASSERT (ca_player_rake_stats('47965354-0e56-43ef-931c-ddaab82af765')->>'rake_paid')::numeric=576.77, 'share lags the hands'; END \$\$;" > "$WORK/share-before.log" 2>&1; then
   echo 'FAIL: rake share regression unexpectedly passed before the migration' >&2
   exit 1
 fi
 grep -q 'share lags the hands' "$WORK/share-before.log"
-"${PSQL[@]}" -f "${SHARE[0]}" -f "$FIXTURE/rake-share-assert.sql"
+pin_share_clock "${SHARE[0]}" "$WORK/rake-share-migration.sql"
+pin_share_clock "$FIXTURE/rake-share-assert.sql" "$WORK/rake-share-assert.sql"
+"${PSQL[@]}" -f "$WORK/rake-share-migration.sql" -f "$WORK/rake-share-assert.sql"
 echo 'PASS: the standing rake share replaces the cron; exact, immediate, funded club, ended rule, grants, fixed events kept and no cron writes the redemptions'
+restore_fixture_clock
+"${PSQL[@]}" <<'RESTORED_CLOCK'
+DO $$ BEGIN ASSERT (SELECT l.lanname = 'internal' AND p.prosrc = 'now' FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang WHERE p.oid = 'pg_catalog.now()'::regprocedure), 'builtin clock not restored'; END $$;
+RESTORED_CLOCK
+
 
 # Rake uses the same viewer-calendar population as the Stats overview.
 CALENDAR="$ROOT/scripts/ci/fixtures/rake-calendar"
