@@ -229,8 +229,8 @@
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47227,
-      "sha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319"
+      "bytes": 47264,
+      "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -6102,6 +6102,40 @@
   },
   "closureAwardOrderIntegration20261101": {
     "reason": "Preserve both branch histories, protected mystery-award gate and closure runtime/parser/native qualification. Current source identities only; no historical verdict restamped.",
+    "historicalEvidenceRestamped": false
+  },
+  "fullSessionHandStatsRouting20261031": {
+    "reason": "Add the full-session hand-statistics PostgreSQL runner to the existing required Data Console accounting selection. Additive routing only; every prior qualification command, assertion, financial source, status and historical audit remains unchanged. Current source identity only, not financial/native/live recertification.",
+    "path": "scripts/ci/classify-ci-changes.mjs",
+    "previous": {
+      "bytes": 47227,
+      "sha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319"
+    },
+    "current": {
+      "bytes": 47264,
+      "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
+    },
+    "historicalEvidenceRestamped": false
+  },
+  "fullSessionHandStatsMainIntegration20261101": {
+    "reason": "Compose full-session hand statistics with protected main. Preserve both parent audit histories, all existing qualification commands/assertions and financial statuses. Update only active source identities for the actual integrated files; no historical/native/live certification is restamped.",
+    "currentInputs": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "bytes": 272761,
+        "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+      },
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "bytes": 47264,
+        "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "closureSessionStatsIntegration20261101": {
+    "reason": "Preserve both protected session-statistics and closure audit histories; active input hashes identify integrated source only. No historical qualification verdict changed.",
     "historicalEvidenceRestamped": false
   }
 }

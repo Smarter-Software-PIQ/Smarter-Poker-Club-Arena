@@ -61,7 +61,7 @@ export interface TournamentRankingCardProps {
    * given real stats in #243; this one was left with a place and a number.
    */
   durationSeconds?: number;
-  handsPlayed?: number;
+  handsPlayed?: number | null;
   /**
    * When the session ended, for the banner date. Defaults to now.
    *
@@ -874,8 +874,9 @@ export default function TournamentRankingCard({
               chips, only what place you finished and how much you made." Time
               and hands are neither — they are what you did, and on a Spin they
               are the difference between a cooler and a grind. Rendered only when
-              known, so an older payload shows no empty row. */}
-          {(durationSeconds != null || handsPlayed != null) && (
+              known, so an older payload shows no empty row. A requested durable
+              read passes null while unavailable and keeps an honest placeholder. */}
+          {(durationSeconds != null || handsPlayed !== undefined) && (
             <div className="trc2__session">
               {durationSeconds != null && (
                 <span className="trc2__session-stat">
@@ -885,11 +886,11 @@ export default function TournamentRankingCard({
                   </span>
                 </span>
               )}
-              {handsPlayed != null && (
+              {handsPlayed !== undefined && (
                 <span className="trc2__session-stat">
                   <span className="trc2__session-label sc-ink--blue">Hands</span>
                   <span className="trc2__session-value sc-ink--silver">
-                    {handsPlayed.toLocaleString()}
+                    {handsPlayed?.toLocaleString() ?? '-'}
                   </span>
                 </span>
               )}

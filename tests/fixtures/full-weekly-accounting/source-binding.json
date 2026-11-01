@@ -494,10 +494,10 @@
     "tests/fixtures/legacy-fee-finality/custody-core.sql": "288e953c3b4c75c8eea9e0608a0f2d4b953c4437c9cfe6d50a450a801053d0eb",
     "tests/fixtures/legacy-fee-finality/fn_satellite_transfer_ledger_is_immutable.sql": "51af53e6eb44440aa9901452b42adb4bf3c7ab31ea21cdc1e4e9404c44bea407",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
-    "scripts/ci/classify-ci-changes.mjs": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319",
+    "scripts/ci/classify-ci-changes.mjs": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "dcdaeed167453c4bee20e86f3994a41babf2b256f33582d72511e2b6089f7602",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "6edf61922ba828a8c4b4622068892f4ff275834aea5b0d50164c2dd77259a178",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -516,7 +516,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "ea6e1edaec206d733cd92924410f99c23a8de7d3e05a48774fc3c16bb4901774",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "510bc5aa50eeeb76b8264cc19ff6d7c2248c88f7dacf09471f576a1bc2a4e382",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -7483,6 +7483,41 @@
   },
   "closureAwardOrderIntegration20261101": {
     "reason": "Preserve both branch histories, protected mystery-award gate and closure runtime/parser/native qualification. Current source identities only; no historical verdict restamped.",
+    "historicalEvidenceRestamped": false
+  },
+  "fullSessionHandStatsRouting20261031": {
+    "reason": "Add the new self-only full-session hand statistics PostgreSQL runner to the existing required Data Console accounting selection. Existing routing, financial commands, assertions and historical qualification verdicts are preserved. Current source identity only, not recertification.",
+    "path": "scripts/ci/classify-ci-changes.mjs",
+    "previousSha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319",
+    "currentSha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+    "historicalEvidenceRestamped": false,
+    "bindingChanges": [
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSha256": "e2a09cfcd00786dc91ece866bea8e4f70828ca7bdc05f9c34f789146823e6924",
+        "currentSha256": "2cb1827ac44c5d5445d4f77d1bce5462b6f17a8bd9775ab77d9d986d7c1b37e7"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSha256": "cb69988cd2613f6298044b79adc535658cc67b6cef8f285a1cf46e53de48bd3e",
+        "currentSha256": "1e93f31f48051dd74c2b88f79ccf288a18610263d46171d78e46b67f78473495"
+      }
+    ]
+  },
+  "fullSessionHandStatsMainIntegration20261101": {
+    "reason": "Compose full-session hand statistics with protected main. Preserve both parent audit histories, all existing qualification commands/assertions and financial statuses. Update only active source identities for the actual integrated files; no historical/native/live certification is restamped.",
+    "currentInputs": [
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "bytes": 129955,
+        "sha256": "380ba9ee8b173d05c570837ccd23a3904b4b5c8c76d655e02bc7290f40a6f338"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "closureSessionStatsIntegration20261101": {
+    "reason": "Preserve both protected session-statistics and closure audit histories; active input hashes identify integrated source only. No historical qualification verdict changed.",
     "historicalEvidenceRestamped": false
   }
 }
