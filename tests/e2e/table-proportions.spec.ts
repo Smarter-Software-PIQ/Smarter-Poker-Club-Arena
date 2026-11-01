@@ -849,8 +849,17 @@ const occupiedViewports: Array<[number, number?]> = [
   [652, 996],
 ];
 for (const [width, heightOverride] of occupiedViewports)
-  for (const count of width === 652 ? [9] : heightOverride || width === 1024 ? [6] : [6, 9])
-    test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}`, async ({
+  for (const [count, sceneGroup] of (width === 652
+    ? [9]
+    : heightOverride || width === 1024
+      ? [6]
+      : [6, 9]
+  ).flatMap((count) =>
+    (width === 320 && count === 9 ? ['normal', 'large hands'] : ['all']).map(
+      (sceneGroup) => [count, sceneGroup] as const
+    )
+  ))
+    test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}${sceneGroup === 'all' ? '' : ` (${sceneGroup})`}`, async ({
       page,
     }, testInfo) => {
       // Keep each ring independently bounded on hosted runners while retaining
@@ -999,16 +1008,27 @@ for (const [width, heightOverride] of occupiedViewports)
         [true, 'main'],
         [false, 'none'],
         [true, 'none'],
-        [true, 'mini', 6],
+        [true, 'mini', count === 9 ? 5 : 6],
         [true, 'mini', 5, 'all-in'],
-        [true, 'mini', 6, 'all-in'],
-        [true, 'mini', 6, 'all-shown'],
+        ...(count === 6 ? ([[true, 'mini', 6, 'all-in']] as const) : []),
+        // Nine six-card hands would need 54 hole cards before the board.
+        // Full-ring tournaments can show five-card hands; six-max still
+        // exercises the complete six-card showdown at every viewport.
+        [true, 'mini', count === 9 ? 5 : 6, 'all-shown'],
         [false, 'none', 2, 'scaled-phone'],
       ] as const) {
+        // Split the dense raw-phone cold mounts, preserving every scene and
+        // assertion under the same per-test deadline.
+        if (sceneGroup !== 'all' && villainCards >= 5 !== (sceneGroup === 'large hands')) continue;
         // Both rings exercise every occupied state at every phone width.
         const scaledPhone = state === 'scaled-phone';
         if (scaledPhone && (width !== 600 || count !== 9)) continue;
         if (width > 480 && villainCards < 5 && !scaledPhone) continue;
+        if (villainCards >= 5)
+          expect(
+            count * villainCards + 5,
+            'The complete deal must fit the deck'
+          ).toBeLessThanOrEqual(52);
         await page.setViewportSize({
           width: scaledPhone ? 599 : width,
           height: scaledPhone

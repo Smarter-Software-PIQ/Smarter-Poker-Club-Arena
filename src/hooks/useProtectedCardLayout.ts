@@ -1173,12 +1173,16 @@ export function useProtectedCardLayout(
           }
           return chosen;
         };
-        const compactFacts = compactNine && Boolean(scaler.querySelector('.seat__allin-puck'));
-        const compactSixFacts =
-          compactFacts &&
-          Boolean(
-            scaler.querySelector('.seat__cards--opponent.seat__cards--revealed > :nth-child(6)')
-          );
+        const showdownRows = Array.from(
+          scaler.querySelectorAll('.seat__cards--opponent.seat__cards--revealed')
+        );
+        const compactFullShowdown =
+          compactNine &&
+          showdownRows.length === 8 &&
+          showdownRows.every((row) => row.querySelectorAll('.seat__card').length === 5);
+        const compactFacts =
+          compactNine &&
+          (Boolean(scaler.querySelector('.seat__allin-puck')) || compactFullShowdown);
         const entries = buildEntries();
         // A later DOM sibling may already own a retained slot. Reserve the
         // complete retained set before assigning any newly generated pools;
@@ -1306,7 +1310,7 @@ export function useProtectedCardLayout(
                     !wagerOnFeltWithMargin(candidate, 1) ||
                     [
                       ...keepouts,
-                      ...(compactSixFacts ? [] : fixedWagers),
+                      ...(compactFullShowdown ? [] : fixedWagers),
                       ...(reservedDealer ? [reservedDealer] : []),
                     ].some((other) => markerTouches(candidate, other))
                   )
@@ -1358,11 +1362,11 @@ export function useProtectedCardLayout(
                   )
                 );
               });
-              if (!clearLane || !factProbe || !compactSixFacts) return clearLane;
-              // A valid provisional chip can occupy the only puck pocket.
+              if (!clearLane || !factProbe || !compactFullShowdown) return clearLane;
+              // A valid provisional chip can occupy the only wager pocket.
               // Release that reservation only inside a joint proof which keeps
               // every already resolved wager and adds this previously blocked
-              // puck. The ordinary pools offer their current slot first.
+              // wager. The ordinary pools offer their current slot first.
               factWagers = [];
               if (factJointProofs >= 8) return false;
               factJointProofs++;
@@ -1468,7 +1472,7 @@ export function useProtectedCardLayout(
               );
             };
             let opened = trySpacing();
-            if (!opened && compactFacts && entry.hasAllInMarker) {
+            if (!opened && compactFacts && (entry.hasAllInMarker || compactFullShowdown)) {
               const mine = restingAvatarBox(image, scale);
               const cx = mine.left + mine.width / 2,
                 cy = mine.top + mine.height / 2;
@@ -1477,7 +1481,7 @@ export function useProtectedCardLayout(
                 const x = candidate.left + candidate.width / 2,
                   y = candidate.top + candidate.height / 2;
                 const closest = Math.hypot(x - cx, Math.max(0, Math.abs(y - cy) - localRadius));
-                if (!compactSixFacts)
+                if (!compactFullShowdown)
                   return initialPlayerCentres.every(
                     (other) =>
                       Math.hypot(other.x - cx, other.y - cy) < 1 ||
@@ -1550,8 +1554,6 @@ export function useProtectedCardLayout(
               }
             }
             if (opened) {
-              // Caption validation belongs to the helper's final body pose.
-              // No marker/cache write happens for a rejected nested proposal.
               factWagers.forEach(({ bet, next }) => commitWager(bet, next));
               movedOwner = true;
               movedSeats.add(seat);

@@ -951,11 +951,19 @@ export function createOpponentAvatarLayout(
         '.seat:not(.seat--hero) > .seat__info,.seat:not(.seat--hero) > .seat__action'
       )
     );
+  const fullRingShowdown = () => {
+    const rows = Array.from(
+      scaler.querySelectorAll('.seat__cards--opponent.seat__cards--revealed')
+    );
+    return (
+      rows.length === 8 && rows.every((row) => row.querySelectorAll('.seat__card').length === 5)
+    );
+  };
   const compactAllIn = () =>
     page.getAttribute('data-seats') === '9' &&
     window.innerWidth <= 340 &&
     page.clientWidth <= 340 &&
-    Boolean(scaler.querySelector('.seat__allin-puck')) &&
+    (Boolean(scaler.querySelector('.seat__allin-puck')) || fullRingShowdown()) &&
     Boolean(scaler.querySelector('.seat__cards--revealed > :nth-child(5)'));
   const prepare = (handKey = 'current') => {
     syncOpponentCaptionBoundary(
@@ -1222,6 +1230,17 @@ export function createOpponentAvatarLayout(
           p = box(info);
         const delta = Math.min(0, p.top - a.height - 3 - a.top);
         if (delta) shift(action, delta);
+        if (fullRingShowdown()) {
+          const cards = Array.from(seat.querySelectorAll('.seat__cards--revealed .seat__card'))
+            .map(box)
+            .filter((card) => card.width > 0 && card.height > 0);
+          const current = box(action);
+          if (cards.some((card) => overlap(current, card, 0)))
+            shift(
+              action,
+              Math.min(...cards.map((card) => card.top)) - current.height - 3 - current.top
+            );
+        }
       }
       if (!accept()) return false;
       const finalLimits = captionRaiseBounds(seat);
