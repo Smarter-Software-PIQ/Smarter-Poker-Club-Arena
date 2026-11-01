@@ -59,10 +59,21 @@ import { reportError } from '../../utils/errorReporter';
 const TournamentRankingCard = lazy(() => import('./TournamentRankingCard'));
 import { arenaAssetUnitCents } from '../../lib/arenaUnitCents';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
+import { useSessionHandStats } from '../../hooks/useSessionHandStats';
 
 export function TournamentRankingHost() {
   const [payload, setPayload] = useState<SessionSummaryPayload | null>(() => peekSessionSummary());
   const navigate = useNavigate();
+  const handStatsTarget = payload?.handStatsTarget;
+  const { stats: sessionHands } = useSessionHandStats(
+    handStatsTarget?.tableId,
+    handStatsTarget?.userId ?? '',
+    !!payload?.tournament &&
+      !!handStatsTarget &&
+      readLocalSession()?.userId === handStatsTarget.userId,
+    handStatsTarget?.asOf
+  );
+
   /* One tap only: a double-tap on Play Again while the sibling lookup is in
      flight must not start a second lookup or navigate twice. */
   const playAgainBusyRef = useRef(false);
@@ -286,8 +297,31 @@ export function TournamentRankingHost() {
         tableName={payload.tableName}
         /* The payload has always carried these; the card simply never asked for
          them. See the props on TournamentRankingCard. */
-        durationSeconds={payload.resultOnly ? undefined : payload.duration}
-        handsPlayed={payload.resultOnly ? undefined : payload.handsPlayed}
+        durationSeconds={
+          handStatsTarget
+            ? sessionHands
+              ? Math.max(
+                  0,
+                  Math.floor(
+                    ((sessionHands.throughAt
+                      ? Date.parse(sessionHands.throughAt)
+                      : handStatsTarget.asOf) -
+                      Date.parse(sessionHands.startedAt)) /
+                      1000
+                  )
+                )
+              : undefined
+            : payload.resultOnly
+              ? undefined
+              : payload.duration
+        }
+        handsPlayed={
+          handStatsTarget
+            ? (sessionHands?.handsPlayed ?? null)
+            : payload.resultOnly
+              ? undefined
+              : payload.handsPlayed
+        }
         /* THE GRID THIS EVENT PAID ON (2026-09-20). The payload has carried the
          table's arena asset since the wallet learned the Diamond Arena, and
          `parseArenaIdentity` only ever writes 'diamonds' for a row that

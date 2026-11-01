@@ -128,6 +128,8 @@ export interface TournamentResult {
 }
 
 export interface SessionSummaryPayload {
+  /** Read the completed sitting's hand metrics at its original leave boundary. */
+  handStatsTarget?: { tableId: string; userId: string; asOf: number };
   /** UI tab retired only after the player acknowledges the completed result. */
   closeTableId?: string;
   closeSeat?: number;
