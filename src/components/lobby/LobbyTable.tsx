@@ -867,6 +867,21 @@ function TournamentHeadingRow({
   );
 }
 
+function CashStyleCopy({ entry }: { entry: LobbyEntry }) {
+  const subtitle = cashTitleLines(entry).subtitle;
+  const note = cashStyleNote(entry);
+  return (
+    <span className="premium-cash-style">
+      {subtitle && <span>{subtitle}</span>}
+      {note?.split(/,\s*/).map((part, index) => (
+        <span key={index} title={part}>
+          {part.replace(/\bMinimum\b/g, 'Min')}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 const COL_NAME: ColumnDef = {
   key: 'name',
   label: 'Game',
@@ -895,10 +910,9 @@ const COL_NAME: ColumnDef = {
       /* Dan 2026-08-25: line 1 is the game type and the stakes, line 2 is the
          table's own name — and line 2 must not be cut off by the chips beside
          it. Both lines come from cashTitleLines so the split is one rule. */
-      const { headline, subtitle } = cashTitleLines(e);
+      const { headline } = cashTitleLines(e);
       /* Action and Madness say what they change, next to the style word
          (Dan 2026-10-15). Classic and untemplated tables print nothing. */
-      const styleNote = cashStyleNote(e);
       return (
         <span className="lt-name lt-name--cash" title={e.name}>
           <span className="lt-name__line1">
@@ -907,12 +921,7 @@ const COL_NAME: ColumnDef = {
             ) : null}
             {headline}
           </span>
-          {subtitle && (
-            <span className="lt-name__table">
-              {subtitle}
-              {styleNote && <span className="lt-name__style-note">{styleNote}</span>}
-            </span>
-          )}
+          <CashStyleCopy entry={e} />
           <LobbyFlagChips entry={e} />
           <PlayerStateChip entry={e} ctx={ctx} />
         </span>
@@ -931,13 +940,23 @@ const COL_NAME: ColumnDef = {
   },
 };
 const COL_TNAME: ColumnDef = { ...COL_NAME, label: 'Tournament Name' };
+function CashStakesValue({ text }: { text: string | null }) {
+  const fitRef = useFitText<HTMLSpanElement>(text ?? '', 1, 0.5);
+  return (
+    <span className="premium-cash-stakes-zone">
+      <span ref={fitRef} className="premium-cash-stakes-value">
+        {text}
+      </span>
+    </span>
+  );
+}
 const COL_STAKES: ColumnDef = {
   key: 'stakes',
   label: 'Stakes',
   className: 'lt-col-num',
   sortable: true,
   sortValue: (e) => e.stakesValue,
-  render: (e) => (e.stakesLabel ? <span className="lt-mono">{e.stakesLabel}</span> : null),
+  render: (e) => (e.stakesLabel ? <CashStakesValue text={e.stakesLabel} /> : null),
 };
 /* THE ORDER OF THE GAMES lives in ./variantRank (one table for this board and
    the page-level Sort By comparator); re-exported here for existing callers. */
@@ -1105,9 +1124,12 @@ const COL_COST: ColumnDef = {
   className: 'lt-col-num',
   sortable: true,
   sortValue: (e) => (e.kind === 'cash' ? e.stakesValue : e.buyInValue),
-  render: (e) => (
-    <span className="lt-mono">{e.kind === 'cash' ? e.stakesLabel : e.buyInLabel}</span>
-  ),
+  render: (e) =>
+    e.kind === 'cash' ? (
+      <CashStakesValue text={e.stakesLabel} />
+    ) : (
+      <span className="lt-mono">{e.buyInLabel}</span>
+    ),
 };
 
 /* ── THE ACTION CELL ────────────────────────────────────────────────────────
@@ -2353,10 +2375,7 @@ export default function LobbyTable({
                       )}
                       <span className="compact-lobby__meta">
                         {entry.kind === 'cash' ? (
-                          <>
-                            {cashTitleLines(entry).subtitle}
-                            {cashStyleNote(entry) && <> | {cashStyleNote(entry)}</>}
-                          </>
+                          <CashStyleCopy entry={entry} />
                         ) : (
                           entry.variantLabel
                         )}

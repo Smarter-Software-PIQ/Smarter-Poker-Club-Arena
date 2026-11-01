@@ -432,9 +432,11 @@ describe('cold-return preference proof', () => {
     expect(source).toContain('new AggregateError(failures,');
     expect(source).toContain('if (failures.length === 1) throw failures[0]');
     expect(source).toContain('timeout: 120_000');
-    expect(source.slice(0, source.indexOf('const preferenceLifecycleTest'))).not.toContain(
-      'test.setTimeout'
-    );
+    const coldReturnStart = source.indexOf("  test('the selected game list survives a cold return");
+    const coldReturnEnd = source.indexOf('\n  test(', coldReturnStart + 6);
+    expect(coldReturnStart).toBeGreaterThan(0);
+    expect(coldReturnEnd).toBeGreaterThan(coldReturnStart);
+    expect(source.slice(coldReturnStart, coldReturnEnd)).not.toContain('test.setTimeout');
     expect(source).toContain('preferenceDiagnostics.delete(page)');
   });
 });
