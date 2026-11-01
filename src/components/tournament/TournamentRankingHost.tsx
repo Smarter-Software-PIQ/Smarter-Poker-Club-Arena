@@ -47,6 +47,7 @@ import {
   type SessionSummaryPayload,
 } from '../../services/pendingSessionSummary';
 import { supabase } from '../../lib/supabase';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { readLocalSession } from '../../lib/authUtils';
 import { tableService } from '../../services/TableService';
 import { reportError } from '../../utils/errorReporter';
@@ -112,8 +113,9 @@ export function TournamentRankingHost() {
     if (!reportUserId || reportUserId !== readLocalSession()?.userId) return;
 
     let cancelled = false;
+    const controller = new AbortController();
     (async () => {
-      /* Six looks over ~9s. The row is being written as we ask, so this is a
+      /* Six bounded looks, with 1.5s between empty replies. The row is being written as we ask, so this is a
          short wait on an in-flight commit, not a poll for something absent. */
       for (let attempt = 0; attempt < 6 && !cancelled; attempt++) {
         try {
@@ -127,16 +129,27 @@ export function TournamentRankingHost() {
              around.) */
           const uid = readLocalSession()?.userId;
           if (!uid || uid !== reportUserId) return;
-          const { data, error } = await supabase
-            .from('tournament_players')
-            .select('position, prize')
-            .eq('tournament_id', tournamentId)
-            .eq('user_id', uid)
-            .maybeSingle();
+          const { data, error } = await runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .from('tournament_players')
+                .select('position, prize, elimination_sequence')
+                .eq('tournament_id', tournamentId)
+                .eq('user_id', uid)
+                .abortSignal(signal)
+                .maybeSingle(),
+            { signal: controller.signal }
+          );
+          if (cancelled) return;
           if (error) throw error;
           const place = Number(data?.position) || 0;
           if (place > 0) {
-            if (cancelled) return;
+            if (
+              finishSequence !== undefined &&
+              (data?.elimination_sequence == null ||
+                String(data.elimination_sequence) !== finishSequence)
+            )
+              return;
             setPayload((prev) =>
               prev &&
               prev.tournament &&
@@ -161,6 +174,7 @@ export function TournamentRankingHost() {
             return;
           }
         } catch (err) {
+          if (cancelled) return;
           reportError(err, 'TournamentRankingHost.finish_place_backfill_failed', {
             tournamentId,
           });
@@ -171,6 +185,7 @@ export function TournamentRankingHost() {
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [tournamentId, reportUserId, finishSequence, finishPlace, satelliteQualification]);
 
