@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { test, expect, devices, type Page, type Locator } from '@playwright/test';
 import {
@@ -42,6 +44,53 @@ test.use({
 test.describe.configure({ mode: 'default', timeout: 180_000 });
 
 const actionTimelines = new WeakMap<Page, unknown[]>();
+const diagnosticRows = new WeakMap<Page, Map<string, Row>>();
+const publicRowFields = [
+  'id',
+  'club_id',
+  'union_id',
+  'game_type',
+  'game_variant',
+  'variant',
+  'tournament_type',
+  'format_contract',
+  'status',
+  'lifecycle',
+  'is_deleted',
+  'current_players',
+  'max_players',
+  'buy_in_amount',
+  'buy_in_fee',
+  'small_blind',
+  'big_blind',
+  'cluster_id',
+  'start_time',
+  'started_at',
+  'ended_at',
+  'created_at',
+  'satellite_target_id',
+  'is_satellite',
+  'proof_board_census',
+];
+function persistProgress(page: Page) {
+  const output = test.info().outputPath('attachments', 'filter-action-progress.json');
+  mkdirSync(dirname(output), { recursive: true });
+  const observer = observationHandles.get(page);
+  writeFileSync(
+    output,
+    JSON.stringify({
+      observedAt: Date.now(),
+      actions: actionTimelines.get(page),
+      sourceRows: [...(diagnosticRows.get(page)?.values() || [])].map((row) =>
+        Object.fromEntries(
+          publicRowFields.filter((key) => row[key] !== undefined).map((key) => [key, row[key]])
+        )
+      ),
+      observerErrors: observer?.errors,
+      lifecycleWitnesses: observer?.witnesses,
+    })
+  );
+}
 const observationHandles = new WeakMap<
   Page,
   { finish: () => Promise<void>; errors: unknown[]; witnesses: unknown[] }
@@ -69,19 +118,68 @@ test.afterEach(async ({ page }, info) => {
 async function clickControl(locator: Locator, options?: Parameters<Locator['click']>[0]) {
   const control = locator.toString();
   const started = Date.now();
-  let completed = false;
+  const page = locator.page();
+  const action: Record<string, unknown> = { control, started, phase: 'starting', completed: false };
+  actionTimelines.get(page)?.push(action);
+  persistProgress(page);
   await test.step(control, async () => {
     try {
+      action.before = await locator.evaluateAll((elements) =>
+        elements.map((element) => {
+          const rect = element.getBoundingClientRect();
+          const details = element.closest('details');
+          const ancestors = [];
+          for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            if (parent.scrollHeight > parent.clientHeight) {
+              const box = parent.getBoundingClientRect();
+              ancestors.push({
+                className: parent.className,
+                scrollTop: parent.scrollTop,
+                height: parent.clientHeight,
+                scrollHeight: parent.scrollHeight,
+                top: box.top,
+                bottom: box.bottom,
+              });
+            }
+          }
+          return {
+            text: element.textContent?.trim().slice(0, 100),
+            rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+            detailsOpen: details?.open,
+            display: getComputedStyle(element).display,
+            visibility: getComputedStyle(element).visibility,
+            ancestors,
+          };
+        })
+      );
+      action.phase = 'native-scroll';
+      persistProgress(page);
+      // Scroll the real overflow owner before Playwright's actionability check.
+      // Retain the ordinary visible, stable, enabled and hit-target checks.
+      await locator.scrollIntoViewIfNeeded({ timeout: 10_000 });
+      action.phase = 'click';
+      persistProgress(page);
       const closesSheet =
         control.includes('Close Game Filters') || /name: ['"]Done['"]/.test(control);
       const dialog = closesSheet ? locator.locator('xpath=ancestor::*[@role="dialog"]') : null;
-      await locator.click(options);
+      await locator.click({ ...options, timeout: 10_000 });
       if (dialog) await expect(dialog).toBeHidden();
-      completed = true;
+      action.completed = true;
+    } catch (error) {
+      action.error = error instanceof Error ? error.message : String(error);
+      persistProgress(page);
+      try {
+        await page.screenshot({
+          path: test.info().outputPath('filter-control-failure.png'),
+          timeout: 5_000,
+        });
+      } catch (capture) {
+        action.captureError = capture instanceof Error ? capture.message : String(capture);
+      }
+      throw error;
     } finally {
-      actionTimelines
-        .get(locator.page())
-        ?.push({ control, elapsedMs: Date.now() - started, completed });
+      action.elapsedMs = Date.now() - started;
+      persistProgress(page);
     }
   });
 }
@@ -369,6 +467,19 @@ function style(row: Row): string {
     return 'straight_madness';
   return ['action', 'lightning'].includes(key) ? 'madness' : key;
 }
+function belongsToObservedFamily(row: Row, type: Tab): boolean {
+  if (row.proof_board_census !== true) return false;
+  const contract = text(row.format_contract);
+  if (type === 'SPIN') return contract === 'spin-v1';
+  if (type === 'SNG') return ['sng-v1', 'seat-first-satellite-v1'].includes(contract);
+  if (type === 'MTT') return ['mtt-v1', 'mtt-v2'].includes(contract);
+  if (type === 'SATELLITE')
+    return (
+      ['mtt-v1', 'mtt-v2', 'spin-v1', 'sng-v1', 'seat-first-satellite-v1'].includes(contract) &&
+      satellite(row) === true
+    );
+  return false;
+}
 function independentMatch(
   row: Row,
   value: GameFilterValue,
@@ -377,10 +488,23 @@ function independentMatch(
   allRows: Map<string, Row>
 ): boolean {
   const rawStatus = text(row.status).toUpperCase();
+  if (!cash) {
+    const start = Date.parse(text(row.start_time));
+    const hours = number(row.buy_in_amount) + number(row.buy_in_fee) >= 200 ? 144 : 72;
+    if (Number.isFinite(start) && start - Date.now() > hours * 60 * 60 * 1000) return false;
+  }
   if (cash && (row.is_deleted === true || ['CLOSED', 'DELETED'].includes(rawStatus))) return false;
   if (
     !cash &&
-    ['COMPLETED', 'COMPLETING', 'CANCELLED', 'CANCELED', 'ABORTED', 'FINISHED'].includes(rawStatus)
+    ![
+      'REGISTERING',
+      'LATE_REG',
+      'LATE_REGISTRATION',
+      'STARTING_SOON',
+      'RUNNING',
+      'IN_PROGRESS',
+      'BAGGED',
+    ].includes(rawStatus)
   )
     return false;
   if (!cash && ['mtt-v1', 'mtt-v2'].includes(text(row.format_contract))) {
@@ -759,6 +883,7 @@ async function setup(page: Page) {
     /^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || ''),
     'Only the isolated certificate identity may run this journey'
   ).toBe(true);
+  page.setDefaultTimeout(10_000);
   actionTimelines.set(page, []);
   const participation: string[] = [];
   await page.route(
@@ -770,6 +895,7 @@ async function setup(page: Page) {
     }
   );
   const rawRows = new Map<string, Row>();
+  diagnosticRows.set(page, rawRows);
   const reads: Promise<void>[] = [];
   const observerErrors: { source: string; message: string }[] = [];
   const lifecycleWitnesses: unknown[] = [];
@@ -785,7 +911,7 @@ async function setup(page: Page) {
   };
   const saves: Record<string, unknown>[] = [];
   const pools = new Map<string, { eligible?: number; players?: number }>();
-  const accept = (rows: unknown) => {
+  const accept = (rows: unknown, boardCensus = false) => {
     if (!Array.isArray(rows)) return;
     for (const value of rows) {
       const row = object(value);
@@ -795,6 +921,7 @@ async function setup(page: Page) {
           ...rawRows.get(row.id),
           ...row,
           id: row.id,
+          ...(boardCensus ? { proof_board_census: true } : {}),
           ...(cluster.template_name !== undefined
             ? { cluster_template: cluster.template_name }
             : {}),
@@ -892,10 +1019,19 @@ async function setup(page: Page) {
         url.pathname,
         (async () => {
           const body = await readBody(response);
-          if (Array.isArray(body)) accept(body);
+          // Admit scope from the independent source request, never from
+          // the displayed IDs. Union/sibling rows remain in their real census.
+          const queryScope = [url.searchParams.get('or'), url.searchParams.get('club_id')].some(
+            (value) => value?.includes(CLUB_ID)
+          );
+          const homeScope =
+            url.pathname.endsWith('/get_club_home') &&
+            object(response.request().postDataJSON()).p_club_key === CLUB_ID;
+          const boardCensus = queryScope || homeScope;
+          if (Array.isArray(body)) accept(body, boardCensus);
           else {
-            accept(body.tables);
-            accept(body.tournaments);
+            accept(body.tables, boardCensus);
+            accept(body.tournaments, boardCensus);
           }
         })()
       );
@@ -1065,7 +1201,19 @@ for (const type of TYPES) {
       baseline.every((id) => h.rawRows.has(id)),
       'Every baseline row must have an actual source response'
     ).toBe(true);
+    if (!cash) {
+      expect(
+        baseline.every((id) => belongsToObservedFamily(h.rawRows.get(id)!, type)),
+        'The baseline must independently belong to the scoped source census and selected family'
+      ).toBe(true);
+    }
     const evidence: unknown[] = [];
+    const currentCohort = () =>
+      cash
+        ? baseline
+        : [...h.rawRows.values()]
+            .filter((row) => belongsToObservedFamily(row, type))
+            .map((row) => row.id);
     const check = async (control: string) => {
       const value = await h.state(type);
       expect(value, `${control}: saved account-scoped state`).toBeTruthy();
@@ -1073,6 +1221,9 @@ for (const type of TYPES) {
       const started = Date.now();
       let refreshed = false;
       let mismatchSamples = 0;
+      const membership: Record<string, unknown> = { kind: 'membership', control, started, value };
+      actionTimelines.get(page)?.push(membership);
+      persistProgress(page);
       await test.step(`${type}/${control}`, async () => {
         try {
           await expect
@@ -1080,7 +1231,7 @@ for (const type of TYPES) {
               async () => {
                 let actual = sorted(await h.ids());
                 let expected = sorted(
-                  baseline.filter((id) =>
+                  currentCohort().filter((id) =>
                     independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
                   )
                 );
@@ -1100,12 +1251,14 @@ for (const type of TYPES) {
                   await h.refreshLifecycle(disputed);
                   actual = sorted(await h.ids());
                   expected = sorted(
-                    baseline.filter((id) =>
+                    currentCohort().filter((id) =>
                       independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
                     )
                   );
                 }
                 matched = { actual, expected };
+                membership.latest = matched;
+                persistProgress(page);
                 return JSON.stringify(actual) === JSON.stringify(expected)
                   ? []
                   : [{ actual, expected }];
@@ -1116,6 +1269,8 @@ for (const type of TYPES) {
             )
             .toEqual([]);
         } finally {
+          membership.elapsedMs = Date.now() - started;
+          persistProgress(page);
           evidence.push({ control, elapsedMs: Date.now() - started, value, ...matched });
         }
       });
