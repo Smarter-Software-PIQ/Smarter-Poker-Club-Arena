@@ -2708,6 +2708,9 @@
   background: #000;
   box-shadow: none;
 }
+.club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls {
+  container: premium-lobby-controls / inline-size;
+}
 .club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls .game-bar {
   display: block;
   width: 100%;
@@ -2807,9 +2810,9 @@
 }
 .club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls .lobby-refinements {
   display: grid;
-  grid-auto-flow: column;
+  grid-auto-flow: row;
   grid-auto-columns: minmax(0, 1fr);
-  grid-template-columns: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
   width: 100%;
   max-width: 760px;
@@ -2911,14 +2914,16 @@
   > * {
   opacity: 1;
 }
-@media (max-width: 900px) {
+/* The desktop sidebar can be narrower than a phone. Size the painted plates
+   from their actual control region, rather than the browser viewport. */
+@container premium-lobby-controls (min-width: 660px) {
   .club-home
     .club-lobby-command-top
     .lobby-controls
     #lobby-game-section-controls
     .lobby-refinements {
-    grid-auto-flow: row;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-flow: column;
+    grid-template-columns: none;
   }
 }
 /* Low-profile glass has room for one fitted line, not two lines on the rim. */

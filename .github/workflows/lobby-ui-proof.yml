@@ -135,6 +135,7 @@ jobs:
         if: github.event.action == 'verify-tournament-favorites'
         timeout-minutes: 12
         env:
+          TZ: America/Chicago
           BASE_URL: https://smarter.poker/hub/club-arena/
           ARENA_BASE_URL: https://smarter.poker/hub/club-arena
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

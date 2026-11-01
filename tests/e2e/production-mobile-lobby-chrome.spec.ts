@@ -595,9 +595,106 @@ test.describe('the mobile lobby chrome on production', () => {
     expect(new URL(firstRead.url()).searchParams.get('user_id')).toBe(`eq.${owner}`);
     const initial = await firstRead.json();
     expect(initial?.value ?? initial?.[0]?.value ?? []).toEqual([]);
-    await openLobbyGameSection(page, 'MTT');
-    await page.getByRole('tab', { name: "MTT'S", exact: true }).click();
+    expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(
+      'America/Chicago'
+    );
+    const appearance: unknown[] = [];
+    for (const [family, tab, mode] of [
+      ['ALL', 'PLO', 'cash'],
+      ['MTT', 'SPINS', 'spins'],
+      ['MTT', "SIT N GO'S", 'sng'],
+      ['MTT', 'SATELLITES', 'satellites'],
+      ['MTT', "MTT'S", 'mtt'],
+    ]) {
+      await openLobbyGameSection(page, family);
+      const selectedTab = page.getByRole('tab', { name: tab, exact: true });
+      await selectedTab.click();
+      await expect(selectedTab).toHaveAttribute('aria-selected', 'true');
+      const format =
+        mode === 'satellites'
+          ? '[data-kind="mtt"].is-satellite'
+          : `[data-kind="${mode === 'spins' ? 'spin' : mode}"]`;
+      const currentRows = page.locator(`[data-testid="lobby-game-row"][data-id]${format}:visible`);
+      await expect(currentRows.first()).toBeVisible({ timeout: 30_000 });
+      const id = await currentRows.first().getAttribute('data-id');
+      const heading = page.locator(`[data-game-heading="${id}"]:visible`);
+      await expect(heading.locator('.lt-tournament-heading__name')).toBeVisible();
+      await expect
+        .poll(() =>
+          heading.evaluate((element) => {
+            const zone = element.querySelector('.lt-tournament-heading__name') as HTMLElement;
+            const title = zone.firstElementChild as HTMLElement;
+            const plate = element.querySelector('.lt-tournament-heading__guarantee')!;
+            return (
+              title.scrollHeight <= zone.clientHeight + 1 &&
+              Math.abs(
+                parseFloat(getComputedStyle(title).fontSize) -
+                  parseFloat(getComputedStyle(plate).fontSize)
+              ) < 0.1
+            );
+          })
+        )
+        .toBe(true);
+      const paint = await heading.evaluate(async (element) => {
+        const backgrounds = [
+          getComputedStyle(element, '::before').backgroundImage,
+          getComputedStyle(element.querySelector('.lt-tournament-icon,.lt-lightning-icon')!)
+            .backgroundImage,
+        ];
+        for (const background of backgrounds) {
+          const url = /url\(["']?(.*?)["']?\)/.exec(background)?.[1];
+          if (!url) throw new Error('Premium chassis or format art is absent');
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          if (!image.naturalWidth || !image.naturalHeight)
+            throw new Error('Premium art did not load');
+        }
+        return { heading: element.textContent, backgrounds };
+      });
+      appearance.push({ mode, ...paint });
+      await testInfo.attach(`chrome-arena-${mode}-phone.png`, {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(page.locator('.lobby-table tr[data-game-heading]').first()).toBeVisible();
+    await testInfo.attach('chrome-arena-mtt-wide.png', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
     const rows = page.locator('[data-testid="lobby-game-row"][data-kind="mtt"][data-id]:visible');
+    const pinDates = await rows.evaluateAll((elements) =>
+      elements.map((e) => ({
+        id: e.getAttribute('data-id'),
+        hostPinned: e.getAttribute('data-host-pinned') === 'true',
+        displayedPinned: e.matches('.is-featured'),
+        start: e.getAttribute('data-start-time'),
+        today: new Date().toLocaleDateString('en-CA'),
+        day: new Date(e.getAttribute('data-start-time') || '').toLocaleDateString('en-CA'),
+      }))
+    );
+    expect(
+      pinDates.filter((row) => row.hostPinned).length,
+      'Live host-selected events are present'
+    ).toBeGreaterThan(0);
+    expect(
+      pinDates
+        .filter((row) => row.displayedPinned)
+        .map((row) => row.id)
+        .sort()
+    ).toEqual(
+      pinDates
+        .filter((row) => row.hostPinned && row.start && row.day === row.today)
+        .map((row) => row.id)
+        .sort()
+    );
+    await testInfo.attach('chrome-arena-appearance.json', {
+      body: Buffer.from(JSON.stringify({ appearance, pinDates })),
+      contentType: 'application/json',
+    });
     await expect(rows.first()).toBeVisible({ timeout: 30_000 });
     const snapshot = () =>
       rows.evaluateAll((elements) =>
@@ -682,6 +779,10 @@ test.describe('the mobile lobby chrome on production', () => {
     expect(persisted?.value ?? persisted?.[0]?.value).toEqual([chosen]);
     await expect(selected()).toBeVisible({ timeout: 30_000 });
     await assertFavoriteTier('reloaded-server-readback');
+    await testInfo.attach('tournament-favorite-starred-tier.png', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
     const removed = saveChoice(false);
     await selected().getByRole('button', { name: 'Remove From Favorites', exact: true }).click();
     await removed;
