@@ -12,6 +12,9 @@ const state = vi.hoisted(() => ({
     status: string;
   }>,
   total: 73,
+  level: 2,
+  snapshot: null as unknown,
+  structure: [] as unknown,
   error: false,
   queries: 0,
   hold: null as Promise<void> | null,
@@ -51,7 +54,13 @@ vi.mock('../../src/lib/supabase', () => ({
         maybeSingle: async () => {
           await state.metadataHold;
           return {
-            data: { current_level: 2, prize_pool: 1700, current_players: state.total },
+            data: {
+              current_level: state.level,
+              blind_level_state: state.snapshot,
+              blind_structure: state.structure,
+              prize_pool: 1700,
+              current_players: state.total,
+            },
             error: null,
           };
         },
@@ -88,6 +97,13 @@ const flush = async () => {
 };
 beforeEach(() => {
   state.total = 73;
+  state.level = 2;
+  state.snapshot = null;
+  state.structure = [
+    { smallBlind: 25, bigBlind: 50 },
+    { smallBlind: 50, bigBlind: 100 },
+    { smallBlind: 100, bigBlind: 200, ante: 20 },
+  ];
   state.error = false;
   state.hold = null;
   state.metadataHold = null;
@@ -245,4 +261,36 @@ it('retires a hung metadata deadline when the break closes', async () => {
   await flush();
   expect(vi.getTimerCount()).toBe(0);
   expect(state.listeners.size).toBe(0);
+});
+
+describe('authoritative paused tournament blinds', () => {
+  it('shows committed add-on blinds instead of stale hourly payload and refreshes on recovery', async () => {
+    state.snapshot = { index: 2, small_blind: 150, big_blind: 300, ante: 30 };
+    render(<TournamentBreakScreen {...props} addOnNotice={{ cost: 15, chips: 20000 }} />);
+    await flush();
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('150 / 300');
+    expect(document.querySelector('.break-screen__ante')).toHaveTextContent('30');
+    state.level = 3;
+    state.snapshot = { index: 3, small_blind: 200, big_blind: 400, ante: 40 };
+    await act(async () => state.listeners.get('event')!());
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('200 / 400');
+    expect(screen.getByText('Coming Next: Level 4')).toBeVisible();
+  });
+  it('uses the exact legacy schedule index but refuses mismatched snapshots and invented overflow', async () => {
+    state.structure = JSON.stringify(state.structure);
+    render(<TournamentBreakScreen {...props} />);
+    await flush();
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('100 / 200');
+    state.snapshot = { index: 1, small_blind: 50, big_blind: 100, ante: 0 };
+    await act(async () => state.listeners.get('event')!());
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('N/A');
+    expect(document.querySelector('.break-screen__my-stack small')).toHaveTextContent('N/A');
+    state.snapshot = null;
+    state.level = 30;
+    await act(async () => state.listeners.get('event')!());
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('N/A');
+    state.error = true;
+    await act(async () => state.listeners.get('event')!());
+    expect(document.querySelector('.break-screen__blind-value')).toHaveTextContent('N/A');
+  });
 });

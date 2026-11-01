@@ -4,8 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ row: vi.fn(), clock: vi.fn(), report: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
-    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: mocks.row }) }) }),
-    rpc: mocks.clock,
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: mocks.row,
+          abortSignal() {
+            return this;
+          },
+        }),
+      }),
+    }),
+    rpc: () => ({ abortSignal: () => mocks.clock() }),
   },
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: mocks.report }));
@@ -103,4 +112,59 @@ describe('Tournament Starts In', () => {
     for (const format_contract of ['spin-v1', 'sng-v1', null])
       expect(scheduledTournamentStart({ ...row, format_contract })).toBeNull();
   });
+});
+
+it('continues to the tournament row after an unanswered database clock expires', async () => {
+  mocks.clock.mockImplementation(() => new Promise(() => {}));
+  render(<Countdown tournamentId="clock-hung" />);
+  await settle();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(mocks.row).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('timer').textContent).toContain('00:53');
+});
+it('retires an unanswered row so the existing refresh can read again', async () => {
+  mocks.row.mockImplementationOnce(() => new Promise(() => {}));
+  render(<Countdown tournamentId="row-hung" />);
+  await settle();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(22000);
+  });
+  expect(mocks.row).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('timer').textContent).toContain('00:43');
+});
+
+it('does not reuse a previous event clock offset when the next clock read expires', async () => {
+  mocks.clock.mockResolvedValueOnce({ data: new Date(now + 60000).toISOString(), error: null });
+  const view = render(<Countdown tournamentId="old-clock" />);
+  await settle();
+  expect(screen.getByRole('timer').textContent).toContain('00:05');
+  mocks.clock.mockImplementationOnce(() => new Promise(() => {}));
+  view.rerender(<Countdown tournamentId="new-clock" />);
+  expect(screen.queryByRole('timer')).toBeNull();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(screen.getByRole('timer').textContent).toContain('00:53');
+});
+it('ignores a late retired row and clears request deadlines on unmount', async () => {
+  let resolve!: (value: unknown) => void;
+  mocks.row.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      })
+  );
+  const view = render(<Countdown tournamentId="old-read" />);
+  await settle();
+  view.rerender(<Countdown tournamentId="new-read" />);
+  await settle();
+  expect(screen.getByRole('timer').textContent).toContain('01:05');
+  await act(async () => {
+    resolve({ data: { ...row, start_time: new Date(now + 900000).toISOString() }, error: null });
+  });
+  expect(screen.getByRole('timer').textContent).toContain('01:05');
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
 });
