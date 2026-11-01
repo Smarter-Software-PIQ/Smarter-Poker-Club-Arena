@@ -4024,7 +4024,7 @@ jobs:
     # that is the "is main actually green" net (see the schedule note).
     if: github.event_name == 'schedule' && github.event.schedule == '35 6 * * *'
     name: Live Production E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:

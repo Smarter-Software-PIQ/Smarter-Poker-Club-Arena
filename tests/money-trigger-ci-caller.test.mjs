@@ -263,7 +263,7 @@ test('all qualification and publication jobs use only fixed standard hosted runn
     }
     assert.ok(routes.length,file);
     for(const {job,route} of routes){
-      const supportedBrowser=file==='ci.yml'&&['build','css-beats-e2e','diamond-playfield-e2e'].includes(job);
+      const supportedBrowser=file==='ci.yml'&&['build','live-e2e','css-beats-e2e','diamond-playfield-e2e'].includes(job);
       const expected=file==='ci.yml'&&job==='accounting_postgres'
         ?'$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
         :file==='component-fixture-native-smoke.yml'||supportedBrowser?'ubuntu-24.04':'ubuntu-latest';
