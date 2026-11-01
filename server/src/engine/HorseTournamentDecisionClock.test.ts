@@ -18,8 +18,8 @@ const { loadTournamentBlinds, loadSeatedPlayers, responses, from } = vi.hoisted(
     const result = async () => ({
       data: responses.get(table) ?? [],
       error: null,
-      count: Array.isArray(responses.get(table))
-        ? (responses.get(table) as unknown[]).length
+      count: Array.isArray(responses.get(table) ?? [])
+        ? ((responses.get(table) ?? []) as unknown[]).length
         : null,
     });
     const chain: Record<string, unknown> = {};
@@ -205,7 +205,13 @@ async function warmActualCache(tournamentId: string, seats: any[]) {
   });
   responses.set(
     'tournament_players',
-    seats.map((s) => ({ user_id: s.user_id, chips: s.stack, status: 'active', current_bounty: 0 }))
+    seats.map((s) => ({
+      id: s.seat_id,
+      user_id: s.user_id,
+      chips: s.stack,
+      status: 'active',
+      current_bounty: 0,
+    }))
   );
   tournamentContext.refreshTournamentBrainContext(tournamentId);
   await new Promise<void>((resolve) => setImmediate(resolve));

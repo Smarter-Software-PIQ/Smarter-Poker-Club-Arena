@@ -44,6 +44,7 @@ import {
   type TournamentContextStatus,
 } from '../engine/HorseTournamentPreflop.js';
 import { selectInChunks } from './supabase/chunkedIn.js';
+import { fetchAllRows } from './supabase/pagination.js';
 import {
   recoveryFeeCents,
   tournamentPurchaseFeeRatio,
@@ -1611,58 +1612,70 @@ async function readTournamentFunding(
   return { complete: true, rebuyAffordableByUser, addOnAffordableByUser };
 }
 
-/**
- * Read the complete roster rather than relabeling PostgREST's first page as
- * the field. Scheduled events permit 10,000 entrants; ordinary fields still
- * cost one request, while larger fields fetch stable id-ordered pages.
- */
-async function readTournamentPlayerContext(tournamentId: string): Promise<{
-  data: TournamentPlayerContextRow[] | null;
-  error: { message: string } | null;
-}> {
-  const PAGE = 1_000;
-  const columns =
-    'user_id, club_id, chips, status, current_bounty, rebuys, add_on, rebuy_prompt_until';
-  const first = await supabase
-    .from('tournament_players')
-    .select(columns, { count: 'exact' })
-    .eq('tournament_id', tournamentId)
-    .order('id', { ascending: true })
-    .range(0, PAGE - 1);
-  if (first.error) return { data: null, error: first.error };
-  if (first.count == null || first.count < 0 || first.count > 10_000) {
-    return {
-      data: null,
-      error: { message: `invalid tournament roster count: ${String(first.count)}` },
-    };
-  }
-  const rows = [...((first.data ?? []) as TournamentPlayerContextRow[])];
-  const pageCount = Math.ceil(first.count / PAGE);
-  if (pageCount > 1) {
-    const rest = await Promise.all(
-      Array.from({ length: pageCount - 1 }, (_, offset) => {
-        const page = offset + 1;
-        return supabase
-          .from('tournament_players')
-          .select(columns)
-          .eq('tournament_id', tournamentId)
-          .order('id', { ascending: true })
-          .range(page * PAGE, (page + 1) * PAGE - 1);
-      })
-    );
-    const failed = rest.find((result) => result.error);
-    if (failed?.error) return { data: null, error: failed.error };
-    for (const page of rest) rows.push(...((page.data ?? []) as TournamentPlayerContextRow[]));
-  }
-  if (rows.length !== first.count) {
-    return {
-      data: null,
-      error: {
-        message: `tournament roster truncated: expected ${first.count}, read ${rows.length}`,
-      },
-    };
-  }
-  return { data: rows, error: null };
+/** Complete, counted keyset reads share the owning refresh deadline and generation. */
+async function readTournamentContextRows<T>(
+  tournamentId: string,
+  relation: string,
+  columns: string,
+  idKey: 'id' | 'position',
+  shouldContinue: () => boolean
+): Promise<{ data: T[] | null; error: { message: string } | null }> {
+  let expected: number | null = null;
+  const seen = new Set<string>();
+  const failure = { message: `${relation} inventory is incomplete` };
+  const result = await fetchAllRows<Record<string, unknown>>(
+    async (cursor, limit) => {
+      let query = supabase
+        .from(relation)
+        .select(`${idKey}, ${columns}`, { count: 'exact' })
+        .eq('tournament_id', tournamentId)
+        .order(idKey, { ascending: true })
+        .limit(limit);
+      if (cursor !== null) query = query.gt(idKey, cursor);
+      const { data: responseData, error, count } = await query;
+      // Dynamic projections are runtime-validated below; the query type parser cannot infer them.
+      const data = responseData as unknown as Record<string, unknown>[] | null;
+      if (
+        error ||
+        !Array.isArray(data) ||
+        typeof count !== 'number' ||
+        !Number.isSafeInteger(count) ||
+        count < 0 ||
+        (expected !== null && count !== expected - seen.size) ||
+        data.length !== Math.min(limit, count)
+      ) {
+        return { data: null, error: error ?? failure };
+      }
+      expected ??= count;
+      let previous = cursor;
+      for (const row of data) {
+        const key = row[idKey];
+        if (
+          (idKey === 'position'
+            ? !Number.isSafeInteger(key) || Number(key) < 1
+            : typeof key !== 'string' || !key) ||
+          seen.has(String(key)) ||
+          (previous !== null &&
+            (idKey === 'position' ? Number(key) <= Number(previous) : String(key) <= previous))
+        ) {
+          return { data: null, error: failure };
+        }
+        previous = String(key);
+        seen.add(previous);
+      }
+      return { data, error: null };
+    },
+    {
+      label: `TournamentBrainContext.${relation}`,
+      idKey,
+      pageAttempts: 1,
+      maxRows: Number.MAX_SAFE_INTEGER,
+      shouldContinue,
+    }
+  );
+  return result.complete && result.rows.length === expected
+    ? { data: result.rows as T[], error: null }
+    : { data: null, error: failure };
 }
 
 async function refresh(
@@ -1691,18 +1704,27 @@ async function refresh(
           )
           .eq('id', tournamentId)
           .maybeSingle(),
-        readTournamentPlayerContext(tournamentId),
-        supabase
-          .from('tournament_bounty_chests')
-          .select('status, amount_cents')
-          .eq('tournament_id', tournamentId)
-          .limit(2000),
-        supabase
-          .from('tournament_satellite_entitlements')
-          .select('position, award_kind, ticket_value, remainder_value')
-          .eq('tournament_id', tournamentId)
-          .order('position', { ascending: true })
-          .limit(5000),
+        readTournamentContextRows<TournamentPlayerContextRow>(
+          tournamentId,
+          'tournament_players',
+          'user_id, club_id, chips, status, current_bounty, rebuys, add_on, rebuy_prompt_until',
+          'id',
+          () => ownsEntry() && e.inFlight
+        ),
+        readTournamentContextRows<ChestRow>(
+          tournamentId,
+          'tournament_bounty_chests',
+          'status, amount_cents',
+          'id',
+          () => ownsEntry() && e.inFlight
+        ),
+        readTournamentContextRows<SatelliteEntitlementRow>(
+          tournamentId,
+          'tournament_satellite_entitlements',
+          'award_kind, ticket_value, remainder_value',
+          'position',
+          () => ownsEntry() && e.inFlight
+        ),
       ])
     );
 
