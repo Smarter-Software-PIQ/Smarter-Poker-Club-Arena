@@ -155,8 +155,8 @@
       "sha256": "30fd68f61b145e0a636df8c4574042e8f320bc05b1559b6e45fe9a6340aa8c7c"
     },
     ".github/workflows/ci.yml": {
-      "bytes": 272484,
-      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+      "bytes": 272771,
+      "sha256": "7c4016f01b0000d7932911cb6cc9006c50289d51c1baf61b459f6740936abfa5"
     },
     "scripts/qualification/original-flow-eligibility/current-source40.json": {
       "bytes": 238578,
@@ -1989,6 +1989,19 @@
     "current": {
       "bytes": 272484,
       "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "scheduleRequestNativeQualification20261101": {
+    "reason": "Adds the schedule request identity native fixture to existing accounting shard3. All prior commands, assertions, matrices and historical evidence remain unchanged. Current workflow source identity only.",
+    "previous": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "current": {
+      "bytes": 272771,
+      "sha256": "7c4016f01b0000d7932911cb6cc9006c50289d51c1baf61b459f6740936abfa5"
     },
     "execution_performed": false,
     "historicalEvidenceRestamped": false

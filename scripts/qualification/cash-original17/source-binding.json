@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272484,
-      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+      "bytes": 272771,
+      "sha256": "7c4016f01b0000d7932911cb6cc9006c50289d51c1baf61b459f6740936abfa5"
     },
     "scripts/ci/satellite_qualifier_fixture.py": {
       "bytes": 18466,
@@ -2217,6 +2217,19 @@
     "current": {
       "bytes": 272484,
       "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "scheduleRequestNativeQualification20261101": {
+    "reason": "Adds the schedule request identity native fixture to existing accounting shard3. All prior commands, assertions, matrices and historical evidence remain unchanged. Current workflow source identity only.",
+    "previous": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "current": {
+      "bytes": 272771,
+      "sha256": "7c4016f01b0000d7932911cb6cc9006c50289d51c1baf61b459f6740936abfa5"
     },
     "execution_performed": false,
     "historicalEvidenceRestamped": false
