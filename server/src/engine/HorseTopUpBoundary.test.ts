@@ -59,6 +59,17 @@ describe('the real settlement top-up boundary', () => {
     );
     calls.fund.mockReset().mockResolvedValue({ status: 'funded', stack: 200 });
   });
+  it('does not read horse preferences or fund human-only 1/2 tables', async () => {
+    const e = engine();
+    Object.assign(e.tableInfo, { small_blind: 1, big_blind: 2, game_variant: 'nlh' });
+    await run(
+      e,
+      players().map((player) => ({ ...player, is_horse: false }))
+    );
+    expect(calls.batch).not.toHaveBeenCalled();
+    expect(calls.fund).not.toHaveBeenCalled();
+    expect(e.hub.emitEvent).not.toHaveBeenCalled();
+  });
   it('uses one shared context and emits both simultaneous purchases with authoritative stacks', async () => {
     const e = engine();
     const p = players();

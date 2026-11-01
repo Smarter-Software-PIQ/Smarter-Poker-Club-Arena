@@ -1634,6 +1634,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       return;
     const variant = this.tableInfo?.game_variant;
     const maximumCash = isMaximumHorseCashStake(this.tableInfo);
+    if (maximumCash && !players.some((player) => player.is_horse)) return;
     if (!isPlo5Variant(variant) && !maximumCash) return;
     // Never a Lightning table: its Cluster refills through the pooled
     // auto-rebuy on the session's anchor seat. A Cluster table whose
