@@ -1394,7 +1394,8 @@ jobs:
     name: Accounting transactions (PostgreSQL 17) shard ${{ matrix.shard }}/7
     # Standard GitHub-hosted runners are free for this public repository.
     # Preserve the complete qualification matrix and fail-closed required verdict.
-    runs-on: ubuntu-latest
+    # Shard 2 builds pinned pg_net against the proven compatible system headers.
+    runs-on: ${{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}
     # Run 35276340849 reached V31 after 26m13s and exhausted the 30m job cap.
     # V31 passed in 4m31s in 35276304884. Keep room for hosted runtime variance;
     # every case, statement, cleanup deadline and required gate stays unchanged.
