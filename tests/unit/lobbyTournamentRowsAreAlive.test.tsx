@@ -120,7 +120,14 @@ describe('a tournament row says what makes it worth playing', () => {
 describe('a heading the player taps reorders the whole board', () => {
   it('Players reorders ordinary events while keeping top events pinned', () => {
     const featured = mtt(
-      { id: 'small', name: 'Featured Small', current_players: 5 },
+      {
+        id: 'small',
+        name: 'Featured Small',
+        current_players: 5,
+        // This assertion needs today's featured event, including after 23:15.
+        // The generic +45-minute fixture becomes tomorrow near midnight.
+        start_time: new Date().toISOString(),
+      },
       { featured: true }
     );
     const big = mtt({ id: 'big', name: 'Busy Big', current_players: 50 });
