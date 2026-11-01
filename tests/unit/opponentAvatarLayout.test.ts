@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  createOpponentAvatarLayout,
   nearestOpponentShift,
   opponentIdleEnvelope,
   opponentCaptionBounds,
@@ -1204,3 +1205,180 @@ describe('bounded opponent fact positioning', () => {
     expect(captions[1].style.getPropertyValue('translate')).toBe('0px 86px');
   });
 });
+
+it('retains decoded URL metadata when its original portrait is replaced before CORS completion', async () => {
+  const page = document.createElement('div');
+  page.className = 'table-page';
+  page.innerHTML =
+    '<div class="table-scaler"><div class="seat seat--hero"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div></div></div>';
+  document.body.append(page);
+  const scaler = page.querySelector<HTMLElement>('.table-scaler')!;
+  const original = page.querySelector<HTMLImageElement>('img')!;
+  const url = 'https://example.invalid/metadata-replacement-race.webp';
+  const loaded = (image: HTMLImageElement) => {
+    image.src = url;
+    image.style.transform = 'none';
+    image.style.objectFit = 'contain';
+    image.style.objectPosition = '50% 100%';
+    for (const [name, value] of Object.entries({
+      complete: true,
+      naturalWidth: 1,
+      naturalHeight: 1,
+      offsetWidth: 100,
+      offsetHeight: 100,
+    }))
+      Object.defineProperty(image, name, { configurable: true, value });
+  };
+  loaded(original);
+  let firstRead = true;
+  const context = {
+    drawImage: () => {
+      if (firstRead) {
+        firstRead = false;
+        throw new Error('Cross-Origin Portrait');
+      }
+    },
+    getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
+  };
+  const canvas = vi
+    .spyOn(HTMLCanvasElement.prototype, 'getContext')
+    .mockReturnValue(context as unknown as CanvasRenderingContext2D);
+  const probes: Array<{
+    naturalWidth: number;
+    naturalHeight: number;
+    onload: null | (() => void);
+    onerror: null | (() => void);
+    src: string;
+    crossOrigin: string;
+  }> = [];
+  vi.stubGlobal(
+    'Image',
+    class {
+      naturalWidth = 1;
+      naturalHeight = 1;
+      onload = null;
+      onerror = null;
+      src = '';
+      crossOrigin = '';
+      constructor() {
+        probes.push(this);
+      }
+    }
+  );
+  const schedule = vi.fn();
+  const layout = createOpponentAvatarLayout(
+    scaler,
+    page,
+    { key: '', shifts: new WeakMap() },
+    schedule
+  );
+  try {
+    expect(layout.prepare()).toBe(false);
+    expect(probes).toHaveLength(1);
+    const replacement = document.createElement('img');
+    replacement.className = original.className;
+    loaded(replacement);
+    original.replaceWith(replacement);
+    probes[0].onload!();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(layout.awaitingMetadata()).toBe(false);
+    expect(schedule).toHaveBeenCalledOnce();
+    layout.prepare();
+    expect(layout.awaitingMetadata()).toBe(false);
+  } finally {
+    layout.stop();
+    canvas.mockRestore();
+    vi.unstubAllGlobals();
+    page.remove();
+  }
+});
+
+it.each([
+  { heroActive: true, heroSpot: true, opponentActive: false, opponentSpot: false },
+  { heroActive: false, heroSpot: false, opponentActive: true, opponentSpot: true },
+  { heroActive: true, heroSpot: false, opponentActive: false, opponentSpot: true },
+  { heroActive: false, heroSpot: true, opponentActive: true, opponentSpot: false },
+])(
+  'matches mixed decoded subjects to the unchanged focused Hero: %j',
+  async ({ heroActive, heroSpot, opponentActive, opponentSpot }) => {
+    const page = document.createElement('div');
+    page.className = 'table-page';
+    page.innerHTML = `<div class="table-scaler"><div class="seat-wrapper ${heroSpot ? 'seat-wrapper--spot' : ''}"><div class="seat seat--hero ${heroActive ? 'seat--active' : ''}"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div></div></div><div class="seat-wrapper ${opponentSpot ? 'seat-wrapper--spot' : ''}"><div class="seat ${opponentActive ? 'seat--active' : ''}"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div><div class="seat__info" style="width:112px;height:36px"></div><div class="seat__cards" style="width:90px;height:60px"></div></div></div></div>`;
+    document.body.append(page);
+    const images = [...page.querySelectorAll<HTMLImageElement>('img')];
+    images.forEach((image, i) => {
+      image.src = `https://example.invalid/focus-${Number(heroActive)}${Number(heroSpot)}${Number(opponentActive)}${Number(opponentSpot)}-${i ? 'opponent' : 'hero'}.webp`;
+      image.style.transform = 'none';
+      image.style.objectFit = 'contain';
+      image.style.objectPosition = '50% 100%';
+      for (const [name, value] of Object.entries({
+        complete: true,
+        naturalWidth: 250,
+        naturalHeight: 340,
+        offsetWidth: 80,
+        offsetHeight: 80,
+      }))
+        Object.defineProperty(image, name, { configurable: true, value });
+    });
+    const canvas = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => {
+      let source: HTMLImageElement;
+      return {
+        drawImage: (image: HTMLImageElement) => {
+          source = image;
+        },
+        getImageData: () => {
+          const data = new Uint8ClampedArray(250 * 340 * 4);
+          const hero = source.src.endsWith('hero.webp');
+          for (let y = hero ? 100 : 20; y < (hero ? 300 : 320); y++)
+            for (let x = 0; x < 250; x++) data[(y * 250 + x) * 4 + 3] = 255;
+          return { data };
+        },
+      } as unknown as CanvasRenderingContext2D;
+    });
+    const scaler = page.querySelector<HTMLElement>('.table-scaler')!;
+    const before = [...page.querySelectorAll<HTMLElement>('.seat__info,.seat__cards')].map(
+      (e) => e.style.cssText
+    );
+    const layout = createOpponentAvatarLayout(
+      scaler,
+      page,
+      { key: '', shifts: new WeakMap() },
+      vi.fn()
+    );
+    try {
+      layout.prepare();
+      await Promise.resolve();
+      await Promise.resolve();
+      layout.prepare();
+      const heroFocus = (heroActive ? 1.04 : 1) * (heroSpot ? 1.04 : 1);
+      const opponentFocus = (opponentActive ? 1.04 : 1) * (opponentSpot ? 1.04 : 1);
+      const gain = Number(
+        images[1]
+          .closest<HTMLElement>('.seat__avatar')!
+          .style.getPropertyValue('--sp-opponent-art-scale')
+      );
+      // Independent decoded row counts: 200 Hero pixels, 300 opponent pixels.
+      expect(gain).toBeCloseTo(((200 / 300) * heroFocus) / opponentFocus, 5);
+      expect((300 / 340) * 80 * opponentFocus * gain).toBeCloseTo((200 / 340) * 80 * heroFocus, 4);
+      expect(
+        images[0]
+          .closest<HTMLElement>('.seat__avatar')!
+          .style.getPropertyValue('--sp-opponent-art-scale')
+      ).toBe('');
+      expect(
+        [...page.querySelectorAll<HTMLElement>('.seat__info,.seat__cards')].map(
+          (e) => e.style.cssText
+        )
+      ).toEqual(before);
+      expect(images.map((image) => [image.offsetWidth, image.offsetHeight])).toEqual([
+        [80, 80],
+        [80, 80],
+      ]);
+    } finally {
+      layout.stop();
+      canvas.mockRestore();
+      page.remove();
+    }
+  }
+);

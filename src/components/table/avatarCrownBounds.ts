@@ -265,6 +265,20 @@ export function restingAvatarTop(image: HTMLImageElement, scale: number): number
   return element === seat ? seat.getBoundingClientRect().top + y * scale : paintedAvatarTop(image);
 }
 
+// Existing static focus rules enlarge the character at two independent levels.
+// Keep these measurements bound to SeatSlot.css and TablePage.css in the unit
+// contract; temporary winner/gesture transforms do not define permanent size.
+const ACTING_FOCUS_SCALE = 1.04;
+const avatarFocusScale = (image: HTMLElement) =>
+  image.closest('.seat')?.classList.contains('seat--active') ? ACTING_FOCUS_SCALE : 1;
+const seatFocusScale = (image: HTMLElement) =>
+  image.closest('.seat-wrapper--spot') ? ACTING_FOCUS_SCALE : 1;
+
+/** Existing static focus gain, excluding permanent opponent normalization. */
+export function permanentAvatarFocusScale(image: HTMLElement): number {
+  return avatarFocusScale(image) * seatFocusScale(image);
+}
+
 /** Permanent image rectangle for wager ownership, excluding compositor gestures. */
 export function restingAvatarBox(image: HTMLElement, scale: number): DOMRect {
   const seat = image.closest<HTMLElement>('.seat');
@@ -296,8 +310,10 @@ export function restingAvatarBox(image: HTMLElement, scale: number): DOMRect {
     }
     if (element.matches('.seat__avatar')) {
       const axes = (style.scale || 'none').split(/\s+/).map(Number);
-      const sx = axes[0],
-        sy = axes[1] ?? sx;
+      const focus = avatarFocusScale(image);
+      const sx = (Number.isFinite(axes[0]) && axes[0] > 0 ? axes[0] : 1) * focus;
+      const axisY = axes[1] ?? axes[0];
+      const sy = (Number.isFinite(axisY) && axisY > 0 ? axisY : 1) * focus;
       if (Number.isFinite(sx) && sx > 0)
         for (const point of points) {
           point[0] = ox + (point[0] - ox) * sx;
@@ -313,8 +329,9 @@ export function restingAvatarBox(image: HTMLElement, scale: number): DOMRect {
   }
   if (element !== seat) return image.getBoundingClientRect();
   const base = seat.getBoundingClientRect();
-  const xs = points.map((p) => base.left + p[0] * scale),
-    ys = points.map((p) => base.top + p[1] * scale);
+  const ratio = scale * seatFocusScale(image);
+  const xs = points.map((p) => base.left + p[0] * ratio),
+    ys = points.map((p) => base.top + p[1] * ratio);
   return new DOMRect(
     Math.min(...xs),
     Math.min(...ys),

@@ -1,4 +1,4 @@
-import { restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
+import { permanentAvatarFocusScale, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 /** Opponent artwork only: the hero, slot dimensions and table tokens stay owned
  * by their existing renderers. Image metadata never changes the source image. */
 type Alpha = {
@@ -895,7 +895,9 @@ function subject(image: HTMLImageElement, a: Alpha, rendered: boolean, override?
     bottom = Math.min(bottom, rect.top + rect.height);
   }
   if (!rendered) {
-    const transform = style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d;
+    const transform =
+      (style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d) *
+      permanentAvatarFocusScale(image);
     top = rect.height + (top - rect.height) * transform;
     bottom = rect.height + (bottom - rect.height) * transform;
   }
@@ -1059,7 +1061,10 @@ export function createOpponentAvatarLayout(
         const url = source(image);
         pending.add(url);
         void alpha(image).then((value) => {
-          if (active && image.isConnected) {
+          // Decoded bytes belong to the URL, not the DOM node that began
+          // the read. A roster/profile render can replace that node while a
+          // current portrait still needs the same pending metadata.
+          if (active) {
             resolved.set(url, value);
             schedule();
           }

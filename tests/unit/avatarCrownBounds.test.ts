@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   AVATAR_CROWN_TOP,
   avatarCrownTop,
@@ -6,6 +8,7 @@ import {
   restingAvatarTop,
   restingAvatarBox,
   tableRenderScale,
+  permanentAvatarFocusScale,
 } from '../../src/components/table/avatarCrownBounds';
 
 describe('visible avatar crowns', () => {
@@ -114,6 +117,101 @@ describe('visible avatar crowns', () => {
     wrap.style.transform = 'translateY(-99px) scale(1.6)';
     expect(restingAvatarBox(image, 0.75).height).toBeCloseTo(permanent.height, 6);
     seat.remove();
+  });
+  it('binds permanent focus measurement to both existing CSS owners', () => {
+    const avatarCss = readFileSync(
+      resolve(process.cwd(), 'src/components/table/SeatSlot.css'),
+      'utf8'
+    );
+    const tableCss = readFileSync(resolve(process.cwd(), 'src/pages/TablePage.css'), 'utf8');
+    expect(avatarCss).toMatch(/\.seat--active \.seat__avatar\s*\{[^}]*transform:\s*scale\(1\.04\)/);
+    expect(tableCss).toMatch(
+      /\.seat-wrapper--spot \.seat:not\(\.seat--empty\)\s*\{[^}]*transform:\s*scale\(1\.04\)/
+    );
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = '<div class="seat"><div class="seat__avatar"><img /></div></div>';
+    const seat = wrapper.firstElementChild!;
+    const image = wrapper.querySelector('img')!;
+    expect(permanentAvatarFocusScale(image)).toBe(1);
+    seat.classList.add('seat--active');
+    expect(permanentAvatarFocusScale(image)).toBe(1.04);
+    wrapper.classList.add('seat-wrapper--spot');
+    expect(permanentAvatarFocusScale(image)).toBeCloseTo(1.0816, 8);
+    seat.classList.remove('seat--active');
+    expect(permanentAvatarFocusScale(image)).toBe(1.04);
+    wrapper.classList.remove('seat-wrapper--spot');
+    seat.classList.add('seat--winner');
+    expect(permanentAvatarFocusScale(image)).toBe(1);
+  });
+  it('preserves the existing acting-avatar and spotlight scales in permanent paint geometry', () => {
+    vi.stubGlobal(
+      'DOMMatrix',
+      class {
+        a: number;
+        b: number;
+        c: number;
+        d: number;
+        e: number;
+        f: number;
+        constructor(transform: string) {
+          const values = transform
+            .replace(/^matrix\(|\)$/g, '')
+            .split(',')
+            .map(Number);
+          [this.a, this.b, this.c, this.d, this.e, this.f] = values;
+        }
+      }
+    );
+    const wrapper = document.createElement('div');
+    wrapper.className = 'seat-wrapper seat-wrapper--spot';
+    wrapper.innerHTML =
+      '<div class="seat seat--active"><div class="seat__avatar-wrap"><div class="seat__avatar"><img class="seat__avatar-img" /></div></div></div>';
+    document.body.append(wrapper);
+    const seat = wrapper.firstElementChild as HTMLElement;
+    const wrap = seat.firstElementChild as HTMLElement;
+    const avatar = wrap.firstElementChild as HTMLElement;
+    const image = avatar.firstElementChild as HTMLImageElement;
+    image.style.transform = 'matrix(1.6849, 0, 0, 1.6849, 0, 0)';
+    image.style.transformOrigin = '26px 52px';
+    avatar.style.transform = 'matrix(1.04, 0, 0, 1.04, 0, 0)';
+    avatar.style.transformOrigin = '26px 52px';
+    avatar.style.scale = '2.105296';
+    seat.style.transform = 'matrix(1.04, 0, 0, 1.04, 0, 0)';
+    seat.getBoundingClientRect = () => new DOMRect(62.369373, 905.019287, 116.48, 87.668762);
+    for (const [element, parent] of [
+      [image, avatar],
+      [avatar, wrap],
+      [wrap, seat],
+    ] as const) {
+      Object.defineProperty(element, 'offsetParent', { value: parent });
+      Object.defineProperty(element, 'offsetWidth', { value: 52 });
+      Object.defineProperty(element, 'offsetHeight', { value: 52 });
+    }
+    Object.defineProperty(wrap, 'offsetLeft', { value: 30 });
+    const computed = getComputedStyle;
+    vi.stubGlobal('getComputedStyle', (element: Element) => {
+      const style = computed(element);
+      return element === avatar
+        ? new Proxy(style, {
+            get: (target, key) => (key === 'scale' ? '2.105296' : Reflect.get(target, key, target)),
+          })
+        : style;
+    });
+    // Independent live receipt: 199.543579px with the observed1.000185
+    // breathing scale, or199.506623px in the permanent pose.
+    const permanent = restingAvatarBox(image, 1);
+    expect(permanent.height).toBeCloseTo(199.506623, 5);
+    expect(permanent.width).toBeCloseTo(199.506623, 5);
+    // These permanent coordinates remove only the independently observed
+    // breathing matrix from the live image receipt, retaining both focus gains.
+    expect(permanent.left).toBeCloseTo(20.856061, 5);
+    expect(permanent.top).toBeCloseTo(759.592664, 5);
+    // A temporary gesture and winner glow must not become permanent sizing.
+    wrap.style.transform = 'matrix(1.6, 0, 0, 1.6, 0, -99)';
+    avatar.style.transform = 'matrix(1.08, 0, 0, 1.08, 0, 0)';
+    seat.classList.add('seat--winner');
+    expect(restingAvatarBox(image, 1).height).toBeCloseTo(permanent.height, 6);
+    wrapper.remove();
   });
 });
 
