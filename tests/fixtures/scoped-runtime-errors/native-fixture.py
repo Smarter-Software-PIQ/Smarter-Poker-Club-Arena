@@ -22,6 +22,97 @@ STAMP = '2026-09-27T00:00:00.123456789Z '
 
 
 class NativeLogReader(unittest.TestCase):
+    def test_original_ten_incident_is_exact_expiring_and_exclusive(self):
+        import copy
+        now = datetime.datetime(2026, 11, 1, tzinfo=datetime.timezone.utc)
+        request = {'scopes': copy.deepcopy(reader.ORIGINAL_TEN_SCOPES),
+                   'windowStart': reader.ORIGINAL_TEN_START,
+                   'originalTenIncident': dict(reader.ORIGINAL_TEN_CASE)}
+        selected = reader.observation_request(request, now)
+        self.assertEqual(selected[0], reader.ORIGINAL_TEN_SCOPES)
+        self.assertEqual(selected[1]['until'], '2026-10-29T06:15:00Z')
+        self.assertEqual(selected[2:], (False, False, False, False, False))
+        bad = []
+        for key, value in [('windowStart', '2026-10-29T06:01:00Z'),
+                           ('scopes', SCOPES), ('originalTenIncident', True),
+                           ('originalTenIncident', {**reader.ORIGINAL_TEN_CASE, 'witnessSha256': '0'*64})]:
+            bad.append({**request, key: value})
+        changed = copy.deepcopy(request)
+        changed['scopes'][0]['tableIds'][0] = TABLE
+        bad.append(changed)
+        for option in ['muxTiming', 'lightningFoldTiming', 'leaseIncidentMetrics',
+                       'restartIncident', 'leaseHistoricalMetricsOnly', 'arbitrary']:
+            bad.append({**request, option: True})
+        for candidate in bad:
+            with self.assertRaises(ValueError):
+                reader.observation_request(candidate, now)
+        for stamp in [reader.ORIGINAL_TEN_EXPIRES, now+datetime.timedelta(days=2),
+                      datetime.datetime(2026, 10, 29, 6, 14, tzinfo=datetime.timezone.utc)]:
+            with self.assertRaises(ValueError):
+                reader.observation_request(request, stamp)
+        # A named incident must never silently broaden an ordinary request.
+        with self.assertRaises(ValueError):
+            reader.observation_request({k: v for k, v in request.items() if k != 'originalTenIncident'}, now)
+        with self.assertRaises(ValueError):
+            reader.log_window(reader.ORIGINAL_TEN_START, now)
+
+    def test_original_ten_archive_retains_first_frame_without_exporting_stack(self):
+        import copy
+        import base64
+        import io
+        now = datetime.datetime(2026, 11, 1, tzinfo=datetime.timezone.utc)
+        class Clock(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return now
+        scopes = copy.deepcopy(reader.ORIGINAL_TEN_SCOPES)
+        window = reader.original_ten_window(reader.ORIGINAL_TEN_CASE, scopes, reader.ORIGINAL_TEN_START, now)
+        table = scopes[0]['tableIds'][0]
+        raw = ('2026-10-29T06:04:31.690291Z [ServerTableEngine.'+table+'.hand_continuation_unproven] Error: Hand Continuation Write Is Unproven\n'
+               '2026-10-29T06:04:31.690292Z     at retainHandContinuation (/PRIVATE/handContinuation.js:41:15)\n'
+               '2026-10-29T06:04:31.690293Z PRIVATE credentials cards deck sqlstate55P03\n'
+               '2026-10-29T06:04:32Z [ServerTableEngine.'+TABLE+'.hand_continuation_unproven] F06_UNRELATED\n').encode()
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            (directory/'engine-20261029T080000Z-started20261029T050000-abcdef123456-eed06fe5.log.gz').write_bytes(gzip.compress(raw))
+            with patch.object(reader, 'ARCHIVE_DIRECTORY', directory), patch.object(reader.datetime, 'datetime', Clock):
+                sources, metadata = reader.archived_window(window, b'', scopes=scopes)
+                self.assertEqual(metadata['status'], 'observed')
+                self.assertFalse(metadata['fullWindowCoverageProven'])
+                result = reader.extract_sources(b'', sources, scopes)
+                self.assertEqual(result['matchingRecords'], 1)
+                record = result['records'][0]
+                self.assertEqual(record['continuationFailure'], {'category': 'write_unproven', 'phase': 'retain'})
+                self.assertEqual(record['engineIdentity']['imageIdPrefix'], 'eed06fe5')
+                self.assertIn('unproven', record['engineIdentity']['fullEngineRevision'])
+                self.assertNotIn('PRIVATE', json.dumps(result))
+                self.assertNotIn('55P03', json.dumps(result))
+                self.assertNotIn('F06_UNRELATED', json.dumps(result))
+                request = {'scopes': scopes, 'windowStart': reader.ORIGINAL_TEN_START,
+                           'originalTenIncident': dict(reader.ORIGINAL_TEN_CASE)}
+                encoded = base64.b64encode(json.dumps(request).encode()).decode()
+                output = io.StringIO()
+                identity = {'version': 'eed06fe5', 'instanceId': '1-fixture'}
+                with patch.object(reader, 'health', return_value=identity), patch.object(reader, 'capture', return_value=b'') as capture, patch.object(sys, 'argv', ['reader', '--remote', encoded]), patch.object(sys, 'stdout', output):
+                    reader.main()
+                host = json.loads(output.getvalue())
+                capture.assert_called_once_with(reader.log_command(window))
+                self.assertEqual(host['originalTenIncident'], reader.original_ten_description(window))
+                self.assertEqual(host['hostEngineBefore'], host['hostEngineAfter'])
+                self.assertEqual(host['records'][0]['continuationFailure']['phase'], 'retain')
+                self.assertNotIn('PRIVATE', output.getvalue())
+                for changed in [{**window, 'until': '2026-10-29T06:16:00Z'},
+                                {**window, 'originalTenIncident': {}}]:
+                    with self.assertRaises(ValueError):
+                        reader.archived_window(changed, b'', scopes=scopes)
+                with self.assertRaises(ValueError):
+                    reader.archived_window(window, b'', scopes=SCOPES)
+            # Removing the exception marker cannot admit the same historical archive.
+            with patch.object(reader, 'ARCHIVE_DIRECTORY', directory), patch.object(reader.datetime, 'datetime', Clock):
+                with self.assertRaises(ValueError):
+                    reader.archived_window({k: v for k, v in window.items() if k != 'originalTenIncident'}, b'', scopes=scopes)
+        self.assertIn('UNKNOWN', reader.original_ten_description(window)['physicalAvailability'])
+
     def test_rebuy_diagnostic_keeps_selected_generation_and_outcome_only(self):
         value = {'schema': 'horse-rebuy-decision/v1', 'tournamentId': EVENT, 'userId': TABLE,
                  'handNumber': 777, 'choice': True, 'phase': 'purchase_unproven',

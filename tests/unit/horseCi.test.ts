@@ -304,7 +304,9 @@ describe('Horse commitment audit remains in the existing accounting PostgreSQL g
     expect(steps[0].env.PG_BIN).toBe('/usr/lib/postgresql/17/bin');
     expect(steps[0].run).toContain('--source-root "$GITHUB_WORKSPACE"');
     expect(steps[0].run).toContain('--allocation-parent /tmp');
-    expect(job['runs-on']).toBe('ubuntu-latest');
+    expect(job['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(ci.jobs.server.needs).toContain('accounting_postgres');
   });
 });

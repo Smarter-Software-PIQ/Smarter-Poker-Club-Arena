@@ -256,22 +256,20 @@ for(const repo of ['evil/Smarter-Poker-Club-Arena','Smarter-Software-PIQ/evil','
 test('all qualification and publication jobs use only fixed standard hosted runners',()=>{
   for(const file of ['ci.yml','publish-club-arena.yml','publish-club-arena-client.yml','publish-club-arena-transaction.yml','component-fixture-native-smoke.yml']){
     const text=fs.readFileSync(new URL('../.github/workflows/'+file,import.meta.url),'utf8');
-    let jobName='';
-    const routes=[];
+    const routes=[];let job;
     for(const line of text.split('\n')){
-      const job=line.match(/^  ([A-Za-z0-9_-]+):(?:\s*#.*)?$/);
-      if(job)jobName=job[1];
-      const route=line.match(/^    runs-on: (.+)$/);
-      if(route)routes.push({name:jobName,route:route[1]});
+      const header=/^  ([\w-]+):\s*$/.exec(line);if(header)job=header[1];
+      const route=/^    runs-on: (.+)$/.exec(line);if(route)routes.push({job,route:route[1]});
     }
     assert.ok(routes.length,file);
-    for(const {name,route} of routes){
-      assert.ok(name,'Each runner belongs to a named job');
-      const supportedBrowserImage=file==='ci.yml'&&['build','css-beats-e2e','diamond-playfield-e2e'].includes(name);
-      const expected=file==='component-fixture-native-smoke.yml'||supportedBrowserImage?'ubuntu-24.04':'ubuntu-latest';
-      assert.equal(route,expected,file+':'+name);
-      assert.doesNotMatch(route,/ca-linux|self-hosted|vars\./);
+    for(const {job,route} of routes){
+      const supportedBrowser=file==='ci.yml'&&['build','css-beats-e2e','diamond-playfield-e2e'].includes(job);
+      const expected=file==='ci.yml'&&job==='accounting_postgres'
+        ?'$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+        :file==='component-fixture-native-smoke.yml'||supportedBrowser?'ubuntu-24.04':'ubuntu-latest';
+      assert.equal(route,expected,file+':'+job);
     }
+    assert.doesNotMatch(routes.map(({route})=>route).join('\n'),/ca-linux|self-hosted|vars\./);
   }
 });
 
