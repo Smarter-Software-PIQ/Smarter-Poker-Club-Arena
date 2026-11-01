@@ -13,7 +13,7 @@
   },
   "schemaVersion": 1,
   "diamondLaunchMainInputMerge20261013": {
-    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1\u21923. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
+    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1→3. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
     "changes": {
       ".github/workflows/ci.yml": {
         "previous": {
@@ -325,8 +325,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 119070,
-      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+      "bytes": 119066,
+      "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
     }
   },
   "nativePgCron": {
@@ -4037,7 +4037,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -5931,5 +5931,19 @@
       "bytes": 272348,
       "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
     }
+  },
+  "nativeFixtureRunnerContract20261101": {
+    "reason": "Align four accounting OS assertions with the qualified Ubuntu24.04 runner correction. Preserve all native fixture commands, financial assertions, budgets and historical evidence. 764 focused contracts passed.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous": {
+      "bytes": 119070,
+      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+    },
+    "current": {
+      "bytes": 119066,
+      "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }
