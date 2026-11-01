@@ -44,7 +44,8 @@
   }
 }
 
-.club-home #lobby-game-section-controls {
+.club-home #lobby-game-section-controls,
+.club-home .lobby-controls__heading {
   scroll-margin-top: calc(
     var(--ca-global-header-height, var(--ca-in-tab-header-height, 0px)) + var(--mtt-ticker-h, 0px)
   );

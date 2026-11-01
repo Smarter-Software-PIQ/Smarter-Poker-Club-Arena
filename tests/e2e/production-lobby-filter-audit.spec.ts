@@ -1278,7 +1278,7 @@ async function setup(page: Page) {
     await expect(tab).toHaveAttribute('aria-selected', 'true');
   };
   const open = async () => {
-    await clickControl(page.getByRole('button', { name: 'Open Sticky Filters', exact: true }));
+    await clickControl(page.locator('#lobby-game-section-controls .game-bar__filter-btn'));
     const sheet = page.getByRole('dialog');
     await expect(sheet).toBeVisible();
     return sheet;
@@ -1933,6 +1933,11 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     body: await page.screenshot(),
     contentType: 'image/png',
   });
+  // Exercise the compact sheet door while its real rail is visible.
+  await clickControl(rail.getByRole('button', { name: 'Open Sticky Filters', exact: true }));
+  sheet = page.getByRole('dialog');
+  await expect(sheet).toBeVisible();
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   // Favorites must remain available even after a cash choice carries to MTT.
   const activeFavorites = async () => {
     await expect
@@ -1987,16 +1992,20 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     0
   );
   const quickFilters = quickControls.getByRole('button', { name: 'Filters And Sort', exact: true });
-  await clickControl(quickFilters);
-  sheet = page.getByRole('dialog');
-  await expect(sheet).toBeVisible();
-  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
-  // The rail returns to the real game controls, rather than opening another popup.
+  // Empty favorites may have clamped the page back to the primary controls.
+  // Return to the natural rows before exercising the compact Browse door.
+  await h.rows.last().scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect(rail).toBeInViewport();
   await clickControl(rail.getByRole('button', { name: 'Browse Game Types', exact: true }));
   await expect(page.locator('#lobby-game-section-controls')).toBeInViewport();
   await expect(rail).toBeHidden();
   await expect(page.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Browse Game Types', exact: true })).toHaveCount(0);
+  await expect.poll(visibleDuplicates).toEqual({ favorites: 1, filters: 1 });
+  await clickControl(quickFilters);
+  sheet = page.getByRole('dialog');
+  await expect(sheet).toBeVisible();
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   const filterPlacement = await quickFilters.evaluate((element) => {
     const running = [...element.parentElement!.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === 'Running'

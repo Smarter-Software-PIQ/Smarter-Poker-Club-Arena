@@ -5873,7 +5873,7 @@ function ClubHomePageContent({
               onBrowse={(button) => {
                 button
                   .closest('.club-home')
-                  ?.querySelector('#lobby-game-section-controls')
+                  ?.querySelector('.lobby-controls__heading')
                   ?.scrollIntoView({ block: 'start' });
               }}
               onFavorites={() => selectFavoritesOnly(!favoritesOnly)}
