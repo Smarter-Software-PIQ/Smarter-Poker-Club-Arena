@@ -210,7 +210,8 @@ export interface PreflopCtx {
   /** Dan 2026-10-25 NLH tournament aggression; undefined = on. */
   tournamentAggression?: boolean;
   /** V74 no-limit open sizes (HorseNlhOpenSize, Dan 2026-10-31); undefined =
-   *  on, false = the historical V28 ladder for the recorded corpora. */
+   *  on, false = the V28 ladder (the recorded corpora, and every variant that
+   *  is not two-card full-deck no-limit hold'em). */
   nlhOpenSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;

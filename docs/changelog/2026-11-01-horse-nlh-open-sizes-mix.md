@@ -60,7 +60,8 @@ units before limpers:
 - On a whole-chip grid the draw is rounded stochastically to a neighbouring
   chip, never below the band floor.
 
-Untouched: pot-limit opens (the pot, Dan 2026-09-03), fixed limit, 3-bet and
+Untouched: short deck and pineapple (their own qualified Phase 12 packs keep
+the V28 ladder), pot-limit opens (the pot, Dan 2026-09-03), fixed limit, 3-bet and
 4-bet sizes, the legacy v7-off ablation route, and
 `HorseHoldemPremiumAggression` (its rule 2 only converts a passive premium
 action, so it never resizes an open; its 3bb-plus-limpers conversion of a

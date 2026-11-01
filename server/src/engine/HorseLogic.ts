@@ -2232,8 +2232,10 @@ export interface HorseDecideOpts {
   /** V74 (2026-11-01, Dan 2026-10-31 "MIN RAISE TO 2.5-4X OPENING RANGES"):
    *  no-limit hold'em raise-first-in opens draw from a band chosen by seat,
    *  table, format, depth and antes (HorseNlhOpenSize), never from the cards.
-   *  Default on; explicit false keeps the V28 ladder (the measured min-raise
-   *  defect) for the historical corpora only. */
+   *  Two-card full-deck no-limit hold'em only (short deck, pineapple, fixed
+   *  limit and Omaha keep the V28 ladder). Default on; explicit false keeps
+   *  the V28 ladder (the measured min-raise defect) for the historical
+   *  corpora only. */
   v74NlhOpenSizes?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
@@ -6717,7 +6719,15 @@ export class HorseLogic {
       omahaSuitedPremium: suitedPremium,
       holdemPremiumPair,
       tournamentAggression: (opts.v57TournamentAggression ?? true) !== false,
-      nlhOpenSizes: opts.v74NlhOpenSizes !== false,
+      // V74 is no-limit hold'em only: short deck, pineapple, fixed limit and
+      // Omaha have their own qualified packs and keep the V28 ladder.
+      nlhOpenSizes:
+        opts.v74NlhOpenSizes !== false &&
+        vi.holeCount === 2 &&
+        !vi.isShortDeck &&
+        !vi.isOmaha &&
+        !vi.isPotLimit &&
+        !vi.isFixedLimit,
       cashAggression: (opts.v60CashPressure ?? true) !== false,
       isShortDeck: vi.isShortDeck === true,
       ...(typeof opts.tournamentFlatBump === 'number'
