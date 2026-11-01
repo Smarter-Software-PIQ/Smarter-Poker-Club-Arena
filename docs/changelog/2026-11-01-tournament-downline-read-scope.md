@@ -1,0 +1,7 @@
+# Tournament downline reads retain their viewer and finish
+
+The actual ranking hook could publish the previous viewer/club/union roster during the first render after a scope change. Its scope, membership and roster-page reads could also remain pending indefinitely. Mask snapshots by the current scope before paint, and bound each read with the existing twelve-second request deadline and abort signal. Retirement aborts the transport without reporting a user-facing failure. Partial rosters and late responses remain unpublished; existing authorized readers, pagination and role gates are preserved.
+
+Seven mounted regressions fail on the preceding implementation. Nineteen focused assertions pass, including the existing nested/union/large-roster permission cases, a hung later page, late response and unmount cleanup. Client TypeScript compilation passes. Required submission checks, protected merge, publication and affected live proof remain outstanding. This is not evidence that a historical tournament freeze was caused by these display reads.
+
+Owned follow-up: fix/tournament-downline-read-01a193b0, protected base1a0fb9470c9af540d54237badc5324b01f9d5c89. Parent audit checkpoint records current full policy reading2026-11-01T03:12:45.971Z/version2.9/manifest7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52 and verified external storage. Required repository references are byte-identical to that read. No engine, database, financial write, artwork or polling change.

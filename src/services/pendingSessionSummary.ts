@@ -354,7 +354,11 @@ export function publishSessionSummary(payload: SessionSummaryPayload, broadcast 
   const id = tournamentReportKey(payload.tournament);
   if (id && acknowledgedTournamentIds.has(id)) return;
   if (pending?.tournament) {
-    if (payload.tournament?.tournamentId === pending.tournament.tournamentId) {
+    if (
+      id
+        ? id === tournamentReportKey(pending.tournament)
+        : payload.tournament?.tournamentId === pending.tournament.tournamentId
+    ) {
       /* Same event re-publishing (the bust path fires once early, once with
          the settled row): MERGE, never downgrade - a place or prize already
          on screen must not be replaced with a null. */
@@ -372,9 +376,7 @@ export function publishSessionSummary(payload: SessionSummaryPayload, broadcast 
     /* A different session finished while the ranking card is up: hold it. */
     heldQueue = [
       ...heldQueue.filter((q) =>
-        payload.tournament?.tournamentId
-          ? q.tournament?.tournamentId !== payload.tournament.tournamentId
-          : q.tableName !== payload.tableName
+        id ? tournamentReportKey(q.tournament) !== id : q.tableName !== payload.tableName
       ),
       payload,
     ];

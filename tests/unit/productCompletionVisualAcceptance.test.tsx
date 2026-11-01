@@ -185,7 +185,7 @@ describe('a zone prints as a place, not an id', () => {
           });
         }
         if (fn === 'fn_tournament_stage_view') {
-          return Promise.resolve({
+          const result = Promise.resolve({
             data: {
               ok: true,
               tournament_id: 't',
@@ -208,6 +208,7 @@ describe('a zone prints as a place, not an id', () => {
             },
             error: null,
           });
+          return Object.assign(result, { abortSignal: () => result });
         }
         return Promise.resolve({ data: null, error: null });
       }) as never);

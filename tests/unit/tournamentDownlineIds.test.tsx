@@ -1,6 +1,10 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+function abortable<T>(promise: Promise<T>) {
+  return Object.assign(promise, { abortSignal: () => promise });
+}
+
 const api = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), page: vi.fn(), report: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: api }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: api.report }));
@@ -8,6 +12,7 @@ import { useDownlineIds } from '../../src/components/tournament/details/useDownl
 
 function membership(role = 'super_agent') {
   const query = {
+    abortSignal: vi.fn().mockReturnThis(),
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     in: vi
@@ -24,8 +29,9 @@ beforeEach(() => {
   membership();
   api.rpc.mockImplementation((name, parameters) =>
     name === 'fn_club_scope_ids'
-      ? Promise.resolve({ data: [parameters.p_club_id], error: null })
+      ? abortable(Promise.resolve({ data: [parameters.p_club_id], error: null }))
       : {
+          abortSignal: vi.fn().mockReturnThis(),
           select: vi.fn().mockReturnThis(),
           order: vi.fn().mockReturnThis(),
           range: api.page,
@@ -79,6 +85,7 @@ describe('tournament Mine Only uses the authorized complete roster downline', ()
 
   it('resolves linked union clubs, applies each club role, and deduplicates shared members', async () => {
     const query = {
+      abortSignal: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({
@@ -93,10 +100,11 @@ describe('tournament Mine Only uses the authorized complete roster downline', ()
     api.from.mockReturnValue(query);
     api.rpc.mockImplementation((name, parameters) => {
       if (name === 'fn_club_scope_ids')
-        return Promise.resolve({ data: ['anchor', 'nested', 'unrelated'], error: null });
+        return abortable(Promise.resolve({ data: ['anchor', 'nested', 'unrelated'], error: null }));
       const page =
         parameters.p_club_id === 'anchor' ? ['direct', 'shared'] : ['nested-player', 'shared'];
       return {
+        abortSignal: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
         order: vi.fn().mockReturnThis(),
         range: vi

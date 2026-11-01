@@ -61,6 +61,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { supabase } from '../../lib/supabase';
 import { reportError, reportWarning } from '../../utils/errorReporter';
 import { busToast, type BusPayloadMap } from '../../core/MasterBus';
@@ -180,6 +181,7 @@ function TickerHost() {
     let cancelled = false;
     let inFlight = false;
     let pending = false;
+    let activeRead: AbortController | null = null;
     const epoch = scopeEpochRef.current;
 
     /* OBSERVABLE ONCE, NOT ONCE EVERY THIRTY SECONDS. This effect re-polls on
@@ -208,13 +210,17 @@ function TickerHost() {
       }
       inFlight = true;
       pending = false;
+      const controller = new AbortController();
+      activeRead = controller;
       try {
-        let clubUuid: string | null = null;
-        let unionUuid: string | null = null;
-        const clubMatch = location.pathname.match(/^\/clubs\/([^/]+)/);
-        const tableMatch = location.pathname.match(/^\/table\/([^/]+)/);
-        if (clubMatch) {
-          /* A ROUTE SEGMENT IS NOT AN ID UNTIL SOMETHING SAYS IT IS.
+        await runWithRequestDeadline(
+          async (signal) => {
+            let clubUuid: string | null = null;
+            let unionUuid: string | null = null;
+            const clubMatch = location.pathname.match(/^\/clubs\/([^/]+)/);
+            const tableMatch = location.pathname.match(/^\/table\/([^/]+)/);
+            if (clubMatch) {
+              /* A ROUTE SEGMENT IS NOT AN ID UNTIL SOMETHING SAYS IT IS.
              resolveClubUUID's documented contract is that it returns its INPUT
              when it cannot resolve one ("Fallback: return as-is (will fail
              downstream, but that's the existing behavior)"), so a slug nobody
@@ -222,22 +228,24 @@ function TickerHost() {
              same 22P02 the table branch below used to raise, from the branch
              that looks guarded. Check the value that is about to be used, not
              the function that produced it. */
-          const resolved = await resolveClubUUID(clubMatch[1]);
-          if (isUUID(resolved)) {
-            clubUuid = resolved;
-            const { data, error } = await supabase
-              .from('clubs')
-              .select('union_id')
-              .eq('id', clubUuid)
-              .maybeSingle();
-            if (error) throw error;
-            if (!data) warnOnce(`club:${clubUuid}`, 'noSuchClub', clubMatch[1]);
-            unionUuid = data?.union_id || null;
-          } else {
-            warnOnce(`club:${clubMatch[1]}`, 'unresolvedSegment', clubMatch[1]);
-          }
-        } else if (tableMatch) {
-          /* THE ASYMMETRY THAT COST 243 ROWS (fixed 2026-09-12). This branch
+              const resolved = await resolveClubUUID(clubMatch[1]);
+              if (signal.aborted) return;
+              if (isUUID(resolved)) {
+                clubUuid = resolved;
+                const { data, error } = await supabase
+                  .from('clubs')
+                  .select('union_id')
+                  .eq('id', clubUuid)
+                  .abortSignal(signal)
+                  .maybeSingle();
+                if (error) throw error;
+                if (!data) warnOnce(`club:${clubUuid}`, 'noSuchClub', clubMatch[1]);
+                unionUuid = data?.union_id || null;
+              } else {
+                warnOnce(`club:${clubMatch[1]}`, 'unresolvedSegment', clubMatch[1]);
+              }
+            } else if (tableMatch) {
+              /* THE ASYMMETRY THAT COST 243 ROWS (fixed 2026-09-12). This branch
              put the raw path segment straight into a uuid column, so every
              /table/<not-a-uuid> raised Postgres 22P02, the catch below called
              reportError, HorseBugReporter's console.error hook filed it as a
@@ -246,29 +254,39 @@ function TickerHost() {
              A segment that cannot be a uuid is not a table: fall to defaults
              without the round trip and without filing anything. Fail at the
              boundary once, not once per poll in Postgres. */
-          if (isUUID(tableMatch[1])) {
-            const { data, error } = await supabase
-              .from('tables')
-              .select('club_id,union_id')
-              .eq('id', tableMatch[1])
-              .maybeSingle();
-            if (error) throw error;
-            /* .maybeSingle() answers {data: null, error: null} for a well-formed
+              if (isUUID(tableMatch[1])) {
+                const { data, error } = await supabase
+                  .from('tables')
+                  .select('club_id,union_id')
+                  .eq('id', tableMatch[1])
+                  .abortSignal(signal)
+                  .maybeSingle();
+                if (error) throw error;
+                /* .maybeSingle() answers {data: null, error: null} for a well-formed
                uuid with no row a viewer may read - no row, no error, no report,
                and the rail silently served platform defaults instead of the
                club's own settings. That is a DIFFERENT defect from the 22P02
                flood and it was found beside it; it is a warning rather than an
                error because RLS makes it reachable without anything being
                broken. warnOnce keeps it from becoming the next flood. */
-            if (!data) warnOnce(`table:${tableMatch[1]}`, 'noSuchTable', tableMatch[1]);
-            clubUuid = data?.club_id || null;
-            unionUuid = data?.union_id || null;
-          } else {
-            warnOnce(`table:${tableMatch[1]}`, 'unresolvedSegment', tableMatch[1]);
-          }
-        }
-        const next = await tickerManagementService.get(unionUuid ? null : clubUuid, unionUuid);
-        if (!cancelled && epoch === scopeEpochRef.current) setManagedTicker(next);
+                if (!data) warnOnce(`table:${tableMatch[1]}`, 'noSuchTable', tableMatch[1]);
+                clubUuid = data?.club_id || null;
+                unionUuid = data?.union_id || null;
+              } else {
+                warnOnce(`table:${tableMatch[1]}`, 'unresolvedSegment', tableMatch[1]);
+              }
+            }
+            if (signal.aborted) return;
+            const next = await tickerManagementService.get(
+              unionUuid ? null : clubUuid,
+              unionUuid,
+              signal
+            );
+            if (!cancelled && !signal.aborted && epoch === scopeEpochRef.current)
+              setManagedTicker(next);
+          },
+          { signal: controller.signal }
+        );
       } catch (error) {
         reportError(error, 'TournamentStartingTicker.loadManagedSettings');
         /* NOT a reset to defaults. `tickerManagementService.get` already holds
@@ -277,6 +295,8 @@ function TickerHost() {
            error instead of being switched back on with a different set of
            sources. See TickerManagementService. */
       } finally {
+        controller.abort();
+        if (activeRead === controller) activeRead = null;
         inFlight = false;
         if (pending && !cancelled && !document.hidden) void loadManaged();
       }
@@ -292,6 +312,7 @@ function TickerHost() {
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
+      activeRead?.abort();
       clearInterval(poll);
       document.removeEventListener('visibilitychange', onVisibility);
     };
@@ -352,7 +373,7 @@ function TickerHost() {
   useMasterBusSubscription('CLUB_JOINED', invalidateScope);
   useMasterBusSubscription('CLUB_LEFT', invalidateScope);
 
-  const loadScope = useCallback(async (): Promise<Scope | null> => {
+  const loadScope = useCallback(async (signal: AbortSignal): Promise<Scope | null> => {
     const epoch = scopeEpochRef.current;
     const { readLocalSession } = await import('../../lib/authUtils');
     const auth = readLocalSession();
@@ -370,9 +391,14 @@ function TickerHost() {
         .from('club_members')
         .select('club_id')
         .eq('user_id', uid)
-        .in('status', ['active', 'approved']);
+        .in('status', ['active', 'approved'])
+        .abortSignal(signal);
       if (error) throw error;
-      if (epoch !== scopeEpochRef.current || (readLocalSession()?.userId || null) !== uid) {
+      if (
+        signal.aborted ||
+        epoch !== scopeEpochRef.current ||
+        (readLocalSession()?.userId || null) !== uid
+      ) {
         return null;
       }
       const ids = (data || []).map((r: { club_id: string }) => r.club_id).filter(Boolean);
@@ -396,6 +422,7 @@ function TickerHost() {
     let cancelled = false;
     let inFlight = false;
     let pending = false;
+    let activeRead: AbortController | null = null;
     const epoch = scopeEpochRef.current;
 
     const fetchFeed = async () => {
@@ -406,263 +433,289 @@ function TickerHost() {
       }
       inFlight = true;
       pending = false;
+      const controller = new AbortController();
+      activeRead = controller;
       try {
-        const scope = await loadScope();
-        if (cancelled || epoch !== scopeEpochRef.current || !scope) return;
-        const { clubIds } = scope;
-        if (clubIds.length === 0) {
-          setItems([]);
-          return;
-        }
-        const nowIso = new Date().toISOString();
-        const horizonIso = new Date(Date.now() + LEAD_MS).toISOString();
+        await runWithRequestDeadline(
+          async (signal) => {
+            const scope = await loadScope(signal);
+            if (signal.aborted || cancelled || epoch !== scopeEpochRef.current || !scope) return;
+            const { clubIds } = scope;
+            if (clubIds.length === 0) {
+              setItems([]);
+              return;
+            }
+            const nowIso = new Date().toISOString();
+            const horizonIso = new Date(Date.now() + LEAD_MS).toISOString();
 
-        /* DB LOAD PASS 2026-08-24: the player's own registrations used to be
+            /* DB LOAD PASS 2026-08-24: the player's own registrations used to be
            fetched AFTER the upcoming-events query, filtered by the ids it
            returned - three round trips in strict series on every poll tick.
            There is no real dependency between them, so both are in flight at
            once and intersected here. */
-        const registrationsPromise = sources.starting_soon
-          ? (async () => {
-              if (!scope.userId) return new Set<string>();
-              const { data: regData, error } = await supabase
-                .from('tournament_players')
-                .select('tournament_id')
-                // The column is written by TournamentService in LOWER case
-                // ('registered' on entry, flipped to 'playing' at start). Both
-                // live values are kept: this list is only ever intersected with
-                // pre-start MTTs, so 'playing' cannot leak a running event onto
-                // the bar, and keeping it means a re-entry row mid-flip still
-                // reads as entered.
-                .eq('user_id', scope.userId)
-                .in('status', ['registered', 'playing'])
-                // ORDER BY is required, not cosmetic: a bare LIMIT in Postgres
-                // returns ARBITRARY rows.
-                .order('registered_at', { ascending: false })
-                .limit(200);
-              if (error) {
-                reportError(error, 'TournamentStartingTicker.fetchRegistrations');
-                return null;
-              }
-              return new Set(
-                (regData || []).map((r: { tournament_id: string }) => r.tournament_id)
-              );
-            })()
-          : Promise.resolve(new Set<string>());
+            const registrationsPromise = sources.starting_soon
+              ? (async () => {
+                  if (!scope.userId) return new Set<string>();
+                  const { data: regData, error } = await supabase
+                    .from('tournament_players')
+                    .select('tournament_id')
+                    // The column is written by TournamentService in LOWER case
+                    // ('registered' on entry, flipped to 'playing' at start). Both
+                    // live values are kept: this list is only ever intersected with
+                    // pre-start MTTs, so 'playing' cannot leak a running event onto
+                    // the bar, and keeping it means a re-entry row mid-flip still
+                    // reads as entered.
+                    .eq('user_id', scope.userId)
+                    .in('status', ['registered', 'playing'])
+                    // ORDER BY is required, not cosmetic: a bare LIMIT in Postgres
+                    // returns ARBITRARY rows.
+                    .order('registered_at', { ascending: false })
+                    .limit(200)
+                    .abortSignal(signal);
+                  if (error) {
+                    reportError(error, 'TournamentStartingTicker.fetchRegistrations');
+                    return null;
+                  }
+                  return new Set(
+                    (regData || []).map((r: { tournament_id: string }) => r.tournament_id)
+                  );
+                })()
+              : Promise.resolve(new Set<string>());
 
-        const upcomingPromise = sources.starting_soon
-          ? supabase
-              .from('tournaments')
-              .select(
-                'format_contract, id, name, start_time, club_id, union_id, buy_in_amount, buy_in_fee, current_players, status, tournament_type'
-              )
-              .in('club_id', clubIds)
-              /* Dan 2026-08-21: "WE DON'T ANNOUNCE SPINS OR HEADS UP, ONLY MTT
+            const upcomingPromise = sources.starting_soon
+              ? supabase
+                  .from('tournaments')
+                  .select(
+                    'format_contract, id, name, start_time, club_id, union_id, buy_in_amount, buy_in_fee, current_players, status, started_at, tournament_type'
+                  )
+                  .in('club_id', clubIds)
+                  /* Dan 2026-08-21: "WE DON'T ANNOUNCE SPINS OR HEADS UP, ONLY MTT
                  EVENTS." Spins and heads-up games fire the moment their seats
                  fill, so a five-minute warning is meaningless for them and they
                  would drown the bar: the platform holds 7,306 spins and 2,809
                  heads-up games against 1,040 MTTs. */
-              .eq('tournament_type', 'MTT')
-              // Pre-start states only. A RUNNING event is not "about to start".
-              .in('status', ['ANNOUNCED', 'REGISTERING'])
-              .gte('start_time', nowIso)
-              .lte('start_time', horizonIso)
-              .order('start_time', { ascending: true })
-              .limit(5)
-          : Promise.resolve({ data: [], error: null } as const);
+                  .eq('tournament_type', 'MTT')
+                  // Launch seats a prepared field before its booked first hand.
+                  .in('status', ['ANNOUNCED', 'REGISTERING', 'RUNNING'])
+                  .gte('start_time', nowIso)
+                  .lte('start_time', horizonIso)
+                  .order('start_time', { ascending: true })
+                  .limit(5)
+                  .abortSignal(signal)
+              : Promise.resolve({ data: [], error: null } as const);
 
-        /* ── OVERLAY ANNOUNCEMENTS (Dan 2026-08-26) ──────────────────────────
+            /* ── OVERLAY ANNOUNCEMENTS (Dan 2026-08-26) ──────────────────────────
            A SEPARATE query, not a widening of the one above, because the two
            announcements answer different questions on different clocks. The
            starting-soon strip looks five MINUTES ahead at events that have not
            started; an overlay speaks only about an event that is already
            running with late registration still open. */
-        const overlayPromise = sources.overlays
-          ? supabase
-              .from('tournaments')
-              .select(
-                'format_contract, id, name, status, start_time, guaranteed_prize, prize_pool, current_players, buy_in_amount, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, current_level, max_players'
-              )
-              .in('club_id', clubIds)
-              .eq('tournament_type', 'MTT')
-              .gt('guaranteed_prize', 0)
-              .in('status', ['RUNNING', 'IN_PROGRESS', 'LATE_REG', 'LATE_REGISTRATION'])
-              .order('guaranteed_prize', { ascending: false })
-              .limit(25)
-          : Promise.resolve({ data: [], error: null } as const);
+            const overlayPromise = sources.overlays
+              ? supabase
+                  .from('tournaments')
+                  .select(
+                    'format_contract, id, name, status, start_time, guaranteed_prize, prize_pool, current_players, buy_in_amount, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, current_level, max_players'
+                  )
+                  .in('club_id', clubIds)
+                  .eq('tournament_type', 'MTT')
+                  .gt('guaranteed_prize', 0)
+                  .in('status', ['RUNNING', 'IN_PROGRESS', 'LATE_REG', 'LATE_REGISTRATION'])
+                  .order('guaranteed_prize', { ascending: false })
+                  .limit(25)
+                  .abortSignal(signal)
+              : Promise.resolve({ data: [], error: null } as const);
 
-        /* ── THE OPERATIONAL SOURCES, EACH BEHIND ITS OWN SWITCH ─────────────
+            /* ── THE OPERATIONAL SOURCES, EACH BEHIND ITS OWN SWITCH ─────────────
            These two queries used to fire on every tick for every seated player
            whatever the club had configured - a wide 80-row read of
            `tournaments` and a 10-row read of `tables` - even though three of
            the four sources they feed are OFF by default. A club that wants
            none of them now pays for none of them. */
-        const wantsTournamentOps =
-          sources.registration_closing || sources.guarantees || sources.winner_results;
-        const opsTournamentPromise = wantsTournamentOps
-          ? supabase
-              .from('tournaments')
-              .select(
-                'format_contract,id,name,status,start_time,started_at,ended_at,updated_at,guaranteed_prize,prize_pool,current_players,late_reg_levels,late_reg_mins,rebuy_levels,prize_pool_finalized,current_level,blind_structure,level_started_at,max_players'
-              )
-              .in('club_id', clubIds)
-              // Completed results only render for ten minutes. Exclude older
-              // history before it can consume the operational feed's row limit.
-              // Keep every existing live and upcoming status in the same scope.
-              .or(
-                `status.in.(ANNOUNCED,REGISTERING,RUNNING,LATE_REG,LATE_REGISTRATION),and(status.eq.COMPLETED,ended_at.gt.${new Date(Date.now() - 10 * 60_000).toISOString()})`
-              )
-              .order('updated_at', { ascending: false })
-              .limit(80)
-          : Promise.resolve({ data: [], error: null } as const);
+            const wantsTournamentOps =
+              sources.registration_closing || sources.guarantees || sources.winner_results;
+            const opsTournamentPromise = wantsTournamentOps
+              ? supabase
+                  .from('tournaments')
+                  .select(
+                    'format_contract,id,name,status,start_time,started_at,ended_at,updated_at,guaranteed_prize,prize_pool,current_players,late_reg_levels,late_reg_mins,rebuy_levels,prize_pool_finalized,current_level,blind_structure,level_started_at,max_players'
+                  )
+                  .in('club_id', clubIds)
+                  // Completed results only render for ten minutes. Exclude older
+                  // history before it can consume the operational feed's row limit.
+                  // Keep every existing live and upcoming status in the same scope.
+                  .or(
+                    `status.in.(ANNOUNCED,REGISTERING,RUNNING,LATE_REG,LATE_REGISTRATION),and(status.eq.COMPLETED,ended_at.gt.${new Date(Date.now() - 10 * 60_000).toISOString()})`
+                  )
+                  .order('updated_at', { ascending: false })
+                  .limit(80)
+                  .abortSignal(signal)
+              : Promise.resolve({ data: [], error: null } as const);
 
-        const opsTablePromise = sources.table_openings
-          ? supabase
-              .from('tables')
-              .select('id,name,status,game_variant,created_at')
-              .in('club_id', clubIds)
-              .is('tournament_id', null)
-              .eq('is_deleted', false)
-              .in('status', ['waiting', 'running'])
-              .gte('created_at', new Date(Date.now() - 10 * 60_000).toISOString())
-              .order('created_at', { ascending: false })
-              .limit(10)
-          : Promise.resolve({ data: [], error: null } as const);
+            const opsTablePromise = sources.table_openings
+              ? supabase
+                  .from('tables')
+                  .select('id,name,status,game_variant,created_at')
+                  .in('club_id', clubIds)
+                  .is('tournament_id', null)
+                  .eq('is_deleted', false)
+                  .in('status', ['waiting', 'running'])
+                  .gte('created_at', new Date(Date.now() - 10 * 60_000).toISOString())
+                  .order('created_at', { ascending: false })
+                  .limit(10)
+                  .abortSignal(signal)
+              : Promise.resolve({ data: [], error: null } as const);
 
-        const [upcomingRes, myRegs, overlayRes, opsTournamentRes, opsTableRes] = await Promise.all([
-          upcomingPromise,
-          registrationsPromise,
-          overlayPromise,
-          opsTournamentPromise,
-          opsTablePromise,
-        ]);
+            const [upcomingRes, myRegs, overlayRes, opsTournamentRes, opsTableRes] =
+              await Promise.all([
+                upcomingPromise,
+                registrationsPromise,
+                overlayPromise,
+                opsTournamentPromise,
+                opsTablePromise,
+              ]);
 
-        const auth = await import('../../lib/authUtils').then((m) => m.readLocalSession());
-        if (cancelled || epoch !== scopeEpochRef.current || (auth?.userId || null) !== scope.userId)
-          return;
-
-        const current = Date.now();
-        const next: TickerItem[] = [];
-        const failedKinds = new Set<TickerItem['kind']>();
-
-        if (upcomingRes.error || myRegs === null) {
-          if (upcomingRes.error)
-            reportError(upcomingRes.error, 'TournamentStartingTicker.fetchUpcoming');
-          failedKinds.add('starting_soon');
-        } else {
-          for (const t of (upcomingRes.data || []) as Record<string, unknown>[]) {
-            const upcoming: UpcomingTournament = {
-              id: String(t.id),
-              name: String(t.name || 'Tournament'),
-              startsAt: new Date(String(t.start_time)).getTime(),
-              clubId: (t.club_id as string) || null,
-              unionId: (t.union_id as string) || null,
-              buyIn: Number(t.buy_in_amount) || 0,
-              buyInFee: Number(t.buy_in_fee) || 0,
-              registered: Number(t.current_players) || 0,
-              isRegistered: myRegs.has(String(t.id)),
-            };
-            if (!Number.isFinite(upcoming.startsAt)) continue;
-            next.push(startingSoonItem(upcoming));
-          }
-        }
-
-        if (overlayRes.error) {
-          reportError(overlayRes.error, 'TournamentStartingTicker.fetchOverlays');
-          failedKinds.add('overlays');
-        } else {
-          for (const announcement of rankOverlayAnnouncements(
-            (overlayRes.data ?? []) as OverlayCandidate[]
-          )) {
-            // An overlay has no fixed closing timestamp. Let a confirmed
-            // snapshot survive one failed poll, never an indefinite outage.
-            next.push({ ...overlayItem(announcement), expiresAt: current + 2 * POLL_MS });
-          }
-        }
-
-        if (opsTournamentRes.error) {
-          reportError(
-            opsTournamentRes.error,
-            'TournamentStartingTicker.fetchOperationalTournaments'
-          );
-          failedKinds.add('registration_closing');
-          failedKinds.add('guarantees');
-          failedKinds.add('winner_results');
-        }
-        for (const row of (opsTournamentRes.error ? [] : opsTournamentRes.data || []) as Record<
-          string,
-          unknown
-        >[]) {
-          const status = String(row.status || '').toUpperCase();
-          const starts = new Date(String(row.start_time || 0)).getTime();
-          const id = String(row.id);
-          const name = String(row.name || 'Tournament');
-          if (
-            sources.registration_closing &&
-            ['RUNNING', 'LATE_REG', 'LATE_REGISTRATION'].includes(status)
-          ) {
-            const closes = lateRegEndMs(row as unknown as LobbyTournamentRow);
-            if (closes && closes > current && closes - current <= 5 * 60_000) {
-              next.push(registrationClosingItem(id, name, closes));
-            }
-          }
-          if (
-            sources.guarantees &&
-            ['ANNOUNCED', 'REGISTERING'].includes(status) &&
-            Number(row.guaranteed_prize || 0) > 0 &&
-            Number.isFinite(starts) &&
-            starts > current &&
-            starts - current <= 2 * 60 * 60_000
-          ) {
-            next.push(
-              guaranteeItem(
-                id,
-                name,
-                Number(row.guaranteed_prize) || 0,
-                Number(row.current_players) || 0,
-                starts
-              )
-            );
-          }
-          const ended = new Date(String(row.ended_at || 0)).getTime();
-          if (
-            sources.winner_results &&
-            status === 'COMPLETED' &&
-            Number.isFinite(ended) &&
-            ended > current - 10 * 60_000
-          ) {
-            next.push(winnerResultsItem(id, name, Number(row.prize_pool) || 0, ended));
-          }
-        }
-
-        if (opsTableRes.error) {
-          reportError(opsTableRes.error, 'TournamentStartingTicker.fetchTableOpenings');
-          failedKinds.add('table_openings');
-        }
-        for (const row of (opsTableRes.error ? [] : opsTableRes.data || []) as Record<
-          string,
-          unknown
-        >[]) {
-          const created = new Date(String(row.created_at || 0)).getTime();
-          next.push(
-            tableOpeningItem(
-              String(row.id),
-              String(row.name || 'Table'),
-              String(row.game_variant || 'poker'),
-              Number.isFinite(created) ? created : current
+            const auth = await import('../../lib/authUtils').then((m) => m.readLocalSession());
+            if (
+              signal.aborted ||
+              cancelled ||
+              epoch !== scopeEpochRef.current ||
+              (auth?.userId || null) !== scope.userId
             )
-          );
-        }
+              return;
 
-        // A failed source keeps its last confirmed announcements only until
-        // their existing deadlines. A successful empty result still clears it.
-        setItems((previous) => [
-          ...next,
-          ...previous.filter((entry) => failedKinds.has(entry.kind)),
-        ]);
+            const current = Date.now();
+            const next: TickerItem[] = [];
+            const failedKinds = new Set<TickerItem['kind']>();
+
+            if (upcomingRes.error || myRegs === null) {
+              if (upcomingRes.error)
+                reportError(upcomingRes.error, 'TournamentStartingTicker.fetchUpcoming');
+              failedKinds.add('starting_soon');
+            } else {
+              for (const t of (upcomingRes.data || []) as Record<string, unknown>[]) {
+                if (String(t.status).toUpperCase() === 'RUNNING') {
+                  const started = Date.parse(String(t.started_at ?? ''));
+                  const scheduled = Date.parse(String(t.start_time ?? ''));
+                  if (!Number.isFinite(started) || started <= current || started !== scheduled)
+                    continue;
+                }
+                const upcoming: UpcomingTournament = {
+                  id: String(t.id),
+                  name: String(t.name || 'Tournament'),
+                  startsAt: new Date(String(t.start_time)).getTime(),
+                  clubId: (t.club_id as string) || null,
+                  unionId: (t.union_id as string) || null,
+                  buyIn: Number(t.buy_in_amount) || 0,
+                  buyInFee: Number(t.buy_in_fee) || 0,
+                  registered: Number(t.current_players) || 0,
+                  isRegistered: myRegs.has(String(t.id)),
+                };
+                if (!Number.isFinite(upcoming.startsAt)) continue;
+                next.push(startingSoonItem(upcoming));
+              }
+            }
+
+            if (overlayRes.error) {
+              reportError(overlayRes.error, 'TournamentStartingTicker.fetchOverlays');
+              failedKinds.add('overlays');
+            } else {
+              for (const announcement of rankOverlayAnnouncements(
+                (overlayRes.data ?? []) as OverlayCandidate[]
+              )) {
+                // An overlay has no fixed closing timestamp. Let a confirmed
+                // snapshot survive one failed poll, never an indefinite outage.
+                next.push({ ...overlayItem(announcement), expiresAt: current + 2 * POLL_MS });
+              }
+            }
+
+            if (opsTournamentRes.error) {
+              reportError(
+                opsTournamentRes.error,
+                'TournamentStartingTicker.fetchOperationalTournaments'
+              );
+              failedKinds.add('registration_closing');
+              failedKinds.add('guarantees');
+              failedKinds.add('winner_results');
+            }
+            for (const row of (opsTournamentRes.error ? [] : opsTournamentRes.data || []) as Record<
+              string,
+              unknown
+            >[]) {
+              const status = String(row.status || '').toUpperCase();
+              const starts = new Date(String(row.start_time || 0)).getTime();
+              const id = String(row.id);
+              const name = String(row.name || 'Tournament');
+              if (
+                sources.registration_closing &&
+                ['RUNNING', 'LATE_REG', 'LATE_REGISTRATION'].includes(status)
+              ) {
+                const closes = lateRegEndMs(row as unknown as LobbyTournamentRow);
+                if (closes && closes > current && closes - current <= 5 * 60_000) {
+                  next.push(registrationClosingItem(id, name, closes));
+                }
+              }
+              if (
+                sources.guarantees &&
+                ['ANNOUNCED', 'REGISTERING'].includes(status) &&
+                Number(row.guaranteed_prize || 0) > 0 &&
+                Number.isFinite(starts) &&
+                starts > current &&
+                starts - current <= 2 * 60 * 60_000
+              ) {
+                next.push(
+                  guaranteeItem(
+                    id,
+                    name,
+                    Number(row.guaranteed_prize) || 0,
+                    Number(row.current_players) || 0,
+                    starts
+                  )
+                );
+              }
+              const ended = new Date(String(row.ended_at || 0)).getTime();
+              if (
+                sources.winner_results &&
+                status === 'COMPLETED' &&
+                Number.isFinite(ended) &&
+                ended > current - 10 * 60_000
+              ) {
+                next.push(winnerResultsItem(id, name, Number(row.prize_pool) || 0, ended));
+              }
+            }
+
+            if (opsTableRes.error) {
+              reportError(opsTableRes.error, 'TournamentStartingTicker.fetchTableOpenings');
+              failedKinds.add('table_openings');
+            }
+            for (const row of (opsTableRes.error ? [] : opsTableRes.data || []) as Record<
+              string,
+              unknown
+            >[]) {
+              const created = new Date(String(row.created_at || 0)).getTime();
+              next.push(
+                tableOpeningItem(
+                  String(row.id),
+                  String(row.name || 'Table'),
+                  String(row.game_variant || 'poker'),
+                  Number.isFinite(created) ? created : current
+                )
+              );
+            }
+
+            // A failed source keeps its last confirmed announcements only until
+            // their existing deadlines. A successful empty result still clears it.
+            setItems((previous) => [
+              ...next,
+              ...previous.filter((entry) => failedKinds.has(entry.kind)),
+            ]);
+          },
+          { signal: controller.signal }
+        );
       } catch (e) {
         reportError(e, 'TournamentStartingTicker.fetchFeed');
       } finally {
+        controller.abort();
+        if (activeRead === controller) activeRead = null;
         inFlight = false;
         if (pending && !cancelled && !document.hidden) void fetchFeed();
       }
@@ -699,6 +752,7 @@ function TickerHost() {
 
     return () => {
       cancelled = true;
+      activeRead?.abort();
       stopPoll();
       document.removeEventListener('visibilitychange', onVisibility);
     };

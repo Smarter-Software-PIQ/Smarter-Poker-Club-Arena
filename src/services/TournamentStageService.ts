@@ -11,6 +11,7 @@
  * multi-day either way, but a caller that needs to tell the two apart can.
  */
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import type { SealedStagePlanBody } from '../utils/multiDaySchedule';
 
 export type StageState =
@@ -214,10 +215,25 @@ function parseView(raw: Obj): TournamentStageView {
   };
 }
 
-export async function readTournamentStageView(tournamentId: string): Promise<StageViewRead> {
-  const { data, error } = await supabase.rpc('fn_tournament_stage_view', {
-    p_tournament_id: tournamentId,
-  });
+export async function readTournamentStageView(
+  tournamentId: string,
+  signal?: AbortSignal
+): Promise<StageViewRead> {
+  let response;
+  try {
+    response = await runWithRequestDeadline(
+      (requestSignal) =>
+        supabase
+          .rpc('fn_tournament_stage_view', {
+            p_tournament_id: tournamentId,
+          })
+          .abortSignal(requestSignal),
+      { signal }
+    );
+  } catch (error) {
+    return { status: 'unknown', reason: error instanceof Error ? error.message : 'read_failed' };
+  }
+  const { data, error } = response;
   if (error) return { status: 'unknown', reason: error.message || 'rpc_error' };
   if (!isObj(data)) return { status: 'unknown', reason: 'malformed_response' };
   if (data.ok !== true) {
@@ -245,8 +261,81 @@ async function door(fn: string, args: Record<string, unknown>): Promise<StageDoo
   return { ok: false, reason: str(data.reason) ?? 'refused' };
 }
 
-export function sealStagePlan(tournamentId: string, plan: SealedStagePlanBody) {
-  return door('fn_operator_seal_stage_plan', { p_tournament_id: tournamentId, p_plan: plan });
+/** Exact-plan replay is owned by the database's tournament lock and plan hash.
+ * A timeout is unknown, never evidence that the event is a one-day tournament. */
+export async function sealStagePlan(
+  tournamentId: string,
+  plan: SealedStagePlanBody
+): Promise<StageDoorResult> {
+  try {
+    const { data, error } = await runWithRequestDeadline((signal) =>
+      supabase
+        .rpc('fn_operator_seal_stage_plan', { p_tournament_id: tournamentId, p_plan: plan })
+        .abortSignal(signal)
+    );
+    if (error || !isObj(data)) return { ok: false, reason: 'seal_outcome_unknown' };
+    if (
+      data.ok === true &&
+      data.tournament_id === tournamentId &&
+      data.stage_count === plan.stages.length &&
+      typeof data.plan_hash === 'string' &&
+      /^[a-f0-9]{32}$/.test(data.plan_hash)
+    ) {
+      return { ok: true, replay: data.replay === true, raw: data };
+    }
+    return {
+      ok: false,
+      reason:
+        data.ok === false ? (str(data.reason) ?? 'seal_outcome_unknown') : 'seal_outcome_unknown',
+    };
+  } catch {
+    return { ok: false, reason: 'seal_outcome_unknown' };
+  }
+}
+
+/** Read the persisted schedule, including after a lost seal acknowledgement.
+ * An absent plan is only an observation: an earlier request may still commit. */
+export async function verifySealedStagePlan(
+  tournamentId: string,
+  plan: SealedStagePlanBody
+): Promise<boolean> {
+  try {
+    const { data, error } = await runWithRequestDeadline((signal) =>
+      supabase
+        .rpc('fn_tournament_stage_view', { p_tournament_id: tournamentId })
+        .abortSignal(signal)
+    );
+    if (
+      error ||
+      !isObj(data) ||
+      data.ok !== true ||
+      data.tournament_id !== tournamentId ||
+      !isObj(data.plan) ||
+      data.plan.time_zone !== plan.time_zone ||
+      data.plan.stage_count !== plan.stages.length ||
+      !Array.isArray(data.stages) ||
+      data.stages.length !== plan.stages.length
+    )
+      return false;
+    return plan.stages.every((expected) => {
+      const matches = (data.stages as unknown[]).filter(
+        (row) => isObj(row) && row.stage_no === expected.stage_no
+      );
+      if (matches.length !== 1 || !isObj(matches[0])) return false;
+      const actual = matches[0];
+      const expectedStart = expected.scheduled_start_utc ?? null;
+      const actualStart = actual.scheduled_start_utc ?? null;
+      return (
+        actual.end_after_level === (expected.end_after_level ?? null) &&
+        (expectedStart === null
+          ? actualStart === null
+          : typeof actualStart === 'string' &&
+            Date.parse(actualStart) === Date.parse(expectedStart))
+      );
+    });
+  } catch {
+    return false;
+  }
 }
 
 export function rescheduleStage(args: {
