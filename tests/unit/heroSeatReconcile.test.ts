@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { reconcileHeroSeatFromEngine, MAX_SUPPORTED_SEATS } from '@/lib/heroSeatReconcile';
-import { SEAT_LAYOUTS, seatLayoutFor } from '@/lib/tableSeatGeometry';
+import { DRAWABLE_SEAT_RINGS, SEAT_LAYOUTS, seatLayoutFor } from '@/lib/tableSeatGeometry';
 
 const HERO = 'hero-user-id';
 
@@ -117,9 +117,15 @@ describe('reconcileHeroSeatFromEngine — it must settle', () => {
        "headroom" while SEAT_LAYOUTS stops at 9 — which would have grown ten
        rows of state against nine drawable positions, so seat 10 would exist
        and render nowhere. That is the very bug this module prevents, planted
-       one layer up by a copied number. It is derived now; this pins that. */
-    const drawable = Object.keys(SEAT_LAYOUTS).reduce((m, k) => Math.max(m, Number(k)), 0);
+       one layer up by a copied number. It is derived now; this pins that.
+       2026-10-31: the drawable rings are SEAT_LAYOUTS (2..9) plus the 10-max
+       ring the engine needs (DRAWABLE_SEAT_RINGS), so the bound is 10 and
+       seat 10 has a position. */
+    const drawable = Object.keys(DRAWABLE_SEAT_RINGS).reduce((m, k) => Math.max(m, Number(k)), 0);
     expect(MAX_SUPPORTED_SEATS).toBe(drawable);
+    expect(MAX_SUPPORTED_SEATS).toBe(10);
+    for (const n of Object.keys(SEAT_LAYOUTS).map(Number))
+      expect(DRAWABLE_SEAT_RINGS[n]).toBe(SEAT_LAYOUTS[n]);
 
     // And the largest seat it WILL accept has a ring to be drawn on.
     const state = { players: [] as ({ id?: string } | null)[], maxPlayers: 2, heroSeat: 0 };

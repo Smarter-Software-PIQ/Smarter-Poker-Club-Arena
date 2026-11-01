@@ -607,6 +607,13 @@ import {
   tableRowSaysClosed,
   type HeartbeatRowCheck,
 } from '../lib/heartbeatTarget';
+import {
+  createDeadTableRecovery,
+  type DeadTableRecovery,
+  type DeadTableRow,
+  type DeadTableVerdict,
+} from '../lib/deadTableRecovery';
+import { resolveCashGameLiveTable } from '../services/cashGameLobby';
 import RabbitHunt from '../components/table/RabbitHunt';
 import type { RabbitHuntRevealResult } from '../components/table/RabbitHunt';
 import {
@@ -653,7 +660,7 @@ import {
 } from '../lib/tournamentDockStore';
 import { PreviousHandCard } from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
-import { reportError } from '../utils/errorReporter';
+import { reportClientWarning, reportError } from '../utils/errorReporter';
 import { submitTableDecision, tableDecisionIsReady } from '../lib/tableActionDecision';
 import { safeErrorMessage, shouldSurfaceError } from '../utils/safeErrorMessage';
 import { serverNow } from '../utils/serverClock';
@@ -985,6 +992,7 @@ import {
 import { seatTapBalanceVerdict, notEnoughChipsText } from '../lib/seatTapBalance';
 import {
   seatLayoutFor,
+  seatRingSize,
   createEmptySeats,
   rotateSeatsForHero,
   seatPixelMap,
@@ -4038,6 +4046,12 @@ function LiveTablePage({
      connects, exactly like the verdict above, so a table that comes back is
      beaten again at once. */
   const heartbeatRowClosedRef = useRef(false);
+  /* The heartbeat effect's dead-table episode (src/lib/deadTableRecovery.ts),
+     so a connected socket can end it from outside the effect. */
+  const deadTableRecoveryRef = useRef<DeadTableRecovery | null>(null);
+  /* Read by the heartbeat effect without joining its dependency list. */
+  const deadTableFollowRef = useRef<(tableId: string) => void>(() => {});
+  const deadTableExitRef = useRef<() => void>(() => {});
   const heartbeatRecoveryGuardRef = useRef(createHeartbeatRecoveryGuard());
   /* Read by the heartbeat below without joining its dependency list, which
      would restart the five-second interval on every render. */
@@ -4061,6 +4075,72 @@ function LiveTablePage({
     let heartbeatAlive = true;
     heartbeatRowClosedRef.current = false;
     heartbeatRecoveryGuardRef.current.invalidate();
+    /* A TABLE THE ENGINE NO LONGER HOSTS FOLLOWS ITS GAME (2026-10-31).
+       ~1,100 "Table engine not found" refusals a day came from 14 dead table
+       ids: the page went on beating a table that had been broken, merged or
+       replaced. Each 404 now asks the tournament / cash game where it is
+       being played; a different table is opened, and a game that is gone
+       (after DEAD_TABLE_MAX_FAILURES, with no row or election vouching for
+       this table) shows the closed-table state and returns to the club. Not
+       during a seat-first pre-start, a maintenance break, a paused tournament
+       table or a Lightning room - each of those 404s is expected. */
+    const deadTable = createDeadTableRecovery(
+      () => ({
+        tableId,
+        tournamentId: tableStateRef.current.tournamentId,
+        cashGameId: tableStateRef.current.clusterId,
+      }),
+      {
+        resolveTournamentLiveTable: (id) => tableService.resolveTournamentLiveTable(id),
+        resolveCashGameTable: (id) => resolveCashGameLiveTable(id),
+        readTableRow: async (id) => {
+          // A Lightning pool session has no tables row to read.
+          if (lightningRoomRef.current || !isUUID(id)) return null;
+          const { data, error } = await supabase
+            .from('tables')
+            .select('status, is_deleted')
+            .eq('id', id)
+            .maybeSingle();
+          return error ? undefined : (data as DeadTableRow | null);
+        },
+      }
+    );
+    deadTableRecoveryRef.current = deadTable;
+    const actOnDeadTable = (verdict: DeadTableVerdict) => {
+      if (verdict.kind === 'successor') {
+        heartbeatToastRef.current?.info?.('This Table Moved, Opening The Live One');
+        deadTableFollowRef.current(verdict.tableId);
+        return;
+      }
+      if (verdict.kind !== 'closed') return;
+      if (!tableClosedToastShownRef.current) {
+        tableClosedToastShownRef.current = true;
+        heartbeatToastRef.current?.info?.('This Table Is No Longer Running');
+      }
+      /* Back to the club, the seat untouched (no leave, no cash-out: the
+         database still owns whatever the seat holds). Inside the multi-table
+         container the tab closes and the container decides where to land;
+         navigating from here would tear down the other tables. */
+      masterBus.emit('TABLE_MENU_ACTION', { tableId, action: 'CLOSE_TABLE_TAB' });
+      deadTableExitRef.current();
+    };
+    const driveDeadTable = () => {
+      if (
+        seatFirstOpenRef.current ||
+        maintenanceBreakRef.current.active ||
+        tablePausedToastShownRef.current ||
+        lightningRoomRef.current
+      )
+        return;
+      const verdictStillCurrent = heartbeatRecoveryGuardRef.current.capture();
+      void deadTable
+        .onNotRunning()
+        .then((verdict) => {
+          if (!heartbeatAlive || !verdictStillCurrent() || verdict.kind === 'wait') return;
+          actOnDeadTable(verdict);
+        })
+        .catch(() => undefined);
+    };
     const beat = async () => {
       /* A TABLE THAT IS NO LONGER RUNNING IS NOT HEARTBEATED (2026-10-04).
          Once the page has established that the engine holds no game for this
@@ -4079,6 +4159,9 @@ function LiveTablePage({
          presence is its own socket. And a table whose ROW says closed is not
          beaten again until the engine socket connects (776 a day). */
       if (!shouldHeartbeatOverHttp({ isLightningRoom: !!lightningRoomRef.current })) return;
+      /* A closed row stops the HTTP beat, but the episode still runs to its
+         verdict on the beat's clock - without another request to the engine. */
+      if (heartbeatRowClosedRef.current) driveDeadTable();
       if (heartbeatRowClosedRef.current) return;
       if (!isNativeAppActive() || document.visibilityState === 'hidden') return;
       /* PHASE 2 (2026-08-31): tell the engine whether this client has actually
@@ -4115,6 +4198,7 @@ function LiveTablePage({
         warned = false;
         consecutiveMisses = 0;
         notRunningBeats = 0;
+        deadTable.onRunning();
         return;
       }
       /* The engine holds no game for this table. Ask the row ONCE per run of
@@ -4140,6 +4224,7 @@ function LiveTablePage({
               rowCheckInFlight = false;
             });
         }
+        driveDeadTable();
       } else {
         notRunningBeats = 0;
       }
@@ -4207,6 +4292,7 @@ function LiveTablePage({
     document.addEventListener('visibilitychange', onResume);
     return () => {
       heartbeatAlive = false;
+      if (deadTableRecoveryRef.current === deadTable) deadTableRecoveryRef.current = null;
       heartbeatRecoveryGuardRef.current.invalidate();
       stopHeartbeat();
       window.removeEventListener(NATIVE_RESUME_EVENT, onResume);
@@ -4527,6 +4613,7 @@ function LiveTablePage({
       tableClosedToastShownRef.current = false;
       tablePausedToastShownRef.current = false;
       heartbeatRowClosedRef.current = false;
+      deadTableRecoveryRef.current?.onRunning();
       heartbeatRecoveryGuardRef.current.invalidate();
       // A socket that reached OPEN is proof the engine accepted this token.
       // Nothing weaker clears it (see the comment above).
@@ -11382,6 +11469,16 @@ function LiveTablePage({
     // (the tab-strip door); re-navigating onto the page we are on would push a
     // duplicate entry that Back would have to step through.
     navigate(dest, { replace: location.pathname === dest });
+  };
+  deadTableExitRef.current = () => {
+    if (!embeddedTableId) showLobbyNow();
+  };
+  deadTableFollowRef.current = (destination: string) => {
+    if (embeddedTableId) {
+      onTableInfoUpdate?.({ movedToTableId: destination });
+      return;
+    }
+    navigate(`/table/${destination}`, { replace: true });
   };
   const goToLobbyKeepingSeat = (why: string) => {
     heartbeatToastRef.current?.info?.(why);
@@ -20655,11 +20752,19 @@ function LiveTablePage({
            * plays, built from the only two facts that are always present.
            */
           if (!awardGroups.some((g) => g.events.length > 0)) {
-            reportError(
-              new Error(
-                `pot_win produced no award animation for ${winnerIds.length} winner(s) of ${potAmount}; synthesising`
-              ),
-              'TablePage.pot_win_no_award_groups'
+            /* A WARNING, NOT AN ERROR (2026-10-31): the synthesis below IS the
+               repair, so the player sees the pot move either way. The message
+               is a fixed sentence so every occurrence shares one dedupe key;
+               the variable facts ride in the context. */
+            reportClientWarning(
+              'pot_win produced no award animation; synthesising',
+              'TablePage.pot_win_no_award_groups',
+              {
+                code: 'POT_WIN_NO_AWARD_GROUPS',
+                winners: winnerIds.length,
+                pot: potAmount,
+                tableId,
+              }
             );
             const fallbackShare = potAmount / (winnerIds.length || 1);
             const fallback: AwardGroupAnim = {
@@ -21692,7 +21797,15 @@ function LiveTablePage({
   // Get seat positions based on table size
   // Dan 2026-08-17: per-size rings — 7-max and 8-max tables (525 live in the
   // fleet) used to fall into the 6-seat ring and seats 7-8 had no position.
-  const baseSeatPositions = seatLayoutFor(tableState.maxPlayers);
+  // 2026-10-31: the ring is sized by seatRingSize - the engine's table size,
+  // never fewer than the hero's seat or the highest occupied row - so a seat
+  // the engine deals always has a position (TablePage.EngineHeroSeatNotRendered).
+  const ringSize = seatRingSize({
+    maxPlayers: tableState.maxPlayers,
+    heroSeat: tableState.heroSeat,
+    rows: tableState.players,
+  });
+  const baseSeatPositions = seatLayoutFor(ringSize);
 
   // SEAT AUTO-ROTATION — hero always renders at bottom-centre.
   // seatRotationMap[physicalSeatIndex] = { pos, visualIndex }. Already rotated:
