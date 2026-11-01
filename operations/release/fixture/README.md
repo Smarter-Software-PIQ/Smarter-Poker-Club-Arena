@@ -585,3 +585,33 @@ digest; the original digest remains separately retained. Only fixed mapping
 counts/digests are public; changed column rows and original literal payloads
 remain private and are removed with the owned fixture inputs. This mapping is
 source preparation, not a full-schema or connected fifteen-case pass.
+
+### Pinned native export function batching
+
+The PostgreSQL17.11 export client uses two distinct changes: private fixed-enum
+cost logging and bounded transport batching of consecutive selected function
+objects. The batch helper preserves the upstream PREPARE, each EXECUTE, the
+same connection/snapshot, rendering and ACL paths. Up to128 EXECUTEs share one
+simple-query message; every individual result must have one row and the exact
+19-column metadata layout. Results are assigned by request ordinal/OID and
+consumed in original object order. Another object type ends the batch. Any
+missing, extra, malformed or failed result refuses the capture without retry.
+The original45-second capture deadline, TLS, complete schema and private output
+limits remain unchanged. The batch is bounded to128MiB private metadata.
+
+Diagnostic wire protocol D1 is unchanged. New cost receipts are version2 with
+closed object_scope and query_scope fields; historical version1 receipts keep
+their original unlabelled semantics. Object counts now mean effective selected
+components; zero-component dispatcher visits are no longer logged. Query spans
+measure actual network requests, including a whole function batch, rather than
+cached per-function reads. The512KiB fixed-channel cap remains enforced.
+
+Before any capture credential is present, the existing reusable native job
+builds stock and changed clients from the same pinned upstream archive. It
+requires identical SQL output (apart from the existing random restrict nonce)
+on a private Unix-only database containing5507 functions/procedures with
+mixed signatures, defaults, SQL bodies, PL/pgSQL and ACLs, plus zero/one-function
+schema filters. Its separate credential-free C result contract exercises batch
+boundaries, excluded objects, malformed/error/missing/extra results, ordinal
+mismatch and interruption. These checks do not certify production capture,
+full-schema restoration, connected tournament/RIT cases or live behavior.
