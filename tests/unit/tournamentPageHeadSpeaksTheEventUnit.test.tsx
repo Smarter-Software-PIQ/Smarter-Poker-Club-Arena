@@ -393,6 +393,9 @@ it('does not invent a second entrant when realtime already advanced before regis
   fireEvent.click(await screen.findByRole('button', { name: /^Register/ }));
   const committed = { ...first, current_players: 5, prize_pool: 500, name: 'Authoritative Event' };
   vi.mocked(tournamentService.getTournament).mockResolvedValue(committed as any);
+  // The registration button can paint before the selected event's effect subscribes.
+  // Admit the event only after this real component installs its broadcast consumer.
+  await waitFor(() => expect(state.broadcasts.get('t-break-t-1')).toEqual(expect.any(Function)));
   await act(async () =>
     state.broadcasts.get('t-break-t-1')!({ payload: { type: 'level_up', payload: {} } })
   );
@@ -641,11 +644,13 @@ it.each(['register', 'unregister'])(
   'a stale membership read cannot reverse confirmed %s',
   async (action) => {
     let finish!: (value: any) => void;
-    state.readMembership = () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      });
+    const pendingMembership = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const readMembership = vi.fn(() => pendingMembership);
+    state.readMembership = readMembership;
     const { first } = mountActions();
+    await waitFor(() => expect(readMembership).toHaveBeenCalledTimes(1));
     vi.mocked(tournamentService.getTournament).mockResolvedValue(first as any);
     fireEvent.click(await screen.findByRole('button', { name: /^Register/ }));
     await act(async () => {
@@ -658,6 +663,7 @@ it.each(['register', 'unregister'])(
         fireEvent.click(screen.getByRole('button', { name: 'Unregister' }));
       });
     }
+    expect(readMembership).toHaveBeenCalledTimes(1);
     await act(async () => {
       finish({ data: action === 'register' ? null : { id: 'old-entry' }, error: null });
     });

@@ -112,6 +112,19 @@ interface Scope {
   userId: string | null;
 }
 
+function isCanceledTickerRequest(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { name?: unknown; code?: unknown; message?: unknown };
+  if (candidate.name === 'AbortError' || String(candidate.code) === '20') return true;
+  const msg = typeof candidate.message === 'string' ? candidate.message.toLowerCase() : '';
+  return (
+    msg.includes('abort') ||
+    msg.includes('the request was cancelled') ||
+    msg.includes('the request was canceled')
+  );
+}
+
 /**
  * ── THE HOST: EVERYTHING THAT COSTS SOMETHING ─────────────────────────────
  *
@@ -288,6 +301,13 @@ function TickerHost() {
           { signal: controller.signal }
         );
       } catch (error) {
+        if (
+          cancelled ||
+          epoch !== scopeEpochRef.current ||
+          isCanceledTickerRequest(error, controller.signal)
+        ) {
+          return;
+        }
         reportError(error, 'TournamentStartingTicker.loadManagedSettings');
         /* NOT a reset to defaults. `tickerManagementService.get` already holds
            the last authoritative answer and hands it back on a failed read, so
@@ -405,7 +425,9 @@ function TickerHost() {
       scopeRef.current = { clubIds: ids, fetchedAt: Date.now(), userId: uid };
       return scopeRef.current;
     } catch (e) {
-      reportError(e, 'TournamentStartingTicker.loadScope');
+      if (!isCanceledTickerRequest(e, signal)) {
+        reportError(e, 'TournamentStartingTicker.loadScope');
+      }
       // An error is not an authoritative empty membership list. Retry on the
       // next tick without poisoning the five-minute cache or borrowing a user.
       return null;
@@ -473,7 +495,9 @@ function TickerHost() {
                     .limit(200)
                     .abortSignal(signal);
                   if (error) {
-                    reportError(error, 'TournamentStartingTicker.fetchRegistrations');
+                    if (!isCanceledTickerRequest(error, signal)) {
+                      reportError(error, 'TournamentStartingTicker.fetchRegistrations');
+                    }
                     return null;
                   }
                   return new Set(
@@ -712,6 +736,13 @@ function TickerHost() {
           { signal: controller.signal }
         );
       } catch (e) {
+        if (
+          cancelled ||
+          epoch !== scopeEpochRef.current ||
+          isCanceledTickerRequest(e, controller.signal)
+        ) {
+          return;
+        }
         reportError(e, 'TournamentStartingTicker.fetchFeed');
       } finally {
         controller.abort();

@@ -4,6 +4,16 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 
 const TYPES=Object.freeze(['FUNCTION','RELATION','TYPE','OTHER']);
+export const QUERY_SUBTYPES=Object.freeze(['UNKNOWN','FUNCTION_BATCH','FUNCTION_SINGLE','AGGREGATE',
+  'SEQUENCE_BATCH','SEQUENCE_SINGLE','COLUMN_ACL','VIEW_DEFINITION','PARTITION_KEY',
+  'FOREIGN_OPTIONS','TYPE_NAME','EXTENSION_DEPENDENCY','PREPARE','TYPE_METADATA']);
+const subtypeAllowed=(subtype,type)=>{
+  if(['FUNCTION_BATCH','FUNCTION_SINGLE','AGGREGATE'].includes(subtype))return type==='FUNCTION';
+  if(['SEQUENCE_BATCH','SEQUENCE_SINGLE','COLUMN_ACL','PARTITION_KEY','FOREIGN_OPTIONS'].includes(subtype))return type==='RELATION';
+  if(subtype==='VIEW_DEFINITION')return type==='RELATION'||type==='OTHER';
+  if(subtype==='TYPE_METADATA')return type==='TYPE';
+  return QUERY_SUBTYPES.includes(subtype);
+};
 const MAX_BYTES=512*1024,MAX_LINE=96,MAX_US=45000000;
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const refuse=code=>{throw Object.assign(new Error('ISOLATED_NATIVE_DUMP_PROTOCOL_REFUSED'),{diagnosticKind:code});};
@@ -11,7 +21,7 @@ const requireFrame=value=>{if(!value)refuse('FD3_PROTOCOL');};
 
 export function safeNativeDumpDiagnostic(value) {
   const uint=(number,max)=>Number.isSafeInteger(number) && number>=0 && number<=max;
-  const currentScope=value?.version===2 && value.object_scope==='effective-selected-components' && value.query_scope==='actual-network-requests';
+  const currentScope=[2,3].includes(value?.version) && value.object_scope==='effective-selected-components' && value.query_scope==='actual-network-requests';
   const legacyScope=value?.version===1 && value.object_scope===undefined && value.query_scope===undefined;
   if((!currentScope && !legacyScope) || !uint(value.records,100000) || !uint(value.bytes,MAX_BYTES) ||
     typeof value.stream_closed!=='boolean' || typeof value.pairs_complete!=='boolean')return null;
@@ -28,13 +38,32 @@ export function safeNativeDumpDiagnostic(value) {
     if(!fields.every(key=>uint(bucket[key],key.endsWith('_us')?MAX_US:100000)))return null;
     types[type]=Object.fromEntries(fields.map(key=>[key,bucket[key]]));
   }
+  let querySubtypes;
+  if(value.version===3){
+    const fields=['queries_started','queries_completed','query_elapsed_us','query_max_us'];
+    if(!value.query_subtypes || Object.keys(value.query_subtypes).sort().join(',')!==[...QUERY_SUBTYPES].sort().join(','))return null;
+    querySubtypes={};
+    for(const subtype of QUERY_SUBTYPES){
+      const row=value.query_subtypes[subtype];
+      if(!row || !fields.every(key=>uint(row[key],key.endsWith('_us')?MAX_US:100000)) ||
+        row.queries_completed>row.queries_started || row.query_max_us>row.query_elapsed_us ||
+        (row.queries_completed===0 && row.query_elapsed_us!==0))return null;
+      querySubtypes[subtype]=Object.fromEntries(fields.map(key=>[key,row[key]]));
+    }
+    for(const key of fields.slice(0,3))
+      if(Object.values(querySubtypes).reduce((sum,row)=>sum+row[key],0)!==Object.values(types).reduce((sum,row)=>sum+row[key],0))return null;
+  }
   const span=item=>item===null?null:item && TYPES.includes(item.type) &&
     uint(item.started_at_us,MAX_US) && uint(item.unpaired_since_received_ms,45000)?
     {type:item.type,started_at_us:item.started_at_us,unpaired_since_received_ms:item.unpaired_since_received_ms}:undefined;
-  const object=span(value.last_unpaired_object),query=span(value.last_unpaired_query);
+  const object=span(value.last_unpaired_object);let query=span(value.last_unpaired_query);
+  if(value.version===3 && query){
+    if(!subtypeAllowed(value.last_unpaired_query.subtype,query.type))return null;
+    query={...query,subtype:value.last_unpaired_query.subtype};
+  }
   if(object===undefined || query===undefined)return null;
   return {version:value.version,...(currentScope?{object_scope:value.object_scope,query_scope:value.query_scope}:{}),records:value.records,bytes:value.bytes,stream_closed:value.stream_closed,
-    pairs_complete:value.pairs_complete,types,last_unpaired_object:object,last_unpaired_query:query,
+    pairs_complete:value.pairs_complete,types,...(querySubtypes?{query_subtypes:querySubtypes}:{}),last_unpaired_object:object,last_unpaired_query:query,
     ...(limit?{limit:{kind:limit.kind,observed_at_least:limit.observed_at_least}}:{})};
 }
 
@@ -45,20 +74,22 @@ export function createNativeDumpDiagnostic() {
   const binary=Buffer.alloc(12);
   const buckets=Object.fromEntries(TYPES.map(type=>[type,{objects_started:0,objects_completed:0,
     object_elapsed_us:0,queries_started:0,queries_completed:0,query_elapsed_us:0,query_max_us:0}]));
-  const accept=(seq,kind,edge,type,us,receivedMs)=>{
+  const subtypes=Object.fromEntries(QUERY_SUBTYPES.map(subtype=>[subtype,{queries_started:0,queries_completed:0,query_elapsed_us:0,query_max_us:0}]));
+  const accept=(seq,kind,edge,type,us,receivedMs,subtype='UNKNOWN')=>{
     requireFrame(seq===sequence+1 && seq<=100000 && us>=lastUs && us<=MAX_US);
-    sequence=seq;lastUs=us;const bucket=buckets[type];
+    requireFrame(subtypeAllowed(subtype,type));
+    sequence=seq;lastUs=us;const bucket=buckets[type];const detail=subtypes[subtype];
     if(kind==='O' && edge==='B'){
       requireFrame(!object && !query);object={type,us,receivedMs};bucket.objects_started++;
     }else if(kind==='O'){
       requireFrame(object?.type===type && !query);bucket.objects_completed++;
       bucket.object_elapsed_us+=us-object.us;object=null;
     }else if(edge==='B'){
-      requireFrame(object?.type===type && !query);query={type,us,receivedMs};bucket.queries_started++;
+      requireFrame(object?.type===type && !query);query={type,us,receivedMs,subtype};bucket.queries_started++;detail.queries_started++;
     }else{
-      requireFrame(query?.type===type && object?.type===type);bucket.queries_completed++;
+      requireFrame(query?.type===type && object?.type===type && query.subtype===subtype);bucket.queries_completed++;detail.queries_completed++;
       const elapsed=us-query.us;bucket.query_elapsed_us+=elapsed;
-      bucket.query_max_us=Math.max(bucket.query_max_us,elapsed);query=null;
+      bucket.query_max_us=Math.max(bucket.query_max_us,elapsed);detail.query_elapsed_us+=elapsed;detail.query_max_us=Math.max(detail.query_max_us,elapsed);query=null;
     }
   };
   const frame=(line,receivedMs)=>{
@@ -68,9 +99,10 @@ export function createNativeDumpDiagnostic() {
     accept(Number(seq),kind,edge,type,Number(us),receivedMs);
   };
   const binaryFrame=receivedMs=>{
-    requireFrame(binary[0]===68 && binary[1]===50 && binary[6]<16 && binary[11]===10);
-    const tag=binary[6];
-    accept(binary.readUInt32BE(2),(tag&2)?'Q':'O',(tag&1)?'E':'B',TYPES[tag>>>2],binary.readUInt32BE(7),receivedMs);
+    const d4=wire==='D4',tag=binary[d4?3:6];
+    requireFrame(d4?tag<224:(binary[0]===68 && binary[1]===(wire==='D3'?51:50) && tag<(wire==='D3'?224:16) && binary[11]===10));
+    const subtype=QUERY_SUBTYPES[tag>>>4];requireFrame((tag&2)!==0 || subtype==='UNKNOWN');
+    accept(d4?binary.readUIntBE(0,3):binary.readUInt32BE(2),(tag&2)?'Q':'O',(tag&1)?'E':'B',TYPES[(tag>>>2)&3],binary.readUInt32BE(d4?4:7),receivedMs,subtype);
   };
   const refuseLimit=kind=>{limit??={kind,observed_at_least:kind==='TOTAL_BYTES'?MAX_BYTES+1:MAX_LINE+1};refuse('FD3_LIMIT');};
   return {
@@ -83,12 +115,12 @@ export function createNativeDumpDiagnostic() {
         if(wire===null){
           partial+=String.fromCharCode(byte);
           if(partial.length===2){
-            wire=partial==='D2'?'D2':'D1';
-            if(wire==='D2'){binary[0]=68;binary[1]=50;binaryAt=2;partial='';}
+            wire=['D2','D3','D4'].includes(partial)?partial:'D1';
+            if(wire!=='D1'){if(wire!=='D4'){binary[0]=68;binary[1]=wire==='D3'?51:50;binaryAt=2;}partial='';}
           }
-        }else if(wire==='D2'){
+        }else if(wire==='D2' || wire==='D3' || wire==='D4'){
           binary[binaryAt++]=byte;
-          if(binaryAt===12){binaryFrame(receivedMs);binaryAt=0;}
+          if(binaryAt===(wire==='D4'?8:12)){binaryFrame(receivedMs);binaryAt=0;}
         }else if(byte===10){frame(partial,receivedMs);partial='';}
         else {partial+=String.fromCharCode(byte);if(partial.length>MAX_LINE)refuseLimit('LINE_BYTES');}
       }
@@ -96,11 +128,12 @@ export function createNativeDumpDiagnostic() {
     finish({allowEmpty=false}={}){if(limit)refuse('FD3_LIMIT');requireFrame(!retired && !closed && partial==='' && binaryAt===0 && (sequence>0 || allowEmpty));closed=true;},
     snapshot(observedMs){
       requireFrame(!retired && Number.isSafeInteger(observedMs) && observedMs>=0 && observedMs<=45000);
-      const open=span=>span?{type:span.type,started_at_us:span.us,
+      const open=span=>span?{type:span.type,...((wire==='D3' || wire==='D4') && span.subtype?{subtype:span.subtype}:{}),started_at_us:span.us,
         unpaired_since_received_ms:Math.max(0,observedMs-span.receivedMs)}:null;
-      return {version:2,object_scope:'effective-selected-components',query_scope:'actual-network-requests',records:sequence,bytes,stream_closed:closed,
+      return {version:(wire==='D3' || wire==='D4')?3:2,object_scope:'effective-selected-components',query_scope:'actual-network-requests',records:sequence,bytes,stream_closed:closed,
         pairs_complete:closed && sequence>0 && !object && !query,
         types:Object.fromEntries(TYPES.map(type=>[type,{...buckets[type]}])),
+        ...((wire==='D3' || wire==='D4')?{query_subtypes:Object.fromEntries(QUERY_SUBTYPES.map(subtype=>[subtype,{...subtypes[subtype]}]))}:{}),
         last_unpaired_object:open(object),last_unpaired_query:open(query),...(limit?{limit:{...limit}}:{})};
     },
     clear(){partial='';binary.fill(0);object=null;query=null;retired=true;}
@@ -130,14 +163,23 @@ export async function verifyNativeDumpBinary(env) {
     manifest.builder_sha256!==await sourceHash('./native-dump-diagnostic.py') ||
     manifest.helper_sha256!==await sourceHash('./native-dump-diagnostic.c') ||
     manifest.function_batch_helper_sha256!==await sourceHash('./native-dump-function-batch.c') ||
+    manifest.sequence_batch_helper_sha256!==await sourceHash('./native-dump-sequence-batch.c') ||
     manifest.function_batch_contract_sha256!==await sourceHash('./native-dump-function-batch-test.c') ||
-    manifest.transport!=='bounded-stock-function-read-ahead-v2' ||
-    manifest.qualification?.synthetic_routine_count!==5510 ||
+    manifest.transport!=='bounded-stock-function-sequence-metadata-v3' ||
+    manifest.qualification?.synthetic_routine_count!==5513 ||
     manifest.qualification?.function_batch_max!==128 ||
+    manifest.qualification?.synthetic_sequence_count!==138 ||
+    manifest.qualification?.sequence_metadata_sql_equal!==true ||
+    manifest.qualification?.metadata_interleaved_sql_equal!==true ||
+    manifest.qualification?.sequence_data_reader_unchanged!==true ||
+    manifest.qualification?.metadata_total_results_max!==128 ||
+    manifest.qualification?.metadata_total_bytes_max!==128*1024*1024 ||
     manifest.qualification?.native_batch_result_faults_refused!==true ||
     manifest.qualification?.filtered_zero_one_equal!==true ||
     manifest.qualification?.dependency_interleaved_sql_equal!==true ||
     manifest.qualification?.diagnostic_object_scope!=='effective-selected-components' ||
+    manifest.qualification?.diagnostic_wire!=='D4-header2-record8' ||
+    manifest.qualification?.query_subtypes_valid!==true ||
     manifest.binary_sha256!==digest(await read('bin/pg_dump',32*1024*1024,true)) ||
     manifest.libpq_sha256!==digest(await read('lib/libpq.so.5',16*1024*1024)) ||
     !['passed','sql_bytes_equal','fd3_records_valid','cluster_absent'].every(key=>manifest.qualification?.[key]===true))fail();

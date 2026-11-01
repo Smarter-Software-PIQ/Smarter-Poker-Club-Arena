@@ -64,7 +64,12 @@ function admit(
       }
       timeout() { shift 3; shift 3; git "$@"; }
       date() { printf '%s' "$HOUR"; }
-      gh() { printf '%s' "$RUN_CREATED_AT"; }
+      gh() {
+        case "$2" in
+          *'/workflows/'*) printf '%s' '{"total_count":0,"workflow_runs":[]}' ;;
+          *) printf '%s' "$RUN_CREATED_AT" ;;
+        esac
+      }
       curl() { printf '%s' "$HEALTH"; }
       ${admission}
       cat "$GITHUB_OUTPUT"
@@ -102,9 +107,9 @@ describe('daily routine admission uses the existing protected receiver only', ()
   it('queues ordinary daytime pushes even when they change server code', () => {
     expect(admit('push', '14', 'normal server change', '{"liveness":"ok"}')).toBe(false);
   });
-  it('admits only the 03:30 Chicago candidate of the UTC DST pair', () => {
+  it('admits only a run created inside the 03:30 Chicago window, across DST', () => {
     expect(admit('schedule', '03', 'routine', '{"liveness":"ok"}')).toBe(true);
-    // The actual runner hour does not change nominal admission.
+    // The runner's wall-clock hour is not consulted; the run's creation is.
     expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}')).toBe(true);
     expect(admit('schedule', '14', 'routine', '{"liveness":"ok"}')).toBe(true);
     expect(
@@ -125,6 +130,11 @@ describe('daily routine admission uses the existing protected receiver only', ()
     expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', 'malformed')).toBe(
       false
     );
+    // A cron GitHub delivers hours late is judged by when it arrived
+    // (2026-10-30 15:08 and 2026-10-31 14:37 UTC): it prepares nothing.
+    expect(
+      admit('schedule', '09', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-10-31T14:37:20Z')
+    ).toBe(false);
     expect(
       admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-10-22T00:01:00Z')
     ).toBe(false);
@@ -1500,6 +1510,97 @@ it('binds the owner-ordered drained engine crash-loop activation that falls back
     'FINISH UP ANY AND ALL REMAINING WORK',
     'FINISH UP ALL OF THESE NOW',
     'Yes, open the window (Recommended)',
+    'NEW owner-ordered window',
+    'agent-selected',
+    'typed retirement',
+    'UNKNOWN',
+    'Diamond remains closed',
+    'ONE actual activation',
+    'falls back to the routine 04:00 Chicago',
+    '120s',
+    '300s',
+    '285s',
+    '245s',
+    '135s',
+    '40s',
+    '5s cleanup',
+    '20s MAIN',
+    'full 5s remote-close',
+    'v3 thaw',
+    'migration/payment replay',
+  ])
+    expect(entry.ownerOrder).toContain(boundary);
+});
+
+it('binds the owner-ordered window that unblocks the engine door and installs its window migration', () => {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const doc = JSON.parse(raw);
+  const id = '2026-11-01-v74-door-unblock-and-window-migration';
+  const entry = doc.windows.find((w: { id: string }) => w.id === id);
+  expect(doc.windows.filter((w: { id: string }) => w.id === id)).toHaveLength(1);
+  expect(doc.windows[70]).toEqual(entry);
+  // Protected main before this commit: contains #9012 (V74, herd-notes boot
+  // loader) and #9054 (the door this commit allowlists fail-closed).
+  expect(entry.contains).toBe('4e9c32285477176df8e4afcef4e743d5fe961047');
+  expect(entry.announceAtChicagoMinutes).toEqual([53]);
+  // A floor-bound engine window carries no migrations; its companion does.
+  expect(entry.migrations).toEqual([]);
+  const companion = doc.windows[71];
+  expect(companion).toEqual({
+    id: '2026-11-01-window-migration-20261101005048',
+    ownerOrder: expect.stringContaining('FIX ANY AND ALL BLOCKERS NOW'),
+    contains: entry.contains,
+    notBefore: entry.notBefore,
+    notAfter: entry.notAfter,
+    migrations: [
+      '20261101004247_started_tournament_abort_supports_equal_share_settlement.sql',
+      '20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql',
+    ],
+  });
+  expect(companion.ownerOrder).toContain('never requests a break');
+  expect(entry.notBefore).toBe('2026-11-01T14:30:00Z');
+  expect(entry.notAfter).toBe('2026-11-01T20:25:00Z');
+  const span = Date.parse(entry.notAfter) - Date.parse(entry.notBefore);
+  expect(span).toBeGreaterThanOrEqual(420_000);
+  expect(span).toBeLessThanOrEqual(21_600_000);
+  // Never reaches the 2026-11-02 04:00 America/Chicago (10:00Z) daily window;
+  // an unused request falls back to it instead.
+  expect(Date.parse(entry.notAfter)).toBeLessThan(Date.parse('2026-11-02T09:30:00Z'));
+  const allow = JSON.parse(
+    readFileSync(join(root, 'scripts/ci/engine-doors.allowlist.json'), 'utf8')
+  );
+  expect(allow.fn_ca_cancel_tournament_abort_unsettled_hand).toContain('Fail-closed');
+  const expectedFloor = Buffer.from(
+    JSON.stringify(
+      {
+        schema: 'engine-release-activation-floor/v2-owner-window',
+        preparationAt: entry.notBefore,
+        activationAt: entry.notBefore,
+        expiresAt: entry.notAfter,
+        timeZone: 'America/Chicago',
+        ownerWindowId: id,
+        clientPublicationAt: entry.notBefore,
+      },
+      null,
+      2
+    ) + '\n'
+  );
+  expect(entry.releaseWitness).toEqual({
+    path: 'server/release/activation-floor.json',
+    sha256: createHash('sha256').update(expectedFloor).digest('hex'),
+  });
+  const selected = readFileSync(join(root, 'server/release/activation-floor.json'));
+  if (JSON.parse(selected.toString()).ownerWindowId === id) expect(selected).toEqual(expectedFloor);
+  const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
+  const end = raw.indexOf('\n  ],\n  "databaseWindows":', start);
+  expect(start).toBeGreaterThan(0);
+  const historical = raw.slice(0, start) + raw.slice(end);
+  expect(createHash('sha256').update(historical).digest('hex')).toBe(
+    'b15c5009360704744f666ceb01f1b5cebfa78cec0f4a3c5dbbc79fbadb8fe1a8'
+  );
+  for (const boundary of [
+    'FIX ANY AND ALL BLOCKERS NOW AND FINISH THIS UP, PUSH AND PUBLISH EVERYTHING',
+    "FIX EVERYTHING THAT ISN'T DONE YET",
     'NEW owner-ordered window',
     'agent-selected',
     'typed retirement',

@@ -1,3 +1,8 @@
+import {
+  installNaturalBoardReveal,
+  naturalBoardRevealIntervalsEvidence,
+  type NaturalBoardRevealInterval,
+} from './support/naturalBoardReveal';
 import { createClient } from '@supabase/supabase-js';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -2265,6 +2270,29 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
       const publicStatsStartedAt = Date.now();
       const banner = page.getByTestId('table-connection-banner');
       let tableId = candidate.id;
+      const boardIntervals: NaturalBoardRevealInterval[] = [];
+      let activeBoardInterval: { name: NaturalBoardRevealInterval['name']; since: number } | null =
+        null;
+      const startBoardInterval = async (name: NaturalBoardRevealInterval['name']) => {
+        await page.evaluate(installNaturalBoardReveal, observationDeadline);
+        activeBoardInterval = { name, since: Date.now() };
+      };
+      const stopBoardInterval = async () => {
+        if (!activeBoardInterval) return;
+        const interval = activeBoardInterval;
+        activeBoardInterval = null;
+        const receipts = await page
+          .evaluate(() => window.__naturalBoardReveal?.stop() ?? [])
+          .catch(() => []);
+        const until = Date.now();
+        boardIntervals.push({
+          name: interval.name,
+          receipts,
+          frames: journal
+            .matchingFrames({ direction: 'received', tableId, since: interval.since })
+            .filter((frame) => frame.at <= until),
+        });
+      };
 
       try {
         const protocolReady = Promise.all([
@@ -2351,6 +2379,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         /* Retained EVENT replay is explicitly excluded by its protocol marker.
          Prove action/street progress, completion, automatic next-hand start,
          and presentation of that next hand. */
+        await startBoardInterval('before-outage');
         const initialProgressStartedAt = Date.now();
         const initialCycle = await whileConnectionBannerStaysHidden(
           page,
@@ -2368,6 +2397,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         await expect(banner).toBeHidden();
         await expectNoOpponentHud(page);
 
+        await stopBoardInterval();
         const preOutageTransports = journal.transportIdsOpenAt(Date.now());
         expect(
           preOutageTransports,
@@ -2417,6 +2447,8 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
             ).toBeHidden({ timeout: CONNECT_DEADLINE_MS }),
           ]);
 
+          // The acknowledged reconnect snapshot is outside this fresh interval.
+          await startBoardInterval('after-reconnect');
           const recoveredProgressStartedAt = Date.now();
           const recoveredCycle = await whileConnectionBannerStaysHidden(
             page,
@@ -2603,6 +2635,8 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
             beforeReload = await assertPublicStatsCache();
           }).toPass({ timeout: 10_000 });
           await expectNoOpponentHud(page);
+          // Reuse only these existing connected observations; reload begins a new owner.
+          await stopBoardInterval();
           await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
           await expect(page.locator('.table-surface')).toBeVisible({ timeout: 20_000 });
           let afterReload: Awaited<ReturnType<typeof assertPublicStatsCache>> | undefined;
@@ -2624,6 +2658,16 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           if (offline) await context.setOffline(false).catch(() => {});
         }
       } finally {
+        await stopBoardInterval();
+        const boardEvidence = naturalBoardRevealIntervalsEvidence(boardIntervals, tableId);
+        const boardEvidencePath = testInfo.outputPath(
+          'mobile-live-table-natural-board-reveal.json'
+        );
+        writeFileSync(boardEvidencePath, JSON.stringify(boardEvidence, null, 2));
+        await testInfo.attach('natural-board-reveal-paint-opportunities', {
+          path: boardEvidencePath,
+          contentType: 'application/json',
+        });
         await testInfo.attach('live-table-realtime-summary', {
           body: Buffer.from(JSON.stringify(journal.summary(tableId), null, 2)),
           contentType: 'application/json',

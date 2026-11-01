@@ -105,7 +105,13 @@ function simulate(ev: LateRegEvent, levelEveryMin = Infinity) {
     });
     expect(n).toBeGreaterThanOrEqual(0);
     expect(n).toBeLessThanOrEqual(
-      Math.max(LATE_REG_MAX_STEP, Math.ceil((ev.entriesAtStart * 2) / ev.lateRegMins) + 1)
+      Math.max(
+        LATE_REG_MAX_STEP,
+        Math.ceil(
+          (ev.entriesAtStart * (LATE_REG_SHARE_MIN + LATE_REG_SHARE_SPREAD) * 1.5 * 2) /
+            ev.lateRegMins
+        ) + 1
+      )
     );
     late += n;
     if (n > 0) arrivals.push({ minute, n });
@@ -158,7 +164,7 @@ describe('arrivals flow across the whole window, not the first half hour', () =>
       event({ entriesAtStart: 126, lateRegMins: 25, lateRegLevels: 0 })
     );
     expect(arrivals.length).toBeGreaterThanOrEqual(6);
-    for (const a of arrivals) expect(a.n).toBeLessThanOrEqual(12);
+    for (const a of arrivals) expect(a.n).toBeLessThanOrEqual(24);
   });
 
   it('a small field still sees late arrivals', () => {

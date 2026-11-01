@@ -67,12 +67,28 @@ describe('prestart ticket entry survives a satisfied ordinary funding quota', ()
       { p_tournament_id: T, p_user_id: 'ticket', p_allow_wallet_charge: false },
     ]);
   });
-  it.each(['REGISTERING', 'ANNOUNCED'])('does not redeem a ticket early in %s', async (status) => {
+  it.each(['REGISTERING', 'ANNOUNCED'])(
+    'does not redeem a paid-event ticket before the one-hour window in %s',
+    async (status) => {
+      const { svc, target, entries } = harness();
+      target.status = status;
+      target.start_time = new Date(Date.now() + 61 * 60000).toISOString();
+      expect(await svc.topUpWithHorses(T, 0, { redeemTickets: true })).toBe(0);
+      expect(entries()).toEqual([]);
+    }
+  );
+  it.each([
+    { label: 'paid at one hour', amount: 20, minutes: 60, admitted: true },
+    { label: 'freeroll at six hours', amount: 0, minutes: 360, admitted: true },
+    { label: 'freeroll before six hours', amount: 0, minutes: 361, admitted: false },
+  ])('keeps ticket-only recovery timing for $label', async ({ amount, minutes, admitted }) => {
     const { svc, target, entries } = harness();
-    target.status = status;
-    target.start_time = new Date(Date.now() + 11 * 60000).toISOString();
-    expect(await svc.topUpWithHorses(T, 0, { redeemTickets: true })).toBe(0);
-    expect(entries()).toEqual([]);
+    target.buy_in_amount = amount;
+    target.buy_in_fee = amount === 0 ? 0 : 2;
+    target.start_time = new Date(Date.now() + minutes * 60000).toISOString();
+    expect(await svc.topUpWithHorses(T, 0, { redeemTickets: true })).toBe(admitted ? 1 : 0);
+    expect(entries()).toHaveLength(admitted ? 1 : 0);
+    expect(entries().every((a: any) => a.p_allow_wallet_charge === false)).toBe(true);
   });
   it('leaves ordinary zero-shortfall calls unchanged', async () => {
     const { svc, rpc } = harness();
