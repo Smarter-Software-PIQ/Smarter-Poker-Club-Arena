@@ -123,29 +123,26 @@ test('discovery observation records the connected tuple without changing the clo
     observed.indexOf('async function retirementDiscover()'),
     observed.indexOf('async function retirementEntry()')
   );
-  const request = new EventEmitter(),
-    socket = new EventEmitter(),
-    response = new EventEmitter();
+  const socket = new EventEmitter();
   Object.assign(socket, {
     localAddress: '127.0.0.1',
     remoteAddress: '127.0.0.1',
     localPort: 43981,
     remotePort: 9229,
+    setTimeout: () => {},
+    write: () => {},
+    end: () => {},
+    destroy: () => {},
   });
-  Object.assign(response, { statusCode: 200, setEncoding: () => {} });
   const sandbox = {};
-  let callback;
   const discover = new Function(
-    'retirementHttp',
+    'retirementNet',
     'retirementRemaining',
     'globalThis',
     fragment + '\nreturn retirementDiscover;'
   )(
     {
-      get: (_options, cb) => {
-        callback = cb;
-        return request;
-      },
+      createConnection: () => socket,
     },
     () => 10000,
     sandbox
@@ -155,22 +152,26 @@ test('discovery observation records the connected tuple without changing the clo
     settled = true;
     return v;
   });
-  request.emit('socket', socket);
   socket.emit('connect');
-  callback(response);
   const endpoint = 'ws://127.0.0.1:9229/00000000-0000-4000-8000-000000000001';
-  response.emit('data', JSON.stringify([{ webSocketDebuggerUrl: endpoint }]));
-  response.emit('end');
+  const body = JSON.stringify([{ webSocketDebuggerUrl: endpoint }]);
+  socket.emit(
+    'data',
+    Buffer.from(`HTTP/1.0 200 OK\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
+  );
   await Promise.resolve();
   assert.equal(settled, false);
-  socket.emit('close');
+  socket.emit('end');
+  await Promise.resolve();
+  assert.equal(settled, false);
+  socket.emit('close', false);
   assert.equal(await pending, endpoint);
   assert.deepEqual(sandbox[Symbol.for('fixture.main-inspector.discovery-tuple')], {
     local: '0100007F:ABCD',
     remote: '0100007F:240D',
   });
   assert.throws(() =>
-    observeFixtureDiscoverySocket(entry.replace("request.on('socket'", "request.on('unknown'"))
+    observeFixtureDiscoverySocket(entry.replace("socket.once('connect'", "socket.once('unknown'"))
   );
 });
 
