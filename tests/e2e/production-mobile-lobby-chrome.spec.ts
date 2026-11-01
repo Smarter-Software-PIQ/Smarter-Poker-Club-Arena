@@ -732,6 +732,59 @@ test.describe('the mobile lobby chrome on production', () => {
           }))
       );
       expect(readableCopy.every((copy) => copy.size >= 12)).toBe(true);
+      await expect
+        .poll(() =>
+          currentRows.evaluateAll((elements) =>
+            elements.every((row) => {
+              const value = row.querySelector(
+                '[data-label="Buy-In"] .premium-cash-stakes-value'
+              ) as HTMLElement | null;
+              if (!value) return true;
+              return value.scrollWidth <= value.parentElement!.clientWidth + 1;
+            })
+          )
+        )
+        .toBe(true);
+      // The native lower glass runs y414..606 in the 1983px master,
+      // cropped at y407. Check actual ink, not just a wrapper's line box:
+      // run41279281355 passed the old font floor while copy painted on the rim.
+      await expect
+        .poll(() =>
+          currentRows.evaluateAll((elements) =>
+            elements
+              .flatMap((row) => {
+                const box = row.getBoundingClientRect();
+                const insetTop = box.top + box.width * 0.003;
+                const insetBottom = box.top + box.width * 0.102;
+                return [...row.querySelectorAll('td:first-child,td[data-label="Buy-In"]')].flatMap(
+                  (cell) => {
+                    const ink: DOMRect[] = [];
+                    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+                    while (walker.nextNode()) {
+                      const node = walker.currentNode;
+                      const parent = node.parentElement;
+                      if (
+                        !node.textContent?.trim() ||
+                        !parent ||
+                        parent.closest('.lt-fav,[aria-hidden="true"]') ||
+                        !parent.getBoundingClientRect().width ||
+                        getComputedStyle(parent).visibility === 'hidden'
+                      )
+                        continue;
+                      const range = document.createRange();
+                      range.selectNodeContents(node);
+                      ink.push(...[...range.getClientRects()].filter((rect) => rect.width > 0));
+                    }
+                    return ink.map(
+                      (rect) => rect.top >= insetTop - 1 && rect.bottom <= insetBottom + 1
+                    );
+                  }
+                );
+              })
+              .every(Boolean)
+          )
+        )
+        .toBe(true);
       appearance.push({ mode, ...paint });
       await sampleRow.scrollIntoViewIfNeeded();
       await expect(sampleRow).toBeInViewport();
@@ -743,7 +796,7 @@ test.describe('the mobile lobby chrome on production', () => {
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     const wideHeading = page.locator('.lobby-table tr[data-game-heading]').first();
-    await wideHeading.scrollIntoViewIfNeeded();
+    await wideHeading.evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await expect(wideHeading).toBeInViewport();
     expect(
       await page
