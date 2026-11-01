@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272549,
+      "sha256": "873a74cebf9b019d924063fccc7fcb113382f97e201df7cee07530abce257080"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -5908,6 +5908,17 @@
     "current": {
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    }
+  },
+  "browserRunnerCompatibility20261031": {
+    "reason": "Only browser runner compatibility changes: pin Playwright jobs to proven Ubuntu24.04. Every cash/native/financial assertion and job retained. Source identity only, no financial or live recertification.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272549,
+      "sha256": "873a74cebf9b019d924063fccc7fcb113382f97e201df7cee07530abce257080"
     }
   }
 }
