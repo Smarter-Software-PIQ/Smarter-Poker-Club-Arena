@@ -313,3 +313,24 @@ it('does not throw when an occupied opponent seat temporarily has zero measured 
   }
   expect(() => render(<LiveTableScene handKey="table-8:53819612" />)).not.toThrow();
 });
+
+it('advancing revision across preflop/flop/turn/river actions does not tear down settled top-pod or revealed-row styles', async () => {
+  stubGeometry();
+  vi.stubGlobal('innerWidth', 393);
+  const h = render(<Fixture revealed revision="preflop-action-1" />);
+  const row = h.container.querySelector<HTMLElement>('.seat__cards--revealed')!;
+  const pod = h.container.querySelector<HTMLElement>('.seat-wrapper--top')!;
+  await waitFor(() => expect(row.style.translate).not.toBe(''));
+  const settledRowTranslate = row.style.translate;
+  const settledPodTranslate = pod.style.translate;
+  expect(settledPodTranslate).not.toBe('');
+
+  const removeSpy = vi.spyOn(CSSStyleDeclaration.prototype, 'removeProperty');
+  for (const rev of ['preflop-action-2', 'flop-deal', 'turn-bet', 'river-call']) {
+    await act(async () => h.rerender(<Fixture revealed revision={rev} />));
+    expect(row.style.translate).toBe(settledRowTranslate);
+    expect(pod.style.translate).toBe(settledPodTranslate);
+  }
+  const removedProps = removeSpy.mock.calls.map(([prop]) => prop);
+  expect(removedProps).not.toContain('--sp-top-seat-shift');
+});
