@@ -931,7 +931,7 @@ class ReaderTests(unittest.TestCase):
                  and node.elts[0].value == 'systemctl']
         self.assertEqual(len(lists), 6)
         self.assertTrue(all(node.elts[1].value == 'show' for node in lists))
-        self.assertEqual({node.elts[-1].value for node in lists}, {'--property=ActiveState,SubState,InvocationID', '--property=MainPID,ControlGroup,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,MainPID,ControlPID,ControlGroup,FragmentPath,DropInPaths', '--property=LoadState,ActiveState,SubState,UnitFileState,Job'})
+        self.assertEqual({node.elts[-1].value for node in lists}, {'--property=ActiveState,SubState,InvocationID', '--property=MainPID,ControlGroup,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,MainPID,ControlPID,ControlGroup,FragmentPath,DropInPaths', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,FragmentPath,DropInPaths'})
         self.assertIn('--property=ActiveState,SubState,InvocationID', source)
 
     def witness_fixture(self):
@@ -2937,7 +2937,13 @@ class FailedRoutineCustodyTests(unittest.TestCase):
                       'ControlPID': '' if unit.endswith('.path') else '0', 'ControlGroup': '',
                       'FragmentPath': '/etc/systemd/system/' + unit.split('@', 1)[0] + '@.' + unit.rsplit('.', 1)[1], 'DropInPaths': ''}
             if unit.endswith('.path'):
-                fields = {k: fields[k] for k in ('LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job')}
+                fields = {k: fields[k] for k in ('LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job', 'FragmentPath', 'DropInPaths')}
+            for field, value in [('FragmentPath', '/foreign/owner'), ('DropInPaths', '/foreign/override.conf')]:
+                bad = dict(fields, **{field: value})
+                wrong = '\n'.join(k + '=' + v for k, v in bad.items()).encode()
+                with patch.object(R, 'inspector_command', return_value=wrong) as refused:
+                    self.assertEqual(R.failed_custody_unit(unit, R.time.monotonic() + 3)[0]['status'], 'unknown')
+                self.assertEqual(refused.call_count, 1)
             raw = '\n'.join(k + '=' + v for k, v in fields.items()).encode()
             with patch.object(R, 'inspector_command', side_effect=[raw, b'a(sus) 0']) as probe:
                 row, _ = R.failed_custody_unit(unit, R.time.monotonic() + 3)

@@ -434,12 +434,12 @@ def failed_custody_unit(unit, deadline):
     unknown = {'status': 'unknown', 'inactive': None, 'noJob': None, 'disabled': None,
                'noMainOrControlPid': None, 'processEnumerationEmpty': None, 'cgroup': 'unknown'}
     path = unit.endswith('.path')
-    props = ['LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job']
+    props = ['LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job', 'FragmentPath', 'DropInPaths']
     args = ['systemctl', 'show', unit, '--no-pager', '--all', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,MainPID,ControlPID,ControlGroup,FragmentPath,DropInPaths']
     if path:
-        args = ['systemctl', 'show', unit, '--no-pager', '--all', '--property=LoadState,ActiveState,SubState,UnitFileState,Job']
+        args = ['systemctl', 'show', unit, '--no-pager', '--all', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,FragmentPath,DropInPaths']
     else:
-        props += ['MainPID', 'ControlPID', 'ControlGroup', 'FragmentPath', 'DropInPaths']
+        props += ['MainPID', 'ControlPID', 'ControlGroup']
     try:
         raw = inspector_command(args, min(deadline, time.monotonic() + 2), limit=4096)
         d = unique_object([line.split('=', 1) for line in raw.decode('ascii').splitlines()])
@@ -448,9 +448,9 @@ def failed_custody_unit(unit, deadline):
                         d['SubState'] in {'running', 'start', 'start-pre', 'start-post', 'exited', 'dead', 'failed', 'auto-restart', 'stop', 'stop-sigterm', 'stop-sigkill', 'stop-post', 'final-sigterm', 'final-sigkill', 'waiting'} and
                         d['UnitFileState'] in {'', 'disabled', 'static', 'enabled', 'enabled-runtime', 'indirect'} and
                         re.fullmatch(r'[0-9]*', d['Job']))
+        routine_require(d['FragmentPath'] == '/etc/systemd/system/' + unit.split('@', 1)[0] + '@.' + unit.rsplit('.', 1)[1] and d['DropInPaths'] == '')
         if not path:
-            routine_require(all(re.fullmatch(r'[0-9]*', d[k]) for k in ('MainPID', 'ControlPID')) and
-                            d['FragmentPath'] == '/etc/systemd/system/' + unit.split('@', 1)[0] + '@.service' and d['DropInPaths'] == '')
+            routine_require(all(re.fullmatch(r'[0-9]*', d[k]) for k in ('MainPID', 'ControlPID')))
         # Path units have no service PIDs. Empty is inapplicable, never zero.
         path = unit.endswith('.path')
         pid_clear = None if path else d['MainPID'] == d['ControlPID'] == '0'
