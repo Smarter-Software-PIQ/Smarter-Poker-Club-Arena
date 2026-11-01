@@ -42,6 +42,47 @@ class Response(io.BytesIO):
 
 
 class ScaleBoundary(unittest.TestCase):
+    def test_actual_child_json_stdout_and_inspector_stderr_are_separate(self):
+        real_popen = subprocess.Popen
+        payload = json.dumps(valid_result())
+        child = 'import sys;sys.stderr.write("Debugger listening on ws://127.0.0.1:1/redacted\\nFor help, see: https://nodejs.org/en/docs/inspector\\n");sys.stderr.flush();sys.stdout.write(' + repr(payload) + ')'
+        def process(args, **kwargs):
+            self.assertEqual(args[:2], ['docker', 'run'])
+            return real_popen([sys.executable, '-c', child], **kwargs)
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / 'output'
+            with patch.object(m.subprocess, 'Popen', side_effect=process), patch.object(m, 'cleanup', return_value=True):
+                record = m.measure(1, 'own', 'k'*64, 'sha256:'+'a'*64, 'f'*64, output, 1)
+            self.assertIsNone(record['error'], record['error'])
+            self.assertEqual(json.loads(output.read_text()), valid_result())
+            self.assertTrue(output.with_name('output.stderr').read_bytes().startswith(b'Debugger listening'))
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(output.with_name('output.stderr').stat().st_mode & 0o777, 0o600)
+            self.assertIs(record['executionAcknowledged'], True)
+            self.assertIs(record['cleanupProved'], True)
+
+    def test_actual_child_shared_cap_hang_and_failure_channels(self):
+        for code, limit, expected in [
+            ('import sys;sys.stdout.write("x"*80);sys.stdout.flush();sys.stderr.write("y"*80)', 128, RuntimeError),
+            ('import sys,time;sys.stderr.write("before hang\\n");sys.stderr.flush();time.sleep(30)', m.OUTPUT_CAP, subprocess.TimeoutExpired),
+        ]:
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as folder:
+                out, err = Path(folder)/'out', Path(folder)/'err'
+                with out.open('xb',buffering=0) as stdout, err.open('xb',buffering=0) as stderr, patch.object(m,'OUTPUT_CAP',limit):
+                    with self.assertRaises(expected):
+                        m.capture_fixture([sys.executable,'-c',code],stdin=subprocess.DEVNULL,
+                            stdout=stdout,stderr=stderr,timeout=0.25,preexec_fn=None)
+                self.assertLessEqual(out.stat().st_size + err.stat().st_size, limit)
+                if expected is subprocess.TimeoutExpired:
+                    self.assertEqual(err.read_bytes(), b'before hang\n')
+        with tempfile.TemporaryDirectory() as folder:
+            out, err = Path(folder)/'out', Path(folder)/'err'
+            with out.open('xb',buffering=0) as stdout, err.open('xb',buffering=0) as stderr:
+                result = m.capture_fixture([sys.executable,'-c','import sys;sys.stdout.write("out");sys.stderr.write("failure");sys.exit(7)'],
+                    stdin=subprocess.DEVNULL,stdout=stdout,stderr=stderr,timeout=1,preexec_fn=None)
+            self.assertEqual(result.returncode,7)
+            self.assertEqual((out.read_bytes(),err.read_bytes()),(b'out',b'failure'))
+
     def test_composed_transport_rejects_coercion_and_nonfinite_or_unexpected_shape(self):
         for forged in [True, False, '1', None, [], {}, float('inf'), float('nan'), 0, -1, 30001, 10**1000]:
             value=valid_result()
@@ -208,7 +249,7 @@ class ScaleBoundary(unittest.TestCase):
                     self.fail('signal did not refuse')
                 previous = signal.signal(signum, m.refuse_signal)
                 try:
-                    with patch.object(m,'STATE',state), patch.object(m.os,'geteuid',return_value=0), patch.object(m.sys,'platform','linux'), patch.object(m,'serving',return_value=identity), patch.object(m,'candidate_identity',return_value={}), patch.object(m,'secure_directory'), patch.object(m.os,'fstat',return_value=type('S',(),{'st_mode':0o100600,'st_uid':0})()), patch.object(m.Path,'read_text',read), patch.object(m.subprocess,'run',side_effect=interrupt), patch.object(m,'cleanup',return_value=observed) as cleanup:
+                    with patch.object(m,'STATE',state), patch.object(m.os,'geteuid',return_value=0), patch.object(m.sys,'platform','linux'), patch.object(m,'serving',return_value=identity), patch.object(m,'candidate_identity',return_value={}), patch.object(m,'secure_directory'), patch.object(m.os,'fstat',return_value=type('S',(),{'st_mode':0o100600,'st_uid':0})()), patch.object(m.Path,'read_text',read), patch.object(m,'capture_fixture',side_effect=interrupt), patch.object(m,'cleanup',return_value=observed) as cleanup:
                         with self.assertRaisesRegex(RuntimeError,'interrupted by signal'):
                             m.main('sha256:'+'a'*64,'42-1',str(int(time.time())+600))
                         cleanup.assert_called_once()
@@ -282,7 +323,7 @@ class ScaleBoundary(unittest.TestCase):
     def run_measure(self, run, commands):
         with tempfile.TemporaryDirectory(prefix='native-scale-measure-') as directory:
             output = Path(directory)/'out'
-            with patch.object(m.subprocess,'run',side_effect=run) as docker, patch.object(m,'command',side_effect=commands) as cmd:
+            with patch.object(m,'capture_fixture',side_effect=run) as docker, patch.object(m,'command',side_effect=commands) as cmd:
                 record = m.measure(1,'own','k'*64,'sha256:'+'a'*64,'f'*64,output,1)
             return record, docker, cmd
 
