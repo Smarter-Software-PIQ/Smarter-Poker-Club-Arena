@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   hidden: false,
   read: vi.fn(),
   settings: vi.fn(),
+  single: vi.fn(),
   report: vi.fn(),
   toast: vi.fn(),
   resetSettings: vi.fn(),
@@ -47,6 +48,8 @@ interface Query {
   columns: string;
   userId?: string;
   clubIds?: string[];
+  statuses?: string[];
+  signal?: AbortSignal;
 }
 type Reply = { data: Record<string, unknown>[] | null; error: { message: string } | null };
 const ok = (data: Record<string, unknown>[] = []): Reply => ({ data, error: null });
@@ -67,6 +70,11 @@ vi.mock('../../src/lib/supabase', () => ({
         },
         in: (key: string, value: string[]) => {
           if (key === 'club_id') query.clubIds = value;
+          if (key === 'status') query.statuses = value;
+          return builder;
+        },
+        abortSignal: (signal: AbortSignal) => {
+          query.signal = signal;
           return builder;
         },
         gte: () => builder,
@@ -76,7 +84,7 @@ vi.mock('../../src/lib/supabase', () => ({
         or: () => builder,
         order: () => builder,
         limit: () => builder,
-        maybeSingle: () => Promise.resolve({ data: { union_id: null }, error: null }),
+        maybeSingle: () => mocks.single(query),
         then: (resolve: (value: Reply) => unknown, reject: (reason: unknown) => unknown) =>
           Promise.resolve()
             .then(() => mocks.read(query))
@@ -206,6 +214,7 @@ describe('the mounted ticker recovers without stale account data or overlapping 
     mocks.listeners.clear();
     mocks.read.mockReset().mockImplementation(answer);
     mocks.settings.mockReset().mockResolvedValue(mocks.defaults);
+    mocks.single.mockReset().mockResolvedValue({ data: { union_id: null }, error: null });
     mocks.report.mockReset();
     mocks.toast.mockReset();
     mocks.resetSettings.mockReset();
@@ -216,6 +225,61 @@ describe('the mounted ticker recovers without stale account data or overlapping 
     cleanup();
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it.each(['club_members', 'tournaments', 'tournament_players'])(
+    'releases an unanswered %s read before the next ordinary poll',
+    async (table) => {
+      const old = deferred<Reply>();
+      mocks.read.mockImplementation((q: Query) => (q.table === table ? old.promise : answer(q)));
+      await mount();
+      await tick(12_000);
+      mocks.read.mockImplementation(answer);
+      await tick(18_000);
+      expect(screen.getByText('Confirmed Event')).toBeTruthy();
+      expect(calls(table)).toHaveLength(2);
+      expect(calls(table)[0][0].signal.aborted).toBe(true);
+      await act(async () => old.resolve(ok([tournament('Late Old Event')])));
+      expect(screen.queryByText('Late Old Event')).toBeNull();
+    }
+  );
+  it('releases an unanswered managed club lookup and ignores its late scope', async () => {
+    const old = deferred<{ data: { union_id: string | null }; error: null }>();
+    mocks.single.mockReturnValueOnce(old.promise);
+    await mount();
+    await tick(12_000);
+    expect(mocks.single.mock.calls[0][0].signal.aborted).toBe(true);
+    await tick(18_000);
+    expect(mocks.settings).toHaveBeenCalledTimes(1);
+    await act(async () => old.resolve({ data: { union_id: 'old-union' }, error: null }));
+    expect(mocks.settings).toHaveBeenCalledTimes(1);
+  });
+  it('releases an unanswered managed settings read before the next ordinary poll', async () => {
+    const old = deferred<typeof mocks.defaults>();
+    mocks.settings.mockReturnValueOnce(old.promise);
+    await mount();
+    await tick(12_000);
+    await tick(18_000);
+    expect(mocks.settings).toHaveBeenCalledTimes(2);
+    await act(async () => old.resolve({ ...mocks.defaults, enabled: false }));
+    expect(screen.getByText('Confirmed Event')).toBeTruthy();
+  });
+  it('announces a prepared RUNNING MTT only when its booked start remains in the future', async () => {
+    mocks.read.mockImplementation((q: Query) => {
+      if (q.table !== 'tournaments') return answer(q);
+      const rows = [
+        { ...tournament('Prepared Event'), status: 'RUNNING', started_at: tournament().start_time },
+        {
+          ...tournament('Already Started'),
+          status: 'RUNNING',
+          started_at: new Date(Date.now() - 1000).toISOString(),
+        },
+      ];
+      return ok(rows.filter((r) => !q.statuses || q.statuses.includes(r.status)));
+    });
+    await mount();
+    expect(screen.getByText('Prepared Event')).toBeTruthy();
+    expect(screen.queryByText('Already Started')).toBeNull();
   });
 
   it('clears a departing account immediately and stops its registration toasts', async () => {
@@ -310,7 +374,7 @@ describe('the mounted ticker recovers without stale account data or overlapping 
       query.table === 'tournaments' && ++reads === 1 ? slow.promise : answer(query)
     );
     await mount();
-    await tick(90_000);
+    await tick(10_000);
     await visibility(true);
     await visibility(false);
     await visibility(false);
@@ -329,7 +393,8 @@ describe('the mounted ticker recovers without stale account data or overlapping 
       query.table === 'tournaments' ? slow.promise : answer(query)
     );
     const view = await mount();
-    await tick();
+    await tick(10_000);
+    await visibility(false);
     await visibility(true);
     await act(async () => {
       slow.resolve(ok([tournament()]));
@@ -356,7 +421,7 @@ describe('the mounted ticker recovers without stale account data or overlapping 
     const slow = deferred<typeof mocks.defaults>();
     mocks.settings.mockReturnValueOnce(slow.promise);
     await mount();
-    await tick(90_000);
+    await tick(10_000);
     expect(mocks.settings).toHaveBeenCalledTimes(1);
     await visibility(true);
     await act(async () => {

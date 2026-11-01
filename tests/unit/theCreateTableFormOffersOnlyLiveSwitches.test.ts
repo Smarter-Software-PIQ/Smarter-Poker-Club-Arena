@@ -227,12 +227,15 @@ describe('5e — the Multi-Day switch is gated by the registry and seals a plan'
     const body = FORM.slice(start, FORM.indexOf('const handleStart = async () => {'));
     const check = body.indexOf('sealedPlan = buildStagePlan(');
     const create = body.indexOf('tournamentService.createTournament(');
-    const seal = body.indexOf('sealStagePlan(createdId, sealedPlan.plan)');
+    const seal = body.indexOf('await finishStageIntent(intent)', create);
     expect(check).toBeGreaterThan(0);
     expect(create).toBeGreaterThan(check);
     expect(seal).toBeGreaterThan(create);
+    expect(body).toContain('sealStagePlan(intent.tournamentId, intent.plan)');
+    expect(body).toContain('verifySealedStagePlan(intent.tournamentId, intent.plan)');
+    expect(body.indexOf('retainCreatedStageIntent(intentKey, intent)', create)).toBeLessThan(seal);
     expect(read('src/services/TournamentStageService.ts')).toContain(
-      "door('fn_operator_seal_stage_plan'"
+      ".rpc('fn_operator_seal_stage_plan'"
     );
   });
 

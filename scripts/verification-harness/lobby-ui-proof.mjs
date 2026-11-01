@@ -34,8 +34,16 @@ export const CASE_PAIRS = [
 export const CASES = CASE_PAIRS.map(([, title]) => title);
 export const RECOVERY_ACTION = 'verify-spectator-notifications';
 export const RECOVERY_CASES = [
-  { file: 'production-row-channel-owners.spec.ts', title: 'both club views keep receiving rows and one survives the other unmounting', project: 'chromium' },
-  { file: 'production-mobile-lobby-chrome.spec.ts', title: 'player preferences save automatically and survive reload and reconnect', project: 'webkit-footer' },
+  {
+    file: 'production-row-channel-owners.spec.ts',
+    title: 'both club views keep receiving rows and one survives the other unmounting',
+    project: 'chromium',
+  },
+  {
+    file: 'production-mobile-lobby-chrome.spec.ts',
+    title: 'player preferences save automatically and survive reload and reconnect',
+    project: 'webkit-footer',
+  },
 ];
 export const RECOVERY_COMPONENT_PATHS = [
   ...COMPONENT_PATHS,
@@ -43,14 +51,53 @@ export const RECOVERY_COMPONENT_PATHS = [
   'src/hooks/usePlayerPreference.ts',
   'src/lib/tableSettingIntents.ts',
 ];
+export const FAVORITE_ACTION = 'verify-tournament-favorites';
+export const FAVORITE_CASES = [
+  {
+    file: 'production-mobile-lobby-chrome.spec.ts',
+    title: 'tournament favorites stay below current pins across sorting and reload',
+    project: 'chromium',
+  },
+];
+export const FAVORITE_COMPONENT_PATHS = [
+  ...new Set([
+    ...COMPONENT_PATHS,
+    'src/components/lobby/LobbyTable.tsx',
+    'src/components/lobby/tournamentFavoriteOrder.ts',
+    'src/components/lobby/PremiumMttRows.css',
+    ...[
+      'card',
+      'card-featured',
+      'date-divider',
+      'standard',
+      'bounty',
+      'freezeout',
+      'satellite',
+      'freeroll',
+      'lightning',
+      'deepstack',
+      'rebuy',
+      'spin',
+    ].map((name) => `public/assets/club-buttons/lobby/chrome-arena-mtt-v1/${name}.png`),
+    'public/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png',
+    'src/components/lobby/ClubLobbyCommandTop.css',
+    'src/components/lobby/lobbyCardContext.ts',
+    'src/components/lobby/lobbySortBridge.ts',
+    'src/lib/featuredOnItsDay.ts',
+    'src/hooks/usePlayerPreference.ts',
+    'src/lib/tableSettingIntents.ts',
+  ]),
+];
 function selection(action) {
   if (action === 'verify-lobby-ui')
     return CASE_PAIRS.map(([file, title]) => ({ file, title, project: 'chromium' }));
   if (action === RECOVERY_ACTION) return RECOVERY_CASES;
+  if (action === FAVORITE_ACTION) return FAVORITE_CASES;
   throw new Error('Unknown closed Lobby proof request.');
 }
 function componentPaths(action) {
   selection(action);
+  if (action === FAVORITE_ACTION) return FAVORITE_COMPONENT_PATHS;
   return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
 }
 
@@ -62,7 +109,7 @@ export function admitDispatch(environment, event) {
     !SHA.test(environment.GITHUB_SHA || '') ||
     !ID.test(environment.PROOF_RUN_ID || '') ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(environment.GITHUB_REPOSITORY || '') ||
-    !['verify-lobby-ui', RECOVERY_ACTION].includes(event?.action) ||
+    !['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION].includes(event?.action) ||
     !event.client_payload ||
     Array.isArray(event.client_payload) ||
     typeof event.client_payload !== 'object' ||
@@ -82,7 +129,12 @@ export function assertCases(report, action = 'verify-lobby-ui') {
       const file = String(spec.file || suite.file || '').replaceAll('\\', '/');
       for (const test of spec.tests || []) {
         if (
-          !expected.some((entry) => file.split('/').at(-1) === entry.file && spec.title === entry.title && test.projectName === entry.project) ||
+          !expected.some(
+            (entry) =>
+              file.split('/').at(-1) === entry.file &&
+              spec.title === entry.title &&
+              test.projectName === entry.project
+          ) ||
           spec.ok !== true ||
           test.status !== 'expected' ||
           test.expectedStatus !== 'passed' ||
@@ -99,7 +151,10 @@ export function assertCases(report, action = 'verify-lobby-ui') {
   };
   report.suites.forEach(visit);
   const keys = (entries) => entries.map((entry) => JSON.stringify(entry)).sort();
-  if (JSON.stringify(keys(actual)) !== JSON.stringify(keys(expected.map((entry) => [entry.file, entry.title, entry.project]))))
+  if (
+    JSON.stringify(keys(actual)) !==
+    JSON.stringify(keys(expected.map((entry) => [entry.file, entry.title, entry.project])))
+  )
     throw new Error('Exactly the admitted Lobby cases must execute.');
   return actual.map((entry) => entry[1]);
 }
@@ -263,7 +318,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   else if (process.argv[2] === 'merge-recovery' && process.argv.length === 3) {
     // Paths and cases are fixed here, never supplied by a dispatch payload.
     const reports = ['spectator.json', 'notifications.json'].map((name) =>
-      readJson(`e2e-report/lobby-ui-proof/${name}`));
+      readJson(`e2e-report/lobby-ui-proof/${name}`)
+    );
     if (reports.some((report) => !Array.isArray(report.suites)))
       throw new Error('Both recovery reports must exist.');
     const report = {
@@ -297,7 +353,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       ) + '\n'
     );
     console.log(
-      'All three scoped Lobby cases passed once on the pinned live client; owned account cleanup verified.'
+      'All admitted scoped Lobby cases passed once on the pinned live client; owned account cleanup verified.'
     );
   } else
     throw new Error(

@@ -44,7 +44,7 @@ export interface PressureOptions {
   stackBB?: number;
   /** false ablates the 2026-10-25 paired-board fold, for read-speed pins */
   pairedBoardFold?: boolean;
-  /** V72 (2026-10-31) changes which Omaha postflop raises happen, and so
+  /** V74 (2026-10-31) changes which Omaha postflop raises happen, and so
    *  the RNG stream and which later hands reach which streets. Stream-timed
    *  pins written before it ablate it; its own law is
    *  HorseOmahaSemiBluffNeedsDraw.test.ts. */
@@ -307,7 +307,7 @@ export function playManiacPressure(
             decisionTimeMs: 1_792_000_000_000 + hand * 60_000 + step,
             mindObservationHand: { version: 1 as const, tableId: table, handNumber: hand + 1 },
             ...(options.pairedBoardFold === false ? { ploPairedBoardFold: false } : {}),
-            ...(options.semiBluffNeedsDraw === false ? { v72OmahaSemiBluffNeedsDraw: false } : {}),
+            ...(options.semiBluffNeedsDraw === false ? { v74OmahaSemiBluffNeedsDraw: false } : {}),
           }
         );
         const act = decision.action;

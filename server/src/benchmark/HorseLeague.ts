@@ -266,6 +266,11 @@ export interface LeagueGameContext {
   gameMode: 'cash' | 'tournament';
   format: 'cash' | 'mtt' | 'sng' | 'spin' | 'hu_sng';
   ante?: number;
+  /** V71 (2026-10-31): the ante is a big-blind ante - the big blind posts
+   *  `ante` chips of dead money once per hand (not into its bet), and the
+   *  decision state carries `bigBlindAnte`. Absent = no ante is posted, as
+   *  every card before V71 ran. */
+  bigBlindAnte?: boolean;
   tournament?: HorseGameStateV2['tournament'];
 }
 
@@ -406,6 +411,15 @@ export function playHand(
     return real;
   };
   let pot = post(sbIdx, SB) + post(bbIdx, BB);
+  if (gameContext.bigBlindAnte === true && (gameContext.ante ?? 0) > 0) {
+    // Dead money: out of the big blind's stack and into the pot, never its bet.
+    const p = seats[bbIdx].player;
+    const real = Math.min(gameContext.ante ?? 0, p.stack);
+    p.stack -= real;
+    seats[bbIdx].contributed += real;
+    pot += real;
+    if (p.stack === 0) p.is_all_in = true;
+  }
   let currentBet = BB;
   let minRaise = BB;
   let lastRaise = BB;
@@ -473,6 +487,7 @@ export function playHand(
         actionHistory: history,
         gameMode: gameContext.gameMode,
         ante: gameContext.ante ?? 0,
+        ...(gameContext.bigBlindAnte === true ? { bigBlindAnte: true } : {}),
         format: gameContext.format,
         ...(gameContext.tournament ? { tournament: structuredClone(gameContext.tournament) } : {}),
       } as HorseGameStateV2;
@@ -1227,21 +1242,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { v59Plo6RiverUnpaired: false },
   },
-  // V72 (2026-10-31): an Omaha semi-bluff raise needs a draw. Default ON:
+  // V74 (2026-10-31): an Omaha semi-bluff raise needs a draw. Default ON:
   // a is today's brain, b is the brain without the gate.
   {
-    name: 'plo4_v72_semibluff_needs_draw',
+    name: 'plo4_v74_semibluff_needs_draw',
     variant: 'plo4',
     pairs: 6000,
     a: {},
-    b: { v72OmahaSemiBluffNeedsDraw: false },
+    b: { v74OmahaSemiBluffNeedsDraw: false },
   },
   {
-    name: 'plo5_v72_semibluff_needs_draw',
+    name: 'plo5_v74_semibluff_needs_draw',
     variant: 'plo5',
     pairs: 6000,
     a: {},
-    b: { v72OmahaSemiBluffNeedsDraw: false },
+    b: { v74OmahaSemiBluffNeedsDraw: false },
   },
   /*
    * LEAGUE-GATED SELF-TUNER (Dan 2026-10-19: "League-gated nudges"). The

@@ -3,9 +3,9 @@
 These are follow-ups to the 2026-10-30 daily horse audit. Three defects were
 read from production rows and reproduced through the real decision path.
 
-## Top pair with no redraw re-raised as a "semi-bluff" (V72)
+## Top pair with no redraw re-raised as a "semi-bluff" (V74)
 
-(Numbered V72: V70 is the GTO opening ranges and V71 the ante-aware push/fold, #9035.)
+(Numbered V74: V70 is the GTO opening ranges, V71 the ante-aware push/fold, V72 the defence by opener and V73 the 3-bet answer, #9088.)
 
 `plo_toppair_no_redraw_stackoff` measured -62.13 bb per hand across both
 outcomes over 234 hands (seven days to 2026-10-30). The live public states of
@@ -23,7 +23,7 @@ bets. The rate stepped up on 2026-10-28, when the presumed-aggressive Omaha
 prior began firing 12-17M times a day. V53 semi-bluff raises went from 190 to
 2,700 a day.
 
-`v72OmahaSemiBluffNeedsDraw` (default on; explicit `false` is the league's off
+`v74OmahaSemiBluffNeedsDraw` (default on; explicit `false` is the league's off
 arm) requires one of these for an Omaha semi-bluff raise:
 
 - a flush draw;
@@ -31,7 +31,7 @@ arm) requires one of these for an Omaha semi-bluff raise:
 - in hi-lo, a nut low draw.
 
 This is the redraw definition the detector already uses. Both replayed hands
-now fold or call. The plo4/plo5 v72 matchups keep measuring it.
+now fold or call. The plo4/plo5 v74 matchups keep measuring it.
 
 Local paired-deal league, 3,000 pairs per arm, seed 2026103102, horse against
 horse:

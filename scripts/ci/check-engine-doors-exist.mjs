@@ -49,7 +49,7 @@
  * Exit:   0 proved / generic unreadable / generic rollback;
  *         1 missing door or unproved continuation prerequisite
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import process from 'node:process';
@@ -281,6 +281,32 @@ async function liveFunctions(names, requirements) {
   }
 }
 
+/**
+ * NAME THE REFUSAL (Phase 6, 2026-10-31). The deploy receipt's reason used to
+ * say only "production database prerequisite job ended failure"; which door
+ * was missing lived in a job log nobody reads. The step's `refusal` output
+ * carries it into ca_engine_deploy_attempts.reason. Single line, bounded.
+ */
+export function refusalText(kind, names = []) {
+  const list = names.length > 6 ? [...names.slice(0, 6), `+${names.length - 6} more`] : names;
+  const text =
+    kind === 'missing'
+      ? `missing database function${names.length === 1 ? '' : 's'} ${list
+          .map((n) => (n.startsWith('+') ? n : `${n}()`))
+          .join(', ')}`
+      : `${kind}${list.length ? ` ${list.join(', ')}` : ''}`;
+  return text.replace(/[\r\n]+/g, ' ').slice(0, 400);
+}
+function emitRefusal(kind, names = []) {
+  const out = process.env.GITHUB_OUTPUT;
+  if (!out) return;
+  try {
+    appendFileSync(out, `refusal=${refusalText(kind, names)}\n`);
+  } catch {
+    /* the job log still names it */
+  }
+}
+
 async function main() {
   // One closed serialized guard is an engine caller too. Do not scan arbitrary
   // control scripts or make old targets depend on a newly installed contract.
@@ -307,6 +333,7 @@ async function main() {
     console.log(
       `::error title=CONTINUATION PREREQUISITES UNCHECKED::${live.unreadable}. Exact target migration histories and any selected frozen-checkpoint custody contract must be proved before this target enters Hetzner.`
     );
+    emitRefusal('continuation prerequisites unchecked:', [String(live.unreadable)]);
     return 1;
   }
   if (live.unreadable) {
@@ -317,6 +344,7 @@ async function main() {
   }
   const missing = names.filter((n) => !live.found.has(n) && !allow[n]);
   let prerequisitesProved = true;
+  const unproved = [];
   for (const expected of requirements) {
     const rows = live.migrations.filter((row) => row.version === expected.version);
     const row = rows[0];
@@ -327,12 +355,16 @@ async function main() {
       row.sql_md5 !== expected.sql_md5
     ) {
       prerequisitesProved = false;
+      unproved.push(expected.version);
       console.log(
         `::error title=CONTINUATION MIGRATION UNPROVED::${expected.version} must have exactly the target migration name and single-statement SQL MD5 ${expected.sql_md5}. Apply and verify the protected migration before this target enters Hetzner.`
       );
     }
   }
-  if (!prerequisitesProved) return 1;
+  if (!prerequisitesProved) {
+    emitRefusal('continuation migration unproved', unproved);
+    return 1;
+  }
   if (continuationTarget)
     console.log('OK - all exact continuation migration histories are installed.');
   if (mttDepthTarget)
@@ -363,6 +395,9 @@ async function main() {
         console.log(
           `::error title=FROZEN ORIGINAL ATTESTATION UNPROVED::${expected.schema_name}.${expected.proname} must match the qualified body, read-only owner/configuration, service/browser grants and private-table denial before the retained-original checkpoint enters Hetzner.`
         );
+        emitRefusal('frozen original attestation unproved', [
+          `${expected.schema_name}.${expected.proname}`,
+        ]);
         return 1;
       }
     }
@@ -391,6 +426,7 @@ async function main() {
   console.log(
     `${missing.length} of ${names.length} database functions this build calls are missing in production. Nothing was deployed.`
   );
+  emitRefusal('missing', missing);
   return 1;
 }
 
@@ -400,6 +436,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     (err) => {
       if (continuationTarget || retainedCheckpointTarget) {
         console.log(`::error title=CONTINUATION PREREQUISITES UNCHECKED::${err?.message || err}`);
+        emitRefusal('continuation prerequisites unchecked:', [String(err?.message || err)]);
         process.exit(1);
       }
       console.log(`::warning title=DATABASE DOORS UNCHECKED::${err?.message || err}`);

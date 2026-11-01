@@ -26,6 +26,7 @@ const row = {
   current_level: 2,
   level_started_at: '2026-09-27T03:40:00Z',
   on_break: false,
+  add_on_available: false,
   blind_structure: [
     { durationMinutes: 2 },
     { durationMinutes: 2 },
@@ -35,6 +36,82 @@ const row = {
 };
 
 describe('a natural HUD witness must fit the real clock and keep independent wire facts', () => {
+  it('refuses the recorded index-five clock before its level-six add-on drain', () => {
+    const observedAt = Date.parse('2026-11-01T00:23:58.155Z');
+    const recorded = {
+      ...row,
+      current_level: 5,
+      level_started_at: '2026-11-01T00:16:23.471Z',
+      blind_structure: Array.from({ length: 20 }, () => ({ durationMinutes: 8 })),
+      synchronized_breaks: false,
+      add_on_available: true,
+      addon_period_triggered: false,
+      prize_pool_finalized: false,
+      late_reg_levels: 6,
+      rebuy_levels: 6,
+    };
+    expect(eligibleHudClock(recorded, observedAt)?.remainingMs).toBe(25_316);
+    expect(selectableHudClock(recorded, observedAt)).toBeNull();
+    expect(hudClockRejectionCategory(recorded, observedAt, MTT_HUD_LEVEL_CAP_MS, null)).toBe(
+      'addon_boundary_ineligible'
+    );
+  });
+  it('keeps the existing lookahead and requires known add-on boundary facts', () => {
+    const pending = {
+      ...row,
+      current_level: 5,
+      blind_structure: Array.from({ length: 20 }, () => ({ durationMinutes: 2 })),
+      synchronized_breaks: false,
+      add_on_available: true,
+      addon_period_triggered: false,
+      prize_pool_finalized: false,
+      late_reg_levels: 10,
+      rebuy_levels: 10,
+    };
+    expect(selectableHudClock(pending, now)).not.toBeNull();
+    // The third complete lookahead level is index eight; its end enters nine.
+    expect(selectableHudClock({ ...pending, late_reg_levels: 9 }, now)).toBeNull();
+    expect(selectableHudClock({ ...pending, late_reg_levels: null }, now)).not.toBeNull();
+    expect(
+      selectableHudClock(
+        {
+          ...pending,
+          add_on_available: false,
+          addon_period_triggered: undefined,
+          prize_pool_finalized: undefined,
+          late_reg_levels: undefined,
+        },
+        now
+      )
+    ).not.toBeNull();
+    expect(selectableHudClock({ ...pending, add_on_available: null }, now)).not.toBeNull();
+    expect(
+      selectableHudClock(
+        {
+          ...pending,
+          prize_pool_finalized: true,
+          addon_period_triggered: true,
+          late_reg_levels: undefined,
+        },
+        now
+      )
+    ).not.toBeNull();
+    for (const patch of [
+      { add_on_available: undefined },
+      { add_on_available: 'false' },
+      { addon_period_triggered: true },
+      { addon_period_triggered: undefined },
+      { prize_pool_finalized: undefined },
+      { prize_pool_finalized: 'true' },
+      { late_reg_levels: undefined },
+      { late_reg_levels: 0 },
+      { late_reg_levels: -1 },
+      { late_reg_levels: 10.5 },
+      { late_reg_levels: '10' },
+      { late_reg_levels: null, rebuy_levels: null },
+    ])
+      expect(selectableHudClock({ ...pending, ...patch }, now)).toBeNull();
+  });
   it('reserves the next boundary plus the original sixty seconds after recovery', () => {
     // 150_000 comfortably covers the 120_000ms level, so it is eligible
     // regardless of which of the two roles (a generous level cap, or - in the
@@ -335,9 +412,18 @@ describe('a natural HUD witness must fit the real clock and keep independent wir
       reader = undefined;
       expect(paths.some((path) => path.includes('/auth/v1/logout?scope=local'))).toBe(true);
       const tournamentRead = paths.find((path) => path.startsWith('/rest/v1/tournaments?'));
-      expect(
-        new URL(tournamentRead!, 'https://fixture.invalid').searchParams.get('select')?.split(',')
-      ).toContain('synchronized_breaks');
+      const projected = new URL(tournamentRead!, 'https://fixture.invalid').searchParams
+        .get('select')
+        ?.split(',');
+      for (const field of [
+        'synchronized_breaks',
+        'add_on_available',
+        'addon_period_triggered',
+        'prize_pool_finalized',
+        'late_reg_levels',
+        'rebuy_levels',
+      ])
+        expect(projected).toContain(field);
     } finally {
       await reader?.close();
       vi.unstubAllGlobals();

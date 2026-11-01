@@ -109,7 +109,7 @@ describe('against a seat that shoves every hand (NLH, 6-max)', () => {
 
 describe('against a seat that pots every street', () => {
   const nlh = playManiacPressure('nlh', 'cash', 'potter', HANDS);
-  // These counts are measured on the hand stream they were written on. V72
+  // These counts are measured on the hand stream they were written on. V74
   // (an Omaha semi-bluff raise needs a draw) is postflop-only and never
   // reaches a preflop decision, but it changes the RNG stream and therefore
   // which hands are dealt where; ablate it here. Its own law is
@@ -168,7 +168,7 @@ describe('a style change is seen in a handful of hands, both ways', () => {
   // These pins time the READ, measured on the hand stream they were written
   // on. The 2026-10-25 paired-board fold changes which PLO4 hands reach later
   // streets, so it is ablated here; its own law is HorsePloPairedBoardFold.
-  // V72 (2026-10-31) likewise changes the PLO4 stream and is ablated too.
+  // V74 (2026-10-31) likewise changes the PLO4 stream and is ablated too.
   for (const v of ['nlh', 'plo4']) {
     it(`${v}: a maniac who calms down stops being read as one within 25 hands`, () => {
       const t = playManiacPressure(v, 'cash', 'potter', 100, 11, 15, {

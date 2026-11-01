@@ -6,7 +6,7 @@ import { enableBrainTelemetry, drainFires } from './BrainTelemetry.js';
 import type { Card, SeatPlayer } from '../types.js';
 
 /**
- * V72 (2026-10-31). Two live reviews replayed from their public state: the
+ * V74 (2026-10-31). Two live reviews replayed from their public state: the
  * horse re-raised top pair with no redraw through the V53 pressure semi-bluff
  * branch, whose Omaha draw test (omahaDrawMod) returned 0.7 for no draw at
  * all. plo_toppair_no_redraw_stackoff: -62.13 bb per hand over 234 hands.
@@ -149,7 +149,7 @@ function tally(f: typeof g2944297, opts: Record<string, unknown>) {
   return { out, fires };
 }
 
-describe('V72: an Omaha semi-bluff raise needs a draw', () => {
+describe('V74: an Omaha semi-bluff raise needs a draw', () => {
   for (const [name, f] of [
     ['review 2944297 (PLO4 turn, top pair, no redraw)', g2944297],
     ['review 2838834 (PLO5 flop, top pair and a gutshot)', g2838834],
@@ -158,13 +158,13 @@ describe('V72: an Omaha semi-bluff raise needs a draw', () => {
       const on = tally(f, {});
       expect(on.out.raise ?? 0).toBe(0);
       expect(on.out.all_in ?? 0).toBe(0);
-      expect(on.fires).toContain('v72_omaha_semibluff_needs_draw');
+      expect(on.fires).toContain('v74_omaha_semibluff_needs_draw');
     });
     it(`${name}: the league off arm reproduces the live raise`, () => {
-      const off = tally(f, { v72OmahaSemiBluffNeedsDraw: false });
+      const off = tally(f, { v74OmahaSemiBluffNeedsDraw: false });
       expect((off.out.raise ?? 0) + (off.out.all_in ?? 0)).toBeGreaterThan(0);
       expect(off.fires).toContain('v53_pressure_semibluff_raise');
-      expect(off.fires).not.toContain('v72_omaha_semibluff_needs_draw');
+      expect(off.fires).not.toContain('v74_omaha_semibluff_needs_draw');
     });
   }
 });
