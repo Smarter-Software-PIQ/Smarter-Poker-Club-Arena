@@ -11,7 +11,8 @@ export type SpinCommandRequest = SpinCommandScope & {
 type Intent = { version: 1; state: 'pending' | 'resolved'; request: SpinCommandRequest };
 const prefix = 'ca:spin-owner-command:v1:';
 const keyFor = (scope: SpinCommandScope) => prefix + JSON.stringify([scope.actorId, scope.clubId]);
-const same = (a: Intent | null, b: Intent) => a?.request.requestId === b.request.requestId;
+const same = (a: Intent | null, b: Intent) =>
+  a !== null && JSON.stringify(a.request) === JSON.stringify(b.request);
 function read(raw: string | null, scope: SpinCommandScope): Intent | null {
   if (raw === null) return null;
   const value = JSON.parse(raw) as Intent;

@@ -91,3 +91,17 @@ it('permits a new owner scope only after the earlier owner command is resolved',
   await withSpinCommandIntent(next, build, submit);
   expect(submit.mock.calls[0][0].ownerId).toBe('new-owner');
 });
+
+it('does not resolve an altered payload sharing the old UUID', async () => {
+  await expect(
+    withSpinCommandIntent(scope, build, async () => {
+      throw new Error('unknown');
+    })
+  ).rejects.toThrow();
+  const key = localStorage.key(0)!;
+  const altered = JSON.parse(localStorage.getItem(key)!);
+  altered.request.wallet = 'promo_balance';
+  localStorage.setItem(key, JSON.stringify(altered));
+  await withSpinCommandIntent(scope, build, async () => ({ ok: true }));
+  expect(JSON.parse(localStorage.getItem(key)!)).toEqual(altered);
+});
