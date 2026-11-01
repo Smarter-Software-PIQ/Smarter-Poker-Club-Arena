@@ -5311,13 +5311,25 @@ button.post-bb-overlay-button {
    Reserve this permanent lane from viewport inputs, never live hand/chrome
    measurements. The existing page-relative pod anchor stays highest while
    the scaler, painted rail and all felt consumers move down together. */
-@media (max-width: 480px) and (min-height: 750px) and (orientation: portrait) {
+@media (max-width: 480px) and (min-height: 800px) and (orientation: portrait) {
   .table-page[data-seats='9'] .table-container {
     --sp-table-top: calc(max(188px, calc(25.05vw + 88px)) + var(--sp-page-inset-top));
+  }
+}
+@media (min-width: 481px) and (max-width: 768px) and (min-height: 900px) and (orientation: portrait) {
+  .table-page[data-seats='9'] .table-container {
+    --sp-table-top: calc(18vw + 104px + var(--sp-page-inset-top));
   }
 }
 @media (min-width: 481px) and (max-width: 768px) and (min-height: 1100px) and (orientation: portrait) {
   .table-page[data-seats='9'] .table-container {
     --sp-table-top: calc(30.55vw + 82px + var(--sp-page-inset-top));
+  }
+}
+
+/* Full-size nine-seat pods share a central card lane on portrait screens. */
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page[data-seats='9'] .community-area {
+    max-width: 50vw;
   }
 }

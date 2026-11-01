@@ -1916,3 +1916,47 @@
     --sp-action-pad-top: 4px;
   }
 }
+
+/* Lobby shares the action row without reducing the three actions below their
+   available flex width. The existing plate artwork keeps its aspect ratio. */
+.action-bar-lobby-btn {
+  flex: 0 0 var(--sp-action-btn-h, 46px);
+  width: var(--sp-action-btn-h, 46px);
+  height: var(--sp-action-btn-h, 46px);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  align-self: center;
+}
+.action-bar-lobby-btn img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.action-bar-lobby-idle {
+  position: absolute;
+  right: 12px;
+  bottom: calc(var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) + var(--sp-tdock-now, 0px));
+  display: flex;
+  height: var(--sp-action-btn-h, 46px);
+  z-index: 1;
+}
+.action-panel-wrapper:has(.action-bar-lobby-idle) > .spectator-footer-bar {
+  padding-right: calc(var(--sp-action-btn-h, 46px) + 24px);
+}
+.action-row:has(.action-bar-lobby-btn),
+.pre-action-buttons:has(.action-bar-lobby-btn) {
+  gap: clamp(4px, 1.2vw, 10px);
+}
+.action-row:has(.action-bar-lobby-btn) > .action-btn,
+.pre-action-buttons:has(.action-bar-lobby-btn) > .pre-action-btn {
+  min-width: 0;
+}
+
+.action-bar-lobby-btn:focus-visible {
+  outline: 2px solid var(--sp-focus, #66d9ff);
+  outline-offset: 2px;
+}

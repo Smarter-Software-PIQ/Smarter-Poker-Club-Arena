@@ -3,7 +3,7 @@
  * Allows players to queue actions before it's their turn
  */
 
-import { useRef, useCallback, useEffect } from 'react';
+import { type ReactNode, useRef, useCallback, useEffect } from 'react';
 import './PreActionBar.css';
 import { TapHaptic } from '../haptics/TapHaptic';
 
@@ -16,6 +16,7 @@ const ToggleDot = ({ active }: { active: boolean }) => (
 
 /** FIX 185: Bible V8 §4.15 — Added 'call' (auto_call) distinct from 'callAny' (auto_call_any) */
 interface PreActionBarProps {
+  lobbyControl?: ReactNode;
   canCheck: boolean;
   isMyTurn: boolean;
   preAction: 'fold' | 'check' | 'call' | 'callAny' | null;
@@ -25,6 +26,7 @@ interface PreActionBarProps {
 }
 
 export default function PreActionBar({
+  lobbyControl,
   canCheck,
   isMyTurn,
   preAction,
@@ -184,6 +186,7 @@ export default function PreActionBar({
       onPointerCancel={() => (swipeStartX.current = null)}
     >
       <div className="pre-action-buttons">
+        {lobbyControl}
         {/* Bible V8 §4.15: auto_fold / auto_check_fold */}
         <button
           type="button"

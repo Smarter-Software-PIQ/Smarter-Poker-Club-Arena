@@ -216,6 +216,7 @@ describe('the felt reserves stay fixed through hand and action states', () => {
           [
             'calc(max(188px, calc(25.05vw + 88px)) + var(--sp-page-inset-top))',
             'calc(30.55vw + 82px + var(--sp-page-inset-top))',
+            'calc(18vw + 104px + var(--sp-page-inset-top))',
           ].includes(d.value);
         if (!fixedShortRing && !fixedTopPair && STATE.test(d.selector))
           offenders.push(`${prop} declared on "${d.selector}"`);

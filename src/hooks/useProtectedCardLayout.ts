@@ -28,6 +28,7 @@ export function useProtectedCardLayout(
     rows: new WeakMap<HTMLElement, string>(),
     pods: new WeakMap<HTMLElement, string>(),
     podPoses: new WeakMap<HTMLElement, string>(),
+    wagers: new WeakMap<Element, Map<string, { x: number; y: number }>>(),
   });
   useLayoutEffect(() => {
     const scaler = root.current;
@@ -55,6 +56,7 @@ export function useProtectedCardLayout(
           rows: new WeakMap(),
           pods: new WeakMap(),
           podPoses: new WeakMap(),
+          wagers: new WeakMap(),
         };
       }
     };
@@ -62,7 +64,8 @@ export function useProtectedCardLayout(
     const topPods = () =>
       Array.from(
         scaler.querySelectorAll<HTMLElement>(
-          page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480
+          page.getAttribute('data-seats') === '9' ||
+            (page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480)
             ? '.seat-wrapper--cap, .seat-wrapper--top'
             : '.seat-wrapper--top'
         )
@@ -842,9 +845,35 @@ export function useProtectedCardLayout(
               )
               .sort(byCost)
               .filter(ownedBy);
+            // A settled wager belongs to this chair for the whole hand, even
+            // when its stack DOM is replaced between streets. Keep its local
+            // centre through pot/gesture revisions, provided its owner and
+            // current hard keep-outs still permit the complete marker.
+            const chair = bet.closest('.seat-wrapper') ?? bet;
+            const markerKind = hasAllInMarker ? 'all-in' : 'chips';
+            const saved = settled.current.wagers.get(chair)?.get(markerKind);
+            const resting = saved
+              ? {
+                  left: canvas.left + saved.x * scale - box.width / 2,
+                  top: canvas.top + saved.y * scale - box.height / 2,
+                  width: box.width,
+                  height: box.height,
+                  depth: 0,
+                }
+              : null;
+            const retained =
+              resting &&
+              ownedBy(resting) &&
+              (!hasAllInMarker || wagerOnFeltWithMargin(resting, 1)) &&
+              !hardObstacles.some((obstacle) => wagerBoxesOverlap(resting, obstacle))
+                ? [resting]
+                : null;
             return [
               {
                 bet,
+                chair,
+                markerKind,
+                retained,
                 box,
                 hasAllInMarker,
                 felt: distinct(owned.filter(wagerOnFelt), 96),
@@ -897,7 +926,14 @@ export function useProtectedCardLayout(
           Boolean(
             page.querySelector('.seat__cards--opponent.seat__cards--revealed > :nth-child(5)')
           );
+        // Reserve already settled chairs first. A new/changed marker may
+        // force a fresh joint solution, but an animation cannot do so.
+        const retainedPlacements = entries.some((entry) => entry.retained)
+          ? (assignProtectedWagers(entries.map((entry) => entry.retained ?? entry.felt)) ??
+            assignProtectedWagers(entries.map((entry) => entry.retained ?? entry.wide)))
+          : null;
         const placements =
+          retainedPlacements ??
           assignProtectedWagers(entries.map((entry) => entry.felt)) ??
           assignProtectedWagers(entries.map((entry) => entry.candidates)) ??
           assignProtectedWagers(entries.map((entry) => entry.wide)) ??
@@ -919,7 +955,7 @@ export function useProtectedCardLayout(
           );
         const placedWagers: CardBox[] = [];
         for (let i = 0; i < entries.length; i++) {
-          const { bet, box } = entries[i];
+          const { bet, box, chair, markerKind } = entries[i];
           const next = placements?.[i];
           if (!next) {
             // No clear spot of its own: it stays at its rest point in front of
@@ -942,6 +978,12 @@ export function useProtectedCardLayout(
           bet.style.setProperty('--bet-offset-y', `${base.y + dy}px`);
           bet.style.setProperty('--collect-dx', `${base.cx - dx}px`);
           bet.style.setProperty('--collect-dy', `${base.cy - dy}px`);
+          const chairSlots = settled.current.wagers.get(chair) ?? new Map();
+          chairSlots.set(markerKind, {
+            x: (next.left + next.width / 2 - canvas.left) / scale,
+            y: (next.top + next.height / 2 - canvas.top) / scale,
+          });
+          settled.current.wagers.set(chair, chairSlots);
           obstacles.push(next);
           hardObstacles.push(next);
           placedWagers.push(next);

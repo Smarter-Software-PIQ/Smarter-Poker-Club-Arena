@@ -4683,6 +4683,15 @@
 /* Short portrait screens have less vertical space for a full ring. Scale the
    entire ring uniformly, including hero, instead of compacting opponents.
    Normal-height phones retain the previous hero size at every chair. */
+/* Nine-handed tables retain the hero's one-slot visible character height.
+   Library and generated transparent art both normalize to the library's
+   measured 0.888 subject share; 1 / 0.888 makes that exactly one slot.
+   Declare this on every wrapper so top, side and hero cannot inherit different
+   bust scales. The shared avatar and name/chip/action panel boxes stay intact. */
+.table-page[data-seats='9'] .seat-wrapper {
+  --sp-bust-scale: 1.126126;
+}
+
 @media (max-width: 480px) and (orientation: portrait) {
   .table-page .seat {
     --seat-avatar-size: min(

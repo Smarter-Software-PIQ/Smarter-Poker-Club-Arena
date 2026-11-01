@@ -146,13 +146,17 @@ export function portraitBoardWidthOfFeltPct(taper = PORTRAIT_TABLE_TAPER): numbe
 export function boardCardWidthPx(
   scalerW: number,
   viewportW: number,
-  portraitTaper: boolean
+  portraitTaper: boolean,
+  densePortrait = false
 ): number {
   if (!(scalerW > 0)) return 0;
   const felt = (scalerW * FELT_WINDOW.width) / 100;
   const rowPct = portraitTaper ? portraitBoardWidthOfFeltPct() : 95;
   const gap = viewportW <= 480 ? 2 : viewportW <= 1024 ? 4 : 6;
-  return Math.max(0, Math.round((((felt * rowPct) / 100 - 4 * gap) / 5) * 10) / 10);
+  const rowWidth = densePortrait
+    ? Math.min((felt * rowPct) / 100, viewportW * 0.5)
+    : (felt * rowPct) / 100;
+  return Math.max(0, Math.round(((rowWidth - 4 * gap) / 5) * 10) / 10);
 }
 /**
  * The widest PORTRAIT viewport that places tabled hands, wagers and the dealer
@@ -555,30 +559,41 @@ export function fitSeatToViewport(
   );
   // The 320px nine-seat ring needs separate cap and side lanes.
   const compactNine = portraitPhone && viewportWidthPx <= 340 && maxPlayers === 9;
+  // Owner October 31: nine-seat villains belong on the rail. The lower-right
+  // chair moves up and inboard to leave the hero's private hand its own lane.
+  const railNine = portraitPhone && maxPlayers === 9 && !compactNine;
   const targetX =
-    portraitPhone && viewportWidthPx > 480 && seat.y >= 80 && seat.y < 100
-      ? seat.x < 50
-        ? Math.max(minX, 14)
-        : Math.min(maxX, 86)
-      : portraitPhone && seat.y >= 20 && seat.y < 100
+    railNine && seat.y >= 20 && seat.y < 100
+      ? seat.y >= 80
         ? seat.x < 50
-          ? minX
-          : maxX
-        : portraitPhone &&
-            !desktopCaps &&
-            seat.y < 20 &&
-            seat.x !== 50 &&
-            canvas.w < INBOARD_TOP_CAP_MIN_CANVAS_PX &&
-            !compactNine &&
-            maxPlayers < 7
+          ? 18
+          : 82
+        : seat.x < 50
+          ? 4
+          : 96
+      : portraitPhone && viewportWidthPx > 480 && seat.y >= 80 && seat.y < 100
+        ? seat.x < 50
+          ? Math.max(minX, 14)
+          : Math.min(maxX, 86)
+        : portraitPhone && seat.y >= 20 && seat.y < 100
           ? seat.x < 50
-            ? 15
-            : 85
-          : portraitPhone && !desktopCaps && seat.y < 20 && seat.x !== 50
+            ? minX
+            : maxX
+          : portraitPhone &&
+              !desktopCaps &&
+              seat.y < 20 &&
+              seat.x !== 50 &&
+              canvas.w < INBOARD_TOP_CAP_MIN_CANVAS_PX &&
+              !compactNine &&
+              maxPlayers < 7
             ? seat.x < 50
-              ? Math.min(50, Math.max(seat.x, capClearX))
-              : Math.max(50, Math.min(seat.x, 100 - capClearX))
-            : seat.x;
+              ? 15
+              : 85
+            : portraitPhone && !desktopCaps && seat.y < 20 && seat.x !== 50
+              ? seat.x < 50
+                ? Math.min(50, Math.max(seat.x, capClearX))
+                : Math.max(50, Math.min(seat.x, 100 - capClearX))
+              : seat.x;
   const x = Math.max(minX, Math.min(maxX, targetX));
   // Dan 2026-10-21, same report: on a phone the side column is a stack of
   // whole pods (tag, avatar, plate), and the lower side chair sat 24.5 points
@@ -599,30 +614,38 @@ export function fitSeatToViewport(
   // Keep the middle pair, hero and shared pod dimensions unchanged.
   const densePortraitRing = portraitPhone && maxPlayers >= 7 && !compactNine;
   const y =
-    densePortraitRing && seat.y >= 20 && seat.y < 35
-      ? 22
-      : fullPortraitRing && seat.y >= 50 && seat.y < 100
-        ? seat.y < 70
-          ? 67
-          : 98
-        : densePortraitRing && seat.y >= 80 && seat.y < 100
-          ? 90
-          : compactNine &&
-              canvas.h <= LOW_SIDE_SEAT_LIFT_MIN_CANVAS_PX &&
-              seat.y >= 20 &&
-              seat.y < 100
-            ? seat.y < 35
-              ? 23
-              : seat.y < 70
-                ? 52.75
-                : 82.5
-            : portraitPhone &&
-                canvas.h >= LOW_SIDE_SEAT_LIFT_MIN_CANVAS_PX &&
-                seat.x !== 50 &&
-                seat.y > 50 &&
-                seat.y < 70
-              ? seat.y - PORTRAIT_LOW_SIDE_SEAT_LIFT
-              : seat.y;
+    railNine && seat.y >= 80 && seat.y < 100
+      ? seat.x < 50
+        ? 85
+        : 76
+      : railNine && seat.y >= 50 && seat.y < 70
+        ? seat.x < 50
+          ? 54
+          : 50
+        : densePortraitRing && seat.y >= 20 && seat.y < 35
+          ? 22
+          : fullPortraitRing && seat.y >= 50 && seat.y < 100
+            ? seat.y < 70
+              ? 67
+              : 98
+            : densePortraitRing && seat.y >= 80 && seat.y < 100
+              ? 90
+              : compactNine &&
+                  canvas.h <= LOW_SIDE_SEAT_LIFT_MIN_CANVAS_PX &&
+                  seat.y >= 20 &&
+                  seat.y < 100
+                ? seat.y < 35
+                  ? 23
+                  : seat.y < 70
+                    ? 52.75
+                    : 82.5
+                : portraitPhone &&
+                    canvas.h >= LOW_SIDE_SEAT_LIFT_MIN_CANVAS_PX &&
+                    seat.x !== 50 &&
+                    seat.y > 50 &&
+                    seat.y < 70
+                  ? seat.y - PORTRAIT_LOW_SIDE_SEAT_LIFT
+                  : seat.y;
   return x === seat.x && y === seat.y ? seat : { ...seat, x, y };
 }
 

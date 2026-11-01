@@ -5,7 +5,7 @@
  * PokerBros specs: 70-80px buttons, 16px radius, premium polish with glows and gradients
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { type ReactNode, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { haptic } from '../../services/SoundService';
 import { TapHaptic } from '../haptics/TapHaptic';
 import '../../styles/table-design-tokens.css';
@@ -13,6 +13,7 @@ import './ActionPanel.css';
 import { formatBigBlinds, formatTableChips } from '../../utils/format';
 
 interface ActionPanelProps {
+  lobbyControl?: ReactNode;
   canFold: boolean;
   canCheck: boolean;
   canCall: boolean;
@@ -535,6 +536,7 @@ export function computeRaisePresets(input: RaisePresetInput): RaisePreset[] {
 }
 
 export default function ActionPanel({
+  lobbyControl,
   canFold,
   canCheck,
   canCall,
@@ -1362,6 +1364,7 @@ export default function ActionPanel({
           )}
           {/* Confirm / Cancel Row */}
           <div className="raise-actions">
+            {isRaiseMode && lobbyControl}
             <button
               className="raise-cancel"
               onClick={() => setIsRaiseMode(false)}
@@ -1496,6 +1499,7 @@ export default function ActionPanel({
           The panel is `position: fixed; bottom: 0`, so the overlay grows the
           panel UPWARD over the felt and this row does not move a pixel. */}
       <div className="action-row">
+        {lobbyControl}
         {/* FOLD — Always Red, Left */}
         <button
           className="action-btn action-btn--fold"

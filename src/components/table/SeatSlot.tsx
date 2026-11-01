@@ -38,6 +38,12 @@ import { ActionTimerRing } from './ActionTimerRing';
 import AvatarCosmetics from '../avatars/AvatarCosmetics';
 import { startMotionBudget } from '../../utils/motionBudget';
 import { bustArtGain, BUST_ART_GAIN } from './bustArtGain';
+import {
+  generatedBustMeasurements,
+  isGeneratedBustUrl,
+  measureGeneratedBust,
+  rememberGeneratedBust,
+} from './customBustArt';
 import { displayOrderWithDealtIndex } from '../../lib/tableCardDisplay';
 import { formatPopupText } from '../../utils/popupStyle';
 /**
@@ -1377,6 +1383,10 @@ export const SeatSlot = memo(
      * keys, no imperative DOM.
      */
     const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
+    const [generatedBust, setGeneratedBust] = useState<{ url: string; gain: number | null } | null>(
+      null
+    );
+    const [avatarCorsFallbackUrl, setAvatarCorsFallbackUrl] = useState<string | null>(null);
 
     // Winner pop animation — brief scale bounce when isWinner transitions to true
     const [winnerPop, setWinnerPop] = useState(false);
@@ -2551,12 +2561,21 @@ export const SeatSlot = memo(
       player.name,
       player.isHero ? SEAT_AVATAR_PX_HERO : SEAT_AVATAR_PX
     );
-    const bustGain = bustArtGain(avatarUrl);
+    const isGeneratedBust = isGeneratedBustUrl(avatarUrl);
+    const generatedGain =
+      generatedBust?.url === avatarUrl
+        ? generatedBust.gain
+        : generatedBustMeasurements.get(avatarUrl);
+    const bustGain =
+      isGeneratedBust && typeof generatedGain === 'number' ? generatedGain : bustArtGain(avatarUrl);
     // 2026-08-04 PokerBros-style: library bust art (/avatars/table|free|vip/*)
     // is a transparent-background character PNG — render it free-floating
     // (no circle crop, no ring, larger) like the reference client. Uploaded
     // photos and generated SVGs keep the circular frame.
-    const isBustArt = /\/avatars\/(table|free|vip)\//.test(avatarUrl);
+    const isLibraryBust = /\/avatars\/(table|free|vip)\//.test(avatarUrl);
+    const isBustArt =
+      isLibraryBust ||
+      (isGeneratedBust && generatedGain !== null && avatarCorsFallbackUrl !== avatarUrl);
     /**
      * PREMIUM HOLO 2026-08-21 — Dan: "God Tier avatars that actually move,
      * breathe, or have scanning holographic lines pulsing across their faces."
@@ -3289,7 +3308,7 @@ export const SeatSlot = memo(
                 When a rig IS present it hides the img and drives the same
                 gesture value the CSS choreography uses, so rigged and unrigged
                 seats stay in lockstep. Contract: docs/RIVE-AVATAR-CONTRACT.md */}
-            {showAvatar && !avatarBroken && isBustArt ? (
+            {showAvatar && !avatarBroken && isLibraryBust ? (
               <RiveAvatar
                 avatarUrl={avatarUrl}
                 gesture={avatarGesture}
@@ -3309,6 +3328,17 @@ export const SeatSlot = memo(
             {showAvatar && !avatarBroken && !rigActive ? (
               <img
                 src={avatarUrl}
+                crossOrigin={
+                  isGeneratedBust && avatarCorsFallbackUrl !== avatarUrl ? 'anonymous' : undefined
+                }
+                onLoad={(event) => {
+                  if (!isGeneratedBust || avatarCorsFallbackUrl === avatarUrl) return;
+                  const measured = generatedBustMeasurements.has(avatarUrl)
+                    ? generatedBustMeasurements.get(avatarUrl)
+                    : measureGeneratedBust(event.currentTarget);
+                  if (measured !== undefined) rememberGeneratedBust(avatarUrl, measured);
+                  setGeneratedBust({ url: avatarUrl, gain: measured ?? null });
+                }}
                 /* RETINA 2026-08-23 (root cause of "avatars don't show on
                    mobile"): 193 profiles stored their library art as
                    /avatars/table/X@2x.webp. The old unconditional replace
@@ -3328,8 +3358,7 @@ export const SeatSlot = memo(
                 /* Per-avatar size correction (--sp-bust-gain) is NOT set here.
                    It is declared on `.seat__avatar` above so the Rive rig and
                    the holo mask inherit the same value; see the note there. */
-                /* Hero eager + high priority: it is the largest avatar on the
-                   table (1.33x), always in view, and the one the player looks
+                /* Hero eager + high priority: it is always in view and the one the player looks
                    at first — `lazy` bought nothing there but a deferred request
                    and a pop-in. Villains stay lazy ON PURPOSE: MultiTablePage
                    keeps up to four tables mounted with the inactive ones
@@ -3341,7 +3370,15 @@ export const SeatSlot = memo(
                 loading={player.isHero || props.arrival ? 'eager' : 'lazy'}
                 decoding="async"
                 fetchPriority={player.isHero ? 'high' : 'auto'}
-                onError={() => setFailedAvatarUrl(avatarUrl)}
+                onError={() => {
+                  if (isGeneratedBust && avatarCorsFallbackUrl !== avatarUrl) {
+                    // Retry only this failed CORS image through its previous
+                    // visible image path; never require canvas access to show it.
+                    setAvatarCorsFallbackUrl(avatarUrl);
+                    return;
+                  }
+                  setFailedAvatarUrl(avatarUrl);
+                }}
               />
             ) : null}
             {showAvatar && avatarBroken ? (

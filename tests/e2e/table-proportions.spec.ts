@@ -837,14 +837,26 @@ const occupiedViewports: Array<[number, number?]> = [
   ...[320, 375, 393, 430, 480, 600, 768, 1024].map((width): [number] => [width]),
   [600, 852],
   [600, 1310],
+  [393, 799],
+  [393, 800],
+  [600, 1100],
+  [652, 996],
+  [467, 994],
+  [456, 986],
 ];
 for (const [width, heightOverride] of occupiedViewports)
-  for (const count of heightOverride === 1310
+  for (const count of heightOverride === 994 ||
+  heightOverride === 986 ||
+  heightOverride === 996 ||
+  heightOverride === 799 ||
+  heightOverride === 800 ||
+  heightOverride === 1100 ||
+  heightOverride === 1310
     ? [9]
     : heightOverride || width === 1024
       ? [6]
       : [6, 9])
-    test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}`, async ({
+    test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ` (portrait height ${heightOverride}px)` : ''}`, async ({
       page,
     }, testInfo) => {
       // Keep each ring independently bounded on hosted runners while retaining
@@ -913,6 +925,7 @@ for (const [width, heightOverride] of occupiedViewports)
           'src/pages/MultiTablePage.css',
           'src/components/table/TableTabBar.css',
           'src/pages/TablePage.css',
+          'src/components/tournament/TournamentHUD.css',
           'src/components/table/ActionPanel.css',
           ...Object.keys(bundled.metafile!.inputs).filter((f) => f.endsWith('.css')),
           'src/components/table/TableChat.css',
@@ -1000,6 +1013,12 @@ for (const [width, heightOverride] of occupiedViewports)
         [false, 'none', 2, 'scaled-phone'],
       ] as const) {
         // Both rings exercise every occupied state at every phone width.
+        const ownerDevice = [994, 986, 996].includes(heightOverride ?? 0);
+        if (
+          ownerDevice &&
+          (revealed || jackpot !== 'none' || villainCards !== 2 || state !== 'normal')
+        )
+          continue;
         const scaledPhone = state === 'scaled-phone';
         if (scaledPhone && (width !== 600 || count !== 9)) continue;
         if (width > 480 && villainCards < 5 && !scaledPhone) continue;
@@ -1023,7 +1042,7 @@ for (const [width, heightOverride] of occupiedViewports)
         await page.route('https://smarter.poker/hub/club-arena/__isolated_rail_fixture', (route) =>
           route.fulfill({
             contentType: 'text/html',
-            body: `<html data-avatar="${scaledPhone ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp'}" data-seats="${count}" data-cards="${villainCards >= 5 ? villainCards : 4}" data-all-in="${state === 'all-in'}" data-show-all="${state === 'all-shown'}" data-revealed="${revealed}" data-jackpot="${jackpot}" data-villain-cards="${villainCards}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
+            body: `<html data-avatar="${scaledPhone ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp'}" data-seats="${count}" data-cards="${ownerDevice ? 2 : villainCards >= 5 ? villainCards : 4}" data-all-in="${state === 'all-in'}" data-show-all="${state === 'all-shown'}" data-revealed="${revealed}" data-tournament="${ownerDevice}" data-action="${ownerDevice ? 'active' : 'preflop'}" data-jackpot="${jackpot}" data-villain-cards="${villainCards}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
           })
         );
         await page.goto('https://smarter.poker/hub/club-arena/__isolated_rail_fixture', {
@@ -1091,12 +1110,18 @@ for (const [width, heightOverride] of occupiedViewports)
             requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
           );
         });
-        if (count === 9 && ((width >= 393 && width <= 480) || heightOverride === 1310)) {
+        if (
+          count === 9 &&
+          (ownerDevice ||
+            (width >= 393 && width <= 480 && (heightOverride ?? 852) >= 800) ||
+            heightOverride === 1100 ||
+            heightOverride === 1310)
+        ) {
           // A toolbar-clear crown is insufficient: the entire top player must
           // finish before the chassis starts, including its live action tag.
           const capGaps = await page.locator('.table-scaler').evaluate((canvas) => {
             const railTop = canvas.getBoundingClientRect().top;
-            return [...canvas.querySelectorAll('.seat-wrapper--top')].map(
+            return [...canvas.querySelectorAll('.seat-wrapper--cap')].map(
               (pod) =>
                 railTop -
                 Math.max(
@@ -1117,6 +1142,36 @@ for (const [width, heightOverride] of occupiedViewports)
               gap,
               `${width}px ${state} ${jackpot}: top pod above rail`
             ).toBeGreaterThanOrEqual(3);
+        }
+        if (ownerDevice) {
+          const privateCards = page.locator(
+            '.seat--hero .seat__cards--hero:not(.seat__cards--revealed) .seat__card'
+          );
+          await expect(privateCards).toHaveCount(2);
+          const collisions = await page.evaluate(() => {
+            const overlaps = (a: DOMRect, b: DOMRect) =>
+              a.left < b.right - 1 &&
+              a.right > b.left + 1 &&
+              a.top < b.bottom - 1 &&
+              a.bottom > b.top + 1;
+            const cards = [
+              ...document.querySelectorAll('.seat--hero .seat__cards--hero .seat__card'),
+            ].map((e) => e.getBoundingClientRect());
+            return [
+              ...document.querySelectorAll(
+                '.seat-wrapper:not(.seat-wrapper--hero) .seat__info,.seat-wrapper:not(.seat-wrapper--hero) .seat__avatar-img,.seat-wrapper:not(.seat-wrapper--hero) .seat__action'
+              ),
+            ]
+              .filter((e) => cards.some((card) => overlaps(card, e.getBoundingClientRect())))
+              .map(
+                (e) =>
+                  `${e.closest('.seat-wrapper')?.querySelector('.seat__name')?.textContent}: ${e.className}`
+              );
+          });
+          expect(collisions, 'Private hero cards clear every other player').toEqual([]);
+          await page.screenshot({
+            path: testInfo.outputPath(`owner-tournament-${width}x${heightOverride}.png`),
+          });
         }
         if (scaledPhone) {
           const proof = await page.evaluate(readMobileTableLayout, AVATAR_CROWN_TOP);
@@ -1143,6 +1198,16 @@ for (const [width, heightOverride] of occupiedViewports)
                 };
               })
             );
+          const wagerRestSlots = () =>
+            page.locator('.seat__bet-chips').evaluateAll((bets) =>
+              bets.map((bet) => ({
+                owner: bet.closest('.seat-wrapper')?.getAttribute('style'),
+                offsets: ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'].map(
+                  (name) => (bet as HTMLElement).style.getPropertyValue(name)
+                ),
+              }))
+            );
+          const wagersBeforeRunout = await wagerRestSlots();
           const before = await measure();
           expect(before.length).toBeGreaterThanOrEqual(villainCards);
           // Same dimensions at every chair, including the all-in hero.
@@ -1172,6 +1237,10 @@ for (const [width, heightOverride] of occupiedViewports)
               )
           );
           const after = await measure();
+          expect(
+            await wagerRestSlots(),
+            'Settled wager slots survive runout and player gestures'
+          ).toEqual(wagersBeforeRunout);
           expect(after).toHaveLength(before.length);
           for (let index = 0; index < before.length; index++) {
             // Preserve the exact retained placement. Composited DOMRects can
@@ -1604,8 +1673,25 @@ for (const [width, heightOverride] of occupiedViewports)
                   radius - 0.5
               );
             });
-            if (touches && !largePortrait)
+            if (touches && !largePortrait && Number(document.documentElement.dataset.seats) !== 9)
               violations.push(`Player On Painted Felt: ${e.className}`);
+            // Owner's current nine-seat correction seats villains ON the rail.
+            // Keep each side player's centre in the chassis side band rather
+            // than the screen gutter, while board/card checks remain strict.
+            if (
+              Number(document.documentElement.dataset.seats) === 9 &&
+              !e.closest('.seat-wrapper--cap')
+            ) {
+              const cx = (r.left + r.right) / 2;
+              const fraction = (cx - canvas.left) / canvas.width;
+              if (
+                !(
+                  (fraction >= 0.035 && fraction <= 0.26) ||
+                  (fraction >= 0.74 && fraction <= 0.965)
+                )
+              )
+                violations.push(`Player Outside Rail Band: ${e.className}`);
+            }
           }
           const contextualTools = ['.tbc-widget', '.rabbit-hunt__button'].filter((selector) =>
             document.querySelector(selector)

@@ -26052,6 +26052,23 @@ function LiveTablePage({
     getPlayerAtSeat,
   ]);
 
+  // Owner 2026-10-31: Lobby belongs with the bottom action controls.
+  const tournamentLobbyControl =
+    tableState.isTournament && tableState.tournamentId ? (
+      <button
+        type="button"
+        className="action-bar-lobby-btn"
+        onClick={() => {
+          soundService.playButtonClick();
+          setShowTournamentLobby(true);
+        }}
+        aria-label="Open Tournament Lobby"
+        title="Tournament Lobby"
+      >
+        <img src={lobbyButtonArt} alt="" draggable={false} />
+      </button>
+    ) : null;
+
   const isModalActive = Boolean(
     tournamentWinner ||
     showMustMoveLobby ||
@@ -26711,37 +26728,7 @@ function LiveTablePage({
           )
         }
         upperRight={
-          /* THE CORNER HOLDS THE LOBBY BUTTON, NOT THE INFO BOX (Dan 2026-10-04).
-             "THE TOURNAMENT INFO BOX MUST NEVER BE DISPLAYED OVER THE TOP LIKE
-             IT CURRENTLY IS ... IN THE UPPER RIGHT HAND CORNER WHERE '36 LEFT'
-             IS SHOULD BE THE LOBBY BUTTON THAT OPENS UP TO THE TOURNAMENT
-             LOBBY PAGE."
-
-             From 2026-08-25 to that day the level / blinds / countdown bar
-             (TournamentHUD) sat here, and from 2026-08-30 the bar itself was
-             the lobby button. On a phone it lay across the top seats. The bar
-             is now the dock under the action bar (search `tournament-dock`
-             below), and this corner carries one control: Dan's LOBBY plate. */
           <div className="hud-ur-column">
-            {tableState.isTournament && tableState.tournamentId && (
-              <button
-                type="button"
-                className="tournament-lobby-corner-btn"
-                onClick={() => {
-                  soundService.playButtonClick();
-                  setShowTournamentLobby(true);
-                }}
-                aria-label="Open Tournament Lobby"
-                title="Tournament Lobby"
-              >
-                <img
-                  className="tournament-lobby-corner-btn__img"
-                  src={lobbyButtonArt}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-            )}
             {/* THE MUST MOVE BOX (Dan 2026-09-05): "JUST LIKE THE TOURNAMENTS
                 WITH A BOX IN THE RIGHT CORNER TO CLICK TO SEE ALL TABLES, CHIP
                 STACKS, HOW MANY PLAYERS ETC." Every must-move table carries
@@ -26983,7 +26970,11 @@ function LiveTablePage({
                 seatViewportWidth,
                 seatViewportWidth <= 480 &&
                   scalerSize.h > scalerSize.w &&
-                  tablePerspectiveTaper !== 0
+                  tablePerspectiveTaper !== 0,
+                tableState.maxPlayers === 9 &&
+                  seatViewportWidth <= 768 &&
+                  typeof window !== 'undefined' &&
+                  window.innerHeight > window.innerWidth
               )}px`,
               '--sp-tabled-card-w': `${tabledCardWidthPx(
                 scalerSize.w,
@@ -28998,6 +28989,9 @@ function LiveTablePage({
         />
       )}
       <div className="action-panel-wrapper">
+        {heroActionState === 'none' && tournamentLobbyControl && (
+          <div className="action-bar-lobby-idle">{tournamentLobbyControl}</div>
+        )}
         {/* POKERBROS-spec: persistent footer bar — NEVER empty. Dan rule
             2026-04-17: action bar fixed to footer at all times, every state. */}
         {lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
@@ -29585,6 +29579,7 @@ function LiveTablePage({
                           moved on 2026-08-26 and this line was corrected on
                           2026-08-27.) */}
                       <ActionPanel
+                        lobbyControl={tournamentLobbyControl}
                         canFold={true}
                         canCheck={callAmount === 0}
                         canCall={callAmount > 0}
@@ -29762,6 +29757,7 @@ function LiveTablePage({
                  and the attribute now agree instead of contradicting. */
               getPlayerAtSeat(tableState.heroSeat)?.status !== 'all_in' && (
                 <PreActionBar
+                  lobbyControl={tournamentLobbyControl}
                   canCheck={
                     // Bible V8: Check is available when there's no outstanding bet to call
                     // Compare server's currentBet to hero's current bet

@@ -18,6 +18,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import ActionPanel from '../src/components/table/ActionPanel';
+import PreActionBar from '../src/components/table/PreActionBar';
 
 const base = {
   canFold: true,
@@ -81,5 +82,35 @@ describe('an unfaced wager is a bet, never a raise', () => {
     openPanel();
     fireEvent.click(screen.getByRole('button', { name: /^Bet \d/i }));
     expect(onAction.mock.calls[0][0]).toBe('raise');
+  });
+});
+
+// Lobby is navigation within each live action row, never a poker action.
+describe('lobby in the table action bar', () => {
+  it('opens the lobby from both action rows without submitting a wager', () => {
+    const openLobby = vi.fn();
+    const onAction = vi.fn();
+    const lobbyControl = <button onClick={openLobby}>Tournament Lobby</button>;
+    const active = render(
+      <ActionPanel {...unopened} onAction={onAction} lobbyControl={lobbyControl} />
+    );
+    const button = screen.getByRole('button', { name: 'Tournament Lobby' });
+    expect(button.closest('.action-row')).not.toBeNull();
+    fireEvent.click(button);
+    active.unmount();
+    render(
+      <PreActionBar
+        canCheck
+        isMyTurn={false}
+        preAction={null}
+        onPreActionChange={onAction}
+        lobbyControl={lobbyControl}
+      />
+    );
+    const waitingButton = screen.getByRole('button', { name: 'Tournament Lobby' });
+    expect(waitingButton.closest('.pre-action-buttons')).not.toBeNull();
+    fireEvent.click(waitingButton);
+    expect(openLobby).toHaveBeenCalledTimes(2);
+    expect(onAction).not.toHaveBeenCalled();
   });
 });

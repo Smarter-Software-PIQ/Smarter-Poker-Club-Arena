@@ -46,6 +46,16 @@ export function Review() {
   const action = document.documentElement.dataset.action || 'preflop';
   const spectator = document.documentElement.dataset.spectator === 'true';
   const tournament = document.documentElement.dataset.tournament === 'true';
+  const lobbyControl = tournament ? (
+    <button
+      type="button"
+      className="action-bar-lobby-btn"
+      aria-label="Open Tournament Lobby"
+      onClick={() => document.dispatchEvent(new Event('fixture-open-lobby'))}
+    >
+      <img src={lobbyArt} alt="" draggable={false} />
+    </button>
+  ) : null;
   const heroCards = Number(document.documentElement.dataset.cards || 4);
   const n = Number(
     document.documentElement.dataset.seats || new URLSearchParams(location.search).get('seats') || 9
@@ -132,9 +142,11 @@ export function Review() {
             data-bbj-mini={jackpot === 'mini' ? '1' : '0'}
             style={{ background: '#080808' }}
           >
-            <button className="mtp-lobby-btn" style={{ position: 'fixed', top: 0, right: 0 }}>
-              <img src={lobbyArt} style={{ width: '100%', height: '100%' }} />
-            </button>
+            {!tournament && (
+              <button className="mtp-lobby-btn" style={{ position: 'fixed', top: 0, right: 0 }}>
+                <img src={lobbyArt} style={{ width: '100%', height: '100%' }} />
+              </button>
+            )}
             <button className="chat-collapsed" style={{ top: 50, bottom: 'auto' }}>
               <img
                 className="chat-collapsed__icon-img"
@@ -174,7 +186,7 @@ export function Review() {
                     '--table-w': `${size.w}px`,
                     '--table-h': `${size.h}px`,
                     '--sp-tabled-card-w': `${tabledCardWidthPx(size.w, width, width <= 480 && size.h > size.w && !spectator, n, innerHeight > innerWidth)}px`,
-                    '--sp-board-card-w': `${boardCardWidthPx(size.w, width, width <= 480 && size.h > size.w && !spectator)}px`,
+                    '--sp-board-card-w': `${boardCardWidthPx(size.w, width, width <= 480 && size.h > size.w && !spectator, n === 9 && width <= 768 && innerHeight > innerWidth)}px`,
                     '--sp-taper-board-width': `${portraitBoardWidthOfFeltPct(spectator ? 0 : undefined)}%`,
                     '--sp-table-taper': portraitTableTransform({
                       ...size,
@@ -305,6 +317,9 @@ export function Review() {
               </div>
             </div>
             <div className="action-panel-wrapper">
+              {spectator && lobbyControl && (
+                <div className="action-bar-lobby-idle">{lobbyControl}</div>
+              )}
               {spectator ? (
                 <div className="spectator-footer-bar">
                   {!tournament ? (
@@ -315,6 +330,7 @@ export function Review() {
                 </div>
               ) : action === 'active' ? (
                 <ActionPanel
+                  lobbyControl={lobbyControl}
                   canFold
                   canCheck
                   canCall={false}
@@ -330,6 +346,7 @@ export function Review() {
                 />
               ) : (
                 <PreActionBar
+                  lobbyControl={lobbyControl}
                   canCheck={action !== 'facing-bet'}
                   currentBet={action === 'facing-bet' ? 20 : 0}
                   isMyTurn={false}

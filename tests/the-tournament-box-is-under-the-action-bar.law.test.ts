@@ -127,17 +127,23 @@ describe('it is collapsible, and collapsing it never resizes the felt', () => {
   });
 });
 
-describe('the corner holds the lobby button', () => {
-  it('a Lobby-sized button with the LOBBY plate that opens the tournament lobby', () => {
+// Owner 2026-10-31 supersedes the October 4 corner location: Lobby is in
+// the bottom action bar, alongside the controls, retaining the same overlay.
+describe('the action bar holds the lobby button', () => {
+  it('keeps Lobby out of the top rail and opens the tournament lobby from both rows', () => {
     const corner = PAGE.slice(PAGE.indexOf('upperRight={'), PAGE.indexOf('bottomLeft={'));
-    expect(corner).toMatch(/className="tournament-lobby-corner-btn"/);
-    expect(corner).toMatch(/setShowTournamentLobby\(true\)/);
-    expect(corner).toMatch(/aria-label="Open Tournament Lobby"/);
-    expect(corner).toMatch(/src=\{lobbyButtonArt\}/);
+    expect(corner).not.toMatch(/tournament-lobby-corner-btn|setShowTournamentLobby/);
+    const button = PAGE.slice(
+      PAGE.indexOf('const tournamentLobbyControl'),
+      PAGE.indexOf('const isModalActive')
+    );
+    expect(button).toMatch(/className="action-bar-lobby-btn"/);
+    expect(button).toMatch(/setShowTournamentLobby\(true\)/);
+    expect(button).toMatch(/aria-label="Open Tournament Lobby"/);
+    expect(button).toMatch(/src=\{lobbyButtonArt\}/);
+    expect(PAGE.match(/lobbyControl=\{tournamentLobbyControl\}/g)).toHaveLength(2);
+    expect(PAGE).toMatch(/heroActionState === 'none' && tournamentLobbyControl/);
     expect(PAGE).toMatch(/import lobbyButtonArt from '\.\.\/assets\/lobby-button\.webp';/);
-    const btn = rule(DOCK_CSS, '.tournament-lobby-corner-btn {');
-    expect(btn).toMatch(/width:\s*var\(--sp-game-tool-size, 40px\)/);
-    expect(btn).toMatch(/height:\s*var\(--sp-game-tool-size, 40px\)/);
   });
 });
 
