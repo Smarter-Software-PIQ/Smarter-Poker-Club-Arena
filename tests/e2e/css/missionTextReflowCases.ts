@@ -69,30 +69,38 @@ export function registerMissionTextReflowCases() {
     const javascript = result.outputFiles.find((f) => f.path.endsWith('.js'))!.text;
     await page.setViewportSize({ width: 320, height: 568 });
     await page.setContent(
-      `<style>*{box-sizing:border-box}html{font-size:200%}body{margin:0;background:#000}#root{margin-inline:24px}${css}</style><div id="root"></div>`
+      `<meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}html{font-size:200%}body{margin:0;background:#000}#root{margin-inline:24px}${css}</style><div id="root"></div>`
     );
     await page.addScriptTag({ content: javascript });
     await expect(page.getByRole('heading', { name: 'Monthly Full House' })).toBeVisible();
+    expect(await page.evaluate(() => innerWidth)).toBe(320);
     expect((await page.locator('article').boundingBox())?.width).toBe(228);
-    const overflow = await page.evaluate(() =>
-      Array.from(
-        document.querySelectorAll<HTMLElement>(
-          '#daily-missions section, #daily-missions article, #daily-missions article div, #daily-missions button'
+    const overflowingFrames = () =>
+      page.evaluate(() =>
+        Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '#daily-missions section, #daily-missions article, #daily-missions article div, #daily-missions button'
+          )
         )
-      )
-        .filter((e) => e.scrollWidth > e.clientWidth + 1)
-        .map((e) => ({
-          className: e.className,
-          text: e.textContent?.slice(0, 90),
-          width: e.clientWidth,
-          scroll: e.scrollWidth,
-        }))
-    );
-    await info.attach('monthly-text-reflow.png', {
-      body: await page.screenshot({ fullPage: true }),
-      contentType: 'image/png',
-    });
-    expect(overflow).toEqual([]);
+          .filter((e) => e.scrollWidth > e.clientWidth + 1)
+          .map((e) => ({
+            className: e.className,
+            text: e.textContent?.slice(0, 90),
+            width: e.clientWidth,
+            scroll: e.scrollWidth,
+          }))
+      );
+    // A missing condensed webfont must not break enlarged-text reflow either.
+    for (const font of ['', 'system-ui']) {
+      await page.locator('#daily-missions').evaluate((element, family) => {
+        element.style.fontFamily = family;
+      }, font);
+      await info.attach(`monthly-text-reflow-${font || 'page-font'}.png`, {
+        body: await page.screenshot({ fullPage: true }),
+        contentType: 'image/png',
+      });
+      expect(await overflowingFrames()).toEqual([]);
+    }
     await expect(page.getByRole('group', { name: 'Challenge Reward' })).toContainText(
       '2,500 Diamonds'
     );
