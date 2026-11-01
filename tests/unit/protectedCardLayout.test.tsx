@@ -208,9 +208,10 @@ it('a new hand at the same seat is placed afresh', async () => {
   ).toBe(false);
 });
 
-// The six-max crown meets the bar at all widths, independently of corner BBJ.
+// Top chairs reserve their mobile shown-card lane before reveal; revealing
+// cards cannot reanchor the character. Desktop retains its original crown crop.
 it.each([481, 606, 1024])(
-  'six-max top crown clips two canvas pixels at width %i',
+  'six-max top chair retains its initial crown through reveal at width %i',
   async (width) => {
     stubGeometry();
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
@@ -223,8 +224,14 @@ it.each([481, 606, 1024])(
       />
     );
     const head = h.container.querySelector<HTMLImageElement>('.seat__avatar-img')!;
-    expect(paintedAvatarTop(head)).toBeCloseTo(-2);
-    expect(head.getBoundingClientRect().top).toBeLessThan(-2);
+    const initialCrown = paintedAvatarTop(head);
+    if (width <= 768) {
+      const mini = h.container.querySelector('.bbj-mini-plate')!.getBoundingClientRect();
+      expect(head.getBoundingClientRect().top).toBeCloseTo(mini.bottom + 9);
+    } else {
+      expect(initialCrown).toBeCloseTo(-2);
+      expect(head.getBoundingClientRect().top).toBeLessThan(-2);
+    }
     const pod = h.container.querySelector<HTMLElement>('.seat-wrapper--top')!;
     expect(pod.style.getPropertyValue('--sp-top-seat-shift')).toBe(
       pod.style.translate.split(' ')[1]
@@ -242,7 +249,7 @@ it.each([481, 606, 1024])(
     );
     expect(
       paintedAvatarTop(h.container.querySelector<HTMLImageElement>('.seat__avatar-img')!)
-    ).toBeCloseTo(-2);
+    ).toBeCloseTo(initialCrown);
   }
 );
 
