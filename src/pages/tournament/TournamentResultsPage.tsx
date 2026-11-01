@@ -13,6 +13,7 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { readTournamentStandings } from '../../services/readTournamentStandings';
 import { useVisibleRead } from '../../hooks/useVisibleRead';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useToast } from '../../components/common/Toast';
@@ -495,26 +496,13 @@ export default function TournamentResultsPage() {
       }),
     read: async (signal) => {
       const tournamentId = selectedTournament!.id;
-      const { data, error: standingsErr } = await supabase
-        .from('tournament_players')
-        /* bounty_winnings / bounties_collected are the record of record for
-           EVERY bounty format, mystery included: fn_mystery_bounty_pay updates
-           both as it credits a chest. Reading them here means the results table
-           is right for a plain KO event and a PKO as well, and the mystery
-           split below is an extra breakdown rather than the only source. */
-        .select(
-          'user_id, username, position, prize, bounty_winnings, bounties_collected, status, chips'
-        )
-        .eq('tournament_id', tournamentId)
-        .order('position', { ascending: true, nullsFirst: false })
-        /* A 1,001-entrant field would have lost its tail - and the tail of a
-           results table is the players who busted first, i.e. most of the
-           field (2026-08-27). Kept as a single read with a ceiling far above
-           any field this room runs, rather than paging a screen that renders
-           one list; the ceiling is now stated as a rendering bound, not
-           mistaken for the size of the field. */
-        .limit(50000)
-        .abortSignal(signal);
+      // Read the complete recorded field before ranking any prizes or bounties.
+      const { data, error: standingsErr } = await readTournamentStandings(
+        tournamentId,
+        'id, user_id, username, position, prize, bounty_winnings, bounties_collected, status, chips',
+        false,
+        signal
+      );
       if (standingsErr) throw standingsErr;
       return (data || []).map((r) => ({
         user_id: String((r as { user_id: string }).user_id),

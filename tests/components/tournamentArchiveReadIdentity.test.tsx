@@ -21,6 +21,7 @@ function chain(table: string) {
     'eq',
     'in',
     'gte',
+    'gt',
     'order',
     'limit',
     'maybeSingle',
@@ -28,6 +29,7 @@ function chain(table: string) {
   ]) {
     query[method] = (...values: unknown[]) => {
       if (method === 'eq' || method === 'gte') args[String(values[0])] = values[1];
+      else if (method === 'gt') args.gt = values[1];
       else args[method] = values[0];
       return query;
     };
@@ -514,4 +516,45 @@ it('shows unreadable mystery awards instead of an empty successful result', asyn
   await screen.findByText('Could Not Load These Mystery Awards. Please Retry.');
   expect(mocks.leaderboard).toHaveBeenCalledWith('A', { strict: true });
   expect(mocks.awards).toHaveBeenCalledWith('A', { strict: true });
+});
+
+describe('complete archived tournament standings', () => {
+  it('reads the finisher beyond the first REST response', async () => {
+    const rows = Array.from({ length: 1001 }, (_, index) => ({
+      ...winner(`Finisher ${index + 1}`),
+      id: String(index + 1).padStart(5, '0'),
+      position: index + 1,
+    }));
+    mocks.query.mockImplementation((table, args) => {
+      if (table === 'tournaments') return success([tournament('A')]);
+      if (table !== 'tournament_players') return success([]);
+      const cursor = args.gt ? Number(args.gt) : 0;
+      return { data: rows.slice(cursor, cursor + 1000), error: null, count: rows.length };
+    });
+    mount();
+    await select('A');
+    await screen.findByText('Finisher 1001');
+    expect(mocks.query.mock.calls.filter(([table]) => table === 'tournament_players')).toHaveLength(
+      2
+    );
+  });
+
+  it('refuses partial standings when a later response fails', async () => {
+    const rows = Array.from({ length: 1000 }, (_, index) => ({
+      ...winner(`First Page ${index + 1}`),
+      id: String(index + 1).padStart(5, '0'),
+      position: index + 1,
+    }));
+    mocks.query.mockImplementation((table, args) => {
+      if (table === 'tournaments') return success([tournament('A')]);
+      if (table !== 'tournament_players') return success([]);
+      return args.gt
+        ? { data: null, error: new Error('later page unavailable') }
+        : { data: rows, error: null, count: 1001 };
+    });
+    mount();
+    await select('A');
+    await screen.findByText('Could Not Load These Standings. Please Retry.');
+    expect(screen.queryByText('First Page 1')).toBeNull();
+  });
 });
