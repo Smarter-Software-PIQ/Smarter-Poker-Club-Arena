@@ -40,11 +40,19 @@ vi.mock('../../src/lib/supabase', () => ({
         };
       query.then = (done: (value: any) => void) => {
         const selected = read.calls.find((call) => call[0] === 'select')?.[1];
-        if (table === 'ca_hand_player_idx' || table === 'ca_hand_player_stat') {
+        if (
+          table === 'ca_hand_player_idx' ||
+          table === 'ca_hand_player_stat' ||
+          table === 'ca_hand_facts'
+        ) {
           const range = read.calls.find((call) => call[0] === 'range')!;
+          const err =
+            table === 'ca_hand_player_stat' && (state as any).statSeedError
+              ? (state as any).statSeedError
+              : state.seedError;
           return Promise.resolve({
-            data: state.seeds.slice(range[1], range[2] + 1),
-            error: state.seedError,
+            data: err ? null : state.seeds.slice(range[1], range[2] + 1),
+            error: err,
           }).then(done);
         }
         if (selected === 'id, hand_number') {
@@ -90,6 +98,7 @@ beforeEach(() => {
   state.retained = [];
   state.history = [];
   state.seedError = null;
+  (state as any).statSeedError = null;
   state.historyError = null;
   state.report.mockClear();
   state.rpc.mockReset().mockResolvedValue({ data: [], error: null });
@@ -221,5 +230,24 @@ describe('Archive-only indexed bounds', () => {
     await handHistoryService.getPlayerHands('viewer', 2, { gameMode: 'tournament', offset: 4 });
     expect(finalRead().calls).toContainEqual(['not', 'tournament_id', 'is', null]);
     expect(finalRead().calls).toContainEqual(['range', 4, 5]);
+  });
+  it('falls back to ca_hand_facts when ca_hand_player_stat returns 42501 permission denied', async () => {
+    setupSeeds([10, 30]);
+    state.history = state.retained;
+    (state as any).statSeedError = {
+      code: '42501',
+      message: 'permission denied for table ca_hand_player_stat',
+    };
+    const result = await handHistoryService.getPlayerHands('viewer', 2, {
+      indexedArchive: true,
+      gameMode: 'cash',
+      offset: 0,
+    });
+    expect(state.reads[0].table).toBe('ca_hand_player_stat');
+    expect(state.reads[1].table).toBe('ca_hand_facts');
+    expect(state.reads[1].calls).toContainEqual(['is', 'tournament_id', null]);
+    expect(state.report).not.toHaveBeenCalled();
+    expect(finalRead().calls).toContainEqual(['or', 'hand_number.gte.10,hand_number.is.null']);
+    expect(result).toHaveLength(2);
   });
 });
