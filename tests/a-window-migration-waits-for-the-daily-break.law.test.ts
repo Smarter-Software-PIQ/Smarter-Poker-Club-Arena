@@ -35,6 +35,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
@@ -421,6 +422,42 @@ describe('explicit database-only owner-window continuation', () => {
 });
 
 describe('database-only windows cannot displace engine admission', () => {
+  it('continues only the same two qualified migrations through the existing join-only route', () => {
+    const doc = JSON.parse(read('server/release/owner-maintenance-windows.json'));
+    const id = '2026-11-01-two-migration-database-continuation';
+    const matches = doc.databaseWindows.filter((w: { id: string }) => w.id === id);
+    expect(matches).toHaveLength(1);
+    expect(doc.windows.some((w: { id: string }) => w.id === id)).toBe(false);
+    const w = matches[0];
+    const files = [
+      [
+        '20261101004247_started_tournament_abort_supports_equal_share_settlement.sql',
+        'd42ad78995ffb0c626636e10c41b9b350119995e20c7ef71c4578ac99bfca1aa',
+      ],
+      [
+        '20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql',
+        '3a292905ddf7daffc696f5cb836255a220060ba0631a126872ad30ecb7908a29',
+      ],
+    ];
+    expect(w.migrations).toEqual(files.map(([file]) => file));
+    for (const [file, sha] of files) {
+      expect(
+        createHash('sha256')
+          .update(read(`supabase/migrations/${file}`))
+          .digest('hex')
+      ).toBe(sha);
+      expect(validateWindowMigration(file, read(`supabase/migrations/${file}`))).toBe(true);
+      expect(validateOwnerMigrationWindow(w, file, Date.parse('2026-11-01T21:00:00Z'))).toBe(w);
+      expect(() => validateOwnerMigrationWindow(w, file, Date.parse(w.notAfter))).toThrow();
+    }
+    expect(Date.parse(w.notAfter) - Date.parse(w.notBefore)).toBe(3 * 60 * 60 * 1000);
+    expect(w.ownerOrder).toContain('request_database_break=false');
+    expect(w.contains).toBe('4e9c32285477176df8e4afcef4e743d5fe961047');
+    const old = doc.windows.find(
+      (entry: { id: string }) => entry.id === '2026-11-01-window-migration-20261101005048'
+    );
+    expect(old.notAfter).toBe(w.notBefore);
+  });
   it('keeps the one-off continuation clear of the daily announcement and installed files', () => {
     const doc = JSON.parse(read('server/release/owner-maintenance-windows.json'));
     const id = '2026-10-27-lightning-dwell-database-continuation';
