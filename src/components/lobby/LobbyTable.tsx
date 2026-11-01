@@ -936,16 +936,23 @@ function TournamentHeadingRow({
   );
 }
 
+function CashStyleLine({ text, title = text }: { text: string; title?: string }) {
+  const fitRef = useFitText<HTMLSpanElement>(text, 1, 0.5);
+  return (
+    <span ref={fitRef} title={title}>
+      {text}
+    </span>
+  );
+}
+
 function CashStyleCopy({ entry }: { entry: LobbyEntry }) {
   const subtitle = cashTitleLines(entry).subtitle;
   const note = cashStyleNote(entry);
   return (
     <span className="premium-cash-style">
-      {subtitle && <span>{subtitle}</span>}
+      {subtitle && <CashStyleLine text={subtitle} />}
       {note?.split(/,\s*/).map((part, index) => (
-        <span key={index} title={part}>
-          {part.replace(/\bMinimum\b/g, 'Min')}
-        </span>
+        <CashStyleLine key={index} text={part.replace(/\bMinimum\b/g, 'Min')} title={part} />
       ))}
     </span>
   );

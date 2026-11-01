@@ -660,6 +660,8 @@
 .has-premium-chassis tbody tr[data-id] .premium-cash-style > span {
   display: block;
   width: 100%;
+  font-size: calc(clamp(12px, 2.6cqw, 22px) * var(--fit, 1));
+  white-space: nowrap;
 }
 /* The native glass is shorter than the full raster crop (which includes
    its lower rim). Center three readable lines in that glass, not the crop. */

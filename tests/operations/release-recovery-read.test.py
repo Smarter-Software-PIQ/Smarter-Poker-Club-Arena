@@ -3049,7 +3049,12 @@ class FailedRoutineHistoricalTests(unittest.TestCase):
             generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
             generation.mkdir(parents=True)
             path = generation / 'engine-release-transaction.sh'
-            path.write_bytes((ROOT / 'server/scripts/engine-release-transaction.sh').read_bytes())
+            # This fixture proves the original failed control, not today's script.
+            original = subprocess.check_output(
+                ['git', 'show', R.FAILED_CUSTODY_CONTROL + ':server/scripts/engine-release-transaction.sh'],
+                cwd=ROOT, timeout=3)
+            self.assertEqual(hashlib.sha256(original).hexdigest(), R.FAILED_CUSTODY_TRANSACTION_SHA256)
+            path.write_bytes(original)
             result = R.failed_custody_transaction(parent, R.time.monotonic() + 3)
             self.assertEqual(result[0], R.FAILED_CUSTODY_TRANSACTION_SHA256)
             self.assertGreater(path.stat().st_size, R.MAX_BYTES)

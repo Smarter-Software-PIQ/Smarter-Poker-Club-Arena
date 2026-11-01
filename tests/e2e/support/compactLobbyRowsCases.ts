@@ -124,44 +124,72 @@ export function registerCompactLobbyRowsCases() {
           'Big Blind Ante',
           '40% Min VPIP',
         ]);
-        const paintedStack = await styleCopy.locator('.premium-cash-style').evaluate((glass) => {
-          const box = glass.getBoundingClientRect();
-          return [...glass.children].map((span) => {
-            const lineBox = span.getBoundingClientRect();
-            const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
-            const ink: { top: number; bottom: number; left: number; right: number }[] = [];
-            while (walker.nextNode()) {
-              if (!walker.currentNode.textContent?.trim()) continue;
-              const range = document.createRange();
-              range.selectNodeContents(walker.currentNode);
-              for (const rect of range.getClientRects())
-                if (rect.width > 0 && rect.height > 0) {
-                  ink.push({
-                    top: rect.top,
-                    bottom: rect.bottom,
-                    left: rect.left,
-                    right: rect.right,
-                  });
-                }
-            }
-            return {
-              text: span.textContent?.trim(),
-              top: lineBox.top,
-              bottom: lineBox.bottom,
-              painted: ink.length > 0,
-              insideGlass:
-                ink.length > 0 &&
-                ink.every(
-                  (rect) =>
-                    rect.left >= box.left - 1 &&
-                    rect.right <= box.right + 1 &&
-                    rect.top >= box.top - 1 &&
-                    rect.bottom <= box.bottom + 1
-                ),
-              baselines: [...new Set(ink.map((rect) => Math.round(rect.top * 2) / 2))],
-              ink,
-            };
+        const readPaintedStack = () =>
+          styleCopy.locator('.premium-cash-style').evaluate((glass) => {
+            const box = glass.getBoundingClientRect();
+            return [...glass.children].map((span) => {
+              const lineBox = span.getBoundingClientRect();
+              const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+              const ink: { top: number; bottom: number; left: number; right: number }[] = [];
+              while (walker.nextNode()) {
+                if (!walker.currentNode.textContent?.trim()) continue;
+                const range = document.createRange();
+                range.selectNodeContents(walker.currentNode);
+                for (const rect of range.getClientRects())
+                  if (rect.width > 0 && rect.height > 0) {
+                    ink.push({
+                      top: rect.top,
+                      bottom: rect.bottom,
+                      left: rect.left,
+                      right: rect.right,
+                    });
+                  }
+              }
+              return {
+                text: span.textContent?.trim(),
+                top: lineBox.top,
+                bottom: lineBox.bottom,
+                painted: ink.length > 0,
+                insideGlass:
+                  ink.length > 0 &&
+                  ink.every(
+                    (rect) =>
+                      rect.left >= box.left - 1 &&
+                      rect.right <= box.right + 1 &&
+                      rect.top >= box.top - 1 &&
+                      rect.bottom <= box.bottom + 1
+                  ),
+                baselines: [...new Set(ink.map((rect) => Math.round(rect.top * 2) / 2))],
+                ink,
+              };
+            });
           });
+        await expect
+          .poll(
+            async () => {
+              const lines = await readPaintedStack();
+              return (
+                lines.length === 3 &&
+                lines.every(
+                  (line, index) =>
+                    line.painted &&
+                    line.insideGlass &&
+                    line.baselines.length === 1 &&
+                    (!index ||
+                      (line.top > lines[index - 1].top && line.top >= lines[index - 1].bottom - 1))
+                )
+              );
+            },
+            {
+              message: `${width}px fitted cash descriptions must settle inside their native glass`,
+              timeout: 5000,
+            }
+          )
+          .toBe(true);
+        const paintedStack = await readPaintedStack();
+        await testInfo.attach(`cash-style-painted-lines-${width}px`, {
+          body: JSON.stringify(paintedStack),
+          contentType: 'application/json',
         });
         expect(paintedStack).toHaveLength(3);
         for (const [index, line] of paintedStack.entries()) {
