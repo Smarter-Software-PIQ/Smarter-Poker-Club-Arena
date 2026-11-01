@@ -29,6 +29,11 @@ class HourlyCycle(unittest.TestCase):
         empty = self.root/'empty.gitconfig'; empty.write_text('')
         self.env = {k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
         self.env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=str(empty))
+        # Canonical seal helpers and shell children inherit os.environ rather
+        # than self.git's explicit env. A push hook's GIT_DIR otherwise makes
+        # their `git -C fixture` commands inspect the pushing repository.
+        environment = patch.dict(os.environ, self.env, clear=True)
+        environment.start(); self.addCleanup(environment.stop)
         self.git('init','-q')
         self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','--allow-empty','-qm','previous release')
         path = self.repo/seal.SCHEDULE_POLICY_PATH; path.parent.mkdir(parents=True)

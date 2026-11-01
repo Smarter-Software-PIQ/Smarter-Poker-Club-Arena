@@ -542,19 +542,32 @@ describe('the break scorecard grades only what the break controls', () => {
 
 // Four actual shell children each retain their 5s deadline. Allow a separate
 // 20s envelope for 16 isolated Git fixtures and canonical state/control work;
-// the outer test also allows 5s to collect the child result and finish teardown.
+// the outer test also covers the Git-context lookup and 5s for collection/teardown.
 const hourlyCycleQualificationTimeoutMs = 4 * 5_000 + 20_000;
+const hourlyCycleGitContextTimeoutMs = 5_000;
 
 it(
   'qualifies the global Phase1 cycle in isolated canonical state and actual shell admission',
   () => {
+    const repo = resolve(__dirname, '..');
+    const gitDir = spawnSync('git', ['-C', repo, 'rev-parse', '--absolute-git-dir'], {
+      encoding: 'utf8',
+      timeout: hourlyCycleGitContextTimeoutMs,
+    });
+    expect(gitDir.status, gitDir.stdout + gitDir.stderr).toBe(0);
+    expect(gitDir.stdout.trim()).not.toBe('');
     const result = spawnSync(
       'python3',
       [resolve(__dirname, 'operations/engine-hourly-maintenance.py')],
-      { encoding: 'utf8', timeout: hourlyCycleQualificationTimeoutMs }
+      {
+        encoding: 'utf8',
+        timeout: hourlyCycleQualificationTimeoutMs,
+        // Reproduce Git-hook context even outside a push.
+        env: { ...process.env, GIT_DIR: gitDir.stdout.trim(), GIT_WORK_TREE: repo },
+      }
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stderr).toContain('Ran 16 tests');
   },
-  hourlyCycleQualificationTimeoutMs + 5_000
+  hourlyCycleGitContextTimeoutMs + hourlyCycleQualificationTimeoutMs + 5_000
 );
