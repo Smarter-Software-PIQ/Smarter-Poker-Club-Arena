@@ -4834,7 +4834,8 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    runs-on: ubuntu-latest
+    # The locked Chromium installer supports this proven hosted image, not 26.04.
+    runs-on: ubuntu-24.04
     # 7.1 minutes measured inside the old job; room for a slow browser install.
     timeout-minutes: 25
 
