@@ -224,6 +224,34 @@ for text,category in [(b'Permission denied PRIVATE', 'permission'),(b'unknown tr
  assert q.classify_perf_refusal(text)==category
 assert q.classify_perf_refusal(b'',True)=='control_timeout'
 assert q.classify_perf_refusal(b'x'*8193)=='other'
+
+# Actual command boundary: DWARF must select its supported default register set.
+import pathlib,tempfile
+saved_control=q.Capture.control;saved_popen=q.subprocess.Popen
+r,w=os.pipe();q.os.pidfd_open=lambda pid:r
+commands=[]
+q.Capture.control=lambda self,command:None
+q.subprocess.Popen=lambda command,**kwargs:(commands.append(command) or types.SimpleNamespace(poll=lambda:0))
+try:
+ with tempfile.TemporaryDirectory() as folder:
+  c=q.Capture('/fixed/perf',pathlib.Path(folder),{'pid':123,'tasks':[123]},pathlib.Path(folder))
+  assert '--call-graph=dwarf,8192' in commands[0]
+  assert not any(arg.startswith('--user-regs') for arg in commands[0])
+  c.cleanup()
+finally:
+ os.close(w);q.Capture.control=saved_control;q.subprocess.Popen=saved_popen
+# Failed-case facts remain closed; diagnostic name mentions never become frame proof.
+sample=q.Capture.__new__(q.Capture);sample.perf='/fixed/perf';sample.file=types.SimpleNamespace(stat=lambda:types.SimpleNamespace(st_size=256),__str__=lambda self:'/private/data');sample.symfs=pathlib.Path('/private/symfs');sample.original={'pid':123,'tasks':[123]}
+raw=b'node 123/123 signal:signal_generate: sig=11 code=128 pid=123\n deadbeef sp_fault_leaf+0x1 (/fixture/fault.node)\n feedface sp_fault_caller+0x1 (/fixture/fault.node)\n abcdef01 PRIVATE_SYMBOL (/PRIVATE_DSO)\n'
+saved_run=q.run
+q.run=lambda command,**kwargs:types.SimpleNamespace(returncode=0,stdout=raw if command[1]=='script' else b'1111111111111111111111111111111111111111 /fixture/fault.node\n',stderr=b'PRIVATE unwind not found')
+try:
+ facts=sample.samples();assert facts['events']==1 and facts['leaf'] and facts['caller']
+ import json
+ encoded=json.dumps(facts);assert all(value not in encoded for value in ['PRIVATE','deadbeef','feedface','abcdef01'])
+ raw=b'node 123/123 signal:signal_generate: sig=11 code=128 pid=123 sp_fault_leaf\n'
+ facts=sample.samples();assert facts['fixedNameMentions']['leaf'] and not facts['leaf']
+finally:q.run=saved_run
 `;
   const result=spawnSync('python3',['-c',source],{encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
   assert.equal(result.status,0,result.stderr);

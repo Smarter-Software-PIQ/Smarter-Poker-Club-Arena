@@ -123,7 +123,7 @@ class Capture:
                    '--control=fd:' + str(self.ctl_read) + ',' + str(self.ack_write),
                    '--event=signal:signal_generate', '--filter=sig == 11 && code == 128',
                    '--tid=' + ','.join(map(str, original['tasks'])),
-                   '--call-graph=dwarf,8192', '--user-regs=ip,sp,bp',
+                   '--call-graph=dwarf,8192',
                    '--mmap-pages=64', '--max-size=' + size,
                    '--output=' + str(self.file)]
         def private_file_limit():
@@ -179,8 +179,11 @@ class Capture:
 
     def samples(self):
         # Raw output is parsed only inside this private isolated fixture.
-        raw = run([self.perf, 'script', '--input=' + str(self.file),
-                   '--symfs=' + str(self.symfs), '-F', 'comm,pid,tid,event,ip,sym,dso,trace'], timeout=10).stdout.decode(errors='replace')
+        decoded = run([self.perf, 'script', '--input=' + str(self.file),
+                   '--symfs=' + str(self.symfs), '-F', 'comm,pid,tid,event,ip,sym,dso,trace'], timeout=10,check=False)
+        if decoded.returncode!=0:
+            raise PerfRefusal('perf_symbolization_refused',classify_perf_refusal(decoded.stderr[:8192]),decoded.returncode)
+        raw=decoded.stdout.decode(errors='replace')
         headers = [line for line in raw.splitlines() if 'signal:signal_generate:' in line]
         for line in headers:
             prefix = line.split('signal:signal_generate:', 1)[0]
@@ -189,7 +192,23 @@ class Capture:
                 raise RuntimeError('foreign_sample_attribution')
             if not re.search(r'\bsig=11\b', line) or not re.search(r'\bcode=128\b', line):
                 raise RuntimeError('non_gpf_signal_sample')
-        return {'events': len(headers),
+        frames=[line for line in raw.splitlines() if re.match(r'^\s*[0-9a-fA-F]+\s+',line)]
+        error_text=decoded.stderr[:8192].lower()
+        modules={'addon':'unknown','node':'unknown'}
+        recorded=run([self.perf,'buildid-list','--input='+str(self.file)],timeout=5,check=False)
+        if recorded.returncode==0:
+            for line in recorded.stdout[:65536].decode(errors='replace').splitlines():
+                match=re.fullmatch(r'\s*([0-9a-fA-F]{16,128})\s+(.+)',line)
+                if match and match[2].endswith('/fault.node'):modules['addon']=match[1].lower()
+                elif match and match[2].endswith('/node'):modules['node']=match[1].lower()
+        return {'events': len(headers),'perfDataBytes':self.file.stat().st_size,
+                'scriptOutputBytes':len(decoded.stdout),
+                'fixedNameMentions':{'leaf':'sp_fault_leaf' in raw,'caller':'sp_fault_caller' in raw},
+                'frameClasses':{'addressed':len(frames),'unknown':sum('[unknown]' in line for line in frames),
+                                'addon':sum('/fault.node' in line for line in frames),'node':sum('/node)' in line for line in frames)},
+                'unwindRefusals':{key:error_text.count(token) for key,token in [('unwind',b'unwind'),('dwarf',b'dwarf'),('missing',b'not found')]},
+                'recordedModuleBuildIDs':modules,
+
                 'leaf': bool(re.search(r'(?m)^\s*[0-9a-fA-F]+\s+sp_fault_leaf(?:\+0x[0-9a-fA-F]+)?(?:\s|\()',raw)),
                 'caller': bool(re.search(r'(?m)^\s*[0-9a-fA-F]+\s+sp_fault_caller(?:\+0x[0-9a-fA-F]+)?(?:\s|\()',raw))}
 
@@ -229,6 +248,12 @@ def qualify(perf, output):
                 'perfBinarySHA256': hashlib.sha256(Path(perf).read_bytes()).hexdigest(),
                 'tracepointFormatSHA256': hashlib.sha256(fmt).hexdigest(),
                 'pinnedNodeImage': IMAGE, 'cases': [], 'cleanup': 'pending'}
+    build=run([perf,'version','--build-options'],timeout=5,check=False)
+    features={key:'unknown' for key in ('dwarf','libunwind','libdw-dwarf-unwind')}
+    if build.returncode==0:
+        for key,state in re.findall(r'^\s*(dwarf|libunwind|libdw-dwarf-unwind):\s*\[\s*(on|OFF)\s*\]',build.stdout[:16384].decode(errors='replace'),re.M):
+            features[key]='enabled' if state=='on' else 'disabled'
+    evidence['compiledUnwindFeatures']=features
     names = []; captures = []
     with tempfile.TemporaryDirectory(prefix='isolated-native-perf-') as tmp:
         base = Path(tmp); os.chmod(base, 0o700)
@@ -245,6 +270,12 @@ def qualify(perf, output):
             (symfs/'usr/local/bin').mkdir(parents=True)
             shutil.copyfile(base/'fault.node',symfs/'fixture/fault.node')
             docker('cp',seed+':/usr/local/bin/node',str(symfs/'usr/local/bin/node'))
+            evidence['fixtureModuleBuildIDs']={}
+            for kind,path in [('addon',symfs/'fixture/fault.node'),('node',symfs/'usr/local/bin/node')]:
+                notes=run(['/usr/bin/readelf','--notes',str(path)],timeout=5,check=False)
+                ids=re.findall(rb'Build ID: ([0-9a-fA-F]{16,128})',notes.stdout[:16384]) if notes.returncode==0 else []
+                evidence['fixtureModuleBuildIDs'][kind]=ids[0].decode().lower() if len(ids)==1 else 'unknown'
+
             for case in ('actual_gpf', 'foreign_healthcheck', 'expiry', 'replacement', 'storage_bound'):
                 folder = base / case; folder.mkdir(mode=0o700)
                 shutil.copyfile(base / 'fault.node', folder / 'fault.node')
@@ -290,6 +321,7 @@ def qualify(perf, output):
                 if case=='expiry' and time.monotonic()-started>capture.ttl+capture.cleanup_reserve+.25:
                     raise RuntimeError('expiry_and_stop_bound_exceeded')
                 samples = capture.samples()
+                evidence['pendingCase']={'case':case,**samples}
                 if case == 'actual_gpf':
                     if samples['events'] != 1 or not samples['leaf'] or not samples['caller']:
                         raise RuntimeError('actual_native_fault_leaf_and_caller_unproven')
@@ -304,10 +336,15 @@ def qualify(perf, output):
                                           'ttlStarts':'after_enable_ack','controllerKillCleanupQualified':False,
                                           'isolatedImageId':original['image'],'originalTaskCount':len(original['tasks']),
                                           'originalIdentitySHA256':hashlib.sha256(json.dumps(original,sort_keys=True).encode()).hexdigest()})
+                evidence.pop('pendingCase',None)
                 capture.cleanup(); captures.remove(capture)
                 if any(folder.glob('private-perf*')): raise RuntimeError('private_capture_cleanup_unproven')
             evidence['cleanup'] = 'confirmed'
             evidence['passed'] = True
+        except BaseException as error:
+            # All evidence fields were constructed from closed metadata above.
+            error.qualification_evidence=evidence
+            raise
         finally:
             cleanup_failed=False
             for capture in captures:
@@ -333,7 +370,7 @@ if __name__ == '__main__':
     except BaseException as error:
         reason=str(error) if isinstance(error,RuntimeError) and re.fullmatch(r'[a-z0-9_]{1,100}',str(error)) else type(error).__name__
         args.output.parent.mkdir(parents=True,exist_ok=True)
-        failure={'schema':'isolated-native-perf-feasibility/v1','passed':False,'productionCapture':False,'failure':reason,'cleanup':'not_certified_by_success_receipt'}
+        failure={**getattr(error,'qualification_evidence',{}),'schema':'isolated-native-perf-feasibility/v1','passed':False,'productionCapture':False,'failure':reason,'cleanup':'not_certified_by_success_receipt'}
         if isinstance(error,PerfRefusal):failure['perfRefusal']=error.closed
         args.output.write_text(json.dumps(failure)+'\n')
         raise
