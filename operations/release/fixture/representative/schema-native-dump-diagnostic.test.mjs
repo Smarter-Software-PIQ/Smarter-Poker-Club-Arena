@@ -16,6 +16,40 @@ test('definition count is derived only from already captured private metadata wi
 });
 
 const push=(parser,text,ms=1)=>parser.push(Buffer.from(text),ms);
+test('first total-byte refusal retains bounded counters through safe sanitization',()=>{
+  const parser=createNativeDumpDiagnostic(),prefix='D1 1 O B FUNCTION 0\n';
+  push(parser,prefix);
+  assert.throws(()=>parser.push(Buffer.alloc(512*1024),2),error=>error.diagnosticKind==='FD3_LIMIT');
+  const proof=parser.snapshot(3);
+  assert.equal(proof.bytes,Buffer.byteLength(prefix));
+  assert.equal(proof.records,1);
+  assert.deepEqual(proof.limit,{kind:'TOTAL_BYTES',observed_at_least:512*1024+1});
+  assert.equal(proof.stream_closed,false);assert.equal(proof.pairs_complete,false);
+  assert.deepEqual(safeNativeDumpDiagnostic(proof),proof);
+  assert.throws(()=>push(parser,'x'.repeat(97),3),error=>error.diagnosticKind==='FD3_LIMIT');
+  assert.deepEqual(parser.snapshot(3),proof);
+  assert.throws(()=>parser.finish(),error=>error.diagnosticKind==='FD3_LIMIT');
+  parser.clear();
+});
+
+test('first split line-byte refusal retains only a closed lower bound and never becomes complete',()=>{
+  const parser=createNativeDumpDiagnostic();push(parser,'x'.repeat(96));
+  assert.throws(()=>push(parser,'private-secret',2),error=>error.diagnosticKind==='FD3_LIMIT');
+  const proof=parser.snapshot(3);
+  assert.deepEqual(proof.limit,{kind:'LINE_BYTES',observed_at_least:97});
+  assert.equal(proof.bytes,110);assert.equal(proof.records,0);
+  assert.deepEqual(safeNativeDumpDiagnostic(proof),proof);
+  assert.ok(!JSON.stringify(proof).includes('private-secret'));
+  assert.throws(()=>parser.push(Buffer.alloc(512*1024+1),3),error=>error.diagnosticKind==='FD3_LIMIT');
+  assert.deepEqual(parser.snapshot(3),proof);
+  for(const limit of [{kind:'private-secret',observed_at_least:97},{kind:'LINE_BYTES',observed_at_least:98},
+    {kind:'TOTAL_BYTES',observed_at_least:512*1024}])
+    assert.equal(safeNativeDumpDiagnostic({...proof,limit}),null);
+  for(const patch of [{stream_closed:true},{pairs_complete:true},{bytes:512*1024+1}])
+    assert.equal(safeNativeDumpDiagnostic({...proof,...patch}),null);
+  parser.clear();
+});
+
 test('native fixed records pair objects and queries and retain only closed aggregate facts',()=>{
   const parser=createNativeDumpDiagnostic();
   push(parser,'D1 1 O B FUNCTION 0\nD1 2 Q B FUNCTION 10\nD1 3 Q E FUNC');
@@ -147,4 +181,28 @@ test('zero-frame failed startup retains its real TLS cause while zero-frame succ
    assert.equal(error.dumpDiagnostic.kind,code===0?'FD3_PROTOCOL':'TLS_VERIFICATION');assert.equal(error.dumpDiagnostic.native_cost.pairs_complete,false);assert.equal(error.dumpDiagnostic.native_cost.records,0);assert.ok(!JSON.stringify(error).includes('private-host'));return true;
   });
  }
+}));
+
+test('actual dump refusal preserves the first FD3 limit and cancellation facts without a success receipt',async()=>binaryFixture(async({env})=>{
+  const client=await verifyNativeDumpBinary(env),prefix='D1 1 O B FUNCTION 0\n';
+  const spawnProcess=()=>{
+    const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();
+    child.stdio=[null,child.stdout,child.stderr,new PassThrough()];
+    child.kill=signal=>{assert.equal(signal,'SIGINT');queueMicrotask(()=>child.emit('close',1,null));return true;};
+    queueMicrotask(()=>{child.stdio[3].write(prefix);child.stdio[3].write(Buffer.alloc(512*1024));
+      child.stdio[3].end('later-private-secret');child.stdout.end();child.stderr.end();});
+    return child;
+  };
+  await assert.rejects(dumpSnapshot(databaseConfiguration('postgres://postgres:synthetic-only@db.kuklfnapbkmacvwxktbh.supabase.co:5432/postgres?sslmode=require'),
+    '00000003-0000001B-1',{nativeClient:client,spawnProcess}),error=>{
+      assert.equal(error.message,'ISOLATED_SCHEMA_DUMP_FAILED');assert.equal(error.dumpDiagnostic.kind,'FD3_LIMIT');
+      const proof=error.dumpDiagnostic.native_cost;assert.ok(proof);
+      assert.equal(proof.bytes,Buffer.byteLength(prefix));assert.equal(proof.records,1);
+      assert.deepEqual(proof.limit,{kind:'TOTAL_BYTES',observed_at_least:512*1024+1});
+      assert.equal(proof.pairs_complete,false);assert.equal(proof.stream_closed,false);
+      assert.equal(error.dumpDiagnostic.cancellation.sigint_os_accepted,true);
+      assert.equal(error.dumpDiagnostic.cancellation.child_close_observed,true);
+      assert.equal(error.dumpDiagnostic.cancellation.server_cancel_acknowledgement,'NOT_OBSERVED');
+      assert.ok(!JSON.stringify(error).includes('private-secret'));return true;
+    });
 }));
