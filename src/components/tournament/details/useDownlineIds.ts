@@ -29,6 +29,7 @@ import {
   type ClubRole,
 } from '../../../types/clubRoles';
 import { reportError } from '../../../utils/errorReporter';
+import { runWithRequestDeadline } from '../../../utils/requestDeadline';
 
 export interface DownlineResult {
   /** User ids beneath the viewer. Never contains the viewer themselves. */
@@ -55,8 +56,11 @@ export function useDownlineIds(
   const [carriesDownline, setCarriesDownline] = useState(false);
   const [viewerRole, setViewerRole] = useState<ClubRole>('player');
   const [loading, setLoading] = useState(false);
+  const scopeKey = JSON.stringify([userId || null, clubId || null, unionId || null]);
+  const [snapshotScope, setSnapshotScope] = useState<string | null>(null);
 
   useEffect(() => {
+    setSnapshotScope(scopeKey);
     // Nobody signed in, or a tournament with no club: there is no question to
     // ask. Reset rather than leaving a previous viewer's downline on screen.
     if (!userId || !clubId) {
@@ -68,6 +72,7 @@ export function useDownlineIds(
     }
 
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setDownlineIds(EMPTY_IDS);
     setCarriesDownline(false);
@@ -77,9 +82,15 @@ export function useDownlineIds(
       try {
         // Union events have an anchor club plus linked clubs. Resolve that
         // maintained scope, then use only memberships belonging to this viewer.
-        const { data: scope, error: scopeError } = await supabase.rpc('fn_club_scope_ids', {
-          p_club_id: unionId || clubId,
-        });
+        const { data: scope, error: scopeError } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .rpc('fn_club_scope_ids', {
+                p_club_id: unionId || clubId,
+              })
+              .abortSignal(signal),
+          { signal: controller.signal }
+        );
         if (cancelled) return;
         if (scopeError) throw scopeError;
         if (
@@ -92,11 +103,16 @@ export function useDownlineIds(
         const scopeIds = [...new Set<string>(scope)];
         const memberships = new Map<string, ClubRole>();
         for (let offset = 0; offset < scopeIds.length; offset += 60) {
-          const { data, error } = await supabase
-            .from('club_members')
-            .select('club_id, role')
-            .eq('user_id', userId)
-            .in('club_id', scopeIds.slice(offset, offset + 60));
+          const { data, error } = await runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .from('club_members')
+                .select('club_id, role')
+                .abortSignal(signal)
+                .eq('user_id', userId)
+                .in('club_id', scopeIds.slice(offset, offset + 60)),
+            { signal: controller.signal }
+          );
           if (cancelled) return;
           if (error) throw error;
           if (!Array.isArray(data)) throw new Error('The Membership Response Was Incomplete');
@@ -126,11 +142,16 @@ export function useDownlineIds(
             : { p_club_id: memberClubId, p_user_id: userId };
           const seen = new Set<string>();
           for (let offset = 0; ; offset += PAGE_SIZE) {
-            const { data, error } = await supabase
-              .rpc(reader, parameters)
-              .select('user_id')
-              .order('user_id', { ascending: true })
-              .range(offset, offset + PAGE_SIZE - 1);
+            const { data, error } = await runWithRequestDeadline(
+              (signal) =>
+                supabase
+                  .rpc(reader, parameters)
+                  .abortSignal(signal)
+                  .select('user_id')
+                  .order('user_id', { ascending: true })
+                  .range(offset, offset + PAGE_SIZE - 1),
+              { signal: controller.signal }
+            );
             if (cancelled) return;
             if (error) throw error;
             if (!Array.isArray(data)) throw new Error('The Downline Response Was Incomplete');
@@ -162,9 +183,19 @@ export function useDownlineIds(
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [userId, clubId, unionId]);
+  }, [userId, clubId, unionId, scopeKey]);
 
+  // Effects run after paint; a new viewer/scope must never see the old roster.
+  if (snapshotScope !== scopeKey) {
+    return {
+      downlineIds: EMPTY_IDS,
+      carriesDownline: false,
+      viewerRole: 'player',
+      loading: Boolean(userId && clubId),
+    };
+  }
   return { downlineIds, carriesDownline, viewerRole, loading };
 }
 
