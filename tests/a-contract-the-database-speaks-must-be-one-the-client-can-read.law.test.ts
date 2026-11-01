@@ -376,39 +376,52 @@ describe('a contract the database speaks must be one the client can read', () =>
   // 7.523 s under concurrent SSD I/O, beyond Vitest's unrelated 5 s default.
   // Keep every assertion and every input; 15 s retains roughly one measured
   // scan of headroom without changing the parser, selection or test outcome.
-  it('every accusation against a merged migration is exact: its own remedy withdraws it', () => {
-    const client = clientContract(readOrNull);
-    const dir = path.join(ROOT, 'supabase', 'migrations');
-    const unfixable: string[] = [];
-    for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.sql'))) {
-      const sql = fs.readFileSync(path.join(dir, file), 'utf8');
-      if (sourceVerdict(client, client, [{ file, sql }]).length === 0) continue;
-      const facts = contractFactsInSql(sql);
-      /* The client this migration's author would have had to land with it. */
-      const widened = {
-        ...client,
-        contract_versions: [...new Set([...client.contract_versions, ...facts.contract_versions])],
-        model_versions: [
-          ...new Set([
-            ...client.model_versions,
-            ...facts.model_versions,
-            ...facts.model_generations.map((n) => `wheel-v${n}`),
-          ]),
-        ],
-        draw_domains: [...new Set([...client.draw_domains, ...facts.model_versions])],
-        payout_versions: [...new Set([...client.payout_versions, ...facts.payout_versions])],
-        bonus_floor_fns: [...new Set([...client.bonus_floor_fns, ...facts.declared_bonus_fns])],
-      };
-      const left = sourceVerdict(client, widened, [{ file, sql }]);
-      if (left.length) unfixable.push(`${file}: ${left.join(' | ')}`);
-    }
-    expect(
-      unfixable,
-      'these accusations survive the exact remedy they name, so they are artifacts of the ' +
-        'parser rather than contract drift. Scope the fact to the declaration that makes it, ' +
-        'not to the file.'
-    ).toEqual([]);
-  }, 15000);
+  // The current hook measured 17.377 s against that 15 s limit. Three disjoint
+  // lexical partitions retain every migration and assertion within the same
+  // per-case budget; no production parser or input is omitted.
+  it.each([0, 1, 2])(
+    'every accusation against a merged migration is exact: its own remedy withdraws it (partition %s)',
+    (partition) => {
+      const client = clientContract(readOrNull);
+      const dir = path.join(ROOT, 'supabase', 'migrations');
+      const unfixable: string[] = [];
+      const files = fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .sort();
+      for (const file of files.filter((_, index) => index % 3 === partition)) {
+        const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+        if (sourceVerdict(client, client, [{ file, sql }]).length === 0) continue;
+        const facts = contractFactsInSql(sql);
+        /* The client this migration's author would have had to land with it. */
+        const widened = {
+          ...client,
+          contract_versions: [
+            ...new Set([...client.contract_versions, ...facts.contract_versions]),
+          ],
+          model_versions: [
+            ...new Set([
+              ...client.model_versions,
+              ...facts.model_versions,
+              ...facts.model_generations.map((n) => `wheel-v${n}`),
+            ]),
+          ],
+          draw_domains: [...new Set([...client.draw_domains, ...facts.model_versions])],
+          payout_versions: [...new Set([...client.payout_versions, ...facts.payout_versions])],
+          bonus_floor_fns: [...new Set([...client.bonus_floor_fns, ...facts.declared_bonus_fns])],
+        };
+        const left = sourceVerdict(client, widened, [{ file, sql }]);
+        if (left.length) unfixable.push(`${file}: ${left.join(' | ')}`);
+      }
+      expect(
+        unfixable,
+        'these accusations survive the exact remedy they name, so they are artifacts of the ' +
+          'parser rather than contract drift. Scope the fact to the declaration that makes it, ' +
+          'not to the file.'
+      ).toEqual([]);
+    },
+    15000
+  );
 
   /**
    * AND THE RULE SAYS WHAT THIS LAW SAYS IT SAYS.

@@ -1682,243 +1682,250 @@ for (const [width, heightOverride] of occupiedViewports)
 // The full page has a ticker/tab strip above the embedded gameplay slot.
 // Include them and the real action components so a viewport-only fixture
 // cannot certify a row that covers the hero in production.
-for (const [width, height] of [
-  [375, 667],
-  [393, 852],
-  [430, 932],
-])
-  for (const bottomInset of [0, 34])
-    for (const ticker of [0, 32])
-      test(`mobile preselection and decision rows remain below the hero in the embedded shell at ${width}px inset ${bottomInset}px ticker ${ticker}px`, async ({
-        page,
-      }, testInfo) => {
-        test.setTimeout(60_000);
+test.describe('embedded mobile action-row geometry', () => {
+  // Each case cold-mounts eight real-component scenes. Do not make these
+  // expensive mounts compete with one another on the same browser runner.
+  // Default mode keeps every case independent after a failure, unlike serial.
+  test.describe.configure({ mode: 'default' });
+  for (const [width, height] of [
+    [375, 667],
+    [393, 852],
+    [430, 932],
+  ])
+    for (const bottomInset of [0, 34])
+      for (const ticker of [0, 32])
+        test(`mobile preselection and decision rows remain below the hero in the embedded shell at ${width}px inset ${bottomInset}px ticker ${ticker}px`, async ({
+          page,
+        }, testInfo) => {
+          test.setTimeout(60_000);
 
-        const { buildSync } = await import('esbuild');
-        const bundled = buildSync({
-          entryPoints: ['tests/e2e/support/actionRowsFixture.tsx'],
-          bundle: true,
-          write: false,
-          jsx: 'automatic',
-          metafile: true,
-          format: 'iife',
-          platform: 'browser',
-          outfile: 'actions-fixture.js',
-          loader: {
-            '.css': 'empty',
-            '.png': 'dataurl',
-            '.webp': 'dataurl',
-            '.svg': 'dataurl',
-            '.jpg': 'dataurl',
-          },
-          define: {
-            'import.meta.env': JSON.stringify({
-              VITE_SUPABASE_URL: 'https://dummy.supabase.co',
-              VITE_SUPABASE_ANON_KEY: 'fixture',
-              DEV: true,
-            }),
-            'process.env.NODE_ENV': '"test"',
-          },
-        });
-        await page.route('**/cards/**', async (route) => {
-          const path = new URL(route.request().url()).pathname.split('/cards/')[1];
-          const source = resolve(process.cwd(), 'public/cards', path.replace(/\.webp$/, '.png'));
-          const original = resolve(process.cwd(), 'public/cards', path);
-          const file = existsSync(original) ? original : source;
-          expect(file.startsWith(resolve(process.cwd(), 'public/cards') + '/')).toBe(true);
-          expect(existsSync(file), `Local Card Artwork: ${path}`).toBe(true);
-          await route.fulfill({
-            body: readFileSync(file),
-            contentType: file.endsWith('.png') ? 'image/png' : 'image/webp',
+          const { buildSync } = await import('esbuild');
+          const bundled = buildSync({
+            entryPoints: ['tests/e2e/support/actionRowsFixture.tsx'],
+            bundle: true,
+            write: false,
+            jsx: 'automatic',
+            metafile: true,
+            format: 'iife',
+            platform: 'browser',
+            outfile: 'actions-fixture.js',
+            loader: {
+              '.css': 'empty',
+              '.png': 'dataurl',
+              '.webp': 'dataurl',
+              '.svg': 'dataurl',
+              '.jpg': 'dataurl',
+            },
+            define: {
+              'import.meta.env': JSON.stringify({
+                VITE_SUPABASE_URL: 'https://dummy.supabase.co',
+                VITE_SUPABASE_ANON_KEY: 'fixture',
+                DEV: true,
+              }),
+              'process.env.NODE_ENV': '"test"',
+            },
           });
-        });
-        await page.route('**/rest/v1/rpc/fn_cash_vpip_status', (route) =>
-          route.fulfill({
-            json: { ok: true, seated: true, required: 50, vpip: 38, hands: 12, window: 10 },
-          })
-        );
-        const avatarBytes = readFileSync(tableArtFixture('vip_wolf@2x.webp'));
-        await page.route('**/avatars/table/**', (route) =>
-          route.fulfill({ body: avatarBytes, contentType: 'image/webp' })
-        );
-        for (const icon of ['chat', 'timebank', 'rabbit', 'prevhand']) {
-          const bytes = readFileSync(tableArtFixture(`icon-${icon}.webp`));
-          await page.route(`**/buttons/black/icon-${icon}.webp`, (route) =>
-            route.fulfill({ body: bytes, contentType: 'image/webp' })
+          await page.route('**/cards/**', async (route) => {
+            const path = new URL(route.request().url()).pathname.split('/cards/')[1];
+            const source = resolve(process.cwd(), 'public/cards', path.replace(/\.webp$/, '.png'));
+            const original = resolve(process.cwd(), 'public/cards', path);
+            const file = existsSync(original) ? original : source;
+            expect(file.startsWith(resolve(process.cwd(), 'public/cards') + '/')).toBe(true);
+            expect(existsSync(file), `Local Card Artwork: ${path}`).toBe(true);
+            await route.fulfill({
+              body: readFileSync(file),
+              contentType: file.endsWith('.png') ? 'image/png' : 'image/webp',
+            });
+          });
+          await page.route('**/rest/v1/rpc/fn_cash_vpip_status', (route) =>
+            route.fulfill({
+              json: { ok: true, seated: true, required: 50, vpip: 38, hands: 12, window: 10 },
+            })
           );
-        }
-        const sheets = [
-          ...new Set([
-            'src/styles/club-engine.css',
-            'src/styles/animations.css',
-            'src/styles/metallic-popups.css',
-            'src/styles/reducedMotion.css',
-            'src/pages/MultiTablePage.css',
-            'src/components/table/TableTabBar.css',
-            'src/pages/TablePage.css',
-            'src/components/table/TableChat.css',
-            ...Object.keys(bundled.metafile!.inputs).filter((file) => file.endsWith('.css')),
-            'src/components/table/TableVisualHotfix.css',
-          ]),
-        ];
-        const readStyle = (file: string): string =>
-          readFileSync(resolve(process.cwd(), file), 'utf8').replace(
-            /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
-            (_, imported: string) => readStyle(resolve(dirname(file), imported))
+          const avatarBytes = readFileSync(tableArtFixture('vip_wolf@2x.webp'));
+          await page.route('**/avatars/table/**', (route) =>
+            route.fulfill({ body: avatarBytes, contentType: 'image/webp' })
           );
-        const css =
-          sheets.map(readStyle).join('\n') +
-          '\n' +
-          (bundled.outputFiles.find((file) => file.path.endsWith('.css'))?.text || '');
-        for (const swipe of [false, true]) {
-          await page.setViewportSize({ width, height });
-          const withInsets = css.replace(
-            /env\(safe-area-inset-bottom(?:,\s*[^)]+)?\)/g,
-            `${bottomInset}px`
-          );
-          let stableHeight: number | undefined;
-          for (const state of ['preflop', 'flop', 'facing-bet', 'active']) {
-            await page.route('http://actions.fixture/', (route) =>
-              route.fulfill({
-                contentType: 'text/html',
-                body: `<html data-seats="6" data-revealed="false" data-action="${state}" data-cards="4" data-swipe="${swipe}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${withInsets}\n:root{--mtt-ticker-h:${ticker}px;--sp-tabbar-inset:0px}</style></head><body><div id="root"></div></body></html>`,
-              })
+          for (const icon of ['chat', 'timebank', 'rabbit', 'prevhand']) {
+            const bytes = readFileSync(tableArtFixture(`icon-${icon}.webp`));
+            await page.route(`**/buttons/black/icon-${icon}.webp`, (route) =>
+              route.fulfill({ body: bytes, contentType: 'image/webp' })
             );
-            await page.goto('http://actions.fixture/', { waitUntil: 'domcontentloaded' });
-            await page.addScriptTag({
-              content: bundled.outputFiles.find((file) => file.path.endsWith('.js'))!.text,
-            });
-            await page.locator('.hero-vpip').waitFor({ timeout: 5000 });
-            await page.waitForFunction(() =>
-              [
-                ...document.querySelectorAll<HTMLImageElement>(
-                  '.card-image__img,.seat__avatar-img'
-                ),
-              ].every((image) => image.complete && image.naturalWidth > 0)
-            );
-            // Every valid face keeps readable underpaint beneath its loaded artwork.
-            await expect(page.locator('.card-image__fallback')).toHaveCount(
-              await page.locator('.card-image__img').count()
-            );
-            expect(
-              await page
-                .locator('.card-image__img')
-                .evaluateAll((images) =>
-                  images.every(
-                    (image) =>
-                      getComputedStyle(image).position === 'absolute' &&
-                      getComputedStyle(image).zIndex === '1'
-                  )
-                )
-            ).toBe(true);
-            await page.evaluate(async () => {
-              await document.fonts.ready;
-              await new Promise<void>((resolve) =>
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-              );
-            });
-            await page.locator('.pre-action-bar, .action-panel').evaluate(async (row) => {
-              await Promise.all(
-                row
-                  .getAnimations()
-                  .filter(
-                    (animation) => animation.effect?.getComputedTiming().iterations !== Infinity
-                  )
-                  .map((animation) => animation.finished)
-              );
-            });
-            if (state === 'flop')
-              await page.getByRole('button', { name: 'Check', exact: true }).click();
-            const measured = await page.evaluate(() => {
-              const rect = (selector: string) =>
-                document.querySelector(selector)!.getBoundingClientRect();
-              const row = rect('.pre-action-bar, .action-panel');
-              const hero = rect('.seat-wrapper--hero .seat__info');
-              const heroCardBoxes = Array.from(
-                document.querySelectorAll('.seat__cards--hero .seat__card')
-              ).map((card) => card.getBoundingClientRect());
-              const cards = DOMRect.fromRect({
-                x: Math.min(...heroCardBoxes.map((card) => card.left)),
-                y: Math.min(...heroCardBoxes.map((card) => card.top)),
-                width:
-                  Math.max(...heroCardBoxes.map((card) => card.right)) -
-                  Math.min(...heroCardBoxes.map((card) => card.left)),
-                height:
-                  Math.max(...heroCardBoxes.map((card) => card.bottom)) -
-                  Math.min(...heroCardBoxes.map((card) => card.top)),
-              });
-              const scaler = rect('.table-scaler');
-              const vpip = rect('.hero-vpip');
-              const previous = rect('.prev-hand-card');
-              const identity = rect('.table-brand__line--identity');
-              const club = rect('.table-brand__club-name');
-              const union = rect('.table-brand__union');
-              const overlaps = (a: DOMRect, b: DOMRect) =>
-                a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-              return {
-                buttonHeights: [...document.querySelectorAll('.action-btn, .pre-action-btn')].map(
-                  (e) => e.getBoundingClientRect().height
-                ),
-                buttonBottom: Math.max(
-                  ...[...document.querySelectorAll('.action-btn, .pre-action-btn')].map(
-                    (e) => e.getBoundingClientRect().bottom
-                  )
-                ),
-                rowTop: row.top,
-                rowHeight: row.height,
-                rowBottom: row.bottom,
-                heroBottom: hero.bottom,
-                cardsBottom: cards.bottom,
-                scalerHeight: scaler.height,
-                vpipOverlaps:
-                  overlaps(vpip, previous) || overlaps(vpip, hero) || overlaps(vpip, cards),
-                identityFont: parseFloat(
-                  getComputedStyle(document.querySelector('.table-brand__line--identity')!).fontSize
-                ),
-                identityOneLine: Math.abs(club.top - union.top) <= 1,
-              };
-            });
-            expect(measured.vpipOverlaps, 'VPIP clears the previous hand and hero').toBe(false);
-            expect(measured.identityFont).toBeLessThanOrEqual(7);
-            expect(measured.identityOneLine).toBe(true);
-            stableHeight ??= measured.scalerHeight;
-            expect(
-              measured.scalerHeight,
-              'Felt Must Not Resize When The Action Row Changes'
-            ).toBeCloseTo(stableHeight, 1);
-            expect(
-              measured.rowTop,
-              `${width}px inset${bottomInset} ticker${ticker} ${state}: hero plate`
-            ).toBeGreaterThanOrEqual(measured.heroBottom + 1);
-            expect(
-              measured.rowTop,
-              `${width}px inset${bottomInset} ticker${ticker} ${state}: hero cards`
-            ).toBeGreaterThanOrEqual(measured.cardsBottom + 1);
-            for (const buttonHeight of measured.buttonHeights)
-              expect(buttonHeight, `${state}: readable button`).toBeCloseTo(52, 0);
-            expect(
-              height - measured.buttonBottom,
-              'Buttons Clear The Home Indicator'
-            ).toBeGreaterThanOrEqual(Math.max(12, bottomInset) - 1);
-            expect(measured.rowBottom).toBeCloseTo(height, 0);
-            if (
-              width === 393 &&
-              bottomInset === 34 &&
-              ticker === 32 &&
-              state === 'flop' &&
-              !swipe
-            ) {
-              const path = testInfo.outputPath('mobile-actions-below-hero.png');
-              await page.screenshot({ path });
-              await testInfo.attach('Mobile Actions Below Hero', {
-                path,
-                contentType: 'image/png',
-              });
-            }
-            await page.unroute('http://actions.fixture/');
           }
-        }
-      });
+          const sheets = [
+            ...new Set([
+              'src/styles/club-engine.css',
+              'src/styles/animations.css',
+              'src/styles/metallic-popups.css',
+              'src/styles/reducedMotion.css',
+              'src/pages/MultiTablePage.css',
+              'src/components/table/TableTabBar.css',
+              'src/pages/TablePage.css',
+              'src/components/table/TableChat.css',
+              ...Object.keys(bundled.metafile!.inputs).filter((file) => file.endsWith('.css')),
+              'src/components/table/TableVisualHotfix.css',
+            ]),
+          ];
+          const readStyle = (file: string): string =>
+            readFileSync(resolve(process.cwd(), file), 'utf8').replace(
+              /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
+              (_, imported: string) => readStyle(resolve(dirname(file), imported))
+            );
+          const css =
+            sheets.map(readStyle).join('\n') +
+            '\n' +
+            (bundled.outputFiles.find((file) => file.path.endsWith('.css'))?.text || '');
+          for (const swipe of [false, true]) {
+            await page.setViewportSize({ width, height });
+            const withInsets = css.replace(
+              /env\(safe-area-inset-bottom(?:,\s*[^)]+)?\)/g,
+              `${bottomInset}px`
+            );
+            let stableHeight: number | undefined;
+            for (const state of ['preflop', 'flop', 'facing-bet', 'active']) {
+              await page.route('http://actions.fixture/', (route) =>
+                route.fulfill({
+                  contentType: 'text/html',
+                  body: `<html data-seats="6" data-revealed="false" data-action="${state}" data-cards="4" data-swipe="${swipe}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${withInsets}\n:root{--mtt-ticker-h:${ticker}px;--sp-tabbar-inset:0px}</style></head><body><div id="root"></div></body></html>`,
+                })
+              );
+              await page.goto('http://actions.fixture/', { waitUntil: 'domcontentloaded' });
+              await page.addScriptTag({
+                content: bundled.outputFiles.find((file) => file.path.endsWith('.js'))!.text,
+              });
+              await page.locator('.hero-vpip').waitFor({ timeout: 5000 });
+              await page.waitForFunction(() =>
+                [
+                  ...document.querySelectorAll<HTMLImageElement>(
+                    '.card-image__img,.seat__avatar-img'
+                  ),
+                ].every((image) => image.complete && image.naturalWidth > 0)
+              );
+              // Every valid face keeps readable underpaint beneath its loaded artwork.
+              await expect(page.locator('.card-image__fallback')).toHaveCount(
+                await page.locator('.card-image__img').count()
+              );
+              expect(
+                await page
+                  .locator('.card-image__img')
+                  .evaluateAll((images) =>
+                    images.every(
+                      (image) =>
+                        getComputedStyle(image).position === 'absolute' &&
+                        getComputedStyle(image).zIndex === '1'
+                    )
+                  )
+              ).toBe(true);
+              await page.evaluate(async () => {
+                await document.fonts.ready;
+                await new Promise<void>((resolve) =>
+                  requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+                );
+              });
+              await page.locator('.pre-action-bar, .action-panel').evaluate(async (row) => {
+                await Promise.all(
+                  row
+                    .getAnimations()
+                    .filter(
+                      (animation) => animation.effect?.getComputedTiming().iterations !== Infinity
+                    )
+                    .map((animation) => animation.finished)
+                );
+              });
+              if (state === 'flop')
+                await page.getByRole('button', { name: 'Check', exact: true }).click();
+              const measured = await page.evaluate(() => {
+                const rect = (selector: string) =>
+                  document.querySelector(selector)!.getBoundingClientRect();
+                const row = rect('.pre-action-bar, .action-panel');
+                const hero = rect('.seat-wrapper--hero .seat__info');
+                const heroCardBoxes = Array.from(
+                  document.querySelectorAll('.seat__cards--hero .seat__card')
+                ).map((card) => card.getBoundingClientRect());
+                const cards = DOMRect.fromRect({
+                  x: Math.min(...heroCardBoxes.map((card) => card.left)),
+                  y: Math.min(...heroCardBoxes.map((card) => card.top)),
+                  width:
+                    Math.max(...heroCardBoxes.map((card) => card.right)) -
+                    Math.min(...heroCardBoxes.map((card) => card.left)),
+                  height:
+                    Math.max(...heroCardBoxes.map((card) => card.bottom)) -
+                    Math.min(...heroCardBoxes.map((card) => card.top)),
+                });
+                const scaler = rect('.table-scaler');
+                const vpip = rect('.hero-vpip');
+                const previous = rect('.prev-hand-card');
+                const identity = rect('.table-brand__line--identity');
+                const club = rect('.table-brand__club-name');
+                const union = rect('.table-brand__union');
+                const overlaps = (a: DOMRect, b: DOMRect) =>
+                  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+                return {
+                  buttonHeights: [...document.querySelectorAll('.action-btn, .pre-action-btn')].map(
+                    (e) => e.getBoundingClientRect().height
+                  ),
+                  buttonBottom: Math.max(
+                    ...[...document.querySelectorAll('.action-btn, .pre-action-btn')].map(
+                      (e) => e.getBoundingClientRect().bottom
+                    )
+                  ),
+                  rowTop: row.top,
+                  rowHeight: row.height,
+                  rowBottom: row.bottom,
+                  heroBottom: hero.bottom,
+                  cardsBottom: cards.bottom,
+                  scalerHeight: scaler.height,
+                  vpipOverlaps:
+                    overlaps(vpip, previous) || overlaps(vpip, hero) || overlaps(vpip, cards),
+                  identityFont: parseFloat(
+                    getComputedStyle(document.querySelector('.table-brand__line--identity')!)
+                      .fontSize
+                  ),
+                  identityOneLine: Math.abs(club.top - union.top) <= 1,
+                };
+              });
+              expect(measured.vpipOverlaps, 'VPIP clears the previous hand and hero').toBe(false);
+              expect(measured.identityFont).toBeLessThanOrEqual(7);
+              expect(measured.identityOneLine).toBe(true);
+              stableHeight ??= measured.scalerHeight;
+              expect(
+                measured.scalerHeight,
+                'Felt Must Not Resize When The Action Row Changes'
+              ).toBeCloseTo(stableHeight, 1);
+              expect(
+                measured.rowTop,
+                `${width}px inset${bottomInset} ticker${ticker} ${state}: hero plate`
+              ).toBeGreaterThanOrEqual(measured.heroBottom + 1);
+              expect(
+                measured.rowTop,
+                `${width}px inset${bottomInset} ticker${ticker} ${state}: hero cards`
+              ).toBeGreaterThanOrEqual(measured.cardsBottom + 1);
+              for (const buttonHeight of measured.buttonHeights)
+                expect(buttonHeight, `${state}: readable button`).toBeCloseTo(52, 0);
+              expect(
+                height - measured.buttonBottom,
+                'Buttons Clear The Home Indicator'
+              ).toBeGreaterThanOrEqual(Math.max(12, bottomInset) - 1);
+              expect(measured.rowBottom).toBeCloseTo(height, 0);
+              if (
+                width === 393 &&
+                bottomInset === 34 &&
+                ticker === 32 &&
+                state === 'flop' &&
+                !swipe
+              ) {
+                const path = testInfo.outputPath('mobile-actions-below-hero.png');
+                await page.screenshot({ path });
+                await testInfo.attach('Mobile Actions Below Hero', {
+                  path,
+                  contentType: 'image/png',
+                });
+              }
+              await page.unroute('http://actions.fixture/');
+            }
+          }
+        });
+});
 
 // Owner screenshot October 22: the spectator phone must use the broad, tall
 // desktop preview instead of inheriting the seated player's compact canvas.
