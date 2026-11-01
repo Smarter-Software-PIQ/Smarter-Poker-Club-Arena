@@ -33,7 +33,13 @@ describe('browser qualification parallel delivery', () => {
       for (const [jobId, job] of jobs.filter(([, job]) => job['runs-on'])) {
         const pinnedBrowser =
           file === 'ci.yml' &&
-          ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(jobId);
+          [
+            'build',
+            'live-e2e',
+            'css-beats-e2e',
+            'diamond-playfield-e2e',
+            'accounting_postgres',
+          ].includes(jobId);
         expect(job['runs-on']).toBe(pinnedBrowser ? 'ubuntu-24.04' : 'ubuntu-latest');
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
@@ -60,7 +66,9 @@ describe('browser qualification parallel delivery', () => {
 
   it('defaults required native qualification to the approved standard hosted profile', () => {
     for (const job of ['accounting_postgres', 'server_shards']) {
-      expect(ci.jobs[job]['runs-on']).toBe('ubuntu-latest');
+      expect(ci.jobs[job]['runs-on']).toBe(
+        job === 'accounting_postgres' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       expect(ci.jobs[job]['continue-on-error']).toBeUndefined();
       expect(ci.jobs[job].strategy.matrix.shard).toEqual(
         job === 'accounting_postgres' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4]
