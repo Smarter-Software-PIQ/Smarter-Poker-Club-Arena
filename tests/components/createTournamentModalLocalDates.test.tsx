@@ -33,6 +33,7 @@ vi.mock('../../src/services/TournamentService', async (original) => {
   return {
     ...actual,
     tournamentService: {
+      resumePendingTournamentCreation: vi.fn().mockResolvedValue(null),
       createTournament: mocks.create,
       buildRpcConfig: actual.tournamentService.buildRpcConfig.bind(actual.tournamentService),
     },

@@ -1,3 +1,8 @@
+import {
+  mockTournamentCreateReply,
+  CREATED_EVENT,
+  CREATE_ACTOR,
+} from '../helpers/tournamentCreateFixture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { supabase } from '../../src/lib/supabase';
 import { mysteryBountyCreationColumns } from '../../server/src/domain/mysteryBountyCreation';
@@ -47,23 +52,24 @@ describe('manual and saved schedule mystery contract', () => {
     'uses one creator request with a %s configuration receipt',
     async (mode) => {
       const expected = mysteryBountyCreationColumns(base);
-      const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({
-        data: {
-          success: true,
-          tournament_id: 'event',
-          ...(mode === 'missing'
-            ? {}
-            : {
-                mystery_config:
-                  mode === 'changed' ? { ...expected, mystery_bounty_top_percent: 25 } : expected,
-              }),
-        },
-        error: null,
-      } as never);
+      const rpc = mockTournamentCreateReply({
+        success: true,
+        tournament_id: CREATED_EVENT,
+        ...(mode === 'missing'
+          ? {}
+          : {
+              mystery_config:
+                mode === 'changed' ? { ...expected, mystery_bounty_top_percent: 25 } : expected,
+            }),
+      });
       const chain = {
         select: vi.fn(() => chain),
         eq: vi.fn(() => chain),
-        maybeSingle: vi.fn(async () => ({ data: { id: 'event', ...expected }, error: null })),
+        abortSignal: vi.fn(() => chain),
+        maybeSingle: vi.fn(async () => ({
+          data: { id: CREATED_EVENT, club_id: 'club', ...expected },
+          error: null,
+        })),
       };
       vi.spyOn(supabase, 'from').mockReturnValue(chain as never);
       if (mode === 'confirmed')
@@ -75,12 +81,16 @@ describe('manual and saved schedule mystery contract', () => {
           'tournament was created'
         );
       // The caller must not create again or apply configuration in a second request.
-      expect(rpc.mock.calls.filter(([name]) => name === 'fn_create_tournament')).toHaveLength(1);
+      expect(
+        rpc.mock.calls.filter(([name]) => name === 'fn_create_tournament_request')
+      ).toHaveLength(1);
       expect(rpc.mock.calls.some(([name]) => name === 'fn_apply_mystery_bounty_config')).toBe(
         false
       );
-      expect(rpc).toHaveBeenCalledWith('fn_create_tournament', {
+      expect(rpc).toHaveBeenCalledWith('fn_create_tournament_request', {
         p_club_id: 'club',
+        p_request_id: expect.any(String),
+        p_actor_id: CREATE_ACTOR,
         p_config: expect.objectContaining({ mysteryBountyProfile: 'classic' }),
       });
     }

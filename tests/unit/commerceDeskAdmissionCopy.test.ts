@@ -1,3 +1,4 @@
+import { mockTournamentCreateReply } from '../helpers/tournamentCreateFixture';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  AN ENFORCED ADMISSION REFUSAL READS AS THE SERVER WROTE IT (20260924102056)
@@ -223,15 +224,12 @@ describe('tournament creation shows the server message', () => {
   it('createTournament throws the message the server sent', async () => {
     const said =
       'This Club Needs Active Operating Access To Create A New Tournament. Words From The Server.';
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: {
-        success: false,
-        error: 'operating_access_required',
-        message: said,
-        reason: 'no_effective_entitlement',
-      },
-      error: null,
-    } as never);
+    mockTournamentCreateReply({
+      success: false,
+      error: 'operating_access_required',
+      message: said,
+      reason: 'no_effective_entitlement',
+    });
     await expect(tournamentService.createTournament('club', mtt)).rejects.toThrow(said);
   });
 

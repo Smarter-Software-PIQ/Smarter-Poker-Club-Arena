@@ -1,3 +1,7 @@
+import {
+  mockTournamentCreateReply,
+  prepareTournamentCreateFixture,
+} from '../helpers/tournamentCreateFixture';
 /**
  * TOURNAMENT CREATION RULES: ONE LIST, EVERY SURFACE (20260924033701)
  *
@@ -390,32 +394,27 @@ describe('surface: TournamentService.buildRpcConfig and createTournament', () =>
   });
 
   it('refuses before the round trip, with the refusal sentence', async () => {
+    prepareTournamentCreateFixture();
     const rpc = vi.spyOn(supabase, 'rpc');
     await expect(
       tournamentService.createTournament('club', { ...mtt, type: 'satellite' })
     ).rejects.toThrow(TOURNAMENT_CREATE_ERRORS.satellite_target_required);
-    expect(rpc).not.toHaveBeenCalledWith('fn_create_tournament', expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith('fn_create_tournament_request', expect.anything());
   });
 
   it('turns a server refusal code into its sentence, including the ones it used to drop', async () => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: { success: false, error: 'satellite_requires_scheduled_mtt_config' },
-      error: null,
-    } as never);
+    mockTournamentCreateReply({ success: false, error: 'satellite_requires_scheduled_mtt_config' });
     await expect(tournamentService.createTournament('club', mtt)).rejects.toThrow(
       TOURNAMENT_CREATE_ERRORS.satellite_requires_scheduled_mtt_config
     );
   });
 
   it('turns a database error into its specific sentence', async () => {
-    vi.spyOn(supabase, 'rpc').mockResolvedValue({
-      data: null,
-      error: {
-        code: '23514',
-        message:
-          'tournament guard: 5 paid places for 2 seats - more places than players who can enter',
-      },
-    } as never);
+    mockTournamentCreateReply(null, {
+      code: '23514',
+      message:
+        'tournament guard: 5 paid places for 2 seats - more places than players who can enter',
+    });
     await expect(tournamentService.createTournament('club', mtt)).rejects.toThrow(
       TOURNAMENT_CREATE_ERRORS.more_paid_places_than_players
     );

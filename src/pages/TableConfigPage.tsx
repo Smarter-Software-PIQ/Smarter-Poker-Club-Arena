@@ -1091,6 +1091,12 @@ export default function TableConfigPage({
         );
         return false;
       }
+      await tournamentService.confirmTournamentCreationStage(
+        clubId || '',
+        intent.tournamentId,
+        intent.plan
+      );
+      if (!isCurrent()) return false;
       if (intentKey) clearCreatedStageIntent(intentKey, intent);
       createdStageIntent.current = null;
       toast.success(`Day Schedule Saved: ${intent.plan.stages.length} Days.`);
@@ -1114,6 +1120,32 @@ export default function TableConfigPage({
         await finishStageIntent(retained);
         return;
       }
+      const resumed = await tournamentService.resumePendingTournamentCreation(clubId || '', true);
+      if (resumed) {
+        const original = resumed[0];
+        if (original.creationStagePlan && !intentKey)
+          throw new Error(
+            'Your Account Must Be Verified Before Finishing The Original Multi-Day Tournament.'
+          );
+        if (original.creationStagePlan && intentKey) {
+          const intent: CreatedTournamentStageIntent = {
+            version: 1,
+            tournamentId: original.id,
+            plan: original.creationStagePlan,
+          };
+          createdStageIntent.current = { key: intentKey, value: intent };
+          retainCreatedStageIntent(intentKey, intent);
+          if (!isCurrent()) return;
+          await finishStageIntent(intent);
+          return;
+        }
+        if (!isCurrent()) return;
+        toast.success('The Original Tournament Request Is Complete.');
+        if (onExit) onExit('tournament_created');
+        else navigate(`/clubs/${clubId}/tournaments`);
+        return;
+      }
+      if (!isCurrent()) return;
       // Next Step (Satellite) sanity: an ON toggle with no target would
       // silently build a cash-paying MTT, so refuse before any round trip.
       if (config.gameMode === 'mtt' && config.nextStepSatellite && !config.satelliteTargetId) {
@@ -1218,18 +1250,26 @@ export default function TableConfigPage({
 
       const createOneOff = !scheduleOn || Boolean(tournamentConfig.startTime);
       if (createOneOff) {
-        const created = await tournamentService.createTournament(clubId || '', tournamentConfig);
+        const created = await tournamentService.createTournament(
+          clubId || '',
+          tournamentConfig,
+          sealedPlan?.ok ? sealedPlan.plan : null
+        );
         const createdId = (created as { id?: string } | null)?.id;
-        if (sealedPlan?.ok && (!createdId || typeof createdId !== 'string')) {
+        if (
+          !createdId ||
+          typeof createdId !== 'string' ||
+          (sealedPlan?.ok && !Object.prototype.hasOwnProperty.call(created, 'creationStagePlan'))
+        ) {
           throw new Error(
             'Tournament Creation Was Not Verified. Check The Tournament List Before Creating Another.'
           );
         }
-        if (createdId && sealedPlan?.ok && intentKey) {
+        if (createdId && created.creationStagePlan && intentKey) {
           const intent: CreatedTournamentStageIntent = {
             version: 1,
             tournamentId: createdId,
-            plan: sealedPlan.plan,
+            plan: created.creationStagePlan,
           };
           createdStageIntent.current = { key: intentKey, value: intent };
           retainCreatedStageIntent(intentKey, intent);

@@ -251,13 +251,22 @@ export default function CreateTournamentModal({
   // Keep an acknowledged schedule when the subsequent one-off fails. An
   // explicit retry edits that same row; an unanswered create supplies no id.
   const scheduleScope = useMemo(() => ({ clubId, unionId }), [clubId, unionId]);
+  const currentSubmitScope = useRef(scheduleScope);
+  currentSubmitScope.current = scheduleScope;
+  const submitGeneration = useRef(0);
+  useEffect(() => {
+    submittingRef.current = false;
+    setIsSubmitting(false);
+  }, [scheduleScope]);
   const savedSchedule = useRef<{ scope: object; id: string } | null>(null);
   /** False once unmounted: onSuccess() closes this modal from inside submit. */
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
+    submitGeneration.current += 1;
     return () => {
       isMountedRef.current = false;
+      submitGeneration.current += 1;
     };
   }, []);
   const [rebuyChips, setRebuyChips] = useState('');
@@ -672,26 +681,38 @@ export default function CreateTournamentModal({
     /* A REF, BEFORE ANYTHING IS AWAITED. `isSubmitting` is state and does not
        change until React re-renders, so two submits in the same tick - a
        double tap, or Enter held down - both got through and created two
-       tournaments, and createTournament carries no idempotency key. */
+       tournaments. The durable request identity also survives a lost reply. */
     if (submittingRef.current) return;
     submittingRef.current = true;
     setIsSubmitting(true);
+    const generation = submitGeneration.current;
+    const isCurrent = () =>
+      isMountedRef.current &&
+      currentSubmitScope.current === scheduleScope &&
+      submitGeneration.current === generation;
 
-    /* A SCHEDULED start in the past creates a tournament that can never begin.
+    try {
+      const resumed = await tournamentService.resumePendingTournamentCreation(clubId);
+      if (!isCurrent()) return;
+      if (resumed) {
+        toast.success('The Original Tournament Request Is Complete.');
+        onSuccess();
+        return;
+      }
+      /* A SCHEDULED start in the past creates a tournament that can never begin.
        coreValid only checks the two date strings are non-empty, so an owner
        picking yesterday got no feedback at all. A minute of slack, for a form
        filled in while the clock moves: the shared rule every surface uses. */
-    if (startTimeMode === 'scheduled') {
-      const startsAt = new Date(joinLocalStart(scheduledDate, scheduledTime)).getTime();
-      if (!Number.isFinite(startsAt) || startTimeIsPast(startsAt)) {
-        toast.error(TOURNAMENT_CREATE_ERRORS.start_time_in_past);
-        submittingRef.current = false;
-        setIsSubmitting(false);
-        return;
+      if (startTimeMode === 'scheduled') {
+        const startsAt = new Date(joinLocalStart(scheduledDate, scheduledTime)).getTime();
+        if (!Number.isFinite(startsAt) || startTimeIsPast(startsAt)) {
+          toast.error(TOURNAMENT_CREATE_ERRORS.start_time_in_past);
+          submittingRef.current = false;
+          setIsSubmitting(false);
+          return;
+        }
       }
-    }
 
-    try {
       // ── Satellite validation: without a target it silently becomes a cash
       // payout, defeating the point (winners should earn seats). ──
       if (isSatellite && !satelliteTargetId) {
@@ -959,6 +980,7 @@ export default function CreateTournamentModal({
       // owner chose "Schedule only". ──
       if (effectiveScheduleEnabled) {
         const resolvedClubId = await resolveClubUUID(clubId);
+        if (!isCurrent()) return;
         const rpcConfig = tournamentService.buildRpcConfig(tournamentConfig);
         delete rpcConfig.startTime;
         rpcConfig.recurrenceCadence = effectiveCadence;
@@ -983,6 +1005,7 @@ export default function CreateTournamentModal({
           active: true,
           config: rpcConfig,
         });
+        if (!isCurrent()) return;
         savedSchedule.current = { scope: scheduleScope, id: scheduleId };
         toast.success(
           repeatsWeekly ? 'Saved. This Event Repeats Every Week.' : 'Recurring schedule saved.'
@@ -990,7 +1013,7 @@ export default function CreateTournamentModal({
       }
 
       if (!effectiveScheduleEnabled || effectiveStartTimeMode !== 'schedule_only') {
-        const mainTournament = await tournamentService.createTournament(clubId, tournamentConfig);
+        const satellites: import('../../services/TournamentService').TournamentConfig[] = [];
 
         // Auto Satellite Generation
         // Satellites can only feed an event whose seat they can deliver, so a
@@ -1006,20 +1029,28 @@ export default function CreateTournamentModal({
           const satSeats = Math.max(1, parseInt(genSatSeats) || 1);
 
           for (let i = 0; i < satCount; i++) {
-            await tournamentService.createTournament(clubId, {
+            satellites.push({
               ...tournamentConfig,
               name: `Satellite to ${tournamentConfig.name}${satCount > 1 ? ` #${i + 1}` : ''}`,
               type: 'satellite',
               buyIn: satBuyIn,
               guaranteedPrize: 0,
               satelliteTarget: {
-                tournamentId: mainTournament.id,
+                tournamentId: '', // The original main receipt binds this before submission.
                 seatsAwarded: satSeats,
               },
             });
           }
+          await tournamentService.createTournamentWithSatellites(
+            clubId,
+            tournamentConfig,
+            satellites
+          );
+          if (!isCurrent()) return;
           toast.success(`Main Event and ${satCount} Satellite(s) Created`);
         } else {
+          await tournamentService.createTournament(clubId, tournamentConfig);
+          if (!isCurrent()) return;
           toast.success('Tournament created');
         }
       }
@@ -1027,12 +1058,12 @@ export default function CreateTournamentModal({
       onSuccess();
     } catch (error: any) {
       reportError(error, 'CreateTournamentModal.Failed_to_create_tournament');
-      toast.error(error?.message || 'Failed to create tournament');
+      if (isCurrent()) toast.error(error?.message || 'Failed to create tournament');
     } finally {
-      submittingRef.current = false;
+      if (isCurrent()) submittingRef.current = false;
       /* onSuccess() unmounts this modal, so a bare setState here wrote to a
          torn-down component on the happy path. */
-      if (isMountedRef.current) setIsSubmitting(false);
+      if (isCurrent()) setIsSubmitting(false);
     }
   };
 

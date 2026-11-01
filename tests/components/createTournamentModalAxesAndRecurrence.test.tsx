@@ -11,13 +11,21 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), success: vi.fn(), error: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  bundle: vi.fn(),
+  resume: vi.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
+}));
 vi.mock('../../src/services/TournamentService', async (original) => {
   const actual = await original<typeof import('../../src/services/TournamentService')>();
   return {
     ...actual,
     tournamentService: {
+      resumePendingTournamentCreation: mocks.resume,
       createTournament: mocks.create,
+      createTournamentWithSatellites: mocks.bundle,
       buildRpcConfig: actual.tournamentService.buildRpcConfig.bind(actual.tournamentService),
     },
   };
@@ -34,6 +42,7 @@ const CLUB = 'd6000000-0000-4000-8000-000000000001';
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.create.mockResolvedValue({ id: 'synthetic-created-event' });
+  mocks.resume.mockResolvedValue(null);
 });
 afterEach(() => {
   cleanup();
@@ -448,4 +457,112 @@ describe('chat stays off for multi-table tournaments', () => {
       expect((await submit(container, 2)).banChat).toBe(true);
     }
   );
+});
+
+it('submits the main and generated satellites through one retained creation bundle', async () => {
+  const { container } = mount();
+  mocks.bundle
+    .mockRejectedValueOnce(new Error('Original request unconfirmed'))
+    .mockResolvedValueOnce([]);
+  fireEvent.click(screen.getByRole('switch', { name: 'Generate Satellites To This Event' }));
+  fireEvent.change(screen.getByLabelText('Number Of Satellites'), { target: { value: '2' } });
+  fireEvent.submit(container.querySelector('form')!);
+  await waitFor(() => expect(mocks.bundle).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(mocks.error).toHaveBeenCalled());
+  fireEvent.submit(container.querySelector('form')!);
+  await waitFor(() => expect(mocks.bundle).toHaveBeenCalledTimes(2));
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.bundle.mock.calls[0][2]).toHaveLength(2);
+  const withoutFreshClock = (value: unknown): unknown =>
+    JSON.parse(
+      JSON.stringify(value, (key, entry) => (key === 'startTime' ? '<new form clock>' : entry))
+    );
+  expect(withoutFreshClock(mocks.bundle.mock.calls[1])).toEqual(
+    withoutFreshClock(mocks.bundle.mock.calls[0])
+  );
+});
+
+it('does not publish an old club creation after the modal changes club', async () => {
+  let finish!: (value: unknown) => void;
+  mocks.create.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    })
+  );
+  const onSuccess = vi.fn();
+  const { container, rerender } = render(
+    <CreateTournamentModal clubId={CLUB} onClose={vi.fn()} onSuccess={onSuccess} />
+  );
+  fireEvent.change(screen.getByPlaceholderText('E.G. Saturday Night Turbo'), {
+    target: { value: 'Original' },
+  });
+  fireEvent.submit(container.querySelector('form')!);
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+  rerender(
+    <CreateTournamentModal
+      clubId="d6000000-0000-4000-8000-000000000002"
+      onClose={vi.fn()}
+      onSuccess={onSuccess}
+    />
+  );
+  finish({ id: 'original' });
+  await waitFor(() => expect(mocks.create).toHaveResolved());
+  expect(onSuccess).not.toHaveBeenCalled();
+  expect(mocks.success).not.toHaveBeenCalled();
+});
+
+it('keeps the new submission owned across an A to B to A club round trip', async () => {
+  let finishOld!: (value: unknown) => void;
+  let finishNew!: (value: unknown) => void;
+  mocks.create
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishOld = resolve;
+      })
+    )
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishNew = resolve;
+      })
+    );
+  const onSuccess = vi.fn();
+  const props = { onClose: vi.fn(), onSuccess };
+  const { container, rerender } = render(<CreateTournamentModal clubId={CLUB} {...props} />);
+  fireEvent.change(screen.getByPlaceholderText('E.G. Saturday Night Turbo'), {
+    target: { value: 'Original' },
+  });
+  fireEvent.submit(container.querySelector('form')!);
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+  rerender(<CreateTournamentModal clubId="d6000000-0000-4000-8000-000000000002" {...props} />);
+  rerender(<CreateTournamentModal clubId={CLUB} {...props} />);
+  fireEvent.submit(container.querySelector('form')!);
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2));
+  finishOld({ id: 'old' });
+  await waitFor(() => expect(mocks.create).toHaveResolvedTimes(1));
+  expect(onSuccess).not.toHaveBeenCalled();
+  fireEvent.submit(container.querySelector('form')!);
+  expect(mocks.create).toHaveBeenCalledTimes(2);
+  finishNew({ id: 'new' });
+  await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+});
+
+it('checks an original pending request before refusing an elapsed draft date', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    vi.setSystemTime(new Date('2026-11-01T12:00:00Z'));
+    const { container } = mount();
+    fireEvent.change(screen.getByDisplayValue('Start In 1 Min'), {
+      target: { value: 'scheduled' },
+    });
+    mocks.resume.mockResolvedValueOnce([{ id: 'original' }]);
+    vi.setSystemTime(new Date('2026-11-10T12:00:00Z'));
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() =>
+      expect(mocks.success).toHaveBeenCalledWith('The Original Tournament Request Is Complete.')
+    );
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.error).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
 });
