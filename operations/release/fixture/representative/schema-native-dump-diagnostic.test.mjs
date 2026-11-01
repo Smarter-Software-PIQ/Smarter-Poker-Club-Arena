@@ -394,11 +394,20 @@ for site in sorted(m.COMMAND_SITES):
  try:m.command([sys.executable,'-c',"import sys;print('private-argv-secret');sys.stderr.write('private-sql-secret');sys.exit(7)"],cwd=sys.argv[1],env=os.environ,site=site)
  except RuntimeError:pass
  first=dict(m.FIRST_COMMAND_FAILURE)
- assert first=={'kind':'EXIT_NONZERO','exit_code':7,'stdout_bytes':20,'stderr_bytes':18,'site':site},first
+ expected={'kind':'EXIT_NONZERO','exit_code':7,'stdout_bytes':20,'stderr_bytes':18,'site':site}
+ if site=='BATCH_COMPILE':expected['compiler_category']='UNCLASSIFIED'
+ assert first==expected,first
  try:m.command([sys.executable,'-c','raise SystemExit(9)'],cwd=sys.argv[1],env=os.environ,site='BATCH_EXECUTE')
  except RuntimeError:pass
  assert m.FIRST_COMMAND_FAILURE==first
  assert 'private' not in json.dumps(first) and sys.argv[1] not in json.dumps(first)
+for token,category in m.COMPILER_CATEGORIES:
+ m.FIRST_COMMAND_FAILURE=None
+ child="import sys;sys.stderr.write("+repr('private-sql-secret '+token.decode())+");sys.exit(7)"
+ try:m.command([sys.executable,'-c',child],cwd=sys.argv[1],env=os.environ,site='BATCH_COMPILE')
+ except RuntimeError:pass
+ assert m.FIRST_COMMAND_FAILURE['compiler_category']==category
+ assert 'private' not in json.dumps(m.FIRST_COMMAND_FAILURE) and token.decode() not in json.dumps(m.FIRST_COMMAND_FAILURE)
 m.FIRST_COMMAND_FAILURE=None
 try:m.command([sys.executable],cwd=sys.argv[1],env=os.environ,site='private-invalid-site')
 except RuntimeError:pass

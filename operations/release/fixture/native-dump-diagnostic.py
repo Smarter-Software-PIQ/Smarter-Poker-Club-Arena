@@ -28,6 +28,9 @@ BUILD_STAGE = 'INPUT'
 FIRST_FAILURE_STAGE = None
 FIRST_COMMAND_FAILURE = None
 COMMAND_SITES = {'BATCH_COMPILE', 'BATCH_EXECUTE', 'D3_CAPABILITY', 'RUNTIME_NPM', 'RUNTIME_HYDRATE'}
+COMPILER_CATEGORIES = ((b'-Werror=misleading-indentation', 'MISLEADING_INDENTATION'),
+                       (b'-Werror=unused-function', 'UNUSED_FUNCTION'),
+                       (b'-Werror=implicit-function-declaration', 'IMPLICIT_DECLARATION'))
 STAGES = {'INPUT','DOWNLOAD','SOURCE_GUARDS','CONFIGURE','GENERATED_HEADERS','STOCK_BUILD','LIBPQ_INSTALL',
           'DIAGNOSTIC_BUILD','VERSION','SYNTHETIC_RUNTIME','SYNTHETIC_CLUSTER','SYNTHETIC_SEED',
           'SYNTHETIC_STOCK','SYNTHETIC_DIAGNOSTIC','SQL_EQUIVALENCE','SYNTHETIC_CLEANUP','OUTPUT','CLEANUP'}
@@ -248,7 +251,9 @@ def command(args, *, cwd, env, timeout=120, data=None, site=None):
                 'exit_code': code if type(code) is int and 0 <= code <= 255 else None,
                 'stdout_bytes': min(len(output), 8 * 1024 * 1024 + 65536),
                 'stderr_bytes': min(len(errors), 8 * 1024 * 1024 + 65536),
-                **({'site': site} if site is not None else {})}
+                **({'site': site} if site is not None else {}),
+                **({'compiler_category': next((category for token, category in COMPILER_CATEGORIES
+                    if token in errors), 'UNCLASSIFIED')} if site == 'BATCH_COMPILE' else {})}
         raise
     finally:
         selector.close()

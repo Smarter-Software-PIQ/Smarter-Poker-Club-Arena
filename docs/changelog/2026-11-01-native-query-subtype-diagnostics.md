@@ -1,5 +1,9 @@
 # Closed native query subtype diagnostics
 
+The controlled C-contract compile site additionally emits only a closed category
+when its actual error bytes contain a fixed GCC warning-as-error token; all other
+compiler output remains UNCLASSIFIED. Raw output is never retained or published.
+
 The existing private diagnostic channel now uses D3 with a fixed subtype nibble
 inside the same12-byte frame. Four aggregate object/query buckets remain, with
 additional bounded per-subtype started/completed request counts and elapsed/max
