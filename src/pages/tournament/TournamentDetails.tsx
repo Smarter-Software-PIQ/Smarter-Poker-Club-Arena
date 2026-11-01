@@ -524,7 +524,8 @@ export default function TournamentDetails({
      * were watching. The embedder says so explicitly rather than this effect
      * trying to infer where it is being rendered. */
     if (suppressAutoOpenTable) return;
-    if (laterDay || stageViewLoading || stageViewUnknown) return;
+    if (laterDay || stageViewLoading) return;
+    if (stageViewUnknown) return;
     if (tournament?.status !== 'RUNNING') return;
     if (!user?.id) return;
     if (autoOpenedTableRef.current) return;
