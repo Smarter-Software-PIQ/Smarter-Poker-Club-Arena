@@ -1,17 +1,41 @@
 // Isolated native fixture only. Never imported by a production retirement entry.
-export function observeFixtureKernelRefusals(source, scenario) {
-  if (!['direct-success', 'direct-deferred-close-timeout', 'host-success', 'host-deferred-close-timeout'].includes(scenario))
-    throw new Error('Unknown isolated kernel diagnostic scenario');
-  let predicate = 0;
-  const observed = source.replaceAll('throw inspectorSocketRefusal();', () => {
-    const current = ++predicate;
-    return `{ ${current === 22 ? 'fixtureDiscoveryRows(clients);' : ''} fixtureKernelDiagnostic('predicate-${current}'); throw inspectorSocketRefusal(); }`;
-  }).replace('} catch {', `} catch (fixtureKernelError) {
-    fixtureKernelDiagnostic(['ENOENT', 'EACCES', 'EPERM', 'EBADF', 'EIO', 'EINTR'].includes(fixtureKernelError?.code)
-      ? 'syscall-' + fixtureKernelError.code : 'syscall-unknown');`);
-  if (predicate !== 29 || observed === source || !source.includes('} catch {'))
+const fixtureScenarios = new Set([
+  'direct-success',
+  'direct-deferred-close-timeout',
+  'host-success',
+  'host-deferred-close-timeout',
+]);
+const clientRefusal = "if (clients.length) throw inspectorSocketRefusal('clients_before_grant');";
+const tcpDiagnosticPattern =
+  /^tcp-state-(established|syn_sent|syn_recv|fin_wait_1|fin_wait_2|time_wait|close|close_wait|last_ack|listen|closing|new_syn_recv|unknown)-discovery-(yes|no|unknown)$/;
+const refusalFactory = "const inspectorSocketRefusal = (reason = 'input_unproved') => {";
+function reasonCodes(source) {
+  const match = source.match(/const inspectorKernelReasons = new Set\(\[([\s\S]*?)\]\);/);
+  if (!match) throw new Error('The isolated kernel diagnostic source shape changed');
+  const codes = [...match[1].matchAll(/'([a-z_]{1,40})'/g)].map((value) => value[1]);
+  if (
+    !codes.length ||
+    codes.length > 64 ||
+    new Set(codes).size !== codes.length ||
+    match[1].replace(/'[a-z_]{1,40}'|[\s,]/g, '') !== ''
+  )
     throw new Error('The isolated kernel diagnostic source shape changed');
-  return `function fixtureDiscoveryRows(rows) {
+  return new Set(codes);
+}
+export function observeFixtureKernelRefusals(source, scenario) {
+  if (!fixtureScenarios.has(scenario))
+    throw new Error('Unknown isolated kernel diagnostic scenario');
+  reasonCodes(source);
+  if (
+    source.split(refusalFactory).length !== 2 ||
+    source.split(clientRefusal).length !== 2 ||
+    !source.includes('export function mainInspectorKernelFailureReason(error) {')
+  )
+    throw new Error('The isolated kernel diagnostic source shape changed');
+  // Observe the maintained closed refusal factory, without rewriting any
+  // predicate, thrown error, ownership check or native exception handling.
+  return (
+    `function fixtureDiscoveryRows(rows) {
     try {
       const tuple = globalThis[Symbol.for('fixture.main-inspector.discovery-tuple')];
       const states = {'01':'established','02':'syn_sent','03':'syn_recv','04':'fin_wait_1','05':'fin_wait_2','06':'time_wait','07':'close','08':'close_wait','09':'last_ack','0A':'listen','0B':'closing','0C':'new_syn_recv'};
@@ -26,15 +50,47 @@ export function observeFixtureKernelRefusals(source, scenario) {
   function fixtureKernelDiagnostic(tag) {
     try { inspectorFs.writeSync(2, 'fixture-kernel-diagnostic:${scenario}:' + tag + '\\n'); }
     catch { /* Observation never changes the maintained refusal. */ }
-  }\n` + observed;
+  }\n` +
+    source
+      .replace(
+        refusalFactory,
+        refusalFactory +
+          `
+  fixtureKernelDiagnostic('reason-' + (inspectorKernelReasons.has(reason) ? reason : 'kernel_io_unproved'));`
+      )
+      .replace(
+        clientRefusal,
+        "if (clients.length) { fixtureDiscoveryRows(clients); throw inspectorSocketRefusal('clients_before_grant'); }"
+      )
+  );
+}
+export function readFixtureKernelRefusals(source, stderr, scenario) {
+  if (!fixtureScenarios.has(scenario))
+    throw new Error('Unknown isolated kernel diagnostic scenario');
+  const codes = reasonCodes(source);
+  const prefix = 'fixture-kernel-diagnostic:' + scenario + ':';
+  return stderr
+    .split('\n')
+    .filter((line) => {
+      if (!line.startsWith(prefix)) return false;
+      const tag = line.slice(prefix.length);
+      return (
+        (tag.startsWith('reason-') && codes.has(tag.slice(7))) || tcpDiagnosticPattern.test(tag)
+      );
+    })
+    .slice(0, 12)
+    .join(';');
 }
 
 // Observe only the actual initial discovery socket. Preserve response parsing,
 // close resolution, deadlines and every maintained call byte around it.
 export function observeFixtureDiscoverySocket(source) {
   const needle = "request.on('socket', (socket) =>\n      socket.once('close', () => {";
-  if (source.split(needle).length !== 2) throw new Error('The isolated discovery source shape changed');
-  return source.replace(needle, `request.on('socket', (socket) =>
+  if (source.split(needle).length !== 2)
+    throw new Error('The isolated discovery source shape changed');
+  return source.replace(
+    needle,
+    `request.on('socket', (socket) =>
       (socket.once('connect', () => {
         try {
           if (socket.localAddress === '127.0.0.1' && socket.remoteAddress === '127.0.0.1' &&
@@ -43,5 +99,6 @@ export function observeFixtureDiscoverySocket(source) {
             globalThis[Symbol.for('fixture.main-inspector.discovery-tuple')] = Object.freeze({local:endpoint(socket.localPort),remote:endpoint(socket.remotePort)});
           }
         } catch { /* Observation never changes discovery. */ }
-      }), socket).once('close', () => {`);
+      }), socket).once('close', () => {`
+  );
 }
