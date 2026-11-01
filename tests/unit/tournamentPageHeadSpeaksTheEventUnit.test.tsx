@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   rebuy: false,
   addon: false,
   playing: false,
+  readMembership: null as null | (() => any),
   tableReads: [] as Array<{ id: string; signal?: AbortSignal }>,
   readTables: (_id: string, _signal?: AbortSignal): any => ({ data: [], error: null }),
   broadcasts: new Map<string, (payload: any) => void>(),
@@ -40,8 +41,10 @@ vi.mock('../../src/lib/supabase', () => ({
                 let result: any = { data: null, error: null };
                 if (relation === 'club_members' && projection === 'role')
                   result.data = state.owner ? { role: 'owner' } : null;
-                if (relation === 'tournament_players')
+                if (relation === 'tournament_players') {
                   result.data = state.playing ? { status: 'playing' } : null;
+                  if (projection === 'id' && state.readMembership) result = state.readMembership();
+                }
                 if (relation === 'tables') {
                   state.tableReads.push({ id, signal });
                   result = state.readTables(id, signal);
@@ -151,6 +154,7 @@ beforeEach(() => {
   state.rebuy = false;
   state.addon = false;
   state.playing = false;
+  state.readMembership = null;
   state.tableReads = [];
   state.readTables = () => ({ data: [], error: null });
   state.register.mockReset();
@@ -632,3 +636,33 @@ it('an add-on end does not discard a pending rebuy eligibility answer', async ()
   expect(screen.getByRole('button', { name: /^Rebuy/ })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^Add-On/ })).toBeNull();
 });
+
+it.each(['register', 'unregister'])(
+  'a stale membership read cannot reverse confirmed %s',
+  async (action) => {
+    let finish!: (value: any) => void;
+    state.readMembership = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+    const { first } = mountActions();
+    vi.mocked(tournamentService.getTournament).mockResolvedValue(first as any);
+    fireEvent.click(await screen.findByRole('button', { name: /^Register/ }));
+    await act(async () => {
+      await state.register.mock.calls[0][1]();
+    });
+    expect(screen.getByRole('button', { name: 'Unregister' })).toBeInTheDocument();
+    if (action === 'unregister') {
+      vi.mocked(tournamentService.unregisterPlayer).mockResolvedValue({ success: true } as any);
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Unregister' }));
+      });
+    }
+    await act(async () => {
+      finish({ data: action === 'register' ? null : { id: 'old-entry' }, error: null });
+    });
+    expect(
+      screen.getByRole('button', { name: action === 'register' ? 'Unregister' : /^Register/ })
+    ).toBeInTheDocument();
+  }
+);

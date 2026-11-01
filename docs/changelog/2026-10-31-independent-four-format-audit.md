@@ -353,3 +353,5 @@ Two additional parent-identified connected cases reproduced before: unregister A
 Reviewed final action-followup compiler passes. The29 mounted cases cover the final source; current-main integration and protected checks/publication remain required.
 
 Integrated protected7a15a5e454dd71795016264f6e512d42af9775a7. Conflicts were chronology and the owned mounted harness additions against main's unextended fixture; all parent broadcast cases and action tests retained. Production TournamentPage and mounted test bytes are unchanged against qualified4842b2d90d after resolution. Exact integrated normal qualification follows.
+
+Connected membership-read followup authorized by parent: two mounted regressions show the initial delayed membership read reversing a confirmed registration or unregistration in the same visit. A membership revision now advances on those confirmed transitions and prevents the older read from publishing. Final31 mounted cases and exact compiler pass on integrated main7a15a5e4. No new read, retry, payment or polling. Logs tournament-membership-before/after/tsc retained; final normal push and protected/live acceptance remain required.

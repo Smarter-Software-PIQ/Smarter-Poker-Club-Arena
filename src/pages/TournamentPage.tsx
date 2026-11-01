@@ -192,6 +192,7 @@ export default function TournamentPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
+  const membershipRevision = useRef(0);
   const [isOwner, setIsOwner] = useState(false);
   const [isInUnion, setIsInUnion] = useState(false);
   const [canRebuyNow, setCanRebuyNow] = useState(false);
@@ -576,6 +577,7 @@ export default function TournamentPage() {
 
   // ─── Sync registration state when selected tournament changes ───
   useEffect(() => {
+    const revision = ++membershipRevision.current;
     if (!selectedTournament || !currentUser.id || currentUser.id === 'guest') {
       setIsRegistered(false);
       return;
@@ -589,7 +591,7 @@ export default function TournamentPage() {
           .eq('tournament_id', selectedTournament.id)
           .eq('user_id', currentUser.id)
           .maybeSingle();
-        if (isMounted) setIsRegistered(!!data);
+        if (isMounted && revision === membershipRevision.current) setIsRegistered(!!data);
       } catch (e) {
         reportError(e, 'TournamentPage.Registration_sync_error');
       }
@@ -627,6 +629,7 @@ export default function TournamentPage() {
       },
       async () => {
         if (!ownsSelection(selectionOwner)) return;
+        membershipRevision.current += 1;
         setIsRegistered(true);
         await refreshSelectedTournament(selectionOwner, selectedTournament.id);
       }
@@ -730,6 +733,7 @@ export default function TournamentPage() {
       );
 
       if (!ownsSelection(selectionOwner)) return;
+      membershipRevision.current += 1;
       setIsRegistered(false);
       // The database owns the exact pool, bounty, fee and wallet/ticket split.
       // Realtime refreshes the tournament row; this page must not reconstruct
