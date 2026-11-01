@@ -31,6 +31,7 @@
  */
 
 import { supabase } from './supabase';
+import { HUB_TAB_PREFIX, LOBBY_TAB_PREFIX } from '../utils/tabSlots';
 import { gameCode } from '../utils/gameCode';
 import { reportError } from '../utils/errorReporter';
 
@@ -48,6 +49,10 @@ export interface SpinQuickJoinRow {
 /** How many boards the sheet shows. Same five the cash path offers. */
 export const SPIN_QUICK_JOIN_LIMIT = 5;
 
+function isPageTabId(id: string | null): boolean {
+  return !id || id.startsWith(LOBBY_TAB_PREFIX) || id.startsWith(HUB_TAB_PREFIX);
+}
+
 /**
  * Is the table the player is looking at a Spin, and if so which one?
  * Returns null for a cash table, an MTT, a heads-up, or anything unreadable.
@@ -58,7 +63,7 @@ export async function readSpinContext(activeTableId: string | null): Promise<{
   buyIn: number;
   gameType: string | null;
 } | null> {
-  if (!activeTableId) return null;
+  if (!activeTableId || isPageTabId(activeTableId)) return null;
   const { data: tbl, error: tblErr } = await supabase
     .from('tables')
     .select('id, tournament_id')

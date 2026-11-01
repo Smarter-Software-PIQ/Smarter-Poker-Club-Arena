@@ -55,6 +55,13 @@ const TIMERS: ReadonlyArray<readonly [string, string]> = [
   // (01a1944f-7131-7f11-8dcc-873d576e781c). Source policy restores daily
   // 04:00 Chicago admission when Phase1 completes or is explicitly off.
   ['stage-engine-release.yml', '30 * * * *'],
+  // Owner explicitly requested daily 04:00 Chicago engine updates, 2026-10-20.
+  // Same business schedule, more chances to arrive (2026-11-01): GitHub
+  // delivered the single :30 tick 5-6 h late on 10-30/10-31 and not at all on
+  // 11-01. Four odd minutes per DST twin; only a run created inside the
+  // 03:30-03:50 Chicago window prepares, once per Chicago date.
+  ['stage-engine-release.yml', '31,35,39,43 8 * * *'],
+  ['stage-engine-release.yml', '31,35,39,43 9 * * *'],
   ['applied-migrations-recorded.yml', '25 7,19 * * *'],
   ['ci.yml', '17 */2 * * *'],
   ['ci.yml', '35 6 * * *'],
@@ -141,7 +148,7 @@ describe('no workflow gains a new timer', () => {
 
   it('the surface is the size it was measured at', () => {
     expect(found).toHaveLength(TIMERS.length);
-    expect(TIMERS).toHaveLength(13);
+    expect(TIMERS).toHaveLength(15);
     expect(new Set(TIMERS.map(([f]) => f)).size).toBe(11);
   });
 

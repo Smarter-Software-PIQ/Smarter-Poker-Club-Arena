@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 273355,
-      "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+      "bytes": 273719,
+      "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6258,5 +6258,17 @@
     "reason": "Preserve both protected creation and closure histories and all native gates; current composed source fingerprints only.",
     "historicalEvidenceRestamped": false,
     "execution_performed": false
+  },
+  "memberStatsChicagoRegression20261101": {
+    "reason": "Reviewed six-line addition runs isolated PG17 Chicago member reporting regression in existing required shard4. Existing cash qualification inputs, commands, assertions and historical verdicts unchanged. Current workflow source identity only.",
+    "previous": {
+      "bytes": 273355,
+      "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+    },
+    "current": {
+      "bytes": 273719,
+      "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
+    },
+    "historicalEvidenceRestamped": false
   }
 }

@@ -62,9 +62,14 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     expect(engineSignal).toContain("if: github.event_name != 'workflow_dispatch'");
     expect(engineSignal).toContain('needs: detect');
     expect(triggers).toContain("cron: '30 * * * *'");
-    expect((triggers.match(/cron:/g) ?? []).length).toBe(1);
-    expect(engineSignalCode).toContain('RUN_CREATED_AT=$(gh api');
-    expect(engineSignalCode).toContain('local = nominal.astimezone(ZoneInfo("America/Chicago"))');
+    expect((triggers.match(/cron:/g) ?? []).length).toBe(3);
+    expect(engineSignalCode).toContain('PHASE1_RESTORING');
+    expect(triggers).toContain("cron: '31,35,39,43 8 * * *'");
+    expect(triggers).toContain("cron: '31,35,39,43 9 * * *'");
+    expect(engineSignalCode).toContain(
+      'moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at)'
+    );
+    expect(engineSignalCode).toContain('local = moment.astimezone(ZoneInfo("America/Chicago"))');
     expect(engineSignal).toMatch(/^permissions:\s*\{\}\s*$/m);
     expect(engineSignal).toMatch(/^\s{2}detect:\s*$/m);
     expect(engineSignal).toContain('fetch-depth: 0');

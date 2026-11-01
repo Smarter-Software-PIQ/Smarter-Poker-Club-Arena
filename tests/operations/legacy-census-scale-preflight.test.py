@@ -232,6 +232,226 @@ class ScaleBoundary(unittest.TestCase):
                 self.assertEqual(synced.call_count,2)
             self.assertTrue(state.is_dir())
 
+    # 2026-11-01, receiver 41272015208: a slow Docker instant timed the client
+    # out at 34.99 s, the fixture never reported, `docker rm -f` was capped at
+    # 1.5 s, and the image was refused for ever. These pin each half.
+    def test_timeline_keeps_every_pinned_budget_and_puts_the_fixture_inside_the_client(self):
+        self.assertEqual((m.PROFILE['queryMs'], m.PROFILE['fixtureAndCleanupMs'], m.PROFILE['cleanupReserveMs']),
+                         (20000, 40000, 5000))
+        self.assertEqual(m.CLIENT_S, 35)
+        self.assertEqual(m.FIXTURE_S, 33)
+        self.assertEqual(m.PROFILE['measurementsPerImage'], 2)
+        bad = valid_result()
+        bad['fixtureMs'] = 35001
+        with self.assertRaises(RuntimeError):
+            m.validate_result(bad, 'f'*64)
+        # Every marker is a refusal the identity-checked fixture or addon can print.
+        fixture = (ROOT/'server/scripts/legacy-census-scale-fixture.mjs').read_bytes()
+        addon = (ROOT/'server/scripts/native/legacy-census.cc').read_bytes()
+        composition = (ROOT/'server/scripts/legacy-census-scale-composition.mjs').read_bytes()
+        for marker in m.DEADLINE_MARKERS:
+            self.assertTrue(marker in fixture or marker in addon or marker in composition, marker)
+
+    def own_commands(self, killed):
+        own = subprocess.CompletedProcess([],0,json.dumps('a'*64)+' '+json.dumps('k'*64),'')
+        absent = subprocess.CompletedProcess([],1,'','Error: No such object: own')
+        ok = subprocess.CompletedProcess([],0,'','')
+        return [own] + ([subprocess.CompletedProcess([],1,'','is not running')] if killed else []) + [ok, absent]
+
+    def test_cleanup_kills_then_removes_with_the_whole_reserve(self):
+        with patch.object(m,'command',side_effect=self.own_commands(True)) as cmd:
+            seen = {}
+            self.assertTrue(m.cleanup('own','k'*64,time.monotonic()+5,kill=True,seen=seen))
+        self.assertTrue(seen['observed'])
+        self.assertEqual([call.args[0][:2] for call in cmd.call_args_list],
+                         [['docker','inspect'],['docker','kill'],['docker','rm'],['docker','inspect']])
+        # No 1.5 s cap: removal of a large container gets the real reserve.
+        self.assertGreater(cmd.call_args_list[2].kwargs['timeout'], 3.5)
+        self.assertGreater(cmd.call_args_list[1].kwargs['timeout'], 3.5)
+        # Exhausted reserve is a named refusal, never an unbounded command.
+        with patch.object(m,'command') as cmd, self.assertRaisesRegex(RuntimeError,'deadline exhausted'):
+            m.cleanup('own','k'*64,time.monotonic()+1)
+        cmd.assert_not_called()
+        # A removal that never completes leaves the observation recorded.
+        own = subprocess.CompletedProcess([],0,json.dumps('a'*64)+' '+json.dumps('k'*64),'')
+        seen = {}
+        with patch.object(m,'command',side_effect=[own, subprocess.TimeoutExpired(['docker'],4)]), self.assertRaises(subprocess.TimeoutExpired):
+            m.cleanup('own','k'*64,time.monotonic()+5,seen=seen)
+        self.assertTrue(seen['observed'])
+
+    def run_measure(self, run, commands):
+        with tempfile.TemporaryDirectory(prefix='native-scale-measure-') as directory:
+            output = Path(directory)/'out'
+            with patch.object(m.subprocess,'run',side_effect=run) as docker, patch.object(m,'command',side_effect=commands) as cmd:
+                record = m.measure(1,'own','k'*64,'sha256:'+'a'*64,'f'*64,output,1)
+            return record, docker, cmd
+
+    def test_client_timeout_is_a_timed_out_measurement_with_proved_kill(self):
+        started = time.time()
+        def slow(args, **kwargs):
+            raise subprocess.TimeoutExpired(args, kwargs['timeout'])
+        record, docker, cmd = self.run_measure(slow, self.own_commands(True))
+        args, kwargs = docker.call_args.args[0], docker.call_args.kwargs
+        # The fixture's own deadline is 2 s inside the 35 s client deadline.
+        self.assertAlmostEqual(int(args[-3])/1000 - started, 33, delta=1)
+        self.assertEqual(args[-2:], [m.digest((m.ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+                                    m.digest((m.ROOT/'legacy-census-scale-composition.mjs').read_bytes())])
+        self.assertAlmostEqual(kwargs['timeout'], 35, delta=1)
+        self.assertEqual([call.args[0][1] for call in cmd.call_args_list], ['inspect','kill','rm','inspect'])
+        self.assertIs(record['timedOut'], True)
+        self.assertIs(record['cleanupProved'], True)
+        self.assertIs(record['executionAcknowledged'], False)
+        self.assertIn('client exceeded its 35 second budget', record['error'])
+        self.assertEqual(m.fresh_remeasurement(record), 'available')
+
+    def test_fixture_reports_its_own_deadline_and_fit_failures_stay_fit_failures(self):
+        def deadline(args, **kwargs):
+            kwargs['stdout'].write(b'Error: fixed allocation exceeded disposable fixture deadline\n')
+            return subprocess.CompletedProcess(args, 1)
+        record, _, cmd = self.run_measure(deadline, self.own_commands(False))
+        self.assertEqual([call.args[0][1] for call in cmd.call_args_list], ['inspect','rm','inspect'])
+        self.assertIs(record['timedOut'], True)
+        self.assertIn('refused at its own deadline', record['error'])
+        self.assertEqual(m.fresh_remeasurement(record), 'available')
+        for output, code in [(b'Error: native census memory headroom refused\n',1), (b'',137),
+                             (b'AssertionError: representative used-heap floor not reached\n',1)]:
+            def fit(args, **kwargs):
+                kwargs['stdout'].write(output)
+                return subprocess.CompletedProcess(args, code)
+            record, _, _ = self.run_measure(fit, self.own_commands(False))
+            with self.subTest(output=output):
+                self.assertIs(record['timedOut'], False)
+                self.assertEqual(m.fresh_remeasurement(record), 'none')
+        # A timeout whose cleanup is unknown never earns a re-measurement.
+        def slow(args, **kwargs):
+            raise subprocess.TimeoutExpired(args, kwargs['timeout'])
+        unknown = subprocess.CompletedProcess([],1,'','daemon unavailable')
+        record, _, _ = self.run_measure(slow, [unknown, unknown])
+        self.assertIs(record['cleanupProved'], False)
+        self.assertEqual(m.fresh_remeasurement(record), 'none')
+
+    def gate(self, state, deadline_s=600):
+        identity = {'revision':next(iter(m.LEGACY))}
+        original = Path.read_text
+        def read(path, *args, **kwargs):
+            return 'MemAvailable:       60000000 kB\n' if str(path) == '/proc/meminfo' else original(path,*args,**kwargs)
+        def load(path):
+            return json.loads(Path(path).read_text())
+        return [patch.object(m,'STATE',state), patch.object(m.os,'geteuid',return_value=0),
+                patch.object(m.sys,'platform','linux'), patch.object(m,'serving',return_value=identity),
+                patch.object(m,'candidate_identity',return_value={}), patch.object(m,'secure_directory'),
+                patch.object(m.os,'fstat',return_value=type('S',(),{'st_mode':0o100600,'st_uid':0})()),
+                patch.object(m.Path,'read_text',read), patch.object(m,'read_state',side_effect=load)]
+
+    def record(self, attempt, timed_out=False, qualified=False, cleanup=True, observed=True):
+        result = valid_result()
+        result['fixtureSHA256'] = m.digest((m.ROOT/'legacy-census-scale-fixture.mjs').read_bytes())
+        return {'attempt':attempt, 'container':'c', 'elapsedMs':39000 if qualified else 40000, 'exitCode':0,
+                'cleanupProved':cleanup, 'executionAcknowledged':not timed_out, 'observedOwnedContainer':observed,
+                'result':result if qualified else None, 'hostAvailableBytes':1, 'timedOut':timed_out,
+                'error':None if qualified and cleanup else ('docker run client exceeded its 35 second budget' if timed_out else 'disposable fixed scale fixture failed')}
+
+    def main_with(self, state, measurements, deadline_s=600, run='42-1', cleanup=True):
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for item in self.gate(state):
+                stack.enter_context(item)
+            measure = stack.enter_context(patch.object(m,'measure',side_effect=measurements))
+            clean = stack.enter_context(patch.object(m,'cleanup',return_value=cleanup))
+            stdout = stack.enter_context(patch('sys.stdout',new_callable=io.StringIO))
+            error = None
+            try:
+                m.main('sha256:'+'a'*64, run, str(int(time.time())+deadline_s))
+            except RuntimeError as exc:
+                error = str(exc)
+            receipt = json.loads(next(state.glob('*.json')).read_text()) if list(state.glob('*.json')) else None
+            return error, receipt, measure, clean, stdout.getvalue()
+
+    def test_one_timeout_earns_exactly_one_fresh_measurement_in_the_same_run(self):
+        with tempfile.TemporaryDirectory(prefix='native-scale-fresh-') as directory:
+            state = Path(directory)
+            error, receipt, measure, _, out = self.main_with(state, [self.record(1,timed_out=True), self.record(2,qualified=True)])
+            self.assertIsNone(error)
+            self.assertIn('qualified-on-fresh-remeasurement', out)
+            self.assertEqual(measure.call_count, 2)
+            self.assertEqual([call.args[0] for call in measure.call_args_list], [1,2])
+            self.assertTrue(measure.call_args_list[1].args[1].endswith('-2'))
+            self.assertEqual((receipt['status'], receipt['freshRemeasurement'], len(receipt['attempts'])), ('qualified','used',2))
+            self.assertEqual(len(list(state.glob('*.intent'))), 2)
+            # The qualified receipt is reused, never measured again.
+            error, _, measure, _, out = self.main_with(state, [])
+            self.assertIsNone(error)
+            self.assertIn('reused-qualified', out)
+            measure.assert_not_called()
+
+    def test_a_second_timeout_refuses_for_good(self):
+        with tempfile.TemporaryDirectory(prefix='native-scale-second-') as directory:
+            state = Path(directory)
+            error, receipt, measure, _, _ = self.main_with(state, [self.record(1,timed_out=True), self.record(2,timed_out=True)])
+            self.assertIn('after its one fresh re-measurement', error)
+            self.assertEqual((receipt['status'], receipt['freshRemeasurement']), ('refused','used'))
+            self.assertEqual(measure.call_count, 2)
+            error, _, measure, _, _ = self.main_with(state, [], run='43-1')
+            self.assertIn('refused for good', error)
+            measure.assert_not_called()
+
+    def test_a_fit_failure_never_measures_again(self):
+        with tempfile.TemporaryDirectory(prefix='native-scale-fit-') as directory:
+            state = Path(directory)
+            error, receipt, measure, _, _ = self.main_with(state, [self.record(1)])
+            self.assertIn('scale preactivation gate refused', error)
+            self.assertEqual((receipt['freshRemeasurement'], measure.call_count), ('none', 1))
+            error, _, measure, _, _ = self.main_with(state, [], run='43-1')
+            self.assertIn('refused for good', error)
+            measure.assert_not_called()
+
+    def test_without_budget_the_timeout_stays_retryable_by_a_new_receiver_run(self):
+        with tempfile.TemporaryDirectory(prefix='native-scale-budget-') as directory:
+            state = Path(directory)
+            real = m.time.time
+            clock = {'skew': 0}
+            def first_takes_the_budget(*args):
+                clock['skew'] = 545  # 600 s admission minus a 40 s measurement and more
+                return self.record(1,timed_out=True)
+            with patch.object(m.time,'time',side_effect=lambda: real()+clock['skew']):
+                error, receipt, measure, _, _ = self.main_with(state, first_takes_the_budget)
+            self.assertIn('remains for a new receiver run', error)
+            self.assertEqual((receipt['status'], receipt['freshRemeasurement'], measure.call_count), ('refused','available',1))
+            self.assertEqual(len(list(state.glob('*.intent'))), 1)
+            # A new receiver run with its own admission measures once more.
+            error, receipt, measure, _, _ = self.main_with(state, [self.record(2,qualified=True)], run='43-1')
+            self.assertIsNone(error)
+            self.assertEqual([call.args[0] for call in measure.call_args_list], [2])
+            self.assertEqual((receipt['freshRemeasurement'], len(receipt['attempts'])), ('used', 2))
+
+    def test_a_fresh_measurement_that_left_no_receipt_is_never_repeated(self):
+        with tempfile.TemporaryDirectory(prefix='native-scale-crash-') as directory:
+            state = Path(directory)
+            # KeyboardInterrupt stands in for SIGKILL: no record, no receipt update.
+            with self.assertRaises(KeyboardInterrupt):
+                self.main_with(state, [self.record(1,timed_out=True), KeyboardInterrupt()])
+            self.assertEqual(len(list(state.glob('*.intent'))), 2)
+            error, _, measure, clean, _ = self.main_with(state, [], run='43-1')
+            self.assertIn('refused for good', error)
+            measure.assert_not_called()
+            self.assertTrue(clean.call_args.args[0].endswith('-2'))
+
+    def test_unproved_first_cleanup_is_proved_before_the_fresh_measurement(self):
+        with tempfile.TemporaryDirectory(prefix='native-scale-later-') as directory:
+            state = Path(directory)
+            first = self.record(1,timed_out=True,cleanup=False,observed=True)
+            first['error'] += '; disposable cleanup not proved'
+            error, receipt, measure, clean, _ = self.main_with(state, [first, self.record(2,qualified=True)])
+            self.assertIsNone(error)
+            clean.assert_called_once()
+            self.assertIn('cleanupProvedLater', receipt['attempts'][0])
+        # Neither seen nor acknowledged: absence cannot exclude a late create.
+        with tempfile.TemporaryDirectory(prefix='native-scale-unseen-') as directory:
+            state = Path(directory)
+            first = self.record(1,timed_out=True,cleanup=False,observed=False)
+            error, receipt, measure, _, _ = self.main_with(state, [first])
+            self.assertEqual((receipt['freshRemeasurement'], measure.call_count), ('none', 1))
+
     def test_connected_source_enforces_existing_route_and_containment(self):
         helper = (ROOT/'server/scripts/prewarm-engine-image.sh').read_text()
         installer = (ROOT/'server/scripts/install-engine-supervisor.sh').read_text()

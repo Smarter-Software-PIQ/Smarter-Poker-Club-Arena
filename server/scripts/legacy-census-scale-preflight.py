@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""One-shot candidate-only scale qualification in the existing prewarm route.
+"""Bounded candidate-only scale qualification in the existing prewarm route.
 
 Never imports application code, opens Inspector, starts an engine or reads its
 configuration. A positive receipt qualifies this immutable synthetic fixture,
 not production custody or a maintenance certificate. Unknown cleanup is terminal.
+An image is measured at most twice, ever: the second, fresh measurement exists
+only when the first ran out of wall clock and its container is proved gone.
+A fit failure, an identity change or a second timeout refuses for good.
 """
 import fcntl
 import hashlib
@@ -37,7 +40,25 @@ LEGACY = frozenset((
 PROFILE = {'memoryBytes': CAP, 'swapBytes': 0, 'cpu': 1, 'pids': 32,
            'hostMarginBytes': HOST_MARGIN, 'queryMs': 20000, 'fixtureAndCleanupMs': 40000,
            'cleanupReserveMs': 5000, 'cardinality': 35000000, 'oldSpaceMiB': 4000,
-           'semiSpaceMiB': 1, 'outputCapBytes': OUTPUT_CAP}
+           'semiSpaceMiB': 1, 'outputCapBytes': OUTPUT_CAP,
+           'fixtureDeadlineMarginMs': 2000, 'measurementsPerImage': 2}
+# Inside one 40 s measurement: the Docker client owns the first 35 s (the
+# whole budget less the 5 s cleanup reserve) and the fixture's own wall-clock
+# deadline sits 2 s inside the client's, so a slow fixture refuses itself and
+# reports before the client is killed. The fixture refuses 1 s before that.
+CLIENT_S = (PROFILE['fixtureAndCleanupMs'] - PROFILE['cleanupReserveMs']) / 1000
+FIXTURE_S = CLIENT_S - PROFILE['fixtureDeadlineMarginMs'] / 1000
+CLEANUP_STEP_RESERVE_S = 0.5
+# The same admission the first measurement needs before it may start.
+ADMISSION_S = 60
+# Every wall-clock refusal the fixture and its native addon can make. Both
+# files are identity-checked inside the container (fixture SHA-256 argument,
+# addon manifest), so these bytes are known; anything else is a fit failure.
+DEADLINE_MARKERS = (b'fixed allocation exceeded disposable fixture deadline',
+                    b'native census deadline or topology refused',
+                    b'native query component exceeded20seconds',
+                    b'Number(outerDeadline) > Date.now()',
+                    b'assert.ok(deadline>Date.now())')
 
 
 def require(value, message):
@@ -188,15 +209,28 @@ def inspect_own(name, key, timeout):
     return True
 
 
-def cleanup(name, key, deadline):
-    def remaining():
-        value = deadline - time.monotonic()
+def cleanup(name, key, deadline, kill=False, seen=None):
+    # 2026-11-01 (receiver 41272015208): each command used to be capped at
+    # 1.5 s although the profile reserves 5 s for cleanup, so `docker rm -f`
+    # of a ~6.7 GB container still running behind a killed client timed out
+    # and the cleanup could never be proved. Every step now spends the real
+    # remaining reserve, holding back only what the later steps need. A
+    # client that never acknowledged the exit leaves a running container:
+    # it is killed explicitly first, then removed, then proved absent.
+    def remaining(reserve):
+        value = deadline - time.monotonic() - reserve
         require(value > 0, 'disposable cleanup deadline exhausted')
-        return min(value, 1.5)
-    observed = inspect_own(name, key, remaining())
+        return value
+    observed = inspect_own(name, key, remaining(CLEANUP_STEP_RESERVE_S * 3))
+    if seen is not None:
+        seen['observed'] = seen.get('observed', False) or observed
     if observed:
-        command(['docker', 'rm', '-f', name], timeout=remaining())
-    require(not inspect_own(name, key, remaining()), 'disposable cleanup not proved')
+        if kill:
+            # A container that already exited answers non-zero here; the
+            # forced removal below and the absence proof stay authoritative.
+            command(['docker', 'kill', name], timeout=remaining(CLEANUP_STEP_RESERVE_S * 2), check=False)
+        command(['docker', 'rm', '-f', name], timeout=remaining(CLEANUP_STEP_RESERVE_S))
+    require(not inspect_own(name, key, remaining(0)), 'disposable cleanup not proved')
     return observed
 
 
@@ -228,11 +262,121 @@ def validate_result(result, fixture_sha):
             'actual scale measurements, resource controls or reserve refused')
 
 
+class FixtureDeadline(Exception):
+    """The measurement ran out of wall clock: a slow host, not a census that does not fit."""
+
+
+def admit_measurement(run_id, before_serving):
+    require(serving(run_id) == before_serving, 'serving identity changed before allocation')
+    available = re.search(r'^MemAvailable:\s+([0-9]+) kB$', Path('/proc/meminfo').read_text(), re.M)
+    require(available and int(available[1]) * 1024 >= CAP + HOST_MARGIN,
+            'real host headroom below 36 GiB allocation plus 8 GiB live-host margin')
+    return int(available[1]) * 1024
+
+
+def measure(attempt, name, key, image, fixture_sha, output_path, host_available):
+    """One bounded disposable measurement. Returns its record; never repeats."""
+    started = time.monotonic()
+    cleanup_deadline = started + PROFILE['fixtureAndCleanupMs'] / 1000
+    client_deadline = started + CLIENT_S
+    fixture_deadline_ms = int((time.time() + FIXTURE_S) * 1000)
+    result, exit_code, acknowledged, cleanup_ok = None, None, False, False
+    seen = {'observed': False}
+    # (message, timing). Only an outcome whose every refusal is wall clock may
+    # earn the one fresh re-measurement; fit, identity and signal refusals and
+    # unproved cleanup never do.
+    errors, cleanup_errors = [], []
+    try:
+        def cap_output():
+            resource.setrlimit(resource.RLIMIT_FSIZE, (OUTPUT_CAP, OUTPUT_CAP))
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        with open(output_path, 'xb', buffering=0) as output:
+            os.chmod(output_path, 0o600)
+            args = ['docker', 'run', '--pull', 'never', '--name', name, '--label', LABEL+'='+key,
+                    '--restart', 'no', '--no-healthcheck', '--network', 'none', '--read-only', '--memory', str(CAP),
+                    '--memory-swap', str(CAP), '--cpus', '1', '--pids-limit', '32', '--log-driver', 'none',
+                    '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--user', '65534:65534',
+                    '--tmpfs', '/tmp:rw,noexec,nosuid,size=1m', '--ulimit', 'core=0:0',
+                    '--entrypoint', '/usr/bin/env', image, '-i', '/usr/local/bin/node',
+                    '--max-old-space-size=4000', '--max-semi-space-size=1',
+                    '/app/native/legacy-census/scale-fixture.mjs', fixture_sha, str(fixture_deadline_ms),
+                    digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+                    digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes())]
+            try:
+                execution = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                                           timeout=max(0.1, client_deadline - time.monotonic()),
+                                           preexec_fn=cap_output)
+            except subprocess.TimeoutExpired:
+                errors.append(('docker run client exceeded its %d second budget' % CLIENT_S, True))
+                raise FixtureDeadline()
+            acknowledged = True
+            exit_code = execution.returncode
+        require(output_path.stat().st_size <= OUTPUT_CAP, 'fixture output exceeded bound')
+        if exit_code != 0:
+            if any(marker in output_path.read_bytes() for marker in DEADLINE_MARKERS):
+                errors.append(('disposable fixed scale fixture refused at its own deadline', True))
+                raise FixtureDeadline()
+            raise RuntimeError('disposable fixed scale fixture failed')
+        result = json.loads(output_path.read_text())
+        validate_result(result, fixture_sha)
+    except FixtureDeadline:
+        pass
+    except Exception as exc:
+        errors.append((str(exc), False))
+    finally:
+        try:
+            seen['observed'] = cleanup(name, key, cleanup_deadline, kill=not acknowledged, seen=seen) or seen['observed']
+            # Absence after an unknown Docker client outcome cannot exclude
+            # a create still completing in the daemon. Never certify it.
+            require(acknowledged or seen['observed'],
+                    'container creation acknowledgement unknown; cleanup remains unknown')
+            cleanup_ok = True
+        except Exception as exc:
+            cleanup_errors.append(str(exc))
+    elapsed = (time.monotonic() - started) * 1000
+    if elapsed > PROFILE['fixtureAndCleanupMs']:
+        errors.append(('full disposable fixture/cleanup exceeded 40 seconds', True))
+    messages = [message for message, _ in errors] + cleanup_errors
+    return {'attempt': attempt, 'container': name, 'elapsedMs': elapsed, 'exitCode': exit_code,
+            'cleanupProved': cleanup_ok, 'executionAcknowledged': acknowledged,
+            'observedOwnedContainer': seen['observed'], 'result': result,
+            'hostAvailableBytes': host_available,
+            'timedOut': bool(errors) and all(timing for _, timing in errors),
+            'error': '; '.join(messages) or None}
+
+
+def receipt_for(binding, candidate, run_id, attempts, fresh):
+    # The top-level fields describe the latest measurement, in the shape every
+    # existing reader takes; `attempts` keeps the whole durable history.
+    latest = attempts[-1]
+    qualified = latest['error'] is None and latest['cleanupProved'] is True
+    return {'binding':binding, 'candidate':candidate, 'status':'qualified' if qualified else 'refused',
+            'runId':run_id, 'at':time.time(), 'elapsedMs':latest['elapsedMs'],
+            'cleanupProved':latest['cleanupProved'], 'executionAcknowledged':latest['executionAcknowledged'],
+            'observedOwnedContainer':latest['observedOwnedContainer'],
+            'servingBefore':latest['servingBefore'], 'servingAfter':latest['servingAfter'],
+            'result':latest['result'], 'hostAvailableBytes':latest['hostAvailableBytes'],
+            'error':latest['error'], 'attempts':attempts, 'freshRemeasurement':fresh}
+
+
+def fresh_remeasurement(record):
+    # 'available' only for a wall-clock refusal whose container is proved
+    # gone, or can still be proved gone because it was seen or its exit was
+    # acknowledged. Everything else is bound to the image for good.
+    if record['error'] is None and record['cleanupProved'] is True:
+        return 'unused'
+    if record['timedOut'] is True and (record['cleanupProved'] is True or
+                                       record['observedOwnedContainer'] is True or
+                                       record['executionAcknowledged'] is True):
+        return 'available'
+    return 'none'
+
+
 def main(image, run_id, deadline):
     require(os.geteuid() == 0 and sys.platform == 'linux', 'supported Linux provider identity required')
     require(re.fullmatch(r'sha256:[0-9a-f]{64}', image) and
             re.fullmatch(r'[1-9][0-9]*(-[1-9][0-9]*)?', run_id) and str(deadline).isdigit(), 'invalid scale identity')
-    require(int(deadline) - time.time() > 60, 'insufficient preactivation scale preparation budget')
+    require(int(deadline) - time.time() > ADMISSION_S, 'insufficient preactivation scale preparation budget')
     before_serving = serving(run_id)
     if before_serving['revision'] not in LEGACY:
         require(serving(run_id) == before_serving, 'serving identity changed during nonlegacy classification')
@@ -247,6 +391,8 @@ def main(image, run_id, deadline):
                'compositionSHA256':digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes())}
     key = digest(json.dumps(binding, sort_keys=True).encode())
     name = 'ca-native-scale-' + key[:32]
+    names = {1: name, 2: name + '-2'}
+    reserve = PROFILE['cleanupReserveMs'] / 1000
     secure_directory(STATE)
     lock_fd = os.open(STATE / 'resource.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(lock_fd, 'r+') as lock:
@@ -254,96 +400,103 @@ def main(image, run_id, deadline):
         require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022,
                 'qualification resource lock custody refused')
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        receipt_path, intent_path = STATE / (key + '.json'), STATE / (key + '.intent')
+        receipt_path = STATE / (key + '.json')
+        intents = {1: STATE / (key + '.intent'), 2: STATE / (key + '.attempt-2.intent')}
+        outputs = {1: STATE / (key + '.output'), 2: STATE / (key + '.attempt-2.output')}
+
+        def run_measurement(attempt):
+            host_available = admit_measurement(run_id, before_serving)
+            # Exclusive creation: each measurement's intent can exist once.
+            write_state(intents[attempt], {'binding':binding, 'container':names[attempt], 'runId':run_id,
+                                           'attempt':attempt, 'hostAvailableBytes':host_available,
+                                           'at':time.time()}, exclusive=True)
+            record = measure(attempt, names[attempt], key, image, fixture_sha, outputs[attempt], host_available)
+            record.update({'runId':run_id, 'servingBefore':before_serving, 'servingAfter':None})
+            try:
+                record['servingAfter'] = serving(run_id)
+                require(record['servingAfter'] == before_serving, 'serving identity changed during qualification')
+            except Exception as exc:
+                record['error'] = (record['error'] + '; ' if record['error'] else '') + str(exc)
+                record['timedOut'] = False
+            return record
+
+        def settle_and_refuse(attempts):
+            # Prove every unproved cleanup with its own exact image-bound
+            # name, including a fresh measurement that left no receipt, then
+            # refuse for good.
+            pending = [item['attempt'] for item in attempts if item.get('cleanupProved') is not True]
+            if len(attempts) == 1 and intents[2].exists():
+                pending.append(2)
+            for attempt in pending:
+                intent = read_state(intents[attempt])
+                require(intent.get('binding') == binding and intent.get('container') == names[attempt],
+                        'unresolved scale cleanup custody refused')
+                require(cleanup(names[attempt], key, time.monotonic() + reserve),
+                        'prior creation acknowledgement remains unknown; no automatic repeat')
+            raise RuntimeError('scale outcome for this image is refused for good; no automatic repeat')
+
         if receipt_path.exists():
             receipt = read_state(receipt_path)
             require(receipt.get('binding') == binding, 'existing scale receipt binding refused')
-            if receipt.get('status') != 'qualified' and receipt.get('cleanupProved') is not True:
-                intent = read_state(intent_path)
-                require(intent.get('binding') == binding and intent.get('container') == name,
-                        'unresolved scale cleanup custody refused')
-                require(cleanup(name, key, time.monotonic() + 5),
-                        'prior creation acknowledgement remains unknown; no automatic repeat')
-                raise RuntimeError('prior refused scale cleanup proved; no automatic repeat')
-            require(receipt.get('candidate') == candidate and receipt.get('status') == 'qualified' and
-                    receipt.get('cleanupProved') is True and 0 < receipt.get('elapsedMs', 0) <= 40000,
-                    'existing scale outcome is not a qualified receipt; no automatic retry')
-            validate_result(receipt['result'], fixture_sha)
-            require(serving(run_id) == before_serving, 'serving identity changed before receipt reuse')
-            print('ENGINE_NATIVE_SCALE=' + json.dumps({'status':'reused-qualified', 'receipt':str(receipt_path),
-                                                      'binding':binding}, sort_keys=True))
-            return
-        if intent_path.exists():
-            intent = read_state(intent_path)
+            if receipt.get('status') == 'qualified':
+                require(receipt.get('candidate') == candidate and receipt.get('cleanupProved') is True and
+                        0 < receipt.get('elapsedMs', 0) <= PROFILE['fixtureAndCleanupMs'],
+                        'existing scale outcome is not a qualified receipt; no automatic retry')
+                validate_result(receipt['result'], fixture_sha)
+                require(serving(run_id) == before_serving, 'serving identity changed before receipt reuse')
+                print('ENGINE_NATIVE_SCALE=' + json.dumps({'status':'reused-qualified', 'receipt':str(receipt_path),
+                                                          'binding':binding}, sort_keys=True))
+                return
+            attempts = receipt.get('attempts')
+            require(receipt.get('status') == 'refused' and receipt.get('candidate') == candidate and
+                    isinstance(attempts, list) and 1 <= len(attempts) <= PROFILE['measurementsPerImage'] and
+                    [item.get('attempt') if isinstance(item, dict) else None for item in attempts] ==
+                    list(range(1, len(attempts) + 1)), 'existing scale receipt history refused')
+            if not (len(attempts) == 1 and receipt.get('freshRemeasurement') == 'available' and
+                    fresh_remeasurement(attempts[0]) == 'available' and not intents[2].exists()):
+                settle_and_refuse(attempts)
+            first = attempts[0]
+        elif intents[1].exists():
+            intent = read_state(intents[1])
             require(intent.get('binding') == binding and intent.get('container') == name,
                     'existing one-shot intent custody refused')
-            require(cleanup(name, key, time.monotonic() + 5),
+            require(cleanup(name, key, time.monotonic() + reserve),
                     'prior creation acknowledgement remains unknown; no automatic repeat')
             raise RuntimeError('prior scale intent has no positive receipt; own cleanup proved, no automatic repeat')
-        require(serving(run_id) == before_serving, 'serving identity changed before allocation')
-        available = re.search(r'^MemAvailable:\s+([0-9]+) kB$', Path('/proc/meminfo').read_text(), re.M)
-        require(available and int(available[1]) * 1024 >= CAP + HOST_MARGIN,
-                'real host headroom below 36 GiB allocation plus 8 GiB live-host margin')
-        write_state(intent_path, {'binding':binding, 'container':name, 'runId':run_id,
-                                 'hostAvailableBytes':int(available[1])*1024, 'at':time.time()}, exclusive=True)
-        started = time.monotonic()
-        cleanup_deadline = started + 40
-        output_path = STATE / (key + '.output')
-        result, error, cleanup_ok = None, None, False
-        execution_acknowledged, observed_container = False, False
-        try:
-            def cap_output():
-                resource.setrlimit(resource.RLIMIT_FSIZE, (OUTPUT_CAP, OUTPUT_CAP))
-                resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-            with open(output_path, 'xb', buffering=0) as output:
-                os.chmod(output_path, 0o600)
-                args = ['docker', 'run', '--pull', 'never', '--name', name, '--label', LABEL+'='+key,
-                        '--restart', 'no', '--no-healthcheck', '--network', 'none', '--read-only', '--memory', str(CAP),
-                        '--memory-swap', str(CAP), '--cpus', '1', '--pids-limit', '32', '--log-driver', 'none',
-                        '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--user', '65534:65534',
-                        '--tmpfs', '/tmp:rw,noexec,nosuid,size=1m', '--ulimit', 'core=0:0',
-                        '--entrypoint', '/usr/bin/env', image, '-i', '/usr/local/bin/node',
-                        '--max-old-space-size=4000', '--max-semi-space-size=1',
-                        '/app/native/legacy-census/scale-fixture.mjs', fixture_sha,
-                        str(int((time.time() + 35) * 1000)), binding['collectorSHA256'], binding['compositionSHA256']]
-                execution = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output,
-                                           stderr=output, timeout=max(0.1, 35-(time.monotonic()-started)),
-                                           preexec_fn=cap_output)
-                execution_acknowledged = True
-                require(execution.returncode == 0, 'disposable fixed scale fixture failed; no automatic retry')
-            require(output_path.stat().st_size <= OUTPUT_CAP, 'fixture output exceeded bound')
-            result = json.loads(output_path.read_text())
-            validate_result(result, fixture_sha)
-        except Exception as exc:
-            error = str(exc)
-        finally:
-            try:
-                observed_container = cleanup(name, key, cleanup_deadline)
-                # Absence after an unknown Docker client outcome cannot exclude
-                # a create still completing in the daemon. Never certify it.
-                require(execution_acknowledged or observed_container,
-                        'container creation acknowledgement unknown; cleanup remains unknown')
-                cleanup_ok = True
-            except Exception as exc:
-                error = (error + '; ' if error else '') + str(exc)
-        elapsed = (time.monotonic() - started) * 1000
-        if elapsed > 40000:
-            error = (error + '; ' if error else '') + 'full disposable fixture/cleanup exceeded 40 seconds'
-        after_serving = None
-        try:
-            after_serving = serving(run_id)
-            require(after_serving == before_serving, 'serving identity changed during qualification')
-        except Exception as exc:
-            error = (error + '; ' if error else '') + str(exc)
-        receipt = {'binding':binding, 'candidate':candidate, 'status':'qualified' if error is None and cleanup_ok else 'refused',
-                   'runId':run_id, 'at':time.time(), 'elapsedMs':elapsed, 'cleanupProved':cleanup_ok,
-                   'executionAcknowledged':execution_acknowledged, 'observedOwnedContainer':observed_container,
-                   'servingBefore':before_serving, 'servingAfter':after_serving, 'result':result,
-                   'hostAvailableBytes':int(available[1])*1024, 'error':error}
+        else:
+            first = run_measurement(1)
+            attempts = [first]
+            fresh = fresh_remeasurement(first)
+            write_state(receipt_path, receipt_for(binding, candidate, run_id, attempts, fresh))
+            if fresh == 'unused':
+                print('ENGINE_NATIVE_SCALE=' + json.dumps({'status':'qualified', 'receipt':str(receipt_path),
+                                                          'binding':binding, 'result':first['result']}, sort_keys=True))
+                return
+            require(fresh == 'available', 'scale preactivation gate refused: ' + str(first['error']))
+        # The first measurement ran out of wall clock on a host that was slow
+        # at that instant. Its container must be proved gone before the one
+        # fresh measurement of the same image, which needs the same admission
+        # the first one did; without it the refusal stays retryable by a new
+        # receiver run, and the fresh measurement can still happen only once.
+        if first['cleanupProved'] is not True:
+            require(cleanup(names[1], key, time.monotonic() + reserve) or
+                    first['executionAcknowledged'] is True or first['observedOwnedContainer'] is True,
+                    'first measurement creation acknowledgement unknown; no fresh re-measurement')
+            first['cleanupProved'] = True
+            first['cleanupProvedLater'] = {'runId':run_id, 'at':time.time()}
+            write_state(receipt_path, receipt_for(binding, candidate, first['runId'], attempts, 'available'))
+        require(int(deadline) - time.time() > ADMISSION_S,
+                'scale preactivation gate refused: ' + str(first['error']) +
+                '; one fresh re-measurement of this image remains for a new receiver run')
+        second = run_measurement(2)
+        attempts.append(second)
+        receipt = receipt_for(binding, candidate, run_id, attempts, 'used')
         write_state(receipt_path, receipt)
-        require(receipt['status'] == 'qualified', 'scale preactivation gate refused: ' + str(error))
-        print('ENGINE_NATIVE_SCALE=' + json.dumps({'status':'qualified', 'receipt':str(receipt_path),
-                                                  'binding':binding, 'result':result}, sort_keys=True))
+        require(receipt['status'] == 'qualified',
+                'scale preactivation gate refused after its one fresh re-measurement: ' + str(second['error']))
+        print('ENGINE_NATIVE_SCALE=' + json.dumps({'status':'qualified-on-fresh-remeasurement',
+                                                  'receipt':str(receipt_path), 'binding':binding,
+                                                  'result':second['result']}, sort_keys=True))
 
 
 def refuse_signal(signum, _frame):

@@ -143,8 +143,9 @@ export interface HubSubscriber {
  * of memory. Nothing anywhere read `bufferedAmount`.
  *
  * SOFT: stop sending DELTA/EVENT to a socket this far behind. Dropping a DELTA
- * is safe by design — the client sees the seq gap and asks for a RESYNC, which
- * is the same recovery path a dropped packet already triggers. SNAPSHOTs are
+ * is caught by the next state seq gap and client RESYNC. Before a new decision,
+ * the hub instead repairs a known state loss directly: a quiet turn may not
+ * have another DELTA to expose the gap. SNAPSHOTs are
  * never dropped, because a snapshot is how a gapped client gets well again.
  *
  * HARD: the socket is hopeless. Evict it; the client reconnects and resubscribes
@@ -244,6 +245,8 @@ interface TableRoom {
   lastSnapshot: GameStateSnapshot | null;
   lastSeq: number;
   lastPublishedAt: number;
+  /** State loss belongs to this room, even on a socket shared by several tables. */
+  missingState: WeakSet<HubSubscriber>;
 }
 
 // ─── Hub ──────────────────────────────────────────────────────────────────────
@@ -339,7 +342,7 @@ export class TableStateHub {
         seq: room.lastSeq,
         state: room.lastSnapshot,
       };
-      this.safeSend(tableId, sub, JSON.stringify(snap));
+      this.sendSnapshot(room, sub, JSON.stringify(snap));
     }
     // D3: a client that connects DURING the reveal window still gets the
     // reveal. The snapshot above cannot carry it (Law 1.16 — a snapshot must
@@ -453,14 +456,14 @@ export class TableStateHub {
   resync(tableId: string, sub: HubSubscriber): boolean {
     const room = this.rooms.get(tableId);
     const snapshot = room?.lastSnapshot ?? null;
-    if (snapshot) {
+    if (room && snapshot) {
       const snap: SnapshotMessage = {
         type: 'SNAPSHOT',
         tableId,
         seq: room?.lastSeq ?? 0,
         state: snapshot,
       };
-      this.safeSend(tableId, sub, JSON.stringify(snap));
+      this.sendSnapshot(room, sub, JSON.stringify(snap));
     }
     // D3: a RESYNC is the recovery path for a client that MISSED messages, and
     // until now it recovered only state. The snapshot carries no multiplier, so
@@ -632,6 +635,7 @@ export class TableStateHub {
         lastSnapshot: null,
         lastSeq: 0,
         lastPublishedAt: 0,
+        missingState: new WeakSet(),
       };
       this.rooms.set(tableId, room);
     }
@@ -665,9 +669,50 @@ export class TableStateHub {
     // messages, so it is never dropped. DELTA and EVENT are catch-up-able.
     const droppable = message.type !== 'SNAPSHOT';
 
+    let recoverySnapshot: string | undefined;
     for (const sub of room.subscribers) {
-      if (this.safeSend(room.tableId, sub, payload, droppable)) delivered?.add(sub);
+      // A later EVENT has no state-sequence dependency on the wire. After a
+      // soft-dropped DELTA it could give an older client a new decision token
+      // over the previous street's wagers, before another DELTA exposes a gap.
+      // Queue the existing public SNAPSHOT first on the same ordered adapter.
+      let repairedDecision = false;
+      if (
+        message.type === 'EVENT' &&
+        message.payload.type === 'turn_change' &&
+        room.missingState.has(sub)
+      ) {
+        if (!room.lastSnapshot) {
+          this.canSend(room.tableId, sub);
+          continue;
+        }
+        recoverySnapshot ??= JSON.stringify({
+          type: 'SNAPSHOT',
+          tableId: room.tableId,
+          seq: room.lastSeq,
+          state: room.lastSnapshot,
+        } satisfies SnapshotMessage);
+        // Like RESYNC, one current snapshot is recovery data, exempt from SOFT.
+        // Its decision must follow even if that snapshot crosses SOFT. HARD is
+        // still checked before each send and can evict instead of queueing it.
+        if (!this.sendSnapshot(room, sub, recoverySnapshot)) continue;
+        repairedDecision = true;
+      }
+      const sent = this.safeSend(room.tableId, sub, payload, droppable && !repairedDecision);
+      if (message.type === 'SNAPSHOT') {
+        if (sent) room.missingState.delete(sub);
+        else room.missingState.add(sub);
+      } else if (message.type === 'DELTA' && !sent) {
+        room.missingState.add(sub);
+      }
+      if (sent) delivered?.add(sub);
     }
+  }
+
+  private sendSnapshot(room: TableRoom, sub: HubSubscriber, payload: string): boolean {
+    const sent = this.safeSend(room.tableId, sub, payload);
+    if (sent) room.missingState.delete(sub);
+    else room.missingState.add(sub);
+    return sent;
   }
 
   /**
@@ -683,6 +728,22 @@ export class TableStateHub {
     payload: string,
     droppable = false
   ): boolean {
+    if (!this.canSend(tableId, sub)) return false;
+    const buffered = sub.bufferedAmount ?? 0;
+    if (droppable && buffered > HUB_SOFT_BACKPRESSURE_BYTES) {
+      this.softDropped++;
+      return false;
+    }
+    try {
+      sub.send(payload);
+      return true;
+    } catch {
+      // A failed replay remains undelivered and can retry if the socket lives.
+      return false;
+    }
+  }
+
+  private canSend(tableId: string, sub: HubSubscriber): boolean {
     if (this.hardEvicted.has(sub) || sub.readyState !== 1 /* ws.OPEN */) {
       this.rooms.get(tableId)?.subscribers.delete(sub);
       return false;
@@ -699,17 +760,7 @@ export class TableStateHub {
       }
       return false;
     }
-    if (droppable && buffered > HUB_SOFT_BACKPRESSURE_BYTES) {
-      this.softDropped++;
-      return false;
-    }
-    try {
-      sub.send(payload);
-      return true;
-    } catch {
-      // A failed replay remains undelivered and can retry if the socket lives.
-      return false;
-    }
+    return true;
   }
 
   /**

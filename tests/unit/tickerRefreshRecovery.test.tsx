@@ -489,6 +489,27 @@ describe('the mounted ticker recovers without stale account data or overlapping 
       'TournamentStartingTicker.fetchRegistrations'
     );
   });
+  it('suppresses error reporting when an in-flight ticker request is aborted on unmount', async () => {
+    const abortedErr = Object.assign(new Error('The Request Was Cancelled.'), {
+      name: 'AbortError',
+      code: '20',
+    });
+    mocks.read.mockImplementation((query: Query) =>
+      query.table === 'tournament_players'
+        ? Promise.resolve({ data: null, error: abortedErr })
+        : answer(query)
+    );
+    const view = await mount();
+    view.unmount();
+    expect(
+      mocks.report.mock.calls.filter(
+        ([, source]) =>
+          source === 'TournamentStartingTicker.fetchRegistrations' ||
+          source === 'TournamentStartingTicker.fetchFeed' ||
+          source === 'TournamentStartingTicker.loadManagedSettings'
+      )
+    ).toHaveLength(0);
+  });
   it('bounds a retained overlay to two poll intervals during a connection failure', async () => {
     mocks.settings.mockResolvedValue({
       ...mocks.defaults,

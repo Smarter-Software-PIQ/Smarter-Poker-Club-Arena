@@ -258,14 +258,18 @@ describe('the route runs on the daily schedule that already exists', () => {
     expect(job.if).toContain("needs.detect.result == 'success'");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).toContain(
-      "(github.event_name == 'schedule' && needs.detect.outputs.daily_migrations_allowed == 'true') || needs.detect.outputs.owner_window_id != ''"
+      "needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''"
     );
-    expect(stage.on.schedule).toEqual([{ cron: '30 * * * *' }]);
+    expect(stage.on.schedule).toEqual([
+      { cron: '30 * * * *' },
+      { cron: '31,35,39,43 8 * * *' },
+      { cron: '31,35,39,43 9 * * *' },
+    ]);
     const admission = stage.jobs.detect.steps.find(
       (step: { id?: string }) => step.id === 'admission'
     );
-    expect(admission.run).toContain('daily = (local.hour, local.minute) == (3, 30)');
-    expect(admission.run).toContain("'daily_migrations_allowed=' + str(daily).lower()");
+    expect(admission.run).toContain('START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20');
+    expect(admission.run).toContain('PHASE1_RESTORING');
     expect(job.permissions).toEqual({ contents: 'read' });
     expect(job.concurrency['cancel-in-progress']).toBe(false);
     const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');

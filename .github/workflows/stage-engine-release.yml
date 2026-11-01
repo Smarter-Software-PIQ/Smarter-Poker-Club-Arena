@@ -6,10 +6,22 @@ name: Stage Exact Club Arena Engine Release
 # signal has no SSH, environment, source-write, or restart authority.
 #
 # The window-migrations job (2026-10-22) is the one database writer here: on
-# the admitted daily 03:30 America/Chicago run only, it installs migrations
-# that declare "-- @install-window: daily-maintenance" inside the 04:00 freeze
-# (scripts/ci/install-window-migrations.mjs). It adds no schedule, sends no
-# event, and never touches the engine or the host.
+# the admitted daily preparation run only (03:30 America/Chicago, see the
+# admission step), it installs migrations that declare
+# "-- @install-window: daily-maintenance" inside the 04:00 freeze
+# (scripts/ci/install-window-migrations.mjs). It sends no event, and never
+# touches the engine or the host.
+#
+# DAILY PREPARATION DOES NOT WAIT FOR A PUNCTUAL CRON (2026-11-01). GitHub
+# delivered the 03:30 schedule 3-20 minutes late through 2026-10-29, then
+# 5-6 hours late on 2026-10-30 and 2026-10-31, and not at all on 2026-11-01,
+# so the daily release and the queued window migration never got their
+# window. The preparation now belongs to the 03:30-03:50 America/Chicago
+# window, not to one schedule event: the FIRST push or schedule run of this
+# workflow created inside that window prepares, once per Chicago date, and
+# every later run in it refuses by name. Four odd-minute schedule entries per
+# DST twin and the constant protected-main pushes are only chances to be that
+# first run; a run outside the window (a late cron) prepares nothing.
 on:
   workflow_dispatch:
     inputs:
@@ -25,8 +37,13 @@ on:
   push:
     branches: [main]
   schedule:
-    # Temporary Phase1 owner order; the source policy restores daily admission.
+    # Temporary Phase1 owner exception; admission restores daily when off.
     - cron: '30 * * * *'
+    # 03:31-03:43 America/Chicago in both DST states (08 UTC is CDT, 09 UTC
+    # is CST). Off the congested :00/:30 minutes; the admission step admits
+    # only a run created inside the 03:30-03:50 Chicago window.
+    - cron: '31,35,39,43 8 * * *'
+    - cron: '31,35,39,43 9 * * *'
 
 permissions: {}
 
@@ -45,7 +62,8 @@ jobs:
       offer_reason: ${{ steps.change.outputs.offer_reason }}
       admission_allowed: ${{ steps.admission.outputs.allowed }}
       owner_window_id: ${{ steps.admission.outputs.owner_window_id }}
-      daily_migrations_allowed: ${{ steps.admission.outputs.daily_migrations_allowed }}
+      daily_preparation: ${{ steps.admission.outputs.daily_preparation }}
+      daily_preparation_date: ${{ steps.admission.outputs.daily_preparation_date }}
     steps:
       # Do not use push.paths here. GitHub only evaluates a bounded portion of
       # a very large diff for path filters, which can omit a real server change
@@ -64,15 +82,17 @@ jobs:
           # for on every run and never read.
           filter: blob:none
 
-      # Owner 2026-10-20 explicitly requests daily routine updates. Both UTC
-      # candidates run; only 03:30 Chicago prepares the 04:00 window. No repair
-      # timer, secondary publisher or automatic deadline-emergency exists.
-      # Commit-message urgency is not authorization to interrupt live games.
+      # Owner 2026-10-20 explicitly requests daily routine updates. The daily
+      # preparation window is 03:30-03:50 America/Chicago (DST aware). The
+      # first push or schedule run of this workflow created inside it owns the
+      # preparation for that Chicago date; no repair timer, secondary
+      # publisher or automatic deadline-emergency exists. Commit-message
+      # urgency is not authorization to interrupt live games.
       - name: Admit daily preparation or a measured engine emergency
         id: admission
         env:
           EVENT_NAME: ${{ github.event_name }}
-          SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
+          PUSHED_AT: ${{ github.event.repository.pushed_at || '' }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
@@ -90,36 +110,105 @@ jobs:
             fi
           fi
           export PHASE1_ACTIVE PHASE1_RESTORING
-          echo 'daily_migrations_allowed=false' >> "$GITHUB_OUTPUT"
+          daily_preparation=false
+          daily_date=''
+          # When this run came into being: the schedule run's own creation time
+          # (a delayed cron is judged by when it actually arrived, so a run six
+          # hours late prepares nothing), or the push instant GitHub records in
+          # the push payload. Unreadable is simply "not inside the window".
+          moment=''
           if [ "$EVENT_NAME" = schedule ]; then
-            # Admission belongs to the nominal scheduled instant, not when a
-            # queued runner finally executes. A delayed 03:30 preparation may
-            # still stage; the host certificate independently owns activation.
-            RUN_CREATED_AT=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at)
-            if RUN_CREATED_AT="$RUN_CREATED_AT" python3 - <<'PYTHON'
+            moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || moment=''
+          elif [ "$EVENT_NAME" = push ]; then
+            moment="${PUSHED_AT:-}"
+          fi
+          window=''
+          if [ -n "$moment" ]; then
+            window=$(MOMENT="$moment" python3 - <<'PYTHON'
           import os
-          from datetime import datetime, timezone
+          from datetime import datetime, timedelta, timezone
           from zoneinfo import ZoneInfo
-          expression = os.environ["SCHEDULE_EXPRESSION"]
-          if expression != "30 * * * *":
-              raise ValueError("unknown daily preparation schedule")
-          created = datetime.fromisoformat(os.environ["RUN_CREATED_AT"].replace("Z", "+00:00"))
-          if created.utcoffset() is None:
-              raise ValueError("daily preparation run creation time has no timezone")
-          nominal = created.astimezone(timezone.utc).replace(minute=30, second=0, microsecond=0)
-          if nominal > created:
-              raise ValueError("daily preparation nominal instant is after run creation")
-          local = nominal.astimezone(ZoneInfo("America/Chicago"))
-          daily = (local.hour, local.minute) == (3, 30)
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
-              out.write('daily_migrations_allowed=' + str(daily).lower() + '\n')
-          raise SystemExit(0 if daily or os.environ.get('PHASE1_ACTIVE') == 'true' or os.environ.get('PHASE1_RESTORING') == 'true' else 1)
+          # The daily preparation window, America/Chicago wall clock.
+          START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20
+          raw = os.environ["MOMENT"].strip()
+          try:
+              if raw.isdigit():
+                  moment = datetime.fromtimestamp(int(raw), timezone.utc)
+              else:
+                  moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+          except ValueError:
+              raise SystemExit(1)
+          if moment.utcoffset() is None:
+              raise SystemExit(1)
+          local = moment.astimezone(ZoneInfo("America/Chicago"))
+          start = local.replace(hour=START_HOUR, minute=START_MINUTE, second=0, microsecond=0).astimezone(timezone.utc)
+          end = start + timedelta(minutes=WINDOW_MINUTES)
+          if not (start <= moment.astimezone(timezone.utc) < end):
+              raise SystemExit(1)
+          print(local.date().isoformat(), start.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ"))
           PYTHON
-            then
-              allowed=true
+            ) || window=''
+          fi
+          if [ -n "$window" ]; then
+            read -r daily_date window_start window_end <<< "$window"
+            # ONCE PER CHICAGO DATE. The first push or schedule run created in
+            # the window owns the preparation; GitHub run ids only increase,
+            # so "an earlier run in this window exists" is a lower id. A list
+            # that cannot be read is UNKNOWN and prepares nothing (10.86).
+            verdict=unknown
+            if RUNS=$(gh api "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?created=${window_start}..${window_end}&per_page=100"); then
+              verdict=$(RUNS="$RUNS" WINDOW_START="$window_start" WINDOW_END="$window_end" python3 - <<'PYTHON'
+          import json, os
+          from datetime import datetime
+          def when(value):
+              moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+              if moment.utcoffset() is None:
+                  raise ValueError("run time has no timezone")
+              return moment
+          try:
+              me = int(os.environ["RUN_ID"])
+              start, end = when(os.environ["WINDOW_START"]), when(os.environ["WINDOW_END"])
+              document = json.loads(os.environ["RUNS"])
+              runs = document.get("workflow_runs")
+              if not isinstance(runs, list):
+                  raise ValueError("run list unreadable")
+              earlier = []
+              for run in runs:
+                  if run.get("event") not in ("push", "schedule") or run.get("head_branch") != "main":
+                      continue
+                  if not (start <= when(run["created_at"]) < end):
+                      continue
+                  if type(run.get("id")) is not int:
+                      raise ValueError("run id unreadable")
+                  if run["id"] < me:
+                      earlier.append(run["id"])
+              if earlier:
+                  print("false", min(earlier))
+              elif type(document.get("total_count")) is int and document["total_count"] <= len(runs):
+                  print("true", me)
+              else:
+                  print("unknown -")
+          except (KeyError, TypeError, ValueError):
+              print("unknown -")
+          PYTHON
+              ) || verdict=unknown
             fi
-          elif [ "$PHASE1_ACTIVE" = true ] || [ "$PHASE1_RESTORING" = true ]; then
+            read -r daily_preparation daily_owner <<< "$verdict"
+            case "$daily_preparation" in
+              true)
+                allowed=true
+                echo "Daily preparation for $daily_date (Chicago) is owned by this run ($RUN_ID)." ;;
+              false)
+                echo "Daily preparation for $daily_date (Chicago) belongs to earlier run $daily_owner; this run prepares nothing for it." ;;
+              *)
+                daily_preparation=unknown
+                echo "::warning title=DAILY PREPARATION UNKNOWN::Could not read this workflow's runs in the $daily_date window; this run prepares nothing for it." ;;
+            esac
+          fi
+          if [ "$PHASE1_ACTIVE" = true ] || [ "$PHASE1_RESTORING" = true ]; then
             allowed=true
+          elif [ "$EVENT_NAME" = schedule ] || [ "$allowed" = true ]; then
+            :
           elif git log -1 --format=%B | grep -Eq '^Engine-Release: daily-maintenance-transition$'; then
             allowed=true
           elif [ -f server/release/owner-maintenance-windows.json ]; then
@@ -237,6 +326,8 @@ jobs:
           fi
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
           echo "owner_window_id=$owner_window_id" >> "$GITHUB_OUTPUT"
+          echo "daily_preparation=$daily_preparation" >> "$GITHUB_OUTPUT"
+          echo "daily_preparation_date=$daily_date" >> "$GITHUB_OUTPUT"
           if [ "$allowed" = false ]; then
             echo 'Routine engine updates are queued for 04:00 America/Chicago.'
           fi
@@ -383,7 +474,7 @@ jobs:
       always() &&
       ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
        (needs.detect.result == 'success' && needs.detect.outputs.admission_allowed == 'true' &&
-        ((github.event_name == 'schedule' && needs.detect.outputs.daily_migrations_allowed == 'true') || needs.detect.outputs.owner_window_id != '')))
+        (needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != '')))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     concurrency:
