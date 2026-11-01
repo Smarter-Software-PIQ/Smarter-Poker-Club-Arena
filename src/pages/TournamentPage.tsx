@@ -196,6 +196,7 @@ export default function TournamentPage() {
   const [isInUnion, setIsInUnion] = useState(false);
   const [canRebuyNow, setCanRebuyNow] = useState(false);
   const [canAddOnNow, setCanAddOnNow] = useState(false);
+  const addOnEligibilityRevision = useRef(0);
   const [processingOwner, setProcessingOwner] = useState<object | null>(null);
   const processingRef = useRef<{ owner: typeof selectionOwner; token: object } | null>(null);
   const isProcessingRebuy =
@@ -728,13 +729,15 @@ export default function TournamentPage() {
         currentUser.id
       );
 
+      if (!ownsSelection(selectionOwner)) return;
       setIsRegistered(false);
       // The database owns the exact pool, bounty, fee and wallet/ticket split.
       // Realtime refreshes the tournament row; this page must not reconstruct
       // financial state from a mutable buy-in display value.
       toast.success(tournamentUnregisterSuccessText(result));
     } catch (error) {
-      toast.error('Unregister failed: ' + (error as Error).message);
+      if (ownsSelection(selectionOwner))
+        toast.error('Unregister failed: ' + (error as Error).message);
     }
   };
 
@@ -742,6 +745,7 @@ export default function TournamentPage() {
   useEffect(() => {
     let isMounted = true;
     async function checkRebuyAddOn() {
+      const revision = ++addOnEligibilityRevision.current;
       if (!selectedTournament || !currentUser.id || currentUser.id === 'guest') {
         if (isMounted) {
           setCanRebuyNow(false);
@@ -766,6 +770,7 @@ export default function TournamentPage() {
         ]);
         if (!isMounted) return;
         setCanRebuyNow(rebuyCheck.allowed);
+        if (revision !== addOnEligibilityRevision.current) return;
         setCanAddOnNow(
           addOnCheck.allowed && !mine.error && String(mine.data?.status ?? '') === 'playing'
         );
@@ -943,12 +948,49 @@ export default function TournamentPage() {
                animation; the lobby's dead half-wiring is gone. */
             break;
 
-          case 'ADDON_PERIOD_START':
-            setCanAddOnNow(true);
-            toast.success('Add-on period now available');
+          case 'ADDON_PERIOD_START': {
+            const revision = ++addOnEligibilityRevision.current;
+            setCanAddOnNow(false);
+            // The event opens a window, not an entitlement for every observer.
+            void runWithRequestDeadline(
+              async (signal) => {
+                const [addOnCheck, mine] = await Promise.all([
+                  tournamentService.canAddOn(selectedTournament.id),
+                  supabase
+                    .from('tournament_players')
+                    .select('status')
+                    .eq('tournament_id', selectedTournament.id)
+                    .eq('user_id', currentUser.id)
+                    .abortSignal(signal)
+                    .maybeSingle(),
+                ]);
+                return addOnCheck.allowed && !mine.error && mine.data?.status === 'playing';
+              },
+              { signal: selectionOwner.controller.signal }
+            )
+              .then((allowed) => {
+                if (
+                  !alive ||
+                  !ownsSelection(selectionOwner) ||
+                  revision !== addOnEligibilityRevision.current
+                )
+                  return;
+                setCanAddOnNow(allowed);
+                if (allowed) toast.success('Add-on period now available');
+              })
+              .catch((error) => {
+                if (
+                  alive &&
+                  ownsSelection(selectionOwner) &&
+                  revision === addOnEligibilityRevision.current
+                )
+                  reportError(error, 'TournamentPage.AddOn_eligibility_refresh');
+              });
             break;
+          }
 
           case 'ADDON_PERIOD_END':
+            addOnEligibilityRevision.current += 1;
             setCanAddOnNow(false);
             toast.info('Add-on period has ended');
             break;
@@ -983,7 +1025,7 @@ export default function TournamentPage() {
       alive = false;
       masterBus.removeRegisteredChannel(channelKey);
     };
-  }, [selectedTournament?.id, toast]);
+  }, [selectedTournament?.id, toast, selectionOwner]);
 
   // Handle Rebuy
   const handleRebuy = async () => {

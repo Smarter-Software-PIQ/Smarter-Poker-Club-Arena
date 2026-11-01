@@ -72,6 +72,7 @@ vi.mock('../../src/services/TournamentService', () => ({
     startTournament: vi.fn(),
     processRebuy: vi.fn(),
     processAddOn: vi.fn(),
+    unregisterPlayer: vi.fn(),
   },
   tournamentUnregisterSuccessText: () => '',
 }));
@@ -142,6 +143,7 @@ import TournamentPage from '../../src/pages/TournamentPage';
 import { tournamentService } from '../../src/services/TournamentService';
 
 beforeEach(() => {
+  vi.mocked(tournamentService.unregisterPlayer).mockReset();
   vi.mocked(tournamentService.processRebuy).mockReset();
   vi.mocked(tournamentService.processAddOn).mockReset();
   vi.mocked(tournamentService.startTournament).mockReset();
@@ -537,4 +539,96 @@ it('keeps known same-event tables on failed refresh without restarting the read 
   expect(reads).toBe(2);
   expect(screen.getByText('Known Table')).toBeInTheDocument();
   expect(screen.getByText('Tables Could Not Be Refreshed.')).toBeInTheDocument();
+});
+
+it('a delayed unregister cannot clear another event registration', async () => {
+  state.playing = true;
+  let finish!: (value: any) => void;
+  vi.mocked(tournamentService.unregisterPlayer).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }) as any
+  );
+  mountActions();
+  fireEvent.click(await screen.findByRole('button', { name: 'Unregister' }));
+  await selectSecond();
+  await screen.findByRole('button', { name: 'Unregister' });
+  await act(async () => {
+    finish({ success: true });
+  });
+  expect(screen.getByRole('button', { name: 'Unregister' })).toBeInTheDocument();
+  expect(tournamentService.unregisterPlayer).toHaveBeenCalledTimes(1);
+});
+
+it('an add-on period broadcast cannot sell an add-on to a spectator', async () => {
+  state.addon = true;
+  mountActions('RUNNING');
+  await waitFor(() => expect(state.broadcasts.has('t-break-t-1')).toBe(true));
+  expect(screen.queryByRole('button', { name: /^Add-On/ })).toBeNull();
+  await act(async () =>
+    state.broadcasts.get('t-break-t-1')!({ payload: { type: 'ADDON_PERIOD_START', payload: {} } })
+  );
+  expect(screen.queryByRole('button', { name: /^Add-On/ })).toBeNull();
+});
+
+it('an add-on period broadcast admits a confirmed playing entrant', async () => {
+  state.playing = true;
+  mountActions('RUNNING');
+  await act(async () => {});
+  expect(screen.queryByRole('button', { name: /^Add-On/ })).toBeNull();
+  state.addon = true;
+  await act(async () =>
+    state.broadcasts.get('t-break-t-1')!({ payload: { type: 'ADDON_PERIOD_START', payload: {} } })
+  );
+  expect(screen.getByRole('button', { name: /^Add-On/ })).toBeInTheDocument();
+});
+
+it.each(['end', 'selection'])(
+  'a delayed add-on entitlement is retired by %s',
+  async (destination) => {
+    state.playing = true;
+    mountActions('RUNNING');
+    await act(async () => {});
+    let finish!: (value: any) => void;
+    vi.mocked(tournamentService.canAddOn).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    await act(async () =>
+      state.broadcasts.get('t-break-t-1')!({ payload: { type: 'ADDON_PERIOD_START', payload: {} } })
+    );
+    if (destination === 'end')
+      await act(async () =>
+        state.broadcasts.get('t-break-t-1')!({ payload: { type: 'ADDON_PERIOD_END', payload: {} } })
+      );
+    else await selectSecond();
+    await act(async () => {
+      finish({ allowed: true });
+    });
+    expect(screen.queryByRole('button', { name: /^Add-On/ })).toBeNull();
+  }
+);
+
+it('an add-on end does not discard a pending rebuy eligibility answer', async () => {
+  state.playing = true;
+  let finish!: (value: any) => void;
+  vi.mocked(tournamentService.canRebuy).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  mountActions('RUNNING');
+  await act(async () => {});
+  await act(async () =>
+    state.broadcasts.get('t-break-t-1')!({ payload: { type: 'ADDON_PERIOD_END', payload: {} } })
+  );
+  await act(async () => {
+    finish({ allowed: true });
+  });
+  expect(screen.getByRole('button', { name: /^Rebuy/ })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^Add-On/ })).toBeNull();
 });
