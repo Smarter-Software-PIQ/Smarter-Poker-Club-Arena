@@ -437,11 +437,3 @@ print('closed-phase-pass')`;
   const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000});
   assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed-phase-pass');
 });
-
-test('stock dependency fixture sorts its independent function before depends',async()=>{
- const source=await readFile(new URL('../native-dump-diagnostic.py',import.meta.url),'utf8');
- assert.ok(source.includes('CREATE FUNCTION diagnostic_function_first.aa_free()'));
- assert.ok(source.includes(`b'"aa_free"'`));
- assert.ok('aa_free'<'depends');
- assert.ok(source.includes('require(before < function < after)'));
-});

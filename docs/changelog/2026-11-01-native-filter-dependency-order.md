@@ -7,7 +7,7 @@ synthetic independent function to aa_free so stock alphabetical function orderin
 produces function, sequence, dependent function, sequence. Preserve all original
 SQL equality, ordering, ACL and shared-cache assertions.
 
-Closed qualification phases distinguish main/filtered dump I/O, exit, wire,
+Closed qualification phases distinguish each filtered stock read, main/filtered dump I/O, exit, wire,
 frame checks, each filter parity/order and three negative FD checks. No private
 SQL, errors, names, identifiers or paths enter receipts. Failure phases retain
 the first captured value. Actual Linux qualification remains required.

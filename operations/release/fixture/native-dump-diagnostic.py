@@ -30,7 +30,7 @@ FIRST_COMMAND_FAILURE = None
 QUALIFICATION_PHASE = None
 FIRST_FAILURE_PHASE = None
 FILTER_CONTEXTS = {'EMPTY','SINGLE','SEQUENCE_SINGLE','SEQUENCE_FIRST','FUNCTION_FIRST'}
-QUALIFICATION_PHASES = {context + '_' + phase for context in {'MAIN', *FILTER_CONTEXTS} for phase in {'DUMP_IO','DUMP_EXIT','DUMP_WIRE','DUMP_FRAMES','PARITY','ORDER'}} | {'FD_MISSING','FD_KIND','FD_CLOSED'}
+QUALIFICATION_PHASES = {context + '_' + phase for context in {'MAIN', *FILTER_CONTEXTS} for phase in {'STOCK','DUMP_IO','DUMP_EXIT','DUMP_WIRE','DUMP_FRAMES','PARITY','ORDER'}} | {'FD_MISSING','FD_KIND','FD_CLOSED'}
 COMMAND_SITES = {'BATCH_COMPILE', 'BATCH_EXECUTE', 'D3_CAPABILITY', 'RUNTIME_NPM', 'RUNTIME_HYDRATE'}
 COMPILER_CATEGORIES = ((b'-Werror=misleading-indentation', 'MISLEADING_INDENTATION'),
                        (b'-Werror=unused-function', 'UNUSED_FUNCTION'),
@@ -623,8 +623,9 @@ RETURN 'diagnostic_function_first.a_before'::regclass::oid;
         for schema in ['diagnostic_empty', 'diagnostic_single', 'diagnostic_sequence_single',
                        'diagnostic_sequence_first', 'diagnostic_function_first']:
             filtered_args = args + ['--schema=' + schema]
-            filtered_stock = command([str(stock_executable), *filtered_args], cwd=work, env=dump_env, timeout=45)
             context = schema.removeprefix('diagnostic_').upper()
+            QUALIFICATION_PHASE = context + '_STOCK'
+            filtered_stock = command([str(stock_executable), *filtered_args], cwd=work, env=dump_env, timeout=45)
             filtered, _ = diagnostic_dump(output / 'bin/pg_dump', filtered_args, dump_env, work, context=context)
             QUALIFICATION_PHASE = context + '_PARITY'
             require(normalize_sql(filtered_stock) == normalize_sql(filtered))
