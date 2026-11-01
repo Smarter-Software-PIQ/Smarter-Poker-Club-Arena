@@ -130,3 +130,30 @@ it('recovers a result-only tournament count and keeps a requested unknown count 
   act(() => publishSessionSummary(fixture({ resultOnly: true, tournament })));
   await waitFor(() => expect(screen.getByTestId('ranking-hands').textContent).toBe('-'));
 });
+
+it('preserves the full-hand target across same-report legacy republishes without leaking it to a new finish', () => {
+  const tournament = {
+    userId: 'owner',
+    tournamentId: 'same-hand-report',
+    finishSequence: '1',
+    finishPlace: 2,
+    entrants: 10,
+    prize: 30,
+    bountyWinnings: 0,
+    knockouts: 0,
+    rebuys: 0,
+    addOns: 0,
+  };
+  const report = fixture({ resultOnly: true, tournament });
+  publishSessionSummary(report);
+  publishSessionSummary({ ...report, handStatsTarget: undefined });
+  expect(peekSessionSummary()?.handStatsTarget).toEqual(report.handStatsTarget);
+  publishSessionSummary({
+    ...report,
+    handStatsTarget: undefined,
+    tournament: { ...tournament, finishSequence: '2' },
+  });
+  clearSessionSummary();
+  expect(peekSessionSummary()?.tournament?.finishSequence).toBe('2');
+  expect(peekSessionSummary()?.handStatsTarget).toBeUndefined();
+});

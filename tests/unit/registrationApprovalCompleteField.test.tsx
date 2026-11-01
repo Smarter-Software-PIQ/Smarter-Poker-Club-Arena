@@ -35,6 +35,7 @@ beforeEach(() => {
     let ascending = true;
     const b: any = {
       select: () => b,
+      abortSignal: () => b,
       eq: () => b,
       gt: (_: string, value: string) => {
         cursor = value;

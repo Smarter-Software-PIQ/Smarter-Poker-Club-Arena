@@ -98,7 +98,10 @@ const resumedView = {
 function answer(caps: unknown, view: unknown) {
   vi.mocked(supabase.rpc).mockImplementation(((fn: string) => {
     if (fn === 'fn_platform_capabilities') return Promise.resolve({ data: caps, error: null });
-    if (fn === 'fn_tournament_stage_view') return Promise.resolve({ data: view, error: null });
+    if (fn === 'fn_tournament_stage_view') {
+      const result = Promise.resolve({ data: view, error: null });
+      return Object.assign(result, { abortSignal: () => result });
+    }
     return Promise.resolve({ data: null, error: null });
   }) as never);
 }

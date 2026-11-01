@@ -1431,9 +1431,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           tournamentName={tableName}
           tournamentId={tournamentId ?? null}
           heroUserId={userId ?? null}
-          nextLevel={
-            tournamentBreak.nextLevel || { level: 1, smallBlind: 0, bigBlind: 0, duration: 0 }
-          }
+          nextLevel={tournamentBreak.nextLevel}
         />
       )}
 

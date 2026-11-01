@@ -516,7 +516,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "a59a97b5b0f76d5c54d01b1fe47f3284efb2fcbd3e7742bb4e9e1ac6f0207dd4",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "1e93f31f48051dd74c2b88f79ccf288a18610263d46171d78e46b67f78473495",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "380ba9ee8b173d05c570837ccd23a3904b4b5c8c76d655e02bc7290f40a6f338",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -556,7 +556,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "f0f5ca7a3af91204f4f71280083e74efad85bfd28741a88e0679a1dc16dae3b6",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "a000a18921bc2b309ee178e874cf88a778b29f63fbc58c8b0c557295fc141f69",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -6140,6 +6140,24 @@
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   },
+  "nativeAccountingRunnerContract20261101": {
+    "reason": "Four existing accounting runner assertions now require Ubuntu24.04 after the observed Ubuntu26.04 pg_net compilation failure; native commands, assertions, budgets and historical evidence are unchanged. 764 focused fixture and runner contracts passed.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous_sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+    "current_sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2",
+    "nested_bindings": [
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous_sha256": "08ae9fc48547f69b8fa02be49fdfb7a1037932c367ae38cf309e2f2b8e82bf4c",
+        "current_sha256": "ea05b922e77395fbe8e7e57c12ba0a9d6f231abaa9d61e9997b479bdd37b00c6"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous_sha256": "05bc4b86a0f03f591e26005e4baff82e0ca225a7b97b363bef8e8eb77c12fc9d",
+        "current_sha256": "5f890f2f7a5a9b2bc40dcbc0c2d75049ceeedfcce0b8bef33a5678c46c06d899"
+      }
+    ]
+  },
   "pgNetAccountingRouteContract20261031": {
     "reason": "Only four exact accounting runner expectations match the closed shard2 Ubuntu24.04 route; all fixture commands, financial assertions, native input sources and historical qualification states remain unchanged. Current test source identity only.",
     "path": "tests/unit/fixtureNativeCi.test.ts",
@@ -6160,23 +6178,19 @@
       }
     ]
   },
-  "nativeAccountingRunnerContract20261101": {
-    "reason": "Four existing accounting runner assertions now require Ubuntu24.04 after the observed Ubuntu26.04 pg_net compilation failure; native commands, assertions, budgets and historical evidence are unchanged. 764 focused fixture and runner contracts passed.",
-    "path": "tests/unit/fixtureNativeCi.test.ts",
-    "previous_sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
-    "current_sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2",
-    "nested_bindings": [
-      {
-        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
-        "previous_sha256": "08ae9fc48547f69b8fa02be49fdfb7a1037932c367ae38cf309e2f2b8e82bf4c",
-        "current_sha256": "ea05b922e77395fbe8e7e57c12ba0a9d6f231abaa9d61e9997b479bdd37b00c6"
+  "tournamentMainRunnerComposition20261101": {
+    "reason": "Combine reviewed protected main shard2-only accounting route and equivalent UTC fixture with mystery paging gate and live-e2e browser compatibility. Current bindings only; both historical audit records retained. No historical qualification state changed.",
+    "updates": {
+      "tests/fixtures/sep8-spin-custody/source-binding.json": {
+        "previous": "148850046dfdcd1beeb2fcef71c8d0d4854bff05d9bf52cad416c75b05326726",
+        "current": "dc82c4dc79d4ca84e2b9c25354f0a9cbda5a70725bf6abe7dea5ee478e918ea9"
       },
-      {
-        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
-        "previous_sha256": "05bc4b86a0f03f591e26005e4baff82e0ca225a7b97b363bef8e8eb77c12fc9d",
-        "current_sha256": "5f890f2f7a5a9b2bc40dcbc0c2d75049ceeedfcce0b8bef33a5678c46c06d899"
+      "tests/fixtures/earlybird-fee-custody/source-binding.json": {
+        "previous": "14d7f82212ee76144a73760c061b95be185feed80756b03d2711a3f2211a1425",
+        "current": "97578f0310039c485e4251c7adca0a9d42de355c08ffb7f15a198e812b118da2"
       }
-    ]
+    },
+    "historicalEvidenceRestamped": false
   },
   "equalShareMainIntegration20261101": {
     "reason": "Preserve both independent runner-source audit records in nested bindings; qualification states and all financial input bytes unchanged.",
@@ -6212,5 +6226,21 @@
         "currentSha256": "1e93f31f48051dd74c2b88f79ccf288a18610263d46171d78e46b67f78473495"
       }
     ]
+  },
+  "financialMainIntegration20261101": {
+    "reason": "Retain both branch histories and reviewed composed workflow and nested binding identities. No historical evidence restamped.",
+    "historicalEvidenceRestamped": false
+  },
+  "fullSessionHandStatsMainIntegration20261101": {
+    "reason": "Compose full-session hand statistics with protected main. Preserve both parent audit histories, all existing qualification commands/assertions and financial statuses. Update only active source identities for the actual integrated files; no historical/native/live certification is restamped.",
+    "currentInputs": [
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "bytes": 129955,
+        "sha256": "380ba9ee8b173d05c570837ccd23a3904b4b5c8c76d655e02bc7290f40a6f338"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }
