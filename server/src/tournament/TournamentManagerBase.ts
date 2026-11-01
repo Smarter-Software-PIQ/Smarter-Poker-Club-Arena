@@ -8421,19 +8421,23 @@ export abstract class TournamentManagerBase {
           this.wireEliminationWake(engine);
           this.tableEngines.set(table.id, engine);
           this.prepareManagedTableEngineForPlay(engine);
+        }
+        // Restore the durable first button while every replacement is inert.
+        // Starting a dealer before this read can race its first hand and apply
+        // the original button to a later hand instead.
+        await this.restoreDrawnFirstButtons(
+          tables as Array<{ id: string; first_button_seat?: number | null }>
+        );
+        this.assertLifecycleCurrent(lifecycle);
+        for (const table of tables) {
+          const engine = this.tableEngines.get(table.id);
+          if (!engine) throw new Error('Tournament resumed dealer disappeared before admission');
           this.admitManagedTableEngine(table.id, engine);
           this.startManagedTableEngine(
             engine,
             `Tournament.${this.tournamentId.slice(0, 8)}.resume_table_error`
           );
         }
-        // Re-apply a button that was DRAWN but never dealt. Awaited before the
-        // first hand can plausibly land, and a no-op for every table that has
-        // already played one.
-        await this.restoreDrawnFirstButtons(
-          tables as Array<{ id: string; first_button_seat?: number | null }>
-        );
-        this.assertLifecycleCurrent(lifecycle);
       }
 
       // A resumed manager is not admitted until every table start it launched

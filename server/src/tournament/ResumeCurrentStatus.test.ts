@@ -105,6 +105,51 @@ function expectNoGameplay({ state, from }: ReturnType<typeof fixture>) {
 }
 
 describe('a discovery row is not authority to resume a completed tournament', () => {
+  it('restores a durable first button before admitting or starting its dealer', async () => {
+    const f = fixture();
+    f.tableRead.mockResolvedValue({
+      data: [
+        {
+          id: 'source',
+          first_button_seat: 2,
+          small_blind: 25,
+          big_blind: 50,
+          ante: 0,
+          stakes: '25/50',
+        },
+      ],
+      error: null,
+    });
+    let answer!: (value: { count: number; error: null }) => void;
+    const history = vi.fn(
+      () =>
+        new Promise<{ count: number; error: null }>((resolve) => {
+          answer = resolve;
+        })
+    );
+    const originalFrom = f.from.getMockImplementation()!;
+    f.from.mockImplementation(((name: string) =>
+      name === 'hand_history' ? { select: () => ({ eq: history }) } : originalFrom(name)) as never);
+    const engine = { setHub: vi.fn(), setFirstButtonSeat: vi.fn() };
+    f.state.createManagedTableEngine.mockReturnValue(engine);
+    f.state.restoreDrawnFirstButtons = (
+      TournamentManagerBase.prototype as any
+    ).restoreDrawnFirstButtons;
+    const startButtons: unknown[][] = [];
+    f.state.startManagedTableEngine.mockImplementation(() => {
+      startButtons.push(engine.setFirstButtonSeat.mock.calls.flat());
+    });
+    const resume = f.state.resumeLifecycle(1);
+    await vi.waitFor(() => expect(history).toHaveBeenCalledOnce());
+    const admittedBeforeRead = f.state.admitManagedTableEngine.mock.calls.length;
+    const startedBeforeRead = f.state.startManagedTableEngine.mock.calls.length;
+    answer({ count: 0, error: null });
+    await resume;
+    expect(admittedBeforeRead).toBe(0);
+    expect(startedBeforeRead).toBe(0);
+    expect(startButtons).toEqual([[2]]);
+    expect(f.state.running).toBe(true);
+  });
   it.each([
     'COMPLETED',
     'CANCELLED',
