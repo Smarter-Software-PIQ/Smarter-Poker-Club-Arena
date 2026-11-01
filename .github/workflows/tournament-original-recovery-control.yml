@@ -1,13 +1,25 @@
-name: Explicit Original89 And Nightly Operator Control
+name: Explicit Original Recovery And Tournament Closure Control
 on:
   workflow_dispatch:
     inputs:
       action:
         type: choice
-        options: [prepare, read, abort_request, abort_read, abort_ack, abort_settle]
+        options:
+          [
+            prepare,
+            read,
+            abort_request,
+            abort_read,
+            abort_ack,
+            abort_settle,
+            equal_request,
+            equal_read,
+            equal_ack,
+            equal_settle,
+          ]
         required: true
       tournament_id:
-        description: Original89 or fixed Nightly for closure; settlement remains other69 only
+        description: Fixed reviewed170 for equal-share; historical abort settlement remains other69 only
         type: string
         required: true
       nonce:
@@ -27,7 +39,7 @@ on:
         type: string
         required: true
       expected_money_hash:
-        description: Required only for abort_settle, exact independently reviewed current money hash
+        description: Required for abort_settle or equal_settle, exact independently reviewed current money hash
         type: string
         required: false
 permissions:

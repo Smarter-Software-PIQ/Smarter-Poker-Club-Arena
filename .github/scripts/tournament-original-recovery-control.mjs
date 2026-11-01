@@ -15,6 +15,13 @@ const NIGHTLY = JSON.parse(
     'utf8'
   )
 );
+const EQUAL = JSON.parse(
+  fs.readFileSync(
+    path.join(ROOT, 'scripts/ci/fixtures/tournament-recovery20/equal-share-closure-intent.json'),
+    'utf8'
+  )
+);
+const EQUAL_ACTIONS = ['equal_request', 'equal_read', 'equal_ack', 'equal_settle'];
 const ORIGIN = 'https://engine.smarter.poker';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Responses stay transient for strict control validation. The sole return
@@ -65,12 +72,12 @@ function publicRuntime(value) {
     response_digest: responseDigest(value),
   };
 }
-function publicCanonical(value) {
+function publicCanonical(value, equal = false) {
   const output = {
     ...fields(value, {
       ...publicTuple,
       ok: bool,
-      state: enums('not_requested', 'stop_requested', 'quiesced', 'settled'),
+      state: enums('not_requested', 'ownership_unproven', 'stop_requested', 'quiesced', 'settled'),
       tournament_status: enums(
         'RUNNING',
         'BREAK',
@@ -87,18 +94,18 @@ function publicCanonical(value) {
   };
   if (value.receipt === null) output.receipt = null;
   else if (value.receipt && typeof value.receipt === 'object')
-    output.receipt = publicSettlement(value.receipt);
+    output.receipt = publicSettlement(value.receipt, equal);
   return output;
 }
-function publicSettlement(value) {
+function publicSettlement(value, equal = false) {
   const output = {
     ...fields(value, {
       ...publicTuple,
       ok: bool,
       success: bool,
       fully_settled: bool,
-      receipt_version: (v) => v === 3,
-      mode: enums('started_operator_abort'),
+      receipt_version: (v) => v === (equal ? 4 : 3),
+      mode: enums(equal ? 'started_operator_equal_share' : 'started_operator_abort'),
       status: enums('CANCELLED'),
       asset: enums('chips', 'diamonds'),
       total_refunded: amount,
@@ -113,6 +120,15 @@ function publicSettlement(value) {
       asset: enums('chips', 'diamonds'),
       total_refunded: amount,
       unused_overlay_returned: amount,
+      ...(equal
+        ? {
+            total_distributed: amount,
+            prize_before: amount,
+            bounty_before: amount,
+            fee_before: amount,
+            unit_scale: (v) => v === 1 || v === 100,
+          }
+        : {}),
     });
   if (value?.quiescence && typeof value.quiescence === 'object')
     output.quiescence = fields(value.quiescence, {
@@ -122,9 +138,18 @@ function publicSettlement(value) {
   return output;
 }
 function publicResult(result) {
+  const equal = EQUAL_ACTIONS.includes(result.request.action);
   const output = {
     request: fields(result.request, {
-      action: enums('prepare', 'read', 'abort_request', 'abort_read', 'abort_ack', 'abort_settle'),
+      action: enums(
+        'prepare',
+        'read',
+        'abort_request',
+        'abort_read',
+        'abort_ack',
+        'abort_settle',
+        ...EQUAL_ACTIONS
+      ),
       tournamentId: uuid,
       operationId: uuid,
       nonce: uuid,
@@ -132,6 +157,7 @@ function publicResult(result) {
       sha: matches(SHA),
       instance: matches(INSTANCE),
       moneyHash: matches(MONEY_HASH),
+      closureMode: enums('equal_share'),
     }),
     outcome: result.outcome,
   };
@@ -150,8 +176,8 @@ function publicResult(result) {
     });
   }
   for (const key of ['canonicalBefore', 'canonicalAfter'])
-    if (result[key]) output[key] = publicCanonical(result[key]);
-  if (result.settlement) output.settlement = publicSettlement(result.settlement);
+    if (result[key]) output[key] = publicCanonical(result[key], equal);
+  if (result.settlement) output.settlement = publicSettlement(result.settlement, equal);
   if (result.runtime) output.runtime = publicRuntime(result.runtime);
   if (result.mutationAcknowledgement === 'unknown') output.mutationAcknowledgement = 'unknown';
   if (result.reason)
@@ -160,13 +186,17 @@ function publicResult(result) {
   return output;
 }
 export function originalControlIntent(input) {
+  const equal = EQUAL_ACTIONS.includes(input.action);
+  const member = EQUAL.members.find((row) => row.tournamentId === input.tournamentId);
   const abort = ['abort_request', 'abort_read', 'abort_ack', 'abort_settle'].includes(input.action);
   const nightly = input.tournamentId === NIGHTLY.tournamentId;
-  const allowed = abort
-    ? [...COHORT.original89, NIGHTLY.tournamentId]
-    : COHORT.natural_finish_twenty;
+  const allowed = equal
+    ? EQUAL.members.map((row) => row.tournamentId)
+    : abort
+      ? [...COHORT.original89, NIGHTLY.tournamentId]
+      : COHORT.natural_finish_twenty;
   if (
-    (!abort && !['prepare', 'read'].includes(input.action)) ||
+    (!equal && !abort && !['prepare', 'read'].includes(input.action)) ||
     !allowed.includes(input.tournamentId) ||
     (input.action === 'abort_request' && !nightly) ||
     // The additional20 and Nightly do not have a qualified nonpaying probe.
@@ -180,7 +210,15 @@ export function originalControlIntent(input) {
     throw Error('Exact Original Recovery Identity Required; Additional Settlement Not Qualified');
   return {
     ...fields(input, {
-      action: enums('prepare', 'read', 'abort_request', 'abort_read', 'abort_ack', 'abort_settle'),
+      action: enums(
+        'prepare',
+        'read',
+        'abort_request',
+        'abort_read',
+        'abort_ack',
+        'abort_settle',
+        ...EQUAL_ACTIONS
+      ),
       tournamentId: uuid,
       nonce: uuid,
       generation: uuid,
@@ -188,7 +226,12 @@ export function originalControlIntent(input) {
       instance: matches(INSTANCE),
       moneyHash: matches(MONEY_HASH),
     }),
-    operationId: nightly ? NIGHTLY.operationId : COHORT.original_operation_id,
+    operationId: equal
+      ? member.operationId
+      : nightly
+        ? NIGHTLY.operationId
+        : COHORT.original_operation_id,
+    ...(equal ? { closureMode: 'equal_share', reason: EQUAL.reason } : {}),
     ...(input.action === 'abort_request' ? { reason: NIGHTLY.reason } : {}),
   };
 }
@@ -222,6 +265,15 @@ export async function controlOriginalRecovery(
   }
   try {
     result.before = await health();
+    if (EQUAL_ACTIONS.includes(input.action))
+      return await controlEqualShare(input, {
+        fetchImpl,
+        serviceIdentity,
+        supabaseUrl,
+        intent,
+        result,
+        health,
+      });
     if (abort) {
       const database = new URL(supabaseUrl);
       if (
@@ -452,6 +504,209 @@ export async function controlOriginalRecovery(
       'Outcome Unknown. Read Same Operation And Canonical Disposition Before Any Repeat';
     return publicResult(result);
   }
+}
+// Equal-share closure is explicit. Historical recovery/refund actions above
+// keep their original cohort, receipt version and financial authority.
+async function controlEqualShare(
+  input,
+  { fetchImpl, serviceIdentity, supabaseUrl, intent, result, health }
+) {
+  const database = new URL(supabaseUrl);
+  if (
+    database.origin !== 'https://kuklfnapbkmacvwxktbh.supabase.co' ||
+    (input.action === 'equal_settle' && !MONEY_HASH.test(input.moneyHash ?? ''))
+  )
+    throw Error('Canonical Database And Reviewed Money Hash Required');
+  const ids = { p_operation_id: intent.operationId, p_tournament_id: input.tournamentId };
+  const headers = {
+    authorization: `Bearer ${serviceIdentity}`,
+    apikey: serviceIdentity,
+    'content-type': 'application/json',
+  };
+  async function rpc(name, args, ownershipRead = false) {
+    const response = await fetchImpl(`${database.origin}/rest/v1/rpc/${name}`, {
+      method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(30000),
+      headers,
+      body: JSON.stringify(args),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      if (
+        ownershipRead &&
+        error?.code === '55000' &&
+        error?.message === 'operator_abort_target_not_owned'
+      )
+        return {
+          state: 'ownership_unproven',
+          operation_id: intent.operationId,
+          tournament_id: input.tournamentId,
+        };
+      throw Error('Canonical Equal Share Outcome Unknown');
+    }
+    return response.json();
+  }
+  function settled(value) {
+    const receipt = value?.receipt;
+    return (
+      value?.state === 'settled' &&
+      value.tournament_status === 'CANCELLED' &&
+      receipt?.receipt_version === 4 &&
+      receipt.mode === 'started_operator_equal_share' &&
+      receipt.ok === true &&
+      receipt.success === true &&
+      receipt.fully_settled === true &&
+      receipt.status === 'CANCELLED' &&
+      receipt.operation_id === intent.operationId &&
+      receipt.tournament_id === input.tournamentId &&
+      receipt.quiescence?.generation === input.generation &&
+      MONEY_HASH.test(receipt.quiescence?.money_hash ?? '') &&
+      (input.action !== 'equal_settle' || receipt.quiescence.money_hash === input.moneyHash)
+    );
+  }
+  async function readCanonical() {
+    const value = await rpc('fn_ca_tournament_abort_stop_state', ids, true);
+    // This refusal is ambiguous: absent OR differently owned. Never turn it
+    // into an empty target. Only the existing atomic request may admit a new one.
+    if (value?.state === 'ownership_unproven') return value;
+    if (value?.state === 'settled') {
+      // The stop-state row alone is not economic validation. Invoke the
+      // canonical reader, which revalidates credits and the terminal snapshot.
+      const receipt = await rpc('fn_ca_tournament_cancellation_receipt', {
+        p_tournament_id: input.tournamentId,
+      });
+      if (
+        !settled({ ...value, receipt }) ||
+        JSON.stringify(receipt) !== JSON.stringify(value.receipt)
+      )
+        throw Error('Canonical Equal Share Receipt Changed');
+    }
+    if (
+      value?.ok !== true ||
+      value.operation_id !== intent.operationId ||
+      value.tournament_id !== input.tournamentId ||
+      !['stop_requested', 'quiesced', 'settled'].includes(value.state) ||
+      (value.state === 'settled'
+        ? !settled(value)
+        : !['RUNNING', 'BREAK', 'LATE_REG'].includes(value.tournament_status)) ||
+      (value.current_generation !== input.generation &&
+        !(settled(value) && value.current_generation === null))
+    )
+      throw Error('Canonical Equal Share Owner Or Disposition Changed');
+    return value;
+  }
+  result.canonicalBefore = await readCanonical();
+  const before = result.canonicalBefore;
+  let mutationAttempted = false;
+  try {
+    if (before.state === 'ownership_unproven') {
+      if (input.action !== 'equal_request' || COHORT.original89.includes(input.tournamentId))
+        throw Error('Original Ownership Must Be Proven');
+      const response = await fetchImpl(
+        `${database.origin}/rest/v1/engine_tournament_leases?tournament_id=eq.${input.tournamentId}&select=lease_generation,protocol_version,heartbeat_at`,
+        {
+          redirect: 'error',
+          signal: AbortSignal.timeout(15000),
+          headers,
+        }
+      );
+      if (!response.ok) throw Error('Current Lease Unknown');
+      const leases = await response.json();
+      const age = Date.now() - Date.parse(leases?.[0]?.heartbeat_at);
+      if (
+        !Array.isArray(leases) ||
+        leases.length !== 1 ||
+        leases[0].lease_generation !== input.generation ||
+        leases[0].protocol_version !== 2 ||
+        !Number.isFinite(age) ||
+        age < -5000 ||
+        age > 30000
+      )
+        throw Error('Current Lease Changed');
+      mutationAttempted = true;
+      const requested = await rpc('fn_ca_request_tournament_abort', {
+        p_operation_id: intent.operationId,
+        p_tournament_ids: [input.tournamentId],
+        p_reason: EQUAL.reason,
+      });
+      if (
+        requested?.ok !== true ||
+        requested.operation_id !== intent.operationId ||
+        requested.stop_requested !== true ||
+        !Array.isArray(requested.tournament_ids) ||
+        requested.tournament_ids.length !== 1 ||
+        requested.tournament_ids[0] !== input.tournamentId
+      )
+        throw Error('Request Receipt Unknown');
+    } else if (input.action === 'equal_ack') {
+      mutationAttempted = true;
+      const response = await fetchImpl(`${ORIGIN}/admin/tournament-abort-boundary`, {
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.timeout(30000),
+        headers,
+        body: JSON.stringify({
+          operationId: intent.operationId,
+          tournamentId: input.tournamentId,
+          closureMode: 'equal_share',
+        }),
+      });
+      if (!response.ok) throw Error('Equal Share Boundary Unknown');
+      const body = await response.json();
+      if (
+        body.success !== true ||
+        body.runtime?.operation_id !== intent.operationId ||
+        body.runtime?.tournament_id !== input.tournamentId
+      )
+        throw Error('Equal Share Boundary Receipt Unknown');
+      result.runtime = body.runtime;
+    } else if (input.action === 'equal_settle' && before.state !== 'settled') {
+      if (
+        before.state !== 'quiesced' ||
+        before.current_boundary_valid !== true ||
+        before.quiescence_generation !== input.generation ||
+        before.money_hash !== input.moneyHash
+      )
+        throw Error('Reviewed Equal Share Boundary Changed');
+      mutationAttempted = true;
+      result.settlement = await rpc('fn_ca_settle_tournament_abort_equal_share', {
+        ...ids,
+        p_expected_money_hash: input.moneyHash,
+      });
+    }
+  } catch {
+    result.mutationAcknowledgement = 'unknown';
+  }
+  // Observe the same operation once, even after an unknown write. Never retry.
+  result.canonicalAfter = await readCanonical();
+  result.after = await health();
+  const after = result.canonicalAfter;
+  if (result.mutationAcknowledgement === 'unknown' || after.state === 'ownership_unproven')
+    return publicResult(result);
+  if (input.action === 'equal_read') result.outcome = 'equal_share_readback';
+  else if (input.action === 'equal_request')
+    result.outcome = mutationAttempted
+      ? 'equal_share_requested_readback'
+      : 'equal_share_already_requested';
+  else if (input.action === 'equal_settle' && settled(after))
+    result.outcome = mutationAttempted
+      ? 'equal_share_settled_readback'
+      : 'equal_share_already_settled';
+  else if (
+    input.action === 'equal_ack' &&
+    after.state === 'quiesced' &&
+    after.current_boundary_valid === true &&
+    after.quiescence_generation === input.generation
+  )
+    result.outcome = 'equal_share_boundary_readback';
+  else if (
+    input.action === 'equal_ack' &&
+    settled(after) &&
+    result.runtime?.runtime_retired === true
+  )
+    result.outcome = 'equal_share_runtime_retired';
+  return publicResult(result);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const input = {
