@@ -94,6 +94,22 @@ export function nativeChildFailure(children) {
   return error;
 }
 
+// Only these exact source-owned assertion tokens cross the private boundary.
+const currentApplicationAssertionSites = new Map([
+  ['FIXTURE_ASSERT_ROLE_SOURCE_PIN', 'ROLE_SOURCE_PIN'],
+  ['FIXTURE_ASSERT_ROLE_INSTALL_BACKEND', 'ROLE_INSTALL_BACKEND'],
+  ['FIXTURE_ASSERT_ROLE_PREIMAGE', 'ROLE_PREIMAGE'],
+  ['FIXTURE_ASSERT_ROLE_COMMIT', 'ROLE_COMMIT'],
+  ['FIXTURE_ASSERT_ROLE_OBSERVER_BACKEND', 'ROLE_OBSERVER_BACKEND'],
+  ['FIXTURE_ASSERT_ROLE_OBSERVER_APPLICATION_BACKEND', 'ROLE_OBSERVER_APPLICATION_BACKEND'],
+  ['FIXTURE_ASSERT_ROLE_POSTIMAGE', 'ROLE_POSTIMAGE'],
+  ['FIXTURE_ASSERT_EXTENSION_IDENTITY', 'EXTENSION_IDENTITY'],
+  ['FIXTURE_ASSERT_EXTENSION_PREIMAGE', 'EXTENSION_PREIMAGE'],
+  ['FIXTURE_ASSERT_EXTENSION_LITERAL', 'EXTENSION_LITERAL'],
+  ['FIXTURE_ASSERT_EXTENSION_POSTIMAGE', 'EXTENSION_POSTIMAGE'],
+  ['FIXTURE_ASSERT_EXTENSION_NAMESPACE_POSTIMAGE', 'EXTENSION_NAMESPACE_POSTIMAGE'],
+]);
+
 // Native smoke diagnostics must not serialize database messages, queries, or
 // service output: bootstrap queries contain fixture-only credentials.
 export function nativeFailureDiagnostic(stage, error) {
@@ -108,6 +124,11 @@ export function nativeFailureDiagnostic(stage, error) {
     'error',
   ]);
   const record = { status: 'failed', stage, error: names.has(error?.name) ? error.name : 'Error' };
+  if (stage === 'fixture-preimage-current-application-role-extension' &&
+      error?.name === 'AssertionError' && error?.code === 'ERR_ASSERTION' &&
+      typeof error.message === 'string' && currentApplicationAssertionSites.has(error.message))
+    record.assertion_site = currentApplicationAssertionSites.get(error.message);
+
   if (new Set(['postgres', 'auth', 'postgrest', 'realtime']).has(error?.native_service))
     record.native_service = error.native_service;
   if (

@@ -13,6 +13,37 @@ spec.loader.exec_module(m)
 
 
 class NativeDiagnosticsTests(unittest.TestCase):
+    def test_current_application_assertion_sites_are_closed_and_keep_first_failure(self):
+        stage = 'fixture-preimage-current-application-role-extension'
+        for site in m.CURRENT_APPLICATION_ASSERTION_SITES:
+            row = dict(status='failed',stage=stage,error='AssertionError',assertion_site=site)
+            self.assertEqual(m.native_failures(json.dumps(row)),
+                [dict(stage=stage,category='AssertionError',assertion_site=site)])
+            for edit in [dict(assertion_site='PRIVATE'),dict(assertion_site=None),
+                         dict(assertion_site=True),dict(assertion_site=[site]),
+                         dict(error='Error'),dict(stage='fixture-preimage-package'),
+                         dict(actual='PRIVATE'),dict(expected='PRIVATE'),dict(message='PRIVATE')]:
+                self.assertEqual(m.native_failures(json.dumps({**row,**edit})),[])
+        # Actual Node producer -> private command capture -> independent decoder.
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);script=root/m.PREFIX/'smoke-image.sh';script.parent.mkdir(parents=True)
+            module=(ROOT/'operations/release/fixture/runtime-files.mjs').as_uri()
+            (root/'diagnostic.mjs').write_text('import assert from "node:assert/strict";\n'
+                'import {nativeFailureDiagnostic} from '+json.dumps(module)+';\n'
+                'try { assert.deepEqual({secret:"PRIVATE ACTUAL"},{secret:"PRIVATE EXPECTED"},'
+                'new assert.AssertionError({message:"FIXTURE_ASSERT_EXTENSION_POSTIMAGE"})); }'
+                'catch(error) { error.assertion_site="PRIVATE TAMPER"; console.error(JSON.stringify('
+                'nativeFailureDiagnostic('+json.dumps(stage)+',error))); }\n'
+                'console.error(JSON.stringify(nativeFailureDiagnostic("fixture-preimage-cleanup",new Error("PRIVATE CLEANUP"))));\n'
+                'process.exitCode=1;\n')
+            script.write_text('exec node diagnostic.mjs\n')
+            with self.assertRaises(m.NativeSmokeFailure) as caught:
+                m.command(['bash',m.PREFIX+'smoke-image.sh'],root,{'PATH':os.environ['PATH']})
+            self.assertEqual(caught.exception.diagnostics,[
+                dict(stage=stage,category='AssertionError',assertion_site='EXTENSION_POSTIMAGE'),
+                dict(stage='fixture-preimage-cleanup',category='Error')])
+            self.assertNotIn('PRIVATE',str(caught.exception))
+
     def test_shell_and_preimage_steps_accept_only_fixed_categories(self):
         for stage in ['smoke-shell-preimage-copy', 'fixture-preimage-package']:
             row = dict(status='failed', stage=stage, error='Error', exit_code=7)

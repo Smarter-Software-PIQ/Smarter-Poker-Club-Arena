@@ -740,3 +740,53 @@ The compiled C contract includes a stock-singleton129-view RED versus bounded
 reader GREEN, shared function/sequence interleaving, result/ordinal/total-cap
 faults, partial exits and SIGINT. These are controlled qualification facts, not
 production latency estimates or proof of connected capture/restore or15cases.
+
+### Current application extension namespace prerequisite
+
+The post-alignment native fixture already creates `extensions` with the captured
+postgres owner/ACL. Before the thirteen-provider extension installer, its admin
+transaction now creates only the missing `vault` namespace, using the genuine
+read-only catalogue witness: owner `supabase_admin`, postgres USAGE with grant
+option and service_role USAGE. Its exact sorted ACL is asserted before and after
+extension creation. Existing/occupied namespaces refuse rather than being
+adopted or overwritten. Database/socket/initdb-owner/PG17 guards, atomic rollback
+and the original timeouts remain; no application superuser or CREATE grant is
+added. The thirteen genuine provider names/versions/owners remain unchanged.
+
+Credential-free native smoke now invokes the existing `schema-preimage` command
+in its fresh preimage container. The original pre-alignment catalogue witness
+remains unchanged, but readiness additionally requires the current38-role graph,
+all13 providers, the exact namespace guard and genuine schema-only pg_dump. A
+closed current-application proof must be present exactly once and is retained
+in the smoke receipt; old seven-provider-only, missing, duplicate, malformed or
+weakened proofs refuse. Private schema SQL stays inside the container; the same
+bounded witness read, ACK, normal wait and mandatory cleanup remain.
+
+The local PG17 namespace-boundary regression uses genuine dblink with absent
+vault to reproduce3F000 and the same namespace.c/get_namespace_oid hashes, then
+proves exact new owner/ACL, rollback, occupied-state refusal and ordinary-role
+limits. It does not substitute Supabase Vault controls or claim local execution
+of all13 providers. Actual Linux schema-preimage qualification and connected
+capture/restore/15-case proof remain separate gates.
+
+Current role/extension assertion failures additionally carry an optional closed
+`assertion_site`. Twelve fixed source tokens distinguish role input/backend/
+preimage/commit/postimage checks from extension identity/preimage/literal/
+postinventory/final namespace ACL checks. Only the owning stage, AssertionError,
+ERR_ASSERTION and an exact known message token can emit the field. Node's
+supported AssertionError message object prevents its ordinary string-message
+diff from appending compared catalogue values. The independent Python decoder
+refuses unknown, malformed or incompatible sites. No actual/expected rows, raw
+message or stack leaves this boundary; SQLSTATE diagnostics remain unchanged.
+This attribution does not qualify a failing fixture or alter its assertions.
+
+The managed Supautils hook creates privileged extensions as its configured
+admin, even when requested by postgres. For the three captured postgres-owned
+providers, a separate original-initdb-admin bootstrap connection uses ordinary
+PostgreSQL creation and ownership operations. Its fixed NOLOGIN owner exists
+only inside one bounded transaction; exactly those three extensions and their
+new objects are reassigned to postgres before the owner is dropped. Identity,
+empty-role preimage, exact owned extension set and final absence are asserted.
+The application stays NOSUPERUSER throughout, with its original managed session
+and server/role preload configuration unchanged. No extension metadata is edited
+directly and no captured owner/version/ACL assertion is relaxed.

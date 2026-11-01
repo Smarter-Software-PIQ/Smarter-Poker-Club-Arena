@@ -139,6 +139,15 @@ class NativeObservationAuthority(unittest.TestCase):
     def test_connected_cases_share_live_smoke_image_but_cannot_pass_before_outer_cleanup(self):
         spec = importlib.util.spec_from_file_location('smoke_lifetime', ROOT / 'operations/release/ci/fixture-smoke.py')
         smoke = importlib.util.module_from_spec(spec); spec.loader.exec_module(smoke)
+        # This test owns outer-image lifetime, with native proof boundaries
+        # mocked explicitly. Validate the closed fixture through the real parser;
+        # it is not evidence that a native38-role/13-provider bootstrap ran.
+        application_proof = dict(scope='native-current-application-preimage', roles=38,
+            added_roles=5, extensions=13, target_schema_owner_acl_exact=True,
+            exact_versions_schemas_owners=True, genuine_create_extension=True,
+            schema_preimage_created=True, production_binary_parity=False,
+            full_schema_ready=False)
+        self.assertEqual(smoke.current_application_preimage_record(json.dumps(application_proof)), application_proof)
         for cleanup_fails, callback_fails in ((False, False), (True, False), (False, True)):
             with self.subTest(cleanup_fails=cleanup_fails), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -163,6 +172,7 @@ class NativeObservationAuthority(unittest.TestCase):
                     return ''
                 def connected(*args, **kwargs):
                     self.assertTrue(state['image'])
+                    self.assertEqual(args[4]['current_application_preimage'], application_proof)
                     self.assertGreater(kwargs['work_deadline'], 0)
                     report = {'version':1,'scope':'isolated-connected-ui-observations','product_certificate':False,
                         'runtime_image':image,'provenance':{'control_sha':sha},'success':False,
@@ -172,6 +182,7 @@ class NativeObservationAuthority(unittest.TestCase):
                         raise RuntimeError('PRIVATE FAILURE MUST NOT BE UPLOADED')
                     return {'cases_complete':True,'report':report}
                 with patch.object(smoke,'smoke_records',return_value={}), patch.object(smoke,'role_alignment_record',return_value={}), \
+                     patch.object(smoke,'current_application_preimage_record',return_value=application_proof), \
                      patch.object(smoke,'service_preimage',return_value=({'catalog_sha256':'c'*64},b'{}')):
                     result = smoke.execute(root,root/'evidence',sha,run,connected=connected)
                 receipt = json.loads((root/'evidence/connected-ui-observations.json').read_text())

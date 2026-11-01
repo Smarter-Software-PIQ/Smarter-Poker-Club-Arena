@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { nativeFailureDiagnostic } from '../runtime-files.mjs';
 import {
   alignCurrentApplicationRoles,
   extendedRolePreimage,
@@ -129,7 +130,12 @@ test('actual installer requires fresh post-commit backend and closes every owned
 test('occupied preimage never submits installation and changed postimage never passes', async () => {
   for (const settings of [{ occupied: true }, { drift: true }]) {
     const h = harness(settings);
-    await assert.rejects(alignCurrentApplicationRoles(h.args));
+    await assert.rejects(alignCurrentApplicationRoles(h.args), error => {
+      assert.deepEqual(nativeFailureDiagnostic('fixture-preimage-current-application-role-extension',error),
+        {status:'failed',stage:'fixture-preimage-current-application-role-extension',error:'AssertionError',
+         assertion_site:settings.occupied?'ROLE_PREIMAGE':'ROLE_POSTIMAGE'});
+      return true;
+    });
     if (settings.occupied) assert.equal(h.committed(), false);
     assert.ok(h.clients.every((client) => client.closed));
   }
@@ -145,31 +151,65 @@ test('native extension retains the exact protected role-owner source bindings', 
 });
 
 test('native extension installer uses actual owning sessions and refuses wrong versions', async () => {
-  const { installCurrentApplicationExtensions, currentApplicationExtensions } =
+  const { installCurrentApplicationExtensions, currentApplicationExtensions, currentApplicationExtensionNamespaceSql, currentApplicationExtensionNamespace,
+    postgresExtensionOwnerBeginSql, postgresExtensionOwnerEndSql } =
     await import('../current-application-roles.mjs');
-  for (const drift of [false, true]) {
+  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl']) {
     const installed = structuredClone(
       currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
     );
     const statements = [];
+    const schemas = new Set(base.schemas.map((item) => item.name));
+    let namespaceCreates = 0;
+    let temporaryOwnerCreates = 0;
+    let applicationDdl = 0;
     class Client {
+      constructor(options) {
+        this.options = options;
+        this.managed = !options?.options?.includes('session_preload_libraries=');
+        this.owner = 'supabase_admin';
+      }
       async connect() {}
       async query(sql) {
         if (sql.includes(' AS owned')) return { rows: [{ owned: true }] };
+        if (sql.startsWith('SELECT nspname AS name,'))
+          return {rows: [{...structuredClone(currentApplicationExtensionNamespace),
+            ...(drift === 'namespace-acl' ? {acl: []} : {})}]};
         if (sql.startsWith('SELECT e.extname'))
           return {
             rows: installed
               .map((item) =>
-                drift && installed.length === 13 && item.name === 'http'
+                drift === 'extension-version' && installed.length === 13 && item.name === 'http'
                   ? { ...item, version: 'wrong' }
-                  : item
+                  : drift === 'extension-owner' && installed.length === 13 && item.name === 'pgcrypto'
+                    ? {...item, owner:'supabase_admin'} : item
               )
               .sort((a, b) => (a.name < b.name ? -1 : 1)),
           };
+        if (sql === currentApplicationExtensionNamespaceSql) {
+          assert.equal(schemas.has('vault'), false);
+          schemas.add('vault'); namespaceCreates++;
+        }
+        if (sql === postgresExtensionOwnerBeginSql) {
+          assert.equal(this.managed, false);
+          assert.equal(this.owner, 'supabase_admin');
+          this.owner = 'fixture_postgres_extension_owner'; temporaryOwnerCreates++;
+        }
+        if (sql === postgresExtensionOwnerEndSql) {
+          const owned = installed.filter(item=>item.owner==='fixture_postgres_extension_owner');
+          assert.equal(owned.length,3);
+          assert.deepEqual(owned.map(item=>item.name).sort(),['pg_stat_statements','pgcrypto','uuid-ossp']);
+          for(const item of owned) item.owner='postgres';
+          this.owner='supabase_admin';
+        }
         if (sql.startsWith('CREATE EXTENSION')) {
           const [, name, schema, version] =
             /^CREATE EXTENSION "([^"]+)" WITH SCHEMA "([^"]+)" VERSION '([^']+)'$/.exec(sql);
-          installed.push({ name, schema, version, owner: this.owner || 'supabase_admin' });
+          if (!schemas.has(schema)) throw Object.assign(new Error('missing namespace'), {code:'3F000'});
+          if(this.owner==='postgres') applicationDdl++;
+          // Pinned Supautils creates every privileged extension as its admin,
+          // regardless of the application's requested role. Model that owner.
+          installed.push({ name, schema, version, owner: this.managed ? 'supabase_admin' : this.owner });
           statements.push(sql);
         }
         return { rows: [] };
@@ -191,9 +231,19 @@ test('native extension installer uses actual owning sessions and refuses wrong v
         },
       },
     };
-    if (drift) await assert.rejects(installCurrentApplicationExtensions(args));
+    if (drift) await assert.rejects(installCurrentApplicationExtensions(args), error => {
+      assert.deepEqual(nativeFailureDiagnostic('fixture-preimage-current-application-role-extension',error),
+        {status:'failed',stage:'fixture-preimage-current-application-role-extension',error:'AssertionError',
+         assertion_site:drift==='namespace-acl'?'EXTENSION_NAMESPACE_POSTIMAGE':'EXTENSION_POSTIMAGE'});
+      return true;
+    });
     else assert.equal((await installCurrentApplicationExtensions(args)).installed, 13);
     assert.equal(statements.length, 11);
+    assert.equal(namespaceCreates, 1);
+    assert.equal(temporaryOwnerCreates, 1);
+    assert.equal(applicationDdl, 0);
+    assert.equal(clients.length, 2);
+    assert.deepEqual(clients.map(client=>client.options.user),['supabase_admin','supabase_admin']);
     assert.deepEqual(
       installed.sort((a, b) => (a.name < b.name ? -1 : 1)),
       currentApplicationExtensions

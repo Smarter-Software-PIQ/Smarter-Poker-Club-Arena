@@ -252,7 +252,8 @@ export async function alignCurrentApplicationRoles({ applicationClient, Client, 
   const bytes = await readFile(new URL('./role-alignment-aligned.json', import.meta.url));
   assert.equal(
     createHash('sha256').update(bytes).digest('hex'),
-    'd0d858e8dbb70afca05d3e84be6ce109b818ea1ba278813d9d4b6afd062e2083'
+    'd0d858e8dbb70afca05d3e84be6ce109b818ea1ba278813d9d4b6afd062e2083',
+    new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_SOURCE_PIN'})
   );
   const before = JSON.parse(bytes),
     expected = extendedRolePreimage(before);
@@ -273,13 +274,16 @@ export async function alignCurrentApplicationRoles({ applicationClient, Client, 
   try {
     await installerClient.connect();
     installPid = installerClient.processID;
-    assert.notEqual(installPid, applicationClient.processID);
+    assert.notEqual(installPid, applicationClient.processID,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_INSTALL_BACKEND'}));
     assert.deepEqual(
       catalog(await captureFixtureServicePreimage(installerClient, applicationClient.processID)),
-      before
+      before,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_PREIMAGE'})
     );
     const result = await installerClient.query(installer);
-    assert.equal(result.at(-1).command, 'COMMIT');
+    assert.equal(result.at(-1).command, 'COMMIT',
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_COMMIT'}));
   } catch (error) {
     await installerClient.query('ROLLBACK').catch(() => {});
     throw error;
@@ -289,11 +293,14 @@ export async function alignCurrentApplicationRoles({ applicationClient, Client, 
   const observer = create();
   try {
     await observer.connect();
-    assert.notEqual(observer.processID, installPid);
-    assert.notEqual(observer.processID, applicationClient.processID);
+    assert.notEqual(observer.processID, installPid,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_OBSERVER_BACKEND'}));
+    assert.notEqual(observer.processID, applicationClient.processID,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_OBSERVER_APPLICATION_BACKEND'}));
     assert.deepEqual(
       catalog(await captureFixtureServicePreimage(observer, applicationClient.processID)),
-      expected
+      expected,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_POSTIMAGE'})
     );
   } finally {
     await databaseOwner.end(observer);
@@ -326,6 +333,68 @@ export const currentApplicationExtensions = Object.freeze([
   { name: 'vector', owner: 'supabase_admin', schema: 'public', version: '0.8.0' },
 ]);
 
+// Genuine read-only namespace catalogue witness retrieved2026-11-01, postgres
+// with auth.uid() NULL; READ ONLY/2s statement/1s lock/ROLLBACK. The aligned
+// role preimage already owns extensions/public. Only vault is absent there.
+export const currentApplicationExtensionNamespace = Object.freeze({
+  name: 'vault', owner: 'supabase_admin',
+  acl: Object.freeze(['postgres=U*/supabase_admin', 'service_role=U/supabase_admin',
+    'supabase_admin=UC/supabase_admin']),
+});
+// One atomic statement, also exercised directly on private native PG17. This
+// is only a disposable fixture operation; occupied namespaces always refuse.
+export const currentApplicationExtensionNamespaceSql = `DO $namespace$
+DECLARE actual jsonb;
+BEGIN
+  IF current_database() <> 'club_arena_qualification' OR inet_server_addr() IS NOT NULL
+    OR current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+    OR current_setting('server_version_num')::integer NOT BETWEEN 170000 AND 179999
+    OR NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE oid=10 AND rolname=current_user AND rolsuper)
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_NAMESPACE_OWNER_REQUIRED'; END IF;
+  IF EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname='vault')
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_NAMESPACE_ABSENT_REQUIRED'; END IF;
+  CREATE SCHEMA vault AUTHORIZATION supabase_admin;
+  GRANT USAGE ON SCHEMA vault TO postgres WITH GRANT OPTION;
+  GRANT USAGE ON SCHEMA vault TO service_role;
+  SELECT jsonb_build_object('name',nspname,'owner',pg_get_userbyid(nspowner),
+    'acl',(SELECT jsonb_agg(a::text ORDER BY a::text) FROM unnest(nspacl) a))
+    INTO actual FROM pg_catalog.pg_namespace WHERE nspname='vault';
+  IF actual IS DISTINCT FROM '${JSON.stringify(currentApplicationExtensionNamespace)}'::jsonb
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_NAMESPACE_POSTIMAGE_REQUIRED'; END IF;
+END $namespace$;`;
+
+// Supautils creates privileged extensions as supabase_admin, including when
+// postgres requested them. Bootstrap these three through one uncommitted,
+// non-login owner, then use PostgreSQL's ownership operation. The application
+// role is never promoted and its managed connection remains untouched.
+export const postgresExtensionOwnerBeginSql = `DO $owner$
+BEGIN
+  IF current_database() <> 'club_arena_qualification' OR inet_server_addr() IS NOT NULL
+    OR current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+    OR current_setting('session_preload_libraries') <> ''
+    OR current_setting('server_version_num')::integer NOT BETWEEN 170000 AND 179999
+    OR NOT EXISTS (SELECT FROM pg_roles WHERE oid=10 AND rolname=current_user AND rolsuper)
+    OR NOT EXISTS (SELECT FROM pg_roles WHERE rolname='postgres' AND NOT rolsuper)
+    OR EXISTS (SELECT FROM pg_roles WHERE rolname='fixture_postgres_extension_owner')
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_BOOTSTRAP_OWNER_REQUIRED'; END IF;
+  CREATE ROLE fixture_postgres_extension_owner NOLOGIN SUPERUSER NOINHERIT
+    NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+END $owner$;
+SET LOCAL ROLE fixture_postgres_extension_owner;`;
+
+export const postgresExtensionOwnerEndSql = `RESET ROLE;
+DO $owner$
+BEGIN
+  IF current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+    OR (SELECT count(*) FROM pg_extension WHERE extowner=(SELECT oid FROM pg_roles
+      WHERE rolname='fixture_postgres_extension_owner')) <> 3
+    OR (SELECT count(*) FROM pg_extension WHERE extname IN ('pg_stat_statements','pgcrypto','uuid-ossp')
+      AND extowner=(SELECT oid FROM pg_roles WHERE rolname='fixture_postgres_extension_owner')) <> 3
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_BOOTSTRAP_POSTIMAGE_REQUIRED'; END IF;
+END $owner$;
+REASSIGN OWNED BY fixture_postgres_extension_owner TO postgres;
+DROP ROLE fixture_postgres_extension_owner;`;
+
 export async function installCurrentApplicationExtensions({
   applicationClient,
   Client,
@@ -345,6 +414,7 @@ export async function installCurrentApplicationExtensions({
   const query = `SELECT e.extname AS name,e.extversion AS version,n.nspname AS schema,
     pg_get_userbyid(e.extowner) AS owner FROM pg_extension e
     JOIN pg_namespace n ON n.oid=e.extnamespace ORDER BY e.extname`;
+  let ownerBootstrap;
   try {
     await bootstrap.connect();
     assert.deepEqual(
@@ -353,48 +423,77 @@ export async function installCurrentApplicationExtensions({
       AND inet_server_addr() IS NULL AND current_user='supabase_admin' AND session_user='supabase_admin'
       AND EXISTS(SELECT FROM pg_roles WHERE oid=10 AND rolname=current_user AND rolsuper) AS owned`)
       ).rows,
-      [{ owned: true }]
+      [{ owned: true }],
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_IDENTITY'})
     );
     assert.deepEqual(
       (await bootstrap.query(query)).rows,
-      currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
+      currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name)),
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_PREIMAGE'})
     );
-    // Closed source literals only. Existing cron/plpgsql are reasserted, not
-    // replaced. Supautils' unchanged six-name list handles the three existing
-    // postgres-owned extensions; all five additional providers are admin-owned.
+    // Existing cron/plpgsql and every captured owner/version remain exact.
     for (const owner of ['supabase_admin', 'postgres']) {
-      const client = owner === 'postgres' ? applicationClient : bootstrap;
+      let client = bootstrap;
+      if (owner === 'postgres') {
+        ownerBootstrap = databaseOwner.own(new Client({
+          host: '/run/postgresql', user: 'supabase_admin', database: 'club_arena_qualification',
+          connectionTimeoutMillis: 5000, query_timeout: 8000, statement_timeout: 8000,
+          // Only this fresh initdb-admin bootstrap session uses ordinary PG
+          // ownership; no application/service configuration or hook is changed.
+          options: '-c search_path=pg_catalog -c session_preload_libraries=',
+        }));
+        await ownerBootstrap.connect();
+        client = ownerBootstrap;
+      }
       await client.query(
         "BEGIN; SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='5s';"
       );
       try {
+        if (owner === 'supabase_admin')
+          await client.query(currentApplicationExtensionNamespaceSql);
+        else await client.query(postgresExtensionOwnerBeginSql);
         for (const item of currentApplicationExtensions.filter(
           (item) => item.owner === owner && !['pg_cron', 'plpgsql'].includes(item.name)
         )) {
           assert.ok(
             /^[a-z_-]+$/.test(item.name) &&
               /^[a-z_]+$/.test(item.schema) &&
-              /^[0-9.]+$/.test(item.version)
+              /^[0-9.]+$/.test(item.version),
+            new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_LITERAL'})
           );
           await client.query(
             `CREATE EXTENSION "${item.name}" WITH SCHEMA "${item.schema}" VERSION '${item.version}'`
           );
         }
+        if (owner === 'postgres') await client.query(postgresExtensionOwnerEndSql);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => {});
         throw error;
       }
     }
-    assert.deepEqual((await bootstrap.query(query)).rows, currentApplicationExtensions);
+    assert.deepEqual((await bootstrap.query(query)).rows, currentApplicationExtensions,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_POSTIMAGE'}));
+    assert.deepEqual((await applicationClient.query(`SELECT current_user='postgres'
+      AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user)
+      AND NOT EXISTS (SELECT FROM pg_roles WHERE rolname='fixture_postgres_extension_owner') AS owned`)).rows,
+      [{owned: true}], new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_IDENTITY'}));
+    assert.deepEqual((await bootstrap.query(`SELECT nspname AS name,
+      pg_get_userbyid(nspowner) AS owner,
+      (SELECT array_agg(a::text ORDER BY a::text) FROM unnest(nspacl) a) AS acl
+      FROM pg_catalog.pg_namespace WHERE nspname='vault'`)).rows,
+      [currentApplicationExtensionNamespace],
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_NAMESPACE_POSTIMAGE'}));
   } finally {
-    await databaseOwner.end(bootstrap);
+    try { if (ownerBootstrap) await databaseOwner.end(ownerBootstrap); }
+    finally { await databaseOwner.end(bootstrap); }
   }
   return {
     scope: 'native-current-application-extensions',
     installed: 13,
     exact_versions_schemas_owners: true,
     genuine_create_extension: true,
+    target_schema_owner_acl_exact: true,
     production_binary_parity: false,
   };
 }

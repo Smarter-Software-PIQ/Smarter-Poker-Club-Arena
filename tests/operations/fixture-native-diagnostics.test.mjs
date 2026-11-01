@@ -297,3 +297,39 @@ test('only the fixed native smoke source line is retained from a private stack',
     native_line: 324,
   });
 });
+
+// Real Node assertions append private diffs to string messages. Supplying the
+// supported AssertionError message object retains exact closed tokens instead.
+test('current application assertion sites expose only exact source-owned tokens', () => {
+  const stage='fixture-preimage-current-application-role-extension';
+  const sites=['ROLE_SOURCE_PIN','ROLE_INSTALL_BACKEND','ROLE_PREIMAGE','ROLE_COMMIT',
+    'ROLE_OBSERVER_BACKEND','ROLE_OBSERVER_APPLICATION_BACKEND','ROLE_POSTIMAGE',
+    'EXTENSION_IDENTITY','EXTENSION_PREIMAGE','EXTENSION_LITERAL',
+    'EXTENSION_POSTIMAGE','EXTENSION_NAMESPACE_POSTIMAGE'];
+  for(const site of sites){
+    let error;
+    try{assert.deepEqual({private:'PRIVATE ACTUAL'},{private:'PRIVATE EXPECTED'},
+      new assert.AssertionError({message:'FIXTURE_ASSERT_'+site}));}catch(actual){error=actual;}
+    error.assertion_site='PRIVATE TAMPERED SITE';
+    assert.deepEqual(nativeFailureDiagnostic(stage,error),
+      {status:'failed',stage,error:'AssertionError',assertion_site:site});
+    assert.equal(error.message,'FIXTURE_ASSERT_'+site);
+    assert.equal(error.actual,undefined);assert.equal(error.expected,undefined);
+    assert.ok(!JSON.stringify(nativeFailureDiagnostic(stage,error)).includes('PRIVATE'));
+  }
+  for(const edit of [
+    {message:'FIXTURE_ASSERT_ROLE_PREIMAGE\nPRIVATE SECRET'},
+    {message:'PRIVATE SECRET',assertion_site:'ROLE_PREIMAGE'},
+    {code:'PRIVATE',message:'FIXTURE_ASSERT_ROLE_PREIMAGE'},
+    {name:'Error',message:'FIXTURE_ASSERT_ROLE_PREIMAGE'},
+    {message:['FIXTURE_ASSERT_ROLE_PREIMAGE']},
+  ]){
+    const error={name:'AssertionError',code:'ERR_ASSERTION',message:'PRIVATE',actual:'PRIVATE',expected:'PRIVATE',...edit};
+    const result=nativeFailureDiagnostic(stage,error);
+    assert.equal(result.assertion_site,undefined);assert.ok(!JSON.stringify(result).includes('PRIVATE'));
+  }
+  assert.equal(nativeFailureDiagnostic('fixture-preimage-package',
+    new assert.AssertionError({message:'FIXTURE_ASSERT_ROLE_PREIMAGE'})).assertion_site,undefined);
+  assert.deepEqual(nativeFailureDiagnostic(stage,{name:'error',code:'3F000',message:'PRIVATE',assertion_site:'ROLE_PREIMAGE'}),
+    {status:'failed',stage,error:'error',sqlstate:'3F000'});
+});

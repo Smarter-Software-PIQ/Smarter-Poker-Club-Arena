@@ -805,12 +805,12 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
       if (roleAlignment || schemaMode === 'preimage') await applyRoleAlignment();
       if (schemaMode === 'preimage') {
         stage = 'current-application-role-extension';
-        await alignCurrentApplicationRoles({
+        const currentRoles = await alignCurrentApplicationRoles({
           applicationClient: db,
           Client: pg.Client,
           databaseOwner: supervisor.databaseOwner,
         });
-        await installCurrentApplicationExtensions({
+        const currentExtensions = await installCurrentApplicationExtensions({
           applicationClient: db,
           Client: pg.Client,
           databaseOwner: supervisor.databaseOwner,
@@ -835,6 +835,15 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
           root + '/service-schema.sql',
         ]);
         await chmod(root + '/service-schema.sql', 0o400);
+        process.stdout.write(JSON.stringify({
+          scope: 'native-current-application-preimage', roles: currentRoles.roles,
+          added_roles: currentRoles.added_roles, extensions: currentExtensions.installed,
+          target_schema_owner_acl_exact: currentExtensions.target_schema_owner_acl_exact,
+          exact_versions_schemas_owners: currentExtensions.exact_versions_schemas_owners,
+          genuine_create_extension: currentExtensions.genuine_create_extension,
+          schema_preimage_created: true, production_binary_parity: false,
+          full_schema_ready: false,
+        }) + '\n');
       }
       // Docker tmpfs disappears on container stop. Keep this exact bootstrap
       // alive until the outer owner copies the catalog, then shut down normally.
