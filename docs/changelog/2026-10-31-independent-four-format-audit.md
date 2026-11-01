@@ -314,9 +314,11 @@ Fresh canonical2026-10-31T23:37:57.242Z/version2.9 receipt, unchanged hashes abo
 
 A30 and A31 share this candidate for independent client delivery on current protected maina939; no engine dependency. Preserve both focused regressions and explicit unknown outcomes. Final integrated checks remain required.
 
-## A21 protected-main integration, 2026-11-01T02:13:17.941531+00:00
+## A40: pre-seated MTTs remain on their advertised schedule
 
-Current canonical policy receipt2026-11-01T02:05:13.881Z version2.9/manifest7c7f308e applies; full required references reread. Integrated protectedbe36cc0a0b66a6821e2cb6042166da816f052ddc after explicit conflicts review. Kept narrower protected shard2 Ubuntu24 accounting route, all3 protected browser pins and audit live-e2e pin; retained A21 native gate and equivalent protected UTC calendar predicate. Both histories in qualification bindings remain; only active source fingerprints updated. 830focused runner/fixture assertions,125Node contracts,client compiler and1822source pins pass. No production SQL or engine action. Protected checks/install/readback remain required.
+Canonical policies emitted/read2026-11-01T02:15:55.737Z, version2.9 manifest7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52 and A36 individual hashes unchanged. Full policies/root references/checkpoint/storage reread; this isolated protectedbe36cc0 checkout has byte-identical root instructions to the freshly read parent. Shared-capacity mounted disk5s1 verified707GiB free. No competing candidate was changed.
+
+Actual launch authority stamps started_at with the advertised future start, completes RUNNING, then holds the first deal. The new schedule visibility predicate rejects every future started_at, so this valid prepared event disappears before the deal, contrary to the owner direction that future scheduled events remain. Two production-helper regressions fail before repair, including preparation across Chicago midnight. Accept only the running-shaped row whose finite future started_at exactly matches its scheduled start. Existing terminal/old-event/malformed and inconsistent-future controls remain unchanged. All25 focused visibility and mounted schedule assertions pass; client TypeScript compilation passes. Logs scratch/preseated-schedule-before.log/final.log/tsc.log. No artwork, lifecycle write, new timer or engine dependency. Protected publication and affected live proof remain pending; this is not attributed to a historical engine freeze.
 
 ## A36 independent engine submission
 

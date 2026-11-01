@@ -22,6 +22,11 @@ test('native fixed records pair objects and queries and retain only closed aggre
   push(parser,'TION 1010\nD1 4 Q B FUNCTION 1100\nD1 5 Q E FUNCTION 3100\nD1 6 O E FUNCTION 3200\n',2);
   parser.finish();const proof=parser.snapshot(4);
   assert.equal(proof.pairs_complete,true);
+  assert.equal(proof.version,2);assert.equal(proof.object_scope,'effective-selected-components');assert.equal(proof.query_scope,'actual-network-requests');
+  for(const patch of [{object_scope:undefined},{query_scope:'cached-results'},{version:1}])
+    assert.equal(safeNativeDumpDiagnostic({...proof,...patch}),null);
+  const {object_scope,query_scope,...legacy}=proof;legacy.version=1;
+  assert.deepEqual(safeNativeDumpDiagnostic(legacy),legacy);
   assert.deepEqual(proof.types.FUNCTION,{objects_started:1,objects_completed:1,object_elapsed_us:3200,
     queries_started:2,queries_completed:2,query_elapsed_us:3000,query_max_us:2000});
   assert.deepEqual(safeNativeDumpDiagnostic({...proof,private:'private-secret'}),proof);
@@ -78,7 +83,10 @@ async function binaryFixture(run){
       archive_sha256:'5367f6fb2ec97efe1eb2e0c7926bb33438e51b0bd3a9733b88498056a7dc9a7e',
       builder_sha256:hash(await readFile(new URL('../native-dump-diagnostic.py',import.meta.url))),
       helper_sha256:hash(await readFile(new URL('../native-dump-diagnostic.c',import.meta.url))),
-      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true}};
+      function_batch_helper_sha256:hash(await readFile(new URL('../native-dump-function-batch.c',import.meta.url))),
+      function_batch_contract_sha256:hash(await readFile(new URL('../native-dump-function-batch-test.c',import.meta.url))),
+      transport:'consecutive-stock-function-executions-v1',
+      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5507,function_batch_max:128,native_batch_result_faults_refused:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components'}};
     const save=()=>writeFile(path.join(output,'manifest.json'),JSON.stringify(manifest),{mode:0o600});await save();
     await run({root,output,manifest,save,env:{RUNNER_TEMP:root,GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
   }finally{await rm(root,{recursive:true,force:true});}
@@ -86,10 +94,16 @@ async function binaryFixture(run){
 
 test('only exact qualified owned native binary and source manifest creates an execution capability',async()=>binaryFixture(async({env,output,manifest,save})=>{
   const client=await verifyNativeDumpBinary(env);assert.equal(nativeDumpCapability(client).postgres_version,'17.11');
-  for(const key of ['archive_sha256','builder_sha256','helper_sha256','binary_sha256','libpq_sha256','control_sha']){
+  for(const key of ['archive_sha256','builder_sha256','helper_sha256','function_batch_helper_sha256','function_batch_contract_sha256','binary_sha256','libpq_sha256','control_sha']){
     const old=manifest[key];manifest[key]='b'.repeat(old.length);await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest[key]=old;
   }
+  for(const [key,bad] of [['synthetic_routine_count',5506],['function_batch_max',129],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['diagnostic_object_scope','all-visits']]){
+    const old=manifest.qualification[key];manifest.qualification[key]=bad;await save();
+    await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.qualification[key]=old;
+  }
+  const oldTransport=manifest.transport;manifest.transport='logging-only';await save();
+  await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.transport=oldTransport;
   manifest.run_id='999';await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.run_id='123';
   manifest.run_attempt=2;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.run_attempt=1;
   manifest.qualification.sql_bytes_equal=false;await save();await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);
