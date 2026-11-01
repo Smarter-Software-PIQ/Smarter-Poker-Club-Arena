@@ -658,13 +658,18 @@ test.describe('the mobile lobby chrome on production', () => {
         return { heading: element.textContent, backgrounds, overlayDisplay };
       });
       appearance.push({ mode, ...paint });
+      await currentRows.first().scrollIntoViewIfNeeded();
+      await expect(currentRows.first()).toBeInViewport();
+      await expect(heading).toBeInViewport();
       await testInfo.attach(`chrome-arena-${mode}-phone.png`, {
         body: await page.screenshot(),
         contentType: 'image/png',
       });
     }
     await page.setViewportSize({ width: 1280, height: 900 });
-    await expect(page.locator('.lobby-table tr[data-game-heading]').first()).toBeVisible();
+    const wideHeading = page.locator('.lobby-table tr[data-game-heading]').first();
+    await wideHeading.scrollIntoViewIfNeeded();
+    await expect(wideHeading).toBeInViewport();
     await testInfo.attach('chrome-arena-mtt-wide.png', {
       body: await page.screenshot(),
       contentType: 'image/png',
@@ -784,6 +789,8 @@ test.describe('the mobile lobby chrome on production', () => {
     expect(persisted?.value ?? persisted?.[0]?.value).toEqual([chosen]);
     await expect(selected()).toBeVisible({ timeout: 30_000 });
     await assertFavoriteTier('reloaded-server-readback');
+    await rows.first().scrollIntoViewIfNeeded();
+    await expect(selected()).toBeInViewport();
     await testInfo.attach('tournament-favorite-starred-tier.png', {
       body: await page.screenshot(),
       contentType: 'image/png',
