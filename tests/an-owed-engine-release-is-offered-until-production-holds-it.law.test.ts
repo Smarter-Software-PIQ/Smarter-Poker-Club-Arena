@@ -369,7 +369,10 @@ describe('the offer is the existing release, not a second publisher', () => {
     // Explicit dispatch is database-only: it cannot produce engine outputs.
     expect(stage.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
     expect(stage.jobs.signal.needs).toBe('detect');
-    expect(stage.on.schedule).toEqual([{ cron: '30 8 * * *' }, { cron: '30 9 * * *' }]);
+    expect(stage.on.schedule).toEqual([
+      { cron: '31,35,39,43 8 * * *' },
+      { cron: '31,35,39,43 9 * * *' },
+    ]);
     expect(stage.jobs.signal.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(stage.on.push.branches).toEqual(['main']);
     expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
