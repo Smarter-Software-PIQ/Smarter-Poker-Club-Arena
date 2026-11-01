@@ -290,6 +290,13 @@ function bootReactTree(): void {
       .then(({ startDeviceSighting }) => startDeviceSighting())
       .catch((err) => reportDeferredImportFailure(err, 'main.DeviceSighting_init_non_blocking'));
 
+    // PHASE 4.6: single active device per account (2026-11-01). A login on a
+    // new device claims the account; the database revokes every other session
+    // and the existing revocation event signs the other devices out.
+    void importWithRetry(() => import('./lib/activeLogin'))
+      .then(({ startSingleActiveLogin }) => startSingleActiveLogin())
+      .catch((err) => reportDeferredImportFailure(err, 'main.ActiveLogin_init_non_blocking'));
+
     // RENDER IMMEDIATELY — don't wait for IdentityDNA's async getSession().
     // The app has AuthGuard, ErrorBoundary, Connection Watchdog, and Offline
     // Banner that gracefully handle degraded state. Blocking rendering for
