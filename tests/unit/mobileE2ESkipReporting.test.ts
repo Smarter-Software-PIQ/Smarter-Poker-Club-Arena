@@ -178,9 +178,9 @@ test('passed',()=>{});`
       (step: any) => step.name === 'Retain named mobile skips on every outcome'
     );
     // Ordinary publication still emits the full receipt on every outcome.
-    // The closed navigation recovery has its own exact three-case report.
+    // Closed navigation and tournament selections have their own exact reports.
     expect(generate.if).toBe(
-      "always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'"
+      "always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'"
     );
     expect(generate.run).toContain('report-mobile-e2e-skips.mjs');
     expect(generate.run).toContain('e2e-report/first-run-iphone.json');

@@ -2562,6 +2562,13 @@ switch_to_drained_predecessor_cutover() {
   DRAINED_PREDECESSOR_CUTOVER=1
   echo "[engine-release-transaction] the full-heap legacy census does not fit (or its heap is unreadable); it is refused and $CHECKPOINT_EED_SHA may be replaced only at a drained hand boundary, never by a checkpoint"
 }
+# The inverse, used only from the wait loop: the same sealed eed06fe5 restarted
+# on its own and its heap fits the census allowance again (see the loop).
+return_to_legacy_census_route() {
+  DRAINED_PREDECESSOR_CUTOVER=0
+  LEGACY_CHECKPOINT_REQUIRED=1
+  echo "[engine-release-transaction] the serving $CHECKPOINT_EED_SHA heap fits the legacy census allowance again; the existing checkpoint route is offered again and the drained-boundary route is set aside"
+}
 if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ] && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ]; then
   if ! legacy_census_fits; then
     switch_to_drained_predecessor_cutover
@@ -2615,10 +2622,32 @@ while :; do
     source_target_is_current
     NEXT_FRESHNESS_CHECK=$(( $(date +%s) + 60 ))
   fi
-  # The heap only grows while this run waits; re-read it before any entry.
+  # The heap is re-read on every pass, in BOTH directions (2026-11-01).
+  #
+  # This used to say "the heap only grows while this run waits" and switched
+  # one way only: a run that met a large heap once stayed on the drained route
+  # for the rest of its life. That premise is false for eed06fe5. It restarts
+  # itself on the SAME sealed image every 90-120 minutes (02:19, 03:50, 05:19,
+  # 08:15, 09:42, 12:39 UTC on 2026-11-01), and a fresh process measured
+  # 350 MB at 97 s and 1906-2200 MB at 20-35 min, inside the census allowance.
+  # Run 41283363258 was admitted at 07:19 with a large heap and was still on the
+  # drained route at the 10:00 daily break, 18 minutes after the 09:42 restart,
+  # where the census would have fitted; five stopped-tournament tables held
+  # cards_in_air through that break and the strict certificate never opened.
+  #
+  # So a run that has not opened the one-shot checkpoint goes back to the
+  # existing census route when the same sealed eed06fe5 measures inside its
+  # allowance again. Nothing is widened: legacy_census_fits is the same
+  # predicate the intake used, the last read before the one-shot intent still
+  # refuses a census that stopped fitting, and the certificate after the
+  # checkpoint is unchanged. A run that opened the checkpoint never comes back
+  # here (LEGACY_CHECKPOINT_ATTEMPTED dies above and below).
   if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ] && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ] \
     && ! legacy_census_fits; then
     switch_to_drained_predecessor_cutover
+  elif [ "${DRAINED_PREDECESSOR_CUTOVER:-0}" = 1 ] && [ "$LEGACY_CHECKPOINT_ATTEMPTED" = 0 ] \
+    && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ] && legacy_census_fits; then
+    return_to_legacy_census_route
   fi
   # A drained boundary needs Lightning to stop forming hands exactly as the
   # checkpoint did; the hold is the same one, placed by the same predicate.

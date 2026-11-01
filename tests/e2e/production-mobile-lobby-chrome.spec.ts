@@ -607,36 +607,52 @@ test.describe('the mobile lobby chrome on production', () => {
       await document.fonts.ready;
     });
     // Native body glass, including actual text ranges rather than wrapper boxes.
-    const bodyInkFits = (elements: Element[]) =>
-      elements
-        .flatMap((row) => {
-          const box = row.getBoundingClientRect();
-          const insetTop = box.top + box.width * 0.003;
-          const insetBottom = box.top + box.width * 0.102;
-          return [...row.querySelectorAll('td:first-child,td[data-label="Buy-In"]')].flatMap(
-            (cell) => {
-              const ink: DOMRect[] = [];
-              const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
-              while (walker.nextNode()) {
-                const node = walker.currentNode;
-                const parent = node.parentElement;
-                if (
-                  !node.textContent?.trim() ||
-                  !parent ||
-                  parent.closest('.lt-fav,[aria-hidden="true"]') ||
-                  !parent.getBoundingClientRect().width ||
-                  getComputedStyle(parent).visibility === 'hidden'
-                )
-                  continue;
-                const range = document.createRange();
-                range.selectNodeContents(node);
-                ink.push(...[...range.getClientRects()].filter((rect) => rect.width > 0));
+    const bodyInkOverflows = (elements: Element[]) =>
+      elements.flatMap((row) => {
+        const box = row.getBoundingClientRect();
+        const insetTop = box.top + box.width * 0.003;
+        const insetBottom = box.top + box.width * 0.102;
+        return [...row.querySelectorAll('td:first-child,td[data-label="Buy-In"]')].flatMap(
+          (cell) => {
+            const failures: {
+              row: string | null;
+              text: string;
+              top: number;
+              bottom: number;
+              minimum: number;
+              maximum: number;
+            }[] = [];
+            const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) {
+              const node = walker.currentNode;
+              const parent = node.parentElement;
+              if (
+                !node.textContent?.trim() ||
+                !parent ||
+                parent.closest('.lt-fav,[aria-hidden="true"]') ||
+                !parent.getBoundingClientRect().width ||
+                getComputedStyle(parent).visibility === 'hidden'
+              )
+                continue;
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              for (const rect of range.getClientRects()) {
+                if (rect.width > 0 && (rect.top < insetTop - 1 || rect.bottom > insetBottom + 1)) {
+                  failures.push({
+                    row: row.getAttribute('data-id'),
+                    text: node.textContent.trim(),
+                    top: rect.top - box.top,
+                    bottom: rect.bottom - box.top,
+                    minimum: insetTop - box.top - 1,
+                    maximum: insetBottom - box.top + 1,
+                  });
+                }
               }
-              return ink.map((rect) => rect.top >= insetTop - 1 && rect.bottom <= insetBottom + 1);
             }
-          );
-        })
-        .every(Boolean);
+            return failures;
+          }
+        );
+      });
     const appearance: unknown[] = [];
     for (const [family, tab, mode] of [
       ['ALL', 'PLO', 'cash'],
@@ -783,7 +799,11 @@ test.describe('the mobile lobby chrome on production', () => {
           )
         )
         .toBe(true);
-      await expect.poll(() => currentRows.evaluateAll(bodyInkFits)).toBe(true);
+      await expect
+        .poll(() => currentRows.evaluateAll(bodyInkOverflows), {
+          message: `${mode} text must fit its native body glass`,
+        })
+        .toEqual([]);
       appearance.push({ mode, ...paint });
       await sampleRow.scrollIntoViewIfNeeded();
       await expect(sampleRow).toBeInViewport();
@@ -794,11 +814,13 @@ test.describe('the mobile lobby chrome on production', () => {
       });
       if (mode === 'cash') {
         await page.setViewportSize({ width: 1280, height: 900 });
-        const wideCashRows = page.locator(
-          '.lobby-table [data-testid="lobby-game-row"][data-kind="cash"][data-id]:visible'
-        );
+        const wideCashRows = page.locator('.lobby-table tr[data-kind="cash"][data-id]:visible');
         await expect(wideCashRows.first()).toBeVisible();
-        await expect.poll(() => wideCashRows.evaluateAll(bodyInkFits)).toBe(true);
+        await expect
+          .poll(() => wideCashRows.evaluateAll(bodyInkOverflows), {
+            message: 'Desktop cash text must fit its native body glass',
+          })
+          .toEqual([]);
         expect(
           await wideCashRows
             .locator('.premium-cash-style')

@@ -322,13 +322,14 @@ jobs:
       should_run: ${{ steps.origin.outputs.should_run }}
       engine_trigger_sha: ${{ steps.origin.outputs.engine_trigger_sha }}
       client_navigation: ${{ steps.origin.outputs.client_navigation }}
+      tournament_only: ${{ steps.origin.outputs.tournament_only }}
       keep_game_pages: ${{ steps.origin.outputs.keep_game_pages }}
       natural_addon: ${{ steps.origin.outputs.natural_addon }}
       client_target_sha: ${{ steps.client-target.outputs.sha }}
       verification_sha: ${{ steps.client-target.outputs.verification_sha }}
     steps:
       - name: Checkout trusted publication verification
-        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null'))
+        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null'))
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -361,6 +362,13 @@ jobs:
             if [ "${HORSE_SOCIAL_JSON-null}" != null ]; then
               { [ "$HORSE_SOCIAL_JSON" = true ] && [ "$MOBILE_MULTIRUN_JSON" = null ] && [ "$MOBILE_MULTIRUN_TARGET_JSON" = null ] && [ "$CLIENT_NAVIGATION_JSON" = null ] && [ "$ENGINE_TRIGGER_JSON" != null ]; } \
                 || { echo '::error::Horse social proof requires literal true, one engine pin and no other observation mode.'; exit 1; }
+            fi
+            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && Object.hasOwn(p,"tournament_only") ? 0 : 1)'; then
+              node scripts/ci/tournament-client-certificate.mjs admit
+              echo 'tournament_only=true' >> "$GITHUB_OUTPUT"
+              echo 'engine_trigger_sha=' >> "$GITHUB_OUTPUT"
+              echo 'should_run=true' >> "$GITHUB_OUTPUT"
+              exit 0
             fi
             if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && Object.hasOwn(p,"natural_addon_tournament_id") ? 0 : 1)'; then
               node -e '
@@ -740,7 +748,7 @@ jobs:
         run: node scripts/ci/check-club-fk-indexes.mjs
 
       - name: Audit the remaining live schema from trusted code
-        if: needs.publication-gate.outputs.client_navigation != 'true'
+        if: needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -819,6 +827,10 @@ jobs:
         id: navigation_validator
         if: needs.publication-gate.outputs.client_navigation == 'true'
         run: cp scripts/ci/client-navigation-certificate.mjs "$RUNNER_TEMP/client-navigation-certificate.mjs"
+
+      - name: Preserve the closed tournament report validator
+        if: needs.publication-gate.outputs.tournament_only == 'true'
+        run: cp scripts/ci/tournament-client-certificate.mjs "$RUNNER_TEMP/tournament-client-certificate.mjs"
 
       - name: Take the specs from the commit production is actually serving
         if: steps.live.outputs.ready == 'true'
@@ -952,7 +964,7 @@ jobs:
 
       - name: Verify agent bank and private-data boundaries with the isolated identity
         id: agent_boundary
-        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -976,7 +988,7 @@ jobs:
       # Lightning membership is independent of standalone template topology.
       # A union member club still hosts its authorized operator dashboard.
       - name: Prepare isolated Lightning operator access
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -984,7 +996,7 @@ jobs:
         run: node scripts/ci/production-e2e-account.mjs prepare-lightning-staff
 
       - name: Certify the live cashier database contract
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         # `pg` is a pinned repository dependency. This stays deterministic on
@@ -998,7 +1010,7 @@ jobs:
       # the existing disposable zero-balance staff identity and makes no writes.
       - name: Certify the authenticated production notification inbox
         id: notification_inbox
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1011,7 +1023,7 @@ jobs:
           --project=chromium --reporter=line,json --workers=1 --retries=0
 
       - name: Preserve the notification verdict before the broader page sweep
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: post-deploy-notification-report
@@ -1030,7 +1042,7 @@ jobs:
       # profile, never joins a club, and is hard-deleted below.
       - name: Provision an isolated first-run account
         id: first_run_account
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -1038,7 +1050,7 @@ jobs:
 
       - name: Certify a new iPhone player gets through Complete Your Profile
         id: first_run
-        if: always() && steps.live.outputs.ready == 'true' && steps.first_run_account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.first_run_account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1049,7 +1061,7 @@ jobs:
           --project=webkit-first-run --reporter=line,json --workers=1 --retries=0
 
       - name: Hard-delete the isolated first-run account
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1074,7 +1086,7 @@ jobs:
       # from an older deployed commit cannot re-introduce the bare comparison.
       - name: Certify the authenticated Lightning operator cold loads
         id: lightning_operator
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1102,7 +1114,7 @@ jobs:
 
       - name: Classify the release the Lightning operator certificate ran against
         id: lightning_release
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
         run: |
@@ -1146,7 +1158,7 @@ jobs:
           esac
 
       - name: Certify the authenticated production Cashier
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           ARENA_BASE_URL: https://smarter.poker/hub/club-arena
@@ -1168,7 +1180,7 @@ jobs:
       # fn_cashier_statement_page on the wire and asserts whichever verdict the
       # server returns; it never clicks Export, so no export job is started.
       - name: Certify the authenticated production Cashier Statements
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           ARENA_BASE_URL: https://smarter.poker/hub/club-arena
@@ -1189,7 +1201,7 @@ jobs:
       # independence and delivered it in one direction only. Run 33394046555:
       # Cashier failed, and thirteen spec files plus tests/e2e/routes never ran.
       - name: Run the specs that need a deployed page
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           ARENA_BASE_URL: https://smarter.poker/hub/club-arena
@@ -1398,6 +1410,21 @@ jobs:
 
       # A closed recovery mode reuses this lane's provenance, fresh identity,
       # standalone staff fixture and always-cleanup, without the unrelated sweep.
+      - name: Verify only tournament dialog and watch behavior
+        id: tournament_browser
+        if: needs.publication-gate.outputs.tournament_only == 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success'
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/tournament-browser.json
+        run: |
+          npx playwright test tests/e2e/tournament-buy-in-dialog.spec.ts tests/e2e/tournament-watch.spec.ts \
+            --project=chromium --reporter=line,json --workers=1 --retries=0 \
+            --output=test-results/tournament-browser
+          node "$RUNNER_TEMP/tournament-client-certificate.mjs" browser e2e-report/tournament-browser.json
+
       - name: Verify only the two client navigation repairs
         if: needs.publication-gate.outputs.client_navigation == 'true' && needs.publication-gate.outputs.keep_game_pages != 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
         env:
@@ -1456,7 +1483,7 @@ jobs:
       # second fact is the one nobody was being told.
       # Keep this small, scoped receipt even when all browser assertions pass.
       - name: Name every skipped mobile check and its exact reason
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         run: >-
           node scripts/ci/report-mobile-e2e-skips.mjs
           e2e-report/mobile-skips.json
@@ -1466,7 +1493,7 @@ jobs:
           e2e-report/sweep.json
 
       - name: Retain named mobile skips on every outcome
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: post-deploy-mobile-skips
@@ -1480,7 +1507,7 @@ jobs:
       # log and the uploaded report, both behind blob storage. Report-only:
       # it never changes the verdict.
       - name: Name every failed test as an annotation
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         run: >-
           node scripts/ci/annotate-e2e-failures.mjs
           e2e-report/notifications.json
@@ -1501,7 +1528,7 @@ jobs:
           e2e-report/sweep.json
 
       - name: Did the suite actually verify production?
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         run: >-
           node scripts/ci/assert-e2e-actually-ran.mjs
           e2e-report/notifications.json
@@ -1528,7 +1555,7 @@ jobs:
       # defect cannot either impersonate or erase the Phase 1 evidence.
       - name: Did every Phase 1 customization journey pass exactly?
         id: phase1_coverage
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         run: >-
           node scripts/ci/phase1-customization-certificate-coverage.mjs
           e2e-report/customization-realtime.json
@@ -1536,7 +1563,7 @@ jobs:
           e2e-report/customization-commerce.json
 
       - name: Retire interrupted assignment qualification fixtures
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -1636,6 +1663,14 @@ jobs:
               ;;
           esac
 
+      - name: Require exact tournament browser release and fixture cleanup
+        if: always() && needs.publication-gate.outputs.tournament_only == 'true'
+        env:
+          RELEASE_CERTIFIED: ${{ steps.release_window.outputs.certified }}
+          CLEANUP_OUTCOME: ${{ steps.account_cleanup.outcome }}
+          CASE_OUTCOME: ${{ steps.tournament_browser.outcome }}
+        run: test "$RELEASE_CERTIFIED" = true && test "$CLEANUP_OUTCOME" = success && test "$CASE_OUTCOME" = success
+
       - name: Require exact client navigation release and fixture cleanup
         if: always() && needs.publication-gate.outputs.client_navigation == 'true'
         env:
@@ -1650,7 +1685,7 @@ jobs:
       # job's window: see classifyBracket in production-e2e-provenance.mjs.
       - name: Classify the release the Phase 1 journeys ran against
         id: phase1_release
-        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
         run: |
@@ -1685,7 +1720,7 @@ jobs:
 
       - name: Classify the Phase 1 customization certificate
         id: phase1_verdict
-        if: always() && needs.publication-gate.outputs.client_navigation != 'true'
+        if: always() && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           PHASE1_RELEASE_CERTIFIED: ${{ steps.phase1_release.outputs.certified }}
           PHASE1_RELEASE_OUTCOME: ${{ steps.phase1_release.outcome }}
@@ -1822,6 +1857,7 @@ jobs:
         run: node scripts/ci/check-club-fk-indexes.mjs
 
       - name: Audit the remaining live schema from trusted code
+        if: needs.publication-gate.outputs.tournament_only != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -1933,6 +1969,10 @@ jobs:
           echo "ready=false" >> "$GITHUB_OUTPUT"
           echo "::error::production did not serve one valid full build-info.json SHA."
           exit 1
+
+      - name: Preserve the closed tournament report validator
+        if: needs.publication-gate.outputs.tournament_only == 'true'
+        run: cp scripts/ci/tournament-client-certificate.mjs "$RUNNER_TEMP/tournament-client-certificate.mjs"
 
       - name: Take the specs from the commit production is actually serving
         if: steps.live.outputs.ready == 'true'
@@ -2086,6 +2126,7 @@ jobs:
         run: node scripts/ci/production-e2e-account.mjs prepare-spectator
 
       - name: Certify live-table continuity against the exact serving engine
+        id: continuity
         if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success' && needs.publication-gate.outputs.natural_addon != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
@@ -2110,10 +2151,18 @@ jobs:
           ENGINE_HEALTH_URL: https://engine.smarter.poker/health
           EXPECTED_ENGINE_SHA: ${{ steps.engine.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/live-table-realtime.json
-        run: >-
-          npx playwright test tests/e2e/production-live-table-realtime.spec.ts
-          --project=webkit-live-table-realtime --reporter=line,json --workers=1 --retries=0
-          --output=test-results/live-table-realtime
+        run: |
+          if [ '${{ needs.publication-gate.outputs.tournament_only }}' = true ]; then
+            npx playwright test tests/e2e/production-live-table-realtime.spec.ts \
+              --grep 'an already-running (MTT|SPIN|SNG) table stays realtime and recovers one owner$' \
+              --project=webkit-live-table-realtime --reporter=line,json --workers=1 --retries=0 \
+              --output=test-results/live-table-realtime
+            node "$RUNNER_TEMP/tournament-client-certificate.mjs" live e2e-report/live-table-realtime.json
+          else
+            npx playwright test tests/e2e/production-live-table-realtime.spec.ts \
+              --project=webkit-live-table-realtime --reporter=line,json --workers=1 --retries=0 \
+              --output=test-results/live-table-realtime
+          fi
 
       # The move notice is presentation-only. Exercise the actual served
       # consumer in this lane's reserved spectator browser, without moving
@@ -2121,7 +2170,7 @@ jobs:
 
       - name: Verify seat-move notices in the served spectator browser
         id: seat_move_notice
-        if: "!cancelled() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success' && needs.publication-gate.outputs.natural_addon != 'true'"
+        if: "!cancelled() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.tournament_only != 'true'"
         # 150s case plus authentication/membership setup and report headroom.
         timeout-minutes: 5
         env:
@@ -2230,7 +2279,7 @@ jobs:
 
       - name: Did all required live-table cases pass?
         id: live_coverage
-        if: always() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed != 'false' && needs.publication-gate.outputs.natural_addon != 'true'
+        if: always() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed != 'false' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         run: node scripts/ci/live-table-certificate-coverage.mjs e2e-report/live-table-realtime.json
 
       - name: Observe the exact natural add-on across its complete table roster
@@ -2275,6 +2324,7 @@ jobs:
           retention-days: 14
 
       - name: Hard-delete the isolated production E2E account
+        id: tournament_account_cleanup
         if: always() && steps.live.outputs.ready == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -2314,7 +2364,7 @@ jobs:
       # symlink, where any change at all really is wrong.
       - name: Classify the release window this certificate covers
         id: release_window
-        if: always() && steps.live.outputs.ready == 'true'
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
           RUNTIME_RESUMED: ${{ steps.gameplay.outputs.resumed }}
@@ -2387,6 +2437,23 @@ jobs:
               ;;
           esac
 
+      - name: Require exact tournament continuity release and fixture cleanup
+        if: always() && needs.publication-gate.outputs.tournament_only == 'true'
+        env:
+          EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
+          RUNTIME_RESUMED: ${{ steps.gameplay.outputs.resumed }}
+          CLEANUP_OUTCOME: ${{ steps.tournament_account_cleanup.outcome }}
+          CASE_OUTCOME: ${{ steps.continuity.outcome }}
+        run: |
+          set -euo pipefail
+          test "$RUNTIME_RESUMED" = true
+          test "$CLEANUP_OUTCOME" = success
+          test "$CASE_OUTCOME" = success
+          timeout 30s git fetch --no-tags origin main
+          curl -fsS --max-time 20 -H 'Cache-Control: no-cache' \
+            "https://smarter.poker/hub/club-arena/build-info.json?tournament_final=$RANDOM" \
+            | node scripts/ci/production-e2e-provenance.mjs release-window "$EXPECTED_LIVE_SHA"
+
       - name: Retain The Verified Mobile Table Screens And Measurements
         if: always() && steps.live.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
@@ -2433,7 +2500,7 @@ jobs:
   club-channel-lifecycle-e2e:
     name: Exact engine club channel lifecycle
     needs: [publication-gate, certification-cleanup-safety]
-    if: "needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && github.event_name == 'repository_dispatch' && github.event.client_payload.engine_sha != ''"
+    if: "needs.publication-gate.outputs.tournament_only != 'true' && needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && github.event_name == 'repository_dispatch' && github.event.client_payload.engine_sha != ''"
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
     # Up to 15m schedule lead + 12m thaw prerequisite + 15m case/fixture
@@ -2505,11 +2572,34 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  tournament-only-verdict:
+    needs: [publication-gate, production-e2e, live-table-e2e]
+    if: always() && needs.publication-gate.outputs.tournament_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require both scoped lanes to prove the same client
+        env:
+          CLIENT_RESULT: ${{ needs.production-e2e.result }}
+          LIVE_RESULT: ${{ needs.live-table-e2e.result }}
+          CLIENT_SHA: ${{ needs.production-e2e.outputs.client_sha }}
+          LIVE_SHA: ${{ needs.live-table-e2e.outputs.client_sha }}
+        run: |
+          set -euo pipefail
+          test "$CLIENT_RESULT" = success
+          test "$LIVE_RESULT" = success
+          [[ "$CLIENT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$CLIENT_SHA" = "$LIVE_SHA"
+          echo 'Seven tournament dialog/watch cases and three natural MTT/SPIN/SNG continuity cases passed on one unchanged client, with fixture cleanup.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No satellite, admission, payout, or patch-specific failure-path certification is implied.' >> "$GITHUB_STEP_SUMMARY"
+
   phase1-customization-cutover-seal:
     needs: [publication-gate, production-e2e, live-table-e2e]
     if: >-
       ${{
         always() &&
+        needs.publication-gate.outputs.tournament_only != 'true' &&
         needs.publication-gate.outputs.should_run == 'true' &&
         needs.live-table-e2e.result == 'success' &&
         needs.production-e2e.outputs.phase1_certified == 'true' &&
@@ -2645,7 +2735,7 @@ jobs:
       - production-e2e
       - live-table-e2e
       - phase1-customization-cutover-seal
-    if: ${{ always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.natural_addon != 'true' }}
+    if: ${{ needs.publication-gate.outputs.tournament_only != 'true' && always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.natural_addon != 'true' }}
     name: This verification admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     timeout-minutes: 6
@@ -2702,7 +2792,7 @@ jobs:
           # release. A seal skipped because no run certified one is a
           # non-verdict, not incomplete verification.
           SEAL_OWED: >-
-            ${{
+            ${{ needs.publication-gate.outputs.tournament_only != 'true' &&
               needs.publication-gate.outputs.should_run == 'true' &&
               needs.live-table-e2e.result == 'success' &&
               needs.production-e2e.outputs.phase1_certified == 'true' &&
@@ -2744,6 +2834,7 @@ jobs:
   stood-down-is-not-green:
     name: A stood-down run is marked superseded, not passed
     needs:
+      - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof
       - publication-gate

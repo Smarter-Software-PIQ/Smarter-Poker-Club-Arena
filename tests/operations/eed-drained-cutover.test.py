@@ -201,6 +201,9 @@ drained_predecessor_witness() {{
 switch_to_drained_predecessor_cutover() {{
   LEGACY_CHECKPOINT_REQUIRED=0; DRAINED_PREDECESSOR_CUTOVER=1; event SWITCH_TO_DRAINED
 }}
+return_to_legacy_census_route() {{
+  DRAINED_PREDECESSOR_CUTOVER=0; LEGACY_CHECKPOINT_REQUIRED=1; event RETURN_TO_CENSUS
+}}
 '''
         script = script.replace(old, controls)
         harness_timeout = "timeout() { printf '%s\\n' \"$CHECKPOINT_8825_SHA\"; }"
@@ -288,10 +291,79 @@ class DrainedQueueTests(unittest.TestCase):
         self.assertTrue(any(e.startswith('LEGACY_CHECKPOINT') for e in events), events)
         self.assertFalse(any(e.startswith('WITNESS') for e in events), events)
 
+    def test_a_census_that_fits_again_after_the_predecessor_restarted_takes_the_checkpoint_route(self):
+        # 2026-11-01: run 41283363258 met a large heap at intake and was still
+        # on the drained route at the 10:00 daily break, 18 minutes after
+        # eed06fe5 restarted itself with a heap inside the census allowance.
+        result, events = drained_queue([(2, 275000), (0, 260000)], census_fits=(0, 0))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('RETURN_TO_CENSUS', events)
+        self.assertLess(events.index('CENSUS_FIT:0:1'), events.index('RETURN_TO_CENSUS'))
+        self.assertNotIn('SWITCH_TO_DRAINED', events)
+        self.assertTrue(any(e.startswith('LEGACY_CHECKPOINT') for e in events), events)
+        self.assertFalse(any(e.startswith('WITNESS') for e in events), events)
+        # The admission read the strict legacy rung, not the drained one.
+        self.assertIn('CERTIFICATE:1:0:285000:strict=0', events)
+
+    def test_a_census_that_still_does_not_fit_stays_on_the_drained_route(self):
+        result, events = drained_queue([(0, 262000), (0, 250000)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('CENSUS_FIT:0:1', events)
+        self.assertNotIn('RETURN_TO_CENSUS', events)
+        self.assert_no_checkpoint(events)
+        self.assertIn('CERTIFICATE:1:0:260000:strict=1', events)
+
     def test_a_different_legacy_profile_under_the_lock_refuses(self):
         result, events = drained_queue([(0, 262000)], predecessor='8825af51817f379c4261658ca29ecc9d8d81932d')
         self.assertEqual(result.returncode, 1)
         self.assertTrue(any('different legacy profile' in e for e in events), events)
+
+
+REREAD = TRANSACTION[TRANSACTION.index('  # The heap is re-read on every pass, in BOTH directions'):
+                     TRANSACTION.index('  # A drained boundary needs Lightning')]
+RETURN_FUNCTION = TRANSACTION[TRANSACTION.index('return_to_legacy_census_route() {'):]
+RETURN_FUNCTION = RETURN_FUNCTION[:RETURN_FUNCTION.index('\n}\n') + 3]
+
+
+class CensusRereadTests(unittest.TestCase):
+    """The real per-pass re-read, in both directions, and the real switch back."""
+
+    def reread(self, *, drained, attempted, predecessor, fits):
+        script = f'''set -euo pipefail
+CHECKPOINT_EED_SHA={EED}
+CHECKPOINT_PREDECESSOR_SHA={predecessor}
+DRAINED_PREDECESSOR_CUTOVER={int(drained)}
+LEGACY_CHECKPOINT_REQUIRED={int(not drained)}
+LEGACY_CHECKPOINT_ATTEMPTED={int(attempted)}
+CALLS=0
+legacy_census_fits() {{ CALLS=$((CALLS + 1)); return {0 if fits else 1}; }}
+switch_to_drained_predecessor_cutover() {{ LEGACY_CHECKPOINT_REQUIRED=0; DRAINED_PREDECESSOR_CUTOVER=1; }}
+{RETURN_FUNCTION}
+{REREAD}
+printf '%s %s %s\\n' "$DRAINED_PREDECESSOR_CUTOVER" "$LEGACY_CHECKPOINT_REQUIRED" "$CALLS"
+'''
+        result = NATIVE_RUN(['bash', '-c', script], capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.splitlines()[-1].split()
+
+    def test_a_drained_run_returns_to_the_census_when_the_same_eed_fits_again(self):
+        self.assertEqual(self.reread(drained=True, attempted=False, predecessor=EED, fits=True), ['0', '1', '1'])
+
+    def test_a_drained_run_stays_drained_while_the_census_does_not_fit(self):
+        self.assertEqual(self.reread(drained=True, attempted=False, predecessor=EED, fits=False), ['1', '0', '1'])
+
+    def test_a_run_that_opened_the_checkpoint_never_returns_and_never_measures(self):
+        self.assertEqual(self.reread(drained=True, attempted=True, predecessor=EED, fits=True), ['1', '0', '0'])
+
+    def test_a_different_sealed_predecessor_never_returns_and_never_measures(self):
+        other = '8825af51817f379c4261658ca29ecc9d8d81932d'
+        self.assertEqual(self.reread(drained=True, attempted=False, predecessor=other, fits=True), ['1', '0', '0'])
+
+    def test_a_census_run_that_stops_fitting_still_switches_to_drained(self):
+        self.assertEqual(self.reread(drained=False, attempted=False, predecessor=EED, fits=False), ['1', '0', '1'])
+
+    def test_a_census_run_that_still_fits_is_unchanged(self):
+        self.assertEqual(self.reread(drained=False, attempted=False, predecessor=EED, fits=True), ['0', '1', '1'])
 
 
 class PreNoticeGateTests(unittest.TestCase):

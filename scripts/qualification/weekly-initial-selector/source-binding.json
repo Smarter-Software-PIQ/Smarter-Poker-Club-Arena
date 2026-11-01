@@ -85,10 +85,121 @@
       "sha256": "05b3622404fdb60118a014bde5306f33d5dd7a0da566f954ece9aa3ccef84be3"
     }
   },
+  "cashDecisionBrowserSourceIdentity20261101": {
+    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
+    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
+    "execution_performed": false,
+    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
+    "pins": [
+      {
+        "file": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 272761,
+          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+        },
+        "current": {
+          "bytes": 273180,
+          "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
+        }
+      }
+    ]
+  },
+  "cashDecisionProtectedMainMergeIdentity20261101": {
+    "scope": "Source identity only for semantic integration with protected main 4fd0c3aee0310a59e8cac33feac0e3d7a8bc2130.",
+    "review": "Preserve all historical audit records and qualification states from both parents. Current merged workflow retains incoming native gate additions and the cash Chromium/WebKit browser gate; current classifier retains cash .pw selection. Refresh only current active input identities.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 273180,
+          "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
+        },
+        "incoming": {
+          "bytes": 273355,
+          "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+        },
+        "current": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        }
+      }
+    }
+  },
+  "cashDecisionClosureProtectedMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 11f78015fa2598900df3556864763bc09502a7f1.",
+    "review": "Preserve both parents audit metadata and all historical financial qualification states. Compose current workflow, classifier, completion receipt and nested active source-binding identities from merged bytes. Frozen and historical qualifications are not restamped.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        },
+        "incoming": {
+          "bytes": 273355,
+          "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+        },
+        "current": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        }
+      }
+    }
+  },
+  "cashDecisionMemberStatsProtectedMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 6becc343c8299495ca4888f0fe07a3d99837fde6.",
+    "review": "Preserve both parents complete non-pin metadata, historical audits and financial qualification states; current merged CI retains member stats Chicago regression and cash browser gates. Active source pins alone follow merged bytes with protected-main representation retained.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 273774,
+          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
+        },
+        "incoming": {
+          "bytes": 273719,
+          "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
+        },
+        "current": {
+          "bytes": 274138,
+          "sha256": "417e3086a1f5b7301fc9bf5ed9a074f08d45dba04007f9757f2250ee37c04b99"
+        }
+      }
+    }
+  },
+  "cashDecisionCurrentMainMergeIdentity20261101": {
+    "scope": "Current source identity only for semantic integration with protected main 33fec4f7cb6300a0fd3d8fbab224ebc5513aba67.",
+    "review": "Preserve protected-main metadata ordering, then add absent cash-branch metadata before the active files map. All both-parent historical audits and financial states are retained exactly; divergent active source pins alone follow merged bytes and protected-main string/object representations.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": {
+      ".github/workflows/ci.yml": {
+        "ours": {
+          "bytes": 274138,
+          "sha256": "417e3086a1f5b7301fc9bf5ed9a074f08d45dba04007f9757f2250ee37c04b99"
+        },
+        "incoming": {
+          "bytes": 273932,
+          "sha256": "bb86a60ef227c84fc59ae7a9aac49323bf07262cfab180c9715a39bdef4188f2"
+        },
+        "current": {
+          "bytes": 274351,
+          "sha256": "996e00b3e805d9214c6546b207c6a642e906bd32db52e8796feedeb6043b2ae9"
+        }
+      }
+    }
+  },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274138,
-      "sha256": "417e3086a1f5b7301fc9bf5ed9a074f08d45dba04007f9757f2250ee37c04b99"
+      "bytes": 274351,
+      "sha256": "996e00b3e805d9214c6546b207c6a642e906bd32db52e8796feedeb6043b2ae9"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2051,24 +2162,41 @@
     "reason": "Retain both branch histories and reviewed composed workflow and nested binding identities. No historical evidence restamped.",
     "historicalEvidenceRestamped": false
   },
-  "cashDecisionBrowserSourceIdentity20261101": {
-    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
-    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
-    "execution_performed": false,
-    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
-    "pins": [
-      {
-        "file": ".github/workflows/ci.yml",
-        "previous": {
-          "bytes": 272761,
-          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
-        },
-        "current": {
-          "bytes": 273180,
-          "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
-        }
-      }
-    ]
+  "browserRunnerCompatibility20261101ClosureBranchRecord": {
+    "reason": "Four browser-bearing CI jobs use standard hosted Ubuntu24.04 because locked Playwright1.58 refuses the advanced Ubuntu26.04 image. Reviewed diff changes only runner labels; exhaustive normalized workflow contracts preserve every command, permission, assertion, financial matrix and deadline. Current source identity only, no financial or live recertification.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    }
+  },
+  "nativeRunnerCompatibility20261101ClosureBranchRecord": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "current": {
+      "bytes": 272348,
+      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
+    }
+  },
+  "closureMainIntegration20261101": {
+    "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
+    "updatedCurrentInputs": [".github/workflows/ci.yml"],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "financialMainIntegration20261101ClosureBranchRecord": {
+    "reason": "Preserve both histories, existing qualified receipt parser and connected closure-native qualification. Current nested identities only.",
+    "historicalEvidenceRestamped": false
+  },
+  "closureAwardOrderIntegration20261101": {
+    "reason": "Preserve both branch histories, protected mystery-award gate and closure runtime/parser/native qualification. Current source identities only; no historical verdict restamped.",
+    "historicalEvidenceRestamped": false
   },
   "tournamentCreateRequestNativeEnforcement20261101": {
     "reason": "Adds actual PostgreSQL 17 tournament creation request replay, atomic rollback and satellite partial-outcome qualification to existing accounting shard 3. Existing financial execution and historical qualification remain unchanged. Current workflow fingerprint is source identity, not financial certification.",
@@ -2147,93 +2275,6 @@
     "historicalEvidenceRestamped": false,
     "execution_performed": false
   },
-  "cashDecisionProtectedMainMergeIdentity20261101": {
-    "scope": "Source identity only for semantic integration with protected main 4fd0c3aee0310a59e8cac33feac0e3d7a8bc2130.",
-    "review": "Preserve all historical audit records and qualification states from both parents. Current merged workflow retains incoming native gate additions and the cash Chromium/WebKit browser gate; current classifier retains cash .pw selection. Refresh only current active input identities.",
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false,
-    "pins": {
-      ".github/workflows/ci.yml": {
-        "ours": {
-          "bytes": 273180,
-          "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
-        },
-        "incoming": {
-          "bytes": 273355,
-          "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
-        },
-        "current": {
-          "bytes": 273774,
-          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
-        }
-      }
-    }
-  },
-  "browserRunnerCompatibility20261101ClosureBranchRecord": {
-    "reason": "Four browser-bearing CI jobs use standard hosted Ubuntu24.04 because locked Playwright1.58 refuses the advanced Ubuntu26.04 image. Reviewed diff changes only runner labels; exhaustive normalized workflow contracts preserve every command, permission, assertion, financial matrix and deadline. Current source identity only, no financial or live recertification.",
-    "previous": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
-    },
-    "current": {
-      "bytes": 272193,
-      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
-    }
-  },
-  "nativeRunnerCompatibility20261101ClosureBranchRecord": {
-    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
-    "previous": {
-      "bytes": 272193,
-      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
-    },
-    "current": {
-      "bytes": 272348,
-      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
-    }
-  },
-  "closureMainIntegration20261101": {
-    "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
-    "updatedCurrentInputs": [".github/workflows/ci.yml"],
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false
-  },
-  "financialMainIntegration20261101ClosureBranchRecord": {
-    "reason": "Preserve both histories, existing qualified receipt parser and connected closure-native qualification. Current nested identities only.",
-    "historicalEvidenceRestamped": false
-  },
-  "closureAwardOrderIntegration20261101": {
-    "reason": "Preserve both branch histories, protected mystery-award gate and closure runtime/parser/native qualification. Current source identities only; no historical verdict restamped.",
-    "historicalEvidenceRestamped": false
-  },
-  "closureCreationIntegration20261101": {
-    "reason": "Preserve both protected creation and closure histories and all native gates; current composed source fingerprints only.",
-    "historicalEvidenceRestamped": false,
-    "execution_performed": false
-  },
-  "cashDecisionClosureProtectedMainMergeIdentity20261101": {
-    "scope": "Current source identity only for semantic integration with protected main 11f78015fa2598900df3556864763bc09502a7f1.",
-    "review": "Preserve both parents audit metadata and all historical financial qualification states. Compose current workflow, classifier, completion receipt and nested active source-binding identities from merged bytes. Frozen and historical qualifications are not restamped.",
-    "execution_performed": false,
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false,
-    "pins": {
-      ".github/workflows/ci.yml": {
-        "ours": {
-          "bytes": 273774,
-          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
-        },
-        "incoming": {
-          "bytes": 273355,
-          "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
-        },
-        "current": {
-          "bytes": 273774,
-          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
-        }
-      }
-    }
-  },
   "memberStatsChicagoRegression20261101": {
     "reason": "Reviewed six-line workflow addition executes isolated PG17 Chicago member-statistics regression in existing required accounting shard4. Existing commands, assertions, financial matrices, permissions and deadlines unchanged. Current source identity only; no historical financial or live evidence restamped.",
     "previous": {
@@ -2251,27 +2292,22 @@
     },
     "integrationNote": "Retain concurrent protected tournament request qualification and native schedule staging. Final CI diff from integrated main remains the same six-line member stats regression addition. No historical evidence restamped."
   },
-  "cashDecisionMemberStatsProtectedMainMergeIdentity20261101": {
-    "scope": "Current source identity only for semantic integration with protected main 6becc343c8299495ca4888f0fe07a3d99837fde6.",
-    "review": "Preserve both parents complete non-pin metadata, historical audits and financial qualification states; current merged CI retains member stats Chicago regression and cash browser gates. Active source pins alone follow merged bytes with protected-main representation retained.",
-    "execution_performed": false,
+  "closureCreationIntegration20261101": {
+    "reason": "Preserve both protected creation and closure histories and all native gates; current composed source fingerprints only.",
     "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false,
-    "pins": {
-      ".github/workflows/ci.yml": {
-        "ours": {
-          "bytes": 273774,
-          "sha256": "d7206751301a0ff0cc9ba9fdc66998e9e014d637a493e6ce15fad54911cc2c99"
-        },
-        "incoming": {
-          "bytes": 273719,
-          "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
-        },
-        "current": {
-          "bytes": 274138,
-          "sha256": "417e3086a1f5b7301fc9bf5ed9a074f08d45dba04007f9757f2250ee37c04b99"
-        }
-      }
-    }
+    "execution_performed": false
+  },
+  "stallProgressQualification20261101": {
+    "reason": "Add the isolated PostgreSQL stall-ingest regression to existing accounting shard 7. All prior steps, matrices, assertions, deadlines, financial source and historical qualification remain unchanged. Current workflow source identity only.",
+    "previous": {
+      "bytes": 273355,
+      "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+    },
+    "current": {
+      "bytes": 273568,
+      "sha256": "50c652f40f358616b2305301a654f4c5659688235963efb5f7a04226c2da297e"
+    },
+    "historicalEvidenceRestamped": false,
+    "execution_performed": false
   }
 }
