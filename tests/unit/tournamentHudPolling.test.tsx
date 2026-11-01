@@ -135,7 +135,7 @@ vi.mock('../../src/lib/supabase', () => ({
         limit: () => chain,
         gt: () => chain,
         abortSignal: (signal: AbortSignal) => {
-          fx.rowSignals.push(signal);
+          if (table === 'tournaments') fx.rowSignals.push(signal);
           return chain;
         },
         maybeSingle: () => answer(),

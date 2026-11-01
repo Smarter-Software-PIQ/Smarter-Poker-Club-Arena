@@ -10,7 +10,7 @@ const chicagoDay = new Intl.DateTimeFormat('en-US', {
   month: '2-digit',
   day: '2-digit',
 });
-/** Future scheduled events, or events whose actual play began today. */
+/** Unstarted scheduled events (including delayed starts), or play begun today. */
 export function isCurrentMttScheduleEvent(row: ScheduleVisibilityRow, now = Date.now()): boolean {
   if (!Number.isFinite(now)) return false;
   const status = String(row.status ?? '').toUpperCase();
@@ -24,6 +24,11 @@ export function isCurrentMttScheduleEvent(row: ScheduleVisibilityRow, now = Date
     'BREAK',
     'BAGGED',
   ].includes(status);
+  // Launch completion seats the field before dealing and persists its
+  // advertised start while already RUNNING. Keep that future scheduled
+  // event visible through preparation, including across Chicago midnight.
+  const scheduled = Date.parse(row.start_time ?? '');
+  if (running && Number.isFinite(started) && started > now && started === scheduled) return true;
   if (Number.isFinite(started) || running) {
     const actualStart = Number.isFinite(started) ? started : Date.parse(row.start_time ?? '');
     return (
@@ -32,6 +37,7 @@ export function isCurrentMttScheduleEvent(row: ScheduleVisibilityRow, now = Date
       chicagoDay.format(actualStart) === chicagoDay.format(now)
     );
   }
-  const scheduled = Date.parse(row.start_time ?? '');
-  return Number.isFinite(scheduled) && scheduled >= now;
+  // Passing the advertised start time does not cancel a registration or event.
+  // Keep delayed starts discoverable until an authoritative lifecycle transition.
+  return Number.isFinite(scheduled);
 }

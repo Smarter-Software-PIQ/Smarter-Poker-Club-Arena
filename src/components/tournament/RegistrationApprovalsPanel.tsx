@@ -34,6 +34,7 @@ import { readLocalSession } from '../../lib/authUtils';
 import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { titleCase } from '../../utils/titleCase';
 import './RegistrationApprovalsPanel.css';
 
@@ -84,42 +85,51 @@ function RegistrationApprovalScope({
 
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
-  const loadApprovals = useCallback(async () => {
-    const rows: ApprovalRow[] = [];
-    let cursor: string | null = null;
-    for (;;) {
-      let query = supabase
-        .from('tournament_registration_approvals')
-        .select('user_id, created_at')
-        .eq('tournament_id', tournamentId)
-        .order('user_id', { ascending: true })
-        .limit(1000);
-      if (cursor !== null) query = query.gt('user_id', cursor);
-      const { data, error } = await query;
-      if (error) throw new Error(error.message);
-      if (!Array.isArray(data)) throw new Error('Registration approvals unavailable');
-      rows.push(...(data as ApprovalRow[]));
-      if (data.length < 1000) break;
-      const next = data[data.length - 1]?.user_id;
-      if (typeof next !== 'string' || !next || (cursor !== null && next <= cursor))
-        throw new Error('Registration approval cursor unavailable');
-      cursor = next;
-    }
-    rows.sort(
-      (a, b) => b.created_at.localeCompare(a.created_at) || a.user_id.localeCompare(b.user_id)
-    );
-    return rows;
-  }, [tournamentId]);
+  const loadApprovals = useCallback(
+    async (signal?: AbortSignal) => {
+      const rows: ApprovalRow[] = [];
+      let cursor: string | null = null;
+      for (;;) {
+        let query = supabase
+          .from('tournament_registration_approvals')
+          .select('user_id, created_at')
+          .eq('tournament_id', tournamentId)
+          .order('user_id', { ascending: true })
+          .limit(1000);
+        if (cursor !== null) query = query.gt('user_id', cursor);
+        const { data, error } = await runWithRequestDeadline(
+          (requestSignal) => query.abortSignal(requestSignal),
+          { signal }
+        );
+        if (error) throw new Error(error.message);
+        if (!Array.isArray(data)) throw new Error('Registration approvals unavailable');
+        rows.push(...(data as ApprovalRow[]));
+        if (data.length < 1000) break;
+        const next = data[data.length - 1]?.user_id;
+        if (typeof next !== 'string' || !next || (cursor !== null && next <= cursor))
+          throw new Error('Registration approval cursor unavailable');
+        cursor = next;
+      }
+      rows.sort(
+        (a, b) => b.created_at.localeCompare(a.created_at) || a.user_id.localeCompare(b.user_id)
+      );
+      return rows;
+    },
+    [tournamentId]
+  );
 
   useEffect(() => {
     if (!isAdmin || !authorizedToRegister) return;
     let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       setLoading(true);
       try {
         const [memberships, approvalRows] = await Promise.all([
-          MembershipService.getClubMembers(clubId),
-          loadApprovals(),
+          runWithRequestDeadline((signal) => MembershipService.getClubMembers(clubId, signal), {
+            signal: controller.signal,
+          }),
+          loadApprovals(controller.signal),
         ]);
         if (cancelled) return;
         const opts: MemberOption[] = [];
@@ -142,6 +152,7 @@ function RegistrationApprovalScope({
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [clubId, isAdmin, authorizedToRegister, loadApprovals, reload]);
 

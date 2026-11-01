@@ -19,6 +19,14 @@ import {
   noteRealtimeTransportRecovered,
 } from '../lib/realtimeTransportLoss';
 import { reportError } from '../utils/errorReporter';
+import {
+  claimDegradedToast,
+  createDegradationGate,
+  createResubscribeScheduler,
+  noteChannelRecovered,
+  showDegradedToast,
+  type DegradationGate,
+} from '../lib/realtimeDegradationPolicy';
 
 interface UseMasterBusBroadcastChannelOptions {
   channelName: string | null | undefined;
@@ -28,8 +36,15 @@ interface UseMasterBusBroadcastChannelOptions {
   /** Explicit recovery re-authenticates and replaces only this subscription. */
   restartKey?: number;
   private?: boolean;
+  /** Called once per degradation episode (first failure until SUBSCRIBED). */
   onSubscriptionError?: (status: string, err?: Error) => void;
   onSubscriptionStatus?: (status: string) => void;
+  /**
+   * Player-facing error toast for a degraded channel, shown at most once per
+   * channel per degradation episode (src/lib/realtimeDegradationPolicy.ts).
+   * Pages must use this instead of toasting from onSubscriptionError.
+   */
+  degradedToast?: string;
 }
 
 export function useMasterBusBroadcastChannel({
@@ -41,6 +56,7 @@ export function useMasterBusBroadcastChannel({
   private: privateChannel = true,
   onSubscriptionError,
   onSubscriptionStatus,
+  degradedToast,
 }: UseMasterBusBroadcastChannelOptions): void {
   const [engineReady, setEngineReady] = useState(false);
   // Network callbacks may share a React batch. Retire fallback authority at
@@ -53,17 +69,56 @@ export function useMasterBusBroadcastChannel({
     !!channelName &&
     /^(?:member-record:[0-9a-f-]{36}:[0-9a-f-]{36}|club-roster:[0-9a-f-]{36})$/.test(channelName);
   const callbackRef = useRef(onPayload);
-  const errorCallbackRef = useRef(onSubscriptionError);
-  const statusCallbackRef = useRef(onSubscriptionStatus);
+  const consumerErrorRef = useRef(onSubscriptionError);
+  const consumerStatusRef = useRef(onSubscriptionStatus);
+  const degradedToastRef = useRef(degradedToast);
+  degradedToastRef.current = degradedToast;
+  /* One degradation episode per channel name for this mount, shared by the
+     engine path and the Supabase fallback path below and kept across
+     restartKey re-runs (src/lib/realtimeDegradationPolicy.ts). */
+  const gateRef = useRef<{ channel: string | null | undefined; gate: DegradationGate } | null>(
+    null
+  );
+  if (!gateRef.current || gateRef.current.channel !== channelName) {
+    gateRef.current = { channel: channelName, gate: createDegradationGate() };
+  }
+  /* Both paths call these two refs. They apply the shared policy before the
+     consumer sees anything: SUBSCRIBED closes the episode, and only the first
+     failure of an episode reaches onSubscriptionError and the toast. */
+  const statusCallbackRef = useRef<(status: string) => void>(() => {});
+  statusCallbackRef.current = (status: string) => {
+    if (status === 'SUBSCRIBED') {
+      gateRef.current?.gate.recovered();
+      if (channelName) noteChannelRecovered(channelName);
+    }
+    consumerStatusRef.current?.(status);
+  };
+  const errorCallbackRef = useRef<(status: string, err?: Error) => void>(() => {});
+  errorCallbackRef.current = (...args: [status: string, err?: Error]) => {
+    if (!gateRef.current?.gate.shouldNotify()) return;
+    try {
+      // Forward exactly what the path supplied (some report no error object).
+      consumerErrorRef.current?.(...args);
+    } finally {
+      const message = degradedToastRef.current;
+      if (message && channelName && claimDegradedToast(channelName)) {
+        try {
+          showDegradedToast(message, channelName);
+        } catch (toastError) {
+          reportError(toastError, 'useMasterBusBroadcastChannel.degradedToast_threw');
+        }
+      }
+    }
+  };
 
   useEffect(() => {
     callbackRef.current = onPayload;
   }, [onPayload]);
   useEffect(() => {
-    errorCallbackRef.current = onSubscriptionError;
+    consumerErrorRef.current = onSubscriptionError;
   }, [onSubscriptionError]);
   useEffect(() => {
-    statusCallbackRef.current = onSubscriptionStatus;
+    consumerStatusRef.current = onSubscriptionStatus;
   }, [onSubscriptionStatus]);
 
   useEffect(() => {
@@ -168,6 +223,7 @@ export function useMasterBusBroadcastChannel({
     let admission: AbortController | null = null;
     let acquiredChannel: RealtimeChannel | null = null;
     let refusalReported = false;
+    const backoff = createResubscribeScheduler();
     /* Admission reserves a closed registered channel so the existing health
        owner can recover it. Auth/online events also retain the private join's
        event-driven retry, disarmed by SUBSCRIBED. No new timer is involved. */
@@ -218,7 +274,10 @@ export function useMasterBusBroadcastChannel({
             disarmAuthRetry?.();
             noteRealtimeTransportRecovered();
             refusalReported = false;
+            backoff.noteSubscribed();
           }
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED')
+            backoff.noteFailure(generation);
           if (status === 'CHANNEL_ERROR') armAuthRetry();
           try {
             if (status !== 'SUBSCRIBED' || !engineRecord) statusCallbackRef.current?.(status);
@@ -228,6 +287,9 @@ export function useMasterBusBroadcastChannel({
           if (status !== 'CHANNEL_ERROR' && status !== 'TIMED_OUT' && status !== 'CLOSED') {
             return;
           }
+          // Retries inside one degradation episode stay quiet: one report and
+          // one consumer notification per episode (realtimeDegradationPolicy.ts).
+          if (gateRef.current?.gate.isDegraded()) return;
           /* The shared socket dropped, so every channel failed at once with no
              reason: one report per outage, not one per channel. A refused
              private topic repeats on every recovery attempt until the token
@@ -253,8 +315,11 @@ export function useMasterBusBroadcastChannel({
       );
     };
 
+    /* Automatic recovery (the MasterBus health-monitor factory and the
+       auth/online retry) goes through the shared backoff: immediate after
+       one failure, then 1 s .. 30 s with jitter until SUBSCRIBED. */
     const startSubscription = () => {
-      void subscribeChannel();
+      backoff.run(() => void subscribeChannel());
     };
 
     const armAuthRetry = () => {
@@ -281,6 +346,7 @@ export function useMasterBusBroadcastChannel({
 
     return () => {
       alive = false;
+      backoff.cancel();
       admission?.abort();
       disarmAuthRetry?.();
       masterBus.removeChannelFactory(channelName);

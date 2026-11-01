@@ -241,6 +241,10 @@ export async function fetchMessengerUnreadCount(): Promise<number | null> {
 
 /** Event fired on window for every new direct message notification. */
 export const NEW_MESSAGE_EVENT = 'ca:new-message';
+/** A ringing call (an `incoming_call` notification row) and its removal once
+ *  the call is answered, declined or over. IncomingCallAlertHost listens. */
+export const INCOMING_CALL_EVENT = 'ca:incoming-call';
+export const CALL_ALERT_CLEARED_EVENT = 'ca:call-alert-cleared';
 
 export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
   avatarUrl: null,
@@ -598,6 +602,17 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
           // A direct message arrives as a `new_message` notification. Refresh
           // the Messages badge and hand the row to the live message popup.
           const row = (payload?.new ?? null) as Record<string, any> | null;
+          try {
+            if (payload?.eventType === 'INSERT' && row?.type === 'incoming_call') {
+              window.dispatchEvent(new CustomEvent(INCOMING_CALL_EVENT, { detail: row }));
+            } else if (payload?.eventType === 'DELETE' && payload?.old?.id) {
+              window.dispatchEvent(
+                new CustomEvent(CALL_ALERT_CLEARED_EVENT, { detail: { id: payload.old.id } })
+              );
+            }
+          } catch (e) {
+            reportError(e, 'useHeaderDataStore.incoming_call_event');
+          }
           if (payload?.eventType === 'INSERT' && row?.type === 'new_message') {
             try {
               window.dispatchEvent(new CustomEvent(NEW_MESSAGE_EVENT, { detail: row }));

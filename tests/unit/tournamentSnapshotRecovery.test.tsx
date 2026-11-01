@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({
   user: { id: 'viewer' },
+  stageGate: 'unavailable',
+  stageRpc: vi.fn(),
   realOverview: false,
   register: vi.fn(),
   isRegistering: false,
@@ -112,8 +114,12 @@ vi.mock('../../src/core/MasterBus', () => ({
     },
   },
 }));
+vi.mock('../../src/hooks/usePlatformCapability', () => ({
+  usePlatformCapability: () => fixture.stageGate,
+}));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
+    rpc: (...args: unknown[]) => fixture.stageRpc(...args),
     from: (table: string) => {
       const result = fixture.queries.findIndex((q) => q.table === table);
       const response =
@@ -121,6 +127,7 @@ vi.mock('../../src/lib/supabase', () => ({
       const chain: any = { then: (yes: any, no: any) => Promise.resolve(response).then(yes, no) };
       for (const method of [
         'select',
+        'abortSignal',
         'eq',
         'order',
         'not',
@@ -226,15 +233,17 @@ function update(id = 'a') {
 }
 function Page({
   id = 'a',
+  search = '',
   embedded = true,
   suppressAutoOpenTable = true,
 }: {
   id?: string;
+  search?: string;
   embedded?: boolean;
   suppressAutoOpenTable?: boolean;
 }) {
   return (
-    <MemoryRouter initialEntries={[`/tournaments/${id}`]}>
+    <MemoryRouter initialEntries={[`/tournaments/${id}${search}`]}>
       <Routes>
         <Route
           path="/tournaments/:tournamentId"
@@ -253,6 +262,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   fixture.user = { id: 'viewer' };
   fixture.realOverview = false;
+  fixture.stageGate = 'unavailable';
+  fixture.stageRpc.mockReset();
   fixture.health.mockReset().mockResolvedValue(null);
   fixture.channels.length = 0;
   fixture.tournamentEvents.clear();
@@ -272,6 +283,12 @@ afterEach(() => {
 });
 
 describe('Tournament details snapshot recovery', () => {
+  it.each(['__proto__', 'constructor'])('opens Detail for inherited tab key %s', async (tab) => {
+    render(<Page search={`?tab=${tab}`} />);
+    await flush();
+    expect(screen.getByTestId('snapshot')).toBeTruthy();
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('tl-tab-detail');
+  });
   it('carries received bounties through initial load, realtime and reconnect', async () => {
     rows('tournament_players', {
       data: [entry('entry-a', { bounty_winnings: '12.25' })],
@@ -659,6 +676,66 @@ describe('Tournament details snapshot recovery', () => {
     await flush();
     expect(snapshot().entries[0].id).toBe('entry-a');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each(['ordinary', 'later-day', 'refused', 'capability-unknown'])(
+    'preserves the seat-opening authority for %s stage truth',
+    async (mode) => {
+      fixture.stageGate = mode === 'capability-unknown' ? 'unknown' : 'available';
+      const response = Promise.resolve({
+        data:
+          mode === 'refused'
+            ? { ok: false, reason: 'unavailable' }
+            : {
+                ok: true,
+                tournament_id: 'a',
+                status: 'RUNNING',
+                plan:
+                  mode === 'ordinary'
+                    ? null
+                    : {
+                        rule_version: 'multi-day-v1',
+                        time_zone: 'UTC',
+                        stage_count: 2,
+                      },
+                stages: [],
+                current_stage: { stage_no: 2, day_no: 2, state: 'running' },
+              },
+        error: null,
+      });
+      fixture.stageRpc.mockReturnValue(Object.assign(response, { abortSignal: () => response }));
+      rows('tournament_players', { data: [entry()], error: null });
+      render(<Page suppressAutoOpenTable={false} />);
+      await flush();
+      if (mode === 'ordinary') expect(fixture.navigate).toHaveBeenCalledOnce();
+      else expect(fixture.navigate).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not assume Day 1 when the stage read times out', async () => {
+    fixture.stageGate = 'available';
+    const stage = deferred<any>();
+    let signal: AbortSignal | undefined;
+    fixture.stageRpc.mockReturnValue(
+      Object.assign(stage.promise, {
+        abortSignal: (value: AbortSignal) => {
+          signal = value;
+          return stage.promise;
+        },
+      })
+    );
+    rows('tournament_players', { data: [entry()], error: null });
+    render(<Page suppressAutoOpenTable={false} />);
+    await flush();
+    expect(fixture.navigate).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12000);
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(fixture.navigate).not.toHaveBeenCalled();
+    stage.resolve({ data: { ok: true, tournament_id: 'a', plan: null }, error: null });
+    await flush();
+    expect(fixture.navigate).not.toHaveBeenCalled();
   });
 
   it('opens the purchased seat after the complete snapshot resolves', async () => {

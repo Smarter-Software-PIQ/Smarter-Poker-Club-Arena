@@ -395,6 +395,10 @@ function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
     };
   })();
   const finishingHands = onBreak && !structureBreak && breakEndsAtMs === null;
+  // An hourly pause resumes its current level; only a legacy structure break
+  // advances to the following row. Preserve exact committed amounts when present.
+  const resumeLevel = structureBreak ? next?.level : levelNumber;
+  const resumeBlinds = structureBreak ? next : currentBlinds;
 
   if (levelCount === 0) {
     return (
@@ -520,7 +524,7 @@ function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
           <div className="blinds-tab__level">
             <span className="blinds-tab__level-num">Break</span>
             <span className="blinds-tab__level-of">
-              {next ? `Resumes At Level ${next.level}` : 'Play Resumes Shortly'}
+              {resumeLevel ? `Resumes At Level ${resumeLevel}` : 'Play Resumes Shortly'}
             </span>
           </div>
           <div className="blinds-tab__clockwrap">
@@ -537,12 +541,12 @@ function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
                     : 'Until Play Resumes'}
             </span>
           </div>
-          {next && !next.isBreak ? (
+          {resumeBlinds && !resumeBlinds.isBreak ? (
             <div className="blinds-tab__resume">
               <span className="blinds-tab__resume-key">Resuming Blinds</span>
               <span className="blinds-tab__resume-value">
-                {blindsText(next)}
-                {next.ante > 0 ? ` + ${chips(next.ante)}` : ''}
+                {blindsText(resumeBlinds)}
+                {resumeBlinds.ante > 0 ? ` + ${chips(resumeBlinds.ante)}` : ''}
               </span>
             </div>
           ) : null}

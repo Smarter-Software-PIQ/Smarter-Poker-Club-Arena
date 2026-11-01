@@ -56,6 +56,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { runWithRequestDeadline } from '../../../utils/requestDeadline';
 import { useIsMounted } from '../../../hooks/useIsMounted';
 import { reportError, reportWarning } from '../../../utils/errorReporter';
 import { getClubLevel, getTierForLevel, MAX_CLUB_LEVEL } from '../../../utils/clubLevels';
@@ -372,7 +373,17 @@ const ClubCard = React.memo(function ClubCard({
 //  THE TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function UnionsTab({ tournament, entries, currentUserId }: TournamentTabProps) {
+export default function UnionsTab(props: TournamentTabProps) {
+  const scope = JSON.stringify([
+    props.tournament?.id,
+    props.tournament?.club_id,
+    props.tournament?.union_id,
+    props.currentUserId,
+  ]);
+  return <EventUnionsTab key={scope} {...props} />;
+}
+
+function EventUnionsTab({ tournament, entries, currentUserId }: TournamentTabProps) {
   const isMounted = useIsMounted();
 
   const [state, setState] = useState<LoadState>('loading');
@@ -459,6 +470,7 @@ export default function UnionsTab({ tournament, entries, currentUserId }: Tourna
     }
 
     let cancelled = false;
+    const controller = new AbortController();
     const allEntrantIds = entrantKey ? entrantKey.split(',') : [];
 
     /**
@@ -534,131 +546,144 @@ export default function UnionsTab({ tournament, entries, currentUserId }: Tourna
 
     (async () => {
       try {
-        /* 1. The club each player ENTERED FROM.
+        await runWithRequestDeadline(
+          async (signal) => {
+            /* 1. The club each player ENTERED FROM.
               A cold load pages the whole field. A top-up asks only about the
               newcomers, which is a chunked `.in()` rather than a walk through
               every row of a 500-runner event. */
-        const tpRows = isTopUp
-          ? await inChunks<{ user_id: string; club_id: string | null }>(userIds, (chunk) =>
-              supabase
-                .from('tournament_players')
-                .select('user_id, club_id')
-                .eq('tournament_id', tournamentId)
-                .in('user_id', chunk)
-            )
-          : await fetchAllPages<{ user_id: string; club_id: string | null }>((from, to) =>
-              supabase
-                .from('tournament_players')
-                .select('user_id, club_id')
-                .eq('tournament_id', tournamentId)
-                .range(from, to)
-            );
+            const tpRows = isTopUp
+              ? await inChunks<{ user_id: string; club_id: string | null }>(userIds, (chunk) =>
+                  supabase
+                    .from('tournament_players')
+                    .select('user_id, club_id')
+                    .abortSignal(signal)
+                    .eq('tournament_id', tournamentId)
+                    .in('user_id', chunk)
+                )
+              : await fetchAllPages<{ user_id: string; club_id: string | null }>((from, to) =>
+                  supabase
+                    .from('tournament_players')
+                    .select('user_id, club_id')
+                    .abortSignal(signal)
+                    .eq('tournament_id', tournamentId)
+                    .range(from, to)
+                );
 
-        /* Seeded from what previous runs resolved, so a top-up ADDS to the
+            /* Seeded from what previous runs resolved, so a top-up ADDS to the
            picture rather than replacing it with only the newcomers. */
-        const clubByUser = new Map<string, string>(prior?.clubByUser ?? []);
-        const sourceByUser = new Map<string, ClubSource>(prior?.sourceByUser ?? []);
-        /* Only players who are actually in `entries`. A re-entry event keeps a
+            const clubByUser = new Map<string, string>(prior?.clubByUser ?? []);
+            const sourceByUser = new Map<string, ClubSource>(prior?.sourceByUser ?? []);
+            /* Only players who are actually in `entries`. A re-entry event keeps a
            `tournament_players` row per bust, so seeding from every row made
            step 3 fetch clubs for players this tab will never render — and on a
            big re-entry field that is a measurable slice of a query that is
            already chunked. */
-        const entrantSet = new Set(userIds);
-        for (const row of tpRows as { user_id: string; club_id: string | null }[]) {
-          if (row.user_id && row.club_id && entrantSet.has(row.user_id)) {
-            clubByUser.set(row.user_id, row.club_id);
-            sourceByUser.set(row.user_id, 'entered');
-          }
-        }
+            const entrantSet = new Set(userIds);
+            for (const row of tpRows as { user_id: string; club_id: string | null }[]) {
+              if (row.user_id && row.club_id && entrantSet.has(row.user_id)) {
+                clubByUser.set(row.user_id, row.club_id);
+                sourceByUser.set(row.user_id, 'entered');
+              }
+            }
 
-        // 2. Fall back to membership for the rest — the ~40% of rows written
-        //    before `club_id` was recorded on entry.
-        const unresolved = userIds.filter((id) => !clubByUser.has(id));
-        const memberships =
-          unresolved.length > 0
-            ? await inChunks<{ user_id: string; club_id: string; joined_at: string | null }>(
-                unresolved,
-                (chunk) =>
-                  supabase
-                    .from('club_members')
-                    .select('user_id, club_id, joined_at')
-                    .in('user_id', chunk)
-              )
-            : [];
+            // 2. Fall back to membership for the rest — the ~40% of rows written
+            //    before `club_id` was recorded on entry.
+            const unresolved = userIds.filter((id) => !clubByUser.has(id));
+            const memberships =
+              unresolved.length > 0
+                ? await inChunks<{ user_id: string; club_id: string; joined_at: string | null }>(
+                    unresolved,
+                    (chunk) =>
+                      supabase
+                        .from('club_members')
+                        .select('user_id, club_id, joined_at')
+                        .abortSignal(signal)
+                        .in('user_id', chunk)
+                  )
+                : [];
 
-        /* 3. Every club referenced by either pass — MINUS the ones already
+            /* 3. Every club referenced by either pass — MINUS the ones already
               loaded. A newcomer from a club that is already on screen adds no
               club query at all; usually the top-up costs one small
               `tournament_players` read and nothing else. */
-        const clubsById = new Map<string, ClubRow>(prior?.clubsById ?? []);
-        const candidateClubIds = new Set<string>(clubByUser.values());
-        for (const m of memberships) if (m.club_id) candidateClubIds.add(m.club_id);
-        if (hostClubId) candidateClubIds.add(hostClubId);
-        const unknownClubIds = Array.from(candidateClubIds).filter((id) => !clubsById.has(id));
+            const clubsById = new Map<string, ClubRow>(prior?.clubsById ?? []);
+            const candidateClubIds = new Set<string>(clubByUser.values());
+            for (const m of memberships) if (m.club_id) candidateClubIds.add(m.club_id);
+            if (hostClubId) candidateClubIds.add(hostClubId);
+            const unknownClubIds = Array.from(candidateClubIds).filter((id) => !clubsById.has(id));
 
-        if (unknownClubIds.length > 0) {
-          const clubRows = await inChunks<ClubRow>(unknownClubIds, (chunk) =>
-            supabase.from('clubs').select('id, name, logo_url, level, union_id').in('id', chunk)
-          );
-          for (const c of clubRows) if (c?.id) clubsById.set(c.id, c);
-        }
+            if (unknownClubIds.length > 0) {
+              const clubRows = await inChunks<ClubRow>(unknownClubIds, (chunk) =>
+                supabase
+                  .from('clubs')
+                  .select('id, name, logo_url, level, union_id')
+                  .abortSignal(signal)
+                  .in('id', chunk)
+              );
+              for (const c of clubRows) if (c?.id) clubsById.set(c.id, c);
+            }
 
-        // A player can be a member of several clubs. Prefer one inside THIS
-        // event's union, then the one they joined first — deterministic, so the
-        // card does not reshuffle between loads.
-        const byUser = new Map<string, { club_id: string; joined_at: string | null }[]>();
-        for (const m of memberships) {
-          if (!m.user_id || !m.club_id) continue;
-          const list = byUser.get(m.user_id) || [];
-          list.push({ club_id: m.club_id, joined_at: m.joined_at });
-          byUser.set(m.user_id, list);
-        }
-        for (const [userId, list] of byUser) {
-          const ranked = list.slice().sort((a, b) => {
-            const aIn = unionId && clubsById.get(a.club_id)?.union_id === unionId ? 0 : 1;
-            const bIn = unionId && clubsById.get(b.club_id)?.union_id === unionId ? 0 : 1;
-            if (aIn !== bIn) return aIn - bIn;
-            const aHost = a.club_id === hostClubId ? 0 : 1;
-            const bHost = b.club_id === hostClubId ? 0 : 1;
-            if (aHost !== bHost) return aHost - bHost;
-            return (a.joined_at || '').localeCompare(b.joined_at || '');
-          });
-          const pick = ranked[0];
-          if (pick) {
-            clubByUser.set(userId, pick.club_id);
-            sourceByUser.set(userId, 'member');
-          }
-        }
+            // A player can be a member of several clubs. Prefer one inside THIS
+            // event's union, then the one they joined first — deterministic, so the
+            // card does not reshuffle between loads.
+            const byUser = new Map<string, { club_id: string; joined_at: string | null }[]>();
+            for (const m of memberships) {
+              if (!m.user_id || !m.club_id) continue;
+              const list = byUser.get(m.user_id) || [];
+              list.push({ club_id: m.club_id, joined_at: m.joined_at });
+              byUser.set(m.user_id, list);
+            }
+            for (const [userId, list] of byUser) {
+              const ranked = list.slice().sort((a, b) => {
+                const aIn = unionId && clubsById.get(a.club_id)?.union_id === unionId ? 0 : 1;
+                const bIn = unionId && clubsById.get(b.club_id)?.union_id === unionId ? 0 : 1;
+                if (aIn !== bIn) return aIn - bIn;
+                const aHost = a.club_id === hostClubId ? 0 : 1;
+                const bHost = b.club_id === hostClubId ? 0 : 1;
+                if (aHost !== bHost) return aHost - bHost;
+                return (a.joined_at || '').localeCompare(b.joined_at || '');
+              });
+              const pick = ranked[0];
+              if (pick) {
+                clubByUser.set(userId, pick.club_id);
+                sourceByUser.set(userId, 'member');
+              }
+            }
 
-        /* 4. The union's name, for the header. Fetched once — a union does not
+            /* 4. The union's name, for the header. Fetched once — a union does not
               rename itself because somebody registered. */
-        let unionName: string | null = prior?.unionName ?? null;
-        if (unionId && unionName === null) {
-          const { data: unionRow, error: unionErr } = await supabase
-            .from('unions')
-            .select('name')
-            .eq('id', unionId)
-            .maybeSingle();
-          // A missing union name costs the header a word. It is not worth
-          // failing the whole tab, which can still show every club. But it is
-          // worth SAYING: every other error path here calls reportError, and
-          // this one silently degraded the header to "Union Tournament" with no
-          // telemetry, so a permission problem on `unions` could sit
-          // indefinitely with nobody able to see it had happened.
-          if (unionErr) reportError(unionErr, 'UnionsTab.union_name');
-          else unionName = (unionRow as { name?: string } | null)?.name || null;
-        }
+            let unionName: string | null = prior?.unionName ?? null;
+            if (unionId && unionName === null) {
+              const { data: unionRow, error: unionErr } = await supabase
+                .from('unions')
+                .select('name')
+                .abortSignal(signal)
+                .eq('id', unionId)
+                .maybeSingle();
+              // A missing union name costs the header a word. It is not worth
+              // failing the whole tab, which can still show every club. But it is
+              // worth SAYING: every other error path here calls reportError, and
+              // this one silently degraded the header to "Union Tournament" with no
+              // telemetry, so a permission problem on `unions` could sit
+              // indefinitely with nobody able to see it had happened.
+              if (unionErr) reportError(unionErr, 'UnionsTab.union_name');
+              else unionName = (unionRow as { name?: string } | null)?.name || null;
+            }
 
-        if (cancelled || !isMounted.current) return;
-        const next = { clubsById, clubByUser, sourceByUser, unionName };
-        /* Cache BEFORE publishing, so the next entrant-set change tops this up
+            if (cancelled || signal.aborted || !isMounted.current) return;
+            const next = { clubsById, clubByUser, sourceByUser, unionName };
+            /* Cache BEFORE publishing, so the next entrant-set change tops this up
            instead of starting again. */
-        resolvedRef.current = next;
-        setData(next);
-        setState('ready');
+            resolvedRef.current = next;
+            setData(next);
+            setState('ready');
+          },
+          { signal: controller.signal }
+        );
       } catch (err) {
-        reportError(err, 'UnionsTab.load_participating_clubs');
         if (cancelled || !isMounted.current) return;
+        reportError(err, 'UnionsTab.load_participating_clubs');
         /* A failed TOP-UP must not throw away a roster that is already on
            screen and still correct for everyone but the newcomers. Only a cold
            load has nothing to fall back to. */
@@ -677,6 +702,7 @@ export default function UnionsTab({ tournament, entries, currentUserId }: Tourna
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [tournamentId, entrantKey, unionId, hostClubId, attempt, isMounted]);
 

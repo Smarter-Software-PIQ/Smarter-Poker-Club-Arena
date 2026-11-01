@@ -41,6 +41,7 @@ import {
   tournamentScheduleService,
   type TournamentScheduleRow,
 } from '../services/TournamentScheduleService';
+import { useTournamentScheduleList } from '../hooks/useTournamentScheduleList';
 import { describeSchedule } from '../components/tournament/WeeklyScheduleEditor';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -169,26 +170,20 @@ export default function UnionDetailPage() {
 
   // ── Recurring tournament schedules (2026-08-22): the union owner's compact
   // manager over tournament_schedules. Loaded when the Tournaments tab opens. ──
-  const [schedules, setSchedules] = useState<TournamentScheduleRow[]>([]);
+  const {
+    schedules,
+    loading: schedulesLoading,
+    error: schedulesError,
+    updateActive,
+  } = useTournamentScheduleList(unionId, activeTab === 'tournaments');
   const [scheduleBusyId, setScheduleBusyId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (activeTab !== 'tournaments' || !unionId) return;
-    let alive = true;
-    tournamentScheduleService.listForUnion(unionId).then((rows) => {
-      if (alive) setSchedules(rows);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [activeTab, unionId]);
 
   const handleScheduleActiveToggle = async (row: TournamentScheduleRow, nextActive: boolean) => {
     if (scheduleBusyId) return;
     setScheduleBusyId(row.id);
     try {
       await tournamentScheduleService.setActive(row.id, nextActive);
-      setSchedules((prev) => prev.map((s) => (s.id === row.id ? { ...s, active: nextActive } : s)));
+      updateActive(row.id, nextActive);
       toast.success(nextActive ? 'Schedule activated.' : 'Schedule deactivated.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not update the schedule.');
@@ -1456,6 +1451,10 @@ export default function UnionDetailPage() {
                 tournament_schedules rows. Active toggle goes through
                 fn_upsert_tournament_schedule; Remove is the soft delete
                 (fn_delete_tournament_schedule, active=false). ── */}
+            {union?.ownerId === user?.id && schedulesLoading && (
+              <p role="status">Loading Recurring Schedules...</p>
+            )}
+            {union?.ownerId === user?.id && schedulesError && <p role="alert">{schedulesError}</p>}
             {union?.ownerId === user?.id && schedules.length > 0 && (
               <>
                 <h3 style={{ margin: '2rem 0 1rem' }}>Recurring Schedules</h3>

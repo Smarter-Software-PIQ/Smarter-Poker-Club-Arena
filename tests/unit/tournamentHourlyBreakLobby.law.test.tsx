@@ -37,6 +37,55 @@ function panel() {
   return screen.getByRole('heading', { name: 'Next Break' }).closest('section')!;
 }
 describe('hourly tournament lobby breaks', () => {
+  it.each(['row', 'bus'])('resumes the current level after an hourly %s break', (source) => {
+    const props = input(source === 'row' ? { on_break: true } : {});
+    props.blindLevels.push({
+      level: 2,
+      smallBlind: 50,
+      bigBlind: 100,
+      ante: 10,
+      duration: 8,
+      isBreak: false,
+    });
+    render(<BlindsTab {...props} />);
+    if (source === 'bus')
+      act(() =>
+        handlers.get('BREAK_START')!({
+          tournamentId: 'hourly-test',
+          breakEndsAt: new Date(now + 300000).toISOString(),
+        })
+      );
+    expect(screen.getByText('Resumes At Level 1')).toBeInTheDocument();
+    expect(document.querySelector('.blinds-tab__resume-value')).toHaveTextContent('25 / 50');
+  });
+  it('uses committed hourly resume amounts and refuses a mismatched receipt', () => {
+    const props = input({
+      on_break: true,
+      blind_level_state: { index: 0, small_blind: 40, big_blind: 80, ante: 5 },
+    });
+    const view = render(<BlindsTab {...props} />);
+    expect(document.querySelector('.blinds-tab__resume-value')).toHaveTextContent('40 / 80 + 5');
+    view.rerender(
+      <BlindsTab
+        {...input({
+          on_break: true,
+          blind_level_state: { index: 1, small_blind: 50, big_blind: 100, ante: 0 },
+        })}
+      />
+    );
+    expect(document.querySelector('.blinds-tab__resume-value')).toBeNull();
+  });
+  it('preserves next-level resume for a legacy structure break', () => {
+    const props = input();
+    props.blindLevels = [
+      { level: 1, smallBlind: 0, bigBlind: 0, ante: 0, duration: 5, isBreak: true },
+      { level: 2, smallBlind: 50, bigBlind: 100, ante: 10, duration: 8, isBreak: false },
+    ];
+    render(<BlindsTab {...props} />);
+    expect(screen.getByText('Resumes At Level 2')).toBeInTheDocument();
+    expect(document.querySelector('.blinds-tab__resume-value')).toHaveTextContent('50 / 100 + 10');
+  });
+
   it.each(['mtt-v1', 'mtt-v2'])('shows :55 without a structure break for %s', (format_contract) => {
     render(<BlindsTab {...input({ format_contract })} />);
     expect(panel()).toHaveTextContent('7:00');

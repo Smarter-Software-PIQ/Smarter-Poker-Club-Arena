@@ -1,0 +1,6 @@
+{
+  "_owner": "Tournament result host and starting ticker mount at the app root. The existing zero-dependency requestDeadline helper must begin their finite reads immediately, without an unbounded lazy-import wait. Actual build adds only this module (+1 kB gzip); absolute bundle budgets are unchanged.",
+  "modules": [
+    "src/utils/requestDeadline.ts"
+  ]
+}

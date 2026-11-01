@@ -33,16 +33,20 @@ vi.mock('../../src/lib/supabase', () => ({
     from: (table: string) => {
       state.calls.push(['from', table]);
       const query: any = {};
-      for (const method of ['select', 'eq', 'gte', 'lte', 'gt']) {
+      for (const method of ['select', 'eq', 'gte', 'lte', 'gt', 'limit', 'abortSignal']) {
         query[method] = (...args: unknown[]) => {
           state.calls.push([method, ...args]);
           return query;
         };
       }
-      query.limit = async () => {
+      query.then = (
+        resolve: (value: typeof state.response) => unknown,
+        reject: (error: unknown) => unknown
+      ) => {
         const response = state.response;
-        await state.hold;
-        return response;
+        return Promise.resolve(state.hold)
+          .then(() => response)
+          .then(resolve, reject);
       };
       return query;
     },
@@ -60,6 +64,39 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('own tournament last-hour VPIP', () => {
+  it('ends a hung initial read and accepts the next real standings event', async () => {
+    state.hold = new Promise<void>(() => {});
+    render(<TournamentHourVpip tournamentId="event" userId="hero" />);
+    await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(12000));
+    expect(screen.getByText('Unavailable')).toBeTruthy();
+    expect(
+      (state.calls.find((call) => call[0] === 'abortSignal')?.[1] as AbortSignal).aborted
+    ).toBe(true);
+    expect(state.calls.filter((call) => call[0] === 'from')).toHaveLength(1);
+    state.hold = null;
+    await act(async () => state.listener());
+    expect(screen.getByText('No Recorded Hands')).toBeTruthy();
+  });
+  it('retires a hung refresh and never publishes its late reply', async () => {
+    render(<TournamentHourVpip tournamentId="event" userId="hero" />);
+    await act(async () => {});
+    let release!: () => void;
+    state.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    state.response = {
+      data: [{ played_at: '2026-11-01T01:30:00Z', vpip: true }],
+      count: 1,
+      error: null,
+    };
+    await act(async () => state.listener());
+    await act(async () => vi.advanceTimersByTimeAsync(12000));
+    expect(screen.getByText('Unavailable')).toBeTruthy();
+    await act(async () => release());
+    expect(screen.queryByText('100.0%')).toBeNull();
+  });
+
   it('rejects late replies after changing tournament and rereads invalidations during a read', async () => {
     let release!: () => void;
     state.hold = new Promise<void>((resolve) => {

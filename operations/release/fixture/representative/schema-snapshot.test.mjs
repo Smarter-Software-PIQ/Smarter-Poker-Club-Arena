@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress } from '../schema-snapshot.mjs';
+import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress, catalogueFailureKind, catalogueDiagnostics, safeCatalogueDiagnostic, captureRoleCatalogue } from '../schema-snapshot.mjs';
 import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash } from '../schema-compose.mjs';
 import { schemaCatalogue, schemaCataloguePayload } from '../../native/component-semantic-observations.mjs';
 import { APPLICATION_TRIGGER_WITNESSES } from '../schema-application-hooks.mjs';
@@ -459,4 +459,77 @@ test('parameterized native markers and phase receipts refuse malformed or privat
 test('private search-path phase recognition is bounded and linear for malformed long identifiers',()=>{
  for(const value of ['"'+ 'a'.repeat(8200), '"a"'.repeat(2000)+'x', 'public, ', '"unclosed', '"a" x'])assert.equal(dumpProgressStage('pg_dump: saving "search_path = '+value+'"\n'),'UNKNOWN');
  assert.equal(dumpProgressStage('pg_dump: saving "search_path = "'+ 'a'.repeat(4000)+'", public"\n'),'SAVING_SEARCH_PATH');
+});
+
+
+test('catalogue errors publish only fixed cause categories and bounded fields', () => {
+  for(const [code,message,kind] of [
+    ['57014','canceling statement due to statement timeout','STATEMENT_TIMEOUT'],
+    ['57014','canceling statement due to user request','USER_CANCELLED'],
+    ['55P03','canceling statement due to lock timeout','LOCK_TIMEOUT']]) {
+    assert.equal(catalogueFailureKind(Object.assign(Error(message),{code})),kind);
+    assert.notEqual(catalogueFailureKind(Object.assign(Error(message+' private'),{code})),kind);
+  }
+  for(const [code,kind] of [['57014','QUERY_CANCELLED'],['55P03','LOCK_NOT_AVAILABLE'],['42501','PERMISSION_DENIED'],['ECONNRESET','CONNECTION_FAILURE']])
+    assert.equal(catalogueFailureKind(Object.assign(Error('private SQL host credential'),{code})),kind);
+  assert.equal(catalogueFailureKind(Error('Query read timeout')),'DRIVER_READ_TIMEOUT');
+  for(const error of [Error('Query read timeout private'),{message:'Query read timeout'},Object.assign(Error('Query read timeout'),{code:'PRIVATE'}),Error('private')])
+    assert.equal(catalogueFailureKind(error),'UNKNOWN');
+  const proof={version:1,subphase:'schema',query:'SCHEMA_PAYLOAD',kind:'QUERY_CANCELLED',elapsed_ms:5000};
+  assert.deepEqual(safeCatalogueDiagnostic({...proof,sql:'private',code:'secret',message:'private'}),proof);
+  for(const patch of [{version:2},{subphase:'private'},{query:'SELECT private'},{kind:'57014'},{elapsed_ms:-1},{elapsed_ms:45001},{elapsed_ms:NaN}])
+    assert.equal(safeCatalogueDiagnostic({...proof,...patch}),null);
+});
+
+test('catalogue facade preserves exact canonical/role query arguments and payloads without retries', async () => {
+  const original=fakeClient(),observed=fakeClient();
+  const before=new original.Client(),after=new observed.Client();
+  const cause=catalogueDiagnostics(after);
+  assert.deepEqual(await schemaCataloguePayload(cause.db),await schemaCataloguePayload(before));
+  cause.phase('roles');assert.deepEqual(await captureRoleCatalogue(cause.db),await captureRoleCatalogue(before));
+  const normalize=calls=>calls.map(sql=>sql.replaceAll(/catalogue_[a-f0-9]{32}/g,'catalogue_NONCE'));
+  assert.deepEqual(normalize(observed.calls),normalize(original.calls));assert.equal(cause.snapshot(),null);
+});
+
+test('first schema query cause survives later savepoint cleanup error and never starts dump', async () => workspace(async root => {
+  const {Client,calls}=fakeClient();const query=Client.prototype.query;let dumped=false;
+  Client.prototype.query=async function(sql){
+    if(sql.includes('WITH user_schemas')){calls.push(sql);throw Object.assign(Error('private original'),{code:'57014'});}
+    if(sql.startsWith('ROLLBACK TO SAVEPOINT')){calls.push(sql);throw Object.assign(Error('private cleanup'),{code:'25P02'});}
+    return query.call(this,sql);
+  };
+  await assert.rejects(captureSchema({output:path.join(root,'isolated-schema-cause'),
+    env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client,dump:()=>{dumped=true;}}),error=>{
+      assert.equal(error.captureStage,'catalogue');assert.equal(error.connectionFailure,'NOT_CONNECTION');
+      assert.equal(error.catalogueDiagnostic.kind,'QUERY_CANCELLED');assert.equal(error.catalogueDiagnostic.query,'SCHEMA_PAYLOAD');
+      assert.equal(error.catalogueDiagnostic.subphase,'schema');assert.ok(error.catalogueDiagnostic.elapsed_ms<=45000);
+      assert.ok(!JSON.stringify(error).includes('private'));assert.equal(error.cause,undefined);return true;
+    });
+  assert.equal(dumped,false);assert.equal(calls.filter(sql=>sql.includes('WITH user_schemas')).length,1);
+  assert.equal(calls.filter(sql=>sql.startsWith('ROLLBACK TO SAVEPOINT')).length,1);
+  assert.ok(calls.includes('ROLLBACK'));assert.deepEqual(await readdir(root),[]);
+}));
+
+test('payload refusal is retained before finally can mask its original assertion', async () => {
+  const calls=[];const cause=catalogueDiagnostics({async query(sql){
+    calls.push(sql);if(sql.includes('WITH user_schemas'))return {rows:[{catalogue:null}]};
+    if(sql.startsWith('ROLLBACK TO SAVEPOINT'))throw Object.assign(Error('private cleanup'),{code:'42501'});
+    return {rows:[]};
+  }});
+  await assert.rejects(schemaCataloguePayload(cause.db));
+  assert.equal(cause.snapshot().kind,'PAYLOAD_REFUSED');assert.equal(cause.snapshot().query,'SCHEMA_PAYLOAD');
+  assert.equal(calls.filter(sql=>sql.includes('WITH user_schemas')).length,1);
+});
+
+test('role failures stay distinct, and first cause/elapsed bounds remain immutable', async () => {
+  let elapsed=0;const cause=catalogueDiagnostics({async query(){elapsed=50001;throw Object.assign(Error('private'),{code:'55P03'});}},()=>elapsed);
+  cause.phase('roles');await assert.rejects(captureRoleCatalogue(cause.db));
+  assert.deepEqual(cause.snapshot(),{version:1,subphase:'roles',query:'ROLE_PAYLOAD',kind:'LOCK_NOT_AVAILABLE',elapsed_ms:null});
+  cause.failed(Object.assign(Error('private later'),{code:'42501'}));assert.equal(cause.snapshot().kind,'LOCK_NOT_AVAILABLE');
+  const outside=catalogueDiagnostics({query(){throw Error('unused');}});outside.failed(Error('unknown'));assert.equal(outside.snapshot().elapsed_ms,null);
+  for(const end of [-1,NaN]){
+    let tick=0;const diagnostic=catalogueDiagnostics({async query(){tick=end;throw Error('private');}},()=>tick);
+    await assert.rejects(diagnostic.db.query('unknown private SQL'));
+    assert.equal(diagnostic.snapshot().elapsed_ms,null);
+  }
 });

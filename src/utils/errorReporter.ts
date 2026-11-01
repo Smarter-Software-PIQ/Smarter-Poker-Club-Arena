@@ -377,6 +377,47 @@ export function captureClientError(
 }
 
 /**
+ * A WARNING that still reaches the first-party sink (2026-10-31).
+ *
+ * For a condition the client has already repaired but which is worth counting
+ * in production - e.g. TablePage.pot_win_no_award_groups, where the pot
+ * animation is synthesised. Unlike reportError it writes console.warn, not
+ * console.error (so HorseBugReporter does not file it as a bug), and its row
+ * carries `context.level = 'warn'`. `message` must be a FIXED sentence: put
+ * the variable facts in `extra`, so every occurrence shares one dedupe key
+ * (clientErrorSink.dedupeKey hashes code, source and message). Never throws.
+ */
+export function reportClientWarning(
+  message: string,
+  context: string,
+  extra?: Record<string, any> & { code?: string }
+): void {
+  try {
+    if (extra === undefined) console.warn(`[${context}] ${message}`);
+    else console.warn(`[${context}] ${message}`, extra);
+  } catch {
+    /* logging must not replace the caller's control flow */
+  }
+  try {
+    if (!isClientErrorSinkEnabled()) return;
+    const warning = new Error(message);
+    warning.name = 'Warning';
+    deliver({
+      at: Date.now(),
+      route: currentRoute(),
+      code: pickCode(warning, extra),
+      name: 'Warning',
+      message,
+      stack: null,
+      source: context,
+      extra: { ...(extra ?? {}), level: 'warn' },
+    });
+  } catch {
+    /* telemetry may never replace the caller's flow */
+  }
+}
+
+/**
  * Report a warning-level issue (non-fatal but noteworthy).
  * Appears in local logs for debugging context.
  */
