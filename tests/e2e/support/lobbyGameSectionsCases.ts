@@ -29,11 +29,21 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
           });
         }
       );
-      await page.route('**/assets/club-buttons/club-nav-shell-d45f56465bad.png', (route) =>
+      await page.route('**/assets/club-buttons/club-utility-shell.png', (route) =>
         route.fulfill({
           contentType: 'image/png',
-          body: readFileSync('public/assets/club-buttons/club-nav-shell-d45f56465bad.png'),
+          body: readFileSync('public/assets/club-buttons/club-utility-shell.png'),
         })
+      );
+      await page.route(
+        '**/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png',
+        (route) =>
+          route.fulfill({
+            contentType: 'image/png',
+            body: readFileSync(
+              'public/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png'
+            ),
+          })
       );
       await page.setContent(
         `<meta name="viewport" content="width=device-width,initial-scale=1"><base href="https://fixture.invalid/"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700;800&display=swap"><style>body{margin:0;background:#000;color:#e4e7ec}.club-home{width:100%;padding:0}.club-lobby-command-top{display:block!important;min-height:0!important;padding:0!important}${css}</style><div id="root"></div>`
@@ -51,11 +61,16 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
         const rect = await button.boundingBox();
         expect(rect!.height).toBeGreaterThanOrEqual(60);
         expect(rect!.width).toBeGreaterThanOrEqual(140);
+        expect(Math.abs(rect!.width - rect!.height)).toBeLessThan(1);
         const text = await button
-          .locator('span')
+          .locator('.lobby-game-sections__well > span')
           .evaluate((el) => ({ width: el.clientWidth, scroll: el.scrollWidth }));
         expect(text.scroll).toBeLessThanOrEqual(text.width + 1);
       }
+      const cashBox = await cash.boundingBox();
+      const tournamentBox = await tournaments.boundingBox();
+      expect(Math.abs(cashBox!.y - tournamentBox!.y)).toBeLessThan(1);
+      expect(tournamentBox!.x).toBeGreaterThan(cashBox!.x + cashBox!.width);
       const title = await page.locator('.lobby-controls__title').boundingBox();
       const heading = await page.locator('.lobby-controls__heading').boundingBox();
       expect(Math.abs(title!.x + title!.width / 2 - heading!.x - heading!.width / 2)).toBeLessThan(
