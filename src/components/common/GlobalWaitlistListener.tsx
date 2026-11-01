@@ -531,11 +531,42 @@ export default function GlobalWaitlistListener() {
         });
     }
 
+    const handleWakeOrOnline = () => {
+      if (cleanedUpRef.current || activeUserIdRef.current !== user?.id) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (retryCountRef.current >= MAX_RETRIES) {
+        retryCountRef.current = 0;
+        setupChannel();
+      }
+      void refreshWatchedTables();
+    };
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleWakeOrOnline();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleWakeOrOnline);
+      window.addEventListener('focus', handleWakeOrOnline);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility);
+    }
+
     return () => {
       cleanedUpRef.current = true;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleWakeOrOnline);
+        window.removeEventListener('focus', handleWakeOrOnline);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility);
+      }
       masterBus.removeRegisteredChannel(WAITLIST_CHANNEL_KEY);
       masterBus.removeChannelFactory(WAITLIST_CHANNEL_KEY);
-      masterBus.removeRegisteredChannel(watchKey);
+      if (watchChannel) {
+        masterBus.removeRegisteredChannel(watchKey, watchChannel);
+      }
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
   }, [setupChannel, refreshWatchedTables, user?.id, openOfferedSeat]);

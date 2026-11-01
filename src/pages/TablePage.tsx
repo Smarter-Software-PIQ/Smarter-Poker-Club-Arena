@@ -2227,7 +2227,7 @@ function LiveTablePage({
       // leaked one subscribed Supabase channel per table mount (x6 in
       // MultiTablePage) for the life of the page.
       try {
-        masterBus.removeRegisteredChannel(`mystery-chest-${tableId}`);
+        masterBus.removeRegisteredChannel(`mystery-chest-${tableId}`, chan);
       } catch {
         /* best effort */
       }
@@ -6210,10 +6210,7 @@ function LiveTablePage({
       tableState.communityCards,
       tableState.communityCards2,
       tableState.communityCards3,
-      tableState.pot,
       tableState.heroSeat,
-      tableState.lastActions,
-      tableState.lastBetAmounts,
     ]),
     `${tableId}:${tableState.handNumber ?? 0}`
   );
@@ -7471,6 +7468,28 @@ function LiveTablePage({
       tableState.players[tableState.heroSeat - 1]?.status === 'folded',
   });
   const heroPromptedToAct = isHeroTurnContext && !suppressPanelForPreAction;
+
+  useEffect(() => {
+    if (
+      dealInFlight &&
+      tableState.isHandInProgress &&
+      tableState.heroSeat > 0 &&
+      tableState.currentPlayerSeat === tableState.heroSeat &&
+      heroDecisionReady &&
+      (tableState.players[tableState.heroSeat - 1]?.holeCards?.length ?? 0) > 0
+    ) {
+      endDealHold();
+      settleHeroDealSoundRef.current?.(heldHeroDealSoundRef.current);
+    }
+  }, [
+    dealInFlight,
+    tableState.isHandInProgress,
+    tableState.heroSeat,
+    tableState.currentPlayerSeat,
+    tableState.players,
+    heroDecisionReady,
+    endDealHold,
+  ]);
 
   /**
    * The bell and the buzz follow the SAME boolean. The TURN_CHANGE handler
@@ -17056,7 +17075,7 @@ function LiveTablePage({
       if (breakChannelRef.current) {
         // BUG-C FIX: Read tournamentId from tableStateRef (fresh) instead of stale closure
         const tournId = tableStateRef.current.tournamentId || tableId;
-        masterBus.removeRegisteredChannel(`t-break-${tournId}`);
+        masterBus.removeRegisteredChannel(`t-break-${tournId}`, breakChannelRef.current);
         breakChannelRef.current = null;
       }
       if (addOnChannelRef.current) {
@@ -23318,8 +23337,10 @@ function LiveTablePage({
       reloadTimer = window.setTimeout(() => void reloadRoster(), 250);
     };
 
+    const instanceSuffix = Math.random().toString(36).slice(2, 10);
+    let hasSubscribedOnce = false;
     const channel = supabase
-      .channel(`seat-first-roster-${tableId}`)
+      .channel(`seat-first-roster-${tableId}-${instanceSuffix}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'table_seats', filter: `table_id=eq.${tableId}` },
@@ -23339,19 +23360,39 @@ function LiveTablePage({
           )
       );
     }
-    channel.subscribe();
+    channel.subscribe((status) => {
+      if (cancelled) return;
+      if (status === 'SUBSCRIBED') {
+        if (hasSubscribedOnce) {
+          scheduleReload();
+        }
+        hasSubscribedOnce = true;
+      }
+    });
 
     // Belt for the braces: realtime drops silently, so re-read on a slow
     // cadence regardless. 10s keeps a dead channel's staleness bounded at a
     // fraction of a fill cycle without meaningfully loading the database.
     void reloadRoster();
-    const pollId = window.setInterval(() => void reloadRoster(), 10_000);
+    const pollId = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void reloadRoster();
+    }, 10_000);
+    const onWakeOrOnline = () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      scheduleReload();
+    };
+    window.addEventListener('online', onWakeOrOnline);
+    document.addEventListener('visibilitychange', onWakeOrOnline);
 
     return () => {
       cancelled = true;
       if (reloadTimer) window.clearTimeout(reloadTimer);
       if (fullRecheckTimer) window.clearTimeout(fullRecheckTimer);
       window.clearInterval(pollId);
+      window.removeEventListener('online', onWakeOrOnline);
+      document.removeEventListener('visibilitychange', onWakeOrOnline);
       void supabase.removeChannel(channel);
     };
   }, [tableId, seatFirstBuyIn, playHasBegun, tableState.tournamentId, userId]);
@@ -23691,24 +23732,46 @@ function LiveTablePage({
       debounce = window.setTimeout(() => void reload(), 200);
     };
 
+    const instanceSuffix = Math.random().toString(36).slice(2, 10);
+    let hasSubscribedOnce = false;
     const channel = supabase
-      .channel(`seat-sitout-${tableId}`)
+      .channel(`seat-sitout-${tableId}-${instanceSuffix}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'table_seats', filter: `table_id=eq.${tableId}` },
         schedule
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (cancelled) return;
+        if (status === 'SUBSCRIBED') {
+          if (hasSubscribedOnce) {
+            schedule();
+          }
+          hasSubscribedOnce = true;
+        }
+      });
 
     void reload();
     // Realtime drops silently. A slow poll bounds how stale the tag can get
     // without meaningfully loading the database — one narrow two-column read.
-    const pollId = window.setInterval(() => void reload(), 10_000);
+    const pollId = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void reload();
+    }, 10_000);
+    const onWakeOrOnline = () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      schedule();
+    };
+    window.addEventListener('online', onWakeOrOnline);
+    document.addEventListener('visibilitychange', onWakeOrOnline);
 
     return () => {
       cancelled = true;
       if (debounce) window.clearTimeout(debounce);
       window.clearInterval(pollId);
+      window.removeEventListener('online', onWakeOrOnline);
+      document.removeEventListener('visibilitychange', onWakeOrOnline);
       void supabase.removeChannel(channel);
     };
   }, [tableId, userId, applySeatRemoved, lightningRoom]);

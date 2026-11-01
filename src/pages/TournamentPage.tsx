@@ -458,6 +458,7 @@ export default function TournamentPage() {
   useEffect(() => {
     if (!clubId) return;
     let isMounted = true;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
 
     const channelKey = `tournament-page-${clubId}`;
 
@@ -466,6 +467,7 @@ export default function TournamentPage() {
       if (!isMounted) return;
 
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
@@ -501,6 +503,9 @@ export default function TournamentPage() {
         });
     };
 
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (isMounted) void setupRealtime();
+    });
     setupRealtime().catch((e) => console.warn('[TournamentPage] Realtime setup failed:', e));
 
     // Refresh profile/wallet when balance changes (e.g., after register/unregister/rebuy)
@@ -568,7 +573,10 @@ export default function TournamentPage() {
     return () => {
       isMounted = false;
       clearInterval(listPoll);
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
       unsubBalance();
       unsubChipsDistributed();
       unsubTournamentUpdated();
@@ -850,11 +858,14 @@ export default function TournamentPage() {
     return () => {
       alive = false;
       clearInterval(iv);
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeRegisteredChannel(channelKey, channel);
     };
   }, [selectedTournament?.id]);
 
   // ── Broadcast: Tournament events (level_up, player_eliminated, etc) ──
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+
   useEffect(() => {
     if (!selectedTournament?.id) return;
 
@@ -909,23 +920,23 @@ export default function TournamentPage() {
             break;
 
           case 'tournament_break':
-            toast.warning('Tournament on break');
+            toastRef.current.warning('Tournament on break');
             break;
 
           case 'break_ended':
-            toast.success('Break ended - play resumes');
+            toastRef.current.success('Break ended - play resumes');
             break;
 
           case 'hand_for_hand':
-            toast.info('Hand-for-hand play activated');
+            toastRef.current.info('Hand-for-hand play activated');
             break;
 
           case 'bubble_burst':
-            toast.success('Bubble burst! All remaining players in the money');
+            toastRef.current.success('Bubble burst! All remaining players in the money');
             break;
 
           case 'late_reg_closed':
-            toast.info('Late registration closed');
+            toastRef.current.info('Late registration closed');
             // Refresh tournament data
             (async () => {
               try {
@@ -980,7 +991,7 @@ export default function TournamentPage() {
                 )
                   return;
                 setCanAddOnNow(allowed);
-                if (allowed) toast.success('Add-on period now available');
+                if (allowed) toastRef.current.success('Add-on period now available');
               })
               .catch((error) => {
                 if (
@@ -996,7 +1007,7 @@ export default function TournamentPage() {
           case 'ADDON_PERIOD_END':
             addOnEligibilityRevision.current += 1;
             setCanAddOnNow(false);
-            toast.info('Add-on period has ended');
+            toastRef.current.info('Add-on period has ended');
             break;
 
           case 'table_rebalance':
@@ -1027,9 +1038,9 @@ export default function TournamentPage() {
 
     return () => {
       alive = false;
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeRegisteredChannel(channelKey, channel);
     };
-  }, [selectedTournament?.id, toast, selectionOwner]);
+  }, [selectedTournament?.id, selectionOwner]);
 
   // Handle Rebuy
   const handleRebuy = async () => {

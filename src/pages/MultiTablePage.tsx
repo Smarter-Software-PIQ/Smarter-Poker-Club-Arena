@@ -1452,6 +1452,7 @@ export default function MultiTablePage() {
   useEffect(() => {
     if (!user?.id) return;
     const chanKey = `hero-seat-moves-${user.id}`;
+    let hasSubscribedOnce = false;
     const channel = masterBus.getOrCreateChannel(chanKey);
     channel
       .on(
@@ -1563,10 +1564,17 @@ export default function MultiTablePage() {
           })();
         }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          if (hasSubscribedOnce) {
+            requestSeatResync();
+          }
+          hasSubscribedOnce = true;
+        }
+      });
     return () => {
       try {
-        masterBus.removeRegisteredChannel(chanKey);
+        masterBus.removeRegisteredChannel(chanKey, channel);
       } catch {
         /* channel cleanup is best-effort */
       }
@@ -3502,7 +3510,11 @@ export default function MultiTablePage() {
        messages in one billing cycle - and this effect is mounted for every
        player who presses "+". One listener per scope club, which is the same
        shape ClubHomePage uses, keeps it to the boards this sheet can offer. */
-    let channel = supabase.channel(`quick-join-spins-${spinSheetScope.scopeClubIds.join('-')}`);
+    let hasSubscribedOnce = false;
+    const instanceSuffix = Math.random().toString(36).slice(2, 9);
+    let channel = supabase.channel(
+      `quick-join-spins-${spinSheetScope.scopeClubIds.join('-')}-${instanceSuffix}`
+    );
     for (const clubId of spinSheetScope.scopeClubIds) {
       channel = channel
         .on(
@@ -3521,7 +3533,12 @@ export default function MultiTablePage() {
           schedule
         );
     }
-    channel.subscribe();
+    channel.subscribe((status: string) => {
+      if (status === 'SUBSCRIBED') {
+        if (hasSubscribedOnce) schedule();
+        hasSubscribedOnce = true;
+      }
+    });
     const pollId = setInterval(refresh, QUICK_JOIN_SPIN_POLL_MS);
 
     return () => {

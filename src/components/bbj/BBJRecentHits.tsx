@@ -262,8 +262,10 @@ export function BBJRecentHits({
 
   useEffect(() => {
     if (!poolId) return;
+    let hasSubscribedOnce = false;
+    const instanceSuffix = Math.random().toString(36).slice(2, 9);
     const channel = supabase
-      .channel(`bbj-recent-hits-${poolId}`)
+      .channel(`bbj-recent-hits-${poolId}-${instanceSuffix}`)
       /* FILTERED. The channel NAME was scoped to the pool and the subscription
          was not, so every jackpot anywhere on the platform - any club, any
          union - forced a full refetch of this pool's list. The sibling surface
@@ -278,7 +280,12 @@ export function BBJRecentHits({
         },
         () => setRevision((r) => r + 1)
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          if (hasSubscribedOnce) setRevision((r) => r + 1);
+          hasSubscribedOnce = true;
+        }
+      });
     return () => {
       void supabase.removeChannel(channel);
     };
