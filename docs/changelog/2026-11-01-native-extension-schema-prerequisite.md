@@ -37,3 +37,21 @@ callback. Preserve all cleanup/privacy/case assertions and the strict production
 parser. This corrects the missed directly affected test caller; it is not native
 13-provider execution. That failed job produced no fixture artifact and never
 started genuine schema-preimage runtime; native diagnostic-tool cleanup passed.
+
+The corrected dd6 native run reached genuine schema-preimage startup but failed
+inside current role/extension checks with AssertionError. Its exact assertion
+site was not recorded. API/computed artifact digest and all31 source bindings
+matched, all five cleanup fields and native tool cleanup passed; no current
+38-role/13-provider proof was issued. The pinned Vault archive and both exact
+0.3.0/0.3.1 SQL source files contain no schema ACL/owner mutation, so that
+speculation is not a demonstrated cause.
+
+Add twelve closed assertion-site tokens to the existing failure channel and
+strict independent decoder. Existing assertion operators and all original
+actual/expected arguments are unchanged; only optional fixed message objects
+were appended. Exact Node22 behavior was checked because string messages append
+private diffs, while supplied AssertionError objects retain only the fixed
+token. Controlled role/inventory/namespace drifts, malformed/tampered/private
+fields and an actual child primary-failure/cleanup sequence exercise attribution
+and privacy. This is diagnostic qualification, not a claim that the unknown
+underlying native failure or the original15 connected cases are fixed.

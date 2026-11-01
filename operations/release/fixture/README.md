@@ -768,3 +768,14 @@ proves exact new owner/ACL, rollback, occupied-state refusal and ordinary-role
 limits. It does not substitute Supabase Vault controls or claim local execution
 of all13 providers. Actual Linux schema-preimage qualification and connected
 capture/restore/15-case proof remain separate gates.
+
+Current role/extension assertion failures additionally carry an optional closed
+`assertion_site`. Twelve fixed source tokens distinguish role input/backend/
+preimage/commit/postimage checks from extension identity/preimage/literal/
+postinventory/final namespace ACL checks. Only the owning stage, AssertionError,
+ERR_ASSERTION and an exact known message token can emit the field. Node's
+supported AssertionError message object prevents its ordinary string-message
+diff from appending compared catalogue values. The independent Python decoder
+refuses unknown, malformed or incompatible sites. No actual/expected rows, raw
+message or stack leaves this boundary; SQLSTATE diagnostics remain unchanged.
+This attribution does not qualify a failing fixture or alter its assertions.

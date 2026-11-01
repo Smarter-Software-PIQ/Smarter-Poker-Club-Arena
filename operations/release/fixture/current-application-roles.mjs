@@ -252,7 +252,8 @@ export async function alignCurrentApplicationRoles({ applicationClient, Client, 
   const bytes = await readFile(new URL('./role-alignment-aligned.json', import.meta.url));
   assert.equal(
     createHash('sha256').update(bytes).digest('hex'),
-    'd0d858e8dbb70afca05d3e84be6ce109b818ea1ba278813d9d4b6afd062e2083'
+    'd0d858e8dbb70afca05d3e84be6ce109b818ea1ba278813d9d4b6afd062e2083',
+    new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_SOURCE_PIN'})
   );
   const before = JSON.parse(bytes),
     expected = extendedRolePreimage(before);
@@ -273,13 +274,16 @@ export async function alignCurrentApplicationRoles({ applicationClient, Client, 
   try {
     await installerClient.connect();
     installPid = installerClient.processID;
-    assert.notEqual(installPid, applicationClient.processID);
+    assert.notEqual(installPid, applicationClient.processID,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_INSTALL_BACKEND'}));
     assert.deepEqual(
       catalog(await captureFixtureServicePreimage(installerClient, applicationClient.processID)),
-      before
+      before,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_PREIMAGE'})
     );
     const result = await installerClient.query(installer);
-    assert.equal(result.at(-1).command, 'COMMIT');
+    assert.equal(result.at(-1).command, 'COMMIT',
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_COMMIT'}));
   } catch (error) {
     await installerClient.query('ROLLBACK').catch(() => {});
     throw error;
@@ -289,11 +293,14 @@ export async function alignCurrentApplicationRoles({ applicationClient, Client, 
   const observer = create();
   try {
     await observer.connect();
-    assert.notEqual(observer.processID, installPid);
-    assert.notEqual(observer.processID, applicationClient.processID);
+    assert.notEqual(observer.processID, installPid,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_OBSERVER_BACKEND'}));
+    assert.notEqual(observer.processID, applicationClient.processID,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_OBSERVER_APPLICATION_BACKEND'}));
     assert.deepEqual(
       catalog(await captureFixtureServicePreimage(observer, applicationClient.processID)),
-      expected
+      expected,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_ROLE_POSTIMAGE'})
     );
   } finally {
     await databaseOwner.end(observer);
@@ -383,11 +390,13 @@ export async function installCurrentApplicationExtensions({
       AND inet_server_addr() IS NULL AND current_user='supabase_admin' AND session_user='supabase_admin'
       AND EXISTS(SELECT FROM pg_roles WHERE oid=10 AND rolname=current_user AND rolsuper) AS owned`)
       ).rows,
-      [{ owned: true }]
+      [{ owned: true }],
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_IDENTITY'})
     );
     assert.deepEqual(
       (await bootstrap.query(query)).rows,
-      currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
+      currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name)),
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_PREIMAGE'})
     );
     // Closed source literals only. Existing cron/plpgsql are reasserted, not
     // replaced. Supautils' unchanged six-name list handles the three existing
@@ -406,7 +415,8 @@ export async function installCurrentApplicationExtensions({
           assert.ok(
             /^[a-z_-]+$/.test(item.name) &&
               /^[a-z_]+$/.test(item.schema) &&
-              /^[0-9.]+$/.test(item.version)
+              /^[0-9.]+$/.test(item.version),
+            new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_LITERAL'})
           );
           await client.query(
             `CREATE EXTENSION "${item.name}" WITH SCHEMA "${item.schema}" VERSION '${item.version}'`
@@ -418,12 +428,14 @@ export async function installCurrentApplicationExtensions({
         throw error;
       }
     }
-    assert.deepEqual((await bootstrap.query(query)).rows, currentApplicationExtensions);
+    assert.deepEqual((await bootstrap.query(query)).rows, currentApplicationExtensions,
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_POSTIMAGE'}));
     assert.deepEqual((await bootstrap.query(`SELECT nspname AS name,
       pg_get_userbyid(nspowner) AS owner,
       (SELECT array_agg(a::text ORDER BY a::text) FROM unnest(nspacl) a) AS acl
       FROM pg_catalog.pg_namespace WHERE nspname='vault'`)).rows,
-      [currentApplicationExtensionNamespace]);
+      [currentApplicationExtensionNamespace],
+      new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_NAMESPACE_POSTIMAGE'}));
   } finally {
     await databaseOwner.end(bootstrap);
   }

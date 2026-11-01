@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { nativeFailureDiagnostic } from '../runtime-files.mjs';
 import {
   alignCurrentApplicationRoles,
   extendedRolePreimage,
@@ -129,7 +130,12 @@ test('actual installer requires fresh post-commit backend and closes every owned
 test('occupied preimage never submits installation and changed postimage never passes', async () => {
   for (const settings of [{ occupied: true }, { drift: true }]) {
     const h = harness(settings);
-    await assert.rejects(alignCurrentApplicationRoles(h.args));
+    await assert.rejects(alignCurrentApplicationRoles(h.args), error => {
+      assert.deepEqual(nativeFailureDiagnostic('fixture-preimage-current-application-role-extension',error),
+        {status:'failed',stage:'fixture-preimage-current-application-role-extension',error:'AssertionError',
+         assertion_site:settings.occupied?'ROLE_PREIMAGE':'ROLE_POSTIMAGE'});
+      return true;
+    });
     if (settings.occupied) assert.equal(h.committed(), false);
     assert.ok(h.clients.every((client) => client.closed));
   }
@@ -201,7 +207,12 @@ test('native extension installer uses actual owning sessions and refuses wrong v
         },
       },
     };
-    if (drift) await assert.rejects(installCurrentApplicationExtensions(args));
+    if (drift) await assert.rejects(installCurrentApplicationExtensions(args), error => {
+      assert.deepEqual(nativeFailureDiagnostic('fixture-preimage-current-application-role-extension',error),
+        {status:'failed',stage:'fixture-preimage-current-application-role-extension',error:'AssertionError',
+         assertion_site:drift==='extension-version'?'EXTENSION_POSTIMAGE':'EXTENSION_NAMESPACE_POSTIMAGE'});
+      return true;
+    });
     else assert.equal((await installCurrentApplicationExtensions(args)).installed, 13);
     assert.equal(statements.length, 11);
     assert.equal(namespaceCreates, 1);

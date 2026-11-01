@@ -60,6 +60,20 @@ NATIVE_STAGES = frozenset((
         'genuine-auth-migrations', 'genuine-realtime-migrations',
         'managed-postgres-event-trigger-boundary', 'post-service-catalog-preimage', 'full-role-alignment',
         'current-application-role-extension', 'genuine-service-schema-preimage', 'cleanup'))))
+CURRENT_APPLICATION_ASSERTION_SITES = frozenset((
+    'ROLE_SOURCE_PIN',
+    'ROLE_INSTALL_BACKEND',
+    'ROLE_PREIMAGE',
+    'ROLE_COMMIT',
+    'ROLE_OBSERVER_BACKEND',
+    'ROLE_OBSERVER_APPLICATION_BACKEND',
+    'ROLE_POSTIMAGE',
+    'EXTENSION_IDENTITY',
+    'EXTENSION_PREIMAGE',
+    'EXTENSION_LITERAL',
+    'EXTENSION_POSTIMAGE',
+    'EXTENSION_NAMESPACE_POSTIMAGE',
+))
 NATIVE_ERROR_NAMES = frozenset(('Error', 'AssertionError', 'TypeError', 'RangeError',
                                 'SyntaxError', 'TimeoutError', 'AggregateError', 'error'))
 NATIVE_PG_ROUTINES = frozenset((
@@ -81,6 +95,12 @@ def native_failures(output):
             continue
         if (not isinstance(row, dict) or row.get('status') != 'failed'
                 or not isinstance(row.get('stage'), str) or row['stage'] not in NATIVE_STAGES):
+            continue
+        has_assertion_site = 'assertion_site' in row
+        assertion_site = row.pop('assertion_site', None)
+        if has_assertion_site and (row.get('stage') != 'fixture-preimage-current-application-role-extension'
+                or row.get('error') != 'AssertionError' or not isinstance(assertion_site, str)
+                or assertion_site not in CURRENT_APPLICATION_ASSERTION_SITES):
             continue
         has_native_line = 'native_line' in row
         native_line = row.pop('native_line', None)
@@ -177,6 +197,8 @@ def native_failures(output):
             record = {'stage': row['stage'], 'category': 'deadline'}
         else:
             continue
+        if has_assertion_site:
+            record['assertion_site'] = assertion_site
         if native_line is not None:
             record['native_line'] = native_line
         record.update(auth)
