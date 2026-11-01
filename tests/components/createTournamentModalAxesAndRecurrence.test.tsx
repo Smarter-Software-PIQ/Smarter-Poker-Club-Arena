@@ -152,6 +152,17 @@ describe('entry rules and prize style are independent axes', () => {
     expect(screen.getByText('Multi-Day Tournament')).toBeVisible();
   });
 
+  it('allows the Free Buy zero entry through native browser validation', () => {
+    const { container } = mount();
+    choose(entryRules(), 'free_buy');
+    const input = container.querySelector<HTMLInputElement>('#tournament-buy-in')!;
+    expect(input.value).toBe('0');
+    expect(input.checkValidity()).toBe(true);
+    choose(entryRules(), 'freezeout');
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(input.checkValidity()).toBe(false);
+  });
+
   it('never leaves a Free Buy sending a freezeout format, and refuses the unfundable bounty pair', async () => {
     const { container } = mount();
     choose(entryRules(), 'free_buy');
@@ -199,7 +210,8 @@ describe('the tournament category is reachable from an event', () => {
       neq: vi.fn().mockReturnThis(),
       in: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
+      limit: vi.fn().mockReturnThis(),
+      abortSignal: vi.fn().mockResolvedValue({
         data: [
           {
             id: 'd6000000-0000-4000-8000-000000000009',

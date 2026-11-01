@@ -28,6 +28,7 @@ import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
 import { supabase } from '../../lib/supabase';
 import { resolveClubUUID } from '../../utils/clubIdResolver';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { digitsOnly, isWholeBuyIn, money, rakeRateFor, splitBuyIn } from '../../utils/buyIn';
 import { freeBuyConfig, FREE_BUY_HELPER } from '../../utils/freeBuy';
 import { tournamentScheduleService } from '../../services/TournamentScheduleService';
@@ -202,6 +203,10 @@ export default function CreateTournamentModal({
   const [satelliteTargets, setSatelliteTargets] = useState<{ id: string; name: string }[]>([]);
   /* A failed target read is not "no upcoming tournaments": say which it was. */
   const [satelliteTargetsFailed, setSatelliteTargetsFailed] = useState(false);
+  const [satelliteTargetsClubId, setSatelliteTargetsClubId] = useState<string | null>(null);
+  const currentSatelliteTargets = satelliteTargetsClubId === clubId ? satelliteTargets : [];
+  const currentSatelliteTargetId = satelliteTargetsClubId === clubId ? satelliteTargetId : '';
+  const currentSatelliteTargetsFailed = satelliteTargetsClubId === clubId && satelliteTargetsFailed;
 
   // ── Auto Satellite Generation (for Main Events) ──
   const [generateSatellites, setGenerateSatellites] = useState(false);
@@ -519,19 +524,31 @@ export default function CreateTournamentModal({
   useEffect(() => {
     if (!isSatellite) return;
     let alive = true;
+    const controller = new AbortController();
+    setSatelliteTargets([]);
+    setSatelliteTargetId('');
+    setSatelliteTargetsFailed(false);
+    setSatelliteTargetsClubId(null);
     (async () => {
       try {
-        const resolved = await resolveClubUUID(clubId);
-        const { data, error } = await supabase
-          .from('tournaments')
-          .select(
-            'id, name, tournament_type, status, start_time, variant, is_bounty, is_pko, is_mystery_bounty, is_premium_spin'
-          )
-          .eq('club_id', resolved)
-          .neq('tournament_type', 'satellite')
-          .in('status', ['registering', 'scheduled', 'upcoming', 'announced', 'pending', 'open'])
-          .order('start_time', { ascending: true })
-          .limit(50);
+        const resolved = await runWithRequestDeadline((signal) => resolveClubUUID(clubId, signal), {
+          signal: controller.signal,
+        });
+        const { data, error } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .from('tournaments')
+              .select(
+                'id, name, tournament_type, status, start_time, variant, is_bounty, is_pko, is_mystery_bounty, is_premium_spin'
+              )
+              .eq('club_id', resolved)
+              .neq('tournament_type', 'SATELLITE')
+              .in('status', ['ANNOUNCED', 'REGISTERING'])
+              .order('start_time', { ascending: true })
+              .limit(50)
+              .abortSignal(signal),
+          { signal: controller.signal }
+        );
         /* A refused read is not an empty club: reported, and the picker says
            it could not load rather than "No Upcoming Tournaments". */
         if (error) throw error;
@@ -547,19 +564,23 @@ export default function CreateTournamentModal({
             typeof t.is_mystery_bounty === 'boolean' &&
             t.is_premium_spin === false &&
             String(t.variant ?? '').toLowerCase() !== 'spin' &&
-            String(t.tournament_type ?? '').toUpperCase() !== 'SPIN'
+            !['SPIN', 'SATELLITE'].includes(String(t.tournament_type ?? '').toUpperCase())
         );
         if (alive) {
           setSatelliteTargets(deliverable.map((t: any) => ({ id: t.id, name: t.name })));
           setSatelliteTargetsFailed(false);
+          setSatelliteTargetsClubId(clubId);
         }
       } catch (e) {
+        if (!alive) return;
         reportError(e, 'CreateTournamentModal.loadSatelliteTargets');
-        if (alive) setSatelliteTargetsFailed(true);
+        setSatelliteTargetsFailed(true);
+        setSatelliteTargetsClubId(clubId);
       }
     })();
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [isSatellite, clubId]);
 
@@ -715,7 +736,11 @@ export default function CreateTournamentModal({
 
       // ── Satellite validation: without a target it silently becomes a cash
       // payout, defeating the point (winners should earn seats). ──
-      if (isSatellite && !satelliteTargetId) {
+      if (
+        isSatellite &&
+        (!currentSatelliteTargetId ||
+          !currentSatelliteTargets.some((target) => target.id === currentSatelliteTargetId))
+      ) {
         toast.error(TOURNAMENT_CREATE_ERRORS.satellite_target_required);
         submittingRef.current = false;
         setIsSubmitting(false);
@@ -891,9 +916,9 @@ export default function CreateTournamentModal({
         addOnFromStart: mttEntryRules === 'free_buy',
         guaranteedPrize: Math.max(0, Math.round(Number(guaranteedPrize)) || 0),
         satelliteTarget:
-          isSatellite && satelliteTargetId
+          isSatellite && currentSatelliteTargetId
             ? {
-                tournamentId: satelliteTargetId,
+                tournamentId: currentSatelliteTargetId,
                 seatsAwarded: Math.max(1, parseInt(satelliteSeats) || 1),
               }
             : undefined,
@@ -1525,7 +1550,7 @@ export default function CreateTournamentModal({
                     aria-invalid={!buyInValid}
                     value={buyIn}
                     onChange={(e) => setBuyIn(digitsOnly(e.target.value))}
-                    min={1}
+                    min={mttEntryRules === 'free_buy' ? 0 : 1}
                     step={1}
                     inputMode="numeric"
                   />
@@ -1610,22 +1635,24 @@ export default function CreateTournamentModal({
                     <select
                       id="tournament-satellite-target"
                       className={styles.select}
-                      value={satelliteTargetId}
+                      value={currentSatelliteTargetId}
                       onChange={(e) => setSatelliteTargetId(e.target.value)}
                     >
                       <option value="">Select Target Tournament…</option>
-                      {satelliteTargets.map((t) => (
+                      {currentSatelliteTargets.map((t) => (
                         <option key={t.id} value={t.id}>
                           {titleCase(t.name)}
                         </option>
                       ))}
                     </select>
                     <span className={styles.helperText}>
-                      {satelliteTargetsFailed
+                      {currentSatelliteTargetsFailed
                         ? 'Target Tournaments Could Not Be Loaded. Close And Reopen To Try Again.'
-                        : satelliteTargets.length === 0
-                          ? 'No Upcoming Tournaments To Feed Into - Create One First.'
-                          : 'Winners Earn A Seat Into This Tournament.'}
+                        : satelliteTargetsClubId !== clubId
+                          ? 'Loading Target Tournaments…'
+                          : currentSatelliteTargets.length === 0
+                            ? 'No Upcoming Tournaments To Feed Into - Create One First.'
+                            : 'Winners Earn A Seat Into This Tournament.'}
                     </span>
                   </div>
                 </div>
