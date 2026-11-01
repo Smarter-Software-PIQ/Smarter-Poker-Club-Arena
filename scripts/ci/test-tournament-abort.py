@@ -110,8 +110,8 @@ END$$;""")
    '--socket-root',str(a.socket_root),'--pg-bin',str(a.pg_bin)],check=True,timeout=180)
   equal_report=json.loads((a.evidence/'equal-share/equal-share-report.json').read_text())
   assert equal_report.get('passed') is True and equal_report.get('cleanup')=={'stopped':True,'removed':True}
-  assert len(equal_report['cases'])==56
-  e.report['equal_share']={'passed':True,'cases':56,'report':'equal-share/equal-share-report.json'}
+  assert len(equal_report['cases'])==65
+  e.report['equal_share']={'passed':True,'cases':65,'report':'equal-share/equal-share-report.json'}
   e.report['source_sha256'][str(equal_driver.relative_to(ROOT))]=hashlib.sha256(equal_driver.read_bytes()).hexdigest()
   boundary_driver=ROOT/'scripts/ci/test-tournament-closure-boundary.py'
   subprocess.run([sys.executable,'-B',str(boundary_driver),
