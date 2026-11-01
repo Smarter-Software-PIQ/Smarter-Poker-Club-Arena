@@ -1227,11 +1227,13 @@ export function useProtectedCardLayout(
           // Each successful movement triggers a fresh bounded placement pass,
           // so a newly constrained neighbour is not judged from stale pools.
           // Failed owners may retry after that change; successful wagers cannot.
+          let factJointProofs = 0;
           for (const entry of blocked) {
             const seat = entry.bet.closest<HTMLElement>('.seat:not(.seat--hero)');
             const image = seat?.querySelector<HTMLImageElement>('.seat__avatar-img');
             if (!seat || !image || movedSeats.has(seat)) continue;
             let factProbe: HTMLElement | null = null;
+            let factWagers: Array<{ bet: HTMLElement; next: CardBox }> = [];
             let rivalProposals: Array<{ seat: HTMLElement; shift: number }> = [];
             const acceptsLane = () => {
               // The local limit is cumulative across this whole transaction,
@@ -1288,7 +1290,7 @@ export function useProtectedCardLayout(
                 for (const left of xs)
                   for (const top of ys) laneCandidates.push({ ...entry.box, left, top, depth: 20 });
               }
-              return laneCandidates.some((candidate) => {
+              const clearLane = laneCandidates.some((candidate) => {
                 const point = {
                   x: candidate.left + candidate.width / 2,
                   y: candidate.top + candidate.height / 2,
@@ -1297,8 +1299,8 @@ export function useProtectedCardLayout(
                 if (factProbe) {
                   if (
                     !wagerOnFeltWithMargin(candidate, 1) ||
-                    [...keepouts, ...fixedWagers, ...(reservedDealer ? [reservedDealer] : [])].some(
-                      (other) => markerTouches(candidate, other)
+                    [...keepouts, ...(reservedDealer ? [reservedDealer] : [])].some((other) =>
+                      markerTouches(candidate, other)
                     )
                   )
                     return false;
@@ -1349,6 +1351,33 @@ export function useProtectedCardLayout(
                   )
                 );
               });
+              if (!clearLane || !factProbe) return clearLane;
+              // A valid provisional chip can occupy the only puck pocket.
+              // Release that reservation only inside a joint proof which keeps
+              // every already resolved wager and adds this previously blocked
+              // puck. The ordinary pools offer their current slot first.
+              factWagers = [];
+              if (factJointProofs >= 8) return false;
+              factJointProofs++;
+              const fresh = buildEntries(wagers(), true, []);
+              const resolved = new Set(wagers().filter((bet) => settled.current.wagers.has(bet)));
+              resolved.add(entry.bet);
+              if ([...resolved].some((bet) => !fresh.some((proposal) => proposal.bet === bet)))
+                return false;
+              const solve = (proposals: typeof fresh) => {
+                const assignment =
+                  assignProtectedWagers(proposals.map((proposal) => proposal.wide)) ??
+                  cleanGreedyWagers(proposals.map((proposal) => proposal.wide)) ??
+                  assignProtectedWagers(proposals.map((proposal) => proposal.printing)) ??
+                  cleanGreedyWagers(proposals.map((proposal) => proposal.printing));
+                if (!assignment) return false;
+                factWagers = proposals.map((proposal, index) => ({
+                  bet: proposal.bet,
+                  next: assignment[index],
+                }));
+                return true;
+              };
+              return solve(fresh) || solve(fresh.filter((proposal) => resolved.has(proposal.bet)));
             };
             const shifts = new Set<number>();
             for (let distance = 1; distance <= Math.ceil(pageBox.height); distance++) {
@@ -1441,11 +1470,34 @@ export function useProtectedCardLayout(
                 const x = candidate.left + candidate.width / 2,
                   y = candidate.top + candidate.height / 2;
                 const closest = Math.hypot(x - cx, Math.max(0, Math.abs(y - cy) - localRadius));
-                return initialPlayerCentres.every(
+                const blockers = initialPlayerCentres.filter(
                   (other) =>
-                    Math.hypot(other.x - cx, other.y - cy) < 1 ||
-                    closest + 1.5 + motion + other.motion < Math.hypot(x - other.x, y - other.y)
+                    Math.hypot(other.x - cx, other.y - cy) >= 1 &&
+                    closest + 1.5 + motion + other.motion >= Math.hypot(x - other.x, y - other.y)
                 );
+                if (!blockers.length) return true;
+                if (blockers.length !== 1) return false;
+                // The actual lane proof can move one rival. Its prefilter must
+                // admit that same finite family, while keeping the rival inside
+                // its original half-pod motion bounds.
+                const other = blockers[0];
+                return [...origins].some(([rival, origin]) => {
+                  const art = rival.querySelector<HTMLImageElement>('.seat__avatar-img');
+                  if (!art) return false;
+                  const rect = restingAvatarBox(art, scale);
+                  const rx = rect.left + rect.width / 2,
+                    ry = rect.top + rect.height / 2;
+                  if (Math.hypot(rx - other.x, ry - other.y) >= 1) return false;
+                  const current =
+                    (parseFloat(rival.style.getPropertyValue('--sp-opponent-y')) || 0) * scale;
+                  const up = origin.y - origin.radius - current;
+                  const down = origin.y + origin.radius - current;
+                  const furthest = Math.max(
+                    Math.hypot(x - rx, y - ry - up),
+                    Math.hypot(x - rx, y - ry - down)
+                  );
+                  return closest + 1.5 + motion + other.motion < furthest;
+                });
               };
               const facts = Array.from(
                 scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
@@ -1476,6 +1528,7 @@ export function useProtectedCardLayout(
               for (const fact of facts) {
                 for (const target of fact.targets) {
                   factProbe = fact.seat;
+                  factWagers = [];
                   opened = artwork.tryRaiseCaptionForWager(fact.seat, target, trySpacing);
                   factProbe = null;
                   if (opened) break;
@@ -1484,6 +1537,9 @@ export function useProtectedCardLayout(
               }
             }
             if (opened) {
+              // Caption validation belongs to the helper's final body pose.
+              // No marker/cache write happens for a rejected nested proposal.
+              factWagers.forEach(({ bet, next }) => commitWager(bet, next));
               movedOwner = true;
               movedSeats.add(seat);
               settled.current.ownerSpacingTried.add(entry.bet);
