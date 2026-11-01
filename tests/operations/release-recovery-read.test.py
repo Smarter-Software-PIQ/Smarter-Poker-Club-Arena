@@ -2331,5 +2331,161 @@ class NativeCheckpointIntentTests(unittest.TestCase):
 
 
 
-if __name__ == '__main__':
+
+
+class ControlInventoryTests(unittest.TestCase):
+    def test_actual_remote_entry_selects_inventory_without_legacy_state_read(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent,generation,source=self.fixture(folder)
+            with patch.object(R.subprocess,'run',side_effect=self.git(source)):
+                value=R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+            with patch.object(R,'control_inventory',return_value=value) as inventory,patch.object(R.os,'open',side_effect=AssertionError('legacy state must not open')):
+                self.assertEqual(R.remote(R.CONTROL_REQUEST),value)
+            inventory.assert_called_once_with(R.CONTROL_REQUEST)
+
+    def test_manifest_race_before_entry_snapshot_is_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent,generation,source=self.fixture(folder)
+            original_stat=R.os.stat;changed=False
+            def race(path,*args,**kwargs):
+                nonlocal changed
+                if path=='control-sha' and kwargs.get('dir_fd') is not None and not changed:
+                    changed=True
+                    manifest=generation/'generation-files'
+                    manifest.write_text(manifest.read_text()+'engine-up.sh\n')
+                return original_stat(path,*args,**kwargs)
+            with patch.object(R.subprocess,'run',side_effect=self.git(source)),patch.object(R.os,'stat',side_effect=race),self.assertRaisesRegex(ValueError,'Control inventory refused'):
+                R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+            self.assertTrue(changed)
+
+    def fixture(self, folder):
+        parent=Path(folder);sha='a'*40
+        generation=parent/'engine-control-generations'/sha;generation.mkdir(parents=True)
+        source={name:b'# exact immutable fixture\n' for name in R.CONTROL_CORE}
+        for name,raw in source.items(): (generation/name).write_bytes(raw)
+        (generation/'control-sha').write_text(sha+'\n')
+        (generation/'generation-files').write_text('\n'.join(sorted(source))+'\n')
+        (parent/'engine-control').symlink_to(generation)
+        return parent,generation,source
+
+    def git(self, source):
+        def call(args, **kwargs):
+            self.assertEqual(args[0],'git')
+            self.assertFalse(any(k.startswith('GIT_') and k not in {'GIT_NO_REPLACE_OBJECTS','GIT_NO_LAZY_FETCH','GIT_OPTIONAL_LOCKS'} for k in kwargs['env']))
+            self.assertEqual({k:kwargs['env'].get(k) for k in ['GIT_NO_REPLACE_OBJECTS','GIT_NO_LAZY_FETCH','GIT_OPTIONAL_LOCKS']},
+                             {'GIT_NO_REPLACE_OBJECTS':'1','GIT_NO_LAZY_FETCH':'1','GIT_OPTIONAL_LOCKS':'0'})
+            if 'merge-base' in args: return subprocess.CompletedProcess(args,0)
+            name=args[-1].split(':server/scripts/')[-1]
+            raw=source.get(name)
+            return subprocess.CompletedProcess(args,0 if raw is not None else 1,
+                stdout=(str(len(raw)).encode() if '-s' in args and raw is not None else raw or b''))
+        return call
+
+    def test_poisoned_git_routing_cannot_touch_private_sentinel(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sentinel=Path(folder)/'sentinel';sentinel.mkdir()
+            clean={k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
+            def git(*args):
+                return subprocess.run(['git','-C',str(sentinel),*args],env=clean,check=True,capture_output=True).stdout.strip().decode()
+            git('init','--quiet');(sentinel/'retained.txt').write_text('private sentinel working file')
+            git('add','retained.txt');tree=git('write-tree')
+            identity={**clean,'GIT_AUTHOR_NAME':'Sentinel','GIT_AUTHOR_EMAIL':'fixture@example.invalid','GIT_COMMITTER_NAME':'Sentinel','GIT_COMMITTER_EMAIL':'fixture@example.invalid'}
+            sha=subprocess.run(['git','-C',str(sentinel),'commit-tree',tree,'-m','Sentinel'],env=identity,check=True,capture_output=True).stdout.strip().decode()
+            git('update-ref','refs/remotes/origin/main',sha)
+            config=sentinel/'private-config';config.write_text('[core]\n bare = true\n')
+            poison={**clean,'GIT_DIR':str(sentinel/'.git'),'GIT_COMMON_DIR':str(sentinel/'.git'),
+                    'GIT_WORK_TREE':str(sentinel),'GIT_INDEX_FILE':str(sentinel/'.git/index'),
+                    'GIT_OBJECT_DIRECTORY':str(sentinel/'.git/objects'),
+                    'GIT_ALTERNATE_OBJECT_DIRECTORIES':str(sentinel/'.git/objects'),
+                    'GIT_CONFIG_SYSTEM':str(config),'GIT_CONFIG_GLOBAL':str(config),
+                    'GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'core.bare','GIT_CONFIG_VALUE_0':'true'}
+            def snapshot():
+                return {str(p.relative_to(sentinel)):(p.read_bytes(),p.stat().st_mode,p.stat().st_mtime_ns)
+                        for p in sentinel.rglob('*') if p.is_file()}
+            before=snapshot()
+            error=None
+            try:
+                with patch.dict(os.environ,poison,clear=True):
+                    self.test_actual_git_immutable_comparison()
+                    # Exercise the production fixed-repository Git calls under the same poison.
+                    with tempfile.TemporaryDirectory() as generation_root:
+                        parent,generation,source=self.fixture(generation_root)
+                        with patch.object(R.subprocess,'run',side_effect=self.git(source)):
+                            R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+            except Exception as exc: error=exc
+            self.assertEqual(snapshot(),before)
+            if error is not None: raise error
+
+    def test_actual_git_immutable_comparison(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent,generation,source=self.fixture(folder)
+            repo=parent/'repo';repo.mkdir()
+            env={**{k:v for k,v in os.environ.items() if not k.startswith('GIT_')},'GIT_AUTHOR_NAME':'Native Fixture','GIT_AUTHOR_EMAIL':'fixture@example.invalid',
+                 'GIT_COMMITTER_NAME':'Native Fixture','GIT_COMMITTER_EMAIL':'fixture@example.invalid'}
+            def git(*args):
+                return subprocess.run(['git','-C',str(repo),*args],env=env,check=True,capture_output=True).stdout.strip().decode()
+            git('init','--quiet');(repo/'server/scripts').mkdir(parents=True)
+            for name,raw in source.items(): (repo/'server/scripts'/name).write_bytes(raw)
+            git('add','server/scripts');tree=git('write-tree');sha=git('commit-tree',tree,'-m','Isolated immutable fixture')
+            git('update-ref','refs/remotes/origin/main',sha)
+            target=generation.with_name(sha);generation.rename(target)
+            (parent/'engine-control').unlink();(parent/'engine-control').symlink_to(target)
+            (target/'control-sha').write_text(sha+'\n')
+            result=R._control_inventory_at(R.CONTROL_REQUEST,parent,repo)
+            self.assertTrue(all(row['sourceMatches'] for row in result['entries'] if row['name'] in source))
+            (target/'engine-up.sh').write_text('changed bytes')
+            result=R._control_inventory_at(R.CONTROL_REQUEST,parent,repo)
+            self.assertFalse(next(row for row in result['entries'] if row['name']=='engine-up.sh')['sourceMatches'])
+
+    def test_exact_filesystem_and_transport_binding(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent,generation,source=self.fixture(folder)
+            with patch.object(R.subprocess,'run',side_effect=self.git(source)):
+                value=R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+            self.assertTrue(value['manifestValid'] and value['entrySetMatches'] and value['allRegular'])
+            self.assertTrue(value['controlShaMatches'])
+            self.assertTrue(all(r['sourceMatches'] for r in value['entries'] if r['name'] in source))
+            self.assertEqual(R.validate_reply(value,R.CONTROL_REQUEST),value)
+            self.assertEqual(R.selection(R.CONTROL_REQUEST),R.CONTROL_REQUEST)
+            for key in ['runKey','releaseSha']:
+                with self.assertRaises(ValueError): R.selection({**R.CONTROL_REQUEST,key:'b'*40})
+            with self.assertRaises(ValueError): R.validate_reply({**value,'contents':'forbidden'},R.CONTROL_REQUEST)
+
+    def test_manifest_extra_missing_type_and_hash_are_distinct(self):
+        for case in ['symlink-manifest','duplicate','missing-core','extra-directory','extra-symlink','missing-file','changed-bytes','mode-only']:
+            with self.subTest(case=case),tempfile.TemporaryDirectory() as folder:
+                parent,generation,source=self.fixture(folder)
+                manifest=generation/'generation-files';selected=generation/'engine-up.sh'
+                if case=='symlink-manifest':
+                    manifest.unlink();manifest.symlink_to(generation/'engine-up.sh')
+                if case=='duplicate': manifest.write_text(manifest.read_text()+'engine-up.sh\n')
+                if case=='missing-core': manifest.write_text(manifest.read_text().replace('engine-up.sh\n',''))
+                if case=='extra-directory': (generation/'__pycache__').mkdir()
+                if case=='extra-symlink': (generation/'other').symlink_to(selected)
+                if case=='missing-file': selected.unlink()
+                if case=='changed-bytes': selected.write_text('changed')
+                if case=='mode-only': selected.chmod(0o600)
+                with patch.object(R.subprocess,'run',side_effect=self.git(source)):
+                    value=R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+                R.validate_reply(value,R.CONTROL_REQUEST)
+                if case in {'symlink-manifest','duplicate','missing-core'}: self.assertFalse(value['manifestValid'])
+                if case in {'extra-directory','extra-symlink','missing-file'}: self.assertFalse(value['entrySetMatches'])
+                if case in {'extra-directory','extra-symlink'}: self.assertFalse(value['allRegular'])
+                if case=='changed-bytes': self.assertFalse(next(r for r in value['entries'] if r['name']=='engine-up.sh')['sourceMatches'])
+                if case=='mode-only': self.assertTrue(value['entrySetMatches'] and value['allRegular'])
+
+    def test_bounds_and_symlink_reads_refused(self):
+        for case in ['oversized','too-many-entries','invalid-name']:
+            with self.subTest(case=case),tempfile.TemporaryDirectory() as folder:
+                parent,generation,source=self.fixture(folder)
+                if case=='oversized': (generation/'engine-up.sh').write_bytes(b'x'*1048577)
+                if case=='symlink-manifest':
+                    manifest=generation/'generation-files';manifest.unlink();manifest.symlink_to(generation/'engine-up.sh')
+                if case=='too-many-entries':
+                    for i in range(65): (generation/('x'+str(i))).touch()
+                if case=='invalid-name': (generation/'bad name').touch()
+                with patch.object(R.subprocess,'run',side_effect=self.git(source)),self.assertRaises((ValueError,OSError)):
+                    R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+
+if __name__ == "__main__":
     unittest.main()

@@ -510,7 +510,12 @@ def own_thaw(stamp, control=CANCEL_CONTROL):
     require(source_hash(helper) == hashes[helper.name])
     spec = importlib.util.spec_from_file_location('qualified_withdrawal_database_reader', helper)
     reader = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(reader)
+    original_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(reader)
+    finally:
+        sys.dont_write_bytecode = original_bytecode
     values = reader.read_fixed_env(Path('/opt/club-arena/server/.env'))
     require(values.get('SUPABASE_URL', '').rstrip('/') == 'https://kuklfnapbkmacvwxktbh.supabase.co'
             and bool(values.get('SUPABASE_SERVICE_ROLE_KEY')))
