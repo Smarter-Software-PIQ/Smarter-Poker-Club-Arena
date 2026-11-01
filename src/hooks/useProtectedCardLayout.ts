@@ -2071,14 +2071,16 @@ export function useProtectedCardLayout(
         const placedWagers: CardBox[] = [...fixedWagers];
         for (let i = 0; i < entries.length; i++) {
           const { bet, box } = entries[i];
-          const next = placements?.[i];
-          if (
-            !next ||
-            (finishPartialAssignment &&
-              [...permanentKeepouts, ...placedWagers].some((other) =>
-                retainedWagerTouches(next, other)
-              ))
-          ) {
+          const candidate = placements?.[i];
+          const next =
+            candidate &&
+            finishPartialAssignment &&
+            [...permanentKeepouts, ...placedWagers].some((other) =>
+              retainedWagerTouches(candidate, other)
+            )
+              ? undefined
+              : candidate;
+          if (!next) {
             unresolved = true;
             // No clear spot of its own: it stays at its rest point in front of
             // its player, never in front of somebody else.
