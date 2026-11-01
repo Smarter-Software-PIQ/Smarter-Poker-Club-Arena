@@ -88,7 +88,7 @@ function policyRow(over: Record<string, unknown> = {}) {
 
 /**
  * 10:30 UTC = 05:30 Chicago (CDT), three hours before the 08:30 slot, so
- * exactly one slot sits inside FREE_BUY_PUBLISH_LEAD_MS. Asserted below
+ * all five daily slots sit inside FREE_BUY_PUBLISH_LEAD_MS. Asserted below
  * rather than assumed, so a change to the slot table fails here loudly
  * instead of quietly testing nothing.
  */
@@ -124,8 +124,8 @@ describe('a held club is not published for', () => {
     vi.restoreAllMocks();
   });
 
-  it('has exactly one slot due at the test clock, so the cases below are real', () => {
-    expect(freeBuySlotsDue(AT_FIVE_THIRTY_AM_CHICAGO)).toHaveLength(1);
+  it('has all five daily slots due at the test clock, so the cases below are real', () => {
+    expect(freeBuySlotsDue(AT_FIVE_THIRTY_AM_CHICAGO)).toHaveLength(5);
     expect(FREE_BUY_HOSTS).toHaveLength(1);
   });
 

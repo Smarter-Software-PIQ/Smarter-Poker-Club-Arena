@@ -21,9 +21,9 @@
  *   1. A horse whose entry into an event came back as an ERROR is not offered
  *      that event again on the next pass. It waits 10 minutes, doubling to an
  *      hour, each wait with equal jitter so horses refused together are not
- *      re-asked together. A database decision (ok:false with a reason) is an
- *      answer, not an error, and is not deferred. A successful entry clears
- *      the deferral.
+ *      re-asked together. Per-Horse purchase refusals also use this interval;
+ *      global closure/freeze answers end the pass without deferring a Horse.
+ *      Only a successful entry clears the deferral.
  *   2. An error that says the database did not answer at all (a timeout, an
  *      exhausted pool, a dropped connection) stops the pass. Every further
  *      call would be one more request queued on a pool that is not serving;
@@ -102,7 +102,7 @@ export class HorseEntryRefusalBackoff {
     return nowMs >= d.recheckAtMs;
   }
 
-  /** The entry came back as an error; the next offer waits. Returns the wait. */
+  /** The purchase was refused; the next offer waits. Returns the wait. */
   refused(tournamentId: string, horseId: string): number {
     const nowMs = this.now();
     this.forgetStale(nowMs);
@@ -118,7 +118,7 @@ export class HorseEntryRefusalBackoff {
     return waitMs;
   }
 
-  /** The entry was answered (admitted or decided); nothing is deferred. */
+  /** The entry was admitted; nothing is deferred. */
   settled(tournamentId: string, horseId: string): void {
     this.deferrals.delete(tournamentId + ':' + horseId);
   }
