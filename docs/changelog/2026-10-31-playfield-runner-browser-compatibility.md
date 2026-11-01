@@ -21,3 +21,4 @@ gameplay change is introduced.
 The parallel-delivery contract also asserts the exact supported image for these
 three named CI jobs; every other CI and publication job retains its prior runner
 expectation and the prohibition on custom or self-hosted runners.
+The dependency-free Node caller contract applies the same exact job-bound routes.
