@@ -29,6 +29,7 @@ const h = vi.hoisted(() => ({
   tagline: null as string | null,
   tournaments: [] as any[],
   tables: [] as any[],
+  lightningStates: {} as Record<string, any>,
   register: vi.fn(),
 }));
 
@@ -56,6 +57,9 @@ vi.mock('../../src/core/MasterBus', () => ({
     emit: vi.fn(),
   },
   busToast: vi.fn(),
+}));
+vi.mock('../../src/lightning/lightningLobbyFeed', () => ({
+  useLightningLobbyStates: () => h.lightningStates,
 }));
 vi.mock('../../src/lib/bbjPoolFeed', () => ({ watchBbjPool: () => vi.fn() }));
 vi.mock('../../src/lib/bbjHitFeed', () => ({ watchBbjHits: () => vi.fn() }));
@@ -160,6 +164,7 @@ beforeEach(() => {
   h.tagline = null;
   h.tournaments = [];
   h.tables = [];
+  h.lightningStates = {};
   h.rpc.mockImplementation((name: string) => {
     if (name === 'fn_club_opening_checklist_state') {
       return Promise.resolve({
@@ -653,3 +658,59 @@ it('Satellite Starting Time puts scheduled MTT dates ahead of seat-first recycle
   expect(witnessed).toBeGreaterThan(0);
   expect(h.register).not.toHaveBeenCalled();
 });
+
+it.each([false, true])(
+  'ALL Most Players sorts whole games, including Lightning pools (%s)',
+  async (lightning) => {
+    h.setupReads = [DONE];
+    const table = (id: string, cluster: string, players: number, main = true) => ({
+      id,
+      club_id: 'club-a',
+      name: id,
+      game_variant: 'nlh',
+      status: 'running',
+      lifecycle: 'live',
+      current_players: players,
+      max_players: 6,
+      small_blind: 1,
+      big_blind: 2,
+      cluster_id: cluster,
+      role: main ? 'main' : 'feeder',
+      main_index: main ? 1 : null,
+      cluster_mode: lightning && cluster === 'large' ? 'lightning' : 'must_move',
+      cluster_template: 'action',
+      cluster_handedness: 6,
+    });
+    h.tables = [
+      table('large-main', 'large', 1),
+      table('large-feeder', 'large', 19, false),
+      table('small-main', 'small', 5),
+      table('small-feeder', 'small', 3, false),
+    ];
+    if (lightning)
+      h.lightningStates.large = {
+        clusterMode: 'lightning',
+        poolPlayers: 30,
+        liveEligible: 20,
+        onThreshold: 18,
+        offThreshold: 12,
+      };
+    localStorage.setItem(
+      'ca_lobby_view_viewer:club-a',
+      JSON.stringify({ tab: 'ALL', sortByTab: { ALL: 'players' }, favoritesOnly: false })
+    );
+    await mountLobby();
+    let witnessed = 0;
+    for (const body of document.querySelectorAll('tbody')) {
+      const rows = Array.from(body.querySelectorAll('.lt-row[data-kind="cash"][data-id]'));
+      if (!rows.length) continue;
+      expect(rows.map((row) => row.getAttribute('data-id'))).toEqual(['large-main', 'small-main']);
+      expect(rows[0].querySelector('.lt-col-players')?.textContent).toContain(
+        String(lightning ? 30 : 20)
+      );
+      witnessed += 1;
+    }
+    expect(witnessed).toBeGreaterThan(0);
+    expect(h.register).not.toHaveBeenCalled();
+  }
+);

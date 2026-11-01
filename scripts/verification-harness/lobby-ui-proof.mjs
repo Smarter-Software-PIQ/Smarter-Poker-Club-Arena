@@ -122,6 +122,7 @@ export const FILTER_COMPONENT_PATHS = [
     'src/components/lobby/AdvancedFilters.tsx',
     'src/components/lobby/AdvancedFilters.css',
     'src/components/lobby/advancedFilterSpec.ts',
+    'src/components/lobby/cashBoardOrder.ts',
     'src/components/lobby/lobbyEntries.ts',
     'src/components/lobby/StickyLobbyFilters.tsx',
     'src/components/lobby/StickyLobbyFilters.css',

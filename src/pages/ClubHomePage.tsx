@@ -3738,7 +3738,12 @@ function ClubHomePageContent({
     /* One pure comparator (cashBoardOrder.ts): a stakes sort breaks every
        price tie in canonical variant order on EVERY tab, ALL included (Dan
        2026-10-23); the other sorts keep the Omaha tab's variant groups. */
-    return rows.sort(cashBoardComparator(sortKey, gameType));
+    const displayedPlayers = new Map(
+      rows.map((row) => [row, cashEntry(row as unknown as LobbyTableRow).players || 0])
+    );
+    return rows.sort(
+      cashBoardComparator(sortKey, gameType, (row) => displayedPlayers.get(row as TableData) || 0)
+    );
   }, [boardTables, gameType, showsCash, sortKey, advFilters, allStatusFilter, linkedGameId]);
 
   /**

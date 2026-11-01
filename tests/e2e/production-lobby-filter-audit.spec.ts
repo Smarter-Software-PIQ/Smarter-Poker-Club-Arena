@@ -31,7 +31,12 @@ const SORTS = [
   ['players', 'Most Players'],
   ['starting_soon', 'Starting Time'],
 ] as const;
-test.use({ ...devices['iPhone 13'], timezoneId: 'America/Chicago', trace: 'retain-on-failure' });
+test.use({
+  ...devices['iPhone 13'],
+  viewport: { width: 393, height: 852 },
+  timezoneId: 'America/Chicago',
+  trace: 'retain-on-failure',
+});
 test.describe.configure({ mode: 'default', timeout: 180_000 });
 const text = (v: unknown) => String(v ?? '');
 const number = (v: unknown) => Number(v) || 0;
@@ -460,12 +465,14 @@ async function assertRegistrationInkInsideFrame(page: Page) {
     .toEqual([]);
 }
 
-async function assertSort(page: Page, type: Tab, sort: string, raw: Map<string, Row>) {
-  const cash = CASH.has(type);
+async function assertSort(page: Page, type: Tab | 'ALL', sort: string, raw: Map<string, Row>) {
+  const cash = CASH.has(type) || type === 'ALL';
   const effective =
     sort === 'recommended'
       ? cash
-        ? 'stakes_low'
+        ? type === 'ALL'
+          ? 'stakes_high'
+          : 'stakes_low'
         : type === 'MTT'
           ? 'phase'
           : 'tournament-recommended'
@@ -479,6 +486,7 @@ async function assertSort(page: Page, type: Tab, sort: string, raw: Map<string, 
             elements.map((element) => ({
               id: element.getAttribute('data-id')!,
               status: element.getAttribute('data-status') || '',
+              kind: element.getAttribute('data-kind') || '',
               pinned: element.matches('.is-featured'),
               favorite: Boolean(
                 element.querySelector('button[aria-label="Remove From Favorites"]')
@@ -487,7 +495,8 @@ async function assertSort(page: Page, type: Tab, sort: string, raw: Map<string, 
           );
         const groups = new Map<string, number[][]>();
         for (const item of actual) {
-          if (item.pinned || item.favorite) continue;
+          if (type !== 'ALL' && (item.pinned || item.favorite)) continue;
+          if (type === 'ALL' && item.kind !== 'cash') return ['Unexpected Non-Cash ALL Row'];
           const row = raw.get(item.id);
           if (!row) return ['Missing Raw Row'];
           let clusterPlayers = row.cluster_id
@@ -517,11 +526,14 @@ async function assertSort(page: Page, type: Tab, sort: string, raw: Map<string, 
               (number(row.current_players) >= cap ||
                 ['RUNNING', 'IN_PROGRESS'].includes(text(row.status).toUpperCase()))) ||
               text(row.status).toUpperCase() === 'BAGGED');
-          const group = cash
-            ? !['stakes_low', 'stakes_high'].includes(effective)
-              ? `${variant(row, true)}:${clusterPlayers === 0}`
-              : 'cash-price'
-            : String(gone);
+          const group =
+            type === 'ALL'
+              ? 'all-cash'
+              : cash
+                ? !['stakes_low', 'stakes_high'].includes(effective)
+                  ? `${variant(row, true)}:${clusterPlayers === 0}`
+                  : 'cash-price'
+                : String(gone);
           const price = cash
             ? number(row.big_blind) * (/^(flh|flo8)$/.test(variant(row, true)) ? 2 : 1)
             : number(row.buy_in_amount) + number(row.buy_in_fee);
@@ -588,7 +600,7 @@ async function assertSort(page: Page, type: Tab, sort: string, raw: Map<string, 
                             : price,
                       ];
           const values = groups.get(group) || [];
-          values.push(value);
+          values.push(type === 'ALL' ? [Number(clusterPlayers === 0), ...value] : value);
           groups.set(group, values);
         }
         return [...groups.entries()].flatMap(([group, values]) =>
@@ -1408,6 +1420,10 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     await button.click();
     await expect(button).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(async () => (await h.view()).sortByTab?.ALL).toBe(key);
+    // Sorting preserves the complete ALL cash census, rather than certifying
+    // only a button colour or whichever subset happened to remain visible.
+    await expect.poll(async () => sorted(await h.ids())).toEqual(sorted(allBaseline));
+    await assertSort(page, 'ALL', key, h.rawRows);
   }
   await sheet.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(sheet).toBeHidden();
