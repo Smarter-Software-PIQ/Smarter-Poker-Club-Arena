@@ -185,14 +185,22 @@ BEGIN
    ORDER BY per.cash+per.tour DESC),'[]'::jsonb)
  INTO v_totals,v_players FROM per;
 
- SELECT uc.union_id INTO v_union FROM public.union_clubs uc WHERE uc.club_id=p_club_id LIMIT 1;
- IF v_union IS NULL THEN v_scope_kind:='club';v_scope_id:=p_club_id;
- ELSE v_scope_kind:='union';v_scope_id:=v_union; END IF;
+ -- The scope the weekly close settles this club in: its own standalone close
+ -- when it has one, otherwise its union's (whose two-hour windows are proved).
+ IF EXISTS(SELECT 1 FROM public.union_accounting_runs r WHERE r.scope_kind='club' AND r.scope_id=p_club_id) THEN
+  v_scope_kind:='club';v_scope_id:=p_club_id;
+ ELSE
+  SELECT uc.union_id INTO v_union FROM public.union_clubs uc WHERE uc.club_id=p_club_id ORDER BY uc.joined_at DESC LIMIT 1;
+  IF v_union IS NULL THEN v_scope_kind:='club';v_scope_id:=p_club_id;
+  ELSE v_scope_kind:='union';v_scope_id:=v_union; END IF;
+ END IF;
  v_elapsed:=ceil(extract(epoch FROM (LEAST(v_now,v_end)-v_start))/7200)::int;
- SELECT COALESCE(jsonb_object_agg(k.kind,k.n),'{}'::jsonb) INTO v_windows FROM (
-  SELECT p.kind,count(*) n FROM public.accounting_close_partials p
-  WHERE p.union_id=v_scope_id AND p.period_end=v_end AND p.computed_at>=v_end
-    AND p.kind IN ('earned_plan_window','round2_union_window','round3_union_window') GROUP BY p.kind) k;
+ IF v_scope_kind='union' THEN
+  SELECT COALESCE(jsonb_object_agg(k.kind,k.n),'{}'::jsonb) INTO v_windows FROM (
+   SELECT p.kind,count(*) n FROM public.accounting_close_partials p
+   WHERE p.union_id=v_scope_id AND p.period_end=v_end AND p.computed_at>=v_end
+     AND p.kind IN ('earned_plan_window','round2_union_window','round3_union_window') GROUP BY p.kind) k;
+ END IF;
  SELECT jsonb_build_object('period_start',r.period_start,'period_end',r.period_end,'status',r.status,
    'attempts',r.attempts,'finished_at',r.finished_at) INTO v_run
  FROM public.union_accounting_runs r
@@ -211,8 +219,9 @@ BEGIN
     'hours_counted',GREATEST(0,(extract(epoch FROM (v_through-v_start))/3600)::int),
     'hours_settled',GREATEST(0,(extract(epoch FROM (v_settled-v_start))/3600)::int)),
   'totals',v_totals,'players',v_players,
-  'windows',jsonb_build_object('proved',v_windows,'elapsed',v_elapsed,
-    'per_week',ceil(extract(epoch FROM (v_end-v_start))/7200)::int,'proved_after',v_end),
+  'windows',CASE WHEN v_scope_kind='union' THEN jsonb_build_object('proved',v_windows,'elapsed',v_elapsed,
+    'per_week',ceil(extract(epoch FROM (v_end-v_start))/7200)::int,'proved_after',v_end) END,
+  'close_scope',jsonb_build_object('kind',v_scope_kind,'id',v_scope_id),
   'last_close',v_run,'last_paid_week',v_paid,'estimate',true,'read_at',v_now);
 END $function$;
 REVOKE ALL ON FUNCTION public.fn_club_rakeback_verified_so_far(uuid) FROM PUBLIC,anon,service_role;

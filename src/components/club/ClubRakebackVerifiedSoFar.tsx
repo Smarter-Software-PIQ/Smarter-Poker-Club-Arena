@@ -137,13 +137,14 @@ export function ClubRakebackVerifiedSoFar({ clubId }: { clubId: string }) {
   }
 
   const { totals, tally, windows } = data;
-  const proved = Object.values(windows.proved).length
-    ? Math.min(
-        ...['earned_plan_window', 'round2_union_window', 'round3_union_window'].map(
-          (k) => windows.proved[k] ?? 0
+  const proved =
+    windows && Object.values(windows.proved).length
+      ? Math.min(
+          ...['earned_plan_window', 'round2_union_window', 'round3_union_window'].map(
+            (k) => windows.proved[k] ?? 0
+          )
         )
-      )
-    : 0;
+      : 0;
   const players = showAll ? data.players : data.players.slice(0, SHOWN);
 
   return (
@@ -188,13 +189,15 @@ export function ClubRakebackVerifiedSoFar({ clubId }: { clubId: string }) {
           <dt>Players</dt>
           <dd>{Number(totals.players)}</dd>
         </div>
-        <div>
-          <dt>Windows Proved</dt>
-          <dd>
-            {proved} Of {windows.per_week}
-            {proved === 0 ? ' (Proved After The Week Ends)' : ''}
-          </dd>
-        </div>
+        {windows && (
+          <div>
+            <dt>Windows Proved</dt>
+            <dd>
+              {proved} Of {windows.per_week}
+              {proved === 0 ? ' (Proved After The Week Ends)' : ''}
+            </dd>
+          </div>
+        )}
         {data.last_paid_week && (
           <div>
             <dt>Last Week Paid</dt>
