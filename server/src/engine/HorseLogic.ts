@@ -303,6 +303,7 @@ import { evaluateTournamentCatastropheGuard } from './HorseTournamentCatastrophe
 import { evaluateTournamentPostflop, type Phase8Mode } from './HorseTournamentPostflop.js';
 import { liveHorsePhase8Safety } from './HorsePhase8Safety.js';
 import { performance } from 'node:perf_hooks';
+import { chipStepFor } from './HorseNlhOpenSize.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -342,8 +343,9 @@ const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 // otherwise, so a hypothetical 0.05/0.10 game is not rounded into nonsense.
 // Calls and all-ins are deliberately NOT snapped: a call must match exactly
 // what is owed, and a short stack's all-in is whatever it is.
-const chipStep = (bigBlind: number | undefined): number =>
-  typeof bigBlind === 'number' && bigBlind >= 1 && Number.isInteger(bigBlind) ? 1 : 0.01;
+// One definition, shared with the no-limit open sizer so an open drawn on the
+// grid survives this snap unchanged (HorseNlhOpenSize, Dan 2026-10-31).
+const chipStep = chipStepFor;
 
 /**
  * Reconcile a sampled certified action with the decision that reached the
@@ -2227,6 +2229,12 @@ export interface HorseDecideOpts {
    *  and the dominated-offsuit fold are unchanged. Default on; explicit
    *  false keeps today's. */
   v73Vs3BetDefence?: boolean;
+  /** V74 (2026-11-01, Dan 2026-10-31 "MIN RAISE TO 2.5-4X OPENING RANGES"):
+   *  no-limit hold'em raise-first-in opens draw from a band chosen by seat,
+   *  table, format, depth and antes (HorseNlhOpenSize), never from the cards.
+   *  Default on; explicit false keeps the V28 ladder (the measured min-raise
+   *  defect) for the historical corpora only. */
+  v74NlhOpenSizes?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -6709,6 +6717,7 @@ export class HorseLogic {
       omahaSuitedPremium: suitedPremium,
       holdemPremiumPair,
       tournamentAggression: (opts.v57TournamentAggression ?? true) !== false,
+      nlhOpenSizes: opts.v74NlhOpenSizes !== false,
       cashAggression: (opts.v60CashPressure ?? true) !== false,
       isShortDeck: vi.isShortDeck === true,
       ...(typeof opts.tournamentFlatBump === 'number'
@@ -6932,6 +6941,9 @@ export class HorseLogic {
             vi
           );
         }
+        // Legacy ablation route (opts.v7 / v7Preflop === false only): it keeps
+        // its historical ladder. Live no-limit opens are sized by
+        // HorseNlhOpenSize through decidePreflopV7 (Dan 2026-10-31).
         const sizeBB = (2.2 + fastRandom() * 0.8 + limpers * 1.0) * params.sizingMultiplier;
         return this.raiseTo(null, sizeBB * bb, player, gs, vi);
       }

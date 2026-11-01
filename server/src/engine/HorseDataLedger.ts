@@ -836,6 +836,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V73'
   ),
   flag(
+    'v74NlhOpenSizes',
+    '2026-11-01 (Dan 2026-10-31: "MIN RAISE TO 2.5-4X OPENING RANGES. NOT ALWAYS THE MINIMUM RAISE POSSIBLE"; 2026-11-01: "THEY ARE LITERALLY MIN RAISING IN A CASH GAME THAT DOESN\'T HAPPEN") no-limit hold\'em raise-first-in opens draw from a band chosen by seat, table, format, depth and antes (HorseNlhOpenSize): cash never under 2.5bb (100bb early 2.8-3.5 / middle 2.7-3.3 / cutoff 2.5-3.1 / button 2.5-3.0 / small blind 3.0-3.5, a full-ring early seat +0.25, deep cash +0.25/+0.5 up to 4x, 25bb or less 2.5-2.8, smaller with an ante); tournaments deeper than 25bb open an exact min-raise 20% of the time and otherwise early 2.3-3.0 / button 2.0-2.5 / small blind 2.5-3.2 (smaller with an ante, 25-40bb at most 2.5, small blind 2.8), 25bb or less 2.0-2.3; one unit per limper; three random draws, never the cards; on the chip grid with stochastic rounding so a 1-chip big blind no longer floors every open to 2bb; measured before (40 minutes of production) cash 55% of opens at 2.05bb or less, median 2.00; pot limit, fixed limit and 3-bet sizes unchanged; explicit off arm retained',
+    'V74'
+  ),
+  flag(
     'v52RangeAdvantage',
     'heads-up postflop public-range advantage drives the range c-bet, V38 initiative and PLO small sizes (league v52_range_advantage)',
     'V52'

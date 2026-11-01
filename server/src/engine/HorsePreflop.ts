@@ -32,6 +32,7 @@
 
 import { potLimitRaiseTo } from './BettingStructure.js';
 import { completePreflopCommitment } from './HorseContinuation.js';
+import { nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 import {
   tournamentMZone,
   tournamentNextLevelProjectionApplies,
@@ -208,6 +209,9 @@ export interface PreflopCtx {
   effectiveStackBB?: number;
   /** Dan 2026-10-25 NLH tournament aggression; undefined = on. */
   tournamentAggression?: boolean;
+  /** V74 no-limit open sizes (HorseNlhOpenSize, Dan 2026-10-31); undefined =
+   *  on, false = the historical V28 ladder for the recorded corpora. */
+  nlhOpenSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
@@ -1268,39 +1272,58 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         if (toCall === 0) return { a: 'check' };
         return { a: 'call' };
       }
-      // V28 OPEN-SIZE LADDER: the open used to be a flat 2.2-3.0x at every
-      // depth and ante state — a 200bb cash open and a 25bb ante open were
-      // the same size, which no player pool does. Depth and antes now move
-      // it: antes pull toward ~2.2x (the dead money already pays the raise),
-      // short stacks open smaller (min-raise territory), deep cash opens a
-      // shade bigger. Late position opens the smaller end of its band.
-      // ═══ POT LIMIT OPENS POT (Dan 2026-09-03) ═══ The ladder below is a
-      // NO-LIMIT ladder — see the PLO_MIN_OPEN_BB header for the 40,232-open
+      // ═══ POT LIMIT OPENS POT (Dan 2026-09-03) ═══ The sizer below is a
+      // NO-LIMIT sizer — see the PLO_MIN_OPEN_BB header for the 40,232-open
       // measurement that found it running the pot-limit games. Under pot
       // limit the open is the pot, floored so a min-raise open cannot be
       // produced at all. `potRaiseTo` already carries the straddle, the
       // antes, the dead blinds and one pot's worth per limper, so none of
-      // the ladder's adjustments below have anything left to add.
+      // the no-limit sizer's adjustments have anything left to add.
       if (ctx.isPotLimit) {
         return {
           a: 'raiseTo',
           to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand, PLO_MIN_OPEN_BB * openUnit),
         };
       }
-      let baseOpen = 2.2 + rand() * 0.8;
-      if (ctx.anteInPlay) baseOpen = 2.05 + rand() * 0.35;
-      else if (stackBB <= 25) baseOpen = 2.0 + rand() * 0.4;
-      else if (ctx.mode === 'cash' && stackBB > 150) baseOpen = 2.5 + rand() * 0.8;
-      if (position === 'late') baseOpen -= 0.15;
-      // V70: out of position against one player, the small blind's solver
-      // open is ~3x, not a button's 2.2x (no ante; an ante pot keeps the
-      // smaller open the dead money already pays for).
-      else if (v70Open && bvb && !trueHu && !ctx.anteInPlay && stackBB > 25) {
-        baseOpen = 2.8 + rand() * 0.4;
-      }
-      const sizeBB = (baseOpen + limpers * 1.0) * ctx.sizingMultiplier;
+      // ═══ NLH OPEN SIZES (Dan 2026-10-31, BINDING) ═══ "OPENING RANGES
+      // SHOULD BE RANDOMLY DONE, MIN RAISE TO 2.5-4X OPENING RANGES. NOT
+      // ALWAYS THE MINIMUM RAISE POSSIBLE". The V28 ladder that stood here
+      // (2.2-3.0bb, 2.05-2.40 with an ante, -0.15 late, x a 0.88-1.12 dial)
+      // landed a large share of its draws under the 2bb minimum, and the
+      // whole-chip snap in legalize floored every 2.0-2.99bb draw at a
+      // 1-chip big blind to a min-raise. HorseNlhOpenSize now draws the open
+      // from a band chosen by seat, table, format, depth and antes (with the
+      // short-stack ceilings). The draw never reads the cards: open size is
+      // not a tell.
       // V18: in a straddled pot the open is sized off the straddle.
-      return { a: 'raiseTo', to: sizeBB * openUnit };
+      if (ctx.nlhOpenSizes === false) {
+        // The explicit off arm: the V28 ladder exactly as it stood, kept only
+        // so the recorded corpora keep meaning what they meant.
+        let baseOpen = 2.2 + rand() * 0.8;
+        if (ctx.anteInPlay) baseOpen = 2.05 + rand() * 0.35;
+        else if (stackBB <= 25) baseOpen = 2.0 + rand() * 0.4;
+        else if (ctx.mode === 'cash' && stackBB > 150) baseOpen = 2.5 + rand() * 0.8;
+        if (position === 'late') baseOpen -= 0.15;
+        else if (v70Open && bvb && !trueHu && !ctx.anteInPlay && stackBB > 25) {
+          baseOpen = 2.8 + rand() * 0.4;
+        }
+        return { a: 'raiseTo', to: (baseOpen + limpers * 1.0) * ctx.sizingMultiplier * openUnit };
+      }
+      return {
+        a: 'raiseTo',
+        to: nlhOpenRaiseTo({
+          seat: nlhOpenSeat({ position, isButton: ctx.isButton, trueHeadsUp: trueHu }),
+          depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
+          tournament: isTourney,
+          anteInPlay: ctx.anteInPlay === true,
+          tableSize: ctx.tableSize ?? 6,
+          openUnit,
+          bigBlind: bb,
+          limpers,
+          sizingMultiplier: ctx.sizingMultiplier,
+          rand,
+        }),
+      };
     }
     // BvB limp mix from the SB with playable-but-not-open hands.
     // V70: the band is read on the small blind's own order, down to its floor.
