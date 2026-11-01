@@ -19,6 +19,26 @@ describe('TickerManagementService hostile-state boundary', () => {
     mocks.emit.mockReset();
   });
 
+  it('does not cache a late settings reply after its caller retired the read', async () => {
+    const scope = 'retired-read-club';
+    mocks.rpc.mockResolvedValueOnce({ data: { enabled: false }, error: null });
+    await tickerManagementService.get(scope);
+    let finish!: (v: unknown) => void;
+    const pending = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const controller = new AbortController();
+    const abortSignal = vi.fn(() => pending);
+    mocks.rpc.mockReturnValueOnce({ abortSignal });
+    const old = tickerManagementService.get(scope, null, controller.signal);
+    controller.abort();
+    finish({ data: { enabled: true }, error: null });
+    await old;
+    expect(abortSignal).toHaveBeenCalledWith(controller.signal);
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: 'offline' } });
+    expect((await tickerManagementService.get(scope)).enabled).toBe(false);
+  });
+
   it('normalizes malformed settings into a bounded canonical model', () => {
     const normalized = normalizeTickerSettings({
       enabled: 'yes',

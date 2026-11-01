@@ -314,6 +314,11 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // charts) independently of any read; the corpus keeps the explicit off arm
   // (HorseGtoOpeningRanges.test.ts pins the real policy).
   v70GtoOpeningRanges: false,
+  // V71 (2026-10-31) answers the folded-to hold'em jam at <= 15bb in a
+  // tournament from the ante-aware Nash table independently of any read; the
+  // corpus keeps the explicit off arm (HorseAnteAwarePushFold.test.ts pins
+  // the real policy).
+  v71AnteAwarePushFold: false,
   // V72 (2026-10-31) defends a single hold'em open on the (defender, opener
   // seat) reference base independently of any read; the corpus keeps the
   // explicit off arm (HorseDefenceByOpener.test.ts pins the real policy).

@@ -95,7 +95,7 @@ function secondsUntil(endsAtMs: number | null | undefined): number {
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export const TournamentClock: React.FC<TournamentClockProps> = ({
+const TournamentClockForEvent: React.FC<TournamentClockProps> = ({
   tournamentId,
   compact = false,
   fullscreen = false,
@@ -563,5 +563,11 @@ export const TournamentClock: React.FC<TournamentClockProps> = ({
     </div>
   );
 };
+
+// A selected event owns every clock snapshot, timer and subscription. Remount
+// that owner before painting another event, even when its first read is pending.
+export const TournamentClock: React.FC<TournamentClockProps> = (props) => (
+  <TournamentClockForEvent key={props.tournamentId} {...props} />
+);
 
 export default TournamentClock;

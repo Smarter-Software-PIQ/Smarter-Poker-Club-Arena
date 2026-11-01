@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272770,
-      "sha256": "b9519230e1ec689e0bdad0142078338e8750de455fb20f2cb7d8e07ac0dcbded"
+      "bytes": 273048,
+      "sha256": "c7c80c5cd2acac0e6ca4e8881dd1ca11f47b73b5ea7afdb542448a55ba90fc94"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -5910,6 +5910,62 @@
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
   },
+  "mysteryAwardPageOrderSourceAudit20261031": {
+    "scope": "Only adds isolated mystery award page-order qualification to accounting shard2; cash code, every cash assertion, native scheduler settings and historical verdicts unchanged.",
+    "previous": {
+      "bytes": 271733,
+      "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+    },
+    "current": {
+      "bytes": 272011,
+      "sha256": "f9525914bfdf2a10fa7820aab333529db17305968781d233d1dda612aadfc8a7"
+    },
+    "historicalEvidenceRestamped": false
+  },
+  "mysteryPageTournamentTimingComposition20261031": {
+    "reason": "Combine the exact mystery page-order native gate with protected main add-on and highlighted-clock gates. Current workflow identity only; historical receipts and qualification states are preserved.",
+    "current": {
+      "bytes": 272475,
+      "sha256": "9fdc08b9d9dc17a1a8fcb5df7af381df999bb2eb41a3a6a6d7f20ec7f4fe9c46"
+    },
+    "historicalEvidenceRestamped": false
+  },
+  "browserRunnerCompatibility20261101": {
+    "previous": {
+      "bytes": 272475,
+      "sha256": "9fdc08b9d9dc17a1a8fcb5df7af381df999bb2eb41a3a6a6d7f20ec7f4fe9c46"
+    },
+    "current": {
+      "bytes": 272471,
+      "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
+    },
+    "reason": "Reviewed four browser-job runner labels only: Ubuntu24.04 supports locked Playwright1.58 after ubuntu-latest advanced to26.04. Every cash qualification command, input, assertion and native verdict unchanged; current workflow identity only."
+  },
+  "nativeRunnerCompatibility20261101": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272471,
+      "sha256": "e70a41aedb59aaccee31069fe3605b65135442837ff333eeda2467b89b0ba992"
+    },
+    "current": {
+      "bytes": 272626,
+      "sha256": "1f1cdf41989904f94d3601910c48ea11ae80ce52c39a1140e9463648d80d2d29"
+    }
+  },
+  "nativeFixtureRunnerContract20261101": {
+    "reason": "Align four accounting OS assertions with the qualified Ubuntu24.04 runner correction. Preserve all native fixture commands, financial assertions, budgets and historical evidence. 764 focused contracts passed.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous": {
+      "bytes": 119070,
+      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+    },
+    "current": {
+      "bytes": 119066,
+      "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "chromiumHostedImageCompatibility20261031": {
     "reason": "Only the three affected browser jobs (Diamond playfield, Production Build performance browser, CSS Beat) select proven free hosted Ubuntu24.04 because their locked browser installer refuses Ubuntu26.04. All matrices, commands, financial gates, assertions, deadlines and historical qualification receipts are preserved. Current source identity only.",
     "previous": {
@@ -5950,54 +6006,21 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false
   },
-  "scheduleRequestNative20261101": {
-    "reason": "Adds the isolated schedule-request native driver to existing accounting shard3 only. Cash native commands, assertions and historical qualification states are unchanged. Current source identity only.",
-    "previous": {
-      "bytes": 272484,
-      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+  "tournamentMainRunnerComposition20261101": {
+    "reason": "Combine reviewed protected main shard2-only accounting route and equivalent UTC fixture with mystery paging gate and live-e2e browser compatibility. Current bindings only; both historical audit records retained. No historical qualification state changed.",
+    "updates": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 272484,
+          "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+        },
+        "current": {
+          "bytes": 272761,
+          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+        }
+      }
     },
-    "current": {
-      "bytes": 272771,
-      "sha256": "7c4016f01b0000d7932911cb6cc9006c50289d51c1baf61b459f6740936abfa5"
-    },
-    "execution_performed": false,
     "historicalEvidenceRestamped": false
-  },
-  "browserRunnerCompatibility20261101": {
-    "previous": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
-    },
-    "current": {
-      "bytes": 272193,
-      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
-    },
-    "reason": "Reviewed four browser-job runner labels only: Ubuntu24.04 supports locked Playwright1.58 after ubuntu-latest advanced to26.04. Every cash qualification command, input, assertion and native verdict unchanged; current workflow identity only."
-  },
-  "nativeRunnerCompatibility20261101": {
-    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
-    "previous": {
-      "bytes": 272193,
-      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
-    },
-    "current": {
-      "bytes": 272348,
-      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
-    }
-  },
-  "nativeFixtureRunnerContract20261101": {
-    "reason": "Align four accounting OS assertions with the qualified Ubuntu24.04 runner correction. Preserve all native fixture commands, financial assertions, budgets and historical evidence. 764 focused contracts passed.",
-    "path": "tests/unit/fixtureNativeCi.test.ts",
-    "previous": {
-      "bytes": 119070,
-      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
-    },
-    "current": {
-      "bytes": 119066,
-      "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
-    },
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false
   },
   "equalShareMainIntegration20261101": {
     "reason": "Integrate protected main shard2-only accounting runner and three browser pins; preserve live-e2e Ubuntu24.04. Reviewed current source identity only; no financial SQL or historical qualification restamp.",
@@ -6016,6 +6039,45 @@
     ],
     "historicalEvidenceRestamped": false
   },
+  "browserRunnerCompatibility20261101FinancialBranchRecord": {
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "reason": "Reviewed four browser-job runner labels only: Ubuntu24.04 supports locked Playwright1.58 after ubuntu-latest advanced to26.04. Every cash qualification command, input, assertion and native verdict unchanged; current workflow identity only."
+  },
+  "nativeRunnerCompatibility20261101FinancialBranchRecord": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "current": {
+      "bytes": 272348,
+      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
+    }
+  },
+  "financialMainIntegration20261101": {
+    "reason": "Retain both branch histories and reviewed composed workflow and nested binding identities. No historical evidence restamped.",
+    "historicalEvidenceRestamped": false
+  },
+  "scheduleRequestNative20261101": {
+    "reason": "Adds the isolated schedule-request native driver to existing accounting shard3 only. Cash native commands, assertions and historical qualification states are unchanged. Current source identity only.",
+    "previous": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "current": {
+      "bytes": 272771,
+      "sha256": "7c4016f01b0000d7932911cb6cc9006c50289d51c1baf61b459f6740936abfa5"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
   "scheduleRequestProtectedMainIntegration20261101": {
     "reason": "Preserve protected main live-e2e Ubuntu24.04 runner and all existing audit history together with exact schedule-request native shard3 step. Current workflow input only; financial source and historical qualification unchanged.",
     "previous": {
@@ -6025,6 +6087,23 @@
     "current": {
       "bytes": 272770,
       "sha256": "b9519230e1ec689e0bdad0142078338e8750de455fb20f2cb7d8e07ac0dcbded"
+    },
+    "historicalEvidenceRestamped": false,
+    "execution_performed": false
+  },
+  "scheduleMysteryMainComposition20261101": {
+    "reason": "Preserve both exact schedule-request shard3 and protected mystery-order shard2 gates with current main source; retain all historical qualification records. Current input identities only.",
+    "updates": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 272761,
+          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+        },
+        "current": {
+          "bytes": 273048,
+          "sha256": "c7c80c5cd2acac0e6ca4e8881dd1ca11f47b73b5ea7afdb542448a55ba90fc94"
+        }
+      }
     },
     "historicalEvidenceRestamped": false,
     "execution_performed": false

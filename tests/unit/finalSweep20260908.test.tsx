@@ -99,7 +99,7 @@ describe('the break screen reads the tournament, not four constants', () => {
   it('the screen reads level, pool, field and leaders from the tournament rows', () => {
     const screenSrc = read('src/components/table/TournamentBreakScreen.tsx');
     expect(screenSrc).toMatch(
-      /\.from\('tournaments'\)\s*\.select\('current_level, prize_pool, current_players, max_players'\)/
+      /\.from\('tournaments'\)\s*\.select\(\s*'current_level, blind_level_state, blind_structure, prize_pool, current_players, max_players'\s*\)/
     );
     expect(screenSrc).toMatch(
       /readTournamentStandings\(\s*tournamentId,\s*'id, user_id, username, chips, status'\s*\)/

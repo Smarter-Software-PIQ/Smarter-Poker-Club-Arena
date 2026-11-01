@@ -70,6 +70,24 @@ const normalizePostpaidQualityAddition = (job: { steps: Array<Record<string, unk
   job.steps.splice(start, 1);
 };
 
+const mysteryAwardOrderStep = {
+  name: 'Mystery award pages retain every tied reveal exactly once',
+  if: 'matrix.shard == 2',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+  run: 'python3 -B scripts/ci/test-mystery-award-page-order.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"',
+};
+
+const normalizeMysteryAwardOrderAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === mysteryAwardOrderStep.name);
+  expect(job.steps.filter((step) => step.name === mysteryAwardOrderStep.name)).toHaveLength(1);
+  expect(job.steps[start]).toStrictEqual(mysteryAwardOrderStep);
+  expect(job.steps[start + 1]?.name).toBe(
+    'Weekly linked proofs preserve original windows and paid books'
+  );
+  // Enforce the exact new gate before retaining all historical workflow pins.
+  job.steps.splice(start, 1);
+};
+
 const scheduleRequestStep = {
   name: 'Schedule creates retain their original request receipt',
   if: 'matrix.shard == 3',
@@ -241,6 +259,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     }
     delete normalized.jobs['css-beats-build'];
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);
+    normalizeMysteryAwardOrderAddition(normalized.jobs.accounting_postgres);
     normalizeFrameCoverAddition(normalized.jobs.accounting_postgres);
     normalizePostpaidQualityAddition(normalized.jobs.accounting_postgres);
     const formerClientRoute = '$' + '{{ ' + trusted + " && 'ca-linux-4core' || 'ubuntu-latest' }}";
@@ -381,6 +400,36 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       );
       mutate(job.steps, start);
       expect(() => normalizePostpaidQualityAddition(job)).toThrow();
+    }
+  });
+  it('rejects missing, duplicate, displaced or weakened mystery award qualification', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, start: number) => steps.splice(start, 1),
+      (steps: Array<Record<string, unknown>>, start: number) =>
+        steps.push(structuredClone(steps[start])),
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        [steps[start], steps[start + 1]] = [steps[start + 1], steps[start]];
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].run = String(steps[start].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].env = { PG_BIN: '/wrong' };
+      },
+    ];
+    for (const mutate of mutations) {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const start = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === mysteryAwardOrderStep.name
+      );
+      mutate(job.steps, start);
+      expect(() => normalizeMysteryAwardOrderAddition(job)).toThrow();
     }
   });
   it('rejects a missing, duplicate, moved or weakened schedule request qualification', () => {
