@@ -38,6 +38,22 @@ objects=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','--path-format
 main=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','origin/main'],env=CLEAN,timeout=10).strip()
 fixture_git('update-ref','refs/remotes/origin/main',main.decode())
 fixture_git('index-pack','--stdin',input=PACK)
+# Bound the real history once, while the private seed can still read the
+# checkout's object store. Repeated recoveries must not reread shared packs.
+# These are original commit/tree bytes, not fabricated ancestry or replacements.
+rows=fixture_git('rev-list','--boundary',Q.OLD+'..'+main.decode()).decode().splitlines()
+assert 0<len(rows)<5000
+ids={row.lstrip('-') for row in rows};BOUNDARY=[row[1:] for row in rows if row.startswith('-')]
+for ref in (Q.OLD,'41551479ba47a4f077d6ed83f1b388c2b068fdd3'):
+    for suffix in ('^{tree}',':server',':server/scripts'):
+        ids.add(fixture_git('rev-parse',ref+suffix).decode().strip())
+METADATA=fixture_git('pack-objects','--stdout',input=('\n'.join(sorted(ids))+'\n').encode())
+assert len(METADATA)<4*1024*1024
+fixture_git('index-pack','--stdin',input=METADATA)
+(REPO/'shallow').write_text('\n'.join(BOUNDARY)+'\n')
+(REPO/'objects/info/alternates').unlink()
+# Every original source identity below must now resolve entirely offline from
+# this bounded private store. All 33 OID/SHA256/Git-blob checks remain intact.
 assert len(MANIFEST['objects'])==33
 for ref,item in MANIFEST['objects'].items():
     assert fixture_git('rev-parse',ref).decode().strip()==item['oid']
@@ -241,16 +257,8 @@ class CacheQuarantine(unittest.TestCase):
             subprocess.run(['git','init','--bare','--template=','-q',str(repo)],env=env,check=True)
             def local(*args,input=None,check=True):
                 return subprocess.run(['git','-C',str(repo),*args],env=env,input=input,capture_output=True,check=check,timeout=10)
-            rows=fixture_git('rev-list','--boundary',Q.OLD+'..'+main.decode()).decode().splitlines()
-            assert 0<len(rows)<5000
-            ids={row.lstrip('-') for row in rows};boundary=[row[1:] for row in rows if row.startswith('-')]
-            for ref in (Q.OLD,'41551479ba47a4f077d6ed83f1b388c2b068fdd3'):
-                for suffix in ('^{tree}',':server',':server/scripts'):
-                    ids.add(fixture_git('rev-parse',ref+suffix).decode().strip())
-            metadata=fixture_git('pack-objects','--stdout',input=('\n'.join(sorted(ids))+'\n').encode())
-            assert len(metadata)<4*1024*1024
-            local('index-pack','--stdin',input=metadata)
-            (repo/'shallow').write_text('\n'.join(boundary)+'\n')
+            local('index-pack','--stdin',input=METADATA)
+            (repo/'shallow').write_text('\n'.join(BOUNDARY)+'\n')
             local('update-ref','refs/remotes/origin/main',main.decode())
             args=('archive',Q.OLD,'server/scripts/engine-release-database-proof.py')
             before=local(*args,check=False)
