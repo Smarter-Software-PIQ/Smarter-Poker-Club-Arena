@@ -256,3 +256,36 @@ finally:q.run=saved_run
   const result=spawnSync('python3',['-c',source],{encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
   assert.equal(result.status,0,result.stderr);
 });
+
+test('pinned Node PID1 retry signals require two complete events from one original task and native site',()=>{
+  const source=String.raw`
+import importlib.util,json
+spec=importlib.util.spec_from_file_location('q','tests/fixtures/engine-native-fault/qualify.py');q=importlib.util.module_from_spec(spec);spec.loader.exec_module(q)
+assert q.validate_node_fixture({'pid':1,'version':'v22.23.2'})=='v22.23.2'
+for ready in [{'pid':1,'version':'v22.23.1'},{'pid':2,'version':'v22.23.2'},{'pid':True,'version':'v22.23.2'},{}]:
+ try:q.validate_node_fixture(ready);raise AssertionError('unpinned subject accepted')
+ except RuntimeError:pass
+original={'pid':123,'tasks':[123,124]}
+exit_original={'container':'fixture','image':'immutable'}
+exited={'Id':'fixture','Image':'immutable','State':{'Running':False,'Restarting':False,'ExitCode':139,'OOMKilled':False}}
+assert q.fault_exit_witness(exited,exit_original)['faultExitProven']
+for state in [{**exited['State'],'ExitCode':0},{**exited['State'],'OOMKilled':True},{**exited['State'],'OOMKilled':0},{**exited['State'],'Running':True},{}]:
+ assert not q.fault_exit_witness({**exited,'State':state},exit_original)['faultExitProven']
+assert not q.fault_exit_witness({**exited,'Id':'foreign'},exit_original)['faultExitProven']
+def event(tid=123,leaf='deadbeef',caller='feedface'):
+ return f'node 123/{tid} signal:signal_generate: sig=11 code=128 pid={tid}\n'+(f' {leaf} sp_fault_leaf+0x1 (/fixture/fault.node)\n' if leaf else '')+(f' {caller} sp_fault_caller+0x2 (/fixture/fault.node)\n' if caller else '')
+a=event();facts=q.fault_event_witness(a+a,original)
+assert facts['events']==2 and facts['completeEventWitnesses']==2 and facts['onePid1FaultWitness']
+assert facts['distinctOriginalTasks']==1 and facts['distinctNativeSites']==1
+encoded=json.dumps(facts);assert all(value not in encoded for value in ['deadbeef','feedface','123','124'])
+for raw in [a,a+a+a,a+event(tid=124),a+event(leaf='beadbead'),a+event(caller='beadbead'),a+event(leaf=None),a+event(caller=None),event(caller=None)+event(leaf=None),a+' deadbeef sp_fault_leaf+0x1 (/fixture/fault.node)\n'+a]:
+ assert not q.fault_event_witness(raw,original)['onePid1FaultWitness']
+try:q.fault_event_witness(a+event(tid=999),original);raise AssertionError('foreign task accepted')
+except RuntimeError as e:assert str(e)=='foreign_sample_attribution'
+for raw in [a*257,None]:
+ try:q.fault_event_witness(raw,original);raise AssertionError('render/event bound accepted')
+ except RuntimeError:pass
+`;
+  const result=spawnSync('python3',['-c',source],{encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+  assert.equal(result.status,0,result.stderr);
+});

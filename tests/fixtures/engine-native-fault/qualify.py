@@ -18,6 +18,7 @@ import tempfile
 import time
 
 IMAGE = 'node:22-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5'
+NODE_VERSION = 'v22.23.2'
 MAX_FILE = 4 * 1024 * 1024
 ROOT = Path(__file__).resolve().parent
 
@@ -108,6 +109,55 @@ class PerfRefusal(RuntimeError):
         self.closed={'category':category,'exitCode':exit_code}
 
 
+def validate_node_fixture(ready):
+    if (not isinstance(ready,dict) or type(ready.get('pid')) is not int
+            or ready['pid']!=1 or ready.get('version')!=NODE_VERSION):
+        raise RuntimeError('actual_pinned_node_pid1_required')
+    return NODE_VERSION
+
+
+def fault_exit_witness(value, original):
+    state=value.get('State',{}) if isinstance(value,dict) else {}
+    same=(isinstance(value,dict) and value.get('Id')==original['container'] and value.get('Image')==original['image'])
+    stopped=state.get('Running') is False and state.get('Restarting') is False
+    exited=type(state.get('ExitCode')) is int and state['ExitCode']==139
+    no_oom=state.get('OOMKilled') is False
+    return {'sameOriginalContainer':same,'stopped':stopped,'naturalExit139':exited,
+            'oomKilledFalse':no_oom,'faultExitProven':same and stopped and exited and no_oom}
+
+
+def fault_event_witness(raw, original):
+    """Keep task IDs and absolute native PCs private; qualify each event alone."""
+    if not isinstance(raw,str) or len(raw)>8*1024*1024:raise RuntimeError('perf_render_bound')
+    events=[]
+    for line in raw.splitlines():
+        if 'signal:signal_generate:' in line:
+            prefix=line.split('signal:signal_generate:',1)[0]
+            numbers=re.findall(r'(?<![A-Za-z0-9_])[0-9]+',prefix)
+            if len(numbers)!=2 or int(numbers[0])!=original['pid'] or int(numbers[1]) not in original['tasks']:
+                raise RuntimeError('foreign_sample_attribution')
+            if not re.search(r'\bsig=11\b',line) or not re.search(r'\bcode=128\b',line):
+                raise RuntimeError('non_gpf_signal_sample')
+            if len(events)>=256:raise RuntimeError('perf_event_bound')
+            events.append({'task':int(numbers[1]),'frames':[]})
+        elif events:
+            events[-1]['frames'].append(line)
+    sites=[];complete=0;leaf_events=0;caller_events=0
+    for event in events:
+        frames='\n'.join(event['frames'])
+        leaf=re.findall(r'(?m)^\s*([0-9a-fA-F]+)\s+sp_fault_leaf(?:\+0x[0-9a-fA-F]+)?(?:\s|\()',frames)
+        caller=re.findall(r'(?m)^\s*([0-9a-fA-F]+)\s+sp_fault_caller(?:\+0x[0-9a-fA-F]+)?(?:\s|\()',frames)
+        leaf_events+=len(leaf)==1;caller_events+=len(caller)==1
+        if len(leaf)==1 and len(caller)==1:
+            complete+=1;sites.append((int(leaf[0],16),int(caller[0],16)))
+    task_count=len({event['task'] for event in events});site_count=len(set(sites))
+    coherent=(len(events)==2 and complete==2 and task_count==1 and site_count==1)
+    return {'events':len(events),'leaf':bool(events) and leaf_events==len(events),
+            'caller':bool(events) and caller_events==len(events),'completeEventWitnesses':complete,
+            'distinctOriginalTasks':task_count,'distinctNativeSites':site_count,
+            'onePid1FaultWitness':coherent}
+
+
 class Capture:
     def __init__(self, perf, folder, original, symfs, size='256K', ttl=5):
         self.perf, self.folder, self.original, self.symfs = perf, folder, original, symfs
@@ -184,14 +234,7 @@ class Capture:
         if decoded.returncode!=0:
             raise PerfRefusal('perf_symbolization_refused',classify_perf_refusal(decoded.stderr[:8192]),decoded.returncode)
         raw=decoded.stdout.decode(errors='replace')
-        headers = [line for line in raw.splitlines() if 'signal:signal_generate:' in line]
-        for line in headers:
-            prefix = line.split('signal:signal_generate:', 1)[0]
-            numbers = re.findall(r'(?<![A-Za-z0-9_])[0-9]+', prefix)
-            if len(numbers) != 2 or int(numbers[0]) != self.original['pid'] or int(numbers[1]) not in self.original['tasks']:
-                raise RuntimeError('foreign_sample_attribution')
-            if not re.search(r'\bsig=11\b', line) or not re.search(r'\bcode=128\b', line):
-                raise RuntimeError('non_gpf_signal_sample')
+        witness=fault_event_witness(raw,self.original)
         frames=[line for line in raw.splitlines() if re.match(r'^\s*[0-9a-fA-F]+\s+',line)]
         error_text=decoded.stderr[:8192].lower()
         modules={'addon':'unknown','node':'unknown'}
@@ -201,16 +244,13 @@ class Capture:
                 match=re.fullmatch(r'\s*([0-9a-fA-F]{16,128})\s+(.+)',line)
                 if match and match[2].endswith('/fault.node'):modules['addon']=match[1].lower()
                 elif match and match[2].endswith('/node'):modules['node']=match[1].lower()
-        return {'events': len(headers),'perfDataBytes':self.file.stat().st_size,
+        return {**witness,'perfDataBytes':self.file.stat().st_size,
                 'scriptOutputBytes':len(decoded.stdout),
                 'fixedNameMentions':{'leaf':'sp_fault_leaf' in raw,'caller':'sp_fault_caller' in raw},
                 'frameClasses':{'addressed':len(frames),'unknown':sum('[unknown]' in line for line in frames),
                                 'addon':sum('/fault.node' in line for line in frames),'node':sum('/node)' in line for line in frames)},
                 'unwindRefusals':{key:error_text.count(token) for key,token in [('unwind',b'unwind'),('dwarf',b'dwarf'),('missing',b'not found')]},
-                'recordedModuleBuildIDs':modules,
-
-                'leaf': bool(re.search(r'(?m)^\s*[0-9a-fA-F]+\s+sp_fault_leaf(?:\+0x[0-9a-fA-F]+)?(?:\s|\()',raw)),
-                'caller': bool(re.search(r'(?m)^\s*[0-9a-fA-F]+\s+sp_fault_caller(?:\+0x[0-9a-fA-F]+)?(?:\s|\()',raw))}
+                'recordedModuleBuildIDs':modules}
 
     def cleanup(self):
         # Only this qualification's perf subprocess; never the observed target.
@@ -247,7 +287,7 @@ def qualify(perf, output):
                 'kernel': platform.release(), 'perfVersion': version,
                 'perfBinarySHA256': hashlib.sha256(Path(perf).read_bytes()).hexdigest(),
                 'tracepointFormatSHA256': hashlib.sha256(fmt).hexdigest(),
-                'pinnedNodeImage': IMAGE, 'cases': [], 'cleanup': 'pending'}
+                'pinnedNodeImage': IMAGE,'expectedNodeVersion':NODE_VERSION, 'cases': [], 'cleanup': 'pending'}
     build=run([perf,'version','--build-options'],timeout=5,check=False)
     features={key:'unknown' for key in ('dwarf','libunwind','libdw-dwarf-unwind')}
     if build.returncode==0:
@@ -289,8 +329,7 @@ def qualify(perf, output):
                        '-v', str(folder) + ':/fixture', IMAGE, 'node', '/fixture/target.cjs', mode)
                 wait_for(lambda: (folder / 'ready').exists(), 10)
                 ready = json.loads((folder / 'ready').read_text())
-                if ready['pid'] != 1 or not re.fullmatch(r'v22\.[0-9]+\.[0-9]+', ready['version']):
-                    raise RuntimeError('actual_pinned_node_pid1_required')
+                evidence['fixtureNodeVersion']=validate_node_fixture(ready)
                 original = identity(name)
                 capture = Capture(perf, folder, original, symfs, '32K' if case == 'storage_bound' else '256K', ttl=.5 if case=='expiry' else 5)
                 captures.append(capture)
@@ -323,8 +362,13 @@ def qualify(perf, output):
                 samples = capture.samples()
                 evidence['pendingCase']={'case':case,**samples}
                 if case == 'actual_gpf':
-                    if samples['events'] != 1 or not samples['leaf'] or not samples['caller']:
-                        raise RuntimeError('actual_native_fault_leaf_and_caller_unproven')
+                    # One existing-interval readback; no extra fault or readiness wait.
+                    outcome=fault_exit_witness(json.loads(docker('inspect',name))[0],original)
+                    evidence['pendingCase']['naturalOutcome']=outcome
+                    if not outcome['faultExitProven']:raise RuntimeError('natural_gpf_exit_unproven')
+                    samples['naturalOutcome']=outcome
+                    if not samples['onePid1FaultWitness']:
+                        raise RuntimeError('actual_pid1_fault_witness_unproven')
                 elif case == 'storage_bound':
                     if not 1<=samples['events']<256 or capture.file.stat().st_size > MAX_FILE:
                         raise RuntimeError('actual_bounded_capture_unproven')
