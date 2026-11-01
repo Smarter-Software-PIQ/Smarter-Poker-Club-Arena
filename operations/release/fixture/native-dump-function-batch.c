@@ -1,6 +1,7 @@
 /* Transport batching for the guarded PostgreSQL17.11 dumpFunc reader.
  * Included only by pg_dump.c. SQL statements, snapshot and rendering stay stock.
- * Consecutive function objects only: never reorder around another object type.
+ * Consecutive selected function objects only; omitted components perform no work.
+ * Never reorder around another selected object type.
  */
 #define CA_FUNCTION_BATCH_MAX 128
 #define CA_FUNCTION_BATCH_BYTES (128 * 1024 * 1024)
@@ -32,10 +33,10 @@ ca_function_batch_result(Archive *fout, const FuncInfo *finfo)
         for (i = ca_batch_position; i < ca_batch_objects_count && ca_batch_count < CA_FUNCTION_BATCH_MAX; i++)
         {
             DumpableObject *object = ca_batch_objects[i];
-            if (object->objType != DO_FUNC)
-                break;
             if ((object->dump & object->components) == 0)
                 continue;
+            if (object->objType != DO_FUNC)
+                break;
             ca_batch_oids[ca_batch_count++] = object->catId.oid;
             appendPQExpBuffer(batch, "EXECUTE dumpFunc('%u');", object->catId.oid);
         }
