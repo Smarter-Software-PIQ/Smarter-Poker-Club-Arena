@@ -3807,6 +3807,8 @@ export function holdemPremiumAggression(
   if (telemetryOn(opts)) {
     if (verdict.rule === 'dominated_3bet_fold') noteFire('holdem_dominated_3bet_fold');
     else if (verdict.rule === 'premium_preflop_raise') noteFire('holdem_premium_preflop_raise');
+    else if (verdict.rule === 'no_four_bet_bluff') noteFire('holdem_no_four_bet_bluff');
+    else if (verdict.rule === 'four_bettor_continues') noteFire('holdem_four_bettor_continues');
     else noteFire('holdem_premium_postflop_bet');
   }
   const next = verdict.decision;

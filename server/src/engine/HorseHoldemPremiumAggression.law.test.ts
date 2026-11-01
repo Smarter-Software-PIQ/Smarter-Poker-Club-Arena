@@ -4,6 +4,7 @@ import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import {
   boardHasPassedPremium,
+  holdemFourBetSpot,
   holdemPremiumAggressionVerdict,
   isPremiumMadeHand,
   type HoldemPremiumDecision,
@@ -307,5 +308,222 @@ describe("Hold'em premiums are never passive; dominated hands fold to a 3-bet (D
       { mind: false, holdemPremiumAggression: false }
     );
     expect(off.action).toBeDefined();
+  });
+});
+
+/**
+ * The recorded hand, 2026-11-01 02:03 UTC, Saturday Mystery (NLH), blinds
+ * 75/150, hand 53158209. A horse (seat 8, 16,050 = 107bb) opened QQ to 466,
+ * the human in seat 1 3-bet to 1,631, the horse 4-bet to 3,751, the human
+ * moved all in for 39,870, and the horse folded QQ.
+ */
+function fourBetJamSpot(over: { hole?: string; legal?: string[]; jam?: number } = {}) {
+  const jam = over.jam ?? 39870;
+  const heroStart = 16050;
+  const hero = seat(8, heroStart - 3751, 3751, { hole: over.hole ?? 'Qs Qh' });
+  const villainAllIn = jam >= 39870;
+  const gs = {
+    players: [
+      seat(1, villainAllIn ? 0 : 39870 - jam, jam, { is_all_in: villainAllIn }),
+      seat(2, 20000, 75, { is_folded: true }),
+      seat(3, 20000, 150, { is_folded: true }),
+      seat(4, 20000, 0, { is_folded: true }),
+      seat(5, 20000, 0, { is_folded: true }),
+      seat(6, 20000, 0, { is_folded: true }),
+      hero,
+    ],
+    communityCards: [],
+    pot: 75 + 150 + 3751 + jam,
+    currentBet: jam,
+    minRaise: jam - 3751,
+    lastRaise: jam - 3751,
+    stage: 'preflop',
+    gameVariant: 'nlh',
+    gameMode: 'tournament',
+    bigBlind: 150,
+    dealerSeat: 5,
+    toCall: jam - 3751,
+    legalActions: over.legal ?? ['fold', 'call', 'all_in'],
+    minRaiseTo: villainAllIn ? null : jam * 2 - 3751,
+    maxRaiseTo: heroStart,
+    bettingStructure: 'no_limit',
+    actionHistory: [
+      { stage: 'preflop', seat: 2, userId: 'p2', action: 'sb', amount: 75 },
+      { stage: 'preflop', seat: 3, userId: 'p3', action: 'bb', amount: 150 },
+      { stage: 'preflop', seat: 8, userId: 'p8', action: 'raise', amount: 466, isFullRaise: true },
+      { stage: 'preflop', seat: 1, userId: 'p1', action: 'raise', amount: 1631, isFullRaise: true },
+      { stage: 'preflop', seat: 2, userId: 'p2', action: 'fold', amount: 0 },
+      { stage: 'preflop', seat: 3, userId: 'p3', action: 'fold', amount: 0 },
+      { stage: 'preflop', seat: 8, userId: 'p8', action: 'raise', amount: 3751, isFullRaise: true },
+      {
+        stage: 'preflop',
+        seat: 1,
+        userId: 'p1',
+        action: villainAllIn ? 'all_in' : 'raise',
+        amount: jam,
+        isFullRaise: true,
+      },
+    ],
+  } as unknown as HorseGameStateV2;
+  return { hero, gs };
+}
+
+/** The same table one action earlier: the horse faces the 3-bet to 1,631. */
+function facingThreeBetSpot(hole: string) {
+  const hero = seat(8, 16050 - 466, 466, { hole });
+  const gs = {
+    players: [
+      seat(1, 39870 - 1631, 1631),
+      seat(2, 20000, 75, { is_folded: true }),
+      seat(3, 20000, 150, { is_folded: true }),
+      seat(4, 20000, 0, { is_folded: true }),
+      seat(5, 20000, 0, { is_folded: true }),
+      seat(6, 20000, 0, { is_folded: true }),
+      hero,
+    ],
+    communityCards: [],
+    pot: 75 + 150 + 466 + 1631,
+    currentBet: 1631,
+    minRaise: 1165,
+    lastRaise: 1165,
+    stage: 'preflop',
+    gameVariant: 'nlh',
+    gameMode: 'tournament',
+    bigBlind: 150,
+    dealerSeat: 5,
+    toCall: 1631 - 466,
+    legalActions: ['fold', 'call', 'raise', 'all_in'],
+    minRaiseTo: 2796,
+    maxRaiseTo: 16050,
+    bettingStructure: 'no_limit',
+    actionHistory: [
+      { stage: 'preflop', seat: 2, userId: 'p2', action: 'sb', amount: 75 },
+      { stage: 'preflop', seat: 3, userId: 'p3', action: 'bb', amount: 150 },
+      { stage: 'preflop', seat: 8, userId: 'p8', action: 'raise', amount: 466, isFullRaise: true },
+      { stage: 'preflop', seat: 1, userId: 'p1', action: 'raise', amount: 1631, isFullRaise: true },
+      { stage: 'preflop', seat: 2, userId: 'p2', action: 'fold', amount: 0 },
+      { stage: 'preflop', seat: 3, userId: 'p3', action: 'fold', amount: 0 },
+    ],
+  } as unknown as HorseGameStateV2;
+  return { hero, gs };
+}
+
+describe('No hold em 4-bet is ever made to fold (Dan 2026-10-31)', () => {
+  it('the recorded QQ horse calls the jam over its 4-bet instead of folding, every seed and style', () => {
+    for (const seed of SEEDS) {
+      const d = decide(fourBetJamSpot(), seed);
+      expect(['call', 'all_in']).toContain(d.action);
+      expect(d.policyGraph?.finalAction.action).toBe(d.action);
+      expect(horseDecisionReceiptIsValid(d, 'nlh')).toBe(true);
+    }
+    for (const style of STYLES) {
+      expect(['call', 'all_in']).toContain(decide(fourBetJamSpot(), 3, style).action);
+    }
+  });
+
+  it('a fold after the horse own 4-bet is re-raised becomes a call, or the all-in when calling is all in', () => {
+    for (const hole of ['Qs Qh', 'Ac Kd', 'Jc Jd', 'As 5s']) {
+      const v = verdictFor(fourBetJamSpot({ hole }), 'fold');
+      expect(v?.rule).toBe('four_bettor_continues');
+      expect(v?.decision.action).toBe('call');
+      const allInOnly = verdictFor(fourBetJamSpot({ hole, legal: ['fold', 'all_in'] }), 'fold');
+      expect(allInOnly?.decision.action).toBe('all_in');
+    }
+  });
+
+  it('AA and KK facing a non-all-in 5-bet over their 4-bet put the rest in', () => {
+    for (const hole of ['As Ah', 'Kc Kd']) {
+      const v = verdictFor(
+        fourBetJamSpot({ hole, jam: 9000, legal: ['fold', 'call', 'raise', 'all_in'] }),
+        'fold'
+      );
+      expect(v?.rule).toBe('premium_preflop_raise');
+      expect(v?.decision.action).toBe('all_in');
+    }
+  });
+
+  it('a sized 4-bet is made only with QQ+ or AK; every other hand calls the 3-bet instead', () => {
+    for (const hole of ['As 5s', 'Jc Jd', 'Tc Td', 'Ac Qc', 'Kc Qc', '7c 6c']) {
+      const v = verdictFor(facingThreeBetSpot(hole), 'raise');
+      expect(v?.rule).toBe('no_four_bet_bluff');
+      expect(v?.decision.action).toBe('call');
+    }
+    for (const hole of ['Qs Qh', 'Kc Kd', 'As Ah', 'Ac Kd', 'Ac Kc']) {
+      expect(verdictFor(facingThreeBetSpot(hole), 'raise')).toBeNull();
+    }
+    // An all-in re-raise has nothing left to fold to: left to the brain.
+    expect(verdictFor(facingThreeBetSpot('As 5s'), 'all_in')).toBeNull();
+  });
+
+  it('the real brain never 4-bets below QQ+/AK over the recorded 3-bet, and its receipts stay valid', () => {
+    for (const hole of ['As 5s', 'Jc Jd', 'Ac Qc', 'Kc Qc', 'Ah 4h', 'Tc Td']) {
+      for (const seed of SEEDS) {
+        const d = decide(facingThreeBetSpot(hole), seed);
+        expect(d.action).not.toBe('raise');
+        expect(horseDecisionReceiptIsValid(d, 'nlh')).toBe(true);
+      }
+    }
+  });
+
+  it('a horse that only 3-bet may still fold to a 4-bet; a short 4-bettor still calls the jam', () => {
+    const s = fourBetJamSpot();
+    // The human opened and 4-bet; the horse made the 3-bet only.
+    const g = s.gs as unknown as {
+      actionHistory: Array<{ seat: number; userId: string; amount: number }>;
+    };
+    g.actionHistory = g.actionHistory
+      .filter((_, n) => n !== 7)
+      .map((a, n) =>
+        n === 2
+          ? { ...a, seat: 1, userId: 'p1' }
+          : n === 3
+            ? { ...a, seat: 8, userId: 'p8' }
+            : n === 6
+              ? { ...a, seat: 1, userId: 'p1', amount: 39870 }
+              : a
+      );
+    expect(verdictFor(s, 'fold')).toBeNull();
+    const short = fourBetJamSpot();
+    short.hero.stack = 300;
+    (short.gs as { maxRaiseTo: number }).maxRaiseTo = 300 + 3751;
+    expect(verdictFor(short, 'fold')?.rule).toBe('four_bettor_continues');
+  });
+
+  it('the live worker admits a rule-4 call only in its own spot', () => {
+    let exercised = 0;
+    for (const hole of ['Jc Jd', 'Tc Td', 'Ac Qc', 'As 5s', 'Ah 4h', 'Kc Qc']) {
+      for (const seed of SEEDS) {
+        for (const style of STYLES) {
+          const spot = facingThreeBetSpot(hole);
+          const d = decide(spot, seed, style);
+          const ctx = { player: spot.hero, gameState: spot.gs };
+          expect(horseDecisionReceiptIsValid(d, 'nlh', ctx)).toBe(true);
+          const t = d.policyGraph?.transitions.find((x) => x.node === 'wager_rules' && x.changed);
+          if (t?.before?.action !== 'raise' || t.after.action !== 'call') continue;
+          exercised++;
+          const other = aceSpot();
+          expect(
+            horseDecisionReceiptIsValid(d, 'nlh', { player: other.hero, gameState: other.gs })
+          ).toBe(false);
+        }
+      }
+    }
+    expect(exercised).toBeGreaterThan(0);
+  });
+
+  it('the receipt check admits exactly the two rule-4 spots', () => {
+    const at = (s: { hero: SeatPlayer; gs: HorseGameStateV2 }) =>
+      holdemFourBetSpot({
+        gameVariant: s.gs.gameVariant,
+        bettingStructure: s.gs.bettingStructure,
+        stage: s.gs.stage,
+        hero: s.hero,
+        currentBet: s.gs.currentBet,
+        bigBlind: s.gs.bigBlind,
+        actionHistory: s.gs.actionHistory,
+      });
+    expect(at(fourBetJamSpot())).toBe('reraised_four_bet');
+    expect(at(facingThreeBetSpot('As 5s'))).toBe('facing_three_bet');
+    expect(at(aceSpot())).toBeNull();
   });
 });
