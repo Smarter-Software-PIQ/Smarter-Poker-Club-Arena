@@ -5940,7 +5940,7 @@ export abstract class TournamentManagerBase {
       // Before the clock migration, the booked-draw trigger still projects
       // legacy seconds. Compare the same playable clock projection, keeping
       // every other blind key, payout and reveal field exact.
-      return { ...row, blind_structure: playableSpinBlinds(blinds) };
+      return { ...row, blind_structure: playableSpinBlinds(blinds, Number(row.buy_in_amount)) };
     } catch {
       return row;
     }
@@ -7417,7 +7417,10 @@ export abstract class TournamentManagerBase {
         // it never changes the booked receipt or its manifest/hash.
         // The board-owned stack was already funded and is independently
         // checked below against both the roster and every occupied seat.
-        const spinBlinds = playableSpinBlinds(fundedSpin.blinds);
+        const spinBlinds = playableSpinBlinds(
+          fundedSpin.blinds,
+          Number(this.tournamentCache?.buy_in_amount)
+        );
 
         // The atomic database authority already owns and stamped
         // prize_pool, spin_multiplier and spin_locked_tiers. This follow-up is
@@ -10951,10 +10954,17 @@ export abstract class TournamentManagerBase {
     const baseMs = this.rawLevelDurationMs(levelData);
     // ACCELERATED MTT (2026-08-22 parity): once late registration has closed,
     // an accelerated tournament halves every remaining level - ceil(min/2).
-    if (this.tournamentCache?.accelerated_mtt === true && this.isLateRegClosed()) {
-      return acceleratedLevelMs(baseMs);
-    }
-    return baseMs;
+    const playableMs =
+      this.tournamentCache?.accelerated_mtt === true && this.isLateRegClosed()
+        ? acceleratedLevelMs(baseMs)
+        : baseMs;
+    // Owner November 1: every playable level above a 25 buy-in is 7-10
+    // minutes. Apply this LAST, including acceleration and Spin overflow.
+    // Breaks retain their separate clock; a running level is never restarted.
+    const buyIn = Number(this.tournamentCache?.buy_in_amount);
+    return Number.isFinite(buyIn) && buyIn > 25 && levelData?.isBreak !== true
+      ? Math.min(10 * 60_000, Math.max(7 * 60_000, playableMs))
+      : playableMs;
   }
 
   /**
