@@ -9,6 +9,7 @@ import argparse
 import ast
 import fcntl
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -136,9 +137,9 @@ def require(value, reason):
         raise RuntimeError(reason)
 
 
-def run(args, timeout=10, check=True):
+def run(args, timeout=10, check=True, pass_fds=()):
     value = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, timeout=timeout,
+                           stderr=subprocess.PIPE, timeout=timeout, pass_fds=pass_fds,
                            env={**os.environ, 'DEBUGINFOD_URLS': '', 'PYTHONDONTWRITEBYTECODE': '1'})
     require(len(value.stdout) + len(value.stderr) <= 1024 * 1024, 'fixture_command_output_bound')
     require(not check or value.returncode == 0, 'fixture_command_refused')
@@ -180,6 +181,21 @@ def span(value):
                for number, unit in pieces)
 
 
+def isolated_routes(rows, version):
+    require(isinstance(rows, list) and len(rows) <= 128, 'fixture_route_metadata_bound')
+    for row in rows:
+        require(isinstance(row, dict) and isinstance(row.get('dst'), str), 'fixture_route_metadata_refused')
+        require(row['dst'] != 'default' and 'gateway' not in row, 'fixture_external_route_present')
+        try:
+            network = ipaddress.ip_network(row['dst'], strict=False)
+        except ValueError:
+            raise RuntimeError('fixture_route_metadata_refused') from None
+        require(network.version == version and network.prefixlen > 0, 'fixture_external_route_present')
+        if version == 6:
+            require(network.is_loopback or network.is_link_local or network.is_multicast,
+                    'fixture_external_ipv6_route_present')
+
+
 class Scene:
     def __init__(self, folder):
         self.folder = folder
@@ -209,7 +225,7 @@ class Scene:
         destination.mkdir(mode=0o700)
         image = self.images[kind]
         identifier = self.docker('run', '-d', '--name', CONTAINER, '--network=' + self.network,
-                                 '--publish', '127.0.0.1:8080:8080', '--read-only',
+                                 '--publish', '127.0.0.1:8080:8080', '--dns', '127.0.0.1', '--read-only',
                                  '--cap-drop=ALL', '--security-opt=no-new-privileges', '--memory=512m',
                                  '--memory-swap=512m', '--pids-limit=64', '--ulimit', 'core=0',
                                  '-v', str(destination) + ':/fixture-control', image)
@@ -219,7 +235,60 @@ class Scene:
         wait_for(lambda: (destination / 'ready').exists(), 10, 'fixture_target_readiness')
         require(read_json(destination / 'ready') == {'pid': 1, 'version': 'v22.23.2'},
                 'fixture_pinned_target_refused')
+        self.isolate_target_network(identifier)
         return destination
+
+    def network_binding(self, identifier):
+        require(identifier in self.containers and identifier == self.current, 'fixture_foreign_network_subject')
+        template = ('{"id":{{json .Id}},"pid":{{.State.Pid}},"running":{{.State.Running}},'
+                    '"started":{{json .State.StartedAt}},"dns":{{json .HostConfig.Dns}},'
+                    '"ports":{{json .NetworkSettings.Ports}}}')
+        value = json.loads(self.docker('inspect', '--format', template, identifier))
+        pid = value.get('pid')
+        require(value.get('id') == identifier and value.get('running') is True and type(pid) is int and pid > 1
+                and isinstance(value.get('started'), str) and value['started']
+                and value.get('dns') == ['127.0.0.1'], 'fixture_network_subject_refused')
+        ports = value.get('ports', {}).get('8080/tcp')
+        require(ports == [{'HostIp': '127.0.0.1', 'HostPort': '8080'}], 'fixture_actual_health_publication_refused')
+        raw = Path(f'/proc/{pid}/stat').read_bytes()
+        require(len(raw) <= 16384, 'fixture_process_identity_bound')
+        start = raw.rsplit(b')', 1)[1].split()[19]
+        require(start.isdigit(), 'fixture_process_start_refused')
+        namespace = os.stat(f'/proc/{pid}/ns/net')
+        return value, start, (namespace.st_dev, namespace.st_ino)
+
+    def isolate_target_network(self, identifier):
+        # Internal Docker networks suppress publication. Only this disposable
+        # namespace loses its default route; explicit loopback DNS has no server.
+        # The trusted fixture JS performs no outbound request during setup.
+        before = self.network_binding(identifier)
+        pid = before[0]['pid']
+        fd = os.open(f'/proc/{pid}/ns/net', os.O_RDONLY | os.O_CLOEXEC)
+        try:
+            info = os.fstat(fd)
+            require((info.st_dev, info.st_ino) == before[2]
+                    and self.network_binding(identifier) == before, 'fixture_network_subject_changed')
+            namespace = ['/usr/bin/nsenter', '--net=/proc/self/fd/' + str(fd), '--', '/usr/sbin/ip', '-j']
+            run([*namespace, '-4', 'route', 'del', 'default'], pass_fds=(fd,))
+            for version in (4, 6):
+                rows = json.loads(run([*namespace, '-' + str(version), 'route', 'show', 'table', 'all'],
+                                      pass_fds=(fd,)).stdout)
+                isolated_routes(rows, version)
+            require(self.network_binding(identifier) == before, 'fixture_network_subject_changed')
+            # Exercise the same fixed host endpoint that production admission uses.
+            import urllib.request
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open('http://127.0.0.1:8080/health', timeout=3) as response:
+                raw = response.read(4097)
+                require(response.status == 200 and len(raw) <= 4096, 'fixture_health_response_bound')
+            health = json.loads(raw)
+            require(isinstance(health, dict) and health.get('running') is True and health.get('pid') == 1
+                    and health.get('releaseSha') == self.expected
+                    and isinstance(health.get('instanceId'), str)
+                    and re.fullmatch(r'1-[0-9a-f]{8}', health['instanceId']), 'fixture_published_health_refused')
+            require(self.network_binding(identifier) == before, 'fixture_network_subject_changed')
+        finally:
+            os.close(fd)
 
     def remove_target(self):
         if self.current is not None:
@@ -458,7 +527,8 @@ def qualify(output, feasibility):
             'fixture_linux_feasibility_prerequisite')
     require(not os.path.lexists(STATE) and not os.path.lexists(RAW) and not os.path.lexists(LOCK),
             'fixture_foreign_native_state_present')
-    for tool in ('/usr/bin/perf', '/usr/bin/readelf', '/usr/bin/systemd-run', '/usr/sbin/sshd'):
+    for tool in ('/usr/bin/perf', '/usr/bin/readelf', '/usr/bin/systemd-run', '/usr/sbin/sshd',
+                 '/usr/bin/nsenter', '/usr/sbin/ip'):
         require(Path(tool).is_file(), 'fixture_host_prerequisite_unavailable')
     require(not run(['docker', 'ps', '-a', '--filter', 'name=^/' + CONTAINER + '$', '--format', '{{.ID}}']).stdout.strip(),
             'fixture_foreign_engine_present')
@@ -481,13 +551,13 @@ def qualify(output, feasibility):
             run(['strip', '--strip-all', str(folder / 'optimized.node')])
             sections = run(['/usr/bin/readelf', '--sections', str(folder / 'optimized.node')]).stdout
             require(b'.debug_info' not in sections and b'.symtab' not in sections, 'fixture_optimized_strip_unproven')
-            # Only an owned internal bridge; fixed host health port must be free.
+            # Own bridge plus namespace-local route isolation; fixed health port is private.
             with socket.socket() as port:
                 port.bind(('127.0.0.1', 8080))
             network_name = 'ca-native-unit-fixture-' + str(os.getpid())
             require(not scene.docker('network', 'ls', '--filter', 'name=^' + network_name + '$', '--format', '{{.ID}}'),
                     'fixture_foreign_network_present')
-            scene.network = scene.docker('network', 'create', '--internal', network_name)
+            scene.network = scene.docker('network', 'create', network_name)
             require(re.fullmatch(r'[0-9a-f]{64}', scene.network), 'fixture_network_identity')
             for kind in ('optimized', 'storm'):
                 context = folder / ('image-' + kind); context.mkdir(mode=0o700)

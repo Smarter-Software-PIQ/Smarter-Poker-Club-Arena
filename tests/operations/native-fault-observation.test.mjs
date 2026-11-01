@@ -111,3 +111,14 @@ test('closed SSH classifier preserves original failure with malformed refusal co
  for(const row of rows.slice(0,4))assert.equal(row.remoteRefusalCode,null);
  assert.equal(rows[4].remoteRefusalCode,'engine_health_identity_refused');assert.equal(JSON.stringify(rows).includes('PRIVATE'),false);
 });
+test('disposable published-health fixture refuses external routes before native admission',()=>{
+ const rows=python(`fixture_spec=importlib.util.spec_from_file_location('unit_fixture',str(m.Path(m.__file__).resolve().parents[2]/'tests/fixtures/engine-native-fault/qualify_host_unit.py'))
+fixture=importlib.util.module_from_spec(fixture_spec);fixture_spec.loader.exec_module(fixture)
+rows=[]
+cases=[([],4),([{'dst':'172.19.0.0/16','scope':'link'},{'dst':'127.0.0.1','table':'local'}],4),([{'dst':'::1'},{'dst':'fe80::/64'},{'dst':'ff00::/8'}],6),([{'dst':'default','gateway':'172.19.0.1'}],4),([{'dst':'0.0.0.0/0'}],4),([{'dst':'198.51.100.1','gateway':'172.19.0.1'}],4),([{'dst':'::/0'}],6),([{'dst':'2001:db8::/64'}],6),([{'dst':'PRIVATE'}],4),([{}],4),({},4),([{'dst':'127.0.0.1'}]*129,4)]
+for values,version in cases:
+ try:fixture.isolated_routes(values,version);rows.append('accepted')
+ except RuntimeError:rows.append('refused')
+print(json.dumps(rows))`);
+ assert.deepEqual(rows,[...Array(3).fill('accepted'),...Array(9).fill('refused')]);
+});
