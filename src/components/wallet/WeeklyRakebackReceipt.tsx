@@ -10,6 +10,7 @@ import { useCallback, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { compactChips } from '../../utils/format';
 import { reportError } from '../../utils/errorReporter';
+import './ChipStatement.css';
 
 export const WEEKLY_RECEIPT_CATEGORIES = new Set(['rakeback', 'commission']);
 
