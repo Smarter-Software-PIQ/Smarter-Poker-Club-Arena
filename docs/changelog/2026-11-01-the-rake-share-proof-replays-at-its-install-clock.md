@@ -25,3 +25,17 @@ passes; pinned at 2026-10-31 23:30Z it reproduces CI's exact error; pinned at
 2026-11-01 12:00Z it fails the same way. `RAKE_SHARE_REPLAY_CLOCK` exists only
 to make that demonstration repeatable. `tests/unit/playerFeeRedemptionWiring.test.ts`
 pins the four substitutions.
+
+## The second one: Stats expected rates counted hands outside the window
+
+From 00:00Z on 2026-11-01 the same accounting shard failed at
+`tests/fixtures/stats-club-scope/recorded-opportunities-after.sql:22`
+("All Clubs inherited capped legacy advanced rates"): the reader reported
+wtsd 0.5 / 1 showdown, the fixture expected 0.25 / 2. The expected values
+(`fixture_expected_fact_rates`) counted every fixture hand, while the reader
+uses a 30-day UTC calendar window (today's UTC date minus 29 days, from
+midnight); the fixed 2026-10-02 hands left that window on 2026-11-01. The
+expected rates are now computed over the same window, so the comparison holds
+on any date. Reproduced and verified on PostgreSQL 17 with
+`scripts/dev/test-stats-club-scope-postgres.sh` (fails before, passes after,
+every later section still PASS).
