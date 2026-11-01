@@ -1,10 +1,25 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { parse } from 'yaml';
 import {
   installNaturalBoardReveal,
   naturalBoardRevealEvidence,
   type RevealReceipt,
 } from '../e2e/support/naturalBoardReveal';
 import type { EngineFrame } from '../e2e/support/liveTableRealtime';
+
+it('retains natural reveal receipts even when the production case passes', () => {
+  const workflow = parse(readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8'));
+  type Step = { if?: string; with?: { name?: string; path?: string } };
+  const artifact = Object.values(workflow.jobs as Record<string, { steps?: Step[] }>)
+    .flatMap((job) => job.steps ?? [])
+    .find((step) => step.with?.name === 'mobile-live-table-proof');
+  expect(artifact?.if).toBe("always() && steps.live.outputs.ready == 'true'");
+  expect(artifact?.with?.path).toContain('test-results/live-table-realtime/**/mobile-live-table-*');
+  const spec = readFileSync('tests/e2e/production-live-table-realtime.spec.ts', 'utf8');
+  expect(spec).toContain("testInfo.outputPath('mobile-live-table-natural-board-reveal.json')");
+  expect(spec).toMatch(/writeFileSync\(boardEvidencePath,/);
+});
 let callbacks: FrameRequestCallback[], angle: number, currentTime: number, finished: boolean;
 const frame = () => {
   vi.advanceTimersByTime(16);

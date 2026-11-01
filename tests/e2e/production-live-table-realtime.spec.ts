@@ -2374,20 +2374,21 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         await expectNoOpponentHud(page);
 
         const boardFrames = await page.evaluate(() => window.__naturalBoardReveal?.stop() ?? []);
+        const boardEvidence = naturalBoardRevealEvidence(
+          boardFrames,
+          journal.matchingFrames({
+            direction: 'received',
+            tableId,
+            since: initialProgressStartedAt,
+          }),
+          tableId
+        );
+        const boardEvidencePath = testInfo.outputPath(
+          'mobile-live-table-natural-board-reveal.json'
+        );
+        writeFileSync(boardEvidencePath, JSON.stringify(boardEvidence, null, 2));
         await testInfo.attach('natural-board-reveal-paint-opportunities', {
-          body: Buffer.from(
-            JSON.stringify(
-              naturalBoardRevealEvidence(
-                boardFrames,
-                journal.matchingFrames({
-                  direction: 'received',
-                  tableId,
-                  since: initialProgressStartedAt,
-                }),
-                tableId
-              )
-            )
-          ),
+          path: boardEvidencePath,
           contentType: 'application/json',
         });
         const preOutageTransports = journal.transportIdsOpenAt(Date.now());
