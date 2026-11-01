@@ -3049,7 +3049,8 @@ class FailedRoutineHistoricalTests(unittest.TestCase):
             generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
             generation.mkdir(parents=True)
             path = generation / 'engine-release-transaction.sh'
-            path.write_bytes((ROOT / 'server/scripts/engine-release-transaction.sh').read_bytes())
+            # This contract concerns the original loaded control, not today's mutable template.
+            path.write_bytes((ROOT / 'tests/fixtures/failed-custody-control/engine-release-transaction.raw.txt').read_bytes())
             result = R.failed_custody_transaction(parent, R.time.monotonic() + 3)
             self.assertEqual(result[0], R.FAILED_CUSTODY_TRANSACTION_SHA256)
             self.assertGreater(path.stat().st_size, R.MAX_BYTES)
