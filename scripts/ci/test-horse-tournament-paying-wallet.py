@@ -27,12 +27,16 @@ def main():
         try:
             run('''CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role;
 CREATE TABLE profiles(id uuid PRIMARY KEY,is_horse boolean,horse_status text);
-CREATE TABLE tournaments(id uuid PRIMARY KEY,club_id uuid,union_id uuid,buy_in_amount numeric,buy_in_fee numeric,bounty_amount numeric,is_bounty boolean,is_pko boolean,is_mystery_bounty boolean);
+CREATE TABLE tournaments(id uuid PRIMARY KEY,club_id uuid,union_id uuid,buy_in_amount numeric,buy_in_fee numeric,bounty_amount numeric,is_bounty boolean,is_pko boolean,is_mystery_bounty boolean,name text DEFAULT 'PKO',status text DEFAULT 'REGISTERING',start_time timestamptz DEFAULT now()+interval '10 minutes',guaranteed_prize numeric DEFAULT 5000,current_players integer DEFAULT 18,max_players integer,format_contract text DEFAULT 'mtt-v2');
 CREATE TABLE club_members(user_id uuid,club_id uuid,chip_balance numeric,status text,joined_at timestamptz,PRIMARY KEY(user_id,club_id));
-CREATE TABLE union_clubs(club_id uuid,union_id uuid);
+CREATE TABLE union_clubs(club_id uuid,union_id uuid);CREATE TABLE clubs(id uuid,union_id uuid);
 CREATE TABLE tournament_players(tournament_id uuid,user_id uuid,club_id uuid);
 CREATE FUNCTION fn_ca_tournament_unit_cents(uuid) RETURNS integer LANGUAGE sql AS $$SELECT 1$$;
-CREATE FUNCTION fn_tournament_entry_split(numeric,numeric,numeric,boolean) RETURNS TABLE(charge numeric) LANGUAGE sql AS $$SELECT $1+$2$$;''')
+CREATE FUNCTION fn_ca_read_mtt_admission_contract() RETURNS text LANGUAGE sql AS $$SELECT 'unlimited-mtt-v2'::text$$;''')
+            split=(ROOT/'supabase/migrations/20260823000000_fix_entry_split_no_default_rake.sql').read_text()
+            run(re.search(r'CREATE OR REPLACE FUNCTION public.fn_tournament_entry_split\(.*?\$function\$;',split,re.S).group())
+            run((ROOT/'tests/sql/fixtures/horse-overlay-risk-before.sql').read_text())
+            run('REVOKE ALL ON FUNCTION fn_overlay_at_risk(uuid) FROM PUBLIC,anon,authenticated;GRANT EXECUTE ON FUNCTION fn_overlay_at_risk(uuid) TO service_role;')
             source=(ROOT/'supabase/migrations/20261012131301_a_buyin_draws_from_the_wallet_that_can_pay_and_no_unfunded_s.sql').read_text()
             for name in ['fn_ca_union_wallet_that_can_pay','fn_ca_entry_paying_club','fn_tournament_club_for_user']:
                 fn=re.search(r'CREATE OR REPLACE FUNCTION public\.'+name+r'\(.*?\$function\$\s*;',source,re.S)
@@ -40,8 +44,30 @@ CREATE FUNCTION fn_tournament_entry_split(numeric,numeric,numeric,boolean) RETUR
                 run(fn.group())
             files=list((ROOT/'supabase/migrations').glob('*_horse_tournament_bankroll_uses_paying_wallet.sql'))
             check('one reserved maintained migration',len(files)==1)
+            run(f"INSERT INTO profiles VALUES('{h}',true,'available');INSERT INTO tournaments(id,club_id,union_id,buy_in_amount,buy_in_fee,bounty_amount,is_bounty,is_pko,is_mystery_bounty) VALUES('{t}','{u}','{u}',45,5,25,false,true,false);INSERT INTO union_clubs VALUES('{c1}','{u}'),('{c2}','{u}');INSERT INTO club_members VALUES('{h}','{c1}',10000,'active',now()),('{h}','{c2}',10000,'approved',now());")
+            check('preimage incorrectly treats112 PKO entries as funded',run('SELECT entries_needed FROM fn_overlay_at_risk(NULL)')=='112')
+            metadata="SELECT jsonb_build_object('owner',proowner,'acl',proacl,'secdef',prosecdef,'config',proconfig) FROM pg_proc WHERE oid='fn_overlay_at_risk(uuid)'::regprocedure"
+            before_metadata=run(metadata)
             run(files[0].read_text())
-            run(f"INSERT INTO profiles VALUES('{h}',true,'available');INSERT INTO tournaments VALUES('{t}','{u}','{u}',45,5,25,false,true,false);INSERT INTO union_clubs VALUES('{c1}','{u}'),('{c2}','{u}');INSERT INTO club_members VALUES('{h}','{c1}',10000,'active',now()),('{h}','{c2}',10000,'approved',now());")
+            check('PKO target uses20 prize contribution rather than45 gross',run('SELECT entries_needed FROM fn_overlay_at_risk(NULL)')=='250')
+            check('PKO shortfall and diagnostic buyin share agree',run("SELECT shortfall::text||'/'||buy_in::text FROM fn_overlay_at_risk(NULL)")=='232/20.00')
+            check('unlimited admission ABI is preserved',run('SELECT max_players IS NULL FROM fn_overlay_at_risk(NULL)')=='t')
+            check('overlay owner ACL and config preserved',run(metadata)==before_metadata)
+            run(f"INSERT INTO clubs VALUES('{u}','{u}');")
+            check('host scope retained',run(f"SELECT count(*) FROM fn_overlay_at_risk('{u}')")=='1' and run(f"SELECT count(*) FROM fn_overlay_at_risk('{c1}')")=='0')
+            run("UPDATE tournaments SET format_contract='legacy',max_players=40;")
+            check('legacy capacity remains bounded',run("SELECT max_players::text||'/'||shortfall::text FROM fn_overlay_at_risk(NULL)")=='40/22')
+            run("UPDATE tournaments SET format_contract='mtt-v2',max_players=NULL,current_players=250;")
+            check('fully funded PKO is not at risk',run('SELECT count(*) FROM fn_overlay_at_risk(NULL)')=='0')
+            run("UPDATE tournaments SET current_players=18,bounty_amount=45;")
+            check('all-bounty entry cannot fund regular guarantee',run('SELECT count(*) FROM fn_overlay_at_risk(NULL)')=='0')
+            run("UPDATE tournaments SET buy_in_amount=180,buy_in_fee=20,bounty_amount=0,is_pko=false,guaranteed_prize=40000;")
+            check('ordinary200 net180 still needs223 entries',run('SELECT entries_needed FROM fn_overlay_at_risk(NULL)')=='223')
+            run("UPDATE tournaments SET status='COMPLETED';")
+            check('terminal event remains excluded',run('SELECT count(*) FROM fn_overlay_at_risk(NULL)')=='0')
+            run("UPDATE tournaments SET status='RUNNING',start_time=now()-interval '31 minutes';")
+            check('existing overlay selector window retained',run('SELECT count(*) FROM fn_overlay_at_risk(NULL)')=='0')
+            run("UPDATE tournaments SET status='REGISTERING',start_time=now()+interval '10 minutes',buy_in_amount=45,buy_in_fee=5,bounty_amount=25,is_pko=true,guaranteed_prize=5000;")
             default=run(f"SELECT fn_tournament_club_for_user('{h}','{t}',NULL)")
             other=c2 if default==c1 else c1
             call=f"SELECT row_to_json(x) FROM fn_ca_horse_tournament_bankrolls('{t}',ARRAY['{h}'::uuid]) x"
@@ -72,6 +98,7 @@ CREATE FUNCTION fn_tournament_entry_split(numeric,numeric,numeric,boolean) RETUR
             check('authenticated denied','permission denied' in run('SET ROLE authenticated;'+call,True))
             check('service role allowed',run('SET ROLE service_role;'+f"SELECT count(*) FROM fn_ca_horse_tournament_bankrolls('{t}',ARRAY['{h}'::uuid])").splitlines()[-1]=='0')
             check('read leaves all wallets intact',run('SELECT count(*) FROM club_members')=='2')
-            print(json.dumps({'passed':len(passed),'checks':passed,'scope':'real default/fallback/stamped resolvers; unit/entry-split helpers are isolated economic sinks'}))
+            check('migration replay refuses changed overlay preimage','horse_overlay_prize_share_preimage_changed' in run(files[0].read_text(),True))
+            print(json.dumps({'passed':len(passed),'checks':passed,'scope':'real paying-wallet resolvers, entry split and overlay selector; unit helper is isolated'}))
         finally: cmd([PG/'pg_ctl','-D',d/'db','-m','immediate','-w','stop'])
 if __name__=='__main__':main()

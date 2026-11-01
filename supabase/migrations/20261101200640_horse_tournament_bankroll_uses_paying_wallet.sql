@@ -38,4 +38,43 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_horse_tournament_bankrolls(uuid, uuid[])
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_horse_tournament_bankrolls(uuid, uuid[]) TO service_role;
+-- The overlay selector priced a PKO entry at its gross buy-in, including
+-- bounty value that never funds the regular guarantee (45 vs20 in Funday).
+-- Patch only the qualified installed body; preserve its unlimited ABI,
+-- scope/window/status predicates, ownership, ACL and function settings.
+DO $overlay$
+DECLARE
+  v_source text;
+  v_definition text;
+  v_after text;
+BEGIN
+  SELECT p.prosrc, pg_get_functiondef(p.oid)
+    INTO v_source, v_definition
+    FROM pg_proc p WHERE p.oid='public.fn_overlay_at_risk(uuid)'::regprocedure;
+  IF md5(v_source) IS DISTINCT FROM 'ff7ba48340ea8b9800b8f4685a447196' THEN
+    RAISE EXCEPTION 'horse_overlay_prize_share_preimage_changed';
+  END IF;
+  v_after := replace(v_definition,
+    't.buy_in_amount, t.guaranteed_prize,',
+    'funding.prize, t.guaranteed_prize,');
+  v_after := replace(v_after,
+    'nullif(t.buy_in_amount, 0)', 'nullif(funding.prize, 0)');
+  v_after := replace(v_after,
+    '  from tournaments t CROSS JOIN admission a',
+    '  from tournaments t CROSS JOIN admission a
+  CROSS JOIN LATERAL public.fn_tournament_entry_split(
+    t.buy_in_amount, t.buy_in_fee, t.bounty_amount,
+    COALESCE(t.is_bounty,false) OR COALESCE(t.is_pko,false)
+      OR COALESCE(t.is_mystery_bounty,false)) funding');
+  v_after := replace(v_after,
+    'and t.buy_in_amount > 0', 'and funding.prize > 0');
+  IF v_after = v_definition
+     OR position('nullif(t.buy_in_amount, 0)' IN v_after)>0
+     OR position('CROSS JOIN LATERAL public.fn_tournament_entry_split(' IN v_after)=0
+     OR position('funding.prize, t.guaranteed_prize,' IN v_after)=0 THEN
+    RAISE EXCEPTION 'horse_overlay_prize_share_anchor_changed';
+  END IF;
+  EXECUTE v_after;
+END;
+$overlay$;
 COMMIT;
