@@ -2278,6 +2278,7 @@ def control_inventory(request):
 
 def _control_inventory_at(request,parent,repo):
     deadline=time.monotonic()+12
+    git_env={**os.environ,'GIT_NO_REPLACE_OBJECTS':'1','GIT_NO_LAZY_FETCH':'1','GIT_OPTIONAL_LOCKS':'0'}
     link=parent/'engine-control'
     if not link.is_symlink(): raise ValueError('Control inventory refused')
     target=link.resolve(strict=True)
@@ -2308,7 +2309,7 @@ def _control_inventory_at(request,parent,repo):
         valid=bool(names) and len(names)==len(set(names)) and CONTROL_CORE.issubset(names) and all(re.fullmatch(r'[A-Za-z0-9._-]{1,100}',n) for n in names)
         if len(names)>64: raise ValueError('Control inventory refused')
         expected=set(names)|{'control-sha','generation-files'} if valid else set()
-        subprocess.run(['git','-C',str(repo),'merge-base','--is-ancestor',sha,'origin/main'],env={**os.environ,'GIT_NO_REPLACE_OBJECTS':'1'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,timeout=3)
+        subprocess.run(['git','-C',str(repo),'merge-base','--is-ancestor',sha,'origin/main'],env=git_env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,timeout=3)
         rows=[];identities={}
         identity=lambda x:(x.st_ino,x.st_size,x.st_mtime_ns,x.st_ctime_ns,x.st_mode)
         for name in entries:
@@ -2320,9 +2321,9 @@ def _control_inventory_at(request,parent,repo):
             if kind=='regular':
                 digest=hashlib.sha256(read(name)).hexdigest()
                 if name in names and valid:
-                    size=subprocess.run(['git','-C',str(repo),'cat-file','-s',sha+':server/scripts/'+name],env={**os.environ,'GIT_NO_REPLACE_OBJECTS':'1'},stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=2)
+                    size=subprocess.run(['git','-C',str(repo),'cat-file','-s',sha+':server/scripts/'+name],env=git_env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=2)
                     if size.returncode==0 and (not size.stdout.strip().isdigit() or int(size.stdout)>1048576): raise ValueError('Control inventory refused')
-                    result=subprocess.run(['git','-C',str(repo),'show',sha+':server/scripts/'+name],env={**os.environ,'GIT_NO_REPLACE_OBJECTS':'1'},stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=2)
+                    result=subprocess.run(['git','-C',str(repo),'show',sha+':server/scripts/'+name],env=git_env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=2)
                     if len(result.stdout)>1048576: raise ValueError('Control inventory refused')
                     matches=result.returncode==0 and hashlib.sha256(result.stdout).hexdigest()==digest
             rows.append({'name':name,'kind':kind,'mode':stat.S_IMODE(info.st_mode),'sha256':digest,'sourceMatches':matches})

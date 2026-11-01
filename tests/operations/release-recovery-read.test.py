@@ -2371,6 +2371,8 @@ class ControlInventoryTests(unittest.TestCase):
     def git(self, source):
         def call(args, **kwargs):
             self.assertEqual(args[0],'git')
+            self.assertEqual({k:kwargs['env'].get(k) for k in ['GIT_NO_REPLACE_OBJECTS','GIT_NO_LAZY_FETCH','GIT_OPTIONAL_LOCKS']},
+                             {'GIT_NO_REPLACE_OBJECTS':'1','GIT_NO_LAZY_FETCH':'1','GIT_OPTIONAL_LOCKS':'0'})
             if 'merge-base' in args: return subprocess.CompletedProcess(args,0)
             name=args[-1].split(':server/scripts/')[-1]
             raw=source.get(name)
