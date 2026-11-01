@@ -436,9 +436,15 @@ BEGIN
        AND t.status IN ('waiting', 'running')
        AND (ts.club_id = p_club_id OR t.club_id = p_club_id)
   ), fees AS MATERIALIZED (
+    -- Overall retains the existing single bulk read for the entire downline.
+    SELECT lf.user_id AS uid, lf.total_fees AS fee_total
+      FROM public.ca_club_member_fee_totals(p_club_id,NULL,NULL) lf
+     WHERE p_from IS NULL AND p_to IS NULL
+       AND lf.user_id IN (SELECT f.uid FROM flat f)
+    UNION ALL
     SELECT lf.user_id AS uid, lf.total_fees AS fee_total
       FROM flat member CROSS JOIN LATERAL public.ca_club_member_chicago_fee_totals(p_club_id,p_from,p_to,member.uid) lf
-     WHERE lf.user_id IN (SELECT f.uid FROM flat f)
+     WHERE p_from IS NOT NULL OR p_to IS NOT NULL
   )
   SELECT f.uid, pr.player_number::text,
          public.fn_arena_name(pr.alias, pr.username, pr.display_name,

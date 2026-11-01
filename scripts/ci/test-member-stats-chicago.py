@@ -66,6 +66,10 @@ def main():
   # Fixed UTC-midnight redemption belongs to the preceding Chicago date.
   yes(f"SELECT (SELECT cash_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{u}))=(SELECT count(*)*.23 FROM({expected('2026-11-02')})e)-(SELECT sum(round(n*.23*5000/100)) FROM(SELECT count(*) n FROM({expected('2026-11-02')})e GROUP BY (played_at AT TIME ZONE 'UTC')::date)x)/100-1")
   print('PASS standing shares conserve selected-window fees; fixed redemption timestamp retained')
+  q(f"UPDATE club_members SET agent_id={other} WHERE user_id={u};")
+  yes(f"SELECT (SELECT total_fees FROM ca_club_member_downline_in_range({c},{other},'2026-11-02','2026-11-02'))=(SELECT total_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{u}))")
+  yes(f"SELECT (SELECT total_fees FROM ca_club_member_downline_in_range({c},{other},NULL,NULL))=(SELECT total_fees FROM ca_club_member_fee_totals({c},NULL,NULL,{u}))")
+  print('PASS downline uses selected Chicago fee window and preserves Overall bulk result')
   # Overall identity, one-sided ranges, date inputs, and preserved access.
   yes(f"SELECT (SELECT sum(hands) FROM ca_member_record_chicago_facts({c},{u},NULL,NULL))=(SELECT count(*)FROM ca_hand_facts)")
   yes(f"SELECT (SELECT sum(hands) FROM ca_member_record_chicago_facts({c},{u},'2026-11-02',NULL))=(SELECT count(*)FROM ca_hand_facts WHERE played_at>='2026-11-02 06:00Z')")
