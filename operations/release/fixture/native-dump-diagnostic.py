@@ -422,6 +422,7 @@ def qualify_batch_contract(repo, work, env):
              'native-dump-function-batch-test.c', '-o', str(executable)], cwd=directory, env=env)
     for count in [0, 1, 127, 128, 129, 5507]:
         command([str(executable), 'valid', str(count)], cwd=directory, env=env, timeout=5)
+    command([str(executable), 'excluded-boundary', '129'], cwd=directory, env=env, timeout=5)
     for mode in ['send', 'extra', 'missing', 'status', 'rows', 'fields', 'name', 'bytes', 'order']:
         result = subprocess.run([str(executable), mode, '129'], cwd=directory, env=env,
                                 capture_output=True, timeout=5)

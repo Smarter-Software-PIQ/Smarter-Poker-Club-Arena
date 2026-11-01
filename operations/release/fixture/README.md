@@ -590,7 +590,8 @@ source preparation, not a full-schema or connected fifteen-case pass.
 
 The PostgreSQL17.11 export client uses two distinct changes: private fixed-enum
 cost logging and bounded transport batching of consecutive selected function
-objects. The batch helper preserves the upstream PREPARE, each EXECUTE, the
+objects. Zero-component objects do not break that selected sequence; every
+selected non-function object still ends the batch. The batch helper preserves the upstream PREPARE, each EXECUTE, the
 same connection/snapshot, rendering and ACL paths. Up to128 EXECUTEs share one
 simple-query message; every individual result must have one row and the exact
 19-column metadata layout. Results are assigned by request ordinal/OID and
