@@ -1,3 +1,4 @@
+import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
 import { PostHandStageTiming } from './PostHandStageTiming.js';
 import { readCommittedSeatStacks } from './committedSeatStackRead.js';
 import {
@@ -1619,7 +1620,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     );
   }
 
-  /** Execute the original PLO5 refill boundary after rebuys and before continuity. */
+  /** Existing cash refill boundary: PLO5 habits, or mandatory 1/2 maximum. */
   protected async topUpPlo5Horses(
     players: SeatedPlayer[],
     handNumber: number,
@@ -1632,7 +1633,9 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     )
       return;
     const variant = this.tableInfo?.game_variant;
-    if (!isPlo5Variant(variant)) return;
+    const maximumCash = isMaximumHorseCashStake(this.tableInfo);
+    if (maximumCash && !players.some((player) => player.is_horse)) return;
+    if (!isPlo5Variant(variant) && !maximumCash) return;
     // Never a Lightning table: its Cluster refills through the pooled
     // auto-rebuy on the session's anchor seat. A Cluster table whose
     // Lightning switch has not been read yet is treated as Lightning.
@@ -1644,7 +1647,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       this.tableId,
       () => this.lifecycleCanMutate() && !isMaintenanceFrozen(),
       maxBuyIn,
-      this.tableInfo?.cluster_id
+      this.tableInfo?.cluster_id,
+      maximumCash
     );
     if (!batch || !this.lifecycleCanMutate()) return;
     for (const horse of players) {
@@ -1658,6 +1662,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         stack: Number(horse.stack),
         maxBuyIn,
         autoTopUp: seat.autoTopUp,
+        smallBlind: this.tableInfo?.small_blind,
+        bigBlind: this.tableInfo?.big_blind,
       });
       if (!(wanted > 0)) continue;
       const amount = cappedAutoTopUp({
@@ -1665,6 +1671,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         wanted,
         wallet: seat.wallet,
         investedThisTable: seat.invested,
+        smallBlind: this.tableInfo?.small_blind,
         bigBlind: Number(this.tableInfo?.big_blind) || 0,
         minBuyIn: Number(this.tableInfo?.min_buy_in) || 0,
         maxBuyIn,
@@ -3886,7 +3893,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
            * is a spread around today's behaviour rather than a move away from
            * it. A nit gives up a buy-in earlier, a gambler one later.
            */
-          if (atRebuyStopLoss(horse.user_id, currentRebuys)) {
+          if (atRebuyStopLoss(horse.user_id, currentRebuys, this.tableInfo)) {
             /* One door out for a busted seat (releaseBustedSeat, 10.5): the
                money path, then `seat_left`, then the trackers. This branch
                used to call markSeatAsLeft by hand and emit nothing, so a

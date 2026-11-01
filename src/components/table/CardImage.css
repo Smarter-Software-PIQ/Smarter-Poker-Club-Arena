@@ -209,6 +209,11 @@
 }
 
 .card-image__img {
+  /* Artwork covers the readable face only where it has actually painted.
+     Keep the face mounted through loading, decode and WebP/PNG failures. */
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: contain;

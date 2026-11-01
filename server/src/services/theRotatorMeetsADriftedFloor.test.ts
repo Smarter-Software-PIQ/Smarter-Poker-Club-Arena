@@ -291,8 +291,8 @@ describe('the rebuy reads the wallet the seat was bought from, and holds the win
   });
 
   it('the dealing loop holds the five-second window by the same figure', () => {
-    expect(DEALING).toMatch(
-      /if \(!rebuyStopLossReached\(horse\.user_id, this\.horseRebuys\.get\(horse\.user_id\) \|\| 0\)\)/
+    expect(DEALING.replace(/\s+/g, '')).toContain(
+      'if(!rebuyStopLossReached(horse.user_id,this.horseRebuys.get(horse.user_id)||0,this.tableInfo))'
     );
     expect(DEALING).not.toMatch(/horseRebuys\.get\(horse\.user_id\) \|\| 0\) < 2\)/);
   });

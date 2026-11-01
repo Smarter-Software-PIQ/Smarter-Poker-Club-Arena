@@ -64,6 +64,9 @@ int main(int argc,char **argv) {
         functions[i].dobj=(DumpableObject){DO_FUNC,1,1,{(Oid)(i+1)}};
         if(i%137==136) functions[i].dobj.objType=2; /* preserved non-function boundary */
         if(i%131==130) functions[i].dobj.dump=0; /* excluded component */
+        if(!strcmp(mode,"excluded-boundary") && i%2==1) {
+            functions[i].dobj.objType=2; functions[i].dobj.dump=0;
+        }
         objects[i]=&functions[i].dobj;
     }
     ca_batch_objects=objects;ca_batch_objects_count=n;
@@ -73,6 +76,8 @@ int main(int argc,char **argv) {
         if(!strcmp(mode,"order") && i==1)ca_batch_oids[ca_batch_next]=99999;
         r=ca_function_batch_result(&archive,&functions[i]);PQclear(r);
     }
-    if(ca_batch_count!=ca_batch_next || query_open || (n>128 && requests<2))return 95;
+    if(ca_batch_count!=ca_batch_next || query_open)return 95;
+    if(!strcmp(mode,"excluded-boundary")) { if(requests!=1)return 97; }
+    else if(n>128 && requests<2)return 95;
     free(objects);free(functions);return 0;
 }
