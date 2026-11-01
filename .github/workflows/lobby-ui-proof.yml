@@ -1,11 +1,11 @@
 name: Scoped Lobby UI Proof
-run-name: Scoped Lobby UI Proof ${{ github.sha }}
+run-name: Scoped Lobby UI Proof ${{ github.event.action }} ${{ github.sha }}
 
 # Explicit, bounded verification only. The workflow definition always comes
 # from the protected default branch; callers cannot select code or test inputs.
 on:
   repository_dispatch:
-    types: [verify-lobby-ui]
+    types: [verify-lobby-ui, verify-spectator-notifications]
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify Saved Lobby, Plus Page And Row Owners
+    name: ${{ github.event.action == 'verify-spectator-notifications' && 'Verify Spectator And Notification Recovery' || 'Verify Saved Lobby, Plus Page And Row Owners' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -76,7 +76,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
         run: node scripts/ci/production-e2e-account.mjs prepare-staff
 
-      - name: Pin the published client before the three cases
+      - name: Pin the published client before the selected cases
         id: before
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -85,6 +85,7 @@ jobs:
           e2e-report/lobby-ui-proof/before.json
 
       - name: Verify only the saved lobby, plus page and row owners
+        if: github.event.action == 'verify-lobby-ui'
         id: browser
         timeout-minutes: 12
         env:
@@ -103,7 +104,34 @@ jobs:
             --output=test-results/lobby-ui-proof \
             2>&1 | tee e2e-report/lobby-ui-proof/browser.log
 
-      - name: Pin the published client after the three cases
+      - name: Verify only spectator navigation and notification reconnect
+        if: github.event.action == 'verify-spectator-notifications'
+        timeout-minutes: 12
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          ARENA_BASE_URL: https://smarter.poker/hub/club-arena
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+        run: |
+          set +e
+          PLAYWRIGHT_JSON_OUTPUT_NAME=e2e-report/lobby-ui-proof/spectator.json npx playwright test \
+            tests/e2e/production-row-channel-owners.spec.ts \
+            --grep 'both club views keep receiving rows and one survives the other unmounting$' \
+            --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json \
+            --output=test-results/lobby-ui-proof-spectator
+          spectator_rc=$?
+          PLAYWRIGHT_JSON_OUTPUT_NAME=e2e-report/lobby-ui-proof/notifications.json npx playwright test \
+            tests/e2e/production-mobile-lobby-chrome.spec.ts \
+            --grep 'player preferences save automatically and survive reload and reconnect$' \
+            --project=webkit-footer --workers=1 --retries=0 --trace=off --reporter=line,json \
+            --output=test-results/lobby-ui-proof-notifications
+          notification_rc=$?
+          node scripts/verification-harness/lobby-ui-proof.mjs merge-recovery
+          report_rc=$?
+          [ "$spectator_rc" -eq 0 ] && [ "$notification_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
+
+      - name: Pin the published client after the selected cases
         id: after
         if: always() && steps.before.outcome == 'success'
         env:
@@ -130,7 +158,7 @@ jobs:
           }));
           NODE
 
-      - name: Certify exactly the three completed scoped cases
+      - name: Certify exactly the completed selected cases
         if: always() && steps.before.outcome == 'success'
         run: >-
           node scripts/verification-harness/lobby-ui-proof.mjs assert
@@ -149,11 +177,17 @@ jobs:
             e2e-report/lobby-ui-proof/before.json
             e2e-report/lobby-ui-proof/after.json
             e2e-report/lobby-ui-proof/report.json
+            e2e-report/lobby-ui-proof/spectator.json
+            e2e-report/lobby-ui-proof/notifications.json
             e2e-report/lobby-ui-proof/cleanup.json
             e2e-report/lobby-ui-proof/browser.log
             test-results/lobby-ui-proof/**/*.png
             test-results/lobby-ui-proof/**/*.jpg
             test-results/lobby-ui-proof/**/attachments/*.json
             test-results/lobby-ui-proof/**/error-context.md
+            test-results/lobby-ui-proof-spectator/**/*.png
+            test-results/lobby-ui-proof-spectator/**/error-context.md
+            test-results/lobby-ui-proof-notifications/**/*.png
+            test-results/lobby-ui-proof-notifications/**/error-context.md
           if-no-files-found: warn
           retention-days: 7

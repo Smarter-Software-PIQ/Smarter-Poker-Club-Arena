@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 
 export type TournamentPaymentState = 'paid' | 'partially_paid' | 'owed' | 'not_due';
 export interface TournamentPayment {
@@ -127,13 +128,17 @@ export async function getMyTournamentPayments(
   filter: TournamentPaymentFilter = {},
   cursor: TournamentPaymentCursor | null = null
 ): Promise<TournamentPaymentPage> {
-  const { data, error } = await supabase.rpc('fn_ca_my_tournament_payments', {
-    p_tournament_id: filter.tournamentId ?? null,
-    p_club_id: filter.clubId ?? null,
-    p_before_created_at: cursor?.createdAt ?? null,
-    p_before_id: cursor?.id ?? null,
-    p_limit: 50,
-  });
+  const { data, error } = await runWithRequestDeadline((signal) =>
+    supabase
+      .rpc('fn_ca_my_tournament_payments', {
+        p_tournament_id: filter.tournamentId ?? null,
+        p_club_id: filter.clubId ?? null,
+        p_before_created_at: cursor?.createdAt ?? null,
+        p_before_id: cursor?.id ?? null,
+        p_limit: 50,
+      })
+      .abortSignal(signal)
+  );
   if (error) throw error;
   return parseTournamentPaymentPage(data, expectedUserId, filter);
 }

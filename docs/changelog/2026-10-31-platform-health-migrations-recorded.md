@@ -27,16 +27,3 @@ on 2026-10-31 and the verdict is in the manifest row: the two `check-definer-aut
 findings and the `check-unqualified-writes` finding are false of production today; the
 `check-no-new-band-aids` finding (the 10-second cron) is true and is a read-only detector,
 not a repair.
-
-## Main was red for every migration pull request: the rake-share proof's clock
-
-`20261025030629_a_standing_rake_share_replaces_the_woowoo_cron` proves itself against
-`now()`: its seven-day window has to contain the October 24 fixture hands. From about
-22:00 UTC on 2026-10-31 that window moved past them, the migration's own guard refused
-("the rule reports less than the cron wrote"), and accounting shard 2 failed for any pull
-request that touched a migration. The migration is installed and recorded byte-exact, so it
-cannot change. `scripts/ci/test-player-fee-redemption.sh` now replays that one block on a
-PostgreSQL server whose clock is offset (libfaketime preloaded on `pg_ctl`) to 2026-10-25
-03:30 UTC, 21 minutes after production installed it, then restarts on the real clock for the
-rest of the script. CI shard 2 installs `libfaketime`; the script fails loudly if it is absent.
-Reproduced red and then green locally on PostgreSQL 16.

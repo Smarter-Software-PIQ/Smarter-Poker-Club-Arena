@@ -24,6 +24,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import { reportError } from '../utils/errorReporter';
 import { tierRank } from '../config/mysteryBountyTiers';
 import { formatPrizeCentsAtUnit } from '../utils/format';
@@ -393,9 +394,6 @@ function pendingActivationLine(inv: MysteryBountyInventory): string {
 /** Largest page fn_mystery_bounty_awards will serve. It clamps to this itself. */
 export const AWARDS_PAGE_SIZE = 200;
 
-/** A hard ceiling on how many award rows the client will ever hold in memory. */
-export const AWARDS_MAX_ROWS = 1000;
-
 export const MysteryBountyService = {
   /*
    * `strict` (2026-10-26 audit): a failed read THROWS instead of returning an
@@ -409,9 +407,13 @@ export const MysteryBountyService = {
   ): Promise<MysteryBountyInventory | null> {
     if (!tournamentId) return null;
     try {
-      const { data, error } = await supabase.rpc('fn_mystery_bounty_inventory', {
-        p_tournament_id: tournamentId,
-      });
+      const { data, error } = await runWithRequestDeadline((signal) =>
+        supabase
+          .rpc('fn_mystery_bounty_inventory', {
+            p_tournament_id: tournamentId,
+          })
+          .abortSignal(signal)
+      );
       if (error) throw error;
       if (!data) return null;
       return parseInventory(data);
@@ -430,12 +432,28 @@ export const MysteryBountyService = {
   ): Promise<MysteryBountyAwards> {
     if (!tournamentId) return { total: 0, rows: [] };
     try {
-      const { data, error } = await supabase.rpc('fn_mystery_bounty_awards', {
-        p_tournament_id: tournamentId,
-        p_limit: limit,
-        p_offset: offset,
-      });
+      const { data, error } = await runWithRequestDeadline((signal) =>
+        supabase
+          .rpc('fn_mystery_bounty_awards', {
+            p_tournament_id: tournamentId,
+            p_limit: limit,
+            p_offset: offset,
+          })
+          .abortSignal(signal)
+      );
       if (error) throw error;
+      if (opts?.strict) {
+        const envelope = data as { total?: unknown; rows?: unknown } | null;
+        if (
+          !envelope ||
+          typeof envelope.total !== 'number' ||
+          !Number.isSafeInteger(envelope.total) ||
+          envelope.total < 0 ||
+          !Array.isArray(envelope.rows)
+        ) {
+          throw new Error('Mystery award inventory is unreadable');
+        }
+      }
       return parseAwards(data);
     } catch (err) {
       if (opts?.strict) throw err;
@@ -449,28 +467,40 @@ export const MysteryBountyService = {
    *
    * A result card's "largest mystery bounty" and a results table's per-player
    * split both need the whole set, and one call cannot serve more than 200 rows.
-   * Bounded by AWARDS_MAX_ROWS so a pathological event cannot make a lobby page
-   * loop forever.
+   * The first exact total bounds this read. A changed or incomplete page is
+   * unknown, never a successful partial inventory used to calculate winnings.
    */
   async getAllAwards(
     tournamentId: string,
-    opts?: { strict?: boolean }
+    _opts?: { strict?: boolean }
   ): Promise<MysteryBountyAwards> {
     if (!tournamentId) return { total: 0, rows: [] };
-    const first = await MysteryBountyService.getAwards(tournamentId, AWARDS_PAGE_SIZE, 0, opts);
-    const rows = [...first.rows];
-    const wanted = Math.min(first.total, AWARDS_MAX_ROWS);
-    while (rows.length < wanted && rows.length > 0) {
+    const rows: MysteryBountyAward[] = [];
+    const seen = new Set<string>();
+    let total: number | null = null;
+    do {
       const page = await MysteryBountyService.getAwards(
         tournamentId,
         AWARDS_PAGE_SIZE,
         rows.length,
-        opts
+        { strict: true }
       );
-      if (page.rows.length === 0) break;
-      rows.push(...page.rows);
-    }
-    return { total: first.total, rows };
+      if (total === null) total = page.total;
+      if (
+        page.total !== total ||
+        page.rows.length !== Math.min(AWARDS_PAGE_SIZE, total - rows.length)
+      ) {
+        throw new Error('Mystery award inventory changed or is incomplete');
+      }
+      for (const award of page.rows) {
+        if (!award.awardId || seen.has(award.awardId)) {
+          throw new Error('Mystery award inventory contains missing or duplicate identities');
+        }
+        seen.add(award.awardId);
+        rows.push(award);
+      }
+    } while (rows.length < total);
+    return { total, rows };
   },
 
   async getLeaderboard(
@@ -479,9 +509,13 @@ export const MysteryBountyService = {
   ): Promise<MysteryBountyLeaderboardRow[]> {
     if (!tournamentId) return [];
     try {
-      const { data, error } = await supabase.rpc('fn_mystery_bounty_leaderboard', {
-        p_tournament_id: tournamentId,
-      });
+      const { data, error } = await runWithRequestDeadline((signal) =>
+        supabase
+          .rpc('fn_mystery_bounty_leaderboard', {
+            p_tournament_id: tournamentId,
+          })
+          .abortSignal(signal)
+      );
       if (error) throw error;
       return parseLeaderboard(data);
     } catch (err) {

@@ -9,9 +9,14 @@ const state = vi.hoisted(() => ({
   preview: vi.fn(),
   history: vi.fn(),
 }));
-vi.mock('../../src/stores/useUserStore', () => ({
-  useUserStore: (select: (state: unknown) => unknown) => select({ user: { id: 'viewer' } }),
-}));
+vi.mock('../../src/stores/useUserStore', () => {
+  const userState = { user: { id: 'viewer' } };
+  return {
+    useUserStore: Object.assign((select: (state: unknown) => unknown) => select(userState), {
+      getState: () => userState,
+    }),
+  };
+});
 vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc: state.rpc, from: state.from } }));
 vi.mock('../../src/services/UnionOpsService', () => ({
   UnionOpsService: { reassignClubMembers: state.assign },

@@ -32,6 +32,27 @@ export const CASE_PAIRS = [
   ],
 ];
 export const CASES = CASE_PAIRS.map(([, title]) => title);
+export const RECOVERY_ACTION = 'verify-spectator-notifications';
+export const RECOVERY_CASES = [
+  { file: 'production-row-channel-owners.spec.ts', title: 'both club views keep receiving rows and one survives the other unmounting', project: 'chromium' },
+  { file: 'production-mobile-lobby-chrome.spec.ts', title: 'player preferences save automatically and survive reload and reconnect', project: 'webkit-footer' },
+];
+export const RECOVERY_COMPONENT_PATHS = [
+  ...COMPONENT_PATHS,
+  'src/pages/NotificationsPage.tsx',
+  'src/hooks/usePlayerPreference.ts',
+  'src/lib/tableSettingIntents.ts',
+];
+function selection(action) {
+  if (action === 'verify-lobby-ui')
+    return CASE_PAIRS.map(([file, title]) => ({ file, title, project: 'chromium' }));
+  if (action === RECOVERY_ACTION) return RECOVERY_CASES;
+  throw new Error('Unknown closed Lobby proof request.');
+}
+function componentPaths(action) {
+  selection(action);
+  return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
+}
 
 export function admitDispatch(environment, event) {
   if (
@@ -41,7 +62,7 @@ export function admitDispatch(environment, event) {
     !SHA.test(environment.GITHUB_SHA || '') ||
     !ID.test(environment.PROOF_RUN_ID || '') ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(environment.GITHUB_REPOSITORY || '') ||
-    event?.action !== 'verify-lobby-ui' ||
+    !['verify-lobby-ui', RECOVERY_ACTION].includes(event?.action) ||
     !event.client_payload ||
     Array.isArray(event.client_payload) ||
     typeof event.client_payload !== 'object' ||
@@ -51,7 +72,8 @@ export function admitDispatch(environment, event) {
   }
 }
 
-export function assertCases(report) {
+export function assertCases(report, action = 'verify-lobby-ui') {
+  const expected = selection(action);
   if (!report || report.errors?.length || report.notRunReason || !Array.isArray(report.suites))
     throw new Error('Lobby browser report is missing or contains errors.');
   const actual = [];
@@ -60,12 +82,8 @@ export function assertCases(report) {
       const file = String(spec.file || suite.file || '').replaceAll('\\', '/');
       for (const test of spec.tests || []) {
         if (
-          !CASE_PAIRS.some(
-            ([expectedFile, title]) =>
-              file.split('/').at(-1) === expectedFile && spec.title === title
-          ) ||
+          !expected.some((entry) => file.split('/').at(-1) === entry.file && spec.title === entry.title && test.projectName === entry.project) ||
           spec.ok !== true ||
-          test.projectName !== 'chromium' ||
           test.status !== 'expected' ||
           test.expectedStatus !== 'passed' ||
           test.results?.length !== 1 ||
@@ -74,21 +92,23 @@ export function assertCases(report) {
           test.annotations?.some((a) => a.type === 'skip' || a.type === 'fixme')
         )
           throw new Error('Each selected Lobby case must pass once without skips or retries.');
-        actual.push(spec.title);
+        actual.push([file.split('/').pop(), spec.title, test.projectName]);
       }
     }
     for (const child of suite.suites || []) visit(child);
   };
   report.suites.forEach(visit);
-  if (JSON.stringify(actual.sort()) !== JSON.stringify([...CASES].sort()))
-    throw new Error('Exactly the saved-lobby, plus-page and row-owner cases must execute.');
-  return actual;
+  const keys = (entries) => entries.map((entry) => JSON.stringify(entry)).sort();
+  if (JSON.stringify(keys(actual)) !== JSON.stringify(keys(expected.map((entry) => [entry.file, entry.title, entry.project]))))
+    throw new Error('Exactly the admitted Lobby cases must execute.');
+  return actual.map((entry) => entry[1]);
 }
 
-export function assertPins(before, after, cleanup) {
+export function assertPins(before, after, cleanup, action = 'verify-lobby-ui') {
   for (const pin of [before, after]) {
     if (
       pin?.schema !== 1 ||
+      (pin.action ?? 'verify-lobby-ui') !== action ||
       !SHA.test(pin.clientSha || '') ||
       !SHA.test(pin.verificationSha || '') ||
       !ID.test(pin.runId || '') ||
@@ -104,7 +124,7 @@ export function assertPins(before, after, cleanup) {
       ) ||
       Object.keys(pin.components || {})
         .sort()
-        .join('|') !== [...COMPONENT_PATHS].sort().join('|') ||
+        .join('|') !== [...componentPaths(action)].sort().join('|') ||
       Object.values(pin.components).some((value) => !SHA.test(value))
     )
       throw new Error('Lobby provenance is incomplete.');
@@ -147,6 +167,7 @@ export async function pin(file, environment = process.env) {
   )
     throw new Error('Unknown proof phase.');
   admitDispatch(environment, readJson(environment.GITHUB_EVENT_PATH));
+  const action = readJson(environment.GITHUB_EVENT_PATH).action;
   const source = git('rev-parse', 'HEAD');
   if (source !== environment.GITHUB_SHA)
     throw new Error('Verification checkout differs from its admitted source.');
@@ -173,7 +194,7 @@ export async function pin(file, environment = process.env) {
   git('merge-base', '--is-ancestor', UI_FIX, clientSha);
   git('merge-base', '--is-ancestor', clientSha, 'origin/main');
   const components = {};
-  for (const path of COMPONENT_PATHS) {
+  for (const path of componentPaths(action)) {
     const live = git('rev-parse', `${clientSha}:${path}`);
     if (live !== git('rev-parse', `${source}:${path}`))
       throw new Error(`The served Lobby component differs from the verifier source: ${path}`);
@@ -218,6 +239,7 @@ export async function pin(file, environment = process.env) {
     throw new Error('The actual client origin installation did not pass.');
   const result = {
     schema: 1,
+    action,
     runId: environment.PROOF_RUN_ID,
     verificationSha: source,
     clientSha,
@@ -238,15 +260,30 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       throw new Error('Wrong verifier checkout.');
     git('merge-base', '--is-ancestor', CASE_FIX, process.env.GITHUB_SHA);
   } else if (process.argv[2] === 'pin' && process.argv.length === 4) await pin(process.argv[3]);
-  else if (process.argv[2] === 'assert' && process.argv.length === 7) {
+  else if (process.argv[2] === 'merge-recovery' && process.argv.length === 3) {
+    // Paths and cases are fixed here, never supplied by a dispatch payload.
+    const reports = ['spectator.json', 'notifications.json'].map((name) =>
+      readJson(`e2e-report/lobby-ui-proof/${name}`));
+    if (reports.some((report) => !Array.isArray(report.suites)))
+      throw new Error('Both recovery reports must exist.');
+    const report = {
+      suites: reports.flatMap((entry) => entry.suites),
+      errors: reports.flatMap((entry) => entry.errors ?? []),
+    };
+    assertCases(report, RECOVERY_ACTION);
+    writeFileSync('e2e-report/lobby-ui-proof/report.json', JSON.stringify(report, null, 2) + '\n');
+  } else if (process.argv[2] === 'assert' && process.argv.length === 7) {
+    const event = readJson(process.env.GITHUB_EVENT_PATH);
+    admitDispatch(process.env, event);
     const [before, after, report, cleanup] = process.argv.slice(3).map(readJson);
-    assertPins(before, after, cleanup);
-    const cases = assertCases(report);
+    assertPins(before, after, cleanup, event.action);
+    const cases = assertCases(report, event.action);
     writeFileSync(
       'lobby-ui-proof.json',
       JSON.stringify(
         {
           schema: 1,
+          action: event.action,
           verdict: 'passed',
           scope: cases,
           clientSha: before.clientSha,

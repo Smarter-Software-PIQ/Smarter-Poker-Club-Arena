@@ -6,7 +6,7 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: mocks.report }));
 import { useSatellites } from '../../src/components/tournament/details/useSatellites';
 function query(data: unknown) {
   const q: any = { then: (resolve: any) => Promise.resolve({ data, error: null }).then(resolve) };
-  for (const key of ['select', 'or', 'in', 'eq', 'order', 'limit']) q[key] = () => q;
+  for (const key of ['select', 'or', 'in', 'eq', 'order', 'limit', 'abortSignal']) q[key] = () => q;
   return q;
 }
 const row = { id: 'satellite', name: 'Satellite', status: 'REGISTERING' };

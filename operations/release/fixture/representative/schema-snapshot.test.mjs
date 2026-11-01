@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage } from '../schema-snapshot.mjs';
+import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress } from '../schema-snapshot.mjs';
 import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash } from '../schema-compose.mjs';
 import { schemaCatalogue, schemaCataloguePayload } from '../../native/component-semantic-observations.mjs';
 import { APPLICATION_TRIGGER_WITNESSES } from '../schema-application-hooks.mjs';
@@ -433,4 +433,28 @@ test('actual dump failure preserves only its last exact recognized progress stag
     assert.equal(error.dumpDiagnostic.last_stage,'READING_USER_DEFINED_TABLES');
     assert.ok(!JSON.stringify(error).includes('private-query-secret'));return true;
   });
+});
+
+test('native dump phase timing records first received fixed markers and drops parameter values',()=>{
+ const progress=createDumpProgress();
+ progress.push(Buffer.from('pg_dump: reading depen'),3);
+ progress.push(Buffer.from('dency data\n'),8);
+ progress.push(Buffer.from('pg_dump: saving encoding = UTF8\npg_dump: saving "standard_conforming_strings = on"\n'),10);
+ progress.push(Buffer.from('pg_dump: saving "search_path = "private-schema", public"\npg_dump: reading dependency data\nprivate-secret\n'),12);
+ const proof=progress.snapshot();
+ assert.equal(proof.last_stage,'READING_DEPENDENCY_DATA');
+ assert.deepEqual(proof.phase_entries,[{stage:'READING_DEPENDENCY_DATA',entered_at_ms:8},{stage:'SAVING_ENCODING',entered_at_ms:10},{stage:'SAVING_STANDARD_STRINGS',entered_at_ms:10},{stage:'SAVING_SEARCH_PATH',entered_at_ms:12}]);
+ assert.ok(!JSON.stringify(proof).includes('private-'));
+ progress.clear();assert.deepEqual(progress.snapshot(),{last_stage:'UNKNOWN',phase_entries:[]});
+});
+
+test('parameterized native markers and phase receipts refuse malformed or private-shaped inputs',()=>{
+ for(const [line,expected] of [['pg_dump: saving "search_path = "','SAVING_SEARCH_PATH'],['pg_dump: saving "search_path = "a""b", public"','SAVING_SEARCH_PATH'],['pg_dump: saving encoding = UTF8 trailing','UNKNOWN'],['pg_dump: saving "standard_conforming_strings = private"','UNKNOWN'],['pg_dump: saving "search_path = public" trailing','UNKNOWN']])assert.equal(dumpProgressStage(line+'\n'),expected);
+ for(const entries of [[{stage:'private-secret',entered_at_ms:1}],[{stage:'SAVING_ENCODING',entered_at_ms:-1}],[{stage:'SAVING_ENCODING',entered_at_ms:45001}],[{stage:'SAVING_ENCODING',entered_at_ms:2},{stage:'SAVING_SEARCH_PATH',entered_at_ms:1}],[{stage:'SAVING_ENCODING',entered_at_ms:1},{stage:'SAVING_ENCODING',entered_at_ms:2}]])assert.deepEqual(safeDumpDiagnostic({phase_entries:entries}).phase_entries,[]);
+ const entry={stage:'SAVING_ENCODING',entered_at_ms:2,private:'private-secret'};assert.deepEqual(safeDumpDiagnostic({phase_entries:[entry]}).phase_entries,[{stage:'SAVING_ENCODING',entered_at_ms:2}]);
+});
+
+test('private search-path phase recognition is bounded and linear for malformed long identifiers',()=>{
+ for(const value of ['"'+ 'a'.repeat(8200), '"a"'.repeat(2000)+'x', 'public, ', '"unclosed', '"a" x'])assert.equal(dumpProgressStage('pg_dump: saving "search_path = '+value+'"\n'),'UNKNOWN');
+ assert.equal(dumpProgressStage('pg_dump: saving "search_path = "'+ 'a'.repeat(4000)+'", public"\n'),'SAVING_SEARCH_PATH');
 });

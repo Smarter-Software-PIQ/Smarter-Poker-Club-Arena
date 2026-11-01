@@ -91,7 +91,9 @@ describe('one tournament identity icon beside each headline', () => {
     for (const entry of entries) {
       for (const selector of ['.compact-lobby tbody', '.lobby-table-wrap tbody']) {
         const row = document.querySelector(`${selector} tr[data-id="${entry.id}"]`)!;
-        const icons = row.querySelectorAll('[data-tournament-icon]');
+        const heading = row.previousElementSibling!;
+        expect(heading.getAttribute('data-tournament-heading')).toBe(entry.id);
+        const icons = heading.querySelectorAll('[data-tournament-icon]');
         expect(icons).toHaveLength(1);
         expect(icons[0].closest('.compact-lobby__title, .lt-name__line1')).not.toBeNull();
         expect(icons[0].getAttribute('data-tournament-icon')).toBe(tournamentFormatIcon(entry));

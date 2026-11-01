@@ -88,8 +88,8 @@ export async function fetchTournamentResult(
     let mystery: { bounties: number; cents: number; largestCents: number } | null = null;
     if ((tourney as { is_mystery_bounty?: boolean } | null)?.is_mystery_bounty) {
       const [board, awards] = await Promise.all([
-        MysteryBountyService.getLeaderboard(tournamentId),
-        MysteryBountyService.getAllAwards(tournamentId),
+        MysteryBountyService.getLeaderboard(tournamentId, { strict: true }),
+        MysteryBountyService.getAllAwards(tournamentId, { strict: true }),
       ]);
       const boardRow = board.find((r) => r.userId === userId);
       const fromAwards = playerTotalsFromAwards(awards.rows).get(userId);

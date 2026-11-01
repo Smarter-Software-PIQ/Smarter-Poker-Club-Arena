@@ -193,3 +193,31 @@ it('restores the satellite view and its own sort without replacing the SNG prefe
   expect(sortForTab(prefs, 'SATELLITE')).toBe('starting_soon');
   expect(sortForTab(prefs, 'SNG')).toBe('stakes_low');
 });
+
+describe('waiting-game tabs default to the current player count', () => {
+  it.each(['SPIN', 'SNG', 'SATELLITE'] as const)(
+    '%s uses Players on a first visit and after another tab',
+    (tab) => {
+      const fresh = loadViewPrefs(CLUB);
+      expect(defaultSortForTab(tab)).toBe('players');
+      expect(sortForTab(fresh, tab)).toBe('players');
+      const otherTabChosen = { ...fresh, sortByTab: { MTT: 'stakes_high' as const } };
+      expect(sortForTab(otherTabChosen, tab)).toBe('players');
+    }
+  );
+
+  it.each(['SPIN', 'SNG', 'SATELLITE'] as const)(
+    '%s keeps a player-selected order through a saved round trip',
+    (tab) => {
+      saveViewPrefs(CLUB, { tab, sortByTab: { [tab]: 'stakes_low' }, favoritesOnly: false });
+      expect(sortForTab(loadViewPrefs(CLUB), tab)).toBe('stakes_low');
+    }
+  );
+
+  it('keeps Recommended for MTT and cash variants', () => {
+    for (const tab of ['MTT', 'HOLDEM', 'OMAHA', 'LIMIT', 'MIXED'] as const) {
+      expect(sortForTab(EMPTY_VIEW_PREFS, tab)).toBe('recommended');
+    }
+    expect(defaultSortForTab('ALL')).toBe('starting_soon');
+  });
+});
