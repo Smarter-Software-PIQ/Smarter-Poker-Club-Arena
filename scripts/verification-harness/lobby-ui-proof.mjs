@@ -113,12 +113,21 @@ export const FILTER_CASES = [
     title: 'sticky lobby controls and cross-tab sorting remain accessible and durable',
     project: 'chromium',
   },
+  {
+    file: 'production-player-name-layout.spec.ts',
+    title: 'live spectator player names stay complete on one line inside their plates',
+    project: 'chromium',
+  },
 ];
 export const FILTER_COMPONENT_PATHS = [
   ...new Set([
     ...FAVORITE_COMPONENT_PATHS,
     'src/pages/TournamentPage.tsx',
     'src/components/tournament/details/DetailOverviewTab.tsx',
+    'src/components/table/SeatSlot.tsx',
+    'src/components/table/SeatPlayerName.tsx',
+    'src/components/table/SeatSlot.css',
+    'src/components/lobby/game-cards/useFitText.ts',
     'src/components/lobby/AdvancedFilters.tsx',
     'src/components/lobby/AdvancedFilters.css',
     'src/components/lobby/advancedFilterSpec.ts',

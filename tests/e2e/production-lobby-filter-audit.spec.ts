@@ -1448,16 +1448,35 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await clickControl(favorites);
   await expect(favorites).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(async () => sorted(await h.ids())).toEqual(sorted(baseline));
-  const quickFavorite = page
-    .locator('.lobby-refinements')
-    .getByRole('button', { name: 'Favorites', exact: true });
-  await clickControl(quickFavorite);
-  await expect(favorites).toHaveAttribute('aria-pressed', 'true');
-  await clickControl(favorites);
-  await expect(quickFavorite).toHaveAttribute('aria-pressed', 'false');
+  const quickControls = page.locator('.lobby-refinements');
+  await expect(quickControls.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(
+    0
+  );
+  await expect(page.getByRole('button', { name: 'Favorites', exact: true })).toHaveCount(1);
+  const quickFilters = quickControls.getByRole('button', { name: 'Filters And Sort', exact: true });
+  await clickControl(quickFilters);
+  sheet = page.getByRole('dialog');
+  await expect(sheet).toBeVisible();
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   // The rail returns to the real game controls, rather than opening another popup.
   await clickControl(rail.getByRole('button', { name: 'Browse Game Types', exact: true }));
   await expect(page.locator('#lobby-game-section-controls')).toBeInViewport();
+  const filterPlacement = await quickFilters.evaluate((element) => {
+    const running = [...element.parentElement!.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Running'
+    )!;
+    const filterBox = element.getBoundingClientRect();
+    const runningBox = running.getBoundingClientRect();
+    return {
+      sameRow: Math.abs(filterBox.top - runningBox.top) < 1,
+      follows: filterBox.left > runningBox.left,
+    };
+  });
+  expect(filterPlacement).toEqual({ sameRow: true, follows: true });
+  await testInfo.attach('lobby-quick-filters-phone.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
   // Sheet tab changes must select the actual board before saving its sort.
   sheet = await h.open();
   const tabs = sheet.getByRole('group', { name: 'Game Type', exact: true });
