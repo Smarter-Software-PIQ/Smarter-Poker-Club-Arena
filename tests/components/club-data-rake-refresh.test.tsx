@@ -410,8 +410,19 @@ it('does not amplify failed rake reads through successful ledger invalidations',
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Club Ledger' }));
   await screen.findByText('Rake Agent');
   expect(rakeCalls()).toHaveLength(2);
+  const month = periodToRange('month');
+  const day = periodToRange('today');
+  const sameRange = month.start === day.start && month.end === day.end;
   fireEvent.click(screen.getByRole('button', { name: 'Day', exact: true }));
-  await waitFor(() => expect(rakeCalls()).toHaveLength(3));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  );
+  // The first of a month selects the same authoritative query; it must not
+  // invent another read. Every other day must issue the distinct day query.
+  await waitFor(() => expect(rakeCalls()).toHaveLength(sameRange ? 2 : 3));
 });
 
 it('aborts retired reads while preserving the selected reporting period across Simple mode', async () => {
