@@ -20,6 +20,8 @@ export interface StageViewState {
   /** Present only when the capability is available and the event has a plan. */
   view: TournamentStageView | null;
   loading: boolean;
+  /** Failed/refused reads cannot establish that this is an ordinary first day. */
+  unknown: boolean;
   reload: () => void;
 }
 
@@ -34,6 +36,7 @@ export function useTournamentStageView(
     nonce: number;
     view: TournamentStageView | null;
     loading: boolean;
+    unknown: boolean;
   } | null>(null);
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
@@ -46,7 +49,7 @@ export function useTournamentStageView(
     let live = true;
     const controller = new AbortController();
     const scope = { tournamentId, refreshKey, nonce };
-    setAnswer({ ...scope, view: null, loading: true });
+    setAnswer({ ...scope, view: null, loading: true, unknown: false });
     void readTournamentStageView(tournamentId, controller.signal).then(
       (read) => {
         if (!live) return;
@@ -54,10 +57,11 @@ export function useTournamentStageView(
           ...scope,
           view: read.status === 'ok' && read.view.plan ? read.view : null,
           loading: false,
+          unknown: read.status !== 'ok',
         });
       },
       () => {
-        if (live) setAnswer({ ...scope, view: null, loading: false });
+        if (live) setAnswer({ ...scope, view: null, loading: false, unknown: true });
       }
     );
     return () => {
@@ -79,6 +83,7 @@ export function useTournamentStageView(
     loading:
       gate === 'loading' ||
       (gate === 'available' && Boolean(tournamentId) && (!current || answer.loading)),
+    unknown: gate === 'unknown' || Boolean(current && answer.unknown),
     reload,
   };
 }
