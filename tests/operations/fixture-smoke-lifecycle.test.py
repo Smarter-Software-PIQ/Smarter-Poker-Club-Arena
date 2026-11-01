@@ -119,6 +119,8 @@ class LifecycleTests(unittest.TestCase):
         result, state = self.exercise()
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = state['calls']
+        preimage = next(c for c in calls if c[0] == 'run' and c[-2:] == ['fixture-server', 'schema-preimage'])
+        self.assertIn('--read-only', preimage)
         copy_index = next(i for i, c in enumerate(calls) if any('readFixtureServicePreimage' in a for a in c))
         ack_index = next(i for i, c in enumerate(calls) if 'touch' in c)
         cleanup_index = next(i for i, c in enumerate(calls) if c[:2] == ['rm', '--force'])

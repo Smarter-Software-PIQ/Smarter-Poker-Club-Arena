@@ -139,6 +139,15 @@ class NativeObservationAuthority(unittest.TestCase):
     def test_connected_cases_share_live_smoke_image_but_cannot_pass_before_outer_cleanup(self):
         spec = importlib.util.spec_from_file_location('smoke_lifetime', ROOT / 'operations/release/ci/fixture-smoke.py')
         smoke = importlib.util.module_from_spec(spec); spec.loader.exec_module(smoke)
+        # This test owns outer-image lifetime, with native proof boundaries
+        # mocked explicitly. Validate the closed fixture through the real parser;
+        # it is not evidence that a native38-role/13-provider bootstrap ran.
+        application_proof = dict(scope='native-current-application-preimage', roles=38,
+            added_roles=5, extensions=13, target_schema_owner_acl_exact=True,
+            exact_versions_schemas_owners=True, genuine_create_extension=True,
+            schema_preimage_created=True, production_binary_parity=False,
+            full_schema_ready=False)
+        self.assertEqual(smoke.current_application_preimage_record(json.dumps(application_proof)), application_proof)
         for cleanup_fails, callback_fails in ((False, False), (True, False), (False, True)):
             with self.subTest(cleanup_fails=cleanup_fails), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -163,6 +172,7 @@ class NativeObservationAuthority(unittest.TestCase):
                     return ''
                 def connected(*args, **kwargs):
                     self.assertTrue(state['image'])
+                    self.assertEqual(args[4]['current_application_preimage'], application_proof)
                     self.assertGreater(kwargs['work_deadline'], 0)
                     report = {'version':1,'scope':'isolated-connected-ui-observations','product_certificate':False,
                         'runtime_image':image,'provenance':{'control_sha':sha},'success':False,
@@ -172,6 +182,7 @@ class NativeObservationAuthority(unittest.TestCase):
                         raise RuntimeError('PRIVATE FAILURE MUST NOT BE UPLOADED')
                     return {'cases_complete':True,'report':report}
                 with patch.object(smoke,'smoke_records',return_value={}), patch.object(smoke,'role_alignment_record',return_value={}), \
+                     patch.object(smoke,'current_application_preimage_record',return_value=application_proof), \
                      patch.object(smoke,'service_preimage',return_value=({'catalog_sha256':'c'*64},b'{}')):
                     result = smoke.execute(root,root/'evidence',sha,run,connected=connected)
                 receipt = json.loads((root/'evidence/connected-ui-observations.json').read_text())
@@ -275,6 +286,57 @@ class BootstrapReadBoundary(unittest.TestCase):
         for fault in ['ready','read','copy','copy-partial','ack','wait']:
             with self.subTest(fault=fault):self.exercise(fault)
         self.exercise('ack',cleanup_fails=True)
+
+
+
+
+class CompositionFailureDiagnostics(unittest.TestCase):
+    def test_decoder_refuses_unknown_shape_codes_phase_metadata_and_private_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'diagnostic.json'
+            valid={'version':1,'scope':'exact-service-composition-failure','phase':'compose','site':'NATIVE_BLOCK_DIFFERENT'}
+            path.write_text(json.dumps(valid));path.chmod(0o600)
+            self.assertEqual(MODULE.composition_failure(path),valid)
+            for key,value in [('version',True),('site','private-data'),('phase','private-data'),('sql','private-data'),('scope','other')]:
+                bad={**valid,key:value};path.write_text(json.dumps(bad))
+                self.assertEqual(MODULE.composition_failure(path)['site'],'UNKNOWN')
+            path.write_text(json.dumps({**valid,'phase':'input-read'}))
+            self.assertEqual(MODULE.composition_failure(path)['site'],'UNKNOWN')
+            path.write_text('{"version":1,"version":1,"scope":"exact-service-composition-failure","phase":"compose","site":"NATIVE_BLOCK_DIFFERENT"}')
+            self.assertEqual(MODULE.composition_failure(path)['site'],'UNKNOWN')
+            path.write_text(json.dumps(valid));path.chmod(0o644)
+            self.assertEqual(MODULE.composition_failure(path)['site'],'UNKNOWN')
+            path.chmod(0o600);link=Path(folder)/'link';link.symlink_to(path)
+            self.assertEqual(MODULE.composition_failure(link)['site'],'UNKNOWN')
+            path.write_text('x'*513)
+            self.assertEqual(MODULE.composition_failure(path)['site'],'UNKNOWN')
+            self.assertEqual(MODULE.composition_failure(Path(folder)/'absent')['site'],'UNKNOWN')
+
+    def test_actual_node_command_distinguishes_read_failure_and_exact_comparison_without_stderr(self):
+        def object_sql(name,schema,body):
+            return f'-- Name: {name}; Type: FUNCTION; Schema: {schema}; Owner: postgres\n--\n\n{body}\n\n'
+        managed=''.join(object_sql(name,'auth','SELECT NULL::text;') for name in ['email()','jwt()','role()','uid()'])
+        managed+=''.join(object_sql(name,'cron','SELECT NULL::text;') for name in ['schedule(text)','unschedule(bigint)','alter_job(bigint)'])
+        for phase in ['input-read','compose','success']:
+            with self.subTest(phase=phase),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);candidate=root/'candidate';candidate.mkdir();temp=root/'temp';temp.mkdir()
+                if phase!='input-read': (candidate/'schema.sql').write_text(managed)
+                (temp/'service-schema.sql').write_text(managed.replace('SELECT NULL::text;','SELECT \'private_schema_literal\'::text;',1) if phase=='compose' else managed)
+                report={'stage':'exact-service-composition'}
+                if phase=='success':
+                    with self.assertRaises(RuntimeError):MODULE.compose_private_schema(ROOT,candidate,temp,{'stage':'other'})
+                    MODULE.compose_private_schema(ROOT,candidate,temp,report)
+                    self.assertEqual(report,{'stage':'exact-service-composition'})
+                    self.assertFalse((temp/'composition-failure.json').exists())
+                    self.assertTrue((temp/'composed.sql').is_file())
+                else:
+                    with self.assertRaises(RuntimeError):MODULE.compose_private_schema(ROOT,candidate,temp,report)
+                    expected='NATIVE_BLOCK_DIFFERENT' if phase=='compose' else 'UNKNOWN'
+                    self.assertEqual(report['composition_failure']['phase'],phase)
+                    self.assertEqual(report['composition_failure']['site'],expected)
+                    self.assertNotIn('private_schema_literal',json.dumps(report))
+                    self.assertEqual((temp/'composition-failure.json').stat().st_mode & 0o777,0o600)
+                    self.assertFalse((temp/'composed.sql').exists())
 
 
 if __name__ == '__main__':

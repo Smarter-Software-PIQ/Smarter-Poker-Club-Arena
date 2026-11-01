@@ -15,12 +15,12 @@
   position: relative;
   container-type: inline-size;
   width: 100%;
-  aspect-ratio: 1829 / 313;
+  aspect-ratio: 1;
   min-height: 64px;
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: url('/assets/club-buttons/club-nav-shell-d45f56465bad.png') center / contain no-repeat;
+  background: url('/assets/club-buttons/club-utility-shell.png') center / contain no-repeat;
   box-shadow: none;
   color: #e4e7ec;
   cursor: pointer;
@@ -31,17 +31,22 @@
   color: #45adff;
 }
 
-.lobby-game-sections__button span {
+.lobby-game-sections__well {
   position: absolute;
-  /* The native 1829x313 master includes its lower shadow. Its glass face
-     spans y40..235, so center text at y138 (44%), not the canvas midpoint. */
-  inset: auto 9%;
-  top: 44%;
+  /* Native 1105x1133 utility shell stays contained in the square hit area.
+     Its blank glass spans x194..910/y193..915, clear of the chrome rim. */
+  inset: auto 18.5%;
+  top: 48.9%;
   transform: translateY(-50%);
   display: grid;
   place-items: center;
+}
+
+.lobby-game-sections__well > span {
+  display: block;
+  max-width: 100%;
   font-family: 'Roboto Condensed', sans-serif;
-  font-size: clamp(16px, calc(5cqw * var(--fit, 1)), 24px);
+  font-size: calc(clamp(18px, 11cqw, 30px) * var(--fit, 1));
   font-weight: 800;
   line-height: 1.2;
   text-align: center;
@@ -64,7 +69,6 @@
 
 @media (max-width: 900px) {
   .lobby-game-sections {
-    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     padding: 0 0 6px;
   }

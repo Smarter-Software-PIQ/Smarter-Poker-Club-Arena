@@ -35,6 +35,7 @@ import {
 import { getAnimationSpeed, prefersReducedMotion } from '../../utils/animationSpeed';
 import RiveAvatar from './RiveAvatar';
 import { ActionTimerRing } from './ActionTimerRing';
+import { SeatPlayerName } from './SeatPlayerName';
 import AvatarCosmetics from '../avatars/AvatarCosmetics';
 import { startMotionBudget } from '../../utils/motionBudget';
 import { bustArtGain, BUST_ART_GAIN } from './bustArtGain';
@@ -3475,8 +3476,8 @@ export const SeatSlot = memo(
           {/* Native transform clips drain stationary rounded ink. Timing is
               inherited from the same frozen engine-clock anchor above. */}
           {isActingNow && <ActionTimerRing timing={timerStyle} />}
-          {/* Full names wrap within the seat plate (owner 2026-10-26). */}
-          <span className="seat__name">{player.name?.trim()}</span>
+          {/* Full names fit one line within the plate (owner 2026-11-01). */}
+          <SeatPlayerName name={player.name?.trim() ?? ''} />
           <span
             className={`seat__stack${stackDelta > 0 ? ' seat__stack--up' : ''} ${player.stackPending ? '' : getStackDepthClass(player.stack, bigBlind)}`}
             aria-busy={!!player.stackPending}

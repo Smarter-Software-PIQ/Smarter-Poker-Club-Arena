@@ -62,6 +62,7 @@ export const WaitlistManager: React.FC<WaitlistManagerProps> = ({
 
     // Real-time subscription
     const channelKey = `waitlist:${tableId}`;
+    let hasSubscribedOnce = false;
 
     const channel = masterBus.getOrCreateChannel(channelKey);
     channel
@@ -78,6 +79,12 @@ export const WaitlistManager: React.FC<WaitlistManagerProps> = ({
         }
       )
       .subscribe((status: string, err?: Error) => {
+        if (status === 'SUBSCRIBED') {
+          if (hasSubscribedOnce) {
+            loadWaitlist();
+          }
+          hasSubscribedOnce = true;
+        }
         if (status === 'CHANNEL_ERROR') {
           if (err) reportError(err?.message || err, 'WaitlistManager._Realtime_channel_error');
         }
@@ -87,7 +94,7 @@ export const WaitlistManager: React.FC<WaitlistManagerProps> = ({
       });
 
     return () => {
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeRegisteredChannel(channelKey, channel);
     };
   }, [tableId]);
 

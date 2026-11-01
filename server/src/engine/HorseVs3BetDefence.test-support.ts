@@ -349,3 +349,52 @@ export function fiveBetStateFor(
   g.maxRaiseTo = hero.stack + hero.bet;
   return { hero, gs };
 }
+
+/**
+ * ═══ V75 THE SQUEEZED OPENER (2026-11-01) ═══════════════════════════════
+ * Hero opened to `openBB`, `callerSeats` called the open (in action order),
+ * `threeSeat` squeezed to `threeBetX` times the open, everyone else folded:
+ * hero to act, the callers still live behind. `threeSeat` must act after the
+ * callers in the orbit (the squeeze shape).
+ */
+export function squeezeStateFor(
+  ctx: Vs3Ctx,
+  heroSeat: number,
+  callerSeats: number[],
+  threeSeat: number,
+  hole: Card[],
+  flipLabels = false
+): { hero: SeatPlayer; gs: HorseGameStateV2 } {
+  const { hero, gs } = stateFor(ctx, heroSeat, threeSeat, hole, flipLabels);
+  const openTo = ctx.openBB * BB;
+  const total = ctx.stackBB * BB;
+  const ante = (seat: number) => (seat === 2 && ctx.ante ? 2 : 0);
+  const history = gs.actionHistory!;
+  const openIx = history.findIndex((a) => a.seat === heroSeat && a.action === 'raise');
+  const threeIx = history.findIndex((a) => a.seat === threeSeat && a.action === 'raise');
+  let ts = 500;
+  for (const seat of callerSeats) {
+    const caller = gs.players[seat - 1];
+    caller.is_folded = false;
+    caller.bet = openTo;
+    caller.stack = total - openTo - ante(seat);
+    caller.totalInvested = openTo + ante(seat);
+    // Replace the fold the base builder recorded for this seat (it sits
+    // between the open and the 3-bet) with the call of the open.
+    const foldIx = history.findIndex(
+      (a, i) => i > openIx && i < threeIx && a.seat === seat && a.action === 'fold'
+    );
+    if (foldIx < 0) throw new Error(`caller seat ${seat} does not sit between open and 3-bet`);
+    history[foldIx] = {
+      seat,
+      userId: caller.user_id,
+      action: 'call',
+      amount: openTo,
+      timestamp: ts++,
+      stage: 'preflop',
+    } as ActionRecord;
+  }
+  const g = gs as unknown as Record<string, unknown>;
+  g.pot = gs.players.reduce((s, p) => s + p.bet, 0) + (ctx.ante ? 2 : 0);
+  return { hero, gs };
+}

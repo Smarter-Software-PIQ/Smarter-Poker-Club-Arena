@@ -1898,7 +1898,25 @@ describe('every host mutation path obeys the durable release authority', () => {
     expect(installer).toContain('ExecStart=$UNIT_WRAPPER_V1 start %i');
     expect(installer).toContain('ExecStart=/bin/bash $CONTROL_DIR/verify-recovery-stack.sh');
     expect(workflow).toContain('STAGE="/var/lib/club-arena/control-staging/$RUN_KEY"');
-    expect(workflow).toContain('git -C "$REPO_DIR" archive "$CONTROL_SHA" server/scripts');
+    expect(workflow).toContain(
+      'git -c tar.umask=0022 -C "$REPO_DIR" archive "$CONTROL_SHA" server/scripts'
+    );
+    const archiveCustody = spawnSync(
+      'python3',
+      ['-B', 'tests/operations/control-staging-archive.py'],
+      {
+        cwd: ROOT,
+        env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+        encoding: 'utf8',
+        timeout: 30_000,
+      }
+    );
+    expect(archiveCustody.status, archiveCustody.stdout + archiveCustody.stderr).toBe(0);
+    expect(archiveCustody.stderr).toContain('Ran 3 tests');
+    expect(archiveCustody.stderr).not.toContain('skipped=');
+    if (process.platform === 'linux') {
+      expect(archiveCustody.stdout).toContain('CONTROL_STAGING_ARCHIVE_NATIVE_UID=0');
+    }
     expect(workflow).toContain('"$STAGE/server/scripts/install-engine-intake.sh"');
     expect(installer).toContain(
       'UNIT_WRAPPER_V1="$CONTROL_PARENT/engine-release-unit-wrapper-v1.sh"'

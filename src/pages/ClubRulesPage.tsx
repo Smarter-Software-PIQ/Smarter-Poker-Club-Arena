@@ -85,20 +85,25 @@ export default function ClubRulesPage() {
   }, [clubId, user?.id]);
 
   // ── WebSocket: live rule updates from other admins ──
+  const isEditingRef = useRef(isEditing);
+  isEditingRef.current = isEditing;
+
   useEffect(() => {
     if (!clubId) return;
     let isMounted = true;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
     const channelKey = `club-rules-${clubId}`;
     const setup = async () => {
       const resolvedId = await resolveClubUUID(clubId);
       if (!isMounted) return;
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'clubs', filter: `id=eq.${resolvedId}` },
           () => {
-            if (isMounted && !isEditing) loadRules(() => isMounted);
+            if (isMounted && !isEditingRef.current) loadRules(() => isMounted);
           }
         )
         .subscribe((status: string, err?: Error) => {
@@ -110,12 +115,18 @@ export default function ClubRulesPage() {
           }
         });
     };
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (isMounted) void setup();
+    });
     setup().catch((e) => console.warn('[ClubRulesPage] Realtime setup failed:', e));
     return () => {
       isMounted = false;
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
-  }, [clubId, user?.id, isEditing]);
+  }, [clubId, user?.id]);
 
   // ── Bus Listener: reload rules if another admin updates the club ──
   useEffect(() => {

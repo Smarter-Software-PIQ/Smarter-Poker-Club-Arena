@@ -31,6 +31,7 @@ interface TournamentTimerState {
   lastTick: number;
   isTickInProgress: boolean; // Guard against async overlap
   breakTimeoutId?: ReturnType<typeof setTimeout>;
+  broadcastChannel?: ReturnType<typeof masterBus.getOrCreateChannel>;
 }
 
 class TournamentTimerServiceClass {
@@ -95,7 +96,9 @@ class TournamentTimerServiceClass {
       }
       this.activeTimers.delete(tournamentId);
       // Clean up broadcast channel to prevent memory leaks
-      masterBus.removeRegisteredChannel(`tournament:${tournamentId}`);
+      if (timer.broadcastChannel) {
+        masterBus.removeRegisteredChannel(`tournament:${tournamentId}`, timer.broadcastChannel);
+      }
       // Clean up per-tournament tracking state
       this.headsUpTriggered.delete(tournamentId);
       this.finalTableObserved.delete(tournamentId);
@@ -392,18 +395,32 @@ class TournamentTimerServiceClass {
     payload: Record<string, unknown>
   ): Promise<void> {
     try {
-      // Use MasterBus channel registry to avoid orphaned channel leaks
+      // Use MasterBus channel registry once per active timer to avoid orphaned channel refcount leaks
       const channelKey = `tournament:${tournamentId}`;
-      const channel = masterBus.getOrCreateChannel(channelKey);
-      await channel.send({
-        type: 'broadcast',
-        event: eventType,
-        payload: {
-          tournamentId,
-          timestamp: new Date().toISOString(),
-          ...payload,
-        },
-      });
+      const timer = this.activeTimers.get(tournamentId);
+      let channel = timer?.broadcastChannel;
+      const acquiredForOneShot = !channel;
+      if (!channel) {
+        channel = masterBus.getOrCreateChannel(channelKey);
+        if (timer) {
+          timer.broadcastChannel = channel;
+        }
+      }
+      try {
+        await channel.send({
+          type: 'broadcast',
+          event: eventType,
+          payload: {
+            tournamentId,
+            timestamp: new Date().toISOString(),
+            ...payload,
+          },
+        });
+      } finally {
+        if (acquiredForOneShot && !timer) {
+          masterBus.removeRegisteredChannel(channelKey, channel);
+        }
+      }
     } catch (error: unknown) {
       reportError(error, 'TournamentTimerService.Broadcast_error');
     }

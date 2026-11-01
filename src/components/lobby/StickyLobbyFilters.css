@@ -19,6 +19,7 @@
   flex: 1 1 0;
   min-width: 0;
   min-height: 44px;
+  height: 44px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -26,16 +27,10 @@
     contain no-repeat;
   box-shadow: none;
   color: #e4e7ec;
-  --lobby-key-font: 12cqw;
+  --lobby-key-font: clamp(12px, 12cqw, 15.84px);
 }
 .club-home .lobby-sticky-filters > button[aria-pressed='true'] {
   color: #45adff;
-}
-.club-home .lobby-sticky-filters .lobby-filter-label {
-  position: absolute;
-  inset: 24% 12%;
-  display: grid;
-  place-items: center;
 }
 .club-home .lobby-sticky-filters .lobby-filter-label__text {
   font-size: calc(var(--lobby-key-font, 18px) * var(--fit, 1));

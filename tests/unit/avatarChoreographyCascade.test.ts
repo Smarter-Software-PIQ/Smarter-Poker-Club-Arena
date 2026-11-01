@@ -225,23 +225,51 @@ describe('avatarChoreography.css cascade', () => {
     // you cannot see is a worse outcome than a dropped frame — so gestures must
     // survive. If a future edit adds them here, the table stops communicating
     // on exactly the devices that most need it to.
-    const lite = CSS.split('\n')
-      .map((l, i) => [l, i] as const)
-      .filter(([l]) => l.includes("[data-sp-motion='lite']"));
-    expect(lite.length, 'no motion-budget rules found').toBeGreaterThan(0);
-
-    const litSelectors = lite.map(([l]) => l);
-    for (const g of GESTURES) {
+    const offSelectors = [...CSS.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(
+        ([, selector, body]) =>
+          selector.includes("[data-sp-motion='lite']") && /animation:\s*none/.test(body)
+      )
+      .map(([, selector]) =>
+        selector.replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').trim()
+      );
+    expect(offSelectors.length, 'no motion-budget rules found').toBeGreaterThan(0);
+    const originalMotion = document.documentElement.getAttribute('data-sp-motion');
+    const wrap = document.createElement('div');
+    const holo = document.createElement('div');
+    holo.className = 'seat__avatar--holo';
+    const sweep = document.createElement('div');
+    sweep.className = 'seat__holo';
+    holo.append(sweep);
+    document.body.append(wrap, holo);
+    document.documentElement.setAttribute('data-sp-motion', 'lite');
+    const matchesOff = (element: Element) =>
+      offSelectors.some((selector) => element.matches(selector));
+    try {
+      for (const tense of [false, true]) {
+        const base = `seat__avatar-wrap${tense ? ' seat__avatar-wrap--tense' : ''}`;
+        wrap.className = base;
+        expect(matchesOff(wrap), tense ? 'tense tremor not shed' : 'breathing not shed').toBe(true);
+        for (const gesture of GESTURES) {
+          wrap.className = `${base} seat__avatar-wrap--${gesture}`;
+          expect(matchesOff(wrap), `lite mode must preserve ${gesture}, tense=${tense}`).toBe(
+            false
+          );
+        }
+      }
       expect(
-        litSelectors.some((l) => l.includes(`--${g}`) && !l.includes('--tense')),
-        `lite mode must NOT disable the one-shot "${g}" gesture — it carries meaning`
-      ).toBe(false);
+        offSelectors.some(
+          (selector) =>
+            selector.endsWith('::after') && sweep.matches(selector.replace(/::after$/, ''))
+        ),
+        'holo sweep not shed'
+      ).toBe(true);
+    } finally {
+      wrap.remove();
+      holo.remove();
+      if (originalMotion === null) document.documentElement.removeAttribute('data-sp-motion');
+      else document.documentElement.setAttribute('data-sp-motion', originalMotion);
     }
-    // ...and it must actually cover all three infinite ones.
-    const joined = litSelectors.join('\n');
-    expect(joined, 'breathing not shed').toContain('.seat__avatar-wrap,');
-    expect(joined, 'tense tremor not shed').toContain('--tense');
-    expect(joined, 'holo sweep not shed').toContain('--holo');
   });
 
   it('keeps every gesture keyframe defined exactly once', () => {

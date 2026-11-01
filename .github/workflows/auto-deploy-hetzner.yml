@@ -448,7 +448,7 @@ jobs:
             /var/lib/club-arena \
             /var/lib/club-arena/control-staging \
             "$STAGE"
-          GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_DIR" archive "$CONTROL_SHA" server/scripts \
+          GIT_NO_REPLACE_OBJECTS=1 git -c tar.umask=0022 -C "$REPO_DIR" archive "$CONTROL_SHA" server/scripts \
             | tar --no-same-owner -xf - -C "$STAGE"
           chmod 0755 "$STAGE/server/scripts/"*.sh
           for script in "$STAGE"/server/scripts/*.sh; do bash -n "$script"; done

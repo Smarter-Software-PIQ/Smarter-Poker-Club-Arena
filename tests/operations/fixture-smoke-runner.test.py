@@ -69,6 +69,8 @@ def catalog_fixture():
                 production_parity=False, contains_passwords_or_user_rows=False)
 
 
+CURRENT_APPLICATION = dict(scope='native-current-application-preimage',roles=38,added_roles=5,extensions=13,target_schema_owner_acl_exact=True,exact_versions_schemas_owners=True,genuine_create_extension=True,schema_preimage_created=True,production_binary_parity=False,full_schema_ready=False)
+
 def preimage_material(catalog=None, raw=None):
     catalog = catalog_fixture() if catalog is None else catalog
     raw = (json.dumps(catalog) + '\n').encode() if raw is None else raw
@@ -202,6 +204,8 @@ class RunnerTests(unittest.TestCase):
                     if fault == 'preimage-leftover':
                         present.add(env['FIXTURE_SMOKE_CONTAINER'] + '-preimage')
                     result = SMOKE if fault != 'missing-service' else json.dumps(RECORDS[0])
+                    if fault != 'missing-current-proof':
+                        result += json.dumps(CURRENT_APPLICATION) + '\n'
                     if fault != 'missing-role-proof':
                         result += json.dumps(ROLE_ALIGNMENT) + '\n'
                     return result if fault == 'missing-preimage-proof' else result + json.dumps(proof) + '\n'
@@ -224,7 +228,7 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn('PRIVATE TOKEN', text)
             self.assertFalse(list(root.glob('.ca-fixture-smoke-*-preimage.json')))
             artifact = root / 'evidence/native-service-preimage.json'
-            if fault in {'missing-preimage-file', 'missing-preimage-proof', 'preimage-content'}:
+            if fault in {'missing-preimage-file', 'missing-preimage-proof', 'preimage-content', 'missing-current-proof'}:
                 self.assertFalse(artifact.exists())
             if code == 0:
                 self.assertEqual(artifact.read_bytes(), preimage_material()[0])
@@ -325,8 +329,21 @@ class RunnerTests(unittest.TestCase):
                              [{'stage': stage, 'category': 'AssertionError'}])
             self.assertEqual(m.native_failures(json.dumps({**row, 'token': 'PRIVATE'})), [])
 
+    def test_current_application_proof_requires_exact_native_namespace_and13providers(self):
+        self.assertEqual(m.current_application_preimage_record(json.dumps(CURRENT_APPLICATION)), CURRENT_APPLICATION)
+        for key in CURRENT_APPLICATION:
+            changed = dict(CURRENT_APPLICATION); changed.pop(key)
+            with self.assertRaises(RuntimeError): m.current_application_preimage_record(json.dumps(changed))
+        for key, value in [('roles',33),('extensions',7),('target_schema_owner_acl_exact',False),('schema_preimage_created',False),('production_binary_parity',True),('roles',True)]:
+            changed = dict(CURRENT_APPLICATION); changed[key] = value
+            with self.assertRaises(RuntimeError): m.current_application_preimage_record(json.dumps(changed))
+        changed = {**CURRENT_APPLICATION, 'secret': 'PRIVATE TOKEN'}
+        with self.assertRaisesRegex(RuntimeError, 'native_fixture_smoke_requirement_failed'): m.current_application_preimage_record(json.dumps(changed))
+        with self.assertRaises(RuntimeError): m.current_application_preimage_record(json.dumps(CURRENT_APPLICATION)+'\n'+json.dumps(CURRENT_APPLICATION))
+        with self.assertRaises(RuntimeError): m.current_application_preimage_record(json.dumps(CURRENT_APPLICATION).replace('"roles": 38','"roles": 38, "roles": 38'))
+
     def test_preimage_required_and_unvalidated_bytes_never_published(self):
-        for fault in ('missing-preimage-file', 'missing-preimage-proof', 'preimage-content'):
+        for fault in ('missing-preimage-file', 'missing-preimage-proof', 'preimage-content', 'missing-current-proof'):
             with self.subTest(fault=fault):
                 self.assertEqual(self.exercise(fault)[0], 1)
 

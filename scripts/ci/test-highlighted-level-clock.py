@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Qualify the actual clock trigger and migration in an isolated PG17 cluster."""
-import json, os, pathlib, shutil, subprocess, tempfile
+import json, os, pathlib, shutil, socket, subprocess, tempfile
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 PG=pathlib.Path(os.environ.get('PG_BIN','/opt/homebrew/opt/postgresql@17/bin'))
 ENV={k:v for k,v in os.environ.items() if not k.startswith('PG')}; ENV.update(LC_ALL='C',LANG='C')
 CLUSTER=pathlib.Path(tempfile.mkdtemp(prefix='highlighted-clock-'))
-PSQL=[PG/'psql','-XqAt','-v','ON_ERROR_STOP=1','-h',CLUSTER,'-p','55784','-U','postgres']
+# The port only names the private Unix socket (listen_addresses is empty), but
+# a FIXED 55784 sits inside the ephemeral range: whenever anything else on the
+# runner holds it, pg_ctl reports "could not start server" and the whole check
+# flakes. Ask the kernel for a port that is free right now instead.
+with socket.socket() as _probe:
+    _probe.bind(('127.0.0.1',0)); PORT=str(_probe.getsockname()[1])
+PSQL=[PG/'psql','-XqAt','-v','ON_ERROR_STOP=1','-h',CLUSTER,'-p',PORT,'-U','postgres']
 def startup_log(args):
     if pathlib.Path(args[0]) != PG/'pg_ctl' or args[-1] != 'start': return ''
     try:
@@ -30,7 +36,7 @@ def check(name,condition):
     checks.append(name)
 try:
     call([PG/'initdb','-D',CLUSTER/'data','-U','postgres','--auth=trust','--no-locale'])
-    call([PG/'pg_ctl','-D',CLUSTER/'data','-l',CLUSTER/'pg.log','-o',f'-k "{CLUSTER}" -p 55784 -c listen_addresses=','-w','start'])
+    call([PG/'pg_ctl','-D',CLUSTER/'data','-l',CLUSTER/'pg.log','-o',f'-k "{CLUSTER}" -p {PORT} -c listen_addresses=','-w','start'])
     check('fixture uses only its private Unix socket',run("SELECT inet_server_addr() IS NULL AND current_setting('listen_addresses')='' ")=='t')
     run('''CREATE TABLE tournaments(id serial,name text,status text DEFAULT 'REGISTERING',tournament_type text DEFAULT 'MTT',variant text DEFAULT 'freezeout',
       buy_in_amount numeric DEFAULT 10,buy_in_fee numeric DEFAULT 0,is_bounty bool,is_pko bool,is_mystery_bounty bool,bounty_amount numeric,
