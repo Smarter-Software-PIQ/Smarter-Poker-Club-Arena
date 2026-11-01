@@ -130,7 +130,203 @@ CONTROL_CORE = {'engine-supervisor.sh','engine-up.sh','engine-release-protocol-v
                 'engine-release-seal.py','verify-recovery-stack.sh'}
 
 
+ROUTINE_REQUEST = {'mode': 'canonical_routine_owner', 'runKey': '41353218793-1',
+                   'releaseSha': 'b4453ab6e58bced3a99d90dfe8312d7b70183c65'}
+ROUTINE_SCHEMA = 'canonical-routine-owner-observation/v1'
+ROUTINE_LIMITATION = 'observation-only-cleanup-and-retry-authority-unknown'
+
+
+def routine_require(value):
+    if not value:
+        raise ValueError('Routine owner evidence refused')
+
+
+def routine_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def routine_owner(value):
+    """Closed ownership projection; never export token/hash capsules or bodies."""
+    if value is None:
+        return {'present': False, 'sha256': None, 'runId': None, 'sha': None, 'imageId': None}
+    routine_require(isinstance(value, dict))
+    run, sha, image = value.get('runId'), value.get('sha'), value.get('imageId')
+    routine_require(isinstance(run, str) and RUN.fullmatch(run) and
+                    isinstance(sha, str) and SHA.fullmatch(sha) and
+                    isinstance(image, str) and re.fullmatch(r'sha256:[0-9a-f]{64}', image))
+    return {'present': True, 'sha256': routine_digest(value), 'runId': run, 'sha': sha, 'imageId': image}
+
+
+def routine_cycle_metadata(key, cycle):
+    """Nonexecuting equivalent of the canonical cycle/window identity guards.
+
+    This deliberately does not certify historical sealed result/native cleanup.
+    Only unresolved owner projections are returned to the existing audit mode.
+    """
+    routine_require(isinstance(key, str) and re.fullmatch(r'[1-9][0-9]*', key) and
+                    int(key) % 3600 == 0 and isinstance(cycle, dict))
+    routine_require(type(cycle.get('startsAt')) is int and cycle['startsAt'] == int(key) and
+                    type(cycle.get('endsAt')) is int and cycle['endsAt'] == int(key) + 300 and
+                    946684800 <= cycle['startsAt'] < 4102444800 and
+                    cycle.get('policyId') == 'phase1-hourly-01a1944f' and
+                    isinstance(cycle.get('policyDigest'), str) and re.fullmatch('[0-9a-f]{64}', cycle['policyDigest']) and
+                    isinstance(cycle.get('runId'), str) and RUN.fullmatch(cycle['runId']) and
+                    isinstance(cycle.get('sha'), str) and SHA.fullmatch(cycle['sha']) and
+                    isinstance(cycle.get('controlSha'), str) and SHA.fullmatch(cycle['controlSha']) and
+                    cycle.get('kind') in {'hourly-reset', 'daily-restoration'} and
+                    cycle.get('status') in {'reserved', 'committed', 'sealed'})
+    window = cycle.get('window')
+    if window is not None:
+        routine_require(isinstance(window, dict) and set(window) == {'announcedAt', 'startsAt', 'endsAt', 'verified'} and
+                        all(type(window.get(k)) is int for k in ('announcedAt', 'startsAt', 'endsAt')) and
+                        type(window.get('verified')) is bool and
+                        window['startsAt'] == window['announcedAt'] + 120000 and
+                        window['endsAt'] == window['startsAt'] + 300000 and
+                        cycle['startsAt'] * 1000 <= window['startsAt'] < (cycle['startsAt'] + 60) * 1000)
+    if cycle['status'] in {'committed', 'sealed'}:
+        routine_require(window is not None and window['verified'] is True)
+    return {k: cycle[k] for k in ('runId', 'sha', 'controlSha', 'policyId', 'policyDigest', 'kind', 'status', 'startsAt', 'endsAt')} | {'window': window}
+
+
+def routine_result(value, cycle):
+    if value is None:
+        return {'present': False, 'sha256': None, 'outcome': None, 'identityMatches': None,
+                'cycleFailureMatches': None, 'completedAt': None}
+    routine_require(isinstance(value, dict) and type(value.get('schema')) is int and value['schema'] == 1 and
+                    value.get('result') in {'failed', 'sealed', 'already-released'} and
+                    isinstance(value.get('runId'), str) and RUN.fullmatch(value['runId']) and
+                    isinstance(value.get('sha'), str) and SHA.fullmatch(value['sha']) and
+                    isinstance(value.get('controlSha'), str) and SHA.fullmatch(value['controlSha']) and
+                    type(value.get('completedAt')) is int and 946684800 <= value['completedAt'] < 4102444800)
+    failure = cycle.get('failure')
+    return {'present': True, 'sha256': routine_digest(value), 'outcome': value['result'],
+            'identityMatches': all(value.get(k) == cycle[k] for k in ('runId', 'sha', 'controlSha')),
+            'cycleFailureMatches': None if failure is None else routine_digest(failure) == routine_digest(value),
+            'completedAt': value['completedAt']}
+
+
+def routine_remote(request, root_fd):
+    """Read only fixed canonical files with existing private stable-file reader.
+
+    No production module import, subprocess, lock creation, state repair,
+    mutation, process probe, listener action or authority inference.
+    """
+    routine_require(selection(request) == ROUTINE_REQUEST)
+    started = time.monotonic()
+    directory = os.fstat(root_fd)
+    routine_require(stat.S_ISDIR(directory.st_mode) and directory.st_uid == os.geteuid() and
+                    stat.S_IMODE(directory.st_mode) == 0o700)
+    identity = lambda x: (x.st_dev, x.st_ino, x.st_size, x.st_mtime_ns, x.st_ctime_ns, x.st_uid, x.st_mode)
+    name = 'engine-release-seal.json'
+    seal_before = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+    state, raw = read_json(root_fd, name, private=True, with_bytes=True)
+    routine_require(type(state.get('schema')) is int and state['schema'] == 1 and
+                    type(state.get('generation')) is int and state['generation'] >= 1)
+    desired = state.get('desired')
+    routine_require(isinstance(desired, dict) and isinstance(desired.get('sha'), str) and SHA.fullmatch(desired['sha']) and
+                    isinstance(desired.get('imageId'), str) and re.fullmatch(r'sha256:[0-9a-f]{64}', desired['imageId']))
+    cycles, committed = state.get('routineMaintenanceCycles'), state.get('committedRuns')
+    routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict))
+    owners = []
+    for key, cycle in sorted(cycles.items()):
+        row = routine_cycle_metadata(key, cycle)
+        if cycle['status'] != 'sealed':
+            owners.append((cycle, row))
+    routine_require(len(owners) <= 8 and len({c['runId'] for c, _ in owners}) == len(owners))
+    result_fd = os.open('engine-release-results', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
+    observed = []
+    try:
+        result_dir = os.fstat(result_fd)
+        routine_require(result_dir.st_uid == os.geteuid() and stat.S_IMODE(result_dir.st_mode) == 0o700)
+        for cycle, row in owners:
+            routine_require(time.monotonic() - started < 5)
+            result_name = cycle['runId'] + '.json'
+            try:
+                result_stat = os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)
+                result, result_raw = read_json(result_fd, result_name, private=True, with_bytes=True)
+            except FileNotFoundError:
+                result_stat, result, result_raw = None, None, None
+            failure = cycle.get('failure')
+            routine_require(failure is None or isinstance(failure, dict))
+            row.update(failurePresent=failure is not None,
+                       failureSha256=None if failure is None else routine_digest(failure),
+                       result=routine_result(result, cycle),
+                       committed=routine_owner(None if cycle['runId'] not in committed else
+                                               {'runId': cycle['runId'], **committed[cycle['runId']]}))
+            observed.append((result_name, result_stat, result_raw))
+        # Verify every observed/absent file and original canonical bytes again.
+        for result_name, result_stat, result_raw in observed:
+            if result_stat is None:
+                try:
+                    os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                raise ValueError('Routine owner evidence changed')
+            _, reread = read_json(result_fd, result_name, private=True, with_bytes=True)
+            routine_require(reread == result_raw and identity(result_stat) ==
+                            identity(os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)))
+        _, reread = read_json(root_fd, name, private=True, with_bytes=True)
+        routine_require(reread == raw and identity(seal_before) == identity(os.stat(name, dir_fd=root_fd, follow_symlinks=False)) and
+                        identity(directory) == identity(os.fstat(root_fd)) and
+                        identity(result_dir) == identity(os.fstat(result_fd)) and time.monotonic() - started < 5)
+    finally:
+        os.close(result_fd)
+    answer = {'schema': ROUTINE_SCHEMA, 'readOnly': True, **request,
+              'sealSha256': hashlib.sha256(raw).hexdigest(), 'generation': state['generation'],
+              'desiredSha': desired['sha'], 'desiredImageId': desired['imageId'],
+              'pending': routine_owner(state.get('pending')), 'finalization': routine_owner(state.get('finalization')),
+              'owners': [row for _, row in owners], 'limitation': ROUTINE_LIMITATION}
+    return validate_routine_reply(answer, request)
+
+
+def validate_routine_reply(value, request):
+    fields = {'schema', 'readOnly', 'mode', 'runKey', 'releaseSha', 'sealSha256', 'generation',
+              'desiredSha', 'desiredImageId', 'pending', 'finalization', 'owners', 'limitation'}
+    routine_require(selection(request) == ROUTINE_REQUEST and isinstance(value, dict) and set(value) == fields and
+                    value['schema'] == ROUTINE_SCHEMA and value['readOnly'] is True and
+                    all(value.get(k) == v for k, v in request.items()) and value['limitation'] == ROUTINE_LIMITATION and
+                    isinstance(value['sealSha256'], str) and re.fullmatch('[0-9a-f]{64}', value['sealSha256']) and
+                    type(value['generation']) is int and value['generation'] >= 1 and
+                    isinstance(value['desiredSha'], str) and SHA.fullmatch(value['desiredSha']) and
+                    isinstance(value['desiredImageId'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', value['desiredImageId']) and
+                    isinstance(value['owners'], list) and len(value['owners']) <= 8)
+    def hash_or_none(v):
+        return v is None or isinstance(v, str) and re.fullmatch('[0-9a-f]{64}', v)
+    for owner in [value['pending'], value['finalization']] + [row.get('committed') for row in value['owners'] if isinstance(row, dict)]:
+        routine_require(isinstance(owner, dict) and set(owner) == {'present', 'sha256', 'runId', 'sha', 'imageId'} and type(owner['present']) is bool)
+        if owner['present']:
+            routine_require(hash_or_none(owner['sha256']) and owner['sha256'] is not None and
+                            isinstance(owner['runId'], str) and RUN.fullmatch(owner['runId']) and
+                            isinstance(owner['sha'], str) and SHA.fullmatch(owner['sha']) and
+                            isinstance(owner['imageId'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', owner['imageId']))
+        else:
+            routine_require(all(owner[k] is None for k in ('sha256', 'runId', 'sha', 'imageId')))
+    seen = set()
+    for row in value['owners']:
+        routine_require(isinstance(row, dict) and set(row) == {'runId', 'sha', 'controlSha', 'policyId', 'policyDigest', 'kind', 'status', 'startsAt', 'endsAt', 'window', 'failurePresent', 'failureSha256', 'result', 'committed'})
+        routine_cycle_metadata(str(row['startsAt']), row)
+        routine_require(row['status'] in {'reserved', 'committed'} and row['runId'] not in seen and
+                        type(row['failurePresent']) is bool and hash_or_none(row['failureSha256']) and
+                        row['failurePresent'] == (row['failureSha256'] is not None))
+        seen.add(row['runId'])
+        result = row['result']
+        routine_require(isinstance(result, dict) and set(result) == {'present', 'sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt'} and type(result['present']) is bool)
+        if result['present']:
+            routine_require(hash_or_none(result['sha256']) and result['sha256'] is not None and
+                            result['outcome'] in {'failed', 'sealed', 'already-released'} and
+                            type(result['identityMatches']) is bool and
+                            (result['cycleFailureMatches'] is None or type(result['cycleFailureMatches']) is bool) and
+                            type(result['completedAt']) is int and 946684800 <= result['completedAt'] < 4102444800 and
+                            row['failurePresent'] == (result['cycleFailureMatches'] is not None))
+        else:
+            routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
+    return value
+
+
 def selection(value):
+    if isinstance(value, dict) and value.get('mode') == 'canonical_routine_owner':
+        if value != ROUTINE_REQUEST: raise ValueError('Exact failed routine owner read required')
+        return dict(value)
     if isinstance(value, dict) and value.get('mode') == 'intake_staging_records':
         if value != INTAKE_REQUEST: raise ValueError('Exact failed intake required')
         return dict(value)
@@ -2824,6 +3020,9 @@ def remote(request):
     # All production paths are fixed. No environment/caller path override.
     root_fd = os.open(STATE_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
+        if request.get('mode') == 'canonical_routine_owner':
+            if os.geteuid() != 0: raise ValueError('Root read custody required')
+            return routine_remote(request, root_fd)
         if request.get('mode') == 'cancellation_records':
             return cancellation_records(request, root_fd)
         if request.get('mode') == 'main_inspector_retirement':
@@ -2852,6 +3051,8 @@ def remote(request):
 
 
 def validate_reply(value, request):
+    if request.get('mode') == 'canonical_routine_owner':
+        return validate_routine_reply(value, request)
     if request.get('mode') == 'intake_staging_records':
         return validate_intake_reply(value,request)
     if request.get('mode') == 'native_scale_composition_records':
@@ -2952,7 +3153,7 @@ def main():
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
         reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
-        if len(reply.stdout) > (32768 if request.get('mode') == 'active_control_inventory' else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records'} else 4096):
+        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records'} else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:
             try:
