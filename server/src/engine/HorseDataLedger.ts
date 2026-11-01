@@ -776,6 +776,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V63-league'
   ),
   flag(
+    'v74OmahaSemiBluffNeedsDraw',
+    '2026-10-31 an Omaha semi-bluff raise needs a flush draw, eight or more straight outs or (hi-lo) a nut low draw; omahaDrawMod had returned 0.7 for no draw at all, so top pair with nothing to come re-raised bets under V53 pressure (reviews 2944297, 2838834; plo_toppair_no_redraw_stackoff -62.13 bb per hand over 234 hands); default on, explicit off arm retained for the league',
+    'V74'
+  ),
+  flag(
     'v62RiverBettorPolarity',
     "2026-10-30 Hold'em river bettor polarity: a river wager's sampled hand is drawn from a bluff / two pair+ / top pair / weaker pair stratum by bet size; OPT-IN since 18:50 UTC after the mirror league resolved it negative against horses (-3.67 +/- 1.02 bb/100 at 200bb) while V61 alone resolved +1.30 +/- 0.41; re-enable only after a recalibrated stratum resolves positive",
     'V62'
@@ -1295,9 +1300,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'horse_mind_stats_scoped',
     'boot',
     'HorseMindPersistence (hydrateHorseMindScopedFromDb at boot, flushHorseMindScoped on the timer); HorseMind.readStats prefers it at 40 hands',
-    'V45: the same counters per (player, card family x table size) - a PLO6 VPIP no longer reads as an NLH VPIP',
-    'V45',
-    { dayColumn: 'updated_at', freshnessDays: 1 }
+    // NO DAILY FRESHNESS SINCE 2026-10-26. Live decisions moved to independent
+    // observer memory (2026-10-25-horse-observer-independent-memory) and the
+    // herd's persistent per-context reads to horse_exploit_profiles, which
+    // keeps the one-day freshness check above. Nothing feeds the process-wide
+    // scoped overlay any more, so its last write is 2026-10-26 01:01 UTC and a
+    // daily freshness expectation read that retirement as a critical outage
+    // every night (data_stale, audit 2026-10-30).
+    'V45: the same counters per (player, card family x table size); superseded on 2026-10-26 by horse_exploit_profiles for live per-context reads',
+    'V45'
   ),
   table(
     'horse_mind_pairs',
@@ -3563,6 +3574,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic committed and ordinary raise branches',
     'opt-in river Omaha weak set/trips flatted after clearing the unchanged call bar',
     'V55'
+  ),
+  receipt(
+    'v74_omaha_semibluff_needs_draw',
+    'HorseLogic (V74) semi-bluff raise gate',
+    'an Omaha hand with no flush draw, under eight straight outs and no nut low draw was refused the semi-bluff raise',
+    'V74'
   ),
   receipt(
     'v62_river_bettor_polarity',

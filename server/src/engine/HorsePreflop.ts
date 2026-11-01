@@ -474,8 +474,8 @@ const CALL_VS: Record<PreflopPosition, number> = {
 const LIMP_BEHIND_MIN = 0.5;
 
 /**
- * V72: the bluff budget (bluffFreq x aggression) of a balanced horse with no
- * survival premium. A style's V72 bluff 3-bet frequency is the reference
+ * V74: the bluff budget (bluffFreq x aggression) of a balanced horse with no
+ * survival premium. A style's V74 bluff 3-bet frequency is the reference
  * chart's scaled by its own budget over this one.
  */
 const BALANCED_BLUFF_BUDGET = 0.17;
@@ -1394,7 +1394,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
 
     // Blinds facing a LATE steal prefer 3-bet-or-fold over cold-calling
     // out of position: shift part of the call band into the 3-bet.
-    // (V72: inside the per-seat reference base.)
+    // (V74: inside the per-seat reference base.)
     const blindVsSteal = (position === 'sb' || position === 'bb') && vs === 'late';
     if (blindVsSteal && !def72) {
       threeBetThresh =
@@ -1405,7 +1405,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     }
     // V11 HEADS-UP DEFENSE: the SB/BTN opens most hands HU, so the BB defends
     // the wide majority — folding 50%+ of hands to a HU open is pure surrender.
-    // (V72 owns blind against blind at three or more dealt in.)
+    // (V74 owns blind against blind at three or more dealt in.)
     if (headsUp && position === 'bb' && !def72) {
       threeBetThresh =
         t53(0.64 - (ctx.aggression - 1) * 0.08, 'threeBet') +
@@ -1489,7 +1489,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
                 ? 0.65
                 : 0.72
               : null;
-      // V72: these bars were this layer's per-bucket 3-bet WIDTHS and the
+      // V74: these bars were this layer's per-bucket 3-bet WIDTHS and the
       // per-seat reference base replaces them, except against a steal (a
       // late or small-blind open), where Dan's tournament re-steal stays a
       // floor under the base: measured on the MTT 25bb mirror over three
@@ -1527,9 +1527,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
                   : 0.7
               : null;
       // The V12 hunter discount still applies below the cash bar.
-      // V72: as in the tournament layer, the per-seat base owns the width.
+      // V74: as in the tournament layer, the per-seat base owns the width.
       if (def72) {
-        /* the V72 base owns the 3-bet width */
+        /* the V74 base owns the 3-bet width */
       } else if (cashBar !== null)
         threeBetThresh = Math.min(threeBetThresh, t(cashBar) - 0.05 * hunted);
       else threeBetThresh -= 0.03;
@@ -1638,7 +1638,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (tAggro ? 1.3 : 1) *
       // CASH PRESSURE: the same re-steal volume in cash.
       (cAggro ? 1.3 : 1);
-    // V72: the bluffs are the reference bluff chart's classes at its own
+    // V74: the bluffs are the reference bluff chart's classes at its own
     // frequencies (scaled to the spot's bluff width), moved by everything that
     // moved the legacy mix: style (the bluff budget against a balanced
     // horse's), this raiser's fold-to-3-bet read, the bubble, V57/V60. The
@@ -1685,7 +1685,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // even money: the blind gets a lot of it, a cold caller gets a little.
     // Nothing in NLH changes - there the equity spread is real, and a fixed
     // percentile means what it says.
-    // V72: the continue bar is already the big blind's own width.
+    // V74: the continue bar is already the big blind's own width.
     let callBar = callThresh - (def72 ? 0 : bbDiscount);
     if (ctx.isOmaha && ctx.ploPriceDefense === true) {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
