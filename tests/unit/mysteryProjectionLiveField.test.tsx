@@ -23,6 +23,7 @@ vi.mock('../../src/lib/supabase', () => ({
         limit = 1000;
       const b: any = {
         select: () => b,
+        abortSignal: () => b,
         eq: (key: string, value: string) => {
           id = value;
           return b;

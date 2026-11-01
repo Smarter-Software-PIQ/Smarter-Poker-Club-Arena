@@ -121,6 +121,7 @@ vi.mock('../../src/lib/supabase', () => ({
       const chain: any = { then: (yes: any, no: any) => Promise.resolve(response).then(yes, no) };
       for (const method of [
         'select',
+        'abortSignal',
         'eq',
         'order',
         'not',

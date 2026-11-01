@@ -39,6 +39,7 @@ function setResult(table: string, result: QueryResult) {
 
 const CHAIN_METHODS = [
   'select',
+  'abortSignal',
   'eq',
   'neq',
   'in',
