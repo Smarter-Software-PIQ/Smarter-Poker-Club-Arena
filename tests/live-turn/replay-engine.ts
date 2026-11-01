@@ -137,30 +137,42 @@ export class ReplayEngine {
   private stateDeliveryDrop: { seq: number; prev: number } | null = null;
   private heldResyncSockets = new Set<WebSocketRoute>();
   private resyncReplyRelease: (() => void) | null = null;
+  private startResyncReplyLease: (() => void) | null = null;
 
   get resyncRepliesHeld(): boolean {
     return this.resyncReplyRelease !== null;
   }
 
-  /** A finite delayed response to the real client's state-gap RESYNC. */
+  /** A finite delayed response, measured from the first state-gap RESYNC. */
   holdResyncReplies(ms: number): () => void {
     if (!Number.isFinite(ms) || ms <= 0 || ms > 5_000)
       throw new Error('Replay RESYNC hold must be between 1 and 5000 ms');
     this.resyncReplyRelease?.();
     let released = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const release = () => {
       if (released) return;
       released = true;
-      clearTimeout(timer);
-      this.timers.delete(timer);
-      if (this.resyncReplyRelease === release) this.resyncReplyRelease = null;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        this.timers.delete(timer);
+      }
+      if (this.resyncReplyRelease === release) {
+        this.resyncReplyRelease = null;
+        this.startResyncReplyLease = null;
+      }
       for (const socket of this.heldResyncSockets) {
         if (this.sockets.has(socket)) this.sendSnapshotTo(socket);
       }
       this.heldResyncSockets.clear();
     };
-    const timer = setTimeout(release, ms);
-    this.timers.add(timer);
+    // Arming before a click must not spend the response budget on action
+    // setup. Start once a real response is held; later requests cannot renew it.
+    this.startResyncReplyLease = () => {
+      if (released || timer !== undefined) return;
+      timer = setTimeout(release, ms);
+      this.timers.add(timer);
+    };
     this.resyncReplyRelease = release;
     return release;
   }
@@ -215,6 +227,7 @@ export class ReplayEngine {
 
   dispose(): void {
     this.resyncReplyRelease = null;
+    this.startResyncReplyLease = null;
     this.heldResyncSockets.clear();
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
@@ -259,8 +272,10 @@ export class ReplayEngine {
         }
       } else if (msg.type === 'RESYNC') {
         this.resyncRequests++;
-        if (this.resyncReplyRelease) this.heldResyncSockets.add(ws);
-        else this.sendSnapshotTo(ws);
+        if (this.resyncReplyRelease) {
+          this.heldResyncSockets.add(ws);
+          this.startResyncReplyLease?.();
+        } else this.sendSnapshotTo(ws);
       } else if (msg.type === 'UNSUBSCRIBE') {
         this.sockets.delete(ws);
         this.heldResyncSockets.delete(ws);
