@@ -608,6 +608,7 @@ function equalFixture({
   patch = {},
   afterPatch = {},
   receiptPatch = {},
+  previewPatch = {},
 } = {}) {
   const calls = [];
   let state = initial;
@@ -617,6 +618,7 @@ function equalFixture({
     success: true,
     fully_settled: true,
     receipt_version: 4,
+    allocation_hash: '2'.repeat(32),
     mode: 'started_operator_equal_share',
     status: 'CANCELLED',
     operation_id: member.operationId,
@@ -666,6 +668,10 @@ function equalFixture({
           quiescence_generation: input.generation,
           current_boundary_valid: state === 'quiesced',
           money_hash: '0'.repeat(32),
+          money_snapshot: {
+            escrow: { prize_balance: 95, bounty_balance: 5 },
+            roster: '3'.repeat(32),
+          },
           state,
           tournament_status: state === 'settled' ? 'CANCELLED' : 'RUNNING',
           receipt: state === 'settled' ? receipt() : null,
@@ -701,6 +707,22 @@ function equalFixture({
             tournament_id: member.tournamentId,
             private_payload: privateCanary,
           },
+        }),
+      };
+    }
+    if (url.endsWith('/fn_ca_preview_tournament_abort_equal_share')) {
+      if (failure === 'timeout') throw Error(privateCanary);
+      return {
+        ok: true,
+        json: async () => ({
+          preview_only: true,
+          rolled_back: true,
+          operation_id: member.operationId,
+          tournament_id: member.tournamentId,
+          money_hash: '0'.repeat(32),
+          allocation_hash: '2'.repeat(32),
+          receipt: receipt(),
+          ...previewPatch,
         }),
       };
     }
@@ -937,6 +959,7 @@ test('manual workflow explicitly exposes all four equal actions without broadeni
     'equal_request',
     'equal_read',
     'equal_ack',
+    'equal_preview',
     'equal_settle',
     'prepare',
     'read',
@@ -946,4 +969,55 @@ test('manual workflow explicitly exposes all four equal actions without broadeni
     'abort_settle',
   ])
     assert.match(source, new RegExp('\\b' + action + '\\b'));
+});
+
+const previewCalls = (f) =>
+  f.calls.filter((x) => x.url.endsWith('/fn_ca_preview_tournament_abort_equal_share'));
+test('equal preview invokes actual rollback authority once and preserves canonical boundary', async () => {
+  const f = equalFixture();
+  const r = await f.run('equal_preview');
+  assert.equal(r.outcome, 'equal_share_preview_rolled_back');
+  assert.equal(previewCalls(f).length, 1);
+  assert.equal(equalWrites(f).length, 0);
+  assert.equal(r.canonicalAfter.state, 'quiesced');
+  assert.equal(r.canonicalAfter.receipt, null);
+  assert.equal(r.preview.rolled_back, true);
+  assert.equal(r.preview.allocation_hash, '2'.repeat(32));
+  assert.equal(r.settlement, undefined);
+  assert.equal(JSON.stringify(r).includes(privateCanary), false);
+});
+for (const previewPatch of [
+  { rolled_back: false },
+  { preview_only: false },
+  { operation_id: nightlyOperation },
+  { money_hash: '1'.repeat(32) },
+  { allocation_hash: '4'.repeat(32) },
+])
+  test(`equal preview rejects unproven rollback ${JSON.stringify(previewPatch)}`, async () => {
+    const f = equalFixture({ previewPatch });
+    assert.equal((await f.run('equal_preview')).outcome, 'unknown');
+    assert.equal(previewCalls(f).length, 1);
+    assert.equal(equalWrites(f).length, 0);
+  });
+for (const afterPatch of [
+  { money_hash: '1'.repeat(32) },
+  { current_boundary_valid: false },
+  { money_snapshot: { changed: true } },
+])
+  test(`equal preview rejects changed durable state ${JSON.stringify(afterPatch)}`, async () => {
+    const f = equalFixture({ afterPatch });
+    assert.equal((await f.run('equal_preview')).outcome, 'unknown');
+    assert.equal(equalWrites(f).length, 0);
+  });
+test('equal preview lost response stays unknown with one attempt and no settlement', async () => {
+  const f = equalFixture({ failure: 'timeout' });
+  assert.equal((await f.run('equal_preview')).outcome, 'unknown');
+  assert.equal(previewCalls(f).length, 1);
+  assert.equal(equalWrites(f).length, 0);
+});
+test('equal preview cannot run against an already committed settlement', async () => {
+  const f = equalFixture({ initial: 'settled' });
+  assert.equal((await f.run('equal_preview')).outcome, 'unknown');
+  assert.equal(previewCalls(f).length, 0);
+  assert.equal(equalWrites(f).length, 0);
 });

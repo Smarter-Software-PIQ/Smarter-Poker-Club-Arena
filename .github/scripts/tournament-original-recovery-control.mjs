@@ -21,7 +21,7 @@ const EQUAL = JSON.parse(
     'utf8'
   )
 );
-const EQUAL_ACTIONS = ['equal_request', 'equal_read', 'equal_ack', 'equal_settle'];
+const EQUAL_ACTIONS = ['equal_request', 'equal_read', 'equal_ack', 'equal_preview', 'equal_settle'];
 const ORIGIN = 'https://engine.smarter.poker';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Responses stay transient for strict control validation. The sole return
@@ -105,6 +105,7 @@ function publicSettlement(value, equal = false) {
       success: bool,
       fully_settled: bool,
       receipt_version: (v) => v === (equal ? 4 : 3),
+      ...(equal ? { allocation_hash: matches(MONEY_HASH) } : {}),
       mode: enums(equal ? 'started_operator_equal_share' : 'started_operator_abort'),
       status: enums('CANCELLED'),
       asset: enums('chips', 'diamonds'),
@@ -178,6 +179,17 @@ function publicResult(result) {
   for (const key of ['canonicalBefore', 'canonicalAfter'])
     if (result[key]) output[key] = publicCanonical(result[key], equal);
   if (result.settlement) output.settlement = publicSettlement(result.settlement, equal);
+  if (result.preview)
+    output.preview = {
+      ...fields(result.preview, {
+        ...publicTuple,
+        preview_only: bool,
+        rolled_back: bool,
+        money_hash: matches(MONEY_HASH),
+        allocation_hash: matches(MONEY_HASH),
+      }),
+      receipt: publicSettlement(result.preview.receipt, true),
+    };
   if (result.runtime) output.runtime = publicRuntime(result.runtime);
   if (result.mutationAcknowledgement === 'unknown') output.mutationAcknowledgement = 'unknown';
   if (result.reason)
@@ -514,7 +526,8 @@ async function controlEqualShare(
   const database = new URL(supabaseUrl);
   if (
     database.origin !== 'https://kuklfnapbkmacvwxktbh.supabase.co' ||
-    (input.action === 'equal_settle' && !MONEY_HASH.test(input.moneyHash ?? ''))
+    (['equal_settle', 'equal_preview'].includes(input.action) &&
+      !MONEY_HASH.test(input.moneyHash ?? ''))
   )
     throw Error('Canonical Database And Reviewed Money Hash Required');
   const ids = { p_operation_id: intent.operationId, p_tournament_id: input.tournamentId };
@@ -562,7 +575,8 @@ async function controlEqualShare(
       receipt.tournament_id === input.tournamentId &&
       receipt.quiescence?.generation === input.generation &&
       MONEY_HASH.test(receipt.quiescence?.money_hash ?? '') &&
-      (input.action !== 'equal_settle' || receipt.quiescence.money_hash === input.moneyHash)
+      (!['equal_settle', 'equal_preview'].includes(input.action) ||
+        receipt.quiescence.money_hash === input.moneyHash)
     );
   }
   async function readCanonical() {
@@ -661,19 +675,45 @@ async function controlEqualShare(
       )
         throw Error('Equal Share Boundary Receipt Unknown');
       result.runtime = body.runtime;
-    } else if (input.action === 'equal_settle' && before.state !== 'settled') {
+    } else if (
+      input.action === 'equal_preview' ||
+      (input.action === 'equal_settle' && before.state !== 'settled')
+    ) {
       if (
         before.state !== 'quiesced' ||
         before.current_boundary_valid !== true ||
         before.quiescence_generation !== input.generation ||
-        before.money_hash !== input.moneyHash
+        before.money_hash !== input.moneyHash ||
+        (input.action === 'equal_preview' &&
+          (!before.money_snapshot ||
+            typeof before.money_snapshot !== 'object' ||
+            Array.isArray(before.money_snapshot)))
       )
         throw Error('Reviewed Equal Share Boundary Changed');
       mutationAttempted = true;
-      result.settlement = await rpc('fn_ca_settle_tournament_abort_equal_share', {
-        ...ids,
-        p_expected_money_hash: input.moneyHash,
-      });
+      if (input.action === 'equal_preview') {
+        const preview = await rpc('fn_ca_preview_tournament_abort_equal_share', {
+          ...ids,
+          p_expected_money_hash: input.moneyHash,
+        });
+        if (
+          preview?.preview_only !== true ||
+          preview.rolled_back !== true ||
+          preview.operation_id !== intent.operationId ||
+          preview.tournament_id !== input.tournamentId ||
+          preview.money_hash !== input.moneyHash ||
+          !MONEY_HASH.test(preview.allocation_hash ?? '') ||
+          preview.allocation_hash !== preview.receipt?.allocation_hash ||
+          !settled({ state: 'settled', tournament_status: 'CANCELLED', receipt: preview.receipt })
+        )
+          throw Error('Equal Share Rollback Preview Unknown');
+        result.preview = preview;
+      } else {
+        result.settlement = await rpc('fn_ca_settle_tournament_abort_equal_share', {
+          ...ids,
+          p_expected_money_hash: input.moneyHash,
+        });
+      }
     }
   } catch {
     result.mutationAcknowledgement = 'unknown';
@@ -684,7 +724,18 @@ async function controlEqualShare(
   const after = result.canonicalAfter;
   if (result.mutationAcknowledgement === 'unknown' || after.state === 'ownership_unproven')
     return publicResult(result);
-  if (input.action === 'equal_read') result.outcome = 'equal_share_readback';
+  if (
+    input.action === 'equal_preview' &&
+    result.preview &&
+    after.state === 'quiesced' &&
+    after.current_boundary_valid === true &&
+    after.quiescence_generation === input.generation &&
+    after.money_hash === input.moneyHash &&
+    after.receipt === null &&
+    JSON.stringify(after.money_snapshot) === JSON.stringify(before.money_snapshot)
+  )
+    result.outcome = 'equal_share_preview_rolled_back';
+  else if (input.action === 'equal_read') result.outcome = 'equal_share_readback';
   else if (input.action === 'equal_request')
     result.outcome = mutationAttempted
       ? 'equal_share_requested_readback'

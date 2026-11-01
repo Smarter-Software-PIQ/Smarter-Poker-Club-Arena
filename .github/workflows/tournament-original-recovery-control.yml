@@ -15,6 +15,7 @@ on:
             equal_request,
             equal_read,
             equal_ack,
+            equal_preview,
             equal_settle,
           ]
         required: true
@@ -39,7 +40,7 @@ on:
         type: string
         required: true
       expected_money_hash:
-        description: Required for abort_settle or equal_settle, exact independently reviewed current money hash
+        description: Required for abort_settle, equal_preview or equal_settle, exact independently reviewed current money hash
         type: string
         required: false
 permissions:
