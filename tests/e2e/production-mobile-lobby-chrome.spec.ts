@@ -708,6 +708,22 @@ test.describe('the mobile lobby chrome on production', () => {
           )
           .toBe(true);
       }
+      if (mode === 'mtt' || mode === 'satellites') {
+        expect(paint.backgrounds[1]).toContain('chrome-arena-emblems-v2/');
+      }
+      const readableCopy = await sampleRow.evaluate((row) =>
+        [
+          ...row.querySelectorAll(
+            '.premium-cash-style,.lt-name__meta,.lt-name__table,.compact-lobby__meta'
+          ),
+        ]
+          .filter((element) => (element as HTMLElement).offsetWidth > 0)
+          .map((element) => ({
+            text: element.textContent,
+            size: parseFloat(getComputedStyle(element).fontSize),
+          }))
+      );
+      expect(readableCopy.every((copy) => copy.size >= 12)).toBe(true);
       appearance.push({ mode, ...paint });
       await sampleRow.scrollIntoViewIfNeeded();
       await expect(sampleRow).toBeInViewport();
@@ -721,6 +737,15 @@ test.describe('the mobile lobby chrome on production', () => {
     const wideHeading = page.locator('.lobby-table tr[data-game-heading]').first();
     await wideHeading.scrollIntoViewIfNeeded();
     await expect(wideHeading).toBeInViewport();
+    expect(
+      await page
+        .locator('.lobby-table .lt-name__meta,.lobby-table .lt-name__phase')
+        .evaluateAll((elements) =>
+          elements
+            .filter((element) => (element as HTMLElement).offsetWidth > 0)
+            .every((element) => parseFloat(getComputedStyle(element).fontSize) >= 12)
+        )
+    ).toBe(true);
     await testInfo.attach('chrome-arena-mtt-wide.png', {
       body: await page.screenshot(),
       contentType: 'image/png',

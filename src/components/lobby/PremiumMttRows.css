@@ -269,7 +269,7 @@
   margin-bottom: 0.7cqw;
   color: #9aa5b3;
   font-family: 'Roboto Condensed', Inter, sans-serif;
-  font-size: clamp(7px, 2.1cqw, 14px);
+  font-size: clamp(10px, 2.8cqw, 18px);
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.04em;
@@ -296,6 +296,20 @@
   margin-top: 0.6cqw;
   font-size: clamp(7px, 1.8cqw, 12px);
   font-weight: 400;
+}
+.has-premium-chassis .lt-seats--game .lt-seats__tables {
+  margin-top: 0;
+  font-size: clamp(10px, 2.6cqw, 16px);
+  line-height: 1;
+}
+.has-premium-chassis tbody tr[data-id] > td.lt-col-players,
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(3) {
+  font-size: clamp(12px, 3.4cqw, 24px);
+}
+.has-premium-chassis tbody tr[data-id] > td.lt-col-players::before,
+.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(3)::before {
+  margin-bottom: 0.2cqw;
+  font-size: clamp(10px, 2.5cqw, 16px);
 }
 .has-premium-chassis .lt-fav {
   width: 44px;
@@ -407,6 +421,9 @@
   line-height: 1.05;
   white-space: nowrap;
   overflow-wrap: normal;
+}
+.has-premium-chassis tbody tr[data-id] > td[data-label='Stakes'] {
+  padding-bottom: 1cqw !important;
 }
 .has-premium-chassis tr[data-kind='mtt'] .compact-lobby__meta {
   display: none;
@@ -586,4 +603,78 @@
 .compact-lobby.has-premium-chassis thead,
 .compact-lobby.has-premium-chassis thead tr {
   background: #000 !important;
+}
+
+/* Body copy must stay readable beside the title. These rules deliberately
+   outrank the former desktop machine's 6–7px metadata typography. */
+.club-home.club-lobby-machine .has-premium-chassis tbody tr[data-id] .lt-name__table,
+.club-home.club-lobby-machine .has-premium-chassis tbody tr[data-id] .lt-name__meta,
+.club-home .has-premium-chassis tbody tr[data-id] .compact-lobby__meta,
+.club-home .has-premium-chassis tbody tr[data-id] .premium-cash-style {
+  font-family: 'Roboto Condensed', Inter, sans-serif;
+  font-size: clamp(12px, 3.4cqw, 24px);
+  font-weight: 600;
+  line-height: 1;
+  color: #e4e7ec;
+  white-space: normal;
+  text-align: center;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+.club-home .has-premium-chassis tbody tr[data-id] .premium-cash-style {
+  display: flex;
+  font-size: clamp(12px, 2.6cqw, 22px);
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+}
+.club-home .has-premium-chassis tbody tr[data-id] .premium-cash-style > span {
+  display: block;
+  width: 100%;
+}
+.club-home .has-premium-chassis tbody tr[data-id] > td.lt-col-name,
+.club-home .compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child {
+  padding-bottom: 1cqw !important;
+}
+.club-home.club-lobby-machine .has-premium-chassis tbody tr[data-id] .lt-name__phase {
+  font: inherit;
+  white-space: normal;
+}
+.club-home .has-premium-chassis .premium-lobby-clock__label {
+  font-size: clamp(10px, 2.8cqw, 18px);
+}
+
+/* MTT event symbols stand alone, without the former poker-chip backing. */
+.has-premium-chassis tbody tr[data-kind='mtt']::before,
+.has-premium-chassis tbody tr[data-kind='mtt']::after {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/card.png');
+}
+.has-premium-chassis tbody tr[data-kind='mtt'].is-featured::before {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/card-featured.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='standard'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/standard.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='bounty'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/bounty.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='freezeout'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/freezeout.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='satellite'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/satellite.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='freeroll'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/freeroll.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='deepstack'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/deepstack.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='rebuy'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/rebuy.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='turbo'],
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='hyper'] {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/lightning.png');
 }
