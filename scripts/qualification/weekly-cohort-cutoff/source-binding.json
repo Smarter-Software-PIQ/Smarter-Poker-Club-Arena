@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -1937,6 +1937,17 @@
     "current": {
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    }
+  },
+  "browserRunnerCompatibility20261101": {
+    "reason": "Four browser-bearing CI jobs use standard hosted Ubuntu24.04 because locked Playwright1.58 refuses the advanced Ubuntu26.04 image. Reviewed diff changes only runner labels; exhaustive normalized workflow contracts preserve every command, permission, assertion, financial matrix and deadline. Current source identity only, no financial or live recertification.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
     }
   }
 }

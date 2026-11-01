@@ -73,7 +73,7 @@ import {
   spinBlindsForLevel,
 } from '../config/spinSpec.js';
 import { describeError, reportError } from '../services/errorReporter.js';
-import { selectInChunks } from '../services/supabase/chunkedIn.js';
+import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
 /**
  * THE TOURNAMENT CEILING IS THE DECK, NOT THE CASH SEAT LAW (2026-08-31).
@@ -4108,27 +4108,8 @@ export abstract class TournamentManagerBase {
      * until beginBreakCountdown knows the real answer. A client that cannot
      * read a clock renders "Last Hand" rather than a wrong number.
      */
-    await this.broadcast('tournament_break', {
-      level: this.currentLevel,
-      phase: 'last_hand',
-      breakDurationMinutes: Math.round(breakDurationMs / 60000),
-      breakEndsAt: null,
-      synchronized: true,
-      nextLevel: nextLevel
-        ? {
-            smallBlind: nextLevel.smallBlind,
-            bigBlind: nextLevel.bigBlind,
-            ante: nextLevel.ante || 0,
-          }
-        : null,
-    });
-    if (
-      !this.lifecycleIsCurrent(lifecycle) ||
-      !this.onBreak ||
-      this.synchronizedBreakStartGeneration !== acceptedBreakGeneration
-    )
-      return;
-
+    // Gameplay custody precedes its announcement. A delayed transport must
+    // not leave the field dealing behind the already-persisted break.
     // 2026-08-18: the break screen is a full-screen opaque overlay
     // (TournamentBreakScreen.css: position fixed, inset 0, z-index 700), and
     // until now NOTHING stopped the tables underneath it. Every player sat
@@ -4141,6 +4122,7 @@ export abstract class TournamentManagerBase {
     // pauseAfterHand() is the same mechanism hand-for-hand already uses: the
     // current hand is played to the end and no new hand is dealt.
     for (const engine of this.tableEngines.values()) {
+      if (!this.lifecycleIsCurrent(lifecycle)) return;
       try {
         // Budget the pause for the WHOLE break: the last hand still has to
         // finish, then five minutes run on top of that. The engine's default
@@ -4156,6 +4138,28 @@ export abstract class TournamentManagerBase {
         reportError(err, 'TournamentManagerBase.pauseForBreak_pause_engine');
       }
     }
+
+    if (
+      !this.lifecycleIsCurrent(lifecycle) ||
+      !this.onBreak ||
+      this.synchronizedBreakStartGeneration !== acceptedBreakGeneration
+    )
+      return;
+
+    await this.broadcast('tournament_break', {
+      level: this.currentLevel,
+      phase: 'last_hand',
+      breakDurationMinutes: Math.round(breakDurationMs / 60000),
+      breakEndsAt: null,
+      synchronized: true,
+      nextLevel: nextLevel
+        ? {
+            smallBlind: nextLevel.smallBlind,
+            bigBlind: nextLevel.bigBlind,
+            ante: nextLevel.ante || 0,
+          }
+        : null,
+    });
   }
 
   /**
@@ -4734,7 +4738,9 @@ export abstract class TournamentManagerBase {
 
     console.log(`[Tournament:${this.tournamentId.slice(0, 8)}] BREAK ENDED - resuming play`);
 
-    await this.broadcast('break_ended', { level: this.currentLevel });
+    // Announce in the same order, but transport acknowledgement cannot hold
+    // gameplay after the durable break release has committed.
+    const announcement = this.broadcast('break_ended', { level: this.currentLevel });
     if (!lifecycle || !this.lifecycleIsCurrent(lifecycle)) return;
 
     /* Undo the pause taken in pauseForBreak only when no durable add-on break
@@ -4821,6 +4827,7 @@ export abstract class TournamentManagerBase {
     // parked. A field split into single-player tables cannot deal the next
     // hand that would otherwise wake this work; the break end is that edge.
     this.requestEliminationSweep('break_ended');
+    await announcement;
   }
 
   /**
@@ -5644,40 +5651,66 @@ export abstract class TournamentManagerBase {
    * regular half. `null` means it could not be read.
    */
   protected async readUnrecordedKnockoutCount(): Promise<number | null> {
-    const { data: pending, error: pendingErr } = await supabase
-      .from('tournament_knockout_candidates')
-      .select('eliminated_user_id')
-      .eq('tournament_id', this.tournamentId)
-      .eq('state', 'pending');
-    if (pendingErr || !pending) {
-      reportError(
-        pendingErr ?? new Error('pending knockout candidates unreadable'),
-        'Tournament.mystery_unrecorded_knockouts_unreadable'
+    const lifecycle = this.captureLifecycleToken();
+    const current = () => this.lifecycleIsCurrent(lifecycle);
+    if (!current()) return null;
+    try {
+      const pending = await fetchAllRows<{ id: string; eliminated_user_id: unknown }>(
+        (cursor, want) => {
+          let query = supabase
+            .from('tournament_knockout_candidates')
+            .select('id, eliminated_user_id')
+            .eq('tournament_id', this.tournamentId)
+            .eq('state', 'pending')
+            .order('id', { ascending: true })
+            .limit(want);
+          if (cursor !== null) query = query.gt('id', cursor);
+          return query;
+        },
+        {
+          label: 'Tournament.mystery_unrecorded_knockouts',
+          pageAttempts: 1,
+          shouldContinue: current,
+        }
       );
+      if (!pending.complete || !current()) return null;
+      const userIds = new Set<string>();
+      for (const row of pending.rows) {
+        if (typeof row.eliminated_user_id !== 'string' || row.eliminated_user_id.length === 0) {
+          throw new Error('Pending knockout player identity unreadable');
+        }
+        userIds.add(row.eliminated_user_id);
+      }
+      const ids = [...userIds];
+      let total = 0;
+      // Bound the URL independently of the result pages. One player can have
+      // multiple pending generations, but contributes to this count only once.
+      for (let at = 0; at < ids.length; at += IN_LIST_CHUNK) {
+        if (!current()) return null;
+        const batch = ids.slice(at, at + IN_LIST_CHUNK);
+        const { count, error } = await supabase
+          .from('tournament_players')
+          .select('*', { count: 'exact', head: true })
+          .eq('tournament_id', this.tournamentId)
+          .eq('status', 'playing')
+          .in('user_id', batch);
+        if (!current()) return null;
+        if (
+          error ||
+          typeof count !== 'number' ||
+          !Number.isSafeInteger(count) ||
+          count < 0 ||
+          count > batch.length
+        ) {
+          throw error ?? new Error('Unrecorded knockout count unreadable');
+        }
+        total += count;
+      }
+      return total;
+    } catch (error) {
+      reportError(error, 'Tournament.mystery_unrecorded_knockouts_unreadable');
       return null;
     }
-    const userIds = [
-      ...new Set(
-        (pending as Array<{ eliminated_user_id: unknown }>)
-          .map((r) => (r.eliminated_user_id == null ? '' : String(r.eliminated_user_id)))
-          .filter((id) => id.length > 0)
-      ),
-    ];
-    if (userIds.length === 0) return 0;
-    const { count, error } = await supabase
-      .from('tournament_players')
-      .select('*', { count: 'exact', head: true })
-      .eq('tournament_id', this.tournamentId)
-      .eq('status', 'playing')
-      .in('user_id', userIds);
-    if (error || count == null) {
-      reportError(
-        error ?? new Error('unrecorded knockout count unreadable'),
-        'Tournament.mystery_unrecorded_knockouts_unreadable'
-      );
-      return null;
-    }
-    return count;
   }
 
   /**
@@ -6720,6 +6753,14 @@ export abstract class TournamentManagerBase {
       noteTerminalFinishClub(this.tournamentId, tournament.club_id);
       await this.readTournamentClub(tournament.club_id, lifecycle);
       this.assertLifecycleCurrent(lifecycle);
+
+      // Establish the stage boundary before launch recovery, seating or dealers.
+      // An unreadable plan cannot authorize play past a possibly sealed day end.
+      await this.loadMultiDayPlan(tournament, lifecycle);
+      if (this.multiDayPlan?.kind === 'unknown') {
+        this.running = false;
+        return;
+      }
 
       this.prizePoolFinalized = tournament.prize_pool_finalized || false;
       this.tournamentEntryWindowClosed = this.prizePoolFinalized;
@@ -7825,9 +7866,6 @@ export abstract class TournamentManagerBase {
       }
       await this.drainTableEngineStartJobs();
       this.assertLifecycleCurrent(lifecycle);
-      // Multi-day: learn the stage plan before the level clock can reach a
-      // day's last level. No I/O for any format a plan cannot be sealed on.
-      await this.loadMultiDayPlan(tournament, lifecycle);
 
       /**
        * Start blind timer — AT THE ADVERTISED START, not at seating.
@@ -8207,6 +8245,10 @@ export abstract class TournamentManagerBase {
        * and the level clock below is never armed.
        */
       await this.loadMultiDayPlan(tournament, lifecycle);
+      if (this.multiDayPlan?.kind === 'unknown') {
+        this.running = false;
+        return;
+      }
       this.rearmStageEndPauseFromPlan();
       this.prizePoolFinalized = tournament.prize_pool_finalized || false;
       this.tournamentEntryWindowClosed = this.prizePoolFinalized;
@@ -8220,16 +8262,29 @@ export abstract class TournamentManagerBase {
       // Find existing tables. `first_button_seat` comes along so a Spin whose
       // button was drawn but never dealt keeps the seat it drew — see
       // restoreDrawnFirstButtons.
-      const { data: tables, error: tablesError } = await supabase
-        .from('tables')
-        .select('id, first_button_seat, small_blind, big_blind, ante, stakes')
-        .eq('tournament_id', this.tournamentId)
-        .in('status', ['running', 'waiting']);
+      const { rows: tables, complete: tablesComplete } = await fetchAllRows(
+        (cursor, limit) => {
+          let query = supabase
+            .from('tables')
+            .select('id, first_button_seat, small_blind, big_blind, ante, stakes')
+            .eq('tournament_id', this.tournamentId)
+            .in('status', ['running', 'waiting'])
+            .order('id', { ascending: true })
+            .limit(limit);
+          if (cursor) query = query.gt('id', cursor);
+          return query;
+        },
+        {
+          label: 'Tournament.resume_table_inventory',
+          shouldContinue: () => {
+            this.assertLifecycleCurrent(lifecycle);
+            return true;
+          },
+        }
+      );
       this.assertLifecycleCurrent(lifecycle);
-      if (tablesError)
-        throw new Error(`Tournament resume table inventory read failed: ${tablesError.message}`);
-      if (!Array.isArray(tables))
-        throw new Error('Tournament resume table inventory was unreadable');
+      if (!tablesComplete)
+        throw new Error('Tournament resume table inventory could not be read completely');
 
       /**
        * A DEAD GENERATION'S HAND IS DECIDED BEFORE THIS ONE ADOPTS THE CLOCK
@@ -10294,16 +10349,16 @@ export abstract class TournamentManagerBase {
           .from('hand_history')
           .select('id', { count: 'exact', head: true })
           .eq('table_id', table.id);
-        if (error) {
+        if (error || typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
           // Unreadable history is UNKNOWN, and the safe unknown here is "it may
           // already have dealt" — re-forcing the button on a live table is the
           // damaging direction.
           console.warn(
-            `[Tournament:${this.tournamentId.slice(0, 8)}] Could not check hand history for table ${table.id.slice(0, 8)} (${error.message}) - leaving the drawn button alone`
+            `[Tournament:${this.tournamentId.slice(0, 8)}] Could not check hand history for table ${table.id.slice(0, 8)} (${error?.message ?? 'invalid hand count'}) - leaving the drawn button alone`
           );
           continue;
         }
-        if ((count || 0) > 0) {
+        if (count > 0) {
           await supabase.from('tables').update({ first_button_seat: null }).eq('id', table.id);
           continue;
         }
@@ -12923,8 +12978,15 @@ export abstract class TournamentManagerBase {
     }
 
     if (!alreadyRepriced) {
-      await this.recalculateEliminatedPrizes(finalPool);
+      const repriced = await this.recalculateEliminatedPrizes(finalPool);
       if (!this.lifecycleIsCurrent(lifecycle) || isMaintenanceFrozen()) return;
+      // A partial entitlement pass is not a completed tail. Preserve the
+      // existing bounded continuation and its original finalized pool.
+      if (!repriced) {
+        throw new Error(
+          `[Tournament:${this.tournamentId.slice(0, 8)}] Add-on entitlement reprice is incomplete`
+        );
+      }
     }
     const delivered = await this.broadcast('ADDON_PERIOD_END', {});
     if (!this.lifecycleIsCurrent(lifecycle) || isMaintenanceFrozen()) return;

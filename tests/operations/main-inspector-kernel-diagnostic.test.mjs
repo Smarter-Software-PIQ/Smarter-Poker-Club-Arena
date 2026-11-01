@@ -8,7 +8,7 @@ function load(scenario, fs = {}) {
   const observed = observeFixtureKernelRefusals(maintained, scenario);
   const messages = [];
   const capture = new Function('inspectorFs', 'process',
-    observed.replace("import * as inspectorFs from 'node:fs';", '').replace('export function captureMainInspectorBinding', 'function captureMainInspectorBinding') + '\nreturn captureMainInspectorBinding;'
+    observed.replace("import * as inspectorFs from 'node:fs';", '').replace('export const INSPECTOR_KERNEL_STEPS', 'const INSPECTOR_KERNEL_STEPS').replace('export function captureMainInspectorBinding', 'function captureMainInspectorBinding') + '\nreturn captureMainInspectorBinding;'
   )({ ...fs, writeSync: (_, message) => messages.push(message) }, { pid: 999 });
   return { capture, messages };
 }

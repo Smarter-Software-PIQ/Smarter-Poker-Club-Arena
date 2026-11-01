@@ -11,7 +11,13 @@ UPDATE public.tournament_players SET bounties_collected=3 WHERE id='41000000-000
 CREATE TABLE public.fixture_expected_fact_rates AS
  SELECT round(count(*) FILTER(WHERE went_to_showdown)::numeric/nullif(count(*) FILTER(WHERE saw_flop),0),4) wtsd,
  count(*) FILTER(WHERE went_to_showdown)::int showdowns
- FROM public.ca_hand_facts WHERE user_id='20000000-0000-0000-0000-000000000001';
+ FROM public.ca_hand_facts
+ WHERE user_id='20000000-0000-0000-0000-000000000001'
+ -- The earlier history-search cases retain their fixed October 2 dates.
+ -- Compare the requested 30 UTC calendar days, not every historical fact:
+ -- those search rows leave this window on November 1.
+ AND played_at >= (((now() AT TIME ZONE 'UTC')::date-29)::timestamp AT TIME ZONE 'UTC')
+ AND played_at < (((now() AT TIME ZONE 'UTC')::date+1)::timestamp AT TIME ZONE 'UTC');
 GRANT SELECT ON public.fixture_expected_fact_rates TO authenticated;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);

@@ -5,6 +5,8 @@ export function observeFixtureKernelRefusals(source, scenario) {
   let predicate = 0;
   const observed = source.replaceAll('throw inspectorSocketRefusal();', () =>
     `{ fixtureKernelDiagnostic('predicate-${++predicate}'); throw inspectorSocketRefusal(); }`
+  ).replace('throw refusal;', () =>
+    `{ fixtureKernelDiagnostic('predicate-${++predicate}'); throw refusal; }`
   ).replace('} catch {', `} catch (fixtureKernelError) {
     fixtureKernelDiagnostic(['ENOENT', 'EACCES', 'EPERM', 'EBADF', 'EIO', 'EINTR'].includes(fixtureKernelError?.code)
       ? 'syscall-' + fixtureKernelError.code : 'syscall-unknown');`);
