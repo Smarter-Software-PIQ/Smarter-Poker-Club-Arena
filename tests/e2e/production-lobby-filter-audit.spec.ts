@@ -1,4 +1,5 @@
-import { test, expect, devices, type Page } from '@playwright/test';
+import { createClient } from '@supabase/supabase-js';
+import { test, expect, devices, type Page, type Locator } from '@playwright/test';
 import {
   FILTER_SPECS,
   type GameFilterValue,
@@ -36,8 +37,55 @@ test.use({
   viewport: { width: 393, height: 852 },
   timezoneId: 'America/Chicago',
   trace: 'retain-on-failure',
+  actionTimeout: 10_000,
 });
 test.describe.configure({ mode: 'default', timeout: 180_000 });
+
+const actionTimelines = new WeakMap<Page, unknown[]>();
+const observationHandles = new WeakMap<
+  Page,
+  { finish: () => Promise<void>; errors: unknown[]; witnesses: unknown[] }
+>();
+test.afterEach(async ({ page }, info) => {
+  const observer = observationHandles.get(page);
+  if (!observer) return;
+  await observer.finish();
+  await info.attach('filter-source-observations.json', {
+    body: Buffer.from(
+      JSON.stringify({
+        errors: observer.errors,
+        lifecycleWitnesses: observer.witnesses,
+        actions: actionTimelines.get(page),
+      })
+    ),
+    contentType: 'application/json',
+  });
+  expect(
+    observer.errors,
+    'Every asynchronous source observation must complete successfully'
+  ).toEqual([]);
+});
+
+async function clickControl(locator: Locator, options?: Parameters<Locator['click']>[0]) {
+  const control = locator.toString();
+  const started = Date.now();
+  let completed = false;
+  await test.step(control, async () => {
+    try {
+      const closesSheet =
+        control.includes('Close Game Filters') || /name: ['"]Done['"]/.test(control);
+      const dialog = closesSheet ? locator.locator('xpath=ancestor::*[@role="dialog"]') : null;
+      await locator.click(options);
+      if (dialog) await expect(dialog).toBeHidden();
+      completed = true;
+    } finally {
+      actionTimelines
+        .get(locator.page())
+        ?.push({ control, elapsedMs: Date.now() - started, completed });
+    }
+  });
+}
+
 const text = (v: unknown) => String(v ?? '');
 const number = (v: unknown) => Number(v) || 0;
 const object = (v: unknown): Record<string, unknown> =>
@@ -330,18 +378,19 @@ function independentMatch(
 ): boolean {
   const rawStatus = text(row.status).toUpperCase();
   if (cash && (row.is_deleted === true || ['CLOSED', 'DELETED'].includes(rawStatus))) return false;
-  if (!cash && ['COMPLETED', 'CANCELLED', 'ABORTED', 'FINISHED'].includes(rawStatus)) return false;
+  if (
+    !cash &&
+    ['COMPLETED', 'COMPLETING', 'CANCELLED', 'CANCELED', 'ABORTED', 'FINISHED'].includes(rawStatus)
+  )
+    return false;
   if (!cash && ['mtt-v1', 'mtt-v2'].includes(text(row.format_contract))) {
     const started = Date.parse(text(row.started_at));
     const now = Date.now();
     if (Number.isFinite(started)) {
       const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' });
       if (day.format(started) !== day.format(now)) return false;
-    } else if (
-      ['REGISTERING', 'OPEN', 'PENDING', 'ANNOUNCED', 'STARTING_SOON'].includes(rawStatus) &&
-      Date.parse(text(row.start_time)) <= now
-    )
-      return false;
+    } else if (!Number.isFinite(Date.parse(text(row.start_time)))) return false;
+    // Delayed registration remains discoverable until its authoritative lifecycle changes.
   }
   const game = variant(row, cash);
   if (
@@ -619,10 +668,12 @@ async function assertSort(page: Page, type: Tab | 'ALL', sort: string, raw: Map<
 }
 
 async function setup(page: Page) {
+  const setupStarted = Date.now();
   expect(
     /^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || ''),
     'Only the isolated certificate identity may run this journey'
   ).toBe(true);
+  actionTimelines.set(page, []);
   const participation: string[] = [];
   await page.route(
     /\/(?:action|leave|post-bb|buyin|addchips|rebuy|cashout|sitout|seat-move|seat-change|rest\/v1\/(?:table_seats|tournament_players|wallet_transactions|rpc\/(?:fn_cash_game_join|atomic_table_buyin|fn_lightning_join|fn_lightning_buy_in|fn_take_seat_and_buy_in|fn_register_for_tournament|fn_unregister_from_tournament|fn_leave_seat_and_refund|atomic_table_rebuy|process_tournament_rebuy|fn_join_waitlist)))(?:[/?#]|$)/,
@@ -634,6 +685,18 @@ async function setup(page: Page) {
   );
   const rawRows = new Map<string, Row>();
   const reads: Promise<void>[] = [];
+  const observerErrors: { source: string; message: string }[] = [];
+  const lifecycleWitnesses: unknown[] = [];
+  const observe = (source: string, work: Promise<void>) => {
+    reads.push(
+      work.catch((error: unknown) => {
+        observerErrors.push({
+          source,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      })
+    );
+  };
   const saves: Record<string, unknown>[] = [];
   const pools = new Map<string, { eligible?: number; players?: number }>();
   const accept = (rows: unknown) => {
@@ -690,51 +753,79 @@ async function setup(page: Page) {
       }
     })
   );
-  page.on('response', (response) => {
-    const url = new URL(response.url());
-    if (!response.ok()) return;
-    if (/\/(?:fn_cash_game_lobby|fn_lightning_pool_status)$/.test(url.pathname)) {
-      const request = object(response.request().postDataJSON());
-      const clusterId = text(request.p_game_id || request.p_cluster_id);
-      reads.push(
+  const readBody = async (response: import('@playwright/test').Response): Promise<unknown> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        response.json(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Source response body exceeded 10s')), 10_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const responded = (response: import('@playwright/test').Response) => {
+    try {
+      const url = new URL(response.url());
+      if (!response.ok()) return;
+      if (/\/(?:fn_cash_game_lobby|fn_lightning_pool_status)$/.test(url.pathname)) {
+        const request = object(response.request().postDataJSON());
+        const clusterId = text(request.p_game_id || request.p_cluster_id);
+        observe(
+          url.pathname,
+          (async () => {
+            const body = object(await readBody(response));
+            const pool = pools.get(clusterId) || {};
+            if (url.pathname.endsWith('/fn_cash_game_lobby')) {
+              const eligible = object(object(body.lightning).verdict).live_eligible;
+              if (eligible != null && Number.isFinite(Number(eligible)))
+                pool.eligible = Math.floor(Number(eligible));
+            } else if (
+              ['BUILDING', 'ACTIVE', 'HOT', 'THIN'].includes(text(body.status).toUpperCase()) &&
+              body.players != null &&
+              Number.isFinite(Number(body.players))
+            )
+              pool.players = Math.max(0, Math.round(Number(body.players)));
+            pools.set(clusterId, pool);
+            for (const row of rawRows.values())
+              if (row.cluster_id === clusterId)
+                row.proof_pool_players = pool.players ?? pool.eligible;
+          })()
+        );
+        return;
+      }
+      if (url.pathname.endsWith('/user_lobby_filters') && response.request().method() === 'POST') {
+        saves.push(object(response.request().postDataJSON()));
+        return;
+      }
+      if (response.request().method() !== 'GET' && !url.pathname.endsWith('/get_club_home')) return;
+      if (!/\/(?:tables|tournaments|get_club_home)$/.test(url.pathname)) return;
+      observe(
+        url.pathname,
         (async () => {
-          const body = object(await response.json());
-          const pool = pools.get(clusterId) || {};
-          if (url.pathname.endsWith('/fn_cash_game_lobby')) {
-            const eligible = object(object(body.lightning).verdict).live_eligible;
-            if (eligible != null && Number.isFinite(Number(eligible)))
-              pool.eligible = Math.floor(Number(eligible));
-          } else if (
-            ['BUILDING', 'ACTIVE', 'HOT', 'THIN'].includes(text(body.status).toUpperCase()) &&
-            body.players != null &&
-            Number.isFinite(Number(body.players))
-          )
-            pool.players = Math.max(0, Math.round(Number(body.players)));
-          pools.set(clusterId, pool);
-          for (const row of rawRows.values())
-            if (row.cluster_id === clusterId)
-              row.proof_pool_players = pool.players ?? pool.eligible;
+          const body = await readBody(response);
+          if (Array.isArray(body)) accept(body);
+          else {
+            accept(body.tables);
+            accept(body.tournaments);
+          }
         })()
       );
-      return;
+    } catch (error) {
+      observerErrors.push({
+        source: new URL(response.url()).pathname,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-    if (url.pathname.endsWith('/user_lobby_filters') && response.request().method() === 'POST') {
-      saves.push(object(response.request().postDataJSON()));
-      return;
-    }
-    if (response.request().method() !== 'GET' && !url.pathname.endsWith('/get_club_home')) return;
-    if (!/\/(?:tables|tournaments|get_club_home)$/.test(url.pathname)) return;
-    reads.push(
-      (async () => {
-        const body = await response.json();
-        if (Array.isArray(body)) accept(body);
-        else {
-          accept(body.tables);
-          accept(body.tournaments);
-        }
-      })()
-    );
-  });
+  };
+  page.on('response', responded);
+  const finish = async () => {
+    page.off('response', responded);
+    await Promise.all(reads);
+  };
+  observationHandles.set(page, { finish, errors: observerErrors, witnesses: lifecycleWitnesses });
   const offer = diamondEntryRead(page);
   await page.goto(`clubs/${CLUB_ID}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await prepareCashLobbyActions(page);
@@ -744,6 +835,61 @@ async function setup(page: Page) {
   await settleDiamondSpinsOffer(page, offer);
   expect(page.url()).not.toMatch(/\/auth\//);
   const owner = await readLobbyPreferenceOwner(page);
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const publishableKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !publishableKey || !process.env.SP_PASS)
+    throw new Error('Configured public client and isolated account authentication are required');
+  const client = createClient(supabaseUrl, publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const login = await client.auth.signInWithPassword({
+    email: process.env.SP_EMAIL!,
+    password: process.env.SP_PASS,
+  });
+  if (login.error || login.data.user?.id !== owner)
+    throw new Error(
+      'Independent lifecycle reader did not authenticate as the isolated browser owner'
+    );
+  const refreshLifecycle = async (ids: string[]) => {
+    if (!ids.length) return;
+    expect(ids.every((id) => /^[0-9a-f-]{36}$/i.test(id))).toBe(true);
+    const fields = [
+      'id',
+      'status',
+      'current_players',
+      'max_players',
+      'table_size',
+      'game_type',
+      'variant',
+      'start_time',
+      'started_at',
+      'format_contract',
+    ];
+    const before = ids.map((id) =>
+      Object.fromEntries(fields.map((key) => [key, rawRows.get(id)?.[key]]))
+    );
+    // Read terminal rows too. The app's active-status list legitimately omits them;
+    // omission alone never proves deletion or the lifecycle we should expect.
+    const { data, error } = await client
+      .from('tournaments')
+      .select(fields.join(','))
+      .in('id', ids)
+      .abortSignal(AbortSignal.timeout(10_000));
+    if (error || !Array.isArray(data)) {
+      observerErrors.push({
+        source: 'independent-tournament-lifecycle',
+        message: error?.message || 'missing rows',
+      });
+      throw new Error(`Independent lifecycle read failed: ${error?.message || 'missing rows'}`);
+    }
+    const rows = data as unknown as Row[];
+    lifecycleWitnesses.push({ observedAt: new Date().toISOString(), ids, before, after: rows });
+    expect(
+      sorted(rows.map((row) => row.id)),
+      'Every disputed lifecycle must be independently readable'
+    ).toEqual(sorted(ids));
+    accept(rows);
+  };
   const cache = `ca_advanced_filters_${owner}:${CLUB_ID}`;
   const viewCache = `ca_lobby_view_${owner}:${CLUB_ID}`;
   const rows = page.locator('[data-testid="lobby-game-row"][data-id]:visible');
@@ -759,22 +905,28 @@ async function setup(page: Page) {
   const choose = async (type: Tab | 'ALL') => {
     const family = CASH.has(type) || type === 'ALL' ? 'Cash Games' : 'Tournaments';
     const familyButton = page.getByRole('button', { name: family, exact: true });
-    if ((await familyButton.getAttribute('aria-expanded')) !== 'true') await familyButton.click();
+    if ((await familyButton.getAttribute('aria-expanded')) !== 'true')
+      await clickControl(familyButton);
     const tab = page
       .getByRole('tablist', { name: 'Game Type', exact: true })
       .getByRole('tab', { name: type === 'ALL' ? 'ALL' : LABEL[type], exact: true });
-    await tab.click();
+    await clickControl(tab);
     await expect(tab).toHaveAttribute('aria-selected', 'true');
   };
   const open = async () => {
-    await page.getByRole('button', { name: 'Open Sticky Filters', exact: true }).click();
+    await clickControl(page.getByRole('button', { name: 'Open Sticky Filters', exact: true }));
     const sheet = page.getByRole('dialog');
     await expect(sheet).toBeVisible();
     return sheet;
   };
+  actionTimelines.get(page)?.push({ control: 'setup', elapsedMs: Date.now() - setupStarted });
   return {
     rawRows,
     reads,
+    observerErrors,
+    lifecycleWitnesses,
+    refreshLifecycle,
+    finish,
     saves,
     participation,
     owner,
@@ -791,14 +943,14 @@ async function setup(page: Page) {
 
 for (const type of TYPES) {
   test(`every ${type} lobby filter matches live rows and persists`, async ({ page }, testInfo) => {
-    const h = await setup(page);
+    const h = await test.step('Authenticated Lobby Setup', () => setup(page));
     const spec = FILTER_SPECS[type];
     const cash = CASH.has(type);
     await h.choose(type);
     let sheet = await h.open();
-    await sheet.getByRole('button', { name: /^Reset / }).click();
+    await clickControl(sheet.getByRole('button', { name: /^Reset / }));
     if (type === 'MTT')
-      await sheet.getByRole('button', { name: 'Include Satellites', exact: true }).click();
+      await clickControl(sheet.getByRole('button', { name: 'Include Satellites', exact: true }));
     await expect.poll(async () => Boolean(await h.state(type))).toBe(true);
     await Promise.all(h.reads);
     await expect
@@ -832,26 +984,55 @@ for (const type of TYPES) {
       const value = await h.state(type);
       expect(value, `${control}: saved account-scoped state`).toBeTruthy();
       let matched: { expected: string[]; actual: string[] } | undefined;
-      await expect
-        .poll(
-          async () => {
-            const actual = sorted(await h.ids());
-            const expected = sorted(
-              baseline.filter((id) =>
-                independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
-              )
-            );
-            matched = { actual, expected };
-            return JSON.stringify(actual) === JSON.stringify(expected)
-              ? []
-              : [{ actual, expected }];
-          },
-          {
-            message: `${type}: ${control} must produce exactly the independently matched live rows`,
-          }
-        )
-        .toEqual([]);
-      evidence.push({ control, value, ...matched });
+      const started = Date.now();
+      let refreshed = false;
+      let mismatchSamples = 0;
+      await test.step(`${type}/${control}`, async () => {
+        try {
+          await expect
+            .poll(
+              async () => {
+                let actual = sorted(await h.ids());
+                let expected = sorted(
+                  baseline.filter((id) =>
+                    independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
+                  )
+                );
+                if (
+                  !cash &&
+                  !refreshed &&
+                  JSON.stringify(actual) !== JSON.stringify(expected) &&
+                  ++mismatchSamples >= 2
+                ) {
+                  refreshed = true;
+                  const disputed = [
+                    ...new Set([
+                      ...actual.filter((id) => !expected.includes(id)),
+                      ...expected.filter((id) => !actual.includes(id)),
+                    ]),
+                  ];
+                  await h.refreshLifecycle(disputed);
+                  actual = sorted(await h.ids());
+                  expected = sorted(
+                    baseline.filter((id) =>
+                      independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
+                    )
+                  );
+                }
+                matched = { actual, expected };
+                return JSON.stringify(actual) === JSON.stringify(expected)
+                  ? []
+                  : [{ actual, expected }];
+              },
+              {
+                message: `${type}: ${control} must produce exactly the independently matched live rows`,
+              }
+            )
+            .toEqual([]);
+        } finally {
+          evidence.push({ control, elapsedMs: Date.now() - started, value, ...matched });
+        }
+      });
     };
     const section = (title: string) =>
       sheet
@@ -868,7 +1049,7 @@ for (const type of TYPES) {
         await expect(button).toBeVisible();
         const before = (await button.getAttribute('aria-pressed')) === 'true';
         for (const on of [!before, before]) {
-          await button.click();
+          await clickControl(button);
           await expect(button).toHaveAttribute('aria-pressed', String(on));
           // The off branch requires actual absence, not another button's colour.
           expect(((await h.state(type))[field] as string[]).includes(item.key)).toBe(on);
@@ -887,7 +1068,7 @@ for (const type of TYPES) {
       for (const [index, item] of items.entries()) {
         const button = area.getByRole('button', { name: item.label, exact: true });
         if (((await button.getAttribute('aria-pressed')) === 'true') !== index < 2)
-          await button.click();
+          await clickControl(button);
       }
       await check(`${field}/two-choice-union`);
       for (const item of items) {
@@ -896,7 +1077,7 @@ for (const type of TYPES) {
           ((await button.getAttribute('aria-pressed')) === 'true') !==
           original.includes(item.key)
         )
-          await button.click();
+          await clickControl(button);
       }
       await check(`${field}/union-restored`);
     };
@@ -917,10 +1098,10 @@ for (const type of TYPES) {
       evidence.push({ control: 'registration-labels', availability });
       if (type === 'MTT') {
         const include = sheet.getByRole('button', { name: 'Include Satellites', exact: true });
-        await include.click();
+        await clickControl(include);
         await expect(include).toHaveAttribute('aria-pressed', 'false');
         await check('satellites/excluded');
-        await include.click();
+        await clickControl(include);
         await expect(include).toHaveAttribute('aria-pressed', 'true');
         await check('satellites/included');
       }
@@ -935,20 +1116,20 @@ for (const type of TYPES) {
         .filter({ has: page.getByRole('heading', { name: new RegExp(`^${spec.range.label} ·`) }) });
       for (const preset of spec.range.presets) {
         const button = priceArea.getByRole('button', { name: preset.label, exact: true });
-        await button.click();
+        await clickControl(button);
         await expect(button).toHaveAttribute('aria-pressed', 'true');
         await check(`price/${preset.key}/on`);
-        await button.click();
+        await clickControl(button);
         await expect(button).toHaveAttribute('aria-pressed', 'false');
         await check(`price/${preset.key}/off`);
       }
       // Nonadjacent presets are a union; moving a thumb clears that union.
-      await priceArea
-        .getByRole('button', { name: spec.range.presets[0].label, exact: true })
-        .click();
-      await priceArea
-        .getByRole('button', { name: spec.range.presets[3].label, exact: true })
-        .click();
+      await clickControl(
+        priceArea.getByRole('button', { name: spec.range.presets[0].label, exact: true })
+      );
+      await clickControl(
+        priceArea.getByRole('button', { name: spec.range.presets[3].label, exact: true })
+      );
       await check('price/nonadjacent-union');
       const min = sheet.getByRole('slider', { name: `Minimum ${spec.range.label}`, exact: true });
       const max = sheet.getByRole('slider', { name: `Maximum ${spec.range.label}`, exact: true });
@@ -989,7 +1170,7 @@ for (const type of TYPES) {
       } else await expect(sheet.getByRole('slider', { name: /Seats$/ })).toHaveCount(0);
       for (const name of ['Required Features', 'Exclude Features']) {
         const area = section(name);
-        if (await area.count()) await area.locator('summary').click();
+        if (await area.count()) await clickControl(area.locator('summary'));
       }
       const shown = spec.features.filter((item) => !item.capability);
       const gated = spec.features.filter((item) => item.capability);
@@ -1010,15 +1191,15 @@ for (const type of TYPES) {
           exact: true,
         });
         const prior = await h.state(type);
-        await required.click();
+        await clickControl(required);
         await expect(required).toHaveAttribute('aria-pressed', 'true');
         await expect(excluded).toHaveAttribute('aria-pressed', 'false');
         await check(`required/${item.key}`);
-        await excluded.click();
+        await clickControl(excluded);
         await expect(excluded).toHaveAttribute('aria-pressed', 'true');
         await expect(required).toHaveAttribute('aria-pressed', 'false');
         await check(`excluded/${item.key}/mutual-exclusion`);
-        await excluded.click();
+        await clickControl(excluded);
         await expect(excluded).toHaveAttribute('aria-pressed', 'false');
         await check(`excluded/${item.key}/off`);
         expect((await h.state(type)).mustHave).toEqual(
@@ -1032,56 +1213,56 @@ for (const type of TYPES) {
       });
       if (shown.length >= 2) {
         for (const item of shown.slice(0, 2))
-          await section('Required Features')
-            .getByRole('button', { name: item.label, exact: true })
-            .click();
+          await clickControl(
+            section('Required Features').getByRole('button', { name: item.label, exact: true })
+          );
         await check('features/required-intersection');
         for (const item of shown.slice(0, 2))
-          await section('Exclude Features')
-            .getByRole('button', { name: item.label, exact: true })
-            .click();
+          await clickControl(
+            section('Exclude Features').getByRole('button', { name: item.label, exact: true })
+          );
         await check('features/excluded-union');
         for (const item of shown.slice(0, 2))
-          await section('Exclude Features')
-            .getByRole('button', { name: item.label, exact: true })
-            .click();
+          await clickControl(
+            section('Exclude Features').getByRole('button', { name: item.label, exact: true })
+          );
         await check('features/restored');
       }
       // Every accordion is independently operable; closing it cannot reset filters.
       for (const details of await sheet.locator('details').all()) {
         const value = await h.state(type);
         const summary = details.locator('summary');
-        await summary.click();
+        await clickControl(summary);
         await expect(details).not.toHaveAttribute('open');
         expect(await h.state(type)).toEqual(value);
-        await summary.click();
+        await clickControl(summary);
         await expect(details).toHaveAttribute('open', '');
       }
       for (const [key, label] of SORTS.filter(
         ([key]) => !(cash || type === 'SPIN' || type === 'SNG') || key !== 'starting_soon'
       )) {
         const button = section('Sort The Board').getByRole('button', { name: label, exact: true });
-        await button.click();
+        await clickControl(button);
         await expect(button).toHaveAttribute('aria-pressed', 'true');
         await expect.poll(async () => (await h.view()).sortByTab?.[type]).toBe(key);
         await check(`sort/${key}`);
         await assertSort(page, type, key, h.rawRows);
       }
       // The original quick controls and sheet must write the very same statuses.
-      await sheet.getByRole('button', { name: 'Close Game Filters', exact: true }).click();
+      await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
       const quick = page.locator('.lobby-refinements');
       for (const item of spec.statuses) {
         const button = quick.getByRole('button', { name: item.label, exact: true });
-        await button.click();
+        await clickControl(button);
         await expect(button).toHaveAttribute('aria-pressed', 'true');
         await check(`quick/${item.key}/on`);
-        await button.click();
+        await clickControl(button);
         await expect(button).toHaveAttribute('aria-pressed', 'false');
         await check(`quick/${item.key}/off`);
       }
       const all = quick.getByRole('button', { name: 'All', exact: true });
-      await quick.getByRole('button', { name: spec.statuses[0].label, exact: true }).click();
-      await all.click();
+      await clickControl(quick.getByRole('button', { name: spec.statuses[0].label, exact: true }));
+      await clickControl(all);
       await expect(all).toHaveAttribute('aria-pressed', 'true');
       expect((await h.state(type)).statuses).toEqual([]);
       await check('quick/all');
@@ -1094,7 +1275,7 @@ for (const type of TYPES) {
       ] as const) {
         const button = headings.getByRole('button', { name: pattern });
         for (let click = 0; click < 2; click++) {
-          await button.click();
+          await clickControl(button);
           const direction = await button.locator('..').getAttribute('aria-sort');
           expect(['ascending', 'descending']).toContain(direction);
           await assertSort(
@@ -1119,21 +1300,21 @@ for (const type of TYPES) {
       // A combined choice survives closing, an actual acknowledged remote write
       // and a completely new document. No environment-storage injection is used.
       sheet = await h.open();
-      await sheet.getByRole('button', { name: /^Reset / }).click();
+      await clickControl(sheet.getByRole('button', { name: /^Reset / }));
       const combined = sheet.getByRole('button', { name: 'Small', exact: true });
-      await combined.click();
+      await clickControl(combined);
       if (spec.games) {
         const games = section('Games');
         for (const [index, item] of spec.games.entries()) {
           const button = games.getByRole('button', { name: item.label, exact: true });
           if (((await button.getAttribute('aria-pressed')) === 'true') !== (index === 0))
-            await button.click();
+            await clickControl(button);
         }
         expect((await h.state(type)).games).toEqual([spec.games[0].key]);
       }
       await check('combined-game-and-price');
       const saved = await h.state(type);
-      await sheet.getByRole('button', { name: /^Apply .*Filters$/ }).click();
+      await clickControl(sheet.getByRole('button', { name: /^Apply .*Filters$/ }));
       await expect(sheet).toBeHidden();
       await expect
         .poll(
@@ -1182,7 +1363,7 @@ for (const type of TYPES) {
           ),
         { cache: h.cache, type }
       );
-      await sheet.getByRole('button', { name: /^Reset / }).click();
+      await clickControl(sheet.getByRole('button', { name: /^Reset / }));
       expect(
         await page.evaluate(
           ({ cache, type }) =>
@@ -1194,12 +1375,20 @@ for (const type of TYPES) {
           { cache: h.cache, type }
         )
       ).toEqual(otherTabs);
-      await sheet.getByRole('button', { name: 'Close Game Filters', exact: true }).click();
+      await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
       expect(h.participation).toEqual([]);
     } finally {
       await testInfo.attach(`filter-audit-${type}.json`, {
         body: Buffer.from(
-          JSON.stringify({ type, baseline, controls: evidence, participation: h.participation })
+          JSON.stringify({
+            type,
+            baseline,
+            controls: evidence,
+            lifecycleWitnesses: h.lifecycleWitnesses,
+            observerErrors: h.observerErrors,
+            actions: actionTimelines.get(page),
+            participation: h.participation,
+          })
         ),
         contentType: 'application/json',
       });
@@ -1210,12 +1399,12 @@ for (const type of TYPES) {
 test('sticky lobby controls and cross-tab sorting remain accessible and durable', async ({
   page,
 }, testInfo) => {
-  const h = await setup(page);
+  const h = await test.step('Authenticated Lobby Setup', () => setup(page));
   await h.choose('MTT');
   let sheet = await h.open();
-  await sheet.getByRole('button', { name: /^Reset / }).click();
-  await sheet.getByRole('button', { name: 'Recommended', exact: true }).click();
-  await sheet.getByRole('button', { name: 'Close Game Filters', exact: true }).click();
+  await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+  await clickControl(sheet.getByRole('button', { name: 'Recommended', exact: true }));
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   await expect(h.rows.first()).toBeVisible({ timeout: 30000 });
   const baseline = await h.ids();
   expect(baseline.length).toBeGreaterThan(1);
@@ -1240,21 +1429,21 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   });
   // Favorites must remain available even after a cash choice carries to MTT.
   const favorites = rail.getByRole('button', { name: 'Favorites', exact: true });
-  await favorites.click();
+  await clickControl(favorites);
   await expect(favorites).toHaveAttribute('aria-pressed', 'true');
   await expect(h.rows).toHaveCount(0);
-  await favorites.click();
+  await clickControl(favorites);
   await expect(favorites).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(async () => sorted(await h.ids())).toEqual(sorted(baseline));
   const quickFavorite = page
     .locator('.lobby-refinements')
     .getByRole('button', { name: 'Favorites', exact: true });
-  await quickFavorite.click();
+  await clickControl(quickFavorite);
   await expect(favorites).toHaveAttribute('aria-pressed', 'true');
-  await favorites.click();
+  await clickControl(favorites);
   await expect(quickFavorite).toHaveAttribute('aria-pressed', 'false');
   // The rail returns to the real game controls, rather than opening another popup.
-  await rail.getByRole('button', { name: 'Browse Game Types', exact: true }).click();
+  await clickControl(rail.getByRole('button', { name: 'Browse Game Types', exact: true }));
   await expect(page.locator('#lobby-game-section-controls')).toBeInViewport();
   // Sheet tab changes must select the actual board before saving its sort.
   sheet = await h.open();
@@ -1265,14 +1454,14 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     ['SATELLITE', 'Satellites', 'players'],
     ['MTT', 'MTT', 'recommended'],
   ] as const) {
-    await tabs.getByRole('button', { name: label, exact: true }).click();
+    await clickControl(tabs.getByRole('button', { name: label, exact: true }));
     await expect(page.getByRole('tab', { name: LABEL[type], exact: true })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    await sheet
-      .getByRole('button', { name: SORTS.find(([key]) => key === sort)![1], exact: true })
-      .click();
+    await clickControl(
+      sheet.getByRole('button', { name: SORTS.find(([key]) => key === sort)![1], exact: true })
+    );
     await expect.poll(async () => (await h.view()).sortByTab?.[type]).toBe(sort);
   }
   const retainedView = await h.view();
@@ -1284,23 +1473,23 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   });
   // Escape, backdrop, close and Apply all preserve deliberately saved edits.
   const include = sheet.getByRole('button', { name: 'Include Satellites', exact: true });
-  await include.click();
+  await clickControl(include);
   const savedMtt = await h.state('MTT');
   await page.keyboard.press('Escape');
   await expect(sheet).toBeHidden();
   sheet = await h.open();
   expect(await h.state('MTT')).toEqual(savedMtt);
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.locator('.afx-overlay').click({ position: { x: 1, y: 1 } });
-  await page.setViewportSize({ width: 390, height: 844 });
+  await clickControl(page.locator('.afx-overlay'), { position: { x: 1, y: 1 } });
   await expect(sheet).toBeHidden();
+  await page.setViewportSize({ width: 393, height: 852 });
   sheet = await h.open();
   expect(await h.state('MTT')).toEqual(savedMtt);
   // Exact scheduled time is a touch control, not a hover-only tooltip.
-  await sheet.getByRole('button', { name: 'Close Game Filters', exact: true }).click();
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   const exact = page.getByRole('button', { name: 'Show Exact Start Time', exact: true }).first();
   await expect(exact).toBeVisible();
-  await exact.click();
+  await clickControl(exact);
   const countdown = page.getByRole('button', { name: 'Show Countdown', exact: true }).first();
   await expect(countdown.locator('time')).toHaveAttribute('datetime', /\d{4}-\d{2}-\d{2}T/);
   await expect(countdown).toContainText(/\d/);
@@ -1309,7 +1498,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     body: await page.screenshot(),
     contentType: 'image/png',
   });
-  await countdown.click();
+  await clickControl(countdown);
   await expect(exact).toBeVisible();
   const labelEvidence = await h.rows.evaluateAll((elements) =>
     elements.map((element) => ({
@@ -1386,10 +1575,10 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
   for (const label of [/^Buy-In/, /^Players/, /^Status/]) {
     const button = headings.getByRole('button', { name: label });
-    await button.click();
+    await clickControl(button);
     const first = await button.locator('..').getAttribute('aria-sort');
     expect(['ascending', 'descending']).toContain(first);
-    await button.click();
+    await clickControl(button);
     await expect(button.locator('..')).toHaveAttribute(
       'aria-sort',
       first === 'ascending' ? 'descending' : 'ascending'
@@ -1401,7 +1590,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   const allBaseline = await h.ids();
   expect(allBaseline.length).toBeGreaterThan(0);
   const quick = page.locator('.lobby-refinements');
-  await quick.getByRole('button', { name: 'Running', exact: true }).click();
+  await clickControl(quick.getByRole('button', { name: 'Running', exact: true }));
   await expect(quick.getByRole('button', { name: 'Running', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
@@ -1410,14 +1599,14 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     ['RUNNING', 'IN_PROGRESS'].includes(text(h.rawRows.get(id)?.status).toUpperCase())
   );
   await expect.poll(async () => sorted(await h.ids())).toEqual(sorted(expectedRunning));
-  await quick.getByRole('button', { name: 'All', exact: true }).click();
+  await clickControl(quick.getByRole('button', { name: 'All', exact: true }));
   await expect.poll(async () => sorted(await h.ids())).toEqual(sorted(allBaseline));
   sheet = await h.open();
   await expect(sheet).toHaveAttribute('aria-label', 'Sort');
   await expect(sheet.getByRole('group', { name: 'Game Type', exact: true })).toHaveCount(0);
   for (const [key, label] of SORTS.filter(([key]) => key !== 'starting_soon')) {
     const button = sheet.getByRole('button', { name: label, exact: true });
-    await button.click();
+    await clickControl(button);
     await expect(button).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(async () => (await h.view()).sortByTab?.ALL).toBe(key);
     // Sorting preserves the complete ALL cash census, rather than certifying
@@ -1425,7 +1614,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     await expect.poll(async () => sorted(await h.ids())).toEqual(sorted(allBaseline));
     await assertSort(page, 'ALL', key, h.rawRows);
   }
-  await sheet.getByRole('button', { name: 'Done', exact: true }).click();
+  await clickControl(sheet.getByRole('button', { name: 'Done', exact: true }));
   await expect(sheet).toBeHidden();
   await h.choose('HOLDEM');
   sheet = await h.open();
@@ -1434,23 +1623,24 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     ['OMAHA', 'Omaha'],
     ['LIMIT', 'Limit'],
   ] as const) {
-    await sheet
-      .getByRole('group', { name: 'Game Type', exact: true })
-      .getByRole('button', { name: label, exact: true })
-      .click();
+    await clickControl(
+      sheet
+        .getByRole('group', { name: 'Game Type', exact: true })
+        .getByRole('button', { name: label, exact: true })
+    );
     await expect(page.getByRole('tab', { name: LABEL[type], exact: true })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    await sheet.getByRole('button', { name: 'Recommended', exact: true }).click();
+    await clickControl(sheet.getByRole('button', { name: 'Recommended', exact: true }));
     await expect.poll(async () => (await h.view()).sortByTab?.[type]).toBe('recommended');
   }
-  await sheet.getByRole('button', { name: 'Close Game Filters', exact: true }).click();
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   const cashFamily = page.getByRole('button', { name: 'Cash Games', exact: true });
-  await cashFamily.click();
+  await clickControl(cashFamily);
   await expect(cashFamily).toHaveAttribute('aria-expanded', 'false');
   await expect(rail).toBeHidden();
-  await cashFamily.click();
+  await clickControl(cashFamily);
   await expect(cashFamily).toHaveAttribute('aria-expanded', 'true');
   await expect(rail).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
