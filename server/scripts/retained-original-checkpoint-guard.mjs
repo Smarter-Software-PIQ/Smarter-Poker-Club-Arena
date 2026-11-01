@@ -128,7 +128,8 @@ export async function retainedOriginalCheckpointGuard(
     ],
   ];
   const release = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
-  const reserveMs = 245000;
+  // Exact EED80 profile: 285s strict entry minus80s checkpoint; rollback stays135s.
+  const reserveMs = 205000;
   let stage = 'preflight',
     attemptedTables = 0,
     completedCalls = 0,
