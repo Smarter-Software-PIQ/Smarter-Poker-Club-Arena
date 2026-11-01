@@ -1,6 +1,6 @@
 {
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+    "scripts/ci/classify-ci-changes.mjs": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
@@ -1305,5 +1305,18 @@
     "previousSha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319",
     "currentSha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
     "historicalEvidenceRestamped": false
+  },
+  "cashDecisionBrowserSourceIdentity20261101": {
+    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
+    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
+    "execution_performed": false,
+    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
+    "pins": [
+      {
+        "file": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+        "current": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+      }
+    ]
   }
 }

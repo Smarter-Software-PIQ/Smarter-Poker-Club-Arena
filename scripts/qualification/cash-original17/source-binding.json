@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272761,
-      "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+      "bytes": 273180,
+      "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
     },
     "scripts/ci/satellite_qualifier_fixture.py": {
       "bytes": 18466,
@@ -2326,5 +2326,24 @@
   "financialMainIntegration20261101": {
     "reason": "Retain both branch histories and reviewed composed workflow and nested binding identities. No historical evidence restamped.",
     "historicalEvidenceRestamped": false
+  },
+  "cashDecisionBrowserSourceIdentity20261101": {
+    "scope": "Source identity only for the reviewed cash street browser regression and its existing CI selection.",
+    "review": "Adds one exact cash-street-decision.pw.ts Chromium/WebKit gate to the existing browser job using its built dist; classifier recognizes the directly invoked .pw case, replay wire/mock inputs and conservative fallback. Existing financial/native commands, assertions, qualifications and historical receipts are unchanged. Nested binding updates retain those source-only audit records.",
+    "execution_performed": false,
+    "qualification": "No financial recertification, migration installation or production/live certificate. Required exact-head checks remain necessary.",
+    "pins": [
+      {
+        "file": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 272761,
+          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+        },
+        "current": {
+          "bytes": 273180,
+          "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
+        }
+      }
+    ]
   }
 }
