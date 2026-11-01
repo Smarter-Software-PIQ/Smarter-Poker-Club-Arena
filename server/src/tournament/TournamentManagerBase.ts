@@ -4084,27 +4084,8 @@ export abstract class TournamentManagerBase {
      * until beginBreakCountdown knows the real answer. A client that cannot
      * read a clock renders "Last Hand" rather than a wrong number.
      */
-    await this.broadcast('tournament_break', {
-      level: this.currentLevel,
-      phase: 'last_hand',
-      breakDurationMinutes: Math.round(breakDurationMs / 60000),
-      breakEndsAt: null,
-      synchronized: true,
-      nextLevel: nextLevel
-        ? {
-            smallBlind: nextLevel.smallBlind,
-            bigBlind: nextLevel.bigBlind,
-            ante: nextLevel.ante || 0,
-          }
-        : null,
-    });
-    if (
-      !this.lifecycleIsCurrent(lifecycle) ||
-      !this.onBreak ||
-      this.synchronizedBreakStartGeneration !== acceptedBreakGeneration
-    )
-      return;
-
+    // Gameplay custody precedes its announcement. A delayed transport must
+    // not leave the field dealing behind the already-persisted break.
     // 2026-08-18: the break screen is a full-screen opaque overlay
     // (TournamentBreakScreen.css: position fixed, inset 0, z-index 700), and
     // until now NOTHING stopped the tables underneath it. Every player sat
@@ -4132,6 +4113,28 @@ export abstract class TournamentManagerBase {
         reportError(err, 'TournamentManagerBase.pauseForBreak_pause_engine');
       }
     }
+
+    if (
+      !this.lifecycleIsCurrent(lifecycle) ||
+      !this.onBreak ||
+      this.synchronizedBreakStartGeneration !== acceptedBreakGeneration
+    )
+      return;
+
+    await this.broadcast('tournament_break', {
+      level: this.currentLevel,
+      phase: 'last_hand',
+      breakDurationMinutes: Math.round(breakDurationMs / 60000),
+      breakEndsAt: null,
+      synchronized: true,
+      nextLevel: nextLevel
+        ? {
+            smallBlind: nextLevel.smallBlind,
+            bigBlind: nextLevel.bigBlind,
+            ante: nextLevel.ante || 0,
+          }
+        : null,
+    });
   }
 
   /**

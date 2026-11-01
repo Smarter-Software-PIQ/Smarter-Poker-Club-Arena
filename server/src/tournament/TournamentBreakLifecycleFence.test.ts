@@ -203,6 +203,38 @@ describe('break release requires persistence and current ownership', () => {
 });
 
 describe('tournament break lifecycle fence', () => {
+  it('does not announce after the physical park callback fences this manager', async () => {
+    const manager = new BreakHarness();
+    manager.activate();
+    stubBreakPersistence();
+    const engine = { pauseAfterHand: vi.fn(() => manager.fence()) };
+    manager.addTableEngine(engine);
+    await manager.pauseForBreak(300_000);
+    expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
+    expect(manager.broadcastCall).not.toHaveBeenCalled();
+  });
+
+  it('parks the field before waiting for the break announcement', async () => {
+    const notification = deferred<boolean>();
+    const manager = new BreakHarness();
+    manager.activate();
+    stubBreakPersistence();
+    const engine = { pauseAfterHand: vi.fn() };
+    manager.addTableEngine(engine);
+    manager.broadcastCall.mockImplementationOnce(() => notification.promise);
+    const pausing = manager.pauseForBreak(300_000);
+    await vi.waitFor(() => expect(manager.broadcastCall).toHaveBeenCalledOnce());
+    const parkedBeforeReceipt = engine.pauseAfterHand.mock.calls.length;
+    notification.resolve(false);
+    await pausing;
+    manager.fence();
+    expect(parkedBeforeReceipt).toBe(1);
+    expect(engine.pauseAfterHand).toHaveBeenCalledWith(420_000, {
+      beforeNextHand: true,
+      untilResumed: true,
+    });
+  });
+
   it.each([false, true])(
     'does not restart a break after a delayed duplicate eligibility read (released=%s)',
     async (released) => {
@@ -273,7 +305,7 @@ describe('tournament break lifecycle fence', () => {
       expect(manager.breakIsActive()).toBe(nextBreak);
       if (!nextBreak) {
         await manager.pauseForBreak(300_000);
-        expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
+        expect(engine.pauseAfterHand).toHaveBeenCalledTimes(pauses + 1);
       }
       manager.fence();
     }
@@ -317,7 +349,7 @@ describe('tournament break lifecycle fence', () => {
     expect(engine.pauseAfterHand).not.toHaveBeenCalled();
   });
 
-  it('does not pause tables when the break broadcast returns after the fence', async () => {
+  it('does not repark tables when the break broadcast returns after the fence', async () => {
     const broadcast = deferred<boolean>();
     const manager = new BreakHarness();
     manager.activate();
@@ -328,11 +360,12 @@ describe('tournament break lifecycle fence', () => {
 
     const pausing = manager.pauseForBreak(300_000);
     await vi.waitFor(() => expect(manager.broadcastCall).toHaveBeenCalledOnce());
+    expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
     manager.fence();
     broadcast.resolve(true);
     await pausing;
 
-    expect(engine.pauseAfterHand).not.toHaveBeenCalled();
+    expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
   });
 
   it.each([false, true])(
