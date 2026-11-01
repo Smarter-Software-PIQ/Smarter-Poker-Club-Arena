@@ -646,7 +646,15 @@ test.describe('the mobile lobby chrome on production', () => {
             const zone = element.querySelector('.lt-tournament-heading__name') as HTMLElement;
             const title = zone.firstElementChild as HTMLElement;
             const plate = element.querySelector('.lt-tournament-heading__guarantee')!;
+            const headBox = element.getBoundingClientRect();
+            const plateBox = plate.getBoundingClientRect();
+            const centeredPlate =
+              Math.abs((plateBox.left + plateBox.width / 2 - headBox.left) / headBox.width - 0.8) <
+                0.004 &&
+              Math.abs((plateBox.top + plateBox.height / 2 - headBox.top) / headBox.width - 0.081) <
+                0.004;
             return (
+              centeredPlate &&
               title.scrollHeight <= zone.clientHeight + 1 &&
               Math.abs(
                 parseFloat(getComputedStyle(title).fontSize) -
