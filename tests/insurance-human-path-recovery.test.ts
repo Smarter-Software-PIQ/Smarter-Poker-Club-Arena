@@ -12,6 +12,13 @@ function functionWindow(start: string, end: string): string {
 }
 
 describe('Insurance human-path recovery', () => {
+  it('retires the prior offer and its deadline when a replacement has unreadable equity', () => {
+    const body = functionWindow('if (equityPercent === null)', '// Map server offer format');
+    expect(body).toContain('setInsuranceOffer(null)');
+    expect(body).toContain('setShowInsurance(false)');
+    expect(body).toContain("prev?.kind === 'insurance' ? null : prev");
+    expect(body).toMatch(/reportError[\s\S]*return;/);
+  });
   it('does not hide the offer before an accepted purchase succeeds', () => {
     const body = functionWindow('const handleInsuranceAccept = async', '// FIX 89: "Decline Now"');
     const request = body.indexOf('await respondToInsurance');

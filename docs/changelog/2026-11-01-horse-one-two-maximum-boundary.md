@@ -1,0 +1,13 @@
+# Every 1/2 Cash Horse Selects The Legal Maximum
+
+The owner explicitly instructed this chat to make every horse sitting at 1/2 buy in or add on for the maximum at all times. Initial entries and bust rebuys already selected the table maximum, but the live-stack refill path was PLO5-only and balanced a 30% Auto Top Up quota; the rest waited for discretionary manual add-on timing. Small gaps and discretionary bankroll exposure or stop-loss policies could refuse a fully funded refill.
+
+The existing hand boundary now selects every 1/2 Classic cash horse across NLH/PLO4/PLO5/PLO6/PLO8 for Auto Top Up, persists only this table's seat choices and fills every positive cent gap to the actual configured maximum. The later owner order overrides discretionary refill style, reserve, exposure, sliver and stop-loss preferences only at this stake. A known wallet must cover the entire purchase; unavailable or insufficient wallet funds do not create a partial maximum claim. Other stakes retain their prior policies. Busted horses receive the same existing five-second rebuy window and ordinary funding attempt, rather than being removed by the superseded preference.
+
+Funds still travel through the original atomic purchase/RPC and its operation key. Table ceilings, authoritative funded stack readback, lifecycle/freeze guards, leaving/sitting-out seats, one purchase at the existing boundary, and unknown-outcome refusal remain. No direct money/stack SQL, new timer, forced admission or synthetic production funding is used.
+
+Lightning keeps its separate pooled anchor/session auto-rebuy contract, which this Classic table boundary must not mistake for an ordinary seat. Diamond and tournament add-ons are unchanged. This change does not prove those separate domains implement the new instruction.
+
+Focused actual verification: 107 tests passed across six affected existing files, including five-variant 250-to-400 funding, a second full-stack boundary with no additional purchase, cent gaps, insufficient funds, scoped stop-loss override, table-local preference writes and unchanged other-stake policy. Final compiler/format/hook results are recorded separately. This is source qualification, not live proof.
+
+Read-only database observation at 2026-11-01 04:24:33.264134Z verified the reported PLO5 1/2 Madness table: running Classic cash, minimum200, maximum400, six seats, four horses and only one horse with Auto Top Up enabled. Horse stacks ranged from77.45to400 at that snapshot. This confirms the actual refill-style gap; actual release installation and natural legal 1/2 refill readback remain required. No financial production write was used for verification.

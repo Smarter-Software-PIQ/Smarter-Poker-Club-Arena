@@ -214,4 +214,38 @@ describe('a whole table shares bounded reads and exact seat choices', () => {
     expect(batch?.size).toBe(10);
     expect(requests).toHaveLength(1);
   });
+  it('1/2 selects every current cash horse without discretionary session-history admission', async () => {
+    wholeGame();
+    seats.forEach((s) => {
+      s.auto_rebuy = false;
+      Object.assign(s.table, { small_blind: 1, big_blind: 2, game_variant: 'plo8' });
+    });
+    failure = 'cash_player_session';
+    const batch = await wallets.readHorseTopUpBatch('table-0', () => true, 1000, 'game', true);
+    expect(batch?.size).toBe(6);
+    expect([...batch!.values()].every((s) => s.autoTopUp && s.wallet === 10000)).toBe(true);
+    expect(seats.filter((s) => s.table_id === 'table-0').every((s) => s.auto_rebuy)).toBe(true);
+    expect(seats.filter((s) => s.table_id !== 'table-0').every((s) => !s.auto_rebuy)).toBe(true);
+    expect(requests.some((r) => r.url.pathname.endsWith('cash_player_session'))).toBe(false);
+  });
+  it('refuses a wrong-stake maximum request before changing any seat preference', async () => {
+    wholeGame();
+    seats.forEach((s) => Object.assign(s.table, { small_blind: 2, big_blind: 5 }));
+    expect(await wallets.readHorseTopUpBatch('table-0', () => true, 1000, 'game', true)).toBeNull();
+    expect(requests.filter((r) => r.method === 'PATCH')).toHaveLength(0);
+  });
+  it('keeps a valid 1/2 table eligible when its cluster contains other stakes', async () => {
+    wholeGame();
+    seats.forEach((s) => {
+      s.auto_rebuy = false;
+      Object.assign(s.table, {
+        small_blind: s.table_id === 'table-0' ? 1 : 2,
+        big_blind: s.table_id === 'table-0' ? 2 : 5,
+      });
+    });
+    const batch = await wallets.readHorseTopUpBatch('table-0', () => true, 400, 'game', true);
+    expect(batch?.size).toBe(6);
+    expect([...batch!.values()].every((s) => s.autoTopUp)).toBe(true);
+    expect(seats.filter((s) => s.table_id !== 'table-0').every((s) => !s.auto_rebuy)).toBe(true);
+  });
 });

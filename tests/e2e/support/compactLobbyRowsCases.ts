@@ -105,9 +105,13 @@ export function registerCompactLobbyRowsCases() {
       if (width <= 900) {
         expect(geometry.meta.every((meta) => meta.whiteSpace === 'normal')).toBe(true);
         expect(geometry.meta.some((meta) => meta.height > meta.lineHeight * 1.5)).toBe(true);
-        await expect(table.locator('.compact-lobby__meta').nth(1)).toContainText(
-          'Lightning Games | Big Blind Ante, 40% Minimum VPIP'
-        );
+        const styleCopy = table.locator('.compact-lobby__meta').nth(1);
+        await expect(styleCopy.locator('.premium-cash-style > span')).toHaveText([
+          'Lightning Games',
+          'Big Blind Ante',
+          '40% Min VPIP',
+        ]);
+        await expect(styleCopy.getByTitle('40% Minimum VPIP', { exact: true })).toBeVisible();
         await table.locator('.compact-lobby__open').first().click();
         await expect(page.locator('body')).toHaveAttribute('data-selected', 'true');
       }

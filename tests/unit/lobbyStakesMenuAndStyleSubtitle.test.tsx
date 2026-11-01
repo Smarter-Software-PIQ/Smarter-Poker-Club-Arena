@@ -216,6 +216,12 @@ describe('Lightning Games lobby identity', () => {
     const premiumCss = read('src/components/lobby/PremiumMttRows.css');
     expect(premiumCss).toContain("[data-tournament-icon='lightning']");
     expect(premiumCss).toContain('chrome-arena-mtt-v1/lightning.png');
+    const stakeValues = document.querySelectorAll('.premium-cash-stakes-value');
+    expect(stakeValues.length).toBeGreaterThan(0);
+    for (const value of stakeValues) {
+      expect(value.parentElement?.className).toBe('premium-cash-stakes-zone');
+      expect(value.textContent).toMatch(/\d/);
+    }
     for (const icon of icons) {
       expect(icon.getAttribute('data-tournament-icon')).toBe('lightning');
       expect(icon.closest('tr')?.hasAttribute('data-game-heading')).toBe(true);

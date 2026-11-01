@@ -527,7 +527,13 @@ function CardFace({
           </div>
         </div>
       ) : (
-        <CardImage card={card} deckStyle={deckStyle} size="lg" isHighlighted={isHighlighted} />
+        <CardImage
+          card={card}
+          deckStyle={deckStyle}
+          size="lg"
+          isHighlighted={isHighlighted}
+          loading="eager"
+        />
       )}
       {/* Highlight Glow */}
       {isHighlighted && <div className="community-cards__highlight-glow" />}
@@ -929,7 +935,12 @@ function CommunityCardsComponent({
           }
         } else if (squeezes) {
           // Duplicate / stale / hidden: the card is simply on screen, so the
-          // cue has nothing to wait for.
+          // cue has nothing to wait for. The prior interactive street can
+          // still own an equity hold: a refused presentation does not emit
+          // a reveal/cancel beat. Release that hold with these visible pixels.
+          cancelActiveSqueeze('static-street');
+          setSqueezeHold(null);
+          announceHold(false);
           pendingRevealKeyRef.current = null;
           squeezeProfileRef.current = null;
           newIndices.delete(slot);

@@ -75,8 +75,9 @@ function retirementEntryFailure(error) {
       ? code
       : retirementEntryFallbacks[retirementEntryStage],
     entryStage: retirementEntryStage,
-    ...(retirementEntryStage === 'kernel' && mainInspectorKernelFailureReason(error)
-      ? { kernelReason: mainInspectorKernelFailureReason(error) }
+    ...(code === 'main_inspector_socket_unproved' &&
+    INSPECTOR_KERNEL_STEPS.includes(error?.kernelStep)
+      ? { kernelStep: error.kernelStep }
       : {}),
     retryAllowed: false,
   };

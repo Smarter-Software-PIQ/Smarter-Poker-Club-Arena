@@ -1481,3 +1481,80 @@ it('binds the owner-ordered drained :55 activation of Horse V63-V70 without rene
   ])
     expect(entry.ownerOrder).toContain(boundary);
 });
+
+it('binds the owner-ordered drained engine crash-loop activation that falls back to the daily break', () => {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const doc = JSON.parse(raw);
+  const id = '2026-11-01-engine-crashloop-fix-daily-fallback';
+  const entry = doc.windows.find((w: { id: string }) => w.id === id);
+  expect(doc.windows.filter((w: { id: string }) => w.id === id)).toHaveLength(1);
+  expect(doc.windows[69]).toEqual(entry);
+  // The merge of #9095 (a drained-boundary refusal waits instead of killing the
+  // intake), which contains the #9057 engine fixes.
+  expect(entry.contains).toBe('b6fd73bcd9094b9908f6b3e3aaeedba642daaff2');
+  expect(entry.announceAtChicagoMinutes).toEqual([53]);
+  expect(entry.migrations).toEqual([]);
+  expect(entry.notBefore).toBe('2026-11-01T07:05:00Z');
+  expect(entry.notAfter).toBe('2026-11-01T09:25:00Z');
+  const span = Date.parse(entry.notAfter) - Date.parse(entry.notBefore);
+  expect(span).toBeGreaterThanOrEqual(420_000);
+  expect(span).toBeLessThanOrEqual(21_600_000);
+  // Wholly after the 2026-11-01 end of daylight time (07:00Z), so each Chicago
+  // :55 inside it is a single, unambiguous CST instant.
+  expect(Date.parse(entry.notBefore)).toBeGreaterThan(Date.parse('2026-11-01T07:00:00Z'));
+  // Never reaches the 2026-11-01 04:00 America/Chicago (10:00Z) daily window;
+  // an unused request falls back to it instead.
+  expect(Date.parse(entry.notAfter)).toBeLessThan(Date.parse('2026-11-01T09:30:00Z'));
+  const expectedFloor = Buffer.from(
+    JSON.stringify(
+      {
+        schema: 'engine-release-activation-floor/v2-owner-window',
+        preparationAt: entry.notBefore,
+        activationAt: entry.notBefore,
+        expiresAt: entry.notAfter,
+        timeZone: 'America/Chicago',
+        ownerWindowId: id,
+        clientPublicationAt: entry.notBefore,
+      },
+      null,
+      2
+    ) + '\n'
+  );
+  expect(entry.releaseWitness).toEqual({
+    path: 'server/release/activation-floor.json',
+    sha256: createHash('sha256').update(expectedFloor).digest('hex'),
+  });
+  const selected = readFileSync(join(root, 'server/release/activation-floor.json'));
+  if (JSON.parse(selected.toString()).ownerWindowId === id) expect(selected).toEqual(expectedFloor);
+  const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
+  const end = raw.indexOf('\n  ],\n  "databaseWindows":', start);
+  expect(start).toBeGreaterThan(0);
+  const historical = raw.slice(0, start) + raw.slice(end);
+  expect(createHash('sha256').update(historical).digest('hex')).toBe(
+    '6203f0c13f3c350f17faef6209b3b74cdf37d7933783cebfc2d0224e85d74f5d'
+  );
+  for (const boundary of [
+    'FINISH UP ANY AND ALL REMAINING WORK',
+    'FINISH UP ALL OF THESE NOW',
+    'Yes, open the window (Recommended)',
+    'NEW owner-ordered window',
+    'agent-selected',
+    'typed retirement',
+    'UNKNOWN',
+    'Diamond remains closed',
+    'ONE actual activation',
+    'falls back to the routine 04:00 Chicago',
+    '120s',
+    '300s',
+    '285s',
+    '245s',
+    '135s',
+    '40s',
+    '5s cleanup',
+    '20s MAIN',
+    'full 5s remote-close',
+    'v3 thaw',
+    'migration/payment replay',
+  ])
+    expect(entry.ownerOrder).toContain(boundary);
+});

@@ -176,24 +176,16 @@ def bounded_native_facts(value):
                 'retirement_absence_timeout'}
     entry_stages = {'runtime', 'discovery', 'kernel', 'proposal', 'grant', 'transport', 'absence'}
     result = {'ok': False, 'retryAllowed': False}
+    kernel_steps = {'members', 'identities', 'namespace', 'socket_rows', 'listener',
+                    'descriptors', 'listener_owner', 'clients', 'identity_recheck',
+                    'snapshot_recheck', 'binding_recheck'}
+    if (value.get('reason') == 'main_inspector_socket_unproved'
+            and isinstance(value.get('kernelStep'), str) and value['kernelStep'] in kernel_steps):
+        result['kernelStep'] = value['kernelStep']
     result['entryStage'] = (value.get('entryStage') if isinstance(value.get('entryStage'), str)
                             and value.get('entryStage') in entry_stages else None)
     result['stage'] = value.get('stage') if isinstance(value.get('stage'), str) and value.get('stage') in stages else None
     result['reason'] = value.get('reason') if isinstance(value.get('reason'), str) and value.get('reason') in reasons else None
-    kernel_reasons = {
-        'input_unproved', 'deadline_exhausted', 'read_budget_unproved', 'process_stat_unproved',
-        'namespace_unproved', 'members_bound', 'socket_metadata_shape', 'socket_rows_bound',
-        'required_process_missing', 'namespace_mismatch', 'listener_count', 'listener_binding',
-        'descriptor_census_unproved', 'descriptor_target_bound', 'listener_owner',
-        'clients_before_grant', 'owned_client_count', 'owned_client_binding',
-        'process_identity_changed', 'members_changed', 'socket_rows_changed',
-        'snapshots_changed', 'expected_binding_changed', 'metadata_disappeared',
-        'metadata_denied', 'kernel_io_unproved',
-    }
-    detail = value.get('kernelReason')
-    if (result['reason'] == 'main_inspector_socket_unproved' and result['entryStage'] == 'kernel'
-            and type(detail) is str and detail in kernel_reasons):
-        result['kernelReason'] = detail
     for name in ('closeRequested', 'closeAcknowledged', 'connectionClosed', 'listenerAbsent'):
         result[name] = value.get(name) if type(value.get(name)) is bool else None
     return result

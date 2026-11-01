@@ -2655,12 +2655,12 @@ export abstract class TournamentManagerBase {
       await resumeRetainedHandSubmission(tableId, INSTANCE_ID, leaseGeneration);
       if (!current() || !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId))
         throw new Error('f06_engine_admission_fenced');
-      const { data, error } = await supabase.rpc('fn_f06_hand_number_state', {
+      let { data, error } = await supabase.rpc('fn_f06_hand_number_state', {
         p_tournament_id: this.tournamentId,
         p_lease_generation: leaseGeneration,
         p_table_id: tableId,
       });
-      const state = data as {
+      let state = data as {
         ok?: boolean;
         table_id?: string;
         lifecycle?: string;
@@ -2751,8 +2751,9 @@ export abstract class TournamentManagerBase {
        * requested once.
        *
        * So ask it here, from the admission that is already being refused, and
-       * then refuse this attempt anyway: the next admission re-reads the state
-       * the door left and proves itself normally. This is not a sweep, a
+       * after an acknowledged decision re-read the authoritative state once
+       * and prove this same admission normally. Refused or unknown outcomes
+       * retain the original admission refusal. This is not a sweep, a
        * healer or a repair job (CLAUDE.md 10.12) - it is this table's own live
        * path deciding the thing that blocks this table, at the moment it is
        * blocked, through the platform's own idempotent door. The receipt is
@@ -2792,6 +2793,29 @@ export abstract class TournamentManagerBase {
               leaseGeneration
             );
             this.abandonedGenerationAskedAt.set(abandoned, { at: Date.now(), ask });
+            if (ask === 'decided') {
+              // The receipt decides custody, not the next dealer's projection.
+              // Re-read once under this same owner, then apply every ordinary
+              // admission check below to the authoritative post-disposition state.
+              if (
+                !current() ||
+                !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId)
+              )
+                throw new Error('f06_engine_admission_fenced');
+              const refreshed = await supabase.rpc('fn_f06_hand_number_state', {
+                p_tournament_id: this.tournamentId,
+                p_lease_generation: leaseGeneration,
+                p_table_id: tableId,
+              });
+              data = refreshed.data;
+              error = refreshed.error;
+              state = data as typeof state;
+              if (
+                !current() ||
+                !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId)
+              )
+                throw new Error('f06_engine_admission_fenced');
+            }
           }
         }
       }

@@ -139,6 +139,9 @@ UN = '41000000-0000-4000-8000-000000000001'
 
 def seed():
     sql(f"""
+    -- Match the base harness: synthetic club codes must not inherit its
+    -- captured random default. Reserve distinct codes in this transaction.
+    LOCK TABLE public.clubs IN SHARE ROW EXCLUSIVE MODE;
     INSERT INTO auth.users(id) VALUES ('{O1}'),('{O2}'),('{O3}'),('{O4}'),('{O5}'),('{SP}'),('{HO}'),('{NW}'),('{ST1}'),('{ST2}');
     INSERT INTO public.profiles(id,username,diamonds,diamond_balance,role,is_horse) VALUES
       ('{O1}','refunds_owner_one',5000,5000,'user',false),('{O2}','refunds_owner_two',3000,3000,'user',false),
@@ -147,17 +150,22 @@ def seed():
       ('{HO}','refunds_horse_owner',0,0,'user',true),('{NW}','refunds_next_owner',40,40,'user',false),
       ('{ST1}','refunds_staff_one',1000,1000,'admin',false),('{ST2}','refunds_staff_two',0,0,'admin',false);
     INSERT INTO public.unions(id,name,owner_id,slug) VALUES ('{UN}','Refunds Union','{SP}','refunds-union');
-    INSERT INTO public.clubs(id,name,owner_id,union_id,chip_treasury,promo_balance,is_union,lifecycle_status,is_platform,asset) VALUES
-      ('{K1}','Refunds Club One','{O1}',NULL,0,0,false,'active',false,'chips'),
-      ('{K1B}','Refunds Club One Annex','{O1}',NULL,0,0,false,'active',false,'chips'),
-      ('{K2}','Refunds Club Two','{O2}',NULL,0,0,false,'active',false,'chips'),
-      ('{K3}','Refunds Club Three','{O3}','{UN}',0,0,false,'active',false,'chips'),
-      ('{K4}','Refunds Club Four','{O4}',NULL,0,0,false,'active',false,'chips'),
-      ('{K5}','Refunds Club Five','{O5}',NULL,0,0,false,'active',false,'chips'),
-      ('{KS}','Refunds Staff Club','{ST1}',NULL,0,0,false,'active',false,'chips'),
-      ('{KH}','Refunds Horse Club','{HO}',NULL,0,0,false,'active',false,'chips'),
-      ('{KR}','Refunds Retired Club','{O1}',NULL,0,0,false,'retired',false,'chips'),
-      ('{KP}','Refunds Platform Club','{O1}',NULL,0,0,false,'active',true,'diamonds');
+    WITH fixtures(ord,id,name,owner_id,union_id,chip_treasury,promo_balance,is_union,lifecycle_status,is_platform,asset) AS (VALUES
+      (1,'{K1}','Refunds Club One','{O1}',NULL,0,0,false,'active',false,'chips'),
+      (2,'{K1B}','Refunds Club One Annex','{O1}',NULL,0,0,false,'active',false,'chips'),
+      (3,'{K2}','Refunds Club Two','{O2}',NULL,0,0,false,'active',false,'chips'),
+      (4,'{K3}','Refunds Club Three','{O3}','{UN}',0,0,false,'active',false,'chips'),
+      (5,'{K4}','Refunds Club Four','{O4}',NULL,0,0,false,'active',false,'chips'),
+      (6,'{K5}','Refunds Club Five','{O5}',NULL,0,0,false,'active',false,'chips'),
+      (7,'{KS}','Refunds Staff Club','{ST1}',NULL,0,0,false,'active',false,'chips'),
+      (8,'{KH}','Refunds Horse Club','{HO}',NULL,0,0,false,'active',false,'chips'),
+      (9,'{KR}','Refunds Retired Club','{O1}',NULL,0,0,false,'retired',false,'chips'),
+      (10,'{KP}','Refunds Platform Club','{O1}',NULL,0,0,false,'active',true,'diamonds')
+    ), occupied AS (SELECT COALESCE(max(club_id),10000) AS code FROM public.clubs)
+    INSERT INTO public.clubs(id,club_id,name,owner_id,union_id,chip_treasury,promo_balance,is_union,lifecycle_status,is_platform,asset)
+      SELECT f.id::uuid,o.code+f.ord,f.name,f.owner_id::uuid,f.union_id::uuid,
+        f.chip_treasury,f.promo_balance,f.is_union,f.lifecycle_status,f.is_platform,f.asset
+      FROM fixtures f CROSS JOIN occupied o;
     INSERT INTO public.union_clubs(union_id,club_id) VALUES ('{UN}','{K3}');
     INSERT INTO public.club_members(club_id,user_id,role,status,chip_balance) VALUES
       ('{K1}','{O1}','owner','active',0),('{K1B}','{O1}','owner','active',0),('{K2}','{O2}','owner','active',0),
@@ -166,6 +174,11 @@ def seed():
     INSERT INTO public.diamond_purchase_lots(user_id,purchase_id,issued,consumed,refunded,arena_reserved) VALUES
       ('{O1}',gen_random_uuid(),1000,0,0,150);
     """)
+    codes = js(f"""SELECT jsonb_build_object('count',count(*),'distinct',count(DISTINCT club_id),
+      'span',max(club_id)-min(club_id)) FROM public.clubs WHERE id IN
+      ('{K1}','{K1B}','{K2}','{K3}','{K4}','{K5}','{KS}','{KH}','{KR}','{KP}')""")
+    check(codes == {'count': 10, 'distinct': 10, 'span': 9},
+          'fixture: ten synthetic clubs receive distinct consecutive codes without the random default', codes)
 
 
 def expire_all_trials():

@@ -1071,7 +1071,21 @@ for (const [width, heightOverride] of occupiedViewports)
           if (!faces.length) throw new Error('Inter Face Missing');
           await document.fonts.ready;
         });
-        await expect(page.locator('.card-image__fallback')).toHaveCount(0);
+        // Every valid face keeps readable underpaint beneath its loaded artwork.
+        await expect(page.locator('.card-image__fallback')).toHaveCount(
+          await page.locator('.card-image__img').count()
+        );
+        expect(
+          await page
+            .locator('.card-image__img')
+            .evaluateAll((images) =>
+              images.every(
+                (image) =>
+                  getComputedStyle(image).position === 'absolute' &&
+                  getComputedStyle(image).zIndex === '1'
+              )
+            )
+        ).toBe(true);
         await page.waitForFunction(() =>
           [...document.querySelectorAll<HTMLImageElement>('.card-image__img')].every(
             (i) => i.complete && i.naturalWidth > 0
@@ -1787,7 +1801,21 @@ test.describe('embedded mobile action-row geometry', () => {
                   ),
                 ].every((image) => image.complete && image.naturalWidth > 0)
               );
-              await expect(page.locator('.card-image__fallback')).toHaveCount(0);
+              // Every valid face keeps readable underpaint beneath its loaded artwork.
+              await expect(page.locator('.card-image__fallback')).toHaveCount(
+                await page.locator('.card-image__img').count()
+              );
+              expect(
+                await page
+                  .locator('.card-image__img')
+                  .evaluateAll((images) =>
+                    images.every(
+                      (image) =>
+                        getComputedStyle(image).position === 'absolute' &&
+                        getComputedStyle(image).zIndex === '1'
+                    )
+                  )
+              ).toBe(true);
               await page.evaluate(async () => {
                 await document.fonts.ready;
                 await new Promise<void>((resolve) =>
