@@ -738,6 +738,16 @@
       "notBefore": "2026-10-27T05:00:00Z",
       "notAfter": "2026-10-27T08:00:00Z",
       "migrations": ["20261026110858_a_lightning_game_stays_in_its_mode_long_enough_to_play_it.sql"]
+    },
+    {
+      "id": "2026-11-01-fixed170-closure-boundary-db",
+      "ownerOrder": "Dan ordered engine-recovery takeover in consolidation chat 01a190a0-8fe0-7ef0-9fe5-6c4eb3b7e40f and completion through the approved provider with maintenance safeguards intact. His original financial order in MTT AUDIT user message 01a19488-67a6-7af0-8545-a959f6702b29 says verbatim: MAKE A COMPREHENSIVE LIST OF ANY AND ALL UNFINISHED TOURNAMENTS, CLOSE AND DELETE THEM ALL SO THEY ARE NONE OUTSTANDING, SPLIT ANY REMAINING PRIZE MONEY EQUALLY WITH ALL PLAYERS THAT WERE STILL LEFT IN THE TOURNAMENT AND MARK THEM AS RESOLVED OR CLOSED.  YOU THEN NEED TO GET TO THE ROOT CAUSE OF EVERY SINGLE ONE OF THEM, AND HARD CODE FIX THEM SO WHAT EVER ISSUE CAUSED THEM NEVER HAPPENS AGAIN!   STOP TELLING ME ABOUT THEM AND START RESOLVING THEM This database-only prerequisite installs only the already protected, standalone-native-qualified closure-boundary contract missing from the engine production door. The agent-selected bounded interval grants no authority from the clock alone. Use only the maintained explicit request_database_break provider after the original 41283363258-1 transaction is safely terminal, current migration history and exact preimages are verified, the existing weekly reader has ended, and actual source/engine locks and rolling-hour admission qualify. Preserve the same immutable serving engine and instance, 120-second notice, real hand-boundary drain, durable confirmed Deployment Recovery freeze, full 285-second reserve, one installation attempt with existing lock/statement/transaction/commit reserves, and completed own-window healthy v3 thaw. No engine replacement, forced hands, direct balance/seat edits, settlement/payment replay, new-tournament-start hold, recurring retry, timer or second publisher. A refusal or unknown acknowledgment requires original-operation readback; never automatically renew this entry. AUDIT retains financial disposition and settlement ownership.",
+      "contains": "0d7cd8df4ef27b905732b6670b893c9f25c461bd",
+      "notBefore": "2026-11-01T14:10:00Z",
+      "notAfter": "2026-11-01T18:00:00Z",
+      "migrations": [
+        "20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql"
+      ]
     }
   ]
 }

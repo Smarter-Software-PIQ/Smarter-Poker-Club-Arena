@@ -1,0 +1,5 @@
+# One certified database-only closure-boundary installation window
+
+The engine production door refuses the missing protected05048 closure-boundary function before it can build or activate a successor. The earlier two-file false-join proposal was never published and expired; joining a not-yet-installed P1 freeze cannot resolve this prerequisite. Standalone native closure-boundary qualification installs05048 directly over its captured base without04247.
+
+Add one database-only owner entry for the exact protected05048 file, bounded14:10-18:00UTC on November1. Preserve every existing engine window, floor, witness and historical entry. The existing explicit provider remains one migration per database reservation; no safeguard is relaxed. Source preparation grants no runtime certificate or installation. Original expired-operation retirement, live history/preimages, weekly-reader completion and all actual notice/drain/freeze/installation/own-thaw predicates remain required before execution. Financial settlement remains a separate AUDIT-owned operation after the required contracts and healthy thaw. No migration or production action occurs in this commit.
