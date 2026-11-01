@@ -1575,6 +1575,11 @@ export abstract class ServerTableEngineBase {
     return false;
   }
 
+  /** Subclasses override to attest a durably prepared sequence-zero original parked at the pause gate. */
+  isPreparedOriginalParkedForSuccessor(): boolean {
+    return false;
+  }
+
   /** Read-time fence catches an event loop that resumes before its timer runs. */
   hasCurrentEngineLeaseAuthority(): boolean {
     if (this.engineLeaseAuthorityIsCurrent()) return true;
@@ -4184,12 +4189,13 @@ export abstract class ServerTableEngineBase {
          * it most.
          */
         if (
-          this.weeklyPayoutPauseOwners.size > 0 ||
-          this.maintenancePaused ||
-          this.finalTableDealPaused ||
-          this.terminalCloseoutPaused ||
-          this.tournamentMovePauseOwners.size > 0 ||
-          (this.handForHandPaused && this.holdBeforeNextHand)
+          !this.pendingOriginalContinuation &&
+          (this.weeklyPayoutPauseOwners.size > 0 ||
+            this.maintenancePaused ||
+            this.finalTableDealPaused ||
+            this.terminalCloseoutPaused ||
+            this.tournamentMovePauseOwners.size > 0 ||
+            (this.handForHandPaused && this.holdBeforeNextHand))
         ) {
           this.setLoopPhase('parked_for_pause');
           if (this.maintenancePaused) await this.persistPresenceForRestart('parked');
@@ -4197,7 +4203,7 @@ export abstract class ServerTableEngineBase {
           if (!this.running) break;
           this.setLoopPhase('start_wait_for_players');
         }
-        if (await this.passOperatorFloorBoundary()) {
+        if (!this.pendingOriginalContinuation && (await this.passOperatorFloorBoundary())) {
           await this.waitForPlayersPause(ServerTableEngineBase.WAIT_FOR_PLAYERS_POLL_MS);
           continue;
         }
@@ -7645,7 +7651,7 @@ export abstract class ServerTableEngineBase {
       if (!this.running || this.terminalBoundaryPersistenceFailed) return false;
       if (
         this.handForHandResolve !== null &&
-        this.isBetweenHands() &&
+        (this.isBetweenHands() || this.isPreparedOriginalParkedForSuccessor()) &&
         this.terminalBoundaryPendingGenerations.size === 0 &&
         !this.hasSettlementInFlight() &&
         this.postHandTasksPromise === null

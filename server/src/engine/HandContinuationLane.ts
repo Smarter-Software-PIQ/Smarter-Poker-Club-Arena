@@ -98,6 +98,7 @@ export class HandContinuationLane {
           await initialReplay();
           if (this.closed || !this.current()) throw new Error('Hand Continuation Is Fenced');
           this.replayingOriginal = false;
+          if (!this.isUnretained()) await this.retainedInputReady?.();
         })
         .catch((error) => this.fail(error));
     }

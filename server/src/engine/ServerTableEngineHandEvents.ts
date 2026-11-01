@@ -1306,9 +1306,15 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
       // Older retained events have no event-time verdict. Keep their existing
       // reader; new events must not measure the later paid showdown state again.
       const live = captured ? undefined : this.handController.getState();
-      const stage = captured?.stage ?? live!.stage;
+      const postDistributionShowdown = !captured && live!.stage === 'showdown';
+      const stage = captured?.stage ?? (postDistributionShowdown ? 'river' : live!.stage);
       const pot = captured?.pot ?? live!.pot;
       const handNumber = captured?.handNumber ?? this.handCount;
+      const deductions = postDistributionShowdown
+        ? this.handController.priceDeductions(live!.sawFlop, live!.pot)
+        : { rake: 0, bbjFee: 0 };
+      const rakeTaken = deductions.rake + deductions.bbjFee;
+      const expectedTotal = this.stateVerifier.getExpectedChipTotal(this.tableId);
       if (captured)
         this.stateVerifier.acceptVerificationResult(this.tableId, handNumber, captured.result);
       const result =
@@ -1320,10 +1326,14 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
           communityCards: live!.communityCards,
           pot,
           stage,
-          phase: 'in_hand',
+          phase: postDistributionShowdown ? 'hand_complete' : 'in_hand',
+          initialChipTotal:
+            postDistributionShowdown && expectedTotal !== undefined
+              ? expectedTotal - rakeTaken
+              : undefined,
           // Nothing is raked until settlement, so every chip is still in a stack
           // or in the pot.
-          rakeTaken: 0,
+          rakeTaken: postDistributionShowdown ? 0 : rakeTaken,
         });
       if (!result.valid) {
         const detail =
