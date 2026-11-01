@@ -1612,8 +1612,8 @@ for (const [width, heightOverride] of occupiedViewports)
             expect(anchoring.restingShift).toBeCloseTo(anchoring.raisedShift, 1);
             if (width > 768) {
               expect(anchoring.foldedShift).toBeCloseTo(anchoring.restingShift, 4);
-              expect(anchoring.gap).toBeLessThan(0);
-              expect(anchoring.retainedFoldGap).toBeLessThan(0);
+              expect(anchoring.gap).toBeCloseTo(crown.gap, 3);
+              expect(anchoring.retainedFoldGap).toBeCloseTo(crown.gap, 3);
             } else {
               // Folding may reclaim crown space, but cannot consume the
               // newly reserved revealed-hand lane.
