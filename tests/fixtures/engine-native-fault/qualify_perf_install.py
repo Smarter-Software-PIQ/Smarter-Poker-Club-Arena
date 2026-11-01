@@ -52,6 +52,22 @@ else:raise SystemExit(1)
 '''
 
 
+def ssh_diagnostics(raw):
+    # Closed categories only; private paths, keys, identities and text never escape.
+    limited = raw[:65536].lower()
+    markers = {
+        'privilege_directory_missing': (b'missing privilege separation directory',),
+        'listen_refused': (b'address already in use', b'cannot bind any address'),
+        'host_key_refused': (b'could not load host key', b'no hostkeys available'),
+        'authentication_refused': (b'failed publickey', b'authentication refused'),
+        'authentication_accepted': (b'accepted publickey',),
+        'account_refused': (b'account is locked', b'not allowed because'),
+    }
+    return {'categories': sorted(name for name, needles in markers.items()
+        if any(needle in limited for needle in needles)) or ['unknown'],
+        'boundExceeded': len(raw) > 65536}
+
+
 def load(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
     value = importlib.util.module_from_spec(spec)
@@ -115,6 +131,10 @@ def main():
         'aptInstallExecuted': False, 'productionEngineActionExecuted': False,
         'nativeFaultTriggered': False, 'cases': [], 'cleanupConfirmed': False}
     helper = None
+    source = None
+    native = None
+    work = None
+    phase = 'admission'
     scene = None
     owned_units = []
     created_state = False
@@ -127,6 +147,9 @@ def main():
     try:
         if os.geteuid() != 0 or not Path('/proc/1/comm').read_text().strip() == 'systemd':
             raise RuntimeError('fixture_real_root_systemd_required')
+        phase = 'source_binding'
+        result['prerequisiteTools'] = {name: os.path.isfile(path) and os.access(path, os.X_OK)
+            for name, path in {'sshd': '/usr/sbin/sshd', 'ip': '/usr/sbin/ip', 'nsenter': '/usr/bin/nsenter'}.items()}
         source = load(SOURCES['installer.py'], 'maintained_installer')
         if os.path.lexists(source.STATE):
             raise RuntimeError('fixture_foreign_installer_state_present')
@@ -146,6 +169,7 @@ def main():
             (folder / 'runner.py').chmod(0o600)
             helper = load(folder / 'installer.py', 'owned_installer_source')
             native = helper.load('qualified_identity', 'native-fault-observation.py', helper.CONTROLLER_SHA)
+            phase = 'state_creation'
             helper.STATE.mkdir(mode=0o700)
             created_state = True
             class InstallerScene(machinery.Scene):
@@ -161,8 +185,11 @@ def main():
             scene = InstallerScene(folder)
             fd = os.open(machinery.LOCK, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600)
             scene.lock_identity = os.fstat(fd).st_ino; os.close(fd)
+            phase = 'target_creation'
             start_target(scene, machinery, folder)
+            phase = 'target_identity'
             original = native.target_identity(scene.expected)
+            phase = 'profile_binding'
             public = args.profile.read_bytes()
             qualified = helper.profile(public, hashlib.sha256(public).hexdigest())
             if qualified['purpose'] != 'production':
@@ -172,6 +199,7 @@ def main():
             profile_raw = json.dumps(qualified, separators=(',', ':')).encode()
             profile_sha = hashlib.sha256(profile_raw).hexdigest()
             helper.profile(profile_raw, profile_sha)  # Exact actual uname, not a waiver.
+            phase = 'ssh_setup'
             scene.start_sshd()
             base = str(os.getpid()) + str(int(time.time()))[-7:]
             boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
@@ -223,13 +251,16 @@ def main():
                     raise RuntimeError('fixture_terminal_receipt_unproven')
                 return checked
 
+            phase = 'operation_prepare'
             op, work = prepare(1)
             remote = '/usr/bin/python3 -I -B ' + shlex.quote(str(work / 'installer.py')) + ' admit --operation ' + op + ' --expected-engine-sha ' + scene.expected + ' --profile-sha ' + profile_sha + ' && exec cat >/dev/null'
+            phase = 'ssh_admission'
             client = subprocess.Popen(['ssh', '-F', '/dev/null', '-p', str(scene.port), '-i', str(scene.keys / 'client'),
                 '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes',
                 '-o', 'UserKnownHostsFile=' + str(scene.keys / 'known'), '-o', 'GlobalKnownHostsFile=/dev/null',
                 'root@127.0.0.1', remote], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             scene.client = client
+            phase = 'install_begin'
             record = wait(lambda: started(op, work), 15)
             if record.get('phase') not in ('preparing', 'installing', 'verifying'):
                 raise RuntimeError('fixture_install_interval_not_observed')
@@ -240,9 +271,11 @@ def main():
             # Only this fixture's own SSH client dies. Host systemd owns the
             # actual package transaction independently of this SSH client.
             client.kill(); client.wait(timeout=3); client.stdin.close(); scene.client = None
+            phase = 'duplicate_read'
             duplicate = helper.admit(native, op, None, None)
             if duplicate.get('reason') != 'duplicate_operation_read_only' or scene.state(helper.unit(op)).get('InvocationID') != invocation:
                 raise RuntimeError('fixture_duplicate_operation_unproven')
+            phase = 'install_receipt'
             receipt = terminal(op, work / 'installer.py', profile_sha)
             result['installerOutcome'] = {key: receipt[key] for key in ('reason', 'installationVerified',
                 'productionInstallationQualified', 'wrapperKernelDispatchQualified', 'managerTerminalEvidence', 'profilePurpose')}
@@ -258,10 +291,12 @@ def main():
                 'actualKernel': qualified['kernel'], 'profilePurpose': qualified['purpose'],
                 'wrapperKernelDispatchQualified': False, 'productionInstallationQualified': False})
 
+            phase = 'expiry_prepare'
             op, work = prepare(2)
             machinery.run(helper.unit_arguments(op, folder / 'runner.py'))
             wait(lambda: started(op, work), 10)
             began = time.monotonic()
+            phase = 'expiry_receipt'
             receipt = terminal(op, folder / 'installer.py', '0' * 64)
             elapsed = time.monotonic() - began
             if receipt['installationVerified'] or elapsed < 170 or elapsed > 195:
@@ -271,6 +306,7 @@ def main():
             # Retire only this already-terminal owned failed fixture unit so
             # systemd may GC it. The original invocation's manager journal is
             # now mandatory; no new transaction, expiry or native fault runs.
+            phase = 'gc_receipt'
             machinery.run(['systemctl', 'reset-failed', helper.unit(op)], check=False)
             wait(lambda: scene.state(helper.unit(op)).get('LoadState') == 'not-found', 5)
             gc_receipt = terminal(op, folder / 'installer.py', '0' * 64)
@@ -280,6 +316,7 @@ def main():
                 'sameInvocation': gc_receipt['sameInvocation'], 'helperCgroupEmpty': gc_receipt['helperCgroupEmpty'],
                 'terminalEvidence': gc_receipt['managerTerminalEvidence'], 'productionInstallationQualified': False})
             result['qualified'] = True
+            phase = 'complete'
     except Exception as error:
         known = {'fixture_deadline', 'fixture_real_root_systemd_required', 'fixture_foreign_installer_state_present',
             'fixture_foreign_capture_state_present', 'fixture_bounded_wait_unproven',
@@ -289,7 +326,31 @@ def main():
             'fixture_install_interval_not_observed', 'fixture_exact_install_path_unproven',
             'fixture_foreign_network_present', 'fixture_network_identity_unproven', 'fixture_health_only_target_unproven', 'fixture_target_image_unproven',
             'fixture_terminal_receipt_unproven', 'fixture_unit_gc_unproven'}
+        known |= {'fixture_command_refused', 'fixture_command_output_bound', 'fixture_foreign_container_present',
+            'fixture_container_id_refused', 'fixture_target_readiness', 'fixture_pinned_target_refused',
+            'fixture_network_subject_refused', 'fixture_actual_health_publication_refused',
+            'fixture_health_response_bound', 'fixture_published_health_refused', 'fixture_local_ssh_readiness'}
+        known |= set(getattr(native, 'REFUSAL_CODES', ())) | set(getattr(source, 'REASONS', ()))
         result['reason'] = str(error) if str(error) in known else 'fixture_lifecycle_unproven'
+        result['failurePhase'] = phase
+        result['failureType'] = type(error).__name__ if type(error).__name__ in {
+            'RuntimeError', 'ValueError', 'KeyError', 'TypeError', 'AttributeError', 'NameError', 'OSError', 'PermissionError', 'FileNotFoundError', 'TimeoutExpired', 'AssertionError'} else 'unproven'
+        result['errno'] = error.errno if isinstance(error, OSError) and type(error.errno) is int else None
+        if scene is not None and scene.ssh_log is not None:
+            try:
+                with scene.ssh_log.open('rb') as stream:
+                    result['sshDiagnostics'] = ssh_diagnostics(stream.read(65537))
+            except OSError:
+                result['sshDiagnostics'] = {'categories': ['unknown'], 'boundExceeded': False}
+        if work is not None and native is not None:
+            try:
+                record = native.read_json(work / 'operation.json')
+                result['operationState'] = {
+                    'phase': record.get('phase') if record.get('phase') in {'prepared', 'preparing', 'installing', 'verifying', 'verified', 'refused'} else 'unproven',
+                    'reason': record.get('result') if record.get('result') in getattr(source, 'REASONS', ()) else 'unproven',
+                    'aptAttemptRecorded': (work / 'apt-attempt.json').is_file()}
+            except Exception:
+                result['operationState'] = {'phase': 'unproven'}
     finally:
         signal.alarm(0)  # Parent reserves180s for the bounded Scene cleanup.
         try:

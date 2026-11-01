@@ -9,6 +9,18 @@ helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 
 
+class QualificationDiagnostics(unittest.TestCase):
+    def test_private_ssh_text_only_exports_bounded_closed_categories(self):
+        path = Path(__file__).resolve().parents[1] / 'fixtures/engine-native-fault/qualify_perf_install.py'
+        spec = importlib.util.spec_from_file_location('qualification_metadata', path)
+        fixture = importlib.util.module_from_spec(spec); spec.loader.exec_module(fixture)
+        result = fixture.ssh_diagnostics(b'Missing privilege separation directory: /PRIVATE/SECRET\nAccepted publickey for PRIVATE_USER')
+        self.assertEqual(result, {'categories': ['authentication_accepted', 'privilege_directory_missing'], 'boundExceeded': False})
+        self.assertNotIn('PRIVATE', json.dumps(result))
+        result = fixture.ssh_diagnostics(b'x' * 65537 + b'Accepted publickey PRIVATE')
+        self.assertEqual(result, {'categories': ['unknown'], 'boundExceeded': True})
+
+
 class ManagerState(unittest.TestCase):
     def response(self, code, load='loaded', missing=None, extra=False, oversized=False):
         fields = {'LoadState': load, 'ActiveState': 'inactive', 'SubState': 'dead',
