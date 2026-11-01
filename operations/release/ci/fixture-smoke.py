@@ -20,7 +20,8 @@ FILES = ('Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs'
 PREFIX = 'operations/release/fixture/'
 CONTROL_FILES = tuple('operations/release/native/' + name for name in (
     'component-observation-protocol.mjs', 'component-observation-client.mjs',
-    'component-semantic-observations.mjs', 'tournament-player-observations.mjs'))
+    'component-semantic-observations.mjs', 'tournament-player-observations.mjs',
+    'original-web-retention.py', 'original-web-retention.json', 'original-web-artifact-api.json'))
 NATIVE_STAGES = frozenset((
     'fixture-service-preimage',
     'managed-postgres-event-trigger-boundary', 'postgresql-native-cron-install', 'postgresql-native-cron-metadata',
