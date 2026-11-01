@@ -1,0 +1,18 @@
+# Burls ghost board incident
+
+Owner: Codex chat 01a1957e. Authorized November 1, 2026: investigate and fix Burls' blank community cards, deliver and verify. No financial mutation, tournament admission changes, or engine replacement planned.
+
+Checkout: /Volumes/SmarterWork/agent-work/shared-capacity/burls-ghost-01a1957e/ca
+Branch: fix/burls-ghost-board-01a1957e. Base: 8f9e33607621e736b2b4d46dcdc543c65b7ca13d. No existing task checkpoint/PR for this new incident.
+
+Acceptance: reproduce pending-image blanking safely; make known cards readable without awaiting image completion or another action; preserve authoritative card identity, two/four color preferences, unreadable markers and deal animations; retained regression tests; local checks; protected merge; successful static publication and both build identities; affected browser behavior and serving-engine interoperability evidence.
+
+Policy read at task start: canonical four policies via reader at 2026-11-01T05:04:54.342Z, full operating law reread to recover truncated output; storage guide and repository AGENTS/CLAUDE/playbook/publishing/deploy-paths read. Current origin/main additions reviewed. Policy 2.9 receipt manifest 7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52; owner 73c17bed0bc531031283fa33c0b45d4546869166beef9d714bcfe76cfcdb9fdb; operating a8bc3c04dce3354ebdd51a89c0b7d715af3344edcc794d33f6b3ad64506961d5; hardening d5fc451ce5caf6d6b5e64597a13883e1246581678fe53c962339d0a66136993e; reference adce89c3f838f2f373cd504a00329d53906404d1dd42a647f672af6c16f95555.
+
+Initial evidence: screenshots show two visible flop faces and a blank third position; player reports all blank initially until subsequent opponent action. Exact device/browser and hand not established from screenshots. Source has fallback only after two image errors; pending images have no readable painted fallback. Static CommunityCards branch omits eager loading, despite animated branch using it. Transport patch clones snapshot before notifying consumers, mapper preserves server community cards; no mutation-in-place defect established.
+
+Access: configured gh environment token can read repo but secrets metadata refused 403; configured keyring identity via env -u GH*TOKEN -u GITHUB_TOKEN can read expected CA_ORIGIN*\* and probe secret names. No values read. Both public build-info initially ac55bc160c234cd022c3c0412ab0186aa6a578a4, publisher 41274321597.
+
+Status: investigating; no fix yet, no reproduction or deployment claim. Private locked dependencies installing. Local worktree checkout completed with transient interrupted-object reads; clean status must be confirmed.
+
+Implementation: continuous authoritative rank/suit underpaint in CardImage; artwork positioned above it; static board eager loading. Existing art/failure progression/animations preserved. Five retained component regressions; first four failed on original source then pass with repair. Focused presentation/animation verification: 9 files, 198 tests passed. Chromium and WebKit real-component 375px fault injection held all image requests, observed Q-clubs / 7-clubs / 3-hearts and painted white/green/red pixels, then exercised both failures without another game event. Evidence: /Volumes/SmarterArchives/agent-evidence/burls-ghost-01a1957e/{chromium,webkit}-pending-flop.png. This establishes the pending-image failure class, not Burls' exact device cause.
