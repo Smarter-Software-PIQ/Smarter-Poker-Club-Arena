@@ -128,7 +128,41 @@ INSERT INTO purchases VALUES($1,$2);INSERT INTO tournament_players(tournament_id
             helper="fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)"
             check('price-aware helper is service-only',run(f"SELECT has_function_privilege('service_role','{helper}','EXECUTE') AND NOT has_function_privilege('authenticated','{helper}','EXECUTE') AND NOT has_function_privilege('anon','{helper}','EXECUTE')")=='t')
             check('followup replay fails closed','horse_mtt_arrival_window_preimage_changed' in run(followup,True))
-            print(json.dumps({'passed':len(passed),'checks':passed,'scope':'actual registration wrapper, one-hour paid and six-hour free predicates; unchanged economic delegates are sinks'}))
+            # Later owner direction requires the DATABASE door, not only the
+            # engine planner, to accept full-day free preregistration.
+            run('TRUNCATE tournament_players,purchases;')
+            run(f"DELETE FROM tournaments WHERE id<>'{T}'; UPDATE tournaments SET status='REGISTERING',buy_in_amount=0,buy_in_fee=0,free_buy=false,start_time=now()+interval '12 hours' WHERE id='{T}';")
+            check('six-hour live door actually refuses next-day free preregistration',json.loads(run(call)).get('reason')=='horse_registration_not_open')
+            check('early day refusal creates no purchase',run('SELECT count(*) FROM purchases')=='0')
+            wrapper_before_day=run("SELECT pg_get_functiondef('fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure)")
+            day_migration=(ROOT/'supabase/migrations/20261101200640_horse_tournament_bankroll_uses_paying_wallet.sql').read_text()
+            day_patch=re.search(r'DO \$daywindow\$.*?\$daywindow\$;',day_migration,re.S).group()
+            run(day_patch)
+            check('day correction leaves the whole paid wrapper byte-for-byte intact',run("SELECT pg_get_functiondef('fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure)")==wrapper_before_day)
+            for fmt in ['mtt-v1','mtt-v2']:
+                for status in ['ANNOUNCED','REGISTERING']:
+                    for amount,fee,free,label in [('0','0','false','zero charge'),('0','NULL','false','legacy zero charge'),('10','1','true','free buy flag')]:
+                        for delta,want in [('24 hours 0.001 seconds',False),('24 hours',True),('23 hours 59 minutes 59.999 seconds',True)]:
+                            check(fmt+' '+status+' full day '+label+' '+delta,run(f"SELECT fn_ca_horse_mtt_entry_purchase_window_open('{fmt}','{status}','2026-11-01 20:00Z'::timestamptz+interval '{delta}','2026-11-01 20:00Z',{amount},{fee},{free})")==('t' if want else 'f'))
+                    for delta,want in [('1 hour 0.001 seconds',False),('1 hour',True),('59 minutes 59.999 seconds',True)]:
+                        for fn,args in [('fn_ca_horse_mtt_entry_purchase_window_open',',10,1,false'),('fn_ca_horse_mtt_purchase_window_open','')]:
+                            check(fmt+' '+status+' day correction keeps paid/legacy hour '+fn+' '+delta,run(f"SELECT {fn}('{fmt}','{status}','2026-11-01 20:00Z'::timestamptz+interval '{delta}','2026-11-01 20:00Z'{args})")==('t' if want else 'f'))
+            run(f"UPDATE tournaments SET start_time=now()+interval '24 hours' WHERE id='{T}';")
+            check('actual wrapper purchases a free entry a full day ahead',json.loads(run(call))['ok'])
+            check('two-argument wrapper shares the full-day entry and idempotence',json.loads(run(f"SELECT fn_register_horse_for_tournament('{T}','{H}')")).get('already_registered') is True)
+            run(f"UPDATE tournaments SET start_time=now()+interval '25 hours' WHERE id='{T}';")
+            check('day-old paid receipt survives a moved start',json.loads(run(call)).get('already_registered') is True)
+            check('full-day retry buys once',run('SELECT count(*) FROM purchases')=='1')
+            run('TRUNCATE tournament_players,purchases;')
+            check('new free entry outside a full day still refuses',json.loads(run(call)).get('reason')=='horse_registration_not_open')
+            run(f"UPDATE tournaments SET start_time=now()+interval '23 hours' WHERE id='{T}';")
+            check('full-day free entry never bypasses freeze',json.loads(run("SET test.frozen='true';"+call).splitlines()[-1]).get('reason')=='platform_frozen')
+            run(f"INSERT INTO tournaments SELECT gen_random_uuid(),'REGISTERING',now(),'mtt-v2',10,1,false FROM generate_series(1,4); INSERT INTO tournament_players(tournament_id,user_id,status) SELECT id,'{H}','registered' FROM tournaments WHERE id<>'{T}';")
+            check('full-day free entry retains four-promise budget',json.loads(run(call)).get('reason')=='horse_tournament_reservation_budget')
+            check('day-window refusals never purchase',run('SELECT count(*) FROM purchases')=='0')
+            check('day-window helper remains service-only',run(f"SELECT has_function_privilege('service_role','{helper}','EXECUTE') AND NOT has_function_privilege('authenticated','{helper}','EXECUTE') AND NOT has_function_privilege('anon','{helper}','EXECUTE')")=='t')
+            check('day-window replay refuses changed preimage','horse_free_day_window_preimage_changed' in run(day_patch,True))
+            print(json.dumps({'passed':len(passed),'checks':passed,'scope':'actual registration wrapper, one-hour paid and full-day free predicates, including historical six-hour refusal; unchanged economic delegates are sinks'}))
         finally: cmd([PG/'pg_ctl','-D',d/'db','-m','immediate','-w','stop'])
 if __name__=='__main__':
     main()

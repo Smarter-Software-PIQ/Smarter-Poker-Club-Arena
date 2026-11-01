@@ -5,6 +5,7 @@
 -- Resolve exactly as the ordinary entry wrapper does, without charging,
 -- reserving, steering or modifying any wallet. The purchase retains its locks
 -- and all ordinary solvency, membership, capacity and transaction safeguards.
+-- @live-proof: public.fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '24 hours',now(),0::numeric,0::numeric,false) AND NOT public.fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '24 hours 0.001 seconds',now(),0::numeric,0::numeric,false) AND NOT public.fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '2 hours',now(),10::numeric,1::numeric,false)
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '5s';
@@ -77,4 +78,41 @@ BEGIN
   EXECUTE v_after;
 END;
 $overlay$;
+
+-- The owner subsequently extended free preregistration from six hours to a
+-- full day. The ordinary horse door already invokes this price-aware helper;
+-- changing only its qualified free branch retains every money/capacity gate.
+DO $daywindow$
+DECLARE
+  v_source text;
+  v_definition text;
+  v_after text;
+  v_before_metadata jsonb;
+  v_after_metadata jsonb;
+BEGIN
+  SELECT p.prosrc, pg_get_functiondef(p.oid),
+         jsonb_build_object('owner',p.proowner,'acl',p.proacl,'secdef',p.prosecdef,
+           'config',p.proconfig,'volatile',p.provolatile,'parallel',p.proparallel,
+           'strict',p.proisstrict,'leakproof',p.proleakproof)
+    INTO v_source,v_definition,v_before_metadata
+    FROM pg_proc p WHERE p.oid=
+      'public.fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)'::regprocedure;
+  IF md5(v_source) IS DISTINCT FROM '87046aa899ac14f34dc1076f6f7a3497' THEN
+    RAISE EXCEPTION 'horse_free_day_window_preimage_changed';
+  END IF;
+  v_after := replace(v_definition, 'interval ''6 hours''', 'interval ''24 hours''');
+  IF v_after=v_definition OR position('interval ''6 hours''' IN v_after)>0 THEN
+    RAISE EXCEPTION 'horse_free_day_window_anchor_changed';
+  END IF;
+  EXECUTE v_after;
+  SELECT jsonb_build_object('owner',p.proowner,'acl',p.proacl,'secdef',p.prosecdef,
+           'config',p.proconfig,'volatile',p.provolatile,'parallel',p.proparallel,
+           'strict',p.proisstrict,'leakproof',p.proleakproof)
+    INTO v_after_metadata FROM pg_proc p WHERE p.oid=
+      'public.fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)'::regprocedure;
+  IF v_after_metadata IS DISTINCT FROM v_before_metadata THEN
+    RAISE EXCEPTION 'horse_free_day_window_authority_changed';
+  END IF;
+END;
+$daywindow$;
 COMMIT;

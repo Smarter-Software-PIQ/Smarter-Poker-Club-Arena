@@ -37,6 +37,9 @@ CREATE FUNCTION fn_ca_read_mtt_admission_contract() RETURNS text LANGUAGE sql AS
             run(re.search(r'CREATE OR REPLACE FUNCTION public.fn_tournament_entry_split\(.*?\$function\$;',split,re.S).group())
             run((ROOT/'tests/sql/fixtures/horse-overlay-risk-before.sql').read_text())
             run('REVOKE ALL ON FUNCTION fn_overlay_at_risk(uuid) FROM PUBLIC,anon,authenticated;GRANT EXECUTE ON FUNCTION fn_overlay_at_risk(uuid) TO service_role;')
+            timing=(ROOT/'supabase/migrations/20261101060819_horse_mtt_free_six_hours_paid_one_hour.sql').read_text()
+            run(re.search(r'CREATE OR REPLACE FUNCTION public.fn_ca_horse_mtt_entry_purchase_window_open\(.*?\$window\$;',timing,re.S).group())
+            run('REVOKE ALL ON FUNCTION fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean) FROM PUBLIC,anon,authenticated;GRANT EXECUTE ON FUNCTION fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean) TO service_role;')
             source=(ROOT/'supabase/migrations/20261012131301_a_buyin_draws_from_the_wallet_that_can_pay_and_no_unfunded_s.sql').read_text()
             for name in ['fn_ca_union_wallet_that_can_pay','fn_ca_entry_paying_club','fn_tournament_club_for_user']:
                 fn=re.search(r'CREATE OR REPLACE FUNCTION public\.'+name+r'\(.*?\$function\$\s*;',source,re.S)
@@ -48,7 +51,13 @@ CREATE FUNCTION fn_ca_read_mtt_admission_contract() RETURNS text LANGUAGE sql AS
             check('preimage incorrectly treats112 PKO entries as funded',run('SELECT entries_needed FROM fn_overlay_at_risk(NULL)')=='112')
             metadata="SELECT jsonb_build_object('owner',proowner,'acl',proacl,'secdef',prosecdef,'config',proconfig) FROM pg_proc WHERE oid='fn_overlay_at_risk(uuid)'::regprocedure"
             before_metadata=run(metadata)
+            window_metadata="SELECT jsonb_build_object('owner',proowner,'acl',proacl,'secdef',prosecdef,'config',proconfig,'volatile',provolatile,'parallel',proparallel,'strict',proisstrict,'leakproof',proleakproof) FROM pg_proc WHERE oid='fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)'::regprocedure"
+            before_window_metadata=run(window_metadata)
+            check('preimage refuses a full-day free entry',run("SELECT fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '24 hours',now(),0,0,false)")=='f')
             run(files[0].read_text())
+            check('whole migration opens a full-day free entry',run("SELECT fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '24 hours',now(),0,0,false)")=='t')
+            check('day-window helper retains authority and immutable settings',run(window_metadata)==before_window_metadata)
+            check('whole migration retains paid one-hour boundary',run("SELECT fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '2 hours',now(),10,1,false)")=='f')
             check('PKO target uses20 prize contribution rather than45 gross',run('SELECT entries_needed FROM fn_overlay_at_risk(NULL)')=='250')
             check('PKO shortfall and diagnostic buyin share agree',run("SELECT shortfall::text||'/'||buy_in::text FROM fn_overlay_at_risk(NULL)")=='232/20.00')
             check('unlimited admission ABI is preserved',run('SELECT max_players IS NULL FROM fn_overlay_at_risk(NULL)')=='t')
