@@ -88,6 +88,23 @@ const normalizeMysteryAwardOrderAddition = (job: { steps: Array<Record<string, u
   job.steps.splice(start, 1);
 };
 
+const cashDecisionGate = {
+  name: 'Cash street decision and board image gate',
+  if: "matrix.partition == 'general' && matrix.shard == 1",
+  env: { LIVE_TURN_DIST: 'dist' },
+  run: 'npx playwright test -c playwright.live-turn.config.ts tests/live-turn/cash-street-decision.pw.ts',
+};
+
+const normalizeCashDecisionAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === cashDecisionGate.name);
+  expect(job.steps.filter((step) => step.name === cashDecisionGate.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe('Push enrollment opt-in browser gate');
+  expect(job.steps[start]).toStrictEqual(cashDecisionGate);
+  expect(job.steps[start + 1]?.name).toBe('Stop the shared preview');
+  // Validate the exact new browser gate, retaining every historical job hash.
+  job.steps.splice(start, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -212,6 +229,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // original build command, browser assertion, timeout and step ordering.
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
+    normalizeCashDecisionAddition(browserJob);
     const exactHash = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
     expect(exactHash(browserBuild)).toBe(
@@ -322,6 +340,36 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
         Object.entries(normalized.jobs).map(([name, job]) => [name, fingerprint(job)])
       )
     ).toEqual(expectedJobs);
+  });
+  it('rejects missing, duplicate, displaced or weakened cash decision browser qualification', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, start: number) => steps.splice(start, 1),
+      (steps: Array<Record<string, unknown>>, start: number) =>
+        steps.push(structuredClone(steps[start])),
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        [steps[start - 1], steps[start]] = [steps[start], steps[start - 1]];
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].if = "matrix.partition == 'portrait' && matrix.shard == 1";
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].env = { LIVE_TURN_DIST: 'other-dist' };
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].run = String(steps[start].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start]['continue-on-error'] = true;
+      },
+    ];
+    for (const mutate of mutations) {
+      const job = structuredClone(ci.jobs['css-beats-e2e']);
+      const start = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === cashDecisionGate.name
+      );
+      mutate(job.steps, start);
+      expect(() => normalizeCashDecisionAddition(job)).toThrow();
+    }
   });
   it('rejects missing, duplicate, displaced or weakened frame cover qualification steps', () => {
     const mutations = [
