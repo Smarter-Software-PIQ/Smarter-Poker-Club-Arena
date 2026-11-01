@@ -13,6 +13,27 @@ const workflow = parse(
 );
 const admission = workflow.jobs.detect.steps.find((s: { id?: string }) => s.id === 'admission').run;
 
+const closureDatabaseWindowId = '2026-11-01-fixed170-closure-boundary-db';
+const ownerWindowPath = 'server/release/owner-maintenance-windows.json';
+const closureDatabaseMarker = ',\n    {\n      "id": "' + closureDatabaseWindowId + '"';
+
+/** Historical engine hashes predate this one independently qualified DB entry.
+ * Remove only its final raw object; retain every byte of all earlier entries.
+ * The separate guard below pins the new object and the exact protected prefix.
+ */
+function historicalOwnerWindowSource(raw: string): string {
+  const doc = JSON.parse(raw);
+  const matches = [...doc.windows, ...doc.databaseWindows].filter(
+    (entry: { id: string }) => entry.id === closureDatabaseWindowId
+  );
+  if (matches.length !== 1 || doc.databaseWindows.at(-1)?.id !== closureDatabaseWindowId)
+    throw new Error('The qualified database-only entry must be unique and final');
+  const start = raw.indexOf(closureDatabaseMarker, raw.indexOf('  "databaseWindows"'));
+  if (start < 0 || raw.split(closureDatabaseMarker).length !== 2 || !raw.endsWith('\n  ]\n}\n'))
+    throw new Error('The qualified database-only raw append is unavailable');
+  return raw.slice(0, start) + '\n  ]\n}\n';
+}
+
 function admit(
   event: string,
   hour: string,
@@ -896,7 +917,7 @@ it('binds the renewed MTT outage delivery without extending or rewriting earlier
 });
 
 it('binds a distinct qualified next-break carrier and preserves Diamond operator closure', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = historicalOwnerWindowSource(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   const id = '2026-10-31-mtt-action-outage-qualified-next-break';
   const marker = ',\n    {\n      "id": "' + id + '"';
@@ -964,7 +985,7 @@ it('binds a distinct qualified next-break carrier and preserves Diamond operator
 });
 
 it('binds the bounded-census correction without extending or retrying its failed predecessor', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = historicalOwnerWindowSource(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   const id = '2026-10-31-mtt-bounded-census-recovery-next-break';
   const marker = ',\n    {\n      "id": "' + id + '"';
@@ -1107,7 +1128,7 @@ it('binds a distinct Cashier original-cohort census carrier while preserving his
 });
 
 it('binds the independent Horse input correction to one new qualified tournament-aligned activation', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = historicalOwnerWindowSource(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   const id = '2026-10-31-horse-input-attribution-qualified-next-55';
   const marker = ',\n    {\n      "id": "' + id + '"';
@@ -1181,7 +1202,7 @@ it('binds the independent Horse input correction to one new qualified tournament
 });
 
 it('binds the manually resumed MTT continuation without renewing any historical window', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = historicalOwnerWindowSource(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   const id = '2026-10-31-mtt-manual-safe-drain-continuation';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1244,7 +1265,7 @@ it('binds the manually resumed MTT continuation without renewing any historical 
 });
 
 it('binds the noon manual continuation while preserving the expired unpushed carrier', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = historicalOwnerWindowSource(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   const id = '2026-10-31-mtt-manual-noon-safe-drain-continuation';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1307,7 +1328,7 @@ it('binds the noon manual continuation while preserving the expired unpushed car
 });
 
 it('binds the owner-ordered next :55 Horse V63-V69 activation without renewing any historical window', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = historicalOwnerWindowSource(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   const id = '2026-10-31-horse-v63-v69-next-55';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1376,7 +1397,7 @@ it('binds the owner-ordered next :55 Horse V63-V69 activation without renewing a
 });
 
 it('binds the owner-ordered drained :55 activation of Horse V63-V70 without renewing any historical window', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = historicalOwnerWindowSource(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   const id = '2026-10-31-horse-v63-v70-drained-next-55';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1446,7 +1467,7 @@ it('binds the owner-ordered drained :55 activation of Horse V63-V70 without rene
 });
 
 it('binds the owner-ordered drained engine crash-loop activation that falls back to the daily break', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = historicalOwnerWindowSource(readFileSync(join(root, ownerWindowPath), 'utf8'));
   const doc = JSON.parse(raw);
   const id = '2026-11-01-engine-crashloop-fix-daily-fallback';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1520,4 +1541,91 @@ it('binds the owner-ordered drained engine crash-loop activation that falls back
     'migration/payment replay',
   ])
     expect(entry.ownerOrder).toContain(boundary);
+});
+
+it('admits only the qualified closure database append while preserving exact protected history', () => {
+  const raw = readFileSync(join(root, ownerWindowPath), 'utf8');
+  const doc = JSON.parse(raw);
+  expect(doc.version).toBe(1);
+  expect(doc.databaseWindows).toHaveLength(4);
+  expect(doc.databaseWindows.slice(0, 3).map((entry: { id: string }) => entry.id)).toEqual([
+    '2026-10-28-horse-brain-pineapple-database-only',
+    '2026-10-26-lightning-dwell-database-only',
+    '2026-10-27-lightning-dwell-database-continuation',
+  ]);
+  const ids = [...doc.windows, ...doc.databaseWindows].map((entry: { id: string }) => entry.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  const entry = doc.databaseWindows.at(-1);
+  expect(Object.keys(entry).sort()).toEqual([
+    'contains',
+    'id',
+    'migrations',
+    'notAfter',
+    'notBefore',
+    'ownerOrder',
+  ]);
+  expect(entry.id).toBe(closureDatabaseWindowId);
+  expect(entry.id).toMatch(/^[a-z0-9][a-z0-9-]{0,63}$/);
+  expect(entry.contains).toBe('0d7cd8df4ef27b905732b6670b893c9f25c461bd');
+  expect(entry.notBefore).toBe('2026-11-01T14:10:00Z');
+  expect(entry.notAfter).toBe('2026-11-01T18:00:00Z');
+  const span = Date.parse(entry.notAfter) - Date.parse(entry.notBefore);
+  expect(span).toBeGreaterThanOrEqual(420_000);
+  expect(span).toBeLessThanOrEqual(6 * 3_600_000);
+  expect(entry.migrations).toEqual([
+    '20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql',
+  ]);
+  expect(
+    createHash('sha256')
+      .update(readFileSync(join(root, 'supabase/migrations', entry.migrations[0])))
+      .digest('hex')
+  ).toBe('3a292905ddf7daffc696f5cb836255a220060ba0631a126872ad30ecb7908a29');
+  for (const authority of [
+    '01a19488-67a6-7af0-8545-a959f6702b29',
+    'SPLIT ANY REMAINING PRIZE MONEY EQUALLY',
+    'original 41283363258-1 transaction is safely terminal',
+    'weekly reader has ended',
+    'rolling-hour',
+    'same immutable serving engine and instance',
+    '120-second',
+    'hand-boundary drain',
+    'Deployment Recovery',
+    '285-second',
+    'own-window healthy v3 thaw',
+    'No engine replacement',
+    'new-tournament-start hold',
+    'never automatically renew',
+    'AUDIT retains financial disposition',
+  ])
+    expect(entry.ownerOrder).toContain(authority);
+
+  // Independently compared byte-for-byte with protected e665e4a5bdc361317b1de9942ca295a36ba1d625.
+  // This full-source pin includes every old engine window, DB entry, ordering and whitespace.
+  const protectedHistoryHash = 'b15c5009360704744f666ceb01f1b5cebfa78cec0f4a3c5dbbc79fbadb8fe1a8';
+  const history = historicalOwnerWindowSource(raw);
+  expect(createHash('sha256').update(history).digest('hex')).toBe(protectedHistoryHash);
+  const start = raw.indexOf(closureDatabaseMarker);
+  expect(createHash('sha256').update(raw.slice(start, -'\n  ]\n}\n'.length)).digest('hex')).toBe(
+    'dca6908dd09b1abddf8f944d896429b561c3761b79d91fca50e022261d5fc85e'
+  );
+  // Removing the approved append cannot conceal an earlier byte mutation.
+  expect(
+    createHash('sha256')
+      .update(
+        historicalOwnerWindowSource(
+          raw.replace('2026-10-28-horse-brain-pineapple-database-only', 'foreign-database-window')
+        )
+      )
+      .digest('hex')
+  ).not.toBe(protectedHistoryHash);
+  const unexpected = structuredClone(doc);
+  unexpected.databaseWindows.push({ ...entry, id: 'unreviewed-extra-window' });
+  expect(() => historicalOwnerWindowSource(JSON.stringify(unexpected, null, 2) + '\n')).toThrow(
+    'unique and final'
+  );
+  const duplicate = structuredClone(doc);
+  duplicate.databaseWindows.push(entry);
+  expect(() => historicalOwnerWindowSource(JSON.stringify(duplicate, null, 2) + '\n')).toThrow(
+    'unique and final'
+  );
 });

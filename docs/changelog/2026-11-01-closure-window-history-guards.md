@@ -1,0 +1,3 @@
+# Preserve historical hashes around the qualified database append
+
+The normal push exposed eight historical engine-window guards that included the newly appended, independent database-only entry in their old hash inputs. Those guards now remove only that named final append before applying all unchanged historical hash expectations. A separate guard binds the exact new entry, its single migration and source hash, authority, anchor and finite bounds, and verifies that every remaining raw byte equals protected e665e4a5bdc361317b1de9942ca295a36ba1d625. Unexpected append, duplicate identity and historical mutation remain failures. The manifest and runtime code are unchanged by this test correction.
