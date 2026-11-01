@@ -56,6 +56,7 @@ describe('natural add-on is a narrow existing-lane observation', () => {
     );
     expect(cleanup.if).toContain('always()');
     expect(cleanup.if).not.toContain('natural_addon');
+    expect(workflow.jobs['post-deploy-verdict'].if).toContain("natural_addon != 'true'");
     expect(lane.steps.find((s: any) => s.id === 'live_coverage').if).toContain(
       "natural_addon != 'true'"
     );

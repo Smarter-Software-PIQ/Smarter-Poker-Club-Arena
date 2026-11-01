@@ -2610,7 +2610,7 @@ jobs:
       - production-e2e
       - live-table-e2e
       - phase1-customization-cutover-seal
-    if: ${{ always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' }}
+    if: ${{ always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.natural_addon != 'true' }}
     name: This verification admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     timeout-minutes: 6
