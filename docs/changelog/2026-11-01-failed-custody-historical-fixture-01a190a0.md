@@ -1,0 +1,11 @@
+# Keep historical custody qualification independent of current engine source
+
+Read41361092911 failed before SSH because a test copied the current engine transaction into a fixture that correctly expected the original3e source hash. Protected PR9212 legitimately changed current transaction bytes to44c4927d09e33fba71a776da60edf154b3aa1e59b0441cea7abd847d4c2d8a2f. The historical observer still refers to original3e bytes3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39. Current engine behavior and other owners' changes are preserved.
+
+Only test inputs change. Five original authority files were read from genuine local Git objects at3e3c6d4752cd587fad0db521ebd262f1b485514c; each Git blob object ID was independently checked against SHA1 of its Git blob header and bytes. A deterministic read-only ZIP and JSON manifest retain exact filenames, sizes, SHA256s, Git object IDs, source commit and bundle digest. The74756-byte bundle SHA256 is b0741d49583b99c33dfda6169c8125681b9c2062d94b722b3ba530bd49f92523.
+
+The fixture loader requires the exact five regular members, bounded archive and expansion, immutable manifest, original production authority hashes, each content checksum and Git object ID. It rejects corrupt bundles and changed manifests. Both existing custody source setup and the separate512KiB source-reader case copy these frozen bytes into each isolated fixture. The historical files are never executed, imported, installed, fetched or used as current engine source. No production reader, runtime budget, authority pin, observation or cleanup behavior changes.
+
+All167 cases, the fifteen-second wrapper and zero Linux skip requirement remain unchanged. Existing-case corruption negatives cover bundle and manifest tampering. Live custody/journal availability and any cycle resolution remain separate pending facts.
+
+Local qualification: all167 cases passed through the unchanged fifteen-second wrapper in7.15seconds (Vitest total8.67seconds), using Node22.23.2, Homebrew Python3.14.2, CLT Git2.50.1 and external temporary storage. Nine focused custody/historical cases passed; all1822 source bindings and diff checks passed. The loader bounds file reads before allocation. No TypeScript/application input changed, so no duplicate compiler run was required. Production/native observation remains pending.

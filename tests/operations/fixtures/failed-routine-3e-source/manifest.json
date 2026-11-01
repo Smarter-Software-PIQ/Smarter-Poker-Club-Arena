@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "purpose": "read-only-historical-test-data-never-execute-or-install",
+  "source_commit": "3e3c6d4752cd587fad0db521ebd262f1b485514c",
+  "repository_path_prefix": "server/scripts/",
+  "bundle_bytes": 74756,
+  "bundle_sha256": "b0741d49583b99c33dfda6169c8125681b9c2062d94b722b3ba530bd49f92523",
+  "files": {
+    "engine-release-recover.sh": {
+      "bytes": 13974,
+      "sha256": "b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83",
+      "git_blob_sha1": "71e56640a10acad396ef493331f6276f0591c3b3"
+    },
+    "engine-release-transaction.sh": {
+      "bytes": 186237,
+      "sha256": "3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39",
+      "git_blob_sha1": "f8328f6f346efd5b3e228b81b5e63714b9eb17be"
+    },
+    "engine-release-unit-wrapper.sh": {
+      "bytes": 16010,
+      "sha256": "e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c",
+      "git_blob_sha1": "804b6f83ae2484eeb39284aad28e20f95e89c899"
+    },
+    "install-engine-intake.sh": {
+      "bytes": 10819,
+      "sha256": "5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b",
+      "git_blob_sha1": "503de3a3af3179be36571d5329f2383252277cd2"
+    },
+    "install-engine-supervisor.sh": {
+      "bytes": 27022,
+      "sha256": "b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96",
+      "git_blob_sha1": "a6a63ac1cf7e7cc47cafaa83d848b26e373536e6"
+    }
+  }
+}

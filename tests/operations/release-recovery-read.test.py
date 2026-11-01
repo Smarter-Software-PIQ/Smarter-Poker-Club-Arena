@@ -6,6 +6,8 @@ import hashlib
 import base64
 import contextlib
 import io
+import zipfile
+import stat
 import ast
 import json
 import os
@@ -26,6 +28,85 @@ WINDOW = {'runId': REQUEST['runKey'], 'sha': REQUEST['releaseSha'],
 RESULT = {'schema': 1, 'runId': REQUEST['runKey'], 'sha': REQUEST['releaseSha'],
           'result': 'sealed', 'completedAt': 1791821800,
           'private_metadata': {'never_export': 'secret fixture'}}
+
+
+# Immutable historical test inputs only. Never execute, install or fetch them.
+ORIGINAL_3E_FIXTURE = ROOT / 'tests/operations/fixtures/failed-routine-3e-source'
+ORIGINAL_3E_MANIFEST = json.loads(r'''{
+  "schema": 1,
+  "purpose": "read-only-historical-test-data-never-execute-or-install",
+  "source_commit": "3e3c6d4752cd587fad0db521ebd262f1b485514c",
+  "repository_path_prefix": "server/scripts/",
+  "bundle_bytes": 74756,
+  "bundle_sha256": "b0741d49583b99c33dfda6169c8125681b9c2062d94b722b3ba530bd49f92523",
+  "files": {
+    "engine-release-recover.sh": {
+      "bytes": 13974,
+      "sha256": "b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83",
+      "git_blob_sha1": "71e56640a10acad396ef493331f6276f0591c3b3"
+    },
+    "engine-release-transaction.sh": {
+      "bytes": 186237,
+      "sha256": "3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39",
+      "git_blob_sha1": "f8328f6f346efd5b3e228b81b5e63714b9eb17be"
+    },
+    "engine-release-unit-wrapper.sh": {
+      "bytes": 16010,
+      "sha256": "e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c",
+      "git_blob_sha1": "804b6f83ae2484eeb39284aad28e20f95e89c899"
+    },
+    "install-engine-intake.sh": {
+      "bytes": 10819,
+      "sha256": "5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b",
+      "git_blob_sha1": "503de3a3af3179be36571d5329f2383252277cd2"
+    },
+    "install-engine-supervisor.sh": {
+      "bytes": 27022,
+      "sha256": "b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96",
+      "git_blob_sha1": "a6a63ac1cf7e7cc47cafaa83d848b26e373536e6"
+    }
+  }
+}
+''')
+
+
+def original_3e_sources(archive_bytes=None, manifest_value=None):
+    if archive_bytes is None:
+        archive_path = ORIGINAL_3E_FIXTURE / 'source.zip'
+        if archive_path.is_symlink() or not archive_path.is_file():
+            raise ValueError('Historical fixture file refused')
+        with archive_path.open('rb') as stream:
+            archive_bytes = stream.read(128 * 1024 + 1)
+    if manifest_value is None:
+        manifest_path = ORIGINAL_3E_FIXTURE / 'manifest.json'
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            raise ValueError('Historical fixture manifest refused')
+        with manifest_path.open('rb') as stream:
+            raw = stream.read(8193)
+        if len(raw) > 8192:
+            raise ValueError('Historical fixture manifest bound')
+        manifest_value = json.loads(raw, object_pairs_hook=R.unique_object)
+    expected = ORIGINAL_3E_MANIFEST
+    if manifest_value != expected or len(archive_bytes) != expected['bundle_bytes'] or len(archive_bytes) > 128 * 1024 or hashlib.sha256(archive_bytes).hexdigest() != expected['bundle_sha256']:
+        raise ValueError('Historical fixture binding refused')
+    pins = {**R.FAILED_CUSTODY_SOURCE, 'engine-release-transaction.sh': R.FAILED_CUSTODY_TRANSACTION_SHA256}
+    if set(expected['files']) != set(pins) or any(expected['files'][name]['sha256'] != digest for name, digest in pins.items()):
+        raise ValueError('Historical fixture production authority differs')
+    result = {}
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        entries = archive.infolist()
+        if archive.comment or len(entries) != 5 or [row.filename for row in entries] != sorted(expected['files']) or sum(row.file_size for row in entries) > 512 * 1024:
+            raise ValueError('Historical fixture members refused')
+        for row in entries:
+            pin = expected['files'][row.filename]
+            if row.is_dir() or row.flag_bits & 1 or row.extra or stat.S_IFMT(row.external_attr >> 16) != stat.S_IFREG or row.file_size != pin['bytes'] or not 0 < row.file_size <= 512 * 1024 or row.compress_type != zipfile.ZIP_DEFLATED:
+                raise ValueError('Historical fixture member refused')
+            raw = archive.read(row)
+            oid = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+            if len(raw) != pin['bytes'] or hashlib.sha256(raw).hexdigest() != pin['sha256'] or oid != pin['git_blob_sha1']:
+                raise ValueError('Historical fixture content refused')
+            result[row.filename] = raw
+    return result
 
 
 def kernel_evidence(owner='unknown'):
@@ -2844,8 +2925,9 @@ class FailedRoutineCustodyTests(unittest.TestCase):
         parent, systemd = root / 'control', root / 'systemd'
         generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
         generation.mkdir(parents=True); systemd.mkdir()
+        historical = original_3e_sources()
         for name in R.FAILED_CUSTODY_SOURCE:
-            (generation / name).write_bytes((ROOT / 'server/scripts' / name).read_bytes())
+            (generation / name).write_bytes(historical[name])
         (parent / 'engine-release-unit-wrapper-v1.sh').write_bytes((generation / 'engine-release-unit-wrapper.sh').read_bytes())
         for source, marker, target in [
             ('install-engine-supervisor.sh', 'cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n', 'club-arena-engine-release-v1@.service'),
@@ -3049,10 +3131,15 @@ class FailedRoutineHistoricalTests(unittest.TestCase):
             generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
             generation.mkdir(parents=True)
             path = generation / 'engine-release-transaction.sh'
-            path.write_bytes((ROOT / 'server/scripts/engine-release-transaction.sh').read_bytes())
+            path.write_bytes(original_3e_sources()['engine-release-transaction.sh'])
             result = R.failed_custody_transaction(parent, R.time.monotonic() + 3)
             self.assertEqual(result[0], R.FAILED_CUSTODY_TRANSACTION_SHA256)
             self.assertGreater(path.stat().st_size, R.MAX_BYTES)
+            bundle = (ORIGINAL_3E_FIXTURE / 'source.zip').read_bytes()
+            corrupted = bytearray(bundle); corrupted[-12] ^= 1
+            with self.assertRaises(ValueError): original_3e_sources(bytes(corrupted))
+            with self.assertRaises(ValueError): original_3e_sources(bundle, ORIGINAL_3E_MANIFEST | {'source_commit': '0' * 40})
+            with self.assertRaises(ValueError): original_3e_sources(bundle, ORIGINAL_3E_MANIFEST | {'files': {}})
             row = R.intake_record(parent, ('engine-control-generations', R.FAILED_CUSTODY_CONTROL, path.name), False, R.time.monotonic() + 3)[0]
             self.assertEqual(row['status'], 'unknown')
             path.write_bytes(b'x' * (512 * 1024 + 1))
