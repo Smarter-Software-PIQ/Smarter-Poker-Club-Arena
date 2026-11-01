@@ -58,7 +58,8 @@ NATIVE_STAGES = frozenset((
         'arguments', 'package', 'directories', 'cookie', 'postgres-socket', 'archives',
         'postgresql', 'postgresql-native-cron-install', 'postgresql-safeupdate-configure',
         'genuine-auth-migrations', 'genuine-realtime-migrations',
-        'managed-postgres-event-trigger-boundary', 'post-service-catalog-preimage', 'full-role-alignment', 'cleanup'))))
+        'managed-postgres-event-trigger-boundary', 'post-service-catalog-preimage', 'full-role-alignment',
+        'current-application-role-extension', 'genuine-service-schema-preimage', 'cleanup'))))
 NATIVE_ERROR_NAMES = frozenset(('Error', 'AssertionError', 'TypeError', 'RangeError',
                                 'SyntaxError', 'TimeoutError', 'AggregateError', 'error'))
 NATIVE_PG_ROUTINES = frozenset((

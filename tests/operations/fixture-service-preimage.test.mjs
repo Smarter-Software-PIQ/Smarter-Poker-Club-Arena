@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import {
   captureFixtureServicePreimage,
   readFixtureServicePreimage,
+  readFixtureBootstrapFile,
 } from '../../operations/release/fixture/service-preimage.mjs';
 
 test('the in-container reader preserves exact immutable catalog bytes', async () => {
@@ -197,4 +198,19 @@ test('missing, surplus, oversized or parity-claiming catalog cannot be captured'
     await assert.rejects(captureFixtureServicePreimage(db, 4321));
     assert.equal(db.calls.at(-1).sql, 'ROLLBACK');
   }
+});
+
+
+test('fixed bootstrap exports reuse immutable file checks and retain128MiB bound',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bootstrap-reader-'));
+ try{
+  const file=join(root,'owned.sql'),bytes=Buffer.alloc(1024*1024+1,65);
+  await writeFile(file,bytes,{mode:0o400});const harness={file,uid:process.getuid(),gid:process.getgid()};
+  for(const kind of ['PREIMAGE','PREFLIGHT'])assert.deepEqual(await readFixtureBootstrapFile(kind,harness),bytes);
+  await assert.rejects(readFixtureServicePreimage(harness));
+  for(const kind of ['UNKNOWN','../owned.sql','__proto__'])await assert.rejects(readFixtureBootstrapFile(kind,harness));
+  await chmod(file,0o600);await assert.rejects(readFixtureBootstrapFile('PREIMAGE',harness));
+  await truncate(file,128*1024*1024+1);await chmod(file,0o400);await assert.rejects(readFixtureBootstrapFile('PREIMAGE',harness));
+  await assert.rejects(readFixtureServicePreimage({...harness,maxBytes:129*1024*1024}));
+ }finally{await rm(root,{recursive:true,force:true});}
 });

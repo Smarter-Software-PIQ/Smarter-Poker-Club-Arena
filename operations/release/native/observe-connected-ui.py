@@ -5,6 +5,9 @@ import json
 import os
 from pathlib import Path
 import re
+import hashlib
+import selectors
+import subprocess
 import shutil
 import signal
 import stat
@@ -101,13 +104,79 @@ def validate_capture(path, provenance):
     return manifest
 
 
+BOOTSTRAP_LIMIT = 128 * 1024 * 1024
+BOOTSTRAP_READER = """import {createHash} from 'node:crypto';
+import {readFixtureBootstrapFile} from '/opt/qualification/runtime/service-preimage.mjs';
+const bytes=await readFixtureBootstrapFile(process.argv[1]);
+const header=Buffer.alloc(36);header.writeUInt32BE(bytes.length);createHash('sha256').update(bytes).digest().copy(header,4);
+process.stdout.write(header);process.stdout.write(bytes);"""
+
+
+def bounded_bootstrap_output(args, limit, deadline, *, diagnostics=False):
+    # Owned foreground transport only. Never inherit credentials or print output.
+    env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'LANG': 'C.UTF-8',
+           'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_SYSTEM': '/dev/null',
+           'GIT_CONFIG_NOSYSTEM': '1', 'GIT_NO_REPLACE_OBJECTS': '1'}
+    require(type(limit) is int and 0 < limit <= BOOTSTRAP_LIMIT + 36, 'RELEASE_OBSERVATION_BOOTSTRAP_OUTPUT_LIMIT')
+    output = bytearray()
+    process = None
+    selector = selectors.DefaultSelector()
+    try:
+        process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if diagnostics else subprocess.DEVNULL, env=env, start_new_session=True)
+        os.set_blocking(process.stdout.fileno(), False)
+        selector.register(process.stdout, selectors.EVENT_READ)
+        while selector.get_map():
+            require(time.monotonic() < deadline, 'RELEASE_OBSERVATION_BOOTSTRAP_READ_DEADLINE')
+            for key, _ in selector.select(min(1, max(0, deadline - time.monotonic()))):
+                block = os.read(key.fd, min(65536, limit + 1 - len(output)))
+                if not block:
+                    selector.unregister(key.fileobj)
+                    continue
+                output.extend(block)
+                require(len(output) <= limit, 'RELEASE_OBSERVATION_BOOTSTRAP_OUTPUT_LIMIT')
+        code = process.wait(timeout=max(.001, deadline - time.monotonic()))
+        require(code == 0, 'RELEASE_OBSERVATION_BOOTSTRAP_COMMAND_FAILED')
+        return bytes(output)
+    finally:
+        selector.close()
+        if process is not None:
+            if process.poll() is None:
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                process.wait(timeout=5)
+            if process.stdout is not None: process.stdout.close()
+        output.clear()
+
+
+def bootstrap_file_bytes(raw):
+    require(36 < len(raw) <= BOOTSTRAP_LIMIT + 36, 'RELEASE_OBSERVATION_BOOTSTRAP_FILE_REQUIRED')
+    length = int.from_bytes(raw[:4], 'big')
+    require(0 < length <= BOOTSTRAP_LIMIT and len(raw) == length + 36 and
+            hashlib.sha256(raw[36:]).digest() == raw[4:36], 'RELEASE_OBSERVATION_BOOTSTRAP_FILE_REQUIRED')
+    return raw[36:]
+
+
+def closed_bootstrap_diagnostics(owned_id, deadline):
+    # Parse only existing closed fixture records from this verified owned child;
+    # raw output stays bounded in memory and is never returned or persisted.
+    spec = importlib.util.spec_from_file_location('bootstrap_diagnostics', Path(__file__).parent.parent / 'ci/fixture-smoke.py')
+    diagnostics = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(diagnostics)
+    raw = bounded_bootstrap_output(['docker', 'logs', '--tail', '64', owned_id], 65536,
+        min(deadline, time.monotonic() + 5), diagnostics=True)
+    return diagnostics.native_failures(raw.decode('utf-8', errors='replace'))
+
+
 def private_bootstrap(runtime_image, controls, inputs, temp, mode, deadline, lifecycles=None):
     require(mode in ('schema-preimage', 'schema-preflight'))
     name = 'ca-schema-' + uuid.uuid4().hex
     require(not native.command(['docker', 'container', 'ls', '-aq', '--filter', 'name=^/' + name + '$']).stdout.strip(),
             'RELEASE_OBSERVATION_OWNED_NAME_OCCUPIED')
     owned_id = None
-    lifecycle = {'mode': mode, 'created': False, 'normal_shutdown': False, 'container_absent': False}
+    lifecycle = {'mode': mode, 'created': False, 'normal_shutdown': False, 'container_absent': False,
+                 'ready_seen': False, 'read_complete': False, 'acknowledged': False}
+    phase, first_error = 'START', None
     if lifecycles is not None:
         lifecycles.append(lifecycle)
     owner_label = 'com.smarter-poker.isolated-schema-owner=' + name
@@ -128,44 +197,88 @@ def private_bootstrap(runtime_image, controls, inputs, temp, mode, deadline, lif
         owned_id = created.stdout.decode().strip()
         require(re.fullmatch('[0-9a-f]{64}', owned_id))
         lifecycle.update(created=True, container_id=owned_id)
+        phase = 'READY'
         while True:
             require(time.monotonic() < deadline, 'RELEASE_OBSERVATION_PREFLIGHT_DEADLINE')
             result = native.command(['docker', 'exec', name, 'node', '-e',
                 "require('node:fs').accessSync('" + ROOT + '/' + ready + ".ready')"], check=False, timeout=5)
             if result.returncode == 0:
+                lifecycle['ready_seen'] = True
                 break
             info = json.loads(native.command(['docker', 'inspect', name]).stdout)[0]
             require(info['State']['Running'] is True, 'RELEASE_OBSERVATION_PREFLIGHT_FAILED')
             time.sleep(.2)
-        for file in files:
-            native.command(['docker', 'cp', name + ':' + ROOT + '/' + file, str(temp / file)])
-            require((temp / file).is_file() and not (temp / file).is_symlink() and
-                    0 < (temp / file).stat().st_size <= 128 * 1024 * 1024)
+        phase = 'READ'
+        kind = 'PREIMAGE' if mode == 'schema-preimage' else 'PREFLIGHT'
+        raw = bounded_bootstrap_output(['docker', 'exec', name, 'node', '--input-type=module', '-e',
+            BOOTSTRAP_READER, kind], BOOTSTRAP_LIMIT + 36, min(deadline, time.monotonic() + 300))
+        body = bootstrap_file_bytes(raw)
+        phase = 'COPY'
+        target = temp / files[0]
+        try:
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, 'wb') as stream:
+                stream.write(body); stream.flush(); os.fsync(stream.fileno())
+            require(target.is_file() and not target.is_symlink() and target.stat().st_size == len(body) and target.stat().st_nlink == 1 and
+                    target.stat().st_uid == os.getuid() and target.stat().st_mode & 0o077 == 0 and
+                    native.file_digest(target) == hashlib.sha256(body).hexdigest(),
+                    'RELEASE_OBSERVATION_BOOTSTRAP_COPY_REQUIRED')
+        except BaseException:
+            # Remove only a file created by this invocation, never a collision.
+            if 'fd' in locals(): target.unlink(missing_ok=True)
+            raise
+        lifecycle['read_complete'] = True
+        phase = 'ACK'
         native.command(['docker', 'exec', name, 'node', '-e',
                         "require('node:fs').writeFileSync('" + ROOT + '/' + ready + ".copied','')"])
+        lifecycle['acknowledged'] = True
+        phase = 'WAIT'
         require(native.command(['docker', 'wait', name], timeout=40).stdout.strip() == b'0')
         lifecycle['normal_shutdown'] = True
-    finally:
-        # Recover an unknown docker-run acknowledgement only through our
-        # previously absent exact name AND unique ownership label. Never remove
-        # a preexisting resource merely because a requested name collided.
-        if owned_id is None:
-            ids = native.command(['docker', 'container', 'ls', '-aq', '--no-trunc',
-                '--filter', 'name=^/' + name + '$', '--filter', 'label=' + owner_label]).stdout.decode().split()
-            require(len(ids) <= 1)
-            owned_id = ids[0] if ids else None
+    except BaseException as error:
+        first_error = error
+        lifecycle['failure'] = {'phase': phase}
         if owned_id:
-            info = json.loads(native.command(['docker', 'inspect', owned_id]).stdout)[0]
-            require(info['Id'] == owned_id and info['Name'] == '/' + name and
-                    info['Config']['Labels'].get('com.smarter-poker.isolated-schema-owner') == name)
-            lifecycle.update(created=True, container_id=owned_id)
-            native.command(['docker', 'rm', '-f', owned_id], check=False, timeout=30)
-            require(not native.command(['docker', 'container', 'ls', '-aq', '--filter', 'id=' + owned_id]).stdout.strip(),
-                    'RELEASE_OBSERVATION_PREFLIGHT_CLEANUP_REQUIRED')
-            lifecycle['container_absent'] = True
-        else:
-            lifecycle['container_absent'] = not native.command(['docker', 'container', 'ls', '-aq', '--filter', 'name=^/' + name + '$']).stdout.strip()
-            require(lifecycle['container_absent'], 'RELEASE_OBSERVATION_PREFLIGHT_CLEANUP_REQUIRED')
+            try:
+                info = json.loads(native.command(['docker', 'inspect', owned_id]).stdout)[0]
+                require(info['Id'] == owned_id and info['Name'] == '/' + name and
+                        info['Config']['Labels'].get('com.smarter-poker.isolated-schema-owner') == name)
+                state = info['State']
+                if type(state.get('ExitCode')) is int and 0 <= state['ExitCode'] <= 255 and not state['Running']:
+                    lifecycle['failure']['container_exit_code'] = state['ExitCode']
+                lifecycle['failure']['native_failures'] = closed_bootstrap_diagnostics(owned_id, time.monotonic() + 5)
+                if not lifecycle['failure']['native_failures']:
+                    lifecycle['failure']['diagnostics_unavailable'] = True
+            except BaseException:
+                lifecycle['failure']['diagnostics_unavailable'] = True
+        raise
+    finally:
+        try:
+            # Recover an unknown docker-run acknowledgement only through our
+            # previously absent exact name AND unique ownership label. Never remove
+            # a preexisting resource merely because a requested name collided.
+            if owned_id is None:
+                ids = native.command(['docker', 'container', 'ls', '-aq', '--no-trunc',
+                    '--filter', 'name=^/' + name + '$', '--filter', 'label=' + owner_label]).stdout.decode().split()
+                require(len(ids) <= 1)
+                owned_id = ids[0] if ids else None
+            if owned_id:
+                info = json.loads(native.command(['docker', 'inspect', owned_id]).stdout)[0]
+                require(info['Id'] == owned_id and info['Name'] == '/' + name and
+                        info['Config']['Labels'].get('com.smarter-poker.isolated-schema-owner') == name)
+                lifecycle.update(created=True, container_id=owned_id)
+                native.command(['docker', 'rm', '-f', owned_id], check=False, timeout=30)
+                require(not native.command(['docker', 'container', 'ls', '-aq', '--filter', 'id=' + owned_id]).stdout.strip(),
+                        'RELEASE_OBSERVATION_PREFLIGHT_CLEANUP_REQUIRED')
+                lifecycle['container_absent'] = True
+            else:
+                lifecycle['container_absent'] = not native.command(['docker', 'container', 'ls', '-aq', '--filter', 'name=^/' + name + '$']).stdout.strip()
+                require(lifecycle['container_absent'], 'RELEASE_OBSERVATION_PREFLIGHT_CLEANUP_REQUIRED')
+        except BaseException:
+            lifecycle['cleanup_failed'] = True
+            if first_error is None:
+                lifecycle.setdefault('failure', {'phase': 'CLEANUP'})
+                raise
 
 
 def validate_schema_preflight(preflight, capture):
@@ -233,7 +346,8 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
     require(native.command(['git', '-C', str(repo), 'rev-parse', 'HEAD']).stdout.decode().strip() == expected)
     native.command(['git', '-C', str(repo), 'diff', '--exit-code', 'HEAD'])
     provenance['control_tree'] = native.command(['git', '-C', str(repo), 'rev-parse', 'HEAD^{tree}']).stdout.decode().strip()
-    controls_closure = ['operations/release/fixture/schema-snapshot.mjs',
+    controls_closure = ['operations/release/ci/fixture-smoke.py',
+        'operations/release/fixture/schema-snapshot.mjs',
         'operations/release/fixture/schema-native-dump-diagnostic.mjs',
         'operations/release/fixture/native-dump-diagnostic.py',
         'operations/release/fixture/native-dump-diagnostic.c',
