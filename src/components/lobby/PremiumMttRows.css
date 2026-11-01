@@ -392,6 +392,22 @@
 .has-premium-chassis tbody tr[data-id] .lt-seats__num {
   font: inherit !important;
 }
+/* Decimal stakes must fit their own painted bay, including both blinds.
+   The shared fitter measures this inset zone after fonts and bay resizing. */
+.has-premium-chassis .premium-cash-stakes-zone {
+  display: block;
+  width: calc(100% - 8px);
+  min-width: 0;
+}
+.has-premium-chassis .premium-cash-stakes-value {
+  display: block;
+  width: max-content;
+  max-width: none;
+  font-size: calc(clamp(12px, 4cqw, 28px) * var(--fit, 1));
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 .has-premium-chassis tr[data-kind='mtt'] .compact-lobby__meta {
   display: none;
 }

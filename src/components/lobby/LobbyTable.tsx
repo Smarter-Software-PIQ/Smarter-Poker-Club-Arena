@@ -931,13 +931,23 @@ const COL_NAME: ColumnDef = {
   },
 };
 const COL_TNAME: ColumnDef = { ...COL_NAME, label: 'Tournament Name' };
+function CashStakesValue({ text }: { text: string | null }) {
+  const fitRef = useFitText<HTMLSpanElement>(text ?? '', 1, 0.25);
+  return (
+    <span className="premium-cash-stakes-zone">
+      <span ref={fitRef} className="premium-cash-stakes-value">
+        {text}
+      </span>
+    </span>
+  );
+}
 const COL_STAKES: ColumnDef = {
   key: 'stakes',
   label: 'Stakes',
   className: 'lt-col-num',
   sortable: true,
   sortValue: (e) => e.stakesValue,
-  render: (e) => (e.stakesLabel ? <span className="lt-mono">{e.stakesLabel}</span> : null),
+  render: (e) => (e.stakesLabel ? <CashStakesValue text={e.stakesLabel} /> : null),
 };
 /* THE ORDER OF THE GAMES lives in ./variantRank (one table for this board and
    the page-level Sort By comparator); re-exported here for existing callers. */
@@ -1105,9 +1115,12 @@ const COL_COST: ColumnDef = {
   className: 'lt-col-num',
   sortable: true,
   sortValue: (e) => (e.kind === 'cash' ? e.stakesValue : e.buyInValue),
-  render: (e) => (
-    <span className="lt-mono">{e.kind === 'cash' ? e.stakesLabel : e.buyInLabel}</span>
-  ),
+  render: (e) =>
+    e.kind === 'cash' ? (
+      <CashStakesValue text={e.stakesLabel} />
+    ) : (
+      <span className="lt-mono">{e.buyInLabel}</span>
+    ),
 };
 
 /* ── THE ACTION CELL ────────────────────────────────────────────────────────

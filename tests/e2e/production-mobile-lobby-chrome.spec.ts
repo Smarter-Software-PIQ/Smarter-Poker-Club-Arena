@@ -565,6 +565,10 @@ test.describe('the mobile lobby chrome on production', () => {
   test('tournament favorites stay below current pins across sorting and reload', async ({
     page,
   }, testInfo) => {
+    // Run 41272366052 completed all five format captures and the four favorite
+    // phases, then exhausted the shared 120s budget during final evidence.
+    // Keep each readiness/assertion deadline and zero retries unchanged.
+    test.setTimeout(180_000);
     expect(
       /^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || ''),
       'Favorite proof requires its owned isolated production account'
@@ -630,6 +634,9 @@ test.describe('the mobile lobby chrome on production', () => {
               .first()
           : currentRows.first();
       await expect(sampleRow).toBeVisible({ timeout: 30_000 });
+      await expect(
+        sampleRow.getByRole('button', { name: 'Add To Favorites', exact: true })
+      ).toBeVisible();
       const id = await sampleRow.getAttribute('data-id');
       const heading = page.locator(`[data-game-heading="${id}"]:visible`);
       await expect(heading.locator('.lt-tournament-heading__name')).toBeVisible();
@@ -683,6 +690,23 @@ test.describe('the mobile lobby chrome on production', () => {
         expect(await sampleRow.evaluate((e) => getComputedStyle(e, '::before').filter)).toContain(
           'grayscale(1)'
         );
+        await expect
+          .poll(() =>
+            currentRows.evaluateAll((elements) =>
+              elements.every((row) => {
+                const value = row.querySelector(
+                  '[data-label="Stakes"] .premium-cash-stakes-value'
+                ) as HTMLElement | null;
+                if (!value) return false;
+                const well = value.parentElement!;
+                return (
+                  value.scrollWidth <= well.clientWidth + 1 &&
+                  value.scrollHeight <= well.clientHeight + 1
+                );
+              })
+            )
+          )
+          .toBe(true);
       }
       appearance.push({ mode, ...paint });
       await sampleRow.scrollIntoViewIfNeeded();
@@ -816,7 +840,7 @@ test.describe('the mobile lobby chrome on production', () => {
     expect(persisted?.value ?? persisted?.[0]?.value).toEqual([chosen]);
     await expect(selected()).toBeVisible({ timeout: 30_000 });
     await assertFavoriteTier('reloaded-server-readback');
-    await rows.first().scrollIntoViewIfNeeded();
+    await selected().evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await expect(selected()).toBeInViewport();
     await testInfo.attach('tournament-favorite-starred-tier.png', {
       body: await page.screenshot(),
