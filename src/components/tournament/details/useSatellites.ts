@@ -46,6 +46,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { reportError } from '../../../utils/errorReporter';
+import { runWithRequestDeadline } from '../../../utils/requestDeadline';
 import { describeStoredMttStructure } from '../../../../server/src/tournament/mttStructureDescription';
 import {
   readTournamentFormat,
@@ -219,6 +220,8 @@ export function useSatellites(
   tournamentId: string | undefined,
   currentUserId?: string | null
 ): SatellitesState {
+  const scopeKey = JSON.stringify([tournamentId ?? null, currentUserId ?? null]);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const [rows, setRows] = useState<SatelliteRow[]>([]);
   const [registration, setRegistration] = useState<Record<string, boolean> | null>(null);
   /* Not `true`. The old code initialised this true and then returned early
@@ -232,6 +235,9 @@ export function useSatellites(
   const liveRequest = useRef(0);
 
   useEffect(() => {
+    setLoadedScope(scopeKey);
+    setRows([]);
+    setRegistration(null);
     if (!tournamentId) {
       setRows([]);
       setRegistration(null);
@@ -241,19 +247,25 @@ export function useSatellites(
     }
 
     let cancelled = false;
+    const controller = new AbortController();
     const request = ++liveRequest.current;
     setLoading(true);
     setError(null);
 
     (async () => {
       try {
-        const { data, error: fetchErr } = await supabase
-          .from('tournaments')
-          .select(SATELLITE_COLUMNS)
-          .or(`satellite_target_id.eq.${tournamentId},satellite_target.eq.${tournamentId}`)
-          .in('status', LIVE_STATUSES as unknown as string[])
-          .order('start_time', { ascending: true })
-          .limit(SATELLITE_LIMIT);
+        const { data, error: fetchErr } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .from('tournaments')
+              .select(SATELLITE_COLUMNS)
+              .or(`satellite_target_id.eq.${tournamentId},satellite_target.eq.${tournamentId}`)
+              .in('status', LIVE_STATUSES as unknown as string[])
+              .order('start_time', { ascending: true })
+              .limit(SATELLITE_LIMIT)
+              .abortSignal(signal),
+          { signal: controller.signal }
+        );
 
         if (fetchErr) throw fetchErr;
         if (!Array.isArray(data)) throw new Error('Satellite list response is unavailable');
@@ -268,14 +280,19 @@ export function useSatellites(
         if (!currentUserId || sats.length === 0) {
           setRegistration(currentUserId ? {} : null);
         } else {
-          const { data: regRows, error: regErr } = await supabase
-            .from('tournament_players')
-            .select('tournament_id')
-            .eq('user_id', currentUserId)
-            .in(
-              'tournament_id',
-              sats.map((s) => s.id)
-            );
+          const { data: regRows, error: regErr } = await runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .from('tournament_players')
+                .select('tournament_id')
+                .eq('user_id', currentUserId)
+                .in(
+                  'tournament_id',
+                  sats.map((s) => s.id)
+                )
+                .abortSignal(signal),
+            { signal: controller.signal }
+          ).catch((error: unknown) => ({ data: null, error }));
           if (cancelled || request !== liveRequest.current) return;
           if (regErr || !Array.isArray(regRows)) {
             reportError(
@@ -291,6 +308,7 @@ export function useSatellites(
           }
         }
       } catch (err) {
+        if (cancelled || request !== liveRequest.current) return;
         reportError(err, 'useSatellites.fetch');
         if (!cancelled && request === liveRequest.current) {
           setError('Satellites Could Not Be Loaded');
@@ -304,14 +322,22 @@ export function useSatellites(
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [tournamentId, currentUserId, attempt]);
+  }, [tournamentId, currentUserId, scopeKey, attempt]);
 
   /* Mapped once per fetch, not once per render. The old code called the mapper
      inside `.map()` in the JSX, so every parent render — and the Detail tab
      re-renders once a SECOND — handed every memoised card a brand-new object
      prop and re-rendered all of them. */
-  const cards = useMemo(() => rows.map(mapSatelliteRowToCard), [rows]);
+  const current = loadedScope === scopeKey;
+  const cards = useMemo(() => (current ? rows.map(mapSatelliteRowToCard) : []), [rows, current]);
 
-  return { cards, registration, loading, error, retry };
+  return {
+    cards,
+    registration: current ? registration : null,
+    loading: Boolean(tournamentId && (!current || loading)),
+    error: current ? error : null,
+    retry,
+  };
 }

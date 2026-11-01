@@ -6,6 +6,9 @@ import {
   CASES,
   CASE_PAIRS,
   COMPONENT_PATHS,
+  RECOVERY_ACTION,
+  RECOVERY_CASES,
+  RECOVERY_COMPONENT_PATHS,
 } from '../../scripts/verification-harness/lobby-ui-proof.mjs';
 const sha = 'a'.repeat(40);
 const env = {
@@ -104,10 +107,69 @@ describe('closed scoped lobby proof', () => {
   });
 });
 
-it('runs only the three owned browser journeys with cleanup and no caller-selected code', async () => {
+describe('closed spectator and notification recovery proof', () => {
+  const recoveryReport = () => ({
+    suites: RECOVERY_CASES.map(({ file, title, project }) => ({
+      file,
+      specs: [
+        {
+          title,
+          ok: true,
+          tests: [
+            {
+              projectName: project,
+              status: 'expected',
+              expectedStatus: 'passed',
+              results: [{ status: 'passed', retry: 0 }],
+            },
+          ],
+        },
+      ],
+    })),
+  });
+  const recoveryPin = () => ({
+    ...pin(),
+    action: RECOVERY_ACTION,
+    components: Object.fromEntries(RECOVERY_COMPONENT_PATHS.map((path) => [path, sha])),
+  });
+  it('admits only the closed action with no caller-selected input', () => {
+    expect(() => admitDispatch(env, { action: RECOVERY_ACTION, client_payload: {} })).not.toThrow();
+    expect(() =>
+      admitDispatch(env, { action: RECOVERY_ACTION, client_payload: { project: 'chromium' } })
+    ).toThrow();
+  });
+  it('requires precisely the original Chromium spectator and WebKit reconnect cases once', () => {
+    expect(assertCases(recoveryReport(), RECOVERY_ACTION)).toHaveLength(2);
+    expect(() => assertCases(report(), RECOVERY_ACTION)).toThrow();
+    for (const change of [
+      (r) => r.suites.pop(),
+      (r) => r.suites.push(r.suites[0]),
+      (r) => (r.suites[1].specs[0].tests[0].projectName = 'chromium'),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].retry = 1),
+      (r) => (r.suites[1].specs[0].tests[0].results[0].status = 'skipped'),
+    ]) {
+      const value = recoveryReport();
+      change(value);
+      expect(() => assertCases(value, RECOVERY_ACTION)).toThrow();
+    }
+  });
+  it('binds the new action and preference source to stable provenance and cleanup', () => {
+    const cleanup = { verified: true, runId: '123' };
+    expect(() => assertPins(recoveryPin(), recoveryPin(), cleanup, RECOVERY_ACTION)).not.toThrow();
+    expect(() => assertPins(pin(), pin(), cleanup, RECOVERY_ACTION)).toThrow();
+    const after = recoveryPin();
+    delete after.components['src/hooks/usePlayerPreference.ts'];
+    expect(() => assertPins(recoveryPin(), after, cleanup, RECOVERY_ACTION)).toThrow();
+    expect(() =>
+      assertPins(recoveryPin(), recoveryPin(), { verified: false, runId: '123' }, RECOVERY_ACTION)
+    ).toThrow();
+  });
+});
+
+it('keeps each closed mode limited to its owned browser journeys with cleanup', async () => {
   const { readFileSync } = await import('node:fs');
   const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
-  expect(workflow).toContain('types: [verify-lobby-ui]');
+  expect(workflow).toContain('types: [verify-lobby-ui, verify-spectator-notifications]');
   expect(workflow).toContain('npx playwright install --with-deps chromium webkit');
   expect(readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8')).toContain(
     "...devices['iPhone 13']"
@@ -119,6 +181,12 @@ it('runs only the three owned browser journeys with cleanup and no caller-select
   expect(workflow).toContain('cleanupProductionE2EAccount() !== true');
   expect(workflow).toContain('--workers=1 --retries=0 --trace=off');
   for (const title of CASES) expect(workflow).toContain(title);
+  for (const { title, file } of RECOVERY_CASES) {
+    expect(workflow).toContain(title);
+    expect(workflow).toContain(file);
+  }
+  expect(workflow).toContain("if: github.event.action == 'verify-lobby-ui'");
+  expect(workflow).toContain("if: github.event.action == 'verify-spectator-notifications'");
   expect(workflow).toContain('tests/e2e/production-row-channel-owners.spec.ts');
   expect(workflow).toContain('timeout-minutes: 12');
   expect(COMPONENT_PATHS).toContain('src/hooks/useMasterBusChannel.ts');
