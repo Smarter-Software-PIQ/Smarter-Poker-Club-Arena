@@ -293,6 +293,24 @@ export async function fetchCashGameLobby(gameId: string): Promise<CashGameLobby>
  * dash - the popup law in src/utils/popupStyle.ts applies the case; these
  * only need to be sentences).
  */
+/**
+ * Where a cash game is being played now, for a page whose table the engine no
+ * longer hosts (src/lib/deadTableRecovery.ts): the caller's own seat in the
+ * game when they hold one, else the game's front table. Null for a game that
+ * is switched off or has no live table.
+ */
+export function cashGameSuccessorTable(lobby: CashGameLobby | null | undefined): string | null {
+  if (!lobby) return null;
+  if (lobby.me?.seated && lobby.me.table_id) return lobby.me.table_id;
+  if (lobby.game?.enabled === false) return null;
+  if (lobby.front_table_id) return lobby.front_table_id;
+  return (lobby.tables ?? []).find((t) => t.lifecycle === 'live')?.id ?? null;
+}
+
+export async function resolveCashGameLiveTable(gameId: string): Promise<string | null> {
+  return cashGameSuccessorTable(await fetchCashGameLobby(gameId));
+}
+
 export const SEAT_CHANGE_REFUSALS: Record<string, string> = {
   SEAT_CHANGE_NOT_FROM_MAIN: 'The Main Game Has No Seat Change.',
   SEAT_CHANGE_NEVER_TO_MAIN: 'The Main Game Fills In Must Move Order Only.',

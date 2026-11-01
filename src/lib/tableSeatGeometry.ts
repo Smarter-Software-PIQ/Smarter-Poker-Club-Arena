@@ -381,16 +381,76 @@ export function seatCardSide(xPercent: number, _yPercent: number): CardSide {
  * Now there is ONE number, and it comes from the rings: adding a `10:` layout
  * below raises this and everything that reads it, in the same edit.
  */
-export const MAX_SUPPORTED_SEATS = Object.keys(SEAT_LAYOUTS).reduce(
+/* ═══════════════════════════════════════════════════════════════════════════
+   10-MAX (2026-10-31, TablePage.EngineHeroSeatNotRendered)
+
+   The engine seats up to ten (server MTTPreReserveRoster admits max_players
+   2..10; HorseTournamentFutureGame.FUTURE_GAME_MAX_SEATS = 10) while the
+   client could draw at most nine. A hero in seat 10 had no ring position, and
+   the engine-seat heal refused seat 10 as "beyond MAX_SUPPORTED_SEATS", so the
+   alarm "engine seats hero at 10 but client renders no seat" fired with no
+   repair. This ring is the 9-max rail with the top cap split three ways: the
+   diagonals of the 3/5-max rings (x 20.5 / 79.5, y 6) and the 6/8-max top
+   centre (50, 5). Every position is one an existing measured ring already
+   uses, so no new spot on the felt is introduced.
+
+   Kept beside SEAT_LAYOUTS rather than inside it, so the measured-ring laws
+   that enumerate SEAT_LAYOUTS (2..9) keep their scope; its own invariants are
+   pinned in tests/unit/everyHeroSeatRenders.test.ts. */
+export const SEAT_POSITIONS_10MAX = [
+  { x: 50, y: 100 }, // Seat 1 (Hero, bottom-centre)
+  { x: 10.5, y: 82.5 }, // Seat 2 (lower-left, bottom cap) - 9-max
+  { x: 8, y: 58 }, // Seat 3 (left-low) - 9-max
+  { x: 8, y: 25 }, // Seat 4 (left-high) - 9-max
+  { x: 20.5, y: 6 }, // Seat 5 (upper-left diagonal) - 3/5-max
+  { x: 50, y: 5 }, // Seat 6 (top-centre) - 6/8-max
+  { x: 79.5, y: 6 }, // Seat 7 (upper-right diagonal) - 3/5-max
+  { x: 92, y: 25 }, // Seat 8 (right-high) - 9-max
+  { x: 92, y: 58 }, // Seat 9 (right-low) - 9-max
+  { x: 89.5, y: 82.5 }, // Seat 10 (lower-right, bottom cap) - 9-max
+];
+
+/** Every ring this client can draw, by table size. */
+export const DRAWABLE_SEAT_RINGS: Record<number, Array<{ x: number; y: number }>> = {
+  ...SEAT_LAYOUTS,
+  10: SEAT_POSITIONS_10MAX,
+};
+
+export const MAX_SUPPORTED_SEATS = Object.keys(DRAWABLE_SEAT_RINGS).reduce(
   (max, k) => Math.max(max, Number(k)),
   2
 );
 
 /** Ring for a table size; clamps to [2, MAX_SUPPORTED_SEATS] so unknown sizes never crash. */
 export function seatLayoutFor(maxPlayers: number): Array<{ x: number; y: number }> {
-  return SEAT_LAYOUTS[
-    Math.min(MAX_SUPPORTED_SEATS, Math.max(2, maxPlayers || MAX_SUPPORTED_SEATS))
+  return DRAWABLE_SEAT_RINGS[
+    Math.min(MAX_SUPPORTED_SEATS, Math.max(2, Math.floor(maxPlayers) || MAX_SUPPORTED_SEATS))
   ];
+}
+
+/**
+ * How many seats the felt draws: the engine's table size, never fewer than the
+ * hero's seat or the highest row the roster holds. A seat the engine deals
+ * must have a ring position, whatever the client's own `maxPlayers` guess
+ * says at that moment (it boots at 6 and is corrected late). Clamped to the
+ * drawable range, so a corrupt number cannot index past the rings.
+ */
+export function seatRingSize(input: {
+  maxPlayers: number;
+  heroSeat?: number;
+  rows?: ReadonlyArray<unknown | null>;
+}): number {
+  let size = Number.isFinite(input.maxPlayers) ? Math.floor(input.maxPlayers) : 0;
+  const hero = Number(input.heroSeat);
+  if (Number.isInteger(hero) && hero > size) size = hero;
+  const rows = input.rows ?? [];
+  for (let i = rows.length - 1; i >= size; i--) {
+    if (rows[i]) {
+      size = i + 1;
+      break;
+    }
+  }
+  return Math.min(MAX_SUPPORTED_SEATS, Math.max(2, size || 2));
 }
 
 // Create empty player slots for a table

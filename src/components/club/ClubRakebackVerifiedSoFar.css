@@ -1,0 +1,60 @@
+/* Club Data "Rakeback Verified So Far" (2026-10-31): the week's running tally. */
+.club-verified {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+}
+.club-verified h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.club-verified__note,
+.club-verified__counting {
+  margin: 0 0 8px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+.club-verified__counting {
+  opacity: 0.9;
+}
+.club-verified__totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px 12px;
+  margin: 0 0 10px;
+}
+.club-verified__totals dt {
+  font-size: 10px;
+  opacity: 0.7;
+}
+.club-verified__totals dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.club-verified__players {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.club-verified__players th,
+.club-verified__players td {
+  padding: 4px 6px;
+  text-align: left;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.club-verified__players th:not(:first-child),
+.club-verified__players td:not(:first-child) {
+  text-align: right;
+}
+.club-verified__more {
+  margin-top: 8px;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}

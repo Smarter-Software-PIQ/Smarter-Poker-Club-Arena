@@ -43,6 +43,7 @@ import {
 } from '../../services/pendingSessionSummary';
 import { supabase } from '../../lib/supabase';
 import { masterBus } from '../../core/MasterBus';
+import { useSessionHandStats } from '../../hooks/useSessionHandStats';
 import type { DiamondCashSessionRecap } from '../../services/diamondCashSessionRecap';
 import { formatGameTitle } from '../../utils/formatGameTitle';
 import { titleCase } from '../../utils/titleCase';
@@ -221,6 +222,35 @@ export function SessionSummaryHost() {
           : publishedPayload,
     [publishedPayload, recordedRecap, ownsRecap]
   );
+
+  const handStatsTarget = publishedPayload?.handStatsTarget;
+  const readsSessionHands = !!handStatsTarget && !target && !publishedPayload?.tournament;
+  const { stats: sessionHands, refresh: refreshSessionHands } = useSessionHandStats(
+    handStatsTarget?.tableId,
+    handStatsTarget?.userId ?? '',
+    readsSessionHands && currentUserId === handStatsTarget?.userId,
+    handStatsTarget?.asOf
+  );
+  // Reuse the confirmed deferred-cashout transition; never add another observer.
+  const pendingHandReadRef = useRef<string | null>(null);
+  const handReadKey =
+    readsSessionHands && handStatsTarget
+      ? `${handStatsTarget.userId}:${handStatsTarget.tableId}:${handStatsTarget.asOf}`
+      : null;
+  useEffect(() => {
+    const wasPending = handReadKey !== null && pendingHandReadRef.current === handReadKey;
+    pendingHandReadRef.current = publishedPayload?.plPending ? handReadKey : null;
+    if (wasPending && publishedPayload?.plPending === false) void refreshSessionHands();
+  }, [handReadKey, publishedPayload?.plPending, refreshSessionHands]);
+  const displayedHands = readsSessionHands
+    ? (sessionHands?.handsPlayed ?? null)
+    : (payload?.handsPlayed ?? null);
+  const displayedWins = readsSessionHands
+    ? (sessionHands?.handsWon ?? null)
+    : (payload?.handsWon ?? null);
+  const displayedVpip = readsSessionHands
+    ? (sessionHands?.vpipPercent ?? null)
+    : (payload?.vpipPercent ?? 0);
 
   useEffect(() => subscribeSessionSummary(setPayload), []);
 
@@ -452,7 +482,11 @@ export function SessionSummaryHost() {
     }
 
     const winRate =
-      payload.handsPlayed > 0 ? Math.round((payload.handsWon / payload.handsPlayed) * 100) : 0;
+      displayedHands === null || displayedWins === null
+        ? null
+        : displayedHands > 0
+          ? Math.round((displayedWins / displayedHands) * 100)
+          : 0;
 
     /* Dan 2026-08-22 (mobile audit item 8): Hands Per Hour is gone from the
        cash card — VPIP takes its slot — and the total buy-in gets a tile. */
@@ -460,11 +494,19 @@ export function SessionSummaryHost() {
       { label: 'Duration', value: formatDuration(payload.duration) },
       {
         label: 'Hands Played',
-        value: target && recordedRecap?.handsPlayed === null ? '-' : String(payload.handsPlayed),
+        value:
+          target && recordedRecap?.handsPlayed === null
+            ? '-'
+            : (displayedHands?.toLocaleString() ?? '-'),
       },
       {
         label: 'VPIP',
-        value: target && recordedRecap?.vpipPercent === null ? '-' : `${payload.vpipPercent ?? 0}%`,
+        value:
+          target && recordedRecap?.vpipPercent === null
+            ? '-'
+            : displayedVpip === null
+              ? '-'
+              : `${displayedVpip}%`,
       },
       /* Dan 2026-08-23: "remove biggest pot as a field". It was the one tile
          that measured the TABLE rather than the session — the biggest pot you
@@ -478,7 +520,9 @@ export function SessionSummaryHost() {
         value:
           target && (recordedRecap?.handsWon === null || recordedRecap?.handsPlayed === null)
             ? '-'
-            : `${winRate}%`,
+            : winRate === null
+              ? '-'
+              : `${winRate}%`,
       },
     ];
     if (payload.totalBuyIn != null && payload.totalBuyIn > 0) {
@@ -489,7 +533,17 @@ export function SessionSummaryHost() {
       out.push({ label: 'Rebuys', value: String(payload.totalRebuys) });
     }
     return out;
-  }, [payload, unitCents, unitSuffix, recordedReady, recordedRecap, target]);
+  }, [
+    payload,
+    unitCents,
+    unitSuffix,
+    recordedReady,
+    recordedRecap,
+    target,
+    displayedHands,
+    displayedWins,
+    displayedVpip,
+  ]);
 
   /* Dan 2026-08-20 gave a reference for the tournament card, and it is a
      different card entirely — RANKING, a medal, a place band, Stay Observing /
@@ -501,11 +555,17 @@ export function SessionSummaryHost() {
   const [shareLabel, setShareLabel] = useState('Share');
 
   const share = useCallback(async () => {
-    if (!payload || !recordedReady || (target && recordedRecap?.handsPlayed === null)) return;
+    if (
+      !payload ||
+      !recordedReady ||
+      displayedHands === null ||
+      (target && recordedRecap?.handsPlayed === null)
+    )
+      return;
     const money = `${payload.profitLoss >= 0 ? '+' : '-'}${formatSessionProfit(Math.abs(payload.profitLoss))}`;
     const text =
       `${payload.tableName || 'Table Session'} - ${money}${payload.arenaAsset === 'diamonds' ? ' Diamonds' : ''} over ` +
-      `${payload.handsPlayed} hands on Smarter.Poker`;
+      `${displayedHands} hands on Smarter.Poker`;
 
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
@@ -519,10 +579,11 @@ export function SessionSummaryHost() {
       /* A cancelled share sheet rejects. That is the player changing their
          mind, not a failure, and it must not raise anything at them. */
     }
-  }, [payload, recordedReady, target, recordedRecap]);
+  }, [payload, recordedReady, target, recordedRecap, displayedHands]);
 
   if (!payload || payload.tournament) return null;
   if (target && currentUserId !== target.userId) return null;
+  if (readsSessionHands && currentUserId !== handStatsTarget?.userId) return null;
   if (typeof document === 'undefined') return null;
 
   return createPortal(
@@ -687,7 +748,11 @@ export function SessionSummaryHost() {
               className="ssh-share"
               onClick={share}
               aria-label="Share This Session"
-              disabled={!recordedReady || (!!target && recordedRecap?.handsPlayed === null)}
+              disabled={
+                !recordedReady ||
+                displayedHands === null ||
+                (!!target && recordedRecap?.handsPlayed === null)
+              }
             >
               {shareLabel}
             </button>

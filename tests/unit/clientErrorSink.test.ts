@@ -233,11 +233,65 @@ describe('repeat sampling and rate limit', () => {
   it('stops at 200 events a page session', () => {
     const { sink, sends, advance } = harness();
     for (let minute = 0; minute < 10; minute++) {
+      // Distinct keys every minute (letters: digits fold into one key, and a
+      // key past its five rows is aggregated - see the next describe).
       for (let i = 0; i < 30; i++)
-        sink.enqueue(capture({ message: `m${minute} ${'v'.repeat(i)}` }));
+        sink.enqueue(capture({ message: `m${String.fromCharCode(97 + minute)} ${'v'.repeat(i)}` }));
       advance(60_000);
     }
     expect(sends.flatMap((s) => s.events)).toHaveLength(SINK_LIMITS.perSession);
+  });
+});
+
+describe('per-key cap: five rows, then one aggregated row per five minutes (2026-10-31)', () => {
+  it('a key that keeps firing sends five rows, then at most one every five minutes', () => {
+    const { sink, sends, advance } = harness();
+    // One error every second for an hour: 3,600 occurrences.
+    for (let second = 0; second < 3_600; second++) {
+      sink.enqueue(capture());
+      advance(1_000);
+    }
+    advance(SINK_LIMITS.aggregateWindowMs);
+    advance(SINK_LIMITS.debounceMs);
+    const rows = sends.flatMap((s) => s.events);
+    // 5 per-minute rows, then one per 5 minutes for the remaining ~55 minutes.
+    expect(rows.length).toBeGreaterThanOrEqual(5 + 10);
+    expect(rows.length).toBeLessThanOrEqual(5 + 12);
+    expect(new Set(rows.map((r) => r.dedupe_key)).size).toBe(1);
+    // Nothing is lost: every occurrence is carried by some row.
+    expect(rows.reduce((n, r) => n + r.occurrences, 0)).toBe(3_600);
+    // Rows after the fifth are at least five minutes apart.
+    for (let i = 6; i < rows.length; i++)
+      expect(rows[i].at - rows[i - 1].at).toBeGreaterThanOrEqual(SINK_LIMITS.aggregateWindowMs);
+  });
+
+  it('flushes the aggregated count on its own when the error stops', () => {
+    const { sink, sends, advance } = harness();
+    for (let i = 0; i < 5; i++) {
+      sink.enqueue(capture());
+      advance(SINK_LIMITS.repeatWindowMs);
+    }
+    expect(sends.flatMap((s) => s.events)).toHaveLength(5);
+    for (let i = 0; i < 40; i++) sink.enqueue(capture());
+    advance(SINK_LIMITS.repeatWindowMs);
+    expect(sends.flatMap((s) => s.events)).toHaveLength(5); // aggregated, not sent
+    advance(SINK_LIMITS.aggregateWindowMs);
+    advance(SINK_LIMITS.debounceMs);
+    const rows = sends.flatMap((s) => s.events);
+    expect(rows).toHaveLength(6);
+    expect(rows[5].occurrences).toBe(40);
+    expect(sink.stats().suppressed).toBe(0);
+  });
+
+  it('other keys are unaffected by one noisy key', () => {
+    const { sink, sends, advance } = harness();
+    for (let i = 0; i < 10; i++) {
+      sink.enqueue(capture());
+      advance(SINK_LIMITS.repeatWindowMs);
+    }
+    sink.enqueue(capture({ message: 'a different problem' }));
+    advance(SINK_LIMITS.debounceMs);
+    expect(sends.flatMap((s) => s.events).at(-1)?.message).toBe('a different problem');
   });
 });
 

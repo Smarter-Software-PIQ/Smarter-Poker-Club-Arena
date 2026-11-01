@@ -1,0 +1,4 @@
+{
+  "_owner": "client/phase5-realtime-degradation-2026-10-31 - the realtime channel back-off belongs to MasterBus, which is first-paint by design: src/core/MasterBus.ts and src/hooks/useMasterBusChannel.ts call it synchronously when a channel dies, so a lazy import would leave the first failure without its back-off. src/lib/realtimeDegradationPolicy.ts is about 200 lines of pure scheduling and toast-claim logic whose only import is masterBus, already in the entry.",
+  "modules": ["src/lib/realtimeDegradationPolicy.ts"]
+}

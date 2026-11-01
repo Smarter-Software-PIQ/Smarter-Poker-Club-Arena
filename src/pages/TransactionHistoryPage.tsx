@@ -39,6 +39,7 @@ import { masterBus } from '../core/MasterBus';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import RewardsSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import ChipStatement from '../components/wallet/ChipStatement';
+import RakebackWeekSoFar from '../components/wallet/RakebackWeekSoFar';
 import './TransactionHistoryPage.css';
 import { usePageTitle } from '../hooks/usePageTitle';
 
@@ -86,12 +87,15 @@ export default function TransactionHistoryPage() {
           // remount it on every bus event while a transfer owns its receipt.
           <DiamondArenaWallet key="diamond-history" initialOpen />
         ) : (
-          <ChipStatement
-            key={generation}
-            scope="player"
-            pageSize={TRANSACTION_PAGE_SIZE}
-            title="Your Chip Statement"
-          />
+          <>
+            <RakebackWeekSoFar key={`week-${generation}`} />
+            <ChipStatement
+              key={generation}
+              scope="player"
+              pageSize={TRANSACTION_PAGE_SIZE}
+              title="Your Chip Statement"
+            />
+          </>
         )}
       </div>
     </div>

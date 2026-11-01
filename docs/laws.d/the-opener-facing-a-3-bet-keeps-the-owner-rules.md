@@ -1,0 +1,3 @@
+# server/src/engine/HorseVs3BetDefence.law.test.ts
+
+V73 (2026-11-01): the opener's continue width facing one 3-bet is a share of its own open, and three owner rules stay exactly as they were. Dan 2026-10-25 "THE ONE HORSE SHOULD BE FOLDING TO A HUGE THREE BET WITH KQO": an opener's offsuit unpaired hand other than AKo / AQo still folds to a big 3-bet, every style and seat. Dan 2026-10-25 deep 5-bet discipline: facing a 4-bet or more the decision is identical with the V73 read on and off (it reads the 3-bet node only). Dan 2026-10-27 one policy for every opponent: flipping which seats are horses never changes the answer to a 3-bet.
