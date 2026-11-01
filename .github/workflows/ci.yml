@@ -4808,6 +4808,14 @@ jobs:
         if: matrix.partition == 'general' && matrix.shard == 5
         run: npm run test:e2e:push-enrollment
 
+      # Reuse this exact build for the isolated cash action/card regression.
+      # It never reaches a live service or uses a player's account.
+      - name: Cash street decision and board image gate
+        if: matrix.partition == 'general' && matrix.shard == 1
+        env:
+          LIVE_TURN_DIST: dist
+        run: npx playwright test -c playwright.live-turn.config.ts tests/live-turn/cash-street-decision.pw.ts
+
       # if: always() because the preview is now started outside the step that
       # uses it, so nothing else will reap it - and an orphaned --strictPort
       # server would fail every later job on this runner. The port-reserve step
