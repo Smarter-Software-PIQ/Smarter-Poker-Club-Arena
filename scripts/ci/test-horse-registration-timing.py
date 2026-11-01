@@ -99,13 +99,13 @@ INSERT INTO purchases VALUES($1,$2);INSERT INTO tournament_players(tournament_id
                     for delta,want in [('1 hour 0.001 seconds',False),('1 hour',True),('59 minutes 59.999 seconds',True)]:
                         at=f"'2026-11-01 20:00Z'::timestamptz+interval '{delta}'"
                         check(fmt+' '+status+' compatibility hour '+delta,run(f"SELECT fn_ca_horse_mtt_purchase_window_open('{fmt}','{status}',{at},'2026-11-01 20:00Z')")==('t' if want else 'f'))
-                        check(fmt+' '+status+' paid hour '+delta,run(f"SELECT fn_ca_horse_mtt_purchase_window_open('{fmt}','{status}',{at},'2026-11-01 20:00Z',10,1,false)")==('t' if want else 'f'))
+                        check(fmt+' '+status+' paid hour '+delta,run(f"SELECT fn_ca_horse_mtt_entry_purchase_window_open('{fmt}','{status}',{at},'2026-11-01 20:00Z',10,1,false)")==('t' if want else 'f'))
                     for amount,fee,free,label in [('0','0','false','zero charge'),('0','NULL','false','legacy zero charge'),('10','1','true','free buy flag')]:
                         for delta,want in [('6 hours 0.001 seconds',False),('6 hours',True),('5 hours 59 minutes 59.999 seconds',True)]:
-                            check(fmt+' '+status+' '+label+' '+delta,run(f"SELECT fn_ca_horse_mtt_purchase_window_open('{fmt}','{status}','2026-11-01 20:00Z'::timestamptz+interval '{delta}','2026-11-01 20:00Z',{amount},{fee},{free})")==('t' if want else 'f'))
+                            check(fmt+' '+status+' '+label+' '+delta,run(f"SELECT fn_ca_horse_mtt_entry_purchase_window_open('{fmt}','{status}','2026-11-01 20:00Z'::timestamptz+interval '{delta}','2026-11-01 20:00Z',{amount},{fee},{free})")==('t' if want else 'f'))
             for amount,fee,label in [('0','1','fee-only paid'),('5','0','all-bounty paid'),('NULL','0','unknown amount')]:
-                check(label+' cannot use free window',run(f"SELECT fn_ca_horse_mtt_purchase_window_open('mtt-v2','REGISTERING',now()+interval '3 hours',now(),{amount},{fee},false)")=='f')
-            check('free null start still refuses',run("SELECT fn_ca_horse_mtt_purchase_window_open('mtt-v2','REGISTERING',NULL,now(),0,0,true)")=='f')
+                check(label+' cannot use free window',run(f"SELECT fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '3 hours',now(),{amount},{fee},false)")=='f')
+            check('free null start still refuses',run("SELECT fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',NULL,now(),0,0,true)")=='f')
             check('paid wrapper refuses three hours before',json.loads(run(call)).get('reason')=='horse_registration_not_open')
             run(f"UPDATE tournaments SET buy_in_amount=0,buy_in_fee=0 WHERE id='{T}';")
             check('actual zero charge wrapper registers three hours ahead',json.loads(run(call))['ok'])
@@ -125,8 +125,8 @@ INSERT INTO purchases VALUES($1,$2);INSERT INTO tournament_players(tournament_id
             run(f"INSERT INTO tournaments SELECT gen_random_uuid(),'REGISTERING',now(),'mtt-v2',10,1,false FROM generate_series(1,4); INSERT INTO tournament_players(tournament_id,user_id,status) SELECT id,'{H}','registered' FROM tournaments WHERE id<>'{T}';")
             check('early free entries retain four-promise budget',json.loads(run(call)).get('reason')=='horse_tournament_reservation_budget')
             check('budget refusal does not purchase',run('SELECT count(*) FROM purchases')=='0')
-            helper="fn_ca_horse_mtt_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)"
-            check('new timing overload is service-only',run(f"SELECT has_function_privilege('service_role','{helper}','EXECUTE') AND NOT has_function_privilege('authenticated','{helper}','EXECUTE') AND NOT has_function_privilege('anon','{helper}','EXECUTE')")=='t')
+            helper="fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)"
+            check('price-aware helper is service-only',run(f"SELECT has_function_privilege('service_role','{helper}','EXECUTE') AND NOT has_function_privilege('authenticated','{helper}','EXECUTE') AND NOT has_function_privilege('anon','{helper}','EXECUTE')")=='t')
             check('followup replay fails closed','horse_mtt_arrival_window_preimage_changed' in run(followup,True))
             print(json.dumps({'passed':len(passed),'checks':passed,'scope':'actual registration wrapper, one-hour paid and six-hour free predicates; unchanged economic delegates are sinks'}))
         finally: cmd([PG/'pg_ctl','-D',d/'db','-m','immediate','-w','stop'])

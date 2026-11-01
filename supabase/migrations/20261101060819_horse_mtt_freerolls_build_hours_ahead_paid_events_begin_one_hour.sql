@@ -10,7 +10,7 @@
 -- restored and every existing funding/capacity/maintenance/reservation guard
 -- remains byte-for-byte intact. Both original horse door overloads still reach
 -- the same paid delegate. No players, wallets, tickets or holds are edited.
--- @live-proof: public.fn_ca_horse_mtt_purchase_window_open('mtt-v2','REGISTERING',now()+interval '3 hours',now(),0::numeric,0::numeric,false) AND NOT public.fn_ca_horse_mtt_purchase_window_open('mtt-v2','REGISTERING',now()+interval '3 hours',now(),10::numeric,1::numeric,false) AND public.fn_ca_horse_mtt_purchase_window_open('mtt-v2','REGISTERING',now()+interval '1 hour',now()) AND position('t.buy_in_amount,t.buy_in_fee,t.free_buy' IN pg_get_functiondef('public.fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure))>0
+-- @live-proof: public.fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '3 hours',now(),0::numeric,0::numeric,false) AND NOT public.fn_ca_horse_mtt_entry_purchase_window_open('mtt-v2','REGISTERING',now()+interval '3 hours',now(),10::numeric,1::numeric,false) AND public.fn_ca_horse_mtt_purchase_window_open('mtt-v2','REGISTERING',now()+interval '1 hour',now()) AND position('t.buy_in_amount,t.buy_in_fee,t.free_buy' IN pg_get_functiondef('public.fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure))>0
 BEGIN;
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '8s';
@@ -24,7 +24,7 @@ BEGIN
 END
 $guard$;
 
-CREATE OR REPLACE FUNCTION public.fn_ca_horse_mtt_purchase_window_open(
+CREATE OR REPLACE FUNCTION public.fn_ca_horse_mtt_entry_purchase_window_open(
   p_format text,p_status text,p_start timestamptz,p_now timestamptz,
   p_buy_in_amount numeric,p_buy_in_fee numeric,p_free_buy boolean
 ) RETURNS boolean
@@ -41,27 +41,28 @@ AS $window$
     ELSE true
   END
 $window$;
-REVOKE ALL ON FUNCTION public.fn_ca_horse_mtt_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)
+REVOKE ALL ON FUNCTION public.fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)
   FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_ca_horse_mtt_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)
+GRANT EXECUTE ON FUNCTION public.fn_ca_horse_mtt_entry_purchase_window_open(text,text,timestamptz,timestamptz,numeric,numeric,boolean)
   TO service_role;
 
--- Older callers lack price metadata and retain the regular one-hour window.
+-- Keep each RPC name unambiguous. Older callers lack price metadata and
+-- retain the regular one-hour window through the distinctly named helper.
 CREATE OR REPLACE FUNCTION public.fn_ca_horse_mtt_purchase_window_open(
   p_format text,p_status text,p_start timestamptz,p_now timestamptz
 ) RETURNS boolean
 LANGUAGE sql IMMUTABLE
 SET search_path TO 'public','pg_temp'
 AS $window$
-  SELECT public.fn_ca_horse_mtt_purchase_window_open(
+  SELECT public.fn_ca_horse_mtt_entry_purchase_window_open(
     p_format,p_status,p_start,p_now,NULL::numeric,NULL::numeric,false)
 $window$;
 
 DO $patch$
 DECLARE
   v_definition text;
-  v_anchor text := E't.format_contract,t.status,t.start_time,clock_timestamp())';
-  v_replacement text := E't.format_contract,t.status,t.start_time,clock_timestamp(),\n         t.buy_in_amount,t.buy_in_fee,t.free_buy)';
+  v_anchor text := E'public.fn_ca_horse_mtt_purchase_window_open(\n         t.format_contract,t.status,t.start_time,clock_timestamp())';
+  v_replacement text := E'public.fn_ca_horse_mtt_entry_purchase_window_open(\n         t.format_contract,t.status,t.start_time,clock_timestamp(),\n         t.buy_in_amount,t.buy_in_fee,t.free_buy)';
   v_before jsonb;
   v_after jsonb;
 BEGIN
