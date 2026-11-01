@@ -38,7 +38,7 @@ export function placeProtectedCardRow(
     for (const top of new Set(ys)) {
       const nextDistance = Math.hypot(left - row.left, top - row.top);
       if (nextDistance >= distance) continue;
-      const candidate = { left, top, width: row.width, height: row.height };
+      const candidate = { ...row, left, top };
       if (fits(candidate)) {
         best = candidate;
         distance = nextDistance;

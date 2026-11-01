@@ -10,8 +10,9 @@ const trusted =
 const recovery = " && vars.CA_REQUIRED_NATIVE_PROFILE == 'large'";
 const expression = (standard: string) =>
   '$' + '{{ ' + trusted + recovery + " && 'ca-linux-8core' || '" + standard + "' }}";
+const accountingRoute = '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}";
 const jobs = [
-  ['accounting_postgres', ci.jobs.accounting_postgres, 'ubuntu-latest'],
+  ['accounting_postgres', ci.jobs.accounting_postgres, accountingRoute],
   ['server_shards', ci.jobs.server_shards, 'ubuntu-latest'],
   ['native-smoke', native.jobs['native-smoke'], 'ubuntu-24.04'],
 ] as const;
@@ -66,6 +67,24 @@ const normalizePostpaidQualityAddition = (job: { steps: Array<Record<string, unk
   // Exact shape rejects added env/continue-on-error as well as changed commands.
   expect(job.steps[start]).toStrictEqual(postpaidQualityStep);
   expect(job.steps[start + 1]?.name).toBe('Preserve original weekly payout qualification evidence');
+  job.steps.splice(start, 1);
+};
+
+const mysteryAwardOrderStep = {
+  name: 'Mystery award pages retain every tied reveal exactly once',
+  if: 'matrix.shard == 2',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+  run: 'python3 -B scripts/ci/test-mystery-award-page-order.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"',
+};
+
+const normalizeMysteryAwardOrderAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === mysteryAwardOrderStep.name);
+  expect(job.steps.filter((step) => step.name === mysteryAwardOrderStep.name)).toHaveLength(1);
+  expect(job.steps[start]).toStrictEqual(mysteryAwardOrderStep);
+  expect(job.steps[start + 1]?.name).toBe(
+    'Weekly linked proofs preserve original windows and paid books'
+  );
+  // Enforce the exact new gate before retaining all historical workflow pins.
   job.steps.splice(start, 1);
 };
 
@@ -224,6 +243,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       delete selected[0].if;
     }
     delete normalized.jobs['css-beats-build'];
+    normalizeMysteryAwardOrderAddition(normalized.jobs.accounting_postgres);
     normalizeFrameCoverAddition(normalized.jobs.accounting_postgres);
     normalizePostpaidQualityAddition(normalized.jobs.accounting_postgres);
     const formerClientRoute = '$' + '{{ ' + trusted + " && 'ca-linux-4core' || 'ubuntu-latest' }}";
@@ -233,8 +253,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       server: 'ubuntu-latest',
       verdict: 'ubuntu-latest',
       'css-beats-gate': 'ubuntu-latest',
-      'css-beats-e2e': 'ubuntu-latest',
-      'diamond-playfield-e2e': 'ubuntu-latest',
+      'css-beats-e2e': 'ubuntu-24.04',
+      'diamond-playfield-e2e': 'ubuntu-24.04',
     };
     // Assert each authorized route before normalizing just that field. The
     // exhaustive sectional fingerprints protect every command and financial gate.
@@ -243,7 +263,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['typecheck_compile', 'unit_shards', 'build']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'build' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['changes', 'source_windows', 'stub_gate']) {
@@ -251,11 +273,15 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['live-e2e', 'post-deploy-check']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'live-e2e' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = formerClientRoute.replace('4core', '8core');
     }
     for (const name of ['accounting_postgres', 'server_shards']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'accounting_postgres' ? accountingRoute : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = expression('ubuntu-latest');
     }
     expect(normalized.jobs.unit_shards.env.VITEST_MAX_THREADS).toBe(8);
@@ -360,6 +386,36 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       expect(() => normalizePostpaidQualityAddition(job)).toThrow();
     }
   });
+  it('rejects missing, duplicate, displaced or weakened mystery award qualification', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, start: number) => steps.splice(start, 1),
+      (steps: Array<Record<string, unknown>>, start: number) =>
+        steps.push(structuredClone(steps[start])),
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        [steps[start], steps[start + 1]] = [steps[start + 1], steps[start]];
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].run = String(steps[start].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].env = { PG_BIN: '/wrong' };
+      },
+    ];
+    for (const mutate of mutations) {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const start = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === mysteryAwardOrderStep.name
+      );
+      mutate(job.steps, start);
+      expect(() => normalizeMysteryAwardOrderAddition(job)).toThrow();
+    }
+  });
   it('preserves every native qualification stage and cleanup requirement', () => {
     const normalized = structuredClone(native);
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
@@ -381,20 +437,22 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
           `return (${step.if.replace(/^\$\{\{\s*|\s*\}\}$/g, '')});`
         )({ connected_ui_observations: false }, () => true)
     );
-    expect(defaultSteps).toHaveLength(8);
+    expect(defaultSteps).toHaveLength(10);
     expect(defaultSteps.slice(2).map((step: { name: string }) => step.name)).toEqual([
       'Native alert intake survives actual process death without duplicate queue submission',
       'Install locked fixture test dependencies on the disposable CI runner',
       'Compile the actual engine for isolated EV actors',
+      'Build and qualify logging-only native schema export diagnostics',
       'Check financial route and fixture ownership boundaries',
       'Build exact committed fixture and smoke native services',
       'Preserve sanitized native smoke and cleanup observations',
+      "Remove only this job's qualified native diagnostic tool",
     ]);
     // Whole reviewed native workflow identity now includes the guarded manual
     // private-capture branch; every default stage and55m budget is asserted above.
     normalized.jobs['native-smoke']['runs-on'] = expression('ubuntu-24.04');
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
-      '0cca7581c1985d4f2a7f040108ae80c4041740862d2881b96943266b95394e7f'
+      'ea69d731aed295651f61ffd41eab0b826db7bdcbf89436dd49d2e20d45c21273'
     );
   });
 });

@@ -128,7 +128,8 @@ describe('tournament headers span their whole event frame', () => {
     const { entry, onSelect, writers } = board(0);
     const compact = document.querySelector('.compact-lobby')!;
     const heading = compact.querySelector('tr[data-tournament-heading]')!;
-    expect(heading.querySelector('strong')).toBeNull();
+    expect(heading.querySelector('strong')).toHaveTextContent('35 Buy-In');
+    expect(heading.textContent).not.toContain('Guarantee');
     fireEvent.click(heading);
     expect(onSelect).toHaveBeenCalledExactlyOnceWith(entry);
     fireEvent.click(within(compact as HTMLElement).getByRole('button', { name: /^Details:/ }));

@@ -654,7 +654,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag('v24Bounty', 'PKO bounty pull', 'V24'),
   flag(
     'v24PloDefense',
-    'PLO price defense against pot-sized preflop raises',
+    'PLO price defense against pot-sized preflop raises; PLO6 CASH DEFAULT OFF since 2026-10-31 (plo6_v24_price -2.34 +/- 1.12 over the 7 runs to 2026-10-30); PLO4/PLO5 and PLO6 tournaments on',
     'V24',
     'HorsePreflop.decidePreflopV7'
   ),
@@ -819,6 +819,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v70GtoOpeningRanges',
     "2026-10-31 Hold'em raise-first-in (unopened, unlimped, two or more dealt in): the hand is read on its seat's own GTO reference order by dealt-in players behind (SB 1 .. 9-handed UTG 8) mapped onto the preflop score scale by combo share, against per-seat target widths (cash LJ 16, HJ 20.5, CO 26.5, BTN 43, SB 41 raise plus a limp band to 58; full-ring UTG 11/UTG+1 12.5/UTG+2 14; big blind ante LJ 23, HJ 26, CO 34, BTN 51, SB 48, UTG 17.5 before the ICM premium; three-handed BTN 47/54 and SB 44/50, heads-up SB 72/76 raise plus a limp band to 90/94); at four or more dealt the push/fold and orange/red M-zone jam-or-fold structure (<= 22bb) is untouched, while two- and three-handed jam-or-fold applies only at <= 15bb (the table-size-scaled M had put every heads-up and spin stack under 22bb into it); the SB opens ~3x without an ante deeper than 25bb; an ante-free tournament under 50bb keeps the old depth tighten; style tightness, ICM premium, bubble and maniac bars unchanged; explicit off arm retained",
     'V70'
+  ),
+  flag(
+    'v71AnteAwarePushFold',
+    "2026-10-31 Hold'em folded-to jam at <= 15bb in a tournament (or an ante cash table) with dead ante in the pot: the jam-or-fold answer reads the chip-EV Nash table (HorseNashPushFold.data.ts, first caller only, exact hero/caller card removal) by dealt-in players behind (1 = SB vs BB .. 8 = nine-handed UTG) and dead ante (0/1/2bb solutions, interpolated), at the effective depth (hero capped by the deepest live stack behind), whether or not memory_charts_gold hydrated; the charts were the no-ante game for five positions (Tournament cells equal to Cash) and the offline fallback jammed on the strength ladder; 9-handed 15bb with a big-blind ante jams UTG 8.6 / LJ 16.3 / HJ 22.8 / CO 28.8 / BTN 35.7 / SB 63.8; a pot without dead ante (charts and fallback), the 16-22bb orange-zone shove and BB defence are unchanged; explicit off arm retained",
+    'V71'
+  ),
+  flag(
+    'v72DefenceByOpener',
+    "2026-10-31 Hold'em facing one open with nobody in (three or more dealt in, open up to 6bb): the call / 3-bet base is set per defender (big blind, small blind, in-position seat) and opener seat by dealt-in players behind (V70 index SB 1 .. 9-handed UTG 8) instead of five position buckets; continue range read on a reference order blended between late- and early-open charts and mapped onto the preflop score scale, value 3-bets on the legacy ladder, bluff 3-bets from a reference chart scaled to half the solver's bluff width (V72_BLUFF_TRIM, measured against the human-calibrated field); widths by opener seat (cash big blind vs BTN 60 / CO 49 / HJ 42 / LJ 36 / 9-handed UTG 29, 3-bets 13 / 10.5 / 8.5 / 7 / 5.5; big blind ante vs BTN 72 .. UTG 44) scaled gently by the open size against 2.5x (2.2x with an ante); style, ICM premium, depth, exploit reads, V53 and V57/V60 flat and re-steal volume move it as before, the V60 and non-steal V57 per-bucket 3-bet bars are superseded (V57's tournament re-steal bar against a late or small-blind open stays a floor); explicit off arm retained",
+    'V72'
   ),
   flag(
     'v52RangeAdvantage',
@@ -2116,6 +2126,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     0.01
   ),
   receipt(
+    'v71_ante_push',
+    'HorseLogic (V71)',
+    "Hold'em folded-to jam at <= 15bb answered by the ante-aware Nash push/fold table (tournaments and ante cash; also counted in v27_gto_open_jam)",
+    'V71',
+    'decide_nlh'
+  ),
+  receipt(
+    'v72_defend_vs_opener',
+    'HorsePreflop (V72)',
+    "Hold'em facing one open with nobody in, defended on the (defender, opener seat) reference base",
+    'V72',
+    'decide_nlh',
+    0.005
+  ),
+  receipt(
     'v27_gto_open_jam',
     'HorsePreflop (V27)',
     'solver open/jam chart hit',
@@ -2347,6 +2372,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_premium_postflop_bet',
     'HorseLogic.decide (HorseHoldemPremiumAggression)',
     'NLH overpair QQ+ or AK top pair check postflop turned into a value bet',
+    'Hold em premium aggression'
+  ),
+  receipt(
+    'holdem_no_four_bet_bluff',
+    'HorseLogic.decide (HorseHoldemPremiumAggression)',
+    'NLH sized re-raise over a 3-bet with a hand below QQ+/AK turned into a call (no 4-bet made to fold)',
+    'Hold em premium aggression'
+  ),
+  receipt(
+    'holdem_four_bettor_continues',
+    'HorseLogic.decide (HorseHoldemPremiumAggression)',
+    'NLH fold after the horse own 4-bet was re-raised turned into a call (AA/KK jam)',
     'Hold em premium aggression'
   ),
   receipt(

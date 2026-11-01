@@ -102,8 +102,25 @@ test.describe('Union Management', () => {
     ).toBeVisible({ timeout: 15000 });
   });
 
+  /* This used to open the literal union "demo" on every production deploy. There is no
+     such union: the route resolved nothing and, before the not-found guard,
+     sent "demo" into UUID reads (22P02 in client_error_events, 2026-10-31).
+     Open a real union from the directory instead; with none visible to this
+     account there is no detail page to check. */
   test('should show union detail page', async ({ page }) => {
-    await expectUnionAccessDecision(page, 'unions/demo');
+    const allowed = await expectUnionAccessDecision(page, 'unions');
+    if (!allowed) return;
+    const unionLink = page
+      .locator('a[href*="/unions/"]')
+      .filter({ hasNot: page.locator('[href$="/unions/create"]') })
+      .first();
+    const href = (await unionLink.count()) ? await unionLink.getAttribute('href') : null;
+    const ref = href?.match(/\/unions\/([^/?#]+)/)?.[1];
+    if (!ref || ref === 'create') {
+      test.skip(true, 'No union is visible to this account');
+      return;
+    }
+    await expectUnionAccessDecision(page, `unions/${ref}`);
   });
 });
 

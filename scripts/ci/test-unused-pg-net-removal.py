@@ -72,7 +72,13 @@ def build(work):
             ([str(pg / "configure"), f"--prefix={prefix}", "--without-icu", "--without-readline", "--without-zlib"], pg),
             (["make", f"-j{jobs}"], pg),
             (["make", "install"], pg),
-            (["make", f"-j{jobs}", f"PG_CONFIG={prefix}/bin/pg_config"], net),
+            # Some runner images ship a libcurl whose typecheck-gcc.h macro for
+            # curl_multi_setopt is defined before multi.h declares it, so the
+            # declaration itself fails to compile ("expected identifier or '('
+            # before '__extension__'). The typecheck macros are compile-time
+            # diagnostics only; COPT appends to PGXS CFLAGS without replacing
+            # pg_net's own flags.
+            (["make", f"-j{jobs}", f"PG_CONFIG={prefix}/bin/pg_config", "COPT=-DCURL_DISABLE_TYPECHECK"], net),
             (["make", f"PG_CONFIG={prefix}/bin/pg_config", "install"], net),
         ]:
             subprocess.run(command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, check=True)

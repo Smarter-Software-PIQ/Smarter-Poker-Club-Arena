@@ -53,6 +53,25 @@
  *     chooses between calling and raising. The only checks left are boards
  *     that have plainly passed the hand: four to a flush the horse does not
  *     hold, or four to a straight on the board.
+ *
+ *  4. NO 4-BET IS EVER MADE TO FOLD (Dan 2026-10-31, BINDING). Dan, verbatim:
+ *     "HORSES KEEP MAKING THESE WEIRD 4 BETS ANYTIME I 3 BET, THEN FOLD 100%
+ *     OF THE TIME TO A FIVE BET. YOU NEED TO FIX THIS AND STOP 4 BETTING POTS
+ *     IF THEY ARE FOLDING. ITS SPEWING CHIPS."
+ *     The recorded hand (2026-11-01 02:03 UTC, Saturday Mystery, about 107bb
+ *     deep): a horse opened QQ, Dan 3-bet, the horse 4-bet QQ, Dan moved all
+ *     in, and the horse folded QQ. The 4-bet came from rule 2 (QQ must
+ *     re-raise a 3-bet); the fold came from the brain's deep-tournament 5-bet
+ *     bar, which keeps only AA and KK. Two halves, both applied here, after
+ *     every owner and again at commit:
+ *       a. A sized re-raise over a 3-bet or more (a 4-bet, a non-all-in
+ *          5-bet) is made only with QQ+ or AK. Any other hand the brain
+ *          wanted to re-raise with calls instead. An all-in re-raise is left
+ *          alone: nothing is left to fold to.
+ *       b. A horse whose own 4-bet (or later re-raise) has been re-raised
+ *          never folds, at any depth: it calls, and AA/KK put the rest in
+ *          (rule 2). Half a is left to the brain at push/fold depth (20bb
+ *          effective or less), where a re-raise is an all-in anyway.
  */
 import type { Card, CardRank, SeatPlayer } from '../types.js';
 import { nlhNutStatus, scoreHoldem } from './HorseEval.js';
@@ -84,7 +103,9 @@ const POSTFLOP_JAM_STACK_SHARE = 0.6;
 export type HoldemPremiumRule =
   | 'dominated_3bet_fold'
   | 'premium_preflop_raise'
-  | 'premium_postflop_bet';
+  | 'premium_postflop_bet'
+  | 'no_four_bet_bluff'
+  | 'four_bettor_continues';
 
 export interface HoldemPremiumDecision {
   action: string;
@@ -240,6 +261,9 @@ interface PreflopRead {
   lastRaiserSeat: number | null;
   callersSinceLastRaise: number;
   heroVoluntary: boolean;
+  /** The raise count right after the hero's own last raise (0 = none):
+   *  3 means the hero made the 4-bet. */
+  heroRaiseLevel: number;
 }
 
 function readPreflop(i: HoldemPremiumInput): PreflopRead {
@@ -250,6 +274,7 @@ function readPreflop(i: HoldemPremiumInput): PreflopRead {
   let lastRaiserSeat: number | null = null;
   let callersSinceLastRaise = 0;
   let heroVoluntary = false;
+  let heroRaiseLevel = 0;
   for (const a of i.actionHistory ?? []) {
     if (a.stage !== 'preflop') continue;
     const act = String(a.action);
@@ -262,6 +287,7 @@ function readPreflop(i: HoldemPremiumInput): PreflopRead {
         raises++;
         lastRaiserSeat = a.seat;
         callersSinceLastRaise = 0;
+        if (isHero) heroRaiseLevel = raises;
       } else if (act === 'all_in') {
         callersSinceLastRaise++;
       }
@@ -277,7 +303,45 @@ function readPreflop(i: HoldemPremiumInput): PreflopRead {
     previousLevel = level;
     level = current;
   }
-  return { raises, level, previousLevel, lastRaiserSeat, callersSinceLastRaise, heroVoluntary };
+  return {
+    raises,
+    level,
+    previousLevel,
+    lastRaiserSeat,
+    callersSinceLastRaise,
+    heroVoluntary,
+    heroRaiseLevel,
+  };
+}
+
+/** Rule 4b's spot: the hero's own 4-bet (or later re-raise) was re-raised. */
+function heroFourBetWasReRaised(read: PreflopRead): boolean {
+  return read.heroRaiseLevel >= 3 && read.raises > read.heroRaiseLevel;
+}
+
+/**
+ * The no-4-bet-to-fold spot (rule 4) for an action record list, without
+ * cards: 'reraised_four_bet' when the hero's own 4-bet has been re-raised,
+ * 'facing_three_bet' when the hero faces a 3-bet or more and has not yet
+ * 4-bet, otherwise null. The live worker's receipt validation uses it to
+ * admit exactly the two de-escalations rule 4 makes.
+ */
+export function holdemFourBetSpot(i: {
+  gameVariant: string | undefined;
+  bettingStructure?: string;
+  stage: string;
+  hero: { seat: number };
+  currentBet: number;
+  bigBlind: number;
+  actionHistory?: readonly HoldemPremiumActionRecord[];
+}): 'reraised_four_bet' | 'facing_three_bet' | null {
+  const variant = String(i.gameVariant ?? '').toLowerCase();
+  if (!HOLDEM_PREMIUM_VARIANTS.has(variant) || String(i.stage) !== 'preflop') return null;
+  if (i.bettingStructure && i.bettingStructure !== 'no_limit') return null;
+  const read = readPreflop(i as unknown as HoldemPremiumInput);
+  if (heroFourBetWasReRaised(read)) return 'reraised_four_bet';
+  if (read.raises >= 2 && read.heroRaiseLevel < 3) return 'facing_three_bet';
+  return null;
 }
 
 function inScope(i: HoldemPremiumInput): boolean {
@@ -347,12 +411,27 @@ function preflopVerdict(
   const legal = new Set(i.legalActions ?? []);
   const bb = finite(i.bigBlind);
 
+  const deepEnough = effectiveBB(i, read.lastRaiserSeat) > PUSH_FOLD_EFFECTIVE_BB;
+
+  // 4b. A horse whose 4-bet was re-raised never folds: it calls, and AA/KK
+  // continue into rule 2 below and put the rest in.
+  let continued: HoldemPremiumDecision | null = null;
+  if (decision.action === 'fold' && toCall > 0.005 && heroFourBetWasReRaised(read)) {
+    if (legal.has('call')) continued = keepThink(decision, { action: 'call' });
+    else if (legal.has('all_in')) continued = keepThink(decision, { action: 'all_in' });
+  }
+  if (continued) {
+    const raised = premiumRaise(continued, i, h, read);
+    return raised ?? { rule: 'four_bettor_continues', decision: continued };
+  }
+
   // 1. Dominated hands fold to a big 3-bet.
   const raiserManiac =
     read.lastRaiserSeat !== null && i.raiserIsManiac?.(read.lastRaiserSeat) === true;
   if (
     i.dominatedFold !== false &&
     !raiserManiac &&
+    !heroFourBetWasReRaised(read) &&
     read.raises >= 2 &&
     toCall > 0.005 &&
     (decision.action === 'call' || decision.action === 'raise' || decision.action === 'all_in') &&
@@ -367,7 +446,30 @@ function preflopVerdict(
     }
   }
 
+  // 4a. A sized re-raise over a 3-bet or more is made only with QQ+/AK.
+  // Every other hand calls instead, so no 4-bet is ever made to fold.
+  if (
+    decision.action === 'raise' &&
+    read.raises >= 2 &&
+    toCall > 0.005 &&
+    !isPremium(h) &&
+    legal.has('call') &&
+    deepEnough
+  ) {
+    return { rule: 'no_four_bet_bluff', decision: keepThink(decision, { action: 'call' }) };
+  }
+
   // 2. Premiums raise preflop, never flat.
+  return premiumRaise(decision, i, h, read);
+}
+
+function premiumRaise(
+  decision: HoldemPremiumDecision,
+  i: HoldemPremiumInput,
+  h: HoleShape,
+  read: PreflopRead
+): HoldemPremiumVerdict | null {
+  const bb = finite(i.bigBlind);
   const passive = decision.action === 'call' || decision.action === 'check';
   if (!passive || !isPremium(h)) return null;
   if (!isTopPremium(h) && read.raises >= 3) return null;

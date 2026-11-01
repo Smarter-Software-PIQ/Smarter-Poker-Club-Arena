@@ -9,6 +9,9 @@ import {
   RECOVERY_ACTION,
   RECOVERY_CASES,
   RECOVERY_COMPONENT_PATHS,
+  FAVORITE_ACTION,
+  FAVORITE_CASES,
+  FAVORITE_COMPONENT_PATHS,
 } from '../../scripts/verification-harness/lobby-ui-proof.mjs';
 const sha = 'a'.repeat(40);
 const env = {
@@ -169,7 +172,9 @@ describe('closed spectator and notification recovery proof', () => {
 it('keeps each closed mode limited to its owned browser journeys with cleanup', async () => {
   const { readFileSync } = await import('node:fs');
   const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
-  expect(workflow).toContain('types: [verify-lobby-ui, verify-spectator-notifications]');
+  expect(workflow).toContain(
+    'types: [verify-lobby-ui, verify-spectator-notifications, verify-tournament-favorites]'
+  );
   expect(workflow).toContain('npx playwright install --with-deps chromium webkit');
   expect(readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8')).toContain(
     "...devices['iPhone 13']"
@@ -203,4 +208,110 @@ it('keeps each closed mode limited to its owned browser journeys with cleanup', 
   expect(journey).toContain("name: 'Move Left', exact: true");
   expect(journey).toContain("locator('[data-tabid]').nth(1)");
   expect(journey).toContain("route.abort('blockedbyclient')");
+});
+
+describe('closed tournament favorite priority proof', () => {
+  const favoriteReport = () => ({
+    suites: [
+      {
+        specs: FAVORITE_CASES.map(({ file, title, project }) => ({
+          file,
+          title,
+          ok: true,
+          tests: [
+            {
+              projectName: project,
+              status: 'expected',
+              expectedStatus: 'passed',
+              results: [{ status: 'passed', retry: 0 }],
+            },
+          ],
+        })),
+      },
+    ],
+  });
+  const favoritePin = () => ({
+    ...pin(),
+    action: FAVORITE_ACTION,
+    components: Object.fromEntries(FAVORITE_COMPONENT_PATHS.map((path) => [path, sha])),
+  });
+  it('admits only its fixed empty request and exactly one Chromium case', () => {
+    expect(() => admitDispatch(env, { action: FAVORITE_ACTION, client_payload: {} })).not.toThrow();
+    expect(() =>
+      admitDispatch(env, { action: FAVORITE_ACTION, client_payload: { grep: 'other' } })
+    ).toThrow();
+    expect(assertCases(favoriteReport(), FAVORITE_ACTION)).toHaveLength(1);
+    expect(() => assertCases(report(), FAVORITE_ACTION)).toThrow();
+    for (const change of [
+      (r) => r.suites[0].specs.pop(),
+      (r) => r.suites[0].specs.push(r.suites[0].specs[0]),
+      (r) => (r.suites[0].specs[0].file = 'other.spec.ts'),
+      (r) => (r.suites[0].specs[0].tests[0].projectName = 'webkit-footer'),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].retry = 1),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].status = 'skipped'),
+      (r) => (r.errors = ['unhandled failure']),
+    ]) {
+      const value = favoriteReport();
+      change(value);
+      expect(() => assertCases(value, FAVORITE_ACTION)).toThrow();
+    }
+  });
+  it('requires the favorite consumer sources, stable publisher and verified own cleanup', () => {
+    const cleanup = { verified: true, runId: '123' };
+    expect(() => assertPins(favoritePin(), favoritePin(), cleanup, FAVORITE_ACTION)).not.toThrow();
+    expect(() => assertPins(pin(), pin(), cleanup, FAVORITE_ACTION)).toThrow();
+    for (const path of [
+      'src/components/lobby/LobbyTable.tsx',
+      'src/components/lobby/tournamentFavoriteOrder.ts',
+      'src/pages/ClubHomePage.tsx',
+      'src/lib/featuredOnItsDay.ts',
+      'src/hooks/usePlayerPreference.ts',
+      'src/lib/tableSettingIntents.ts',
+    ]) {
+      const after = favoritePin();
+      delete after.components[path];
+      expect(() => assertPins(favoritePin(), after, cleanup, FAVORITE_ACTION)).toThrow();
+    }
+    expect(() =>
+      assertPins(favoritePin(), favoritePin(), { verified: false, runId: '123' }, FAVORITE_ACTION)
+    ).toThrow();
+    expect(() =>
+      assertPins(favoritePin(), favoritePin(), { verified: true, runId: '999' }, FAVORITE_ACTION)
+    ).toThrow();
+    const advanced = favoritePin();
+    advanced.clientSha = 'b'.repeat(40);
+    expect(() => assertPins(favoritePin(), advanced, cleanup, FAVORITE_ACTION)).toThrow();
+  });
+  it('uses the maintained supported browser host and one fixed isolated journey', async () => {
+    const { readFileSync } = await import('node:fs');
+    const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
+    expect(workflow).toContain('runs-on: ubuntu-24.04');
+    const block = workflow.slice(
+      workflow.indexOf('- name: Verify only tournament favorite'),
+      workflow.indexOf('- name: Pin the published client after')
+    );
+    expect(block).toContain("if: github.event.action == 'verify-tournament-favorites'");
+    expect(block).toContain(`--grep '${FAVORITE_CASES[0].title}$'`);
+    expect(block).toContain('--project=chromium --workers=1 --retries=0 --trace=off');
+    expect(block).not.toContain('the selected game list');
+    expect(block).not.toContain('spectator');
+    expect(workflow).toContain('cleanupProductionE2EAccount() !== true');
+    const browser = readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8');
+    const journey = browser.slice(
+      browser.indexOf(`test('${FAVORITE_CASES[0].title}'`),
+      browser.indexOf("test('the footer frame")
+    );
+    for (const contract of [
+      "'lobby-tournament-favorites:global'",
+      "'Add To Favorites'",
+      "'Remove From Favorites'",
+      "chooseSort('Most Players')",
+      "chooseSort('Stakes: High To Low')",
+      'await page.reload',
+      'await (await readback).json()',
+      'expect(participation).toEqual([])',
+      "route.abort('blockedbyclient')",
+    ])
+      expect(journey).toContain(contract);
+  });
 });

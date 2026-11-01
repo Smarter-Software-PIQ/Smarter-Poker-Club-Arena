@@ -137,3 +137,10 @@ describe('the game bar does not offer a control that does nothing', () => {
     expect(sheet).toMatch(/\{sortOptions && onSortChange && \(/);
   });
 });
+
+it('ranks current pins and player favorites before applying the existing MTT cap', () => {
+  const rankAt = allBranch.indexOf('prioritizeTournamentFavorites(candidates, favoriteGameIds)');
+  const capAt = allBranch.indexOf('.slice(0, ALL_TAB_MTT_CAP)');
+  expect(rankAt).toBeGreaterThan(-1);
+  expect(capAt).toBeGreaterThan(rankAt);
+});

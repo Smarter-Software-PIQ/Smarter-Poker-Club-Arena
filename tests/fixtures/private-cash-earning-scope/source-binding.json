@@ -14,7 +14,7 @@
   "reviewed_dependencies": {
     "supabase/accounting/weekly-v3/components/20260914131539_cash_commissions_account_for_every_contributor_once.sql": "cfad133fe5581148709f26ae22dd9430f205fb459b9bc0f9f86eafd3ef86f768",
     "supabase/accounting/weekly-v3/components/20260914144442_cash_accounting_refusals_are_durable_and_retryable.sql": "dd50f34cbf18e3a5fb52b6b3873ef74fceb360a2c815212c52de08d183521cfb",
-    "server/src/services/RakebackSettlerService.ts": "c7b8d37a701c2776657464706dc7790f7a0d7714da57eb86cc4bb712da366bb4",
+    "server/src/services/RakebackSettlerService.ts": "2b645452197a29f8b68ccd709cbc04f3207aba7b447c3ae2018a6ec63fbce30f",
     "tests/fixtures/full-weekly-accounting/tables.json": "0f986db3950d8416e5f2e968972ca03bfdb984bf8aa43267d60b2fce37cf0428",
     "tests/fixtures/full-weekly-accounting/triggers-round-3.json": "383cf9b43093ba5f945a68c9f4f8d1389472e8ce6b1d16f4b18d547a86a0249e"
   },
@@ -225,5 +225,18 @@
       }
     ],
     "reason": "Reviewed the full settler diff while integrating the Oct24 digest repairs: refusal readbacks are batched by their exact receipt/work identities, two disjoint chunk workers share each host-club lane, the cursor waits for all workers and verified receipts, fruitless retry drains rest, and the bounded page drain stops for maintenance. Per-source accounting RPCs, recorded seat-scope attribution, monetary SQL, commission destinations and fn_cash_earning_club are unchanged. Focused receipt/cursor/throughput tests pass; the complete related server selection passed12354 assertions with166 existing skips. This renews only the reviewed dependency identity. SOURCE_CHANGED_UNRUN_PENDING_QUALIFICATION and execution_performed=false are retained; protected native accounting qualification remains required."
+  },
+  "watermark_back_to_back_catch_up_rebinding_20261031": {
+    "base_commit": "b3c36f5ac96521f972bd009fe693de09de5a8210",
+    "source_pull_request": null,
+    "source_commit": "208c81608de7348cbf95746d35065662ff39f9f2",
+    "changed_repository_bindings": [
+      {
+        "path": "server/src/services/RakebackSettlerService.ts",
+        "previous_sha256": "c7b8d37a701c2776657464706dc7790f7a0d7714da57eb86cc4bb712da366bb4",
+        "sha256": "2b645452197a29f8b68ccd709cbc04f3207aba7b447c3ae2018a6ec63fbce30f"
+      }
+    ],
+    "reason": "Reviewed the full settler diff of the 2026-10-31 platform-health phase 6 change 'a watermark more than one interval behind runs back-to-back bounded cycles'. It adds three pure exported helpers (CATCH_UP_BACK_TO_BACK_MAX = 6, watermarkLagMs, catchUpDelayMs) and two private fields (backToBackRuns, runAgainWhenIdle). When a cycle ends with backlog owed, made progress (consecutiveStalls 0) and the durable cursor trails the clock by more than SETTLEMENT_INTERVAL_MS, the next cycle is launched from runSettlement's own finally the instant isSettling clears, at most six in a row; otherwise the existing haltedPageRetryDelayMs pacing is unchanged, and stop() clears both fields. WHY: on 2026-10-31 the watermark stalled 61 minutes because the 60 s catch-up re-armed one bounded cycle at a time. WHAT THIS DOES NOT TOUCH: each cycle is still bounded by MAX_DRAIN_BATCHES; per-source accounting RPCs, recorded seat-scope attribution, monetary SQL, batch sizes, commission destinations, refusal handling, ordering and fn_cash_earning_club are unchanged - it changes only when the next identical cycle starts. Regression protection: server/src/services/aLaggingWatermarkRunsBackToBack.test.ts. This renews only the reviewed dependency identity. SOURCE_CHANGED_UNRUN_PENDING_QUALIFICATION and execution_performed=false are retained; protected native accounting qualification remains required."
   }
 }

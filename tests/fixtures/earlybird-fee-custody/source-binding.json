@@ -15,7 +15,7 @@
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "supabase/migrations/20260918122532_five_original_spin_standings_retain_their_recorded_cash_outc.sql": "9f6e0b02abea54394d317c6d20f8e47ae10edefc9ba6c12f6542c23daf4540c4",
     ".prettierignore": "07ecc5925d551fde38704413665ef6cb9c68015c2772b577c01bfefec9c95331",
-    "tests/unit/fixtureNativeCi.test.ts": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+    "tests/unit/fixtureNativeCi.test.ts": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536"
   },
   "restamp_audit": [
@@ -609,5 +609,25 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "nativeAccountingRunnerContract20261101": {
+    "reason": "Four existing accounting runner assertions now require Ubuntu24.04 after the observed Ubuntu26.04 pg_net compilation failure; native commands, assertions, budgets and historical evidence are unchanged. 764 focused fixture and runner contracts passed.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous_sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+    "current_sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
+  },
+  "pgNetAccountingRouteContract20261031": {
+    "reason": "Only four exact accounting runner expectations match the closed shard2 Ubuntu24.04 route; all fixture commands, financial assertions, native input sources and historical qualification states remain unchanged. Current test source identity only.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previousSha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+    "currentSha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "nativeAccountingRunnerContract20261101": {
+    "reason": "Four existing accounting runner assertions now require Ubuntu24.04 after the observed Ubuntu26.04 pg_net compilation failure; native commands, assertions, budgets and historical evidence are unchanged. 764 focused fixture and runner contracts passed.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous_sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
+    "current_sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
   }
 }

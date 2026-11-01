@@ -15,7 +15,8 @@ CREATE TABLE public.fixture_expected_fact_rates AS
   -- The readers below take a 30-day UTC calendar range (today and the 29
   -- days before it). Expect exactly that population: the fixed-date facts of
   -- 2026-10-02 left the range on 2026-11-01 and turned this step red.
-  AND played_at >= (((now() AT TIME ZONE 'UTC')::date - 29)::timestamp AT TIME ZONE 'UTC');
+  AND played_at >= (((now() AT TIME ZONE 'UTC')::date - 29)::timestamp AT TIME ZONE 'UTC')
+  AND played_at < (((now() AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC');
 GRANT SELECT ON public.fixture_expected_fact_rates TO authenticated;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);

@@ -94,6 +94,7 @@ function makeData(overrides: Partial<UseMysteryBountyResult> = {}): UseMysteryBo
     awardsTotal: awards.total,
     leaderboard: parseLeaderboard(LEADERBOARD),
     isLoading: false,
+    isUnavailable: false,
     pendingReveals: 0,
     refresh: vi.fn(),
     ...overrides,

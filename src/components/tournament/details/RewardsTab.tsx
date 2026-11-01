@@ -19,7 +19,7 @@
  *
  *   prize pool          tournaments.prize_pool          (numeric, server owns
  *                       it: recalculated on every registration / rebuy / add-on
- *                       with the fee stripped and horses excluded)
+ *                       with the fee stripped; every player included)
  *   guarantee           tournaments.guaranteed_prize    (numeric)
  *   settled or not      tournaments.prize_pool_finalized (boolean, 20,880 rows
  *                       set) - the ONLY honest way to know whether these
@@ -90,6 +90,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { runWithRequestDeadline } from '../../../utils/requestDeadline';
 import { reportError } from '../../../utils/errorReporter';
 import { subscribeTournamentStandings } from '../../../services/tournamentStandingsUpdates';
 import type { TournamentTabProps, PayoutPlace, TournamentEntry } from './types';
@@ -336,6 +337,7 @@ export default function RewardsTab({
     let cancelled = false;
     let inFlight = false;
     let requested = false;
+    let activeRead: AbortController | null = null;
     const load = async () => {
       if (cancelled) return;
       if (inFlight) {
@@ -343,36 +345,42 @@ export default function RewardsTab({
         return;
       }
       inFlight = true;
+      const controller = new AbortController();
+      activeRead = controller;
       try {
-        const [live, claimed] = await Promise.all([
-          fetchAllRows<{ id: string; current_bounty: unknown; status: string | null }>(
-            (cursor) => {
-              let query = supabase
-                .from('tournament_players')
-                .select('id, current_bounty, status')
-                .eq('tournament_id', tournamentId)
-                .gt('current_bounty', 0)
-                .order('id', { ascending: true })
-                .limit(PAGE);
-              if (cursor !== null) query = query.gt('id', cursor);
-              return query;
-            },
-            () => !cancelled
-          ),
-          fetchAllRows<{ id: string; bounty_amount: unknown }>(
-            (cursor) => {
-              let query = supabase
-                .from('tournament_bounties')
-                .select('id, bounty_amount')
-                .eq('tournament_id', tournamentId)
-                .order('id', { ascending: true })
-                .limit(PAGE);
-              if (cursor !== null) query = query.gt('id', cursor);
-              return query;
-            },
-            () => !cancelled
-          ),
-        ]);
+        const [live, claimed] = await runWithRequestDeadline(
+          (signal) =>
+            Promise.all([
+              fetchAllRows<{ id: string; current_bounty: unknown; status: string | null }>(
+                (cursor) => {
+                  let query = supabase
+                    .from('tournament_players')
+                    .select('id, current_bounty, status')
+                    .eq('tournament_id', tournamentId)
+                    .gt('current_bounty', 0)
+                    .order('id', { ascending: true })
+                    .limit(PAGE);
+                  if (cursor !== null) query = query.gt('id', cursor);
+                  return query.abortSignal(signal);
+                },
+                () => !cancelled && !signal.aborted
+              ),
+              fetchAllRows<{ id: string; bounty_amount: unknown }>(
+                (cursor) => {
+                  let query = supabase
+                    .from('tournament_bounties')
+                    .select('id, bounty_amount')
+                    .eq('tournament_id', tournamentId)
+                    .order('id', { ascending: true })
+                    .limit(PAGE);
+                  if (cursor !== null) query = query.gt('id', cursor);
+                  return query.abortSignal(signal);
+                },
+                () => !cancelled && !signal.aborted
+              ),
+            ]),
+          { signal: controller.signal }
+        );
         if (cancelled) return;
 
         setLedger({
@@ -409,6 +417,8 @@ export default function RewardsTab({
           reportError(e, 'RewardsTab.bounty_ledger_load_failed');
         }
       } finally {
+        controller.abort();
+        if (activeRead === controller) activeRead = null;
         inFlight = false;
         if (!cancelled && requested) {
           requested = false;
@@ -420,6 +430,7 @@ export default function RewardsTab({
     void load();
     return () => {
       cancelled = true;
+      activeRead?.abort();
       unsubscribe();
     };
   }, [tournamentId, isBountyEvent]);
@@ -1064,6 +1075,8 @@ export default function RewardsTab({
                  differ, and the player's wallet holds the recorded one. */
               const finisher =
                 band.fromPlace === band.toPlace ? finisherByPlace.get(band.fromPlace) : undefined;
+              const hasRecordedPrize =
+                finisher?.prize != null && Number.isFinite(Number(finisher.prize));
               const recordedPrize = finisher ? num(finisher.prize) : 0;
 
               return (
@@ -1114,11 +1127,7 @@ export default function RewardsTab({
                     </span>
                   ) : (
                     <span className="tl-num tl-num--accent rw-prize">
-                      {recordedPrize > 0
-                        ? unitMoney(recordedPrize)
-                        : prize > 0
-                          ? chips(prize)
-                          : '-'}
+                      {hasRecordedPrize ? unitMoney(recordedPrize) : prize > 0 ? chips(prize) : '-'}
                     </span>
                   )}
                 </li>

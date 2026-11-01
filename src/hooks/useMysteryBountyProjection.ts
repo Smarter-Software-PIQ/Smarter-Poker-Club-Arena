@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import { reportError } from '../utils/errorReporter';
 import { resolvePayoutStructure } from '../lib/payoutStructure';
 import { readTournamentStandings } from '../services/readTournamentStandings';
@@ -31,9 +32,16 @@ export function useMysteryBountyProjection(
   enabled: boolean,
   unitCents: number
 ): MysteryBountyProjection | null {
-  const [projection, setProjection] = useState<MysteryBountyProjection | null>(null);
+  const scope = JSON.stringify([tournamentId, enabled, unitCents]);
+  const [snapshot, setSnapshot] = useState<{
+    scope: string;
+    projection: MysteryBountyProjection | null;
+  } | null>(null);
 
   useEffect(() => {
+    const setProjection = (projection: MysteryBountyProjection | null) =>
+      setSnapshot({ scope, projection });
+    const controller = new AbortController();
     // A prior event's ladder is never the next event's loading placeholder.
     setProjection(null);
     if (!enabled || !tournamentId || !(unitCents > 0)) {
@@ -51,11 +59,16 @@ export function useMysteryBountyProjection(
       }
       inFlight = true;
       try {
-        const { data: row, error } = await supabase
-          .from('tournaments')
-          .select(COLUMNS)
-          .eq('id', tournamentId)
-          .maybeSingle();
+        const { data: row, error } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .from('tournaments')
+              .select(COLUMNS)
+              .eq('id', tournamentId)
+              .abortSignal(signal)
+              .maybeSingle(),
+          { signal: controller.signal }
+        );
         if (error) throw error;
         if (!alive) return;
         if (!row) {
@@ -106,12 +119,13 @@ export function useMysteryBountyProjection(
     void load();
     return () => {
       alive = false;
+      controller.abort();
       queued = false;
       unsubscribe();
     };
-  }, [tournamentId, enabled, unitCents]);
+  }, [tournamentId, enabled, unitCents, scope]);
 
-  return projection;
+  return snapshot?.scope === scope ? snapshot.projection : null;
 }
 
 export default useMysteryBountyProjection;

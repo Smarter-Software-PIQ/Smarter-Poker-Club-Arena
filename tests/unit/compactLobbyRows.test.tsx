@@ -60,6 +60,12 @@ describe('compact lobby selection is a pre-commit detail step', () => {
         <LobbyTable
           entries={[]}
           category="SATELLITE"
+          ctx={{
+            favoriteIds: new Set(),
+            seatedIds: new Set(),
+            registeredIds: new Set(),
+            waitlistedIds: new Set(),
+          }}
           selectedId={null}
           onSelect={vi.fn()}
           onActivate={vi.fn()}

@@ -6,6 +6,8 @@ import { mkdir, writeFile, rm, realpath, lstat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { schemaCataloguePayload } from '../native/component-semantic-observations.mjs';
 import { assertSchemaOnly, schemaHash } from './schema-compose.mjs';
+import {createNativeDumpDiagnostic,verifyNativeDumpBinary,nativeDumpCapability,
+  safeNativeDumpDiagnostic} from './schema-native-dump-diagnostic.mjs';
 
 export const CAPTURE_FILES = Object.freeze(['schema.sql', 'candidate-fixture.json',
   'schema-capture-manifest.json', 'production-catalogue.json', 'role-catalogue.json',
@@ -23,6 +25,13 @@ export function remainingDumpBudget(deadlineAt, now) {
     remaining > 0 && remaining <= DEADLINE_MS - FINALIZE_RESERVE_MS);
   return remaining;
 }
+export function catalogueDefinitionCounts(payload) {
+  try {
+    const value=JSON.parse(payload.catalogue_text);
+    if(!Array.isArray(value.functions) || value.functions.length>1000000)return null;
+    return {public_auth_functions:value.functions.length};
+  }catch{return null;}
+}
 // Reuse the maintained official public trust root from the existing migration
 // provider. Neither the connection URL nor an environment value selects a CA.
 const PROVIDER_CA_PATH = fileURLToPath(new URL('../../../scripts/ci/certificates/supabase-prod-ca-2021.crt', import.meta.url));
@@ -33,6 +42,7 @@ function providerCA() {
   return pem;
 }
 const safeFailures = new Set(['ISOLATED_SCHEMA_CAPTURE_REFUSED', 'ISOLATED_SCHEMA_DUMP_FAILED',
+  'ISOLATED_NATIVE_DUMP_BINARY_REFUSED',
   'ISOLATED_NATIVE_TRANSPORT_FAILED', 'SCHEMA_COMPOSITION_PREIMAGE_REQUIRED', 'SCHEMA_CATALOGUE_BYTES_REQUIRED']);
 const connectionFailures = new Set(['ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN',
   'ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'CERT_HAS_EXPIRED',
@@ -55,7 +65,78 @@ export function connectionFailureCode(error) {
   return codes.size === 1 ? [...codes][0] : codes.size > 1 ? 'MULTIPLE_KNOWN_FAILURES' : 'UNKNOWN';
 }
 
+const catalogueKinds = new Set(['QUERY_CANCELLED','STATEMENT_TIMEOUT','USER_CANCELLED','LOCK_TIMEOUT','LOCK_NOT_AVAILABLE','PERMISSION_DENIED',
+  'CONNECTION_FAILURE','DRIVER_READ_TIMEOUT','PAYLOAD_REFUSED','UNKNOWN']);
+const catalogueQueries = new Set(['SAVEPOINT','SEARCH_PATH','SCHEMA_PAYLOAD','ROLLBACK_SAVEPOINT',
+  'RELEASE_SAVEPOINT','ROLE_PAYLOAD','TRANSACTION_BEGIN','TRANSACTION_ROLLBACK','UNKNOWN']);
+export function catalogueFailureKind(error) {
+  // Exact messages verified against the pinned PG17.11 backend source. Never
+  // publish message text or infer a timeout from SQLSTATE or duration alone.
+  if (error?.code === '57014' && error.message === 'canceling statement due to statement timeout') return 'STATEMENT_TIMEOUT';
+  if (error?.code === '57014' && error.message === 'canceling statement due to user request') return 'USER_CANCELLED';
+  if (error?.code === '55P03' && error.message === 'canceling statement due to lock timeout') return 'LOCK_TIMEOUT';
+  if (error?.code === '57014') return 'QUERY_CANCELLED';
+  if (error?.code === '55P03') return 'LOCK_NOT_AVAILABLE';
+  if (error?.code === '42501') return 'PERMISSION_DENIED';
+  if (connectionFailureCode(error) !== 'UNKNOWN') return 'CONNECTION_FAILURE';
+  // Exact installed pg Client's locally generated read-timeout marker only.
+  if (error instanceof Error && error.code === undefined && error.name === 'Error' &&
+    error.message === 'Query read timeout') return 'DRIVER_READ_TIMEOUT';
+  return 'UNKNOWN';
+}
+function catalogueQueryKind(sql) {
+  if (typeof sql !== 'string') return 'UNKNOWN';
+  if (/^SAVEPOINT catalogue_[a-f0-9]{32}$/.test(sql)) return 'SAVEPOINT';
+  if (sql === 'SET LOCAL search_path = pg_catalog') return 'SEARCH_PATH';
+  if (/^ROLLBACK TO SAVEPOINT catalogue_[a-f0-9]{32}$/.test(sql)) return 'ROLLBACK_SAVEPOINT';
+  if (/^RELEASE SAVEPOINT catalogue_[a-f0-9]{32}$/.test(sql)) return 'RELEASE_SAVEPOINT';
+  if (sql.startsWith('SELECT CASE WHEN pg_catalog.octet_length(catalogue) <= 33554432\n')) return 'SCHEMA_PAYLOAD';
+  if (sql.startsWith('SELECT CASE WHEN pg_catalog.octet_length(catalogue::text) <= 33554432\n')) return 'ROLE_PAYLOAD';
+  if (sql === 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY') return 'TRANSACTION_BEGIN';
+  if (sql === 'ROLLBACK') return 'TRANSACTION_ROLLBACK';
+  return 'UNKNOWN';
+}
+export function safeCatalogueDiagnostic(value) {
+  if (value?.version !== 1 || !['schema','roles'].includes(value.subphase) ||
+    !catalogueQueries.has(value.query) || !catalogueKinds.has(value.kind) ||
+    (value.elapsed_ms !== null && (!Number.isSafeInteger(value.elapsed_ms) || value.elapsed_ms < 0 || value.elapsed_ms > DEADLINE_MS))) return null;
+  return {version:1,subphase:value.subphase,query:value.query,kind:value.kind,elapsed_ms:value.elapsed_ms};
+}
+// This facade owns no connection, query text, result payload or retry. The
+// canonical producer receives the same arguments and performs its same cleanup.
+export function catalogueDiagnostics(db, now = () => performance.now()) {
+  let subphase = 'schema', first = null;
+  const record = (kind, query, started) => {
+    if (first) return;
+    const elapsed = now() - started;
+    first = {version:1,subphase,query,kind,
+      elapsed_ms:Number.isFinite(elapsed) && elapsed >= 0 && elapsed <= DEADLINE_MS ? Math.round(elapsed) : null};
+  };
+  return {
+    phase(value) { requireCapture(['schema','roles'].includes(value)); subphase = value; },
+    failed(error) { if (!first) record(catalogueFailureKind(error),'UNKNOWN',undefined); },
+    snapshot() { return first && safeCatalogueDiagnostic(first); },
+    db:{async query(...args) {
+      const query = catalogueQueryKind(args[0]), started = now();
+      try {
+        const result = await db.query(...args);
+        // Preserve the producer's existing payload assertion even if its
+        // finally savepoint query later masks it. Never retain any row value.
+        if ((query === 'SCHEMA_PAYLOAD' && typeof result?.rows?.[0]?.catalogue !== 'string') ||
+          (query === 'ROLE_PAYLOAD' && (!result?.rows?.[0]?.catalogue ||
+            typeof result.rows[0].catalogue !== 'object' || Array.isArray(result.rows[0].catalogue))))
+          record('PAYLOAD_REFUSED',query,started);
+        return result;
+      } catch (error) {
+        record(catalogueFailureKind(error),query,started);
+        throw error;
+      }
+    }}
+  };
+}
+
 const dumpFailureKinds = new Set(['DEADLINE', 'STDOUT_LIMIT', 'STDERR_LIMIT', 'SPAWN',
+  'FD3_LIMIT','FD3_PROTOCOL',
   'STDIN', 'FACTS_REFUSED',
   'TLS_VERIFICATION', 'PERMISSION_DENIED', 'LOCK_TIMEOUT', 'STATEMENT_TIMEOUT',
   'AUTHENTICATION_FAILED', 'VERSION_MISMATCH', 'CONNECTION_FAILED', 'SNAPSHOT_IMPORT',
@@ -63,6 +144,7 @@ const dumpFailureKinds = new Set(['DEADLINE', 'STDOUT_LIMIT', 'STDERR_LIMIT', 'S
 export function dumpFailureKind(stderr) {
   const diagnostic = stderr.toLowerCase();
   return [
+    ['FD3_PROTOCOL', /^pg_dump: error: isolated_dump_diagnostic_(?:fd|clock|range|frame|write|pair)\r?$/m],
     ['TLS_VERIFICATION', /certificate verify failed|ssl error[^\n]*certificate/],
     ['PERMISSION_DENIED', /permission denied|must be (?:owner|superuser)/],
     ['LOCK_TIMEOUT', /lock timeout|lock wait timeout/],
@@ -214,7 +296,10 @@ export function safeDumpDiagnostic(value) {
     elapsed_ms: count(value?.elapsed_ms), stdout_bytes: count(value?.stdout_bytes), stderr_bytes: count(value?.stderr_bytes),
     ...(value?.cancellation ? {cancellation:safeCancellation(value.cancellation)} : {}),
     ...(Object.hasOwn(value ?? {}, 'last_stage') ? {last_stage:dumpStageValues.has(value.last_stage) ? value.last_stage : 'UNKNOWN'} : {}),
-    ...(Object.hasOwn(value ?? {}, 'phase_entries') ? {phase_entries:safePhaseEntries(value.phase_entries)} : {}) };
+    ...(Object.hasOwn(value ?? {}, 'phase_entries') ? {phase_entries:safePhaseEntries(value.phase_entries)} : {}),
+    ...(safeNativeDumpDiagnostic(value?.native_cost) ? {native_cost:safeNativeDumpDiagnostic(value.native_cost)} : {}),
+    ...(value?.native_client?.source_version==='17.11' && /^[a-f0-9]{64}$/.test(value?.native_client?.binary_sha256 ?? '') ?
+      {native_client:{source_version:'17.11',binary_sha256:value.native_client.binary_sha256}} : {}) };
 }
 
 function safeCancellation(value) {
@@ -427,27 +512,40 @@ ROLLBACK;
   }
 }
 
-export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, deadlineMs = 30000 } = {}) {
+export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, deadlineMs = 30000,
+  nativeClient = null } = {}) {
   requireCapture(/^[0-9A-Fa-f]+-[0-9A-Fa-f]+-[0-9]+$/.test(snapshot));
   const env = databaseChildEnvironment(config, 'isolated-schema-readonly-dump');
+  const client=nativeClient===null?null:nativeDumpCapability(nativeClient);
+  if(client)env.LD_LIBRARY_PATH=client.library;
   // Native pg_dump resets statement_timeout during startup. Its effective
   // bounds are this whole-export deadline and explicit table-lock wait below;
   // the Node catalogue connection retains its separate five-second queries.
-  const child = spawnProcess('pg_dump', ['--no-password','--verbose','--schema-only','--format=plain',
+  const child = spawnProcess(client?.executable ?? 'pg_dump', ['--no-password',...(client?[]:['--verbose']),'--schema-only','--format=plain',
     '--quote-all-identifiers','--no-comments','--no-security-labels','--no-subscriptions',
-    '--lock-wait-timeout=1000',`--snapshot=${snapshot}`], { env, stdio: ['ignore','pipe','pipe'] });
+    '--lock-wait-timeout=1000',`--snapshot=${snapshot}`], { env, stdio: client?['ignore','pipe','pipe','pipe']:['ignore','pipe','pipe'] });
   let size = 0, stderrSize = 0, failed = false, failureKind = null;
   const chunks = [], stderrChunks = [];
   const progress=createDumpProgress();
+  const nativeCost=client?createNativeDumpDiagnostic():null;
+  let protocolFailed=false;
   const started = performance.now();
   const failure = (code, signal) => Object.assign(new Error('ISOLATED_SCHEMA_DUMP_FAILED'), {
     dumpDiagnostic: safeDumpDiagnostic({kind: failureKind ?? dumpFailureKind(Buffer.concat(stderrChunks).toString('utf8')),
       exit_code: code, signal: signal ?? 'NONE', elapsed_ms: Math.round(performance.now() - started),
       stdout_bytes: size, stderr_bytes: stderrSize,cancellation:cancellation.facts(),
-      ...progress.snapshot()}) });
+      ...progress.snapshot(),...(nativeCost?{native_cost:nativeCost.snapshot(Math.min(45000,Math.round(performance.now()-started))),
+        native_client:{source_version:'17.11',binary_sha256:client.binary_sha256}}:{})}) });
   const cancellation=nativeCancellation(child,deadlineMs,reason=>{failed=true;failureKind ??= reason;});
   try {
     await new Promise((resolve, reject) => {
+      if(nativeCost){
+        child.stdio[3].on('data',bytes=>{
+          try{nativeCost.push(bytes,Math.min(45000,Math.round(performance.now()-started)));}
+          catch(error){protocolFailed=true;cancellation.abort(error?.diagnosticKind==='FD3_LIMIT'?'FD3_LIMIT':'FD3_PROTOCOL');}
+        });
+        child.stdio[3].on('error',()=>{protocolFailed=true;cancellation.abort('FD3_PROTOCOL');});
+      }
       child.stdout.on('data', (bytes) => {
         size += bytes.length;
         if (size > MAX_SCHEMA_BYTES) cancellation.abort('STDOUT_LIMIT');
@@ -464,6 +562,14 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
       });
       child.once('error', () => { failed = true; failureKind ??= 'SPAWN'; });
       child.once('close', (code, signal) => {
+        if(nativeCost && !protocolFailed){
+          try{
+            // A failed client can stop before the first definition object,
+            // e.g. TLS or authentication. Preserve that real closed cause.
+            nativeCost.finish({allowEmpty:code!==0});
+            if(code===0 && !nativeCost.snapshot(Math.min(45000,Math.round(performance.now()-started))).pairs_complete){failed=true;failureKind ??='FD3_PROTOCOL';}
+          }catch{failed=true;failureKind ??='FD3_PROTOCOL';}
+        }
         if(performance.now()-started>deadlineMs){failed=true;failureKind ??= 'DEADLINE';}
         code === 0 && !failed ? resolve() : reject(failure(code, signal));
       });
@@ -471,7 +577,7 @@ export async function dumpSnapshot(config, snapshot, { spawnProcess = spawn, dea
     const sql = Buffer.concat(chunks).toString('utf8');
     assertSchemaOnly(sql);
     return sql;
-  } finally { cancellation.clear(); progress.clear(); delete env.PGPASSWORD; chunks.length = 0; stderrChunks.length = 0; }
+  } finally { cancellation.clear(); progress.clear(); nativeCost?.clear(); delete env.PGPASSWORD; chunks.length = 0; stderrChunks.length = 0; }
 }
 
 export async function captureSchema({ output, env = process.env, Client, dump = dumpSnapshot,
@@ -492,6 +598,9 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
   let began = false, complete = false, created = false;
   let stage = 'connection';
   let nativeTransport = null;
+  let nativeDumpClient = null;
+  let definitionCounts = null;
+  const catalogueCause = catalogueDiagnostics(db);
   const deadlineAt = Date.now() + DEADLINE_MS;
   const timer = setTimeout(() => { transportFailed = true; void db.end().catch(() => {}); }, DEADLINE_MS);
   try {
@@ -505,9 +614,11 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
         .every((key) => facts[key] === 0));
     const snapshot = (await db.query('SELECT pg_export_snapshot() AS snapshot')).rows[0].snapshot;
     stage = 'catalogue';
-    const catalogue = await schemaCataloguePayload(db);
+    const catalogue = await schemaCataloguePayload(catalogueCause.db);
+    definitionCounts=catalogueDefinitionCounts(catalogue);
     const catalogueDigest = catalogue.catalogue_digest;
-    const roleCatalogue = await captureRoleCatalogue(db);
+    catalogueCause.phase('roles');
+    const roleCatalogue = await captureRoleCatalogue(catalogueCause.db);
     stage = 'native-snapshot-transport';
     const nativeResult = await nativeCheck(config,snapshot,{deadlineMs:Math.min(5000,remainingDumpBudget(deadlineAt,Date.now()))});
     requireCapture(nativeResult?.status==='passed' && nativeResult.client_major===17 &&
@@ -515,8 +626,10 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
       nativeResult.statement_timeout_ms===5000 && nativeResult.lock_timeout_ms===1000);
     nativeTransport = nativeTransportReceipt(nativeResult.elapsed_ms);
     stage = 'schema-only-dump';
+    const nativeClient=dump===dumpSnapshot?await verifyNativeDumpBinary(env):null;
+    if(nativeClient)nativeDumpClient={source_version:'17.11',binary_sha256:nativeClient.binary_sha256};
     const remaining = remainingDumpBudget(deadlineAt, Date.now());
-    const sql = await dump(config, snapshot, { deadlineMs: remaining });
+    const sql = await dump(config, snapshot, { deadlineMs: remaining,nativeClient });
     requireCapture(!transportFailed);
     // Keep every output private until the complete capture is closed. The
     // only allowed public output is a separate sanitized qualification receipt.
@@ -551,6 +664,7 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
         { sha256: schemaHash(bytes), bytes: Buffer.byteLength(bytes) }])),
       private_same_job_only: true, public_artifact_permitted: false,
       native_transport: nativeTransport,
+      ...(nativeDumpClient?{native_dump_client:nativeDumpClient}:{}),
       current_database_contract_ready: false, production_writes: false };
     await writeFile(path.join(output,'schema-capture-manifest.json'),JSON.stringify(manifest)+'\n',{mode:0o600,flag:'wx'});
     requireCapture(!transportFailed && Date.now() < deadlineAt);
@@ -558,13 +672,19 @@ export async function captureSchema({ output, env = process.env, Client, dump = 
     return { scope: context.scope, source_sha: context.source_sha,
       original_schema_sha256: manifest.original_schema_sha256, private_files: CAPTURE_FILES.length,
       native_transport: nativeTransport,
+      ...(nativeDumpClient?{native_dump_client:nativeDumpClient}:{}),
       current_database_contract_ready: false, public_artifact_permitted: false };
   } catch (error) {
     const safe = new Error(safeFailures.has(error?.message) ? error.message : 'ISOLATED_SCHEMA_CAPTURE_FAILED');
     safe.captureStage = stage;
+    if (stage === 'catalogue') {
+      catalogueCause.failed(error);
+      safe.catalogueDiagnostic = catalogueCause.snapshot();
+    }
     safe.connectionFailure = stage === 'connection' ? connectionFailureCode(error) : 'NOT_CONNECTION';
     safe.connectionRoute = config.host === 'db.kuklfnapbkmacvwxktbh.supabase.co' ? 'direct' : 'session-pooler';
     if (stage === 'schema-only-dump') safe.dumpDiagnostic = safeDumpDiagnostic(error?.dumpDiagnostic);
+    if(definitionCounts)safe.definitionCounts=definitionCounts;
     if (nativeTransport) safe.nativeTransport = nativeTransport;
     if (stage === 'native-snapshot-transport') safe.nativeDiagnostic = safeDumpDiagnostic(error?.nativeDiagnostic);
     if (stage === 'native-snapshot-transport') safe.nativeFacts = safeNativeFacts(error?.nativeFacts);
@@ -588,9 +708,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
         connection_failure: connectionFailures.has(error?.connectionFailure) ||
           ['MULTIPLE_KNOWN_FAILURES','UNKNOWN','NOT_CONNECTION'].includes(error?.connectionFailure)
           ? error.connectionFailure : 'UNKNOWN',
+        ...(error?.captureStage === 'catalogue' && safeCatalogueDiagnostic(error?.catalogueDiagnostic) ?
+          {catalogue_diagnostic:safeCatalogueDiagnostic(error.catalogueDiagnostic)} : {}),
         connection_route: ['direct','session-pooler'].includes(error?.connectionRoute) ? error.connectionRoute : 'UNKNOWN',
         ...(error?.captureStage === 'schema-only-dump' ? {dump_diagnostic: safeDumpDiagnostic(error?.dumpDiagnostic)} : {}),
         ...(error?.nativeTransport ? {native_transport: nativeTransportReceipt(error.nativeTransport.elapsed_ms)} : {}),
+        ...(Number.isSafeInteger(error?.definitionCounts?.public_auth_functions) && error.definitionCounts.public_auth_functions>=0 && error.definitionCounts.public_auth_functions<=1000000 ?
+          {catalogue_definition_counts:{public_auth_functions:error.definitionCounts.public_auth_functions}}:{}),
         ...(error?.captureStage === 'native-snapshot-transport' ? {native_transport_failure: safeDumpDiagnostic(error?.nativeDiagnostic)} : {}),
         ...(safeNativeFacts(error?.nativeFacts) ? {native_transport_facts:safeNativeFacts(error.nativeFacts)} : {}),
         code:safeFailures.has(error?.message) ? error.message : 'ISOLATED_SCHEMA_CAPTURE_FAILED'}));

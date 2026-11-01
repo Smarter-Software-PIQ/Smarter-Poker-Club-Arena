@@ -780,3 +780,33 @@ describe('Overview displays engine structure facts without changing tournament r
     expect([JSON.stringify(first), JSON.stringify(next)]).toEqual(originals);
   });
 });
+
+describe('Details exposes registration and add-on terms', () => {
+  it('renders Yes, cost, stack and timing, then removes enabled-only facts on a new row', () => {
+    const input = props(25000, [level(8)]);
+    input.tournament = {
+      ...input.tournament,
+      late_reg_levels: 9,
+      late_reg_mins: 72,
+      add_on_available: true,
+      addon_cost: 30,
+      addon_chips: 50000,
+      addon_break_minutes: 1,
+    };
+    const view = render(<DetailOverviewTab {...input} />);
+    expect(value('Late Registration Closes')).toContain('End Of Level 9 Or 72 Min After Start');
+    expect(value('Add-On')).toBe('Yes');
+    expect(value('Add-On Cost')).toBe('30 Chips');
+    expect(value('Add-On Stack')).toBe('50K Chips');
+    expect(value('Add-On When')).toContain('1 Min Break');
+    expect(screen.getByText('Add-On When').parentElement?.className).toContain(
+      'dov-info__item--wide'
+    );
+    view.rerender(
+      <DetailOverviewTab {...input} tournament={{ ...input.tournament, add_on_available: false }} />
+    );
+    expect(value('Add-On')).toBe('No');
+    expect(screen.queryByText('Add-On Cost')).toBeNull();
+    expect(screen.queryByText('Add-On When')).toBeNull();
+  });
+});
