@@ -1178,7 +1178,8 @@ export function useProtectedCardLayout(
         );
         const compactFullShowdown =
           compactNine &&
-          showdownRows.length === 8 &&
+          !scaler.querySelector('.seat__allin-puck') &&
+          showdownRows.length > 0 &&
           showdownRows.every((row) => row.querySelectorAll('.seat__card').length === 5);
         const compactFacts =
           compactNine &&

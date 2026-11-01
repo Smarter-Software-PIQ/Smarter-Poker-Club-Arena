@@ -956,7 +956,9 @@ export function createOpponentAvatarLayout(
       scaler.querySelectorAll('.seat__cards--opponent.seat__cards--revealed')
     );
     return (
-      rows.length === 8 && rows.every((row) => row.querySelectorAll('.seat__card').length === 5)
+      !scaler.querySelector('.seat__allin-puck') &&
+      rows.length > 0 &&
+      rows.every((row) => row.querySelectorAll('.seat__card').length === 5)
     );
   };
   const compactAllIn = () =>
