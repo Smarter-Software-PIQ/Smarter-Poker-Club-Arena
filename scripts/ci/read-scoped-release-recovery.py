@@ -2305,10 +2305,27 @@ def composition_scale_output(raw):
     return answer
 
 
-def composition_scale_receipt(value):
+def composition_scale_attempt(value,index,exported=False):
+    if not isinstance(value,dict) or value.get('attempt')!=index or type(value.get('attempt')) is not int:
+        raise ValueError('Composition attempt index refused')
+    code=value.get('exitCode')
+    if code is not None and (type(code) is not int or not -255<=code<=255):
+        raise ValueError('Composition attempt exit refused')
+    answer={'attempt':index,'exitCode':code,'resultPresent':value.get('resultPresent') if exported else value.get('result') is not None,
+        'error':value.get('error') if exported else scale_error(value.get('error'))}
+    for field in ('timedOut','cleanupProved','executionAcknowledged','observedOwnedContainer'):
+        if type(value.get(field)) is not bool: raise ValueError('Composition attempt flag refused')
+        answer[field]=value[field]
+    if type(answer['resultPresent']) is not bool: raise ValueError('Composition result presence refused')
+    return answer
+
+
+def composition_scale_receipt(value,exported=False):
     if not isinstance(value,dict) or value.get('status') not in {'qualified','refused'}:
         raise ValueError('Composition receipt refused')
-    answer={'status':value['status'],'error':scale_error(value.get('error'))}
+    answer={'status':value['status'],'error':value.get('error') if exported else scale_error(value.get('error')),
+        'resultPresent':value.get('resultPresent') if exported else value.get('result') is not None}
+    if type(answer['resultPresent']) is not bool: raise ValueError('Composition result presence refused')
     for field in ('cleanupProved','executionAcknowledged','observedOwnedContainer'):
         if type(value.get(field)) is not bool: raise ValueError('Composition flag refused')
         answer[field]=value[field]
@@ -2319,6 +2336,30 @@ def composition_scale_receipt(value):
         answer[field]=number
     for field in ('servingBefore','servingAfter'):
         answer[field]=scale_serving_value(value[field]) if value.get(field) is not None else None
+    attempts=value.get('attempts')
+    if not isinstance(attempts,list) or not 1<=len(attempts)<=2:
+        raise ValueError('Composition bounded attempts refused')
+    answer['attempts']=[composition_scale_attempt(row,index,exported) for index,row in enumerate(attempts,1)]
+    fresh=value.get('freshRemeasurement')
+    if fresh not in {'unused','available','none','used'} or (fresh=='used')!=(len(attempts)==2):
+        raise ValueError('Composition retained remeasurement refused')
+    answer['freshRemeasurement']=fresh
+    if len(attempts)==2:
+        first=answer['attempts'][0]
+        if not first['timedOut'] or first['error'] is None or not any(first[k] for k in ('cleanupProved','executionAcknowledged','observedOwnedContainer')):
+            raise ValueError('Composition first attempt did not qualify remeasurement')
+    latest=answer['attempts'][-1]
+    for field in ('cleanupProved','executionAcknowledged','observedOwnedContainer','resultPresent','error'):
+        if answer[field]!=latest[field]: raise ValueError('Composition latest attempt disagrees')
+    qualified=latest['error'] is None and latest['cleanupProved'] is True
+    if answer['status']!=('qualified' if qualified else 'refused'):
+        raise ValueError('Composition retained status disagrees')
+    if len(attempts)==1:
+        expected='unused' if qualified else 'available' if latest['timedOut'] and any(latest[k] for k in
+            ('cleanupProved','executionAcknowledged','observedOwnedContainer')) else 'none'
+        if fresh!=expected: raise ValueError('Composition retained retry state disagrees')
+    if not exported and any(value[k]!=attempts[-1].get(k) for k in ('elapsedMs','hostAvailableBytes')):
+        raise ValueError('Composition latest measurement disagrees')
     return answer
 
 
@@ -2403,19 +2444,18 @@ def validate_composition_scale_reply(value,request):
     receipt=value['receipt']
     if receipt is not None:
         allowed={'status','error','cleanupProved','executionAcknowledged','observedOwnedContainer',
-            'elapsedMs','hostAvailableBytes','servingBefore','servingAfter'}
+            'elapsedMs','hostAvailableBytes','servingBefore','servingAfter','attempts','freshRemeasurement','resultPresent'}
         if not isinstance(receipt,dict) or set(receipt)!=allowed: raise ValueError('Composition receipt export refused')
         # Validate public fields independently; error text never crosses transport.
-        public_receipt={**receipt,'error':None}
-        if composition_scale_receipt(public_receipt)!=public_receipt:
+        if composition_scale_receipt(receipt,exported=True)!=receipt:
             raise ValueError('Composition nested receipt export refused')
-        error=receipt['error']
-        if error is not None and (not isinstance(error,dict) or set(error)!={'bytes','sha256','categories'}
-                or type(error['bytes']) is not int or not 0<=error['bytes']<=131072
-                or not isinstance(error['sha256'],str) or not DIGEST.fullmatch(error['sha256'])
-                or not isinstance(error['categories'],list) or not error['categories']
-                or any(category not in (*SCALE_ERRORS,'unclassified') for category in error['categories'])):
-            raise ValueError('Composition error export refused')
+        for error in [receipt['error'],*(row['error'] for row in receipt['attempts'])]:
+            if error is not None and (not isinstance(error,dict) or set(error)!={'bytes','sha256','categories'}
+                    or type(error['bytes']) is not int or not 0<=error['bytes']<=131072
+                    or not isinstance(error['sha256'],str) or not DIGEST.fullmatch(error['sha256'])
+                    or not isinstance(error['categories'],list) or not error['categories']
+                    or any(category not in (*SCALE_ERRORS,'unclassified') for category in error['categories'])):
+                raise ValueError('Composition error export refused')
     output=value['output']
     if output is not None:
         allowed={'bytes','sha256','inspectorBanner','inspectorHelpBanner','firstNonWhitespaceIsObject',

@@ -2499,6 +2499,10 @@ class CompositionScaleRecordsTests(unittest.TestCase):
             'cleanupProved':True,'executionAcknowledged':True,'observedOwnedContainer':True,
             'elapsedMs':1234,'hostAvailableBytes':50*1024**3,'servingBefore':None,'servingAfter':None,
             'privatePayload':'PRIVATE'}
+        receipt['result']=None
+        receipt['freshRemeasurement']='none'
+        receipt['attempts']=[{'attempt':1,'exitCode':0,'timedOut':False,'result':None,
+            **{k:receipt[k] for k in ('error','cleanupProved','executionAcknowledged','observedOwnedContainer','elapsedMs','hostAvailableBytes')}}]
         intent={'binding':R.COMPOSITION_SCALE_BINDING,'runId':request['runKey'],
             'container':'ca-native-scale-'+R.COMPOSITION_SCALE_KEY[:32]}
         output=b'Debugger listening on ws://127.0.0.1:1/PRIVATE\nFor help, see: https://nodejs.org/en/docs/inspector\n{"ok":true,"private":"PRIVATE"}'
@@ -2521,6 +2525,10 @@ class CompositionScaleRecordsTests(unittest.TestCase):
         self.assertEqual(reply['output']['bytes'],len(raw))
         self.assertIs(reply['output']['inspectorBanner'],True)
         self.assertEqual((reply['output']['jsonStatus'],reply['output']['jsonErrorLine'],reply['output']['jsonErrorColumn']),('invalid_document',1,1))
+        self.assertEqual(reply['receipt']['attempts'][0]['exitCode'],0)
+        self.assertIs(reply['receipt']['attempts'][0]['timedOut'],False)
+        self.assertIs(reply['receipt']['attempts'][0]['resultPresent'],False)
+        self.assertEqual(reply['receipt']['freshRemeasurement'],'none')
         self.assertIs(reply['retryAllowed'],False)
         self.assertNotIn('PRIVATE',json.dumps(reply));self.assertNotIn('ws://',json.dumps(reply))
         self.assertNotIn('privatePayload',json.dumps(reply))
@@ -2528,6 +2536,19 @@ class CompositionScaleRecordsTests(unittest.TestCase):
             bad={**request,field:'other'}
             with self.subTest(field=field),self.assertRaises(ValueError):R.selection(bad)
         with self.assertRaises(ValueError):R.selection({**request,'image':R.COMPOSITION_SCALE_IMAGE})
+        with tempfile.TemporaryDirectory() as folder:
+            request,receipt,intent,_=self.fixture(folder)
+            receipt['attempts'].append({**receipt['attempts'][0],'attempt':2,'exitCode':-9})
+            receipt['attempts'][0]['timedOut']=True
+            receipt['freshRemeasurement']='used'
+            (Path(folder)/(R.COMPOSITION_SCALE_KEY+'.json')).write_text(json.dumps(receipt))
+            fd=os.open(folder,os.O_RDONLY|os.O_DIRECTORY)
+            try:second=R.composition_scale_records(request,fd)
+            finally:os.close(fd)
+            self.assertEqual(R.validate_reply(second,request),second)
+            self.assertEqual(second['receipt']['freshRemeasurement'],'used')
+            self.assertEqual(second['receipt']['attempts'][1]['exitCode'],-9)
+
 
     def test_unbound_duplicate_changed_and_oversized_original_records_refuse_projection(self):
         for mutation in ('wrong-run','wrong-image','wrong-controller','duplicate','oversized','symlink','changed'):
@@ -2566,6 +2587,12 @@ class CompositionScaleRecordsTests(unittest.TestCase):
         for key,value in [('inspectorBanner',1),('jsonErrorLine',True),('bytes',131073),('sha256','f'*64),('raw','PRIVATE')]:
             bad=copy.deepcopy(reply);bad['output'][key]=value
             with self.subTest(key=key),self.assertRaises(ValueError):R.validate_reply(bad,request)
+        for field,value in [('attempt',2),('exitCode',True),('exitCode',256),('timedOut',0),('resultPresent',True),('raw','PRIVATE')]:
+            bad=copy.deepcopy(reply);bad['receipt']['attempts'][0][field]=value
+            with self.subTest(attemptField=field),self.assertRaises(ValueError):R.validate_reply(bad,request)
+        for field,value in [('attempts',[]),('attempts',reply['receipt']['attempts']*3),('freshRemeasurement','available'),('freshRemeasurement','used')]:
+            bad=copy.deepcopy(reply);bad['receipt'][field]=value
+            with self.subTest(receiptField=field),self.assertRaises(ValueError):R.validate_reply(bad,request)
         bad=copy.deepcopy(reply);bad['receipt']['raw']='PRIVATE'
         with self.assertRaises(ValueError):R.validate_reply(bad,request)
         bad=copy.deepcopy(reply);bad['receipt']['servingBefore']={'container':'c'*64,'image':'sha256:'+'d'*64,'revision':R.EED,'startedAt':'2026-11-01T17:00:00Z','instanceId':'1-12345678','raw':'PRIVATE'}
