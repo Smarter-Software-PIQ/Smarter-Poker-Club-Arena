@@ -1299,7 +1299,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // winning hand shown, the pot pushed with its total, the cards
           // mucked.
           this.setLoopPhase('post_hand_hold');
-          await this.sleep(resultDisplayMs);
+          await this.awaitHandCompletionDisplay(resultDisplayMs);
           // Phase 2: the hand-free broadcast. Clients animate the board clear
           // from it, and it is what makes the Rabbit Hunt button visible.
           this.broadcastCurrentState(); // Sends clean state (no hand in progress)
@@ -2422,6 +2422,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.currentHandInsuranceSettlements = []; // Bible V8 §4.19: Reset insurance settlements
       this.currentHandInsuranceNet = 0; // chip standard 2026-09-04: declared to the stack write
       this.currentHandCashoutRedirects = new Map(); // EV CASHOUT 2026-08-28: reset per hand
+      this.completedOriginalShowdownReadMs = 0;
       this.currentHandShowdownResults = []; // BBJ: Reset showdown results for new hand
       this.currentHandAllInShowdown = false; // Dan 2026-10-24: the all-in tail is per hand
       this.currentHandTimerLog = []; // Bible V8 §2.15: Reset timer log
@@ -4190,7 +4191,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             )
               throw new Error('Hand Continuation Is Fenced');
           }
-          const dispatch = () => this.handleHandEvent(event, players, persistenceGeneration);
+          const dispatch = () =>
+            this.handleHandEvent(event, players, persistenceGeneration, false, !!original);
           const handled =
             event.type === 'HAND_COMPLETE'
               ? this.dispatchFinancialHandComplete(dispatch)
