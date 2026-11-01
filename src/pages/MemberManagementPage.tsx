@@ -1,3 +1,4 @@
+import { chicagoDay as isoDate, lastDaysRange } from '../lib/clubDataDay';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -84,8 +85,6 @@ import {
 import ClubRosterService, {
   MemberAccessDeniedError,
   RANGE_OVERALL,
-  lastDaysRange,
-  isoDate,
   type MemberDetail,
   type MemberRange,
   type DownlineMember,
@@ -1108,7 +1107,7 @@ export default function MemberManagementPage() {
                   : `Showing ${detail!.range.from ?? '?'} To ${detail!.range.to ?? '?'} Chicago Time`}
             </p>
             <p className="mm-range__caption">
-              Chicago Dates Include Both From And To. Custom Dates Need Confirm.
+              Chicago Time, DST Automatic. Both Dates Included. Custom Dates Need Confirm.
             </p>
             {rangeMode === 'custom' && (customFrom !== range.from || customTo !== range.to) && (
               <p className="mm-range__draft" role="status">
