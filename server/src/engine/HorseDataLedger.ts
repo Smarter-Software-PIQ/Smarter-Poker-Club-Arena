@@ -831,6 +831,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V72'
   ),
   flag(
+    'v73Vs3BetDefence',
+    "2026-11-01 Hold'em opener facing one 3-bet with nobody else in (hero made the only open, exactly one re-raise, nobody calling, three or more dealt in, 25bb+ effective against the 3-bettor, 3-bet 1.8x-7x the open, not all-in): the call-or-4-bet width is a share of the opener seat's own V70 open width (style tightness applied to the open, not to the share) by opener seat (V70 index SB 1 .. 9-handed UTG 8) and position on the 3-bettor (in position BTN 46 / CO 50 / HJ 54 / LJ 58 .. UTG 62; out of position SB 44 / CO 50 / HJ 53 / LJ 56 .. UTG 60 percent of the open), scaled by the square root of the 3-bet size against 4x (blind 3-bettor) or 3x (in-position 3-bettor), widened up to 15% at 25bb, narrowed up to 5% by the V21 deep scale past 120bb, +4% with an ante; hands read on a continue order blended between a late-opener and an early-opener reference chart of pairs, suited hands and AKo/AQo (every other offsuit unpaired hand folds to a big 3-bet by the 2026-10-25 owner rule); the ICM premium applies, the general price relief does not (the size is already priced); value 4-bets, the 4-bet bluff, the 5-bet branch, the deep 5-bet rule and the dominated-offsuit fold unchanged; measured on production (3 hours to 2026-11-01 03:00 UTC, 25bb+) the button folded 85-87%, the cutoff 75-76%, under the gun 43-60%; explicit off arm retained",
+    'V73'
+  ),
+  flag(
     'v52RangeAdvantage',
     'heads-up postflop public-range advantage drives the range c-bet, V38 initiative and PLO small sizes (league v52_range_advantage)',
     'V52'
@@ -2139,6 +2144,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V72',
     'decide_nlh',
     0.005
+  ),
+  receipt(
+    'v73_vs3bet_defence',
+    'HorsePreflop (V73)',
+    "Hold'em opener facing one 3-bet with nobody else in, continued on a share of its own seat's open width",
+    'V73',
+    'decide_nlh',
+    0.002
   ),
   receipt(
     'v27_gto_open_jam',
