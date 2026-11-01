@@ -20,5 +20,11 @@ describe('the fee redemption runs with the maintained Data Console qualification
     expect(native).toContain('rake-share-lag.sql');
     expect(native).toContain('rake-share-assert.sql');
     expect(native).toContain('rake share regression unexpectedly passed before the migration');
+    // The replay reads the clock the migration was installed under; a real
+    // clock made the seven-day proof fail on a calendar schedule (2026-10-31).
+    expect(native).toContain('SHARE_CLOCK="${RAKE_SHARE_REPLAY_CLOCK:-2026-10-25 03:06:29+00}"');
+    expect(native).toContain('pin_share_clock "${SHARE[0]}" "$WORK/rake-share-migration.sql"');
+    expect(native).toContain('pin_share_clock "$FIXTURE/rake-share-assert.sql" "$WORK/rake-share-assert.sql"');
+    expect(native).toContain('pin_share_clock "$FIXTURE/rake-share-lag.sql" "$WORK/rake-share-lag.sql"');
   });
 });

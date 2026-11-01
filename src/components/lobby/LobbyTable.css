@@ -2311,8 +2311,43 @@ abbr.lt-variant[title] {
     inset 0 -2px 0 var(--accent-red, #f02849),
     inset 6px 0 0 var(--accent-red, #f02849);
 }
-.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured > td:last-child {
+.lobby-table
+  tbody
+  tr[data-kind][data-tournament-body='true'].is-featured
+  > td[data-last-visible='true'] {
   box-shadow:
     inset 0 -2px 0 var(--accent-red, #f02849),
     inset -2px 0 0 var(--accent-red, #f02849);
+}
+
+/* Each event is one continuous frame; only separate events get a gap. */
+.lobby-table.has-tournament-headings,
+.club-lobby-machine .lobby-table.has-tournament-headings {
+  border-spacing: 0;
+}
+.lobby-table tbody tr.lt-event-gap > td {
+  height: 4px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* Override the original featured-row outline across the joined event body. */
+.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured {
+  outline: none;
+}
+/* The machine gives every desktop tr and td a 38px minimum row height.
+   Event spacers own both boxes and never inherit that game-row dimension. */
+.club-lobby-machine .lobby-table tbody tr.lt-event-gap,
+.club-lobby-machine .lobby-table tbody tr.lt-event-gap > td {
+  height: 4px;
+  min-height: 0;
+  max-height: 4px;
+  padding: 0;
+  border: 0;
+  background: #000;
+  box-shadow: none;
+  line-height: 0;
+  font-size: 0;
 }
