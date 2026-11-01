@@ -371,7 +371,7 @@ describe('Find Your Game starts with two separate sections', () => {
       within(screen.getByLabelText('Game Status'))
         .getAllByRole('button')
         .map((t) => t.textContent)
-    ).toEqual(['All', 'Running']);
+    ).toEqual(['All', 'Running', 'Sort']);
     expect(document.querySelector('.lt-row[data-id="cash-a"]')).not.toBeNull();
     expect(document.querySelector('.lt-row[data-id="event-a"]')).toBeNull();
     expect(document.querySelector('.club-home__games')?.hasAttribute('hidden')).toBe(false);
@@ -527,17 +527,28 @@ describe('lobby filters stay attached to the selected game', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'NLH', exact: true }));
     await flush();
     fireEvent.click(
-      within(screen.getByLabelText('Game Status')).getByRole('button', {
+      within(screen.getByRole('navigation', { name: 'Quick Lobby Filters' })).getByRole('button', {
         name: 'Favorites',
         exact: true,
       })
     );
     fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
     await flush();
-    const favorites = within(screen.getByLabelText('Game Status')).getByRole('button', {
+    const favorites = within(
+      screen.getByRole('navigation', { name: 'Quick Lobby Filters' })
+    ).getByRole('button', {
       name: 'Favorites',
       exact: true,
     });
+    expect(
+      within(screen.getByLabelText('Game Status')).queryByRole('button', {
+        name: 'Favorites',
+        exact: true,
+      })
+    ).toBeNull();
+    expect(
+      within(screen.getByLabelText('Game Status')).getAllByRole('button').at(-1)
+    ).toHaveAccessibleName('Filters And Sort');
     expect(favorites).toHaveAttribute('aria-pressed', 'true');
     expect(document.querySelector('.lt-row[data-id="ordinary-mtt"]')).toBeNull();
     fireEvent.click(favorites);

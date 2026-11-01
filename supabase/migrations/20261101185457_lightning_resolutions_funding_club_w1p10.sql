@@ -1,6 +1,6 @@
 -- Version reserved by scripts/reserve-migration-version.sh against protected main and worktrees.
 -- LIGHTNING LINK RESOLUTIONS FOLLOW THE CLUB THAT FUNDED THE SEAT, Oct 19-26
--- week, part 10 of 15 (window 2026-10-25 12:00Z .. 2026-10-25 14:00Z, about 24574 hands).
+-- week, part 10 of 32 (window 2026-10-24 21:00Z .. 2026-10-24 23:00Z, about 14738 hands).
 --
 -- One-time supersession under the owner's 2026-11-01 ruling (given in chat,
 -- answering the in-chat question): Lightning P&L belongs to the player's HOME
@@ -20,9 +20,9 @@
 -- these rows feed the P&L/ECO paperwork only. session_replication_role
 -- 'replica' is scoped to this transaction to pass original_pnl_immutable,
 -- exactly as the owner-approved plan prescribes.
--- @live-proof: (SELECT NOT EXISTS (SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r JOIN public.union_pnl_cash_outcomes o ON o.table_id=r.table_id AND o.hand_number=r.hand_number WHERE r.roster_source='lightning_pool' AND r.game_scope->>'game_union_id'='fade0000-0000-0000-0000-000000000001' AND o.recognized_at>='2026-10-25 12:00Z' AND o.recognized_at<'2026-10-25 14:00Z' AND r.reason NOT LIKE '%one-time supersession%' AND EXISTS (SELECT 1 FROM jsonb_array_elements(r.evidence->'participants') p WHERE p->>'earning_club_id'='fade0000-0000-0000-0000-000000000001')))
+-- @live-proof: (SELECT NOT EXISTS (SELECT 1 FROM public.union_pnl_cash_outcome_link_resolutions r JOIN public.union_pnl_cash_outcomes o ON o.table_id=r.table_id AND o.hand_number=r.hand_number WHERE r.roster_source='lightning_pool' AND r.game_scope->>'game_union_id'='fade0000-0000-0000-0000-000000000001' AND o.recognized_at>='2026-10-24 21:00Z' AND o.recognized_at<'2026-10-24 23:00Z' AND r.reason NOT LIKE '%one-time supersession%' AND EXISTS (SELECT 1 FROM jsonb_array_elements(r.evidence->'participants') p WHERE p->>'earning_club_id'='fade0000-0000-0000-0000-000000000001')))
 BEGIN;
-SET LOCAL statement_timeout='290s';
+SET LOCAL statement_timeout='420s';
 SET LOCAL lock_timeout='10s';
 SET LOCAL search_path=pg_catalog,public;
 
@@ -45,7 +45,7 @@ WITH scope AS (
  JOIN public.union_pnl_cash_outcomes o ON o.table_id=r.table_id AND o.hand_number=r.hand_number
  WHERE r.roster_source='lightning_pool'
    AND r.game_scope->>'game_union_id'='fade0000-0000-0000-0000-000000000001'
-   AND o.recognized_at>='2026-10-25 12:00Z' AND o.recognized_at<'2026-10-25 14:00Z'
+   AND o.recognized_at>='2026-10-24 21:00Z' AND o.recognized_at<'2026-10-24 23:00Z'
 )
 SELECT s.table_id, s.hand_number, np.np
 FROM scope s

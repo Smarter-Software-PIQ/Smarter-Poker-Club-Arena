@@ -625,9 +625,13 @@ export default function AntiCheatPage() {
   }, [clubId, loadStats]);
 
   // ── Supabase Realtime — cross-user WebSocket updates ──
+  const loadStatsRef = useRef(loadStats);
+  loadStatsRef.current = loadStats;
+
   useEffect(() => {
     if (!clubId) return;
     let isMounted = true;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
     const channelKey = `anti-cheat-${clubId}`;
 
     const setupRealtime = async () => {
@@ -635,6 +639,7 @@ export default function AntiCheatPage() {
       if (!isMounted) return;
 
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
@@ -645,7 +650,7 @@ export default function AntiCheatPage() {
             filter: `club_id=eq.${resolvedId}`,
           },
           () => {
-            loadStats(clubId);
+            loadStatsRef.current(clubId);
             setFlagsLoaded(false);
           }
         )
@@ -669,13 +674,19 @@ export default function AntiCheatPage() {
         });
     };
 
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (isMounted) void setupRealtime();
+    });
     setupRealtime().catch((e) => console.warn('[AntiCheatPage] Realtime setup failed:', e));
 
     return () => {
       isMounted = false;
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
-  }, [clubId, loadStats]);
+  }, [clubId]);
 
   // ── Actions ────────────────────────────────────────────────
   const reviewFlag = async () => {

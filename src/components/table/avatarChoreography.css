@@ -565,8 +565,15 @@
    MEANING: a fold you cannot see is a worse outcome than a dropped frame.
    Ambient life is decoration, so ambient life is what goes.
    ═══════════════════════════════════════════════════════════════════════════════ */
-:root[data-sp-motion='lite'] .seat__avatar-wrap,
-:root[data-sp-motion='lite'] .seat__avatar-wrap--tense {
+/* Tense wraps also carry the base class. Exclude semantic one-shots from
+   this higher-specificity ambient override so a budget change cannot cancel
+   a fold or celebration already in flight. */
+:root[data-sp-motion='lite']
+  .seat__avatar-wrap:not(.seat__avatar-wrap--push):not(.seat__avatar-wrap--check):not(
+    .seat__avatar-wrap--fold
+  ):not(.seat__avatar-wrap--celebrate):not(.seat__avatar-wrap--alert):not(
+    .seat__avatar-wrap--lose
+  ) {
   animation: none;
 }
 

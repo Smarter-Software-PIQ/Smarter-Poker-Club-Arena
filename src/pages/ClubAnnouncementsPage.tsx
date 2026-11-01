@@ -87,6 +87,7 @@ export default function ClubAnnouncementsPage() {
   useEffect(() => {
     if (clubId) {
       let isMounted = true;
+      let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
       loadAnnouncements(() => isMounted);
 
       const channelKey = `announcements-${clubId}`;
@@ -96,6 +97,7 @@ export default function ClubAnnouncementsPage() {
         if (!isMounted) return;
 
         const channel = masterBus.getOrCreateChannel(channelKey);
+        acquiredChannel = channel;
         channel
           .on(
             'postgres_changes',
@@ -128,13 +130,19 @@ export default function ClubAnnouncementsPage() {
           });
       };
 
+      masterBus.registerChannelFactory?.(channelKey, () => {
+        if (isMounted) void setupRealtime();
+      });
       setupRealtime().catch((e) =>
         console.warn('[ClubAnnouncementsPage] Realtime setup failed:', e)
       );
 
       return () => {
         isMounted = false;
-        masterBus.removeRegisteredChannel(channelKey);
+        masterBus.removeChannelFactory?.(channelKey);
+        if (acquiredChannel) {
+          masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+        }
       };
     }
   }, [clubId, user?.id]);

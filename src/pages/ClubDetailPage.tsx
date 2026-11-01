@@ -624,14 +624,16 @@ export default function ClubDetailPage() {
   useEffect(() => {
     if (!clubId) return;
     let isMounted = true;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
+    const channelKey = `club-detail-${clubId}`;
 
     // Resolve UUID for realtime filters (integer club IDs need translation)
     const setupRealtime = async () => {
       const resolvedId = await resolveClubUUID(clubId);
       if (!isMounted) return;
 
-      const channelKey = `club-detail-${clubId}`;
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
@@ -680,11 +682,17 @@ export default function ClubDetailPage() {
         });
     };
 
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (isMounted) void setupRealtime();
+    });
     setupRealtime().catch((e) => console.warn('[ClubDetailPage] Realtime setup failed:', e));
 
     return () => {
       isMounted = false;
-      masterBus.removeRegisteredChannel(`club-detail-${clubId}`);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
   }, [clubId]);
 

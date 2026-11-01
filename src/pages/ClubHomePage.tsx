@@ -4676,8 +4676,7 @@ function ClubHomePageContent({
         stable(t as unknown as LobbyTableRow, (r) => cashEntry(r, waitlistCounts.get(r.id) ?? 0))
       );
     entryCacheRef.current = next;
-    /* The Favorites chip lives in the quick-prefs row, which ALL does not
-       render - so leaving the filter applied there stripped the board to two
+    /* The Favorites control lives in the sticky rail and is hidden on ALL - so leaving the filter applied there stripped the board to two
        tables with no control anywhere on screen to undo it, and only a reload
        cleared it. A filter with no switch is not a filter, it is a fault. */
     if (favoritesOnly && gameType !== 'ALL') {
@@ -5370,6 +5369,27 @@ function ClubHomePageContent({
     isOwner &&
     launchTasks.every((task) => task.complete || task.skipped);
 
+  const filterAndSortButton = (
+    <button
+      className={`game-bar__filter-btn ${(() => {
+        if (gameType === 'ALL') return sortKey !== 'recommended' ? 'is-set' : '';
+        const fSpec = FILTER_SPECS[gameType as Exclude<FilterGameType, 'ALL'>];
+        const fVal = advFilters[gameType as FilterGameType];
+        const isFilt = fSpec && fVal && isFilterActive(fSpec, fVal);
+        return isFilt || sortKey !== 'recommended' ? 'is-set' : '';
+      })()}`}
+      aria-label={gameType === 'ALL' ? 'Sort' : 'Filters And Sort'}
+      title={gameType === 'ALL' ? 'Sort' : 'Filters And Sort'}
+      onClick={() => {
+        haptic.light();
+        setFiltersOpen(true);
+      }}
+    >
+      <IconSort />
+      <LobbyFilterLabel>{gameType === 'ALL' ? 'Sort' : 'Filters'}</LobbyFilterLabel>
+    </button>
+  );
+
   return (
     <div className="club-home club-home--unified-mobile">
       <GlobalUXIndicators wsConnected={wsConnected} />
@@ -5713,6 +5733,7 @@ function ClubHomePageContent({
                                 <LobbyFilterLabel>{status.label}</LobbyFilterLabel>
                               </button>
                             ))}
+                            {filterAndSortButton}
                           </div>
                         </div>
                       ) : (
@@ -5780,19 +5801,7 @@ function ClubHomePageContent({
                                     </button>
                                   );
                                 })}
-                                {currentUserId && (
-                                  <button
-                                    type="button"
-                                    className={`quickprefs__chip ${favoritesOnly ? 'is-on' : ''}`}
-                                    aria-pressed={favoritesOnly}
-                                    onClick={() => {
-                                      haptic.selection();
-                                      selectFavoritesOnly(!favoritesOnly);
-                                    }}
-                                  >
-                                    <LobbyFilterLabel>Favorites</LobbyFilterLabel>
-                                  </button>
-                                )}
+                                {filterAndSortButton}
                               </div>
                             </div>
                           );
@@ -5813,26 +5822,6 @@ function ClubHomePageContent({
             to order. So the sheet opens in sortOnly mode instead: the game
             type row and every filter section are gone, Sort By is all that is
             left, and the button reads Sort. Every other tab is unchanged. */}
-                      <button
-                        className={`game-bar__filter-btn ${(() => {
-                          if (gameType === 'ALL') return sortKey !== 'recommended' ? 'is-set' : '';
-                          const fSpec = FILTER_SPECS[gameType as Exclude<FilterGameType, 'ALL'>];
-                          const fVal = advFilters[gameType as FilterGameType];
-                          const isFilt = fSpec && fVal && isFilterActive(fSpec, fVal);
-                          return isFilt || sortKey !== 'recommended' ? 'is-set' : '';
-                        })()}`}
-                        aria-label={gameType === 'ALL' ? 'Sort' : 'Filters And Sort'}
-                        title={gameType === 'ALL' ? 'Sort' : 'Filters And Sort'}
-                        onClick={() => {
-                          haptic.light();
-                          setFiltersOpen(true);
-                        }}
-                      >
-                        <IconSort />
-                        <LobbyFilterLabel>
-                          {gameType === 'ALL' ? 'Sort' : 'Filters'}
-                        </LobbyFilterLabel>
-                      </button>
                     </div>
                   </div>
                 )}

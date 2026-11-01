@@ -171,9 +171,13 @@ export default function DisputeManagementPage() {
   }, [loadDisputes]);
 
   // Real-time subscription
+  const loadDisputesRef = useRef(loadDisputes);
+  loadDisputesRef.current = loadDisputes;
+
   useEffect(() => {
     if (!clubId) return; // RT subscription only for club-scoped route
     let isMounted = true;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
     const channelKey = `disputes-${clubId}`;
 
     const setupRealtime = async () => {
@@ -181,11 +185,12 @@ export default function DisputeManagementPage() {
       if (!isMounted) return;
 
       const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
       channel
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'disputes', filter: `club_id=eq.${resolvedId}` },
-          () => loadDisputes()
+          () => loadDisputesRef.current()
         )
         .subscribe((status: string, err?: Error) => {
           if (status === 'CHANNEL_ERROR') {
@@ -198,13 +203,19 @@ export default function DisputeManagementPage() {
         });
     };
 
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (isMounted) void setupRealtime();
+    });
     setupRealtime().catch((e) => console.warn('[DisputeManagementPage] Realtime setup failed:', e));
 
     return () => {
       isMounted = false;
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
-  }, [clubId, loadDisputes]);
+  }, [clubId]);
 
   // Balance changes may resolve disputes; the database subscription also refreshes.
   useEffect(() => {

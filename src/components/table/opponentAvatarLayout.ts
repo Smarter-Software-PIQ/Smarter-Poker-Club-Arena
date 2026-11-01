@@ -245,7 +245,7 @@ export function jointOpponentShifts(
   )
     return items.map(() => [0, 0]);
   const withinAuxiliaryLane = (item: (typeof items)[number], x: number, y: number) => {
-    if (topLaneBottom === undefined) return true;
+    if (topLaneBottom === undefined || !item.parts.length) return true;
     const low = Math.min(...item.parts.map((p) => p.top));
     const high = Math.max(...item.parts.map((p) => p.top + p.height));
     const clamp =
@@ -281,7 +281,7 @@ export function jointOpponentShifts(
     for (const side of [-1, 1]) {
       const column = items
         .map((item, index) => ({ item, index }))
-        .filter(({ item }) => item.outwardOnly && item.side === side)
+        .filter(({ item }) => item.parts.length > 0 && item.outwardOnly && item.side === side)
         .sort((a, b) => a.item.parts[0].top - b.item.parts[0].top);
       const starts = [
         bounds.top + 0.001,
@@ -311,22 +311,21 @@ export function jointOpponentShifts(
     }
     if (lowerLane)
       items.forEach((item, i) => {
+        if (!item.parts.length) return;
         const low = Math.min(...item.parts.map((p) => p.top));
         const high = Math.max(...item.parts.map((p) => p.top + p.height));
         for (const y of [lowerLane.top - low, lowerLane.bottom - high]) seedYs[i].add(y);
       });
-    let ys = items.map(
-      (item, i) =>
-        new Set([
-          ...seedYs[i],
-          0,
-          ...options[i].map((shift) => shift[1]),
-          bounds.top - Math.min(...item.parts.map((part) => part.top)),
-          bounds.top +
-            bounds.height -
-            Math.max(...item.parts.map((part) => part.top + part.height)),
-        ])
-    );
+    let ys = items.map((item, i) => {
+      if (!item.parts.length) return new Set([0]);
+      return new Set([
+        ...seedYs[i],
+        0,
+        ...options[i].map((shift) => shift[1]),
+        bounds.top - Math.min(...item.parts.map((part) => part.top)),
+        bounds.top + bounds.height - Math.max(...item.parts.map((part) => part.top + part.height)),
+      ]);
+    });
     for (let round = 0; round < 3; round++) {
       const next = ys.map((set) => new Set(set));
       for (let i = 0; i < items.length; i++)
@@ -370,21 +369,25 @@ export function jointOpponentShifts(
     // the unchanged pod widths; no viewport-specific seat coordinates exist.
     const widths = [
       ...new Set(
-        items.map(
-          (item) =>
-            Math.max(...item.parts.map((p) => p.left + p.width)) -
-            Math.min(...item.parts.map((p) => p.left))
-        )
+        items
+          .filter((item) => item.parts.length > 0)
+          .map(
+            (item) =>
+              Math.max(...item.parts.map((p) => p.left + p.width)) -
+              Math.min(...item.parts.map((p) => p.left))
+          )
       ),
     ];
     let anchors = new Set([
       bounds.left,
       bounds.left + bounds.width,
       ...(lowerLane
-        ? items.flatMap((item) => [
-            Math.min(...item.parts.map((p) => p.left)),
-            Math.max(...item.parts.map((p) => p.left + p.width)),
-          ])
+        ? items
+            .filter((item) => item.parts.length > 0)
+            .flatMap((item) => [
+              Math.min(...item.parts.map((p) => p.left)),
+              Math.max(...item.parts.map((p) => p.left + p.width)),
+            ])
         : []),
     ]);
     if (topLaneBottom !== undefined)
@@ -398,6 +401,7 @@ export function jointOpponentShifts(
         anchors = new Set([...next].slice(0, 256));
       }
     items.forEach((item, i) => {
+      if (!item.parts.length) return;
       const low = Math.min(...item.parts.map((p) => p.left)),
         high = Math.max(...item.parts.map((p) => p.left + p.width));
       const xs =
@@ -1578,7 +1582,17 @@ export function createOpponentAvatarLayout(
     // Stable top-first input makes equal-cost solutions reproducible.
     const ordered = seats
       .map((seat) => ({ seat, parts: parts(seat) }))
+      .filter((item) => item.parts.length > 0)
       .sort((a, b) => a.parts[0].top - b.parts[0].top || a.parts[0].left - b.parts[0].left);
+    for (const seat of seats) {
+      if (!ordered.some((item) => item.seat === seat)) {
+        delete seat.dataset.opponentLane;
+        seat.style.setProperty('--sp-opponent-x', '0px');
+        seat.style.setProperty('--sp-opponent-y', '0px');
+        state.shifts.set(seat, [0, 0]);
+      }
+    }
+    if (!ordered.length) return false;
     const describe = () =>
       ordered.map(({ seat }) => ({
         parts: parts(seat),
@@ -1628,6 +1642,13 @@ export function createOpponentAvatarLayout(
     for (let i = 0; i < ordered.length; i++) {
       const seat = ordered[i].seat;
       const item = descriptions[i];
+      if (!item.parts.length) {
+        delete seat.dataset.opponentLane;
+        seat.style.setProperty('--sp-opponent-x', '0px');
+        seat.style.setProperty('--sp-opponent-y', '0px');
+        state.shifts.set(seat, [0, 0]);
+        continue;
+      }
       const clamp =
         item.side < 0
           ? Math.max(0, bounds.left - Math.min(...item.parts.map((p) => p.left)))

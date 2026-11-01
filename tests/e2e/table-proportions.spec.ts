@@ -1564,50 +1564,68 @@ for (const [width, heightOverride] of occupiedViewports)
                 new Promise<void>((resolve) =>
                   requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
                 );
+              // SeatSlot starts the one-shot motion sampler on mount. It
+              // decides after 60 visible frames and may clear a manually set
+              // lite flag. Let that real decision finish before this finite
+              // CSS witness takes ownership; no sampler or motion is disabled.
+              for (let sampled = 0; sampled < 61; ) {
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+                if (document.visibilityState === 'visible') sampled += 1;
+              }
               const originalSeat = seat.className;
               const originalWrap = wrap.className;
-              wrap.classList.add('seat__avatar-wrap--celebrate');
-              await frame();
-              if (wrap.getAnimations().length) throw new Error('Avatar Must Remain Fixed');
-              document.dispatchEvent(new Event('fixture-next-hand'));
-              await frame();
-              const raisedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
-              // Complete the actual gesture, then let the ordinary folded
-              // resting pose settle. No production animation is cancelled.
-              wrap.className = originalWrap;
-              document.dispatchEvent(new Event('fixture-next-hand'));
-              await frame();
-              const restingShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
-              seat.classList.remove('seat--active', 'seat--winner');
-              seat.classList.add('seat--folded');
-              await frame();
-              await Promise.all(wrap.getAnimations().map((animation) => animation.finished));
-              await frame();
-              const foldedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
-              const box = head.getBoundingClientRect();
-              const file = /\/avatars\/table\/([^/?#]+)/.exec(head.currentSrc || head.src)?.[1];
-              const gap =
-                box.top +
-                box.height * ((file && crowns[file]) || 0) -
-                document.querySelector('.table-page')!.getBoundingClientRect().top;
-              // Live hand admission can clear folded seat state before the
-              // final fold gesture class is retired. Its retained CSS final
-              // frame must use the same semantic resting anchor.
-              seat.classList.remove('seat--folded');
-              wrap.classList.add('seat__avatar-wrap--fold');
-              await frame();
-              if (wrap.getAnimations().length) throw new Error('Fold Must Not Move Avatar');
-              await frame();
-              const retainedBox = head.getBoundingClientRect();
-              const retainedFoldGap =
-                retainedBox.top +
-                retainedBox.height * ((file && crowns[file]) || 0) -
-                document.querySelector('.table-page')!.getBoundingClientRect().top;
-              seat.className = originalSeat;
-              wrap.className = originalWrap;
-              document.dispatchEvent(new Event('fixture-next-hand'));
-              await frame();
-              return { raisedShift, restingShift, foldedShift, gap, retainedFoldGap };
+              const root = document.documentElement;
+              const originalMotion = root.getAttribute('data-sp-motion');
+              root.setAttribute('data-sp-motion', 'lite');
+              try {
+                wrap.classList.add('seat__avatar-wrap--celebrate');
+                await frame();
+                if (wrap.getAnimations().length) throw new Error('Avatar Must Remain Fixed');
+                document.dispatchEvent(new Event('fixture-next-hand'));
+                await frame();
+                const raisedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
+                // Complete the actual gesture, then let the ordinary folded
+                // resting pose settle. No production animation is cancelled.
+                wrap.className = originalWrap;
+                document.dispatchEvent(new Event('fixture-next-hand'));
+                await frame();
+                const restingShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
+                seat.classList.remove('seat--active', 'seat--winner');
+                seat.classList.add('seat--folded');
+                await frame();
+                await Promise.all(wrap.getAnimations().map((animation) => animation.finished));
+                await frame();
+                const foldedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
+                const box = head.getBoundingClientRect();
+                const file = /\/avatars\/table\/([^/?#]+)/.exec(head.currentSrc || head.src)?.[1];
+                const gap =
+                  box.top +
+                  box.height * ((file && crowns[file]) || 0) -
+                  document.querySelector('.table-page')!.getBoundingClientRect().top;
+                // Live hand admission can clear folded seat state before the
+                // final fold gesture class is retired. Its retained CSS final
+                // frame must use the same semantic resting anchor.
+                seat.classList.remove('seat--folded');
+                wrap.classList.add('seat__avatar-wrap--fold');
+                await frame();
+                if (wrap.getAnimations().length) throw new Error('Fold Must Not Move Avatar');
+                await frame();
+                const retainedBox = head.getBoundingClientRect();
+                const retainedFoldGap =
+                  retainedBox.top +
+                  retainedBox.height * ((file && crowns[file]) || 0) -
+                  document.querySelector('.table-page')!.getBoundingClientRect().top;
+                seat.className = originalSeat;
+                wrap.className = originalWrap;
+                document.dispatchEvent(new Event('fixture-next-hand'));
+                await frame();
+                return { raisedShift, restingShift, foldedShift, gap, retainedFoldGap };
+              } finally {
+                seat.className = originalSeat;
+                wrap.className = originalWrap;
+                if (originalMotion === null) root.removeAttribute('data-sp-motion');
+                else root.setAttribute('data-sp-motion', originalMotion);
+              }
             }, AVATAR_CROWN_TOP);
             expect(anchoring.restingShift).toBeCloseTo(anchoring.raisedShift, 1);
             if (width > 768) {
@@ -2707,9 +2725,52 @@ for (const [width, height] of [
         '<div class="table-scaler">',
         `<div class="table-scaler"><div class="table-surface">${brand(title)}</div>`
       );
-      html = html.replace('>HERO<', `>${name}<`);
       await page.setContent(html);
+      // The name now has a real measured fitting renderer. Static span markup
+      // cannot exercise its layout hook and would test an unmounted component.
+      const { buildSync } = await import('esbuild');
+      const bundled = buildSync({
+        stdin: {
+          contents: `import React from 'react'; import {createRoot} from 'react-dom/client';
+            import {SeatPlayerName} from './src/components/table/SeatPlayerName';
+            createRoot(document.querySelector('.seat__info')).render(<>
+              <SeatPlayerName name={${JSON.stringify(name)}} />
+              <span className="seat__stack">1,000</span>
+            </>);`,
+          resolveDir: ROOT,
+          loader: 'tsx',
+        },
+        jsx: 'automatic',
+        bundle: true,
+        write: false,
+        format: 'iife',
+        // The complete real stylesheet is already loaded by fullCaptionCss.
+        loader: { '.css': 'empty' },
+        define: { 'process.env.NODE_ENV': '"test"' },
+      });
+      await page.addScriptTag({ content: bundled.outputFiles[0].text });
       await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator('.seat__name-text')).toHaveText(name);
+      await expect
+        .poll(() =>
+          page.locator('.seat__name-text').evaluate((el) => {
+            const well = el.closest('.seat__name')!;
+            const box = well.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const ink = [...range.getClientRects()].filter(
+              (rect) => rect.width > 0 && rect.height > 0
+            );
+            return (
+              ink.length > 0 &&
+              new Set(ink.map((rect) => Math.round(rect.top * 2) / 2)).size === 1 &&
+              ink.every((rect) => rect.left >= box.left - 1 && rect.right <= box.right + 1) &&
+              getComputedStyle(el).whiteSpace === 'nowrap' &&
+              well.getAttribute('title') === el.textContent
+            );
+          })
+        )
+        .toBe(true);
       await expect(page.locator('.table-brand__game')).toHaveText(title);
       await expect(page.locator('.seat__name')).toHaveText(name);
       const results = await page
