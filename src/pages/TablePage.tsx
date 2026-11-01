@@ -181,7 +181,7 @@ import { useVIPStatus } from '../hooks/useVIP';
 import { CommunityCards } from '../components/table/CommunityCards';
 import { DealerButton } from '../components/table/DealerButton';
 import { DealAnimation } from '../components/table/DealAnimation';
-import { ActionClockSeconds, ActionClockWarning } from '../components/table/ActionClockReadouts';
+import { ActionClockWarning } from '../components/table/ActionClockReadouts';
 import type { SeatPlayer, Card, LastAction, PositionBadge } from '../components/table/SeatSlot';
 import type { SidePot } from '../components/table/PotDisplay';
 import type { BoardStage } from '../components/table/CommunityCards';
@@ -214,7 +214,7 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
 
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
 import lobbyButtonArt from '../assets/lobby-button.webp';
-import { useButtonImage, useTimebankIcon } from '../hooks/useButtonImage';
+import { useButtonImage } from '../hooks/useButtonImage';
 
 import { cashBuyInRange, cashBuyInRefusalText, cashBuyInSeatConflictText } from '../lib/cashBuyIn';
 import {
@@ -1574,7 +1574,6 @@ function LiveTablePage({
   const followingPlayerRef = useRef(followingPlayer);
   followingPlayerRef.current = followingPlayer;
   const addScreenIcon = useButtonImage('icon-addscreen');
-  const timebankIconPage = useTimebankIcon();
   const { tableId: routeTableId } = useParams<{ tableId: string }>();
   const requestedTableId = embeddedTableId || routeTableId;
   // Every table effect receives a database ID or no scope. A URL segment
@@ -29609,47 +29608,9 @@ function LiveTablePage({
              no action buttons are up. They cost a permanent strip of screen on
              a phone to repeat it. */ ? null : (
           <>
-            {/* ─── CONTROL STRIP — Minimal: Time Bank + Timer during hand, Rabbit Hunt after hand ─── */}
-            {/* Dan 2026-09-04: not for a turn the engine is taking on the
-                player's behalf - see heroPromptedToAct. The strip used to
-                stand up (time-bank button, ticking numeral) for the engine's
-                pre-action beat and then vanish with the fold. */}
-            {heroPromptedToAct && (
-              <div className="control-strip control-strip--transparent">
-                {/* Time Bank */}
-                <button
-                  className="control-strip__btn control-strip__btn--icon-img"
-                  title={timeBankUnlimited ? 'Unlimited Lifetime VIP Time Banks' : 'Time Bank'}
-                  onClick={handleActivateTimeBank}
-                  disabled={
-                    (!timeBankUnlimited && (timeBanksRemaining ?? 0) <= 0) || timeBankActive
-                  }
-                >
-                  <span className="control-strip__icon-wrap" aria-hidden="true">
-                    <img
-                      src={timebankIconPage}
-                      className="control-strip__timebank-img"
-                      alt=""
-                      draggable={false}
-                    />
-                    {/* Resolved 2026-08-26: main's stopwatch image is kept; the only thing
-                          carried across is the null case — the count is null until the
-                          TRUE balance loads and must not render a fabricated number. */}
-                    <span className="control-strip__count-overlay">
-                      {timeBankUnlimited ? 'VIP' : (timeBanksRemaining ?? '-')}
-                    </span>
-                  </span>
-                </button>
-
-                {/* Timer Display. PERF 2026-08-25: a leaf that subscribes to
-                      the clock, so the numeral can tick without this component
-                      rendering. Same output as the inline expression it
-                      replaced, `|| 0` included. */}
-                <div className="control-strip__timer">
-                  <ActionClockSeconds clock={actionClock} className="control-strip__timer-val" />
-                </div>
-              </div>
-            )}
+            {/* The legacy stopwatch/countdown strip is intentionally absent.
+                It mounted before the action panel and flashed below the hero.
+                The seat owns the live clock; the HUD owns the bank balance. */}
 
             {/* Rabbit Hunt lives in the bottom-left HUD corner, in the slot it
                 shares with the time-bank tile (`hudSlotControl`, above). It has

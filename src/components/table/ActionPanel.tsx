@@ -401,8 +401,8 @@ export function computeRaisePresets(input: RaisePresetInput): RaisePreset[] {
    *
    * So multiples are now EXACT and are only ever moved by legality — below the
    * minimum raise or above the ceiling — in which case `cappedByMax` says so.
-   * Only the derived sizings (POT, the postflop fractions), which have no exact
-   * value to preserve, snap to the table's chip grid.
+   * Fractions retain the slider grid. POT preserves the actual pot-sized
+   * amount at the wager unit, because the small blind is not a chip denomination.
    */
   const unit = unitInput && unitInput > 0 ? unitInput : 0.01;
   /* A denomination is itself a whole number of units: a grid of half a Diamond
@@ -423,8 +423,21 @@ export function computeRaisePresets(input: RaisePresetInput): RaisePreset[] {
   const capOnGrid = Math.floor(maxRaise / grid + 1e-9) * grid;
   const minOnGrid = snapUp(minRaise);
 
-  /** For POT and the fractions: nearest legal value on the chip grid. */
+  /** POT is exact; fractions keep their existing slider-grid sizing. */
   const finalize = (label: string, raw: number): RaisePreset => {
+    if (label === 'POT') {
+      // The engine accepts wager units between blind-sized slider steps.
+      // 300/600 with a 7,205 pot must bet 7,205, not ceil to 7,500.
+      const ceiling = Math.floor(maxRaise / unit + 1e-9) * unit;
+      const minimum = Math.ceil(minRaise / unit - 1e-9) * unit;
+      const exact = clean(raw);
+      return {
+        label,
+        raw,
+        value: clean(Math.min(ceiling, Math.max(minimum, exact))),
+        cappedByMax: exact > ceiling || minimum > ceiling,
+      };
+    }
     // If the legal minimum is already above the ceiling, hero has no raise
     // room left; the only legal raise-TO is the ceiling itself.
     if (minOnGrid > capOnGrid) return { label, raw, value: maxRaise, cappedByMax: true };
