@@ -73,6 +73,7 @@ function run(heroSeat: number, openerSeat: number, mode: 'cash' | 'tournament') 
         gameMode: mode,
         ante: 0,
         format: mode === 'cash' ? 'cash' : 'mtt',
+        ...(process.env.CENSUS ? { dealtSeatIds: [1, 2, 3, 4, 5, 6] } : {}),
       } as unknown as HorseGameStateV2;
       seedFastRandom(s * 31 + h.cls.charCodeAt(0) * 7 + h.cls.length);
       const d = HorseLogic.decide(players[heroSeat - 1], gs, 'balanced', {}, {

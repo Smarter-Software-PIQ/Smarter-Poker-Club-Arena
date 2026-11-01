@@ -821,6 +821,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V70'
   ),
   flag(
+    'v72DefenceByOpener',
+    "2026-10-31 Hold'em facing one open with nobody in (three or more dealt in, open up to 6bb): the call / 3-bet base is set per defender (big blind, small blind, in-position seat) and opener seat by dealt-in players behind (V70 index SB 1 .. 9-handed UTG 8) instead of five position buckets; continue range read on a reference order blended between late- and early-open charts and mapped onto the preflop score scale, value 3-bets on the legacy ladder, bluff 3-bets from a reference chart scaled to half the solver's bluff width (V72_BLUFF_TRIM, measured against the human-calibrated field); widths by opener seat (cash big blind vs BTN 60 / CO 49 / HJ 42 / LJ 36 / 9-handed UTG 29, 3-bets 13 / 10.5 / 8.5 / 7 / 5.5; big blind ante vs BTN 72 .. UTG 44) scaled gently by the open size against 2.5x (2.2x with an ante); style, ICM premium, depth, exploit reads, V53 and V57/V60 flat and re-steal volume move it as before, the V60 and non-steal V57 per-bucket 3-bet bars are superseded (V57's tournament re-steal bar against a late or small-blind open stays a floor); explicit off arm retained",
+    'V72'
+  ),
+  flag(
     'v52RangeAdvantage',
     'heads-up postflop public-range advantage drives the range c-bet, V38 initiative and PLO small sizes (league v52_range_advantage)',
     'V52'
@@ -2114,6 +2119,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V70',
     'decide_nlh',
     0.01
+  ),
+  receipt(
+    'v72_defend_vs_opener',
+    'HorsePreflop (V72)',
+    "Hold'em facing one open with nobody in, defended on the (defender, opener seat) reference base",
+    'V72',
+    'decide_nlh',
+    0.005
   ),
   receipt(
     'v27_gto_open_jam',
