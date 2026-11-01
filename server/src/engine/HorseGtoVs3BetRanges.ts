@@ -24,8 +24,10 @@
  * WHAT CHANGES. The continue width is a SHARE OF THE OPENER'S OWN OPEN RANGE
  * (the V70 per-seat open width), by opener seat (V70 index: dealt-in players
  * behind, SB 1 .. nine-handed UTG 8) and by whether the opener will have
- * position on the 3-bettor, then scaled by the 3-bet size, depth and the
- * ante. The hands are read on a continue ORDER blended between a reference
+ * position on the 3-bettor: the price of THIS 3-bet into THIS pot (its
+ * minimum defence frequency, so size, blinds and ante are one arithmetic)
+ * times a per-seat multiplier for range strength and realisation, then
+ * depth (see "WHERE THE WIDTH COMES FROM" below). The hands are read on a continue ORDER blended between a reference
  * chart for a late opener and one for an early opener, mapped onto the
  * holdemPreflopScore scale by combo share (V70's scoreAtShare). The charts
  * hold the pairs, the suited hands and AKo / AQo only: every other offsuit
@@ -45,7 +47,9 @@
  * to the 8, suited connectors and one-gappers; an under-the-gun opener vs a
  * button 3-bet to ~7.5bb folds ~40%. No vs-3-bet solver artifact exists in
  * this repository, so these are reference charts, not a hydrated solver read:
- * the charts supply ORDER; the widths are the tables below.
+ * the charts supply ORDER; the width is the price arithmetic below. Nothing
+ * here changes a bet size: the 4-bet and every other wager keep their
+ * existing sizes, so no size reveals the hand.
  *
  * Hold'em only. Never keyed on who the opponents are.
  */
@@ -73,7 +77,7 @@ const EARLY_ANCHOR = 5;
 /**
  * Continue (call or 4-bet) charts for the opener facing one 3-bet. Pairs,
  * suited hands, AKo and AQo only (see the header). Written generously at the
- * edge because they supply order; the width is V73_CONTINUE_SHARE's.
+ * edge because they supply order; the width comes from vs3BetMdf x V73_EQUITY_MULTIPLIER.
  */
 export const VS3_CONTINUE_CHARTS: Readonly<{
   late: Record<string, number>;
@@ -95,25 +99,84 @@ export const VS3_CONTINUE_CHARTS: Readonly<{
 };
 
 /**
- * Continue share of the opener's own open range (percent) at 100bb against
- * the reference 3-bet size, by opener index, in position (the 3-bettor is a
- * blind) and out of position (the 3-bettor acts after the opener postflop, or
- * the small blind against the big blind). A balanced horse at tightness 1.0.
+ * WHERE THE WIDTH COMES FROM (reasoning, not a fold-percentage target).
  *
- * These sit above a solver's fold (40-55%) by the dominated-offsuit rule: an
- * opener's offsuit unpaired hands other than AKo / AQo fold to a big 3-bet by
- * Dan's binding rule, and they are ~35-55% of a late open range. The shares
- * below are what the opener continues with of the rest.
+ * 1. The price. A 3-bet that adds R chips to win a pot of P (the open, the
+ *    blinds, any ante) is a bet of alpha = R / (R + P). The opener must
+ *    continue at least the minimum defence frequency MDF = P / (R + P) of
+ *    its range, or every 3-bet shows a profit with any two cards. At the
+ *    reference geometry (a 2.5bb open, blinds 1.5bb):
+ *      a blind 3-bets to 10bb  (R 9,   P 4): MDF 30.8%  (opener in position)
+ *      a seat 3-bets to 7.5bb  (R 7.5, P 4): MDF 34.8%  (opener out of position)
+ *      the big blind 3-bets a 3bb small-blind open to 9bb (R 8, P 4): 33.3%
+ *    `vs3BetMdf` computes it from the real pot and 3-bet, so the size, the
+ *    ante and the blinds are all priced by the same arithmetic.
+ *
+ * 2. The multiplier over MDF (V73_EQUITY_MULTIPLIER). MDF treats a call as
+ *    worth nothing; preflop it is worth the equity the hand keeps against the
+ *    3-bettor's range and how much of it the opener realises. Two things set
+ *    it, and the table follows both:
+ *     - opener seat (range strength): an under-the-gun open is the top
+ *       11-16% of hands, nearly all of which keep 35-45% against a 3-betting
+ *       range; a button open is 40%+ of hands, a large part of which keeps
+ *       far less, so the earlier the opener the larger the multiplier;
+ *     - position on the 3-bettor (realisation): the opener with position on
+ *       every later street realises more of its equity than the same hand out
+ *       of position, so the in-position row sits above the out-of-position
+ *       row at every seat; the small blind, out of position to the big blind
+ *       with the widest range, is lowest.
+ *    The values are the reference solver shapes (100bb 6-max cash: a button
+ *    opener against a big-blind 3-bet to ~11bb continues roughly 45-50% of
+ *    its open, an under-the-gun opener against a 3-bet ~60%) divided by the
+ *    reference MDF, then held to the hands the charts admit: an opener's
+ *    offsuit unpaired hands other than AKo / AQo fold to a big 3-bet by Dan's
+ *    binding rule (HorseHoldemPremiumAggression rule 1), so they are never
+ *    counted inside the width.
+ *
+ *    Away from the reference geometry the width follows the MDF ratio with
+ *    the elasticity V73_PRICE_ELASTICITY.
+ *
+ * 3. Depth. Shallower than 40bb a call or 4-bet leaves a stack-to-pot ratio
+ *    near or under one, so the continuing hand realises nearly all of its
+ *    equity: the multiplier rises, up to +15% at 25bb (below 25bb the
+ *    jam-or-fold zones own the spot and V73 does not apply). Deeper than
+ *    120bb the V21 deep scale narrows it by up to 5% (the stack-off
+ *    discipline itself is on the 4-bet and 5-bet bars, unchanged).
  */
-export const V73_CONTINUE_SHARE: Readonly<Record<'ip' | 'oop', Readonly<Record<number, number>>>> =
-  {
-    ip: { 2: 46, 3: 50, 4: 54, 5: 58, 6: 60, 7: 61, 8: 62 },
-    oop: { 1: 44, 3: 50, 4: 53, 5: 56, 6: 58, 7: 59, 8: 60 },
-  };
+export const V73_EQUITY_MULTIPLIER: Readonly<
+  Record<'ip' | 'oop', Readonly<Record<number, number>>>
+> = {
+  ip: { 2: 1.5, 3: 1.62, 4: 1.75, 5: 1.88, 6: 1.95, 7: 1.98, 8: 2.01 },
+  oop: { 1: 1.32, 3: 1.44, 4: 1.52, 5: 1.61, 6: 1.67, 7: 1.7, 8: 1.72 },
+};
 
-/** Reference 3-bet size (raised-to over the open): blinds ~4x, in position ~3x. */
-export function referenceThreeBetX(ip: boolean): number {
-  return ip ? 4 : 3;
+/**
+ * The minimum defence frequency (0..1) against a 3-bet that ADDS `riskBB` to
+ * a pot of `potBeforeBB` (the open, the blinds and any ante, before the
+ * 3-bet's own new chips).
+ */
+export function vs3BetMdf(potBeforeBB: number, riskBB: number): number {
+  const p = Math.max(0, potBeforeBB);
+  const r = Math.max(0, riskBB);
+  return p + r > 0 ? p / (p + r) : 1;
+}
+
+/**
+ * How the width answers a price other than the reference (exponent on the
+ * MDF ratio). Less than one, deliberately: MDF is the floor that stops a
+ * zero-equity bluff profiting, and the multiplier above it is the equity the
+ * continuing hands keep, which does not shrink or grow with the price. A
+ * cheaper 3-bet admits the next hands down; it does not double the range.
+ * At 0.5 a 5x blind 3-bet (MDF 25.8% against 30.8%) continues 8% less of the
+ * open and a 3x one (38.1%) 11% more, and a 1bb big-blind ante (MDF up by
+ * about a sixth) about 8% more.
+ */
+export const V73_PRICE_ELASTICITY = 0.5;
+
+/** Reference geometry for the reference rows: the MDF each row was written at. */
+export function referenceMdf(openerBehind: number, ip: boolean): number {
+  if (clampIndex(openerBehind) === 1) return vs3BetMdf(4, 8);
+  return ip ? vs3BetMdf(4, 9) : vs3BetMdf(4, 7.5);
 }
 
 /** Smallest / largest 3-bet multiple (raised-to over the open) this base answers. */
@@ -139,8 +202,12 @@ export interface Vs3BetSpot {
   ante: boolean;
   /** Players dealt in (3 = three-handed opens are wider). */
   dealt: number;
-  /** The 3-bet, raised-to, over the opener's raise-to. */
+  /** The 3-bet, raised-to, over the opener's raise-to (scope bounds only). */
   threeBetX: number;
+  /** The pot before the 3-bet's new chips: the open, the blinds, any ante (big blinds). */
+  potBeforeBB: number;
+  /** Chips the 3-bettor added with the 3-bet (its raise-to minus any blind it had posted). */
+  reRaiseRiskBB: number;
   /** Effective stack in big blinds against the 3-bettor. */
   effectiveBB: number;
   /** V21 deep discipline in force (true unless the explicit off arm). */
@@ -192,38 +259,30 @@ export function openWidth(openerBehind: number, ante: boolean, dealt: number): n
 /** Continue share of the open range (percent) for a spot, after every scaling. */
 export function continueShare(spot: Vs3BetSpot): number {
   const k = clampIndex(spot.openerBehind);
-  // Out of position as the small blind (k 1); in position from the button
-  // (k 2) in; a cutoff or earlier opener can be either. The button cannot be
-  // out of position against a 3-bettor who acts after it preflop, and the
-  // small blind cannot be in position, so each falls back to its own row.
-  const row = k === 1 ? V73_CONTINUE_SHARE.oop : k === 2 ? V73_CONTINUE_SHARE.ip : null;
-  const table = row ?? (spot.ip ? V73_CONTINUE_SHARE.ip : V73_CONTINUE_SHARE.oop);
+  // The small blind is always out of position to the big blind and the
+  // button always in position to a blind, so each reads its own row; a
+  // cutoff or earlier opener can be either.
+  const ip = k === 1 ? false : k === 2 ? true : spot.ip;
+  const table = ip ? V73_EQUITY_MULTIPLIER.ip : V73_EQUITY_MULTIPLIER.oop;
   const keys = Object.keys(table).map(Number);
   const kk = Math.max(Math.min(...keys), Math.min(Math.max(...keys), k));
-  let share = table[kk];
-  // A bigger 3-bet is continued narrower, a smaller one wider (square root of
-  // the price ratio, bounded).
-  const ref = referenceThreeBetX(k === 1 ? false : k === 2 ? true : spot.ip);
-  const sizeF = Math.max(0.75, Math.min(1.2, Math.sqrt(ref / Math.max(1.5, spot.threeBetX))));
-  share *= sizeF;
-  // Shallower than 40bb a 3-bet commits a larger share of the stack and the
-  // continue widens toward jam-or-fold (up to +15% at 25bb).
+  // The price: MDF of this 3-bet into this pot (size, blinds and ante)
+  // against the row's reference MDF, held within 0.7-1.4 so a malformed read
+  // cannot swing the width beyond what the reference shapes describe, and
+  // applied with elasticity V73_PRICE_ELASTICITY (see its note).
+  const ref = referenceMdf(k, ip);
+  const ratio = Math.max(0.7, Math.min(1.4, vs3BetMdf(spot.potBeforeBB, spot.reRaiseRiskBB) / ref));
+  let share = 100 * ref * table[kk] * Math.pow(ratio, V73_PRICE_ELASTICITY);
+  // Shallow: a stack-to-pot ratio near one realises nearly all equity.
   if (spot.effectiveBB < 40) {
     share *= 1 + 0.15 * Math.min(1, (40 - Math.max(V73_MIN_EFFECTIVE_BB, spot.effectiveBB)) / 15);
   }
-  // V21 deep discipline: the same depth scale the legacy branch used
-  // (zero at 120bb, full at 250bb), narrowing the width by up to 5%. A call
-  // is not a stack-off - deep, the pairs and suited hands that call have the
-  // most to win - so the narrowing stays the legacy branch's size (it added
-  // half the scale, 0.025, to its bar); the stack-off discipline itself
-  // lives on the 4-bet and 5-bet bars, which are unchanged.
+  // V21 deep scale (zero at 120bb, full at 250bb): up to 5% narrower.
   if (spot.deepDiscipline && spot.effectiveBB > 120) {
     const deepT = Math.min(0.05, (spot.effectiveBB - 120) / 2600);
     share *= 1 - deepT;
   }
-  // An ante adds dead money to every pot: a little wider.
-  if (spot.ante) share *= 1.04;
-  return Math.max(10, Math.min(90, share));
+  return Math.max(10, Math.min(85, share));
 }
 
 /** Continue width (percent of all 1,326 combos) for a spot. */

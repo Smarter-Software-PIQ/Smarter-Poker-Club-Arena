@@ -8,8 +8,10 @@
 import { describe, expect, it } from 'vitest';
 import { HAND_CLASSES } from './HorseGtoOpeningRanges.js';
 import {
-  V73_CONTINUE_SHARE,
+  V73_EQUITY_MULTIPLIER,
   VS3_CONTINUE_CHARTS,
+  referenceMdf,
+  vs3BetMdf,
   continueShare,
   continueWidth,
   openWidth,
@@ -46,6 +48,9 @@ describe('V73 reference base (module)', () => {
     ante: false,
     dealt: 6,
     threeBetX: 4,
+    // A 2.5bb open, blinds 1.5bb, a big-blind 3-bet to 10bb (9bb new).
+    potBeforeBB: 4,
+    reRaiseRiskBB: 9,
     effectiveBB: 100,
     deepDiscipline: true,
     ...over,
@@ -64,20 +69,34 @@ describe('V73 reference base (module)', () => {
     }
   });
 
-  it('an earlier opener continues a larger share of its (stronger) open', () => {
+  it('the price is the minimum defence frequency of this 3-bet into this pot', () => {
+    expect(vs3BetMdf(4, 9)).toBeCloseTo(4 / 13, 9);
+    expect(referenceMdf(2, true)).toBeCloseTo(4 / 13, 9);
+    expect(referenceMdf(3, false)).toBeCloseTo(4 / 11.5, 9);
+    expect(referenceMdf(1, false)).toBeCloseTo(4 / 12, 9);
+    // At the reference geometry the share is MDF x the seat multiplier.
+    expect(continueShare(spot({}))).toBeCloseTo(100 * (4 / 13) * V73_EQUITY_MULTIPLIER.ip[2], 9);
+  });
+
+  it('the multiplier rises as the opener moves earlier, and sits higher in position', () => {
     for (const side of ['ip', 'oop'] as const) {
-      const t = V73_CONTINUE_SHARE[side];
+      const t = V73_EQUITY_MULTIPLIER[side];
       const ks = Object.keys(t)
         .map(Number)
         .sort((a, b) => a - b);
       for (let i = 1; i < ks.length; i++) expect(t[ks[i]]).toBeGreaterThan(t[ks[i - 1]]);
     }
+    for (let k = 3; k <= 8; k++)
+      expect(V73_EQUITY_MULTIPLIER.ip[k]).toBeGreaterThan(V73_EQUITY_MULTIPLIER.oop[k]);
   });
 
-  it('a bigger 3-bet is continued narrower, a smaller one wider', () => {
+  it('a bigger 3-bet is continued narrower, a smaller one wider, an ante wider', () => {
     const base = continueShare(spot({}));
-    expect(continueShare(spot({ threeBetX: 5 }))).toBeLessThan(base - 3);
-    expect(continueShare(spot({ threeBetX: 3 }))).toBeGreaterThan(base + 3);
+    // To 12.5bb (11.5 new) and to 7.5bb (6.5 new) against the same 2.5bb open.
+    expect(continueShare(spot({ reRaiseRiskBB: 11.5, threeBetX: 5 }))).toBeLessThan(base - 3);
+    expect(continueShare(spot({ reRaiseRiskBB: 6.5, threeBetX: 3 }))).toBeGreaterThan(base + 3);
+    // A 1bb ante is dead money the 3-bet also attacks.
+    expect(continueShare(spot({ potBeforeBB: 5, ante: true }))).toBeGreaterThan(base);
   });
 
   it('the V21 deep scale narrows the width by at most 5%, and only with the discipline on', () => {
