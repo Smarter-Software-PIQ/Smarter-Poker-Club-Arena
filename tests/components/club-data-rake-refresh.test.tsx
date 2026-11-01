@@ -244,6 +244,9 @@ vi.mock('react-router-dom', () => ({
   useSearchParams: () => [new URLSearchParams()],
 }));
 
+// Its own reads are pinned in ClubRakebackVerifiedSoFar.test.tsx; here it would
+// take a place in this page's ordered RPC answers.
+vi.mock('../../src/components/club/ClubRakebackVerifiedSoFar', () => ({ default: () => null }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     rpc: rpcMock,
