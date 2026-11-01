@@ -1333,11 +1333,11 @@ export default function TournamentPage() {
         smallBlind: Number(row.smallBlind ?? row.small_blind ?? 0),
         bigBlind: Number(row.bigBlind ?? row.big_blind ?? 0),
         ante: Number(row.ante ?? 0),
-        duration: blindLevelMinutes(rows, level, Number(selectedTournament?.buy_in_amount)),
+        duration: blindLevelMinutes(rows, level),
         isBreak: Boolean(row.isBreak ?? row.is_break ?? false),
       };
     });
-  }, [selectedTournament?.blind_structure, selectedTournament?.buy_in_amount]);
+  }, [selectedTournament?.blind_structure]);
 
   /**
    * Open one player's table as a spectator. Handed to the tab only while the

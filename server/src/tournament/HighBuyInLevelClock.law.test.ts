@@ -52,17 +52,56 @@ describe('owner November 1: buy-ins above 25 use seven to ten minute levels', ()
       ];
       const row = { tournament_type: format, buy_in_amount: 50, blind_structure: structure };
       const created = withLockedLevelClock(row);
-      expect(created.blind_structure).toEqual([
-        { durationMinutes: 7 },
-        { duration_minutes: 8 },
-        { durationMinutes: 10 },
-        { durationMinutes: 10 },
-        structure[4],
-      ]);
+      expect(created.blind_structure).toEqual(
+        ['MTT', 'SATELLITE'].includes(format)
+          ? [
+              { durationMinutes: 7 },
+              { durationMinutes: 7 },
+              { durationMinutes: 7 },
+              { durationMinutes: 7 },
+              structure[4],
+            ]
+          : [
+              { durationMinutes: 7 },
+              { duration_minutes: 8 },
+              { durationMinutes: 10 },
+              { durationMinutes: 10 },
+              structure[4],
+            ]
+      );
       expect(structure[0]).toEqual({ duration: 180 });
       expect(withLockedLevelClock(created)).toEqual(created);
     }
   );
+
+  it.each([7, 8, 9, 10])('retains an already-uniform %s-minute MTT clock', (minutes) => {
+    const structure = [{ durationMinutes: minutes }, { durationMinutes: minutes }];
+    expect(
+      withLockedLevelClock({
+        tournament_type: 'MTT',
+        buy_in_amount: 50,
+        blind_structure: structure,
+      }).blind_structure
+    ).toEqual(structure);
+  });
+
+  it('never permits a tapered high-price MTT or satellite clock', () => {
+    for (const tournament_type of ['MTT', 'SATELLITE']) {
+      const row = withLockedLevelClock({
+        tournament_type,
+        buy_in_amount: 50,
+        blind_structure: [
+          { durationMinutes: 10 },
+          { durationMinutes: 9 },
+          { durationMinutes: 8 },
+          { durationMinutes: 7 },
+        ],
+      });
+      expect(row.blind_structure).toEqual(
+        Array.from({ length: 4 }, () => ({ durationMinutes: 8 }))
+      );
+    }
+  });
 
   it('an entry fee never moves an exactly-25 buy-in across the boundary', () => {
     const row = {

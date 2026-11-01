@@ -95,10 +95,13 @@ try:
     check('matching future schedule clock becomes seven',run("SELECT config->'blindStructure'->0->>'durationMinutes' FROM tournament_schedules WHERE name='High Price Schedule'")=='7')
     run("""INSERT INTO tournaments(name,buy_in_amount,blind_structure) VALUES
       ('Future High Price',50,'[{"durationMinutes":3,"bigBlind":50},{"durationMinutes":8,"bigBlind":100},{"durationMinutes":10,"bigBlind":200},{"durationMinutes":14,"bigBlind":400},{"isBreak":true,"durationMinutes":4}]');""")
-    check('new high-price levels clamp 7..10 and preserve valid clocks and breaks',run("SELECT string_agg(e->>'durationMinutes',',' ORDER BY ord) FROM tournaments t CROSS JOIN LATERAL jsonb_array_elements(t.blind_structure::jsonb) WITH ORDINALITY x(e,ord) WHERE t.name='Future High Price'")=='7,8,10,10,4')
+    check('new high-price MTT levels are uniformly seven and preserve breaks',run("SELECT string_agg(e->>'durationMinutes',',' ORDER BY ord) FROM tournaments t CROSS JOIN LATERAL jsonb_array_elements(t.blind_structure::jsonb) WITH ORDINALITY x(e,ord) WHERE t.name='Future High Price'")=='7,7,7,7,4')
     run("""INSERT INTO tournaments(name,buy_in_amount,tournament_type,variant,blind_structure) VALUES
       ('Immutable Spin Projection',50,'SPIN','spin','[{"duration":180,"bigBlind":50}]');""")
     check('funded Spin source terms are not rewritten',run("SELECT blind_structure::jsonb->0->>'duration' FROM tournaments WHERE name='Immutable Spin Projection'")=='180')
+    check('valid uniform ten-minute clock stays ten without a highlighted requirement',run("SELECT public.fn_ca_high_buyin_structure_clock('[{\"durationMinutes\":10},{\"durationMinutes\":10}]'::jsonb,true)->0->>'durationMinutes'")=='10')
+    check('a future tapered MTT locks to its existing standard category clock',run("SELECT string_agg(e->>'durationMinutes',',' ORDER BY ord) FROM jsonb_array_elements(public.fn_ca_high_buyin_structure_clock('[{\"durationMinutes\":10},{\"durationMinutes\":9},{\"durationMinutes\":8},{\"durationMinutes\":7}]'::jsonb,true)) WITH ORDINALITY x(e,ord)")=='8,8,8,8')
+    check('short formats keep their own bounded structured levels',run("SELECT string_agg(e->>'durationMinutes',',' ORDER BY ord) FROM jsonb_array_elements(public.fn_ca_high_buyin_structure_clock('[{\"durationMinutes\":3},{\"durationMinutes\":8},{\"durationMinutes\":10},{\"durationMinutes\":14}]'::jsonb)) WITH ORDINALITY x(e,ord)")=='7,8,10,10')
     check('nonpositive minute alias falls back to seconds before applying the floor',run("SELECT public.fn_ca_high_buyin_structure_clock('[{\"durationMinutes\":-1,\"duration\":180}]'::jsonb)->0->>'durationMinutes'")=='7')
     check('repeat and changed trigger bodies are refused', 'HIGH_BUYIN_LEVEL_CLOCK_PREIMAGE_CHANGED' in call(PSQL,high,False).stderr)
     print(json.dumps({'checks':checks,'production_mutations':False},indent=2))

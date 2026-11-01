@@ -164,12 +164,26 @@ export function withLockedLevelClock<T extends Record<string, unknown>>(row: T):
   // final manager timer apply the same range without editing funded rules.
   if (Number(row.buy_in_amount) > 25) {
     const authored = parseStructure(row.blind_structure);
-    const bounded = authored.map((entry) => {
-      const minutes = levelMinutes(entry);
-      if (minutes === null || (minutes >= 7 && minutes <= 10)) return entry;
-      return lockStructureClock([entry], Math.min(10, Math.max(7, minutes)))[0];
-    });
-    if (bounded.every((entry, index) => entry === authored[index])) return row;
+    const clocks = authored
+      .map(levelMinutes)
+      .filter((minutes): minutes is number => minutes !== null);
+    const alreadyUniform =
+      clocks.length > 0 &&
+      clocks[0] >= 7 &&
+      clocks[0] <= 10 &&
+      clocks.every((minutes) => minutes === clocks[0]);
+    const bounded = isLockedClockFormat(row)
+      ? alreadyUniform
+        ? authored
+        : lockStructureClock(authored, Math.max(7, lockedLevelMinutes(row)))
+      : authored.map((entry) => {
+          const minutes = levelMinutes(entry);
+          if (minutes === null || (minutes >= 7 && minutes <= 10)) return entry;
+          return lockStructureClock([entry], Math.min(10, Math.max(7, minutes)))[0];
+        });
+    if (bounded.every((entry, index) => entry === authored[index])) {
+      return isLockedClockFormat(row) ? { ...row, ...mttSpeedColumns(authored) } : row;
+    }
     let lateReg: Record<string, unknown> = {};
     const levels = Number(row.late_reg_levels);
     if (Number.isSafeInteger(levels) && levels > 0) {
