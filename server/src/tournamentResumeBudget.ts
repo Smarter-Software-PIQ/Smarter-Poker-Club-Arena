@@ -143,6 +143,80 @@ export function selectRunningResumes<T extends { id: string | number }>(
   return picked;
 }
 
+/**
+ * AN ORPHAN IS CLAIMED ON THE NEXT TICK (Phase 6, 2026-10-31).
+ *
+ * A RUNNING tournament with NO engine_tournament_leases row at all is not a
+ * resume waiting its turn: nobody, on any instance, holds it, so no hand is
+ * dealt and no clock runs until somebody claims it. Waiting behind the AIMD
+ * budget is how "the oldest stranded since 2026-09-14" happened. So the
+ * leader claims such an orphan on its next pass, ahead of the budgeted
+ * resumes, up to ORPHAN_CLAIMS_PER_TICK a pass (a bound, so a lease-table
+ * outage that makes everything LOOK orphaned cannot turn into a claim storm:
+ * an unreadable lease table yields no orphans at all, see the caller).
+ *
+ * BOUNDED, NOT A LOOP (operator policy, 2026-10-31). An orphan whose claim
+ * failed waits out the same per-tournament cooldown as every other resume
+ * (RunningResumeCooldowns: 5 s, doubling, capped at 5 min), and the orphan
+ * lane makes at most ORPHAN_CLAIM_MAX_ATTEMPTS failed attempts per streak.
+ * After that it stops claiming the id ahead of the budget and the caller
+ * raises a financial alert instead (exhaustedOrphans). The pre-existing
+ * budgeted lane is unchanged.
+ */
+export const ORPHAN_CLAIMS_PER_TICK = 16;
+/** Failed resumes in a streak after which the orphan lane alerts instead of claiming. */
+export const ORPHAN_CLAIM_MAX_ATTEMPTS = 5;
+
+export interface OrphanClaimPass {
+  hasManager(tournamentId: string): boolean;
+  admissionInFlight(tournamentId: string): boolean;
+  /** A lease row exists for this tournament (any holder, any age). */
+  hasLeaseRow(tournamentId: string): boolean;
+  /** Its last resume failed and the cooldown has not run out (RunningResumeCooldowns). */
+  coolingDown(tournamentId: string): boolean;
+  /** Failed resumes in this id's current streak (RunningResumeCooldowns.failures). */
+  failedAttempts(tournamentId: string): number;
+}
+
+function isOrphan(tournamentId: string, pass: OrphanClaimPass): boolean {
+  if (pass.hasLeaseRow(tournamentId)) return false;
+  return !pass.hasManager(tournamentId) && !pass.admissionInFlight(tournamentId);
+}
+
+/**
+ * RUNNING rows with no lease row and no local owner, board order, bounded per
+ * pass; an id cooling down or out of attempts is skipped.
+ */
+export function selectOrphanClaims<T extends { id: string | number }>(
+  board: readonly T[],
+  pass: OrphanClaimPass,
+  cap = ORPHAN_CLAIMS_PER_TICK,
+  maxAttempts = ORPHAN_CLAIM_MAX_ATTEMPTS
+): T[] {
+  const picked: T[] = [];
+  for (const row of board) {
+    if (picked.length >= cap) break;
+    const tournamentId = String(row.id);
+    if (!isOrphan(tournamentId, pass)) continue;
+    if (pass.failedAttempts(tournamentId) >= maxAttempts) continue;
+    if (pass.coolingDown(tournamentId)) continue;
+    picked.push(row);
+  }
+  return picked;
+}
+
+/** Orphans the lane has given up claiming: the caller alerts on each, once. */
+export function exhaustedOrphans<T extends { id: string | number }>(
+  board: readonly T[],
+  pass: OrphanClaimPass,
+  maxAttempts = ORPHAN_CLAIM_MAX_ATTEMPTS
+): T[] {
+  return board.filter((row) => {
+    const tournamentId = String(row.id);
+    return isOrphan(tournamentId, pass) && pass.failedAttempts(tournamentId) >= maxAttempts;
+  });
+}
+
 /** The cooldown after an id's first resume that came back without a manager. */
 export const RESUME_COOLDOWN_FIRST_MS = 5_000;
 /** No cooldown is longer than this, however long the streak. */
@@ -222,6 +296,11 @@ export class RunningResumeCooldowns {
   coolingDown(tournamentId: string, nowMs: number): boolean {
     const streak = this.streaks.get(tournamentId);
     return streak !== undefined && nowMs < streak.untilMs;
+  }
+
+  /** Failed resumes in this id's current streak; 0 when it has none. */
+  failures(tournamentId: string): number {
+    return this.streaks.get(tournamentId)?.failures ?? 0;
   }
 
   /**

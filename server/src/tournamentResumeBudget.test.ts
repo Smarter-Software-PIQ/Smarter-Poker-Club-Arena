@@ -61,6 +61,11 @@ import {
   resumeCooldownMs,
   resumesHoldingASlot,
   selectRunningResumes,
+  ORPHAN_CLAIMS_PER_TICK,
+  ORPHAN_CLAIM_MAX_ATTEMPTS,
+  exhaustedOrphans,
+  selectOrphanClaims,
+  type OrphanClaimPass,
 } from './tournamentResumeBudget.js';
 import { blankNonCode, sliceEnclosingBlock, sliceMethod } from './testHelpers/sourceWindow.js';
 
@@ -456,5 +461,102 @@ describe('a resume that keeps failing is a financial incident, not a health numb
     cooldowns.recordFailure('c', 0);
     cooldowns.settle([{ id: 'c' }], () => true);
     expect(cooldowns.longStreaks(60 * 60_000, 10 * 60_000)).toEqual([]);
+  });
+});
+
+/**
+ * AN ORPHAN IS CLAIMED ON THE NEXT TICK (Phase 6, 2026-10-31): a RUNNING
+ * tournament with no engine_tournament_leases row is held by nobody.
+ */
+describe('selectOrphanClaims', () => {
+  const board = ['a', 'b', 'c', 'd'].map((id) => ({ id }));
+  const pass = (over: Partial<OrphanClaimPass> = {}): OrphanClaimPass => ({
+    hasManager: () => false,
+    admissionInFlight: () => false,
+    hasLeaseRow: () => false,
+    coolingDown: () => false,
+    failedAttempts: () => 0,
+    ...over,
+  });
+
+  it('claims every unleased, unowned RUNNING row in board order', () => {
+    const leased = new Set(['b']);
+    expect(
+      selectOrphanClaims(board, pass({ hasLeaseRow: (id) => leased.has(id) })).map((t) => t.id)
+    ).toEqual(['a', 'c', 'd']);
+  });
+
+  it('skips rows with a local manager or an admission already in flight', () => {
+    expect(
+      selectOrphanClaims(
+        board,
+        pass({ hasManager: (id) => id === 'a', admissionInFlight: (id) => id === 'c' })
+      ).map((t) => t.id)
+    ).toEqual(['b', 'd']);
+  });
+
+  it('is bounded per tick, so a lease-table outage cannot become a claim storm', () => {
+    const big = Array.from({ length: ORPHAN_CLAIMS_PER_TICK * 3 }, (_, i) => ({ id: `t${i}` }));
+    expect(selectOrphanClaims(big, pass())).toHaveLength(ORPHAN_CLAIMS_PER_TICK);
+  });
+
+  it('ignores the resume budget: an orphan does not wait behind the AIMD budget', () => {
+    expect(selectOrphanClaims(board, pass(), 2).map((t) => t.id)).toEqual(['a', 'b']);
+  });
+
+  it('a failed orphan claim waits out its per-tournament cooldown (operator policy 2026-10-31)', () => {
+    expect(
+      selectOrphanClaims(board, pass({ coolingDown: (id) => id === 'b' })).map((t) => t.id)
+    ).toEqual(['a', 'c', 'd']);
+  });
+
+  it('stops claiming an orphan after ORPHAN_CLAIM_MAX_ATTEMPTS failures and hands it to the alert', () => {
+    const failures = new Map([['a', ORPHAN_CLAIM_MAX_ATTEMPTS], ['c', ORPHAN_CLAIM_MAX_ATTEMPTS - 1]]);
+    const p = pass({ failedAttempts: (id) => failures.get(id) ?? 0 });
+    expect(selectOrphanClaims(board, p).map((t) => t.id)).toEqual(['b', 'c', 'd']);
+    expect(exhaustedOrphans(board, p).map((t) => t.id)).toEqual(['a']);
+    // A leased or locally owned id is never "exhausted": it is not an orphan.
+    expect(
+      exhaustedOrphans(board, { ...p, hasLeaseRow: (id) => id === 'a' }).map((t) => t.id)
+    ).toEqual([]);
+  });
+
+  it('with the real cooldown memory, a failing orphan is claimed a bounded number of times, ever', () => {
+    const cooldowns = new RunningResumeCooldowns();
+    const p = (now: number) =>
+      pass({
+        coolingDown: (id) => cooldowns.coolingDown(id, now),
+        failedAttempts: (id) => cooldowns.failures(id),
+      });
+    const one = [{ id: 'x' }];
+    let claims = 0;
+    // Five-second passes for six hours; every claim fails.
+    for (let now = 0; now < 6 * 60 * 60_000; now += 5_000) {
+      for (const row of selectOrphanClaims(one, p(now))) {
+        claims++;
+        cooldowns.recordFailure(row.id, now);
+      }
+    }
+    expect(claims).toBe(ORPHAN_CLAIM_MAX_ATTEMPTS);
+    expect(exhaustedOrphans(one, p(6 * 60 * 60_000)).map((t) => t.id)).toEqual(['x']);
+    // The streak ends when the id gets a manager or leaves the board, and with it the cap.
+    cooldowns.settle([], () => false);
+    expect(cooldowns.failures('x')).toBe(0);
+  });
+});
+
+describe('the orphan lane is wired to the cooldown, the cap and the alert', () => {
+  it('passes the per-tournament cooldown and failure count into the orphan selection', () => {
+    expect(LANE_CODE).toMatch(/coolingDown:\s*\(id: string\)\s*=>\s*this\.tournamentResumeCooldowns\.coolingDown\(/);
+    expect(LANE_CODE).toMatch(/failedAttempts:\s*\(id: string\)\s*=>\s*this\.tournamentResumeCooldowns\.failures\(/);
+    expect(LANE).toMatch(/selectOrphanClaims\(running, orphanPass\)/);
+    expect(LANE).toMatch(/this\.alertExhaustedOrphanClaims\(exhaustedOrphans\(running, orphanPass\)\)/);
+  });
+
+  it('alerts on the existing financial-alert channel, once per streak, and never claims', () => {
+    const alert = blankNonCode(sliceMethod(SRC, 'private alertExhaustedOrphanClaims('));
+    expect(alert).toContain('raiseFinancialAlert(');
+    expect(alert).toContain('this.orphanClaimExhaustedAlerted.has(tournamentId)');
+    expect(alert).not.toContain('ensureTournamentManagerAdmission');
   });
 });
