@@ -221,16 +221,16 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272761,
-      "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+      "bytes": 273180,
+      "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47264,
-      "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
+      "bytes": 47374,
+      "sha256": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -6094,5 +6094,36 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "cashDecisionCustomManifestIdentity20261101": {
+    "scope": "Current custom cash qualification input identity only.",
+    "review": "Reviewed cash decision Chromium/WebKit browser step reuses the existing dist; additive .pw and recorded-input browser classification. Refresh only active workflow/classifier hashes in cash-native-hosted.manifest.json, whose load_inputs validator checks the fixed current files set; preserve that set and every financial source/command/assertion. No active nested binding requires a refresh. Historical qualification evidence and frozen Spin base bindings remain unchanged.",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "pins": [
+      {
+        "file": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 272761,
+          "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+        },
+        "current": {
+          "bytes": 273180,
+          "sha256": "64a4891092136d0eef96cc1862cc353de89441adbf4947ce05aab86a171928bc"
+        }
+      },
+      {
+        "file": "scripts/ci/classify-ci-changes.mjs",
+        "previous": {
+          "bytes": 47264,
+          "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
+        },
+        "current": {
+          "bytes": 47374,
+          "sha256": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+        }
+      }
+    ]
   }
 }
