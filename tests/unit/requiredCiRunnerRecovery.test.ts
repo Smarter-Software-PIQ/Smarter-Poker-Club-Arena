@@ -122,6 +122,22 @@ const normalizeTournamentCreateRequest = (job: { steps: Array<Record<string, unk
   job.steps.splice(index, 1);
 };
 
+const stallProgressStep = {
+  name: 'Stall closure requires an exact recorded hand',
+  if: 'matrix.shard == 7',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+  run: 'python3 -B scripts/ci/test-stall-progress-proof.py',
+};
+const normalizeStallProgressAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === stallProgressStep.name);
+  expect(job.steps.filter((step) => step.name === stallProgressStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe('Retain original Breakfast witness qualification');
+  expect(job.steps[index]).toStrictEqual(stallProgressStep);
+  expect(job.steps[index + 1]?.name).toBe('Certified V31 PostgreSQL 17 behavior gate');
+  // Enforce the exact additional gate, preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -132,6 +148,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    normalizeStallProgressAddition(normalized.jobs.accounting_postgres);
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
     // Review the added tournament gate exactly, then retain every existing job pin.
     for (const tournamentStep of [
@@ -359,6 +376,37 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       )
     ).toEqual(expectedJobs);
   });
+  it('rejects missing, duplicate, displaced or weakened stall progress qualification', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, index: number) => steps.splice(index, 1),
+      (steps: Array<Record<string, unknown>>, index: number) =>
+        steps.push(structuredClone(steps[index])),
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]];
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].run = String(steps[index].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].env = { PG_BIN: '/wrong' };
+      },
+    ];
+    for (const mutate of mutations) {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const index = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === stallProgressStep.name
+      );
+      mutate(job.steps, index);
+      expect(() => normalizeStallProgressAddition(job)).toThrow();
+    }
+  });
+
   it('rejects missing, duplicate, displaced or weakened frame cover qualification steps', () => {
     const mutations = [
       (steps: Array<Record<string, unknown>>, start: number) => steps.splice(start, 1),
