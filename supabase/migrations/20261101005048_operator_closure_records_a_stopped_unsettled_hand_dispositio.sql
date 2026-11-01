@@ -1,4 +1,4 @@
--- @live-proof: (SELECT bool_and(coalesce(md5(pg_get_functiondef(to_regprocedure(signature)))=expected,false)) FROM (VALUES ('fn_ca_ack_tournament_abort_boundary(uuid,uuid,uuid,uuid,bigint,jsonb)','7c0f9c9f2a8fd1e08002bc651bb635af'),('fn_ca_cancel_tournament_abort_unsettled_hand(uuid,uuid,uuid,uuid,uuid,text,jsonb)','2eb90c4b5312f3d2bca312f09410f4e0'),('fn_ca_tournament_abort_stop_state(uuid,uuid)','f74b1f0d1d87c46973983de3b0d1c145'),('smarter_private.assert_tournament_abort_absence(uuid,uuid,uuid,uuid,jsonb)','e9af6f4efecbb36d49a0856ed9e11c3c'),('smarter_private.f06_immutable_identity()','a0d8646624b3a0830c9a757723da0ddb'),('smarter_private.f06_retained_submission_guard()','44902103e4c5f0feba7d19081af4325e'),('smarter_private.tournament_abort_archived_write_guard()','355c603dfe781cad526e7885008722b4'),('smarter_private.tournament_abort_hand_image(uuid)','7b20a8a44796f434023eb0364e582f71'),('smarter_private.tournament_abort_pending(uuid)','76d438db7f3c86791e81eed9b16d4b0e')) x(signature,expected)) AND (SELECT count(*)=6 FROM pg_trigger WHERE tgname='tournament_abort_archived_write' AND tgenabled='O') AND (SELECT relrowsecurity FROM pg_class WHERE oid='smarter_private.tournament_abort_hand_dispositions'::regclass) AND NOT has_function_privilege('authenticated','public.fn_ca_cancel_tournament_abort_unsettled_hand(uuid,uuid,uuid,uuid,uuid,text,jsonb)','EXECUTE')
+-- @live-proof: (SELECT bool_and(coalesce(md5(pg_get_functiondef(to_regprocedure(signature)))=expected,false)) FROM (VALUES ('fn_ca_ack_tournament_abort_boundary(uuid,uuid,uuid,uuid,bigint,jsonb)','7c0f9c9f2a8fd1e08002bc651bb635af'),('fn_ca_cancel_tournament_abort_unsettled_hand(uuid,uuid,uuid,uuid,uuid,text,jsonb)','2eb90c4b5312f3d2bca312f09410f4e0'),('fn_ca_tournament_abort_stop_state(uuid,uuid)','f74b1f0d1d87c46973983de3b0d1c145'),('smarter_private.assert_tournament_abort_absence(uuid,uuid,uuid,uuid,jsonb)','e9af6f4efecbb36d49a0856ed9e11c3c'),('smarter_private.f06_immutable_identity()','a0d8646624b3a0830c9a757723da0ddb'),('smarter_private.f06_retained_submission_guard()','44902103e4c5f0feba7d19081af4325e'),('smarter_private.tournament_abort_archived_write_guard()','355c603dfe781cad526e7885008722b4'),('smarter_private.tournament_abort_hand_image(uuid)','7b20a8a44796f434023eb0364e582f71'),('smarter_private.tournament_abort_pending(uuid)','76d438db7f3c86791e81eed9b16d4b0e')) x(signature,expected)) AND (SELECT count(*)=6 FROM pg_trigger WHERE tgname='tournament_abort_archived_write' AND tgenabled='O' AND tgtype=23) AND (SELECT relrowsecurity FROM pg_class WHERE oid='smarter_private.tournament_abort_hand_dispositions'::regclass) AND NOT has_function_privilege('authenticated','public.fn_ca_cancel_tournament_abort_unsettled_hand(uuid,uuid,uuid,uuid,uuid,text,jsonb)','EXECUTE')
 -- 20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql
 --
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
@@ -319,6 +319,8 @@ END $function$
 
 -- A physical late writer shares the table lock with cancellation. Either its
 -- accepted outcome is observed first, or the immutable cancellation wins.
+-- Existing retention DELETEs cannot introduce a late accepted outcome and must
+-- remain available. The immutable archive itself retains the original images.
 CREATE FUNCTION smarter_private.tournament_abort_archived_write_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,smarter_private AS $fn$
 DECLARE tab uuid; event_id uuid;
@@ -339,12 +341,12 @@ BEGIN
  IF TG_OP='DELETE' THEN RETURN OLD;END IF;RETURN NEW;
 END $fn$;
 REVOKE ALL ON FUNCTION smarter_private.tournament_abort_archived_write_guard() FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE OR DELETE ON smarter_private.hand_continuations FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
-CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE OR DELETE ON smarter_private.hand_submissions FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
-CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE OR DELETE ON public.hand_state_snapshots FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
-CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE OR DELETE ON public.hand_history FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
-CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE OR DELETE ON smarter_private.f06_hand_dispatch FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
-CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE OR DELETE ON public.hand_atomic_commits FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
+CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE ON smarter_private.hand_continuations FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
+CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE ON smarter_private.hand_submissions FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
+CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE ON public.hand_state_snapshots FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
+CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE ON public.hand_history FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
+CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE ON smarter_private.f06_hand_dispatch FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
+CREATE TRIGGER tournament_abort_archived_write BEFORE INSERT OR UPDATE ON public.hand_atomic_commits FOR EACH ROW EXECUTE FUNCTION smarter_private.tournament_abort_archived_write_guard();
 
 DO $pin$ BEGIN IF md5(pg_get_functiondef('smarter_private.tournament_abort_pending(uuid)'::regprocedure))<>'57b7e46c04d323a1cfcb770635def66d' THEN RAISE EXCEPTION 'OPERATOR_CLOSURE_PENDING_PREIMAGE_CHANGED';END IF;END $pin$;
 CREATE OR REPLACE FUNCTION smarter_private.tournament_abort_pending(p_tournament_id uuid)

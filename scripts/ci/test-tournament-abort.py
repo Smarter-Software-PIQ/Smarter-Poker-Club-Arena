@@ -119,7 +119,7 @@ END$$;""")
    '--socket-root',str(a.socket_root),'--pg-bin',str(a.pg_bin)],check=True,timeout=180)
   boundary_report=json.loads((a.evidence/'closure-boundary/closure-boundary-report.json').read_text())
   assert boundary_report.get('passed') is True and boundary_report.get('cleanup')=={'stopped':True,'removed':True}
-  assert {'migration-live-proof','retained-private-original-preserved','late-atomic-not-committed','unbegun-park-archived-atomically'}<=set(boundary_report['cases'])
+  assert {'migration-live-proof','retained-private-original-preserved','late-atomic-not-committed','unbegun-park-archived-atomically','historical-retention-remains-available'}<=set(boundary_report['cases'])
   e.report['closure_boundary']={'passed':True,'report':'closure-boundary/closure-boundary-report.json'}
   e.report['passed']=True;e.report['status']='passed'
  finally:

@@ -88,6 +88,7 @@ DO $$BEGIN IF EXISTS(SELECT 1 FROM smarter_private.tournament_abort_hand_disposi
   # lock first, so the cancellation cannot race past its unresolved result.
   sql_file(e,db,'committed-isolated-race-scene',scene+'COMMIT;')
   concurrent=module(ROOT/'scripts/ci/test-tournament-cancellation-lane.py','closure_concurrent')
+  sql_file(e,db,'historical-atomic-retention-seed',"INSERT INTO public.hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result) VALUES('"+TABLE+"',51496616,gen_random_uuid(),repeat('b',64),'{}');")
   left=concurrent.Session(e,db);right=concurrent.Session(e,db)
   try:
    left.query("BEGIN;SELECT id FROM public.tables WHERE id='"+TABLE+"' FOR UPDATE;")
@@ -106,6 +107,7 @@ DO $$BEGIN IF EXISTS(SELECT 1 FROM smarter_private.tournament_abort_hand_disposi
    left.query('COMMIT;');right.read();right.query('ROLLBACK;')
    _,out,_=e.sql(db,"SELECT count(*) FROM public.hand_atomic_commits WHERE table_id='"+TABLE+"' AND hand_number=51496617;",label='late-atomic-not-committed');assert out.strip()=='0'
   finally:left.close();right.close()
+  sql_file(e,db,'historical-retention-remains-available',"BEGIN;DELETE FROM public.hand_atomic_commits WHERE table_id='"+TABLE+"' AND hand_number=51496616;DO $$BEGIN IF EXISTS(SELECT 1 FROM public.hand_atomic_commits WHERE table_id='"+TABLE+"' AND hand_number=51496616) OR NOT EXISTS(SELECT 1 FROM smarter_private.tournament_abort_hand_dispositions WHERE permit_id='"+PERMIT+"') THEN RAISE EXCEPTION 'retention did not preserve archival authority';END IF;END$$;ROLLBACK;")
   e.report['cases']=['browser-refused','changed-roster-refused','false-absence-refused','retained-disposition-refused','explicit-cancellation-retains-original','same-operation-replay','canonical-absence-ack','whole-transaction-rollback']
   e.report['cases']=[c['label'] for c in e.report['commands'] if c.get('exit_code')==0]
   e.report['source_sha256'][str(MIGRATION.relative_to(ROOT))]=hashlib.sha256(MIGRATION.read_bytes()).hexdigest()
