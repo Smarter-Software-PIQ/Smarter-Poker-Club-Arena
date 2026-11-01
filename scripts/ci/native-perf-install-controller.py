@@ -167,8 +167,18 @@ def verified_perf_path(qualified):
 
 
 def manager(op):
-    raw = run(['/usr/bin/systemctl', 'show', unit(op), '--property=LoadState,ActiveState,SubState,InvocationID,MainPID,ExecMainCode,ExecMainStatus,ControlGroup,Result'])
-    return dict(line.split('=', 1) for line in raw.decode().splitlines() if '=' in line)
+    # Same strict not-found admission as the qualified020c systemd_state.
+    fields = ('LoadState', 'ActiveState', 'SubState', 'InvocationID', 'MainPID',
+        'ExecMainCode', 'ExecMainStatus', 'ControlGroup', 'Result')
+    response = subprocess.run(['/usr/bin/systemctl', 'show', unit(op), '--no-pager',
+        '--property=' + ','.join(fields)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3)
+    raw = response.stdout
+    if len(raw) > 16384:
+        refuse('manager_identity_unproven')
+    values = dict(line.split('=', 1) for line in raw.decode().splitlines() if '=' in line)
+    if set(values) != set(fields) or response.returncode and values.get('LoadState') != 'not-found':
+        refuse('manager_identity_unproven')
+    return values
 
 
 def admit(native, op, expected, profile_sha):

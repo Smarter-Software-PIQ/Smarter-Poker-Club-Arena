@@ -79,6 +79,8 @@ def start_target(scene, machinery, folder):
     if scene.docker('network', 'ls', '--filter', 'name=^' + name + '$', '--format', '{{.ID}}'):
         raise RuntimeError('fixture_foreign_network_present')
     scene.network = scene.docker('network', 'create', name)
+    if not re.fullmatch(r'[0-9a-f]{64}', scene.network):
+        raise RuntimeError('fixture_network_identity_unproven')
     scene.resource_ack_unknown = False
     context = folder / 'node-image'; context.mkdir(mode=0o700)
     script = machinery.ENGINE_TARGET.split('const timer=', 1)[0].replace("const addon=require('/app/native/build/fixture_fault.node');\n", '')
@@ -266,6 +268,17 @@ def main():
                 raise RuntimeError('fixture_expiry_unproven')
             result['cases'].append({'case': 'actual180_second_manager_expiry', 'passed': True,
                 'elapsedSeconds': round(elapsed, 3), 'terminalEvidence': receipt['managerTerminalEvidence']})
+            # Retire only this already-terminal owned failed fixture unit so
+            # systemd may GC it. The original invocation's manager journal is
+            # now mandatory; no new transaction, expiry or native fault runs.
+            machinery.run(['systemctl', 'reset-failed', helper.unit(op)], check=False)
+            wait(lambda: scene.state(helper.unit(op)).get('LoadState') == 'not-found', 5)
+            gc_receipt = terminal(op, folder / 'installer.py', '0' * 64)
+            if gc_receipt['managerTerminalEvidence'] != 'manager_terminal_journal' or gc_receipt['installationVerified']:
+                raise RuntimeError('fixture_unit_gc_unproven')
+            result['cases'].append({'case': 'forced_unit_gc_journal_readback', 'passed': True,
+                'sameInvocation': gc_receipt['sameInvocation'], 'helperCgroupEmpty': gc_receipt['helperCgroupEmpty'],
+                'terminalEvidence': gc_receipt['managerTerminalEvidence'], 'productionInstallationQualified': False})
             result['qualified'] = True
     except Exception as error:
         known = {'fixture_deadline', 'fixture_real_root_systemd_required', 'fixture_foreign_installer_state_present',
@@ -274,8 +287,8 @@ def main():
             'fixture_false_installation_claim', 'fixture_expiry_unproven',
             'fixture_original_package_profile_unproven', 'fixture_public_deb_unproven',
             'fixture_install_interval_not_observed', 'fixture_exact_install_path_unproven',
-            'fixture_foreign_network_present', 'fixture_health_only_target_unproven', 'fixture_target_image_unproven',
-            'fixture_terminal_receipt_unproven'}
+            'fixture_foreign_network_present', 'fixture_network_identity_unproven', 'fixture_health_only_target_unproven', 'fixture_target_image_unproven',
+            'fixture_terminal_receipt_unproven', 'fixture_unit_gc_unproven'}
         result['reason'] = str(error) if str(error) in known else 'fixture_lifecycle_unproven'
     finally:
         signal.alarm(0)  # Parent reserves180s for the bounded Scene cleanup.

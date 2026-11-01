@@ -9,6 +9,34 @@ helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 
 
+class ManagerState(unittest.TestCase):
+    def response(self, code, load='loaded', missing=None, extra=False, oversized=False):
+        fields = {'LoadState': load, 'ActiveState': 'inactive', 'SubState': 'dead',
+            'InvocationID': '', 'MainPID': '0', 'ExecMainCode': '0', 'ExecMainStatus': '0',
+            'ControlGroup': '', 'Result': 'success'}
+        if missing is not None: fields.pop(missing)
+        if extra: fields['Unexpected'] = 'refuse'
+        raw = ''.join(key + '=' + value + '\n' for key, value in fields.items()).encode()
+        if oversized: raw += b'x' * 16385
+        return helper.subprocess.CompletedProcess([], code, raw, b'')
+
+    def test_exact_notfound_nonzero_reaches_journal_fallback(self):
+        with patch.object(helper.subprocess, 'run', return_value=self.response(4, 'not-found')):
+            self.assertEqual(helper.manager('123')['LoadState'], 'not-found')
+
+    def test_arbitrary_nonzero_incomplete_extra_and_oversized_refuse(self):
+        for response in (self.response(1), self.response(4, 'not-found', missing='Result'),
+                self.response(4, 'not-found', extra=True), self.response(0, oversized=True)):
+            with self.subTest(response=response), patch.object(helper.subprocess, 'run', return_value=response):
+                with self.assertRaises(RuntimeError): helper.manager('123')
+
+    def test_loaded_zero_keeps_exact_property_contract(self):
+        with patch.object(helper.subprocess, 'run', return_value=self.response(0)) as command:
+            self.assertEqual(helper.manager('123')['LoadState'], 'loaded')
+            self.assertEqual(command.call_args.kwargs['timeout'], 3)
+            self.assertIn('--no-pager', command.call_args.args[0])
+
+
 class DraftBoundaries(unittest.TestCase):
     def receipt_value(self):
         return {'schema': 'native-perf-install/v1', 'operation': '123', 'readOnly': True,
