@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc } }));
 import {
@@ -26,7 +26,17 @@ const page = (payments = [row()], over: Record<string, unknown> = {}) => ({
   next_before_id: null,
   ...over,
 });
-beforeEach(() => rpc.mockReset());
+beforeEach(() => {
+  rpc.mockReset();
+});
+function answered(value: unknown) {
+  const promise = Promise.resolve(value);
+  const builder = {
+    abortSignal: (_signal: AbortSignal) => builder,
+    then: promise.then.bind(promise),
+  };
+  return builder;
+}
 
 describe('Tournament Payment Read Model', () => {
   it.each([
@@ -82,7 +92,7 @@ describe('Tournament Payment Read Model', () => {
   });
 
   it('uses the authenticated RPC without accepting a caller-selected user and propagates failures', async () => {
-    rpc.mockResolvedValueOnce({ data: page(), error: null });
+    rpc.mockReturnValueOnce(answered({ data: page(), error: null }));
     const cursor = { createdAt: row().created_at, id: 'previous' };
     await getMyTournamentPayments('player', { tournamentId: 'event', clubId: 'club' }, cursor);
     expect(rpc).toHaveBeenCalledWith('fn_ca_my_tournament_payments', {
@@ -93,7 +103,44 @@ describe('Tournament Payment Read Model', () => {
       p_limit: 50,
     });
     const failure = { code: '42501', message: 'denied' };
-    rpc.mockResolvedValueOnce({ data: null, error: failure });
+    rpc.mockReturnValueOnce(answered({ data: null, error: failure }));
     await expect(getMyTournamentPayments('player')).rejects.toEqual(failure);
   });
 });
+
+afterEach(() => vi.useRealTimers());
+it.each([null, { createdAt: '2026-09-09T21:00:00Z', id: 'previous' }])(
+  'settles a stalled payment read as unknown, including later pages (%s)',
+  async (cursor) => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    let release!: (value: unknown) => void;
+    const response = new Promise((resolve) => {
+      release = resolve;
+    });
+    const builder = {
+      abortSignal: (value: AbortSignal) => {
+        signal = value;
+        return builder;
+      },
+      then: response.then.bind(response),
+    };
+    rpc.mockReturnValue(builder);
+    let outcome = 'pending';
+    const result = getMyTournamentPayments('player', {}, cursor).then(
+      () => {
+        outcome = 'success';
+      },
+      () => {
+        outcome = 'unknown';
+      }
+    );
+    await vi.advanceTimersByTimeAsync(12000);
+    expect(outcome).toBe('unknown');
+    expect(signal?.aborted).toBe(true);
+    release({ data: page(), error: null });
+    await result;
+    expect(outcome).toBe('unknown');
+    expect(rpc).toHaveBeenCalledTimes(1);
+  }
+);

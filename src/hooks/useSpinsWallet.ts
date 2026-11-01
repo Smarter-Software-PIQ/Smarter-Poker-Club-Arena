@@ -61,7 +61,11 @@ export interface SpinsWallet {
  * @param enabled  skip the request entirely when the surface would not show it.
  */
 export function useSpinsWallet(ownerKey: string | null | undefined, enabled = true): SpinsWallet {
-  const [state, setState] = useState<SpinOwnerState | null>(null);
+  const [snapshot, setSnapshot] = useState<{
+    ownerKey: string | null | undefined;
+    userId: string | undefined;
+    state: SpinOwnerState | null;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [nonce, setNonce] = useState(0);
   /** The nonce this hook has already fetched for. */
@@ -70,7 +74,14 @@ export function useSpinsWallet(ownerKey: string | null | undefined, enabled = tr
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
+  // Effects run after render: clearing state only in the effect still exposes
+  // the previous club/account for one render. Scope the exposed value too.
+  const matchesScope = snapshot?.ownerKey === ownerKey && snapshot?.userId === userId;
+  const state = enabled && ownerKey && matchesScope ? (snapshot?.state ?? null) : null;
+
   useEffect(() => {
+    const setState = (next: SpinOwnerState | null) =>
+      setSnapshot({ ownerKey, userId, state: next });
     if (!enabled || !ownerKey) {
       setState(null);
       /* AND CLEAR loading. Without this a request in flight when the club
@@ -111,6 +122,7 @@ export function useSpinsWallet(ownerKey: string | null | undefined, enabled = tr
         return;
       }
     } else {
+      setState(null);
       setLoading(true);
     }
 
@@ -150,7 +162,7 @@ export function useSpinsWallet(ownerKey: string | null | undefined, enabled = tr
 
   return {
     state,
-    loading,
+    loading: Boolean(enabled && ownerKey && (loading || !matchesScope)),
     active: Boolean(state?.is_active),
     balance: Number(state?.balance ?? 0),
     reload,
