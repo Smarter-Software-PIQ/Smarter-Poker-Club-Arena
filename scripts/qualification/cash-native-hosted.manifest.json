@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272389,
-      "sha256": "c8cdb3700fd947321f42fecc2627657ee2217ce7df5f372558de2513679a8409"
+      "bytes": 272483,
+      "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -325,8 +325,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 119070,
-      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+      "bytes": 119330,
+      "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
     }
   },
   "nativePgCron": {
@@ -5910,16 +5910,97 @@
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
   },
-  "playwrightHostedImageSourceAudit20261101": {
-    "reason": "Current native hosted input identity only: CI build, css-beats-e2e and diamond-playfield-e2e use standard ubuntu-24.04 for supported Playwright 1.58 browser dependencies. No financial command, SQL, fixture, assertion, deadline, historical qualification or live/native certificate changed.",
-    "previousCiPin": {
+  "chromiumHostedImageCompatibility20261031": {
+    "reason": "Only the three affected browser jobs (Diamond playfield, Production Build performance browser, CSS Beat) select proven free hosted Ubuntu24.04 because their locked browser installer refuses Ubuntu26.04. All matrices, commands, financial gates, assertions, deadlines and historical qualification receipts are preserved. Current source identity only.",
+    "previous": {
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     },
-    "currentCiPin": {
-      "bytes": 272389,
-      "sha256": "c8cdb3700fd947321f42fecc2627657ee2217ce7df5f372558de2513679a8409"
+    "current": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
     },
-    "execution_performed": false
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "pgNetHostedImageCompatibility20261031": {
+    "reason": "Only accounting shard2 selects proven free hosted Ubuntu24.04 for unchanged pinned pg_net0.19.5 native compilation; all other accounting shards retain ubuntu-latest. Every matrix case, command, deadline, source/library pin and financial assertion remains unchanged. Current source identity only.",
+    "previous": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "current": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "pgNetAccountingRouteContract20261031": {
+    "reason": "Only four exact accounting runner expectations match the closed shard2 Ubuntu24.04 route. Current source identity only; all financial commands/assertions and historical evidence remain unchanged.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous": {
+      "bytes": 119070,
+      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+    },
+    "current": {
+      "bytes": 119330,
+      "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "browserRunnerCompatibility20261101": {
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "reason": "Reviewed four browser-job runner labels only: Ubuntu24.04 supports locked Playwright1.58 after ubuntu-latest advanced to26.04. Every cash qualification command, input, assertion and native verdict unchanged; current workflow identity only."
+  },
+  "nativeRunnerCompatibility20261101": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "current": {
+      "bytes": 272348,
+      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
+    }
+  },
+  "nativeFixtureRunnerContract20261101": {
+    "reason": "Align four accounting OS assertions with the qualified Ubuntu24.04 runner correction. Preserve all native fixture commands, financial assertions, budgets and historical evidence. 764 focused contracts passed.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous": {
+      "bytes": 119070,
+      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+    },
+    "current": {
+      "bytes": 119066,
+      "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "equalShareMainIntegration20261101": {
+    "reason": "Integrate protected main shard2-only accounting runner and three browser pins; preserve live-e2e Ubuntu24.04. Reviewed current source identity only; no financial SQL or historical qualification restamp.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 272484,
+          "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+        },
+        "current": {
+          "bytes": 272483,
+          "sha256": "87755315da3952855ca27a6e049659ec1e39797b481ae61269cb10981aefda5f"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }
