@@ -17,3 +17,7 @@ their matrix job also selects the supported image, preserving all twenty shards.
 Current CI source bindings record these exact runner changes separately from
 historical financial evidence. No browser upgrade, alternative provider or
 gameplay change is introduced.
+
+The parallel-delivery contract also asserts the exact supported image for these
+three named CI jobs; every other CI and publication job retains its prior runner
+expectation and the prohibition on custom or self-hosted runners.
