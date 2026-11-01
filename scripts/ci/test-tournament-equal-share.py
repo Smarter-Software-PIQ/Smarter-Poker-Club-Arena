@@ -10,6 +10,7 @@ from tournament_abort_registry_native import install_and_reproduce_registry_guar
 ROOT=Path(__file__).resolve().parents[2]
 ABORT=ROOT/'supabase/migrations/20261030161824_started_tournament_abort_uses_original_charges_and_a_drained.sql'
 MIGRATION=ROOT/'supabase/migrations/20261101004247_started_tournament_abort_supports_equal_share_settlement.sql'
+RETIREMENT=ROOT/'supabase/migrations/20261101174851_equal_share_retirement_preserves_preactivation_mystery_bount.sql'
 def main():
  p=argparse.ArgumentParser();p.add_argument('--evidence',type=Path,required=True);p.add_argument('--work-root',type=Path,required=True);p.add_argument('--socket-root',type=Path,required=True);p.add_argument('--pg-bin',type=Path,required=True)
  a=p.parse_args();a.evidence.mkdir(parents=True,exist_ok=False);a.work_root.mkdir(parents=True,exist_ok=True);a.socket_root.mkdir(parents=True,exist_ok=True)
@@ -58,14 +59,19 @@ def main():
   event='d3000000-0000-4000-8000-000000000002';op='ac000000-0000-4000-8000-000000000001';table='ad000000-0000-4000-8000-000000000001'
   sql_file(e,db,'second-funded-entry-and-prior-award',"BEGIN;SELECT set_config('request.jwt.claims','{\"sub\":\"d1000000-0000-4000-8000-000000000002\",\"role\":\"authenticated\",\"session_id\":\"d4000000-0000-4000-8000-000000000003\"}',true),set_config('request.jwt.claim.role','authenticated',true),set_config('request.jwt.claim.sub','d1000000-0000-4000-8000-000000000002',true);SET LOCAL ROLE authenticated;SELECT public.fn_register_for_tournament_request('"+event+"','ec000000-0000-4000-8000-000000000001');RESET ROLE;"+SERVICE+"SELECT public.fn_credit_and_log('d1000000-0000-4000-8000-000000000001',0.01,'tourney:"+event+":native-earlier-award','prize','Native earlier paid award preserved','"+event+"','PLAYER',NULL,NULL,NULL,'reconcile');COMMIT;")
   sql_file(e,db,'local-playing-scene',"BEGIN;SET LOCAL session_replication_role=replica;UPDATE tournament_players SET status='playing' WHERE tournament_id='"+event+"';COMMIT;")
+  from equal_share_mystery_retirement import seed as seed_mystery, qualify as qualify_mystery, verify as verify_mystery
+  seed_mystery(e,db,event)
   money_hash=prepare_quiesced(e,db,event,op,table)
+  qualify_mystery(e,db,ROOT,event,op,money_hash,RETIREMENT)
   from equal_share_native_cases import exercise,diamond_cases,capacity_case
-  exercise(e,db,ROOT,event,op,money_hash,'chip',[90,89.99],20)
+  receipt=exercise(e,db,ROOT,event,op,money_hash,'chip',[90,89.99],20)
+  verify_mystery(e,db,event,receipt)
   diamond_cases(e,db,ROOT,diamond)
   capacity_case(e,db,ROOT)
   _,postimages,_=e.sql(db,"SELECT jsonb_object_agg(p.oid::regprocedure::text,md5(pg_get_functiondef(p.oid))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','smarter_private') AND p.proname IN ('fn_ca_preview_tournament_abort_equal_share','fn_ca_settle_tournament_abort_equal_share','tournament_equal_share_receipt','equal_share_retirement_must_close','fn_refuse_zero_chip_field_elimination','fn_credit_and_log','fn_ca_tournament_cancellation_receipt');",label='equal-share-qualified-postimages')
   e.report['postimages']=json.loads(postimages.strip())
   e.report['source_sha256'].update({str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [MIGRATION,Path(__file__),ROOT/'scripts/ci/equal_share_native_cases.py',ROOT/'tests/fixtures/tournament-fee-lifecycle/full-lifecycle-earning.sql']})
+  e.report['source_sha256'].update({str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [RETIREMENT,ROOT/'scripts/ci/equal_share_mystery_retirement.py']})
   e.report['passed']=True;e.report['status']='passed'
  finally:
   e.close();(a.evidence/'equal-share-report.json').write_text(json.dumps(e.report,indent=2)+'\n')
