@@ -1,0 +1,129 @@
+import importlib.util
+import json
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location('installer', Path(__file__).resolve().parents[2] / 'scripts/ci/native-perf-install-controller.py')
+helper = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(helper)
+
+
+class DraftBoundaries(unittest.TestCase):
+    def receipt_value(self):
+        return {'schema': 'native-perf-install/v1', 'operation': '123', 'readOnly': True,
+            'profileSHA256': 'a' * 64, 'sourceSHA256': 'b' * 64, 'profilePurpose': 'production',
+            'engineSHA': 'e' * 40, 'originalIdentitySHA256': 'f' * 64,
+            'sameInvocation': True, 'terminal': True, 'helperCgroupEmpty': True, 'installationVerified': True,
+            'productionInstallationQualified': True, 'wrapperKernelDispatchQualified': True,
+            'reason': 'install_verified', 'managerTerminalEvidence': 'loaded_manager_state',
+            'identityControllerSHA256': helper.CONTROLLER_SHA, 'retryAllowed': False, 'nativeCauseProven': False}
+
+    def outcome(self, raw, status=0):
+        return helper.receipt_outcome(raw, '123', 'a' * 64, 'b' * 64, 'production', 'e' * 40, status)
+
+    def test_exact_bound_closed_receipt_and_transport_failure(self):
+        raw = json.dumps(self.receipt_value()).encode()
+        self.assertTrue(self.outcome(raw)['validReceipt'])
+        failed = self.outcome(raw, 100)
+        self.assertFalse(failed['validReceipt'])
+        self.assertEqual(failed['transportExit'], 100)
+        self.assertFalse(failed['installationVerified'])
+
+    def test_wrong_bindings_extra_keys_duplicates_and_boolean_coercion_refuse(self):
+        for key, value in [('operation', '124'), ('profileSHA256', 'c' * 64), ('sourceSHA256', 'd' * 64),
+                ('profilePurpose', 'isolated-qualification'), ('identityControllerSHA256', 'e' * 64),
+                ('engineSHA', 'a' * 40), ('originalIdentitySHA256', 'bad'),
+                ('terminal', 1), ('helperCgroupEmpty', False), ('managerTerminalEvidence', 'unproven'),
+                ('hole_cards', 'NEVER_EXPORT')]:
+            item = self.receipt_value(); item[key] = value
+            result = self.outcome(json.dumps(item).encode())
+            self.assertFalse(result['validReceipt'], key)
+            self.assertNotIn('NEVER_EXPORT', json.dumps(result))
+        raw = json.dumps(self.receipt_value()).encode()
+        self.assertFalse(self.outcome(raw[:-1] + b',"terminal":true}')['validReceipt'])
+        self.assertFalse(self.outcome(b'x' * 16385)['validReceipt'])
+
+    def test_controller_refusal_is_closed_without_raw_error(self):
+        value = {'schema': 'native-perf-install/v1', 'installationVerified': False,
+            'reason': 'package_plan_refused', 'retryAllowed': False}
+        self.assertEqual(self.outcome(json.dumps(value).encode())['refusalCode'], 'package_plan_refused')
+        value['reason'] = 'PRIVATE RAW ERROR'
+        result = self.outcome(json.dumps(value).encode())
+        self.assertFalse(result['validReceipt'])
+        self.assertNotIn('PRIVATE RAW ERROR', json.dumps(result))
+
+    def example(self):
+        # Synthetic parser data ONLY; never emitted as an eligible profile.
+        return {'schema': 'native-perf-install-profile/v1', 'qualified': True, 'purpose': 'production',
+            'os': 'ubuntu', 'version': '24.04', 'arch': 'amd64', 'kernel': '6.8.0-147-generic',
+            'qualificationRun': '123', 'packages': [
+                {'package': name, 'version': '6.8.0-147.147', 'architecture': 'all' if name == 'linux-tools-common' else 'amd64',
+                 'bytes': 100, 'sha256': 'a' * 64} for name in
+                ('linux-tools-common', 'linux-tools-6.8.0-147', 'linux-tools-6.8.0-147-generic')]}
+
+    def test_profile_requires_exact_digest_and_qualified_exact_platform(self):
+        raw = json.dumps(self.example()).encode()
+        self.assertEqual(helper.profile(raw, helper.digest(raw))['qualificationRun'], '123')
+        with self.assertRaises(RuntimeError):
+            helper.profile(raw, 'b' * 64)
+        for field, value in [('qualified', False), ('kernel', '6.8.0-148-generic'), ('arch', 'arm64')]:
+            data = self.example()
+            data[field] = value
+            raw = json.dumps(data).encode()
+            with self.assertRaises(RuntimeError):
+                helper.profile(raw, helper.digest(raw))
+
+    def test_fixture_kernel_is_explicit_and_never_a_production_profile(self):
+        data = self.example()
+        data['purpose'] = 'isolated-qualification'
+        data['kernel'] = '7.0.0-1017-azure'
+        raw = json.dumps(data).encode()
+        self.assertEqual(helper.profile(raw, helper.digest(raw))['kernel'], data['kernel'])
+        self.assertEqual(helper.verified_perf_path(data), '/usr/lib/linux-tools-6.8.0-147/perf')
+        data['purpose'] = 'production'
+        with self.assertRaises(RuntimeError):
+            helper.verified_perf_path(data)
+        raw = json.dumps(data).encode()
+        with self.assertRaises(RuntimeError):
+            helper.profile(raw, helper.digest(raw))
+        self.assertEqual(helper.verified_perf_path(self.example()), '/usr/bin/perf')
+
+    def test_duplicate_and_large_package_profile_refuses(self):
+        for change in ('duplicate', 'size'):
+            data = self.example()
+            if change == 'duplicate':
+                data['packages'][1] = data['packages'][0]
+            else:
+                data['packages'][0]['bytes'] = 64 * 1024 * 1024
+            raw = json.dumps(data).encode()
+            with self.assertRaises(RuntimeError):
+                helper.profile(raw, helper.digest(raw))
+
+    def test_unit_is_finite_exec_and_only_own_cgroup(self):
+        args = helper.unit_arguments('123', Path('/var/lib/club-arena-perf-install/123/installer.py'))
+        for flag in ('--service-type=exec', '--property=RuntimeMaxSec=180', '--property=KillMode=control-group', '--property=Restart=no', '--property=Slice=system.slice'):
+            self.assertIn(flag, args)
+        with self.assertRaises(RuntimeError):
+            helper.unit_arguments('../foreign', Path('/anything'))
+
+    def test_helper_claim_cannot_fake_manager_success(self):
+        record = {'invocation': 'a' * 32, 'profileSHA256': 'b' * 64, 'sourceSHA256': 'c' * 64,
+            'target': {'sha': 'e' * 40},
+            'operation': '123', 'cleanup': 'retained_public_packages_only', 'result': 'install_verified', 'serviceResult': True, 'exitZero': True}
+        class Native:
+            trusted_directory = staticmethod(lambda path: path)
+            read_json = staticmethod(lambda path: record)
+        state = {'InvocationID': 'a' * 32, 'ActiveState': 'inactive', 'SubState': 'dead',
+            'Result': 'success', 'ExecMainCode': '1', 'ExecMainStatus': '0', 'ControlGroup': ''}
+        with patch.object(helper, 'manager', return_value=state), patch.object(helper, 'read', return_value=b'fixture source'), patch.object(helper, 'digest', return_value='c' * 64):
+            self.assertTrue(helper.receipt(Native, '123')['installationVerified'])
+            state['ExecMainStatus'] = '1'
+            self.assertFalse(helper.receipt(Native, '123')['installationVerified'])
+            state['ExecMainStatus'] = '0'
+            state['InvocationID'] = 'd' * 32
+            self.assertFalse(helper.receipt(Native, '123')['installationVerified'])
+
+
+if __name__ == '__main__':
+    unittest.main()

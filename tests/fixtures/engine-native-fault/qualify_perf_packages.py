@@ -61,14 +61,14 @@ def closed_failure(error, phase):
     return result
 
 
-def run(args, cwd=None, limit=131072, accepted=(0,)):
+def run(args, cwd=None, limit=131072, accepted=(0,), timeout=90):
     remaining = DEADLINE - time.monotonic()
     if remaining <= 0:
         raise Failure('qualification_deadline')
     with tempfile.TemporaryFile() as output:
         try:
             result = subprocess.run(args, cwd=cwd, env=ENV, stdin=subprocess.DEVNULL,
-                stdout=output, stderr=subprocess.DEVNULL, timeout=min(remaining, 90), check=False)
+                stdout=output, stderr=subprocess.DEVNULL, timeout=min(remaining, timeout), check=False)
         except subprocess.TimeoutExpired:
             raise Failure('qualification_command_timeout') from None
         output.seek(0)
@@ -94,7 +94,7 @@ def services():
 
 
 def qualify(folder, public_folder):
-    global PHASE
+    global PHASE, DEADLINE
     os_info = dict(line.split('=', 1) for line in Path('/etc/os-release').read_text().splitlines() if '=' in line)
     if os.geteuid() != 0 or os_info.get('ID') != 'ubuntu' or os_info.get('VERSION_ID', '').strip('"') != '24.04' or platform.machine() != 'x86_64':
         raise Failure('real_ubuntu24_amd64_required')
@@ -163,7 +163,24 @@ def qualify(folder, public_folder):
     # These are disposable CI-host packages. Root reviews the resulting exact
     # package/control/hook profile before any production installer is admitted.
     PHASE = 'actual_package_install'
-    run([*args, '-y', 'install', *requested], limit=262144)
+    # Preparation keeps its original240s cap. The new child owns300s
+    # execution plus180s cleanup; never launch it on a depleted prior budget.
+    DEADLINE = time.monotonic() + 480
+    # Same actual host-owned installer transaction as production, configured
+    # honestly for this isolated host kernel. No direct APT install bypass.
+    run(['/usr/bin/python3', '-B', str(ROOT / 'tests/fixtures/engine-native-fault/qualify_perf_install.py'),
+        '--scene', str(ROOT / 'tests/fixtures/engine-native-fault/qualify_host_unit.py'),
+        '--profile', str(ROOT / 'scripts/ci/native-perf-install-profile.json'),
+        '--packages', str(public_folder),
+        '--output', str(public_folder.parent / 'installer-qualification.json')], timeout=480)
+    # This child owns230s plus10s cleanup; allow5s process/report reserve.
+    DEADLINE = time.monotonic() + 245
+    common = next(row for row in rows if row['package'] == 'linux-tools-common')
+    archive = next(path for path in public_folder.glob('*.deb') if sha(path.read_bytes()) == common['sha256'])
+    run(['/usr/bin/python3', '-B', str(ROOT / 'tests/fixtures/engine-native-fault/qualify_perf_missing_archive.py'),
+        '--deb', str(archive), '--sha256', common['sha256'],
+        '--output', str(public_folder.parent / 'missing-archive-qualification.json')], timeout=245)
+    DEADLINE = time.monotonic() + 90  # Existing final service/package readbacks.
     PHASE = 'service_identity_after'
     after = services()
     if before != after:
@@ -208,6 +225,13 @@ def main():
     finally:
         outcome['helperSHA256'] = sha((ROOT / 'scripts/ci/native-perf-install.py').read_bytes())
         outcome['fixtureSHA256'] = sha(Path(__file__).read_bytes())
+        outcome['sourceBindings'] = {name: sha((ROOT / name).read_bytes()) for name in (
+            'scripts/ci/native-perf-install-controller.py', 'scripts/ci/native-perf-install-stage.py',
+            'scripts/ci/native-perf-install-provider.py', 'scripts/ci/native-perf-install-profile.json',
+            'scripts/ci/native-fault-observation.py',
+            'tests/fixtures/engine-native-fault/qualify_perf_install.py',
+            'tests/fixtures/engine-native-fault/qualify_perf_missing_archive.py',
+            '.github/workflows/profile-engine-main-thread.yml')}
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(outcome, separators=(',', ':')))
     if not outcome['qualified']:
