@@ -35,6 +35,24 @@ function manager(engines: [string, any][], failing: string[] = []) {
 }
 
 describe('a stuck table hands the event to a fresh generation', () => {
+  it('retains the deliberate closure after the stopped dealer leaves the registries', async () => {
+    const engine = { stop: vi.fn(async () => undefined) };
+    const m = manager([[STUCK, engine]], [STUCK]);
+    m.tableEngineRecoveryTimers = new Map();
+    m.tableEngineRecoveryExpected = new Map();
+    m.tableEngineRecoveryAttempts = new Map();
+    m.gameServer.unregisterTournamentTableEngine = vi.fn(() => true);
+    await m.retireClosedDiamondTournamentTable(STUCK, engine);
+    expect(engine.stop).toHaveBeenCalledOnce();
+    expect(m.tableEngines.size).toBe(0);
+    expect(m.tableAdmissionFailingSince.size).toBe(0);
+    expect(m.deliberateDealingHold(Date.now())).toBe('diamond_tournament_policy_closed');
+    m.tableEngines.set(A, eng(false, true));
+    expect(m.deliberateDealingHold(Date.now())).toBeNull();
+    TournamentManagerBase['forgetTableAdmissionStreak'](m, STUCK);
+    expect(m.tableAdmissionPolicyClosure.size).toBe(0);
+  });
+
   it('retains the owner when the actual admission guard positively closes its tournament', () => {
     const m = manager([[STUCK, eng(false, true)]], [STUCK]);
     let refusal: unknown;

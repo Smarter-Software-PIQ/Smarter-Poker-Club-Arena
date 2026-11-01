@@ -57,6 +57,46 @@ export function haltedPageRetryDelayMs(consecutiveStalls: number): number {
   const doublings = Math.min(Math.floor(consecutiveStalls) - 1, 30);
   return Math.min(SETTLEMENT_INTERVAL_MS, CATCH_UP_DELAY_MS * 2 ** doublings);
 }
+
+/**
+ * A WATERMARK MORE THAN ONE INTERVAL BEHIND RUNS BACK TO BACK (Phase 6,
+ * 2026-10-31). The watermark stalled 61 minutes when the fixed 30-minute
+ * interval skipped a cycle: the 60 s catch-up only re-armed one bounded
+ * cycle at a time behind whatever else the process was doing. Now, while a
+ * cycle ends with backlog still owed AND the watermark is more than one
+ * SETTLEMENT_INTERVAL_MS behind the clock AND the cycle made progress, the
+ * next cycle starts at once - each still bounded by MAX_DRAIN_BATCHES - up to
+ * CATCH_UP_BACK_TO_BACK_MAX cycles in a row, after which the ordinary 60 s
+ * pacing resumes. A cycle that made no progress never runs back to back: a
+ * failing database still gets the doubling back-off.
+ */
+export const CATCH_UP_BACK_TO_BACK_MAX = 6;
+export const SETTLER_INTERVAL_MS = SETTLEMENT_INTERVAL_MS;
+
+/** How far the durable watermark trails the clock, or null when unknown. */
+export function watermarkLagMs(createdAt: string | null | undefined, nowMs: number): number | null {
+  if (!createdAt) return null;
+  const at = Date.parse(createdAt);
+  return Number.isFinite(at) ? Math.max(0, nowMs - at) : null;
+}
+
+/** The delay before the next catch-up cycle, or null for none. Pure. */
+export function catchUpDelayMs(input: {
+  backlogRemains: boolean;
+  lagMs: number | null;
+  consecutiveStalls: number;
+  backToBackRuns: number;
+}): number | null {
+  if (!input.backlogRemains) return null;
+  if (
+    input.consecutiveStalls === 0 &&
+    input.lagMs !== null &&
+    input.lagMs > SETTLEMENT_INTERVAL_MS &&
+    input.backToBackRuns < CATCH_UP_BACK_TO_BACK_MAX
+  )
+    return 0;
+  return haltedPageRetryDelayMs(input.consecutiveStalls);
+}
 /**
  * How many per-player credits to hand the server in one batched call.
  *
@@ -804,6 +844,14 @@ export class RakebackSettlerService {
    * CATCH_UP_DELAY_MS. Same work, same batch semantics, just sooner.
    */
   private catchUpHandle: ReturnType<typeof setTimeout> | null = null;
+  /** Consecutive catch-up cycles started at once (Phase 6); bounded. */
+  private backToBackRuns = 0;
+  /**
+   * A back-to-back cycle is launched from runSettlement's own finally, the
+   * instant isSettling clears - never from a timer, which would fire while
+   * this cycle's tail still holds isSettling and be skipped as an overlap.
+   */
+  private runAgainWhenIdle: number | null = null;
   /**
    * A TICK THE FREEZE ATE IS STILL OWED (2026-09-21).
    *
@@ -1017,6 +1065,8 @@ export class RakebackSettlerService {
       clearTimeout(this.catchUpHandle);
       this.catchUpHandle = null;
     }
+    this.runAgainWhenIdle = null;
+    this.backToBackRuns = 0;
     // A live thaw listener holding a fenced generation is exactly the
     // post-stop admission race the lifecycle exists to close. Drop it, and
     // forget the debt: the next start() opens a new generation and its own
@@ -1056,12 +1106,31 @@ export class RakebackSettlerService {
       this.catchUpHandle = null;
     }
     if (!backlogRemains || generation === null || !this.lifecycleIsCurrent(generation)) {
+      this.backToBackRuns = 0;
       return;
     }
+    const lagMs = watermarkLagMs(this.cursor?.createdAt, Date.now());
+    const delay =
+      catchUpDelayMs({
+        backlogRemains,
+        lagMs,
+        consecutiveStalls: this.consecutiveStalls,
+        backToBackRuns: this.backToBackRuns,
+      }) ?? haltedPageRetryDelayMs(this.consecutiveStalls);
+    if (delay === 0) {
+      this.backToBackRuns += 1;
+      console.warn(
+        `[RakebackSettler] watermark ${Math.round((lagMs ?? 0) / 60_000)} min behind - ` +
+          `running catch-up cycle ${this.backToBackRuns}/${CATCH_UP_BACK_TO_BACK_MAX} back to back`
+      );
+      this.runAgainWhenIdle = generation;
+      return;
+    }
+    this.backToBackRuns = 0;
     this.catchUpHandle = setTimeout(() => {
       this.catchUpHandle = null;
       this.launchSettlement(generation, 'RakebackSettler.catch_up_run');
-    }, haltedPageRetryDelayMs(this.consecutiveStalls));
+    }, delay);
     // Never hold the process open for a catch-up tick.
     (this.catchUpHandle as unknown as { unref?: () => void }).unref?.();
   }
@@ -1398,6 +1467,10 @@ export class RakebackSettlerService {
         await this.runTournamentChipConservation();
       } finally {
         this.isSettling = false;
+        // Phase 6: the back-to-back catch-up starts now that this cycle is idle.
+        const again = this.runAgainWhenIdle;
+        this.runAgainWhenIdle = null;
+        if (again !== null) this.launchSettlement(again, 'RakebackSettler.back_to_back_run');
       }
     } finally {
       releaseLifecycle();

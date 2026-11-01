@@ -2375,6 +2375,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Hold em premium aggression'
   ),
   receipt(
+    'holdem_no_four_bet_bluff',
+    'HorseLogic.decide (HorseHoldemPremiumAggression)',
+    'NLH sized re-raise over a 3-bet with a hand below QQ+/AK turned into a call (no 4-bet made to fold)',
+    'Hold em premium aggression'
+  ),
+  receipt(
+    'holdem_four_bettor_continues',
+    'HorseLogic.decide (HorseHoldemPremiumAggression)',
+    'NLH fold after the horse own 4-bet was re-raised turned into a call (AA/KK jam)',
+    'Hold em premium aggression'
+  ),
+  receipt(
     'short_all_in_call_floor',
     'HorseLogic.decide (HorseShortAllInCallFloor)',
     'Tournament fold facing an all in under 3 big blinds with 20+ big blinds behind turned into a call',

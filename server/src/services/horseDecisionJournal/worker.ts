@@ -1,6 +1,12 @@
 import { isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { HorseDecisionJournalStore, horseJournalCapacityReason } from './store.js';
 import { horseJournalFailureKind } from './failure.js';
+import {
+  journalPressureRetentionSegments,
+  journalPressureTrimEnabled,
+  memoryGovernorThresholds,
+  memoryPressureLevel,
+} from '../../observability/memoryGovernor.js';
 
 if (isMainThread || !parentPort) throw Error('Horse journal requires its private worker');
 const port = parentPort;
@@ -8,6 +14,10 @@ try {
   const store = new HorseDecisionJournalStore(workerData.directory, {
     archive: workerData.archive,
   });
+  const thresholds = memoryGovernorThresholds(process.env);
+  // Only an enforcing governor (MEMORY_GOVERNOR_MODE=enforce) may bound the
+  // ring; observe mode leaves the configured allocation alone.
+  const pressureTrimEnabled = journalPressureTrimEnabled(process.env);
   port.on('message', (message: unknown) => {
     if (message && typeof message === 'object' && 'type' in message && message.type === 'STOP') {
       store.close();
@@ -54,6 +64,24 @@ try {
       // legacy spool and the archive both do), so this thread does not walk
       // each record's body a second time on its way in.
       const records = batch.records as import('./record.js').HorseJournalRecord[];
+      // MEMORY GOVERNOR (Phase 6): whole-process RSS is readable from this
+      // thread, so the writer bounds its own ring while the process is over
+      // the soft ceiling, with no message from the main thread to lose.
+      if (workerData.archive && pressureTrimEnabled) {
+        let rssMb = Number.NaN;
+        try {
+          rssMb = process.memoryUsage.rss() / 1e6;
+        } catch {
+          rssMb = Number.NaN;
+        }
+        store.setPressureRetention(
+          journalPressureRetentionSegments(
+            memoryPressureLevel(rssMb, thresholds),
+            workerData.archive.maxSegments,
+            store.heldSegmentCount()
+          )
+        );
+      }
       const statuses = store.appendBatch(records);
       port.postMessage({
         type: 'ACK',

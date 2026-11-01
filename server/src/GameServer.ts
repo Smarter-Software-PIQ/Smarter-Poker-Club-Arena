@@ -3,6 +3,7 @@ import {
   ORIGINAL_RECOVERY_TWENTY,
 } from './handlers/tournamentOriginalRecovery.js';
 import { mttPrizeShare } from './services/mttHorseArrivalPlan.js';
+import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
   createCompletedF06DiagnosticWindow,
@@ -202,7 +203,14 @@ import {
   leaseRenewalLoopRunning,
   leaseRenewalLoopRelaunchesTotal,
 } from './observability/engineInstruments.js';
-import { processMemoryHealth } from './observability/processMemory.js';
+import { processMemoryHealth, sampleProcessMemory } from './observability/processMemory.js';
+import { MemoryGovernor } from './observability/memoryGovernor.js';
+import {
+  pendingPostCommitObservation,
+  pendingPostCommitPrometheusLines,
+  readPendingPostCommitCount,
+  recoverPendingPostCommitObligations,
+} from './lightning/LightningPostCommitRecovery.js';
 import { clientConnectionPrometheusLines } from './observability/ClientConnectionEvents.js';
 import {
   planTableReopens,
@@ -217,6 +225,7 @@ import {
   renewLeadership,
   LEADERSHIP_STALE_SECONDS,
   startLeadershipRenewal,
+  requestLeadershipHandOff,
   stopLeadershipRenewal,
   releaseLeadership,
   isLeader,
@@ -310,6 +319,9 @@ import {
   RunningResumeCooldowns,
   awaitsFirstDeal,
   resumesHoldingASlot,
+  exhaustedOrphans,
+  ORPHAN_CLAIM_MAX_ATTEMPTS,
+  selectOrphanClaims,
   selectRunningResumes,
 } from './tournamentResumeBudget.js';
 import { QuarantinedTournamentManagers } from './tournament/quarantinedTournamentManagers.js';
@@ -2141,6 +2153,37 @@ export class GameServer {
   private readonly processStartedAt: number = Date.now();
   /** Where boot time goes, phase by phase, published on /health as bootPhases. */
   private readonly bootTimeline = new BootPhaseTimeline();
+  /**
+   * MEMORY GOVERNOR (Phase 6, 2026-10-31). Over the soft RSS ceiling no NEW
+   * cash table engine is admitted (running tables and tournaments continue)
+   * and the Horse journal writers bound their archive ring; over the hard
+   * ceiling for three samples the process requests ONE controlled drain and
+   * leader hand-off instead of waiting for the kernel's SIGKILL. State is on
+   * /health as memoryGovernor. See observability/memoryGovernor.ts.
+   */
+  private readonly memoryGovernor = new MemoryGovernor({
+    sampleRssBytes: () => sampleProcessMemory().rssBytes,
+    processStartedAt: this.processStartedAt,
+    onHandOff: (reason) => {
+      reportError(new Error(`Engine memory hard ceiling: ${reason}`), 'GameServer.memory_hand_off');
+      requestLeadershipHandOff(reason);
+    },
+    // Detection only: observe mode, hardAction=alert, or the uptime guard.
+    onHardCeilingWithheld: (reason) =>
+      reportError(
+        new Error(`Engine memory hard ceiling (no action): ${reason}`),
+        'GameServer.memory_hard_ceiling_observed'
+      ),
+    onPressureChange: (level, rssMb, enforcing) =>
+      console.warn(
+        `[GameServer] memory governor -> ${level} (rss ${rssMb} MB); ` +
+          (!enforcing
+            ? 'observe mode: no action taken'
+            : level === 'normal'
+              ? 'admitting new tables again'
+              : 'new cash tables held')
+      ),
+  });
   private tournamentEngines: Map<string, TournamentManager> = new Map();
   /** Cursor for the existing bounded never-dealt candidate pass; no new timer. */
   private neverDealtCandidateCursor: string | null = null;
@@ -3745,6 +3788,8 @@ export class GameServer {
   private readonly darkTournamentFirstSeenAtMs = new Map<string, number>();
   /** When each long-failing resume / repeat-dark event was last paged. */
   private readonly failingResumePagedAtMs = new Map<string, number>();
+  /** Orphans whose claim attempts ran out and have been alerted (once per streak). */
+  private readonly orphanClaimExhaustedAlerted = new Set<string>();
   private readonly darkAfterRebuildPagedAtMs = new Map<string, number>();
   static readonly DARK_TOURNAMENT_LIVE_MINUTES = 15;
   static readonly DARK_TOURNAMENT_REBUILD_EVERY_MS = 30 * 60 * 1000;
@@ -4190,6 +4235,69 @@ export class GameServer {
     );
   }
 
+  /**
+   * Seed MaintenanceBreak.breaksSinceRestartCertified from the newest
+   * engine_maintenance_break_log row, but only when that row was written by
+   * this same engine build (a crash restart, not a certified cutover).
+   * Best-effort: a failed read leaves the counter at zero, as before.
+   */
+  private async restoreBreaksSinceRestartCertified(): Promise<void> {
+    try {
+      const { data, error } = await supabase
+        .from('engine_maintenance_break_log')
+        .select('breaks_since_restart_certified, engine_version')
+        .order('break_started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data) return;
+      const row = data as {
+        breaks_since_restart_certified?: number | null;
+        engine_version?: string;
+      };
+      if (row.engine_version !== ENGINE_RELEASE_IDENTITY.version) return;
+      const n = Number(row.breaks_since_restart_certified ?? 0);
+      this.maintenanceBreak.restoreBreaksSinceRestartCertified(n);
+    } catch (error) {
+      console.warn('[GameServer] could not restore breaksSinceRestartCertified', error);
+    }
+  }
+
+  /**
+   * PENDING POST-COMMIT OBLIGATIONS AT A BREAK ANNOUNCEMENT (Phase 6,
+   * 2026-10-31). Detection only: count what is still pending, publish it, and
+   * raise ClubArenaPostCommitObligationsPending when it is non-zero (resolve
+   * it at zero). Never drains; an unreadable count changes nothing.
+   */
+  private async alertOnPendingPostCommitObligations(): Promise<void> {
+    try {
+      const seen = await readPendingPostCommitCount('break_announcement');
+      if (seen.count === null) return;
+      if (seen.count > 0) {
+        const shown = `${seen.count}${seen.capped ? '+' : ''}`;
+        await raiseEngineAlert({
+          alertname: 'ClubArenaPostCommitObligationsPending',
+          severity: 'critical',
+          component: 'club-arena-engine',
+          summary: `${shown} committed hand(s) have post-commit obligations still pending at the break announcement`,
+          description:
+            'hand_atomic_commits rows with a post_commit_payload and no post_commit_completed_at, ' +
+            'committed more than 15 s ago. Nothing drains them on a timer (operator policy); the ' +
+            'startup pass drains once per process. /health lightningPostCommitPending and ' +
+            '/metrics poker_lightning_post_commit_pending carry the count.',
+          labels: { pending: shown },
+        });
+      } else {
+        await resolveEngineAlert(
+          'ClubArenaPostCommitObligationsPending',
+          'club-arena-engine',
+          'No post-commit obligations pending at the break announcement'
+        );
+      }
+    } catch (error) {
+      reportError(error, 'GameServer.post_commit_pending_alert_failed');
+    }
+  }
+
   private readonly maintenanceBreak: MaintenanceBreak = new MaintenanceBreak({
     onFinancialDrainChanged: () => {
       void this.weeklyPayoutPause
@@ -4202,6 +4310,10 @@ export class GameServer {
       void this.refreshWeeklyPayout().catch((error) =>
         reportError(error, 'GameServer.weekly_payout_announcement_unknown')
       );
+      // Phase 6: committed hands' post-commit envelopes still pending at the
+      // announcement are COUNTED and alerted, not drained (operator policy:
+      // no new recurring repair loop). The startup pass is the only drain.
+      void this.alertOnPendingPostCommitObligations();
     },
     financialPayoutActive: () => this.weeklyPayoutPause.snapshot() !== null,
     claimOperatorAnnouncement: async (announcedAt) => {
@@ -4264,6 +4376,8 @@ export class GameServer {
           tables_resumed: o.tablesResumed,
           thaw_ok: o.thawOk,
           engine_version: ENGINE_RELEASE_IDENTITY.version,
+          // Phase 6: the shut-gate count is in the database, not only /metrics.
+          breaks_since_restart_certified: o.breaksSinceRestartCertified,
         });
         if (error) throw new Error(error.message);
       } finally {
@@ -4272,6 +4386,42 @@ export class GameServer {
         // re-drive the durable queue now instead of polling throughout the
         // break or waiting for an unrelated tournament discovery pass.
         this.requestPendingTournamentBountyRecovery();
+      }
+    },
+    /* THE SECOND BREAK (Phase 6, 2026-10-31). Detection only: operator policy
+       forbids fencing live tables automatically, so the stragglers a second
+       consecutive uncertified break still holds are reported by reason here
+       and in engine_maintenance_break_faults, and the operator decides. */
+    onRestartCertification: (breaks, stragglersByReason) => {
+      if (breaks >= MaintenanceBreak.UNCERTIFIED_BREAKS_ALERT_AT) {
+        const byReason =
+          Object.entries(stragglersByReason)
+            .map(([reason, n]) => `${reason}=${n}`)
+            .join(',') || 'none';
+        void raiseEngineAlert({
+          alertname: 'ClubArenaRestartGateShut',
+          severity: 'critical',
+          component: 'club-arena-engine',
+          summary: `${breaks} consecutive maintenance breaks ended with no restart certificate`,
+          description:
+            'The engine cannot be replaced: every release waits for a break whose restart gate ' +
+            'opens, and the last ' +
+            breaks +
+            ' did not. Tables still unparked at this second consecutive break, by reason: ' +
+            byReason +
+            '. Nothing is fenced automatically; engine_maintenance_break_faults stage ' +
+            "'restart_gate' names each one, and /health maintenance.secondBreak says why.",
+          labels: {
+            breaks_since_restart_certified: String(breaks),
+            second_break_stragglers_by_reason: byReason,
+          },
+        }).catch(() => undefined);
+      } else if (breaks === 0) {
+        void resolveEngineAlert(
+          'ClubArenaRestartGateShut',
+          'club-arena-engine',
+          'A maintenance break certified a restart'
+        ).catch(() => undefined);
       }
     },
     // WHY A BREAK DID NOT RUN (2026-09-10): the 00:00 and 07:00 breaks were
@@ -4472,6 +4622,7 @@ export class GameServer {
        was never sampled, which is exactly when it should be shedding load.
        Unref'd, so it can never hold the process open. */
     equityGovernor.startSampling();
+    this.memoryGovernor?.start();
 
     console.log('═══════════════════════════════════════════════════════════════');
     console.log(' SMARTER POKER GAME SERVER - Starting...');
@@ -4739,6 +4890,16 @@ export class GameServer {
       await this.startWeeklyPayout();
       await this.maintenanceBreak.start();
       endBreakAdoptionPhase();
+      // Phase 6: a crash restart on the SAME build has not been replaced, so
+      // the shut-gate count carries over from the durable break log. Not
+      // awaited: a slow read must not hold the boot.
+      void this.restoreBreaksSinceRestartCertified();
+      // Phase 6: whatever a previous process committed but never finished
+      // (LightningHandHost gives up after its budget) is drained once now,
+      // then counted for /health and /metrics. One-shot; never recurs.
+      void recoverPendingPostCommitObligations('startup')
+        .then(() => readPendingPostCommitCount('startup'))
+        .catch((error) => reportError(error, 'GameServer.startup_post_commit_obligations_unread'));
       if (!this.directAdmissionIsCurrent(generation)) return;
 
       // Subscribe before tournament discovery starts. Any action committed
@@ -5017,6 +5178,7 @@ export class GameServer {
     // leak - but a stopped engine should not keep reading a loop it no
     // longer drives.
     equityGovernor.stopSampling();
+    this.memoryGovernor?.stop();
     const stoppingGeneration = this.lifecycleGeneration;
     this.running = false;
     this.leaderBootComplete = false;
@@ -5875,6 +6037,10 @@ export class GameServer {
        * events that cannot resume.
        */
       tournamentResumesFailing: this.tournamentResumeCooldowns.size,
+      /* Phase 6: committed Lightning hands whose post-commit envelope is still
+         pending, as of the last count (startup or break announcement). Null
+         until the first count. Detection only. */
+      lightningPostCommitPending: pendingPostCommitObservation(),
       /* Managers that could not be stopped and still hold their slot, and the
          RUNNING tournaments nobody is dealing as a result. Before 2026-09-21
          the only hint either existed was that activeTournaments (472) quietly
@@ -5924,6 +6090,9 @@ export class GameServer {
       // Unavailable /proc observations are null. The legacy arena field is
       // [heap] virtual extent, not RSS or allocation ownership.
       memory: processMemoryHealth(),
+      // Phase 6: what the process is DOING about that memory (soft: no new
+      // cash tables + journal ring bounded; hard: controlled hand-off).
+      memoryGovernor: this.memoryGovernor?.health() ?? null,
       // The one process-wide FIFO that owns live HorseLogic state. Queue depth
       // and phase distinguish worker pressure/failure from main-loop pressure;
       // solver store counts prove the worker reached an authoritative READY.
@@ -6023,7 +6192,7 @@ export class GameServer {
         tables: tableLiveness.length,
         stalled: stalledTables.length,
         undealable: tableLiveness.filter((t) => t.dealable <= 0).length,
-        maxMsSinceProgress: tableLiveness.reduce((max, t) => Math.max(max, t.msSinceProgress), 0),
+        maxMsSinceProgress: fleetStallMaxMs(tableLiveness),
         dealableSeats: tableLiveness.reduce((sum, t) => sum + t.dealable, 0),
         /* `stalled` above cannot see these: a tournament table whose engine was
            registered and never started reports dealable 0, and every stall
@@ -6422,9 +6591,9 @@ export class GameServer {
        * fleet from paying the old price all over again, and the two counters
        * beside it mean the truncation is never silent (CLAUDE.md 10.86).
        */
-      '# HELP poker_fleet_table_stall_max_ms Milliseconds since the least-recently-progressed table made progress',
+      '# HELP poker_fleet_table_stall_max_ms Milliseconds since the least-recently-progressed table that should be dealing (two or more dealable seats, not paused by design inside its bound) made progress',
       '# TYPE poker_fleet_table_stall_max_ms gauge',
-      `poker_fleet_table_stall_max_ms ${liveness.reduce((max, t) => Math.max(max, t.msSinceProgress), 0)}`,
+      `poker_fleet_table_stall_max_ms ${fleetStallMaxMs(liveness)}`,
       '# HELP poker_fleet_tables_stalled Dealable tables (two or more seats that can be dealt) that have made no observable progress for at least 30s; a table below its deal minimum is waiting, not stalled',
       '# TYPE poker_fleet_tables_stalled gauge',
       `poker_fleet_tables_stalled ${liveness.filter((t) => t.dealable >= 2 && t.msSinceProgress >= STALL_SAMPLE_FLOOR_MS).length}`,
@@ -6437,10 +6606,13 @@ export class GameServer {
       '# HELP poker_fleet_per_table_liveness_samples Per-table liveness samples this exposition carries',
       '# TYPE poker_fleet_per_table_liveness_samples gauge',
       `poker_fleet_per_table_liveness_samples ${stalledSamples.length + undealableSamples.length}`,
-      '# HELP poker_table_ms_since_progress Milliseconds since this table last made observable progress (stalled tables only)',
+      '# HELP poker_table_ms_since_progress Milliseconds since this table last made observable progress (stalled tables only); paused="1" marks a table stopped on purpose by a pause authority (hand-for-hand, break, deal hold)',
       '# TYPE poker_table_ms_since_progress gauge',
       ...stalledSamples.map(
-        (t) => `poker_table_ms_since_progress{table_id="${t.tableId}"} ${t.msSinceProgress}`
+        // 2026-10-31: the database stall watch reads this per-table line and
+        // cannot otherwise tell a hand-for-hand or break pause from a stall.
+        (t) =>
+          `poker_table_ms_since_progress{table_id="${t.tableId}",paused="${t.paused ? 1 : 0}"} ${t.msSinceProgress}`
       ),
       '# HELP poker_table_dealable_seats Seats able to be dealt into on this table (undealable tables only)',
       '# TYPE poker_table_dealable_seats gauge',
@@ -6656,6 +6828,8 @@ export class GameServer {
     // Fleet-independent, so it rides with the freeze block: an empty fleet
     // still has a hand index that can fall behind.
     freeze.push(...this.statsHealth.prometheusLines());
+    // Phase 6: pending post-commit obligations at the last count.
+    freeze.push(...pendingPostCommitPrometheusLines());
 
     if (allLines.length === 0) {
       // Still emit freeze metrics: "no engines at all" is itself the loudest
@@ -8111,6 +8285,10 @@ export class GameServer {
 
           // Skip if already running
           if (this.tableEngines.has(row.table_id)) continue;
+          // MEMORY GOVERNOR (Phase 6): over the soft RSS ceiling no NEW table
+          // engine is built; running tables are untouched and the next sweep
+          // adopts this one as soon as pressure lifts.
+          if (this.memoryGovernor && !this.memoryGovernor.admitsNewTables()) break;
           // Held on a standing retained-hand refusal: not a start, not a
           // spent budget slot, not a log line (2026-09-29).
           if (this.retainedHandHeld(row.table_id)) continue;
@@ -10318,6 +10496,37 @@ export class GameServer {
     );
   }
 
+  /**
+   * Every tournament id holding an engine_tournament_leases row, any holder,
+   * any heartbeat age. Null when the read is incomplete or fails: the orphan
+   * claim then claims nothing, because an unknown lease is not a missing one.
+   */
+  private async readTournamentLeaseRowIds(): Promise<Set<string> | null> {
+    try {
+      const page = await fetchAllRows<{ tournament_id: string }>(
+        (cursor, want) => {
+          let query = supabase
+            .from('engine_tournament_leases')
+            .select('tournament_id')
+            .order('tournament_id', { ascending: true })
+            .limit(want);
+          if (cursor) query = query.gt('tournament_id', cursor);
+          return query;
+        },
+        { label: 'GameServer.tournamentLeaseRows', maxRows: 50_000, idKey: 'tournament_id' }
+      );
+      if (
+        !page.complete ||
+        page.rows.some((row) => typeof row?.tournament_id !== 'string' || !row.tournament_id)
+      )
+        return null;
+      return new Set(page.rows.map((row) => row.tournament_id));
+    } catch (error) {
+      reportError(error, 'GameServer.tournament_lease_rows_unreadable');
+      return null;
+    }
+  }
+
   private async discoverRunningResumes(): Promise<void> {
     const generation = this.lifecycleGeneration;
     while (this.directAdmissionIsCurrent(generation)) {
@@ -10415,8 +10624,44 @@ export class GameServer {
          * head of events that cannot resume could hold every slot while no
          * younger event was ever adopted. See tournamentResumeBudget.ts.
          */
+        /* ORPHANS FIRST (Phase 6, 2026-10-31). A RUNNING tournament with no
+           engine_tournament_leases row is held by nobody anywhere; the leader
+           claims it on this pass, ahead of the budget. The lease table is
+           read whole; an unreadable read yields NO orphans (unknown is not
+           "unleased"), so an outage cannot become a storm. A failed claim
+           waits out the same per-tournament cooldown as any resume, and after
+           ORPHAN_CLAIM_MAX_ATTEMPTS failures the orphan lane stops and raises
+           a financial alert instead (operator policy: no new repair loops). */
+        const orphanClaims: typeof running = [];
+        if (running.length > 0 && isLeader()) {
+          const leased = await this.readTournamentLeaseRowIds();
+          if (!this.directAdmissionIsCurrent(generation)) break;
+          if (leased) {
+            const orphanAt = Date.now();
+            const orphanPass = {
+              hasLeaseRow: (id: string) => leased.has(id),
+              hasManager: (id: string) => this.tournamentEngines.has(id),
+              admissionInFlight: (id: string) =>
+                this.tournamentManagerAdmissionOperations.has(id) ||
+                this.tournamentManagerAdmissionRetryTimers.has(id),
+              coolingDown: (id: string) => this.tournamentResumeCooldowns.coolingDown(id, orphanAt),
+              failedAttempts: (id: string) => this.tournamentResumeCooldowns.failures(id),
+            };
+            orphanClaims.push(...selectOrphanClaims(running, orphanPass));
+            this.alertExhaustedOrphanClaims(exhaustedOrphans(running, orphanPass));
+            if (orphanClaims.length > 0)
+              console.warn(
+                `[GameServer] claiming ${orphanClaims.length} RUNNING tournament(s) with no lease row: ` +
+                  orphanClaims
+                    .slice(0, 5)
+                    .map((t) => String(t.id).slice(0, 8))
+                    .join(', ')
+              );
+          }
+        }
+        const orphanIds = new Set(orphanClaims.map((t) => String(t.id)));
         const selectedAt = Date.now();
-        const resumes = selectRunningResumes(running, {
+        const budgeted = selectRunningResumes(running, {
           hasManager: (id) => this.tournamentEngines.has(id),
           admissionInFlight: (id) =>
             this.tournamentManagerAdmissionOperations.has(id) ||
@@ -10440,6 +10685,7 @@ export class GameServer {
             this.tournamentManagerAdmissionRetryTimers.size,
           budget: this.tournamentResumeBudget,
         });
+        const resumes = [...orphanClaims, ...budgeted.filter((t) => !orphanIds.has(String(t.id)))];
         for (const [index, tournament] of resumes.entries()) {
           if (!this.directAdmissionIsCurrent(generation)) break;
           if (index > 0) await this.sleep(TOURNAMENT_RESUME_STAGGER_MS);
@@ -12239,6 +12485,38 @@ export class GameServer {
   }
 
   /**
+   * AN ORPHAN THE LANE GAVE UP ON IS PAGED, NOT RETRIED (Phase 6, operator
+   * policy 2026-10-31). One CRITICAL financial alert per RUNNING tournament
+   * with no lease row whose claim failed ORPHAN_CLAIM_MAX_ATTEMPTS times in a
+   * row; the set is pruned to the current exhausted ids, so a streak that ends
+   * (a manager, or the id leaves the board) and comes back alerts again.
+   */
+  private alertExhaustedOrphanClaims(exhausted: ReadonlyArray<{ id: string | number }>): void {
+    const live = new Set(exhausted.map((row) => String(row.id)));
+    for (const tournamentId of [...this.orphanClaimExhaustedAlerted]) {
+      if (!live.has(tournamentId)) this.orphanClaimExhaustedAlerted.delete(tournamentId);
+    }
+    for (const tournamentId of live) {
+      if (this.orphanClaimExhaustedAlerted.has(tournamentId)) continue;
+      this.orphanClaimExhaustedAlerted.add(tournamentId);
+      const failures = this.tournamentResumeCooldowns.failures(tournamentId);
+      void raiseFinancialAlert(
+        'critical',
+        'GameServer.tournament_orphan_claim_exhausted',
+        `Tournament ${tournamentId} is RUNNING with no engine_tournament_leases row and the leader's ` +
+          `orphan claim failed ${failures} time(s) (cap ${ORPHAN_CLAIM_MAX_ATTEMPTS}); the orphan lane ` +
+          'has stopped claiming it. Its players are seated with no dealer. Read the engine log for ' +
+          'its admission refusal',
+        { tournament_id: tournamentId, failures, max_attempts: ORPHAN_CLAIM_MAX_ATTEMPTS },
+        `tournament-orphan-claim-exhausted:${tournamentId}`,
+        tournamentId
+      ).catch((alertError) =>
+        reportError(alertError, 'GameServer.tournament_orphan_claim_alert_failed', { tournamentId })
+      );
+    }
+  }
+
+  /**
    * A RESUME THAT KEEPS FAILING IS PAGED (2026-10-08). See
    * RunningResumeCooldowns.longStreaks for the 14.4-hour outage this exists
    * for. One CRITICAL financial alert per tournament whose resume has been
@@ -13259,6 +13537,11 @@ export class GameServer {
 
     await this.awaitDirectTableLeaseRelease(tableId);
     if (!this.dealerAdmissionIsCurrent(generation)) return 'not_wakeable';
+    // MEMORY GOVERNOR (Phase 6): no new engine over the soft RSS ceiling.
+    // Retryable, so the bounded direct-recovery backoff asks again later.
+    // Optional: admission paths are also exercised on prototype-built servers
+    // (tests) that never ran the field initialisers; no governor admits.
+    if (this.memoryGovernor && !this.memoryGovernor.admitsNewTables()) return 'retryable_failure';
     // A table the retained-hand door refused is held, not rebuilt: no read,
     // no lease, no engine and no log until its recheck is due.
     if (this.retainedHandHeld(tableId)) return 'retained_hand_refused';

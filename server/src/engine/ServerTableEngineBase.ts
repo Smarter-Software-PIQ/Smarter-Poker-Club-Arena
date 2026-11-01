@@ -228,7 +228,9 @@ import type { TableStatus } from '../types.js';
 import { assertDiamondTable } from '../domain/DiamondCashBoundary.js';
 import {
   DiamondCashPolicyClosedError,
+  DiamondTournamentPolicyClosedError,
   type CashTablePolicyRefusal,
+  type TournamentTablePolicyRefusal,
 } from '../services/cashTablePlayEligibility.js';
 
 export type EngineLeaseAuthority =
@@ -509,6 +511,15 @@ export abstract class ServerTableEngineBase {
 
   getStartupPolicyRefusal(): Readonly<CashTablePolicyRefusal> | null {
     return this.startupPolicyRefusal;
+  }
+  private startupTournamentPolicyRefusal: Readonly<TournamentTablePolicyRefusal> | null = null;
+  /**
+   * A Diamond tournament table whose arena's tournaments are closed (owner
+   * decision, 2026-10-31). Published before ready=false so the manager retires
+   * the table quietly instead of retrying it into the same answer.
+   */
+  getStartupTournamentPolicyRefusal(): Readonly<TournamentTablePolicyRefusal> | null {
+    return this.startupTournamentPolicyRefusal;
   }
   /**
    * The retained-hand door refused this cash table's start from durable
@@ -4417,6 +4428,21 @@ export abstract class ServerTableEngineBase {
         throw err;
       }
       if (
+        err instanceof DiamondTournamentPolicyClosedError &&
+        err.tableId === this.tableId &&
+        this.loopPhase === 'start_load_table'
+      ) {
+        // A closed Diamond arena is a decision, not a crash: no failed_to_start
+        // report, no watchdog kill. Published before ready=false.
+        this.startupTournamentPolicyRefusal = Object.freeze({
+          code: err.code,
+          tableId: err.tableId,
+          arenaId: err.arenaId,
+        });
+        this.fenceTerminalEngine('startup_policy_closed', false);
+        throw err;
+      }
+      if (
         err instanceof RetainedHandSubmissionRefusedError &&
         err.tableId === this.tableId &&
         this.engineLeaseScope === 'cash'
@@ -7042,6 +7068,19 @@ export abstract class ServerTableEngineBase {
    */
   hasSettlementInFlight(): boolean {
     return (this.settlementInFlight?.size ?? 0) > 0;
+  }
+
+  /**
+   * Accounting genuinely in flight: a settlement write, or a time-bank debit
+   * pending or of unknown outcome. The second-break restart gate (Phase 6)
+   * records a table for which this is true as refusing_accounting_pending.
+   */
+  hasAccountingInFlight(): boolean {
+    return (
+      this.hasSettlementInFlight() ||
+      this.timeBankAccountingUnconfirmed ||
+      (this.timeBankAccountingPending?.size ?? 0) > 0
+    );
   }
 
   /** Continuous age of the owned settlement; null after completion. */

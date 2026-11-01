@@ -1,6 +1,6 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TournamentBreakScreen from '../../src/components/table/TournamentBreakScreen';
 
 const state = vi.hoisted(() => ({
@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   error: false,
   queries: 0,
   hold: null as Promise<void> | null,
+  metadataHold: null as Promise<void> | null,
   listeners: new Map<string, () => void>(),
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
@@ -50,16 +51,19 @@ vi.mock('../../src/lib/supabase', () => ({
           limit = value;
           return query;
         },
-        maybeSingle: async () => ({
-          data: {
-            current_level: state.level,
-            blind_level_state: state.snapshot,
-            blind_structure: state.structure,
-            prize_pool: 1700,
-            current_players: state.total,
-          },
-          error: null,
-        }),
+        maybeSingle: async () => {
+          await state.metadataHold;
+          return {
+            data: {
+              current_level: state.level,
+              blind_level_state: state.snapshot,
+              blind_structure: state.structure,
+              prize_pool: 1700,
+              current_players: state.total,
+            },
+            error: null,
+          };
+        },
         then: (resolve: any, reject: any) => {
           state.queries++;
           const rows = state.rows.filter(
@@ -102,6 +106,7 @@ beforeEach(() => {
   ];
   state.error = false;
   state.hold = null;
+  state.metadataHold = null;
   state.queries = 0;
   state.listeners.clear();
   state.rows = Array.from({ length: 73 }, (_, i) => ({
@@ -207,6 +212,55 @@ describe('live break standings', () => {
     expect(players()).toBe('72');
     expect(screen.queryByText('Standings Unavailable')).toBeNull();
   });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+it('releases unreadable metadata and can refresh on a later committed event', async () => {
+  vi.useFakeTimers();
+  state.metadataHold = new Promise(() => {});
+  render(<TournamentBreakScreen {...props} />);
+  await flush();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(screen.getByText('Standings Unavailable')).toBeVisible();
+  state.metadataHold = null;
+  await act(async () => {
+    state.listeners.get('event')!();
+  });
+  expect(players()).toBe('73');
+});
+
+it('performs the pending committed-event read after metadata times out', async () => {
+  vi.useFakeTimers();
+  state.metadataHold = new Promise(() => {});
+  const view = render(<TournamentBreakScreen {...props} />);
+  await flush();
+  state.metadataHold = null;
+  state.rows = state.rows.slice(1);
+  await act(async () => {
+    state.listeners.get('event')!();
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(players()).toBe('72');
+  expect(screen.queryByText('Loading Standings')).toBeNull();
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
+});
+it('retires a hung metadata deadline when the break closes', async () => {
+  vi.useFakeTimers();
+  state.metadataHold = new Promise(() => {});
+  const view = render(<TournamentBreakScreen {...props} />);
+  await flush();
+  view.unmount();
+  await flush();
+  expect(vi.getTimerCount()).toBe(0);
+  expect(state.listeners.size).toBe(0);
 });
 
 describe('authoritative paused tournament blinds', () => {

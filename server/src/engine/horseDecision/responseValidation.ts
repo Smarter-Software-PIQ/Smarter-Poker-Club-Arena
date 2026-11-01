@@ -27,6 +27,7 @@ import { JOINT_LIVE_DOMAIN } from '../multiway/JointLivePolicy.js';
 import { horsePhase13ContinuationVersion } from '../HorsePhase13Authority.js';
 import { PLO_PAIRED_BOARD_VARIANTS } from '../HorsePloPairedBoardFold.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
+import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -884,6 +885,26 @@ function policyGraphIsValid(
       previous !== null &&
       previous.action === 'fold' &&
       (context === undefined || shortAllInSpot(context.player, context.gameState) !== null);
+    // Dan 2026-10-31 (HorseHoldemPremiumAggression rule 4): no hold'em 4-bet
+    // is made to fold. A sized re-raise over a 3-bet with a hand below QQ+/AK
+    // becomes a call, and a fold after the horse's own 4-bet was re-raised
+    // becomes a call. When the request is known, only in those two spots.
+    const noFourBetFold =
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      (previous.action === 'fold' || previous.action === 'raise') &&
+      (context === undefined ||
+        holdemFourBetSpot({
+          gameVariant: context.gameState.gameVariant,
+          bettingStructure: context.gameState.bettingStructure,
+          stage: context.gameState.stage,
+          hero: context.player,
+          currentBet: context.gameState.currentBet,
+          bigBlind: context.gameState.bigBlind,
+          actionHistory: context.gameState.actionHistory,
+        }) === (previous.action === 'fold' ? 'reraised_four_bet' : 'facing_three_bet'));
     const plo6RiverRaiseToCall =
       transition.node === 'wager_rules' &&
       variant === 'plo6' &&
@@ -896,6 +917,7 @@ function policyGraphIsValid(
       changed &&
       !pairedBoardFold &&
       !shortAllInCall &&
+      !noFourBetFold &&
       !plo6RiverRaiseToCall &&
       !['bet', 'raise', 'all_in'].includes(transition.after.action)
     )

@@ -47,7 +47,9 @@ vi.mock('../src/lib/supabase', () => ({
     auth: { getSession: metadata.getSession },
     from: (table: string) => ({
       select: (columns: string) => ({
-        in: (key: string, ids: string[]) => metadata.read(table, columns, key, ids),
+        in: (key: string, ids: string[]) => ({
+          abortSignal: () => metadata.read(table, columns, key, ids),
+        }),
       }),
     }),
   },
