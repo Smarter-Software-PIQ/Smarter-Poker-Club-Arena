@@ -129,7 +129,9 @@ def qualify(folder, public_folder):
     if len(archives) != len(inspected) or sum(p.stat().st_size for p in archives) > 64 * 1024 * 1024:
         raise Failure('package_archives_unproven')
     PHASE = 'public_package_retention'
-    public_folder.mkdir(mode=0o700)
+    # This directory contains only identity-validated PUBLIC Ubuntu DEBs.
+    # The unprivileged Actions uploader must be able to traverse it.
+    public_folder.mkdir(mode=0o755)
     PHASE = 'package_control_inspection'
     for archive in archives:
         fields = run(['/usr/bin/dpkg-deb', '--field', str(archive), 'Package', 'Version', 'Architecture']).decode()
@@ -142,6 +144,7 @@ def qualify(folder, public_folder):
         PHASE = 'public_package_retention'
         with archive.open('rb') as source, (public_folder / archive.name).open('xb') as destination:
             shutil.copyfileobj(source, destination, 1024 * 1024)
+        (public_folder / archive.name).chmod(0o644)
         PHASE = 'package_control_inspection'
         control = folder / ('control-' + name)
         run(['/usr/bin/dpkg-deb', '--control', str(archive), str(control)])

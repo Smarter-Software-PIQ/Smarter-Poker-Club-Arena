@@ -38,3 +38,5 @@ custody qualification. Existing controller bytes and all current manual modes
 remain unchanged. Root owns review and provider operations.
 
 The Ubuntu job also runs the maintained five-case native feasibility fixture using the exact installed6.8 tool binary, including actual PID1 fault attribution, control acknowledgements, DWARF decoding and finite cleanup. This does not substitute the hosted kernel for production6.8 or claim a production capture. The unchanged controller lifecycle already has separate genuine eight-case qualification.
+
+The first actual Ubuntu job installed and exercised the exact tools successfully, but the evidence uploader could not traverse its root-owned public-package directory. The public DEB export now explicitly permits read/traverse; private scratch and operation data are unchanged. This corrects artifact custody and still requires a new actual receipt before production eligibility.
