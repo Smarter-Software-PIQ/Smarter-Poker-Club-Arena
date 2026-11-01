@@ -654,7 +654,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag('v24Bounty', 'PKO bounty pull', 'V24'),
   flag(
     'v24PloDefense',
-    'PLO price defense against pot-sized preflop raises',
+    'PLO price defense against pot-sized preflop raises; PLO6 CASH DEFAULT OFF since 2026-10-31 (plo6_v24_price -2.34 +/- 1.12 over the 7 runs to 2026-10-30); PLO4/PLO5 and PLO6 tournaments on',
     'V24',
     'HorsePreflop.decidePreflopV7'
   ),

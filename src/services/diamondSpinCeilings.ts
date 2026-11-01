@@ -16,6 +16,7 @@
  * figure (spinCeilingMultiplier), never the chip ladder's.
  */
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import { reportError } from '../utils/errorReporter';
 import {
   tournamentRowUnitCents,
@@ -37,9 +38,9 @@ export async function withDiamondSpinCeilings<T extends SpinCeilingRow>(rows: T[
     .map((row) => row.id);
   if (ids.length === 0) return rows;
   try {
-    const { data, error } = await supabase.rpc('fn_poker_diamond_spin_ceilings', {
-      p_tournament_ids: ids,
-    });
+    const { data, error } = await runWithRequestDeadline((signal) =>
+      supabase.rpc('fn_poker_diamond_spin_ceilings', { p_tournament_ids: ids }).abortSignal(signal)
+    );
     if (error) {
       reportError(error, 'diamondSpinCeilings.unreadable', { count: ids.length });
       return rows;

@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -1918,5 +1918,31 @@
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
+  },
+  "chromiumHostedImageCompatibility20261031": {
+    "reason": "Only the three affected browser jobs (Diamond playfield, Production Build performance browser, CSS Beat) select proven free hosted Ubuntu24.04 because their locked browser installer refuses Ubuntu26.04. All matrices, commands, financial gates, assertions, deadlines and historical qualification receipts are preserved. Current source identity only.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "pgNetHostedImageCompatibility20261031": {
+    "reason": "Only accounting shard2 selects proven free hosted Ubuntu24.04 for unchanged pinned pg_net0.19.5 native compilation; all other accounting shards retain ubuntu-latest. Every matrix case, command, deadline, source/library pin and financial assertion remains unchanged. Current source identity only.",
+    "previous": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "current": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
   }
 }
