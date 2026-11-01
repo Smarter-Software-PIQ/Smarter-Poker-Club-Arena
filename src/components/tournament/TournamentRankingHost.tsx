@@ -47,6 +47,7 @@ import {
   type SessionSummaryPayload,
 } from '../../services/pendingSessionSummary';
 import { supabase } from '../../lib/supabase';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { readLocalSession } from '../../lib/authUtils';
 import { tableService } from '../../services/TableService';
 import { reportError } from '../../utils/errorReporter';
@@ -102,17 +103,19 @@ export function TournamentRankingHost() {
    * FILLS IN a missing place — it can never overwrite one the exit already
    * carried, which is the authoritative one when it exists.
    */
-  const placeFilledRef = useRef<string | null>(null);
+  const reportUserId = payload?.tournament?.userId ?? readLocalSession()?.userId;
+  const finishSequence = payload?.tournament?.finishSequence;
+  const finishPlace = payload?.tournament?.finishPlace;
+  const satelliteQualification = Boolean(payload?.tournament?.satelliteQualification);
   useEffect(() => {
-    const t = payload?.tournament;
-    if (!tournamentId || !t) return;
-    if (t.finishPlace != null || t.satelliteQualification) return; // recorded result is already known
-    if (placeFilledRef.current === tournamentId) return; // one fill per card
-    placeFilledRef.current = tournamentId;
+    if (!tournamentId) return;
+    if (finishPlace != null || satelliteQualification) return; // recorded result is already known
+    if (!reportUserId || reportUserId !== readLocalSession()?.userId) return;
 
     let cancelled = false;
+    const controller = new AbortController();
     (async () => {
-      /* Six looks over ~9s. The row is being written as we ask, so this is a
+      /* Six bounded looks, with 1.5s between empty replies. The row is being written as we ask, so this is a
          short wait on an in-flight commit, not a poll for something absent. */
       for (let attempt = 0; attempt < 6 && !cancelled; attempt++) {
         try {
@@ -125,19 +128,35 @@ export function TournamentRankingHost() {
              same prose-matching trap the source pins in this repo are written
              around.) */
           const uid = readLocalSession()?.userId;
-          if (!uid) return;
-          const { data, error } = await supabase
-            .from('tournament_players')
-            .select('position, prize')
-            .eq('tournament_id', tournamentId)
-            .eq('user_id', uid)
-            .maybeSingle();
+          if (!uid || uid !== reportUserId) return;
+          const { data, error } = await runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .from('tournament_players')
+                .select('position, prize, elimination_sequence')
+                .eq('tournament_id', tournamentId)
+                .eq('user_id', uid)
+                .abortSignal(signal)
+                .maybeSingle(),
+            { signal: controller.signal }
+          );
+          if (cancelled) return;
           if (error) throw error;
           const place = Number(data?.position) || 0;
           if (place > 0) {
-            if (cancelled) return;
+            if (
+              finishSequence !== undefined &&
+              (data?.elimination_sequence == null ||
+                String(data.elimination_sequence) !== finishSequence)
+            )
+              return;
             setPayload((prev) =>
-              prev && prev.tournament && prev.tournament.finishPlace == null
+              prev &&
+              prev.tournament &&
+              prev.tournament.finishPlace == null &&
+              prev.tournament.tournamentId === tournamentId &&
+              (prev.tournament.userId ?? reportUserId) === reportUserId &&
+              prev.tournament.finishSequence === finishSequence
                 ? {
                     ...prev,
                     tournament: {
@@ -155,6 +174,7 @@ export function TournamentRankingHost() {
             return;
           }
         } catch (err) {
+          if (cancelled) return;
           reportError(err, 'TournamentRankingHost.finish_place_backfill_failed', {
             tournamentId,
           });
@@ -165,8 +185,9 @@ export function TournamentRankingHost() {
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [tournamentId, payload?.tournament]);
+  }, [tournamentId, reportUserId, finishSequence, finishPlace, satelliteQualification]);
 
   const playAgain = useCallback(() => {
     const requested = payload?.tournament;
@@ -282,6 +303,7 @@ export function TournamentRankingHost() {
   return (
     <Suspense fallback={null}>
       <TournamentRankingCard
+        key={JSON.stringify([reportUserId, tournamentId, finishSequence])}
         result={payload.tournament}
         tableName={payload.tableName}
         /* The payload has always carried these; the card simply never asked for

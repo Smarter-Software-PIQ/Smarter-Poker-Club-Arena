@@ -668,3 +668,78 @@ describe('phase 6 presentation hardening', () => {
     expect(container.querySelector('.sw--countdown')).toBeNull();
   });
 });
+
+it('keeps the winner lit when overdue chase and result callbacks resume together', () => {
+  const start = Date.now();
+  const scheduled: Array<{
+    callback: () => void;
+    delay: number;
+    id: ReturnType<typeof setTimeout>;
+  }> = [];
+  const original = setTimeout;
+  const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback: () => void,
+    delay = 0
+  ) => {
+    const id = original(callback, delay);
+    scheduled.push({ callback, delay, id });
+    return id;
+  }) as typeof setTimeout);
+  const view = render(
+    <SpinWheel data={{ ...SPIN, revealAtMs: start }} onDone={() => {}} playSounds={false} />
+  );
+  const resultAt = LEAD_IN_MS + COUNTDOWN_MS + CHASE_MS;
+  const overdue = scheduled.filter((t) => t.delay <= resultAt).slice();
+  vi.setSystemTime(start + resultAt + 100);
+  act(() => {
+    for (const timer of overdue) {
+      clearTimeout(timer.id);
+      timer.callback();
+    }
+  });
+  expect(view.container.querySelector('.sw--result')).toBeTruthy();
+  for (let sample = 0; sample < 20; sample++) {
+    act(() => vi.advanceTimersByTime(25));
+    expect(view.container.querySelector('.sw__seg--lit .sw__seg-label')?.textContent).toBe(
+      view.container.querySelector('.sw__seg--winner .sw__seg-label')?.textContent
+    );
+  }
+  spy.mockRestore();
+});
+
+it('catches the rotor up to the shared clock when the chase callback runs late', () => {
+  const start = Date.now();
+  const scheduled: Array<{
+    callback: () => void;
+    delay: number;
+    id: ReturnType<typeof setTimeout>;
+  }> = [];
+  const original = setTimeout;
+  const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback: () => void,
+    delay = 0
+  ) => {
+    const id = original(callback, delay);
+    scheduled.push({ callback, delay, id });
+    return id;
+  }) as typeof setTimeout);
+  const view = render(
+    <SpinWheel data={{ ...SPIN, revealAtMs: start }} onDone={() => {}} playSounds={false} />
+  );
+  const chaseAt = LEAD_IN_MS + COUNTDOWN_MS;
+  const overdue = scheduled.filter((t) => t.delay <= chaseAt).slice();
+  vi.setSystemTime(start + chaseAt + CHASE_MS / 2);
+  act(() => {
+    for (const timer of overdue) {
+      clearTimeout(timer.id);
+      timer.callback();
+    }
+  });
+  expect(view.container.querySelector('.sw--chase')).toBeTruthy();
+  expect(
+    (view.container.querySelector('.sw__selector-orbit') as HTMLElement).style.getPropertyValue(
+      '--sw-elapsed'
+    )
+  ).toBe(`${-CHASE_MS / 2}ms`);
+  spy.mockRestore();
+});

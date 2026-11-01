@@ -5194,52 +5194,28 @@ button.post-bb-overlay-button {
 
 /* Owner October 22: a phone spectator sees the broad, tall desktop preview,
    rather than the compact playing layout. Reclaim only the unused hero-card
-   band while clearing the full shared player pod and observer footer.
-   Hand/action/dock changes never feed these dimensions. Taking a seat enters
-   the existing player view. */
-@media (max-width: 768px) and (orientation: portrait) {
+   band; 34px still clears the bottom observer seat. Hand/action/dock changes
+   never feed these dimensions. Taking a seat enters the existing player view. */
+@media (max-width: 480px) and (orientation: portrait) {
   .table-page[data-hero='false'] .table-scaler {
-    /* The avatar anchor needs half its height plus the FULL readable panel
-       below it, the footer's 3px/4px padding, and a 3px clear gap.
-       Reserving only half the panel let a full table's painted
-       waiting-list control cover the bottom name and chips. The same fixed
-       reserve applies with the short spectator label, so seat availability
-       cannot resize the felt. Include the normalized portrait phone canvas. */
-    --sp-observer-clear: max(76px, calc(var(--table-w, 360px) * 0.105333 + 54px + 7px + 3px));
     width: 100%;
     /* Small rings retain their declared downward offset; it cannot also
        consume the bottom observer seat's clearance. */
     height: calc(
-      var(--sp-phone-box-h) + var(--sp-hero-clear) - var(--sp-observer-clear, 76px) -
-        var(--sp-short-table-drop, 0px) - var(--sp-observer-chrome-clear, 0px)
+      var(--sp-phone-box-h) + var(--sp-hero-clear) - var(--sp-observer-clear, 42px) -
+        var(--sp-short-table-drop, 0px)
     );
     max-height: none;
     flex-shrink: 0;
   }
-  /* Observer six-max uses the desktop reference's 960/1000 canvas,
-     rather than the seated phone's 12% shortening and 6% downshift.
-     Center its 4% height saving with the matching 2% downshift. */
-  .table-page[data-hero='false'][data-seats='6'] .table-scaler {
-    --sp-seat-h-scale: calc(var(--sp-table-ar-h, 1000) / 1000);
-    margin-top: calc(var(--sp-table-h, 100svh) * 0.02);
-  }
   /* The wider painted rail must not widen five board cards into the
      screen-edge action labels. Keep the live board in the centre lane. */
   .table-page[data-hero='false'] .community-area {
-    max-width: 50vw;
+    max-width: 52vw;
   }
   /* Six-seat pods have wider plates than the dense ring. */
   .table-page[data-hero='false'][data-seats='6'] .community-area {
     max-width: 48vw;
-  }
-}
-
-/* Normalized portrait phones use a desktop-width CSS viewport. Keep the
-   same permanent maximum ticker band that native phones already reserve;
-   its absence or arrival cannot move the observer's bottom player. */
-@media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
-  .table-page[data-hero='false'] .table-scaler {
-    --sp-observer-chrome-clear: 32px;
   }
 }
 
@@ -5295,14 +5271,8 @@ button.post-bb-overlay-button {
     translate: 0 -3px;
   }
 }
-
-/* Uniform compact pods on short portrait phones need less hero overhang.
-   Return the unused strip to the full ring while retaining its static reserve. */
-@media (min-width: 341px) and (max-width: 480px) and (max-height: 720px) and (orientation: portrait) {
-  .table-page .table-container {
-    --sp-hero-clear: 54px;
-  }
-  .table-page[data-seats='6'] .table-container {
-    --sp-hero-clear: 58px;
+@media (max-width: 340px) and (orientation: portrait) {
+  .table-page[data-hero='false'] .table-scaler {
+    --sp-observer-clear: 38px;
   }
 }

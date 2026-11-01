@@ -1,8 +1,9 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   user: { id: 'viewer-a' } as { id: string } | null,
   read: vi.fn(),
+  signals: [] as AbortSignal[],
 }));
 vi.mock('../../src/hooks/useAuthUser', () => ({ useAuthUser: () => ({ user: mocks.user }) }));
 vi.mock('../../src/context/InTabLobbyContext', () => ({ useAppNavigate: () => vi.fn() }));
@@ -18,6 +19,10 @@ vi.mock('../../src/lib/supabase', () => ({
         select: () => b,
         eq: (k: string, v: string) => {
           filters[k] = v;
+          return b;
+        },
+        abortSignal: (signal: AbortSignal) => {
+          mocks.signals.push(signal);
           return b;
         },
         maybeSingle: () => mocks.read(filters),
@@ -42,8 +47,12 @@ const event = {
 beforeEach(() => {
   mocks.user = { id: 'viewer-a' };
   mocks.read.mockReset();
+  mocks.signals = [];
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 function deferred() {
   let resolve!: (v: any) => void;
   const promise = new Promise<any>((r) => {
@@ -77,8 +86,70 @@ it('cannot show the previous tournament registration on the next event', async (
     f.tournament_id === 'event' ? old.promise : Promise.resolve({ data: null, error: null })
   );
   const { rerender } = render(<TournamentLobbyCard tournament={event} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
   rerender(<TournamentLobbyCard tournament={{ ...event, id: 'next' }} />);
   await waitFor(() => expect(mocks.read).toHaveBeenCalledTimes(2));
   await act(async () => old.resolve({ data: { id: 'old-entry' }, error: null }));
   expect(screen.queryByRole('button', { name: 'Unregister' })).not.toBeInTheDocument();
+});
+
+it('releases the busy action after an unanswered post-action read without repeating registration', async () => {
+  vi.useFakeTimers();
+  const pending = deferred();
+  mocks.read.mockReturnValue(pending.promise);
+  const onRegister = vi.fn(async () => {});
+  const view = render(
+    <TournamentLobbyCard tournament={event} knownRegistration={false} onRegister={onRegister} />
+  );
+  fireEvent.click(screen.getByRole('button', { name: /^Register \(/ }));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(onRegister).toHaveBeenCalledTimes(1);
+  expect(mocks.read).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12_001);
+  });
+  expect(screen.getByRole('button', { name: 'Entry Status Unavailable' })).toBeDisabled();
+  view.rerender(
+    <TournamentLobbyCard tournament={event} knownRegistration onRegister={onRegister} />
+  );
+  view.rerender(
+    <TournamentLobbyCard tournament={event} knownRegistration={false} onRegister={onRegister} />
+  );
+  expect(screen.getByRole('button', { name: /^Register \(/ })).toBeEnabled();
+  expect(mocks.signals[0]?.aborted).toBe(true);
+  await act(async () => pending.resolve({ data: { id: 'late-entry' }, error: null }));
+  expect(screen.getByRole('button', { name: /^Register \(/ })).toBeEnabled();
+  expect(onRegister).toHaveBeenCalledTimes(1);
+  expect(mocks.read).toHaveBeenCalledTimes(1);
+});
+it('bounds an initial unanswered registration read and ignores its late success', async () => {
+  vi.useFakeTimers();
+  const pending = deferred();
+  mocks.read.mockReturnValue(pending.promise);
+  const onRegister = vi.fn();
+  render(<TournamentLobbyCard tournament={event} onRegister={onRegister} />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12_001);
+  });
+  expect(mocks.signals[0]?.aborted).toBe(true);
+  expect(screen.getByRole('button', { name: 'Entry Status Unavailable' })).toBeDisabled();
+  await act(async () => pending.resolve({ data: { id: 'late-entry' }, error: null }));
+  expect(screen.queryByRole('button', { name: 'Unregister' })).not.toBeInTheDocument();
+  expect(mocks.read).toHaveBeenCalledTimes(1);
+  expect(onRegister).not.toHaveBeenCalled();
+});
+it('aborts an obsolete lookup when the parent supplies confirmed registration', async () => {
+  const pending = deferred();
+  mocks.read.mockReturnValue(pending.promise);
+  const view = render(<TournamentLobbyCard tournament={event} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  view.rerender(<TournamentLobbyCard tournament={event} knownRegistration />);
+  expect(mocks.signals[0]?.aborted).toBe(true);
+  expect(screen.getByRole('button', { name: 'Unregister' })).toBeInTheDocument();
 });
