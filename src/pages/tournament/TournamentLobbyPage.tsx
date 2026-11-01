@@ -575,8 +575,8 @@ export default function TournamentLobbyPage() {
           diamond_spin_ceiling: t.diamond_spin_ceiling ?? null,
         }));
 
-        /* Dan 2026-10-19: a nightly featured event is pinned only on its own
-           day; the weekly flagship keeps its pin (src/lib/featuredOnItsDay.ts). */
+        /* Only today's top events are pinned; future nightly and weekly
+           editions remain ordinary rows (src/lib/featuredOnItsDay.ts). */
         const featuredToday = featuredNow(board, (m) => ({
           pinned: m.isPinned,
           started: hasStarted(m.status),

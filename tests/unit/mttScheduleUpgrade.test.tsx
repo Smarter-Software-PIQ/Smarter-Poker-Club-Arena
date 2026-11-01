@@ -65,6 +65,41 @@ const ids = () =>
     el.id.replace('lt-row-', '')
   );
 describe('MTT schedule upgrade', () => {
+  it('pins only today and leaves the future Nightly edition in the normal schedule in both layouts', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    board([
+      event('future-nightly', {
+        name: 'Nightly 10K (NLH)',
+        is_pinned: true,
+        start_time: new Date(now + 2 * 86400000).toISOString(),
+      }),
+      event('ordinary-soon', { start_time: new Date(now + 5 * 60000).toISOString() }),
+      event('today-nightly', {
+        name: 'Nightly 10K (NLH)',
+        is_pinned: true,
+        status: 'RUNNING',
+        start_time: new Date(now - 60000).toISOString(),
+        started_at: new Date(now - 60000).toISOString(),
+        late_reg_mins: 80,
+      }),
+    ]);
+    for (const selector of ['.compact-lobby', '.lobby-table']) {
+      const table = document.querySelector(selector)!;
+      const rows = Array.from(table.querySelectorAll('tr[data-id]'));
+      expect(rows.map((r) => r.getAttribute('data-id'))).toEqual([
+        'today-nightly',
+        'ordinary-soon',
+        'future-nightly',
+      ]);
+      expect(table.querySelector('tr[data-id="today-nightly"]')).toHaveClass('is-featured');
+      expect(table.querySelector('tr[data-id="future-nightly"]')).not.toHaveClass('is-featured');
+      expect(table.querySelector('[data-tournament-heading="future-nightly"]')).not.toHaveClass(
+        'is-featured'
+      );
+    }
+  });
+
   it('defaults to Recommended, all variants and satellites excluded', () => {
     expect(defaultSortForTab('MTT')).toBe('recommended');
     const defaults = emptyFilterValue(FILTER_SPECS.MTT);
