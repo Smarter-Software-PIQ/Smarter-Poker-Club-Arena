@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   nearestOpponentShift,
   opponentIdleEnvelope,
+  opponentIdleSpans,
   jointOpponentShifts,
   pushOpponentChain,
   opponentFitsLowerLane,
@@ -1067,4 +1068,26 @@ it('reserves complete idle paint only for peer contact, retaining permanent fixe
   // determines that bound. Peer contact still needs the complete envelope.
   expect(peerParts[0].left).toBeLessThan(0);
   expect(art.left).toBe(0);
+});
+
+it('keeps transparent ear gaps while reserving actual idle-swept wager paint', () => {
+  const content = { left: 10, top: 100, width: 100, height: 100 };
+  const spans = [
+    { left: 0, right: 0.2, top: 0, bottom: 0.1 },
+    { left: 0.8, right: 1, top: 0, bottom: 0.1 },
+  ];
+  const swept = opponentIdleSpans(spans, content, [60, 200], 1);
+  const rise = { left: 15, top: 98, width: 2, height: 1 };
+  expect(opponentPaintSpansTouch(spans, content, rise)).toBe(false);
+  expect(opponentPaintSpansTouch(swept, content, rise)).toBe(true);
+  expect(opponentPaintSpansTouch(swept, content, { left: 50, top: 98, width: 10, height: 8 })).toBe(
+    false
+  );
+  // Every actual intermediate pose lies within its own swept alpha run.
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    const factor = 1 + 0.008 * t;
+    const left = 60 + (15 - 60) * factor;
+    const top = 200 + (100 - 200) * factor - 1.5 * t;
+    expect(opponentPaintSpansTouch(swept, content, { left, top, width: 1, height: 1 })).toBe(true);
+  }
 });

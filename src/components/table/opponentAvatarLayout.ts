@@ -513,6 +513,28 @@ export function opponentIdleEnvelope(parts: Box[], origin: [number, number], rat
   });
 }
 
+/** Retain each contiguous alpha run through the complete idle path, never
+ * joining transparent gaps between separate ears or limbs. Cached per trial. */
+export function opponentIdleSpans(
+  spans: Alpha[],
+  content: Box,
+  origin: [number, number],
+  ratio: number
+): Alpha[] {
+  const runs = spans.map((span) => ({
+    left: content.left + span.left * content.width,
+    top: content.top + span.top * content.height,
+    width: (span.right - span.left) * content.width,
+    height: (span.bottom - span.top) * content.height,
+  }));
+  return opponentIdleEnvelope(runs, origin, ratio).map((part) => ({
+    left: (part.left - content.left) / content.width,
+    top: (part.top - content.top) / content.height,
+    right: (part.left + part.width - content.left) / content.width,
+    bottom: (part.top + part.height - content.top) / content.height,
+  }));
+}
+
 /** Push only directly intersecting neighbours in the requested direction.
  * This finite contact cascade is part of one wager-placement transaction. */
 export function pushOpponentChain(
@@ -794,8 +816,7 @@ export function createOpponentAvatarLayout(
       .map((part) => subject(image, part, true, rect))
       .filter((part) => part.width > 0 && part.height > 0);
   };
-  const peerPaint = (image: HTMLImageElement) => {
-    const parts = paintedParts(image);
+  const idleOrigin = (image: HTMLImageElement): [number, number] | null => {
     const wrap = image.closest<HTMLElement>('.seat__avatar-wrap');
     const seat = image.closest<HTMLElement>('.seat');
     if (
@@ -803,7 +824,7 @@ export function createOpponentAvatarLayout(
       !seat ||
       getComputedStyle(wrap).getPropertyValue('--sp-avatar-rest-transform').trim()
     )
-      return parts;
+      return null;
     const ratio = tableRenderScale(scaler);
     const origin = getComputedStyle(wrap).transformOrigin.split(/\s+/).map(parseFloat);
     let x = origin[0] || 0,
@@ -815,15 +836,23 @@ export function createOpponentAvatarLayout(
       y += node.offsetTop + (parent?.clientTop || 0);
       node = parent;
     }
-    if (node !== seat) return parts;
+    if (node !== seat) return null;
     const anchor = box(seat);
-    return opponentIdleEnvelope(parts, [anchor.left + x * ratio, anchor.top + y * ratio], ratio);
+    return [anchor.left + x * ratio, anchor.top + y * ratio];
+  };
+  const peerPaint = (image: HTMLImageElement) => {
+    const parts = paintedParts(image),
+      origin = idleOrigin(image);
+    return origin ? opponentIdleEnvelope(parts, origin, tableRenderScale(scaler)) : parts;
   };
   // Snapshot DOM geometry once for each finite wager-placement trial. The
   // returned narrow-phase query only reads decoded runs and numeric boxes.
   const preparePaintedTouch = (image: HTMLImageElement, permanent = true) => {
-    const fallback = permanent ? restingAvatarBox(image, tableRenderScale(scaler)) : box(image);
-    const refuse = (target: Box, gap = 0) => overlap(fallback, target, gap);
+    const ratio = tableRenderScale(scaler);
+    const fallback = permanent ? restingAvatarBox(image, ratio) : box(image);
+    const origin = permanent ? idleOrigin(image) : null;
+    const conservative = origin ? opponentIdleEnvelope([fallback], origin, ratio)[0] : fallback;
+    const refuse = (target: Box, gap = 0) => overlap(conservative, target, gap);
     if (!permanent) return refuse;
     const own = resolved.get(source(image));
     if (!own) return refuse;
@@ -839,8 +868,9 @@ export function createOpponentAvatarLayout(
     });
     if (!axisAligned || !own.spans?.length || !image.closest('.seat__avatar--bust')) return refuse;
     const content = subject(image, { left: 0, top: 0, right: 1, bottom: 1 }, true, fallback);
-    const spans = own.spans;
-    return (target: Box, gap = 0) => opponentPaintSpansTouch(spans, content, target, gap);
+    const spans = origin ? opponentIdleSpans(own.spans, content, origin, ratio) : own.spans;
+    return (target: Box, gap = 0) =>
+      overlap(conservative, target, gap) && opponentPaintSpansTouch(spans, content, target, gap);
   };
   const lowerLaneLimits = (rounding = 0): { top: number; bottom: number } | null => {
     const board = page.querySelector('.community-area');

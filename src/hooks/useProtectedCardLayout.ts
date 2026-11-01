@@ -571,9 +571,12 @@ export function useProtectedCardLayout(
         return box.width > 0 && box.height > 0 ? box : null;
       };
       const markerTouches = (candidate: CardBox, obstacle: CardBox) => {
-        if (!wagerBoxesOverlap(candidate, obstacle)) return false;
         const image = paintedSources.get(obstacle);
-        return image ? paintedTests.get(obstacle)!(candidate, 2) : true;
+        return image
+          ? // The prepared paint already contains the complete idle sweep.
+            // Keep half a layout pixel of air without adding that breath twice.
+            paintedTests.get(obstacle)!(candidate, 0.5)
+          : wagerBoxesOverlap(candidate, obstacle);
       };
       // 2026-10-24: every portrait viewport up to 768px, not only phones up to
       // 480. Above 480 the desktop order placed the shown hands AFTER the
@@ -762,6 +765,30 @@ export function useProtectedCardLayout(
             };
         }
         const fixedWagers: CardBox[] = [];
+        const commitWager = (bet: HTMLElement, next: CardBox, box = visibleBox(bet)) => {
+          if (!box) return;
+          const dx = (next.left - box.left) / scale;
+          const dy = (next.top - box.top) / scale;
+          const style = getComputedStyle(bet);
+          const number = (name: string) => parseFloat(style.getPropertyValue(name)) || 0;
+          const base = {
+            x: number('--bet-offset-x'),
+            y: number('--bet-offset-y'),
+            cx: number('--collect-dx'),
+            cy: number('--collect-dy'),
+          };
+          bet.style.setProperty('--bet-offset-x', `${base.x + dx}px`);
+          bet.style.setProperty('--bet-offset-y', `${base.y + dy}px`);
+          bet.style.setProperty('--collect-dx', `${base.cx - dx}px`);
+          bet.style.setProperty('--collect-dy', `${base.cy - dy}px`);
+          if (artwork.ready())
+            settled.current.wagers.set(bet, {
+              offsets: offsetNames.map((name) => bet.style.getPropertyValue(name)),
+              width: box.width,
+              height: box.height,
+              owner: bet.closest('.seat')?.getAttribute('data-player-id') ?? null,
+            });
+        };
         const permanentKeepouts = [
           ...(reservedDealer ? [reservedDealer] : []),
           ...Array.from(
@@ -772,7 +799,7 @@ export function useProtectedCardLayout(
             .map(visibleBox)
             .filter((value): value is CardBox => value !== null),
         ];
-        const buildEntries = (bets = wagers(), trial = false) => {
+        const buildEntries = (bets = wagers(), trial = false, retainedBoxes = fixedWagers) => {
           const obstacles = trial
             ? Array.from(
                 page.querySelectorAll(
@@ -781,7 +808,7 @@ export function useProtectedCardLayout(
               )
                 .map(visibleBox)
                 .filter((box): box is CardBox => box !== null)
-                .concat(fixedWagers, reservedDealer ? [reservedDealer] : [])
+                .concat(retainedBoxes, reservedDealer ? [reservedDealer] : [])
             : permanentKeepouts.concat(printing);
           const hardObstacles = obstacles.filter(
             (box) =>
@@ -840,17 +867,17 @@ export function useProtectedCardLayout(
                 Math.abs(stored.width - box.width) < 0.5 &&
                 Math.abs(stored.height - box.height) < 0.5 &&
                 !fixedWagers.some((other) => wagerBoxesOverlap(box!, other)) &&
-                !permanentKeepouts.some(
-                  (other) =>
-                    // Placement reserves 2px air; transient subpixel loss of that
-                    // margin is not a new painted collision or a new chip slot.
-                    (!paintedSources.has(other) || paintedTests.get(other)!(box!, 0)) &&
-                    Math.min(box!.left + box!.width, other.left + other.width) -
-                      Math.max(box!.left, other.left) >
-                      0.5 &&
-                    Math.min(box!.top + box!.height, other.top + other.height) -
-                      Math.max(box!.top, other.top) >
-                      0.5
+                !permanentKeepouts.some((other) =>
+                  // Placement reserves 2px air; transient subpixel loss of that
+                  // margin is not a new painted collision or a new chip slot.
+                  paintedSources.has(other)
+                    ? paintedTests.get(other)!(box!, 0)
+                    : Math.min(box!.left + box!.width, other.left + other.width) -
+                        Math.max(box!.left, other.left) >
+                        0.5 &&
+                      Math.min(box!.top + box!.height, other.top + other.height) -
+                        Math.max(box!.top, other.top) >
+                        0.5
                 )
               ) {
                 fixedWagers.push(box);
@@ -881,7 +908,11 @@ export function useProtectedCardLayout(
                 y: box.top + box.height / 2 - nudge('y'),
               };
               const hasAllInMarker = Boolean(bet.querySelector('.seat__allin-puck'));
+              // A joint recovery first offers each compatible retained slot
+              // unchanged, then the nearest clear alternatives around it.
+              const retainedAnchor = trial && stored && stillOwned ? markerCentre : null;
               const placed = [
+                ...(retainedAnchor ? [{ ...box, depth: 0 }] : []),
                 {
                   left: anchor.x - box.width / 2,
                   top: anchor.y - box.height / 2,
@@ -965,9 +996,16 @@ export function useProtectedCardLayout(
               // still clear every player, the board, the pot and each other are
               // used, rail band included, rather than leaving a wager on a player.
               // Nearest the wager's own rest point: it moves as little as it can.
+              const costAnchor = retainedAnchor ?? anchor;
               const byCost = (a: (typeof clearOfTable)[number], b: (typeof clearOfTable)[number]) =>
-                Math.hypot(a.left + a.width / 2 - anchor.x, a.top + a.height / 2 - anchor.y) -
-                Math.hypot(b.left + b.width / 2 - anchor.x, b.top + b.height / 2 - anchor.y);
+                Math.hypot(
+                  a.left + a.width / 2 - costAnchor.x,
+                  a.top + a.height / 2 - costAnchor.y
+                ) -
+                Math.hypot(
+                  b.left + b.width / 2 - costAnchor.x,
+                  b.top + b.height / 2 - costAnchor.y
+                );
               const distinct = (list: typeof clearOfTable, cap: number): CardBox[] => {
                 const kept: CardBox[] = [];
                 for (const candidate of list) {
@@ -1371,8 +1409,8 @@ export function useProtectedCardLayout(
               )
           );
           const retained = wagers().filter((bet) => !bets.includes(bet));
-          const retainedValid = () => {
-            if (!retained.length) return true;
+          const retainedKeepers = () => {
+            if (!retained.length) return [];
             const fixed = Array.from(
               page.querySelectorAll(
                 '.community-area,.table-brand,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
@@ -1382,7 +1420,7 @@ export function useProtectedCardLayout(
               .map(visibleBox)
               .filter((r): r is CardBox => r !== null)
               .concat(reservedDealer ? [reservedDealer] : []);
-            return retained.every((bet) => {
+            return retained.filter((bet) => {
               const box = visibleBox(bet),
                 image = bet
                   .closest('.seat-wrapper')
@@ -1427,16 +1465,42 @@ export function useProtectedCardLayout(
               );
             });
           };
+          let completedWagers: Array<{ bet: HTMLElement; next: CardBox }> = [];
           const complete = () => {
-            if (!withinBudget() || !retainedValid()) return false;
-            const fresh = buildEntries(bets, true);
-            return Boolean(
-              assignProtectedWagers(fresh.map((entry) => entry.wide)) ??
-              cleanGreedyWagers(fresh.map((entry) => entry.wide)) ??
-              (compactNine
-                ? (assignProtectedWagers(fresh.map((entry) => entry.printing)) ??
-                  cleanGreedyWagers(fresh.map((entry) => entry.printing)))
-                : null)
+            completedWagers = [];
+            if (!withinBudget()) return false;
+            // A local peer cascade may invalidate a previously cached wager's
+            // ownership. Retain every compatible fixed slot and prove the whole
+            // affected set together before committing any opponent movement.
+            const keepers = retainedKeepers();
+            const fixed = keepers.map(visibleBox).filter((r): r is CardBox => r !== null);
+            const solve = (fresh: ReturnType<typeof buildEntries>) => {
+              const assignment =
+                assignProtectedWagers(fresh.map((entry) => entry.wide)) ??
+                cleanGreedyWagers(fresh.map((entry) => entry.wide)) ??
+                (compactNine
+                  ? (assignProtectedWagers(fresh.map((entry) => entry.printing)) ??
+                    cleanGreedyWagers(fresh.map((entry) => entry.printing)))
+                  : null);
+              if (!assignment) return false;
+              completedWagers = fresh.map((entry, index) => ({
+                bet: entry.bet,
+                next: assignment[index],
+              }));
+              return true;
+            };
+            return (
+              solve(
+                buildEntries(
+                  wagers().filter((bet) => !keepers.includes(bet)),
+                  true,
+                  fixed
+                )
+              ) ||
+              // Individually valid cached slots can still consume the only joint
+              // assignment. This finite fallback keeps their current positions
+              // first in each pool and commits only a complete owned solution.
+              solve(buildEntries(wagers(), true, []))
             );
           };
           const plans: {
@@ -1492,7 +1556,10 @@ export function useProtectedCardLayout(
             // Intersect exact ownership Y intervals, leaving only one movable
             // rival for the atomic child trial. Adjacent CSS pixels sample the
             // interval's interior without a whole-viewport pixel search.
-            for (const candidate of initial.clearCandidates) {
+            // A paired move may open a currently occupied rival lane. Derive
+            // ownership endpoints from that same eligible grid, then let the
+            // actual nested trial prove every restored physical keepout.
+            for (const candidate of initial.laneCandidates) {
               const x = candidate.left + candidate.width / 2,
                 y = candidate.top + candidate.height / 2;
               for (const omitted of rivals.filter(
@@ -1522,7 +1589,7 @@ export function useProtectedCardLayout(
               }
             }
             const evaluate = (ownerShift: number) => {
-              if (!withinBudget() || !retainedValid()) return false;
+              if (!withinBudget()) return false;
               const fresh = entry;
               const mine = restingAvatarBox(image, scale),
                 cx = mine.left + mine.width / 2,
@@ -1540,7 +1607,7 @@ export function useProtectedCardLayout(
                 .filter((element) => !compactNine || !element.matches('.table-brand'))
                 .map(visibleBox)
                 .filter((r): r is CardBox => r !== null)
-                .concat(fixedWagers, reservedDealer ? [reservedDealer] : []);
+                .concat(reservedDealer ? [reservedDealer] : []);
               const partGroups = new Map<HTMLElement, CardBox[]>();
               for (const rival of current)
                 if (rival.seat)
@@ -1616,7 +1683,7 @@ export function useProtectedCardLayout(
                 .sort((a, b) => Math.abs(a.shift) - Math.abs(b.shift));
               for (const proposal of ranked.slice(0, 16))
                 artwork.tryShiftOwnerForWager(proposal.seat, proposal.shift, () => {
-                  if (!withinBudget() || !retainedValid()) return false;
+                  if (!withinBudget()) return false;
                   const actual = restingAvatarBox(image, scale),
                     px = proposal.candidate.left + proposal.candidate.width / 2,
                     py = proposal.candidate.top + proposal.candidate.height / 2;
@@ -1640,7 +1707,7 @@ export function useProtectedCardLayout(
                     .filter((element) => !compactNine || !element.matches('.table-brand'))
                     .map(visibleBox)
                     .filter((r): r is CardBox => r !== null)
-                    .concat(fixedWagers, reservedDealer ? [reservedDealer] : []);
+                    .concat(reservedDealer ? [reservedDealer] : []);
                   if (keepouts.some((obstacle) => markerTouches(proposal.candidate, obstacle)))
                     return false;
                   plans.push({
@@ -1690,6 +1757,7 @@ export function useProtectedCardLayout(
             }
           }
           if (moved) {
+            completedWagers.forEach(({ bet, next }) => commitWager(bet, next));
             settled.current.rows = new WeakMap();
             rows.forEach((row) => {
               row.style.removeProperty('translate');
@@ -1713,27 +1781,7 @@ export function useProtectedCardLayout(
               bet.style.removeProperty(name);
             continue;
           }
-          const dx = (next.left - box.left) / scale;
-          const dy = (next.top - box.top) / scale;
-          const style = getComputedStyle(bet);
-          const number = (name: string) => parseFloat(style.getPropertyValue(name)) || 0;
-          const base = {
-            x: number('--bet-offset-x'),
-            y: number('--bet-offset-y'),
-            cx: number('--collect-dx'),
-            cy: number('--collect-dy'),
-          };
-          bet.style.setProperty('--bet-offset-x', `${base.x + dx}px`);
-          bet.style.setProperty('--bet-offset-y', `${base.y + dy}px`);
-          bet.style.setProperty('--collect-dx', `${base.cx - dx}px`);
-          bet.style.setProperty('--collect-dy', `${base.cy - dy}px`);
-          if (artwork.ready())
-            settled.current.wagers.set(bet, {
-              offsets: offsetNames.map((name) => bet.style.getPropertyValue(name)),
-              width: box.width,
-              height: box.height,
-              owner: bet.closest('.seat')?.getAttribute('data-player-id') ?? null,
-            });
+          commitWager(bet, next, box);
           obstacles.push(next);
           hardObstacles.push(next);
           placedWagers.push(next);
