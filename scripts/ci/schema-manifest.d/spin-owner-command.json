@@ -1,5 +1,6 @@
 {
   "_owner": "fix/spin-durable-commands-01a193b0",
   "_comment": "Atomic owner-authorized Spin command receipts; migration 20261101024022, installed only after protected merge.",
-  "functions": ["fn_spin_owner_command", "smarter_private.spin_owner_command_receipt_is_immutable"]
+  "functions": ["fn_spin_owner_command", "smarter_private.spin_owner_command_receipt_is_immutable"],
+  "tables": ["smarter_private.spin_owner_command_receipts"]
 }
