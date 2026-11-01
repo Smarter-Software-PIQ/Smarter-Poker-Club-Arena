@@ -151,16 +151,24 @@ test('native extension retains the exact protected role-owner source bindings', 
 });
 
 test('native extension installer uses actual owning sessions and refuses wrong versions', async () => {
-  const { installCurrentApplicationExtensions, currentApplicationExtensions, currentApplicationExtensionNamespaceSql, currentApplicationExtensionNamespace } =
+  const { installCurrentApplicationExtensions, currentApplicationExtensions, currentApplicationExtensionNamespaceSql, currentApplicationExtensionNamespace,
+    postgresExtensionOwnerBeginSql, postgresExtensionOwnerEndSql } =
     await import('../current-application-roles.mjs');
-  for (const drift of [false, 'extension-version', 'namespace-acl']) {
+  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl']) {
     const installed = structuredClone(
       currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
     );
     const statements = [];
     const schemas = new Set(base.schemas.map((item) => item.name));
     let namespaceCreates = 0;
+    let temporaryOwnerCreates = 0;
+    let applicationDdl = 0;
     class Client {
+      constructor(options) {
+        this.options = options;
+        this.managed = !options?.options?.includes('session_preload_libraries=');
+        this.owner = 'supabase_admin';
+      }
       async connect() {}
       async query(sql) {
         if (sql.includes(' AS owned')) return { rows: [{ owned: true }] };
@@ -173,7 +181,8 @@ test('native extension installer uses actual owning sessions and refuses wrong v
               .map((item) =>
                 drift === 'extension-version' && installed.length === 13 && item.name === 'http'
                   ? { ...item, version: 'wrong' }
-                  : item
+                  : drift === 'extension-owner' && installed.length === 13 && item.name === 'pgcrypto'
+                    ? {...item, owner:'supabase_admin'} : item
               )
               .sort((a, b) => (a.name < b.name ? -1 : 1)),
           };
@@ -181,11 +190,26 @@ test('native extension installer uses actual owning sessions and refuses wrong v
           assert.equal(schemas.has('vault'), false);
           schemas.add('vault'); namespaceCreates++;
         }
+        if (sql === postgresExtensionOwnerBeginSql) {
+          assert.equal(this.managed, false);
+          assert.equal(this.owner, 'supabase_admin');
+          this.owner = 'fixture_postgres_extension_owner'; temporaryOwnerCreates++;
+        }
+        if (sql === postgresExtensionOwnerEndSql) {
+          const owned = installed.filter(item=>item.owner==='fixture_postgres_extension_owner');
+          assert.equal(owned.length,3);
+          assert.deepEqual(owned.map(item=>item.name).sort(),['pg_stat_statements','pgcrypto','uuid-ossp']);
+          for(const item of owned) item.owner='postgres';
+          this.owner='supabase_admin';
+        }
         if (sql.startsWith('CREATE EXTENSION')) {
           const [, name, schema, version] =
             /^CREATE EXTENSION "([^"]+)" WITH SCHEMA "([^"]+)" VERSION '([^']+)'$/.exec(sql);
           if (!schemas.has(schema)) throw Object.assign(new Error('missing namespace'), {code:'3F000'});
-          installed.push({ name, schema, version, owner: this.owner || 'supabase_admin' });
+          if(this.owner==='postgres') applicationDdl++;
+          // Pinned Supautils creates every privileged extension as its admin,
+          // regardless of the application's requested role. Model that owner.
+          installed.push({ name, schema, version, owner: this.managed ? 'supabase_admin' : this.owner });
           statements.push(sql);
         }
         return { rows: [] };
@@ -210,12 +234,16 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     if (drift) await assert.rejects(installCurrentApplicationExtensions(args), error => {
       assert.deepEqual(nativeFailureDiagnostic('fixture-preimage-current-application-role-extension',error),
         {status:'failed',stage:'fixture-preimage-current-application-role-extension',error:'AssertionError',
-         assertion_site:drift==='extension-version'?'EXTENSION_POSTIMAGE':'EXTENSION_NAMESPACE_POSTIMAGE'});
+         assertion_site:drift==='namespace-acl'?'EXTENSION_NAMESPACE_POSTIMAGE':'EXTENSION_POSTIMAGE'});
       return true;
     });
     else assert.equal((await installCurrentApplicationExtensions(args)).installed, 13);
     assert.equal(statements.length, 11);
     assert.equal(namespaceCreates, 1);
+    assert.equal(temporaryOwnerCreates, 1);
+    assert.equal(applicationDdl, 0);
+    assert.equal(clients.length, 2);
+    assert.deepEqual(clients.map(client=>client.options.user),['supabase_admin','supabase_admin']);
     assert.deepEqual(
       installed.sort((a, b) => (a.name < b.name ? -1 : 1)),
       currentApplicationExtensions

@@ -55,3 +55,35 @@ token. Controlled role/inventory/namespace drifts, malformed/tampered/private
 fields and an actual child primary-failure/cleanup sequence exercise attribution
 and privacy. This is diagnostic qualification, not a claim that the unknown
 underlying native failure or the original15 connected cases are fixed.
+
+The changed dc3 Linux run now identifies EXTENSION_POSTIMAGE after genuine
+extension creation, with all31 source bindings and all five cleanup fields
+verified. Pinned Supautils3.4.3 creates privileged extensions as its configured
+supabase_admin, so requesting the three postgres-owned extensions through the
+application connection cannot preserve their captured ownership. The earlier
+unit double incorrectly treated the requesting identity as the creating owner.
+
+Use one fresh original-initdb-admin session for those three providers, with no
+session hook on that administrative connection alone. One transaction creates a
+fixed NOLOGIN bootstrap owner, installs the genuine extensions, reassigns that
+new owner's objects through PostgreSQL's native operation and drops the owner.
+Its identity, empty preimage and exact three-extension ownership are checked.
+The application role is never promoted, its managed connection/configuration is
+unchanged, and the transient owner is never committed. Existing exact final
+extension/version/schema/owner and vault ACL comparisons remain mandatory.
+Native PostgreSQL rollback/ordinary-role proof and actual Linux thirteen-provider
+qualification are required; this source change alone is not a pass.
+
+Local ownership qualification passed on genuine PostgreSQL17.11 with actual
+pg_stat_statements, pgcrypto and uuid-ossp: old admin ownership differs from the
+captured postgres owner; the native bootstrap/reassignment reaches exact owners.
+Rollback removes the temporary owner and partially created extension; the owner
+never becomes visible to the ordinary held session, the application never gains
+superuser, ordinary bootstrap requests refuse, and duplicate-extension failure
+rolls back cleanly. Cluster, data and socket were removed. This check does not
+execute Supautils or all13 providers. The maintained unit regression now models
+the actual Supautils creating identity: old dc3 fails EXTENSION_POSTIMAGE, new
+17 affected Node cases pass. Root TypeScript and1822 source bindings passed.
+An initial private-cluster harness grouped CREATE DATABASE with another command;
+it failed before the probe, was corrected to separate statements and retained
+as a setup failure. No production operation or missing native proof is hidden.

@@ -363,6 +363,38 @@ BEGIN
   THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_NAMESPACE_POSTIMAGE_REQUIRED'; END IF;
 END $namespace$;`;
 
+// Supautils creates privileged extensions as supabase_admin, including when
+// postgres requested them. Bootstrap these three through one uncommitted,
+// non-login owner, then use PostgreSQL's ownership operation. The application
+// role is never promoted and its managed connection remains untouched.
+export const postgresExtensionOwnerBeginSql = `DO $owner$
+BEGIN
+  IF current_database() <> 'club_arena_qualification' OR inet_server_addr() IS NOT NULL
+    OR current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+    OR current_setting('session_preload_libraries') <> ''
+    OR current_setting('server_version_num')::integer NOT BETWEEN 170000 AND 179999
+    OR NOT EXISTS (SELECT FROM pg_roles WHERE oid=10 AND rolname=current_user AND rolsuper)
+    OR NOT EXISTS (SELECT FROM pg_roles WHERE rolname='postgres' AND NOT rolsuper)
+    OR EXISTS (SELECT FROM pg_roles WHERE rolname='fixture_postgres_extension_owner')
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_BOOTSTRAP_OWNER_REQUIRED'; END IF;
+  CREATE ROLE fixture_postgres_extension_owner NOLOGIN SUPERUSER NOINHERIT
+    NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+END $owner$;
+SET LOCAL ROLE fixture_postgres_extension_owner;`;
+
+export const postgresExtensionOwnerEndSql = `RESET ROLE;
+DO $owner$
+BEGIN
+  IF current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+    OR (SELECT count(*) FROM pg_extension WHERE extowner=(SELECT oid FROM pg_roles
+      WHERE rolname='fixture_postgres_extension_owner')) <> 3
+    OR (SELECT count(*) FROM pg_extension WHERE extname IN ('pg_stat_statements','pgcrypto','uuid-ossp')
+      AND extowner=(SELECT oid FROM pg_roles WHERE rolname='fixture_postgres_extension_owner')) <> 3
+  THEN RAISE EXCEPTION 'FIXTURE_EXTENSION_BOOTSTRAP_POSTIMAGE_REQUIRED'; END IF;
+END $owner$;
+REASSIGN OWNED BY fixture_postgres_extension_owner TO postgres;
+DROP ROLE fixture_postgres_extension_owner;`;
+
 export async function installCurrentApplicationExtensions({
   applicationClient,
   Client,
@@ -382,6 +414,7 @@ export async function installCurrentApplicationExtensions({
   const query = `SELECT e.extname AS name,e.extversion AS version,n.nspname AS schema,
     pg_get_userbyid(e.extowner) AS owner FROM pg_extension e
     JOIN pg_namespace n ON n.oid=e.extnamespace ORDER BY e.extname`;
+  let ownerBootstrap;
   try {
     await bootstrap.connect();
     assert.deepEqual(
@@ -398,17 +431,27 @@ export async function installCurrentApplicationExtensions({
       currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name)),
       new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_PREIMAGE'})
     );
-    // Closed source literals only. Existing cron/plpgsql are reasserted, not
-    // replaced. Supautils' unchanged six-name list handles the three existing
-    // postgres-owned extensions; all five additional providers are admin-owned.
+    // Existing cron/plpgsql and every captured owner/version remain exact.
     for (const owner of ['supabase_admin', 'postgres']) {
-      const client = owner === 'postgres' ? applicationClient : bootstrap;
+      let client = bootstrap;
+      if (owner === 'postgres') {
+        ownerBootstrap = databaseOwner.own(new Client({
+          host: '/run/postgresql', user: 'supabase_admin', database: 'club_arena_qualification',
+          connectionTimeoutMillis: 5000, query_timeout: 8000, statement_timeout: 8000,
+          // Only this fresh initdb-admin bootstrap session uses ordinary PG
+          // ownership; no application/service configuration or hook is changed.
+          options: '-c search_path=pg_catalog -c session_preload_libraries=',
+        }));
+        await ownerBootstrap.connect();
+        client = ownerBootstrap;
+      }
       await client.query(
         "BEGIN; SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='5s';"
       );
       try {
         if (owner === 'supabase_admin')
           await client.query(currentApplicationExtensionNamespaceSql);
+        else await client.query(postgresExtensionOwnerBeginSql);
         for (const item of currentApplicationExtensions.filter(
           (item) => item.owner === owner && !['pg_cron', 'plpgsql'].includes(item.name)
         )) {
@@ -422,6 +465,7 @@ export async function installCurrentApplicationExtensions({
             `CREATE EXTENSION "${item.name}" WITH SCHEMA "${item.schema}" VERSION '${item.version}'`
           );
         }
+        if (owner === 'postgres') await client.query(postgresExtensionOwnerEndSql);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => {});
@@ -430,6 +474,10 @@ export async function installCurrentApplicationExtensions({
     }
     assert.deepEqual((await bootstrap.query(query)).rows, currentApplicationExtensions,
       new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_POSTIMAGE'}));
+    assert.deepEqual((await applicationClient.query(`SELECT current_user='postgres'
+      AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user)
+      AND NOT EXISTS (SELECT FROM pg_roles WHERE rolname='fixture_postgres_extension_owner') AS owned`)).rows,
+      [{owned: true}], new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_IDENTITY'}));
     assert.deepEqual((await bootstrap.query(`SELECT nspname AS name,
       pg_get_userbyid(nspowner) AS owner,
       (SELECT array_agg(a::text ORDER BY a::text) FROM unnest(nspacl) a) AS acl
@@ -437,7 +485,8 @@ export async function installCurrentApplicationExtensions({
       [currentApplicationExtensionNamespace],
       new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_NAMESPACE_POSTIMAGE'}));
   } finally {
-    await databaseOwner.end(bootstrap);
+    try { if (ownerBootstrap) await databaseOwner.end(ownerBootstrap); }
+    finally { await databaseOwner.end(bootstrap); }
   }
   return {
     scope: 'native-current-application-extensions',

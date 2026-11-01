@@ -779,3 +779,14 @@ diff from appending compared catalogue values. The independent Python decoder
 refuses unknown, malformed or incompatible sites. No actual/expected rows, raw
 message or stack leaves this boundary; SQLSTATE diagnostics remain unchanged.
 This attribution does not qualify a failing fixture or alter its assertions.
+
+The managed Supautils hook creates privileged extensions as its configured
+admin, even when requested by postgres. For the three captured postgres-owned
+providers, a separate original-initdb-admin bootstrap connection uses ordinary
+PostgreSQL creation and ownership operations. Its fixed NOLOGIN owner exists
+only inside one bounded transaction; exactly those three extensions and their
+new objects are reassigned to postgres before the owner is dropped. Identity,
+empty-role preimage, exact owned extension set and final absence are asserted.
+The application stays NOSUPERUSER throughout, with its original managed session
+and server/role preload configuration unchanged. No extension metadata is edited
+directly and no captured owner/version/ACL assertion is relaxed.
