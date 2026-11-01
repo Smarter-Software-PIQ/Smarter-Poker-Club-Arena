@@ -34,3 +34,7 @@ changing sequence handling. No bounded transport helper exists in that earlier
 module to import directly. Its historical qualification is useful baseline
 context, not proof for the new transport or this connected run. Neither existing
 leaderboard source nor its provider route is modified or re-executed here.
+
+The5507 synthetic routines exceed the5412 public/Auth function/procedure count
+observed in that capture, but represent a different population. This is not
+whole-production schema coverage or a production timing certificate.

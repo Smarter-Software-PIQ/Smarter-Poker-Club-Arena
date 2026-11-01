@@ -106,7 +106,7 @@ export async function verifyNativeDumpBinary(env) {
     manifest.function_batch_helper_sha256!==await sourceHash('./native-dump-function-batch.c') ||
     manifest.function_batch_contract_sha256!==await sourceHash('./native-dump-function-batch-test.c') ||
     manifest.transport!=='consecutive-stock-function-executions-v1' ||
-    manifest.qualification?.function_count_above_production!==5507 ||
+    manifest.qualification?.synthetic_routine_count!==5507 ||
     manifest.qualification?.function_batch_max!==128 ||
     manifest.qualification?.native_batch_result_faults_refused!==true ||
     manifest.qualification?.filtered_zero_one_equal!==true ||

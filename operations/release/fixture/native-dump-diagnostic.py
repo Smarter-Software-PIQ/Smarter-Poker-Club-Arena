@@ -483,7 +483,7 @@ CREATE FUNCTION diagnostic_single.one() RETURNS integer LANGUAGE sql AS $$SELECT
         require(b'GRANT SELECT("id")' in stock and b'ALTER DEFAULT PRIVILEGES' in stock and b'CREATE FUNCTION' in stock)
         return {'passed': True, 'sql_bytes_equal': True, 'fd3_records_valid': True,
                 'fd3_record_count': count, 'server_major': 17, 'cluster_absent': True,
-                'function_count_above_production': 5507, 'function_batch_max': 128,
+                'synthetic_routine_count': 5507, 'function_batch_max': 128,
                 'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components'}
     except Exception as error:
         retain_first_failure(error)

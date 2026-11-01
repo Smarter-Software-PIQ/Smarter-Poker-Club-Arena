@@ -86,7 +86,7 @@ async function binaryFixture(run){
       function_batch_helper_sha256:hash(await readFile(new URL('../native-dump-function-batch.c',import.meta.url))),
       function_batch_contract_sha256:hash(await readFile(new URL('../native-dump-function-batch-test.c',import.meta.url))),
       transport:'consecutive-stock-function-executions-v1',
-      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,function_count_above_production:5507,function_batch_max:128,native_batch_result_faults_refused:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components'}};
+      binary_sha256:hash(binary),libpq_sha256:hash(library),qualification:{passed:true,sql_bytes_equal:true,fd3_records_valid:true,cluster_absent:true,synthetic_routine_count:5507,function_batch_max:128,native_batch_result_faults_refused:true,filtered_zero_one_equal:true,diagnostic_object_scope:'effective-selected-components'}};
     const save=()=>writeFile(path.join(output,'manifest.json'),JSON.stringify(manifest),{mode:0o600});await save();
     await run({root,output,manifest,save,env:{RUNNER_TEMP:root,GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
   }finally{await rm(root,{recursive:true,force:true});}
@@ -98,7 +98,7 @@ test('only exact qualified owned native binary and source manifest creates an ex
     const old=manifest[key];manifest[key]='b'.repeat(old.length);await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest[key]=old;
   }
-  for(const [key,bad] of [['function_count_above_production',5506],['function_batch_max',129],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['diagnostic_object_scope','all-visits']]){
+  for(const [key,bad] of [['synthetic_routine_count',5506],['function_batch_max',129],['native_batch_result_faults_refused',false],['filtered_zero_one_equal',false],['diagnostic_object_scope','all-visits']]){
     const old=manifest.qualification[key];manifest.qualification[key]=bad;await save();
     await assert.rejects(verifyNativeDumpBinary(env),/BINARY_REFUSED/);manifest.qualification[key]=old;
   }
