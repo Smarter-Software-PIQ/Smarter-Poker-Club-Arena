@@ -421,8 +421,8 @@ export function HeroHubPanel({
                   {!isTournament &&
                     statFigure('BB Won', stats.bigBlindsWon, { signed: true, decimals: 1 })}
                   {statFigure('Hands', stats.handsPlayed)}
-                  {statFigure('VPIP', stats.vpipPercent, { suffix: '%' })}
-                  {statFigure('PFR', stats.pfrPercent, { suffix: '%' })}
+                  {statFigure('VPIP', stats.vpipPercent, { suffix: '%', decimals: 1 })}
+                  {statFigure('PFR', stats.pfrPercent, { suffix: '%', decimals: 1 })}
                 </div>
               )}
               {item('Full Session Stats', 'Trajectory Graph And Deeper Analytics', onOpenStats)}

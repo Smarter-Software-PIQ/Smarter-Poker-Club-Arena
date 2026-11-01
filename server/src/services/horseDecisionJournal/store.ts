@@ -592,6 +592,28 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
   /** The archive_segments rowids the evidence hold keeps, resolved by this
    * writer at open; [1, 0] holds nothing. */
   private held: { first: number; last: number } = { first: 1, last: 0 };
+  /** MEMORY GOVERNOR (Phase 6, 2026-10-31): while process RSS is over the
+   * soft ceiling the ring is bounded to this many segments instead of its
+   * configured allocation, so appends retire the oldest published segments
+   * (RING_RETIRE_LIMIT per append) until the archive is back inside it. Null:
+   * the configured allocation applies. Never touches the evidence hold. */
+  private pressureRetentionSegments: number | null = null;
+  /** Bound the ring under memory pressure; null lifts the bound. */
+  setPressureRetention(segments: number | null): void {
+    this.pressureRetentionSegments =
+      segments !== null && Number.isSafeInteger(segments) && segments >= 1 ? segments : null;
+  }
+  /** Published segments the evidence hold keeps (contiguous rowids). */
+  heldSegmentCount(): number {
+    return Math.max(0, this.held.last - this.held.first + 1);
+  }
+  /** The ring's effective segment bound: the allocation, or the pressure one. */
+  private effectiveMaxSegments(): number {
+    const max = this.archive!.maxSegments;
+    return this.pressureRetentionSegments === null
+      ? max
+      : Math.min(max, this.pressureRetentionSegments);
+  }
   constructor(
     directory: string,
     limits: {
@@ -1341,11 +1363,12 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
     fresh: number
   ): 'archive_bytes' | 'archive_segments' | null {
     const archive = this.archive!;
+    const maxSegments = this.effectiveMaxSegments();
     if (fresh && Number(usage.bytes) + bytes > archive.maxBytes) return 'archive_bytes';
     if (
       fresh &&
-      (Number(usage.segments) + segments > archive.maxSegments ||
-        Number(usage.records) + fresh > archiveRecordCap(archive.maxSegments))
+      (Number(usage.segments) + segments > maxSegments ||
+        Number(usage.records) + fresh > archiveRecordCap(maxSegments))
     )
       return 'archive_segments';
     return null;

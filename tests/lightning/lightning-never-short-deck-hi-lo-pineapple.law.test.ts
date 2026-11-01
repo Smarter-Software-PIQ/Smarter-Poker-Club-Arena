@@ -106,7 +106,7 @@ describe('Short Deck, Omaha Hi-Lo and Pineapple never run Lightning (owner, 2026
     expect(identity).toContain("entry.kind === 'cash'");
     expect(identity).toContain('!entry.game?.noLightning');
     expect(identity).toContain("cashTemplateKey(entry.game?.template ?? '') === 'madness'");
-    expect(table.match(/isLightningCashRow\(entry\)/g)?.length).toBe(3);
+    expect(table.match(/isLightningCashRow\(entry\)/g)?.length).toBe(4);
     for (const v of EXCLUDED) expect(entry(v).game?.noLightning, v).toBe(true);
     for (const v of ALLOWED) expect(entry(v).game?.noLightning, v).toBeUndefined();
   });

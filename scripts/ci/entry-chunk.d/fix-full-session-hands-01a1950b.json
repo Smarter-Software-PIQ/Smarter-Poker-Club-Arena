@@ -1,0 +1,4 @@
+{
+  "_owner": "PR #9070: the existing app-root cash and tournament result hosts recover completed-session hand totals across route changes and restored reports. This shared hook adds about 2 KB gzip to the reviewed entry (303 KB initial/320 KB budget), reuses existing React/Supabase/bus dependencies, and issues no query until an owned stats surface/report is active. Lightning code stays dynamic. Preserve established eager result-host/CSS and animation behavior; admit only this hook, with no baseline, numeric budget or assertion change.",
+  "modules": ["src/hooks/useSessionHandStats.ts"]
+}

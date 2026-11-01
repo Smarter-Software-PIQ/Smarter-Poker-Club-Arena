@@ -1,3 +1,4 @@
+-- @install-window: daily-maintenance
 -- @live-proof: (SELECT bool_and(coalesce(md5(pg_get_functiondef(to_regprocedure(signature)))=expected,false)) FROM (VALUES ('fn_ca_preview_tournament_abort_equal_share(uuid,uuid,text)','64371a889e6723b0f80c70310831b0bb'),('fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)','b88bcee008774d5e9eab175bc87d3b04'),('fn_ca_tournament_cancellation_receipt(uuid,uuid)','b6dad088592fcbbf313ddab376478532'),('fn_credit_and_log(uuid,numeric,text,text,text,uuid,text,uuid,uuid,integer,text)','f7bcbff31505ec690f310df7dc0a19ff'),('fn_refuse_zero_chip_field_elimination()','8150bc16b61800e79d5355f1b3507a9a'),('smarter_private.equal_share_retirement_must_close()','d6711284f022f2ae11664d2ed3c50045'),('smarter_private.tournament_equal_share_receipt(uuid,uuid)','574b3f32a9dbc54f989618901bf868f6')) x(signature,expected)) AND EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='smarter_private.tournament_abort_targets'::regclass AND tgname='equal_share_retirement_must_close' AND tgdeferrable AND tginitdeferred AND tgenabled='O') AND NOT has_function_privilege('authenticated','public.fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_ca_preview_tournament_abort_equal_share(uuid,uuid,text)','EXECUTE')
 -- Explicit started-event equal-share disposition, separate from original-charge
 -- refunds. Combined unawarded prize and bounty banks go equally to remaining
@@ -231,7 +232,7 @@ GRANT EXECUTE ON FUNCTION public.fn_ca_settle_tournament_abort_equal_share(uuid,
 -- Explicit financial preflight: the exact settlement and every deferred check
 -- execute inside a subtransaction that is unconditionally rolled back.
 INSERT INTO public.ca_money_rpc_registry(proname,status,notes)
-VALUES('fn_ca_preview_tournament_abort_equal_share','approved','Explicit rollback-only preview of canonical equal-share settlement; never commits awards') ON CONFLICT(proname) DO NOTHING;
+VALUES('fn_ca_preview_tournament_abort_equal_share','approved','Explicit noncommitting preview of canonical equal-share settlement; never commits awards') ON CONFLICT(proname) DO NOTHING;
 DO $migration$BEGIN IF NOT EXISTS(SELECT 1 FROM public.ca_money_rpc_registry WHERE proname='fn_ca_preview_tournament_abort_equal_share' AND status='approved') THEN RAISE EXCEPTION 'equal_share_preview_authority_not_approved' USING ERRCODE='42501';END IF;END $migration$;
 CREATE FUNCTION public.fn_ca_preview_tournament_abort_equal_share(p_operation_id uuid,p_tournament_id uuid,p_expected_money_hash text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,smarter_private AS $fn$

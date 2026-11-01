@@ -17,6 +17,7 @@ import { supabase } from '../../lib/supabase';
 import { tournamentChipRanks } from '../../utils/tournamentChipRanks';
 import { readTournamentStandings } from '../../services/readTournamentStandings';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { TournamentHourVpip } from './TournamentHourVpip';
@@ -212,6 +213,7 @@ export function TournamentBreakScreen({
   useEffect(() => {
     if (!isVisible || !tournamentId) return;
     let mounted = true;
+    const controller = new AbortController();
     setFacts(null);
     setFactsFailed(false);
     let inFlight = false;
@@ -226,13 +228,18 @@ export function TournamentBreakScreen({
       pending = false;
       try {
         const [tRes, pRes] = await Promise.all([
-          supabase
-            .from('tournaments')
-            .select(
-              'current_level, blind_level_state, blind_structure, prize_pool, current_players, max_players'
-            )
-            .eq('id', tournamentId)
-            .maybeSingle(),
+          runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .from('tournaments')
+                .select(
+                  'current_level, blind_level_state, blind_structure, prize_pool, current_players, max_players'
+                )
+                .eq('id', tournamentId)
+                .abortSignal(signal)
+                .maybeSingle(),
+            { signal: controller.signal }
+          ),
           readTournamentStandings(tournamentId, 'id, user_id, username, chips, status'),
         ]);
         if (!mounted || pending) return;
@@ -334,6 +341,7 @@ export function TournamentBreakScreen({
     void load();
     return () => {
       mounted = false;
+      controller.abort();
       stop();
     };
   }, [isVisible, tournamentId, heroUserId, phase, factsScope]);
@@ -463,9 +471,15 @@ export function TournamentBreakScreen({
       >
         <span className="break-screen__mini-face">
           <span className="break-screen__mini-badge">
-            {countingDown ? `Break: ${formatTime(displayTime)}` : 'Break: Last Hand'}
+            {countingDown
+              ? `Break: ${formatTime(displayTime)}`
+              : addOnNotice
+                ? 'Add-On: Last Hand'
+                : 'Break: Last Hand'}
           </span>
-          <span className="break-screen__mini-state">Paused</span>
+          <span className="break-screen__mini-state">
+            {countingDown ? 'Paused' : 'Finishing Hands'}
+          </span>
         </span>
       </button>
     );
@@ -510,7 +524,9 @@ export function TournamentBreakScreen({
             <div className="break-screen__timer-container">
               <span className="break-screen__time-label">
                 {addOnNotice
-                  ? 'Add-On Closes In'
+                  ? countingDown
+                    ? 'Add-On Closes In'
+                    : 'Last Hand Before The Add-On Period'
                   : countingDown
                     ? 'Play Resumes In'
                     : 'Finishing The Last Hand'}
@@ -566,7 +582,9 @@ export function TournamentBreakScreen({
           </div>
           <p className="break-screen__resume-note" role="status">
             {!countingDown
-              ? 'Break Starts When Every Table Finishes'
+              ? addOnNotice
+                ? 'The 60-Second Add-On Starts When Every Table Finishes'
+                : 'Break Starts When Every Table Finishes'
               : waitingForResume
                 ? 'Waiting For Play To Resume'
                 : 'Play Resumes Automatically'}
@@ -595,7 +613,9 @@ export function TournamentBreakScreen({
                 >
                   {formatStack(addOnNotice.chips)}
                 </span>
-                <span className="break-screen__stat-sub">All Tables Paused</span>
+                <span className="break-screen__stat-sub">
+                  {countingDown ? 'All Tables Paused' : 'Finishing Current Hands'}
+                </span>
               </div>
             </div>
           )}

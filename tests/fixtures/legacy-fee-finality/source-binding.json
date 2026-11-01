@@ -1,6 +1,6 @@
 {
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319",
+    "scripts/ci/classify-ci-changes.mjs": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
@@ -1298,5 +1298,12 @@
         "current": "48c0f13534ac5861d72ef9f26ee7c5d0c8c59d36a0eb15619fb00f418db40310"
       }
     }
+  },
+  "fullSessionHandStatsRouting20261031": {
+    "reason": "Add the new self-only full-session hand statistics PostgreSQL runner to the existing required Data Console accounting selection. Existing routing, financial commands, assertions and historical qualification verdicts are preserved. Current source identity only, not recertification.",
+    "path": "scripts/ci/classify-ci-changes.mjs",
+    "previousSha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319",
+    "currentSha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27",
+    "historicalEvidenceRestamped": false
   }
 }
