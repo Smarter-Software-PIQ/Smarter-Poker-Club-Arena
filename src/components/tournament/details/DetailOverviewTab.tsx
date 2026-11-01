@@ -1,3 +1,4 @@
+import { tournamentEntryTerms } from './entryTerms';
 import {
   useSatelliteAwards,
   satelliteAwardLabel,
@@ -595,8 +596,12 @@ export default function DetailOverviewTab({
        event with both set quoted the late-registration level as the rebuy
        level. Zero means the row does not say, and then no level is printed. */
     const rebuyThrough = Math.max(0, Number(t.rebuy_levels ?? t.late_reg_levels) || 0);
-    const addonFrom = rebuyThrough;
-    const addonTo = rebuyThrough + (Number(t.addon_levels ?? 1) || 1);
+    const entryTerms = tournamentEntryTerms(
+      tournament,
+      serverNow(),
+      overviewUnitCents,
+      clockPaused || maintenanceBreak.active
+    );
     const throughText = rebuyThrough > 0 ? ` thru Lv ${rebuyThrough}` : '';
     const structure = describeMttStructure(
       (blindLevels || []).map((row) => ({
@@ -645,14 +650,19 @@ export default function DetailOverviewTab({
             : 'None',
       },
       {
-        key: 'addon',
-        label: 'Add-On',
-        value: t.add_on_available
-          ? `${chipsCompact(Number(t.addon_chips) || Number(t.starting_chips) || 0)}${
-              rebuyThrough > 0 ? ` Lv ${addonFrom}-${addonTo}` : ''
-            }`
-          : 'None',
+        key: 'late-registration-closes',
+        label: 'Late Registration Closes',
+        value: entryTerms.lateRegistration,
+        wide: true,
       },
+      { key: 'addon', label: 'Add-On', value: entryTerms.addon },
+      ...(entryTerms.addon === 'Yes'
+        ? [
+            { key: 'addon-cost', label: 'Add-On Cost', value: entryTerms.cost! },
+            { key: 'addon-stack', label: 'Add-On Stack', value: entryTerms.stack! },
+            { key: 'addon-when', label: 'Add-On When', value: entryTerms.timing!, wide: true },
+          ]
+        : []),
       {
         key: 'when',
         label: isRunning ? 'Started' : isCompleted ? 'Ended' : isCancelled ? 'Was Due' : 'Starts',
@@ -759,6 +769,8 @@ export default function DetailOverviewTab({
     field.entries,
     mysteryBounty?.inventory,
     overviewUnitCents,
+    clockPaused,
+    maintenanceBreak.active,
     tick,
   ]);
 
