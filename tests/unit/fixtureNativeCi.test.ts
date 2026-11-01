@@ -1568,7 +1568,9 @@ describe('required CI owns funded Spin expiry PostgreSQL qualification', () => {
     expect(accounting.needs).toBe('changes');
     expect(accounting.if).toContain("needs.changes.outputs.server == 'true'");
     expect(accounting.if).toContain("needs.changes.result != 'success'");
-    expect(accounting['runs-on']).toBe('ubuntu-24.04');
+    expect(accounting['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(accounting['continue-on-error']).toBeUndefined();
     const calls = accounting.steps.filter(
       (step: { id?: string }) => step.id === 'spin_expiry_postgres'
@@ -1625,7 +1627,9 @@ describe('Production Alert SQL checks use the existing accounting job', () => {
 
   it('runs all three real drivers with the installed PG17 tools and no failure bypass', () => {
     const accounting = ci.jobs.accounting_postgres;
-    expect(accounting['runs-on']).toBe('ubuntu-24.04');
+    expect(accounting['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(accounting['continue-on-error']).toBeUndefined();
     const expected = [
       [
@@ -1885,7 +1889,9 @@ describe('cash failure intake is exercised by the actual hosted scheduler fixtur
     const job = ci.jobs.accounting_postgres;
     const build = job.steps.filter((s: { id?: string }) => s.id === 'cash_pgcron_build');
     const execution = job.steps.filter((s: { id?: string }) => s.id === 'cash_native_failure');
-    expect(job['runs-on']).toBe('ubuntu-24.04');
+    expect(job['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(job['continue-on-error']).toBeUndefined();
     expect(build).toHaveLength(1);
     expect(execution).toHaveLength(1);
@@ -2043,7 +2049,9 @@ describe('restored provider accounting qualification', () => {
       env?: Record<string, string>;
       'continue-on-error'?: boolean;
     }>;
-    expect(job['runs-on']).toBe('ubuntu-24.04');
+    expect(job['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(job.if).toBe(ci.jobs.server_shards.if);
     expect(ci.jobs.server.needs).toContain('accounting_postgres');
     expect(job['continue-on-error']).not.toBe(true);

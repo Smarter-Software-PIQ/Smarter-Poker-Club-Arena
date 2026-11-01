@@ -69,6 +69,21 @@ jobs:
         run: |
           npm ci --prefix server --ignore-scripts --no-audit --no-fund
           npm run build --prefix server
+      - name: Build and qualify logging-only native schema export diagnostics
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          diagnostic_build_deps_missing=0
+          for tool in cc make bison flex pkg-config curl; do
+            command -v "$tool" >/dev/null || diagnostic_build_deps_missing=1
+          done
+          pkg-config --exists openssl 2>/dev/null || diagnostic_build_deps_missing=1
+          if [[ "$diagnostic_build_deps_missing" == 1 ]]; then
+            sudo python3 scripts/ci/ubuntu-apt-mirror.py
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends build-essential bison flex pkg-config curl libssl-dev
+          fi
+          python3 -B operations/release/fixture/native-dump-diagnostic.py --build . "$RUNNER_TEMP/isolated-schema-native"
       - name: Check financial route and fixture ownership boundaries
         if: ${{ !inputs.connected_ui_observations }}
         run: |
@@ -143,6 +158,9 @@ jobs:
       - name: Remove private candidate on every outcome
         if: always() && inputs.connected_ui_observations
         run: python3 -B operations/release/native/observe-connected-ui.py --cleanup-private "$RUNNER_TEMP/isolated-schema-candidate"
+      - name: Remove only this job's qualified native diagnostic tool
+        if: always()
+        run: python3 -B operations/release/fixture/native-dump-diagnostic.py --cleanup "$RUNNER_TEMP/isolated-schema-native"
       - name: Preserve only sanitized connected observation receipts
         if: always() && inputs.connected_ui_observations
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
