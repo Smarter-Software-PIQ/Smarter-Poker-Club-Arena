@@ -34,6 +34,7 @@ export function useProtectedCardLayout(
   // geometry may allocate a new slot. Removed DOM rows expire naturally.
   const settled = useRef({
     key: '',
+    podKey: '',
     dealer: null as { owner: string; translate: string } | null,
     rows: new WeakMap<HTMLElement, SettledCardRow>(),
     pods: new WeakMap<HTMLElement, string>(),
@@ -62,8 +63,7 @@ export function useProtectedCardLayout(
     };
     const refreshGeometry = () => {
       const box = scaler.getBoundingClientRect();
-      const key = [
-        handKey,
+      const geometry = [
         Math.round(box.width),
         Math.round(box.height),
         Math.round(page.getBoundingClientRect().width),
@@ -76,13 +76,23 @@ export function useProtectedCardLayout(
         scaler.style.getPropertyValue('--sp-board-card-w'),
         scaler.style.getPropertyValue('--sp-tabled-card-w'),
       ].join(':');
+      const key = `${handKey}:${geometry}`;
       if (settled.current.key !== key) {
+        const retainedPods =
+          settled.current.podKey === geometry
+            ? settled.current.pods
+            : new WeakMap<HTMLElement, string>();
+        const retainedPoses =
+          settled.current.podKey === geometry
+            ? settled.current.podPoses
+            : new WeakMap<HTMLElement, string>();
         settled.current = {
           key,
+          podKey: geometry,
           dealer: null,
           rows: new WeakMap(),
-          pods: new WeakMap(),
-          podPoses: new WeakMap(),
+          pods: retainedPods,
+          podPoses: retainedPoses,
           ownerSpacingTried: new WeakSet(),
           wagers: new WeakMap(),
         };
@@ -457,7 +467,7 @@ export function useProtectedCardLayout(
       topPods().forEach((pod) => {
         if (sixMax) {
           const avatar = pod.querySelector<HTMLImageElement>('.seat__avatar-img');
-          const pose = `${avatar ? avatarRestPose(avatar) : ''}:${window.innerWidth <= 768 && Boolean(pod.querySelector('.seat__cards--revealed'))}`;
+          const pose = `${avatar ? avatarRestPose(avatar) : ''}:${window.innerWidth <= 768}`;
           // Folded/resting posture is a layout input. Gesture frames are not.
           if (settled.current.podPoses.get(pod) !== pose) settled.current.pods.delete(pod);
           settled.current.podPoses.set(pod, pose);
@@ -525,7 +535,7 @@ export function useProtectedCardLayout(
             // Lower the pod as one unit instead of forcing the cards sideways
             // into a neighbour when the compact crown anchor clips that lane.
             const target =
-              window.innerWidth <= 768 && pod.querySelector('.seat__cards--revealed')
+              window.innerWidth <= 768
                 ? Math.max(
                     naturalTarget,
                     Math.max(pageBox.top, chromeBottom) +

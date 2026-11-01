@@ -1033,11 +1033,11 @@ export function createOpponentAvatarLayout(
     page.clientWidth <= 340 &&
     (Boolean(scaler.querySelector('.seat__allin-puck')) || fullRingShowdown()) &&
     Boolean(scaler.querySelector('.seat__cards--revealed > :nth-child(5)'));
-  const prepare = (handKey = 'current') => {
+  const prepare = (_handKey = 'current') => {
     syncOpponentCaptionBoundary(
       state,
       captions(),
-      `${handKey}:${window.innerWidth}:${window.innerHeight}:${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${images().map(source).join('|')}`
+      `${window.innerWidth}:${window.innerHeight}:${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${images().map(source).join('|')}`
     );
     spacingReady = false;
     const all = images().filter((image) => image.complete && image.naturalWidth > 0);

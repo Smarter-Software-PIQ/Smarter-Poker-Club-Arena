@@ -1300,7 +1300,7 @@ it.each([
   { heroActive: true, heroSpot: false, opponentActive: false, opponentSpot: true },
   { heroActive: false, heroSpot: true, opponentActive: true, opponentSpot: false },
 ])(
-  'matches mixed decoded subjects to the unchanged focused Hero: %j',
+  'matches mixed decoded subjects to the fixed Hero through attention states: %j',
   async ({ heroActive, heroSpot, opponentActive, opponentSpot }) => {
     const page = document.createElement('div');
     page.className = 'table-page';
@@ -1351,16 +1351,15 @@ it.each([
       await Promise.resolve();
       await Promise.resolve();
       layout.prepare();
-      const heroFocus = (heroActive ? 1.04 : 1) * (heroSpot ? 1.04 : 1);
-      const opponentFocus = (opponentActive ? 1.04 : 1) * (opponentSpot ? 1.04 : 1);
       const gain = Number(
         images[1]
           .closest<HTMLElement>('.seat__avatar')!
           .style.getPropertyValue('--sp-opponent-art-scale')
       );
       // Independent decoded row counts: 200 Hero pixels, 300 opponent pixels.
-      expect(gain).toBeCloseTo(((200 / 300) * heroFocus) / opponentFocus, 5);
-      expect((300 / 340) * 80 * opponentFocus * gain).toBeCloseTo((200 / 340) * 80 * heroFocus, 4);
+      // Attention classes retain status cues but cannot change either height.
+      expect(gain).toBeCloseTo(200 / 300, 5);
+      expect((300 / 340) * 80 * gain).toBeCloseTo((200 / 340) * 80, 4);
       expect(
         images[0]
           .closest<HTMLElement>('.seat__avatar')!

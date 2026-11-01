@@ -865,7 +865,7 @@ for (const [width, heightOverride] of occupiedViewports)
           'large all-shown',
         ]
       : width === 652 && count === 9
-        ? ['all', 'focus']
+        ? ['all', 'focus', 'focus tournament']
         : ['all']
     ).map((sceneGroup) => [count, sceneGroup] as const)
   ))
@@ -1030,11 +1030,11 @@ for (const [width, heightOverride] of occupiedViewports)
         // Split the dense raw-phone cold mounts, preserving every scene and
         // assertion under the same per-test deadline.
         if (
-          sceneGroup === 'focus' &&
+          sceneGroup.startsWith('focus') &&
           !(revealed && jackpot === 'mini' && villainCards === 2 && state === 'normal')
         )
           continue;
-        if (sceneGroup !== 'all' && sceneGroup !== 'focus') {
+        if (sceneGroup !== 'all' && !sceneGroup.startsWith('focus')) {
           const largeHandGroup = sceneGroup.startsWith('large ');
           if (villainCards >= 5 !== largeHandGroup) continue;
           if (largeHandGroup && sceneGroup !== `large ${state}`) continue;
@@ -1069,7 +1069,7 @@ for (const [width, heightOverride] of occupiedViewports)
         await page.route('https://smarter.poker/hub/club-arena/__isolated_rail_fixture', (route) =>
           route.fulfill({
             contentType: 'text/html',
-            body: `<html data-active-seat="${sceneGroup === 'focus' ? 7 : -1}" data-avatar="${scaledPhone ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp'}" data-seats="${count}" data-cards="${villainCards >= 5 ? villainCards : 4}" data-all-in="${state === 'all-in'}" data-show-all="${state === 'all-shown'}" data-revealed="${revealed}" data-jackpot="${jackpot}" data-villain-cards="${villainCards}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
+            body: `<html data-tournament="${sceneGroup === 'focus tournament'}" data-active-seat="${sceneGroup.startsWith('focus') ? 7 : -1}" data-avatar="${scaledPhone ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp'}" data-seats="${count}" data-cards="${villainCards >= 5 ? villainCards : 4}" data-all-in="${state === 'all-in'}" data-show-all="${state === 'all-shown'}" data-revealed="${revealed}" data-jackpot="${jackpot}" data-villain-cards="${villainCards}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
           })
         );
         await page.goto('https://smarter.poker/hub/club-arena/__isolated_rail_fixture', {
@@ -1407,7 +1407,7 @@ for (const [width, heightOverride] of occupiedViewports)
             );
           });
         }
-        if (sceneGroup === 'focus') {
+        if (sceneGroup.startsWith('focus')) {
           const permanent = () =>
             page.locator('.seat__cards--revealed').evaluateAll((rows) =>
               rows.map((row) => {
@@ -1435,6 +1435,14 @@ for (const [width, heightOverride] of occupiedViewports)
                   )
                 )
               );
+          const fixedArtwork = () =>
+            page.locator('.seat__avatar-img').evaluateAll((images) =>
+              images.map((image) => {
+                const r = image.getBoundingClientRect();
+                return [r.x, r.y, r.width, r.height];
+              })
+            );
+          const retainedArtwork = await fixedArtwork();
           const retainedRows = await permanent(),
             retainedChips = await chips();
           for (const acting of [0, 7]) {
@@ -1466,6 +1474,13 @@ for (const [width, heightOverride] of occupiedViewports)
                 );
               }
             });
+            const artwork = await fixedArtwork();
+            for (let i = 0; i < artwork.length; i++)
+              for (let axis = 0; axis < 4; axis++)
+                expect(artwork[i][axis], 'Turn focus cannot move or resize artwork').toBeCloseTo(
+                  retainedArtwork[i][axis],
+                  3
+                );
             expect(
               await permanent(),
               'Turn focus preserves tabled row geometry and ancestor placement'
@@ -1475,6 +1490,35 @@ for (const [width, heightOverride] of occupiedViewports)
               'Turn focus preserves settled chips and collection origins'
             ).toEqual(retainedChips);
           }
+          await page.evaluate(async () => {
+            document
+              .querySelectorAll('.seat')
+              .forEach((seat) =>
+                seat.classList.add('seat--folded', 'seat--winner-pop', 'seat--allin-shake')
+              );
+            document
+              .querySelectorAll('.seat__avatar-wrap')
+              .forEach((wrap) => wrap.classList.add('seat__avatar-wrap--fold'));
+            document.dispatchEvent(new Event('fixture-next-hand'));
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+            );
+          });
+          const afterAction = await fixedArtwork();
+          for (let i = 0; i < afterAction.length; i++)
+            for (let axis = 0; axis < 4; axis++)
+              expect(
+                afterAction[i][axis],
+                'Actions and new hands retain the same character rectangle'
+              ).toBeCloseTo(retainedArtwork[i][axis], 3);
+          await page.evaluate(() => {
+            document
+              .querySelectorAll('.seat')
+              .forEach((seat) => seat.classList.remove('seat--winner-pop', 'seat--allin-shake'));
+            document
+              .querySelectorAll('.seat__avatar-wrap')
+              .forEach((wrap) => wrap.classList.remove('seat__avatar-wrap--fold'));
+          });
         }
         if (state !== 'normal') {
           await page.screenshot({
@@ -1523,22 +1567,12 @@ for (const [width, heightOverride] of occupiedViewports)
               const originalWrap = wrap.className;
               wrap.classList.add('seat__avatar-wrap--celebrate');
               await frame();
-              const gesture = wrap
-                .getAnimations()
-                .find(
-                  (animation) =>
-                    animation instanceof CSSAnimation &&
-                    animation.animationName === 'spAvatarCelebrate'
-                );
-              if (!gesture) throw new Error('Real Celebration Animation Missing');
-              gesture.pause();
-              gesture.currentTime = Number(gesture.effect!.getTiming().duration) * 0.4;
+              if (wrap.getAnimations().length) throw new Error('Avatar Must Remain Fixed');
               document.dispatchEvent(new Event('fixture-next-hand'));
               await frame();
               const raisedShift = parseFloat(pod.style.getPropertyValue('--sp-top-seat-shift'));
               // Complete the actual gesture, then let the ordinary folded
               // resting pose settle. No production animation is cancelled.
-              gesture.finish();
               wrap.className = originalWrap;
               document.dispatchEvent(new Event('fixture-next-hand'));
               await frame();
@@ -1561,14 +1595,7 @@ for (const [width, heightOverride] of occupiedViewports)
               seat.classList.remove('seat--folded');
               wrap.classList.add('seat__avatar-wrap--fold');
               await frame();
-              const foldGesture = wrap
-                .getAnimations()
-                .find(
-                  (animation) =>
-                    animation instanceof CSSAnimation && animation.animationName === 'spAvatarFold'
-                );
-              if (!foldGesture) throw new Error('Real Fold Animation Missing');
-              await foldGesture.finished;
+              if (wrap.getAnimations().length) throw new Error('Fold Must Not Move Avatar');
               await frame();
               const retainedBox = head.getBoundingClientRect();
               const retainedFoldGap =
@@ -1583,7 +1610,7 @@ for (const [width, heightOverride] of occupiedViewports)
             }, AVATAR_CROWN_TOP);
             expect(anchoring.restingShift).toBeCloseTo(anchoring.raisedShift, 1);
             if (width > 768) {
-              expect(anchoring.foldedShift).toBeLessThan(anchoring.restingShift);
+              expect(anchoring.foldedShift).toBeCloseTo(anchoring.restingShift, 4);
               expect(anchoring.gap).toBeLessThan(0);
               expect(anchoring.retainedFoldGap).toBeLessThan(0);
             } else {

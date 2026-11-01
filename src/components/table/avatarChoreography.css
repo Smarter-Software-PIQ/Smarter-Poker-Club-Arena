@@ -608,3 +608,16 @@
     transition: none;
   }
 }
+
+/* Owner direction 2026-11-01: table characters always retain their resting
+   position. Status, cards, chips and the on-clock holo retain their own cues.
+   Keep the image's static bust transform and opponent paint scale untouched. */
+.table-page .seat__avatar-wrap {
+  --sp-avatar-rest-transform: none;
+  animation: none !important;
+  transform: none !important;
+  translate: none !important;
+  rotate: none !important;
+  scale: 1 !important;
+  transition: none !important;
+}

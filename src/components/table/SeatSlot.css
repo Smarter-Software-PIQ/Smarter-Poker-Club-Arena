@@ -4948,3 +4948,19 @@
     --sp-bust-scale: 1.3;
   }
 }
+
+/* Fixed character framing (owner direction 2026-11-01). Active/winner rims
+   and colour cues remain; neither a turn nor an arrival may resize the art.
+   Individual scale still belongs to opponent normalization, and the bust
+   image keeps its existing transform. */
+.table-page .seat .seat__avatar {
+  transform: none !important;
+}
+
+/* Throwable/knockout impacts keep their own artwork, but never displace the
+   occupied chair. Retain the allocator's fixed translation on the seat only;
+   its wrapper's rail coordinates are untouched. */
+.table-page .seat:not(.seat--empty) {
+  translate: var(--sp-opponent-x, 0px) var(--sp-opponent-y, 0px) !important;
+  rotate: 0deg !important;
+}
