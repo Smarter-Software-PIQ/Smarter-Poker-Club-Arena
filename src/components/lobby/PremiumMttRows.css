@@ -418,10 +418,13 @@
   display: block;
   width: max-content;
   max-width: none;
-  font-size: max(12px, calc(clamp(12px, 4cqw, 28px) * var(--fit, 1)));
+  font-size: calc(clamp(12px, 4cqw, 28px) * var(--fit, 1));
   line-height: 1.05;
   white-space: nowrap;
   overflow-wrap: normal;
+}
+.has-premium-chassis [data-label='Buy-In'] .premium-cash-stakes-value {
+  font-size: max(12px, calc(clamp(12px, 4cqw, 28px) * var(--fit, 1)));
 }
 .has-premium-chassis tbody tr[data-id] > td[data-label='Stakes'] {
   padding-bottom: 1cqw !important;
