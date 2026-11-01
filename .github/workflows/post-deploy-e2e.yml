@@ -1848,7 +1848,7 @@ jobs:
     # their table cases are read-only and cleanup owns only that exact account.
     # Client browser checks retain their original shared write-serialization.
     concurrency:
-      group: ${{ needs.publication-gate.outputs.natural_board_reveal == 'true' && 'post-deploy-live-table-natural-board-production' || github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_addon == 'true' && 'post-deploy-live-table-natural-addon-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.mobile_multirun) == 'true' && 'post-deploy-live-table-multirun-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.horse_social) == 'true' && toJSON(github.event.client_payload.mobile_multirun) == 'null' && 'post-deploy-live-table-horse-social-production' || 'post-deploy-live-table-production' }}
+      group: ${{ github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_board_reveal == 'true' && 'post-deploy-live-table-natural-board-production' || github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_addon == 'true' && 'post-deploy-live-table-natural-addon-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.mobile_multirun) == 'true' && 'post-deploy-live-table-multirun-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.horse_social) == 'true' && toJSON(github.event.client_payload.mobile_multirun) == 'null' && 'post-deploy-live-table-horse-social-production' || 'post-deploy-live-table-production' }}
       cancel-in-progress: false
     outputs:
       client_sha: ${{ steps.live.outputs.sha }}
