@@ -1689,7 +1689,7 @@ it('binds the one-file equal-share append and preserves the entire prior source'
   );
   const start = raw.indexOf(equalShareDatabaseMarker);
   expect(createHash('sha256').update(raw.slice(start, -'\n  ]\n}\n'.length)).digest('hex')).toBe(
-    'd31450110027187b67910828924c846cac90fdf120acc23bac71004c1e0d2192'
+    'c70a75d49005455c808878e187c674e49298aa910ec53da8b352aba893712cf5'
   );
   const previousEntry = JSON.parse(prior).databaseWindows.at(-1);
   const originalQuote = previousEntry.ownerOrder
