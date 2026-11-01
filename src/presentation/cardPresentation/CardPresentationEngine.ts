@@ -227,15 +227,16 @@ export class CardPresentationEngine {
     });
     this.remember(key);
 
+    // One presentation per lane: a newer card on the same board pre-empts an
+    // older one still mid-flight, even when the new card needs no animation.
+    // Its old reveal timer must not keep the prior street's equity held.
+    const previous = this.lanes.get(lane);
+    if (previous && previous !== key) this.cancel(previous, 'superseded');
+
     if (profile.intensity === 'off' || profile.durationMs <= 0) {
       this.telemetry({ ...base, event: 'animation_skipped', reason: profile.id });
       return { status: 'instant', key, profile, durationMs: 0 };
     }
-
-    // One presentation per lane: a newer card on the same board pre-empts an
-    // older one still mid-flight, and that one renders its final state.
-    const previous = this.lanes.get(lane);
-    if (previous && previous !== key) this.cancel(previous, 'superseded');
 
     // A server-paced reveal may run FASTER than spec but never slower: the
     // engine's equity gate is a fixed wall-clock hold that does not know this
