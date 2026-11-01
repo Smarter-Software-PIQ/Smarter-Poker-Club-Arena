@@ -65,6 +65,13 @@ describe('browser qualification parallel delivery', () => {
     });
   });
 
+  it('keeps live-table browser verification on the supported fixed hosted image', () => {
+    const workflow = YAML.parse(readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8'));
+    const liveTable = workflow.jobs['live-table-e2e'];
+    expect(liveTable['runs-on']).toBe('ubuntu-24.04');
+    expect(liveTable['continue-on-error']).toBeUndefined();
+  });
+
   it('defaults required native qualification to the approved standard hosted profile', () => {
     for (const job of ['accounting_postgres', 'server_shards']) {
       expect(ci.jobs[job]['runs-on']).toBe(
