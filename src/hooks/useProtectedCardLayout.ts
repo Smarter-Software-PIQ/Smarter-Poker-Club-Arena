@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { avatarRestPose, restingAvatarTop } from '../components/table/avatarCrownBounds';
+import { createOpponentAvatarLayout } from '../components/table/opponentAvatarLayout';
 import { placeProtectedCardRow, type CardBox } from '../lib/protectedCardPlacement';
 import {
   assignProtectedWagers,
@@ -20,6 +21,7 @@ export function useProtectedCardLayout(
   revision: string,
   handKey = 'current'
 ) {
+  const opponentArt = useRef({ key: '', shifts: new WeakMap<HTMLElement, [number, number]>() });
   // A runout changes the board, pot and highlights, never the hand's slot.
   // Retain placements across effect revisions; only a new hand or viewport
   // geometry may allocate a new slot. Removed DOM rows expire naturally.
@@ -28,6 +30,10 @@ export function useProtectedCardLayout(
     rows: new WeakMap<HTMLElement, string>(),
     pods: new WeakMap<HTMLElement, string>(),
     podPoses: new WeakMap<HTMLElement, string>(),
+    wagers: new WeakMap<
+      HTMLElement,
+      { offsets: string[]; width: number; height: number; owner: string | null }
+    >(),
   });
   useLayoutEffect(() => {
     const scaler = root.current;
@@ -55,6 +61,7 @@ export function useProtectedCardLayout(
           rows: new WeakMap(),
           pods: new WeakMap(),
           podPoses: new WeakMap(),
+          wagers: new WeakMap(),
         };
       }
     };
@@ -93,7 +100,12 @@ export function useProtectedCardLayout(
             '.community-area, .seat__avatar-img, .pot-area, .pot-display, .seat__info, .seat__strength, .seat__action, .seat__bounty, .seat__position-badge, .pot-display__pile, .action-panel, .bbj-widget, .bbj-mini-plate, .cch-column, .chat-collapsed'
         )
       ).flatMap((element) => {
-        const box = visibleBox(element);
+        // Transparent canvas is not a foreign character. Retain the same
+        // card/panel keep-outs while measuring actual decoded avatar paint.
+        const box =
+          element instanceof HTMLImageElement && element.matches('.seat__avatar-img')
+            ? (artwork.paintedBox(element) ?? visibleBox(element))
+            : visibleBox(element);
         return box ? [{ element, box }] : [];
       });
       const protectedBoxes = protectedEntries.map(({ box }) => box);
@@ -228,7 +240,7 @@ export function useProtectedCardLayout(
         // player's does it drop to 85 percent of the board's size. Widths are
         // computed rather than measured, because cards glide over 0.2s.
         const count = cards.length;
-        if (seat && count >= 2 && count < 5) {
+        if (seat && count >= 2 && count <= 6) {
           // The spacing and card size this hand was drawn at, and the ones the
           // stylesheet gives it, so a closed-up hand can be judged at full size.
           const inlineStep = parseFloat(row.style.getPropertyValue('--vh-step-f'));
@@ -272,9 +284,13 @@ export function useProtectedCardLayout(
           // Board size first, at its own spacing, then closing up, then (only
           // when nothing else is this player's) 85 percent of the board's size.
           const tries: Array<[number, number]> = [];
-          for (const size of [1, 0.85])
+          for (const size of count >= 5 ? [1] : [1, 0.85])
             for (const step of [base, 0.6, 0.5, 0.4, 0.32, 0.27])
-              if (step <= base && !tries.some(([a, b]) => a === step && b === size))
+              if (
+                step <= base &&
+                (count < 5 || step >= 0.5) &&
+                !tries.some(([a, b]) => a === step && b === size)
+              )
                 tries.push([step, size]);
           let pick: { step: number; size: number; from: CardBox; to: CardBox } | null = null;
           for (const [step, size] of tries) {
@@ -317,9 +333,26 @@ export function useProtectedCardLayout(
         settled.current.rows.set(row, row.style.translate || '');
       }
     };
+    const artwork = createOpponentAvatarLayout(
+      scaler,
+      page as HTMLElement,
+      opponentArt.current,
+      () => schedule()
+    );
     const place = () => {
       refreshGeometry();
       resetWagers();
+      if (artwork.prepare()) {
+        settled.current.pods = new WeakMap();
+        settled.current.rows = new WeakMap();
+        settled.current.wagers = new WeakMap();
+      }
+      const offsetNames = ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'];
+      for (const bet of wagers()) {
+        const stored = settled.current.wagers.get(bet);
+        if (stored)
+          offsetNames.forEach((name, index) => bet.style.setProperty(name, stored.offsets[index]));
+      }
       scaler.querySelector<HTMLElement>('.dealer-button')?.style.removeProperty('translate');
       const rows = Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards--revealed'));
       rows.forEach((row) => {
@@ -437,6 +470,18 @@ export function useProtectedCardLayout(
             settled.current.pods.set(pod, String(shift));
           }
         }
+      }
+      if (artwork.space()) {
+        // Metadata arrives after initial card placement. Rebase shown rows
+        // once against the final opponent position, then retain that slot.
+        settled.current.rows = new WeakMap();
+        rows.forEach((row) => {
+          row.style.removeProperty('translate');
+          row.style.removeProperty('--vh-step-f');
+          row.style.removeProperty('--vh-card-w');
+          delete row.dataset.baseStep;
+          delete row.dataset.baseCardW;
+        });
       }
       const visibleBox = (element: Element): CardBox | null => {
         const box = element.getBoundingClientRect();
@@ -592,14 +637,71 @@ export function useProtectedCardLayout(
             return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width };
           })
           .filter((c) => c.w > 0 && Number.isFinite(c.x) && Number.isFinite(c.y));
+        const fixedWagers: CardBox[] = [];
+        const permanentKeepouts = [
+          ...Array.from(
+            page.querySelectorAll(
+              '.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile'
+            )
+          )
+            .map(visibleBox)
+            .filter((value): value is CardBox => value !== null),
+          ...artwork.paintedObstacles(),
+        ];
         const entries = wagers()
           .flatMap((bet) => {
-            const box = visibleBox(bet);
+            let box = visibleBox(bet);
             const owner = bet
               .closest('.seat-wrapper')
               ?.querySelector('.seat__avatar-img')
               ?.getBoundingClientRect();
             if (!box || !owner) return [];
+            const stored = settled.current.wagers.get(bet);
+            const currentOwner = {
+              x: owner.left + owner.width / 2,
+              y: owner.top + owner.height / 2,
+            };
+            const markerCentre = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+            const ownerDistance = Math.hypot(
+              markerCentre.x - currentOwner.x,
+              markerCentre.y - currentOwner.y
+            );
+            const stillOwned = playerCentres.every(
+              (other) =>
+                Math.hypot(other.x - currentOwner.x, other.y - currentOwner.y) < 1 ||
+                ownerDistance + 1.5 < Math.hypot(markerCentre.x - other.x, markerCentre.y - other.y)
+            );
+            if (
+              stored &&
+              stillOwned &&
+              stored.owner === bet.closest('.seat')?.getAttribute('data-player-id') &&
+              Math.abs(stored.width - box.width) < 0.5 &&
+              Math.abs(stored.height - box.height) < 0.5 &&
+              !permanentKeepouts.some(
+                (other) =>
+                  // Placement reserves 2px air; transient subpixel loss of that
+                  // margin is not a new painted collision or a new chip slot.
+                  Math.min(box!.left + box!.width, other.left + other.width) -
+                    Math.max(box!.left, other.left) >
+                    0.5 &&
+                  Math.min(box!.top + box!.height, other.top + other.height) -
+                    Math.max(box!.top, other.top) >
+                    0.5
+              )
+            ) {
+              fixedWagers.push(box);
+              obstacles.push(box);
+              hardObstacles.push(box);
+              return [];
+            }
+            // Reallocate invalid slots from the inherited rail anchor rather
+            // than compounding the previous retained displacement.
+            if (stored) {
+              offsetNames.forEach((name) => bet.style.removeProperty(name));
+              settled.current.wagers.delete(bet);
+              box = visibleBox(bet);
+              if (!box) return [];
+            }
             const desired = { x: owner.left + owner.width / 2, y: owner.top + owner.height / 2 };
             // The wager's own rest point, where the seat geometry puts it in
             // front of its player (desktop's spot): the live box less any
@@ -635,7 +737,7 @@ export function useProtectedCardLayout(
             // Sample exact obstacle edges as well as the oval, so a clear slot
             // beside a label is found before the overlapping last-resort tier.
             // Wider portrait side pods need the same exact slots.
-            if (sixMax || window.innerWidth > 480 || window.innerWidth <= 375) {
+            if (sixMax || artwork.ready() || window.innerWidth > 480 || window.innerWidth <= 375) {
               const xs = new Set([anchor.x - box.width / 2]);
               const ys = new Set([anchor.y - box.height / 2]);
               for (const obstacle of hardObstacles) {
@@ -789,7 +891,7 @@ export function useProtectedCardLayout(
               ...entry.least,
             ])
           );
-        const placedWagers: CardBox[] = [];
+        const placedWagers: CardBox[] = [...fixedWagers];
         for (let i = 0; i < entries.length; i++) {
           const { bet, box } = entries[i];
           const next = placements?.[i];
@@ -814,6 +916,13 @@ export function useProtectedCardLayout(
           bet.style.setProperty('--bet-offset-y', `${base.y + dy}px`);
           bet.style.setProperty('--collect-dx', `${base.cx - dx}px`);
           bet.style.setProperty('--collect-dy', `${base.cy - dy}px`);
+          if (artwork.ready())
+            settled.current.wagers.set(bet, {
+              offsets: offsetNames.map((name) => bet.style.getPropertyValue(name)),
+              width: box.width,
+              height: box.height,
+              owner: bet.closest('.seat')?.getAttribute('data-player-id') ?? null,
+            });
           obstacles.push(next);
           hardObstacles.push(next);
           placedWagers.push(next);
@@ -850,6 +959,7 @@ export function useProtectedCardLayout(
     scaler.addEventListener('transitionend', schedule);
     scaler.addEventListener('load', schedule, true);
     return () => {
+      artwork.stop();
       document.fonts?.removeEventListener('loadingdone', schedule);
       resetWagers();
       observer.disconnect();

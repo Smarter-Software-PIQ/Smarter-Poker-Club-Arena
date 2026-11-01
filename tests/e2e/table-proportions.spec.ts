@@ -846,9 +846,10 @@ test('Safari toolbar space is reclaimed by portrait gameplay without narrowing t
 const occupiedViewports: Array<[number, number?]> = [
   ...[320, 375, 393, 430, 480, 600, 768, 1024].map((width): [number] => [width]),
   [600, 852],
+  [652, 996],
 ];
 for (const [width, heightOverride] of occupiedViewports)
-  for (const count of heightOverride || width === 1024 ? [6] : [6, 9])
+  for (const count of width === 652 ? [9] : heightOverride || width === 1024 ? [6] : [6, 9])
     test(`occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at ${width}px with ${count} seats${heightOverride ? ' (short portrait)' : ''}`, async ({
       page,
     }, testInfo) => {
@@ -1096,6 +1097,54 @@ for (const [width, heightOverride] of occupiedViewports)
             requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
           );
         });
+        // Opponent artwork matches the unchanged hero without scaling the
+        // seat, its cards or its panel. Permanent art gain must settle first.
+        await page.waitForFunction(() =>
+          [
+            ...document.querySelectorAll('.seat:not(.seat--hero):not(.seat--empty) .seat__avatar'),
+          ].every(
+            (avatar) =>
+              avatar.style.getPropertyValue('--sp-opponent-art-scale') &&
+              avatar.closest<HTMLElement>('.seat')!.style.getPropertyValue('--sp-opponent-x')
+          )
+        );
+        const art = await page.locator('.seat:not(.seat--empty)').evaluateAll((seats) =>
+          seats.map((seat) => {
+            const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img')!;
+            const style = getComputedStyle(image);
+            const matrix = style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d;
+            const scale = parseFloat(getComputedStyle(image.closest('.seat__avatar')!).scale) || 1;
+            return {
+              hero: seat.classList.contains('seat--hero'),
+              height: image.offsetHeight * matrix * scale,
+            };
+          })
+        );
+        // This maintained fixture gives every chair the same decoded artwork;
+        // equal image height is therefore equal painted subject height.
+        const heroArt = art.find((seat) => seat.hero)!;
+        for (const seat of art) expect(seat.height).toBeCloseTo(heroArt.height, 0);
+        if (!revealed) {
+          const chips = () =>
+            page.locator('.seat__bet-chips').evaluateAll((bets) =>
+              bets.map((bet) => ({
+                x: (bet as HTMLElement).style.getPropertyValue('--bet-offset-x'),
+                y: (bet as HTMLElement).style.getPropertyValue('--bet-offset-y'),
+              }))
+            );
+          const resting = await chips();
+          await page.evaluate(() => document.dispatchEvent(new Event('fixture-runout')));
+          await page.evaluate(
+            () =>
+              new Promise<void>((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+              )
+          );
+          expect(
+            await chips(),
+            'settled chips retain their offsets after artwork placement'
+          ).toEqual(resting);
+        }
         if (scaledPhone) {
           const proof = await page.evaluate(readMobileTableLayout, AVATAR_CROWN_TOP);
           expect(proof.occupied).toBe(count);
@@ -1115,6 +1164,9 @@ for (const [width, heightOverride] of occupiedViewports)
               })
             );
           const before = await measure();
+          const retainedTranslations = await page
+            .locator('.seat__cards--revealed')
+            .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).style.translate));
           expect(before.length).toBeGreaterThanOrEqual(villainCards);
           // Same dimensions at every chair, including the all-in hero.
           if (villainCards >= 5)
@@ -1142,7 +1194,19 @@ for (const [width, heightOverride] of occupiedViewports)
                 requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
               )
           );
-          expect(await measure()).toEqual(before);
+          expect(
+            await page
+              .locator('.seat__cards--revealed')
+              .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).style.translate))
+          ).toEqual(retainedTranslations);
+          const after = await measure();
+          expect(after).toHaveLength(before.length);
+          for (let i = 0; i < before.length; i++)
+            for (const axis of ['x', 'y', 'w', 'h'] as const)
+              expect(
+                Math.abs(after[i][axis] - before[i][axis]),
+                'unchanged tabled hand (compositor precision)'
+              ).toBeLessThan(0.0005);
           const steps = await page
             .locator('.seat__cards--opponent.seat__cards--revealed')
             .evaluateAll((rows) =>
