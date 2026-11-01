@@ -4,8 +4,9 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { once } from 'node:events';
-import { createConnection } from 'node:net';
+import { EventEmitter, once } from 'node:events';
+import { createConnection, createServer } from 'node:net';
+import { get as httpGet } from 'node:http';
 import { captureMainInspectorBinding } from '../../server/scripts/main-inspector-socket-qualification.mjs';
 
 const main = 777001;
@@ -14,6 +15,278 @@ const header =
 const row = (local, remote, state, inode) =>
   `0: ${local} ${remote} ${state} 00000000:00000000 00:00000000 00000000 0 0 ${inode}\n`;
 const listener = row('0100007F:240D', '00000000:0000', '0A', 101);
+const discoveryEndpoint = 'ws://127.0.0.1:9229/00000000-0000-4000-8000-000000000001';
+const discoveryBody = JSON.stringify([{ webSocketDebuggerUrl: discoveryEndpoint }]);
+const discoveryResponse = (
+  body = discoveryBody,
+  headers = `Content-Length: ${Buffer.byteLength(body)}`
+) => `HTTP/1.0 200 OK\r\n${headers}\r\n\r\n${body}`;
+function discoverySource() {
+  const entry = fs.readFileSync(
+    new URL('../../server/scripts/main-inspector-retirement-entry.mjs', import.meta.url),
+    'utf8'
+  );
+  return entry.slice(
+    entry.indexOf('async function retirementDiscover()'),
+    entry.indexOf('async function retirementEntry()')
+  );
+}
+function discoverySocket(remaining = () => 1000) {
+  const socket = new EventEmitter();
+  const effects = { created: 0, fin: 0, destroyed: 0, writes: [] };
+  Object.assign(socket, {
+    setTimeout: (timeout) => {
+      effects.timeout = timeout;
+    },
+    write: (bytes) => effects.writes.push(bytes),
+    end: () => effects.fin++,
+    destroy: () => effects.destroyed++,
+  });
+  const discover = new Function(
+    'retirementNet',
+    'retirementRemaining',
+    discoverySource() + '\nreturn retirementDiscover;'
+  )(
+    {
+      createConnection: (options) => {
+        assert.deepEqual(options, { host: '127.0.0.1', port: 9229, allowHalfOpen: true });
+        effects.created++;
+        return socket;
+      },
+    },
+    remaining
+  );
+  return { socket, effects, discover };
+}
+
+test('one bounded discovery response requires both peer EOF and local close', async () => {
+  const f = discoverySocket();
+  let settled = false;
+  const pending = f.discover().then((value) => {
+    settled = true;
+    return value;
+  });
+  f.socket.emit('connect');
+  const response = Buffer.from(discoveryResponse());
+  f.socket.emit('data', response.subarray(0, 17));
+  f.socket.emit('data', response.subarray(17));
+  assert.deepEqual(f.effects.writes, [
+    'GET /json/list HTTP/1.1\r\nHost: 127.0.0.1:9229\r\nConnection: close\r\n\r\n',
+  ]);
+  assert.equal(f.effects.fin, 1);
+  assert.equal(f.effects.created, 1);
+  assert.equal(f.effects.timeout, 1000);
+  await Promise.resolve();
+  assert.equal(settled, false);
+  f.socket.emit('end');
+  await Promise.resolve();
+  assert.equal(settled, false);
+  f.socket.emit('close', false);
+  assert.equal(await pending, discoveryEndpoint);
+  assert.equal(f.effects.destroyed, 0);
+});
+
+for (const [name, response, reason] of [
+  [
+    'missing body length',
+    discoveryResponse(discoveryBody, 'Content-Type: application/json'),
+    'retirement_discovery_bound',
+  ],
+  [
+    'duplicate body length',
+    discoveryResponse(
+      discoveryBody,
+      `Content-Length: ${Buffer.byteLength(discoveryBody)}\r\nContent-Length: ${Buffer.byteLength(discoveryBody)}`
+    ),
+    'retirement_endpoint',
+  ],
+  [
+    'unqualified transfer coding',
+    discoveryResponse(discoveryBody, 'Transfer-Encoding: chunked'),
+    'retirement_endpoint',
+  ],
+  [
+    'oversized body',
+    discoveryResponse(discoveryBody, 'Content-Length: 16385'),
+    'retirement_discovery_bound',
+  ],
+  [
+    'oversized headers',
+    'HTTP/1.0 200 OK\r\nX-Long: ' + 'x'.repeat(4096),
+    'retirement_discovery_bound',
+  ],
+  ['extra bytes', discoveryResponse() + 'x', 'retirement_endpoint'],
+  [
+    'foreign endpoint',
+    discoveryResponse(
+      JSON.stringify([
+        { webSocketDebuggerUrl: 'ws://127.0.0.2:9229/00000000-0000-4000-8000-000000000001' },
+      ])
+    ),
+    'retirement_endpoint',
+  ],
+  [
+    'non-success response',
+    discoveryResponse().replace('200 OK', '503 Unavailable'),
+    'retirement_endpoint',
+  ],
+]) {
+  test(`discovery refuses ${name} without a second socket`, async () => {
+    const f = discoverySocket();
+    const pending = f.discover();
+    f.socket.emit('data', Buffer.from(response));
+    await assert.rejects(pending, new RegExp('^Error: ' + reason + '$'));
+    assert.equal(f.effects.created, 1);
+    assert.equal(f.effects.destroyed, 1);
+    assert.equal(f.effects.fin, 0);
+  });
+}
+
+test('a local close, truncated peer EOF, reset or timeout cannot acknowledge discovery', async () => {
+  for (const terminal of ['local-close', 'truncated-eof', 'reset', 'timeout']) {
+    const f = discoverySocket();
+    const pending = f.discover();
+    f.socket.emit(
+      'data',
+      Buffer.from(
+        terminal === 'truncated-eof' ? discoveryResponse().slice(0, -1) : discoveryResponse()
+      )
+    );
+    if (terminal === 'local-close') f.socket.emit('close', false);
+    if (terminal === 'truncated-eof') f.socket.emit('end');
+    if (terminal === 'reset') f.socket.emit('error', new Error('ECONNRESET'));
+    if (terminal === 'timeout') f.socket.emit('timeout');
+    await assert.rejects(
+      pending,
+      new RegExp(
+        terminal === 'timeout'
+          ? 'retirement_discovery_timeout'
+          : terminal === 'reset'
+            ? 'ECONNRESET'
+            : 'retirement_endpoint'
+      )
+    );
+    assert.equal(f.effects.created, 1);
+    assert.equal(f.effects.destroyed, 1);
+  }
+});
+
+test('discovery cannot open after its deadline or publish a close beyond it', async () => {
+  let expired = true;
+  const f = discoverySocket(() => {
+    if (expired) throw new Error('retirement_deadline');
+    return 7;
+  });
+  await assert.rejects(f.discover(), /retirement_deadline/);
+  assert.equal(f.effects.created, 0);
+  expired = false;
+  const pending = f.discover();
+  f.socket.emit('connect');
+  f.socket.emit('data', Buffer.from(discoveryResponse()));
+  f.socket.emit('end');
+  expired = true;
+  f.socket.emit('close', false);
+  await assert.rejects(pending, /retirement_deadline/);
+  assert.equal(f.effects.timeout, 7);
+  assert.equal(f.effects.created, 1);
+});
+
+test(
+  'discovery waits for the peer FIN, not only its own local socket close',
+  { timeout: 3000 },
+  async (t) => {
+    const endpoint = 'ws://127.0.0.1:9229/00000000-0000-4000-8000-000000000001';
+    const body = JSON.stringify([{ webSocketDebuggerUrl: endpoint }]);
+    let peer;
+    let finishPeer;
+    const peerFin = new Promise((resolve) => {
+      finishPeer = resolve;
+    });
+    const server = createServer({ allowHalfOpen: true }, (socket) => {
+      peer = socket;
+      let request = '';
+      socket.on('data', (chunk) => {
+        request += chunk.toString('ascii');
+        if (!request.endsWith('\r\n\r\n')) return;
+        assert.match(request, /^GET \/json\/list HTTP\/1\.1\r\n/);
+        socket.write(
+          `HTTP/1.0 200 OK\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`
+        );
+      });
+      // Keep the server's readable FIN and writable close independently visible.
+      // The old HTTP client destroys locally here while the peer is CLOSE_WAIT.
+      socket.once('end', finishPeer);
+      socket.on('error', () => {});
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    t.after(async () => {
+      peer?.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    });
+    const port = server.address().port;
+    const entry = fs.readFileSync(
+      new URL('../../server/scripts/main-inspector-retirement-entry.mjs', import.meta.url),
+      'utf8'
+    );
+    const fragment = entry.slice(
+      entry.indexOf('async function retirementDiscover()'),
+      entry.indexOf('async function retirementEntry()')
+    );
+    const discover = new Function(
+      'retirementHttp',
+      'retirementNet',
+      'retirementRemaining',
+      fragment + '\nreturn retirementDiscover;'
+    )(
+      { get: (options, callback) => httpGet({ ...options, port }, callback) },
+      { createConnection: (options) => createConnection({ ...options, port }) },
+      () => 1000
+    );
+    let settled = false;
+    const pending = discover().then((value) => {
+      settled = true;
+      return value;
+    });
+    try {
+      await peerFin;
+      await Promise.resolve();
+      assert.equal(settled, false, 'a locally closed HTTP client is not peer-close acknowledgment');
+    } finally {
+      peer.end();
+    }
+    assert.equal(await pending, endpoint);
+  }
+);
+
+test(
+  'a real peer that keeps its FIN cannot outlive the original discovery idle timeout',
+  { timeout: 3000 },
+  async (t) => {
+    let peer;
+    const server = createServer({ allowHalfOpen: true }, (socket) => {
+      peer = socket;
+      let request = '';
+      socket.on('data', (chunk) => {
+        request += chunk.toString('ascii');
+        if (request.endsWith('\r\n\r\n')) socket.write(discoveryResponse());
+      });
+      socket.on('error', () => {});
+      // Deliberately never finish the peer's writable half after the client FIN.
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    t.after(async () => {
+      peer?.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    });
+    const port = server.address().port;
+    const discover = new Function(
+      'retirementNet',
+      'retirementRemaining',
+      discoverySource() + '\nreturn retirementDiscover;'
+    )({ createConnection: (options) => createConnection({ ...options, port }) }, () => 1000);
+    await assert.rejects(discover(), /^Error: retirement_discovery_timeout$/);
+  }
+);
 function fixture(t) {
   const root = fs.mkdtempSync(join(tmpdir(), 'main-inspector-kernel-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
