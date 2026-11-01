@@ -28,6 +28,7 @@ export type HudClockRejectionCategory =
   | 'insufficient_players'
   | 'not_started'
   | 'addon_period_open'
+  | 'addon_boundary_ineligible'
   | 'clock_or_schedule_ineligible'
   | 'selection_lookahead_ineligible'
   | 'no_readable_running_table'
@@ -217,6 +218,24 @@ export function eligibleHudClock(
 /** Levels beyond the current one that must all be playable for a table to be SELECTED. */
 export const MTT_SELECTION_LOOKAHEAD_LEVELS = 3;
 
+/** Entry close arms the add-on drain before the persisted offer exists. */
+function addOnBoundaryPlayableThrough(row: Row, boundaryIndex: number): boolean {
+  // Match the database's COALESCE(add_on_available, false), but never turn
+  // an omitted/malformed projected field into evidence that no hold is due.
+  if (row.add_on_available === false || row.add_on_available === null) return true;
+  if (row.add_on_available !== true) return false;
+  if (row.prize_pool_finalized === true) return true;
+  if (row.prize_pool_finalized !== false && row.prize_pool_finalized !== null) return false;
+  // A triggered, unfinalized window may still owe its closing drain or tail.
+  if (row.addon_period_triggered !== false && row.addon_period_triggered !== null) return false;
+  const cap = row.late_reg_levels === null ? row.rebuy_levels : row.late_reg_levels;
+  // fn_close_tournament_entry_window waits while current_level < this cap.
+  // current_level is zero-based: reaching cap means its last entry level ended.
+  // Without a positive known level cap,
+  // minutes/full-field admission may close at an unproven point in this span.
+  return typeof cap === 'number' && Number.isSafeInteger(cap) && cap > boundaryIndex;
+}
+
 /**
  * Selection-time qualification, before the browser exists.
  *
@@ -243,6 +262,7 @@ export function selectableHudClock(
 ): HudClock | null {
   const clock = eligibleHudClock(row, now, levelCapMs);
   if (!clock) return null;
+  if (!addOnBoundaryPlayableThrough(row, clock.levelIndex + 1)) return null;
   let levels: unknown = row.blind_structure;
   if (typeof levels === 'string') {
     try {
@@ -266,6 +286,7 @@ export function selectableHudClock(
     // baseline must still have its complete natural transition/render reserve
     // before the synchronized break, just like the post-recovery predicate.
     const projectedEnd = projectedStart + durationMs;
+    if (!addOnBoundaryPlayableThrough(row, index + 1)) return null;
     if (synchronizedBreakOverlaps(row, now, projectedEnd + HUD_RESERVE_MS)) return null;
     projectedStart = projectedEnd;
   }
@@ -297,6 +318,9 @@ export function hudClockRejectionCategory(
   if (!row.started_at) return 'not_started';
   if (row.addon_period_started_at && Date.parse(String(row.addon_period_ends_at)) > now)
     return 'addon_period_open';
+  const clock = eligibleHudClock(row, now, levelCapMs);
+  if (clock && !addOnBoundaryPlayableThrough(row, clock.levelIndex + 1))
+    return 'addon_boundary_ineligible';
   const uninterrupted = eligibleHudClock({ ...row, synchronized_breaks: false }, now, levelCapMs);
   if (
     uninterrupted &&
@@ -513,7 +537,7 @@ export async function createHudClockReader() {
   const qualificationBatches: HudQualificationBatchEvidence[] = [];
   const discoveries: HudDiscoveryEvidence[] = [];
   const tournamentClockColumns =
-    'id,format_contract,status,current_players,current_level,blind_structure,started_at,level_started_at,on_break,synchronized_breaks,accelerated_mtt,addon_period_started_at,addon_period_ends_at';
+    'id,format_contract,status,current_players,current_level,blind_structure,started_at,level_started_at,on_break,synchronized_breaks,accelerated_mtt,addon_period_started_at,addon_period_ends_at,add_on_available,addon_period_triggered,prize_pool_finalized,late_reg_levels,rebuy_levels';
   return {
     qualifications,
     qualificationBatches,

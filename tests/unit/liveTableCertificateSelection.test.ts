@@ -45,6 +45,7 @@ const running = {
   // These baseline fixtures isolate add-on, occupancy and schedule behavior.
   synchronized_breaks: false,
   accelerated_mtt: false,
+  add_on_available: false,
   addon_period_started_at: null,
   addon_period_ends_at: null,
   blind_structure: [level(10), level(10), level(10), level(10), level(10), level(10), level(10)],
