@@ -572,8 +572,8 @@ export default function TournamentResultsPage() {
     if (!t?.is_mystery_bounty) return;
     try {
       const [board, awards] = await Promise.all([
-        MysteryBountyService.getLeaderboard(t.id),
-        MysteryBountyService.getAllAwards(t.id),
+        MysteryBountyService.getLeaderboard(t.id, { strict: true }),
+        MysteryBountyService.getAllAwards(t.id, { strict: true }),
       ]);
       if (!isMounted.current || request !== mysteryRequestRef.current) return;
       setMysteryRead({

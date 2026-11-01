@@ -1,0 +1,9 @@
+# One bounded original-ten error-frame recovery
+
+The existing scoped error reader refuses log and archive intervals older than 48 hours. The ten Attention14 originals first reported a shared continuation failure on October 29 between 06:00 and 06:15 UTC. Existing watchdog/capsule evidence records that consequence but omits the original exception phase.
+
+This change admits only the exact two table-only scope groups, that single interval and the immutable retained witness SHA256 `2382f82518ba8f9ec007580bc3f40c98ec0d5eee96d1b5a9864eb6c41d8bdce5`, selected by `originalTenIncident: {case: 'attention14-original-ten-20261029', witnessSha256: '2382f82518ba8f9ec007580bc3f40c98ec0d5eee96d1b5a9864eb6c41d8bdce5'}`. Admission expires at 2026-11-02 00:00 UTC. Any different scope, witness, window or mixed option is refused at both dispatch and host admission. Archive selection validates the same fixed case before admitting its older overlapping files.
+
+The ordinary 48-hour limit and seven-day metrics-only log exclusion remain intact. The existing workflow, configured pinned transport, health identity comparison, two-archive, time, physical-line, byte and expansion bounds remain unchanged. No raw exception or stack crosses the existing sanitizer. Output keeps physical availability and initial cause explicitly unknown: a recovered generic write refusal cannot reveal an RPC predicate already discarded by the original engine. This is evidence recovery, not a root-cause fix or tournament disposition.
+
+Existing native reader fixtures cover exact admission, refusal boundaries and real gzip original-frame extraction with redaction. No production observation is dispatched by this change. The owning Attention14 task must review protected integration, confirm no competing observation and explicitly initiate at most one finite read.

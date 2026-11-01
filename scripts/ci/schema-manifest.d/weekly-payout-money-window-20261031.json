@@ -1,0 +1,10 @@
+{
+  "_owner": "fix/weekly-payout-measured-money-admission-20261031",
+  "_comment": "Migration 20261031214453 added a size cutoff (exclusions table + money_window_fits); 20261031223940 removes both and admits owned money by this week's measured lost statements (weekly_payout_money_losses, weekly_payout_lost_money_run). Declaration only; installation remains a separate protected-main operation.",
+  "tables": ["smarter_private.weekly_payout_money_losses"],
+  "functions": [
+    "smarter_private.weekly_payout_lost_money_run",
+    "smarter_private.weekly_payout_prepare_due",
+    "smarter_private.weekly_payout_due"
+  ]
+}

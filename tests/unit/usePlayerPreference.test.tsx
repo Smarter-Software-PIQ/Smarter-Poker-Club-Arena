@@ -38,7 +38,10 @@ beforeEach(() => {
   state.read = null;
   useUserStore.setState({ user: { id: 'preference-a' } as any });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 it('saves a selection immediately and restores it after remount without writing defaults', async () => {
   const first = renderHook(() => usePlayerPreference('history:filter', 'all'), { wrapper });
   act(() => first.result.current[1]('mine'));
@@ -183,4 +186,99 @@ it('retires an older local debounce when a different tab confirms a newer choice
   expect(state.writes).toHaveLength(0);
   view.unmount();
   expect(state.writes).toHaveLength(0);
+});
+
+it('keeps an offline notification gesture pending and saves that same intent once on reconnect', async () => {
+  vi.useFakeTimers();
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  const view = renderHook(() => usePlayerPreference('NotificationsPage:filter', 'unread'), {
+    wrapper,
+  });
+  act(() => view.result.current[1]('all'));
+  const intent = readTableSettingIntent('preference-a', 'page:NotificationsPage:filter:global');
+  expect(intent?.value).toBe('all');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500);
+  });
+  expect(view.result.current[0]).toBe('all');
+  expect(state.writes).toHaveLength(0);
+  expect(readTableSettingIntent('preference-a', 'page:NotificationsPage:filter:global')).toEqual(
+    intent
+  );
+  online.mockReturnValue(true);
+  await act(async () => {
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('online'));
+  });
+  expect(state.writes).toEqual([
+    { user_id: 'preference-a', preference_key: 'NotificationsPage:filter:global', value: 'all' },
+  ]);
+  expect(readTableSettingIntent('preference-a', 'page:NotificationsPage:filter:global')).toBeNull();
+  view.unmount();
+  online.mockRestore();
+});
+
+it('resumes a remounted offline notification intent only for its current account', async () => {
+  vi.useFakeTimers();
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  const first = renderHook(() => usePlayerPreference('NotificationsPage:filter', 'unread'), {
+    wrapper,
+  });
+  act(() => first.result.current[1]('all'));
+  const intent = readTableSettingIntent('preference-a', 'page:NotificationsPage:filter:global');
+  first.unmount();
+  const next = renderHook(() => usePlayerPreference('NotificationsPage:filter', 'unread'), {
+    wrapper,
+  });
+  expect(next.result.current[0]).toBe('all');
+  expect(state.writes).toHaveLength(0);
+  act(() => useUserStore.setState({ user: { id: 'preference-b' } as any }));
+  online.mockReturnValue(true);
+  await act(async () => {
+    window.dispatchEvent(new Event('online'));
+  });
+  expect(state.writes).toHaveLength(0);
+  expect(readTableSettingIntent('preference-a', 'page:NotificationsPage:filter:global')).toEqual(
+    intent
+  );
+  act(() => useUserStore.setState({ user: { id: 'preference-a' } as any }));
+  await act(async () => {});
+  expect(state.writes).toEqual([
+    { user_id: 'preference-a', preference_key: 'NotificationsPage:filter:global', value: 'all' },
+  ]);
+  next.unmount();
+  online.mockRestore();
+});
+
+it('resumes the same failed notification save on reconnect without remounting', async () => {
+  vi.useFakeTimers();
+  state.error = { message: 'connection lost' };
+  const view = renderHook(
+    () => usePlayerPreference('NotificationsPage:reconnect-filter', 'unread'),
+    {
+      wrapper,
+    }
+  );
+  act(() => view.result.current[1]('all'));
+  const intent = readTableSettingIntent(
+    'preference-a',
+    'page:NotificationsPage:reconnect-filter:global'
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500);
+  });
+  expect(state.writes).toHaveLength(1);
+  expect(
+    readTableSettingIntent('preference-a', 'page:NotificationsPage:reconnect-filter:global')
+  ).toEqual(intent);
+  state.error = null;
+  await act(async () => {
+    window.dispatchEvent(new Event('online'));
+  });
+  expect(view.result.current[0]).toBe('all');
+  expect(state.writes.map((row) => row.value)).toEqual(['all', 'all']);
+  expect(
+    readTableSettingIntent('preference-a', 'page:NotificationsPage:reconnect-filter:global')
+  ).toBeNull();
+  view.unmount();
 });

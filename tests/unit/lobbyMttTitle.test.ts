@@ -281,9 +281,10 @@ describe('the lobby stylesheet and table (shipped invariants)', () => {
     expect(CSS).not.toContain('JetBrains');
     expect(CSS).not.toContain('--font-mono');
   });
-  it('the guarantee is Club Arena blue, never gold', () => {
-    expect(CSS).toMatch(/\.lt-name__gtd\s*\{[^}]*--club-blue-light/);
-    expect(CSS).not.toMatch(/\.lt-name__gtd\s*\{[^}]*gold/);
+  it('the header guarantee keeps its silver frame and the title typeface', () => {
+    expect(CSS).toMatch(/\.lt-tournament-heading__guarantee\s*\{[^}]*border: 1px solid #e4e7ec/);
+    expect(CSS).toMatch(/\.lt-tournament-heading__guarantee\s*\{[^}]*font: inherit/);
+    expect(TSX).toContain('lt-tournament-heading__guarantee');
   });
   it('MTT rows render the two-line title', () => {
     expect(TSX).toContain('lt-name--mtt');

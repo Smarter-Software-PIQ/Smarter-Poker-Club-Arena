@@ -2106,6 +2106,15 @@ abbr.lt-variant[title] {
   object-fit: contain;
 }
 
+.lobby-table tr[data-kind='cash'][data-lightning-format='true'] {
+  outline: 2px solid #f4f7fb;
+  outline-offset: -2px;
+  box-shadow: 0 0 5px rgb(244 247 251 / 45%);
+}
+.lobby-table tr[data-kind='cash'][data-lightning-format='true'].is-cursor {
+  outline-color: #45adff;
+}
+
 /* October 31 event schema. The row's format owns its rail; selection and a
    guarantee never repaint black glass with the retired amber/gold wash. */
 .lobby-table tr[data-kind]:not([data-kind='cash']) {
@@ -2148,14 +2157,31 @@ abbr.lt-variant[title] {
   box-shadow: inset 4px 0 0 var(--tournament-row-accent);
 }
 .lobby-table tr[data-kind]:not([data-kind='cash']).is-featured {
+  --tournament-row-accent: var(--accent-red, #f02849);
   outline: 2px solid var(--accent-red, #f02849);
   outline-offset: -2px;
   background: #000;
   border-color: var(--accent-red, #f02849);
   box-shadow: none;
 }
+/* Paint at the cell layer so opaque cell backgrounds cannot cover the frame. */
+.lobby-table tr[data-kind]:not([data-kind='cash']).is-featured td {
+  box-shadow:
+    inset 0 2px 0 var(--accent-red, #f02849),
+    inset 0 -2px 0 var(--accent-red, #f02849);
+}
 .lobby-table tr[data-kind]:not([data-kind='cash']).is-featured td:first-child {
-  box-shadow: inset 6px 0 0 var(--tournament-row-accent);
+  box-shadow:
+    inset 0 2px 0 var(--accent-red, #f02849),
+    inset 0 -2px 0 var(--accent-red, #f02849),
+    inset 2px 0 0 var(--accent-red, #f02849),
+    inset 6px 0 0 var(--tournament-row-accent);
+}
+.lobby-table tr[data-kind]:not([data-kind='cash']).is-featured td:last-child {
+  box-shadow:
+    inset 0 2px 0 var(--accent-red, #f02849),
+    inset 0 -2px 0 var(--accent-red, #f02849),
+    inset -2px 0 0 var(--accent-red, #f02849);
 }
 .lobby-table tr[data-kind]:not([data-kind='cash']).is-featured .lt-name__line1 {
   color: var(--accent-red, #f02849);
@@ -2182,4 +2208,146 @@ abbr.lt-variant[title] {
   .lobby-table tr[data-kind]:not([data-kind='cash']).is-featured {
     border-left-color: var(--accent-red, #f02849);
   }
+}
+
+.lt-tournament-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  margin-right: 5px;
+  flex-shrink: 0;
+  vertical-align: middle;
+  color: var(--tournament-row-accent, #45adff);
+}
+.lt-tournament-icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Lightning frames share the cells' paint layer in both schedule layouts. */
+.lobby-table tr[data-kind='cash'][data-lightning-format='true'] {
+  --lightning-frame-ink: #f4f7fb;
+}
+.lobby-table tr[data-kind='cash'][data-lightning-format='true'].is-cursor {
+  --lightning-frame-ink: #45adff;
+}
+.lobby-table tr[data-kind='cash'][data-lightning-format='true'] td {
+  box-shadow:
+    inset 0 2px 0 var(--lightning-frame-ink),
+    inset 0 -2px 0 var(--lightning-frame-ink);
+}
+.lobby-table tr[data-kind='cash'][data-lightning-format='true'] td:first-child {
+  box-shadow:
+    inset 0 2px 0 var(--lightning-frame-ink),
+    inset 0 -2px 0 var(--lightning-frame-ink),
+    inset 2px 0 0 var(--lightning-frame-ink);
+}
+.lobby-table tr[data-kind='cash'][data-lightning-format='true'] td:last-child {
+  box-shadow:
+    inset 0 2px 0 var(--lightning-frame-ink),
+    inset 0 -2px 0 var(--lightning-frame-ink),
+    inset -2px 0 0 var(--lightning-frame-ink);
+}
+
+/* One event header spans every visible column; its values remain aligned below. */
+.lt-tournament-header > td {
+  padding: 7px 10px 5px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.lt-tournament-heading,
+.lt-tournament-heading.lt-name__line1 {
+  display: block;
+  width: 100%;
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-family: var(--font-primary, 'Inter', sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.lt-tournament-heading__name {
+  font: inherit;
+}
+.lt-tournament-heading__guarantee {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid #e4e7ec;
+  background: #000;
+  color: #e4e7ec;
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+}
+/* The header owns the top edge and the values own the bottom, never a divider. */
+.lobby-table tbody tr[data-kind][data-tournament-body='true'] {
+  outline: none;
+  border-top: 0;
+}
+.lobby-table tbody tr[data-kind][data-tournament-heading] > td {
+  box-shadow: inset 4px 0 0 var(--tournament-row-accent);
+}
+.lobby-table tbody tr[data-kind][data-tournament-heading].is-featured {
+  outline: none;
+}
+.lobby-table tbody tr[data-kind][data-tournament-heading].is-featured > td:first-child {
+  box-shadow:
+    inset 0 2px 0 var(--accent-red, #f02849),
+    inset 6px 0 0 var(--accent-red, #f02849),
+    inset -2px 0 0 var(--accent-red, #f02849);
+}
+.lobby-table tbody tr[data-kind][data-tournament-heading].is-featured .lt-tournament-heading {
+  color: var(--accent-red, #f02849);
+}
+.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured > td {
+  box-shadow: inset 0 -2px 0 var(--accent-red, #f02849);
+}
+.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured > td:first-child {
+  box-shadow:
+    inset 0 -2px 0 var(--accent-red, #f02849),
+    inset 6px 0 0 var(--accent-red, #f02849);
+}
+.lobby-table
+  tbody
+  tr[data-kind][data-tournament-body='true'].is-featured
+  > td[data-last-visible='true'] {
+  box-shadow:
+    inset 0 -2px 0 var(--accent-red, #f02849),
+    inset -2px 0 0 var(--accent-red, #f02849);
+}
+
+/* Each event is one continuous frame; only separate events get a gap. */
+.lobby-table.has-tournament-headings,
+.club-lobby-machine .lobby-table.has-tournament-headings {
+  border-spacing: 0;
+}
+.lobby-table tbody tr.lt-event-gap > td {
+  height: 4px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* Override the original featured-row outline across the joined event body. */
+.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured {
+  outline: none;
+}
+/* The machine gives every desktop tr and td a 38px minimum row height.
+   Event spacers own both boxes and never inherit that game-row dimension. */
+.club-lobby-machine .lobby-table tbody tr.lt-event-gap,
+.club-lobby-machine .lobby-table tbody tr.lt-event-gap > td {
+  height: 4px;
+  min-height: 0;
+  max-height: 4px;
+  padding: 0;
+  border: 0;
+  background: #000;
+  box-shadow: none;
+  line-height: 0;
+  font-size: 0;
 }

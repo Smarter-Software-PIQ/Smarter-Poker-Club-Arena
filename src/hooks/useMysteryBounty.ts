@@ -60,6 +60,8 @@ export function useMysteryBounty(
   tournamentId: string | null | undefined,
   enabled: boolean
 ): UseMysteryBountyResult {
+  const scopeKey = JSON.stringify([tournamentId ?? null, enabled]);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const [inventory, setInventory] = useState<MysteryBountyInventory | null>(null);
   const [awards, setAwards] = useState<MysteryBountyAward[]>(EMPTY_AWARDS);
   const [awardsTotal, setAwardsTotal] = useState(0);
@@ -70,6 +72,7 @@ export function useMysteryBounty(
   const refreshRef = useRef<() => void>(() => {});
 
   useEffect(() => {
+    setLoadedScope(scopeKey);
     setInventory(null);
     setAwards(EMPTY_AWARDS);
     setAwardsTotal(0);
@@ -167,17 +170,19 @@ export function useMysteryBounty(
       // Release this consumer only; the table may own another reference.
       masterBus.removeRegisteredChannel(key);
     };
-  }, [tournamentId, enabled]);
+  }, [tournamentId, enabled, scopeKey]);
 
   const refresh = useCallback(() => refreshRef.current(), []);
 
+  // Effects retire old requests; this render boundary also protects the first paint.
+  const ownsView = loadedScope === scopeKey;
   return {
-    inventory,
-    awards,
-    awardsTotal,
-    leaderboard,
-    isLoading,
-    pendingReveals,
+    inventory: ownsView ? inventory : null,
+    awards: ownsView ? awards : EMPTY_AWARDS,
+    awardsTotal: ownsView ? awardsTotal : 0,
+    leaderboard: ownsView ? leaderboard : EMPTY_LEADERBOARD,
+    isLoading: ownsView ? isLoading : Boolean(tournamentId && enabled),
+    pendingReveals: ownsView ? pendingReveals : 0,
     refresh,
   };
 }

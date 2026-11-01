@@ -22,10 +22,10 @@ import {
 } from '../../scripts/ci/classify-ci-changes.mjs';
 
 const root = resolve(__dirname, '../..');
-// accounting_postgres runs as four matrix shards (2026-09-26,
+// accounting_postgres runs as seven matrix shards (2026-09-26,
 // tests/ci-tells-the-truth-faster.law.test.ts). A suite step's only condition
 // is the one shard that runs it: never a bypass, never a failure suppression.
-const ONLY_ITS_SHARD = /^matrix\.shard == [1-4]$/;
+const ONLY_ITS_SHARD = /^matrix\.shard == [1-7]$/;
 const ci = parse(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8'));
 const native = parse(
   readFileSync(join(root, '.github/workflows/component-fixture-native-smoke.yml'), 'utf8')
@@ -1568,7 +1568,9 @@ describe('required CI owns funded Spin expiry PostgreSQL qualification', () => {
     expect(accounting.needs).toBe('changes');
     expect(accounting.if).toContain("needs.changes.outputs.server == 'true'");
     expect(accounting.if).toContain("needs.changes.result != 'success'");
-    expect(accounting['runs-on']).toBe('ubuntu-latest');
+    expect(accounting['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(accounting['continue-on-error']).toBeUndefined();
     const calls = accounting.steps.filter(
       (step: { id?: string }) => step.id === 'spin_expiry_postgres'
@@ -1625,7 +1627,9 @@ describe('Production Alert SQL checks use the existing accounting job', () => {
 
   it('runs all three real drivers with the installed PG17 tools and no failure bypass', () => {
     const accounting = ci.jobs.accounting_postgres;
-    expect(accounting['runs-on']).toBe('ubuntu-latest');
+    expect(accounting['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(accounting['continue-on-error']).toBeUndefined();
     const expected = [
       [
@@ -1885,7 +1889,9 @@ describe('cash failure intake is exercised by the actual hosted scheduler fixtur
     const job = ci.jobs.accounting_postgres;
     const build = job.steps.filter((s: { id?: string }) => s.id === 'cash_pgcron_build');
     const execution = job.steps.filter((s: { id?: string }) => s.id === 'cash_native_failure');
-    expect(job['runs-on']).toBe('ubuntu-latest');
+    expect(job['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(job['continue-on-error']).toBeUndefined();
     expect(build).toHaveLength(1);
     expect(execution).toHaveLength(1);
@@ -2043,7 +2049,9 @@ describe('restored provider accounting qualification', () => {
       env?: Record<string, string>;
       'continue-on-error'?: boolean;
     }>;
-    expect(job['runs-on']).toBe('ubuntu-latest');
+    expect(job['runs-on']).toBe(
+      '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
+    );
     expect(job.if).toBe(ci.jobs.server_shards.if);
     expect(ci.jobs.server.needs).toContain('accounting_postgres');
     expect(job['continue-on-error']).not.toBe(true);
@@ -2122,7 +2130,7 @@ describe('restored provider accounting qualification', () => {
         .split('          # The hosted image')[0]
         .split('# The hosted image')[0]
         .replaceAll('/usr/', temp + '/');
-      for (const shard of [1, 2, 3, 4]) {
+      for (const shard of [1, 2, 3, 4, 5, 6, 7]) {
         const output = execFileSync(
           '/bin/bash',
           ['-c', prefix + '\nprintf "INSTALL:%s" "${pg_ci_build_packages[*]-}"'],
@@ -2131,7 +2139,9 @@ describe('restored provider accounting qualification', () => {
             env: { ...process.env, PATH: '', PG_CI_SHARD: String(shard) },
           }
         );
-        if (shard === 2)
+        if (shard >= 5)
+          expect(output).toBe(''); // Complete PG17/pg_cron fixture needs no compiler package.
+        else if (shard === 2)
           expect(output).toBe(
             'INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev'
           );
@@ -2145,7 +2155,7 @@ describe('restored provider accounting qualification', () => {
       }
       expect(() =>
         execFileSync('/bin/bash', ['-c', prefix], {
-          env: { ...process.env, PATH: '', PG_CI_SHARD: '5' },
+          env: { ...process.env, PATH: '', PG_CI_SHARD: '8' },
           stdio: 'pipe',
         })
       ).toThrow();
@@ -2214,7 +2224,7 @@ describe('restored provider accounting qualification', () => {
     const evidence = ci.jobs.accounting_postgres.steps.find(
       (step: { name?: string }) => step.name === 'Preserve weekly accounting qualification evidence'
     );
-    expect(evidence.if).toBe('always() && matrix.shard == 2');
+    expect(evidence.if).toBe('always() && matrix.shard == 6');
     expect(evidence.uses).toBe('actions/upload-artifact@v4');
     expect(evidence.with.path).toContain('${{ runner.temp }}/union-accounting-results');
     expect(evidence.with.path).toContain('${{ runner.temp }}/union-accounting-activation');

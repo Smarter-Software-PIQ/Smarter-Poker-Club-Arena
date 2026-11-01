@@ -15,7 +15,16 @@ import { useSharedSecondTick } from './useSharedSecondTick';
  * (stakesValue / buyInValue / startValue), never the formatted strings.
  */
 
-import { memo, useMemo, useRef, useState, useEffect, useCallback } from 'react';
+import {
+  Fragment,
+  memo,
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from 'react';
 import type { LobbyEntry, LobbyStatusKey, LobbyTournamentRow } from './lobbyEntries';
 import { tournamentBlinds, tournamentLevel } from './tournamentFigures';
 import { compactChips } from '../../utils/format';
@@ -68,18 +77,12 @@ export type LobbyCategory =
   | 'SPIN'
   | 'SATELLITE';
 
-/**
- * The order a tab opens in when the player has never sorted it themselves.
- *
- * Dan 2026-08-23: "SPINS NEED TO BE ORGANIZED BY BUY IN AMOUNT BY DEFAULT, LOW
- * TO HIGH." Spins arrive from the recycler in creation order, which is
- * effectively random — 25, then 1, then 100 — so the cheapest game, the one a
- * new player is looking for, could be anywhere in a list of thirty. Buy-in
- * ascending is the only order that means anything on a tab where every row is
- * the same game at a different price.
+/** The default is local to each section. Seat-first and satellite boards
+ * lead with the fullest games (owner update October 31); MTT keeps Recommended.
  */
 function defaultSortFor(category: string): { key: string; dir: SortDir } | null {
-  if (category === 'SPIN' || category === 'SNG') return { key: 'buyin', dir: 'asc' };
+  if (category === 'SPIN' || category === 'SNG' || category === 'SATELLITE')
+    return { key: 'players', dir: 'desc' };
   /* Dan 2026-09-03: "STAKES SHOULD ALWAYS BE ORGANIZED LOW TO HIGH." */
   if (category === 'HOLDEM' || category === 'OMAHA' || category === 'LIMIT')
     return { key: 'stakes', dir: 'asc' };
@@ -133,8 +136,8 @@ interface ColumnDef {
  */
 
 /**
- * Second line of an MTT title (Dan 2026-08-23): Guarantee, the scheduled
- * start clock time, and a live seconds countdown — "Starting In 17:33..."
+ * Below the full-width MTT header: the scheduled start clock time and a live
+ * seconds countdown — "Starting In 17:33..."
  * before the cards are in the air, or how long LATE REGISTRATION has left
  * once they are (level-based windows tick too, computed from the blind
  * structure). The phrase itself is mttPhaseText in lobbyEntries — pure and
@@ -154,10 +157,7 @@ function MttTitleMeta({ entry }: { entry: LobbyEntry }) {
   const phase = mttPhaseText(entry, now);
 
   const parts: { node: React.ReactNode; cls?: string }[] = [];
-  if (entry.guaranteeLabel)
-    parts.push({
-      node: <span className="lt-name__gtd">{entry.guaranteeLabel}</span>,
-    });
+
   /* The clock part carries its own class: on phones it is the piece the
      meta line sheds (the countdown is the information; the wall-clock time
      is recoverable from the panel once the row is opened). */
@@ -238,6 +238,15 @@ export function tournamentSignals(entry: LobbyEntry): TournamentSignal[] {
   return out;
 }
 
+/** Format identity, independent of whether its live pool is currently joinable. */
+function isLightningCashRow(entry: LobbyEntry): boolean {
+  return (
+    entry.kind === 'cash' &&
+    !entry.game?.noLightning &&
+    cashTemplateKey(entry.game?.template ?? '') === 'madness'
+  );
+}
+
 /** The live clock line: "Starts In 4:31" or "Late Reg Ends In 12:03". */
 export function tournamentClockLine(
   entry: LobbyEntry,
@@ -258,7 +267,64 @@ export function tournamentClockLine(
   };
 }
 
-function SignalIcon({ kind }: { kind: TournamentSignal }) {
+export type TournamentFormatIcon =
+  | 'satellite'
+  | 'freeroll'
+  | 'bounty'
+  | 'freezeout'
+  | 'hyper'
+  | 'turbo'
+  | 'deepstack'
+  | 'rebuy'
+  | 'standard';
+
+/** One identity from the same recorded facts that color the row, never its title. */
+export function tournamentFormatIcon(entry: LobbyEntry): TournamentFormatIcon | null {
+  if (entry.kind === 'cash') return null;
+  const signals = tournamentSignals(entry);
+  const keys = new Set(entry.rules.map((rule) => rule.key));
+  if (signals.includes('satellite')) return 'satellite';
+  if (signals.includes('freeroll')) return 'freeroll';
+  if (signals.some((kind) => kind === 'bounty' || kind === 'pko' || kind === 'mystery'))
+    return 'bounty';
+  if (keys.has('freezeout')) return 'freezeout';
+  if (keys.has('hyper')) return 'hyper';
+  if (keys.has('turbo')) return 'turbo';
+  if (keys.has('deepstack')) return 'deepstack';
+  if (keys.has('rebuy') || keys.has('reentry') || keys.has('addon')) return 'rebuy';
+  return 'standard';
+}
+
+const TOURNAMENT_ICON_LABELS: Record<TournamentFormatIcon, string> = {
+  satellite: 'Satellite Tournament',
+  freeroll: 'Freeroll Tournament',
+  bounty: 'Bounty Tournament',
+  freezeout: 'Freezeout Tournament',
+  hyper: 'Hyper Tournament',
+  turbo: 'Turbo Tournament',
+  deepstack: 'Deep Stack Tournament',
+  rebuy: 'Rebuy Tournament',
+  standard: 'Tournament',
+};
+
+function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
+  const kind = tournamentFormatIcon(entry);
+  if (!kind) return null;
+  const label = TOURNAMENT_ICON_LABELS[kind];
+  return (
+    <span
+      className="lt-tournament-icon"
+      data-tournament-icon={kind}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      <SignalIcon kind={kind} />
+    </span>
+  );
+}
+
+function SignalIcon({ kind }: { kind: TournamentSignal | TournamentFormatIcon }) {
   /* Drawn strokes, sized by the badge, coloured by currentColor. */
   const common = {
     viewBox: '0 0 16 16',
@@ -274,33 +340,57 @@ function SignalIcon({ kind }: { kind: TournamentSignal }) {
   };
   switch (kind) {
     case 'pko':
+    case 'mystery':
     case 'bounty':
       return (
         <svg {...common}>
-          <circle cx="8" cy="8" r="5.2" />
-          <circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none" />
-          <path d="M8 1v3M8 12v3M1 8h3M12 8h3" />
-        </svg>
-      );
-    case 'mystery':
-      return (
-        <svg {...common}>
-          <rect x="2.2" y="5.5" width="11.6" height="8.3" rx="1.2" />
-          <path d="M1.6 5.5h12.8M8 5.5v8.3M8 5.5C6.6 3 4.4 2.6 4.4 4.1 4.4 5.2 8 5.5 8 5.5s3.6-.3 3.6-1.4c0-1.5-2.2-1.1-3.6 1.4" />
+          <path d="M5.3 1.5h5.4L9.5 4H6.5zM6 4.2C4.3 6 2.5 8.1 2.5 10.8c0 2.2 1.9 3.7 5.5 3.7s5.5-1.5 5.5-3.7C13.5 8.1 11.7 6 10 4.2M5.6 4.2h4.8" />
+          <circle cx="8" cy="9.8" r="2" />
         </svg>
       );
     case 'freeroll':
       return (
         <svg {...common}>
-          <circle cx="8" cy="8" r="6" />
-          <circle cx="8" cy="8" r="3.4" />
-          <path d="M8 2v2M8 12v2M2 8h2M12 8h2" />
+          <rect x="2.2" y="6" width="11.6" height="8" rx=".8" />
+          <path d="M1.5 6h13V3.9h-13zM8 4v10M8 3.9C6.6 1 4.2.7 4.2 2.4S8 3.9 8 3.9s3.8.2 3.8-1.5S9.4 1 8 3.9" />
         </svg>
       );
     case 'satellite':
       return (
         <svg {...common}>
-          <path d="M8 2.2l1.7 3.6 3.9.5-2.9 2.7.7 3.9L8 11l-3.4 1.9.7-3.9-2.9-2.7 3.9-.5z" />
+          <path d="M2 5.2a7.6 7.6 0 0 0 8.8 8.8zM6.4 9.6l4.4-4.4M5 14l1-3M3.5 14.5H9M10.6 1.5a4 4 0 0 1 3.9 3.9M10.6 4a1.5 1.5 0 0 1 1.4 1.4" />
+        </svg>
+      );
+    case 'freezeout':
+      return (
+        <svg {...common}>
+          <path d="M8 1v14M1.9 4.5l12.2 7M1.9 11.5l12.2-7M6 2.5l2 2 2-2M6 13.5l2-2 2 2M2.2 6.7l2.7-.7-.7-2.7M11.8 12.7l-.7-2.7 2.7-.7M2.2 9.3l2.7.7-.7 2.7M11.8 3.3l-.7 2.7 2.7.7" />
+        </svg>
+      );
+    case 'hyper':
+    case 'turbo':
+      return (
+        <svg {...common}>
+          <path d="M9.4 1.2L3 9h4.1l-.5 5.8L13 7H8.9z" />
+        </svg>
+      );
+    case 'deepstack':
+      return (
+        <svg {...common}>
+          <ellipse cx="8" cy="3.5" rx="5.5" ry="2" />
+          <path d="M2.5 3.5v3C2.5 7.6 5 8.5 8 8.5s5.5-.9 5.5-2v-3M2.5 6.5v3c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-3M2.5 9.5v3c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-3" />
+        </svg>
+      );
+    case 'rebuy':
+      return (
+        <svg {...common}>
+          <path d="M13.4 6A5.7 5.7 0 0 0 3.6 4L2 6M2 2v4h4M2.6 10a5.7 5.7 0 0 0 9.8 2l1.6-2M10 10h4v4" />
+        </svg>
+      );
+    case 'standard':
+      return (
+        <svg {...common}>
+          <path d="M4.5 1.5h7v4a3.5 3.5 0 0 1-7 0zM4.5 3H2v2a3 3 0 0 0 3 3M11.5 3H14v2a3 3 0 0 1-3 3M8 9v4M5 14.5h6M6 13h4" />
         </svg>
       );
     case 'hot-gtd':
@@ -386,13 +476,10 @@ function TournamentRowSignals({
      row with nothing to count. */
   const now = useSharedSecondTick(hasClock);
   const clock = hasClock ? tournamentClockLine(entry, now) : null;
-  /* One silver guarantee frame, independent of event type or guarantee size. */
-  const plainGtd =
-    !badgesOnly && entry.guaranteeValue > 0 ? `${compactChips(entry.guaranteeValue)} GTD` : null;
-  if (signals.length === 0 && !clock && !plainGtd) return null;
+  if (signals.length === 0 && !clock) return null;
   return (
     <span className="lt-signals">
-      {signals.length > 0 || plainGtd ? (
+      {signals.length > 0 ? (
         <span className="lt-signals__badges">
           {signals.map((kind) => (
             <span key={kind} className={`lt-signal lt-signal--${kind}`}>
@@ -400,7 +487,6 @@ function TournamentRowSignals({
               <span>{signalLabel(kind, entry)}</span>
             </span>
           ))}
-          {plainGtd && <span className="lt-signal lt-signal--gtd">{plainGtd}</span>}
         </span>
       ) : null}
       {clock && (
@@ -609,6 +695,48 @@ function LobbyFlagChips({ entry }: { entry: LobbyEntry }) {
   );
 }
 
+function TournamentHeadingRow({
+  entry,
+  colSpan,
+  compact = false,
+  onSelect,
+  onActivate,
+}: {
+  entry: LobbyEntry;
+  colSpan: number;
+  compact?: boolean;
+  onSelect: (entry: LobbyEntry) => void;
+  onActivate: (entry: LobbyEntry) => void;
+}) {
+  if (entry.kind === 'cash') return null;
+  return (
+    <tr
+      className={`lt-tournament-header ${tournamentRowClasses(entry)}${entry.featured ? ' is-featured' : ''}`}
+      data-tournament-heading={entry.id}
+      data-kind={entry.kind}
+      role="row"
+      onClick={() => onSelect(entry)}
+      onDoubleClick={() => onActivate(entry)}
+    >
+      <td colSpan={colSpan} role="gridcell">
+        <span
+          className={`lt-tournament-heading ${compact ? 'compact-lobby__title' : 'lt-name__line1'}`}
+        >
+          <TournamentFormatIcon entry={entry} />
+          <span className="lt-tournament-heading__name">
+            {entry.kind === 'mtt' ? mttTitleLine(entry) : entry.name}
+          </span>
+          {entry.guaranteeValue > 0 && (
+            <strong className="lt-tournament-heading__guarantee">
+              {compactChips(entry.guaranteeValue)} Guarantee
+            </strong>
+          )}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
 const COL_NAME: ColumnDef = {
   key: 'name',
   label: 'Game',
@@ -620,16 +748,10 @@ const COL_NAME: ColumnDef = {
   sortValue: (e) => (e.kind === 'cash' ? cashTitleLines(e).headline : e.name || '').toLowerCase(),
   render: (e, ctx) => {
     if (e.kind === 'mtt') {
-      /* Dan 2026-08-23: MTT titles are two lines — name + variation on top,
-         guarantee / start clock / live countdown (or late-reg time left)
-         underneath. The guarantee lives in the title now, not only in its
-         own column. */
+      /* The full-width header owns name, variation and guarantee. Keep the
+         scheduled clock and live late-reg metadata aligned with values below. */
       return (
         <span className="lt-name lt-name--mtt" title={mttTitleLine(e)}>
-          <span className="lt-name__line1">
-            {e.live && <i className="lt-live" aria-hidden="true" title="Live" />}
-            {mttTitleLine(e)}
-          </span>
           <MttTitleMeta entry={e} />
           <SatelliteRowDestination entry={e} />
           <TournamentRowSignals entry={e} badgesOnly />
@@ -650,7 +772,7 @@ const COL_NAME: ColumnDef = {
       return (
         <span className="lt-name lt-name--cash" title={e.name}>
           <span className="lt-name__line1">
-            {cashTemplateKey(e.game?.template ?? '') === 'madness' && !e.game?.noLightning ? (
+            {isLightningCashRow(e) ? (
               <LightningGamesIcon />
             ) : e.live ? (
               <i className="lt-live" aria-hidden="true" title="Live" />
@@ -671,10 +793,7 @@ const COL_NAME: ColumnDef = {
 
     return (
       <span className="lt-name lt-name--seatfirst" title={e.name}>
-        <span className="lt-name__line1">
-          {e.live && <i className="lt-live" aria-hidden="true" title="Live" />}
-          {e.name}
-        </span>
+        <span className="lt-name__table">{e.variantLabel}</span>
         <SatelliteRowDestination entry={e} />
         {e.kind === 'spin' && ctx.spinTopTierLive && <SpinTopTierBadge />}
         <LobbyFlagChips entry={e} />
@@ -1285,6 +1404,8 @@ const COL_ACTIONS: ColumnDef = {
 const LobbyRow = memo(function LobbyRow({
   entry,
   columns,
+  visibleColumnCount,
+  lastVisibleColumnIndex,
   ctx,
   selected,
   cursor,
@@ -1293,6 +1414,8 @@ const LobbyRow = memo(function LobbyRow({
 }: {
   entry: LobbyEntry;
   columns: ColumnDef[];
+  visibleColumnCount: number;
+  lastVisibleColumnIndex: number;
   ctx: LobbyRowContext;
   selected: boolean;
   /** The keyboard cursor is here. Not the same as selected — see handleKeyDown. */
@@ -1307,57 +1430,69 @@ const LobbyRow = memo(function LobbyRow({
      moment the chip above it changes. */
   const mine = playerStateOf(entry, ctx);
   return (
-    <tr
-      data-id={entry.id}
-      data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
-      className={`lt-row lt-row--${entry.status} ${tournamentRowClasses(entry)}${entry.featured ? ' is-featured' : ''}${selected ? ' is-selected' : ''}${cursor ? ' is-cursor' : ''}${mine ? ' is-mine' : ''}`}
-      data-kind={entry.kind}
-      data-lightning={entry.kind === 'cash' && entry.game?.lightning ? 'on' : undefined}
-      data-cash-format={
-        entry.kind === 'cash' && entry.game?.template
-          ? cashTemplateKey(entry.game.template)
-          : undefined
-      }
-      role="row"
-      aria-selected={selected}
-      id={`lt-row-${entry.id}`}
-      // Hover / touch / keyboard-focus on a lobby row is the earliest honest
-      // signal that this table is where the player is going, so start pulling
-      // the TablePage chunk now. TablePage is the single heaviest chunk in the
-      // app; fetching it while the player is still reading the row means the
-      // click resolves from the module cache instead of stalling on the
-      // network.
-      //
-      // Spread FIRST so the row's own onClick/onDoubleClick below win, and
-      // idempotent - repeat hovers over the same row are a no-op (see
-      // ChunkPreloader.preloadRoute).
-      {...prefetchIntent(`/table/${entry.id}`)}
-      onPointerEnter={() => {
-        prefetchIntent(`/table/${entry.id}`).onMouseEnter();
-        if (entry.kind === 'cash') warmTable(entry.id);
-      }}
-      onTouchStart={() => {
-        prefetchIntent(`/table/${entry.id}`).onTouchStart();
-        if (entry.kind === 'cash') warmTable(entry.id);
-      }}
-      onClick={() => onSelect(entry)}
-      onDoubleClick={() => onActivate(entry)}
-    >
-      {columns.map((col) => (
-        <td
-          key={col.key}
-          role="gridcell"
-          /* data-label carries the column's own heading down to the cell. On a
+    <>
+      <TournamentHeadingRow
+        entry={entry}
+        colSpan={visibleColumnCount}
+        onSelect={onSelect}
+        onActivate={onActivate}
+      />
+      <tr
+        data-id={entry.id}
+        data-tournament-body={entry.kind !== 'cash' ? 'true' : undefined}
+        aria-label={entry.kind !== 'cash' ? entry.name : undefined}
+        data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
+        className={`lt-row lt-row--${entry.status} ${tournamentRowClasses(entry)}${entry.featured ? ' is-featured' : ''}${selected ? ' is-selected' : ''}${cursor ? ' is-cursor' : ''}${mine ? ' is-mine' : ''}`}
+        data-kind={entry.kind}
+        data-lightning-format={isLightningCashRow(entry) ? 'true' : undefined}
+        data-lightning={entry.kind === 'cash' && entry.game?.lightning ? 'on' : undefined}
+        data-cash-format={
+          entry.kind === 'cash' && entry.game?.template
+            ? cashTemplateKey(entry.game.template)
+            : undefined
+        }
+        role="row"
+        aria-selected={selected}
+        id={`lt-row-${entry.id}`}
+        // Hover / touch / keyboard-focus on a lobby row is the earliest honest
+        // signal that this table is where the player is going, so start pulling
+        // the TablePage chunk now. TablePage is the single heaviest chunk in the
+        // app; fetching it while the player is still reading the row means the
+        // click resolves from the module cache instead of stalling on the
+        // network.
+        //
+        // Spread FIRST so the row's own onClick/onDoubleClick below win, and
+        // idempotent - repeat hovers over the same row are a no-op (see
+        // ChunkPreloader.preloadRoute).
+        {...prefetchIntent(`/table/${entry.id}`)}
+        onPointerEnter={() => {
+          prefetchIntent(`/table/${entry.id}`).onMouseEnter();
+          if (entry.kind === 'cash') warmTable(entry.id);
+        }}
+        onTouchStart={() => {
+          prefetchIntent(`/table/${entry.id}`).onTouchStart();
+          if (entry.kind === 'cash') warmTable(entry.id);
+        }}
+        onClick={() => onSelect(entry)}
+        onDoubleClick={() => onActivate(entry)}
+      >
+        {columns.map((col, index) => (
+          <td
+            key={col.key}
+            data-last-visible={index === lastVisibleColumnIndex ? 'true' : undefined}
+            role="gridcell"
+            /* data-label carries the column's own heading down to the cell. On a
              phone the header row is gone, so the card layout prints it above
              the value — and it is always the right word, which a class name
              could not guarantee: Stakes and Buy-In share .lt-col-num. */
-          data-label={col.labelFor ? col.labelFor(entry) : col.label}
-          className={col.className || ''}
-        >
-          {col.render(entry, ctx)}
-        </td>
-      ))}
-    </tr>
+            data-label={col.labelFor ? col.labelFor(entry) : col.label}
+            className={col.className || ''}
+          >
+            {col.render(entry, ctx)}
+          </td>
+        ))}
+      </tr>
+    </>
   );
 });
 
@@ -1552,8 +1687,8 @@ export default function LobbyTable({
       }),
     [boardEntries, boardNow]
   );
-  /* Dan 2026-10-19: a featured NIGHTLY event floats only on its own day; the
-     weekly flagship (Sunday 200) keeps its pin all week. Rows that lose the pin
+  /* Owner update October 31: only today's top events float above the schedule.
+     Future nightly and weekly editions remain ordinary rows. Rows that lose the pin
      lose the FEATURED chip too, since the chip says "Pinned To The Top Of The
      Board". Unchanged rows keep their identity. See src/lib/featuredOnItsDay.ts. */
   const entries = useMemo(() => {
@@ -1573,6 +1708,24 @@ export default function LobbyTable({
     return changed ? out : liveEntries;
   }, [liveEntries]);
   const columns = useMemo(() => columnsFor(category), [category]);
+  const desktopHeadingRef = useRef<HTMLTableSectionElement>(null);
+  const [visibleColumnCount, setVisibleColumnCount] = useState(columns.length);
+  const [lastVisibleColumnIndex, setLastVisibleColumnIndex] = useState(columns.length - 1);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const cells = desktopHeadingRef.current?.querySelectorAll('th');
+      const visible = cells
+        ? Array.from(cells)
+            .map((cell, index) => ({ cell, index }))
+            .filter(({ cell }) => getComputedStyle(cell).display !== 'none')
+        : [];
+      setVisibleColumnCount(visible.length || columns.length);
+      setLastVisibleColumnIndex(visible[visible.length - 1]?.index ?? columns.length - 1);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [columns]);
 
   /* One fetch per lobby, shared by every Spin row (the hook is module-cached
      with a 60s TTL). `clubId` here is the resolved club UUID; when the page
@@ -1896,6 +2049,7 @@ export default function LobbyTable({
     [sorted, selectedId, keyboardFocusId, onActivate]
   );
 
+  const hasTournamentHeadings = sorted.some((entry) => entry.kind !== 'cash');
   const warmLayoutKey = sorted.map((entry) => `${entry.kind}:${entry.id}`).join(',');
   useEffect(() => {
     const rows = mobileCardsRef.current;
@@ -1927,7 +2081,10 @@ export default function LobbyTable({
               ? `Sorted By ${orderLabel}`
               : 'Default Order'}
         </span>
-        <table className="compact-lobby" aria-label="Games">
+        <table
+          className={`compact-lobby${hasTournamentHeadings ? ' has-tournament-headings' : ''}`}
+          aria-label="Games"
+        >
           <thead>
             <tr>
               {[
@@ -1973,63 +2130,81 @@ export default function LobbyTable({
           </thead>
           <tbody>
             {sorted.map((entry) => (
-              <tr
-                key={entry.id}
-                data-testid="lobby-game-row"
-                data-id={entry.id}
-                data-kind={entry.kind}
-                data-lightning={entry.kind === 'cash' && entry.game?.lightning ? 'on' : undefined}
-                data-cash-format={
-                  entry.kind === 'cash' && entry.game?.template
-                    ? cashTemplateKey(entry.game.template)
-                    : undefined
-                }
-                data-status={entry.status}
-                data-live={entry.live ? 'true' : 'false'}
-                data-players={entry.players}
-                data-capacity={entry.capacity}
-                data-target={entry.game ? 'game' : 'table'}
-                data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
-                className={compactRowClass(entry)}
-                onClick={() => onSelect(entry)}
-              >
-                <td>
-                  <FavCell entry={entry} ctx={rowCtx} />
-                  <button
-                    type="button"
-                    className="compact-lobby__open"
-                    aria-label={`Details: ${entry.kind === 'cash' ? cashTitleLines(entry).headline : entry.name}`}
-                    aria-haspopup="dialog"
-                    aria-expanded={entry.id === selectedId}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onSelect(entry);
-                    }}
-                    {...prefetchIntent(`/table/${entry.id}`)}
-                  >
-                    <span className="compact-lobby__title">
-                      {entry.kind === 'cash' ? cashTitleLines(entry).headline : entry.name}
-                    </span>
-                    <span className="compact-lobby__meta">
-                      {entry.kind === 'cash' ? (
-                        <>
-                          {cashTitleLines(entry).subtitle}
-                          {cashStyleNote(entry) && <> | {cashStyleNote(entry)}</>}
-                        </>
-                      ) : (
-                        entry.variantLabel
+              <Fragment key={entry.id}>
+                {hasTournamentHeadings && (
+                  <tr className="lt-event-gap" aria-hidden="true">
+                    <td colSpan={4} />
+                  </tr>
+                )}
+                <TournamentHeadingRow
+                  entry={entry}
+                  colSpan={4}
+                  compact
+                  onSelect={onSelect}
+                  onActivate={onActivate}
+                />
+                <tr
+                  data-testid="lobby-game-row"
+                  data-id={entry.id}
+                  data-tournament-body={entry.kind !== 'cash' ? 'true' : undefined}
+                  data-kind={entry.kind}
+                  data-lightning-format={isLightningCashRow(entry) ? 'true' : undefined}
+                  data-lightning={entry.kind === 'cash' && entry.game?.lightning ? 'on' : undefined}
+                  data-cash-format={
+                    entry.kind === 'cash' && entry.game?.template
+                      ? cashTemplateKey(entry.game.template)
+                      : undefined
+                  }
+                  data-status={entry.status}
+                  data-live={entry.live ? 'true' : 'false'}
+                  data-players={entry.players}
+                  data-capacity={entry.capacity}
+                  data-target={entry.game ? 'game' : 'table'}
+                  data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
+                  className={compactRowClass(entry)}
+                  onClick={() => onSelect(entry)}
+                >
+                  <td>
+                    {isLightningCashRow(entry) && <LightningGamesIcon />}
+                    <FavCell entry={entry} ctx={rowCtx} />
+                    <button
+                      type="button"
+                      className="compact-lobby__open"
+                      aria-label={`Details: ${entry.kind === 'cash' ? cashTitleLines(entry).headline : entry.name}`}
+                      aria-haspopup="dialog"
+                      aria-expanded={entry.id === selectedId}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelect(entry);
+                      }}
+                      {...prefetchIntent(`/table/${entry.id}`)}
+                    >
+                      {entry.kind === 'cash' && (
+                        <span className="compact-lobby__title">
+                          {cashTitleLines(entry).headline}
+                        </span>
                       )}
-                    </span>
-                    {entry.kind === 'mtt' && <LobbyFlagChips entry={entry} />}
-                    {entry.kind !== 'cash' && <SatelliteRowDestination entry={entry} />}
-                    {entry.kind !== 'cash' && <TournamentRowSignals entry={entry} />}
-                    <PlayerStateChip entry={entry} ctx={rowCtx} />
-                  </button>
-                </td>
-                <td>{COL_COST.render(entry, rowCtx)}</td>
-                <td>{COL_PLAYERS.render(entry, rowCtx)}</td>
-                <td>{COL_STATUS.render(entry, rowCtx)}</td>
-              </tr>
+                      <span className="compact-lobby__meta">
+                        {entry.kind === 'cash' ? (
+                          <>
+                            {cashTitleLines(entry).subtitle}
+                            {cashStyleNote(entry) && <> | {cashStyleNote(entry)}</>}
+                          </>
+                        ) : (
+                          entry.variantLabel
+                        )}
+                      </span>
+                      {entry.kind === 'mtt' && <LobbyFlagChips entry={entry} />}
+                      {entry.kind !== 'cash' && <SatelliteRowDestination entry={entry} />}
+                      {entry.kind !== 'cash' && <TournamentRowSignals entry={entry} />}
+                      <PlayerStateChip entry={entry} ctx={rowCtx} />
+                    </button>
+                  </td>
+                  <td>{COL_COST.render(entry, rowCtx)}</td>
+                  <td>{COL_PLAYERS.render(entry, rowCtx)}</td>
+                  <td>{COL_STATUS.render(entry, rowCtx)}</td>
+                </tr>
+              </Fragment>
             ))}
             {loading && sorted.length === 0 && (
               <tr>
@@ -2079,8 +2254,11 @@ export default function LobbyTable({
           for the ALL and MTT boards, which carry eight columns; the SPIN board
           carries five, so dropping its Max Payout at 1340px starved a table
           that had room to spare — and the payout IS the Spin. */}
-        <table className={`lobby-table lobby-table--${category.toLowerCase()}`} role="grid">
-          <thead role="rowgroup">
+        <table
+          className={`lobby-table lobby-table--${category.toLowerCase()}${hasTournamentHeadings ? ' has-tournament-headings' : ''}`}
+          role="grid"
+        >
+          <thead ref={desktopHeadingRef} role="rowgroup">
             {/* The explicit row/gridcell roles below are not redundant. Under
               640px this table stops being a table - thead/tbody/tr/td all
               become block or flex boxes so each row can be a card - and a
@@ -2152,17 +2330,25 @@ export default function LobbyTable({
                   ))}
                 </tr>
               ))}
-            {sorted.map((entry) => (
-              <LobbyRow
-                key={entry.id}
-                entry={entry}
-                columns={columns}
-                ctx={rowCtx}
-                selected={entry.id === selectedId}
-                cursor={entry.id === keyboardFocusId}
-                onSelect={onSelect}
-                onActivate={onActivate}
-              />
+            {sorted.map((entry, index) => (
+              <Fragment key={entry.id}>
+                {hasTournamentHeadings && index > 0 && (
+                  <tr className="lt-event-gap" aria-hidden="true">
+                    <td colSpan={visibleColumnCount} />
+                  </tr>
+                )}
+                <LobbyRow
+                  entry={entry}
+                  columns={columns}
+                  visibleColumnCount={visibleColumnCount}
+                  lastVisibleColumnIndex={lastVisibleColumnIndex}
+                  ctx={rowCtx}
+                  selected={entry.id === selectedId}
+                  cursor={entry.id === keyboardFocusId}
+                  onSelect={onSelect}
+                  onActivate={onActivate}
+                />
+              </Fragment>
             ))}
           </tbody>
         </table>
