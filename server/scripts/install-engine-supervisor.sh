@@ -112,39 +112,6 @@ PY
     || die 'control generation is incompatible with the frozen release v1 protocol'
 }
 
-# INTERPRETER BYTECODE IS NOT A RELEASE BYTE (2026-11-01). A Python import of a
-# helper inside an installed generation wrote <generation>/__pycache__ (fixed at
-# source by #9163). The manifest check below then refused the active generation
-# for every later install - "manifest or filesystem is invalid" from 14:52 UTC,
-# so no release could even stage. Only that exact shape is removed: a real
-# directory named __pycache__ at the generation root that the manifest does not
-# declare, holding nothing but regular *.pyc files. Anything else (a symlink, a
-# subdirectory, any other name) still refuses, and every declared file is still
-# compared byte-for-byte against the protected commit afterwards.
-shed_interpreter_bytecode() {
-  local generation="$1" cache="$1/__pycache__"
-  [ -e "$cache" ] || [ -L "$cache" ] || return 0
-  [ -d "$cache" ] && [ ! -L "$cache" ] \
-    || die 'active control generation __pycache__ is not a plain directory'
-  ! grep -qxF '__pycache__' "$generation/generation-files" 2>/dev/null \
-    || die 'active control generation declares __pycache__ as a release file'
-  python3 - "$cache" <<'PY' \
-    || die 'active control generation __pycache__ holds something other than interpreter bytecode'
-import os, re, stat, sys
-cache = sys.argv[1]
-for name in os.listdir(cache):
-    if not re.fullmatch(r'[A-Za-z0-9._-]+\.pyc', name):
-        raise SystemExit(1)
-    if not stat.S_ISREG(os.lstat(os.path.join(cache, name)).st_mode):
-        raise SystemExit(1)
-PY
-  find "$cache" -mindepth 1 -maxdepth 1 -type f -name '*.pyc' -delete \
-    || die 'could not remove interpreter bytecode from the active control generation'
-  rmdir -- "$cache" || die 'could not remove the active control generation __pycache__'
-  fsync_paths "$generation"
-  echo "[install-engine-supervisor] removed undeclared interpreter bytecode from the active control generation"
-}
-
 validate_active_generation() {
   local sha="$1" active expected file
   active="$(readlink -e -- "$CONTROL_DIR")" || die 'active control target is unavailable'
@@ -152,7 +119,6 @@ validate_active_generation() {
   [ "$active" = "$expected" ] && [ -d "$active" ] && [ ! -L "$active" ] \
     || die 'active control target is not its canonical deterministic generation'
   validate_v1_protocol "$active"
-  shed_interpreter_bytecode "$active"
   [ -f "$active/generation-files" ] \
     || die 'active deterministic control generation has no immutable file manifest'
   mapfile -t ACTIVE_FILES < "$active/generation-files" \

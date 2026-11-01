@@ -30,3 +30,15 @@ There is no rollback overwrite, unknown-file deletion, retry loop, lease, new
 freeze or engine signal. Mac qualification uses its native exclusive-rename
 primitive only for disposable files; required Linux CI must qualify the actual
 Linux primitive. Local source tests are not live installation proof.
+
+## Superseding the filename-only deletion in PR #9167
+
+PR #9167 merged as `45a2fe1e720a8c509e4b77769c2028d23ffd400b` while this fix was
+being qualified. Its filename-only `shed_interpreter_bytecode` path deleted data
+before manifest/source validation and accepted a synthetic `b'bytecode'` file.
+This change intentionally removes that helper/call and restores the strict
+validator byte-for-byte from protected `41551479`, preserving the rest of current
+main and both bytecode prevention fixes. The earlier changelog and commits remain
+historical evidence. Its synthetic activation fixture now proves unknown cache
+bytes and foreign entries are preserved and refuse activation; the separate
+compiled-cache suite proves the qualified, non-deleting disposition.
