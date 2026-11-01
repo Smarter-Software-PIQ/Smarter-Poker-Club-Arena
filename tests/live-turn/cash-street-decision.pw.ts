@@ -119,9 +119,18 @@ async function openTable(page: Page): Promise<ReplayEngine> {
   expect(rec.hero).toBe(PLAYER);
   await signIn(page, backendFor(rec));
   const engine = await ReplayEngine.install(page, rec);
-  await page.goto(`table/${rec.table}`);
-  await expect.poll(() => engine.autoTimeBankPreferences.includes(false)).toBe(true);
-  return engine;
+  try {
+    await page.goto(`table/${rec.table}`);
+    // Readiness belongs to the mounted table, not navigation's load event.
+    // Preserve the original 60-second control budget and five-second wire
+    // check; a cold lazy module must not consume the preference check first.
+    await expect(controls(page).call).toBeVisible({ timeout: 60_000 });
+    await expect.poll(() => engine.autoTimeBankPreferences.includes(false)).toBe(true);
+    return engine;
+  } catch (error) {
+    engine.dispose();
+    throw error;
+  }
 }
 
 function controls(page: Page) {
@@ -164,10 +173,18 @@ async function expectBoardImagesReady(page: Page, count: 3 | 4): Promise<void> {
 }
 
 test('the big blind can open betting after calling on the prior street', async ({ page }) => {
+  // A cold lazy table module can mount after navigation's load event. Its
+  // existing 60-second readiness budget must precede preference wire checks.
+  let coldTableModuleReads = 0;
+  await page.route(/\/assets\/TablePage-[^/]+\.js(?:\?.*)?$/, async (route) => {
+    coldTableModuleReads++;
+    if (coldTableModuleReads === 1) await new Promise((resolve) => setTimeout(resolve, 6_000));
+    await route.fallback();
+  });
   const engine = await openTable(page);
+  expect(coldTableModuleReads).toBe(1);
   const bar = controls(page);
   try {
-    await expect(bar.call).toBeVisible({ timeout: 60_000 });
     await bar.call.click();
     await expectOpeningBet(page);
     await expectBoardImagesReady(page, 3);
@@ -192,7 +209,6 @@ test('a lost new-street delta never presents a false check-or-call-only decision
   const bar = controls(page);
   let release = () => {};
   try {
-    await expect(bar.call).toBeVisible({ timeout: 60_000 });
     // Actual recording after the BB call: community event +3ms, state delta
     // seq6/prev5 +5ms, clock delta seq7/prev6 and turn event +506ms.
     // TableStateHub can soft-drop DELTA delivery; EVENTS have a separate seq.
