@@ -258,9 +258,12 @@ describe('the route runs on the daily schedule that already exists', () => {
     expect(job.if).toContain("needs.detect.result == 'success'");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).toContain(
-      "github.event_name == 'schedule' || needs.detect.outputs.owner_window_id != ''"
+      "needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''"
     );
-    expect(stage.on.schedule).toEqual([{ cron: '30 8 * * *' }, { cron: '30 9 * * *' }]);
+    expect(stage.on.schedule).toEqual([
+      { cron: '31,35,39,43 8 * * *' },
+      { cron: '31,35,39,43 9 * * *' },
+    ]);
     expect(job.permissions).toEqual({ contents: 'read' });
     expect(job.concurrency['cancel-in-progress']).toBe(false);
     const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');

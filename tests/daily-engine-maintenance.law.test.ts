@@ -64,7 +64,12 @@ function admit(
       }
       timeout() { shift 3; shift 3; git "$@"; }
       date() { printf '%s' "$HOUR"; }
-      gh() { printf '%s' "$RUN_CREATED_AT"; }
+      gh() {
+        case "$2" in
+          *'/workflows/'*) printf '%s' '{"total_count":0,"workflow_runs":[]}' ;;
+          *) printf '%s' "$RUN_CREATED_AT" ;;
+        esac
+      }
       curl() { printf '%s' "$HEALTH"; }
       ${admission}
       cat "$GITHUB_OUTPUT"
@@ -102,9 +107,9 @@ describe('daily routine admission uses the existing protected receiver only', ()
   it('queues ordinary daytime pushes even when they change server code', () => {
     expect(admit('push', '14', 'normal server change', '{"liveness":"ok"}')).toBe(false);
   });
-  it('admits only the 03:30 Chicago candidate of the UTC DST pair', () => {
+  it('admits only a run created inside the 03:30 Chicago window, across DST', () => {
     expect(admit('schedule', '03', 'routine', '{"liveness":"ok"}')).toBe(true);
-    // The actual runner hour does not change nominal admission.
+    // The runner's wall-clock hour is not consulted; the run's creation is.
     expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}')).toBe(true);
     expect(admit('schedule', '14', 'routine', '{"liveness":"ok"}')).toBe(true);
     expect(
@@ -125,6 +130,11 @@ describe('daily routine admission uses the existing protected receiver only', ()
     expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', 'malformed')).toBe(
       false
     );
+    // A cron GitHub delivers hours late is judged by when it arrived
+    // (2026-10-30 15:08 and 2026-10-31 14:37 UTC): it prepares nothing.
+    expect(
+      admit('schedule', '09', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-10-31T14:37:20Z')
+    ).toBe(false);
     expect(
       admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 8 * * *', '2026-10-22T00:01:00Z')
     ).toBe(false);
