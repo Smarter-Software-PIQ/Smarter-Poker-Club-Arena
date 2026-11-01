@@ -326,7 +326,7 @@ def validate_routine_reply(value, request):
 
 FAILED_CUSTODY_REQUEST = {'mode': 'failed_routine_custody', 'runKey': '41349091113-1',
                          'releaseSha': '3e3c6d4752cd587fad0db521ebd262f1b485514c'}
-FAILED_CUSTODY_SCHEMA = 'failed-routine-custody-observation/v1'
+FAILED_CUSTODY_SCHEMA = 'failed-routine-custody-observation/v2'
 FAILED_CUSTODY_CONTROL = FAILED_CUSTODY_REQUEST['releaseSha']
 FAILED_CUSTODY_FAILURE = '4871c8d6386ea8e91ef00b0601708cb46254ef6117129af9a5a1ed239fff844f'
 FAILED_CUSTODY_IMAGE = 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
@@ -428,11 +428,27 @@ def failed_custody_sources(parent, systemd, deadline):
     return qualified, rows, originals
 
 
+FAILED_CUSTODY_UNIT_REASONS = {
+    'source': {'source_unproved'},
+    'metadata_read': {'command_deadline', 'command_size', 'command_nonzero', 'native_unavailable'},
+    'metadata_decode': {'decode_refused'},
+    'metadata_fields': {'fields_refused'},
+    'metadata_state': {'value_refused'},
+    'metadata_source': {'source_refused'},
+    'metadata_pids': {'value_refused'},
+    'process_read': {'command_deadline', 'command_size', 'command_nonzero', 'native_unavailable'},
+    'process_decode': {'decode_refused'},
+    'process_shape': {'shape_refused'},
+    'complete': {'observed'},
+}
+
+
 def failed_custody_unit(unit, deadline):
     """Only fixed systemd metadata and its existing typed process enumeration."""
     routine_require(unit in FAILED_CUSTODY_UNITS.values())
     unknown = {'status': 'unknown', 'inactive': None, 'noJob': None, 'disabled': None,
                'noMainOrControlPid': None, 'processEnumerationEmpty': None, 'cgroup': 'unknown'}
+    phase, reason = 'metadata_read', 'native_unavailable'
     path = unit.endswith('.path')
     props = ['LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job', 'FragmentPath', 'DropInPaths']
     args = ['systemctl', 'show', unit, '--no-pager', '--all', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,MainPID,ControlPID,ControlGroup,FragmentPath,DropInPaths']
@@ -442,23 +458,34 @@ def failed_custody_unit(unit, deadline):
         props += ['MainPID', 'ControlPID', 'ControlGroup']
     try:
         raw = inspector_command(args, min(deadline, time.monotonic() + 2), limit=4096)
-        d = unique_object([line.split('=', 1) for line in raw.decode('ascii').splitlines()])
-        routine_require(set(d) == set(props) and d['LoadState'] in {'loaded', 'not-found'} and
+        phase, reason = 'metadata_decode', 'decode_refused'
+        text = raw.decode('ascii')
+        phase, reason = 'metadata_fields', 'fields_refused'
+        d = unique_object([line.split('=', 1) for line in text.splitlines()])
+        routine_require(set(d) == set(props))
+        phase, reason = 'metadata_state', 'value_refused'
+        routine_require(d['LoadState'] in {'loaded', 'not-found'} and
                         d['ActiveState'] in {'active', 'activating', 'reloading', 'inactive', 'failed', 'deactivating'} and
                         d['SubState'] in {'running', 'start', 'start-pre', 'start-post', 'exited', 'dead', 'failed', 'auto-restart', 'stop', 'stop-sigterm', 'stop-sigkill', 'stop-post', 'final-sigterm', 'final-sigkill', 'waiting'} and
                         d['UnitFileState'] in {'', 'disabled', 'static', 'enabled', 'enabled-runtime', 'indirect'} and
                         re.fullmatch(r'[0-9]*', d['Job']))
+        phase, reason = 'metadata_source', 'source_refused'
         routine_require(d['FragmentPath'] == '/etc/systemd/system/' + unit.split('@', 1)[0] + '@.' + unit.rsplit('.', 1)[1] and d['DropInPaths'] == '')
         if not path:
+            phase, reason = 'metadata_pids', 'value_refused'
             routine_require(all(re.fullmatch(r'[0-9]*', d[k]) for k in ('MainPID', 'ControlPID')))
         # Path units have no service PIDs. Empty is inapplicable, never zero.
         path = unit.endswith('.path')
         pid_clear = None if path else d['MainPID'] == d['ControlPID'] == '0'
         empty, cgroup = None, 'not-applicable'
         if not path:
+            phase, reason = 'process_read', 'native_unavailable'
             processes = inspector_command(['busctl', '--system', '--timeout=1s', 'call', 'org.freedesktop.systemd1',
                 '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager', 'GetUnitProcesses', 's', unit],
-                min(deadline, time.monotonic() + 2), limit=4096).decode('ascii').strip()
+                min(deadline, time.monotonic() + 2), limit=4096)
+            phase, reason = 'process_decode', 'decode_refused'
+            processes = processes.decode('ascii').strip()
+            phase, reason = 'process_shape', 'shape_refused'
             fields = shlex.split(processes)
             routine_require(len(fields) >= 2 and fields[0] == 'a(sus)' and re.fullmatch('0|[1-9][0-9]{0,2}', fields[1]))
             count = int(fields[1])
@@ -468,12 +495,14 @@ def failed_custody_unit(unit, deadline):
             # The exact manager enumeration covers this unit's descendants;
             # arbitrary filesystem paths are never followed.
             cgroup = 'manager-empty' if empty and d['ControlGroup'] in {'', '/system.slice/' + unit} else 'unproved'
-        result = {'status': 'observed', 'inactive': d['ActiveState'] in {'inactive', 'failed'} and d['SubState'] in {'dead', 'failed'},
+        result = {'status': 'observed', 'phase': 'complete', 'reason': 'observed', 'inactive': d['ActiveState'] in {'inactive', 'failed'} and d['SubState'] in {'dead', 'failed'},
                   'noJob': d['Job'] in {'', '0'}, 'disabled': d['UnitFileState'] in {'', 'disabled', 'static'},
                   'noMainOrControlPid': pid_clear, 'processEnumerationEmpty': empty, 'cgroup': cgroup}
         return result, hashlib.sha256(raw).hexdigest()
-    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
-        return unknown, None
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as error:
+        if phase in {'metadata_read', 'process_read'}:
+            reason = INSPECTOR_COMMAND_ERRORS.get(str(error), 'native_unavailable')
+        return {**unknown, 'phase': phase, 'reason': reason}, None
 
 
 FAILED_CUSTODY_TRANSACTION_SHA256 = '3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39'
@@ -617,7 +646,7 @@ def failed_custody_remote(request, root_fd, *, state_root=STATE_ROOT,
         if sources[0]:
             units[label], bindings[label] = failed_custody_unit(unit, deadline)
         else:
-            units[label], bindings[label] = ({'status': 'unknown', 'inactive': None, 'noJob': None, 'disabled': None,
+            units[label], bindings[label] = ({'status': 'unknown', 'phase': 'source', 'reason': 'source_unproved', 'inactive': None, 'noJob': None, 'disabled': None,
                 'noMainOrControlPid': None, 'processEnumerationEmpty': None, 'cgroup': 'unknown'}, None)
     runtime = {'status': 'unknown', 'desiredImageMatches': None, 'localHealthSourceMatches': None}
     runtime_before = None
@@ -665,12 +694,16 @@ def validate_failed_custody_reply(v, request):
             (row['identityBinding'] == 'unproved' or row['presence'] == 'present'))
         routine_require(row['identityBinding'] != 'original-request-bound' or name in {'request', 'intent'})
     for label, row in v['units'].items():
-        routine_require(isinstance(row, dict) and set(row) == {'status', 'inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty', 'cgroup'} and
+        routine_require(isinstance(row, dict) and set(row) == {'status', 'phase', 'reason', 'inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty', 'cgroup'} and
+            isinstance(row['phase'], str) and row['phase'] in FAILED_CUSTODY_UNIT_REASONS and
+            isinstance(row['reason'], str) and row['reason'] in FAILED_CUSTODY_UNIT_REASONS[row['phase']] and
+            (row['phase'] == 'source') == (not v['sourceQualified']) and
+            (label != 'intakePath' or not row['phase'].startswith('process_')) and
             row['status'] in {'observed', 'unknown'} and row['cgroup'] in {'unknown', 'unproved', 'manager-empty', 'not-applicable'} and
             all(row[k] is None or type(row[k]) is bool for k in ('inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty')))
-        if row['status'] == 'unknown': routine_require(row['cgroup'] == 'unknown' and all(row[k] is None for k in ('inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty')))
+        if row['status'] == 'unknown': routine_require(row['phase'] != 'complete' and row['cgroup'] == 'unknown' and all(row[k] is None for k in ('inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty')))
         else:
-            routine_require(v['sourceQualified'] and all(type(row[k]) is bool for k in ('inactive', 'noJob', 'disabled')) and
+            routine_require(row['phase'] == 'complete' and row['reason'] == 'observed' and v['sourceQualified'] and all(type(row[k]) is bool for k in ('inactive', 'noJob', 'disabled')) and
                             ((row['noMainOrControlPid'] is None and row['processEnumerationEmpty'] is None and row['cgroup'] == 'not-applicable') if label == 'intakePath' else
                              type(row['noMainOrControlPid']) is bool and type(row['processEnumerationEmpty']) is bool and row['cgroup'] != 'not-applicable') and
                             (row['cgroup'] != 'manager-empty' or row['processEnumerationEmpty'] is True))
