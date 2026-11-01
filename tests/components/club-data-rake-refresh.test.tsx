@@ -410,7 +410,9 @@ it('does not amplify failed rake reads through successful ledger invalidations',
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Club Ledger' }));
   await screen.findByText('Rake Agent');
   expect(rakeCalls()).toHaveLength(2);
-  fireEvent.click(screen.getByRole('button', { name: 'Day', exact: true }));
+  // On the first of a month, Month and Day ask the same cached question.
+  // Yesterday always changes the range, so one additional read is owed.
+  fireEvent.click(screen.getByRole('button', { name: 'Yesterday', exact: true }));
   await waitFor(() => expect(rakeCalls()).toHaveLength(3));
 });
 
