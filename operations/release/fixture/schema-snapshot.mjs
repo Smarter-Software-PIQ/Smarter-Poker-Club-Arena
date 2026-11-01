@@ -65,11 +65,16 @@ export function connectionFailureCode(error) {
   return codes.size === 1 ? [...codes][0] : codes.size > 1 ? 'MULTIPLE_KNOWN_FAILURES' : 'UNKNOWN';
 }
 
-const catalogueKinds = new Set(['QUERY_CANCELLED','LOCK_NOT_AVAILABLE','PERMISSION_DENIED',
+const catalogueKinds = new Set(['QUERY_CANCELLED','STATEMENT_TIMEOUT','USER_CANCELLED','LOCK_TIMEOUT','LOCK_NOT_AVAILABLE','PERMISSION_DENIED',
   'CONNECTION_FAILURE','DRIVER_READ_TIMEOUT','PAYLOAD_REFUSED','UNKNOWN']);
 const catalogueQueries = new Set(['SAVEPOINT','SEARCH_PATH','SCHEMA_PAYLOAD','ROLLBACK_SAVEPOINT',
   'RELEASE_SAVEPOINT','ROLE_PAYLOAD','TRANSACTION_BEGIN','TRANSACTION_ROLLBACK','UNKNOWN']);
 export function catalogueFailureKind(error) {
+  // Exact messages verified against the pinned PG17.11 backend source. Never
+  // publish message text or infer a timeout from SQLSTATE or duration alone.
+  if (error?.code === '57014' && error.message === 'canceling statement due to statement timeout') return 'STATEMENT_TIMEOUT';
+  if (error?.code === '57014' && error.message === 'canceling statement due to user request') return 'USER_CANCELLED';
+  if (error?.code === '55P03' && error.message === 'canceling statement due to lock timeout') return 'LOCK_TIMEOUT';
   if (error?.code === '57014') return 'QUERY_CANCELLED';
   if (error?.code === '55P03') return 'LOCK_NOT_AVAILABLE';
   if (error?.code === '42501') return 'PERMISSION_DENIED';

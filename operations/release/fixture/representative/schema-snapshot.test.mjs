@@ -463,6 +463,13 @@ test('private search-path phase recognition is bounded and linear for malformed 
 
 
 test('catalogue errors publish only fixed cause categories and bounded fields', () => {
+  for(const [code,message,kind] of [
+    ['57014','canceling statement due to statement timeout','STATEMENT_TIMEOUT'],
+    ['57014','canceling statement due to user request','USER_CANCELLED'],
+    ['55P03','canceling statement due to lock timeout','LOCK_TIMEOUT']]) {
+    assert.equal(catalogueFailureKind(Object.assign(Error(message),{code})),kind);
+    assert.notEqual(catalogueFailureKind(Object.assign(Error(message+' private'),{code})),kind);
+  }
   for(const [code,kind] of [['57014','QUERY_CANCELLED'],['55P03','LOCK_NOT_AVAILABLE'],['42501','PERMISSION_DENIED'],['ECONNRESET','CONNECTION_FAILURE']])
     assert.equal(catalogueFailureKind(Object.assign(Error('private SQL host credential'),{code})),kind);
   assert.equal(catalogueFailureKind(Error('Query read timeout')),'DRIVER_READ_TIMEOUT');

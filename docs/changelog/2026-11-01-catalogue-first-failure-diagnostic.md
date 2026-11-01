@@ -14,6 +14,9 @@ cleanup proceed unchanged. Existing payload refusal is recorded before a later
 finally error can mask it. QUERY_CANCELLED describes57014 without assuming why
 cancellation occurred; lock refusal, permission refusal, known connection errors
 and the installed driver's exact read-timeout marker remain distinct.
+Exact SQLSTATE/message pairs from the pinned PostgreSQL17.11 backend separately
+identify statement timeout, user cancellation and lock timeout. Other messages
+remain generic; no raw message is retained or published.
 
 No canonical query, catalogue bytes/digest/version, role/effective ACL rule,
 snapshot, query/statement/lock timeout, TLS, overall45-second bound or private
