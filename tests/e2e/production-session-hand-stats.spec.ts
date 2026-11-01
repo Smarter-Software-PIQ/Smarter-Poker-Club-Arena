@@ -170,14 +170,6 @@ test(TITLE, async ({ page, context, request }, info) => {
       return;
     }
     if (
-      path.endsWith('/rest/v1/table_seats') &&
-      (url.searchParams.get('table_id') === `eq.${sample().tableId}` ||
-        url.searchParams.get('user_id') === `eq.${userId}`)
-    ) {
-      await json(route, req.headers().accept?.includes('vnd.pgrst.object') ? seat() : [seat()]);
-      return;
-    }
-    if (
       scope === 'tournament' &&
       path.endsWith('/rest/v1/tournaments') &&
       url.searchParams.get('id') === `eq.${sample().tournamentId}`
@@ -284,6 +276,25 @@ test(TITLE, async ({ page, context, request }, info) => {
     }
     forwardedMethods.push(req.method());
     await route.continue();
+  });
+  // Register the controlled seat read as an explicit browser interception.
+  // Never issue a ledger request from this harness; all writes are refused.
+  await context.route('**/rest/v1/table_seats**', async (route) => {
+    const req = route.request();
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method())) {
+      refused.http++;
+      await route.abort('blockedbyclient');
+      return;
+    }
+    const url = new URL(req.url());
+    if (
+      url.searchParams.get('table_id') === `eq.${sample().tableId}` ||
+      url.searchParams.get('user_id') === `eq.${userId}`
+    ) {
+      await json(route, req.headers().accept?.includes('vnd.pgrst.object') ? seat() : [seat()]);
+      return;
+    }
+    await route.fallback();
   });
   await context.routeWebSocket(
     () => true,
