@@ -28,6 +28,16 @@ CONTAINER = 'c' * 64
 IDENTITY = f'{CONTAINER} {HOST.IMAGE} true 2026-10-28T00:00:00Z 2345'
 
 
+def fill_nonblocking_pipe(write_fd):
+    # A refused PIPE_BUF-sized write can leave room for the short diagnostic.
+    # Exhaust that remainder too before claiming the real child is blocked.
+    for size in (4096, 1):
+        try:
+            while True: os.write(write_fd, b'x' * size)
+        except BlockingIOError:
+            pass
+
+
 class HostTests(unittest.TestCase):
     def setUp(self):
         base = REPO / 'work' if sys.platform == 'darwin' else Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
@@ -294,6 +304,12 @@ process.once('exit',()=>fixtureWrite(2,JSON.stringify({http:fixtureHttpCalls,web
         self.assertIsNone(projected['closeRequested'])
         self.assertIsNone(projected['closeAcknowledged'])
 
+    def test_blocked_pipe_preparation_exhausts_the_short_write_remainder(self):
+        with patch.object(os, 'write', side_effect=[4096, BlockingIOError(), 1, 1, BlockingIOError()]) as write:
+            fill_nonblocking_pipe(123)
+        self.assertEqual([len(call.args[1]) for call in write.call_args_list], [4096, 4096, 1, 1, 1])
+        self.assertTrue(all(call.args[0] == 123 for call in write.call_args_list))
+
     def test_actual_host_failure_publication_handles_blocked_and_closed_pipe_inside_deadline(self):
         source = """import importlib.util,json,signal,sys,time
 s=importlib.util.spec_from_file_location('h',sys.argv[1]);h=importlib.util.module_from_spec(s);s.loader.exec_module(h)
@@ -317,8 +333,7 @@ sys.exit(0 if ok else 1)
                     flags = fcntl.fcntl(write_fd, fcntl.F_GETFL)
                     fcntl.fcntl(write_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
                     try:
-                        while True: os.write(write_fd, b'x'*4096)
-                    except BlockingIOError: pass
+                        fill_nonblocking_pipe(write_fd)
                     finally: fcntl.fcntl(write_fd, fcntl.F_SETFL, flags)
                     # macOS normalizes status bits on F_SETFL; compare the
                     # actual prepared descriptor immediately before the child.
@@ -386,6 +401,18 @@ sys.exit(0 if ok else 1)
                     self.assertIsNone(result['stage']); self.assertIsNone(result['reason'])
                     self.assertIsNone(result['entryStage'])
                     self.assertIsNone(result['closeRequested']); self.assertIsNone(result['listenerAbsent'])
+
+    def test_kernel_detail_is_a_closed_predicate_not_native_data(self):
+        for step in ['clients', 'socket_rows', 'SECRET /proc/1/fd/3', ['clients'], None]:
+            with self.subTest(step=step):
+                value = {'ok': False, 'retryAllowed': False,
+                         'reason': 'main_inspector_socket_unproved', 'kernelStep': step}
+                result = HOST.bounded_native_facts(value)
+                if step in ('clients', 'socket_rows'):
+                    self.assertEqual(result['kernelStep'], step)
+                else:
+                    self.assertNotIn('kernelStep', result)
+                self.assertNotIn('SECRET', json.dumps(result))
 
     def test_success_requires_durable_claim_before_ack_and_persists_exact_receipt(self):
         self.assertEqual(self.execute(), 0)
