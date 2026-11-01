@@ -72,7 +72,8 @@ export function withTournamentScheduleCreateIntent(
     const storage = globalThis.localStorage;
     const session = globalThis.sessionStorage;
     const invokedRaw = storage.getItem(key);
-    return navigator.locks.request(key, async () => {
+    return navigator.locks.request(key, { ifAvailable: true }, async (lock) => {
+      if (!lock) throw new Error('The Original Schedule Request Is Active In Another Tab.');
       const currentRaw = storage.getItem(key);
       const current = read(currentRaw, scope);
       const own = read(session.getItem(key), scope);

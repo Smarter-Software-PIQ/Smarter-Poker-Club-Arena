@@ -13,7 +13,12 @@ const draft = {
 beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
-  vi.stubGlobal('navigator', { locks: { request: (_key: string, fn: () => unknown) => fn() } });
+  vi.stubGlobal('navigator', {
+    locks: {
+      request: (_key: string, _options: unknown, fn: (lock: unknown) => unknown) =>
+        fn({ name: _key }),
+    },
+  });
   vi.spyOn(db, 'getAuthUser').mockResolvedValue({
     data: { user: { id: user } },
     error: null,

@@ -12,8 +12,8 @@ beforeEach(() => {
   let lane = Promise.resolve();
   vi.stubGlobal('navigator', {
     locks: {
-      request: (_key: string, work: () => Promise<unknown>) => {
-        const next = lane.then(work);
+      request: (_key: string, _options: unknown, work: (lock: unknown) => Promise<unknown>) => {
+        const next = lane.then(() => work({ name: _key }));
         lane = next.then(
           () => undefined,
           () => undefined
@@ -28,6 +28,28 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('durable schedule create identity', () => {
+  it('refuses an externally owned browser lock without waiting indefinitely', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('navigator', {
+        locks: {
+          request: (_key: string, options: any, callback: any) =>
+            options?.ifAvailable ? Promise.resolve(callback(null)) : new Promise(() => {}),
+        },
+      });
+      const send = vi.fn(async () => 'schedule');
+      let outcome: unknown;
+      void submit({ ...scope, userId: 'externally-locked' }, payload, send).catch((error) => {
+        outcome = error;
+      });
+      await vi.advanceTimersByTimeAsync(12001);
+      expect(outcome).toBeInstanceOf(Error);
+      expect(String(outcome)).toContain('Active In Another Tab');
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('persists before I/O and recovers the same request after a lost acknowledgement and module reload', async () => {
     let original = '';
     await expect(

@@ -12,7 +12,10 @@ export function installScheduleCreateFixture() {
     } as never);
     vi.stubGlobal('navigator', {
       ...navigator,
-      locks: { request: (_key: string, fn: () => unknown) => fn() },
+      locks: {
+        request: (_key: string, _options: unknown, fn: (lock: unknown) => unknown) =>
+          fn({ name: _key }),
+      },
     });
   });
   afterEach(() => {
