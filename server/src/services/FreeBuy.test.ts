@@ -341,19 +341,18 @@ describe('a Chicago hour is a Chicago hour in July and in January', () => {
   });
 });
 
-describe('the publication lead is shorter than the cadence', () => {
-  it('never puts two Free Buys for one host on the board at once', () => {
-    const cadenceMs = 4 * HOUR;
-    expect(FREE_BUY_PUBLISH_LEAD_MS).toBeLessThan(cadenceMs);
-    // and long enough to clear fn_freeroll_fill_targets' 90-minute window
-    expect(FREE_BUY_PUBLISH_LEAD_MS).toBeGreaterThan(90 * 60 * 1000);
+describe('the full next day of Free Buys is visible for preregistration', () => {
+  it('publishes a full day ahead', () => {
+    expect(FREE_BUY_PUBLISH_LEAD_MS).toBe(24 * HOUR);
   });
-
-  it('at most one slot is ever due at a time, sampled across a whole day', () => {
+  it('has all five distinct future slots throughout an ordinary day', () => {
     const day = Date.UTC(2026, 6, 15, 0, 0, 0);
     for (let m = 0; m < 24 * 60; m += 5) {
-      const due = freeBuySlotsDue(day + m * 60_000);
-      expect(due.length, `at +${m}m`).toBeLessThanOrEqual(1);
+      const now = day + m * 60_000;
+      const due = freeBuySlotsDue(now);
+      expect(due).toHaveLength(5);
+      expect(new Set(due.map((d) => d.startMs)).size).toBe(5);
+      expect(due.every((d) => d.startMs > now && d.startMs <= now + 24 * HOUR)).toBe(true);
     }
   });
 });
@@ -361,8 +360,21 @@ describe('the publication lead is shorter than the cadence', () => {
 describe('freeBuySlotsDue', () => {
   it('publishes a slot exactly at the lead and not a minute before', () => {
     const start = chicagoWallClockToUtcMs('2026-07-15', 20, 30);
-    expect(freeBuySlotsDue(start - FREE_BUY_PUBLISH_LEAD_MS)).toHaveLength(1);
-    expect(freeBuySlotsDue(start - FREE_BUY_PUBLISH_LEAD_MS - 60_000)).toHaveLength(0);
+    expect(freeBuySlotsDue(start - FREE_BUY_PUBLISH_LEAD_MS).map((d) => d.startMs)).toContain(
+      start
+    );
+    expect(
+      freeBuySlotsDue(start - FREE_BUY_PUBLISH_LEAD_MS - 60_000).map((d) => d.startMs)
+    ).not.toContain(start);
+  });
+
+  it('keeps the intermediate Chicago day across spring forward', () => {
+    const now = Date.parse('2026-03-08T05:30:00Z'); // Mar 7, 23:30 Chicago
+    const due = freeBuySlotsDue(now);
+    expect(due).toHaveLength(6);
+    expect(due.filter((d) => d.dayKey === '2026-03-08')).toHaveLength(5);
+    expect(due.some((d) => d.dayKey === '2026-03-09' && d.slot.chicagoHour === 0)).toBe(true);
+    expect(due.every((d) => d.startMs > now && d.startMs <= now + 24 * HOUR)).toBe(true);
   });
 
   it('never publishes a slot that has already started', () => {
@@ -374,7 +386,9 @@ describe('freeBuySlotsDue', () => {
   it('sees TOMORROW 12:30 AM from the evening before', () => {
     // 22:00 Chicago on the 15th: the 00:30 slot belongs to the 16th and is
     // two and a half hours away. Reading only "today" would never find it.
-    const due = freeBuySlotsDue(chicagoWallClockToUtcMs('2026-07-15', 22));
+    const due = freeBuySlotsDue(chicagoWallClockToUtcMs('2026-07-15', 22)).filter(
+      (d) => d.slot.chicagoHour === 0
+    );
     expect(due).toHaveLength(1);
     expect(due[0].dayKey).toBe('2026-07-16');
     expect(due[0].slot.chicagoHour).toBe(0);

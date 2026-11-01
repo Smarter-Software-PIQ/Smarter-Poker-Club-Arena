@@ -25,14 +25,14 @@ describe('event-specific Horse registration choices', () => {
     expect(new Set(ids.map((id) => mttPrestartPlan(200, null, id))).size).toBeGreaterThan(8);
     for (const id of ids) {
       const prestart = mttPrestartPlan(200, null, id);
-      expect(prestart).toBeGreaterThanOrEqual(12);
-      expect(prestart).toBeLessThanOrEqual(28);
+      expect(prestart).toBeGreaterThanOrEqual(32);
+      expect(prestart).toBeLessThanOrEqual(48);
       expect(mttPrestartPlan(2000, null, id)).toBe(prestart);
       expect(mttPrestartPlan(200, 9, id)).toBeLessThan(9);
       expect(mttPrestartPlan(200, 1, id)).toBe(0);
       const free = mttPrestartPlan(200, null, id, true);
-      expect(free).toBeGreaterThanOrEqual(80);
-      expect(free).toBeLessThanOrEqual(120);
+      expect(free).toBeGreaterThanOrEqual(120);
+      expect(free).toBeLessThanOrEqual(240);
     }
   });
 
@@ -78,6 +78,40 @@ describe('event-specific Horse registration choices', () => {
       }
       expect(previous).toBe(100);
     }
+  });
+
+  it('keeps normal paid MTT additions within five minutes after the opening handful', () => {
+    for (const id of ids) {
+      const total = mttPrestartPlan(mttPlannedField(0, 20, id), null, id);
+      let previous = mttPrestartArrivalTarget(id, total, 0);
+      let lastArrival = 0;
+      for (let minute = 1; minute <= 60; minute++) {
+        const next = mttPrestartArrivalTarget(id, total, minute / 60);
+        if (next > previous) {
+          expect(minute - lastArrival).toBeLessThanOrEqual(5);
+          lastArrival = minute;
+          previous = next;
+        }
+      }
+      expect(previous).toBe(total);
+      expect(60 - lastArrival).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('gives freerolls a large random opening group a day ahead', () => {
+    const openings = new Set<number>();
+    for (const id of ids) {
+      const total = mttPrestartPlan(32, null, id, true);
+      const opening = mttPrestartArrivalTarget(id, total, 0, true);
+      openings.add(opening);
+      expect(total).toBeGreaterThanOrEqual(120);
+      expect(total).toBeLessThanOrEqual(240);
+      expect(opening).toBeGreaterThanOrEqual(Math.ceil(total * 0.6));
+      expect(opening).toBeLessThanOrEqual(Math.ceil(total * 0.8));
+      expect(mttPrestartPlan(32, 40, id, true)).toBe(39);
+      expect(mttPrestartArrivalTarget(id, total, 1, true)).toBe(total);
+    }
+    expect(openings.size).toBeGreaterThan(30);
   });
 
   it('requires an event identity instead of silently sharing one fixed seed', () => {

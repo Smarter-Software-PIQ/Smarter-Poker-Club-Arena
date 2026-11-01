@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LobbyTournamentRow } from '../../src/components/lobby/lobbyEntries';
@@ -91,6 +91,9 @@ vi.mock('../../src/lib/bbjHitFeed', () => ({
     return stop;
   },
 }));
+vi.mock('../../src/components/arena/ArenaAccessBoundary', () => ({
+  default: ({ children }: { children: React.ReactNode }) => children,
+}));
 vi.mock('../../src/components/wallet/DynamicWallet', () => ({ default: () => null }));
 vi.mock('../../src/hooks/useMasterBusChannel', () => ({ useMasterBusChannel: vi.fn() }));
 vi.mock('../../src/hooks/useTournamentRegistration', () => ({
@@ -137,12 +140,13 @@ const deferred = <T = any,>(): Deferred<T> => {
   return { promise, resolve };
 };
 const flush = () => act(async () => {});
-function mount(club = 'club-a') {
+function mount(club = 'club-a', embedded = false) {
   return render(
     <MemoryRouter initialEntries={[`/clubs/${club}`]}>
       <Link to="/clubs/club-b">Change Club</Link>
+      {embedded && <ClubHomePage clubIdOverride={club} />}
       <Routes>
-        <Route path="/clubs/:clubId" element={<ClubHomePage />} />
+        <Route path="/clubs/:clubId" element={embedded ? null : <ClubHomePage />} />
         <Route path="/table/:tableId" element={<div>Prepared Table Route</div>} />
       </Routes>
     </MemoryRouter>
@@ -319,7 +323,7 @@ describe('the mounted club lobby owns its recovery', () => {
   });
 });
 
-async function mountCachedTable(patch: Record<string, unknown> = {}) {
+async function mountCachedTable(patch: Record<string, unknown> = {}, embedded = false) {
   const table = {
     id: 'known-table',
     name: 'Known Table',
@@ -347,7 +351,7 @@ async function mountCachedTable(patch: Record<string, unknown> = {}) {
     })
   );
   h.deferOccupancy = true;
-  const view = mount();
+  const view = mount('club-a', embedded);
   await flush();
   await act(async () => h.clubReads[0].resolve({ data: null, error: null }));
   fireEvent.click(screen.getByRole('button', { name: 'Cash Games', exact: true }));
@@ -714,6 +718,50 @@ describe('the actual mounted View caller awaits table preparation', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /View (?:Game|Table)/i })[0]);
     await flush();
     expect(h.prepareTable).toHaveBeenCalledWith('known-table');
+    expect(screen.queryByText('Prepared Table Route')).toBeNull();
+    expect(h.warning).toHaveBeenCalledWith('Could Not Connect To The Table. Please Try Again.');
+  });
+});
+
+describe('View Game from a persistent embedded lobby', () => {
+  it.each([false, true])(
+    'closes the portalled card after successful entry (signed in: %s)',
+    async (signedIn) => {
+      h.authenticated = signedIn;
+      const preparation = deferred<void>();
+      h.prepareTable.mockReturnValue(preparation.promise);
+      await mountCachedTable({}, true);
+      fireEvent.click(screen.getByRole('button', { name: 'Details: NLH 1/2' }));
+      await flush();
+      expect(screen.getByRole('dialog')).toBeTruthy();
+      fireEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', { name: /view table/i })
+      );
+      await flush();
+      if (signedIn) {
+        expect(screen.queryByText('Prepared Table Route')).toBeNull();
+        expect(screen.getByRole('dialog')).toBeTruthy();
+        await act(async () => preparation.resolve());
+      }
+      expect(screen.getByText('Prepared Table Route')).toBeTruthy();
+      // The lobby remains mounted just as it does in MultiTablePage. Its body
+      // portal must not obscure the table that View has successfully selected.
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Cash Games', exact: true })).toBeTruthy();
+    }
+  );
+
+  it('keeps the chosen card open and reports a failed preparation', async () => {
+    h.authenticated = true;
+    h.prepareTable.mockRejectedValue(new Error('Subscription Refused'));
+    await mountCachedTable({}, true);
+    fireEvent.click(screen.getByRole('button', { name: 'Details: NLH 1/2' }));
+    await flush();
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: /view table/i })
+    );
+    await flush();
+    expect(screen.getByRole('dialog')).toBeTruthy();
     expect(screen.queryByText('Prepared Table Route')).toBeNull();
     expect(h.warning).toHaveBeenCalledWith('Could Not Connect To The Table. Please Try Again.');
   });
