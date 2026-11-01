@@ -63,6 +63,51 @@ def unchanged(name, original):
         return False
 
 
+def read_perf_ack(fd, timeout=3):
+    """Perf writes sizeof("ack\\n"), including NUL. Never strip peer bytes."""
+    import select
+    if not 0 < timeout <= 3:
+        raise RuntimeError('perf_control_timeout_bound')
+    deadline = time.monotonic() + timeout
+    expected, received = b'ack\n\0', b''
+    while len(received) < len(expected):
+        remaining=deadline-time.monotonic()
+        if remaining<=0:raise RuntimeError('perf_control_timeout')
+        ready, _, _ = select.select([fd], [], [], remaining)
+        if not ready:
+            raise RuntimeError('perf_control_timeout')
+        chunk = os.read(fd, len(expected)+1-len(received))
+        if not chunk:
+            raise RuntimeError('perf_control_unconfirmed')
+        received += chunk
+        if not expected.startswith(received):
+            raise RuntimeError('perf_control_unconfirmed')
+    ready, _, _ = select.select([fd], [], [], 0)
+    if ready:
+        os.read(fd,1) # Extra bytes or a closed recorder both refuse startup admission.
+        raise RuntimeError('perf_control_unconfirmed')
+
+
+def classify_perf_refusal(raw, timeout=False):
+    """Only a closed reason leaves the private bounded stderr buffer."""
+    if not isinstance(raw, bytes) or len(raw)>8192:
+        return 'other'
+    value=raw.lower()
+    for category,patterns in (
+        ('permission',(b'permission denied',b'operation not permitted',b'perf_event_paranoid')),
+        ('tracepoint',(b'unknown tracepoint',b'cannot find tracepoint',b'failed to find tracepoint',b'unable to find debugfs')),
+        ('unsupported_option',(b'unrecognized option',b'unknown option',b'invalid option')),
+        ('unwind',(b'libunwind',b'libdw',b'cannot unwind',b'unsupported register'))):
+        if any(pattern in value for pattern in patterns):return category
+    return 'control_timeout' if timeout else 'other'
+
+
+class PerfRefusal(RuntimeError):
+    def __init__(self, reason, category, exit_code):
+        super().__init__(reason)
+        self.closed={'category':category,'exitCode':exit_code}
+
+
 class Capture:
     def __init__(self, perf, folder, original, symfs, size='256K', ttl=5):
         self.perf, self.folder, self.original, self.symfs = perf, folder, original, symfs
@@ -99,14 +144,20 @@ class Capture:
         ready, _, _ = select.select([self.pidfd], [], [], max(0, self.deadline-time.monotonic()))
         return 'original_task_exited' if ready else 'expired_no_fault'
 
+    def refusal(self, reason):
+        self.stderr.flush()
+        with self.err.open('rb') as stream: raw=stream.read(8192)
+        code=self.process.poll()
+        return PerfRefusal(reason,classify_perf_refusal(raw,reason=='perf_control_timeout'),
+                           code if type(code) is int and -255<=code<=255 else None)
+
     def control(self, command):
-        import select
         if self.process.poll() is not None:
-            raise RuntimeError('perf_prerequisite_or_capture_refused')
-        os.write(self.ctl_write, (command + '\n').encode())
-        ready, _, _ = select.select([self.ack_read], [], [], 3)
-        if not ready or os.read(self.ack_read, 64).strip() != b'ack':
-            raise RuntimeError('perf_control_unconfirmed')
+            raise self.refusal('perf_prerequisite_or_capture_refused')
+        try: os.write(self.ctl_write, (command + '\n').encode())
+        except BrokenPipeError:raise self.refusal('perf_prerequisite_or_capture_refused') from None
+        try: read_perf_ack(self.ack_read)
+        except RuntimeError as error: raise self.refusal(str(error)) from None
 
     def enable(self):
         self.control('enable')
@@ -282,5 +333,7 @@ if __name__ == '__main__':
     except BaseException as error:
         reason=str(error) if isinstance(error,RuntimeError) and re.fullmatch(r'[a-z0-9_]{1,100}',str(error)) else type(error).__name__
         args.output.parent.mkdir(parents=True,exist_ok=True)
-        args.output.write_text(json.dumps({'schema':'isolated-native-perf-feasibility/v1','passed':False,'productionCapture':False,'failure':reason,'cleanup':'not_certified_by_success_receipt'})+'\n')
+        failure={'schema':'isolated-native-perf-feasibility/v1','passed':False,'productionCapture':False,'failure':reason,'cleanup':'not_certified_by_success_receipt'}
+        if isinstance(error,PerfRefusal):failure['perfRefusal']=error.closed
+        args.output.write_text(json.dumps(failure)+'\n')
         raise

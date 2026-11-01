@@ -8,11 +8,14 @@ import { summarize, profileTarget, failureReason, collectOwnedInspector } from '
 async function target(t) {
   // Keep the fixture witness out of the timers' optimized/inlined frames.
   const child=spawn(process.execPath,['--no-opt','--inspect=127.0.0.1:0','-e',
-    'setInterval(function cpuSampleWitness(){ const end=Date.now()+8;while(Date.now()<end) Math.sqrt(Math.random()); },10)'],{stdio:['ignore','ignore','pipe']});
+    'let ready=false;setInterval(function cpuSampleWitness(){let value=globalThis.witness||1;for(let i=0;i<1000000;i++)value=(value+i)|0;globalThis.witness=value;if(!ready){ready=true;process.stdout.write("witness-ready\\n");}},10)'],{stdio:['ignore','pipe','pipe']});
   t.after(async()=>{ if(child.exitCode===null && child.signalCode===null){child.kill();await once(child,'exit');} });
   const endpoint=await new Promise((resolve,reject)=>{
-    let text='';const timer=setTimeout(()=>reject(new Error('fixture_start_timeout')),5000);
-    child.stderr.on('data',d=>{text+=d;const m=text.match(/ws:\/\/127\.0\.0\.1:\d+\/[^\s]+/);if(m){clearTimeout(timer);resolve(m[0]);}});
+    let text='',output='',endpoint,witnessReady=false;
+    const timer=setTimeout(()=>reject(new Error('fixture_start_timeout')),5000);
+    const admit=()=>{if(endpoint&&witnessReady){clearTimeout(timer);resolve(endpoint);}};
+    child.stderr.on('data',d=>{text+=d;const m=text.match(/ws:\/\/127\.0\.0\.1:\d+\/[^\s]+/);if(m){endpoint=m[0];admit();}});
+    child.stdout.on('data',d=>{output+=d;if(output.includes('witness-ready\n')){witnessReady=true;admit();}});
     child.once('error',reject);
   });
   return {child,endpoint};
@@ -181,4 +184,47 @@ test('native feasibility is PR-only and cannot change the manual Inspector route
   assert.ok(image);assert.ok(fixture.includes(`IMAGE = '${image}'`));
   const syntax=spawnSync('python3',['-c','import pathlib; compile(pathlib.Path("tests/fixtures/engine-native-fault/qualify.py").read_text(),"native-qualification","exec")'],{encoding:'utf8'});
   assert.equal(syntax.status,0,syntax.stderr);
+});
+
+test('perf control accepts exact NUL-terminated C ACK frames and refuses partial or foreign replies within one deadline',()=>{
+  const source=String.raw`
+import importlib.util,os,threading,time,types
+spec=importlib.util.spec_from_file_location('q','tests/fixtures/engine-native-fault/qualify.py');q=importlib.util.module_from_spec(spec);spec.loader.exec_module(q)
+for chunks,accepted in [([b'ack\n\0'],True),([b'a',b'ck\n',b'\0'],True),([b'ack\n'],False),([b'other\n\0'],False),([b'ack\n\0ack\n\0'],False)]:
+ r,w=os.pipe();done=threading.Event()
+ def send():
+  try:
+   for chunk in chunks:os.write(w,chunk);time.sleep(.005)
+   if accepted:done.wait(.2)
+  except BrokenPipeError:pass
+  finally:os.close(w)
+ t=threading.Thread(target=send);t.start()
+ try:
+  try:q.read_perf_ack(r,.1);result=True
+  except RuntimeError:result=False
+  assert result==accepted
+ finally:os.close(r);done.set();t.join()
+r,w=os.pipe();os.write(w,b'ack\n\0');os.close(w)
+try:
+ try:q.read_perf_ack(r,.1);raise AssertionError('ACK followed by recorder EOF accepted')
+ except RuntimeError as e:assert str(e)=='perf_control_unconfirmed'
+finally:os.close(r)
+r,w=os.pipe();start=time.monotonic()
+try:
+ try:q.read_perf_ack(r,.02);raise AssertionError('unanswered control accepted')
+ except RuntimeError as e:assert str(e)=='perf_control_timeout'
+ assert time.monotonic()-start<.2
+finally:os.close(r);os.close(w)
+c=q.Capture.__new__(q.Capture);c.process=types.SimpleNamespace(poll=lambda:None)
+r,c.ctl_write=os.pipe();c.ack_read,w=os.pipe()
+try:os.write(w,b'ack\n\0');c.control('ping')
+finally:
+ for fd in (r,c.ctl_write,c.ack_read,w):os.close(fd)
+for text,category in [(b'Permission denied PRIVATE', 'permission'),(b'unknown tracepoint PRIVATE','tracepoint'),(b'unrecognized option PRIVATE','unsupported_option'),(b'cannot unwind PRIVATE','unwind'),(b'PRIVATE','other')]:
+ assert q.classify_perf_refusal(text)==category
+assert q.classify_perf_refusal(b'',True)=='control_timeout'
+assert q.classify_perf_refusal(b'x'*8193)=='other'
+`;
+  const result=spawnSync('python3',['-c',source],{encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+  assert.equal(result.status,0,result.stderr);
 });
