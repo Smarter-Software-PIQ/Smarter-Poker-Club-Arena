@@ -1,3 +1,5 @@
+import { registerMissionTextReflowCases } from './css/missionTextReflowCases';
+registerMissionTextReflowCases();
 import { registerLobbyGameSectionsCases } from './support/lobbyGameSectionsCases';
 import { lobbyGameSectionsFixture } from './helpers/lobby-game-sections-fixture.mjs';
 registerLobbyGameSectionsCases(lobbyGameSectionsFixture);

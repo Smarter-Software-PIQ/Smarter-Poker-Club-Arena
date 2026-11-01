@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bankrollPolicyFor } from './HorseBankroll.js';
-import { horseRebuyAmount } from './HorseRebuyPolicy.js';
+import { atRebuyStopLoss, rebuyStopLossReached, horseRebuyAmount } from './HorseRebuyPolicy.js';
 import { cappedAutoTopUp } from './HorseTopUpStyle.js';
 import { readFileSync } from 'node:fs';
 import { horseCashMinimum, horseMaximumBuyIn } from './HorseBehavior.js';
@@ -31,6 +31,35 @@ describe('owner maximum cash reload', () => {
   it('requests 400 rather than the former 200', async () => {
     expect(await horseRebuyAmount(request)).toBe(400);
     expect(await horseRebuyAmount({ ...request, maxBuyIn: 597.25 })).toBe(597.25);
+  });
+  it('1/2 requests the funded maximum after a discretionary stop-loss, never a partial purchase', async () => {
+    const stake = { small_blind: 1, big_blind: 2 };
+    expect(atRebuyStopLoss(request.userId, 100, stake)).toBe(false);
+    expect(rebuyStopLossReached(request.userId, 100, stake)).toBe(false);
+    wallet.balance = 400;
+    expect(
+      await horseRebuyAmount({
+        ...request,
+        smallBlind: 1,
+        bigBlind: 2,
+        minBuyIn: 200,
+        maxBuyIn: 400,
+        rebuysTaken: 100,
+      })
+    ).toBe(400);
+    wallet.balance = 399.99;
+    expect(
+      await horseRebuyAmount({
+        ...request,
+        smallBlind: 1,
+        bigBlind: 2,
+        minBuyIn: 200,
+        maxBuyIn: 400,
+        rebuysTaken: 100,
+      })
+    ).toBe(0);
+    expect(atRebuyStopLoss(request.userId, 100, { small_blind: 2, big_blind: 5 })).toBe(true);
+    expect(atRebuyStopLoss(request.userId, 100, { ...stake, tournament_id: 'mtt' })).toBe(true);
   });
   it('requests the same maximum when a wallet read is unknown or throws', async () => {
     wallet.balance = undefined;

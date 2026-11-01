@@ -35,6 +35,7 @@
  * / RESYNC / watchdog logic runs unchanged on top.
  */
 import { lightningDeviceFor } from '../lightning/lightningDeviceReport';
+import { NATIVE_RESUME_EVENT } from '../lib/nativeResume';
 
 /**
  * 2026-08-24: raised 5s -> 60s. With the mux now default-ON this socket IS the
@@ -58,6 +59,13 @@ const SUBSCRIBE_TIMEOUT_MS = 15_000;
 /** Server pings every 25s; an OPEN physical socket silent this long is dead. */
 const STALE_HARD_MS = 60_000;
 const WATCHDOG_TICK_MS = 10_000;
+/**
+ * Bounded wake grace for the shared socket (mirroring EngineStateClient and
+ * EngineChannelClient). When a backgrounded tab returns after >60s, the 10s
+ * watchdog must give the 5s foreground state probe time to complete rather
+ * than tearing down a healthy shared socket on the first tick back.
+ */
+const WAKE_GRACE_MS = STALE_HARD_MS - WATCHDOG_TICK_MS;
 const WARM_STATE_PROBE_MS = 5_000;
 interface MuxStateProbe {
   startedAt: number;
@@ -437,6 +445,15 @@ class EngineSocketMuxImpl {
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
   private stateProbeResumeAt = 0;
   private readonly onOffline = () => this.closeOfflineTransport();
+  private readonly onWake = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    // Grant a bounded grace only while at least one facade is actively probing
+    // or subscribed; an idle lingering socket with no facades stays strict so
+    // a subsequent acquire() after sleep replaces a stale idle socket at once.
+    if (this.facades.size === 0) return;
+    this.lastInboundAt = Math.max(this.lastInboundAt, Date.now() - WAKE_GRACE_MS);
+  };
 
   /** The browser has declared this physical transport unusable. */
   closeOfflineTransport(): void {
@@ -646,6 +663,13 @@ class EngineSocketMuxImpl {
 
   private startWatchdog(): void {
     this.lastInboundAt = Date.now();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.onWake);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pageshow', this.onWake);
+      window.addEventListener(NATIVE_RESUME_EVENT, this.onWake);
+    }
     if (this.watchdogTimer !== null) return;
     this.watchdogTimer = setInterval(() => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
@@ -656,7 +680,14 @@ class EngineSocketMuxImpl {
   }
 
   private stopWatchdog(): void {
-    if (typeof window !== 'undefined') window.removeEventListener('offline', this.onOffline);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.onWake);
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('offline', this.onOffline);
+      window.removeEventListener('pageshow', this.onWake);
+      window.removeEventListener(NATIVE_RESUME_EVENT, this.onWake);
+    }
     if (this.watchdogTimer !== null) {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = null;

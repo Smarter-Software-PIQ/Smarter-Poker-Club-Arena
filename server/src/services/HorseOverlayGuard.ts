@@ -1,5 +1,10 @@
-/** Owner 2026-10-29 supersedes the historical 25-40% share below: 50% before start, remainder during late entry. */
-import { mttPlannedField, mttPrizeShare, mttLevelWindowMs } from './mttHorseArrivalPlan.js';
+/** Owner November 1: small regular prestart groups; random arrivals continue through late entry. */
+import {
+  mttPlannedField,
+  mttPrizeShare,
+  mttLevelWindowMs,
+  mttArrivalTarget,
+} from './mttHorseArrivalPlan.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  * MTT OVERLAY GUARD — Dan 2026-08-27, binding
@@ -306,9 +311,9 @@ export async function runOverlayGuardOnce(
 
 /* ─── LATE REGISTRATION (Dan 2026-10-19) ─── see the header of this file. ─── */
 
-/** Share of the starting field that late-registers: 25% plus up to 15% more. */
-export const LATE_REG_SHARE_MIN = 1;
-export const LATE_REG_SHARE_SPREAD = 0;
+/** Legacy callers without a complete plan still get a varied late-arrival count. */
+export const LATE_REG_SHARE_MIN = 2 / 3;
+export const LATE_REG_SHARE_SPREAD = 5 / 6;
 /** Even a small field sees a couple of late arrivals. */
 export const LATE_REG_MIN_ARRIVALS = 2;
 /** Most late entrants one event takes in one cycle: arrivals, not a burst. */
@@ -390,18 +395,15 @@ export function lateRegArrivalsFor(ev: LateRegEvent): number {
   const atStart = Math.max(0, Math.floor(Number(ev.entriesAtStart) || 0));
   const plannedArrivals = Math.max(
     LATE_REG_MIN_ARRIVALS,
-    Math.round(atStart * lateRegShareFor(ev.tournament_id)),
-    Math.max(0, (ev.plannedField ?? atStart * 2) - atStart)
+    ev.plannedField === undefined
+      ? Math.round(atStart * lateRegShareFor(ev.tournament_id))
+      : Math.max(0, ev.plannedField - atStart)
   );
   const capacity = Number(ev.maxPlayers);
   const expected =
     Number.isSafeInteger(capacity) && capacity > 0
       ? Math.min(plannedArrivals, Math.max(0, capacity - atStart))
       : plannedArrivals;
-  // A few arrive in one cycle, none in the next: a deterministic -1/0/+1
-  // around the curve, keyed on the event and the cycle.
-  const cycle = Math.max(0, Math.floor((ev.nowMs - ev.startedAtMs) / CYCLE_MS));
-  const wobble = (horseHash(`${ev.tournament_id}:late-cycle:${cycle}`) % 3) - 1;
   const late = Math.max(0, Math.floor(Number(ev.lateEntries) || 0));
   const windows = [
     ev.lateRegMins > 0 ? ev.lateRegMins * 60_000 : Infinity,
@@ -413,12 +415,9 @@ export function lateRegArrivalsFor(ev: LateRegEvent): number {
   const scheduledProgress = Number.isFinite(windowMs)
     ? Math.min(1, progress + CYCLE_MS / windowMs)
     : progress;
-  const goal =
-    scheduledProgress >= 1
-      ? expected
-      : Math.min(expected, Math.max(0, Math.ceil(expected * scheduledProgress) + wobble));
+  const goal = mttArrivalTarget(ev.tournament_id, 'late', expected, scheduledProgress);
   const step = Number.isFinite(windowMs)
-    ? Math.max(LATE_REG_MAX_STEP, Math.ceil((expected * CYCLE_MS) / windowMs) + 1)
+    ? Math.max(LATE_REG_MAX_STEP, Math.ceil((1.5 * expected * CYCLE_MS) / windowMs) + 1)
     : LATE_REG_MAX_STEP;
   return Math.max(0, Math.min(step, goal - late));
 }
@@ -537,7 +536,7 @@ export async function lateRegisterHorsesOnce(
         lateRegLevels: Number(t.late_reg_levels ?? t.rebuy_levels ?? 0) || 0,
         currentLevel: Number(t.current_level) || 0,
         entriesAtStart: total - late,
-        plannedField: mttPlannedField(Number(t.guaranteed_prize) || 0, mttPrizeShare(t)),
+        plannedField: mttPlannedField(Number(t.guaranteed_prize) || 0, mttPrizeShare(t), t.id),
         levelWindowMs: mttLevelWindowMs(
           t.blind_structure,
           Number(t.late_reg_levels ?? t.rebuy_levels ?? 0)

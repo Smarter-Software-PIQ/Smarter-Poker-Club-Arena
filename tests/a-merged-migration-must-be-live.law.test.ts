@@ -225,6 +225,40 @@ describe('a merged migration must be live', () => {
     }
   });
 
+  it('replaces exactly the two immutable Lightning horse-input proofs and preserves all other guards', () => {
+    const names = [
+      '20261008111425_lightning_phase_10_responsible_gaming_stop_playing_auto_rebu.sql',
+      '20261009143757_lightning_phase_12_responsible_gaming_limits_and_auto_rebuy_.sql',
+    ];
+    const registry = JSON.parse(read('scripts/ci/migration-live-proofs.json'));
+    for (const name of names) {
+      const sql = fs.readFileSync(path.join(MIGRATIONS, name), 'utf8');
+      const entries = registry.entries.filter((e: any) => e.file === name);
+      expect(entries).toHaveLength(1);
+      const entry = entries[0];
+      expect(entry.sha256).toBe(createHash('sha256').update(sql).digest('hex'));
+      expect(entry.replaces).toHaveLength(1);
+      expect(entry.proofs).toHaveLength(1);
+      const inline = sql
+        .split('\n')
+        .filter((line) => line.startsWith('-- @live-proof: '))
+        .map((line) => line.slice('-- @live-proof: '.length));
+      expect(inline).toContain(entry.replaces[0]);
+      expect(resolveDeclaredProofs(sql, registry, MIGRATIONS)).toEqual([
+        ...inline.filter((proof) => proof !== entry.replaces[0]),
+        ...entry.proofs,
+      ]);
+      expect(entry.proofs[0]).toContain("version='20261101062933'");
+      expect(entry.proofs[0]).toContain("md5(p.prosrc)='0fd21bd298e0ee6b6c126169c917bc94'");
+      expect(entry.proofs[0]).toContain("md5(prosrc)='423d45746bacaa3de19ce0bee93c1ccb'");
+      expect(entry.proofs[0]).toContain('ELSE (' + entry.replaces[0]);
+      expect(entry.proofs[0]).toContain("~ 'is_horse|horse_id'");
+      const changed = structuredClone(registry);
+      changed.entries.find((e: any) => e.file === name).replaces = ['a different proof'];
+      expect(() => resolveDeclaredProofs(sql, changed, MIGRATIONS)).toThrow();
+    }
+  });
+
   it('decides by name, then by live objects, then by a declared proof', () => {
     expect(SRC).toContain('supabase_migrations.schema_migrations');
     // Step 2 reads the LIVE catalogue. A snapshot is what let the existing
@@ -438,9 +472,12 @@ describe('a merged migration must be live', () => {
       const sql = fs.readFileSync(path.join(MIGRATIONS, file), 'utf8');
       // The same lines `grep -c '^-- @live-proof:'` counts.
       const raw = sql.split('\n').filter((l) => /^-- @live-proof:/.test(l));
+      const inline = resolveDeclaredProofs(sql, { schema: 1, entries: [] }, MIGRATIONS);
+      expect(inline.length, file).toBe(raw.length);
+      expect(inline, file).toEqual(raw.map((l) => l.slice('-- @live-proof:'.length).trim()));
       const proofs = declaredProofs(sql);
-      expect(proofs.length, file).toBe(raw.length);
-      expect(proofs, file).toEqual(raw.map((l) => l.slice('-- @live-proof:'.length).trim()));
+      const registry = JSON.parse(read('scripts/ci/migration-live-proofs.json'));
+      expect(proofs, file).toEqual(resolveDeclaredProofs(sql, registry, MIGRATIONS));
       total += proofs.length;
       if (proofs.length > 0) withProofs++;
     }

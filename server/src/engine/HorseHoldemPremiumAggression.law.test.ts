@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseLogic, holdemPremiumAggression, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import {
@@ -675,5 +675,66 @@ describe('Rule 4 reads the price: depth, sizing, pot odds and tournament context
         ).toBe(true);
       }
     }
+  });
+});
+
+describe('A premium open is sized like every other open (V74, Dan 2026-10-31 / 2026-11-01)', () => {
+  /** Unopened 6-max cash table, 0.05/0.10 (a cents grid): hero first in under the gun. */
+  function unopenedCash(hole: string) {
+    const hero = seat(3, 10, 0, { hole });
+    const gs = {
+      players: [
+        seat(1, 10, 0.05),
+        seat(2, 10, 0.1),
+        hero,
+        seat(4, 10, 0),
+        seat(5, 10, 0),
+        seat(6, 10, 0),
+      ],
+      communityCards: [],
+      pot: 0.15,
+      currentBet: 0.1,
+      stage: 'preflop',
+      gameVariant: 'nlh',
+      gameMode: 'cash',
+      bigBlind: 0.1,
+      dealerSeat: 6,
+      toCall: 0.1,
+      legalActions: ['fold', 'call', 'raise', 'all_in'],
+      minRaiseTo: 0.2,
+      maxRaiseTo: 10,
+      bettingStructure: 'no_limit',
+      chipUnit: 0.01,
+      actionHistory: [
+        { stage: 'preflop', seat: 1, userId: 'p1', action: 'sb', amount: 0.05 },
+        { stage: 'preflop', seat: 2, userId: 'p2', action: 'bb', amount: 0.1 },
+      ],
+    } as unknown as HorseGameStateV2;
+    return { hero, gs };
+  }
+
+  it('a premium limp turned into an open draws the V74 cash size, never a fixed 3bb', () => {
+    const sizes = new Set<number>();
+    for (let seed = 1; seed <= 40; seed++) {
+      const s = unopenedCash('As Ah');
+      seedFastRandom(seed);
+      const d = holdemPremiumAggression({ action: 'call', thinkTime: 1 } as never, s.hero, s.gs);
+      expect(d.action).toBe('raise');
+      expect(d.amount!).toBeGreaterThanOrEqual(0.25 - 1e-9);
+      expect(d.amount!).toBeLessThanOrEqual(0.4 + 1e-9);
+      sizes.add(d.amount!);
+    }
+    // A spread, not one marked number.
+    expect(sizes.size).toBeGreaterThan(5);
+  });
+
+  it('with V74 ablated the old fixed 3bb comes back (the off arm only)', () => {
+    const s = unopenedCash('Kc Kd');
+    seedFastRandom(5);
+    const d = holdemPremiumAggression({ action: 'call', thinkTime: 1 } as never, s.hero, s.gs, {
+      v74NlhOpenSizes: false,
+    });
+    expect(d.action).toBe('raise');
+    expect(d.amount).toBeCloseTo(0.3, 9);
   });
 });

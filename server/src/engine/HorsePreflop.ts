@@ -32,6 +32,7 @@
 
 import { potLimitRaiseTo } from './BettingStructure.js';
 import { completePreflopCommitment } from './HorseContinuation.js';
+import { nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 import {
   tournamentMZone,
   tournamentNextLevelProjectionApplies,
@@ -208,6 +209,10 @@ export interface PreflopCtx {
   effectiveStackBB?: number;
   /** Dan 2026-10-25 NLH tournament aggression; undefined = on. */
   tournamentAggression?: boolean;
+  /** V74 no-limit open sizes (HorseNlhOpenSize, Dan 2026-10-31); undefined =
+   *  on, false = the V28 ladder (the recorded corpora, and every variant that
+   *  is not two-card full-deck no-limit hold'em). */
+  nlhOpenSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
@@ -469,8 +474,8 @@ const CALL_VS: Record<PreflopPosition, number> = {
 const LIMP_BEHIND_MIN = 0.5;
 
 /**
- * V72: the bluff budget (bluffFreq x aggression) of a balanced horse with no
- * survival premium. A style's V72 bluff 3-bet frequency is the reference
+ * V74: the bluff budget (bluffFreq x aggression) of a balanced horse with no
+ * survival premium. A style's V74 bluff 3-bet frequency is the reference
  * chart's scaled by its own budget over this one.
  */
 const BALANCED_BLUFF_BUDGET = 0.17;
@@ -1268,39 +1273,58 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         if (toCall === 0) return { a: 'check' };
         return { a: 'call' };
       }
-      // V28 OPEN-SIZE LADDER: the open used to be a flat 2.2-3.0x at every
-      // depth and ante state — a 200bb cash open and a 25bb ante open were
-      // the same size, which no player pool does. Depth and antes now move
-      // it: antes pull toward ~2.2x (the dead money already pays the raise),
-      // short stacks open smaller (min-raise territory), deep cash opens a
-      // shade bigger. Late position opens the smaller end of its band.
-      // ═══ POT LIMIT OPENS POT (Dan 2026-09-03) ═══ The ladder below is a
-      // NO-LIMIT ladder — see the PLO_MIN_OPEN_BB header for the 40,232-open
+      // ═══ POT LIMIT OPENS POT (Dan 2026-09-03) ═══ The sizer below is a
+      // NO-LIMIT sizer — see the PLO_MIN_OPEN_BB header for the 40,232-open
       // measurement that found it running the pot-limit games. Under pot
       // limit the open is the pot, floored so a min-raise open cannot be
       // produced at all. `potRaiseTo` already carries the straddle, the
       // antes, the dead blinds and one pot's worth per limper, so none of
-      // the ladder's adjustments below have anything left to add.
+      // the no-limit sizer's adjustments have anything left to add.
       if (ctx.isPotLimit) {
         return {
           a: 'raiseTo',
           to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand, PLO_MIN_OPEN_BB * openUnit),
         };
       }
-      let baseOpen = 2.2 + rand() * 0.8;
-      if (ctx.anteInPlay) baseOpen = 2.05 + rand() * 0.35;
-      else if (stackBB <= 25) baseOpen = 2.0 + rand() * 0.4;
-      else if (ctx.mode === 'cash' && stackBB > 150) baseOpen = 2.5 + rand() * 0.8;
-      if (position === 'late') baseOpen -= 0.15;
-      // V70: out of position against one player, the small blind's solver
-      // open is ~3x, not a button's 2.2x (no ante; an ante pot keeps the
-      // smaller open the dead money already pays for).
-      else if (v70Open && bvb && !trueHu && !ctx.anteInPlay && stackBB > 25) {
-        baseOpen = 2.8 + rand() * 0.4;
-      }
-      const sizeBB = (baseOpen + limpers * 1.0) * ctx.sizingMultiplier;
+      // ═══ NLH OPEN SIZES (Dan 2026-10-31, BINDING) ═══ "OPENING RANGES
+      // SHOULD BE RANDOMLY DONE, MIN RAISE TO 2.5-4X OPENING RANGES. NOT
+      // ALWAYS THE MINIMUM RAISE POSSIBLE". The V28 ladder that stood here
+      // (2.2-3.0bb, 2.05-2.40 with an ante, -0.15 late, x a 0.88-1.12 dial)
+      // landed a large share of its draws under the 2bb minimum, and the
+      // whole-chip snap in legalize floored every 2.0-2.99bb draw at a
+      // 1-chip big blind to a min-raise. HorseNlhOpenSize now draws the open
+      // from a band chosen by seat, table, format, depth and antes (with the
+      // short-stack ceilings). The draw never reads the cards: open size is
+      // not a tell.
       // V18: in a straddled pot the open is sized off the straddle.
-      return { a: 'raiseTo', to: sizeBB * openUnit };
+      if (ctx.nlhOpenSizes === false) {
+        // The explicit off arm: the V28 ladder exactly as it stood, kept only
+        // so the recorded corpora keep meaning what they meant.
+        let baseOpen = 2.2 + rand() * 0.8;
+        if (ctx.anteInPlay) baseOpen = 2.05 + rand() * 0.35;
+        else if (stackBB <= 25) baseOpen = 2.0 + rand() * 0.4;
+        else if (ctx.mode === 'cash' && stackBB > 150) baseOpen = 2.5 + rand() * 0.8;
+        if (position === 'late') baseOpen -= 0.15;
+        else if (v70Open && bvb && !trueHu && !ctx.anteInPlay && stackBB > 25) {
+          baseOpen = 2.8 + rand() * 0.4;
+        }
+        return { a: 'raiseTo', to: (baseOpen + limpers * 1.0) * ctx.sizingMultiplier * openUnit };
+      }
+      return {
+        a: 'raiseTo',
+        to: nlhOpenRaiseTo({
+          seat: nlhOpenSeat({ position, isButton: ctx.isButton, trueHeadsUp: trueHu }),
+          depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
+          tournament: isTourney,
+          anteInPlay: ctx.anteInPlay === true,
+          tableSize: ctx.tableSize ?? 6,
+          openUnit,
+          bigBlind: bb,
+          limpers,
+          sizingMultiplier: ctx.sizingMultiplier,
+          rand,
+        }),
+      };
     }
     // BvB limp mix from the SB with playable-but-not-open hands.
     // V70: the band is read on the small blind's own order, down to its floor.
@@ -1370,7 +1394,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
 
     // Blinds facing a LATE steal prefer 3-bet-or-fold over cold-calling
     // out of position: shift part of the call band into the 3-bet.
-    // (V72: inside the per-seat reference base.)
+    // (V74: inside the per-seat reference base.)
     const blindVsSteal = (position === 'sb' || position === 'bb') && vs === 'late';
     if (blindVsSteal && !def72) {
       threeBetThresh =
@@ -1381,7 +1405,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     }
     // V11 HEADS-UP DEFENSE: the SB/BTN opens most hands HU, so the BB defends
     // the wide majority — folding 50%+ of hands to a HU open is pure surrender.
-    // (V72 owns blind against blind at three or more dealt in.)
+    // (V74 owns blind against blind at three or more dealt in.)
     if (headsUp && position === 'bb' && !def72) {
       threeBetThresh =
         t53(0.64 - (ctx.aggression - 1) * 0.08, 'threeBet') +
@@ -1465,7 +1489,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
                 ? 0.65
                 : 0.72
               : null;
-      // V72: these bars were this layer's per-bucket 3-bet WIDTHS and the
+      // V74: these bars were this layer's per-bucket 3-bet WIDTHS and the
       // per-seat reference base replaces them, except against a steal (a
       // late or small-blind open), where Dan's tournament re-steal stays a
       // floor under the base: measured on the MTT 25bb mirror over three
@@ -1503,9 +1527,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
                   : 0.7
               : null;
       // The V12 hunter discount still applies below the cash bar.
-      // V72: as in the tournament layer, the per-seat base owns the width.
+      // V74: as in the tournament layer, the per-seat base owns the width.
       if (def72) {
-        /* the V72 base owns the 3-bet width */
+        /* the V74 base owns the 3-bet width */
       } else if (cashBar !== null)
         threeBetThresh = Math.min(threeBetThresh, t(cashBar) - 0.05 * hunted);
       else threeBetThresh -= 0.03;
@@ -1614,7 +1638,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (tAggro ? 1.3 : 1) *
       // CASH PRESSURE: the same re-steal volume in cash.
       (cAggro ? 1.3 : 1);
-    // V72: the bluffs are the reference bluff chart's classes at its own
+    // V74: the bluffs are the reference bluff chart's classes at its own
     // frequencies (scaled to the spot's bluff width), moved by everything that
     // moved the legacy mix: style (the bluff budget against a balanced
     // horse's), this raiser's fold-to-3-bet read, the bubble, V57/V60. The
@@ -1661,7 +1685,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // even money: the blind gets a lot of it, a cold caller gets a little.
     // Nothing in NLH changes - there the equity spread is real, and a fixed
     // percentile means what it says.
-    // V72: the continue bar is already the big blind's own width.
+    // V74: the continue bar is already the big blind's own width.
     let callBar = callThresh - (def72 ? 0 : bbDiscount);
     if (ctx.isOmaha && ctx.ploPriceDefense === true) {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));

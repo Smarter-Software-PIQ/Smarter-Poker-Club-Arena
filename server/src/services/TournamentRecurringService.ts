@@ -1,4 +1,9 @@
-import { mttPlannedField, mttPrestartPlan, mttPrizeShare } from './mttHorseArrivalPlan.js';
+import {
+  mttPlannedField,
+  mttPrestartPlan,
+  mttPrizeShare,
+  mttPrestartArrivalTarget,
+} from './mttHorseArrivalPlan.js';
 import { projectTournamentAdmission } from '../tournament/tournamentAdmission.js';
 import { fixedSngHorseCount } from './FixedSngHorsePlan.js';
 import {
@@ -1358,8 +1363,8 @@ export function automatedRegistrationIsPermitted(
  * THE CURVE, AND WHY IT IS NOT A STEP
  * A field that appears all at once reads as fake, and a field that appears at
  * T-60 and then never moves reads as dead. Real MTT registration is slow early
- * and piles in near the close, so the target is quadratic in elapsed ramp time:
- * gentle for the first half hour, steep in the last ten minutes. A player
+ * and piles in near the close. Stable random arrival instants form a convex
+ * curve: gentle early, busier near the start. A player
  * refreshing the lobby sees a number that keeps going up, which is the actual
  * product goal here - not the final count.
  *
@@ -1367,16 +1372,10 @@ export function automatedRegistrationIsPermitted(
  *  1. It never targets more than `maxPlayers - 1`, so the ramp can NEVER trip
  *     the `maxReached` start gate in discoverTournaments and begin an event
  *     ahead of its own clock. There is always a seat for a human.
- *  2. It is capped at MTT_PRESTART_MAX_HORSES regardless of field size,
- *     UNLESS the event carries a guarantee - see the guarantee block in the
- *     function. Every registration is a REAL funded entry through
- *     fn_register_horse_for_tournament (an exact returned ticket first, or a
- *     real wallet debit; both write real rake and prize-pool contribution),
- *     so an uncapped ramp on a 1,000-seat event
- *     would spend the club's chips on a field nobody asked for. A guarantee
- *     is the one case where the club has ALREADY promised that money, so
- *     covering it with entries is strictly better than paying it as overlay.
- *     Filling the rest is the past-start top-up's job, on the clock.
+ *  2. A regular event opens with a handful and grows toward a small random
+ *     field before start, regardless of guarantee size. The complete funded
+ *     field plan continues through late registration. Free entries may build
+ *     several hours early. Every entry still uses the ordinary funded door.
  *  3. Seat-first games (Spin, heads-up) return 0 and are left completely
  *     alone. Their binding rule is that they start when seats are BOUGHT, and
  *     registrations are not seats.
@@ -1384,12 +1383,29 @@ export function automatedRegistrationIsPermitted(
  * Returns the number of registered entrants the field SHOULD have right now.
  * The caller tops up toward it and never removes anybody.
  */
-/** Owner October 28, 2026: horses begin scheduled MTT signups at T-10 minutes.
- * Earlier publication does not authorize earlier horse purchases.
- * Late arrivals retain their legal-window path in HorseOverlayGuard.
- */
-export const MTT_PRESTART_RAMP_MS = 10 * 60 * 1000;
-export const MTT_PRESTART_MAX_HORSES = 24;
+/** Owner November 1: regular events build from an hour ahead; free entries start hours ahead. */
+export const MTT_PRESTART_RAMP_MS = 60 * 60 * 1000;
+export const MTT_FREEROLL_PRESTART_RAMP_MS = 6 * 60 * 60 * 1000;
+export const MTT_PRESTART_MAX_HORSES = 28;
+
+export function mttIsFreeEntry(row: {
+  free_buy?: unknown;
+  buy_in_amount?: unknown;
+  buy_in_fee?: unknown;
+}): boolean {
+  return (
+    row.free_buy === true ||
+    (row.buy_in_amount !== null &&
+      row.buy_in_amount !== undefined &&
+      Number(row.buy_in_amount) === 0 &&
+      (row.buy_in_fee === null || row.buy_in_fee === undefined || Number(row.buy_in_fee) === 0))
+  );
+}
+
+export function mttHorsePrestartWindowMs(row: Parameters<typeof mttIsFreeEntry>[0]): number {
+  return mttIsFreeEntry(row) ? MTT_FREEROLL_PRESTART_RAMP_MS : MTT_PRESTART_RAMP_MS;
+}
+
 /**
  * Most entrants the ramp will add in a single tick.
  *
@@ -1443,7 +1459,8 @@ export const MTT_PRESTART_MAX_STEP = 6;
  * It also makes the lobby honest. An event that appears 60 seconds before it
  * starts cannot be joined by a human who is not already staring at the board.
  */
-export const MTT_PUBLISH_LEAD_MS = 30 * 60 * 1000;
+/** November 1 owner direction supersedes the historical thirty-minute rationale above. */
+export const MTT_PUBLISH_LEAD_MS = 60 * 60 * 1000;
 
 /** How often the Free Buy board is reconciled. See checkAndCreateFreeBuys. */
 export const FREE_BUY_TICK_MS = 5 * 60 * 1000;
@@ -2096,6 +2113,10 @@ export function seatFirstStartStalled(opts: {
  * do. The whole decision lives here so it is testable without a database.
  */
 export function mttPrestartHorseTarget(opts: {
+  /** Event identity keeps the random plan stable across retries and restarts. */
+  tournamentId: string;
+  /** Free initial entry (including Free Buy), independent of bounty prize share. */
+  isFree?: boolean;
   /** Milliseconds until the scheduled start. Negative means already past. */
   msUntilStart: number;
   maxPlayers: number | null;
@@ -2123,7 +2144,8 @@ export function mttPrestartHorseTarget(opts: {
   // Past start, or not started ramping yet. Past start belongs to the existing
   // top-up, which aims at a full field; this function must not fight it.
   if (!Number.isFinite(msUntilStart)) return 0;
-  if (msUntilStart <= 0 || msUntilStart > MTT_PRESTART_RAMP_MS) return 0;
+  const windowMs = opts.isFree ? MTT_FREEROLL_PRESTART_RAMP_MS : MTT_PRESTART_RAMP_MS;
+  if (msUntilStart <= 0 || msUntilStart > windowMs) return 0;
 
   // Spins, heads-up and any-size SNGs start on bought seats. Not our business.
   if (!isPersistedUnlimitedMtt(opts)) return 0;
@@ -2131,25 +2153,20 @@ export function mttPrestartHorseTarget(opts: {
   const seats = maxPlayers === null ? null : Number(maxPlayers);
   if (seats !== null && (!Number.isSafeInteger(seats) || seats <= 1)) return 0;
 
-  // Half the planned funded field arrives in the owner's ten-minute window.
-  // Reach that mark one tick before the gun, preserving scheduling margin.
+  // Regular opening fields stay small; guarantees fund the complete late-entry plan.
+  // Free entries build earlier. Both callers share one stable event identity.
   const field = mttPlannedField(
     Math.max(0, Number(opts.guaranteedPrize) || 0),
-    Math.max(0, Number(opts.buyInPrizeShare) || 0)
+    Math.max(0, Number(opts.buyInPrizeShare) || 0),
+    opts.tournamentId
   );
-  const fieldGoal = mttPrestartPlan(field, seats);
+  const fieldGoal = mttPrestartPlan(field, seats, opts.tournamentId, opts.isFree);
   if (fieldGoal < 1) return 0;
-  const elapsed = Math.min(
-    1,
-    (MTT_PRESTART_RAMP_MS - msUntilStart) / (MTT_PRESTART_RAMP_MS - MTT_PRESTART_TICK_MS)
-  );
-  const onCurve = Math.max(1, Math.ceil(fieldGoal * elapsed));
+  const elapsed = Math.min(1, (windowMs - msUntilStart) / (windowMs - MTT_PRESTART_TICK_MS));
+  const onCurve = mttPrestartArrivalTarget(opts.tournamentId, fieldGoal, elapsed, opts.isFree);
   if (onCurve <= current) return 0;
-  // A fixed six-per-45s ceiling cannot deliver half a large guarantee in ten
-  // minutes. Size the bounded slice from the actual goal and available ticks.
-  const ticks = Math.max(1, Math.floor(MTT_PRESTART_RAMP_MS / MTT_PRESTART_TICK_MS) - 1);
-  const step = Math.max(MTT_PRESTART_MAX_STEP, Math.ceil(fieldGoal / ticks));
-  return Math.min(onCurve, current + step);
+  // An hour (or several free-entry hours) leaves ample time for bounded, small arrivals.
+  return Math.min(onCurve, current + MTT_PRESTART_MAX_STEP);
 }
 
 function horsesForSeatHeldGame(maxPlayers: number): { horses: number; isSim: boolean } {
@@ -6685,7 +6702,7 @@ export class TournamentRecurringService {
            tournament side read it, so a club held in the console kept being
            handed a full field: the MTT pre-start ramp asks this function for
            one every 45 seconds, for every REGISTERING event inside
-           MTT_PRESTART_RAMP_MS (10 minutes).
+           the event-specific prestart window.
 
            Measured on 2026-10-05, Deep Stack Society under an operator hold
            with `pause_new_seatings` true on its club row: cash was dark and no
@@ -7035,7 +7052,7 @@ export class TournamentRecurringService {
       const { data: entryEvent, error: entryEventError } = await supabase
         .from('tournaments')
         .select(
-          'format_contract, tournament_type, variant, max_players, min_players, table_size, satellite_seats, satellite_target_id, satellite_target, status, start_time, current_players, guaranteed_prize, prize_pool, buy_in_amount, bounty_amount'
+          'format_contract, tournament_type, variant, max_players, min_players, table_size, satellite_seats, satellite_target_id, satellite_target, status, start_time, current_players, guaranteed_prize, prize_pool, buy_in_amount, buy_in_fee, free_buy, bounty_amount'
         )
         .eq('id', tournamentId)
         .maybeSingle();
@@ -7070,11 +7087,14 @@ export class TournamentRecurringService {
         const startMs = Date.parse(String(entryEvent.start_time ?? ''));
         const current = Math.max(0, Number(entryEvent.current_players) || 0);
         const now = Date.now();
-        if (!Number.isFinite(startMs) || startMs - now > MTT_PRESTART_RAMP_MS) return 0;
+        if (!Number.isFinite(startMs) || startMs - now > mttHorsePrestartWindowMs(entryEvent))
+          return 0;
         // Discovery can still be completing the transition after the gun.
         // Its existing past-start and late-entry paths retain that decision.
         if (startMs > now) {
           const target = mttPrestartHorseTarget({
+            tournamentId,
+            isFree: mttIsFreeEntry(entryEvent),
             msUntilStart: startMs - now,
             maxPlayers: entryEvent.max_players,
             format_contract: entryEvent.format_contract,

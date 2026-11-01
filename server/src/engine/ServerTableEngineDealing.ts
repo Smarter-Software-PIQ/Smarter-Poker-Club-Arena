@@ -4601,7 +4601,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     // gambler that was reloading (2026-09-09).
     const horses = busted.filter((p) => p.is_horse);
     for (const horse of horses) {
-      if (!rebuyStopLossReached(horse.user_id, this.horseRebuys.get(horse.user_id) || 0))
+      if (
+        !rebuyStopLossReached(
+          horse.user_id,
+          this.horseRebuys.get(horse.user_id) || 0,
+          this.tableInfo
+        )
+      )
         return true;
     }
 
@@ -4872,7 +4878,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // the temperament's own figure). This site used to hard-code `>= 2`
       // while Settlement had moved on, which is the "two sites reloading on
       // two different rules" the comment below warns about.
-      if (atRebuyStopLoss(horse.user_id, currentRebuys)) {
+      if (atRebuyStopLoss(horse.user_id, currentRebuys, this.tableInfo)) {
         /* HORSES ARE PLAYERS (CLAUDE.md 10.5): the same door the busted human
            leaves through - money path, then `seat_left`, then the trackers -
            so a busted horse's seat clears on every client at the same moment

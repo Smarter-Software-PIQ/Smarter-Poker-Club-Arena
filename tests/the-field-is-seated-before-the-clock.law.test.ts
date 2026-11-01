@@ -156,7 +156,7 @@ describe('ITEM 3 — the lobby card cannot freeze', () => {
 
   it('a quiet refresh never flashes the loading screen or toasts', () => {
     expect(DETAILS).toMatch(
-      /if \(!opts\?\.quiet && \(!getIsMounted \|\| getIsMounted\(\)\)\) setIsLoading\(true\)/
+      /if \(!opts\?\.quiet && !owner\.hasSnapshot && getIsMounted\(\)\) setIsLoading\(true\)/
     );
     expect(DETAILS).toMatch(
       /if \(!opts\?\.quiet && \(!getIsMounted \|\| getIsMounted\(\)\)\)\s*\n?\s*toast\.error/
@@ -173,7 +173,7 @@ describe('ITEM 3 — the lobby card cannot freeze', () => {
   });
 
   it('tables are loaded for a LATE_REG event too, not only RUNNING', () => {
-    expect(DETAILS).toMatch(/data\.status === 'RUNNING' \|\| isLateStatus\(data\.status\)/);
+    expect(DETAILS).toMatch(/data\.status === 'RUNNING'\s*\|\|\s*isLateStatus\(data\.status\)/);
   });
 });
 

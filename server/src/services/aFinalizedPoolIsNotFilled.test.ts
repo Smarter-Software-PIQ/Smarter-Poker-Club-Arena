@@ -247,8 +247,8 @@ describe('1. a finalized prize pool is not filled', () => {
     const walk = method(GAME_SERVER, 'private async discoverTournaments(');
     expect(walk).toContain('prize_pool_finalized');
     expect(walk).toContain('const poolFinalized = tournament.prize_pool_finalized === true;');
-    expect(walk).toContain(
-      'if (!poolFinalized && msUntilStart > 0 && msUntilStart <= MTT_PRESTART_RAMP_MS)'
+    expect(walk).toMatch(
+      /if\s*\(\s*!poolFinalized\s*&&\s*msUntilStart > 0\s*&&\s*msUntilStart <= mttHorsePrestartWindowMs\(tournament\)\s*\)/
     );
     // The past-start top-up is withheld from a finalized row. Since
     // 2026-09-24 the field is the roster (fieldCount), not the counter.

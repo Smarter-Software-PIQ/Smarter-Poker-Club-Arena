@@ -53,11 +53,12 @@ export function TablePerfMonitor({ enabled = false }: TablePerfMonitorProps) {
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (
+        typeof e.key === 'string' &&
         e.key.toLowerCase() === 'p' &&
         !e.ctrlKey &&
         !e.metaKey &&
-        (e.target as HTMLElement).tagName !== 'INPUT' &&
-        (e.target as HTMLElement).tagName !== 'TEXTAREA'
+        (e.target as HTMLElement | null)?.tagName !== 'INPUT' &&
+        (e.target as HTMLElement | null)?.tagName !== 'TEXTAREA'
       ) {
         if (import.meta.env.DEV) {
           setIsVisible((v) => !v);

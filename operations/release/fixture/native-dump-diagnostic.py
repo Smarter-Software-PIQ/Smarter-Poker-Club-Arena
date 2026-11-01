@@ -422,6 +422,14 @@ def qualify_batch_contract(repo, work, env):
              'native-dump-function-batch-test.c', '-o', str(executable)], cwd=directory, env=env)
     for count in [0, 1, 127, 128, 129, 5507]:
         command([str(executable), 'valid', str(count)], cwd=directory, env=env, timeout=5)
+    command([str(executable), 'excluded-boundary', '129'], cwd=directory, env=env, timeout=5)
+    # Exact selected FUNC/RELATION/TYPE/AGG sequence retains stock render order;
+    # only DO_FUNC requests share a fully drained metadata batch.
+    for count in [0, 1, 127, 128, 129, 512, 513]:
+        command([str(executable), 'mixed', str(count)], cwd=directory, env=env, timeout=5)
+    partial = subprocess.run([str(executable), 'partial', '129'], cwd=directory,
+                             env=env, capture_output=True, timeout=5)
+    require(partial.returncode == 23 and partial.stdout == b'' and partial.stderr == b'')
     for mode in ['send', 'extra', 'missing', 'status', 'rows', 'fields', 'name', 'bytes', 'order']:
         result = subprocess.run([str(executable), mode, '129'], cwd=directory, env=env,
                                 capture_output=True, timeout=5)
@@ -485,6 +493,23 @@ CREATE PROCEDURE diagnostic_schema.p_one(IN a integer) LANGUAGE SQL AS $$SELECT 
 COMMENT ON FUNCTION diagnostic_schema.f_default(integer) IS 'native private batch fixture';
 REVOKE ALL ON FUNCTION diagnostic_schema.f_default(integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION diagnostic_schema.f_default(integer) TO diagnostic_reader;
+CREATE SCHEMA "diagnostic Other";
+CREATE TYPE diagnostic_schema.read_ahead_row AS (id integer);
+CREATE DOMAIN "diagnostic Other".read_ahead_positive AS integer CHECK (VALUE > 0);
+CREATE FUNCTION diagnostic_schema.read_ahead_first(a integer DEFAULT 7)
+RETURNS diagnostic_schema.read_ahead_row LANGUAGE SQL
+BEGIN ATOMIC SELECT ROW(a)::diagnostic_schema.read_ahead_row; END;
+CREATE VIEW "diagnostic Other".read_ahead_view AS
+SELECT (diagnostic_schema.read_ahead_first()).id AS id;
+CREATE FUNCTION "diagnostic Other".read_ahead_second()
+RETURNS "diagnostic Other".read_ahead_positive LANGUAGE SQL
+BEGIN ATOMIC SELECT id::"diagnostic Other".read_ahead_positive FROM "diagnostic Other".read_ahead_view; END;
+CREATE FUNCTION diagnostic_schema.read_ahead_first(a "diagnostic Other".read_ahead_positive)
+RETURNS integer LANGUAGE SQL RETURN a::integer;
+REVOKE ALL ON FUNCTION "diagnostic Other".read_ahead_second() FROM PUBLIC;
+GRANT USAGE ON SCHEMA "diagnostic Other" TO diagnostic_reader;
+GRANT EXECUTE ON FUNCTION "diagnostic Other".read_ahead_second() TO diagnostic_reader;
+GRANT SELECT(id) ON "diagnostic Other".read_ahead_view TO diagnostic_reader;
 CREATE SCHEMA diagnostic_empty;
 CREATE TYPE diagnostic_empty.zero_function_enum AS ENUM ('one','two');
 CREATE SCHEMA diagnostic_single;
@@ -508,11 +533,16 @@ CREATE FUNCTION diagnostic_single.one() RETURNS integer LANGUAGE sql AS $$SELECT
             require(normalize_sql(filtered_stock) == normalize_sql(filtered))
         BUILD_STAGE = 'SQL_EQUIVALENCE'
         require(normalize_sql(stock) == normalize_sql(instrumented))
+        # Parsed SQL-body dependencies force the actual stock definition order.
+        first = stock.index(b'CREATE FUNCTION "diagnostic_schema"."read_ahead_first"("a" integer')
+        view = stock.index(b'CREATE VIEW "diagnostic Other"."read_ahead_view"')
+        second = stock.index(b'CREATE FUNCTION "diagnostic Other"."read_ahead_second"')
+        require(first < view < second)
         require(b'GRANT SELECT("id")' in stock and b'ALTER DEFAULT PRIVILEGES' in stock and b'CREATE FUNCTION' in stock)
         return {'passed': True, 'sql_bytes_equal': True, 'fd3_records_valid': True,
                 'fd3_record_count': count, 'server_major': 17, 'cluster_absent': True,
-                'synthetic_routine_count': 5507, 'function_batch_max': 128,
-                'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components'}
+                'synthetic_routine_count': 5510, 'function_batch_max': 128,
+                'dependency_interleaved_sql_equal': True, 'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components'}
     except Exception as error:
         retain_first_failure(error)
         raise
@@ -613,7 +643,7 @@ def build(repo, output):
                     'builder_sha256': digest(Path(__file__).read_bytes()), 'helper_sha256': digest(helper.read_bytes()),
                     'function_batch_helper_sha256': digest(batch_helper.read_bytes()),
                     'function_batch_contract_sha256': digest((repo / 'operations/release/fixture/native-dump-function-batch-test.c').read_bytes()),
-                    'transport': 'consecutive-stock-function-executions-v1',
+                    'transport': 'bounded-stock-function-read-ahead-v2',
                     'binary_sha256': digest((output / 'bin/pg_dump').read_bytes()),
                     'libpq_sha256': digest((output / 'lib/libpq.so.5').read_bytes()), 'qualification': proof}
         # Keep only the two executable inputs and manifest for the capture.

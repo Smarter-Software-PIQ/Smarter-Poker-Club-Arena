@@ -67,13 +67,11 @@ describe('an unknown roll is unknown, not zero', () => {
    * missing row is not a licence to fail open on a poor one.
    */
   it('still refuses a KNOWN roll that cannot cover the stake', () => {
-    /* Shape-tolerant, intent-strict. The refusal grew a telemetry counter in
-       the bankroll-telemetry PR, so the old exact-line assertion broke on a
-       change that strengthened the very thing it guards. What must hold is
-       that a failed canSit REFUSES: the counter may sit between, a `return
-       false` may not go missing. */
+    // The owner maximum stake needs the entire configured purchase funded;
+    // other stakes retain their bankroll policy. Both refuse through the
+    // same observable branch when the known roll is insufficient.
     expect(SRC).toMatch(
-      /if \(!canSit\(roll, ref, bankrollPolicyFor\(h\.id\)\)\) \{[^{}]*return false;\s*\}/
+      /if \(\s*isMaximumHorseCashStake\(table\)\s*\? roll < Number\(\(table as any\)\.max_buy_in \|\| table\.big_blind \* 200\)\s*: !canSit\(roll, ref, bankrollPolicyFor\(h\.id\)\)\s*\) \{\s*bankrollEvent\('seat_refused_underrolled'\);\s*return false;\s*\}/
     );
   });
 });
