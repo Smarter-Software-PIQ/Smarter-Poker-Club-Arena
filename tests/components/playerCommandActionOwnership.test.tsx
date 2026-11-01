@@ -1101,14 +1101,23 @@ it('cannot restore a downline that settles after financial access is withdrawn',
   state.getDownline.mockReturnValueOnce(downline.promise);
   render(<MemberManagementPage />);
   await screen.findByText('River Shark');
-  state.getMemberDetail.mockResolvedValue({
+  const authority = deferred<typeof memberDetail>();
+  const readsBeforeWithdrawal = state.getMemberDetail.mock.calls.length;
+  state.getMemberDetail.mockReturnValueOnce(authority.promise);
+  const denied = {
     ...memberDetail,
     stats: null,
     wallets: null,
     downline: null,
     capabilities: { ...memberDetail.capabilities, can_view_financials: false },
-  });
+  };
   await act(async () => state.recordChannel?.onPayload({}));
+  await waitFor(() =>
+    expect(state.getMemberDetail.mock.calls.length).toBeGreaterThan(readsBeforeWithdrawal)
+  );
+  // The stale roster arrives after the authoritative denial has actually rendered.
+  await act(async () => authority.resolve(denied));
+  await waitFor(() => expect(screen.queryByText('Cash Hands')).not.toBeInTheDocument());
   await act(async () =>
     downline.resolve([{ user_id: '33333333-3333-4333-8333-333333333333', alias: 'Cyan Rail' }])
   );
