@@ -929,9 +929,9 @@ class ReaderTests(unittest.TestCase):
         lists = [node for node in ast.walk(tree) if isinstance(node, ast.List)
                  and node.elts and isinstance(node.elts[0], ast.Constant)
                  and node.elts[0].value == 'systemctl']
-        self.assertEqual(len(lists), 4)
+        self.assertEqual(len(lists), 6)
         self.assertTrue(all(node.elts[1].value == 'show' for node in lists))
-        self.assertEqual({node.elts[-1].value for node in lists}, {'--property=ActiveState,SubState,InvocationID', '--property=MainPID,ControlGroup,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID'})
+        self.assertEqual({node.elts[-1].value for node in lists}, {'--property=ActiveState,SubState,InvocationID', '--property=MainPID,ControlGroup,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,MainPID,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,InvocationID', '--property=LoadState,ActiveState,SubState,UnitFileState,Job,MainPID,ControlPID,ControlGroup,FragmentPath,DropInPaths', '--property=LoadState,ActiveState,SubState,UnitFileState,Job'})
         self.assertIn('--property=ActiveState,SubState,InvocationID', source)
 
     def witness_fixture(self):
@@ -2834,6 +2834,166 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
                 return original_stat(name, *args, **kwargs)
             with patch.object(R.os, 'stat', side_effect=appearing):
                 with self.assertRaises(ValueError): self.read(root)
+
+
+class FailedRoutineCustodyTests(unittest.TestCase):
+    def canonical(self):
+        return {'sealSha256': '8' * 64}
+
+    def sources(self, root):
+        parent, systemd = root / 'control', root / 'systemd'
+        generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
+        generation.mkdir(parents=True); systemd.mkdir()
+        for name in R.FAILED_CUSTODY_SOURCE:
+            (generation / name).write_bytes((ROOT / 'server/scripts' / name).read_bytes())
+        (parent / 'engine-release-unit-wrapper-v1.sh').write_bytes((generation / 'engine-release-unit-wrapper.sh').read_bytes())
+        for source, marker, target in [
+            ('install-engine-supervisor.sh', 'cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n', 'club-arena-engine-release-v1@.service'),
+            ('install-engine-intake.sh', 'cat > "$UNIT_STAGE" <<\'UNIT\'\n', 'club-arena-engine-intake-v1@.service'),
+            ('install-engine-intake.sh', 'cat > "$PATH_STAGE" <<\'UNIT\'\n', 'club-arena-engine-intake-v1@.path')]:
+            body = (generation / source).read_text().split(marker, 1)[1].split('\nUNIT\n', 1)[0] + '\n'
+            body = body.replace('$UNIT_WRAPPER_V1', '/usr/local/lib/club-arena/engine-release-unit-wrapper-v1.sh').replace('\\$', '$')
+            (systemd / target).write_text(body)
+        return parent, systemd
+
+    def state(self, root):
+        root.mkdir(mode=0o700)
+        for parts in R.FAILED_CUSTODY_FILES.values():
+            if len(parts) > 1: (root / parts[0]).mkdir(mode=0o700, exist_ok=True)
+        return root
+
+    def run_reader(self, root, parent, systemd):
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            return R.failed_custody_remote(R.FAILED_CUSTODY_REQUEST, fd, state_root=root,
+                                          control_parent=parent, systemd=systemd)
+        finally: os.close(fd)
+
+    def test_exact_selector_and_actual_canonical_binding_negative_controls(self):
+        self.assertEqual(R.selection(R.FAILED_CUSTODY_REQUEST), R.FAILED_CUSTODY_REQUEST)
+        for key, value in [('runKey', '41353218793-1'), ('releaseSha', R.EED), ('command', 'anything')]:
+            with self.assertRaises(ValueError): R.selection(R.FAILED_CUSTODY_REQUEST | {key: value})
+        row = {'runId': '41349091113-1', 'sha': R.FAILED_CUSTODY_CONTROL, 'controlSha': R.FAILED_CUSTODY_CONTROL,
+               'policyDigest': '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578',
+               'status': 'reserved', 'startsAt': 1793570400, 'endsAt': 1793570700, 'window': None,
+               'failureSha256': R.FAILED_CUSTODY_FAILURE, 'result': {'sha256': R.FAILED_CUSTODY_FAILURE,
+               'outcome': 'failed', 'identityMatches': True, 'cycleFailureMatches': True}, 'committed': {'present': False}}
+        witness = {'desiredSha': R.EED, 'desiredImageId': R.FAILED_CUSTODY_IMAGE,
+                   'pending': {'present': False}, 'finalization': {'present': False}, 'owners': [row]}
+        with patch.object(R, 'routine_remote', return_value=witness):
+            self.assertEqual(R.failed_custody_canonical(0), witness)
+        for key, value in [('runId', '123-1'), ('startsAt', 1793574000), ('status', 'sealed'),
+                           ('failureSha256', '0' * 64), ('window', {})]:
+            bad = copy.deepcopy(witness); bad['owners'][0][key] = value
+            with patch.object(R, 'routine_remote', return_value=bad), self.assertRaises(ValueError):
+                R.failed_custody_canonical(0)
+
+    def test_missing_source_prevents_every_native_probe_and_exports_unknown(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder); state = self.state(base / 'state')
+            with patch.object(R, 'failed_custody_canonical', return_value=self.canonical()), \
+                 patch.object(R, 'inspector_command') as probe:
+                answer = self.run_reader(state, base / 'missing', base / 'missing-units')
+            probe.assert_not_called()
+            self.assertFalse(answer['sourceQualified'])
+            self.assertTrue(all(v['status'] == 'unknown' for v in answer['units'].values()))
+            self.assertEqual(answer['databaseFreezeThaw'], 'not_observed')
+            self.assertFalse(answer['retryAllowed'])
+            R.validate_reply(answer, R.FAILED_CUSTODY_REQUEST)
+            for key, value in [('retryAllowed', True), ('databaseFreezeThaw', 'clear'), ('noEntry', True)]:
+                bad = copy.deepcopy(answer); bad[key] = value
+                with self.assertRaises(ValueError): R.validate_reply(bad, R.FAILED_CUSTODY_REQUEST)
+
+    def test_genuine_fixed_source_templates_and_private_files_remain_readonly(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder); state = self.state(base / 'state'); parent, systemd = self.sources(base)
+            path = state / 'engine-release-requests' / '41349091113-1.request'
+            path.write_text(R.FAILED_CUSTODY_CONTROL + '\nhttps://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41349091113\nprivate-not-exported\n' + str('/usr/local/lib/club-arena/engine-control-generations/' + R.FAILED_CUSTODY_CONTROL) + '\n' + R.FAILED_CUSTODY_CONTROL + '\n1793579999\n'); path.chmod(0o600)
+            stable = {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in base.rglob('*') if p.is_file()}
+            observed = lambda unit, deadline: ({'status': 'observed', 'inactive': True, 'noJob': True, 'disabled': True,
+                         'noMainOrControlPid': None if unit.endswith('.path') else True,
+                         'processEnumerationEmpty': None if unit.endswith('.path') else True, 'cgroup': 'not-applicable' if unit.endswith('.path') else 'manager-empty'}, '9' * 64)
+            with patch.object(R, 'failed_custody_canonical', return_value=self.canonical()), \
+                 patch.object(R, 'failed_custody_unit', side_effect=observed), \
+                 patch.object(R, 'inspector_identity', return_value={'image': R.FAILED_CUSTODY_IMAGE}), \
+                 patch.object(R, 'pending_tcp_health', return_value={'source': R.EED, 'instance': '1-12345678'}):
+                answer = self.run_reader(state, parent, systemd)
+            self.assertTrue(answer['sourceQualified'])
+            self.assertEqual(answer['records']['request']['identityBinding'], 'original-request-bound')
+            self.assertNotIn('private-not-exported', json.dumps(answer))
+            self.assertEqual(stable, {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in base.rglob('*') if p.is_file()})
+            original_request = path.read_text()
+            for old, new in [('41349091113', '41349091114'), ('1793579999', 'bad'), ('private-not-exported', 'invalid actor')]:
+                path.write_text(original_request.replace(old, new))
+                self.assertEqual(R.failed_custody_files(state, R.time.monotonic() + 3)[0]['request']['identityBinding'], 'unproved')
+            path.write_text(original_request)
+            (systemd / 'club-arena-engine-intake-v1@.path').write_text('changed')
+            self.assertFalse(R.failed_custody_sources(parent, systemd, R.time.monotonic() + 3)[0])
+
+    def test_original_native_metadata_and_typed_manager_enumeration(self):
+        for unit in R.FAILED_CUSTODY_UNITS.values():
+            fields = {'LoadState': 'loaded', 'ActiveState': 'inactive', 'SubState': 'dead',
+                      'UnitFileState': 'disabled', 'Job': '', 'MainPID': '' if unit.endswith('.path') else '0',
+                      'ControlPID': '' if unit.endswith('.path') else '0', 'ControlGroup': '',
+                      'FragmentPath': '/etc/systemd/system/' + unit.split('@', 1)[0] + '@.' + unit.rsplit('.', 1)[1], 'DropInPaths': ''}
+            if unit.endswith('.path'):
+                fields = {k: fields[k] for k in ('LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job')}
+            raw = '\n'.join(k + '=' + v for k, v in fields.items()).encode()
+            with patch.object(R, 'inspector_command', side_effect=[raw, b'a(sus) 0']) as probe:
+                row, _ = R.failed_custody_unit(unit, R.time.monotonic() + 3)
+            self.assertEqual(row['status'], 'observed'); self.assertTrue(row['inactive'])
+            if unit.endswith('.path'):
+                self.assertIsNone(row['processEnumerationEmpty']); self.assertIsNone(row['noMainOrControlPid'])
+                self.assertEqual(row['cgroup'], 'not-applicable'); self.assertEqual(probe.call_count, 1)
+                with patch.object(R, 'inspector_command', return_value=raw + b'\nMainPID=0'):
+                    self.assertEqual(R.failed_custody_unit(unit, R.time.monotonic() + 3)[0]['status'], 'unknown')
+                continue
+            self.assertTrue(row['processEnumerationEmpty']); self.assertEqual(row['cgroup'], 'manager-empty')
+            self.assertEqual(probe.call_args_list[1].args[0][-2:], ['s', unit])
+            fields['MainPID'] = '123'; fields['Job'] = '9'; fields['ActiveState'] = 'active'; fields['SubState'] = 'running'
+            raw = '\n'.join(k + '=' + v for k, v in fields.items()).encode()
+            with patch.object(R, 'inspector_command', side_effect=[raw, b'a(sus) 1 "/system.slice/private" 123 "private"']):
+                row, _ = R.failed_custody_unit(unit, R.time.monotonic() + 3)
+            self.assertFalse(row['inactive']); self.assertFalse(row['noJob']); self.assertFalse(row['processEnumerationEmpty'])
+            for malformed in (b'a(sus) malformed', b'a(sus) 00', b'a(sus) 1'):
+                with patch.object(R, 'inspector_command', side_effect=[raw, malformed]):
+                    self.assertEqual(R.failed_custody_unit(unit, R.time.monotonic() + 3)[0]['status'], 'unknown')
+            with patch.object(R, 'inspector_command', side_effect=ValueError('raw private error')):
+                row, _ = R.failed_custody_unit(unit, R.time.monotonic() + 3)
+            self.assertEqual(row['status'], 'unknown'); self.assertNotIn('private', json.dumps(row))
+        with self.assertRaises(ValueError): R.failed_custody_unit('foreign.service', R.time.monotonic() + 3)
+
+    def test_changed_records_and_native_state_refuse_stable_observation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder); state = self.state(base / 'state'); parent, systemd = self.sources(base)
+            result = ({'status': 'unknown', 'inactive': None, 'noJob': None, 'disabled': None,
+                       'noMainOrControlPid': None, 'processEnumerationEmpty': None, 'cgroup': 'unknown'}, None)
+            calls = 0
+            def changed(unit, deadline):
+                nonlocal calls
+                calls += 1
+                if calls == 4: return result[0], '0' * 64
+                return result
+            with patch.object(R, 'failed_custody_canonical', return_value=self.canonical()), \
+                 patch.object(R, 'failed_custody_unit', side_effect=changed), \
+                 patch.object(R, 'inspector_identity', side_effect=ValueError('unavailable')):
+                with self.assertRaises(ValueError): self.run_reader(state, parent, systemd)
+            target = state / 'engine-release-requests' / '41349091113-1.legacy-checkpoint-intent'
+            target.symlink_to('/no-follow')
+            rows, _ = R.failed_custody_files(state, R.time.monotonic() + 3)
+            self.assertEqual(rows['checkpoint']['presence'], 'unknown')
+
+    def test_closed_decoder_refuses_unqualified_native_results_and_raw_body(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder); state = self.state(base / 'state')
+            with patch.object(R, 'failed_custody_canonical', return_value=self.canonical()):
+                answer = self.run_reader(state, base / 'missing', base / 'missing')
+            for mutate in (lambda v: v['records']['checkpoint'].update(body='private'),
+                           lambda v: v['units']['releaseService'].update(status='observed'),
+                           lambda v: v['runtime'].update(status='observed'),
+                           lambda v: v.update(sourceQualified=True)):
+                bad = copy.deepcopy(answer); mutate(bad)
+                with self.assertRaises(ValueError): R.validate_failed_custody_reply(bad, R.FAILED_CUSTODY_REQUEST)
 
 
 if __name__ == "__main__":
