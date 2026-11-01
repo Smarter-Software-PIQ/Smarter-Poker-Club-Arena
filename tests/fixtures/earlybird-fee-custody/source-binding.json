@@ -624,10 +624,16 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false
   },
-  "nativeAccountingRunnerContract20261101": {
-    "reason": "Four existing accounting runner assertions now require Ubuntu24.04 after the observed Ubuntu26.04 pg_net compilation failure; native commands, assertions, budgets and historical evidence are unchanged. 764 focused fixture and runner contracts passed.",
-    "path": "tests/unit/fixtureNativeCi.test.ts",
-    "previous_sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c",
-    "current_sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
+  "closureMainIntegration20261101": {
+    "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
+    "updatedCurrentInputs": [
+      "tests/unit/fixtureNativeCi.test.ts"
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "financialMainIntegration20261101": {
+    "reason": "Preserve both histories, existing qualified receipt parser and connected closure-native qualification. Current nested identities only.",
+    "historicalEvidenceRestamped": false
   }
 }

@@ -308,7 +308,15 @@ describe('a held satellite boundary finishes its already moved table break', () 
       const query: any = {
         select: () => query,
         eq: () => query,
-        in: async () => ({ data: [...f.global.keys()].map((key) => ({ id: key })), error: null }),
+        in: () => query,
+        order: () => query,
+        limit: () => query,
+        gt: () => query,
+        then: (resolve: any, reject: any) =>
+          Promise.resolve({
+            data: [...f.global.keys()].map((key) => ({ id: key })),
+            error: null,
+          }).then(resolve, reject),
       };
       vi.spyOn(supabase, 'from').mockReturnValue(query);
       f.manager.rememberTournamentBreak(f.state());
