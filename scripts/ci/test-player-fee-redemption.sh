@@ -6,7 +6,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PG_BIN="${PG_BIN:?Set PG_BIN to PostgreSQL 17 binaries}"
 WORK="$(mktemp -d "${FEE_REDEMPTION_SCRATCH:?Set an external SSD scratch path on macOS}/fee-redemption.XXXXXX")"
 FIXTURE="$ROOT/scripts/ci/fixtures/player-fee-redemption"
+restore_fixture_clock() {
+  if [ -f "$WORK/restore-now.sql" ]; then
+    "${PSQL[@]}" -f "$WORK/restore-now.sql"
+    rm "$WORK/restore-now.sql"
+  fi
+}
 cleanup() {
+  restore_fixture_clock || true
   "$PG_BIN/pg_ctl" -D "$WORK/data" -m immediate stop >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -36,6 +43,14 @@ SHARE=("$ROOT"/supabase/migrations/*_a_standing_rake_share_replaces_the_woowoo_c
 test "${#SHARE[@]}" = 1
 test -f "${OUT_OF_BAND[0]}"
 test -f "${SHARE[0]}"
+# Replay the historical cutover at its recorded day, not a drifting seven-day
+# boundary. This changes only this disposable database's zero-argument clock;
+# the original builtin definition is restored normally and by the EXIT trap.
+"${PSQL[@]}" -At -c "SELECT pg_get_functiondef('pg_catalog.now()'::regprocedure)" > "$WORK/restore-now.sql"
+"${PSQL[@]}" <<'FIXTURE_CLOCK'
+CREATE OR REPLACE FUNCTION pg_catalog.now() RETURNS timestamptz LANGUAGE sql STABLE PARALLEL SAFE AS $$ SELECT timestamptz '2026-10-25 12:00:00+00' $$;
+DO $$ BEGIN ASSERT now() = timestamptz '2026-10-25 12:00:00+00', 'historical fixture clock not installed'; END $$;
+FIXTURE_CLOCK
 "${PSQL[@]}" -f "$FIXTURE/rake-share-out-of-band.sql" -f "${OUT_OF_BAND[0]}" -f "$FIXTURE/rake-share-lag.sql"
 # The cron trails the hands: before the fix KingFish's statistics miss hand D.
 if "${PSQL[@]}" -c "DO \$\$ BEGIN ASSERT (ca_player_rake_stats('47965354-0e56-43ef-931c-ddaab82af765')->>'rake_paid')::numeric=576.77, 'share lags the hands'; END \$\$;" > "$WORK/share-before.log" 2>&1; then
@@ -45,6 +60,11 @@ fi
 grep -q 'share lags the hands' "$WORK/share-before.log"
 "${PSQL[@]}" -f "${SHARE[0]}" -f "$FIXTURE/rake-share-assert.sql"
 echo 'PASS: the standing rake share replaces the cron; exact, immediate, funded club, ended rule, grants, fixed events kept and no cron writes the redemptions'
+restore_fixture_clock
+"${PSQL[@]}" <<'RESTORED_CLOCK'
+DO $$ BEGIN ASSERT (SELECT l.lanname = 'internal' AND p.prosrc = 'now' FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang WHERE p.oid = 'pg_catalog.now()'::regprocedure), 'builtin clock not restored'; END $$;
+RESTORED_CLOCK
+
 
 # Rake uses the same viewer-calendar population as the Stats overview.
 CALENDAR="$ROOT/scripts/ci/fixtures/rake-calendar"
