@@ -605,6 +605,37 @@ test.describe('the mobile lobby chrome on production', () => {
     await page.evaluate(async () => {
       await document.fonts.ready;
     });
+    // Native body glass, including actual text ranges rather than wrapper boxes.
+    const bodyInkFits = (elements: Element[]) =>
+      elements
+        .flatMap((row) => {
+          const box = row.getBoundingClientRect();
+          const insetTop = box.top + box.width * 0.003;
+          const insetBottom = box.top + box.width * 0.102;
+          return [...row.querySelectorAll('td:first-child,td[data-label="Buy-In"]')].flatMap(
+            (cell) => {
+              const ink: DOMRect[] = [];
+              const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+              while (walker.nextNode()) {
+                const node = walker.currentNode;
+                const parent = node.parentElement;
+                if (
+                  !node.textContent?.trim() ||
+                  !parent ||
+                  parent.closest('.lt-fav,[aria-hidden="true"]') ||
+                  !parent.getBoundingClientRect().width ||
+                  getComputedStyle(parent).visibility === 'hidden'
+                )
+                  continue;
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                ink.push(...[...range.getClientRects()].filter((rect) => rect.width > 0));
+              }
+              return ink.map((rect) => rect.top >= insetTop - 1 && rect.bottom <= insetBottom + 1);
+            }
+          );
+        })
+        .every(Boolean);
     const appearance: unknown[] = [];
     for (const [family, tab, mode] of [
       ['ALL', 'PLO', 'cash'],
@@ -740,51 +771,18 @@ test.describe('the mobile lobby chrome on production', () => {
                 '[data-label="Buy-In"] .premium-cash-stakes-value'
               ) as HTMLElement | null;
               if (!value) return true;
-              return value.scrollWidth <= value.parentElement!.clientWidth + 1;
+              const well = value.parentElement!;
+              const valueBox = value.getBoundingClientRect();
+              const wellBox = well.getBoundingClientRect();
+              return (
+                value.scrollWidth <= well.clientWidth + 1 &&
+                Math.abs(valueBox.left + valueBox.width / 2 - wellBox.left - wellBox.width / 2) < 1
+              );
             })
           )
         )
         .toBe(true);
-      // The native lower glass runs y414..606 in the 1983px master,
-      // cropped at y407. Check actual ink, not just a wrapper's line box:
-      // run41279281355 passed the old font floor while copy painted on the rim.
-      await expect
-        .poll(() =>
-          currentRows.evaluateAll((elements) =>
-            elements
-              .flatMap((row) => {
-                const box = row.getBoundingClientRect();
-                const insetTop = box.top + box.width * 0.003;
-                const insetBottom = box.top + box.width * 0.102;
-                return [...row.querySelectorAll('td:first-child,td[data-label="Buy-In"]')].flatMap(
-                  (cell) => {
-                    const ink: DOMRect[] = [];
-                    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
-                    while (walker.nextNode()) {
-                      const node = walker.currentNode;
-                      const parent = node.parentElement;
-                      if (
-                        !node.textContent?.trim() ||
-                        !parent ||
-                        parent.closest('.lt-fav,[aria-hidden="true"]') ||
-                        !parent.getBoundingClientRect().width ||
-                        getComputedStyle(parent).visibility === 'hidden'
-                      )
-                        continue;
-                      const range = document.createRange();
-                      range.selectNodeContents(node);
-                      ink.push(...[...range.getClientRects()].filter((rect) => rect.width > 0));
-                    }
-                    return ink.map(
-                      (rect) => rect.top >= insetTop - 1 && rect.bottom <= insetBottom + 1
-                    );
-                  }
-                );
-              })
-              .every(Boolean)
-          )
-        )
-        .toBe(true);
+      await expect.poll(() => currentRows.evaluateAll(bodyInkFits)).toBe(true);
       appearance.push({ mode, ...paint });
       await sampleRow.scrollIntoViewIfNeeded();
       await expect(sampleRow).toBeInViewport();
@@ -793,6 +791,27 @@ test.describe('the mobile lobby chrome on production', () => {
         body: await page.screenshot(),
         contentType: 'image/png',
       });
+      if (mode === 'cash') {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        const wideCashRows = page.locator(
+          '.lobby-table [data-testid="lobby-game-row"][data-kind="cash"][data-id]:visible'
+        );
+        await expect(wideCashRows.first()).toBeVisible();
+        await expect.poll(() => wideCashRows.evaluateAll(bodyInkFits)).toBe(true);
+        expect(
+          await wideCashRows
+            .locator('.premium-cash-style')
+            .evaluateAll((elements) =>
+              elements.every((element) => parseFloat(getComputedStyle(element).fontSize) >= 12)
+            )
+        ).toBe(true);
+        await heading.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+        await testInfo.attach('chrome-arena-cash-wide.png', {
+          body: await page.screenshot(),
+          contentType: 'image/png',
+        });
+        await page.setViewportSize({ width: 390, height: 844 });
+      }
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     const wideHeading = page.locator('.lobby-table tr[data-game-heading]').first();

@@ -215,6 +215,7 @@
 }
 .has-premium-chassis tbody tr[data-id] > td.lt-col-name,
 .compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child {
+  position: static;
   display: flex;
   grid-column: 1;
   grid-row: 1;
@@ -418,6 +419,7 @@
   display: block;
   width: max-content;
   max-width: none;
+  margin-inline: auto;
   font-size: calc(clamp(12px, 4cqw, 28px) * var(--fit, 1));
   line-height: 1.05;
   white-space: nowrap;
@@ -648,6 +650,10 @@
   inset: 0.4cqw auto 1.6cqw 6cqw;
   width: 23.5%;
   justify-content: center;
+}
+.has-premium-chassis tbody tr[data-id] .lt-name--seatfirst {
+  width: 100%;
+  align-items: center;
 }
 .has-premium-chassis tbody tr[data-id] .lt-name--seatfirst,
 .compact-lobby.has-premium-chassis tbody tr[data-kind='sng'] .compact-lobby__open,
