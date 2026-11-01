@@ -28,6 +28,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { functionBody } from '../helpers/migrations';
 
 const rpc = vi.hoisted(() => ({
   calls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
@@ -120,19 +121,43 @@ for (const m of SQL.matchAll(
 }
 
 /** Every code the migrations can hand back as `error` (or as a renewal reason). */
+function commerceRefusalSql(sql: string): string {
+  // An ordinary tournament can CALL commerce admission without making its
+  // scheduling validation errors part of the commerce page's response contract.
+  // Keep all files for signature/ACL checks, but read refusals from the actual
+  // commerce authorities, including mixed-domain migrations.
+  const names = new Set(
+    [
+      ...sql.matchAll(
+        /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.(fn_ca_commerce_\w+)\s*\(/gi
+      ),
+    ].map((match) => match[1])
+  );
+  const authorities = [...names].map((name) => functionBody(sql, name));
+  // Admission is injected into other product doors too. Its refusal branch
+  // belongs to commerce; those doors' independent payload errors do not.
+  const admissions = [
+    ...sql.matchAll(
+      /\bIF\s+NOT\s+COALESCE\(\(v_ca_admission->>'allowed'\)::boolean,\s*true\)\s+THEN[\s\S]*?END IF;/g
+    ),
+  ].map((match) => match[0]);
+  return [...authorities, ...admissions].join('\n');
+}
+
 function refusalCodes(): Set<string> {
   const codes = new Set<string>();
+  const refusalSql = SQL_BY_FILE.map(commerceRefusalSql).join('\n');
   // Literal refusals. The lookbehind skips `v_x->>'error', 'unknown'` inside a
   // COALESCE, which reads a field rather than returning a code.
-  for (const m of SQL.matchAll(/(?<!->>)'error',\s*'([a-z_]+)'/g)) {
+  for (const m of refusalSql.matchAll(/(?<!->>)'error',\s*'([a-z_]+)'/g)) {
     if (m[1] !== 'mandate_') codes.add(m[1]);
   }
   // Exceptions the boundaries lower: 'CA_COMMERCE_X' -> 'x'.
-  expect(SQL).toMatch(/lower\(replace\(SQLERRM, 'CA_COMMERCE_', ''\)\)/);
-  for (const m of SQL.matchAll(/RAISE EXCEPTION 'CA_COMMERCE_([A-Z_]+)'/g))
+  expect(refusalSql).toMatch(/lower\(replace\(SQLERRM, 'CA_COMMERCE_', ''\)\)/);
+  for (const m of refusalSql.matchAll(/RAISE EXCEPTION 'CA_COMMERCE_([A-Z_]+)'/g))
     codes.add(m[1].toLowerCase());
   // 'mandate_' || v_m.state for every non-authorized mandate state.
-  if (/'error',\s*'mandate_'\s*\|\|\s*v_m\.state/.test(SQL)) {
+  if (/'error',\s*'mandate_'\s*\|\|\s*v_m\.state/.test(refusalSql)) {
     const check = SQL.match(
       /CREATE TABLE public\.ca_commerce_renewal_mandates[\s\S]*?state text[^\n]*CHECK \(state IN \(([^)]*)\)\)/
     );
@@ -141,8 +166,10 @@ function refusalCodes(): Set<string> {
       if (s[1] !== 'authorized') codes.add(`mandate_${s[1]}`);
   }
   // Renewal outcomes: the reason a mandate needs attention, shown on the page.
-  for (const m of SQL.matchAll(/'needs_attention',\s*'reason',\s*'([a-z_]+)'/g)) codes.add(m[1]);
-  for (const m of SQL.matchAll(/COALESCE\(v_\w+->>'error',\s*'([a-z_]+)'\)/g)) codes.add(m[1]);
+  for (const m of refusalSql.matchAll(/'needs_attention',\s*'reason',\s*'([a-z_]+)'/g))
+    codes.add(m[1]);
+  for (const m of refusalSql.matchAll(/COALESCE\(v_\w+->>'error',\s*'([a-z_]+)'\)/g))
+    codes.add(m[1]);
   return codes;
 }
 
@@ -344,6 +371,30 @@ describe('ClubCommerceService: every RPC matches the migration signature', () =>
 });
 
 describe('REFUSAL_COPY: every code the migration can return has operator copy', () => {
+  it('keeps commerce refusal coverage when a mixed migration also defines a scheduling caller', () => {
+    const mixed = `
+CREATE FUNCTION public.fn_ca_commerce_example() RETURNS jsonb LANGUAGE sql AS $commerce$
+ SELECT jsonb_build_object('error', 'commerce_refusal');
+$commerce$;
+CREATE FUNCTION public.fn_upsert_tournament_schedule() RETURNS jsonb LANGUAGE plpgsql AS $schedule$
+BEGIN
+ PERFORM public.fn_ca_commerce_example();
+ IF NOT COALESCE((v_ca_admission->>'allowed')::boolean, true) THEN
+   RETURN jsonb_build_object('error', 'operating_access_required');
+ END IF;
+ RETURN jsonb_build_object('error', 'schedule_refusal');
+END
+$schedule$;`;
+    const scoped = commerceRefusalSql(mixed);
+    expect(scoped).toContain("'commerce_refusal'");
+    expect(scoped).not.toContain("'schedule_refusal'");
+    const caller = commerceRefusalSql(
+      mixed.slice(mixed.indexOf('CREATE FUNCTION public.fn_upsert'))
+    );
+    expect(caller).toContain("'operating_access_required'");
+    expect(caller).not.toContain("'schedule_refusal'");
+  });
+
   const codes = refusalCodes();
 
   it('finds the refusal codes it guards', () => {

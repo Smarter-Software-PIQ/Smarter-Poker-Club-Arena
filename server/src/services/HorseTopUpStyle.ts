@@ -1,5 +1,11 @@
 /**
- * How a horse refills its stack at a PLO5 cash table.
+ * How a horse refills its stack at a cash table.
+ *
+ * Owner October 31, 2026: every horse at 1/2 buys/reloads to the table maximum
+ * at each legal hand boundary. This later stake-specific direction supersedes
+ * the PLO5 30/70 habit and discretionary bankroll preferences at 1/2 only.
+ * Actual wallet funds, table limits and ordinary idempotent funding still apply.
+ * The original behaviour below remains the default at every other stake.
  *
  * Dan 2026-10-24: "70% OF HORSES SHOULD BE ADDING ON IN THE PLO5 GAME. 30%
  * SHOULD BE ON 'AUTO TOP UP'."
@@ -45,6 +51,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { isMaximumHorseCashStake } from './HorseBehavior.js';
 import { bankrollPolicyFor, referenceBuyIn, topUpAllowance } from './HorseBankroll.js';
 
 export type HorseTopUpStyle = 'auto_top_up' | 'add_on';
@@ -74,7 +81,12 @@ export function horseCashTopUpStyle(userId: string, variant: unknown): HorseTopU
 }
 
 /** Should this horse sit down with the seat's Auto Top Up flag on? */
-export function horseSitsWithAutoTopUp(userId: string, variant: unknown): boolean {
+export function horseSitsWithAutoTopUp(
+  userId: string,
+  variant: unknown,
+  stake?: { small_blind?: unknown; big_blind?: unknown }
+): boolean {
+  if (userId && isMaximumHorseCashStake(stake)) return true;
   return horseCashTopUpStyle(userId, variant) === 'auto_top_up';
 }
 
@@ -90,9 +102,16 @@ export function horseAutoTopUpWanted(input: {
   maxBuyIn: number;
   /** The persisted seat choice takes precedence over the initial hash. */
   autoTopUp?: boolean;
+  smallBlind?: unknown;
+  bigBlind?: unknown;
 }): number {
-  if (!isPlo5Variant(input.variant) || !input.userId) return 0;
-  const enabled = input.autoTopUp ?? horseSitsWithAutoTopUp(input.userId, input.variant);
+  const maximumCash = isMaximumHorseCashStake({
+    small_blind: input.smallBlind,
+    big_blind: input.bigBlind,
+  });
+  if ((!isPlo5Variant(input.variant) && !maximumCash) || !input.userId) return 0;
+  const enabled =
+    maximumCash || (input.autoTopUp ?? horseSitsWithAutoTopUp(input.userId, input.variant));
   if (!enabled) return 0;
   const stack = Number(input.stack);
   const max = Number(input.maxBuyIn);
@@ -121,12 +140,29 @@ export function cappedAutoTopUp(args: {
   wallet: number | undefined;
   investedThisTable: number | undefined;
   bigBlind: number;
+  smallBlind?: unknown;
   minBuyIn: number;
   maxBuyIn: number;
 }): number {
   const { wanted, wallet, investedThisTable } = args;
   if (!(wanted > 0)) return 0;
   if (wallet === undefined || !Number.isFinite(wallet) || wallet <= 0) return 0;
+  if (isMaximumHorseCashStake({ small_blind: args.smallBlind, big_blind: args.bigBlind })) {
+    // The later owner order replaces discretionary exposure, reserve, stop-loss
+    // and sliver preferences at this stake, not actual wallet or table limits.
+    const max = Number(args.maxBuyIn);
+    const cents = Math.round(wanted * 100);
+    if (
+      !Number.isFinite(max) ||
+      max <= 0 ||
+      wanted > max ||
+      wallet < wanted ||
+      !Number.isSafeInteger(cents) ||
+      Math.abs(wanted - cents / 100) > 1e-9
+    )
+      return 0;
+    return cents / 100;
+  }
   if (
     investedThisTable === undefined ||
     !Number.isFinite(investedThisTable) ||

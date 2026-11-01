@@ -1,3 +1,4 @@
+import { isMaximumHorseCashStake } from '../HorseBehavior.js';
 /**
  * Supabase helpers — player/horse wallet funding (rebuys and top-ups).
  *
@@ -207,7 +208,8 @@ export interface HorseTopUpContext {
 }
 
 /**
- * Plan across the whole Classic PLO5 cash game, then apply only this table's
+ * Plan across the whole Classic cash game (PLO5 quota or all 1/2 horses),
+ * then apply only this table's
  * choices at its own hand boundary. Per-table rounding can turn 30% into 40%
  * across a game of short tables. Funding and immutable seat writes stay local;
  * no human preference moves. Bounded keyset pages never silently truncate the
@@ -217,7 +219,8 @@ export async function readHorseTopUpBatch(
   tableId: string,
   canMutate: () => boolean,
   maxBuyIn: number,
-  clusterId?: string | null
+  clusterId?: string | null,
+  maximumCash = false
 ): Promise<Map<string, HorseTopUpContext> | null> {
   if (!tableId || !canMutate() || isMaintenanceFrozen()) return null;
   try {
@@ -233,6 +236,8 @@ export async function readHorseTopUpBatch(
       table?: {
         cluster_id: string | null;
         game_variant: unknown;
+        small_blind?: unknown;
+        big_blind?: unknown;
         tournament_id: string | null;
         is_deleted: boolean | null;
         arena: { asset: string } | null;
@@ -247,8 +252,8 @@ export async function readHorseTopUpBatch(
         .from('table_seats')
         .select(
           'id,table_id,user_id,club_id,stack,auto_rebuy,is_sitting_out,leave_pending,profile:profiles!fk_table_seats_user_id_profiles!inner(is_horse)' +
-            (clusterId
-              ? ',table:tables!table_seats_table_id_fkey!inner(cluster_id,game_variant,tournament_id,is_deleted,arena:clubs!fk_tables_club_id!inner(asset),cluster:cash_games!cluster_id(lightning_enabled))'
+            (clusterId || maximumCash
+              ? ',table:tables!table_seats_table_id_fkey!inner(cluster_id,game_variant,small_blind,big_blind,tournament_id,is_deleted,arena:clubs!fk_tables_club_id!inner(asset),cluster:cash_games!cluster_id(lightning_enabled))'
               : '')
         )
         .is('left_at', null)
@@ -270,6 +275,7 @@ export async function readHorseTopUpBatch(
     }
     if (!complete) return null;
     if (
+      !maximumCash &&
       clusterId &&
       allSeats.some(
         (seat) =>
@@ -281,10 +287,32 @@ export async function readHorseTopUpBatch(
       )
     )
       return null;
+    if (
+      maximumCash &&
+      allSeats
+        .filter((seat) => seat.table_id === tableId)
+        .some(
+          (seat) =>
+            !seat.table ||
+            !isMaximumHorseCashStake(seat.table) ||
+            seat.table.tournament_id !== null ||
+            seat.table.is_deleted === true ||
+            !seat.table.arena ||
+            seat.table.arena.asset === 'diamonds' ||
+            (seat.table.cluster_id && seat.table.cluster?.lightning_enabled !== false)
+        )
+    )
+      return null;
     const cohort = clusterId
       ? allSeats.filter(
           (seat) =>
-            isPlo5Variant(seat.table!.game_variant) &&
+            (maximumCash
+              ? isMaximumHorseCashStake(seat.table) &&
+                !!seat.table?.arena &&
+                typeof seat.table.arena.asset === 'string' &&
+                seat.table.cluster_id === clusterId &&
+                seat.table.cluster?.lightning_enabled === false
+              : isPlo5Variant(seat.table!.game_variant)) &&
             seat.table!.tournament_id === null &&
             seat.table!.is_deleted !== true &&
             seat.table!.arena!.asset !== 'diamonds'
@@ -293,9 +321,11 @@ export async function readHorseTopUpBatch(
     const seats = cohort.filter((seat) => seat.table_id === tableId);
     const out = new Map<string, HorseTopUpContext>();
     if (!seats.length) return out;
-    const chosen = balancedHorseAutoTopUps(
-      cohort.map((seat) => ({ userId: seat.user_id, autoTopUp: seat.auto_rebuy === true }))
-    );
+    const chosen = maximumCash
+      ? new Set(cohort.map((seat) => seat.user_id))
+      : balancedHorseAutoTopUps(
+          cohort.map((seat) => ({ userId: seat.user_id, autoTopUp: seat.auto_rebuy === true }))
+        );
     for (const enabled of [false, true]) {
       const ids = seats
         .filter((s) => chosen.has(s.user_id) === enabled && (s.auto_rebuy === true) !== enabled)
@@ -338,13 +368,15 @@ export async function readHorseTopUpBatch(
     const userIds = seats.map((s) => s.user_id);
     const clubs = [...new Set(seats.map((s) => s.club_id).filter((id): id is string => !!id))];
     const [sessions, wallets] = await Promise.all([
-      supabase
-        .from('cash_player_session')
-        .select('player_id,baseline')
-        .eq('table_id', tableId)
-        .in('player_id', userIds)
-        .is('closed_at', null)
-        .order('opened_at', { ascending: false }),
+      maximumCash
+        ? Promise.resolve({ data: [], error: null })
+        : supabase
+            .from('cash_player_session')
+            .select('player_id,baseline')
+            .eq('table_id', tableId)
+            .in('player_id', userIds)
+            .is('closed_at', null)
+            .order('opened_at', { ascending: false }),
       clubs.length
         ? supabase
             .from('club_members')

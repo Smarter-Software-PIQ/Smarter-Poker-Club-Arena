@@ -32,7 +32,9 @@ BEGIN
  FOR start_at,end_at IN VALUES
  ('2026-03-08 00:00 America/Chicago'::timestamptz,'2026-03-09 00:00 America/Chicago'::timestamptz),
  ('2026-11-01 00:00 America/Chicago'::timestamptz,'2026-11-02 00:00 America/Chicago'::timestamptz),
- ('2026-10-26 00:00 America/Chicago'::timestamptz,'2026-11-01 00:00 America/Chicago'::timestamptz)
+ ('2026-10-26 00:00 America/Chicago'::timestamptz,'2026-11-01 00:00 America/Chicago'::timestamptz),
+ -- Always exercise overlap with the later wallet assertion's current window.
+ (now()-interval '1 hour',now())
  LOOP
   DELETE FROM bbj_payout_recipients WHERE user_id=u;
   FOR r IN SELECT * FROM (VALUES(start_at-interval '1 microsecond',100::numeric),(start_at,11),(end_at-interval '1 microsecond',22),(end_at,1000)) x(at,amount) LOOP
@@ -53,6 +55,9 @@ BEGIN
  END LOOP;
 END $$;
 -- The actual credit owner, with real unique claims and transactional seat writes.
+-- Boundary probes above can overlap the wall-clock window below (for example
+-- midnight on November 1). Keep their synthetic awards out of the credit test.
+DELETE FROM bbj_payout_recipients WHERE user_id='20000000-0000-0000-0000-000000000001';
 SET ROLE postgres;
 LISTEN jackpot_fixture_committed;
 BEGIN;

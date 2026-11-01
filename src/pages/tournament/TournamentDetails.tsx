@@ -6,6 +6,7 @@ import type { FollowTournamentPlayer } from '../../utils/followTournamentPlayer'
 import { useSatelliteAwards } from '../../components/tournament/details/useSatelliteAwards';
 import { satelliteStartsWhenFull } from '../../utils/satelliteQualification';
 import { readTournamentStandings } from '../../services/readTournamentStandings';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import {
   tournamentEntryWindow,
   tournamentEntryWindowOpen,
@@ -1061,15 +1062,18 @@ export default function TournamentDetails({
       return owner.inFlight;
     }
     const callerIsMounted = getIsMounted;
-    getIsMounted = () => isOwner() && !owner.pending && (!callerIsMounted || callerIsMounted());
+    // A queued refresh requests a newer read; it does not retire this owner.
+    getIsMounted = () => isOwner() && (!callerIsMounted || callerIsMounted());
+    if (!opts?.quiet && !owner.hasSnapshot && getIsMounted()) setIsLoading(true);
     const readSnapshot = async () => {
       let complete = true;
       owner.tournamentPatches = [];
       owner.entryPatches = null;
       owner.tablePatches = null;
-      if (!opts?.quiet && (!getIsMounted || getIsMounted())) setIsLoading(true);
       try {
-        const result = await tournamentService.getTournament(tournamentId, { throwOnError: true });
+        const result = await runWithRequestDeadline((signal) =>
+          tournamentService.getTournament(tournamentId, { throwOnError: true, signal })
+        );
         if (getIsMounted && !getIsMounted()) return;
         const data = owner.tournamentPatches.reduce((previous, patch) => patch(previous), result);
         owner.tournamentPatches = null;
@@ -1173,31 +1177,38 @@ export default function TournamentDetails({
            Tables tab on an event that is visibly dealing. The footer already
            uses `isWatchable` for exactly this reason; the query it depends on
            did not. */
-          if (data.status === 'RUNNING' || isLateStatus(data.status)) {
+          if (
+            data.status === 'RUNNING' ||
+            isLateStatus(data.status) ||
+            (data.status === 'REGISTERING' && isSeatFirstTournamentFormat(data))
+          ) {
             owner.tablePatches = [];
-            const { data: tablesData, error: tablesErr } = await supabase
-              .from('tables')
-              .select('id, name, status, max_players, current_players, small_blind, big_blind')
-              .eq('tournament_id', data.id)
-              /**
-               * SOFT-DELETED TABLES ARE NOT WATCHABLE (added 2026-08-26).
-               *
-               * This query feeds BOTH `featuredTableId` and TablesTab, so a
-               * deleted row could win the busiest-table sort and the WATCH button
-               * — and the `?watch=1` intent — would open a felt that no longer
-               * exists. `featuredTableId`'s `status !== 'closed'` guard does not
-               * exclude it: a soft-deleted table very often still reads
-               * `status = 'running'`. TournamentPage was fixed for exactly this
-               * on 2026-08-25; the details page, which is where Dan's WATCH
-               * button actually lives, was not.
-               *
-               * `.not(..., 'is', true)` rather than `.eq(..., false)` because the
-               * column is NULLABLE — verified against production, where the split
-               * is 81,352 false / 43 true / 0 null but the schema still permits
-               * null, and `.eq(false)` would silently drop any row that acquires
-               * one.
-               */
-              .not('is_deleted', 'is', true);
+            const { data: tablesData, error: tablesErr } = await runWithRequestDeadline((signal) =>
+              supabase
+                .from('tables')
+                .select('id, name, status, max_players, current_players, small_blind, big_blind')
+                .eq('tournament_id', data.id)
+                /**
+                 * SOFT-DELETED TABLES ARE NOT WATCHABLE (added 2026-08-26).
+                 *
+                 * This query feeds BOTH `featuredTableId` and TablesTab, so a
+                 * deleted row could win the busiest-table sort and the WATCH button
+                 * — and the `?watch=1` intent — would open a felt that no longer
+                 * exists. `featuredTableId`'s `status !== 'closed'` guard does not
+                 * exclude it: a soft-deleted table very often still reads
+                 * `status = 'running'`. TournamentPage was fixed for exactly this
+                 * on 2026-08-25; the details page, which is where Dan's WATCH
+                 * button actually lives, was not.
+                 *
+                 * `.not(..., 'is', true)` rather than `.eq(..., false)` because the
+                 * column is NULLABLE — verified against production, where the split
+                 * is 81,352 false / 43 true / 0 null but the schema still permits
+                 * null, and `.eq(false)` would silently drop any row that acquires
+                 * one.
+                 */
+                .not('is_deleted', 'is', true)
+                .abortSignal(signal)
+            );
             // A failed read used to be indistinguishable from "no tables": the
             // error was destructured away, `tablesData` came back null, and the
             // page showed an empty Tables tab and no WATCH button as though the

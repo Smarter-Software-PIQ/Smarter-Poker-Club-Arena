@@ -59,12 +59,23 @@ describe('the real settlement top-up boundary', () => {
     );
     calls.fund.mockReset().mockResolvedValue({ status: 'funded', stack: 200 });
   });
+  it('does not read horse preferences or fund human-only 1/2 tables', async () => {
+    const e = engine();
+    Object.assign(e.tableInfo, { small_blind: 1, big_blind: 2, game_variant: 'nlh' });
+    await run(
+      e,
+      players().map((player) => ({ ...player, is_horse: false }))
+    );
+    expect(calls.batch).not.toHaveBeenCalled();
+    expect(calls.fund).not.toHaveBeenCalled();
+    expect(e.hub.emitEvent).not.toHaveBeenCalled();
+  });
   it('uses one shared context and emits both simultaneous purchases with authoritative stacks', async () => {
     const e = engine();
     const p = players();
     await run(e, p);
     expect(calls.batch).toHaveBeenCalledTimes(1);
-    expect(calls.batch).toHaveBeenCalledWith('table', expect.any(Function), 200, 'game');
+    expect(calls.batch).toHaveBeenCalledWith('table', expect.any(Function), 200, 'game', false);
     expect(calls.fund.mock.calls.map((c) => c.slice(0, 6))).toEqual([
       ['table', 'horse-0', 100, 'club', 91, 'topup'],
       ['table', 'horse-1', 100, 'club', 91, 'topup'],
@@ -116,4 +127,34 @@ describe('the real settlement top-up boundary', () => {
     expect(calls.batch).not.toHaveBeenCalled();
     expect(calls.fund).not.toHaveBeenCalled();
   });
+});
+
+describe('maximum 1/2 purchases use the existing hand boundary', () => {
+  it.each(['nlh', 'plo4', 'plo5', 'plo6', 'plo8'])(
+    '%s tops 250 to 400 once, then a full stack buys nothing',
+    async (variant) => {
+      const e = engine();
+      Object.assign(e.tableInfo, {
+        game_variant: variant,
+        small_blind: 1,
+        big_blind: 2,
+        min_buy_in: 200,
+        max_buy_in: 400,
+      });
+      e.getMaxBuyIn = () => 400;
+      const p = players().slice(0, 1);
+      p[0].stack = 250;
+      calls.batch.mockResolvedValue(
+        new Map([['horse-0', { ...context, wallet: 400, invested: 100000 }]])
+      );
+      calls.fund.mockClear().mockResolvedValue({ status: 'funded', stack: 400 });
+      await run(e, p);
+      await run(e, p);
+      expect(calls.batch).toHaveBeenCalledWith('table', expect.any(Function), 400, 'game', true);
+      expect(calls.fund).toHaveBeenCalledTimes(1);
+      expect(calls.fund).toHaveBeenCalledWith('table', 'horse-0', 150, 'club', 91, 'topup');
+      expect(p[0].stack).toBe(400);
+      expect(e.hub.emitEvent).toHaveBeenCalledTimes(1);
+    }
+  );
 });
