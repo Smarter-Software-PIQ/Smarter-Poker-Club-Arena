@@ -200,7 +200,7 @@ describe('natural horse social evidence', () => {
   it('the actual admission shell refuses mixed, unpinned and non-boolean observations', () => {
     const workflow = readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8');
     const block = workflow
-      .split('          if [ "$EVENT_NAME" = repository_dispatch ]; then\n')[1]
+      .split('            # One explicitly requested natural observation per fixture budget.\n')[1]
       ?.split('            if node -e')[0];
     expect(block).toContain('Horse social proof requires literal true');
     const admit = (overrides: Record<string, string>) =>

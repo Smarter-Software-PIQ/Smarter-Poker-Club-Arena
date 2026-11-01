@@ -64,6 +64,8 @@ python3() {{
   CHECKPOINT_DEADLINE_MS="$2"
   CHECKPOINT_BREAK_END_EPOCH="$3"
   LEGACY_SHA=8825af51817f379c4261658ca29ecc9d8d81932d
+  CHECKPOINT_ALLOCATION_MS=40000
+  CHECKPOINT_POST_RESERVE_MS=245000
   checkpoint_entry_read() {{ "$@"; }}
   defer() {{ event PHYSICAL_REFUSED; exit 75; }}
   {PHYSICAL}
@@ -146,7 +148,7 @@ class ClockTests(unittest.TestCase):
                 value = json.loads(json.dumps(health)); value['maintenance']['remainingMs'] = remaining
                 bootstrap = 'import sys,time;time.time=lambda:120;program=sys.argv.pop(1);exec(program)'
                 result = NATIVE_RUN([sys.executable, '-c', bootstrap, program,
-                                    health['releaseSha'], str(deadline), str(end)],
+                                    health['releaseSha'], str(deadline), str(end), '40000', '245000'],
                                    input=json.dumps(value), text=True, capture_output=True, timeout=3)
                 self.assertEqual(result.returncode, expected, result.stderr)
 

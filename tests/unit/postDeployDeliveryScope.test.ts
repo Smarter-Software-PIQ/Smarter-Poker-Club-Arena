@@ -215,7 +215,7 @@ describe('post-publication verification belongs to its delivered component', () 
   it('gives the client its own result without an engine or live-table prerequisite', () => {
     expect(client.needs).toEqual(['publication-gate', 'certification-cleanup-safety']);
     expect(client.if).toBe(
-      "needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true'"
+      "needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true'"
     );
     expect(JSON.stringify(client)).not.toMatch(
       /EXPECTED_ENGINE_SHA|engine-ready|ENGINE_TRIGGER_SHA|live-table-realtime/
@@ -493,4 +493,184 @@ describe('post-publication verification belongs to its delivered component', () 
       rmSync(cwd, { recursive: true, force: true });
     }
   });
+});
+
+describe('one scoped natural board proof keeps its own finite account and verdict', () => {
+  it.each([
+    [{ natural_board_reveal: true }, true],
+    [{ natural_board_reveal: 'true' }, false],
+    [{ natural_board_reveal: false }, false],
+    [{ natural_board_reveal: true, engine_sha: 'a'.repeat(40) }, false],
+    [{ natural_board_reveal: true, mobile_multirun: true }, false],
+    [{ natural_board_reveal: true, tournament_only: true }, false],
+    [{ natural_board_reveal: true, client_navigation: true }, false],
+    [{ natural_board_reveal: true, natural_addon_tournament_id: 'x' }, false],
+  ])('runs strict actual dispatch admission for %j', (payload, allowed) => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ca-natural-board-admission-'));
+    try {
+      const output = join(cwd, 'output');
+      const result = spawnSync('bash', ['-c', originGate.run], {
+        cwd,
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          ...process.env,
+          EVENT_NAME: 'repository_dispatch',
+          EVENT_ACTION: 'run-post-deploy-e2e',
+          CLIENT_NAVIGATION_PAYLOAD: JSON.stringify(payload),
+          GITHUB_OUTPUT: output,
+        },
+      });
+      expect(result.status, result.stderr).toBe(allowed ? 0 : 1);
+      if (allowed) expect(readFileSync(output, 'utf8')).toContain('natural_board_reveal=true');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the validated actual client source, an exclusive noncancelling lane, one case and existing cleanup', () => {
+    const source = workflow.jobs['publication-gate'].steps.find(
+      (step: any) => step.id === 'board-client'
+    );
+    expect(source.run).toContain('publisher-artifact');
+    expect(source.run).toContain('git merge-base --is-ancestor "$LIVE" origin/main');
+    expect(source.run).toContain(
+      'git cat-file -e "$LIVE:tests/e2e/production-natural-board-reveal.spec.ts"'
+    );
+    expect(engine.steps.find((step: any) => step.name === 'Checkout').with.ref).toContain(
+      'client_target_sha'
+    );
+    expect(engine.steps.find((step: any) => step.id === 'align').run).toContain(
+      'test "$LIVE" = "$HERE"'
+    );
+    expect(engine.concurrency['cancel-in-progress']).toBe(false);
+    expect(engine.concurrency.group).toContain('post-deploy-live-table-natural-board-production');
+    const proof = engine.steps.find((step: any) => step.id === 'natural_board_reveal');
+    expect(proof['timeout-minutes']).toBe(5);
+    expect(proof.run).toContain('production-natural-board-reveal.spec.ts');
+    expect(proof.run).toContain('--project=chromium');
+    expect(proof.run).toContain('--workers=1 --retries=0');
+    for (const id of ['continuity', 'seat_move_notice', 'live_coverage'])
+      expect(engine.steps.find((step: any) => step.id === id).if).toContain(
+        "natural_board_reveal != 'true'"
+      );
+    expect(client.if).toContain("natural_board_reveal != 'true'");
+    expect(workflow.jobs['post-deploy-verdict'].if).toContain("natural_board_reveal != 'true'");
+    expect(
+      readFileSync(join(root, 'tests/e2e/production-natural-board-reveal.spec.ts'), 'utf8')
+    ).toContain('started + 165_000');
+    const cleanup = engine.steps.find((step: any) => step.id === 'tournament_account_cleanup');
+    expect(cleanup.if).toContain('always()');
+    expect(cleanup.run).toBe('node scripts/ci/production-e2e-account.mjs cleanup');
+    const consumer = engine.steps.find(
+      (step: any) => step.name === 'Require the scoped natural-board receipt and isolated cleanup'
+    );
+    expect(consumer.if).toContain('always()');
+    expect(consumer.run).toContain('test "$CLEANUP_OUTCOME" = success');
+    expect(engine.steps.find((step: any) => step.id === 'release_window').run).toContain(
+      'Scoped natural board evidence only; no full live release certificate.'
+    );
+  });
+
+  it('executes the exact publisher-origin guard and refuses foreign, failed or incomplete evidence', () => {
+    const step = workflow.jobs['publication-gate'].steps.find(
+      (entry: any) => entry.id === 'board-client'
+    );
+    const body = step.run.match(
+      /node --input-type=module - "\$RUNNER_TEMP\/board-publisher-jobs.json" <<'JS'\n([\s\S]*?)\nJS/
+    )[1];
+    const good = {
+      name: 'client-publication / production / publish-to-origin',
+      status: 'completed',
+      conclusion: 'success',
+      steps: [
+        {
+          name: 'Verify the origin serves this bundle',
+          status: 'completed',
+          conclusion: 'success',
+        },
+      ],
+    };
+    const cases = [
+      { payload: { total_count: 1, jobs: [good] }, passed: true },
+      {
+        payload: { total_count: 1, jobs: [{ ...good, name: 'foreign / publish-to-origin' }] },
+        passed: false,
+      },
+      { payload: { total_count: 1, jobs: [{ ...good, conclusion: 'failure' }] }, passed: false },
+      {
+        payload: {
+          total_count: 1,
+          jobs: [{ ...good, steps: [{ ...good.steps[0], conclusion: 'skipped' }] }],
+        },
+        passed: false,
+      },
+      { payload: { total_count: 2, jobs: [good, good] }, passed: false },
+      { payload: { total_count: 2, jobs: [good] }, passed: false },
+    ];
+    const folder = mkdtempSync(join(tmpdir(), 'ca-board-publisher-guard-'));
+    try {
+      const path = join(folder, 'jobs.json');
+      for (const { payload, passed } of cases) {
+        writeFileSync(path, JSON.stringify(payload));
+        const result = spawnSync(process.execPath, ['--input-type=module', '-', path], {
+          cwd: root,
+          input: body,
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        expect(result.status, result.stderr).toBe(passed ? 0 : 1);
+      }
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['qualified', 'unknown', 'violation', 'changed-instance', 'cleanup-failed'])(
+    'executes the scoped receipt consumer for %s',
+    (mode) => {
+      const cwd = mkdtempSync(join(tmpdir(), 'ca-natural-board-receipt-'));
+      try {
+        mkdirSync(join(cwd, 'e2e-report'));
+        const identity = {
+          clientSHA: 'a'.repeat(40),
+          engineSHA: 'b'.repeat(40),
+          instance: '1-1234abcd',
+        };
+        const receipt = {
+          kind: 'scoped-natural-board-live/v1',
+          verdict: mode === 'unknown' || mode === 'violation' ? mode : 'qualified',
+          reveal: { verdict: 'qualified' },
+          fullReleaseCertificate: false,
+          productionParticipation: false,
+          interrupted: false,
+          sourceSHA: identity.clientSHA,
+          before: identity,
+          after: mode === 'changed-instance' ? { ...identity, instance: '1-00000000' } : identity,
+          refusedParticipation: [],
+        };
+        writeFileSync(join(cwd, 'e2e-report/natural-board-receipt.json'), JSON.stringify(receipt));
+        const consumer = engine.steps.find(
+          (step: any) =>
+            step.name === 'Require the scoped natural-board receipt and isolated cleanup'
+        );
+        const result = spawnSync('bash', ['-c', consumer.run], {
+          cwd,
+          encoding: 'utf8',
+          timeout: 10_000,
+          env: {
+            ...process.env,
+            CASE_OUTCOME: 'success',
+            CLEANUP_OUTCOME: mode === 'cleanup-failed' ? 'failure' : 'success',
+            EXPECTED_CLIENT_SHA: identity.clientSHA,
+            EXPECTED_ENGINE_SHA: identity.engineSHA,
+            GITHUB_STEP_SUMMARY: join(cwd, 'summary'),
+          },
+        });
+        expect(result.status, result.stderr).toBe(mode === 'qualified' ? 0 : 1);
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    }
+  );
 });

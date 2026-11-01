@@ -75,7 +75,7 @@ import { readTournamentStandings } from '../../services/readTournamentStandings'
  *     events retain their trailing read; bubble_burst counts show at once.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useTournamentHandForHand } from '../../hooks/useTournamentHandForHand';
@@ -97,26 +97,29 @@ import {
 } from '../../utils/tournamentEntryWindow';
 
 /** Fit the longer numeric labels inside the existing painted dock columns. */
-function DockFitText({
-  className,
-  children,
-  fitKey,
-}: {
-  className: string;
-  children: ReactNode;
-  fitKey: string;
-}) {
-  const ref = useFitText<HTMLSpanElement>(fitKey);
-  return (
-    <span className={`${className} tournament-dock__fit-zone`}>
-      <span ref={ref} className="tournament-dock__fit-text">
-        {children}
+const DockFitText = memo(
+  function DockFitText({
+    className,
+    children,
+    fitKey,
+  }: {
+    className: string;
+    children: ReactNode;
+    fitKey: string;
+  }) {
+    const ref = useFitText<HTMLSpanElement>(fitKey);
+    return (
+      <span className={`${className} tournament-dock__fit-zone`}>
+        <span ref={ref} className="tournament-dock__fit-text">
+          {children}
+        </span>
       </span>
-    </span>
-  );
-}
+    );
+  },
+  (prev, next) => prev.className === next.className && prev.fitKey === next.fitKey
+);
 
-function TournamentDockArt() {
+const TournamentDockArt = memo(function TournamentDockArt() {
   return (
     <span className="tournament-dock__art" aria-hidden="true">
       <span className="tournament-dock__art-top" />
@@ -124,7 +127,7 @@ function TournamentDockArt() {
       <span className="tournament-dock__art-bottom" />
     </span>
   );
-}
+});
 
 interface TournamentHUDProps {
   tournamentId: string;
@@ -334,9 +337,16 @@ function addOnWindowOpen(row: Tournament, nowMs: number): boolean {
  * looks rather than listens: the channel's own join reference changes on every
  * successful (re)join, and reading it binds nothing that could outlive us.
  */
-function tBreakJoinMarker(tournamentId: string): string | null {
+function tBreakJoinMarker(
+  tournamentId: string,
+  cache?: { channel: ReturnType<typeof supabase.getChannels>[number] | null }
+): string | null {
   const topic = `realtime:t-break-${tournamentId}`;
-  const channel = supabase.getChannels().find((c) => c.topic === topic);
+  let channel = cache?.channel ?? null;
+  if (!channel || channel.topic !== topic || !supabase.getChannels().includes(channel)) {
+    channel = supabase.getChannels().find((c) => c.topic === topic) ?? null;
+    if (cache) cache.channel = channel;
+  }
   if (!channel || String(channel.state) !== 'joined') return null;
   return channel.joinPush?.ref || 'joined';
 }
@@ -395,6 +405,11 @@ class HudFeed {
   private leftPatch: { value: number; seq: number } | null = null;
   // Catch-up bookkeeping.
   private deadline: { key: string; expiredAt: number | null; attempts: number } | null = null;
+  private readonly channelCache: {
+    channel: ReturnType<typeof supabase.getChannels>[number] | null;
+  } = {
+    channel: null,
+  };
   private joinMarker: string | null;
 
   constructor(
@@ -408,7 +423,7 @@ class HudFeed {
     this.readsField = readsField;
     this.paint = paint;
     this.key = scopeKeyOf(tournamentId, userId);
-    this.joinMarker = tBreakJoinMarker(tournamentId);
+    this.joinMarker = tBreakJoinMarker(tournamentId, this.channelCache);
   }
 
   /** The first call starts the feed; later calls follow the table on and off screen. */
@@ -457,7 +472,7 @@ class HudFeed {
   /** Once a second while on screen: the channel's join, and anything overdue. */
   tick(): void {
     if (!this.active || !this.live || !this.started || this.hidden || documentHidden()) return;
-    const marker = tBreakJoinMarker(this.tournamentId);
+    const marker = tBreakJoinMarker(this.tournamentId, this.channelCache);
     const rejoined = marker !== null && marker !== this.joinMarker;
     this.joinMarker = marker;
     if (rejoined) this.catchUp('channel-joined');
@@ -560,7 +575,7 @@ class HudFeed {
         this.pending = false;
         this.dirty = false;
         // Any join before this read is covered by it.
-        this.joinMarker = tBreakJoinMarker(this.tournamentId);
+        this.joinMarker = tBreakJoinMarker(this.tournamentId, this.channelCache);
         await this.readRowOnce(why);
         why = 'trailing';
       } while (this.pending && this.active && this.live && !this.hidden && !documentHidden());
@@ -734,17 +749,38 @@ class HudFeed {
     }
     if (!this.active || !Array.isArray(rows)) return;
     const field = rows as Array<{ user_id: string; chips: number | null }>;
-    const totalChips = field.reduce((sum, r) => sum + (r.chips || 0), 0);
+    let totalChips = 0;
+    let hero: { user_id: string; chips: number | null } | undefined;
+    for (let i = 0; i < field.length; i += 1) {
+      const r = field[i];
+      totalChips += Number(r.chips ?? 0);
+      if (this.userId && r.user_id === this.userId) hero = r;
+    }
     /* Rank = 1 + players with strictly more chips. Ties share the better
-       rank, which is how every tournament lobby already counts it. */
-    const hero = this.userId ? field.find((r) => r.user_id === this.userId) : undefined;
+       rank, which is how every tournament lobby already counts it.
+       Compute hero's competition rank in a single O(N) scan without cloning
+       and sorting the entire tournament field on the main thread; for tiny
+       fields or tests, tournamentChipRanks agrees identically. */
+    let heroRank: number | null = null;
+    if (hero) {
+      if (field.length <= 16) {
+        heroRank = tournamentChipRanks(field).get(hero.user_id) ?? null;
+      } else {
+        const heroChips = Number(hero.chips ?? 0);
+        let strictlyGreater = 0;
+        for (let i = 0; i < field.length; i += 1) {
+          if (Number(field[i].chips ?? 0) > heroChips) strictlyGreater += 1;
+        }
+        heroRank = strictlyGreater + 1;
+      }
+    }
     // A bubble count that arrived after this read began is the newer fact.
     const bubble = this.leftPatch && this.leftPatch.seq > seqAtStart ? this.leftPatch : null;
     if (!bubble) this.leftPatch = null;
     this.paint.field(this.key, {
       remaining: bubble ? bubble.value : field.length,
       avgStack: field.length ? Math.trunc(totalChips / field.length) : 0,
-      rank: hero ? (tournamentChipRanks(field).get(hero.user_id) ?? null) : null,
+      rank: heroRank,
     });
   }
 
@@ -804,11 +840,22 @@ export function TournamentHUD({
     if (!tournamentId) return;
     const feed = new HudFeed(tournamentId, userId, readsField, {
       row: (key, next) => setShown({ key, row: next }),
-      field: (key, next) => setField({ key, ...next }),
+      field: (key, next) =>
+        setField((prev) =>
+          prev &&
+          prev.key === key &&
+          prev.remaining === next.remaining &&
+          prev.avgStack === next.avgStack &&
+          prev.rank === next.rank
+            ? prev
+            : { key, ...next }
+        ),
       left: (key, remaining) =>
         setField((prev) =>
           prev && prev.key === key
-            ? { ...prev, remaining }
+            ? prev.remaining === remaining
+              ? prev
+              : { ...prev, remaining }
             : { key, remaining, avgStack: null, rank: null }
         ),
     });
@@ -903,6 +950,7 @@ export function TournamentHUD({
     return () => clearInterval(clock);
   }, [scopeKey, readsField, hidden, live, running]);
 
+  const shownPaid = useMemo(() => (row ? tournamentPaidPlaces(row) : null), [row]);
   if (hidden) return null;
   /* The row has not been read yet (or the read is failing and being retried).
      The page has already reserved the dock's band and stood the action bar on
@@ -956,7 +1004,6 @@ export function TournamentHUD({
   const shownPlayers =
     playersRemaining !== undefined ? playersRemaining : (fieldNow?.remaining ?? undefined);
   const shownAvg = averageStack !== undefined ? averageStack : (fieldNow?.avgStack ?? undefined);
-  const shownPaid = tournamentPaidPlaces(row);
   /** Dan 2026-08-30: "IT SHOULD ALSO SAY YOUR CURRENT RANK AFTER THE COUNTDOWN
       CLOCK AND BEFORE HOW MANY ARE LEFT." Null while the hero holds no live
       stack in this event (observer, eliminated). */

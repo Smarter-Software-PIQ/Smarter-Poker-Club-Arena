@@ -163,8 +163,8 @@ NATIVE_CANDIDATE_TREE="$6"
 [[ "$CHECKPOINT_DEADLINE_MS" =~ ^[1-9][0-9]{12}$ ]] \
   || die 'invalid absolute checkpoint deadline'
 CHECKPOINT_NOW_MS="$(date +%s%3N)"
-[ "$CHECKPOINT_DEADLINE_MS" -le "$((CHECKPOINT_NOW_MS + 40000))" ] \
-  || die 'absolute checkpoint deadline exceeds the original forty seconds'
+[ "$CHECKPOINT_DEADLINE_MS" -le "$((CHECKPOINT_NOW_MS + 80000))" ] \
+  || die 'absolute checkpoint deadline exceeds the maximum EED allocation'
 [ "$CHECKPOINT_DEADLINE_MS" -gt "$((CHECKPOINT_NOW_MS + 5000))" ] \
   || defer 'absolute checkpoint entry budget elapsed before intent; nothing was attempted'
 [[ "$RUN_ID" =~ ^[1-9][0-9]*(-[1-9][0-9]*)?$ ]] || die 'invalid run key'
@@ -246,6 +246,16 @@ IDENTITY="$(checkpoint_entry_read timeout 3s docker inspect --format '{{.Id}} {{
 read -r CONTAINER_ID IMAGE RUNNING STARTED_AT HOST_PID <<< "$IDENTITY"
 [[ "$CONTAINER_ID" =~ ^[0-9a-f]{64}$ ]] && [ "$IMAGE" = "$LEGACY_IMAGE" ] \
   && [ "$RUNNING" = true ] || die 'serving predecessor identity mismatch'
+# Exact sealed predecessor selects the allocation before any checkpoint intent.
+CHECKPOINT_ALLOCATION_MS=40000
+CHECKPOINT_POST_RESERVE_MS=245000
+if [ "$LEGACY_SHA" = eed06fe51dea622069c661a6213d5b031ff3a9e3 ]; then
+  CHECKPOINT_ALLOCATION_MS=80000
+  CHECKPOINT_POST_RESERVE_MS=205000
+fi
+[ "$CHECKPOINT_DEADLINE_MS" -le "$(( CHECKPOINT_NOW_MS + CHECKPOINT_ALLOCATION_MS ))" ] \
+  || die 'absolute checkpoint deadline exceeds its sealed predecessor allocation'
+
 if [ "$LEGACY_SHA" = 8825af51817f379c4261658ca29ecc9d8d81932d ]; then
   [ "$CONTAINER_ID" = c63b254ee71b76aa26f4d1394d96189963774310244b046bc91186e219ca3f66 ] \
     && [ "$STARTED_AT" = 2026-09-18T21:55:50.88305198Z ] && [ "$HOST_PID" = 1231816 ] \
@@ -293,12 +303,12 @@ INSTANCE="$(checkpoint_entry_read curl -sS --max-time 2 http://127.0.0.1:8080/he
 import json,math,re,sys,time
 d=json.load(sys.stdin); m=d.get("maintenance",{}); instance=d.get("instanceId",""); release=sys.argv[1]
 # The initial admission already held 285000ms. This same-break recheck pays
-# only the unspent portion of that exact absolute40 entry: 245000 plus the
-# remaining entry budget. It cannot grant another40 or spend rollback time.
+# only the unspent portion of the exact selected entry, plus its post-checkpoint
+# reserve. Their sum remains285000; no second entry or rollback time is granted.
 # (No apostrophes here: this comment is inside a single-quoted Python program.)
 remaining_entry=int(sys.argv[2])-math.floor(time.time()*1000)
-if not 5000<remaining_entry<=40000: raise SystemExit(1)
-reserve=245000+remaining_entry
+if not 5000<remaining_entry<=int(sys.argv[4]): raise SystemExit(1)
+reserve=int(sys.argv[5])+remaining_entry
 ok=(d.get("running") is True and d.get("version")==release[:8] and re.fullmatch(r"1-[0-9a-f]{8}",instance)
     and (release=="2f4e33560bcd23bfb5cc731f31816b2c2e2847e5" or d.get("releaseSha")==release)
     and m.get("active") is True and m.get("phase")=="counting_down"
@@ -308,7 +318,7 @@ ok=(d.get("running") is True and d.get("version")==release[:8] and re.fullmatch(
     and m["breakEndsAt"]-time.time()*1000>=reserve)
 if not ok: raise SystemExit(1)
 print(instance)
-' "$LEGACY_SHA" "$CHECKPOINT_DEADLINE_MS" "$CHECKPOINT_BREAK_END_EPOCH")" || defer 'the break window closed before the checkpoint could start; nothing was attempted'
+' "$LEGACY_SHA" "$CHECKPOINT_DEADLINE_MS" "$CHECKPOINT_BREAK_END_EPOCH" "$CHECKPOINT_ALLOCATION_MS" "$CHECKPOINT_POST_RESERVE_MS")" || defer 'the break window closed before the checkpoint could start; nothing was attempted'
 
 # Persist intent before opening debugger access. A disconnect is unknown, not
 # permission to invoke again. Existing release recovery retains this run key.

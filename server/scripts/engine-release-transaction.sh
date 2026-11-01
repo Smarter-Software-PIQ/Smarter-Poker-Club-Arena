@@ -88,31 +88,16 @@ LEGACY_CHECKPOINT_BUDGET_SECONDS=40
 # The publisher's bounded work inside that budget, from the .mjs figures
 # above; what is left of the budget is the allowance for the entry.
 LEGACY_CHECKPOINT_WORK_MS=25000
-# THE EED PREDECESSOR IS REPLACED AT A DRAINED HAND BOUNDARY (owner, 2026-10-31)
-# ───────────────────────────────────────────────────────────────────────────
-# Engine eed06fe5 was the only legacy profile whose checkpoint discovers its
-# owners with a full-heap native census (V8 HeapProfiler::QueryObjects). That
-# census has never fitted on the live engine. Measured by the previous release
-# agent on an application-shaped heap: 11-12 ms of single-core work per MB of
-# used heap; at the live 3.85 GB the census needs ~45 s, against the 30.3 s the
-# census request was actually granted inside the 40 s checkpoint budget at
-# 19:55Z on 2026-10-31 (run 41233374402, checkpoint at elapsedEntryMs=2915,
-# 35000 ms of work less the measured entry and guard boot). Each attempt held
-# the predecessor's main thread for 45-60 s and the 19:55Z break stayed frozen
-# for 1512 s. A freshly restarted eed06fe5 passes 2.3 GB inside an hour.
-#
-# So the census is only ever entered when the predecessor's own /health heap
-# reading, at the conservative 12 ms/MB, fits the 30300 ms allowance. That is
-# decided BEFORE any notice is requested, and again immediately before the
-# one-shot intent. Otherwise the census is refused before notice and this
-# release may replace eed06fe5 only at a DRAINED HAND BOUNDARY: the strict
-# restart certificate (readyForRestart, zero unparked tables, no bounded-F06
-# admission) plus the database's own witness that no tournament hand is
-# reserved or retained and no hand anywhere is moving
-# (engine-release-inflight-hands.py --drained-predecessor). No hand is
-# checkpointed, voided, forced or invented; every ceiling is unchanged.
+# Exact EED profile: spend 80 seconds of the existing 150-second candidate
+# opportunity on its full retained-owner checkpoint. Initial admission remains
+# 285 seconds; the post-checkpoint floor is 205 = 70 proof + 135 rollback.
+# Other predecessors retain their 40-second checkpoint and 245-second floor.
+# The conservative census allowance pays 15 seconds of entry, five seconds of
+# cleanup and one second of receipt INSIDE that same absolute 80-second budget.
+# The publisher must also recheck this estimate against its actual remaining
+# work deadline immediately before QueryObjects; elapsed entry grants no time.
 LEGACY_CENSUS_MS_PER_HEAP_MB=12
-LEGACY_CENSUS_ALLOWANCE_MS=30300
+LEGACY_CENSUS_ALLOWANCE_MS=59000
 NON_BREAK_RECOVERY_MAX_SECONDS=300
 # CLAUDE.md 13: routine activation starts at 04:00 America/Chicago. This is the same minute every other surface reads, and
 # tests/the-break-clocks-agree.law.test.ts pins them together.
@@ -195,6 +180,27 @@ BREAK_LOCKED_ENTRY_SECONDS=15
 # already holds and the figure run 36154480502 shipped 778075b4 on.
 BREAK_ADMISSION_MIN_BREAK_MS=$((MIN_BREAK_REMAINING_MS - BREAK_CERTIFICATE_LAG_SECONDS * 1000))
 BREAK_LOCKED_MIN_BREAK_MS=$((BREAK_ADMISSION_MIN_BREAK_MS - BREAK_LOCKED_ENTRY_SECONDS * 1000))
+
+# Source-selected immutable predecessor profile, never an environment override.
+# Call after reading the exact sealed desired SHA, before admission or notice.
+select_legacy_checkpoint_budget() {
+  LEGACY_CHECKPOINT_PROFILE='legacy-40s-v1'
+  LEGACY_CHECKPOINT_BUDGET_SECONDS=40
+  LEGACY_CHECKPOINT_WORK_MS=25000
+  if [ "$1" = "$CHECKPOINT_EED_SHA" ]; then
+    LEGACY_CHECKPOINT_PROFILE='eed-80s-v1'
+    LEGACY_CHECKPOINT_BUDGET_SECONDS=80
+    LEGACY_CHECKPOINT_WORK_MS=65000
+  fi
+  LEGACY_MIN_BREAK_REMAINING_MS=$(((BREAK_CUTOVER_PROOF_SECONDS + BREAK_ROLLBACK_RESERVE_SECONDS + BREAK_DEADLINE_SLACK_SECONDS - LEGACY_CHECKPOINT_BUDGET_SECONDS) * 1000))
+  LEGACY_ENTRY_ALLOWANCE_MS=$((LEGACY_CHECKPOINT_BUDGET_SECONDS * 1000 - LEGACY_CHECKPOINT_WORK_MS))
+  BREAK_ENTRY_BUDGET_CEILING_MS=$((BREAK_WINDOW_MS - MIN_BREAK_REMAINING_MS - LEGACY_ENTRY_ALLOWANCE_MS))
+  [ "$MIN_BREAK_REMAINING_MS" = 285000 ] \
+    && [ "$LEGACY_ENTRY_ALLOWANCE_MS" = 15000 ] \
+    && [ "$BREAK_ENTRY_BUDGET_CEILING_MS" = 0 ] \
+    && [ "$LEGACY_MIN_BREAK_REMAINING_MS" -gt $((BREAK_ROLLBACK_RESERVE_SECONDS * 1000)) ] \
+    || die 'legacy checkpoint allocation no longer preserves strict entry and rollback'
+}
 
 die() {
   echo "[engine-release-transaction] FATAL: $*" >&2
@@ -2737,6 +2743,8 @@ fi
 # engine lock immediately before its one durable intent and checkpoint.
 CHECKPOINT_PREDECESSOR_SHA="$(timeout --signal=TERM --kill-after=1s 10s \
   "$RELEASE_SEAL" get desired-sha)" || die 'sealed checkpoint predecessor is unreadable'
+select_legacy_checkpoint_budget "$CHECKPOINT_PREDECESSOR_SHA"
+CHECKPOINT_ALLOCATION_PREDECESSOR_SHA="$CHECKPOINT_PREDECESSOR_SHA"
 LEGACY_CHECKPOINT_REQUIRED=0
 if [ "$CHECKPOINT_PREDECESSOR_SHA" = "$LEGACY_CHECKPOINT_SHA" ] \
   || [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_758_SHA" ] \
@@ -2976,6 +2984,8 @@ while :; do
       # follow it. Never apply the old-image compatibility path to its successor.
       LEGACY_CHECKPOINT_REQUIRED=0
       LEGACY_ENTRY_DEADLINE_MS=0
+    elif [ "$CHECKPOINT_PREDECESSOR_SHA" != "$CHECKPOINT_ALLOCATION_PREDECESSOR_SHA" ]; then
+      die 'sealed legacy predecessor changed after budget selection; refusing a new checkpoint allocation'
     fi
   fi
   if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ] && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ]; then

@@ -180,4 +180,11 @@ describe('authoritative decision readiness', () => {
     expect(isTurn({ heroSeat: 4, currentPlayerSeat: 2, isHandInProgress: true })).toBe(false);
     expect(isTurn({ heroSeat: 4, currentPlayerSeat: 4, isHandInProgress: false })).toBe(false);
   });
+
+  it('preserves already-retained actionContext across mid-turn TIME_BANK_ACTIVATED snapshots and requests bounded RESYNC when a turn arrives with withheld action_context', () => {
+    expect(page).toContain('prev.currentBet === mapped.currentBet &&');
+    expect(page).toContain('mapped.isTimeBankActive');
+    expect(page).toContain('const requestMissingDecision = () => {');
+    expect(page).toContain('requestEngineSnapshot();');
+  });
 });

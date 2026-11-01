@@ -1,4 +1,4 @@
-export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = 'cbd7279fc6595a31bd2044769d2ad85684d63713351acd0bb602dbfcdbdce31e';
+export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = '7840d64c30a0c179b50380d9dad9c9bb51027a690d50dc32422856ea56662506';
 // Concatenated after the exact guard by the owning release transaction.
 // Importing this module only exposes the isolated fixture seam.
 import { setTimeout as checkpointDelay } from 'node:timers/promises';
@@ -348,7 +348,10 @@ function connectInspector(endpoint, deadline, createWebSocket) {
     socket,
     opened,
     closed,
-    request(method, params, requestDeadline, operation = method) {
+    request(method, params, requestDeadline, operation = method, requestLimitMs = 35000) {
+      if (requestLimitMs !== 35000 && !(requestLimitMs === 59000 &&
+          method === 'Runtime.evaluate' && operation === 'queryObjects'))
+        return Promise.reject(refused('inspector request allocation refused'));
       if (ended || socket.readyState !== WebSocket.OPEN)
         return Promise.reject(refused('inspector disconnected; outcome unknown'));
       const id = ++nextId;
@@ -356,7 +359,7 @@ function connectInspector(endpoint, deadline, createWebSocket) {
         // Computed inside the executor, exactly as before, so a budget that is
         // already spent still arrives as a rejection and never as a throw.
         const startedAt = Date.now();
-        const allowanceMs = remaining(requestDeadline, 35000, operation, startedAt);
+        const allowanceMs = remaining(requestDeadline, requestLimitMs, operation, startedAt);
         const requestExpiresAt = startedAt + allowanceMs;
         let timer;
         const expireRequest = () => {
@@ -594,15 +597,35 @@ export function legacyCensusRoot() {
   return Object.prototype;
 }
 
+// Fixed allocation inside the original 285s transaction; never an environment override.
+export function legacyCheckpointAllocation(releaseSha) {
+  const eed = releaseSha === 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
+  return Object.freeze({ entryMs: eed ? 80000 : 40000, cleanupMs: 5000,
+    receiptMs: 1000, reserveMs: eed ? 205000 : 245000,
+    censusMs: eed ? 59000 : 30300, profile: eed ? 'eed-80s-v1' : null });
+}
+
+// Same decimal-MB estimator as transaction admission, bounded by actual time left.
+export function legacyCensusTimeAdmission(usedHeapBytes, remainingMs) {
+  if (!Number.isSafeInteger(usedHeapBytes) || usedHeapBytes <= 0 ||
+      !Number.isFinite(remainingMs) || remainingMs <= 0) return false;
+  return Math.ceil((usedHeapBytes / 1000000 + 1) * 12) <= Math.min(59000, remainingMs);
+}
+
 // Bind only cached modules before the synchronous census. No application
 // prototype changes cross an Inspector request or an async boundary.
-export function bindLegacyCensusModules(holderKey, workDeadlineMs, nativeCensus = null) {
+export function bindLegacyCensusModules(holderKey, workDeadlineMs, nativeCensus = null, profile = null) {
+  const extended = profile === 'eed-80s-v1';
+  if (profile !== null && (!extended ||
+      process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
+      nativeCensus?.sourceSHA256 !== '7840d64c30a0c179b50380d9dad9c9bb51027a690d50dc32422856ea56662506'))
+    throw new Error('native census allocation profile refused');
   if (
     typeof holderKey !== 'string' ||
     !/^__legacyEngineCensus_[0-9a-f]{32}$/.test(holderKey) ||
     !Number.isSafeInteger(workDeadlineMs) ||
     workDeadlineMs <= Date.now() ||
-    workDeadlineMs > Date.now() + 40000 ||
+    workDeadlineMs > Date.now() + (extended ? 80000 : 40000) ||
     Object.getOwnPropertyDescriptor(globalThis, holderKey)
   )
     throw new Error('native census binding refused');
@@ -610,6 +633,7 @@ export function bindLegacyCensusModules(holderKey, workDeadlineMs, nativeCensus 
   Object.defineProperties(holder, {
     modules: { value: this },
     nativeCensus: { value: nativeCensus },
+    profile: { value: profile },
     deadline: { value: workDeadlineMs },
     schema: { value: 'legacy-marked-census/v1' },
   });
@@ -658,9 +682,13 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
     !Number.isSafeInteger(workDeadlineMs)
   )
     throw new Error('native census binding refused');
+  const profile = getOwnPropertyDescriptor(holder, 'profile')?.value ?? null;
+  if (profile !== null && (profile !== 'eed-80s-v1' ||
+      process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3'))
+    throw new Error('native census allocation profile refused');
   let session;
   try {
-    if (workDeadlineMs <= Date.now() || workDeadlineMs > Date.now() + 40000)
+    if (workDeadlineMs <= Date.now() || workDeadlineMs > Date.now() + (profile ? 80000 : 40000))
       throw new Error('native census deadline exhausted');
     const modules = getOwnPropertyDescriptor(holder, 'modules')?.value;
     const roots = [
@@ -725,7 +753,9 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
       // dispatch owns insertion, this synchronous query and exact restoration;
       // queued remote cleanup and application callbacks cannot observe a marker.
       if (native) {
-        nativeObjects = native.collect(marker, workDeadlineMs, process.availableMemory());
+        nativeObjects = profile
+          ? native.collect(marker, Math.min(workDeadlineMs, Date.now() + 59000), process.availableMemory(), profile)
+          : native.collect(marker, workDeadlineMs, process.availableMemory());
       } else {
         census = post('Runtime.queryObjects', {
           prototypeObjectId: markerHandle.result.objectId,
@@ -768,12 +798,15 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
   }
 }
 
-export function projectLegacyCensus(modules, workDeadlineMs) {
+export function projectLegacyCensus(modules, workDeadlineMs, profile = null) {
+  if (profile !== null && (profile !== 'eed-80s-v1' ||
+      process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3'))
+    throw new Error('native census allocation profile refused');
   const startedAt = Date.now();
   if (
     !Number.isSafeInteger(workDeadlineMs) ||
     workDeadlineMs <= startedAt ||
-    workDeadlineMs > startedAt + 40000
+    workDeadlineMs > startedAt + (profile ? 80000 : 40000)
   )
     throw new Error('native census projection deadline refused');
   const roots = [
@@ -864,6 +897,7 @@ export async function runLegacyEngineCheckpoint({
   createWebSocket = (endpoint) => new WebSocket(endpoint),
 }) {
   const startedAt = Date.now();
+  const allocation = legacyCheckpointAllocation(releaseSha);
   // The outer client is killed at the supplied absolute deadline. Reserve
   // one second INSIDE it to serialize/flush its bounded receipt and exit;
   // cleanup may still use at most its original five-second ceiling.
@@ -890,7 +924,9 @@ export async function runLegacyEngineCheckpoint({
     (checkpointDeadlineMs !== null &&
       (!Number.isSafeInteger(checkpointDeadlineMs) ||
         checkpointDeadlineMs <= startedAt + cleanupBudgetMs + receiptReserveMs ||
-        checkpointDeadlineMs > startedAt + 40000))
+        checkpointDeadlineMs > startedAt + allocation.entryMs ||
+        (checkpointDeadlineMs > startedAt + 40000 &&
+          (!discoverEngines || custodyIntent?.nativeCensus?.sourceSHA256 !== LEGACY_CENSUS_NATIVE_SOURCE_SHA256))))
   )
     throw refused('legacy checkpoint invocation identity refused');
   // The production caller starts this one absolute budget before its entry
@@ -1035,7 +1071,7 @@ export async function runLegacyEngineCheckpoint({
             objectId: modules.objectId,
             functionDeclaration: bindLegacyCensusModules.toString(),
             arguments: [{ value: holderKey }, { value: deadline },
-              ...(nativeArtifact ? [{ objectId: nativeArtifact.objectId }] : [])],
+              ...(nativeArtifact ? [{ objectId: nativeArtifact.objectId }, { value: allocation.profile }] : [])],
             returnByValue: true,
           },
           deadline,
@@ -1043,6 +1079,16 @@ export async function runLegacyEngineCheckpoint({
         )
       );
       if (binding?.value !== true) throw refused('native census binding unavailable');
+      // Fresh admission immediately before the one synchronous native request.
+      // Native repeats this atomically with its own current heap before traversal.
+      if (allocation.profile && nativeArtifact) {
+        const latest = remoteValue(await connection.request('Runtime.evaluate', {
+          expression: `(${readLegacyCensusMemory.toString()})()`, returnByValue: true,
+        }, deadline, 'censusBudgetAdmission'));
+        const bytes = latest?.value?.usedHeapBytes;
+        if (!legacyCensusTimeAdmission(bytes, deadline - Date.now()))
+          throw refused('native census remaining budget refused');
+      }
       operation = 'queryObjects';
       const broadValue = remoteValue(
         await connection.request(
@@ -1054,7 +1100,8 @@ export async function runLegacyEngineCheckpoint({
             objectGroup: 'legacy-broad-census',
           },
           deadline,
-          operation
+          operation,
+          allocation.profile && nativeArtifact ? allocation.censusMs : 35000
         )
       );
       const broad = { objects: broadValue };
@@ -1066,7 +1113,7 @@ export async function runLegacyEngineCheckpoint({
           {
             objectId: broad.objects.objectId,
             functionDeclaration: projectLegacyCensus.toString(),
-            arguments: [{ objectId: modules.objectId }, { value: deadline }],
+            arguments: [{ objectId: modules.objectId }, { value: deadline }, { value: nativeArtifact ? allocation.profile : null }],
             objectGroup: 'legacy-checkpoint',
           },
           deadline,
