@@ -241,16 +241,16 @@
       "bytes": 14523
     },
     "scripts/ci/test-cash-failure-pgcron.py": {
-      "bytes": 30584,
-      "sha256": "e290398eff87db843de3363988c4ee7e5cfa4b48720d57c325611d025a5d4618"
+      "bytes": 31563,
+      "sha256": "1b152f792192a139a791bb8f996a39326f5507ebc8804fcd144f3151457e44ab"
     },
     "scripts/ci/test-production-alert-core-postgres.py": {
       "bytes": 32569,
       "sha256": "2234f4c536f8f9d32a7da2568103761826d97d8ddbcfe1f2c82f786fd5d41c14"
     },
     "scripts/ci/test_cash_native_pgcron.py": {
-      "bytes": 3454,
-      "sha256": "032a0942d016fcd97f763e000da4666caa14f464920cb04ef0f243de4cb6d3c8"
+      "bytes": 5201,
+      "sha256": "d1ef9e305cd25e3ea51d381c890b0df6011d4bb3cfbd1670eaafc13867a1bb70"
     },
     "scripts/ci/test_production_alert_core_postgres.py": {
       "bytes": 8238,
