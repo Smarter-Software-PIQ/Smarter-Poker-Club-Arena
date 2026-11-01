@@ -164,8 +164,8 @@ currently be replaced (section 4). Do not tell Dan anything is live until
     without certificate, no 08:55 notice, then "release intake exhausted its
     shared wall-clock budget" at 10:27 (failed:reattach, exit 70). Authored the
     deadlock analysis #9133 and decision #9134.
-  - session `session_01UxDLnHHq4dGvwAGS1AsGoP`: PR **#9139** (open, auto-merge
-    OFF at 14:2x): door allowlist for the abort function + owner windows 70/71,
+  - session `session_01UxDLnHHq4dGvwAGS1AsGoP`: PR **#9139 MERGED 14:30:30 UTC
+    (`b194c1db64`)**: door allowlist for the abort function + owner windows 70/71,
     14:30-20:25 UTC 2026-11-01, containing `4e9c3228`; window 71 installs the
     queued window migrations `20261101004247` (#9073) then `20261101005048`
     (#9054) inside the first confirmed freeze.
@@ -321,8 +321,8 @@ node in HorseLogic and again at commit in ServerTableEngineTurns).
 | census re-offered after a self-restart | #9148 | c47bd55d19 | merged |
 | census scale gate: fixture reports own verdict at 33 s, cleanup uses full 5 s reserve with docker kill, at most two measurements per image | #9141 | 13dd622a1e | merged |
 | daily preparation owned by a window (03:30-03:50 Chicago, first push or schedule run of the Chicago date), crons `31,35,39,43 8/9 * * *` | #9147 | 241d09027c | merged; first use 2026-11-02 03:30 CST (09:30 UTC) |
-| door check carries a door a queued window migration supplies (daily route only; host re-verifies via new RPC `fn_ca_engine_release_missing_functions` migration `20261101134516` before seal) | #9149 | - | **OPEN, auto-merge DISABLED** deliberately (overlaps #9139/#9150; one owner must choose) |
-| door allowlist + owner windows 70/71 | #9139 (other session) | - | OPEN |
+| door check carries a door a queued window migration supplies (daily route only; host re-verifies via new RPC `fn_ca_engine_release_missing_functions` migration `20261101134516` before seal) | #9149 | - | **CLOSED unmerged** after #9139 merged (branch `fix/doors-honor-queued-window-migrations` kept as an option) |
+| door allowlist + owner windows 70/71 (14:30-20:25 UTC 11-01, contain `4e9c3228`; 71 installs 04247 then 05048 in the first confirmed freeze) | #9139 (other session) | b194c1db64 | **MERGED 14:30:30 UTC**: this session is today's release owner |
 | DB-only window for 05048 | #9150 (other session) | - | OPEN |
 | measurement kit + baselines | #9138 | 6340baecb5 | merged |
 
@@ -391,11 +391,12 @@ hand_submissions, f06_hand_dispatch) and `20261101004247` (#9073) are not in
 `supabase_migrations.schema_migrations`. Every engine build from `0d7cd8df4e`
 on fails "Prove The Exact Engine Has Every Production Door"
 (`scripts/ci/check-engine-doors-exist.mjs`): `fn_ca_cancel_tournament_abort_unsettled_hand`
-missing. Three competing fixes: #9149 (ours, paused), #9139 (allowlist + owner
-windows 70/71 that install both migrations in an owner freeze), #9150
-(DB-only window). **One owner must pick one.** If #9139 merges, #9149 should be
-closed (or kept only for the general daily-route case after the release owner
-agrees). Check with `SELECT version, name FROM supabase_migrations.schema_migrations WHERE version IN ('20261101004247','20261101005048');`.
+missing. Resolution: #9139 MERGED (14:30:30 UTC): the abort function is on the door
+allowlist (its call is fail-closed) and owner window 71 installs 04247 then
+05048 inside the first confirmed owner-window freeze. #9149 (ours) was closed
+as redundant. #9150 (DB-only window) was still open at 14:36 UTC - check that
+it does not double-install (the installer is idempotent: "queued" = not in
+schema_migrations). Check with `SELECT version, name FROM supabase_migrations.schema_migrations WHERE version IN ('20261101004247','20261101005048');`.
 
 ### Blocker 3 (fixed, verify on first use): daily preparation punctuality
 #9147 merged. Admission is judged by the run's own creation instant (schedule
@@ -416,7 +417,9 @@ the 04:00 freeze (10:00 UTC).
 `attempts` and, on timeout, `freshRemeasurement`.
 
 ### Critical path (do in this order)
-1. Read the latest state: health, open PRs #9139/#9149/#9150, any crash-boundary
+1. Read the latest state: health, the #9139 owner windows 70/71 (14:30-20:25 UTC
+   2026-11-01: did a :55 attempt happen, did the migrations install, did the
+   cutover refuse on the eed06fe5 certificate?), PR #9150, any crash-boundary
    PR, `engine_maintenance_break_log` since 14:30 UTC 2026-11-01, receivers
    (`gh api ".../actions/workflows/auto-deploy-hetzner.yml/runs?per_page=10"`).
 2. Coordinate (PR comments) so exactly one owner drives: migration install
