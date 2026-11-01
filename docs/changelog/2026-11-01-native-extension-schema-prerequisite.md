@@ -27,3 +27,13 @@ full13-provider/Supabase Vault qualification. Focused tests, TypeScript and1822
 source bindings accompany the change. Actual Linux native qualification, protected
 delivery and the original15 connected cases remain unproved. No production DDL,
 credential read, capture retry or provider operation was performed.
+
+The first Linux candidate passed native SQL-export qualification but stopped in
+the connected outer-lifetime unit test: its mocked smoke boundary omitted the
+new current-application proof, so the strict parser correctly refused before the
+connected callback could create its report. Add the explicit closed proof to that
+mock, validate it with the real parser and assert its unchanged handoff to the
+callback. Preserve all cleanup/privacy/case assertions and the strict production
+parser. This corrects the missed directly affected test caller; it is not native
+13-provider execution. That failed job produced no fixture artifact and never
+started genuine schema-preimage runtime; native diagnostic-tool cleanup passed.
