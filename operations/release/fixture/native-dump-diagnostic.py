@@ -31,7 +31,7 @@ QUALIFICATION_PHASE = None
 FIRST_FAILURE_PHASE = None
 FILTER_CONTEXTS = {'EMPTY','SINGLE','SEQUENCE_SINGLE','SEQUENCE_FIRST','FUNCTION_FIRST'}
 QUALIFICATION_PHASES = {context + '_' + phase for context in {'MAIN', *FILTER_CONTEXTS} for phase in {'STOCK','DUMP_IO','DUMP_EXIT','DUMP_WIRE','DUMP_FRAMES','PARITY','ORDER'}} | {'FD_MISSING','FD_KIND','FD_CLOSED'}
-COMMAND_SITES = {'BATCH_COMPILE', 'BATCH_EXECUTE', 'D4_CAPABILITY', 'RUNTIME_NPM', 'RUNTIME_HYDRATE'}
+COMMAND_SITES = {'BATCH_COMPILE', 'BATCH_EXECUTE', 'D5_CAPABILITY', 'RUNTIME_NPM', 'RUNTIME_HYDRATE'}
 COMPILER_CATEGORIES = ((b'-Werror=misleading-indentation', 'MISLEADING_INDENTATION'),
                        (b'-Werror=unused-function', 'UNUSED_FUNCTION'),
                        (b'-Werror=implicit-function-declaration', 'IMPLICIT_DECLARATION'))
@@ -288,7 +288,7 @@ def normalize_sql(value):
 
 
 def validate_frames(data, with_subtypes=False):
-    require(0 < len(data) <= 512 * 1024 and (data.startswith(b'D4') or data.endswith(b'\n')))
+    require(0 < len(data) <= 512 * 1024 and (data.startswith((b'D4', b'D5')) or data.endswith(b'\n')))
     previous = 0
     sequence = 0
     obj = None
@@ -299,7 +299,33 @@ def validate_frames(data, with_subtypes=False):
              'FOREIGN_OPTIONS','TYPE_NAME','EXTENSION_DEPENDENCY','PREPARE','TYPE_METADATA']
     details = {name:dict(queries_started=0,queries_completed=0,query_elapsed_us=0,query_max_us=0) for name in names}
     def frames():
-        if data.startswith(b'D4'):
+        if data.startswith(b'D5'):
+            groups = [b'FUNCTION', b'RELATION', b'TYPE', b'OTHER']
+            permitted = {1:[0],2:[0],3:[0],4:[1],5:[1],6:[1],7:[1,3],8:[1],9:[1],13:[2]}
+            tags = [tag for tag in range(224) if ((tag >> 2) & 3) in permitted.get(tag >> 4, range(4))]
+            tags = [tag for tag in tags if tag & 2 or tag >> 4 == 0]
+            require(len(tags) == 62)
+            offset, absolute = 2, 0
+            while offset < len(data):
+                require(offset + 4 <= len(data))
+                packed = int.from_bytes(data[offset:offset + 3], 'big')
+                require(packed < 8388608 and packed >> 17 < 62)
+                offset += 3
+                delta = 0
+                for n in range(4):
+                    require(offset < len(data))
+                    byte = data[offset]; offset += 1
+                    delta += (byte & 127) << (7 * n)
+                    if not byte & 128:
+                        require(n == 0 or byte != 0)
+                        break
+                else:
+                    require(False)
+                absolute += delta
+                tag = tags[packed >> 17]
+                yield (packed & 131071, b'Q' if tag & 2 else b'O', b'E' if tag & 1 else b'B',
+                       groups[(tag >> 2) & 3], absolute, tag >> 4)
+        elif data.startswith(b'D4'):
             require(len(data) > 2 and (len(data) - 2) % 8 == 0)
             groups = [b'FUNCTION', b'RELATION', b'TYPE', b'OTHER']
             for offset in range(2, len(data), 8):
@@ -390,7 +416,7 @@ def diagnostic_dump(executable, args, env, cwd, context='MAIN'):
         QUALIFICATION_PHASE = context + '_DUMP_EXIT'
         require(proc.wait(timeout=2) == 0)
         QUALIFICATION_PHASE = context + '_DUMP_WIRE'
-        require(bytes(frames).startswith(b'D4'))
+        require(bytes(frames).startswith(b'D5'))
         QUALIFICATION_PHASE = context + '_DUMP_FRAMES'
         return bytes(output), validate_frames(bytes(frames))
     finally:
@@ -526,9 +552,9 @@ def qualify(repo, work, output, env, stock_executable):
     require(qualify_batch_contract(repo, work, env))
     # Bind capability proof to the actual C producer and both independent
     # decoders, including the original fixed record/byte boundaries.
-    command(['node', '--test', '--test-name-pattern=real D4 C producer|D4 retains the exact original byte cap',
+    command(['node', '--test', '--test-name-pattern=real D5 C producer|D5 full100000 capacity',
              str(repo / 'operations/release/fixture/representative/schema-native-dump-diagnostic.test.mjs')],
-            cwd=repo, env=env, site='D4_CAPABILITY')
+            cwd=repo, env=env, site='D5_CAPABILITY')
     runtime = work / 'runtime'
     runtime.mkdir()
     existing = repo / 'scripts/ci/probes/chip-journal-atomicity/postgres-runtime'
@@ -666,7 +692,9 @@ RETURN 'diagnostic_function_first.a_before'::regclass::oid;
                 'sequence_data_reader_unchanged': True, 'metadata_total_results_max': 128,
                 'metadata_total_bytes_max': 128 * 1024 * 1024,
                 'dependency_interleaved_sql_equal': True, 'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components',
-                'diagnostic_wire': 'D4-header2-record8', 'query_subtypes_valid': True}
+                'diagnostic_wire': 'D5-absolute17-tag6-delta-uleb128', 'query_subtypes_valid': True,
+                'absolute_event_ids_valid': True, 'diagnostic_full_record_capacity_valid': True,
+                'diagnostic_full_stream_bytes_max': 502769}
     except Exception as error:
         retain_first_failure(error)
         raise

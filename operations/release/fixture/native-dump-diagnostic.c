@@ -13,6 +13,23 @@ static unsigned long ca_diag_seq = 0;
 static int ca_diag_object = 0;
 static bool ca_diag_query = false;
 static int ca_diag_subtype = 0;
+static long long ca_diag_last_us = 0;
+static bool ca_diag_subtype_allowed(int subtype, int group);
+
+static int
+ca_diag_tag_code(int tag)
+{
+    int raw, code = 0;
+    for (raw = 0; raw < 224; raw++)
+    {
+        if ((raw & 2) ? !ca_diag_subtype_allowed(raw >> 4, ((raw >> 2) & 3) + 1) : (raw >> 4) != 0)
+            continue;
+        if (raw == tag) return code;
+        code++;
+    }
+    pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_FRAME");
+    return 0;
+}
 
 void
 ca_diag_init(void)
@@ -27,7 +44,7 @@ ca_diag_init(void)
         pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_FD");
     while (written < 2)
     {
-        ssize_t size = send(3, &"D4"[written], 2 - written, MSG_NOSIGNAL);
+        ssize_t size = send(3, &"D5"[written], 2 - written, MSG_NOSIGNAL);
         if (size < 0 && errno == EINTR) continue;
         if (size <= 0) pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_WRITE");
         written += size;
@@ -39,27 +56,33 @@ ca_diag_emit(char level, char boundary)
 {
     struct timespec now;
     long long elapsed;
-    unsigned char line[8];
-    const size_t length = sizeof(line);
+    unsigned char line[7];
+    unsigned long packed, delta;
+    size_t length = 3;
     size_t written = 0;
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
         pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_CLOCK");
     elapsed = ((long long) now.tv_sec - ca_diag_origin.tv_sec) * 1000000LL +
         ((long long) now.tv_nsec - ca_diag_origin.tv_nsec) / 1000LL;
-    if (++ca_diag_seq > 100000 || elapsed < 0 || elapsed > 45000000LL ||
+    if (++ca_diag_seq > 100000 || elapsed < ca_diag_last_us || elapsed > 45000000LL ||
         ca_diag_object < 1 || ca_diag_object > 4)
         pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_RANGE");
-    /* One D4 stream header, then every original event in exactly eight bytes. */
-    line[0] = (unsigned char) (ca_diag_seq >> 16);
-    line[1] = (unsigned char) (ca_diag_seq >> 8);
-    line[2] = (unsigned char) ca_diag_seq;
-    line[3] = (unsigned char) ((level == 'Q' ? ca_diag_subtype << 4 : 0) |
-                             ((ca_diag_object - 1) << 2) |
-                             (level == 'Q' ? 2 : 0) | (boundary == 'E' ? 1 : 0));
-    line[4] = (unsigned char) (elapsed >> 24);
-    line[5] = (unsigned char) (elapsed >> 16);
-    line[6] = (unsigned char) (elapsed >> 8);
-    line[7] = (unsigned char) elapsed;
+    /* Absolute 17-bit sequence + closed 6-bit tag; canonical timestamp delta. */
+    packed = ((unsigned long) ca_diag_tag_code((level == 'Q' ? ca_diag_subtype << 4 : 0) |
+              ((ca_diag_object - 1) << 2) | (level == 'Q' ? 2 : 0) |
+              (boundary == 'E' ? 1 : 0)) << 17) | ca_diag_seq;
+    line[0] = (unsigned char) (packed >> 16);
+    line[1] = (unsigned char) (packed >> 8);
+    line[2] = (unsigned char) packed;
+    delta = (unsigned long) (elapsed - ca_diag_last_us);
+    ca_diag_last_us = elapsed;
+    do
+    {
+        line[length] = (unsigned char) (delta & 127);
+        delta >>= 7;
+        if (delta) line[length] |= 128;
+        length++;
+    } while (delta);
     while (written < (size_t) length)
     {
         ssize_t size = send(3, line + written, length - written, MSG_NOSIGNAL);
