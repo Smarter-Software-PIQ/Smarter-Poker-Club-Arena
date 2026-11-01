@@ -322,6 +322,7 @@ jobs:
       should_run: ${{ steps.origin.outputs.should_run }}
       engine_trigger_sha: ${{ steps.origin.outputs.engine_trigger_sha }}
       client_navigation: ${{ steps.origin.outputs.client_navigation }}
+      natural_addon: ${{ steps.origin.outputs.natural_addon }}
       client_target_sha: ${{ steps.client-target.outputs.sha }}
       verification_sha: ${{ steps.client-target.outputs.verification_sha }}
     steps:
@@ -358,6 +359,15 @@ jobs:
             if [ "${HORSE_SOCIAL_JSON-null}" != null ]; then
               { [ "$HORSE_SOCIAL_JSON" = true ] && [ "$MOBILE_MULTIRUN_JSON" = null ] && [ "$MOBILE_MULTIRUN_TARGET_JSON" = null ] && [ "$CLIENT_NAVIGATION_JSON" = null ] && [ "$ENGINE_TRIGGER_JSON" != null ]; } \
                 || { echo '::error::Horse social proof requires literal true, one engine pin and no other observation mode.'; exit 1; }
+            fi
+            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && Object.hasOwn(p,"natural_addon_tournament_id") ? 0 : 1)'; then
+              node -e '
+                const p = JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD);
+                if (typeof p.natural_addon_tournament_id !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(p.natural_addon_tournament_id) ||
+                    typeof p.engine_sha !== "string" || !/^[0-9a-f]{40}$/.test(p.engine_sha) ||
+                    ["mobile_multirun","mobile_multirun_target","horse_social","client_navigation","keep_game_pages"].some(k => Object.hasOwn(p,k)))
+                  throw new Error("Natural add-on observation requires one tournament UUID, exact engine SHA and no other mode.");'
+              echo 'natural_addon=true' >> "$GITHUB_OUTPUT"
             fi
             if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && Object.hasOwn(p,"client_navigation") ? 0 : 1)'; then
               [ "${CLIENT_NAVIGATION_JSON-null}" = true ] \
@@ -639,7 +649,7 @@ jobs:
     # player route. A failed/skipped origin job makes the gate red, never green
     # without executing the browser suite. Optional downstream failures cannot
     # hide a successful web release.
-    if: needs.publication-gate.outputs.should_run == 'true'
+    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true'
     name: Client browser verification
     # This trusted workflow can receive production database credentials. Run it
     # on a fresh hosted image, never on a persistent runner that has executed
@@ -1968,6 +1978,7 @@ jobs:
               tests/e2e/production-live-table-realtime.spec.ts \
               tests/e2e/production-live-table-multirun.spec.ts \
               tests/e2e/production-seat-move-announcement.spec.ts \
+              tests/e2e/production-natural-addon.spec.ts \
               tests/e2e/support
             echo "specs=$LIVE" >> $GITHUB_OUTPUT
             echo "Production is serving \`$LIVE\`, an ancestor of this run's \`$HERE\`." >> $GITHUB_STEP_SUMMARY
@@ -2045,7 +2056,7 @@ jobs:
         run: node scripts/ci/production-e2e-account.mjs prepare-spectator
 
       - name: Certify live-table continuity against the exact serving engine
-        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success'
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success' && needs.publication-gate.outputs.natural_addon != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           ARENA_BASE_URL: https://smarter.poker/hub/club-arena
@@ -2077,9 +2088,10 @@ jobs:
       # The move notice is presentation-only. Exercise the actual served
       # consumer in this lane's reserved spectator browser, without moving
       # a production seat or waiting for the unrelated staff-page sweep.
+
       - name: Verify seat-move notices in the served spectator browser
         id: seat_move_notice
-        if: "!cancelled() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success'"
+        if: "!cancelled() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success' && needs.publication-gate.outputs.natural_addon != 'true'"
         # 150s case plus authentication/membership setup and report headroom.
         timeout-minutes: 5
         env:
@@ -2179,17 +2191,58 @@ jobs:
       - name: Name every failed live-table test as an annotation
         # A superseded engine stands the certificate down with no report
         # (resumed=false); that is a non-verdict, not missing evidence.
-        if: always() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed != 'false'
+        if: always() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed != 'false' && needs.publication-gate.outputs.natural_addon != 'true'
         run: node scripts/ci/annotate-e2e-failures.mjs e2e-report/live-table-realtime.json
 
       - name: Did the live-table certificate actually execute?
-        if: always() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed != 'false'
+        if: always() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed != 'false' && needs.publication-gate.outputs.natural_addon != 'true'
         run: node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/live-table-realtime.json
 
       - name: Did all required live-table cases pass?
         id: live_coverage
-        if: always() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed != 'false'
+        if: always() && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed != 'false' && needs.publication-gate.outputs.natural_addon != 'true'
         run: node scripts/ci/live-table-certificate-coverage.mjs e2e-report/live-table-realtime.json
+
+      - name: Observe the exact natural add-on across its complete table roster
+        id: natural_addon
+        if: needs.publication-gate.outputs.natural_addon == 'true' && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success'
+        timeout-minutes: 15
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          ARENA_BASE_URL: https://smarter.poker/hub/club-arena
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          E2E_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+          E2E_UNION_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+          NATURAL_ADDON_TOURNAMENT_ID: ${{ github.event.client_payload.natural_addon_tournament_id }}
+          EXPECTED_ENGINE_SHA: ${{ steps.engine.outputs.sha }}
+          EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/natural-addon.json
+        run: |
+          set -euo pipefail
+          npx playwright test tests/e2e/production-natural-addon.spec.ts \
+            --project=chromium --reporter=line,json --workers=1 --retries=0 \
+            --output=test-results/natural-addon
+          node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/natural-addon.json
+          # This focused consumer proof cannot award the full live-table certificate.
+          # Preserve the same final exact-client provenance check independently.
+          timeout 30s git fetch --no-tags origin main
+          curl -fsS --max-time 20 -H 'Cache-Control: no-cache' \
+            "https://smarter.poker/hub/club-arena/build-info.json?addon_final=$RANDOM" \
+            | node scripts/ci/production-e2e-provenance.mjs release-window "$EXPECTED_LIVE_SHA"
+
+      - name: Retain natural add-on consumer evidence even on refusal
+        if: always() && needs.publication-gate.outputs.natural_addon == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: natural-addon-consumer-proof
+          path: |
+            test-results/natural-addon/
+            e2e-report/natural-addon.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Hard-delete the isolated production E2E account
         if: always() && steps.live.outputs.ready == 'true'
@@ -2236,6 +2289,7 @@ jobs:
           EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
           RUNTIME_RESUMED: ${{ steps.gameplay.outputs.resumed }}
           LIVE_COVERAGE_COMPLETE: ${{ steps.live_coverage.outputs.complete }}
+          NATURAL_ADDON_REQUESTED: ${{ needs.publication-gate.outputs.natural_addon }}
           SEAT_MOVE_NOTICE_OUTCOME: ${{ steps.seat_move_notice.outcome }}
           HORSE_SOCIAL_REQUESTED: ${{ github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.horse_social) == 'true' }}
           HORSE_SOCIAL_OUTCOME: ${{ steps.horse_social.outcome }}
@@ -2244,6 +2298,10 @@ jobs:
         run: |
           set -uo pipefail
           echo 'certified=false' >> "$GITHUB_OUTPUT"
+          if [ "${NATURAL_ADDON_REQUESTED:-false}" = 'true' ]; then
+            echo 'Scoped natural add-on consumer evidence only; no full live-table release certificate is awarded.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if [ "${HORSE_SOCIAL_REQUESTED:-false}" = 'true' ] && [ "${HORSE_SOCIAL_OUTCOME:-}" != 'success' ]; then
             echo "NON-VERDICT: the requested natural horse social observation did not pass." >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -2557,7 +2615,7 @@ jobs:
       - production-e2e
       - live-table-e2e
       - phase1-customization-cutover-seal
-    if: ${{ always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' }}
+    if: ${{ always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.natural_addon != 'true' }}
     name: This verification admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     timeout-minutes: 6
