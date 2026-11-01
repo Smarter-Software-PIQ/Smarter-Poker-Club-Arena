@@ -824,11 +824,13 @@ export default function TournamentPage() {
   useEffect(() => {
     if (!selectedTournament?.id) return;
 
+    let alive = true;
     const channelKey = `t-break-${selectedTournament.id}`;
 
     const channel = masterBus.getOrCreateChannel(channelKey);
     channel
       .on('broadcast', { event: 'tournament_event' }, (payload) => {
+        if (!alive) return;
         const eventType = payload.payload?.type;
         const data = payload.payload?.payload;
 
@@ -844,7 +846,11 @@ export default function TournamentPage() {
             (async () => {
               try {
                 const updated = await tournamentService.getTournament(selectedTournament.id);
-                if (updated) setSelectedTournament(updated);
+                if (alive && updated) {
+                  setSelectedTournament((current) =>
+                    current?.id === selectedTournament.id ? updated : current
+                  );
+                }
               } catch (error) {
                 reportError(error, 'TournamentPage.Failed_to_refresh_tournament_on_level_up');
               }
@@ -856,7 +862,11 @@ export default function TournamentPage() {
             (async () => {
               try {
                 const updated = await tournamentService.getTournament(selectedTournament.id);
-                if (updated) setSelectedTournament(updated);
+                if (alive && updated) {
+                  setSelectedTournament((current) =>
+                    current?.id === selectedTournament.id ? updated : current
+                  );
+                }
               } catch (error) {
                 reportError(error, 'TournamentPage.Failed_to_refresh_tournament_on_player_e');
               }
@@ -886,7 +896,11 @@ export default function TournamentPage() {
             (async () => {
               try {
                 const updated = await tournamentService.getTournament(selectedTournament.id);
-                if (updated) setSelectedTournament(updated);
+                if (alive && updated) {
+                  setSelectedTournament((current) =>
+                    current?.id === selectedTournament.id ? updated : current
+                  );
+                }
               } catch (error) {
                 reportError(error, 'TournamentPage.Failed_to_refresh_tournament_on_late_reg');
               }
@@ -919,7 +933,11 @@ export default function TournamentPage() {
             (async () => {
               try {
                 const updated = await tournamentService.getTournament(selectedTournament.id);
-                if (updated) setSelectedTournament(updated);
+                if (alive && updated) {
+                  setSelectedTournament((current) =>
+                    current?.id === selectedTournament.id ? updated : current
+                  );
+                }
               } catch (error) {
                 reportError(error, 'TournamentPage.Failed_to_refresh_tournament_on_table_re');
               }
@@ -937,6 +955,7 @@ export default function TournamentPage() {
       });
 
     return () => {
+      alive = false;
       masterBus.removeRegisteredChannel(channelKey);
     };
   }, [selectedTournament?.id, toast]);
