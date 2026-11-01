@@ -45,7 +45,9 @@ it('never lets an old event approval response replace the current event', async 
         return b;
       },
       order: () => b,
-      limit: () => (event === 'old' ? old.promise : Promise.resolve({ data: [], error: null })),
+      limit: () => b,
+      abortSignal: () =>
+        event === 'old' ? old.promise : Promise.resolve({ data: [], error: null }),
     };
     return b;
   });
@@ -72,7 +74,8 @@ it('clears the prior event approval count while the next event is loading', asyn
         return b;
       },
       order: () => b,
-      limit: () =>
+      limit: () => b,
+      abortSignal: () =>
         event === 'new'
           ? next.promise
           : Promise.resolve({

@@ -22,6 +22,7 @@ vi.mock('../../src/lib/supabase', () => ({
       const q: any = {
         select: () => q,
         eq: () => q,
+        abortSignal: () => q,
         maybeSingle: async () => ({
           data: { id: 'mtt', name: 'MTT', status: 'RUNNING', current_level: 0 },
           error: null,

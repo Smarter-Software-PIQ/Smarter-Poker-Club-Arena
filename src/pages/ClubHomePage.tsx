@@ -1,5 +1,6 @@
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
+import { prioritizeTournamentFavorites } from '../components/lobby/tournamentFavoriteOrder';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
 import { DiamondJackpotReadout } from '../components/bbj/DiamondJackpotReadout';
@@ -4689,9 +4690,10 @@ function ClubHomePageContent({
       const isLateRegOrStarting = (e: LobbyEntry) =>
         e.status === 'registering' || e.status === 'late_reg' || e.status === 'starting_soon';
 
-      const selectedTourns = tourns
-        .filter((t) => isMtt(t) && isLateRegOrStarting(t))
-        .slice(0, ALL_TAB_MTT_CAP);
+      const candidates = tourns.filter((t) => isMtt(t) && isLateRegOrStarting(t));
+      // Rank before the cap so a saved favorite cannot disappear beyond row ten.
+      const prioritized = prioritizeTournamentFavorites(candidates, favoriteGameIds);
+      const selectedTourns = prioritized.slice(0, ALL_TAB_MTT_CAP);
 
       return [...selectedTourns, ...cash];
     }

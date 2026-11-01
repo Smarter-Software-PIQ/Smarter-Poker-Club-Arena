@@ -102,6 +102,17 @@ END$$;""")
   probe=json.loads((a.evidence/'original69-probe/probe-report.json').read_text())
   assert probe.get('passed') is True and probe.get('cleanup')=={'stopped':True,'removed':True}
   e.report['original69_probe']={'passed':True,'report':'original69-probe/probe-report.json','cases':len(probe['cases'])}
+  # Equal-share is a separate explicit disposition, qualified through the same
+  # required cancellation entrypoint without changing these v2/v3 cases.
+  equal_driver=ROOT/'scripts/ci/test-tournament-equal-share.py'
+  subprocess.run([sys.executable,'-B',str(equal_driver),
+   '--evidence',str(a.evidence/'equal-share'),'--work-root',str(a.work_root/'equal-share'),
+   '--socket-root',str(a.socket_root),'--pg-bin',str(a.pg_bin)],check=True,timeout=180)
+  equal_report=json.loads((a.evidence/'equal-share/equal-share-report.json').read_text())
+  assert equal_report.get('passed') is True and equal_report.get('cleanup')=={'stopped':True,'removed':True}
+  assert len(equal_report['cases'])==56
+  e.report['equal_share']={'passed':True,'cases':56,'report':'equal-share/equal-share-report.json'}
+  e.report['source_sha256'][str(equal_driver.relative_to(ROOT))]=hashlib.sha256(equal_driver.read_bytes()).hexdigest()
   e.report['passed']=True;e.report['status']='passed'
  finally:
   e.close();(a.evidence/'abort-report.json').write_text(json.dumps(e.report,indent=2)+'\n')

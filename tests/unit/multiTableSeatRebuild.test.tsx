@@ -13,6 +13,8 @@ type SeatRead = {
 };
 const state = vi.hoisted(() => ({
   lightningSession: vi.fn(),
+  tabRead: vi.fn(),
+  tournamentRead: vi.fn(),
   user: { id: 'account-a' } as { id: string } | null,
   listeners: new Map<string, Set<(event: { payload: unknown }) => void>>(),
   reads: [] as SeatRead[],
@@ -34,6 +36,9 @@ vi.mock('../../src/lib/supabase', () => ({
       let userId = '';
       let ids: string[] = [];
       const query = {
+        abortSignal() {
+          return query;
+        },
         select(value: string) {
           columns = value;
           return query;
@@ -62,6 +67,14 @@ vi.mock('../../src/lib/supabase', () => ({
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (value: QueryResult) => unknown, reject: (error: Error) => unknown) {
+          if (table === 'tournaments' && state.tournamentRead.getMockImplementation())
+            return Promise.resolve(state.tournamentRead()).then(resolve, reject);
+          if (
+            table === 'tables' &&
+            columns === 'id, tournament_id' &&
+            state.tabRead.getMockImplementation()
+          )
+            return Promise.resolve(state.tabRead()).then(resolve, reject);
           if (table === 'table_seats') {
             const promise = new Promise<QueryResult>((yes, no) => {
               const read: SeatRead = {
@@ -168,7 +181,7 @@ vi.mock('../../src/components/table/TableTabBar', () => ({
     activeTabId,
     onTabSelect,
   }: {
-    tabs: { id: string }[];
+    tabs: { id: string; tournamentName?: string }[];
     activeTabId: string;
     onTabSelect: (id: string) => void;
   }) => (
@@ -177,7 +190,12 @@ vi.mock('../../src/components/table/TableTabBar', () => ({
         {tabs.map((tab) => tab.id).join(',')}
       </div>
       {tabs.map((tab) => (
-        <button key={tab.id} data-testid={'tab-' + tab.id} onClick={() => onTabSelect(tab.id)}>
+        <button
+          key={tab.id}
+          data-name={tab.tournamentName ?? 'unknown'}
+          data-testid={'tab-' + tab.id}
+          onClick={() => onTabSelect(tab.id)}
+        >
           Select {tab.id}
         </button>
       ))}
@@ -299,6 +317,8 @@ beforeEach(() => {
   state.user = { id: 'account-a' };
   resetLightningRegistryForTests();
   state.lightningSession.mockReset();
+  state.tabRead.mockReset();
+  state.tournamentRead.mockReset();
   state.listeners.clear();
   state.reads.length = 0;
   state.metadata.length = 0;
@@ -314,6 +334,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('Rendered MultiTable authoritative seat rebuild', () => {
@@ -819,4 +840,49 @@ it('an existing seated table conversion offers its own View Game path instead of
   expect(screen.getByTestId('felt-' + LIGHTNING_ANCHOR)).toBeTruthy();
   expect(screen.queryByTestId('felt-' + LIGHTNING_ROOM)).toBeNull();
   expect(state.lightningSession).not.toHaveBeenCalled();
+});
+
+it('marks a tournament tab unavailable when its one metadata lookup never answers', async () => {
+  await seatA();
+  state.tabRead.mockImplementation(() => new Promise(() => {}));
+  vi.useFakeTimers();
+  await act(async () => {
+    state.reports.get('A')!({ isTournament: true, gameCode: 'MTT' });
+  });
+  expect(state.tabRead).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('tab-A').getAttribute('data-name')).toBe('unknown');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(screen.getByTestId('tab-A').getAttribute('data-name')).toBe('');
+  expect(state.tabRead).toHaveBeenCalledTimes(1);
+});
+
+it('does not apply a late tournament result after its metadata deadline', async () => {
+  await seatA();
+  let answer!: (value: QueryResult) => void;
+  state.tabRead.mockResolvedValue({ data: [{ id: 'A', tournament_id: 'event' }], error: null });
+  state.tournamentRead.mockImplementation(
+    () =>
+      new Promise((done) => {
+        answer = done;
+      })
+  );
+  vi.useFakeTimers();
+  await act(async () => {
+    state.reports.get('A')!({ isTournament: true, gameCode: 'MTT' });
+  });
+  expect(state.tournamentRead).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(screen.getByTestId('tab-A').getAttribute('data-name')).toBe('');
+  await act(async () => {
+    answer({
+      data: [{ id: 'event', name: 'Late Name', buy_in_amount: 25, buy_in_fee: 0 }],
+      error: null,
+    });
+  });
+  expect(screen.getByTestId('tab-A').getAttribute('data-name')).toBe('');
+  expect(state.tournamentRead).toHaveBeenCalledTimes(1);
 });

@@ -152,6 +152,7 @@ import {
 // V7 (2026-07-24): position-pair preflop mastery — 3-bet/4-bet bluffs, blind
 // vs blind, squeezes, stack depth, reshoves, ICM. See HorsePreflop.ts.
 import { gtoOpenBar, gtoOpenStrength, gtoSbLimpFloor } from './HorseGtoOpeningRanges.js';
+import { gtoDefence, V72_MAX_OPEN_BB } from './HorseGtoDefenceRanges.js';
 import {
   decidePreflopV7,
   ploRaiseTo,
@@ -187,6 +188,7 @@ import { noteDecisionMs, noteFire, telemetryOn } from './BrainTelemetry.js';
 // by GtoChartLoader so the synchronous decision can read them at zero I/O.
 // See engine/GtoCharts.ts for scope and why absence falls back to heuristics.
 import { gtoOpenJam, gtoBbVsSbJam, handClass as gtoHandClass } from './GtoCharts.js';
+import { nashJamProbability, V71_PUSH_FOLD_MAX_BB } from './HorseAnteAwarePushFold.js';
 // V29 (Dan 2026-08-29): the flop plays from the solver — class-mean mixes
 // aggregated offline from the 8.8M-solution warehouse, preloaded by
 // GtoPostflopLoader. See engine/GtoPostflop.ts for scope and honesty notes.
@@ -511,6 +513,27 @@ export const PLO_STACKOFF_TAGS = [
 
 /** Diagnostic rates use their variant family and a 40-reviewed-hand floor. */
 export type LeakFamily = 'omaha' | 'holdem' | 'tournament';
+
+/**
+ * V24 OMAHA PRICE DEFENSE, PER VARIANT (2026-10-31). The relief is ON by
+ * default everywhere except PLO6 CASH, where the nightly league (a cash card)
+ * pooled it significantly NEGATIVE (plo6_v24_price, -2.34 +/- 1.12 bb/100 over
+ * the seven runs to 2026-10-30) while PLO4 pooled significantly positive.
+ * PLO6 tournaments keep it: the league deals no tournament, V24 was built for
+ * the PLO PKO Dan watched, and its tournament half (the survival premium
+ * scaled by the fraction of stack at risk) is unmeasured there, not negative.
+ * An explicit option decides it everywhere: true turns it on (the league
+ * card's arm A and the plo6-v24 qualification candidate), false turns it off
+ * (the ablation arm). PLO6 cash gets it back only when it qualifies.
+ */
+export function v24PloDefenseOn(
+  option: boolean | undefined,
+  gameVariant: unknown,
+  tournament: boolean
+): boolean {
+  if (option !== undefined) return option !== false;
+  return tournament || String(gameVariant ?? '').toLowerCase() !== 'plo6';
+}
 
 export function leakLoad(
   mods: HorseProfileMods | undefined,
@@ -1987,10 +2010,12 @@ export interface HorseDecideOpts {
    *  awareness preflop — pots against a covered raiser are worth more than
    *  their chips, so the call bar bends toward them (default: enabled) */
   v24Bounty?: boolean;
-  /** disable the V24 Omaha price defense: in PLO the call bar bends toward
-   *  the POT ODDS rather than a fixed NLH-calibrated percentile, and the
-   *  survival premium scales with the fraction of stack actually at risk
-   *  (default: enabled) */
+  /** the V24 Omaha price defense: in PLO the call bar bends toward the POT
+   *  ODDS rather than a fixed NLH-calibrated percentile, and the survival
+   *  premium scales with the fraction of stack actually at risk. Default:
+   *  enabled, except DISABLED in PLO6 cash since 2026-10-31 (league
+   *  plo6_v24_price pooled negative; see v24PloDefenseOn). An explicit value
+   *  decides it everywhere. */
   v24PloDefense?: boolean;
   /** disable the V25 PLO tournament layer (Dan 2026-08-28): pot limit means
    *  you cannot shove, so short-stack PLO is a COMMITMENT decision rather
@@ -2174,6 +2199,18 @@ export interface HorseDecideOpts {
    *  target widths; the jam-or-fold zones are untouched. Default on;
    *  explicit false keeps today's open. */
   v70GtoOpeningRanges?: boolean;
+  /** V71 (2026-10-31): the folded-to Hold'em jam at <= 15bb in a tournament
+   *  (or an ante cash table) reads the chip-EV Nash jam-or-fold table by
+   *  dealt-in players behind and dead ante (HorseAnteAwarePushFold), with or
+   *  without the solver charts loaded. Default on; explicit false keeps the
+   *  V27 chart / offline fallback answer. */
+  v71AnteAwarePushFold?: boolean;
+  /** V72 (2026-10-31): Hold'em facing one open with nobody in (three or more
+   *  dealt in) - the call / 3-bet base is set per (defender seat, opener
+   *  seat by dealt-in players behind, open size, ante) from reference GTO
+   *  charts instead of five position buckets; style, ICM, exploit, V53, V57
+   *  and V60 move it as before. Default on; explicit false keeps today's. */
+  v72DefenceByOpener?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -3777,6 +3814,8 @@ export function holdemPremiumAggression(
   if (telemetryOn(opts)) {
     if (verdict.rule === 'dominated_3bet_fold') noteFire('holdem_dominated_3bet_fold');
     else if (verdict.rule === 'premium_preflop_raise') noteFire('holdem_premium_preflop_raise');
+    else if (verdict.rule === 'no_four_bet_bluff') noteFire('holdem_no_four_bet_bluff');
+    else if (verdict.rule === 'four_bettor_continues') noteFire('holdem_four_bettor_continues');
     else noteFire('holdem_premium_postflop_bet');
   }
   const next = verdict.decision;
@@ -5820,14 +5859,60 @@ export class HorseLogic {
         toCall <= bb &&
         chartDepthBB <= 15
       ) {
-        const advice = gtoOpenJam({
-          isTournament: tourney,
-          position: chartPos,
-          stackBB: chartDepthBB,
-          hand,
-        });
-        if (advice) {
-          if (telemetryOn(opts)) noteFire('v27_gto_open_jam');
+        // ═══ V71 ANTE-AWARE PUSH/FOLD (2026-10-31) ═══ in a tournament (or
+        // at an ante cash table, which already reads the Tournament charts)
+        // with an ante in the pot, the jam reads the chip-EV Nash table for
+        // the seat's exact count of dealt-in players behind and the dead
+        // ante, whether or not the charts hydrated. The charts are the no-ante game with five
+        // positions: identical Tournament and Cash cells, so a big-blind
+        // ante was ignored and a nine-handed UTG jammed the six-handed UTG
+        // chart. Depth is the effective stack: hero's, capped by the deepest
+        // live stack still to act. Nobody's identity is read.
+        const nash71 = (() => {
+          if (opts.v71AnteAwarePushFold === false || !tourney) return null;
+          if (chartDepthBB > V71_PUSH_FOLD_MAX_BB) return null;
+          // Only where there IS dead ante: the charts are the no-ante game,
+          // and against the human-calibrated field the no-ante Nash answer
+          // ran -3.56 +/- 1.63 bb/100 at 15bb over four seeds (league, V71
+          // changelog), so a table without an ante keeps the charts and the
+          // offline fallback exactly as they were.
+          const ante71 = anteOrbitCostBB(
+            gs.ante ?? 0,
+            dealtHorseTableSize(gs, player.seat),
+            bb,
+            gs.bigBlindAnte === true
+          );
+          if (!(ante71 > 0)) return null;
+          const behind71 = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+          if (behind71 === null || behind71 < 1) return null;
+          let deepestBehind71 = 0;
+          for (const p of gs.players) {
+            if (p.seat === player.seat || p.is_folded || p.is_sitting_out) continue;
+            deepestBehind71 = Math.max(deepestBehind71, (p.stack + p.bet) / bb);
+          }
+          const depth71 =
+            deepestBehind71 > 0 ? Math.min(chartDepthBB, deepestBehind71) : chartDepthBB;
+          return nashJamProbability({
+            hand,
+            behind: behind71,
+            depthBB: depth71,
+            anteBB: ante71,
+          });
+        })();
+        const advice =
+          nash71 === null
+            ? gtoOpenJam({
+                isTournament: tourney,
+                position: chartPos,
+                stackBB: chartDepthBB,
+                hand,
+              })
+            : null;
+        if (nash71 !== null || advice) {
+          if (telemetryOn(opts)) {
+            noteFire('v27_gto_open_jam');
+            if (nash71 !== null) noteFire('v71_ante_push');
+          }
           // ═══ V48 PERSONA: gtoAdherence ═══════════════════════════════════
           // Not every player takes the chart every time, and a fleet where
           // every seat plays the identical solver line at 12bb is a fleet
@@ -5850,7 +5935,12 @@ export class HorseLogic {
           } else {
             // The chart gives the mixed strategy; the horse rolls it. A 77%
             // jam is jammed 77% of the time, not rounded to always.
-            const pushProb = advice.action === 'push' ? advice.freq : 1 - advice.freq;
+            const pushProb =
+              nash71 !== null
+                ? nash71
+                : advice!.action === 'push'
+                  ? advice!.freq
+                  : 1 - advice!.freq;
             if (fastRandom() < pushProb) {
               notePhase6Route('solver', 'chart_open_jam');
               return { action: 'all_in', thinkTime: 0 };
@@ -6325,8 +6415,48 @@ export class HorseLogic {
         behind,
       };
     })();
+    // ═══ V72 GTO DEFENCE BY OPENER (2026-10-31) ═══ facing one no-limit
+    // hold'em open with nobody in (three or more dealt in), the call and the
+    // 3-bet read the (defender, opener seat) reference base
+    // (HorseGtoDefenceRanges). Both seats are indexed from the dealt census
+    // exactly as V70 indexes the open, never from who anybody is.
+    const gtoDefend72 = (() => {
+      if (opts.v72DefenceByOpener === false) return undefined;
+      if (raises !== 1 || callers !== 0 || limpers !== 0 || lastRaiserSeat < 0) return undefined;
+      if (heroPreviouslyActed || player.cards.length !== 2) return undefined;
+      if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
+      if (gs.allInOrFold === true || gs.straddleActive === true) return undefined;
+      const dealt72 = dealtHorseTableSize(gs, player.seat);
+      if (dealt72 < 3) return undefined;
+      const opener = gs.players.find((p) => p.seat === lastRaiserSeat);
+      if (!opener || opener.is_all_in) return undefined;
+      const openToBB = bb > 0 ? gs.currentBet / bb : 0;
+      if (!(openToBB > 1.05 && openToBB <= V72_MAX_OPEN_BB)) return undefined;
+      const openerBehind = preflopPlayersBehind(lastRaiserSeat, gs, opts.v13 !== false);
+      const heroBehind = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+      if (openerBehind === null || heroBehind === null || heroBehind >= openerBehind)
+        return undefined;
+      const defender = heroBehind === 0 ? 'bb' : heroBehind === 1 ? 'sb' : 'ip';
+      const d72 = gtoDefence(player.cards[0], player.cards[1], {
+        defender,
+        openerBehind,
+        defenderBehind: heroBehind,
+        ante: (gs.ante ?? 0) > 0,
+        openToBB,
+      });
+      if (!d72) return undefined;
+      if (telemetryOn(opts)) noteFire('v72_defend_vs_opener');
+      return {
+        strength: clamp01(d72.continueStrength + strengthJitter),
+        continueBar: d72.continueBar,
+        valueBar: d72.valueBar,
+        bluffProb: d72.bluffProb,
+        defender,
+      } as const;
+    })();
     const intent = decidePreflopV7({
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
+      ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
       ...(ploIcm53 ? { ploIcm: ploIcm53.shifts } : {}),
       strength,
       position,
@@ -6383,7 +6513,14 @@ export class HorseLogic {
         (opts.v20Mzone ?? true) !== false ? dealtHorseTableSize(gs, player.seat) : undefined,
       // V21: deep-stack cash stack-off discipline.
       deepDiscipline: (opts.v21Deep ?? true) !== false,
-      ploPriceDefense: (opts.v24PloDefense ?? true) !== false,
+      // V24 price defense, PLO6 CASH half DEFAULT OFF since 2026-10-31: the
+      // league pooled plo6_v24_price NEGATIVE (-2.34 +/- 1.12 bb/100 over the
+      // 7 runs to 2026-10-30; -2.41 +/- 0.98 over the 9 runs since 2026-10-23)
+      // while plo4_v24_price pooled +3.43 +/- 0.89 over the same nights.
+      // Absent the option, PLO6 cash plays without it and everything else
+      // keeps it; an explicit v24PloDefense (true or false) still decides it,
+      // so the league card and plo6-v24 qualification measure it.
+      ploPriceDefense: v24PloDefenseOn(opts.v24PloDefense, gs.gameVariant, isTournamentMode(gs)),
       // V25: PLO tournament play — the pot-limit commitment zone and its
       // consequences. Tournament-only by construction inside the engine.
       ploTourney: (opts.v25PloTourney ?? true) !== false,

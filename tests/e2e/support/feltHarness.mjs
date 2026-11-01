@@ -161,7 +161,6 @@ export const PROBE = () => {
 
   const feltW = scaler.getBoundingClientRect().width;
   scaler.style.setProperty('--table-w', feltW + 'px');
-  scaler.style.setProperty('--table-h', scaler.getBoundingClientRect().height + 'px');
 
   /* The hero's avatar is measured as a rendered ELEMENT rather than through the
      token probe: `.seat__avatar` is what actually gets drawn, and reading its
@@ -230,7 +229,9 @@ export async function measureAll(page, css) {
   for (const [device, width, height, insetTop = 0, insetBottom = 0] of DEVICES) {
     await page.setViewportSize({ width, height });
     const html =
-      insetTop || insetBottom ? buildHtml(applyInsets(css, insetTop, insetBottom)) : plainHtml;
+      insetTop || insetBottom
+        ? buildHtml(applyInsets(css, insetTop, insetBottom))
+        : plainHtml;
     await page.setContent(html);
     rows.push({ device, vp: `${width}x${height}`, ...(await page.evaluate(PROBE)) });
   }

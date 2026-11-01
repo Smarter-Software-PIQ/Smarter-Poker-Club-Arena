@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SEAT_LAYOUTS,
+  MAX_SUPPORTED_SEATS,
   SEAT_POSITIONS_6MAX,
   SEAT_POSITIONS_9MAX,
   TOP_CAP_Y_MAX,
@@ -58,7 +59,9 @@ describe('seatLayoutFor never returns a ring too short for the table', () => {
     const ring = seatLayoutFor(n as number);
     expect(Array.isArray(ring)).toBe(true);
     expect(ring.length).toBeGreaterThanOrEqual(2);
-    expect(ring.length).toBeLessThanOrEqual(9);
+    // 10-max is drawable since 2026-10-31 (SEAT_POSITIONS_10MAX); an
+    // out-of-range size clamps to the largest ring the client can draw.
+    expect(ring.length).toBeLessThanOrEqual(MAX_SUPPORTED_SEATS);
   });
 
   it('a table size can never index past the end of its own ring', () => {

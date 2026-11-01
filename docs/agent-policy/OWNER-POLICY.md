@@ -12,6 +12,12 @@ Scope remains finite. Reading policy does not authorize another product phase, u
 
 ## Access and credentials
 
+### Tournament start holds require an explicit owner instruction
+
+Owner direction, October 31, 2026: no agent may block new tournaments without the owner's explicit instruction to do so. Cleanup, closure of unfinished tournaments, payout reconciliation, audits, incident investigation and general repair authority do not authorize a new-start hold. Never infer, create, re-enable or broaden such a hold from those assignments, including through SQL, migrations, scheduling configuration or engine controls.
+
+Before an explicitly authorized hold, record the owner's exact instruction, its chat/source reference, affected scope and release condition in the owning checkpoint and operation record. A prior hold that was released is not continuing authorization; an agent-written reason claiming "owner instruction" is not evidence of one. Preserve existing transaction-level safety checks and owner-authorized maintenance; this rule forbids agent-imposed blanket admission holds, not those established safeguards.
+
 Owner authorization and technical access are different. Check configured supported access, provider permissions, secret names and the intended reporter identity before dependent hosted work. Missing or unreadable metadata is unknown, never proof of access. An unavailable interface is not proof that every configured route is unavailable.
 
 Repair necessary credentials/configuration through authorized tools, preserving service identity, least privilege and the canonical secret store; verify the affected check afterward. Never print secrets, read environment-file values, scrape another task's credentials, guess an identity or substitute a different trusted reporter to manufacture success.

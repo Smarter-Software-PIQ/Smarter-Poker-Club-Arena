@@ -737,13 +737,10 @@ const TABLES: Array<{ label: string; vw: number; size: Size }> = [
 const RINGS = [2, 3, 4, 5, 6, 7, 8, 9] as const;
 
 const sq = (p: Pos, size: Size): Pos => ({ x: p.x, y: (p.y * size.h) / size.w });
-const podFor = (vw: number, seat: Pos) => {
-  const size = TABLES.find((table) => table.vw === vw)!.size;
-  return seatPodPx(vw, seat.y >= 100 && seat.x === 50, size.w, { canvasHeightPx: size.h });
-};
+const podFor = (vw: number, seat: Pos) => seatPodPx(vw, seat.y >= 100 && seat.x === 50);
 
 describe('the dealer button never stands on a name plate', () => {
-  it('the defect is real: the module on its own puts 128 pucks on the enlarged plates', () => {
+  it('the defect is real: the module on its own puts 84 pucks on the enlarged plates', () => {
     // Stated as a measurement rather than prose so that folding this back into
     // tableGeometry.ts (see the note at the top of DealerButton.tsx) fails HERE
     // with a number, rather than leaving a test that quietly stops meaning
@@ -769,7 +766,7 @@ describe('the dealer button never stands on a name plate', () => {
     // from its top edge, so the module's own swing already clears six more.
     // October 12: enlarged plates produce 84 measured initial overlaps.
     // Every final placement is still required to clear the plate and board.
-    expect(overlapping).toBe(128);
+    expect(overlapping).toBe(84);
   });
 
   for (const { label, vw, size } of TABLES) {
@@ -777,7 +774,7 @@ describe('the dealer button never stands on a name plate', () => {
       for (const n of RINGS) {
         for (const seat of SEAT_LAYOUTS[n]) {
           const pod = podFor(vw, seat);
-          const b = dealerButtonPositionClearOfSeat(seat, size, pod, SEAT_LAYOUTS[n]);
+          const b = dealerButtonPositionClearOfSeat(seat, size, pod);
           expect(
             overlapsSeatPlate(b, seat, size, pod),
             `${n}-max ${label}: seat ${JSON.stringify(seat)} put its button at ` +
@@ -795,7 +792,7 @@ describe('the dealer button never stands on a name plate', () => {
       // position that actually SHIPS.
       for (const n of RINGS) {
         for (const seat of SEAT_LAYOUTS[n]) {
-          const b = dealerButtonPositionClearOfSeat(seat, size, podFor(vw, seat), SEAT_LAYOUTS[n]);
+          const b = dealerButtonPositionClearOfSeat(seat, size, podFor(vw, seat));
           expect(
             overlapsBoard(b, size),
             `${n}-max ${label}: seat ${JSON.stringify(seat)} put its button at ` +
@@ -812,7 +809,7 @@ describe('the dealer button never stands on a name plate', () => {
       for (const n of RINGS) {
         for (const seat of SEAT_LAYOUTS[n]) {
           const pod = podFor(vw, seat);
-          const b = dealerButtonPositionClearOfSeat(seat, size, pod, SEAT_LAYOUTS[n]);
+          const b = dealerButtonPositionClearOfSeat(seat, size, pod);
           const chips = chipRestPosition(seat, size, pod);
           const where = `${n}-max ${label} seat ${JSON.stringify(seat)}`;
           expect(
@@ -838,10 +835,7 @@ describe('the dealer button never stands on a name plate', () => {
       for (const n of RINGS) {
         const ring = SEAT_LAYOUTS[n];
         for (const seat of ring) {
-          const b = sq(
-            dealerButtonPositionClearOfSeat(seat, size, podFor(vw, seat), SEAT_LAYOUTS[n]),
-            size
-          );
+          const b = sq(dealerButtonPositionClearOfSeat(seat, size, podFor(vw, seat)), size);
           const own = Math.hypot(b.x - sq(seat, size).x, b.y - sq(seat, size).y);
           for (const other of ring) {
             if (other === seat) continue;
@@ -866,7 +860,7 @@ describe('the dealer button never stands on a name plate', () => {
         for (const seat of SEAT_LAYOUTS[n]) {
           const pod = podFor(vw, seat);
           const before = dealerButtonPosition(seat, size, pod);
-          const after = dealerButtonPositionClearOfSeat(seat, size, pod, SEAT_LAYOUTS[n]);
+          const after = dealerButtonPositionClearOfSeat(seat, size, pod);
           const same = before.x === after.x && before.y === after.y;
           if (!same) {
             moved++;
@@ -883,7 +877,7 @@ describe('the dealer button never stands on a name plate', () => {
     // of them plate overlaps, because the board keep-out now lives in
     // dealerButtonPosition itself (tableGeometry.overlapsBoard) and the module
     // never hands the wrapper a puck on the cards to move.
-    expect(moved, 'the shared hero-size plates require the measured corrections').toBe(128);
+    expect(moved, 'exactly the 84 measured overlaps move, and nothing else').toBe(84);
   });
 });
 

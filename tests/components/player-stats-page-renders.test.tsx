@@ -923,6 +923,9 @@ describe('PlayerStatsPage mounts', () => {
   });
 
   it('refuses a scope-mismatched all-time payload instead of painting lifetime trophies', async () => {
+    // This assertion tests rejected data, not Vite's cold chunk-transform speed.
+    // Load the real lazy section before starting Testing Library's DOM deadline.
+    await import('../../src/pages/stats/TrophiesTab');
     statsRouteState.search = '?range=30d&tab=trophies';
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const rangedPayload = {

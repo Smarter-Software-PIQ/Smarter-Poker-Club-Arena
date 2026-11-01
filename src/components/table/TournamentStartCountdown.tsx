@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 import './TournamentStartCountdown.css';
 
@@ -38,15 +39,22 @@ export default function TournamentStartCountdown({
   useEffect(() => {
     if (hasLiveHand) return;
     let active = true;
+    const controller = new AbortController();
+    setOffset(0);
     let clockOffset = 0;
     let refresh: ReturnType<typeof setTimeout>;
     const read = async () => {
       try {
-        const { data, error } = await supabase
-          .from('tournaments')
-          .select('status, start_time, format_contract')
-          .eq('id', tournamentId)
-          .maybeSingle();
+        const { data, error } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .from('tournaments')
+              .select('status, start_time, format_contract')
+              .eq('id', tournamentId)
+              .abortSignal(signal)
+              .maybeSingle(),
+          { signal: controller.signal }
+        );
         if (!active) return;
         if (error) reportError(error, 'TournamentStartCountdown.read');
         else {
@@ -62,7 +70,9 @@ export default function TournamentStartCountdown({
       if (active) refresh = setTimeout(() => void read(), 10_000);
     };
     const asked = Date.now();
-    void Promise.resolve(supabase.rpc('fn_db_now'))
+    void runWithRequestDeadline((signal) => supabase.rpc('fn_db_now').abortSignal(signal), {
+      signal: controller.signal,
+    })
       .then(({ data, error }) => {
         if (!active) return;
         if (error) {
@@ -94,6 +104,7 @@ export default function TournamentStartCountdown({
 
     return () => {
       active = false;
+      controller.abort();
       clearTimeout(refresh);
       clearInterval(tick);
       document.removeEventListener('visibilitychange', onVisible);

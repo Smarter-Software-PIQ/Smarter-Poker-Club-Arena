@@ -44,7 +44,10 @@ describe('PLO6 river discipline is a valid final wager-rule call', () => {
   });
 
   it('does not allow a call downgrade in another game', () => {
-    for (const variant of ['nlh', 'plo4', 'plo5', 'plo8', 'flh', 'short_deck', 'pineapple'])
+    // NLH is absent on purpose: Dan's 2026-10-31 rule turns a hold'em 4-bet
+    // below QQ+/AK into a call (HorseHoldemPremiumAggression rule 4); its
+    // context-bound admission is pinned in HorseHoldemPremiumAggression.law.test.ts.
+    for (const variant of ['plo4', 'plo5', 'plo8', 'flh', 'short_deck', 'pineapple'])
       expect(horseDecisionReceiptIsValid(graphDecision('raise', 'call'), variant)).toBe(false);
   });
 
