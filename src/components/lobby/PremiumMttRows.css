@@ -118,7 +118,7 @@
   font-size: calc(clamp(11px, 3.4cqw, 26px) * var(--premium-title-fit, 1));
   font-weight: 700;
   line-height: 1.12;
-  color: #f4f7fb;
+  color: #fff;
   white-space: normal;
   overflow: visible;
 }
@@ -135,11 +135,8 @@
   overflow-wrap: anywhere;
   text-shadow: 0 1px 0 #000;
 }
-.has-premium-chassis .is-featured .lt-tournament-heading__name {
-  color: #f02849;
-}
-.has-premium-chassis .is-bounty:not(.is-featured) .lt-tournament-heading__name {
-  color: #35d95a;
+.has-premium-chassis .lt-tournament-heading__name {
+  color: #fff;
 }
 .has-premium-chassis .lt-tournament-heading__guarantee {
   position: absolute;
@@ -157,7 +154,7 @@
   background: transparent;
   font: inherit;
   font-weight: 700;
-  color: #e4e7ec;
+  color: #fff;
   white-space: normal;
   text-align: center;
 }
@@ -645,7 +642,7 @@
   font-size: clamp(12px, 3.4cqw, 24px);
   font-weight: 600;
   line-height: 1;
-  color: #e4e7ec;
+  color: #fff;
   white-space: normal;
   text-align: center;
   overflow: visible;
@@ -722,6 +719,13 @@
 }
 .has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='bounty'] {
   background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/bounty.png');
+  /* Keep the approved standalone emblem centered in its bay, but make its
+     bag silhouette and silver currency mark legible at phone scale. */
+  top: 2.2cqw;
+  left: 6.15%;
+  width: 10.5%;
+  height: 10.5cqw;
+  filter: brightness(1.35);
 }
 .has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='freezeout'] {
   background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/freezeout.png');

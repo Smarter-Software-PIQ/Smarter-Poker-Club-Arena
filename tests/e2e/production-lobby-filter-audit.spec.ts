@@ -476,6 +476,19 @@ function independentMatch(
 
 /** The native lower glass is measured from the approved master, not the text wrapper. */
 async function assertRegistrationInkInsideFrame(page: Page) {
+  const copy = await page
+    .locator(
+      '.has-premium-chassis .lt-tournament-heading__name, .has-premium-chassis .lt-tournament-heading__guarantee, .has-premium-chassis .lt-name__table, .has-premium-chassis .premium-cash-style, .has-premium-chassis .compact-lobby__meta'
+    )
+    .evaluateAll((elements) =>
+      elements
+        .filter((element) => element.getBoundingClientRect().width && element.textContent?.trim())
+        .map((element) => ({ text: element.textContent, color: getComputedStyle(element).color }))
+    );
+  expect(copy.length, 'The actual lobby must expose game titles or descriptions').toBeGreaterThan(
+    0
+  );
+  expect(copy.filter((item) => item.color !== 'rgb(255, 255, 255)')).toEqual([]);
   await expect
     .poll(
       () =>
@@ -1500,6 +1513,30 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   });
   await clickControl(countdown);
   await expect(exact).toBeVisible();
+  const bounty = page
+    .locator('tr[data-game-heading][data-kind="mtt"]:has([data-tournament-icon="bounty"])')
+    .first();
+  await expect(bounty, 'The bounty emblem must be verified on a real event').toBeVisible();
+  await bounty.scrollIntoViewIfNeeded();
+  const bountyGeometry = await bounty.evaluate((element) => {
+    const icon = element.querySelector('[data-tournament-icon="bounty"]')!;
+    const title = element.querySelector('.lt-tournament-heading__name')!;
+    const frame = element.getBoundingClientRect();
+    const emblem = icon.getBoundingClientRect();
+    return {
+      width: emblem.width / frame.width,
+      inside: emblem.top >= frame.top && emblem.bottom <= frame.bottom,
+      besideTitle: emblem.right < title.getBoundingClientRect().left,
+      filter: getComputedStyle(icon).filter,
+    };
+  });
+  expect(bountyGeometry.width).toBeGreaterThanOrEqual(0.1);
+  expect(bountyGeometry.inside && bountyGeometry.besideTitle).toBe(true);
+  expect(bountyGeometry.filter).toBe('brightness(1.35)');
+  await testInfo.attach('lobby-white-copy-bounty-phone.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
   const labelEvidence = await h.rows.evaluateAll((elements) =>
     elements.map((element) => ({
       id: element.getAttribute('data-id')!,
