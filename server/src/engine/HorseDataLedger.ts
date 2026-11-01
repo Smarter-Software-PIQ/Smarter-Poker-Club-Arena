@@ -821,6 +821,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V70'
   ),
   flag(
+    'v71AnteAwarePushFold',
+    "2026-10-31 Hold'em folded-to jam at <= 15bb in a tournament (or an ante cash table) with dead ante in the pot: the jam-or-fold answer reads the chip-EV Nash table (HorseNashPushFold.data.ts, first caller only, exact hero/caller card removal) by dealt-in players behind (1 = SB vs BB .. 8 = nine-handed UTG) and dead ante (0/1/2bb solutions, interpolated), at the effective depth (hero capped by the deepest live stack behind), whether or not memory_charts_gold hydrated; the charts were the no-ante game for five positions (Tournament cells equal to Cash) and the offline fallback jammed on the strength ladder; 9-handed 15bb with a big-blind ante jams UTG 8.6 / LJ 16.3 / HJ 22.8 / CO 28.8 / BTN 35.7 / SB 63.8; a pot without dead ante (charts and fallback), the 16-22bb orange-zone shove and BB defence are unchanged; explicit off arm retained",
+    'V71'
+  ),
+  flag(
     'v72DefenceByOpener',
     "2026-10-31 Hold'em facing one open with nobody in (three or more dealt in, open up to 6bb): the call / 3-bet base is set per defender (big blind, small blind, in-position seat) and opener seat by dealt-in players behind (V70 index SB 1 .. 9-handed UTG 8) instead of five position buckets; continue range read on a reference order blended between late- and early-open charts and mapped onto the preflop score scale, value 3-bets on the legacy ladder, bluff 3-bets from a reference chart scaled to half the solver's bluff width (V72_BLUFF_TRIM, measured against the human-calibrated field); widths by opener seat (cash big blind vs BTN 60 / CO 49 / HJ 42 / LJ 36 / 9-handed UTG 29, 3-bets 13 / 10.5 / 8.5 / 7 / 5.5; big blind ante vs BTN 72 .. UTG 44) scaled gently by the open size against 2.5x (2.2x with an ante); style, ICM premium, depth, exploit reads, V53 and V57/V60 flat and re-steal volume move it as before, the V60 and non-steal V57 per-bucket 3-bet bars are superseded (V57's tournament re-steal bar against a late or small-blind open stays a floor); explicit off arm retained",
     'V72'
@@ -2119,6 +2124,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V70',
     'decide_nlh',
     0.01
+  ),
+  receipt(
+    'v71_ante_push',
+    'HorseLogic (V71)',
+    "Hold'em folded-to jam at <= 15bb answered by the ante-aware Nash push/fold table (tournaments and ante cash; also counted in v27_gto_open_jam)",
+    'V71',
+    'decide_nlh'
   ),
   receipt(
     'v72_defend_vs_opener',
