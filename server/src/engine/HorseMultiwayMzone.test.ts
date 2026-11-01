@@ -221,7 +221,16 @@ describe('V20 tournament M-zones', () => {
   it('the jam is the LAYER: v20Mzone off treats 14bb as a normal open stack', () => {
     seedFastRandom(0x5eed20);
     const { hero, gs } = tourneySpot(14, [c('Ah'), c('5h')]);
-    const d = HorseLogic.decide(hero, gs, 'balanced', {}, { mind: false, v20Mzone: false });
+    // V71 (2026-10-31): a folded-to <= 15bb tournament seat with an ante jams from the
+    // Nash push/fold table whatever the M layer says (as the V27 charts
+    // always did when hydrated), so the layer is isolated with V71 off.
+    const d = HorseLogic.decide(
+      hero,
+      gs,
+      'balanced',
+      {},
+      { mind: false, v20Mzone: false, v71AnteAwarePushFold: false }
+    );
     expect(d.action).not.toBe('all_in');
   });
 

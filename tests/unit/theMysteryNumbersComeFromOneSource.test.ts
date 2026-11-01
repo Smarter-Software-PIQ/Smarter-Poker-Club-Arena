@@ -52,7 +52,7 @@ describe('the mystery numbers come from one source', () => {
 
   it('an unread payout says so instead of printing 0', () => {
     const panel = read('src/components/tournament/MysteryBountyPanel.tsx');
-    expect(panel).toContain('unread: true');
+    expect(panel).toContain("status: 'unread', payout: null");
     expect(panel).toContain("'Could Not Be Read'");
   });
 });

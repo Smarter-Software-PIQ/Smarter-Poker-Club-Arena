@@ -42,6 +42,7 @@ import { readTournamentStandings } from '../../services/readTournamentStandings'
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
 import { tournamentChipRanks } from '../../utils/tournamentChipRanks';
 import { reportError } from '../../utils/errorReporter';
@@ -156,16 +157,21 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
   const [failed, setFailed] = useState(false);
 
   const load = useCallback(
-    async (owner: { active: boolean }) => {
+    async (owner: { active: boolean; controller: AbortController }) => {
       try {
         const [tRes, pRes] = await Promise.all([
-          supabase
-            .from('tournaments')
-            .select(
-              'id, name, status, variant, tournament_type, spin_multiplier, buy_in_amount, buy_in_fee, prize_pool, guaranteed_prize, bubble_protection, satellite_target_id, satellite_target, bounty_pool, current_players, max_players, starting_chips, current_level, level_started_at, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, blind_structure, payout_structure, is_bounty, start_time, arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
-            )
-            .eq('id', tournamentId)
-            .maybeSingle(),
+          runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .from('tournaments')
+                .select(
+                  'id, name, status, variant, tournament_type, spin_multiplier, buy_in_amount, buy_in_fee, prize_pool, guaranteed_prize, bubble_protection, satellite_target_id, satellite_target, bounty_pool, current_players, max_players, starting_chips, current_level, level_started_at, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, blind_structure, payout_structure, is_bounty, start_time, arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
+                )
+                .eq('id', tournamentId)
+                .abortSignal(signal)
+                .maybeSingle(),
+            { signal: owner.controller.signal }
+          ),
           readTournamentStandings(
             tournamentId,
             'id, user_id, username, chips, status, position, prize, rebuys, bounties_collected, table_id'
@@ -197,7 +203,7 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
   );
 
   useEffect(() => {
-    const owner = { active: true };
+    const owner = { active: true, controller: new AbortController() };
     let inFlight = false;
     let pending = false;
     const refresh = async () => {
@@ -228,6 +234,7 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       owner.active = false;
+      owner.controller.abort();
       stop();
       document.removeEventListener('visibilitychange', onVisible);
     };

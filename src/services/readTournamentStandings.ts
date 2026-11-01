@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 
 /** PostgREST caps a single response. Rank requires the complete event, including
  * tables whose players happen to sort beyond the first response page.
@@ -23,7 +24,7 @@ export async function readTournamentStandings(
     if (activeOnly) query = query.in('status', ['playing', 'registered']);
     let result;
     try {
-      result = await query;
+      result = await runWithRequestDeadline((signal) => query.abortSignal(signal));
     } catch (error) {
       return {
         data: null,

@@ -48,6 +48,7 @@ test -f "${SHARE[0]}"
 # the original builtin definition is restored normally and by the EXIT trap.
 "${PSQL[@]}" -At -c "SELECT pg_get_functiondef('pg_catalog.now()'::regprocedure)" > "$WORK/restore-now.sql"
 "${PSQL[@]}" <<'FIXTURE_CLOCK'
+DO $$ BEGIN ASSERT current_user = 'fee_test' AND current_setting('listen_addresses') = '', 'disposable fixture only'; END $$;
 CREATE OR REPLACE FUNCTION pg_catalog.now() RETURNS timestamptz LANGUAGE sql STABLE PARALLEL SAFE AS $$ SELECT timestamptz '2026-10-25 12:00:00+00' $$;
 DO $$ BEGIN ASSERT now() = timestamptz '2026-10-25 12:00:00+00', 'historical fixture clock not installed'; END $$;
 FIXTURE_CLOCK

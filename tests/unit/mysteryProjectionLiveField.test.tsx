@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
+  signals: [] as AbortSignal[],
   row: vi.fn(),
   entries: vi.fn(),
   report: vi.fn(),
@@ -23,6 +24,10 @@ vi.mock('../../src/lib/supabase', () => ({
         limit = 1000;
       const b: any = {
         select: () => b,
+        abortSignal: (signal: AbortSignal) => {
+          if (table === 'tournaments') m.signals.push(signal);
+          return b;
+        },
         eq: (key: string, value: string) => {
           id = value;
           return b;
@@ -68,6 +73,7 @@ let field = rows(1001);
 beforeEach(() => {
   vi.resetAllMocks();
   m.listeners.clear();
+  m.signals = [];
   field = rows(1001);
   m.row.mockResolvedValue(settings());
   m.entries.mockImplementation((_id, cursor, limit) => ({
@@ -76,7 +82,10 @@ beforeEach(() => {
     error: null,
   }));
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 async function flush() {
   await act(async () => {
     await Promise.resolve();
@@ -157,4 +166,47 @@ describe('the mystery projection follows its complete live field', () => {
     expect(hook.result.current).toBe(prior);
     expect(m.report).toHaveBeenCalled();
   });
+});
+
+it.each(['event', 'enabled', 'unit'])(
+  'never returns an old projection on the first %s render',
+  async (mode) => {
+    field = rows(20);
+    const paints: unknown[] = [];
+    const hook = renderHook(
+      ({ id, enabled, unit }) => {
+        const result = useMysteryBountyProjection(id, enabled, unit);
+        paints.push(result);
+        return result;
+      },
+      { initialProps: { id: 'first', enabled: true, unit: 1 } }
+    );
+    await flush();
+    expect(hook.result.current).not.toBeNull();
+    m.row.mockReturnValue(new Promise(() => {}));
+    paints.length = 0;
+    hook.rerender({
+      id: mode === 'event' ? 'second' : 'first',
+      enabled: mode !== 'enabled',
+      unit: mode === 'unit' ? 100 : 1,
+    });
+    expect(paints[0]).toBeNull();
+  }
+);
+it('releases an unanswered tournament read and accepts the next event without automatic retry', async () => {
+  vi.useFakeTimers();
+  m.row.mockReturnValue(new Promise(() => {}));
+  const hook = renderHook(() => useMysteryBountyProjection('event', true, 1));
+  await flush();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12000);
+  });
+  expect(m.report).toHaveBeenCalled();
+  expect(m.signals[0].aborted).toBe(true);
+  expect(hook.result.current).toBeNull();
+  expect(m.row).toHaveBeenCalledTimes(1);
+  m.row.mockResolvedValue(settings());
+  await act(async () => m.listeners.get('event')?.());
+  expect(hook.result.current).not.toBeNull();
+  expect(m.row).toHaveBeenCalledTimes(2);
 });

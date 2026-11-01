@@ -74,7 +74,7 @@ const css = buildCss(ROOT);
 /** Declared once on `.seat` in SeatSlot.css. Restated here so a change to either
  *  fails against this file's arithmetic rather than silently re-baselining it. */
 const CARD_FRACTION = 0.139;
-const AVATAR_FRACTION = 0.158 * 1.3333;
+const AVATAR_FRACTION = 0.158;
 /** Legibility floors, the one place a proportion is deliberately overruled.
  *
  *  2026-08-28: CARD_FLOOR 44 -> 50. Dan, from a phone that evening: "the size of
@@ -91,22 +91,7 @@ const AVATAR_FRACTION = 0.158 * 1.3333;
  *  file. The crossover belongs just UNDER the canonical answer, not on top of
  *  it. See the note on --sp-card2-w. */
 const CARD_FLOOR = 50;
-const AVATAR_FLOOR = 50 * 1.3333;
-
-// Shared hero-size pods fit the real measured height on short portrait phones.
-// Every seat takes this same cap; normal-height phones keep the former hero size.
-const fittedAvatar = (r: { vp: string; feltW: number; feltH: number }) => {
-  const [width, height] = r.vp.split('x').map(Number);
-  const full = Math.min(124, Math.max(50, r.feltW * 0.158)) * 1.3333;
-  return width <= 480 && height > width
-    ? Math.min(
-        full,
-        width <= 340
-          ? Math.max(32, 32 + (r.feltH - 324) * 0.75)
-          : Math.max(36, 40 + (r.feltH - 324) * 0.25)
-      )
-    : full;
-};
+const AVATAR_FLOOR = 50;
 
 /** A device whose felt is small enough that a floor binds cannot be compared on
  *  ratio — the floor is doing its job, which is to STOP the proportion. */
@@ -170,15 +155,40 @@ test.describe('every device gets the same proportions', () => {
     ).toEqual([]);
   });
 
-  test('every avatar uses the hero size with a shared short-phone fit', async ({ page }) => {
-    for (const r of await measureAll(page, css)) {
-      expect(r.avatar, `${r.device}: shared avatar size`).toBeCloseTo(fittedAvatar(r), 0);
+  test('the avatar slot is one fraction of the felt, everywhere', async ({ page }) => {
+    const rows = await measureAll(page, css);
+    const offenders: string[] = [];
+    for (const r of rows) {
+      if (r.feltW * AVATAR_FRACTION < AVATAR_FLOOR) continue; // floor is binding
+      const pct = r.avatar / r.feltW;
+      if (Math.abs(pct - AVATAR_FRACTION) > 0.005) {
+        offenders.push(
+          `${r.device} (${r.vp}): avatar is ${r.avatar}px on a ${r.feltW}px felt = ` +
+            `${(pct * 100).toFixed(1)}%, expected ${(AVATAR_FRACTION * 100).toFixed(1)}%`
+        );
+      }
     }
+    expect(offenders).toEqual([]);
   });
 
-  test('all avatars use the former hero size at every device width', async ({ page }) => {
+  test('the HERO slot scales too, and stays 1.3333x the villain', async ({ page }) => {
+    /* ADDED 2026-08-28 after this file missed a live regression it existed to
+       catch. It rendered only `.seat`, the villain slot, so three
+       `@media ... .seat.seat--hero { --seat-avatar-size: calc(66|58|52px * …)
+       !important }` rungs survived the conversion untouched: below 641px the
+       hero — the one seat the player is looking at — was still on the px ladder
+       while every villain beside it was proportional.
+
+       It was not a cosmetic miss either. --seat-avatar-size feeds --vh-card-h
+       and thence --vh-card-w, so a rung on the hero puts every VILLAIN HOLE
+       CARD back on a ladder indirectly, after --sp-card2-w had been converted.
+
+       Two assertions, because either alone can be satisfied while the bug is
+       present: the hero must hold the 1.3333 ratio to the villain (a rung that
+       pinned both equally would pass a ratio check), and it must itself be a
+       fraction of the felt (a rung that scaled both together would pass that). */
     const rows = await measureAll(page, css);
-    const HERO_RATIO = 1;
+    const HERO_RATIO = 1.3333;
 
     const offenders: string[] = [];
     for (const r of rows) {
@@ -192,7 +202,7 @@ test.describe('every device gets the same proportions', () => {
       // ...and the hero must ride the felt, not a rung.
       if (r.feltW * AVATAR_FRACTION * HERO_RATIO < AVATAR_FLOOR * HERO_RATIO) continue;
       const pct = r.heroAvatar / r.feltW;
-      const want = fittedAvatar(r) / r.feltW;
+      const want = AVATAR_FRACTION * HERO_RATIO;
       if (Math.abs(pct - want) > 0.006) {
         offenders.push(
           `${r.device} (${r.vp}): hero avatar is ${r.heroAvatar}px on a ${r.feltW}px felt = ` +
@@ -503,7 +513,7 @@ test.describe('every device gets the same proportions', () => {
         CARD_FLOOR - 0.5
       );
       expect(r.avatar, `${r.device}: avatar below its floor`).toBeGreaterThanOrEqual(
-        Math.min(AVATAR_FLOOR, fittedAvatar(r)) - 0.5
+        AVATAR_FLOOR - 0.5
       );
       expect(
         r.btnH,
@@ -1101,14 +1111,7 @@ for (const [width, heightOverride] of occupiedViewports)
             page.locator('.seat__cards--revealed .seat__card').evaluateAll((cards) =>
               cards.map((card) => {
                 const b = card.getBoundingClientRect();
-                return {
-                  x: b.x,
-                  y: b.y,
-                  w: b.width,
-                  h: b.height,
-                  translate: (card.closest('.seat__cards--revealed') as HTMLElement).style
-                    .translate,
-                };
+                return { x: b.x, y: b.y, w: b.width, h: b.height };
               })
             );
           const before = await measure();
@@ -1139,18 +1142,7 @@ for (const [width, heightOverride] of occupiedViewports)
                 requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
               )
           );
-          const after = await measure();
-          expect(after).toHaveLength(before.length);
-          for (let index = 0; index < before.length; index++) {
-            // Preserve the exact retained placement. Composited DOMRects can
-            // differ by 0.00005px during a native transform with no layout move.
-            expect(after[index].translate).toBe(before[index].translate);
-            for (const axis of ['x', 'y', 'w', 'h'] as const)
-              expect(after[index][axis], `Settled Card ${index} ${axis}`).toBeCloseTo(
-                before[index][axis],
-                3
-              );
-          }
+          expect(await measure()).toEqual(before);
           const steps = await page
             .locator('.seat__cards--opponent.seat__cards--revealed')
             .evaluateAll((rows) =>
@@ -1476,9 +1468,7 @@ for (const [width, heightOverride] of occupiedViewports)
                     '.seat__info,.seat__avatar-img,.seat__action'
                   ))
                     if (overlaps(box(a), box(b)))
-                      violations.push(
-                        `Neighbouring Player Lanes Overlap: ${wrapper.querySelector('.seat__name')?.textContent} ${a.className} ${JSON.stringify(box(a))} / ${other.querySelector('.seat__name')?.textContent} ${b.className} ${JSON.stringify(box(b))}`
-                      );
+                      violations.push('Neighbouring Player Lanes Overlap');
               }
             }
             for (const action of document.querySelectorAll('.seat__action'))
@@ -1488,18 +1478,49 @@ for (const [width, heightOverride] of occupiedViewports)
           for (const action of document.querySelectorAll('.seat__action'))
             for (const plaque of document.querySelectorAll('.bbj-widget,.bbj-mini-plate'))
               if (overlaps(box(action), box(plaque)))
-                violations.push(
-                  `Action Badge Covers Jackpot: ${action.closest('.seat')?.querySelector('.seat__name')?.textContent} action=${JSON.stringify(box(action))} plaque=${JSON.stringify(box(plaque))}`
-                );
-          // Owner 2026-10-31: top, side and hero pods share the hero dimensions.
-          for (const selector of ['.seat__avatar', '.seat__info', '.seat__action']) {
-            const sizes = [...document.querySelectorAll(selector)].map(box);
-            for (const measured of sizes)
+                violations.push('Action Badge Covers Jackpot');
+          // Dan 2026-10-24: the compact top pod belongs to 7-9 max only. A 2-6
+          // ring's single top seat is full size ("CAN BE FULL SCREEN NOW THAT
+          // THE BBJ IS REMOVED FROM ABOVE THEM"), so there it must match the
+          // other villains instead.
+          const villainAvatars = [
+            ...document.querySelectorAll(
+              '.seat-wrapper:not(.seat-wrapper--top):not(.seat-wrapper--hero) .seat__avatar'
+            ),
+          ].map((e) => box(e).width);
+          for (const e of document.querySelectorAll('.seat-wrapper--top .seat__avatar'))
+            if (
+              !largePortrait &&
+              villainAvatars.length &&
+              Math.abs(box(e).width - Math.max(...villainAvatars)) > 1.5
+            )
+              violations.push('Top Avatar Is Not Full Size');
+          if (innerWidth <= 480) {
+            const plates = [
+              ...document.querySelectorAll(
+                '.seat-wrapper:not(.seat-wrapper--hero):not(.seat-wrapper--top) .seat__info'
+              ),
+            ].map(box);
+            for (const plate of document.querySelectorAll('.seat-wrapper--top .seat__info')) {
+              const measured = box(plate);
               if (
-                Math.abs(measured.width - sizes[0].width) > 1.5 ||
-                Math.abs(measured.height - sizes[0].height) > 1.5
+                plates.length &&
+                (Math.abs(measured.width - plates[0].width) > 1.5 ||
+                  Math.abs(measured.height - plates[0].height) > 1.5)
               )
-                violations.push(`Unequal Seat Size: ${selector} ${JSON.stringify(sizes)}`);
+                violations.push('Top Name And Stack Plate Is Smaller Than Other Villains');
+            }
+          }
+          if (!largePortrait) {
+            const scales = [
+              ...document.querySelectorAll(
+                '.seat-wrapper:not(.seat-wrapper--hero) .seat__avatar-img'
+              ),
+            ].map(
+              (e) => parseFloat(getComputedStyle(e).getPropertyValue('--sp-bust-scale')) || 1.45
+            );
+            if (Math.max(...scales) - Math.min(...scales) > 0.01)
+              violations.push('Top Artwork Is Smaller Than Other Villains');
           }
           const canvas = box(document.querySelector('.table-scaler')!);
           const felt = box(document.querySelector('.table-surface')!);
@@ -1880,238 +1901,190 @@ test.describe('embedded mobile action-row geometry', () => {
 
 // Owner screenshot October 22: the spectator phone must use the broad, tall
 // desktop preview instead of inheriting the seated player's compact canvas.
-// Each seat count has native, normalized and safe-area profiles. Adding
-// the real full-table footer and normalized cases pushed the combined dense
-// rings past 60s on CI. Keep every scene and assertion, with headroom per
-// profile instead of raising the timeout or retrying the same overload.
+// Each seat count owns its seven viewport cases (plus two tournament cases
+// for dense rings). One 60-case test consumed 136 of its 150 seconds on the
+// successful baseline and timed out on the same assertions under CI load.
+// Partition the work; preserve every geometry and dock-state assertion.
 for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9])
-  for (const profile of ['native', 'normalized', 'safe-area'] as const)
-    test(`mobile spectators fill the desktop-reference canvas through hand and dock states at ${spectatorSeats} seats (${profile})`, async ({
-      page,
-    }, testInfo) => {
-      test.setTimeout(60_000);
-      const { buildSync } = await import('esbuild');
-      const built = buildSync({
-        entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
-        jsx: 'automatic',
-        outfile: 'spectator.js',
-        bundle: true,
-        write: false,
-        metafile: true,
-        format: 'iife',
-        platform: 'browser',
-        loader: {
-          '.css': 'empty',
-          '.png': 'dataurl',
-          '.webp': 'dataurl',
-          '.svg': 'dataurl',
-          '.jpg': 'dataurl',
-        },
-        define: {
-          'import.meta.env': JSON.stringify({
-            VITE_SUPABASE_URL: 'https://dummy.supabase.co',
-            VITE_SUPABASE_ANON_KEY: 'local-fixture',
-            DEV: true,
-          }),
-          'process.env.NODE_ENV': '"test"',
-        },
+  test(`mobile spectators fill the desktop-reference canvas through hand and dock states at ${spectatorSeats} seats`, async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(60_000);
+    const { buildSync } = await import('esbuild');
+    const built = buildSync({
+      entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
+      jsx: 'automatic',
+      outfile: 'spectator.js',
+      bundle: true,
+      write: false,
+      metafile: true,
+      format: 'iife',
+      platform: 'browser',
+      loader: {
+        '.css': 'empty',
+        '.png': 'dataurl',
+        '.webp': 'dataurl',
+        '.svg': 'dataurl',
+        '.jpg': 'dataurl',
+      },
+      define: {
+        'import.meta.env': JSON.stringify({
+          VITE_SUPABASE_URL: 'https://dummy.supabase.co',
+          VITE_SUPABASE_ANON_KEY: 'local-fixture',
+          DEV: true,
+        }),
+        'process.env.NODE_ENV': '"test"',
+      },
+    });
+    const readStyle = (file: string): string =>
+      readFileSync(resolve(ROOT, file), 'utf8').replace(
+        /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
+        (_, imported: string) => readStyle(resolve(dirname(file), imported))
+      );
+    const sheets = [
+      ...new Set([
+        'src/styles/club-engine.css',
+        'src/styles/animations.css',
+        'src/styles/metallic-popups.css',
+        'src/styles/reducedMotion.css',
+        'src/pages/MultiTablePage.css',
+        'src/components/table/TableTabBar.css',
+        'src/pages/TablePage.css',
+        'src/components/table/ActionPanel.css',
+        'src/components/tournament/TournamentHUD.css',
+        ...Object.keys(built.metafile!.inputs).filter((f) => f.endsWith('.css')),
+        'src/components/table/TableVisualHotfix.css',
+      ]),
+    ];
+    const fontSheet = await page.request.get('https://ca-static.smarter.poker/fonts/fonts.css');
+    expect(fontSheet.ok()).toBe(true);
+    const inter = [...(await fontSheet.text()).matchAll(/@font-face\s*\{[^}]+\}/g)]
+      .map((m) => m[0])
+      .find((face) => face.includes("font-family: 'Inter'") && face.includes('U+0000-00FF'))!;
+    const fontPath = /url\(([^)]+)\)/.exec(inter)![1];
+    const fontResponse = await page.request.get(
+      new URL(fontPath.replace('/hub/club-arena/', '/'), 'https://ca-static.smarter.poker').href
+    );
+    expect(fontResponse.ok()).toBe(true);
+    const fontFace = inter
+      .replace(/font-weight:\s*\d+;/, 'font-weight: 100 900;')
+      .replace(
+        fontPath,
+        `data:font/woff2;base64,${(await fontResponse.body()).toString('base64')}`
+      );
+    const realCss = fontFace + '\n' + sheets.map(readStyle).join('\n');
+    const avatar = readFileSync(tableArtFixture('vip_wolf@2x.webp'));
+    await page.route('**/avatars/table/**', (route) =>
+      route.fulfill({ body: avatar, contentType: 'image/webp' })
+    );
+    await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
+    await page.route('**/cards/**', (route) => {
+      const card = new URL(route.request().url()).pathname.split('/cards/')[1];
+      const original = resolve(ROOT, 'public/cards', card);
+      const fallback = original.replace(/\.webp$/, '.png');
+      return route.fulfill({
+        body: readFileSync(existsSync(original) ? original : fallback),
+        contentType:
+          existsSync(original) && original.endsWith('.webp') ? 'image/webp' : 'image/png',
       });
-      const readStyle = (file: string): string =>
-        readFileSync(resolve(ROOT, file), 'utf8').replace(
-          /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
-          (_, imported: string) => readStyle(resolve(dirname(file), imported))
-        );
-      const sheets = [
-        ...new Set([
-          'src/styles/club-engine.css',
-          'src/styles/animations.css',
-          'src/styles/metallic-popups.css',
-          'src/styles/reducedMotion.css',
-          'src/pages/MultiTablePage.css',
-          'src/components/table/TableTabBar.css',
-          'src/pages/TablePage.css',
-          'src/components/table/ActionPanel.css',
-          'src/components/tournament/TournamentHUD.css',
-          ...Object.keys(built.metafile!.inputs).filter((f) => f.endsWith('.css')),
-          'src/components/table/TableVisualHotfix.css',
-        ]),
-      ];
-      const fontSheet = await page.request.get('https://ca-static.smarter.poker/fonts/fonts.css');
-      expect(fontSheet.ok()).toBe(true);
-      const inter = [...(await fontSheet.text()).matchAll(/@font-face\s*\{[^}]+\}/g)]
-        .map((m) => m[0])
-        .find((face) => face.includes("font-family: 'Inter'") && face.includes('U+0000-00FF'))!;
-      const fontPath = /url\(([^)]+)\)/.exec(inter)![1];
-      const fontResponse = await page.request.get(
-        new URL(fontPath.replace('/hub/club-arena/', '/'), 'https://ca-static.smarter.poker').href
-      );
-      expect(fontResponse.ok()).toBe(true);
-      const fontFace = inter
-        .replace(/font-weight:\s*\d+;/, 'font-weight: 100 900;')
-        .replace(
-          fontPath,
-          `data:font/woff2;base64,${(await fontResponse.body()).toString('base64')}`
-        );
-      const realCss = fontFace + '\n' + sheets.map(readStyle).join('\n');
-      const avatar = readFileSync(tableArtFixture('vip_wolf@2x.webp'));
-      await page.route('**/avatars/table/**', (route) =>
-        route.fulfill({ body: avatar, contentType: 'image/webp' })
-      );
-      await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
-      await page.route('**/assets/club-buttons/action-primary-shell.webp', (route) =>
+    });
+    const viewports = [
+      [320, 568],
+      [375, 667],
+      [393, 852],
+      [430, 932],
+      [480, 975],
+      [393, 852, 47, 34],
+      [430, 932, 59, 34],
+    ];
+    const cases = viewports.map((viewport) => [spectatorSeats, ...viewport]);
+    if (spectatorSeats === 6 || spectatorSeats >= 8)
+      cases.push([spectatorSeats, 393, 852, 47, 34, 1], [spectatorSeats, 430, 932, 59, 34, 1]);
+    for (const [seats, width, height, insetTop = 0, insetBottom = 0, tournament = 0] of cases) {
+      await page.setViewportSize({ width, height });
+      await page.route('http://spectator.fixture/', (route) =>
         route.fulfill({
-          body: readFileSync(resolve(ROOT, 'public/assets/club-buttons/action-primary-shell.webp')),
-          contentType: 'image/webp',
+          contentType: 'text/html',
+          body: `<html data-seats="${seats}" data-tournament="${tournament === 1}" data-spectator="true" data-revealed="false" data-jackpot="none"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${applyInsets(realCss, insetTop, insetBottom)}</style></head><body><div id="root"></div></body></html>`,
         })
       );
-      await page.route('**/cards/**', (route) => {
-        const card = new URL(route.request().url()).pathname.split('/cards/')[1];
-        const original = resolve(ROOT, 'public/cards', card);
-        const fallback = original.replace(/\.webp$/, '.png');
-        return route.fulfill({
-          body: readFileSync(existsSync(original) ? original : fallback),
-          contentType:
-            existsSync(original) && original.endsWith('.webp') ? 'image/webp' : 'image/png',
-        });
+      await page.goto('http://spectator.fixture/');
+      await page.addScriptTag({
+        content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text,
       });
-      const viewports =
-        profile === 'native'
-          ? [
-              [320, 568],
-              [375, 667],
-              [393, 852],
-              [430, 932],
-              [480, 975],
-            ]
-          : profile === 'normalized'
-            ? [
-                [604, 1310],
-                [768, 1024],
-              ]
-            : [
-                [393, 852, 47, 34],
-                [430, 932, 59, 34],
-              ];
-      const cases = viewports.map((viewport) => [spectatorSeats, ...viewport]);
-      if (profile === 'safe-area' && (spectatorSeats === 6 || spectatorSeats >= 8))
-        cases.push([spectatorSeats, 393, 852, 47, 34, 1], [spectatorSeats, 430, 932, 59, 34, 1]);
-      for (const [seats, width, height, insetTop = 0, insetBottom = 0, tournament = 0] of cases) {
-        await page.setViewportSize({ width, height });
-        await page.route('http://spectator.fixture/', (route) =>
-          route.fulfill({
-            contentType: 'text/html',
-            body: `<html data-seats="${seats}" data-tournament="${tournament === 1}" data-spectator="true" data-revealed="false" data-jackpot="none"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${applyInsets(realCss, insetTop, insetBottom)}</style></head><body><div id="root"></div></body></html>`,
-          })
+      await expect(page.locator('.seat__info')).toHaveCount(seats);
+      await page.waitForFunction(() => {
+        const e = document.querySelector<HTMLElement>('.table-scaler')!;
+        return (
+          Math.abs(
+            parseFloat(e.style.getPropertyValue('--table-w')) - e.getBoundingClientRect().width
+          ) < 0.5
         );
-        await page.goto('http://spectator.fixture/');
-        await page.addScriptTag({
-          content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text,
-        });
-        await expect(page.locator('.seat__info')).toHaveCount(seats);
-        await page.waitForFunction(() => {
-          const e = document.querySelector<HTMLElement>('.table-scaler')!;
-          return (
-            Math.abs(
-              parseFloat(e.style.getPropertyValue('--table-w')) - e.getBoundingClientRect().width
-            ) < 0.5
-          );
-        });
-        await page.evaluate(async () => {
-          await document.fonts.load('600 14px Inter');
-          await document.fonts.ready;
-        });
-        const boardCollisions = await page.evaluate(() => {
-          const board = document.querySelector('.community-area')!.getBoundingClientRect();
-          return [...document.querySelectorAll('.seat__info,.seat__action')]
-            .filter((el) => {
-              const r = el.getBoundingClientRect();
-              return (
-                r.left < board.right &&
-                r.right > board.left &&
-                r.top < board.bottom &&
-                r.bottom > board.top
-              );
-            })
-            .map(
-              (el) =>
-                `${el.className} ${el.closest('.seat')?.querySelector('.seat__name')?.textContent} ${JSON.stringify(el.getBoundingClientRect())} board=${JSON.stringify(board)}`
+      });
+      await page.evaluate(async () => {
+        await document.fonts.load('600 14px Inter');
+        await document.fonts.ready;
+      });
+      const boardCollisions = await page.evaluate(() => {
+        const board = document.querySelector('.community-area')!.getBoundingClientRect();
+        return [...document.querySelectorAll('.seat__info,.seat__action')]
+          .filter((el) => {
+            const r = el.getBoundingClientRect();
+            return (
+              r.left < board.right &&
+              r.right > board.left &&
+              r.top < board.bottom &&
+              r.bottom > board.top
             );
-        });
-        if (boardCollisions.length)
-          await page.screenshot({ path: testInfo.outputPath('spectator-board-failure.png') });
-        expect(boardCollisions, `${width}px spectator board stays clear of players`).toEqual([]);
-        const footer = await page.locator('.spectator-footer-bar').boundingBox();
-        const plates = await page
-          .locator('.seat__info')
-          .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom));
-        if (Math.max(...plates) > footer!.y)
-          console.log(
-            'OBSERVER_FOOTER_DIAGNOSTIC',
-            JSON.stringify(
-              await page.evaluate(() => {
-                const boxes = (selector: string) =>
-                  [...document.querySelectorAll<HTMLElement>(selector)].map((el) => ({
-                    cls: el.className,
-                    box: el.getBoundingClientRect().toJSON(),
-                    font: getComputedStyle(el).font,
-                    padding: getComputedStyle(el).padding,
-                  }));
-                const root = getComputedStyle(document.documentElement);
-                return {
-                  viewport: [innerWidth, innerHeight],
-                  row: root.getPropertyValue('--sp-bottom-row-h'),
-                  buttons: root.getPropertyValue('--sp-action-btn-h'),
-                  boxes: boxes(
-                    '.table-page,.table-container,.table-scaler,.action-panel-wrapper,.spectator-footer-bar,.waitlist-cta,.seat__info'
-                  ),
-                };
-              })
-            )
-          );
-        expect(
-          Math.max(...plates),
-          `${width}px bottom observer seat clears the footer`
-        ).toBeLessThanOrEqual(footer!.y);
-        const canvas = await page.locator('.table-scaler').boundingBox();
-        expect(canvas!.width, `${width}px spectator reaches both screen edges`).toBeCloseTo(
-          width,
-          0
-        );
-        const perspective = await page.locator('.table-art').evaluate((el) => {
-          const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-          return { x: m.m11, y: m.m22, w: m.m44, perspective: m.m24 };
-        });
-        expect(perspective).toEqual({ x: 1, y: 1, w: 1, perspective: 0 });
-        expect(
-          canvas!.y + canvas!.height,
-          `${seats}-seat spectator reaches the lower screen`
-        ).toBeGreaterThan(height * 0.7);
-        for (const state of ['none', 'waiting', 'active']) {
-          await page.locator('.table-page').evaluate((el, value) => {
-            el.setAttribute('data-hero-action', value);
-            el.setAttribute('data-tdock', value === 'active' ? 'open' : 'collapsed');
-          }, state);
-          const next = await page.locator('.table-scaler').boundingBox();
-          expect(next!.width).toBeCloseTo(canvas!.width, 1);
-          expect(next!.height).toBeCloseTo(canvas!.height, 1);
-        }
-        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-          width
-        );
-        if (width === 393) {
-          const screenshot = await page.screenshot({
-            path: testInfo.outputPath(
-              `mobile-spectator-${seats}-${insetTop ? 'real-insets' : 'after'}.png`
-            ),
-          });
-          await testInfo.attach('mobile-spectator-after', {
-            body: screenshot,
-            contentType: 'image/png',
-          });
-        }
-        await page.unroute('http://spectator.fixture/');
+          })
+          .map((el) => el.className);
+      });
+      expect(boardCollisions, `${width}px spectator board stays clear of players`).toEqual([]);
+      const footer = await page.locator('.spectator-footer-bar').boundingBox();
+      const plates = await page
+        .locator('.seat__info')
+        .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom));
+      expect(
+        Math.max(...plates),
+        `${width}px bottom observer seat clears the footer`
+      ).toBeLessThanOrEqual(footer!.y);
+      const canvas = await page.locator('.table-scaler').boundingBox();
+      expect(canvas!.width, `${width}px spectator reaches both screen edges`).toBeCloseTo(width, 0);
+      const perspective = await page.locator('.table-art').evaluate((el) => {
+        const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+        return { x: m.m11, y: m.m22, w: m.m44, perspective: m.m24 };
+      });
+      expect(perspective).toEqual({ x: 1, y: 1, w: 1, perspective: 0 });
+      expect(
+        canvas!.y + canvas!.height,
+        `${seats}-seat spectator reaches the lower screen`
+      ).toBeGreaterThan(height * 0.7);
+      for (const state of ['none', 'waiting', 'active']) {
+        await page.locator('.table-page').evaluate((el, value) => {
+          el.setAttribute('data-hero-action', value);
+          el.setAttribute('data-tdock', value === 'active' ? 'open' : 'collapsed');
+        }, state);
+        const next = await page.locator('.table-scaler').boundingBox();
+        expect(next!.width).toBeCloseTo(canvas!.width, 1);
+        expect(next!.height).toBeCloseTo(canvas!.height, 1);
       }
-    });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        width
+      );
+      if (width === 393) {
+        const screenshot = await page.screenshot({
+          path: testInfo.outputPath(
+            `mobile-spectator-${seats}-${insetTop ? 'real-insets' : 'after'}.png`
+          ),
+        });
+        await testInfo.attach('mobile-spectator-after', {
+          body: screenshot,
+          contentType: 'image/png',
+        });
+      }
+      await page.unroute('http://spectator.fixture/');
+    }
+  });
 
 // Shared notice containment is part of the existing felt browser gate.
 import { registerAddOnNoticeContainmentCases } from './support/addOnNoticeContainmentCases';

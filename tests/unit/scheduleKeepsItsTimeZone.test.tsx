@@ -216,3 +216,35 @@ describe('a schedule is written with a zone only once the engine reads zones', (
     expect(mocks.error).not.toHaveBeenCalled();
   });
 });
+
+describe('an acknowledged schedule survives a later one-off failure', () => {
+  it('updates the accepted schedule on an explicit form retry instead of creating a second row', async () => {
+    const rpc = mockRpc();
+    mocks.create
+      .mockReset()
+      .mockRejectedValueOnce(new Error('One-Off Refused'))
+      .mockResolvedValueOnce({ id: 'event' });
+    const onSuccess = vi.fn();
+    const { container } = render(
+      <CreateTournamentModal
+        clubId="synthetic-club"
+        initialFormat="mtt_freezeout"
+        onClose={vi.fn()}
+        onSuccess={onSuccess}
+      />
+    );
+    fireEvent.change(screen.getByPlaceholderText('E.G. Saturday Night Turbo'), {
+      target: { value: 'Weekly Event' },
+    });
+    fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'daily' } });
+    fireEvent.change(screen.getByLabelText('Start Time'), { target: { value: 'now' } });
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(mocks.error).toHaveBeenCalledWith('One-Off Refused'));
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    const writes = rpc.mock.calls.filter(([name]) => name === 'fn_upsert_tournament_schedule');
+    expect(writes).toHaveLength(2);
+    expect((writes[0][1] as any).p_schedule.id).toBeNull();
+    expect((writes[1][1] as any).p_schedule.id).toBe('synthetic-schedule');
+  });
+});
