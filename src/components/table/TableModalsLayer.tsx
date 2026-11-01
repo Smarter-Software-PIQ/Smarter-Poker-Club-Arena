@@ -1442,6 +1442,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         <TournamentAnnouncementOverlay
           type={announcement?.type as any}
           data={announcement?.data}
+          eventIdentity={announcement}
           onDismiss={onDismissAnnouncement}
         />
       )}
