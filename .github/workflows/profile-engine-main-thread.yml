@@ -32,14 +32,14 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    env:
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: node --test tests/operations/engine-main-profile.test.mjs tests/operations/native-fault-observation.test.mjs
+        env:
+          TMPDIR: ${{ runner.temp }}
   native-feasibility:
     name: Actual isolated Node PID1 native GPF feasibility
     if: github.event_name == 'pull_request'

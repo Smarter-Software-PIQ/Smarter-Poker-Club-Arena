@@ -100,7 +100,8 @@ test('receipt artifact contains only strictly validated closed fields',()=>{
  for(const value of values.slice(1)){assert.equal(value.validReceipt,false);assert.equal(value.cleanupConfirmed,false);}
  assert.equal(JSON.stringify(values).includes('PRIVATE'),false);
  const workflow=readFileSync(new URL('../../.github/workflows/profile-engine-main-thread.yml',import.meta.url),'utf8');
- assert.match(workflow,/verify:[\s\S]*?TMPDIR: \$\{\{ runner.temp \}\}/);
+ assert.match(workflow,/- run: node --test[^\n]+\n\s+env:\n\s+TMPDIR: \$\{\{ runner.temp \}\}/);
+ assert.doesNotMatch(workflow,/verify:\n\s+runs-on:[^\n]+\n\s+timeout-minutes: 3\n\s+env:/);
  assert.match(workflow,/path: \|\n\s+\$\{\{ runner.temp \}\}\/native-admission.json\n\s+\$\{\{ runner.temp \}\}\/native-fault-receipt.json/);
  assert.doesNotMatch(workflow,/path:[^\n]*\.private/);
 });
