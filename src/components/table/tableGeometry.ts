@@ -561,7 +561,7 @@ export function fitSeatToViewport(
   const compactNine = portraitPhone && viewportWidthPx <= 340 && maxPlayers === 9;
   // Owner October 31: nine-seat villains belong on the rail. The lower-right
   // chair moves up and inboard to leave the hero's private hand its own lane.
-  const railNine = portraitPhone && maxPlayers === 9 && !compactNine;
+  const railNine = portraitPhone && maxPlayers === 9;
   const targetX =
     railNine && seat.y >= 20 && seat.y < 100
       ? seat.y >= 80
@@ -620,7 +620,7 @@ export function fitSeatToViewport(
         : 76
       : railNine && seat.y >= 50 && seat.y < 70
         ? seat.x < 50
-          ? 54
+          ? 56
           : 50
         : densePortraitRing && seat.y >= 20 && seat.y < 35
           ? 22

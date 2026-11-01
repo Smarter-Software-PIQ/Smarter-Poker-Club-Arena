@@ -28,7 +28,7 @@ export function useProtectedCardLayout(
     rows: new WeakMap<HTMLElement, string>(),
     pods: new WeakMap<HTMLElement, string>(),
     podPoses: new WeakMap<HTMLElement, string>(),
-    wagers: new WeakMap<Element, Map<string, { x: number; y: number }>>(),
+    wagers: new WeakMap<Element, Map<string, { x: number; y: number; offsets: string[] }>>(),
   });
   useLayoutEffect(() => {
     const scaler = root.current;
@@ -347,6 +347,27 @@ export function useProtectedCardLayout(
     const place = () => {
       refreshGeometry();
       resetWagers();
+      // Gesture transforms move the player and its children visually. They
+      // are not a new resting wager origin, including across effect cleanup.
+      const gesture = Array.from(
+        scaler.querySelectorAll('.seat--allin-shake,.seat--winner-pop')
+      ).some((seat) =>
+        (seat.getAnimations?.({ subtree: true }) ?? []).some(
+          (animation) => animation.playState === 'running'
+        )
+      );
+      if (gesture)
+        for (const bet of wagers()) {
+          const chair = bet.closest('.seat-wrapper') ?? bet;
+          const kind = bet.querySelector('.seat__allin-puck') ? 'all-in' : 'chips';
+          const saved = settled.current.wagers.get(chair)?.get(kind);
+          saved?.offsets.forEach((value, i) =>
+            bet.style.setProperty(
+              ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'][i],
+              value
+            )
+          );
+        }
       // Full names may wrap. Share the tallest natural panel across this ring
       // so a longer name cannot make one player's panel larger than the hero's.
       scaler.style.removeProperty('--sp-seat-panel-h');
@@ -571,7 +592,56 @@ export function useProtectedCardLayout(
       }
       const visibleBox = (element: Element): CardBox | null => {
         const box = element.getBoundingClientRect();
-        return box.width > 0 && box.height > 0 ? box : null;
+        if (!(box.width > 0 && box.height > 0)) return null;
+        if (!(element instanceof HTMLImageElement) || !element.matches('.seat__avatar-img'))
+          return box;
+        // Allocate against the complete resting/breathing envelope, never a
+        // sampled breathing frame that can grow back over a settled marker.
+        const seat = element.closest<HTMLElement>('.seat');
+        const wrap = element.closest<HTMLElement>('.seat__avatar-wrap');
+        if (!seat || !wrap) return box;
+        let points = [0, element.offsetWidth].flatMap((x) =>
+          [0, element.offsetHeight].map((y) => new DOMPoint(x, y))
+        );
+        let node: HTMLElement | null = element;
+        while (node && node !== seat) {
+          const style = getComputedStyle(node);
+          const origins = style.transformOrigin.split(' ').map(parseFloat);
+          const transforms =
+            node === element
+              ? [style.transform]
+              : node === wrap
+                ? [avatarRestPose(element), 'none', 'matrix(1.008,0,0,1.008,0,-1.5)']
+                : ['none'];
+          points = transforms.flatMap((transform) =>
+            points.map((point) => {
+              const matrix = new DOMMatrix(
+                transform && transform !== 'none' ? transform : undefined
+              );
+              const moved = matrix.transformPoint(
+                new DOMPoint(point.x - (origins[0] || 0), point.y - (origins[1] || 0))
+              );
+              return new DOMPoint(
+                moved.x + (origins[0] || 0) + node!.offsetLeft,
+                moved.y + (origins[1] || 0) + node!.offsetTop
+              );
+            })
+          );
+          node = node.offsetParent as HTMLElement | null;
+        }
+        if (node !== seat) return box;
+        const seatBox = seat.getBoundingClientRect();
+        const left = Math.min(box.left, seatBox.left + Math.min(...points.map((p) => p.x)) * scale);
+        const top = Math.min(box.top, seatBox.top + Math.min(...points.map((p) => p.y)) * scale);
+        const right = Math.max(
+          box.right,
+          seatBox.left + Math.max(...points.map((p) => p.x)) * scale
+        );
+        const bottom = Math.max(
+          box.bottom,
+          seatBox.top + Math.max(...points.map((p) => p.y)) * scale
+        );
+        return { left, top, width: right - left, height: bottom - top };
       };
       // 2026-10-24: every portrait viewport up to 768px, not only phones up to
       // 480. Above 480 the desktop order placed the shown hands AFTER the
@@ -688,6 +758,31 @@ export function useProtectedCardLayout(
                 mark.height === box.height
             )
         );
+
+        // Dense rings solve the dealer and wagers together: neither marker
+        // may greedily consume the other player's sole clear owned lane.
+        const reserveDealer = page.getAttribute('data-seats') === '9';
+        const dealerJoint: { options: CardBox[]; apply?: (box: CardBox) => void } = { options: [] };
+        if (reserveDealer)
+          placeDealerButton(
+            scaler,
+            canvas,
+            scale,
+            points,
+            obstacles,
+            hardObstacles,
+            [],
+            dealerJoint
+          );
+        let selectedDealer: CardBox | undefined;
+        const joint = (options: ReadonlyArray<ReadonlyArray<CardBox>>, greedy = false) => {
+          const combined = dealerJoint.apply ? [dealerJoint.options, ...options] : options;
+          const result = greedy ? cleanGreedyWagers(combined) : assignProtectedWagers(combined);
+          if (!result) return null;
+          if (!dealerJoint.apply) return result;
+          selectedDealer = result[0];
+          return result.slice(1);
+        };
 
         /* Dan 2026-10-22: "that 50 cents to my left is actually my bet, it's
            sitting in front of the other player." The nearest clear felt spot
@@ -853,19 +948,22 @@ export function useProtectedCardLayout(
             const markerKind = hasAllInMarker ? 'all-in' : 'chips';
             const saved = settled.current.wagers.get(chair)?.get(markerKind);
             const resting = saved
-              ? {
-                  left: canvas.left + saved.x * scale - box.width / 2,
-                  top: canvas.top + saved.y * scale - box.height / 2,
-                  width: box.width,
-                  height: box.height,
-                  depth: 0,
-                }
+              ? gesture
+                ? { ...box, depth: 0 }
+                : {
+                    left: canvas.left + saved.x * scale - box.width / 2,
+                    top: canvas.top + saved.y * scale - box.height / 2,
+                    width: box.width,
+                    height: box.height,
+                    depth: 0,
+                  }
               : null;
             const retained =
               resting &&
-              ownedBy(resting) &&
-              (!hasAllInMarker || wagerOnFeltWithMargin(resting, 1)) &&
-              !hardObstacles.some((obstacle) => wagerBoxesOverlap(resting, obstacle))
+              (gesture ||
+                (ownedBy(resting) &&
+                  (!hasAllInMarker || wagerOnFeltWithMargin(resting, 1)) &&
+                  !obstacles.some((obstacle) => wagerBoxesOverlap(resting, obstacle))))
                 ? [resting]
                 : null;
             return [
@@ -929,24 +1027,27 @@ export function useProtectedCardLayout(
         // Reserve already settled chairs first. A new/changed marker may
         // force a fresh joint solution, but an animation cannot do so.
         const retainedPlacements = entries.some((entry) => entry.retained)
-          ? (assignProtectedWagers(entries.map((entry) => entry.retained ?? entry.felt)) ??
-            assignProtectedWagers(entries.map((entry) => entry.retained ?? entry.wide)))
+          ? (joint(entries.map((entry) => entry.retained ?? entry.felt)) ??
+            joint(entries.map((entry) => entry.retained ?? entry.wide)))
           : null;
         const placements =
           retainedPlacements ??
-          assignProtectedWagers(entries.map((entry) => entry.felt)) ??
-          assignProtectedWagers(entries.map((entry) => entry.candidates)) ??
-          assignProtectedWagers(entries.map((entry) => entry.wide)) ??
+          joint(entries.map((entry) => entry.felt)) ??
+          joint(entries.map((entry) => entry.candidates)) ??
+          joint(entries.map((entry) => entry.wide)) ??
           // The exact search has a fixed budget; a crowded ring can exhaust it
           // while each player's own spots still fit side by side greedily.
-          cleanGreedyWagers(entries.map((entry) => entry.wide)) ??
-          assignProtectedWagers(
-            entries.map((entry) => (compactNine ? entry.printing : entry.any))
+          joint(
+            entries.map((entry) => entry.wide),
+            true
           ) ??
+          joint(entries.map((entry) => (compactNine ? entry.printing : entry.any))) ??
           // The smallest felts: over the felt's own lettering before two
           // players' wagers are stacked in one spot.
-          assignProtectedWagers(entries.map((entry) => entry.printing)) ??
-          greedyProtectedWagers(
+          joint(entries.map((entry) => entry.printing)) ??
+          (dealerJoint.apply
+            ? (options: CardBox[][]) => joint(options, true)
+            : greedyProtectedWagers)(
             entries.map((entry) => [
               ...entry.wide,
               ...(compactNine ? entry.printing : entry.any),
@@ -957,6 +1058,12 @@ export function useProtectedCardLayout(
         for (let i = 0; i < entries.length; i++) {
           const { bet, box, chair, markerKind } = entries[i];
           const next = placements?.[i];
+          if (gesture && settled.current.wagers.get(chair)?.has(markerKind)) {
+            obstacles.push(box);
+            hardObstacles.push(box);
+            placedWagers.push(box);
+            continue;
+          }
           if (!next) {
             // No clear spot of its own: it stays at its rest point in front of
             // its player, never in front of somebody else.
@@ -982,15 +1089,19 @@ export function useProtectedCardLayout(
           chairSlots.set(markerKind, {
             x: (next.left + next.width / 2 - canvas.left) / scale,
             y: (next.top + next.height / 2 - canvas.top) / scale,
+            offsets: ['--bet-offset-x', '--bet-offset-y', '--collect-dx', '--collect-dy'].map(
+              (name) => bet.style.getPropertyValue(name)
+            ),
           });
           settled.current.wagers.set(chair, chairSlots);
           obstacles.push(next);
           hardObstacles.push(next);
           placedWagers.push(next);
         }
-        // The button goes last: it is the smallest marker and the freest to
-        // move, so it takes a spot beside its own player that the wagers left.
-        placeDealerButton(scaler, canvas, scale, points, obstacles, hardObstacles, placedWagers);
+        if (selectedDealer) dealerJoint.apply?.(selectedDealer);
+        // Other rings retain their existing final dealer placement.
+        if (!reserveDealer)
+          placeDealerButton(scaler, canvas, scale, points, obstacles, hardObstacles, placedWagers);
       }
       if (!phoneMarkers) placeRows(true);
     };
@@ -1086,7 +1197,8 @@ function placeDealerButton(
   points: ReadonlyArray<{ x: number; y: number; depth: number }>,
   obstacles: ReadonlyArray<CardBox>,
   hardObstacles: ReadonlyArray<CardBox> = obstacles,
-  wagers: ReadonlyArray<CardBox> = []
+  wagers: ReadonlyArray<CardBox> = [],
+  joint?: { options: CardBox[]; apply?: (box: CardBox) => void }
 ): CardBox | null {
   const dealer = scaler.querySelector<HTMLElement>('.dealer-button');
   if (!dealer) return null;
@@ -1134,8 +1246,71 @@ function placeDealerButton(
     const mine = Math.hypot(x - own.x, y - own.y);
     return others.every((o) => mine < Math.hypot(x - o.x, y - o.y));
   };
+  // Sample exact obstacle edges as well as the oval grid: a short phone
+  // can leave a clear owned lane narrower than the grid's angular spacing.
+  const exactPoints: Array<{ x: number; y: number; depth: number }> = [];
+  const xs = new Set([own.x, rest.left + size / 2]);
+  const ys = new Set([own.y, rest.top + size / 2]);
+  for (const obstacle of obstacles) {
+    xs.add(obstacle.left - size / 2 - air);
+    xs.add(obstacle.left + obstacle.width + size / 2 + air);
+    ys.add(obstacle.top - size / 2 - air);
+    ys.add(obstacle.top + obstacle.height + size / 2 + air);
+  }
+  const taper =
+    scaler.closest('.table-page')?.getAttribute('data-hero') === 'false' || window.innerWidth > 480
+      ? 0
+      : undefined;
+  const radius = (FELT_WINDOW.width * canvas.width) / 200;
+  const cx = ((FELT_WINDOW.left + FELT_WINDOW.width / 2) * canvas.width) / 100;
+  const upper = (FELT_WINDOW.top * canvas.height) / 100 + radius;
+  const lower = ((FELT_WINDOW.top + FELT_WINDOW.height) * canvas.height) / 100 - radius;
+  for (const x of xs)
+    for (const y of ys) {
+      const onFelt = [-size / 2, size / 2].every((dx) =>
+        [-size / 2, size / 2].every((dy) => {
+          const flat = unprojectPortraitTable(
+            {
+              x: ((x + dx - canvas.left) * 100) / canvas.width,
+              y: ((y + dy - canvas.top) * 100) / canvas.height,
+            },
+            taper
+          );
+          const px = (flat.x * canvas.width) / 100;
+          const py = (flat.y * canvas.height) / 100;
+          return Math.hypot(px - cx, py - Math.min(Math.max(py, upper), lower)) <= radius - 1;
+        })
+      );
+      if (onFelt) exactPoints.push({ x, y, depth: 20 });
+    }
+  points = [...points, ...exactPoints];
   const restX = rest.left + size / 2;
   const restY = rest.top + size / 2;
+  if (joint) {
+    const candidates = [rest, ...points.map((point) => boxAt(point.x, point.y))]
+      .filter(
+        (box) =>
+          owned(box.left + box.width / 2, box.top + box.height / 2) && clearOf(obstacles)(box)
+      )
+      .sort(
+        (a, b) =>
+          Math.hypot(a.left + size / 2 - own.x, a.top + size / 2 - own.y) -
+          Math.hypot(b.left + size / 2 - own.x, b.top + size / 2 - own.y)
+      );
+    for (const box of candidates) {
+      if (
+        joint.options.every((other) => Math.hypot(box.left - other.left, box.top - other.top) >= 3)
+      )
+        joint.options.push(box);
+      if (joint.options.length >= 256) break;
+    }
+    joint.apply = (box) => {
+      const baseX = canvas.left + (left / 100) * canvas.width;
+      const baseY = canvas.top + (top / 100) * canvas.height;
+      dealer.style.translate = `${(box.left + size / 2 - baseX) / scale}px ${(box.top + size / 2 - baseY) / scale}px`;
+    };
+    return null;
+  }
   let best: { x: number; y: number } | null = null;
   if (clearOf(obstacles)(rest) && owned(restX, restY)) best = { x: restX, y: restY };
   // Off the felt's printing if possible; over it only when nothing else is

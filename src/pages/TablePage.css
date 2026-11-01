@@ -5313,7 +5313,7 @@ button.post-bb-overlay-button {
    the scaler, painted rail and all felt consumers move down together. */
 @media (max-width: 480px) and (min-height: 800px) and (orientation: portrait) {
   .table-page[data-seats='9'] .table-container {
-    --sp-table-top: calc(max(188px, calc(25.05vw + 88px)) + var(--sp-page-inset-top));
+    --sp-table-top: calc(max(168px, calc(25.05vw + 58px)) + var(--sp-page-inset-top));
   }
 }
 @media (min-width: 481px) and (max-width: 768px) and (min-height: 900px) and (orientation: portrait) {
@@ -5331,5 +5331,12 @@ button.post-bb-overlay-button {
 @media (max-width: 768px) and (orientation: portrait) {
   .table-page[data-seats='9'] .community-area {
     max-width: 50vw;
+  }
+}
+
+/* Keep a resting marker lane between the full board and the masthead. */
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page[data-seats='9']:not([data-boards]) .table-brand {
+    top: calc(var(--sp-brand-top, 56%) + 16px);
   }
 }

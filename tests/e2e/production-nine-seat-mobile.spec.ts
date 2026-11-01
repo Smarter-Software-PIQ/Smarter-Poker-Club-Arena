@@ -212,6 +212,24 @@ for (const viewport of [
               requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
             )
         );
+        await page.locator('.table-page .seat__avatar-img').evaluateAll(async (images) => {
+          await Promise.all(images.map((image) => (image as HTMLImageElement).decode()));
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          );
+          await Promise.all(
+            images
+              .flatMap((image) => image.getAnimations())
+              .filter((animation) => {
+                const timing = animation.effect?.getComputedTiming();
+                return timing && Number.isFinite(timing.endTime) && Number(timing.endTime) <= 1000;
+              })
+              .map((animation) => animation.finished.catch(() => undefined))
+          );
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          );
+        });
         const geometry = await page.locator('.table-page').evaluate((table) => {
           const rect = (element: Element) => {
             const r = element.getBoundingClientRect();
@@ -251,7 +269,10 @@ for (const viewport of [
                 : null,
               parts: [...seat.querySelectorAll('.seat__avatar-img,.seat__info,.seat__action')]
                 .filter(visible)
-                .map(rect),
+                .map((element) => ({
+                  ...rect(element),
+                  avatar: element.matches('.seat__avatar-img'),
+                })),
             })),
             caps: [...table.querySelectorAll('.seat-wrapper--cap')].map((pod) =>
               Math.max(
@@ -275,6 +296,83 @@ for (const viewport of [
               .filter(visible)
               .map(rect),
           };
+        });
+        const visibleSubjects = await page
+          .locator('.table-page .seat:not(.seat--empty)')
+          .evaluateAll(async (seats) => {
+            return await Promise.all(
+              seats.map(async (seat) => {
+                const img = seat.querySelector<HTMLImageElement>('.seat__avatar-img')!;
+                await img.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+                const readable = new Image();
+                readable.crossOrigin = 'anonymous';
+                readable.src = img.currentSrc || img.src;
+                await readable.decode();
+                ctx.drawImage(readable, 0, 0, canvas.width, canvas.height);
+                const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                let top = canvas.height,
+                  bottom = -1,
+                  left = canvas.width,
+                  right = -1;
+                for (let y = 0; y < canvas.height; y++)
+                  for (let x = 0; x < canvas.width; x++)
+                    if (pixels[(y * canvas.width + x) * 4 + 3] > 0) {
+                      top = Math.min(top, y);
+                      bottom = Math.max(bottom, y);
+                      left = Math.min(left, x);
+                      right = Math.max(right, x);
+                    }
+                const box = img.getBoundingClientRect();
+                const bust = Boolean(img.closest('.seat__avatar--bust'));
+                const pixelScale = Math.min(
+                  box.width / img.naturalWidth,
+                  box.height / img.naturalHeight
+                );
+                const painted = bust
+                  ? {
+                      x:
+                        box.x + (box.width - img.naturalWidth * pixelScale) / 2 + left * pixelScale,
+                      y: box.bottom - img.naturalHeight * pixelScale + top * pixelScale,
+                      width: (right - left + 1) * pixelScale,
+                      height: (bottom - top + 1) * pixelScale,
+                      right:
+                        box.x +
+                        (box.width - img.naturalWidth * pixelScale) / 2 +
+                        (right + 1) * pixelScale,
+                      bottom:
+                        box.bottom - img.naturalHeight * pixelScale + (bottom + 1) * pixelScale,
+                    }
+                  : {
+                      x: box.x,
+                      y: box.y,
+                      width: box.width,
+                      height: box.height,
+                      right: box.right,
+                      bottom: box.bottom,
+                    };
+                return {
+                  painted,
+                  hero: seat.classList.contains('seat--hero'),
+                  name: seat.querySelector('.seat__name')?.textContent,
+                  alphaHeight: bottom - top + 1,
+                  naturalWidth: img.naturalWidth,
+                  naturalHeight: img.naturalHeight,
+                  visibleHeight: img.closest('.seat__avatar--bust')
+                    ? Math.min(box.width / img.naturalWidth, box.height / img.naturalHeight) *
+                      (bottom - top + 1)
+                    : box.height,
+                };
+              })
+            );
+          });
+        geometry.seats.forEach((seat, i) => {
+          seat.parts = seat.parts.map((part) =>
+            part.avatar ? { ...part, ...visibleSubjects[i].painted } : part
+          );
         });
         const hero = geometry.seats.find((seat) => seat.hero)!;
         expect(geometry.seats).toHaveLength(9);
@@ -315,41 +413,6 @@ for (const viewport of [
         evidence.geometry = geometry;
         evidence.privateCardsObserved = geometry.privateCards.length;
         evidence.boardCardsObserved = geometry.board.length;
-        const visibleSubjects = await page
-          .locator('.table-page .seat:not(.seat--empty)')
-          .evaluateAll(async (seats) => {
-            return await Promise.all(
-              seats.map(async (seat) => {
-                const img = seat.querySelector<HTMLImageElement>('.seat__avatar-img')!;
-                await img.decode();
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-                ctx.drawImage(img, 0, 0);
-                const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                let top = canvas.height,
-                  bottom = -1;
-                for (let y = 0; y < canvas.height; y++)
-                  for (let x = 0; x < canvas.width; x++)
-                    if (pixels[(y * canvas.width + x) * 4 + 3] > 0) {
-                      top = Math.min(top, y);
-                      bottom = Math.max(bottom, y);
-                    }
-                const box = img.getBoundingClientRect();
-                return {
-                  hero: seat.classList.contains('seat--hero'),
-                  name: seat.querySelector('.seat__name')?.textContent,
-                  alphaHeight: bottom - top + 1,
-                  naturalWidth: img.naturalWidth,
-                  naturalHeight: img.naturalHeight,
-                  visibleHeight:
-                    Math.min(box.width / img.naturalWidth, box.height / img.naturalHeight) *
-                    (bottom - top + 1),
-                };
-              })
-            );
-          });
         const heroSubject = visibleSubjects.find((seat) => seat.hero)!;
         for (const subject of visibleSubjects) {
           expect(subject.alphaHeight).toBeGreaterThan(0);
@@ -371,6 +434,12 @@ for (const viewport of [
             }))
           );
         const settledWagers = await wagerPositions();
+        expect(settledWagers.length, 'live proof must include placed chips').toBeGreaterThan(0);
+        await page.evaluate(() =>
+          document
+            .querySelector('.table-scaler')!
+            .dispatchEvent(new Event('transitionend', { bubbles: true }))
+        );
         await page.evaluate(requestObserverForegroundProbe);
         await page.evaluate(
           () =>

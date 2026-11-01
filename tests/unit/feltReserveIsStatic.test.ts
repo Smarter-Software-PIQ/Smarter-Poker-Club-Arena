@@ -214,7 +214,7 @@ describe('the felt reserves stay fixed through hand and action states', () => {
           prop === '--sp-table-top' &&
           d.selector === ".table-page[data-seats='9'] .table-container" &&
           [
-            'calc(max(188px, calc(25.05vw + 88px)) + var(--sp-page-inset-top))',
+            'calc(max(168px, calc(25.05vw + 58px)) + var(--sp-page-inset-top))',
             'calc(30.55vw + 82px + var(--sp-page-inset-top))',
             'calc(18vw + 104px + var(--sp-page-inset-top))',
           ].includes(d.value);

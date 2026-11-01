@@ -1435,7 +1435,10 @@ for (const [width, heightOverride] of occupiedViewports)
               ? '.seat__bet-chips,.seat__cards--opponent .seat__card,.dealer-button'
               : '.seat__info,.seat__avatar-img,.seat__action,.seat__bet-chips,.seat__cards--opponent .seat__card,.dealer-button'
           )) {
-            if (overlaps(box(e), board)) violations.push(`${e.className} Covers Board`);
+            if (overlaps(box(e), board))
+              violations.push(
+                `${e.className} Covers Board rect=${JSON.stringify(box(e))} board=${JSON.stringify(board)}`
+              );
           }
           /* Dan 2026-10-25: a bet is always in front of the player who made
              it. A portrait phone now lays the table out at the desktop's
@@ -1698,7 +1701,9 @@ for (const [width, heightOverride] of occupiedViewports)
           );
           if (contextualTools.length !== 1) violations.push('Expected One Contextual Bottom Tool');
           const tools = [
-            '.mtp-lobby-btn',
+            document.documentElement.dataset.tournament === 'true'
+              ? '.action-bar-lobby-btn'
+              : '.mtp-lobby-btn',
             '.chat-collapsed',
             '.prev-hand-card',
             ...contextualTools,
@@ -1707,7 +1712,13 @@ for (const [width, heightOverride] of occupiedViewports)
             width: box(document.querySelector(s)!).width,
             height: box(document.querySelector(s)!).height,
           }));
-          return { violations, tools, canvas: { width: canvas.width, height: canvas.height } };
+          return {
+            violations,
+            tools,
+            actionHeight: document.querySelector('.action-row .action-btn')?.getBoundingClientRect()
+              .height,
+            canvas: { width: canvas.width, height: canvas.height },
+          };
         });
         if (width === 320 && count === 9 && state === 'all-in')
           await certifyMobileLiveTableLayout(page, testInfo, {
@@ -1726,7 +1737,15 @@ for (const [width, heightOverride] of occupiedViewports)
         for (const tool of result.tools) {
           // Every phone gameplay tool must have a visible 48px painted target.
           const expected =
-            tool.selector === '.mtp-lobby-btn' ? (width === 320 ? 44 : 52) : width <= 480 ? 48 : 40;
+            tool.selector === '.action-bar-lobby-btn'
+              ? result.actionHeight!
+              : tool.selector === '.mtp-lobby-btn'
+                ? width === 320
+                  ? 44
+                  : 52
+                : width <= 480
+                  ? 48
+                  : 40;
           expect(tool.width, tool.selector).toBeCloseTo(expected, 1);
           expect(tool.height, tool.selector).toBeCloseTo(expected, 1);
         }
