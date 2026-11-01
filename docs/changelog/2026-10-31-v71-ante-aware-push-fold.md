@@ -39,7 +39,10 @@ CASE A:
 
 ## The fix (root)
 
-`server/src/engine/HorseAnteAwarePushFold.ts` + `HorseNashPushFold.data.json`.
+`server/src/engine/HorseAnteAwarePushFold.ts` + `HorseNashPushFold.data.ts` (the
+generated table as a TypeScript module: the engine image emits with
+`noResolve` and lists its JSON resources explicitly, so a JSON import
+would not ship).
 
 - **The table is computed, not tuned.** `server/scripts/nash-push-fold/`:
   `equity169.c` computes the all-in preflop equity of every 169-class pair
@@ -53,8 +56,8 @@ CASE A:
   push/fold charts (HoldemResources Calculator chip-EV, the Sklansky-Chubukov /
   "Nash push-fold" tables); every stack is S including its posted blind,
   antes are dead money, a caller's call closes the action, card removal
-  between hero and each caller is exact, callers are independent. Data file
-  sha256 `c5ba3add6800a01422a63cf146c8f635c633e6efb90af7d19abfbc9988cee829` (after `prettier --write`).
+  between hero and each caller is exact, callers are independent. Data module
+  sha256 `ed1c8e7db181c83ed1269589201e8c52a7cc10eb12947a54971f5ca34afc5416` (after `prettier --write`).
 - **Validation:** with A = 0 the table reproduces the solver charts it
   replaces: SB 10bb 58.4 (chart 58.3), SB 15bb 45.7 (45.6), BTN 15bb 27.3
   (26.6), CO 15bb 18.3 (18.6), MP 15bb 13.1 (13.7), UTG 10bb 13.4 (15.2).

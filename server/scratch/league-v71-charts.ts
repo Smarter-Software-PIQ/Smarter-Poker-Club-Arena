@@ -1,7 +1,7 @@
 import { runMatchup, humanFieldTwin } from '../src/benchmark/HorseLeague.js';
 import { setGtoCharts } from '../src/engine/GtoCharts.js';
 import { nashJamProbability } from '../src/engine/HorseAnteAwarePushFold.js';
-import data from '../src/engine/HorseNashPushFold.data.json' with { type: 'json' };
+import { NASH_PUSH_FOLD as data } from '../src/engine/HorseNashPushFold.data.js';
 // LIVE-EQUIVALENT OFF ARM: production hydrates memory_charts_gold, whose
 // fold_to_hero cells are the no-ante six-max game. Emulate them from the
 // no-ante Nash table (UTG 5 behind .. SB 1), which reproduces the charted
@@ -11,7 +11,7 @@ const rows = [];
 for (const [pos, behind] of Object.entries(POS))
   for (let depth = 2; depth <= 15; depth++) {
     const hand_matrix: Record<string, Record<string, number>> = {};
-    for (const cls of (data as { classes: string[] }).classes) {
+    for (const cls of data.classes) {
       const p = nashJamProbability({ hand: cls, behind, depthBB: depth, anteBB: 0 }) ?? 0;
       if (p > 0) hand_matrix[cls] = { push: p, fold: 1 - p };
     }

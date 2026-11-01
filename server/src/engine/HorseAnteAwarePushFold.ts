@@ -15,7 +15,7 @@
  * fallback jammed on the old strength ladder instead.
  *
  * This module answers the folded-to jam from one table for every seat:
- * HorseNashPushFold.data.json, the chip-EV Nash equilibrium of the
+ * HorseNashPushFold.data.ts, the chip-EV Nash equilibrium of the
  * jam-or-fold game (first caller only, exact hero/caller card removal),
  * solved per dealt-in players behind (1 = the small blind against the big
  * blind, 8 = a nine-handed UTG) and per dead ante of 0, 1 and 2 big blinds.
@@ -30,20 +30,12 @@
  * who a player is: the inputs are the hand, the seat count, the depth and the
  * dead money.
  */
-import table from './HorseNashPushFold.data.json' with { type: 'json' };
+import { NASH_PUSH_FOLD, type NashPushFoldData } from './HorseNashPushFold.data.js';
 
 /** V71 owns the folded-to jam at this depth and shallower (the V27 zone). */
 export const V71_PUSH_FOLD_MAX_BB = 15;
 
-type NashTable = { pushUpTo: number[]; jamPct: number[] };
-type NashData = {
-  model: string;
-  depthGrid: number[];
-  classes: string[];
-  tables: Record<string, NashTable>;
-};
-
-const DATA = table as NashData;
+const DATA: NashPushFoldData = NASH_PUSH_FOLD;
 const ANTE_LEVELS = [0, 1, 2] as const;
 const MAX_BEHIND = 8;
 const GRID_STEP = 0.5;

@@ -822,7 +822,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v71AnteAwarePushFold',
-    "2026-10-31 Hold'em folded-to jam at <= 15bb in a tournament (or an ante cash table): the jam-or-fold answer reads the chip-EV Nash table (HorseNashPushFold.data.json, first caller only, exact hero/caller card removal) by dealt-in players behind (1 = SB vs BB .. 8 = nine-handed UTG) and dead ante (0/1/2bb solutions, interpolated), at the effective depth (hero capped by the deepest live stack behind), whether or not memory_charts_gold hydrated; the charts were the no-ante game for five positions (Tournament cells equal to Cash) and the offline fallback jammed on the strength ladder; 9-handed 15bb with a big-blind ante jams UTG 8.6 / LJ 16.3 / HJ 22.8 / CO 28.8 / BTN 35.7 / SB 62; the 16-22bb orange-zone shove, BB defence and cash without an ante are unchanged; explicit off arm retained",
+    "2026-10-31 Hold'em folded-to jam at <= 15bb in a tournament (or an ante cash table) with dead ante in the pot: the jam-or-fold answer reads the chip-EV Nash table (HorseNashPushFold.data.ts, first caller only, exact hero/caller card removal) by dealt-in players behind (1 = SB vs BB .. 8 = nine-handed UTG) and dead ante (0/1/2bb solutions, interpolated), at the effective depth (hero capped by the deepest live stack behind), whether or not memory_charts_gold hydrated; the charts were the no-ante game for five positions (Tournament cells equal to Cash) and the offline fallback jammed on the strength ladder; 9-handed 15bb with a big-blind ante jams UTG 8.6 / LJ 16.3 / HJ 22.8 / CO 28.8 / BTN 35.7 / SB 63.8; a pot without dead ante (charts and fallback), the 16-22bb orange-zone shove and BB defence are unchanged; explicit off arm retained",
     'V71'
   ),
   flag(

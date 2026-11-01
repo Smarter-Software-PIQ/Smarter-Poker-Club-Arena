@@ -1,8 +1,10 @@
 """
 V71 (2026-10-31): chip-EV Nash push/fold for an unopened hold'em pot.
 
-    python3 -I solve.py equity169.tsv > ../../src/engine/HorseNashPushFold.data.json
-    npx prettier --write ../../src/engine/HorseNashPushFold.data.json
+    python3 -I solve.py equity169.tsv > /tmp/nash.json
+    (wrapped as server/src/engine/HorseNashPushFold.data.ts, NASH_PUSH_FOLD,
+    then npx prettier --write; a .ts module because the engine image emits
+    with noResolve and only lists its JSON resources explicitly)
 
 Model (the standard "jam or fold, first caller only" chip-EV game, as used by
 the classic Nash push/fold charts, e.g. HoldemResources Calculator's chip-EV
