@@ -73,6 +73,33 @@ try:
     run("INSERT INTO tournaments(name,tournament_type,variant,blind_structure) VALUES('Custom SNG','SNG','sng','[{\"durationMinutes\":12,\"bigBlind\":50},{\"duration\":180,\"bigBlind\":100}]');")
     check('short formats cap slow custom levels without slowing faster ones',run("SELECT blind_structure::jsonb->0->>'durationMinutes' FROM tournaments WHERE id=6")=='8' and run("SELECT blind_structure::jsonb->1->>'duration' FROM tournaments WHERE id=6")=='180')
     check('repeat and drift refused', 'HIGHLIGHTED_LEVEL_CLOCK_PREIMAGE_CHANGED' in call(PSQL,migration,False).stderr)
+    # November 1 price rule extends the same authoritative clock owner.
+    run("""CREATE TABLE tournament_schedule_spawns(schedule_id int,tournament_id int);
+      INSERT INTO tournaments(name,buy_in_amount,buy_in_fee,late_reg_mins,blind_structure) VALUES
+        ('Price Fifty Turbo',50,5,40,'[{"durationMinutes":5,"bigBlind":50}]'),
+        ('Price Twenty Five Turbo',25,5,40,'[{"durationMinutes":5,"bigBlind":50}]');
+      INSERT INTO tournaments(name,buy_in_amount,tournament_type,variant,blind_structure) VALUES
+        ('Price Fifty SNG',50,'SNG','sng','[{"duration":180,"bigBlind":50}]');
+      INSERT INTO tournaments(name,buy_in_amount,status,blind_structure) VALUES
+        ('Running Price Fifty Turbo',50,'RUNNING','[{"durationMinutes":5,"bigBlind":50}]');
+      INSERT INTO tournament_schedules(name,config) VALUES('High Price Schedule','{"type":"mtt","buyIn":55,"blindStructure":[{"durationMinutes":5,"bigBlind":50}]}');
+      INSERT INTO tournament_schedule_spawns SELECT s.id,t.id FROM tournament_schedules s,tournaments t WHERE s.name='High Price Schedule' AND t.name='Price Fifty Turbo';""")
+    check('RED high-price turbo is five before new rule',run("SELECT blind_structure::jsonb->0->>'durationMinutes' FROM tournaments WHERE name='Price Fifty Turbo'")=='5')
+    high=(ROOT/'supabase/migrations/20261101210908_tournament_buyins_over_25_use_seven_to_ten_minute_levels.sql').read_text()
+    run(high)
+    check('existing high-price turbo becomes seven',run("SELECT blind_structure::jsonb->0->>'durationMinutes' FROM tournaments WHERE name='Price Fifty Turbo'")=='7')
+    check('derived registration follows seven-minute levels',run("SELECT late_reg_mins FROM tournaments WHERE name='Price Fifty Turbo'")=='56')
+    check('exactly 25 ignores the separate entry fee',run("SELECT blind_structure::jsonb->0->>'durationMinutes' FROM tournaments WHERE name='Price Twenty Five Turbo'")=='5')
+    check('high-price SNG becomes seven',run("SELECT blind_structure::jsonb->0->>'durationMinutes' FROM tournaments WHERE name='Price Fifty SNG'")=='7')
+    check('running level stays untouched',run("SELECT blind_structure::jsonb->0->>'durationMinutes' FROM tournaments WHERE name='Running Price Fifty Turbo'")=='5')
+    check('matching future schedule clock becomes seven',run("SELECT config->'blindStructure'->0->>'durationMinutes' FROM tournament_schedules WHERE name='High Price Schedule'")=='7')
+    run("""INSERT INTO tournaments(name,buy_in_amount,blind_structure) VALUES
+      ('Future High Price',50,'[{"durationMinutes":3,"bigBlind":50},{"durationMinutes":8,"bigBlind":100},{"durationMinutes":10,"bigBlind":200},{"durationMinutes":14,"bigBlind":400},{"isBreak":true,"durationMinutes":4}]');""")
+    check('new high-price levels clamp 7..10 and preserve valid clocks and breaks',run("SELECT string_agg(e->>'durationMinutes',',' ORDER BY ord) FROM tournaments t CROSS JOIN LATERAL jsonb_array_elements(t.blind_structure::jsonb) WITH ORDINALITY x(e,ord) WHERE t.name='Future High Price'")=='7,8,10,10,4')
+    run("""INSERT INTO tournaments(name,buy_in_amount,tournament_type,variant,blind_structure) VALUES
+      ('Immutable Spin Projection',50,'SPIN','spin','[{"duration":180,"bigBlind":50}]');""")
+    check('funded Spin source terms are not rewritten',run("SELECT blind_structure::jsonb->0->>'duration' FROM tournaments WHERE name='Immutable Spin Projection'")=='180')
+    check('repeat and changed trigger bodies are refused', 'HIGH_BUYIN_LEVEL_CLOCK_PREIMAGE_CHANGED' in call(PSQL,high,False).stderr)
     print(json.dumps({'checks':checks,'production_mutations':False},indent=2))
 finally:
     call([PG/'pg_ctl','-D',CLUSTER/'data','-m','immediate','-w','stop'],ok=False)

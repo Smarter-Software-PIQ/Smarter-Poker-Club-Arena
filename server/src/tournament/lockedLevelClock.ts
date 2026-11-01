@@ -1,5 +1,8 @@
 /**
- * LOCKED LEVEL CLOCK (owner update 2026-10-31)
+ * LOCKED LEVEL CLOCK (owner updates 2026-10-31 and 2026-11-01)
+ * Above a 25 buy-in, the later owner rule bounds playable clocks at 7-10
+ * minutes in every format, preserving valid authored clocks. The historical
+ * category rules below continue to apply at 25 and below.
  * Non-highlighted events are capped at eight minutes. Only is_pinned events
  * may retain the ten-minute deep clock. Faster turbo/freeroll clocks stay.
  *
@@ -155,6 +158,36 @@ export function isLockedClockFormat(row: Record<string, unknown>): boolean {
  * the locked one, so the level count the engine enforces and the minutes the
  * lobby prints keep agreeing. Rows outside the rule are returned untouched. */
 export function withLockedLevelClock<T extends Record<string, unknown>>(row: T): T {
+  // Owner November 1: the price boundary takes precedence over fast-format
+  // defaults. Preserve every already-valid clock and all break definitions.
+  // Booked Spins keep their immutable receipt; their play projection and the
+  // final manager timer apply the same range without editing funded rules.
+  if (Number(row.buy_in_amount) > 25) {
+    const authored = parseStructure(row.blind_structure);
+    const bounded = authored.map((entry) => {
+      const minutes = levelMinutes(entry);
+      if (minutes === null || (minutes >= 7 && minutes <= 10)) return entry;
+      return lockStructureClock([entry], Math.min(10, Math.max(7, minutes)))[0];
+    });
+    if (bounded.every((entry, index) => entry === authored[index])) return row;
+    let lateReg: Record<string, unknown> = {};
+    const levels = Number(row.late_reg_levels);
+    if (Number.isSafeInteger(levels) && levels > 0) {
+      try {
+        if (Number(row.late_reg_mins) === mttLateRegistrationMinutes(authored, levels)) {
+          lateReg = { late_reg_mins: mttLateRegistrationMinutes(bounded, levels) };
+        }
+      } catch {
+        // A separate explicit registration clock stays explicit.
+      }
+    }
+    return {
+      ...row,
+      blind_structure: typeof row.blind_structure === 'string' ? JSON.stringify(bounded) : bounded,
+      ...(isLockedClockFormat(row) ? mttSpeedColumns(bounded) : {}),
+      ...lateReg,
+    };
+  }
   if (!isLockedClockFormat(row)) {
     const cap = row.is_pinned === true ? 10 : 8;
     const authored = parseStructure(row.blind_structure);

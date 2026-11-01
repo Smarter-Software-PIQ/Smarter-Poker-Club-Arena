@@ -35,12 +35,18 @@ export type FundedSpinDraw = {
 };
 
 /** Project the owner clock floor without rewriting the immutable funded rules. */
-export function playableSpinBlinds(blinds: SpinBlind[]): SpinBlind[] {
-  return blinds.map((blind) =>
-    blind.duration > 0 && blind.duration < 300
-      ? { ...blind, duration: 300, durationMinutes: 5 }
-      : { ...blind }
-  );
+export function playableSpinBlinds(blinds: SpinBlind[], buyIn = 0): SpinBlind[] {
+  return blinds.map((blind) => {
+    if (!Number.isFinite(blind.duration) || blind.duration <= 0) return { ...blind };
+    const minimum = buyIn > 25 ? 420 : 300;
+    const seconds =
+      buyIn > 25
+        ? Math.min(600, Math.max(minimum, blind.duration))
+        : Math.max(minimum, blind.duration);
+    return seconds !== blind.duration
+      ? { ...blind, duration: seconds, durationMinutes: seconds / 60 }
+      : { ...blind };
+  });
 }
 
 // Freeze all selection and play rules before entering the one database call.
@@ -62,7 +68,8 @@ export function spinRuleManifest(buyIn: number, startingChips: number) {
           smallBlind: b.small,
           bigBlind: b.big,
           ante: 0,
-          duration: tier.levelMinutes * 60,
+          duration:
+            (buyIn > 25 ? Math.min(10, Math.max(7, tier.levelMinutes)) : tier.levelMinutes) * 60,
           ...(i === 11
             ? {
                 spinContinuation: {

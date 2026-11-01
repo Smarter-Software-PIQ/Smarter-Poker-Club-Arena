@@ -1749,11 +1749,11 @@ export default function TournamentDetails({
         smallBlind: Number(row.smallBlind ?? row.small_blind ?? 0),
         bigBlind: Number(row.bigBlind ?? row.big_blind ?? 0),
         ante: Number(row.ante ?? 0),
-        duration: blindLevelMinutes(rows, level),
+        duration: blindLevelMinutes(rows, level, Number(tournament?.buy_in_amount)),
         isBreak: Boolean(row.isBreak ?? row.is_break ?? false),
       };
     });
-  }, [tournament?.blind_structure]);
+  }, [tournament?.blind_structure, tournament?.buy_in_amount]);
 
   /**
    * The tab contract, built once. Every tab takes exactly this and nothing
