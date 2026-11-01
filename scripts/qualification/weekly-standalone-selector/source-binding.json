@@ -155,8 +155,8 @@
       "sha256": "30fd68f61b145e0a636df8c4574042e8f320bc05b1559b6e45fe9a6340aa8c7c"
     },
     ".github/workflows/ci.yml": {
-      "bytes": 272549,
-      "sha256": "873a74cebf9b019d924063fccc7fcb113382f97e201df7cee07530abce257080"
+      "bytes": 272572,
+      "sha256": "92900128f1defa4ed9d02a265a7903231587cde538f59682cb0e22577a8b5e78"
     },
     "scripts/qualification/original-flow-eligibility/current-source40.json": {
       "bytes": 238578,
@@ -1967,6 +1967,32 @@
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
   },
+  "chromiumHostedImageCompatibility20261031": {
+    "reason": "Only the three affected browser jobs (Diamond playfield, Production Build performance browser, CSS Beat) select proven free hosted Ubuntu24.04 because their locked browser installer refuses Ubuntu26.04. All matrices, commands, financial gates, assertions, deadlines and historical qualification receipts are preserved. Current source identity only.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
+  "pgNetHostedImageCompatibility20261031": {
+    "reason": "Only accounting shard2 selects proven free hosted Ubuntu24.04 for unchanged pinned pg_net0.19.5 native compilation; all other accounting shards retain ubuntu-latest. Every matrix case, command, deadline, source/library pin and financial assertion remains unchanged. Current source identity only.",
+    "previous": {
+      "bytes": 272355,
+      "sha256": "642863e7305b9834a648950ca3696eb6f1d53cf983e1a7276ce60e9d1811e12f"
+    },
+    "current": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false
+  },
   "browserRunnerCompatibility20261031": {
     "reason": "Playwright 1.58 cannot install on Ubuntu26.04 selected by ubuntu-latest. Pin only browser-installing CI jobs to the successful Ubuntu24.04 baseline; preserve all suites, assertions, financial matrices and gates. Source identity only; no financial or live recertification.",
     "previous": {
@@ -1976,6 +2002,17 @@
     "current": {
       "bytes": 272549,
       "sha256": "873a74cebf9b019d924063fccc7fcb113382f97e201df7cee07530abce257080"
+    }
+  },
+  "browserRunnerIntegration20261101": {
+    "reason": "Preserve protected-main browser and accounting runner corrections plus native diagnostic qualification. Retain this change to live-e2e browser runner. All commands, financial verdicts and gates preserved; source identity only.",
+    "previous": {
+      "bytes": 272484,
+      "sha256": "8fe35b74896423e7994f7ba7079055563f33d64f6a7765cc556be09de777486b"
+    },
+    "current": {
+      "bytes": 272572,
+      "sha256": "92900128f1defa4ed9d02a265a7903231587cde538f59682cb0e22577a8b5e78"
     }
   }
 }

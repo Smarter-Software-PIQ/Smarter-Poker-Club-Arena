@@ -40,6 +40,8 @@ test('connection diagnostics retain only fixed codes across causes and aggregate
 });
 
 test('dump diagnostics classify only fixed categories and bounded scalar facts', () => {
+  for(const code of ['FD','CLOCK','RANGE','FRAME','WRITE','PAIR'])assert.equal(dumpFailureKind('pg_dump: error: ISOLATED_DUMP_DIAGNOSTIC_'+code+'\n'),'FD3_PROTOCOL');
+  assert.equal(dumpFailureKind('pg_dump: error: ISOLATED_DUMP_DIAGNOSTIC_PRIVATE_SECRET\n'),'UNKNOWN');
   assert.equal(dumpFailureKind('pg_dump: query failed: permission denied for private-source'), 'PERMISSION_DENIED');
   assert.equal(dumpFailureKind('certificate verify failed at private-host'), 'TLS_VERIFICATION');
   assert.equal(dumpFailureKind('canceling statement due to statement timeout'), 'STATEMENT_TIMEOUT');
