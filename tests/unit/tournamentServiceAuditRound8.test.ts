@@ -71,20 +71,29 @@ describe('round 8: creation paths', () => {
   const create = sliceMethod(SRC, 'async createTournament(');
 
   it('a failed union verify read is a retry, never "Union not found"', () => {
-    const gate = sliceBetween(create, 'error: unionReadErr', "throw new Error('Union not found')");
+    expect(create).toContain('this.createTournamentWithSatellites(');
+    const preparation = sliceMethod(SRC, 'private async prepareTournamentCreate(');
+    const gate = sliceBetween(
+      preparation,
+      'error: unionReadErr',
+      "throw new Error('Union not found')"
+    );
     expect(gate).toContain('if (unionReadErr)');
     expect(gate).toContain('createTournament_union_read_failed');
     expect(gate).toContain('Could not verify union settings. Please try again.');
   });
 
   it('a failed post-create refetch says the tournament WAS created', () => {
-    expect(create).toContain('error: refetchErr');
-    expect(create).toContain('created_tournament_refetch_failed');
-    expect(create).toContain('The tournament was created.');
+    const submitted = sliceMethod(SRC, 'private async submitTournamentCreate(');
+    expect(submitted).toContain('error: refetchErr');
+    expect(submitted).toContain('created_tournament_refetch_failed');
+    expect(submitted).toContain('The tournament was created.');
     // The old shape — returning `data` bare with no error check — is gone:
     // the return is now guarded so a null can never leave a method typed
     // Promise<Tournament>.
-    expect(create).toContain('if (refetchErr || !data)');
+    expect(submitted).toContain(
+      'if (refetchErr || !data || data.id !== result.tournament_id || data.club_id !== clubId)'
+    );
   });
 });
 
