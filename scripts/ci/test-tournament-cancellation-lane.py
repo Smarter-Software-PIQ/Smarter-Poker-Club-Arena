@@ -363,7 +363,11 @@ END $started_refusal$;
         ], check=True, timeout=660)
         spin_report = json.loads((out/'spin-owner-command/spin-owner-command-report.json').read_text())
         assert spin_report.get('passed') is True and spin_report.get('status') == 'passed'
-        assert len(spin_report.get('races', [])) == 2
+        assert spin_report.get('races') == [
+            {'case': 'same-key-rollback', 'passed': True},
+            {'case': 'same-key-commit', 'passed': True},
+            {'case': 'owner-mapping-change-refuses55000', 'passed': True},
+        ]
         assert spin_report.get('cleanup') == {'stopped': True, 'removed': True}
         e.report['spin_owner_command'] = {'passed': True, 'report': 'spin-owner-command/spin-owner-command-report.json'}
         e.report['scope']='nonblocking original exclusion, exact entry installation, retained real funded cancellation assertions'
