@@ -6039,6 +6039,19 @@
     ],
     "historicalEvidenceRestamped": false
   },
+  "fullSessionHandStatsRouting20261031": {
+    "reason": "Add the full-session hand-statistics PostgreSQL runner to the existing required Data Console accounting selection. Additive routing only; every prior qualification command, assertion, financial source, status and historical audit remains unchanged. Current source identity only, not financial/native/live recertification.",
+    "path": "scripts/ci/classify-ci-changes.mjs",
+    "previous": {
+      "bytes": 47227,
+      "sha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319"
+    },
+    "current": {
+      "bytes": 47264,
+      "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
+    },
+    "historicalEvidenceRestamped": false
+  },
   "browserRunnerCompatibility20261101FinancialBranchRecord": {
     "previous": {
       "bytes": 272197,
@@ -6063,79 +6076,6 @@
   },
   "financialMainIntegration20261101": {
     "reason": "Retain both branch histories and reviewed composed workflow and nested binding identities. No historical evidence restamped.",
-    "historicalEvidenceRestamped": false
-  },
-  "browserRunnerCompatibility20261101ClosureBranchRecord": {
-    "previous": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
-    },
-    "current": {
-      "bytes": 272193,
-      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
-    },
-    "reason": "Reviewed four browser-job runner labels only: Ubuntu24.04 supports locked Playwright1.58 after ubuntu-latest advanced to26.04. Every cash qualification command, input, assertion and native verdict unchanged; current workflow identity only."
-  },
-  "nativeRunnerCompatibility20261101ClosureBranchRecord": {
-    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
-    "previous": {
-      "bytes": 272193,
-      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
-    },
-    "current": {
-      "bytes": 272348,
-      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
-    }
-  },
-  "closureMainIntegration20261101": {
-    "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
-    "updatedCurrentInputs": [
-      ".github/workflows/ci.yml",
-      "tests/unit/fixtureNativeCi.test.ts"
-    ],
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false
-  },
-  "financialMainIntegration20261101ClosureBranchRecord": {
-    "reason": "Preserve both histories, existing qualified receipt parser and connected closure-native qualification. Current nested identities only.",
-    "historicalEvidenceRestamped": false
-  },
-  "closureAwardOrderIntegration20261101": {
-    "reason": "Preserve both branch histories, protected mystery-award gate and closure runtime/parser/native qualification. Current source identities only; no historical verdict restamped.",
-    "historicalEvidenceRestamped": false
-  },
-  "fullSessionHandStatsRouting20261031": {
-    "reason": "Add the full-session hand-statistics PostgreSQL runner to the existing required Data Console accounting selection. Additive routing only; every prior qualification command, assertion, financial source, status and historical audit remains unchanged. Current source identity only, not financial/native/live recertification.",
-    "path": "scripts/ci/classify-ci-changes.mjs",
-    "previous": {
-      "bytes": 47227,
-      "sha256": "91758847f6d478a14d3c301fd14d76463bf0f4315027e3543866f70a94e1a319"
-    },
-    "current": {
-      "bytes": 47264,
-      "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
-    },
-    "historicalEvidenceRestamped": false
-  },
-  "fullSessionHandStatsMainIntegration20261101": {
-    "reason": "Compose full-session hand statistics with protected main. Preserve both parent audit histories, all existing qualification commands/assertions and financial statuses. Update only active source identities for the actual integrated files; no historical/native/live certification is restamped.",
-    "currentInputs": [
-      {
-        "path": ".github/workflows/ci.yml",
-        "bytes": 272761,
-        "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
-      },
-      {
-        "path": "scripts/ci/classify-ci-changes.mjs",
-        "bytes": 47264,
-        "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
-      }
-    ],
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false
-  },
-  "closureSessionStatsIntegration20261101": {
-    "reason": "Preserve both protected session-statistics and closure audit histories; active input hashes identify integrated source only. No historical qualification verdict changed.",
     "historicalEvidenceRestamped": false
   },
   "tournamentCreateRequestNativeEnforcement20261101": {
@@ -6165,6 +6105,23 @@
     },
     "historicalEvidenceRestamped": false,
     "execution_performed": false
+  },
+  "fullSessionHandStatsMainIntegration20261101": {
+    "reason": "Compose full-session hand statistics with protected main. Preserve both parent audit histories, all existing qualification commands/assertions and financial statuses. Update only active source identities for the actual integrated files; no historical/native/live certification is restamped.",
+    "currentInputs": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "bytes": 272761,
+        "sha256": "7bd27c017d7f3cacf0ff324bf5e639ac0a576379d63bb114badfd2011c40ed0c"
+      },
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "bytes": 47264,
+        "sha256": "0c9fb9064931c94f308f4e0cd53aff041e50a3213b9829d781da269b00f50b27"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   },
   "scheduleRequestNative20261101": {
     "reason": "Adds the isolated schedule-request native driver to existing accounting shard3 only. Cash native commands, assertions and historical qualification states are unchanged. Current source identity only.",
@@ -6218,6 +6175,90 @@
     "historicalEvidenceRestamped": false,
     "execution_performed": false
   },
+  "standardUbuntuCompatibility20261101": {
+    "scope": "Reuse only supported standard Ubuntu24.04 runner correction from57e8375; preserve this branch current CI commands, assertions and all historical evidence. Resolve source identity against actual integrated bytes, excluding unrelated shard/performance changes. Hosted validation pending.",
+    "upstreamCommit": "57e8375c17ab705b638649f9927b25a932f45891",
+    "sourceChanges": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 272197,
+          "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+        },
+        "current": {
+          "bytes": 272192,
+          "sha256": "eee56621ab0b351bd63a42bb1fb425e20ede9d8360446df8f934d68057aa323b"
+        }
+      },
+      "tests/unit/fixtureNativeCi.test.ts": {
+        "previous": {
+          "bytes": 119070,
+          "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+        },
+        "current": {
+          "bytes": 119066,
+          "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
+        }
+      }
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "protectedMainRunnerReconciliation20261101": {
+    "scope": "Preserve both source-identity histories and protected accounting shard2-only Ubuntu24.04 route; retain all supported browser pins. Only actual current CI/contract/nested binding identities change.",
+    "protectedMain": "38a1c453c2eac2515e55cd94b439702e1b35be7c",
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "browserRunnerCompatibility20261101ClosureBranchRecord": {
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "reason": "Reviewed four browser-job runner labels only: Ubuntu24.04 supports locked Playwright1.58 after ubuntu-latest advanced to26.04. Every cash qualification command, input, assertion and native verdict unchanged; current workflow identity only."
+  },
+  "nativeRunnerCompatibility20261101ClosureBranchRecord": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "current": {
+      "bytes": 272348,
+      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
+    }
+  },
+  "closureMainIntegration20261101": {
+    "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
+    "updatedCurrentInputs": [
+      ".github/workflows/ci.yml",
+      "tests/unit/fixtureNativeCi.test.ts"
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "financialMainIntegration20261101ClosureBranchRecord": {
+    "reason": "Preserve both histories, existing qualified receipt parser and connected closure-native qualification. Current nested identities only.",
+    "historicalEvidenceRestamped": false
+  },
+  "closureAwardOrderIntegration20261101": {
+    "reason": "Preserve both branch histories, protected mystery-award gate and closure runtime/parser/native qualification. Current source identities only; no historical verdict restamped.",
+    "historicalEvidenceRestamped": false
+  },
+  "closureSessionStatsIntegration20261101": {
+    "reason": "Preserve both protected session-statistics and closure audit histories; active input hashes identify integrated source only. No historical qualification verdict changed.",
+    "historicalEvidenceRestamped": false
+  },
+  "closureCreationIntegration20261101": {
+    "reason": "Preserve both protected creation and closure histories and all native gates; current composed source fingerprints only.",
+    "historicalEvidenceRestamped": false,
+    "execution_performed": false
+  },
   "memberStatsChicagoRegression20261101": {
     "reason": "Reviewed six-line addition runs isolated PG17 Chicago member reporting regression in existing required shard4. Existing cash qualification inputs, commands, assertions and historical verdicts unchanged. Current workflow source identity only.",
     "previous": {
@@ -6229,11 +6270,6 @@
       "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
     },
     "historicalEvidenceRestamped": false
-  },
-  "closureCreationIntegration20261101": {
-    "reason": "Preserve both protected creation and closure histories and all native gates; current composed source fingerprints only.",
-    "historicalEvidenceRestamped": false,
-    "execution_performed": false
   },
   "stallProgressQualification20261101": {
     "reason": "Add only the exact recorded-hand stall regression to existing accounting shard7. All existing native pg_cron cash inputs, steps, deadlines, assertions and historical qualification remain unchanged. Current workflow source identity only.",

@@ -91,7 +91,7 @@ function health(cwd: string, body: string) {
 
 function detect(
   fx: ReturnType<typeof fixture>,
-  opts: { before?: string; after?: string; healthUrl?: string }
+  opts: { before?: string; after?: string; healthUrl?: string; event?: string }
 ) {
   const output = join(fx.cwd, `out-${++seq}`);
   writeFileSync(output, '');
@@ -100,6 +100,7 @@ function detect(
     BEFORE_SHA: opts.before ?? fx.before,
     AFTER_SHA: opts.after ?? fx.after,
     GITHUB_OUTPUT: output,
+    EVENT_NAME: opts.event ?? 'push',
   };
   if (opts.healthUrl !== undefined) env.ENGINE_HEALTH_URL = opts.healthUrl;
   const run = spawnSync('bash', ['-c', detector.run], {
@@ -168,6 +169,82 @@ function decide(opts: { reason: string; sha: string; runs?: unknown; ghFails?: b
 
 const minutesAgo = (m: number) =>
   new Date(Date.now() - m * 60_000).toISOString().replace(/\.\d+Z$/, 'Z');
+
+function scheduledPolicy(fx: ReturnType<typeof fixture>, status: 'active' | 'off') {
+  const policy = JSON.parse(
+    readFileSync(join(root, 'server/src/maintenance/maintenanceSchedulePolicy.json'), 'utf8')
+  );
+  policy.phase1Status = status;
+  policy.completionEvidence =
+    status === 'off' ? 'Isolated verified daily restoration fixture' : null;
+  mkdirSync(join(fx.cwd, 'server/scripts'), { recursive: true });
+  writeFileSync(
+    join(fx.cwd, 'server/scripts/engine-release-seal.py'),
+    readFileSync(join(root, 'server/scripts/engine-release-seal.py'))
+  );
+  return fx.commit('server/src/maintenance/maintenanceSchedulePolicy.json', JSON.stringify(policy));
+}
+
+describe('the active scheduled same-image reset uses actual protected live identity', () => {
+  it('active scheduled current sameSHA produces one ordinary offer, retaining receiver exclusion', () => {
+    const fx = fixture();
+    const current = scheduledPolicy(fx, 'active');
+    const { out } = detect(fx, {
+      before: current,
+      after: current,
+      event: 'schedule',
+      healthUrl: health(
+        fx.cwd,
+        JSON.stringify({ releaseSha: current, running: true, liveness: 'ok' })
+      ),
+    });
+    expect(out).toMatchObject({
+      release_required: 'true',
+      offer_reason: 'scheduled-cycle',
+      target_sha: current,
+    });
+    const first = decide({ reason: out.offer_reason, sha: out.target_sha });
+    expect(first.status, first.stderr).toBe(0);
+    expect(first.output).toBe('send=true\n');
+    const held = decide({
+      reason: out.offer_reason,
+      sha: out.target_sha,
+      runs: {
+        workflow_runs: [
+          {
+            id: 17,
+            status: 'in_progress',
+            display_title: `Engine Release ${current}`,
+            created_at: minutesAgo(1),
+          },
+        ],
+      },
+    });
+    expect(held.output).toBe('send=false\n');
+  });
+  it('daily/off scheduled current image owes no hourly offer with the real absent-before schedule context', () => {
+    const fx = fixture();
+    const current = scheduledPolicy(fx, 'off');
+    const { out } = detect(fx, {
+      before: '',
+      after: current,
+      event: 'schedule',
+      healthUrl: health(fx.cwd, JSON.stringify({ releaseSha: current })),
+    });
+    expect(out).toMatchObject({ release_required: 'false', offer_reason: 'current' });
+  });
+  it('unknown scheduled health cannot authorize a same-image reset even with active source', () => {
+    const fx = fixture();
+    const current = scheduledPolicy(fx, 'active');
+    const { out } = detect(fx, {
+      before: '',
+      after: current,
+      event: 'schedule',
+      healthUrl: health(fx.cwd, '{}'),
+    });
+    expect(out).toMatchObject({ release_required: 'false', offer_reason: 'unknown' });
+  });
+});
 
 describe('the detector: a release is owed until production holds it', () => {
   it('offers the newest engine commit again when a non-engine push finds production behind it', () => {
@@ -364,15 +441,19 @@ describe('the offer is the existing release, not a second publisher', () => {
     );
   });
 
-  it('is driven by protected-main pushes only: no timer, no chain off a finished release', () => {
+  it('uses protected main and the explicit Phase1 schedule without a release-completion chain', () => {
     expect(Object.keys(stage.on)).toEqual(['workflow_dispatch', 'push', 'schedule']);
     // Explicit dispatch is database-only: it cannot produce engine outputs.
     expect(stage.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
     expect(stage.jobs.signal.needs).toBe('detect');
     expect(stage.on.schedule).toEqual([
+      { cron: '30 * * * *' },
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
     ]);
+    expect(
+      stage.jobs.detect.steps.find((step: { id?: string }) => step.id === 'admission').run
+    ).toContain('PHASE1_RESTORING');
     expect(stage.jobs.signal.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(stage.on.push.branches).toEqual(['main']);
     expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });

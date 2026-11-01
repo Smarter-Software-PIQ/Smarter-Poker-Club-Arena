@@ -124,7 +124,16 @@ def validate_refusal(value, request):
     return ScopedRefusal(value['phase'], value['code'])
 
 
+CONTROL_REQUEST = {'mode':'active_control_inventory','runKey':'41316608416-1',
+                   'releaseSha':'b194c1db64dd9de66e123245f960598dac150625'}
+CONTROL_CORE = {'engine-supervisor.sh','engine-up.sh','engine-release-protocol-v1.schema',
+                'engine-release-seal.py','verify-recovery-stack.sh'}
+
+
 def selection(value):
+    if isinstance(value, dict) and value.get('mode') == 'active_control_inventory':
+        if value != CONTROL_REQUEST: raise ValueError('Exact failed intake required')
+        return dict(value)
     if isinstance(value, dict) and value.get('mode') == 'native_scale_records':
         if value != SCALE_REQUEST:
             raise ValueError('Exact original scale operation required')
@@ -2261,8 +2270,111 @@ def validate_scale_reply(value,request):
     if value['bindingStatus']!='bound_original_records' and (value['receipt'] is not None or value['output'] is not None): raise ValueError('Scale unbound result refused')
     return value
 
+def control_inventory(request):
+    """Fixed active generation only: metadata and digests; never execute its bytes."""
+    if os.geteuid() != 0: raise ValueError('Root read custody required')
+    return _control_inventory_at(request,Path('/usr/local/lib/club-arena'),Path('/opt/club-arena'))
+
+
+def _control_inventory_at(request,parent,repo):
+    deadline=time.monotonic()+12
+    git_env={**{k:v for k,v in os.environ.items() if not k.startswith('GIT_')},'GIT_NO_REPLACE_OBJECTS':'1','GIT_NO_LAZY_FETCH':'1','GIT_OPTIONAL_LOCKS':'0'}
+    link=parent/'engine-control'
+    if not link.is_symlink(): raise ValueError('Control inventory refused')
+    target=link.resolve(strict=True)
+    sha=target.name
+    if not SHA.fullmatch(sha) or target != parent/'engine-control-generations'/sha:
+        raise ValueError('Control inventory refused')
+    fd=os.open(target,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    def read(name):
+        f=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=fd)
+        try:
+            before=os.fstat(f)
+            if not stat.S_ISREG(before.st_mode) or before.st_size>1048576:
+                raise ValueError('Control inventory refused')
+            raw=os.read(f,1048577);after=os.fstat(f)
+            ident=lambda x:(x.st_ino,x.st_size,x.st_mtime_ns,x.st_ctime_ns,x.st_mode)
+            if ident(before)!=ident(after) or len(raw)!=before.st_size:
+                raise ValueError('Control inventory refused')
+            return raw
+        finally: os.close(f)
+    try:
+        entries=sorted(os.listdir(fd))
+        if len(entries)>64 or any(not re.fullmatch(r'[A-Za-z0-9._-]{1,100}',n) for n in entries):
+            raise ValueError('Control inventory refused')
+        try:
+            manifest=read('generation-files');names=manifest.decode('utf8').splitlines()
+        except (OSError,UnicodeError,ValueError):
+            manifest=None;names=[]
+        valid=bool(names) and len(names)==len(set(names)) and CONTROL_CORE.issubset(names) and all(re.fullmatch(r'[A-Za-z0-9._-]{1,100}',n) for n in names)
+        if len(names)>64: raise ValueError('Control inventory refused')
+        expected=set(names)|{'control-sha','generation-files'} if valid else set()
+        subprocess.run(['git','-C',str(repo),'merge-base','--is-ancestor',sha,'origin/main'],env=git_env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,timeout=3)
+        rows=[];identities={}
+        identity=lambda x:(x.st_ino,x.st_size,x.st_mtime_ns,x.st_ctime_ns,x.st_mode)
+        for name in entries:
+            if time.monotonic()>=deadline: raise ValueError('Control inventory refused')
+            info=os.stat(name,dir_fd=fd,follow_symlinks=False)
+            identities[name]=identity(info)
+            kind='regular' if stat.S_ISREG(info.st_mode) else 'directory' if stat.S_ISDIR(info.st_mode) else 'symlink' if stat.S_ISLNK(info.st_mode) else 'other'
+            digest=None;matches=None
+            if kind=='regular':
+                digest=hashlib.sha256(read(name)).hexdigest()
+                if name in names and valid:
+                    size=subprocess.run(['git','-C',str(repo),'cat-file','-s',sha+':server/scripts/'+name],env=git_env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=2)
+                    if size.returncode==0 and (not size.stdout.strip().isdigit() or int(size.stdout)>1048576): raise ValueError('Control inventory refused')
+                    result=subprocess.run(['git','-C',str(repo),'show',sha+':server/scripts/'+name],env=git_env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=2)
+                    if len(result.stdout)>1048576: raise ValueError('Control inventory refused')
+                    matches=result.returncode==0 and hashlib.sha256(result.stdout).hexdigest()==digest
+            rows.append({'name':name,'kind':kind,'mode':stat.S_IMODE(info.st_mode),'sha256':digest,'sourceMatches':matches})
+        if (entries!=sorted(os.listdir(fd)) or link.resolve(strict=True)!=target
+            or any(identity(os.stat(n,dir_fd=fd,follow_symlinks=False))!=v for n,v in identities.items())):
+            raise ValueError('Control inventory refused')
+        if manifest is not None and read('generation-files')!=manifest:
+            raise ValueError('Control inventory refused')
+        try: control_matches=read('control-sha').decode('ascii').strip()==sha
+        except (OSError,UnicodeError,ValueError): control_matches=False
+        return {'schema':'active-control-inventory/v1','readOnly':True,**request,'activeControlSha':sha,
+                'manifestValid':valid,'entrySetMatches':valid and set(entries)==expected,
+                'controlShaMatches':control_matches,
+                'manifestEntryCount':len(names),'missingEntries':sorted(expected-set(entries)),
+                'extraEntries':sorted(set(entries)-expected) if valid else [],
+                'allRegular':all(r['kind']=='regular' for r in rows),'entries':rows}
+    finally: os.close(fd)
+
+
+def validate_control_inventory(value,request):
+    fields={'schema','readOnly','mode','runKey','releaseSha','activeControlSha','manifestValid','entrySetMatches','allRegular','entries','controlShaMatches','manifestEntryCount','missingEntries','extraEntries'}
+    if (not isinstance(value,dict) or set(value)!=fields or value['schema']!='active-control-inventory/v1'
+        or value['readOnly'] is not True or any(value[k]!=v for k,v in request.items())
+        or not isinstance(value['activeControlSha'],str) or not SHA.fullmatch(value['activeControlSha'])
+        or any(type(value[k]) is not bool for k in ['manifestValid','entrySetMatches','allRegular','controlShaMatches'])
+        or not isinstance(value['entries'],list) or len(value['entries'])>64):
+        raise ValueError('Control inventory refused')
+    if type(value['manifestEntryCount']) is not int or not 0<=value['manifestEntryCount']<=64: raise ValueError('Control inventory refused')
+    for key in ['missingEntries','extraEntries']:
+        names=value[key]
+        if not isinstance(names,list) or len(names)>66 or names!=sorted(set(names)) or any(not isinstance(n,str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,100}',n) for n in names): raise ValueError('Control inventory refused')
+    names=[]
+    for row in value['entries']:
+        if (not isinstance(row,dict) or set(row)!={'name','kind','mode','sha256','sourceMatches'}
+            or not isinstance(row['name'],str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,100}',row['name'])
+            or row['kind'] not in {'regular','directory','symlink','other'}
+            or type(row['mode']) is not int or not 0<=row['mode']<=0o7777
+            or (row['kind']=='regular' and (not isinstance(row['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',row['sha256'])))
+            or (row['kind']!='regular' and (row['sha256'] is not None or row['sourceMatches'] is not None))
+            or row['sourceMatches'] is not None and type(row['sourceMatches']) is not bool):
+            raise ValueError('Control inventory refused')
+        names.append(row['name'])
+    if names!=sorted(set(names)) or value['allRegular']!=all(r['kind']=='regular' for r in value['entries']):
+        raise ValueError('Control inventory refused')
+    return value
+
+
 def remote(request):
     request = selection(request)
+    if request.get('mode') == 'active_control_inventory':
+        return validate_control_inventory(control_inventory(request),request)
     if request.get('mode') == 'native_scale_records':
         return validate_scale_reply(scale_remote(request), request)
     if request.get('mode') == 'current_serving_inspector_role':
@@ -2298,6 +2410,8 @@ def remote(request):
 
 
 def validate_reply(value, request):
+    if request.get('mode') == 'active_control_inventory':
+        return validate_control_inventory(value,request)
     if request.get('mode') == 'native_scale_records':
         return validate_scale_reply(value, request)
     if request.get('mode') == 'cancellation_records':
@@ -2392,7 +2506,7 @@ def main():
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
         reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
-        if len(reply.stdout) > (8192 if request.get('mode') == 'native_scale_records' else 4096):
+        if len(reply.stdout) > (32768 if request.get('mode') == 'active_control_inventory' else 8192 if request.get('mode') == 'native_scale_records' else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:
             try:

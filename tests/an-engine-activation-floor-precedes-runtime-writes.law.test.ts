@@ -3,10 +3,14 @@ import { resolve } from 'node:path';
 import { beforeAll, expect, it } from 'vitest';
 
 const suite = 'tests/operations/engine-activation-floor.test.py';
-// The full real-Git suite exceeded the 90s child budget (114.472s locally).
+// The unpartitioned real-Git suite reached the unchanged 90s child budget.
 // Bound each logical group independently; preserve every Python assertion and
 // the original child/case deadlines rather than increasing either deadline.
 const groups = [
+  {
+    name: 'Phase1 admission and prior-owner preservation',
+    cases: ['test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner'],
+  },
   {
     name: 'immutable policy and source admission',
     cases: [
@@ -72,7 +76,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(23);
+  expect(selected).toHaveLength(24);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);
@@ -81,7 +85,9 @@ for (const group of groups) {
   it(`qualifies ${group.name} without runtime writes`, () => {
     const result = python([suite, ...group.cases.map((name) => `ActivationFloor.${name}`)]);
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toContain(`Ran ${group.cases.length} tests`);
+    expect(result.stderr).toContain(
+      `Ran ${group.cases.length} test${group.cases.length === 1 ? '' : 's'}`
+    );
     expect(result.stderr).not.toMatch(/skipped=/);
   }, 95000);
 }

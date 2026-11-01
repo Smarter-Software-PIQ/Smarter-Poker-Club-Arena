@@ -261,9 +261,15 @@ describe('the route runs on the daily schedule that already exists', () => {
       "needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''"
     );
     expect(stage.on.schedule).toEqual([
+      { cron: '30 * * * *' },
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
     ]);
+    const admission = stage.jobs.detect.steps.find(
+      (step: { id?: string }) => step.id === 'admission'
+    );
+    expect(admission.run).toContain('START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20');
+    expect(admission.run).toContain('PHASE1_RESTORING');
     expect(job.permissions).toEqual({ contents: 'read' });
     expect(job.concurrency['cancel-in-progress']).toBe(false);
     const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');

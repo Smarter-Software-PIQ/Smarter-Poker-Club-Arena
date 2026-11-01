@@ -11,6 +11,7 @@ A fit failure, an identity change or a second timeout refuses for good.
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -55,9 +56,9 @@ ADMISSION_S = 60
 # addon manifest), so these bytes are known; anything else is a fit failure.
 DEADLINE_MARKERS = (b'fixed allocation exceeded disposable fixture deadline',
                     b'native census deadline or topology refused',
-                    b'native query component exceeded 20 seconds',
+                    b'native query component exceeded20seconds',
                     b'Number(outerDeadline) > Date.now()',
-                    b'assert.ok(deadline > Date.now())')
+                    b'assert.ok(deadline>Date.now())')
 
 
 def require(value, message):
@@ -235,7 +236,7 @@ def cleanup(name, key, deadline, kill=False, seen=None):
 
 def validate_result(result, fixture_sha):
     require(result.get('schema') == 'legacy-native-scale-fixture/v1' and result.get('ok') is True and
-            result.get('qualification') == 'synthetic-cardinality-and-memory-only' and
+            result.get('qualification') == 'synthetic-full-cardinality-census-phase-only' and
             result.get('fixtureSHA256') == fixture_sha and result.get('count') == 35000000 and
             result.get('prototypeRestored') is True and result.get('matched') == 11 and
             result.get('node') == 'v22.23.2' and result.get('v8') == '12.4.254.21-node.56' and
@@ -243,6 +244,13 @@ def validate_result(result, fixture_sha):
             result.get('sourceSHA256') == 'cbd7279fc6595a31bd2044769d2ad85684d63713351acd0bb602dbfcdbdce31e' and
             re.fullmatch(r'[0-9a-f]{64}', result.get('binarySHA256', '')),
             'scale fixture identity or completeness refused')
+    transport = result.get('transport')
+    require(type(transport) is dict and set(transport) == {'ok', 'closed', 'outerMs'} and
+            type(transport['outerMs']) in (int, float) and 0 < transport['outerMs'] <= 30000 and
+            math.isfinite(transport['outerMs']) and transport['ok'] is True and transport['closed'] is True,
+            'composed census transport shape or measurements refused')
+    require(result.get('collectorSHA256') == digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()) and
+            result.get('compositionSHA256') == digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes()), 'composed census transport or source binding refused')
     before, attempt = result['before'], result['attempt']
     require(before['used'] >= 3913011648 and 32 * 1024 ** 2 + 772608 <= before['available'] <= 322107592 and
             before['process'] >= 8 * before['used'] + 32 * 1024 ** 2 and
@@ -291,7 +299,9 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
                     '--tmpfs', '/tmp:rw,noexec,nosuid,size=1m', '--ulimit', 'core=0:0',
                     '--entrypoint', '/usr/bin/env', image, '-i', '/usr/local/bin/node',
                     '--max-old-space-size=4000', '--max-semi-space-size=1',
-                    '/app/native/legacy-census/scale-fixture.mjs', fixture_sha, str(fixture_deadline_ms)]
+                    '/app/native/legacy-census/scale-fixture.mjs', fixture_sha, str(fixture_deadline_ms),
+                    digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+                    digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes())]
             try:
                 execution = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
                                            timeout=max(0.1, client_deadline - time.monotonic()),
@@ -376,7 +386,9 @@ def main(image, run_id, deadline):
     candidate = candidate_identity(image)
     fixture_sha = digest((ROOT / 'legacy-census-scale-fixture.mjs').read_bytes())
     binding = {'schema':'legacy-native-scale-binding/v1', 'image':image, 'fixtureSHA256':fixture_sha,
-               'controllerSHA256':digest(Path(__file__).read_bytes()), 'profile':PROFILE}
+               'controllerSHA256':digest(Path(__file__).read_bytes()), 'profile':PROFILE,
+               'collectorSHA256':digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
+               'compositionSHA256':digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes())}
     key = digest(json.dumps(binding, sort_keys=True).encode())
     name = 'ca-native-scale-' + key[:32]
     names = {1: name, 2: name + '-2'}

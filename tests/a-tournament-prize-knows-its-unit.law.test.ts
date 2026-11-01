@@ -246,11 +246,14 @@ describe('LAW: a tournament prize knows its unit', () => {
     }
   });
 
-  it('a caller that did not read the club says so by name, never with a bare 1', () => {
-    // The two things a caller may legitimately pass, and the thing it may not.
-    // A bare literal is indistinguishable from the default this law removed, so
-    // the census above would accept it and nobody would ever find it again.
-    for (const { fn } of UNIT_BEARING_RULES) {
+  // Keep the complete rule census, but give each existing rule its own
+  // original thirty-second case budget instead of accumulating every scan.
+  it.each(UNIT_BEARING_RULES)(
+    'a caller that did not read the club says so by name, never with a bare 1: $fn',
+    ({ fn }) => {
+      // The two things a caller may legitimately pass, and the thing it may not.
+      // A bare literal is indistinguishable from the default this law removed, so
+      // the census above would accept it and nobody would ever find it again.
       for (const site of callSites(fn)) {
         const unit = site.call.slice(site.call.lastIndexOf(',') + 1).replace(/\)\s*$/, '');
         expect(
@@ -260,8 +263,9 @@ describe('LAW: a tournament prize knows its unit', () => {
             `if it was not.\n\n${site.call}`
         ).not.toMatch(/^\s*\d+\s*$/);
       }
-    }
-  });
+    },
+    30_000
+  );
 
   it('the TypeScript unit derivation is the SQL one, condition for condition', () => {
     // All three conditions, and the same strictness on each.

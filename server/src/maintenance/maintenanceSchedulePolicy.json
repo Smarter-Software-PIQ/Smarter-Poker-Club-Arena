@@ -1,0 +1,8 @@
+{
+  "schema": "engine-maintenance-schedule/v1",
+  "policyId": "phase1-hourly-01a1944f",
+  "timeZone": "America/Chicago",
+  "phase1Status": "active",
+  "ownerMessageId": "01a1944f-7131-7f11-8dcc-873d576e781c",
+  "completionEvidence": null
+}

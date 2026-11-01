@@ -5,10 +5,22 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 PG=pathlib.Path(os.environ.get('PG_BIN','/opt/homebrew/opt/postgresql@17/bin'))
 ENV={k:v for k,v in os.environ.items() if not k.startswith('PG')}; ENV.update(LC_ALL='C',LANG='C')
 CLUSTER=pathlib.Path(tempfile.mkdtemp(prefix='highlighted-clock-'))
-PSQL=[PG/'psql','-XqAt','-v','ON_ERROR_STOP=1','-h','127.0.0.1','-p','55784','-U','postgres']
+PSQL=[PG/'psql','-XqAt','-v','ON_ERROR_STOP=1','-h',CLUSTER,'-p','55784','-U','postgres']
+def startup_log(args):
+    if pathlib.Path(args[0]) != PG/'pg_ctl' or args[-1] != 'start': return ''
+    try:
+        with (CLUSTER/'pg.log').open('rb') as stream:
+            stream.seek(0,os.SEEK_END)
+            stream.seek(max(0,stream.tell()-8192))
+            return '\nOwned PostgreSQL startup log (last 8192 bytes):\n'+stream.read(8192).decode('utf-8',errors='replace')
+    except OSError as error: return '\nOwned PostgreSQL startup log unavailable: '+str(error)
 def call(args,sql=None,ok=True):
-    r=subprocess.run(list(map(str,args)),input=sql,text=True,capture_output=True,env=ENV,timeout=60)
-    if ok and r.returncode: raise RuntimeError(r.stderr)
+    try: r=subprocess.run(list(map(str,args)),input=sql,text=True,capture_output=True,env=ENV,timeout=60)
+    except subprocess.TimeoutExpired as error:
+        detail=startup_log(args)
+        if detail: raise RuntimeError(str(error)+detail) from error
+        raise
+    if ok and r.returncode: raise RuntimeError(r.stderr+startup_log(args))
     return r
 
 def run(sql): return call(PSQL,sql).stdout.strip()
@@ -18,7 +30,8 @@ def check(name,condition):
     checks.append(name)
 try:
     call([PG/'initdb','-D',CLUSTER/'data','-U','postgres','--auth=trust','--no-locale'])
-    call([PG/'pg_ctl','-D',CLUSTER/'data','-l',CLUSTER/'pg.log','-o','-k "" -p 55784 -h 127.0.0.1','-w','start'])
+    call([PG/'pg_ctl','-D',CLUSTER/'data','-l',CLUSTER/'pg.log','-o',f'-k "{CLUSTER}" -p 55784 -c listen_addresses=','-w','start'])
+    check('fixture uses only its private Unix socket',run("SELECT inet_server_addr() IS NULL AND current_setting('listen_addresses')='' ")=='t')
     run('''CREATE TABLE tournaments(id serial,name text,status text DEFAULT 'REGISTERING',tournament_type text DEFAULT 'MTT',variant text DEFAULT 'freezeout',
       buy_in_amount numeric DEFAULT 10,buy_in_fee numeric DEFAULT 0,is_bounty bool,is_pko bool,is_mystery_bounty bool,bounty_amount numeric,
       blind_structure text,is_pinned bool DEFAULT false,late_reg_levels int DEFAULT 8,rebuy_levels int DEFAULT 8,late_reg_mins int DEFAULT 80);

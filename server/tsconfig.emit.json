@@ -1,6 +1,9 @@
 {
   "extends": "./tsconfig.runtime.json",
-  "files": ["src/engine/GtoPublicHist215FeatureDescriptor.json"],
+  "files": [
+    "src/engine/GtoPublicHist215FeatureDescriptor.json",
+    "src/maintenance/maintenanceSchedulePolicy.json"
+  ],
   "compilerOptions": {
     "noCheck": true,
     "noResolve": true,

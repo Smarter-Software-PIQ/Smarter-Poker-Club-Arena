@@ -1,10 +1,11 @@
-// Disposable scale qualification only: no application imports, configuration or network.
+// Disposable census-phase qualification only; loopback Inspector, no application imports.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { getHeapStatistics } from 'node:v8';
 import { performance } from 'node:perf_hooks';
+import { composedScaleCensus } from './legacy-census-scale-composition.mjs';
 const sha = value => createHash('sha256').update(value).digest('hex');
 const MiB = 1024 ** 2;
 const started = performance.now();
@@ -13,7 +14,10 @@ assert.equal(process.versions.v8, '12.4.254.21-node.56');
 assert.equal(process.versions.modules, '127');
 assert.equal(process.platform, 'linux');
 assert.ok(['x64', 'arm64'].includes(process.arch));
-const [expectedFixture, outerDeadline] = process.argv.slice(2);
+const [expectedFixture, outerDeadline, expectedCollector, expectedComposition] = process.argv.slice(2);
+const collectorSHA256=sha(fs.readFileSync(new URL('./legacy-engine-checkpoint.mjs',import.meta.url)));
+const compositionSHA256=sha(fs.readFileSync(new URL('./legacy-census-scale-composition.mjs',import.meta.url)));
+assert.equal(collectorSHA256,expectedCollector);assert.equal(compositionSHA256,expectedComposition);
 assert.equal(sha(fs.readFileSync(new URL(import.meta.url))), expectedFixture);
 assert.ok(Number.isSafeInteger(Number(outerDeadline)) && Number(outerDeadline) > Date.now());
 const read = name => fs.readFileSync('/sys/fs/cgroup/' + name, 'utf8').trim();
@@ -53,23 +57,15 @@ assert.ok(before.available >= 32 * MiB + addon.managedOutputBytes, 'bounded mana
 assert.ok(before.used + 32 * MiB > before.available, 'original full-heap admission must refuse');
 assert.ok(before.process >= before.used * 8 + 32 * MiB, 'unchanged actual 8x process reserve must pass');
 const allocationMs = performance.now() - started;
-const marker = {};
 const originals = types.map(C => Object.getPrototypeOf(C.prototype));
-let result, queryMs;
-try {
-  types.forEach(C => Object.setPrototypeOf(C.prototype, marker));
-  const queryStarted = performance.now();
-  const deadline = Math.min(Date.now() + 20_000, Number(outerDeadline) - 1000);
-  assert.ok(deadline > Date.now());
-  result = addon.collect(marker, deadline, process.availableMemory());
-  queryMs = performance.now() - queryStarted;
-  assert.ok(queryMs <= 20_000, 'native query component exceeded 20 seconds');
-  assert.equal(result.length, 11); // Five prototypes plus six exact owner objects.
-  for (const owner of [...owners, detached()]) assert.ok(result.includes(owner));
-} finally {
-  types.forEach((C, i) => Object.setPrototypeOf(C.prototype, originals[i]));
-}
-types.forEach((C, i) => assert.equal(Object.getPrototypeOf(C.prototype), originals[i]));
+const queryStarted = performance.now();
+const {result,transport} = await composedScaleCensus(types,addon,Number(outerDeadline));
+const queryMs=addon.diagnostics().queryEndedAtMs-addon.diagnostics().queryStartedAtMs;
+assert.ok(queryMs>0&&queryMs<=20000,'native query component exceeded20seconds');
+assert.equal(result.length,11);
+for(const owner of [...owners,detached()])assert.ok(result.includes(owner));
+types.forEach((C,i)=>assert.equal(Object.getPrototypeOf(C.prototype),originals[i]));
+assert.ok(performance.now()-queryStarted<=35000,'composed census phase exceeded work budget');
 const attempt = addon.diagnostics();
 assert.ok(attempt.predicateVisits >= count, 'complete cardinality not visited');
 assert.equal(attempt.arrayAllocated, true);
@@ -77,7 +73,7 @@ assert.equal(attempt.deadlineRefused, false);
 assert.equal(ballast.length, count);
 assert.equal(ballast[count - 1].k, count - 1);
 console.log(JSON.stringify({ schema:'legacy-native-scale-fixture/v1', ok:true,
-  qualification:'synthetic-cardinality-and-memory-only', count, before, allocationMs, queryMs,
+  qualification:'synthetic-full-cardinality-census-phase-only', collectorSHA256, compositionSHA256, transport, count, before, allocationMs, queryMs,
   fixtureMs:performance.now()-started, matched:result.length, attempt, cgroup,
   cgroupPeak:Number(read('memory.peak')), maxRSSKiB:process.resourceUsage().maxRSS,
   prototypeRestored:true, fixtureSHA256:expectedFixture, binarySHA256:manifest.binarySHA256,

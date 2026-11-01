@@ -37,6 +37,8 @@ on:
   push:
     branches: [main]
   schedule:
+    # Temporary Phase1 owner exception; admission restores daily when off.
+    - cron: '30 * * * *'
     # 03:31-03:43 America/Chicago in both DST states (08 UTC is CDT, 09 UTC
     # is CST). Off the congested :00/:30 minutes; the admission step admits
     # only a run created inside the 03:30-03:50 Chicago window.
@@ -98,6 +100,16 @@ jobs:
           set -euo pipefail
           allowed=false
           owner_window_id=''
+          POLICY=$(python3 server/scripts/engine-release-seal.py schedule-policy --repo . --sha "$GITHUB_SHA")
+          PHASE1_ACTIVE=$(printf '%s' "$POLICY" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin)["phase1Status"]=="active" else "false")')
+          PHASE1_RESTORING=false
+          if [ "$PHASE1_ACTIVE" = false ]; then
+            HEALTH=$(curl -fsS --max-time 15 -H 'Cache-Control:no-cache' https://engine.smarter.poker/health) || HEALTH='{}'
+            if printf '%s' "$HEALTH" | python3 server/scripts/engine-release-seal.py restoration-needed --repo . --sha "$GITHUB_SHA"; then
+              PHASE1_RESTORING=true
+            fi
+          fi
+          export PHASE1_ACTIVE PHASE1_RESTORING
           daily_preparation=false
           daily_date=''
           # When this run came into being: the schedule run's own creation time
@@ -193,7 +205,9 @@ jobs:
                 echo "::warning title=DAILY PREPARATION UNKNOWN::Could not read this workflow's runs in the $daily_date window; this run prepares nothing for it." ;;
             esac
           fi
-          if [ "$EVENT_NAME" = schedule ] || [ "$allowed" = true ]; then
+          if [ "$PHASE1_ACTIVE" = true ] || [ "$PHASE1_RESTORING" = true ]; then
+            allowed=true
+          elif [ "$EVENT_NAME" = schedule ] || [ "$allowed" = true ]; then
             :
           elif git log -1 --format=%B | grep -Eq '^Engine-Release: daily-maintenance-transition$'; then
             allowed=true
@@ -324,6 +338,7 @@ jobs:
           AFTER_SHA: ${{ github.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           ENGINE_HEALTH_URL: https://engine.smarter.poker/health
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           [[ "$AFTER_SHA" =~ ^[0-9a-f]{40}$ ]] \
@@ -389,6 +404,15 @@ jobs:
           # unreadable /health, or a served SHA outside protected main, offers
           # nothing on that basis and says so.
           OFFER_REASON=changed
+          SCHEDULED_CYCLE=false
+          if [ "$EVENT_NAME" = schedule ]; then
+            # A scheduled event has no push-before SHA. Always prove the actual
+            # protected live identity before offering a same-image reset.
+            RELEASE_REQUIRED=false
+            if python3 server/scripts/engine-release-seal.py schedule-policy --repo . --sha "$AFTER_SHA" | python3 -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin)["phase1Status"]=="active" else 1)'; then
+              SCHEDULED_CYCLE=true
+            fi
+          fi
           if [ "$RELEASE_REQUIRED" = false ]; then
             LIVE_SHA=''
             if [ -n "${ENGINE_HEALTH_URL:-}" ]; then
@@ -410,7 +434,15 @@ jobs:
               OFFER_REASON=unknown
               echo "::warning title=LIVE ENGINE RELEASE UNKNOWN::The live engine reports $LIVE_SHA, which is not in protected-main history at $AFTER_SHA."
             elif git merge-base --is-ancestor "$LATEST_REQUIRED" "$LIVE_SHA"; then
-              OFFER_REASON=current
+              if [ "$SCHEDULED_CYCLE" = true ]; then
+                RELEASE_REQUIRED=true
+                OFFER_REASON=scheduled-cycle
+                # Include the current protected policy and any newer server
+                # tests; never offer an older component behind a serving SHA.
+                TARGET_SHA="$AFTER_SHA"
+              else
+                OFFER_REASON=current
+              fi
             else
               OFFER_REASON=behind
               RELEASE_REQUIRED=true
@@ -527,7 +559,7 @@ jobs:
           set -euo pipefail
           [[ "$REF_SHA" =~ ^[0-9a-f]{40}$ ]] \
             || { echo "::error::Protected-main push did not provide one full lowercase commit SHA."; exit 1; }
-          if [ "$OFFER_REASON" != behind ]; then
+          if [ "$OFFER_REASON" != behind ] && [ "$OFFER_REASON" != scheduled-cycle ]; then
             echo "send=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
