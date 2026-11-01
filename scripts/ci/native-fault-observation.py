@@ -79,6 +79,7 @@ REFUSAL_CODES = frozenset({
     'private_ancestry_refused',
     'private_record_bound',
     'private_record_refused',
+    'public_record_refused',
     'public_coordinates_bound',
     'public_coordinates_refused',
     'public_refusal_category_refused',
@@ -888,6 +889,83 @@ def wait_receipt(op):
             return value
         # A bounded, read-only wait on this one operation; never an arm/retry.
         time.sleep(min(.5, max(0, deadline - time.monotonic())))
+
+
+def strict_json(raw, bound):
+    if not isinstance(raw, bytes) or len(raw) > bound:
+        refuse('public_record_refused')
+    def closed_pairs(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                refuse('public_record_refused')
+            value[key] = item
+        return value
+    value = json.loads(raw, object_pairs_hook=closed_pairs)
+    if not isinstance(value, dict):
+        refuse('public_record_refused')
+    return value
+
+
+def admission_outcome(raw, op, transport_exit):
+    """Runner-side export of bounded closed admission evidence, never raw stdout."""
+    operation(op)
+    if type(transport_exit) is not int or not 0 <= transport_exit <= 255:
+        refuse('public_record_refused')
+    result = {'schema': 'native-fault-admission/v1', 'operation': op,
+              'transportExit': transport_exit, 'outcome': 'unproven', 'phase': None,
+              'refusalCode': None, 'refusalCategory': None}
+    try:
+        value = strict_json(raw, 16384)
+        if (set(value) == {'operation', 'phase'} and value['operation'] == op
+                and value['phase'] in ('existing_operation_read_receipt', 'submitted_read_receipt')):
+            result.update(outcome='existing' if value['phase'] == 'existing_operation_read_receipt' else 'submitted',
+                          phase=value['phase'])
+        elif (set(value) == {'verdict', 'reason', 'refusalCode', 'refusalPhase'}
+                and value['verdict'] == 'UNKNOWN' and value['reason'] == 'native_observation_refused'
+                and value['refusalCode'] in REFUSAL_CODES | {'native_operation_unproven'}
+                and value['refusalPhase'] in ('admit', 'entry')):
+            result.update(outcome='refused', phase=value['refusalPhase'], refusalCode=value['refusalCode'])
+    except (ValueError, TypeError, RecursionError, RuntimeError):
+        pass
+    return result
+
+
+def receipt_outcome(raw, op, expected, transport_exit):
+    """Only validated controller receipt fields can become a retained artifact."""
+    operation(op)
+    if not isinstance(expected, str) or not SHA.fullmatch(expected) or type(transport_exit) is not int or not 0 <= transport_exit <= 255:
+        refuse('public_record_refused')
+    unknown = {'schema': 'native-fault-receipt-status/v1', 'operation': op, 'engineSHA': expected,
+               'transportExit': transport_exit, 'validReceipt': False,
+               'cleanupConfirmed': False, 'reason': 'receipt_unproven'}
+    try:
+        value = strict_json(raw, 256 * 1024)
+        keys = {'schema', 'operation', 'sameInvocation', 'terminal', 'helperCgroupEmpty', 'privateRawRemoved',
+                'cleanupConfirmed', 'verdict', 'reason', 'coordinates', 'taskCoverage', 'refusalCategory',
+                'refusalCode', 'refusalPhase', 'eventCount', 'unresolvedFrameCount', 'originalLeaderExited',
+                'offsetKind', 'productionCauseProven', 'managerTerminalEvidence', 'engineSHA', 'originalIdentitySHA256'}
+        if (set(value) != keys or value['schema'] != 'native-fault-observation/v1' or value['operation'] != op
+                or value['engineSHA'] != expected or value['verdict'] != 'UNKNOWN'
+                or value['reason'] not in ('native_fault_coordinates', 'native_callsite_unproven',
+                                          'expired_without_admitted_fault', 'native_capture_refused', 'terminal_proof_pending')
+                or value['taskCoverage'] != 'original_snapshot_only_new_threads_unknown'
+                or value['offsetKind'] != 'mapped_elf_file_offset' or value['productionCauseProven'] is not False
+                or value['managerTerminalEvidence'] not in ('loaded_manager_state', 'manager_terminal_journal', 'unproven')
+                or not isinstance(value['originalIdentitySHA256'], str)
+                or not re.fullmatch(r'[0-9a-f]{64}', value['originalIdentitySHA256'])):
+            return unknown
+        for key in ('sameInvocation', 'terminal', 'helperCgroupEmpty', 'privateRawRemoved', 'cleanupConfirmed'):
+            if type(value[key]) is not bool:
+                return unknown
+        if value['cleanupConfirmed'] and not all(value[key] for key in ('sameInvocation', 'terminal', 'helperCgroupEmpty', 'privateRawRemoved')):
+            return unknown
+        public_result({key: value[key] for key in ('verdict', 'coordinates', 'refusalCategory', 'refusalCode',
+                       'refusalPhase', 'eventCount', 'unresolvedFrameCount', 'originalLeaderExited')} |
+                      {'reason': 'native_callsite_unproven' if value['reason'] == 'terminal_proof_pending' else value['reason']})
+        return {**value, 'transportExit': transport_exit, 'validReceipt': True}
+    except (ValueError, KeyError, TypeError, RecursionError, RuntimeError):
+        return unknown
 
 def main():
     parser = argparse.ArgumentParser()

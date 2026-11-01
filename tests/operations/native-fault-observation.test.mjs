@@ -88,3 +88,25 @@ test('retained ELF custody refuses real short, zero and corrupted writes',()=>{
  const rows=python(`import tempfile,pathlib,time,hashlib\nrows=[]\nwith tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'],prefix='native-module-write-') as folder:\n root=pathlib.Path(folder);data=b'actual retained ELF bytes'*64;source=root/'source';source.write_bytes(data)\n original_write=os.write\n for mode in ['full','short','zero','corrupt']:\n  fd=os.open(source,os.O_RDONLY)\n  def write(out,block):\n   if mode=='short':return original_write(out,block[:len(block)//2])\n   if mode=='zero':return 0\n   return original_write(out,b'x'*len(block) if mode=='corrupt' else block)\n  m.os.write=write\n  try:\n   digest=m.copy_module_bytes(fd,root/mode,len(data),time.monotonic()+2)\n   rows.append('attested' if digest==hashlib.sha256(data).hexdigest() and (root/mode).read_bytes()==data else 'invalid')\n  except RuntimeError as error:rows.append(m.closed_refusal(error))\n  finally:m.os.write=original_write;os.close(fd)\nprint(json.dumps(rows))`);
  assert.deepEqual(rows,['attested','module_copy_short_write','module_copy_short_write','retained_module_attestation_refused']);
 });
+test('closed admission evidence survives a missing terminal receipt without exporting raw output',()=>{
+ const values=python(`rows=[]\nfor raw,status in [(b'{"operation":"123","phase":"submitted_read_receipt"}',0),(b'{"verdict":"UNKNOWN","reason":"native_observation_refused","refusalCode":"engine_health_identity_refused","refusalPhase":"admit"}',1),(b'{"operation":"124","phase":"submitted_read_receipt"}',0),(b'{"operation":"123","phase":"submitted_read_receipt","secret":"PRIVATE"}',0),(b'{"operation":"123","operation":"123","phase":"submitted_read_receipt"}',0),(b'PRIVATE raw stdout',255),(b'X'*16385,124)]:rows.append(m.admission_outcome(raw,'123',status))\nprint(json.dumps(rows))`);
+ assert.equal(values[0].outcome,'submitted');assert.equal(values[1].outcome,'refused');assert.equal(values[1].refusalCode,'engine_health_identity_refused');assert.equal(values[1].transportExit,1);
+ for(const value of values.slice(2))assert.equal(value.outcome,'unproven');
+ assert.equal(JSON.stringify(values).includes('PRIVATE'),false);
+});
+test('receipt artifact contains only strictly validated closed fields',()=>{
+ const values=python(`record={'invocation':'a'*32,'cleanup':'removed','result':{'verdict':'UNKNOWN','reason':'expired_without_admitted_fault','coordinates':[]}}\nstate={'InvocationID':'a'*32,'ActiveState':'inactive','SubState':'dead'}\nvalue=m.terminal_witness('123',record,state,True,True)|{'managerTerminalEvidence':'loaded_manager_state','engineSHA':'b'*40,'originalIdentitySHA256':'c'*64}\nrows=[m.receipt_outcome(json.dumps(value).encode(),'123','b'*40,0),m.receipt_outcome(json.dumps(value|{'privateRaw':'PRIVATE'}).encode(),'123','b'*40,0),m.receipt_outcome(b'PRIVATE raw stdout','123','b'*40,255)]\nprint(json.dumps(rows))`);
+ assert.equal(values[0].validReceipt,true);assert.equal(values[0].cleanupConfirmed,true);
+ for(const value of values.slice(1)){assert.equal(value.validReceipt,false);assert.equal(value.cleanupConfirmed,false);}
+ assert.equal(JSON.stringify(values).includes('PRIVATE'),false);
+ const workflow=readFileSync(new URL('../../.github/workflows/profile-engine-main-thread.yml',import.meta.url),'utf8');
+ assert.match(workflow,/verify:[\s\S]*?TMPDIR: \$\{\{ runner.temp \}\}/);
+ assert.match(workflow,/path: \|\n\s+\$\{\{ runner.temp \}\}\/native-admission.json\n\s+\$\{\{ runner.temp \}\}\/native-fault-receipt.json/);
+ assert.doesNotMatch(workflow,/path:[^\n]*\.private/);
+});
+test('closed SSH classifier preserves original failure with malformed refusal codes',()=>{
+ const rows=python(`fixture_spec=importlib.util.spec_from_file_location('unit_fixture',str(m.Path(m.__file__).resolve().parents[2]/'tests/fixtures/engine-native-fault/qualify_host_unit.py'))\nfixture=importlib.util.module_from_spec(fixture_spec);fixture_spec.loader.exec_module(fixture)\nrows=[]\nfor code in [[],{},['PRIVATE'],{'secret':'PRIVATE'},'engine_health_identity_refused']:\n raw=json.dumps({'refusalCode':code,'refusalPhase':'admit'}).encode()\n rows.append(fixture.closed_ssh_evidence(raw,b'Permission denied (publickey).',b'',255))\nprint(json.dumps(rows))`);
+ for(const row of rows){assert.equal(row.clientExitStatus,255);assert.ok(row.categories.includes('authentication_refused'));}
+ for(const row of rows.slice(0,4))assert.equal(row.remoteRefusalCode,null);
+ assert.equal(rows[4].remoteRefusalCode,'engine_health_identity_refused');assert.equal(JSON.stringify(rows).includes('PRIVATE'),false);
+});

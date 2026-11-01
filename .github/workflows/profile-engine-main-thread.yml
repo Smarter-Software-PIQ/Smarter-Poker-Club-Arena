@@ -32,6 +32,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    env:
+      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -148,6 +150,8 @@ jobs:
           HOST_KEY: ${{ secrets.HETZNER_HOST_KEY }}
         run: |
           set -euo pipefail
+          umask 077
+          ulimit -f 1024
           [[ "$EXPECTED_ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Expected SHA refused'; exit 1; }
           [[ "$HETZNER_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo '::error::Configured host refused'; exit 1; }
           [ -n "$SSH_KEY" ] && [ -n "$HOST_KEY" ] || { echo '::error::Configured SSH metadata unavailable'; exit 1; }
@@ -206,19 +210,40 @@ jobs:
             # Unknown acknowledgement is followed only by a read of this SAME
             # durable operation. It never triggers a second arm or another run.
             set +e
-            timeout --signal=TERM --kill-after=5s 40s ssh "${SSH_ARGS[@]}" "root@$HETZNER_HOST" "$REMOTE_COMMAND" < scripts/ci/native-fault-observation.py > "$RUNNER_TEMP/native-admission.json"
+            timeout --signal=TERM --kill-after=5s 40s ssh "${SSH_ARGS[@]}" "root@$HETZNER_HOST" "$REMOTE_COMMAND" < scripts/ci/native-fault-observation.py > "$RUNNER_TEMP/native-admission.private"
             ADMISSION_STATUS=$?
             set -e
             printf 'Native admission transport exit: %s; reading original operation only.\n' "$ADMISSION_STATUS"
+          else
+            ADMISSION_STATUS=0
           fi
+          python3 - "$OPERATION" "$ADMISSION_STATUS" "$NATIVE_MODE" "$RUNNER_TEMP" <<'PY'
+          import importlib.util,json,pathlib,sys
+          spec=importlib.util.spec_from_file_location('native_controller','scripts/ci/native-fault-observation.py')
+          helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+          op,status,mode,folder=sys.argv[1:];root=pathlib.Path(folder)
+          if mode=='native_fault':
+              source=root/'native-admission.private'
+              raw=source.open('rb').read(16385) if source.is_file() else b''
+              value=helper.admission_outcome(raw,op,int(status))
+          else:
+              value={'schema':'native-fault-admission/v1','operation':op,'outcome':'read_only_receipt_requested','transportExit':None}
+          (root/'native-admission.json').write_text(json.dumps(value,separators=(',',':')))
+          PY
           REMOTE_RECEIPT="/usr/bin/python3 /var/lib/club-arena-native-fault/$OPERATION/controller.py receipt --operation $OPERATION --wait"
-          timeout --signal=TERM --kill-after=5s 220s ssh "${SSH_ARGS[@]}" "root@$HETZNER_HOST" "$REMOTE_RECEIPT" > "$RUNNER_TEMP/native-fault-receipt.json"
-          python3 - "$RUNNER_TEMP/native-fault-receipt.json" "$EXPECTED_ENGINE_SHA" <<'PY'
-          import json,sys
-          value=json.load(open(sys.argv[1]))
-          assert value.get('schema')=='native-fault-observation/v1'
-          assert value.get('engineSHA')==sys.argv[2], 'Original operation engine identity mismatch'
-          assert value.get('cleanupConfirmed') is True, 'Native operation cleanup remains unproven'
+          set +e
+          timeout --signal=TERM --kill-after=5s 220s ssh "${SSH_ARGS[@]}" "root@$HETZNER_HOST" "$REMOTE_RECEIPT" > "$RUNNER_TEMP/native-fault-receipt.private"
+          RECEIPT_STATUS=$?
+          set -e
+          python3 - "$OPERATION" "$EXPECTED_ENGINE_SHA" "$RECEIPT_STATUS" "$RUNNER_TEMP" <<'PY'
+          import importlib.util,json,pathlib,sys
+          spec=importlib.util.spec_from_file_location('native_controller','scripts/ci/native-fault-observation.py')
+          helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+          op,sha,status,folder=sys.argv[1:];root=pathlib.Path(folder);source=root/'native-fault-receipt.private'
+          raw=source.open('rb').read(262145) if source.is_file() else b''
+          value=helper.receipt_outcome(raw,op,sha,int(status))
+          (root/'native-fault-receipt.json').write_text(json.dumps(value,separators=(',',':')))
+          assert value.get('validReceipt') is True and value.get('cleanupConfirmed') is True, 'Native operation receipt/cleanup remains unproven; closed admission evidence retained'
           print(json.dumps(value,separators=(',',':')))
           PY
       - name: Retain closed native observation receipt only
@@ -226,6 +251,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-fault-observation-${{ github.run_id }}
-          path: ${{ runner.temp }}/native-fault-receipt.json
+          path: |
+            ${{ runner.temp }}/native-admission.json
+            ${{ runner.temp }}/native-fault-receipt.json
           if-no-files-found: error
           retention-days: 7

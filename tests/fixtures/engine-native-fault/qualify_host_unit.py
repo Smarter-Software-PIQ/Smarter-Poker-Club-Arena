@@ -6,6 +6,7 @@ containers/units created by this process may be stopped. No raw perf/journal,
 process identities, paths, private keys or target data enter the output receipt.
 """
 import argparse
+import ast
 import fcntl
 import hashlib
 import json
@@ -20,10 +21,75 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
 CONTROLLER = ROOT / 'scripts/ci/native-fault-observation.py'
+SSH_FAILURE_EVIDENCE = None
+SSH_DIAGNOSTIC_LIMIT = 65536
+
+
+class PrivatePipe:
+    """Drain continuously without blocking SSH or retaining unbounded diagnostics."""
+    def __init__(self, stream):
+        self.data = bytearray()
+        self.truncated = False
+        self.lock = threading.Lock()
+        def drain():
+            try:
+                while block := os.read(stream.fileno(), 4096):
+                    with self.lock:
+                        remaining = SSH_DIAGNOSTIC_LIMIT - len(self.data)
+                        self.data.extend(block[:remaining])
+                        self.truncated |= len(block) > remaining
+            except OSError:
+                pass
+        self.thread = threading.Thread(target=drain, daemon=True)
+        self.thread.start()
+
+    def snapshot(self):
+        with self.lock:
+            return bytes(self.data), self.truncated
+
+
+def closed_ssh_evidence(stdout, stderr, server, status, truncated=False):
+    """Only closed categories/codes escape; private text, paths and keys never do."""
+    markers = {
+        'authentication_refused': (b'permission denied (publickey', b'failed publickey', b'authentication refused'),
+        'authentication_accepted': (b'authenticated to ', b'accepted publickey'),
+        'account_refused': (b'account is locked', b'account configuration', b'not allowed because'),
+        'host_key_refused': (b'host key verification failed', b'remote host identification has changed'),
+        'connection_refused': (b'connection refused', b'connection timed out', b'no route to host'),
+        'session_refused': (b'open failed: administratively prohibited', b'could not chdir', b'cannot execute'),
+    }
+    private = (stderr + b'\n' + server).lower()
+    categories = [name for name, needles in markers.items() if any(needle in private for needle in needles)]
+    # Read only the maintained finite code declaration, never execute the controller.
+    codes = set()
+    for node in ast.parse(CONTROLLER.read_text()).body:
+        if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == 'REFUSAL_CODES' for target in node.targets):
+            codes = set(ast.literal_eval(node.value.args[0])) | {'native_operation_unproven'}
+    remote_code = remote_phase = None
+    if not truncated:
+        for line in stdout.splitlines()[:8]:
+            try:
+                value = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if not isinstance(value, dict):
+                continue
+            if isinstance(value.get('refusalCode'), str) and value['refusalCode'] in codes:
+                remote_code = value['refusalCode']
+                phase = value.get('refusalPhase')
+                remote_phase = phase if phase in ('admit', 'collect', 'stop-post', 'receipt', 'entry', 'preparing', 'arming', 'observing', 'decoding') else None
+    if remote_code:
+        categories.append('remote_admit_refused')
+    return {'categories': sorted(set(categories)) or ['unknown'],
+            'clientState': 'running' if status is None else 'exited',
+            'clientExitStatus': status if type(status) is int and -128 <= status <= 255 else None,
+            'remoteRefusalCode': remote_code, 'remoteRefusalPhase': remote_phase,
+            'diagnosticBoundExceeded': bool(truncated)}
 ASSETS = Path(__file__).resolve().parent
 IMAGE = 'node:22-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5'
 STATE = Path('/var/lib/club-arena-native-fault')
@@ -130,6 +196,8 @@ class Scene:
         self.modules = {}
         self.images = {}
         self.network = None
+        self.client_pipes = []
+        self.ssh_log = None
 
     def docker(self, *args, **kwargs):
         return run(['docker', *args], **kwargs).stdout.decode().strip()
@@ -290,6 +358,9 @@ class Scene:
 
     def start_sshd(self):
         keys = self.folder / 'ssh'; keys.mkdir(mode=0o700)
+        self.ssh_log = keys / 'diagnostic.log'
+        fd = os.open(self.ssh_log, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
         for name in ('host', 'client'):
             run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(keys / name)])
         (keys / 'authorized').write_bytes((keys / 'client.pub').read_bytes()); (keys / 'authorized').chmod(0o600)
@@ -301,10 +372,11 @@ class Scene:
         config.write_text('\n'.join(['ListenAddress 127.0.0.1', 'Port ' + str(self.port),
             'HostKey ' + str(keys / 'host'), 'AuthorizedKeysFile ' + str(keys / 'authorized'),
             'PidFile ' + str(keys / 'pid'), 'PermitRootLogin prohibit-password', 'PasswordAuthentication no',
-            'KbdInteractiveAuthentication no', 'UsePAM yes', 'StrictModes yes', 'PrintMotd no', 'LogLevel QUIET']) + '\n')
+            'KbdInteractiveAuthentication no', 'UsePAM yes', 'StrictModes yes', 'PrintMotd no', 'LogLevel VERBOSE']) + '\n')
         run(['systemd-run', '--unit=' + self.ssh_unit, '--service-type=exec', '--quiet',
              '--property=Restart=no', '--property=RuntimeMaxSec=200', '--property=TimeoutStopSec=3',
-             '--property=KillMode=control-group', '/usr/sbin/sshd', '-D', '-e', '-f', str(config)])
+             '--property=KillMode=control-group', '--property=LimitFSIZE=1048576',
+             '/usr/sbin/sshd', '-D', '-E', str(self.ssh_log), '-f', str(config)])
         def listening():
             try:
                 with socket.create_connection(('127.0.0.1', self.port), timeout=.1): return True
@@ -317,16 +389,39 @@ class Scene:
         import shlex
         remote = '/usr/bin/python3 -B ' + shlex.quote(str(CONTROLLER)) + ' admit --operation ' + op
         remote += ' --expected-engine-sha ' + self.expected + ' && exec cat >/dev/null'
-        self.client = subprocess.Popen(['ssh', '-F', '/dev/null', '-p', str(self.port), '-i', str(self.keys / 'client'),
+        self.client = subprocess.Popen(['ssh', '-v', '-F', '/dev/null', '-p', str(self.port), '-i', str(self.keys / 'client'),
             '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes',
             '-o', 'UserKnownHostsFile=' + str(self.keys / 'known'), '-o', 'GlobalKnownHostsFile=/dev/null',
-            'root@127.0.0.1', remote], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            'root@127.0.0.1', remote], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.client_pipes = [PrivatePipe(self.client.stdout), PrivatePipe(self.client.stderr)]
+
+    def ssh_failure_evidence(self):
+        status = self.client.poll() if self.client is not None else None
+        if status is not None:
+            for pipe in self.client_pipes:
+                pipe.thread.join(timeout=.2)
+        streams = [pipe.snapshot() for pipe in self.client_pipes]
+        stdout, stderr = (streams[0][0], streams[1][0]) if len(streams) == 2 else (b'', b'')
+        server = b''; bounded = any(item[1] for item in streams)
+        if self.ssh_log is not None:
+            fd = os.open(self.ssh_log, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                info = os.fstat(fd)
+                require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o600,
+                        'fixture_private_ssh_log_refused')
+                server = os.read(fd, SSH_DIAGNOSTIC_LIMIT)
+                bounded |= info.st_size > SSH_DIAGNOSTIC_LIMIT
+            finally:
+                os.close(fd)
+        return closed_ssh_evidence(stdout, stderr, server, status, bounded)
 
     def cleanup(self):
         if self.client:
             if self.client.poll() is None:
                 self.client.kill(); self.client.wait(timeout=3)
             self.client.stdin.close()
+            for pipe in self.client_pipes:
+                pipe.thread.join(timeout=1)
         failed = False
         for unit in [*self.units, self.ssh_unit]:
             value = run(['systemctl', 'stop', unit], check=False)
@@ -524,6 +619,14 @@ def qualify(output, feasibility):
             evidence['cases'].append({'case': 'cleanup_refusal', 'passed': True, 'unprovedResultWithheld': True})
             scene.remove_target()
             evidence['passed'] = True
+        except BaseException:
+            # Capture before cleanup changes client exit state or removes private logs.
+            global SSH_FAILURE_EVIDENCE
+            try:
+                SSH_FAILURE_EVIDENCE = scene.ssh_failure_evidence()
+            except (OSError, ValueError, RuntimeError):
+                SSH_FAILURE_EVIDENCE = {'categories': ['diagnostic_unavailable']}
+            raise
         finally:
             scene.cleanup()
     evidence['cleanup'] = 'confirmed'
@@ -544,6 +647,7 @@ if __name__ == '__main__':
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps({'schema': 'isolated-native-host-unit/v1', 'passed': False,
                                           'productionCapture': False, 'failure': reason,
+                                          'sshAdmissionEvidence': SSH_FAILURE_EVIDENCE,
                                           'cleanup': 'not_certified_by_success_receipt'}) + '\n')
         print('Isolated native host-unit qualification refused; sanitized receipt retained.', file=sys.stderr)
         sys.exit(1)
