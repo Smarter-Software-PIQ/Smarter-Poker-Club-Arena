@@ -1,6 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../src/lib/supabase', () => ({ supabase: {} }));
-import { isoDate, lastDaysRange, nextMemberDay } from '../src/services/ClubRosterService';
+import {
+  chicagoDay as isoDate,
+  lastDaysRange,
+  nextChicagoDay as nextMemberDay,
+} from '../src/lib/clubDataDay';
 import { readMemberRangeSearch } from '../src/utils/memberRangeLink';
 afterEach(() => vi.useRealTimers());
 describe('member reporting uses America/Chicago calendar dates', () => {
@@ -34,4 +39,16 @@ describe('member reporting uses America/Chicago calendar dates', () => {
       readMemberRangeSearch(new URLSearchParams('range=custom&from=2026-02-30&to=2026-11-01')).mode
     ).toBe('overall');
   });
+});
+
+it('qualifies later reporting migrations without mistaking comments or strings for definitions', () => {
+  const result = execFileSync(
+    'python3',
+    ['-B', 'scripts/ci/test-member-stats-chicago-history.py'],
+    {
+      encoding: 'utf8',
+      timeout: 30_000,
+    }
+  );
+  expect(result).toContain('PASS latest reporting history and UTC regression selection');
 });
