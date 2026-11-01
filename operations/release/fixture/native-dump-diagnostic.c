@@ -27,11 +27,10 @@ ca_diag_init(void)
 static void
 ca_diag_emit(char level, char boundary)
 {
-    static const char *const groups[] = {"OTHER", "FUNCTION", "RELATION", "TYPE", "OTHER"};
     struct timespec now;
     long long elapsed;
-    char line[96];
-    int length;
+    unsigned char line[12];
+    const size_t length = sizeof(line);
     size_t written = 0;
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
         pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_CLOCK");
@@ -40,10 +39,19 @@ ca_diag_emit(char level, char boundary)
     if (++ca_diag_seq > 100000 || elapsed < 0 || elapsed > 45000000LL ||
         ca_diag_object < 1 || ca_diag_object > 4)
         pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_RANGE");
-    length = snprintf(line, sizeof(line), "D1 %lu %c %c %s %lld\n", ca_diag_seq,
-                      level, boundary, groups[ca_diag_object], elapsed);
-    if (length <= 0 || length >= sizeof(line))
-        pg_fatal("ISOLATED_DUMP_DIAGNOSTIC_FRAME");
+    /* D2 carries exactly the same closed facts in twelve bounded bytes. */
+    line[0] = 'D'; line[1] = '2';
+    line[2] = (unsigned char) (ca_diag_seq >> 24);
+    line[3] = (unsigned char) (ca_diag_seq >> 16);
+    line[4] = (unsigned char) (ca_diag_seq >> 8);
+    line[5] = (unsigned char) ca_diag_seq;
+    line[6] = (unsigned char) (((ca_diag_object - 1) << 2) |
+                             (level == 'Q' ? 2 : 0) | (boundary == 'E' ? 1 : 0));
+    line[7] = (unsigned char) (elapsed >> 24);
+    line[8] = (unsigned char) (elapsed >> 16);
+    line[9] = (unsigned char) (elapsed >> 8);
+    line[10] = (unsigned char) elapsed;
+    line[11] = '\n';
     while (written < (size_t) length)
     {
         ssize_t size = send(3, line + written, length - written, MSG_NOSIGNAL);
