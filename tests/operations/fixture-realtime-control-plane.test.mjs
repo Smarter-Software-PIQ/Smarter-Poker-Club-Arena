@@ -1,13 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import pg from 'pg';
+import { createRequire } from 'node:module';
 import { NativeDatabaseOwner } from '../../operations/release/fixture/runtime-files.mjs';
 import { realtimeMigrated } from '../../operations/release/fixture/fixture-server.mjs';
 import {
   REALTIME_CONTROL_DATABASE, REALTIME_SEED_EXPRESSION, realtimeControlConnection,
   createRealtimeControlDatabase, assertRealtimeControlIsolation,
 } from '../../operations/release/fixture/realtime-control-plane.mjs';
+
+// Use the fixture's locked driver in the same dependency topology as native CI.
+const fixtureRequire = createRequire(
+  new URL('../../operations/release/fixture/package.json', import.meta.url)
+);
+const pg = fixtureRequire('pg');
+assert.equal(
+  fixtureRequire('pg/package.json').version,
+  fixtureRequire('./package.json').dependencies.pg
+);
 
 function owner() {
   const clients=[];
