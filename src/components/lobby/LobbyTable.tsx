@@ -58,6 +58,7 @@ import {
 } from './lobbyCardContext';
 export type { LobbyRowContext } from './lobbyCardContext';
 import { featuredNow } from '../../lib/featuredOnItsDay';
+import { prioritizeTournamentFavorites } from './tournamentFavoriteOrder';
 import { variantRank, UNLISTED_VARIANT_RANK } from './variantRank';
 import { headingForOrder } from './lobbySortBridge';
 import './LobbyTable.css';
@@ -1833,10 +1834,22 @@ export default function LobbyTable({
         else if (r.kind === 'cash' && (r.players || 0) === 0) empty.push(r);
         else open.push(r);
       }
-      if (pinned.length === 0 && gone.length === 0 && empty.length === 0) return rows;
-      return pinned.concat(open, empty, gone);
+      const ordered =
+        pinned.length === 0 && gone.length === 0 && empty.length === 0
+          ? rows
+          : pinned.concat(open, empty, gone);
+      // Dan 2026-10-31: tournament favorites always sit below the host's
+      // current pins, even when a heading or sheet sort is selected. Apply
+      // these stable tiers after the existing order so each tier retains its
+      // chosen sort and seat-first availability order. Cash favorites do not
+      // change the cash game's ordering.
+      return prioritizeTournamentFavorites(
+        ordered,
+        ctx.favoriteIds,
+        new Set(ordered.filter((entry) => entry.kind !== 'cash' && entry.featured))
+      );
     },
-    [sortChosen, sort, orderChosen]
+    [sortChosen, sort, orderChosen, ctx.favoriteIds]
   );
 
   const sorted = useMemo(() => {
