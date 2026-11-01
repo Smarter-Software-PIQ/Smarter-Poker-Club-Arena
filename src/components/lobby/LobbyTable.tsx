@@ -146,7 +146,7 @@ interface ColumnDef {
  * pinned by tests.
  */
 function ClockFace({ text }: { text: string }) {
-  const parts = /^(.*?)(\d+(?::\d{2}){1,2})$/.exec(text.trim());
+  const parts = /^(.*?)(\d+(?::\d{2}){1,2}|\d+d \d+h)$/.exec(text.trim());
   if (!parts) return <>{text}</>;
   const label = parts[1].trim();
   return (
@@ -161,6 +161,7 @@ function ClockFace({ text }: { text: string }) {
 }
 
 function MttTitleMeta({ entry }: { entry: LobbyEntry }) {
+  const [showExactStart, setShowExactStart] = useState(false);
   /* A completed or cancelled tournament has a STATIC phrase — mttPhaseText
      returns its terminal label — so subscribing it to the 1 Hz tick
      re-rendered one component per such row, every second, forever. */
@@ -178,13 +179,62 @@ function MttTitleMeta({ entry }: { entry: LobbyEntry }) {
   /* The clock part carries its own class: on phones it is the piece the
      meta line sheds (the countdown is the information; the wall-clock time
      is recoverable from the panel once the row is opened). */
-  if (startClock) parts.push({ node: startClock, cls: 'lt-name__clockpart' });
+  if (startClock)
+    parts.push({
+      node: (
+        <time
+          dateTime={new Date(startMs).toISOString()}
+          title={new Date(startMs).toLocaleString('en-US', {
+            dateStyle: 'full',
+            timeStyle: 'long',
+          })}
+        >
+          {startClock}
+        </time>
+      ),
+      cls: 'lt-name__clockpart',
+    });
   if (phase)
     parts.push({
       node: (
-        <span className="lt-name__phase">
-          <ClockFace text={phase} />
-        </span>
+        <button
+          type="button"
+          className="lt-name__phase premium-lobby-start-toggle"
+          aria-label={showExactStart ? 'Show Countdown' : 'Show Exact Start Time'}
+          aria-pressed={showExactStart}
+          disabled={!Number.isFinite(startMs)}
+          title={
+            Number.isFinite(startMs)
+              ? new Date(startMs).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long' })
+              : undefined
+          }
+          onClick={(event) => {
+            event.stopPropagation();
+            setShowExactStart((show) => !show);
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          {showExactStart ? (
+            <time className="premium-lobby-clock" dateTime={new Date(startMs).toISOString()}>
+              <span className="premium-lobby-clock__label">
+                {new Date(startMs).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })}
+              </span>
+              <strong className="premium-lobby-clock__value">
+                {new Date(startMs).toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  timeZoneName: 'short',
+                })}
+              </strong>
+            </time>
+          ) : (
+            <ClockFace text={phase} />
+          )}
+        </button>
       ),
     });
   if (parts.length === 0) return null;
@@ -279,7 +329,12 @@ export function tournamentClockLine(
   if (entry.kind !== 'mtt' || entry.status === 'completed' || entry.status === 'closed')
     return null;
   const text = mttPhaseText(entry, now);
-  if (!text || text === 'Late Reg Closed' || text === 'Late Reg Open' || text === 'Starting Soon')
+  if (
+    !text ||
+    text === 'Registration Closed' ||
+    text === 'Late Reg Open' ||
+    text === 'Starting Soon'
+  )
     return null;
   return {
     tone: text.startsWith('Late Reg')
@@ -1814,6 +1869,8 @@ interface LobbyTableProps {
    * Low". Ignored once a heading is sorted, because the heading then decides.
    */
   orderChosen?: boolean;
+  /** Explicit schedule/recommended order supplied by the page, after clearing a heading. */
+  preferPageOrder?: boolean;
   /**
    * ONE ORDER, TWO CONTROLS (2026-10-24; see lobbySortBridge). A Sort The
    * Board chip the player pressed in the filter sheet, stamped with a
@@ -1839,6 +1896,7 @@ export default function LobbyTable({
   loading,
   clubId,
   orderChosen = false,
+  preferPageOrder = false,
   requestedOrder = null,
   onHeadingSort,
   orderLabel,
@@ -1917,8 +1975,10 @@ export default function LobbyTable({
       headingSort.chosen &&
       columns.some((column) => column.key === headingSort.key && column.sortable)
         ? { key: headingSort.key, dir: headingSort.dir }
-        : defaultSortFor(category),
-    [headingSort, category, columns]
+        : preferPageOrder
+          ? null
+          : defaultSortFor(category),
+    [headingSort, category, columns, preferPageOrder]
   );
   const sortChosen = headingSort.chosen && headingSort.key === sort?.key;
   const setSort = useCallback(
@@ -2097,7 +2157,7 @@ export default function LobbyTable({
       return String(va).localeCompare(String(vb)) * dir;
     };
     if (!grouped) {
-      if (!sv && category === 'MTT') {
+      if (!sv && category === 'MTT' && !preferPageOrder) {
         const rank = (e: LobbyEntry) =>
           (
             ({ late_reg: 0, starting_soon: 1, registering: 2, running: 3 }) as Partial<
@@ -2136,7 +2196,7 @@ export default function LobbyTable({
     }
     if (run.length) out.push(...sink(run));
     return out;
-  }, [entries, sort, columns, sink, category]);
+  }, [entries, sort, columns, sink, category, preferPageOrder]);
 
   const handleHeaderClick = (col: ColumnDef) => {
     if (!col.sortable) return;
@@ -2394,9 +2454,12 @@ export default function LobbyTable({
                       </span>
                       {entry.kind === 'mtt' && <LobbyFlagChips entry={entry} />}
                       {entry.kind !== 'cash' && <SatelliteRowDestination entry={entry} compact />}
-                      {entry.kind !== 'cash' && <TournamentRowSignals entry={entry} />}
+                      {entry.kind !== 'cash' && (
+                        <TournamentRowSignals entry={entry} badgesOnly={entry.kind === 'mtt'} />
+                      )}
                       <PlayerStateChip entry={entry} ctx={rowCtx} />
                     </button>
+                    {entry.kind === 'mtt' && <MttTitleMeta entry={entry} />}
                   </td>
                   <td role="cell" data-label={entry.kind === 'cash' ? 'Stakes' : 'Buy-In'}>
                     {COL_COST.render(entry, rowCtx)}

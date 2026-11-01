@@ -111,7 +111,7 @@ describe('tournament card information', () => {
         actions={{ primaryLabel: 'Watch' }}
       />
     );
-    expect(screen.getByText('Late Reg Closed')).toBeTruthy();
+    expect(screen.getByText('Registration Closed')).toBeTruthy();
   });
   it.each(['missing', 'denied'])(
     'shows an explicit unavailable destination for %s reads',

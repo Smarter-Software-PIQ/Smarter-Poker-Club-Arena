@@ -46,6 +46,42 @@ describe('sanitizeStore is the one door for local AND remote filter reads', () =
     expect(clean.HOLDEM!.rangeMin).toBeLessThanOrEqual(clean.HOLDEM!.rangeMax);
   });
 
+  it('validates SNG formats and discards hostile values without losing other tabs', () => {
+    for (const format of ['sats', 4, { includes: true }, null]) {
+      const clean = sanitizeStore({
+        SNG: { ...emptyFilterValue(FILTER_SPECS.SNG), format },
+        MTT: emptyFilterValue(FILTER_SPECS.MTT),
+      } as never);
+      expect(clean.SNG?.format).toEqual([]);
+      expect(clean.MTT).toBeTruthy();
+    }
+    expect(
+      sanitizeStore({
+        SNG: {
+          ...emptyFilterValue(FILTER_SPECS.SNG),
+          format: ['sats', 'obsolete', 'sats', 'regular'],
+        },
+      }).SNG?.format
+    ).toEqual(['sats', 'regular']);
+  });
+
+  it('restores invalid numeric bounds instead of coercing them to zero', () => {
+    for (const bad of [null, false, '', '25', NaN, Infinity]) {
+      const clean = sanitizeStore({
+        MTT: {
+          ...emptyFilterValue(FILTER_SPECS.MTT),
+          rangeMin: bad,
+          rangeMax: bad,
+          seatMin: bad,
+          seatMax: bad,
+        },
+      } as never).MTT!;
+      expect([clean.rangeMin, clean.rangeMax, clean.seatMin, clean.seatMax]).toEqual([
+        0, 15000, 2, 9,
+      ]);
+    }
+  });
+
   it('survives junk of the wrong shape entirely', () => {
     // JSON.stringify writes NaN as null; an older row really can contain it.
     expect(sanitizeStore(null)).toEqual({});

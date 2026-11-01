@@ -457,3 +457,126 @@ it('shows only recorded MTT and SNG satellites when Satellites is selected', asy
     expect(document.querySelector(`.lt-row[data-id="${id}"]`)).toBeNull();
   expect(h.register).not.toHaveBeenCalled();
 });
+
+/** Filter regressions exercise the real page, sheet and row predicate together. */
+describe('lobby filters stay attached to the selected game', () => {
+  const tournament = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    club_id: 'club-a',
+    name: id,
+    game_type: 'NLH',
+    variant: 'mtt',
+    format_contract: 'mtt-v1',
+    status: 'REGISTERING',
+    start_time: new Date(Date.now() + 3_600_000).toISOString(),
+    current_players: 0,
+    max_players: 100,
+    buy_in_amount: 10,
+    buy_in_fee: 1,
+    starting_chips: 1000,
+    table_size: 9,
+    ...extra,
+  });
+
+  it('filters a satellite by poker game instead of its satellite subtype', async () => {
+    h.setupReads = [DONE];
+    h.tournaments = [
+      tournament('nlh-satellite', { variant: 'satellite', tournament_type: 'SATELLITE' }),
+      tournament('plo-satellite', {
+        variant: 'satellite',
+        tournament_type: 'SATELLITE',
+        game_type: 'PLO4',
+      }),
+    ];
+    localStorage.setItem(
+      'ca_advanced_filters_viewer:club-a',
+      JSON.stringify({
+        SATELLITE: {
+          games: ['nlh'],
+          format: [],
+          styles: [],
+          statuses: [],
+          mustHave: [],
+          hide: [],
+          rangeMin: 0,
+          rangeMax: 15000,
+          seatMin: 2,
+          seatMax: 9,
+        },
+      })
+    );
+    await mountLobby();
+    fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+    fireEvent.click(screen.getByRole('tab', { name: 'SATELLITES', exact: true }));
+    await flush();
+    expect(document.querySelector('.lt-row[data-id="nlh-satellite"]')).not.toBeNull();
+    expect(document.querySelector('.lt-row[data-id="plo-satellite"]')).toBeNull();
+    expect(h.register).not.toHaveBeenCalled();
+  });
+
+  it('keeps Favorites available to undo when moving from cash to tournaments', async () => {
+    h.setupReads = [DONE];
+    h.tournaments = [tournament('ordinary-mtt')];
+    await mountLobby();
+    fireEvent.click(screen.getByRole('button', { name: 'Cash Games', exact: true }));
+    fireEvent.click(screen.getByRole('tab', { name: 'NLH', exact: true }));
+    await flush();
+    fireEvent.click(
+      within(screen.getByLabelText('Game Status')).getByRole('button', {
+        name: 'Favorites',
+        exact: true,
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+    await flush();
+    const favorites = within(screen.getByLabelText('Game Status')).getByRole('button', {
+      name: 'Favorites',
+      exact: true,
+    });
+    expect(favorites).toHaveAttribute('aria-pressed', 'true');
+    expect(document.querySelector('.lt-row[data-id="ordinary-mtt"]')).toBeNull();
+    fireEvent.click(favorites);
+    await flush();
+    expect(favorites).toHaveAttribute('aria-pressed', 'false');
+    expect(document.querySelector('.lt-row[data-id="ordinary-mtt"]')).not.toBeNull();
+  });
+
+  it('sheet tab changes switch the board and save sorting under the new tab only', async () => {
+    h.setupReads = [DONE];
+    h.tournaments = [
+      tournament('mtt'),
+      tournament('spin', { variant: 'spin', format_contract: 'spin-v1', max_players: 3 }),
+    ];
+    await mountLobby();
+    fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Filters And Sort', exact: true }));
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: 'Advanced Filters' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Spins', exact: true }));
+    await flush();
+    expect(screen.getByRole('tab', { name: 'SPINS', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Most Players', exact: true })
+    ).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Stakes: Low To High', exact: true })
+    );
+    await flush();
+    const prefs = JSON.parse(localStorage.getItem('ca_lobby_view_viewer:club-a')!);
+    expect(prefs.sortByTab.SPIN).toBe('stakes_low');
+    expect(prefs.sortByTab.MTT).toBeUndefined();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'MTT', exact: true }));
+    await flush();
+    expect(screen.getByRole('tab', { name: "MTT'S", exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Recommended', exact: true })
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(h.register).not.toHaveBeenCalled();
+  });
+});

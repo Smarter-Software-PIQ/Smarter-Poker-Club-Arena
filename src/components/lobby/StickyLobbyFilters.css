@@ -1,0 +1,53 @@
+/* The approved complete plate retains its native ratio inside a 44px touch target. */
+.club-home .lobby-sticky-filters {
+  position: sticky;
+  top: calc(
+    var(--ca-global-header-height, var(--ca-in-tab-header-height, 0px)) + var(--mtt-ticker-h, 0px)
+  );
+  z-index: 31;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  width: 100%;
+  padding: 2px 4px;
+  background: #000;
+  scroll-margin-top: var(--ca-global-header-height, 0px);
+}
+.club-home .lobby-sticky-filters > button {
+  position: relative;
+  container-type: inline-size;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: url('/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png') center /
+    contain no-repeat;
+  box-shadow: none;
+  color: #e4e7ec;
+  --lobby-key-font: 12cqw;
+}
+.club-home .lobby-sticky-filters > button[aria-pressed='true'] {
+  color: #45adff;
+}
+.club-home .lobby-sticky-filters .lobby-filter-label {
+  position: absolute;
+  inset: 24% 12%;
+  display: grid;
+  place-items: center;
+}
+.club-home .lobby-sticky-filters .lobby-filter-label__text {
+  font-size: calc(var(--lobby-key-font, 18px) * var(--fit, 1));
+}
+@media (min-width: 901px) {
+  .club-home .lobby-sticky-filters {
+    top: 0;
+  }
+}
+
+.club-home #lobby-game-section-controls {
+  scroll-margin-top: calc(
+    var(--ca-global-header-height, var(--ca-in-tab-header-height, 0px)) + var(--mtt-ticker-h, 0px)
+  );
+}

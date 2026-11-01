@@ -173,7 +173,7 @@ describe('the statuses the query fetches all have a branch', () => {
         current_players: 2,
       })
     );
-    expect(st.label).toBe('Filling');
+    expect(st.label).toBe('Seats Available');
   });
 });
 

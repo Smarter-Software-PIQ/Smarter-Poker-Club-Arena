@@ -124,8 +124,12 @@ export function sanitizeStore(parsed: FilterStore | null | undefined): FilterSto
       const gameKeys = new Set((spec.games ?? []).map((g) => g.key));
       const styleKeys = new Set((spec.styles ?? []).map((g) => g.key));
       const statusKeys = new Set(spec.statuses.map((s) => s.key));
+      const formatKeys = new Set((spec.format ?? []).map((f) => f.key));
       const presetKeys = new Set(spec.range.presets.map((pr) => pr.key));
-      const list = (x: unknown) => (Array.isArray(x) ? (x as string[]) : []);
+      const list = (x: unknown): string[] =>
+        Array.isArray(x)
+          ? [...new Set(x.filter((item): item is string => typeof item === 'string'))]
+          : [];
       const empty = emptyFilterValue(spec);
       /* NUMBERS ARE UNTRUSTED TOO. `...value` used to overwrite the
          defaults with whatever was on disk, and nothing checked it.
@@ -136,7 +140,7 @@ export function sanitizeStore(parsed: FilterStore | null | undefined): FilterSto
          value saved against an older, narrower spec, which otherwise
          persisted verbatim and silently hid rows. */
       const clampTo = (x: unknown, lo: number, hi: number, fallback: number) => {
-        const n = Number(x);
+        const n = typeof x === 'number' ? x : NaN;
         return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : fallback;
       };
       const styles = [...new Set(list(value.styles).map(cashTemplateKey))].filter((g) =>
@@ -158,6 +162,7 @@ export function sanitizeStore(parsed: FilterStore | null | undefined): FilterSto
         ...value,
         // Drop keys a previous build wrote that this one no longer defines.
         games: list(value.games).filter((g) => gameKeys.has(g)),
+        format: list(value.format).filter((f) => formatKeys.has(f)),
         styles,
         stylesVersion: 1,
         statuses: list(value.statuses).filter((st) => statusKeys.has(st)),
@@ -392,6 +397,8 @@ interface AdvancedFiltersProps {
   /** Tab the sheet opens on, so it matches the lobby the player came from. */
   initialType: FilterGameType;
   allowedTypes?: FilterGameType[];
+  /** Keep the board, its sort and the sheet on the same selected game type. */
+  onTypeChange?: (type: FilterGameType) => void;
   onClose: () => void;
   onApply: (store: FilterStore) => void;
   sortKey?: string;
@@ -415,6 +422,7 @@ export default function AdvancedFilters({
   clubId,
   initialType,
   allowedTypes,
+  onTypeChange,
   onClose,
   onApply,
   sortOnly = false,
@@ -423,6 +431,9 @@ export default function AdvancedFilters({
     // ALL has no spec of its own; open on Hold'em, the first that does.
     initialType === 'ALL' ? 'HOLDEM' : initialType
   );
+  useEffect(() => {
+    setActiveType(initialType === 'ALL' ? 'HOLDEM' : initialType);
+  }, [initialType]);
   const ownerId = useRef(currentUserId()).current;
   const [store, setStore] = useState<FilterStore>(() => loadFilters(clubId, ownerId));
   const storeRef = useRef(store);
@@ -517,6 +528,10 @@ export default function AdvancedFilters({
     let cancelled = false;
     void fetchRemoteFilters(clubId, ownerId).then((remote) => {
       if (cancelled || !remote || touchedRef.current) return;
+      // A newer account preference must reach the board and the close-time
+      // cache read too, without echoing the remote value back as a new write.
+      saveFilters(clubId, remote, ownerId);
+      onApply(remote);
       setStore((prev) => (JSON.stringify(prev) === JSON.stringify(remote) ? prev : remote));
     });
     return () => {
@@ -689,7 +704,10 @@ export default function AdvancedFilters({
                 type="button"
                 aria-pressed={activeType === t.key}
                 className={`afx-tab ${activeType === t.key ? 'is-active' : ''}`}
-                onClick={() => setActiveType(t.key)}
+                onClick={() => {
+                  setActiveType(t.key);
+                  onTypeChange?.(t.key);
+                }}
               >
                 {t.label}
               </button>
