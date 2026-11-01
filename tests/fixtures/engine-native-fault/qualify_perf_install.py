@@ -18,6 +18,7 @@ import shlex
 import socket
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -200,6 +201,26 @@ def main():
             profile_sha = hashlib.sha256(profile_raw).hexdigest()
             helper.profile(profile_raw, profile_sha)  # Exact actual uname, not a waiver.
             phase = 'ssh_setup'
+            # OpenSSH's compiled privilege-separation directory is an OS
+            # prerequisite, independent of this private daemon's own files.
+            # Prepare it only on this isolated host; preserve existing metadata.
+            privilege = Path('/run/sshd')
+            created = False
+            try:
+                privilege.mkdir(mode=0o755)
+                privilege.chmod(0o755)  # Own new prerequisite; independent of caller umask.
+                created = True
+            except FileExistsError:
+                pass
+            metadata = privilege.lstat()
+            if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != 0 or stat.S_IMODE(metadata.st_mode) != 0o755:
+                raise RuntimeError('fixture_ssh_runtime_prerequisite_refused')
+            result['sshRuntimePrerequisite'] = 'created' if created else 'existing'
+            # Like installed CI prerequisite packages, this empty standard OS
+            # directory stays until the disposable VM is retired. Never remove
+            # a directory another SSH service could subsequently need.
+            result['retainedPrerequisites'] = ['standard-ssh-runtime-directory'] if created else []
+            result['cleanupScope'] = 'owned_units_target_and_installer_state'
             scene.start_sshd()
             base = str(os.getpid()) + str(int(time.time()))[-7:]
             boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
@@ -325,7 +346,7 @@ def main():
             'fixture_original_package_profile_unproven', 'fixture_public_deb_unproven',
             'fixture_install_interval_not_observed', 'fixture_exact_install_path_unproven',
             'fixture_foreign_network_present', 'fixture_network_identity_unproven', 'fixture_health_only_target_unproven', 'fixture_target_image_unproven',
-            'fixture_terminal_receipt_unproven', 'fixture_unit_gc_unproven'}
+            'fixture_terminal_receipt_unproven', 'fixture_unit_gc_unproven', 'fixture_ssh_runtime_prerequisite_refused'}
         known |= {'fixture_command_refused', 'fixture_command_output_bound', 'fixture_foreign_container_present',
             'fixture_container_id_refused', 'fixture_target_readiness', 'fixture_pinned_target_refused',
             'fixture_network_subject_refused', 'fixture_actual_health_publication_refused',
