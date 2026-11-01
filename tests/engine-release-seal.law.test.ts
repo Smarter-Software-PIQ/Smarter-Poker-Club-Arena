@@ -132,15 +132,63 @@ describe('disposable Git fixtures preserve the calling repository', () => {
   );
 });
 
-it('executes the actual bounded recovery request without duplicate pauses', () => {
+const recoveryWindowGroups = [
+  ['RecoveryWindowTests', 10],
+  ['ProportionateRecoveryWindowTests', 15],
+  ['OwnerOrderedWindow', 12],
+  ['OwnerWitnessRealHistory', 1],
+] as const;
+
+it('collects every bounded recovery request test in exactly one logical group', () => {
+  // Load the actual unittest suites without running them. A new, omitted or
+  // duplicated test must fail here rather than silently lose hook coverage.
   const result = spawnSync(
     'python3',
-    [resolve(ROOT, 'tests/operations/engine-release-recovery-window.py')],
+    [
+      '-c',
+      `import importlib.util, json, sys, unittest
+spec = importlib.util.spec_from_file_location('recovery_window', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+def ids(suite):
+    return [test_id for test in suite for test_id in (ids(test) if isinstance(test, unittest.TestSuite) else [test.id()])]
+loader = unittest.defaultTestLoader
+print(json.dumps({
+    'all': ids(loader.loadTestsFromModule(module)),
+    'groups': {name: ids(loader.loadTestsFromTestCase(getattr(module, name))) for name in sys.argv[2:]}
+}))`,
+      resolve(ROOT, 'tests/operations/engine-release-recovery-window.py'),
+      ...recoveryWindowGroups.map(([name]) => name),
+    ],
     { encoding: 'utf8' }
   );
   expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stderr).toContain('Ran 38 tests');
+  const collected = JSON.parse(result.stdout) as {
+    all: string[];
+    groups: Record<string, string[]>;
+  };
+  const selected = recoveryWindowGroups.flatMap(([name, count]) => {
+    expect(collected.groups[name], name).toHaveLength(count);
+    return collected.groups[name];
+  });
+  expect(collected.all).toHaveLength(38);
+  expect(selected).toHaveLength(38);
+  expect(new Set(selected).size).toBe(38);
+  expect([...selected].sort()).toEqual([...collected.all].sort());
 });
+
+it.each(recoveryWindowGroups)(
+  'executes the actual bounded recovery request without duplicate pauses: %s',
+  (group, count) => {
+    const result = spawnSync(
+      'python3',
+      [resolve(ROOT, 'tests/operations/engine-release-recovery-window.py'), group],
+      { encoding: 'utf8' }
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain(`Ran ${count} test`);
+  }
+);
 
 it('recovers only genuinely orphaned finalization through the current completion event', () => {
   const result = spawnSync(

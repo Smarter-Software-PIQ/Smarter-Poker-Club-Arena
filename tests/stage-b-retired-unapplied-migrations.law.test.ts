@@ -113,47 +113,39 @@ describe('historical unapplied Stage-B migrations cannot re-enter the active cha
     }
   });
 
-  /* THIRTY SECONDS, AND THE HEADROOM IS THE POINT. This case `readFileSync`s
-     every file under tests/, server/src/, scripts/ and the migration directory
-     - several thousand files, the migrations alone numbering in the thousands -
-     and then substring-scans each one against every retired token. Measured
-     2026-09-12: 380 ms run on its own, 6,415 ms inside the full suite, against
-     vitest's default 5,000 ms budget. It had been passing on luck; it failed on
-     a run where nothing about it had changed.
+  // Each existing executable root retains the complete walker and token scan.
+  // A growing repository must not put all four independent corpora inside one
+  // 30-second assertion. No file, suffix, SQL rule or deadline is excluded.
+  const executableRoots = ['tests', 'server/src', 'scripts', 'supabase/migrations'];
+  it('partitions the complete executable-root scope exactly once', () => {
+    expect(executableRoots).toEqual(['tests', 'server/src', 'scripts', 'supabase/migrations']);
+    expect(new Set(executableRoots).size).toBe(4);
+    expect(executableRoots.map((directory) => resolve(root, directory))).toContain(activeDirectory);
+  });
+  it.each(executableRoots)(
+    'leaves no executable consumer resolving a retired filename or stable suffix in %s',
+    (directory) => {
+      const forbidden = retired.flatMap((file) => [file, file.slice(15)]);
+      const matches: string[] = [];
 
-     The fix is NOT a budget set to the number just measured. CLAUDE.md 10.86
-     rule 4 is about exactly that: two agents de-flaked a wait and set the
-     budget to the ceiling they had read, so the wait got robust and the
-     headroom went to zero. 30 s is ~5x the worst observation and ~78x the
-     solo run, so a slower disk or a busier machine does not make this law
-     report a timeout - which names no cause and means the assertion never
-     ran - instead of an answer. */
-  it('leaves no executable consumer resolving a retired filename or stable suffix', () => {
-    const executableRoots = [
-      resolve(root, 'tests'),
-      resolve(root, 'server/src'),
-      resolve(root, 'scripts'),
-      activeDirectory,
-    ];
-    const forbidden = retired.flatMap((file) => [file, file.slice(15)]);
-    const matches: string[] = [];
-
-    for (const path of executableRoots.flatMap(sourceFiles)) {
-      if (resolve(path) === thisLaw) continue;
-      const source = readFileSync(path, 'utf8');
-      // The composed forward SQL retains provenance comments naming the
-      // byte-sealed sources it absorbed. Those comments cannot resolve or
-      // execute an archived file; executable SQL references still fail.
-      const executableSource = path.startsWith(`${activeDirectory}/`)
-        ? source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '')
-        : source;
-      for (const token of forbidden) {
-        if (executableSource.includes(token)) {
-          matches.push(`${path.slice(root.length + 1)} -> ${token}`);
+      for (const path of sourceFiles(resolve(root, directory))) {
+        if (resolve(path) === thisLaw) continue;
+        const source = readFileSync(path, 'utf8');
+        // The composed forward SQL retains provenance comments naming the
+        // byte-sealed sources it absorbed. Those comments cannot resolve or
+        // execute an archived file; executable SQL references still fail.
+        const executableSource = path.startsWith(`${activeDirectory}/`)
+          ? source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '')
+          : source;
+        for (const token of forbidden) {
+          if (executableSource.includes(token)) {
+            matches.push(`${path.slice(root.length + 1)} -> ${token}`);
+          }
         }
       }
-    }
 
-    expect(matches).toEqual([]);
-  }, 30_000);
+      expect(matches).toEqual([]);
+    },
+    30_000
+  );
 });
