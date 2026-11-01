@@ -128,6 +128,26 @@ afterEach(() => {
 });
 
 describe('break release requires persistence and current ownership', () => {
+  it('releases the field and clock while the break-end announcement is pending', async () => {
+    const notification = deferred<boolean>();
+    const manager = new BreakHarness();
+    manager.activate();
+    manager.forceBreakState();
+    stubBreakPersistence();
+    const engine = { resumeDealing: vi.fn() };
+    manager.addTableEngine(engine);
+    manager.broadcastCall.mockImplementationOnce(() => notification.promise);
+    const resuming = manager.resumeFromBreak();
+    await vi.waitFor(() => expect(manager.broadcastCall).toHaveBeenCalledOnce());
+    const releasedBeforeReceipt = engine.resumeDealing.mock.calls.length;
+    const clockBeforeReceipt = manager.clockCall.mock.calls.length;
+    notification.resolve(false);
+    await resuming;
+    manager.fence();
+    expect(releasedBeforeReceipt).toBe(1);
+    expect(clockBeforeReceipt).toBe(1);
+  });
+
   it('holds the break after a returned database error and retries once to release it', async () => {
     vi.useFakeTimers();
     const manager = new BreakHarness();
@@ -169,7 +189,7 @@ describe('break release requires persistence and current ownership', () => {
     manager.fence();
   });
 
-  it('does not release tables when notification returns after ownership is fenced', async () => {
+  it('does not release tables again when notification returns after ownership is fenced', async () => {
     const broadcast = deferred<boolean>();
     stubBreakPersistence();
     const manager = new BreakHarness();
@@ -180,11 +200,13 @@ describe('break release requires persistence and current ownership', () => {
     manager.addTableEngine(engine);
     const resuming = manager.resumeFromBreak();
     await vi.waitFor(() => expect(manager.broadcastCall).toHaveBeenCalledOnce());
+    expect(engine.resumeDealing).toHaveBeenCalledOnce();
+    expect(manager.clockCall).toHaveBeenCalledOnce();
     manager.fence();
     broadcast.resolve(true);
     await resuming;
-    expect(engine.resumeDealing).not.toHaveBeenCalled();
-    expect(manager.clockCall).not.toHaveBeenCalled();
+    expect(engine.resumeDealing).toHaveBeenCalledOnce();
+    expect(manager.clockCall).toHaveBeenCalledOnce();
   });
 
   it('cancels a failed-clear retry when ownership ends', async () => {

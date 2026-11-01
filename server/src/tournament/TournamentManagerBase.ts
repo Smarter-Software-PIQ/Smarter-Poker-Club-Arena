@@ -4713,7 +4713,9 @@ export abstract class TournamentManagerBase {
 
     console.log(`[Tournament:${this.tournamentId.slice(0, 8)}] BREAK ENDED - resuming play`);
 
-    await this.broadcast('break_ended', { level: this.currentLevel });
+    // Announce in the same order, but transport acknowledgement cannot hold
+    // gameplay after the durable break release has committed.
+    const announcement = this.broadcast('break_ended', { level: this.currentLevel });
     if (!lifecycle || !this.lifecycleIsCurrent(lifecycle)) return;
 
     /* Undo the pause taken in pauseForBreak only when no durable add-on break
@@ -4800,6 +4802,7 @@ export abstract class TournamentManagerBase {
     // parked. A field split into single-player tables cannot deal the next
     // hand that would otherwise wake this work; the break end is that edge.
     this.requestEliminationSweep('break_ended');
+    await announcement;
   }
 
   /**
