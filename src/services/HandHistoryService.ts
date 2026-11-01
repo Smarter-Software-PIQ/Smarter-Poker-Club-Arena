@@ -599,10 +599,28 @@ class HandHistoryServiceClass {
               .eq('user_id', userId)
               .eq('is_cash', gameMode === 'cash')
           : supabase.from('ca_hand_player_idx').select('hand_id').eq('user_id', userId);
-        const { data: indexed, error: indexError } = await seeds
+        let { data: indexed, error: indexError } = await seeds
           .order('created_at', { ascending: false })
           .order('hand_id', { ascending: true })
           .range(start, end);
+        if (
+          indexError &&
+          gameMode &&
+          ((indexError as { code?: string }).code === '42501' ||
+            /permission denied/i.test(String(indexError.message || '')))
+        ) {
+          let fallback = supabase.from('ca_hand_facts').select('hand_id').eq('user_id', userId);
+          fallback =
+            gameMode === 'cash'
+              ? fallback.is('tournament_id', null)
+              : fallback.not('tournament_id', 'is', null);
+          const fallbackRes = await fallback
+            .order('created_at', { ascending: false })
+            .order('hand_id', { ascending: true })
+            .range(start, end);
+          indexed = fallbackRes.data;
+          indexError = fallbackRes.error;
+        }
         if (indexError) {
           reportError(indexError, 'HandHistoryService.archive_seed_index');
           return null;

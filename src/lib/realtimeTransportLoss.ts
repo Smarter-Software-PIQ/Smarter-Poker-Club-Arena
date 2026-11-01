@@ -60,6 +60,16 @@ export function noteRealtimeTransportLoss(
   if (outageReportedAt !== null && now - outageReportedAt < TRANSPORT_LOSS_REPORT_CEILING_MS)
     return;
   outageReportedAt = now;
+  // Mobile browsers suspend WebSockets when a tab is backgrounded or when the
+  // device is offline. Record the outage timestamp so channel fan-out stays
+  // suppressed, but do not file a client_error_events telemetry row for OS tab
+  // suspension or airplane/offline transitions.
+  if (
+    (typeof document !== 'undefined' && document.visibilityState === 'hidden') ||
+    (typeof navigator !== 'undefined' && navigator.onLine === false)
+  ) {
+    return;
+  }
   const reason = err instanceof Error && err.message ? err.message : 'socket closed';
   reportError(new Error(`Realtime transport lost (${reason})`), 'Realtime.transport_lost', {
     firstChannel: channelName,

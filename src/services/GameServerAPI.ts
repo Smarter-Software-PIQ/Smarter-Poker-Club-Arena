@@ -196,10 +196,11 @@ export function isTimeBankTurnGone(error: unknown): boolean {
 
 /**
  * An engine refusal that is an expected race rather than a client error.
- * Scoped to /timebank on purpose: the same words from /action are a real
- * desync worth seeing.
+ * Scoped to /timebank (400 turn race) and /heartbeat (404 table not yet spun
+ * up or just closed — callers already classify HEARTBEAT_TABLE_NOT_RUNNING).
  */
 function isExpectedEngineRefusal(path: string, status: number, error: unknown): boolean {
+  if (path.endsWith('/heartbeat') && status === 404) return true;
   return path.endsWith('/timebank') && status === 400 && isTimeBankRaceRefusal(error);
 }
 
