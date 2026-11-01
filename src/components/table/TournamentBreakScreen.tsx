@@ -471,9 +471,15 @@ export function TournamentBreakScreen({
       >
         <span className="break-screen__mini-face">
           <span className="break-screen__mini-badge">
-            {countingDown ? `Break: ${formatTime(displayTime)}` : 'Break: Last Hand'}
+            {countingDown
+              ? `Break: ${formatTime(displayTime)}`
+              : addOnNotice
+                ? 'Add-On: Last Hand'
+                : 'Break: Last Hand'}
           </span>
-          <span className="break-screen__mini-state">Paused</span>
+          <span className="break-screen__mini-state">
+            {countingDown ? 'Paused' : 'Finishing Hands'}
+          </span>
         </span>
       </button>
     );
@@ -518,7 +524,9 @@ export function TournamentBreakScreen({
             <div className="break-screen__timer-container">
               <span className="break-screen__time-label">
                 {addOnNotice
-                  ? 'Add-On Closes In'
+                  ? countingDown
+                    ? 'Add-On Closes In'
+                    : 'Last Hand Before The Add-On Period'
                   : countingDown
                     ? 'Play Resumes In'
                     : 'Finishing The Last Hand'}
@@ -574,7 +582,9 @@ export function TournamentBreakScreen({
           </div>
           <p className="break-screen__resume-note" role="status">
             {!countingDown
-              ? 'Break Starts When Every Table Finishes'
+              ? addOnNotice
+                ? 'The 60-Second Add-On Starts When Every Table Finishes'
+                : 'Break Starts When Every Table Finishes'
               : waitingForResume
                 ? 'Waiting For Play To Resume'
                 : 'Play Resumes Automatically'}
@@ -603,7 +613,9 @@ export function TournamentBreakScreen({
                 >
                   {formatStack(addOnNotice.chips)}
                 </span>
-                <span className="break-screen__stat-sub">All Tables Paused</span>
+                <span className="break-screen__stat-sub">
+                  {countingDown ? 'All Tables Paused' : 'Finishing Current Hands'}
+                </span>
               </div>
             </div>
           )}

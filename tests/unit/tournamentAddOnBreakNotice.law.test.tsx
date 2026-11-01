@@ -62,6 +62,38 @@ const flush = async () => {
   await act(async () => {});
 };
 describe('every player receives the public add-on break notice', () => {
+  it('announces the last hand before any add-on deadline exists, then uses the saved full minute', async () => {
+    fx.row.addon_period_triggered = false;
+    fx.row.addon_period_started_at = null;
+    fx.row.addon_period_ends_at = null;
+    render(<Witness />);
+    await flush();
+    expect(screen.getByRole('status')).toHaveTextContent('15/20000/null');
+    fx.now += 70_000;
+    fx.row.addon_period_triggered = true;
+    fx.row.addon_period_started_at = new Date(fx.now).toISOString();
+    fx.row.addon_period_ends_at = new Date(fx.now + 60_000).toISOString();
+    await act(async () => fx.listener!());
+    expect(screen.getByRole('status')).toHaveTextContent('15/20000/1130000');
+  });
+  it('names the add-on last hand without claiming all tables are already paused', () => {
+    render(
+      <TournamentBreakScreen
+        isVisible
+        breakTimeRemaining={60}
+        phase="last_hand"
+        breakEndsAtMs={null}
+        tournamentName="Event"
+        nextLevel={{ level: 3, smallBlind: 50, bigBlind: 100 }}
+        addOnNotice={{ cost: 15, chips: 20000 }}
+      />
+    );
+    expect(screen.getByText('Last Hand Before The Add-On Period')).toBeVisible();
+    expect(screen.getByText('The 60-Second Add-On Starts When Every Table Finishes')).toBeVisible();
+    expect(screen.queryByText('All Tables Paused')).toBeNull();
+    expect(screen.queryByText('Add-On Closes In')).toBeNull();
+    expect(screen.getByRole('timer')).toHaveTextContent('Last Hand');
+  });
   it('reads price, grant and deadline without any player purchase eligibility check', async () => {
     const view = render(<Witness />);
     await flush();
@@ -96,7 +128,7 @@ describe('every player receives the public add-on break notice', () => {
     fx.row.addon_period_started_at = null;
     fx.row.addon_period_ends_at = null;
     await act(async () => fx.listener!());
-    expect(screen.getByRole('status')).toHaveTextContent('None');
+    expect(screen.getByRole('status')).toHaveTextContent('15/20000/null');
     fx.row.addon_period_started_at = new Date(fx.now).toISOString();
     fx.row.addon_period_ends_at = new Date(fx.now + 60000).toISOString();
     await act(async () => fx.listener!());
