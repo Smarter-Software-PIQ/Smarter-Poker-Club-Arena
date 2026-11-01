@@ -5,6 +5,7 @@ from argparse import Namespace
 from contextlib import redirect_stdout, redirect_stderr
 import importlib.util
 import io
+import copy
 import json
 import os
 import subprocess
@@ -83,6 +84,12 @@ class HourlyCycle(unittest.TestCase):
 
     def test_global_cycle_rejects_other_runs_and_target_pushes(self):
         c=self.reserve(); self.assertEqual(c['startsAt']%3600,0)
+        ordinary=Namespace(engine_lock_fd=9,run_id='102-1',sha=self.sha,control_sha=self.sha,invocation_id='b'*32)
+        before=seal.STATE_FILE.read_bytes()
+        with patch.object(seal,'require_engine_lock'),redirect_stdout(io.StringIO()) as untouched:
+            seal.cmd_resolve_failed_routine(ordinary)
+        self.assertEqual(untouched.getvalue().strip(),'not-needed');self.assertEqual(seal.STATE_FILE.read_bytes(),before)
+        self.assert_refused(lambda:seal.cmd_check_routine_owner(Namespace(run_id='102-1')))
         self.assert_refused(lambda:self.reserve('102-1'))
         (self.repo/'new-source').write_text('new target same cycle')
         self.git('add','.'); self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','-qm','next target')
@@ -305,6 +312,176 @@ printf 'NOOP\n'
 '''
         r=subprocess.run(['bash','-c',script],capture_output=True,text=True,timeout=5)
         self.assertEqual(r.returncode,0,r.stderr); self.assertEqual(r.stdout.strip(),'NOOP')
+
+
+    def failed_owner_fixture(self):
+        failure={'schema':1,'runId':seal.FAILED_ROUTINE_RUN,'result':'failed',
+            'sha':seal.FAILED_ROUTINE_SHA,'controlSha':seal.FAILED_ROUTINE_SHA,
+            'invocationId':'a'*32,'transactionExitStatus':1,'recoveredDesiredSha':seal.FAILED_ROUTINE_DESIRED,
+            'recoveredDesiredImageId':seal.FAILED_ROUTINE_IMAGE,'completedAt':seal.FAILED_ROUTINE_COMPLETED}
+        self.fixture_digest=seal.failed_routine_digest(failure)
+        p=patch.object(seal,'FAILED_ROUTINE_DIGEST',self.fixture_digest);p.start();self.addCleanup(p.stop)
+        cycle={'kind':'hourly-reset','policyId':seal.SCHEDULE_POLICY_ID,
+            'policyDigest':'203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578',
+            'startsAt':seal.FAILED_ROUTINE_START,'endsAt':seal.FAILED_ROUTINE_START+300,
+            'runId':seal.FAILED_ROUTINE_RUN,'sha':seal.FAILED_ROUTINE_SHA,'controlSha':seal.FAILED_ROUTINE_SHA,
+            'status':'reserved','failure':failure}
+        state=seal.load_state();state.update(desired={'sha':seal.FAILED_ROUTINE_DESIRED,'imageId':seal.FAILED_ROUTINE_IMAGE},
+            highWaterSha=seal.FAILED_ROUTINE_DESIRED,routineMaintenanceCycles={str(seal.FAILED_ROUTINE_START):cycle})
+        seal.write_state(state);seal.write_json_atomic(seal.result_path(seal.FAILED_ROUTINE_RUN),failure)
+        self.clock.return_value=seal.FAILED_ROUTINE_START+4000
+        self.resolver_args=Namespace(engine_lock_fd=9,run_id='202-1',sha=self.sha,control_sha=self.sha,invocation_id='b'*32)
+        self.proof_patches={}
+        for name,value in {
+            'require_engine_lock':None,'failed_routine_current':{'requestDigest':'c'*64,'unit':{'InvocationID':'b'*32}},
+            'failed_routine_source_proof':dict(seal.FAILED_ROUTINE_SOURCES),
+            'failed_routine_history':{'journalDigest':'d'*64,'atMicros':seal.FAILED_ROUTINE_COMPLETED*1000000},
+            'failed_routine_native_proof':{'exact-old-unit':'inactive-empty'},
+            'failed_routine_runtime':{'containerId':'e'*64,'startedAt':'2026-11-01T22:00:00Z','instanceId':'1-abcdef12'},
+            'failed_routine_database':None}.items():
+            p=patch.object(seal,name,return_value=value);self.proof_patches[name]=p.start();self.addCleanup(p.stop)
+        # The production helper requires root-owned real files. This fixture's
+        # private directory is user-owned; keep its actual bytes/CAS and isolate
+        # only the ownership boundary, never the resolution transition.
+        p=patch.object(seal,'failed_routine_bytes',side_effect=lambda path,limit=65536:Path(path).read_bytes())
+        p.start();self.addCleanup(p.stop)
+        p=patch.object(seal.os,'geteuid',return_value=0);p.start();self.addCleanup(p.stop)
+        return copy.deepcopy(cycle),copy.deepcopy(failure)
+
+    def resolve_failed_owner(self):
+        with redirect_stdout(io.StringIO()):seal.cmd_resolve_failed_routine(self.resolver_args)
+
+    def test_exact_failed_custody_resolution_preserves_failure_and_consumed_cycle(self):
+        cycle,failure=self.failed_owner_fixture();before=seal.load_state()
+        self.resolve_failed_owner();state=seal.load_state()
+        self.assertEqual(state['routineMaintenanceCycles'],before['routineMaintenanceCycles'])
+        self.assertEqual(seal.load_failure(seal.FAILED_ROUTINE_RUN),failure)
+        self.assertEqual(state['desired'],before['desired']);self.assertEqual(state['generation'],before['generation'])
+        self.assertEqual(state['committedRuns'],{});self.assertEqual(state['highWaterSha'],before['highWaterSha'])
+        self.assertFalse(seal.routine_owner_unresolved(state,cycle))
+        self.assert_refused(lambda:seal.cmd_reserve_routine_cycle(Namespace(repo=str(self.repo),
+            sha=seal.FAILED_ROUTINE_SHA,control_sha=seal.FAILED_ROUTINE_SHA,run_id=seal.FAILED_ROUTINE_RUN)))
+        with patch.object(seal,'image_identity',return_value=(seal.FAILED_ROUTINE_IMAGE,seal.FAILED_ROUTINE_SHA,True)):
+            self.assert_refused(lambda:seal.cmd_prepare(Namespace(repo=str(self.repo),sha=seal.FAILED_ROUTINE_SHA,
+                image=seal.FAILED_ROUTINE_IMAGE,mode='deploy',run_id='204-1',
+                run_url='https://github.com/fixture/repo/actions/runs/204',actor='fixture',reason='No failed-source replay')))
+        state=seal.load_state()
+        self.assert_refused(lambda:seal.finish_routine_failure(state,seal.FAILED_ROUTINE_RUN,{**failure,'invocationId':'d'*32}))
+        # The occupied old hour cannot become another reset. A later distinct
+        # cycle still needs the ordinary source-policy reserve path.
+        current=self.reserve('203-1');self.assertGreater(current['startsAt'],seal.FAILED_ROUTINE_START)
+        self.assertEqual(seal.load_state()['routineMaintenanceCycles'][str(seal.FAILED_ROUTINE_START)],cycle)
+
+    def test_failed_custody_requires_every_fresh_proof_and_actual_lock(self):
+        self.failed_owner_fixture()
+        for name,call in self.proof_patches.items():
+            with self.subTest(name=name):
+                call.side_effect=lambda *a,**k:seal.die('fixture refused or unknown')
+                self.assert_refused(self.resolve_failed_owner)
+                self.assertNotIn('routineFailureResolutions',seal.load_state())
+                call.side_effect=None
+
+    def test_failed_custody_refuses_changed_authority_before_compare_and_swap(self):
+        self.failed_owner_fixture()
+        for field,value in [('pending',{'fixture':'unknown'}),('finalization',{'fixture':'unknown'})]:
+            with self.subTest(field=field):
+                before=seal.STATE_FILE.read_bytes();state=json.loads(before);state[field]=value;seal.write_state(state)
+                self.assert_refused(self.resolve_failed_owner);seal.STATE_FILE.write_bytes(before)
+        runtime=self.proof_patches['failed_routine_runtime']
+        runtime.side_effect=[{'instanceId':'1-abcdef12'},{'instanceId':'1-deadbeef'}]
+        self.assert_refused(self.resolve_failed_owner)
+        self.assertFalse(list(seal.RESULT_DIR.glob('*.custody-resolution.json')))
+
+    def test_failed_custody_receipt_and_audit_crashes_resume_without_replaying_old_run(self):
+        cycle,_=self.failed_owner_fixture();original=seal.STATE_FILE.read_bytes()
+        with patch.object(seal,'audit_once',side_effect=OSError('fixture interrupted before audit')):
+            with self.assertRaises(OSError):self.resolve_failed_owner()
+        self.assertEqual(seal.STATE_FILE.read_bytes(),original)
+        self.assertEqual(len(list(seal.RESULT_DIR.glob('*.custody-resolution.json'))),1)
+        with patch.object(seal,'write_state',side_effect=OSError('fixture interrupted before seal replace')):
+            with self.assertRaises(OSError):self.resolve_failed_owner()
+        self.assertEqual(seal.STATE_FILE.read_bytes(),original)
+        # A boot/new native invocation has a new immutable witness and audit
+        # identity; the interrupted first audit must not block it forever.
+        self.resolver_args.invocation_id='c'*32
+        self.proof_patches['failed_routine_current'].return_value={'requestDigest':'c'*64,'unit':{'InvocationID':'c'*32}}
+        self.resolve_failed_owner();after=seal.STATE_FILE.read_bytes();audit=seal.AUDIT_FILE.read_bytes()
+        self.assertEqual(len(list(seal.RESULT_DIR.glob('*.custody-resolution.json'))),2)
+        self.resolve_failed_owner()
+        self.assertEqual(seal.STATE_FILE.read_bytes(),after);self.assertEqual(seal.AUDIT_FILE.read_bytes(),audit)
+        self.assertEqual(seal.routine_cycles(seal.load_state())[str(seal.FAILED_ROUTINE_START)],cycle)
+
+    def test_failed_custody_resolution_tamper_never_clears_global_owner(self):
+        cycle,_=self.failed_owner_fixture();self.resolve_failed_owner();good=seal.STATE_FILE.read_bytes()
+        for field,value in [('result','sealed'),('failureDigest','0'*64),('originalCycle',{}),('verifiedByRunId',seal.FAILED_ROUTINE_RUN)]:
+            with self.subTest(field=field):
+                state=json.loads(good);state['routineFailureResolutions'][seal.FAILED_ROUTINE_RUN][field]=value
+                seal.write_state(state)
+                with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):seal.routine_cycles(seal.load_state())
+        seal.STATE_FILE.write_bytes(good)
+        receipt=next(seal.RESULT_DIR.glob('*.custody-resolution.json'));receipt.write_text('{}')
+        with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):seal.routine_owner_unresolved(seal.load_state(),cycle)
+
+    def test_failed_custody_exact_journal_and_native_process_unknowns_refuse(self):
+        failure={'invocationId':'a'*32,'completedAt':seal.FAILED_ROUTINE_COMPLETED}
+        digest=seal.failed_routine_digest(failure)
+        row={'MESSAGE':seal.FAILED_ROUTINE_LITERAL,'_SYSTEMD_UNIT':f'club-arena-engine-release-v1@{seal.FAILED_ROUTINE_RUN}.service',
+             '_SYSTEMD_INVOCATION_ID':'a'*32,'__REALTIME_TIMESTAMP':str(seal.FAILED_ROUTINE_COMPLETED*1000000)}
+        with patch.object(seal,'FAILED_ROUTINE_DIGEST',digest),patch.object(seal,'failed_routine_command',return_value=json.dumps(row)) as command:
+            self.assertEqual(seal.failed_routine_history(failure,seal.time.monotonic()+10)['atMicros'],seal.FAILED_ROUTINE_COMPLETED*1000000)
+            for bad in [[],[row,row],[{**row,'MESSAGE':'different'}],[{**row,'_SYSTEMD_INVOCATION_ID':'b'*32}],
+                        [{**row,'__REALTIME_TIMESTAMP':str((seal.FAILED_ROUTINE_START-120)*1000000)}]]:
+                command.return_value='\n'.join(json.dumps(v) for v in bad)
+                with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):seal.failed_routine_history(failure,seal.time.monotonic()+10)
+        source=(ROOT/'server/scripts/engine-release-transaction.sh').read_text()
+        start=source.index("acquire_engine_lock 'duplicate certification'")
+        self.assertLess(source.index('resolve-failed-routine',start),source.index('check-routine-owner',start))
+        self.assertIn('--engine-lock-fd 9',source[start:source.index('check-routine-owner',start)])
+        self.assertEqual(seal.FAILED_ROUTINE_SOURCES['engine-release-transaction.sh'],
+            '3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39')
+        def native(command,deadline,limit=32768):
+            if command[0]=='busctl':return 'a(sus) 0'
+            unit=command[2];extension=unit.rsplit('.',1)[1];prefix='release' if '-release-' in unit else 'intake'
+            values={'LoadState':'loaded','ActiveState':'inactive','SubState':'dead','UnitFileState':'disabled',
+                'Job':'','FragmentPath':f'/etc/systemd/system/club-arena-engine-{prefix}-v1@.{extension}','DropInPaths':''}
+            if extension=='service':values.update(MainPID='0',ControlPID='0',ControlGroup='')
+            return '\n'.join(k+'='+v for k,v in values.items())
+        with patch.object(seal,'failed_routine_command',side_effect=native),patch.object(seal,'require_absent'):
+            self.assertEqual(len(seal.failed_routine_native_proof(seal.time.monotonic()+10)),3)
+        for reply in ['a(sus) 1 "/system.slice/private" 42 "private"','a(sus) 0 unexpected','', 'unavailable']:
+            def unproved(command,deadline,limit=32768):return reply if command[0]=='busctl' else native(command,deadline,limit)
+            with patch.object(seal,'failed_routine_command',side_effect=unproved),patch.object(seal,'require_absent'),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                seal.failed_routine_native_proof(seal.time.monotonic()+10)
+        self.assertEqual(seal.failed_routine_command(['python3','-c','print("bounded")'],seal.time.monotonic()+2,16),'bounded')
+        for command,deadline,limit in [(['python3','-c','print("x"*17)'],seal.time.monotonic()+2,16),
+                (['python3','-c','import time;time.sleep(1)'],seal.time.monotonic()+.05,16),
+                (['python3','-c','import sys;sys.stderr.write("x"*8193)'],seal.time.monotonic()+2,16)]:
+            with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):seal.failed_routine_command(command,deadline,limit)
+
+    def test_failed_custody_database_proof_is_finite_get_only_and_refuses_unknown(self):
+        spec=importlib.util.spec_from_file_location('failed_routine_database',ROOT/'server/scripts/engine-release-database-proof.py')
+        db=importlib.util.module_from_spec(spec);spec.loader.exec_module(db)
+        class Response:
+            def __init__(self,raw):self.raw=raw
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def read(self,limit):return self.raw[:limit]
+        class Opener:
+            def __init__(self,raw):self.raw=raw;self.requests=[]
+            def open(self,request,timeout):
+                self.requests.append((request,timeout));return Response(self.raw)
+        for raw,allowed in [(b'[]',True),(b'null',False),(b'{}',False),(b'[{"id":true}]',False),(b' '*4097,False)]:
+            opener=Opener(raw)
+            with patch.object(db,'read_leader',return_value=('eed06fe5','1-abcdef12',2)),patch.object(db,'build_opener',return_value=opener):
+                if allowed:db.verify_failed_routine_idle('https://'+db.PROJECT_HOST,'fixture-key','1-abcdef12',15)
+                else:
+                    with self.assertRaises(ValueError):db.verify_failed_routine_idle('https://'+db.PROJECT_HOST,'fixture-key','1-abcdef12',15)
+            self.assertEqual(len(opener.requests),1);request,timeout=opener.requests[0]
+            self.assertEqual(request.get_method(),'GET');self.assertEqual(timeout,1.5)
+            self.assertIn('/rest/v1/engine_maintenance_break?',request.full_url)
+        with patch.object(db,'read_leader',return_value=('eed06fe5','1-other',2)),patch.object(db,'build_opener') as network,self.assertRaises(ValueError):
+            db.verify_failed_routine_idle('https://'+db.PROJECT_HOST,'fixture-key','1-abcdef12',15)
+        network.assert_not_called()
 
 
 if __name__ == '__main__':

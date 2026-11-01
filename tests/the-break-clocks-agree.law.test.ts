@@ -567,7 +567,7 @@ it(
       }
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toContain('Ran 16 tests');
+    expect(result.stderr).toContain('Ran 23 tests');
   },
   hourlyCycleGitContextTimeoutMs + hourlyCycleQualificationTimeoutMs + 5_000
 );
