@@ -94,7 +94,9 @@ describe('the lobby flags reach the card', () => {
     expect(tsx).toContain('const pinned: LobbyEntry[] = [];');
     /* Dan 2026-09-03: empty cash tables sink below the tables with a game on
        (and above the ones nobody can enter), still under the featured pin. */
-    expect(tsx).toContain('return pinned.concat(open, empty, gone);');
+    expect(tsx).toContain('const ordered =');
+    expect(tsx).toContain('pinned.concat(open, empty, gone);');
+    expect(tsx).toContain('return prioritizeTournamentFavorites(');
   });
 });
 

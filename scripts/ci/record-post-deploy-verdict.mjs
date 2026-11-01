@@ -169,6 +169,8 @@ export function decide(verdict, previous, history = {}) {
     const reusable = previous && previous.status === 'firing'
       && !CLOSED.includes(previous.investigation_status);
     const eventKey = reusable ? previous.event_key : createHash('sha256').update(identity).digest('hex');
+    const nothingVerified = gateFailed && skipped.length > 0 && failed.length === 1;
+    const described = describeIncomplete(verdict, { failed, skipped, couldNotTell, gate, nothingVerified });
     return {
       action: 'fire',
       exitCode: 0,
@@ -194,7 +196,10 @@ export function decide(verdict, previous, history = {}) {
         not_owed_jobs: notOwed.slice().sort(),
         // The 2026-10-05 shape: the gate fails and every lane below it is
         // skipped, so nothing about production was verified at all.
-        nothing_verified: gateFailed && skipped.length > 0 && failed.length === 1,
+        nothing_verified: nothingVerified,
+        summary: described.summary,
+        description: described.description,
+        annotations: { summary: described.summary, description: described.description },
       },
     };
   }
@@ -249,6 +254,40 @@ export function decide(verdict, previous, history = {}) {
   }
 
   return { action: 'none', exitCode: 0, reason: 'verification complete; no open episode to close' };
+}
+
+/**
+ * THE ALERT SAYS WHICH VERIFICATION, RUN AND STEP (Phase 6, 2026-10-31).
+ *
+ * PostDeployVerificationIncomplete was filed 89 times a day reading as an
+ * empty alert: the inbox and the owner page read a summary and description,
+ * and this recorder sent neither. Every firing now names the workflow, the
+ * run (id, attempt, URL), the release it verified, the gate and its result,
+ * and each lane that failed, was skipped or could not be read.
+ */
+export function describeIncomplete(verdict, { failed, skipped, couldNotTell, gate, nothingVerified }) {
+  const run = `${verdict.runId}${verdict.runAttempt ? `/${verdict.runAttempt}` : ''}`;
+  const release = verdict.headSha ? verdict.headSha.slice(0, 8) : 'an unnamed release';
+  const parts = [];
+  if (failed.length) parts.push(`failed: ${failed.slice().sort().join(', ')}`);
+  if (skipped.length) parts.push(`skipped: ${skipped.slice().sort().join(', ')}`);
+  const summary = (
+    `${verdict.workflow} run ${run} on ${release} did not complete verification` +
+    (parts.length ? ` (${parts.join('; ')})` : '')
+  ).slice(0, 300);
+  const lines = [
+    `Workflow: ${verdict.workflow}`,
+    `Run: ${run}${verdict.runUrl ? ` ${verdict.runUrl}` : ''}`,
+    `Release: ${verdict.headSha || 'not named by the run'}`,
+    gate ? `Gate: ${gate.name} ended ${gate.result || 'unknown'}` : 'Gate: none',
+    `Failed steps: ${failed.length ? failed.slice().sort().join(', ') : 'none'}`,
+    `Skipped steps: ${skipped.length ? skipped.slice().sort().join(', ') : 'none'}`,
+  ];
+  if (couldNotTell.length)
+    lines.push(`Could not tell whether these started: ${couldNotTell.slice().sort().join(', ')}`);
+  if (nothingVerified)
+    lines.push('Nothing about production was verified: the gate failed and every lane below it was skipped.');
+  return { summary, description: lines.join('\n').slice(0, 2000) };
 }
 
 /** The receipt a failure leaves for the release it failed on. */

@@ -72,6 +72,7 @@ import {
   spinBlindsForLevel,
 } from '../config/spinSpec.js';
 import { describeError, reportError } from '../services/errorReporter.js';
+import { noteDiamondTournamentTableSkipped } from '../services/cashTablePlayEligibility.js';
 import { selectInChunks } from '../services/supabase/chunkedIn.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
 /**
@@ -2960,6 +2961,17 @@ export abstract class TournamentManagerBase {
       if (this.successorDrainRequested) this.prepareManagedTableEngineForPlay(engine);
       await engine.start();
     })().catch(async (error) => {
+      /* DIAMOND ARENA IS CLOSED ON PURPOSE (owner, 2026-10-31). A Diamond
+         tournament table whose arena has tournaments_enabled=false is not a
+         failing admission: retire this generation quietly - no report, no
+         recorded refusal, no retry timer, no table_admission_failing page -
+         and say so once per table at info. */
+      if (tableId && engine.getStartupTournamentPolicyRefusal?.()) {
+        noteDiamondTournamentTableSkipped(tableId, this.tournamentId);
+        if (!lifecycle || !this.lifecycleIsCurrent(lifecycle)) return;
+        await this.retireClosedDiamondTournamentTable(tableId, engine);
+        return;
+      }
       reportError(error, errorContext, metadata);
       if (tableId) this.noteTableAdmissionRefusal(tableId, error);
       if (!lifecycle || !tableId || !this.lifecycleIsCurrent(lifecycle)) return;
@@ -2990,12 +3002,42 @@ export abstract class TournamentManagerBase {
     let tableStart!: Promise<void>;
     tableStart = readiness.finally(() => this.tableEngineStartJobs.delete(tableStart));
     this.tableEngineStartJobs.add(tableStart);
-    void tableStart.catch((error) =>
+    void tableStart.catch((error) => {
+      // A closed Diamond arena is reported once, at info, by the start path.
+      if (engine.getStartupTournamentPolicyRefusal?.()) return;
       reportError(error, 'Tournament.table_engine_never_ready', {
         ...metadata,
         tableId,
-      })
-    );
+      });
+    });
+  }
+
+  /**
+   * Retire a generation refused by a closed Diamond arena: stop it, leave the
+   * registries, clear any recovery bookkeeping. Nothing re-admits it: the
+   * only re-admission path is the recovery timer, which is never armed here.
+   */
+  private async retireClosedDiamondTournamentTable(
+    tableId: string,
+    engine: ServerTableEngine
+  ): Promise<void> {
+    if (this.tableEngines.get(tableId) !== engine) return;
+    try {
+      await engine.stop();
+    } catch (error) {
+      if (!engine.hasReleasedProcessOwnership()) {
+        reportError(error, 'Tournament.closed_diamond_table_stop_failed', { tableId });
+        return;
+      }
+    }
+    if (this.tableEngines.get(tableId) !== engine) return;
+    if (this.gameServer.unregisterTournamentTableEngine(tableId, engine)) {
+      this.tableEngines.delete(tableId);
+    }
+    this.clearManagedTableEngineRecovery(tableId);
+    this.tableAdmissionFailingSince.delete(tableId);
+    this.tableAdmissionLastRefusal?.delete(tableId);
+    TournamentManagerBase.forgetTableAdmissionStreak(this, tableId);
   }
 
   /** The completed launch receipt survives dealer and manager replacement. */

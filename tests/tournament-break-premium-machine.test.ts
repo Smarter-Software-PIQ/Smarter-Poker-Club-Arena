@@ -15,7 +15,10 @@ const MODALS = readFileSync(resolve(ROOT, 'src/components/table/TableModalsLayer
 describe('tournament break console', () => {
   it('keeps the live clock, next level, field, hero, and five leaders connected', () => {
     expect(SCREEN).toContain('breakEndsAtMs - serverNow()');
-    expect(SCREEN).toContain('Coming Next: Level {currentLevel + 1}');
+    expect(SCREEN).toMatch(
+      /Coming Next: Level[\s\S]*?currentLevel == null[\s\S]*?: currentLevel \+ 1/
+    );
+    expect(SCREEN).toContain('readCommittedTournamentBlinds(');
     expect(SCREEN).toContain('playersRemainingProp ?? currentFacts?.playersRemaining');
     expect(SCREEN).toContain('averageStackProp ?? currentFacts?.averageStack');
     expect(SCREEN).toContain('prizePoolProp ?? currentFacts?.prizePool');

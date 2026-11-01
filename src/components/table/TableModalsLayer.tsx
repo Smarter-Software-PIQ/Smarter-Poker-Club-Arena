@@ -1422,14 +1422,14 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
              while the last hand was still being played. Without the phase it
              now shows "Last Hand" until the server starts this tournament's
              countdown. */
-          phase={addOnBreakNotice ? 'counting_down' : (tournamentBreak.phase ?? 'last_hand')}
-          breakEndsAtMs={addOnBreakNotice?.endsAtMs ?? tournamentBreak.breakEndsAtMs ?? null}
+          phase={addOnBreakNotice?.phase ?? tournamentBreak.phase ?? 'last_hand'}
+          breakEndsAtMs={
+            addOnBreakNotice ? addOnBreakNotice.endsAtMs : (tournamentBreak.breakEndsAtMs ?? null)
+          }
           tournamentName={tableName}
           tournamentId={tournamentId ?? null}
           heroUserId={userId ?? null}
-          nextLevel={
-            tournamentBreak.nextLevel || { level: 1, smallBlind: 0, bigBlind: 0, duration: 0 }
-          }
+          nextLevel={tournamentBreak.nextLevel}
         />
       )}
 
