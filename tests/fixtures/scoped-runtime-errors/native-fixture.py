@@ -254,7 +254,7 @@ class NativeLogReader(unittest.TestCase):
             output=io.StringIO(); opened=[]
             def read(path,mode):
                 values={'/proc/sys/kernel/core_pattern':pattern,'/proc/sys/kernel/core_uses_pid':uses,
-                        '/proc/123/limits':'Max core file size        0        unlimited        bytes'}
+                        '/proc/123/limits':'Max core file size        0        unlimited        bytes     \nMax locked memory        1        2        bytes'}
                 self.assertIn(path,values) # A core is never opened.
                 self.assertEqual(mode,'r'); return io.StringIO(values[path])
             def opened_fd(path,flags,**kwargs):
@@ -278,6 +278,8 @@ class NativeLogReader(unittest.TestCase):
                 metadata.assert_not_called(); self.assertEqual(opened,[])
             return json.loads(output.getvalue())['CoreCapture']
         self.assertEqual(run()['candidate'],'regular_file')
+        self.assertEqual(run()['processSoft'],0)
+        self.assertEqual(run()['processHard'],'unlimited')
         self.assertEqual(run(regular=False)['candidate'],'not_regular_file')
         self.assertEqual(run(missing=True)['candidate'],'absent')
         self.assertEqual(run(uses='1')['candidate'],'unknown')

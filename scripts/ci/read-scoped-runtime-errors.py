@@ -579,7 +579,7 @@ if m['handlerClass']=='apport':
         if var is not None: os.close(var)
 try:
     for line in text('/proc/'+str(pid)+'/limits').splitlines():
-        match=re.fullmatch(r'Max core file size\s+(\S+)\s+(\S+)\s+bytes',line)
+        match=re.fullmatch(r'Max core file size\s+(\S+)\s+(\S+)\s+bytes',line.strip())
         if match: m['processSoft'],m['processHard']=map(limit,match.groups())
 except (OSError,ValueError): pass
 for row in a.get('HostConfig',{}).get('Ulimits') or []:
