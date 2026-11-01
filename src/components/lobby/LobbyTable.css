@@ -2332,3 +2332,22 @@ abbr.lt-variant[title] {
   box-shadow: none;
   background: transparent;
 }
+
+/* Override the original featured-row outline across the joined event body. */
+.lobby-table tbody tr[data-kind][data-tournament-body='true'].is-featured {
+  outline: none;
+}
+/* The machine gives every desktop tr and td a 38px minimum row height.
+   Event spacers own both boxes and never inherit that game-row dimension. */
+.club-lobby-machine .lobby-table tbody tr.lt-event-gap,
+.club-lobby-machine .lobby-table tbody tr.lt-event-gap > td {
+  height: 4px;
+  min-height: 0;
+  max-height: 4px;
+  padding: 0;
+  border: 0;
+  background: #000;
+  box-shadow: none;
+  line-height: 0;
+  font-size: 0;
+}
