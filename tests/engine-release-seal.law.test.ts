@@ -25,8 +25,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // 5000ms default is a UNIT-test budget: the slowest test here measures 3488ms
 // solo, and the pre-push hook runs this file in a 90-file suite at full width,
 // where contention has been measured to stretch these runs by 7.1x and time
-// them out. 90s is 25x the measured solo runtime - past anything observed,
-// and still a real bound, so a genuinely hung child still fails the suite.
+// them out. Keep the existing 90s bound; composite subprocess catalogues
+// are partitioned below so their cumulative work is not one test budget.
 // File-scoped on purpose: no global testTimeout, no --no-file-parallelism.
 vi.setConfig({ testTimeout: 90_000 });
 
@@ -132,15 +132,60 @@ describe('disposable Git fixtures preserve the calling repository', () => {
   );
 });
 
-it('executes the actual bounded recovery request without duplicate pauses', () => {
+// The 38 serial subprocess cases exceeded 90s under pre-push contention (97s,
+// then 139s with one worker). Keep the existing deadline per existing class:
+// measured class totals 11.74s / 3.69s / 15.31s / 5.89s; no child budget changes.
+const recoveryClasses = [
+  ['OwnerOrderedWindow', 12],
+  ['OwnerWitnessRealHistory', 1],
+  ['ProportionateRecoveryWindowTests', 15],
+  ['RecoveryWindowTests', 10],
+] as const;
+const recoveryScript = resolve(ROOT, 'tests/operations/engine-release-recovery-window.py');
+
+it('covers the complete bounded recovery unittest inventory', () => {
   const result = spawnSync(
     'python3',
-    [resolve(ROOT, 'tests/operations/engine-release-recovery-window.py')],
+    [
+      '-B',
+      '-c',
+      `
+import importlib.util, json, sys, unittest
+spec = importlib.util.spec_from_file_location('recovery', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+def cases(suite):
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from cases(item)
+        else:
+            yield item
+inventory = {}
+for case in cases(unittest.defaultTestLoader.loadTestsFromModule(module)):
+    inventory.setdefault(type(case).__name__, []).append(case.id())
+print(json.dumps(inventory))
+`,
+      recoveryScript,
+    ],
     { encoding: 'utf8' }
   );
   expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stderr).toContain('Ran 38 tests');
+  const inventory = JSON.parse(result.stdout) as Record<string, string[]>;
+  expect(Object.keys(inventory).sort()).toEqual(recoveryClasses.map(([name]) => name).sort());
+  for (const [name, count] of recoveryClasses) expect(inventory[name]).toHaveLength(count);
+  const names = Object.values(inventory).flat();
+  expect(names).toHaveLength(38);
+  expect(new Set(names).size).toBe(38);
 });
+
+it.each(recoveryClasses)(
+  'executes the actual bounded recovery request without duplicate pauses: %s',
+  (name, count) => {
+    const result = spawnSync('python3', ['-B', recoveryScript, name], { encoding: 'utf8' });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toMatch(new RegExp(`Ran ${count} test(?:s)?\\b`));
+  }
+);
 
 it('recovers only genuinely orphaned finalization through the current completion event', () => {
   const result = spawnSync(
