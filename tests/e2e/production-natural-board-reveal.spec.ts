@@ -91,12 +91,6 @@ test('one natural cash hand owes the full turn and river reveal', async ({
   await context.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
-    if (
-      url.pathname.endsWith('/rest/v1/table_seats') &&
-      (url.searchParams.get('select') || '').startsWith('table_id') &&
-      (url.searchParams.get('user_id') || '').startsWith('eq.')
-    )
-      observedViewer = url.searchParams.get('user_id')!.slice(3);
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method())) {
       const rpc = url.pathname.match(/\/rpc\/([^/]+)$/)?.[1] || '';
       const financial =
@@ -125,6 +119,17 @@ test('one natural cash hand owes the full turn and river reveal', async ({
       }
     }
     await route.continue();
+  });
+  await context.route('**/rest/v1/table_seats?**', async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    if (
+      req.method() === 'GET' &&
+      (url.searchParams.get('select') || '').startsWith('table_id') &&
+      (url.searchParams.get('user_id') || '').startsWith('eq.')
+    )
+      observedViewer = url.searchParams.get('user_id')!.slice(3);
+    await route.fallback();
   });
   await context.routeWebSocket(
     () => true,
