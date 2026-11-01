@@ -384,3 +384,21 @@ it('the metadata-only classifier checks out its scripts and workflow without the
     )
   ).toBe(true);
 });
+
+// A floating runner moved to Ubuntu 26.04 before the locked browser supported it.
+it('runs browser installation on the supported Ubuntu image', () => {
+  let browserJobs = 0;
+  for (const file of ['ci.yml', 'post-deploy-e2e.yml']) {
+    const workflow = parse(read('.github/workflows/' + file));
+    for (const job of Object.values(workflow.jobs) as Array<{
+      'runs-on': string;
+      steps?: Step[];
+    }>) {
+      if (job.steps?.some((step) => /playwright install/.test(step.run ?? ''))) {
+        browserJobs++;
+        expect(job['runs-on']).toBe('ubuntu-24.04');
+      }
+    }
+  }
+  expect(browserJobs).toBe(9);
+});
