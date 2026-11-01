@@ -176,8 +176,8 @@ class TournamentScheduleService {
       if (error) {
         reportError(error, 'TournamentScheduleService.upsert');
         if (requestId && error.code === 'PGRST202')
-          throw new ScheduleCreateRefusedError(
-            'Safe Schedule Creation Is Not Available Yet. No Schedule Was Submitted.'
+          throw new Error(
+            'Safe Schedule Creation Is Not Available Yet. The Original Request Is Retained.'
           );
         throw new Error(
           'The Schedule Save Could Not Be Confirmed. Submit The Same Settings To Check Its Original Request.'

@@ -25,6 +25,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('request-bound schedule RPC wiring', () => {
+  it('does not replace unknown settings after a missing-contract response', async () => {
+    const rpc = vi
+      .spyOn(db.supabase, 'rpc')
+      .mockClear()
+      .mockReturnValueOnce(scheduleRpcResponse(Promise.reject(new Error('Lost'))) as never)
+      .mockReturnValueOnce(
+        scheduleRpcResponse({ data: null, error: { code: 'PGRST202' } }) as never
+      );
+    await expect(tournamentScheduleService.upsert(draft)).rejects.toThrow('Lost');
+    await expect(tournamentScheduleService.upsert(draft)).rejects.toThrow('Safe Schedule Creation');
+    await expect(tournamentScheduleService.upsert({ ...draft, name: 'Changed' })).rejects.toThrow(
+      'Earlier Schedule Save Is Unconfirmed'
+    );
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
   it('creates only through the installed request adapter and validates its actor/request receipt', async () => {
     const rpc = vi
       .spyOn(db.supabase, 'rpc')
@@ -60,7 +75,7 @@ describe('request-bound schedule RPC wiring', () => {
         } as never) as never
       );
     await expect(tournamentScheduleService.upsert(draft)).rejects.toThrow(
-      'No Schedule Was Submitted'
+      'The Original Request Is Retained'
     );
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc.mock.calls[0][0]).toBe('fn_create_tournament_schedule_request');
