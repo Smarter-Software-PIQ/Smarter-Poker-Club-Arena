@@ -1,6 +1,11 @@
+import { restartCloneStartMs } from './ScheduledTournamentService.js';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TournamentRecurringService } from './TournamentRecurringService.js';
+import {
+  TournamentRecurringService,
+  mttIsFreeEntry,
+  mttHorsePrestartWindowMs,
+} from './TournamentRecurringService.js';
 import { supabase } from './supabase.js';
 
 vi.mock('../maintenance/freezeState.js', () => ({ isMaintenanceFrozen: () => false }));
@@ -21,11 +26,13 @@ function harness(over: Record<string, unknown> = {}) {
     variant: 'freezeout',
     max_players: null,
     status: 'REGISTERING',
-    start_time: new Date(NOW + 600001).toISOString(),
+    start_time: new Date(NOW + 60 * 60_000 + 1).toISOString(),
     current_players: 0,
     guaranteed_prize: 5000,
     prize_pool: 0,
     buy_in_amount: 36,
+    buy_in_fee: 0,
+    free_buy: false,
     ...over,
   };
   const svc = new TournamentRecurringService() as unknown as {
@@ -43,9 +50,23 @@ function harness(over: Record<string, unknown> = {}) {
   return { event, svc, load, rpc };
 }
 
-describe('every automated MTT caller shares the T-10 purchase choice', () => {
+describe('free entry classification reads the initial charge, not the prize share', () => {
+  it.each([
+    [{ buy_in_amount: 0, buy_in_fee: 0 }, true, 6],
+    [{ buy_in_amount: 0, buy_in_fee: null }, true, 6],
+    [{ buy_in_amount: 0, buy_in_fee: 5 }, false, 1],
+    [{ buy_in_amount: 5, buy_in_fee: 0, bounty_amount: 5 }, false, 1],
+    [{ free_buy: true, buy_in_amount: 36, buy_in_fee: 0 }, true, 6],
+    [{ buy_in_fee: 0 }, false, 1],
+  ] as const)('classifies %j as free=%s with a %sh window', (row, free, hours) => {
+    expect(mttIsFreeEntry(row)).toBe(free);
+    expect(mttHorsePrestartWindowMs(row)).toBe(hours * 60 * 60_000);
+  });
+});
+
+describe('automated MTT callers share the paid-hour and free-hours entry policy', () => {
   it.each(['REGISTERING', 'ANNOUNCED'])(
-    'rejects %s one millisecond early before picking or charging a horse',
+    'rejects a paid %s event one millisecond before the one-hour window',
     async (status) => {
       const h = harness({ status });
       expect(await h.svc.registerHorses('event', 139)).toBe(0);
@@ -54,17 +75,51 @@ describe('every automated MTT caller shares the T-10 purchase choice', () => {
     }
   );
   it.each(['mtt-v1', 'mtt-v2'])(
-    'permits staggered purchases inside T-10 for %s',
+    'admits a handful at T-60 and later trickles for %s',
     async (format_contract) => {
-      const h = harness({ format_contract, start_time: new Date(NOW + 600000).toISOString() });
-      await h.svc.registerHorses('event', 139);
-      expect(h.load).not.toHaveBeenCalled();
-      // Opening the door does not force every event to buy at that instant.
-      vi.setSystemTime(NOW + 60_000);
+      const h = harness({ format_contract, start_time: new Date(NOW + 60 * 60_000).toISOString() });
       await h.svc.registerHorses('event', 139);
       expect(h.load).toHaveBeenCalledOnce();
+      vi.setSystemTime(NOW + 30 * 60_000);
+      await h.svc.registerHorses('event', 139);
+      expect(h.load).toHaveBeenCalledTimes(2);
     }
   );
+  it.each([6, 4])('admits zero-cost initial entry %sh ahead', async (hours) => {
+    const h = harness({
+      buy_in_amount: 0,
+      start_time: new Date(NOW + hours * 60 * 60_000).toISOString(),
+    });
+    await h.svc.registerHorses('event', 139);
+    expect(h.load).toHaveBeenCalledOnce();
+  });
+  it('does not admit a charged entry hours early just because its prize share is zero', async () => {
+    const h = harness({
+      buy_in_amount: 0,
+      buy_in_fee: 5,
+      start_time: new Date(NOW + 4 * 60 * 60_000).toISOString(),
+    });
+    await h.svc.registerHorses('event', 139);
+    expect(h.load).not.toHaveBeenCalled();
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+  it('honors an explicit Free Buy initial-entry contract hours ahead', async () => {
+    const h = harness({
+      free_buy: true,
+      start_time: new Date(NOW + 4 * 60 * 60_000).toISOString(),
+    });
+    await h.svc.registerHorses('event', 139);
+    expect(h.load).toHaveBeenCalledOnce();
+  });
+  it('keeps the free window finite', async () => {
+    const h = harness({
+      buy_in_amount: 0,
+      start_time: new Date(NOW + 6 * 60 * 60_000 + 1).toISOString(),
+    });
+    await h.svc.registerHorses('event', 139);
+    expect(h.load).not.toHaveBeenCalled();
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
   it('fails closed on an unreadable scheduled clock', async () => {
     const h = harness({ start_time: null });
     await h.svc.registerHorses('event', 139);
@@ -108,5 +163,24 @@ describe('scheduled horse timing stays in required native accounting', () => {
     expect(budget.indexOf(invocation)).toBeLessThan(
       budget.indexOf("if __name__=='__main__':main()")
     );
+  });
+});
+
+describe('restarted MTTs exist for their signup window', () => {
+  it.each([
+    { entry: { buy_in_amount: 10, buy_in_fee: 1 }, minutes: 60 },
+    { entry: { buy_in_amount: 0, buy_in_fee: 0 }, minutes: 360 },
+  ])('retains the entry window without a guarantee: $minutes minutes', ({ entry, minutes }) => {
+    const now = Date.parse('2026-11-01T06:00:00Z');
+    expect(
+      restartCloneStartMs({
+        restartMinutes: 5,
+        endedAtMs: now,
+        startTimeMs: null,
+        nowMs: now,
+        guaranteedPrize: 0,
+        prestartLeadMs: mttHorsePrestartWindowMs(entry),
+      })
+    ).toBe(now + minutes * 60_000);
   });
 });

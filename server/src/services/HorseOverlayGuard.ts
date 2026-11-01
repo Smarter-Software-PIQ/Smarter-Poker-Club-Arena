@@ -1,4 +1,4 @@
-/** Owner 2026-11-01: varied event counts and arrivals, roughly half before start. */
+/** Owner November 1: small regular prestart groups; random arrivals continue through late entry. */
 import {
   mttPlannedField,
   mttPrizeShare,
@@ -311,7 +311,7 @@ export async function runOverlayGuardOnce(
 
 /* ─── LATE REGISTRATION (Dan 2026-10-19) ─── see the header of this file. ─── */
 
-/** Legacy fallback: vary the late/prestart ratio around the roughly half split. */
+/** Legacy callers without a complete plan still get a varied late-arrival count. */
 export const LATE_REG_SHARE_MIN = 2 / 3;
 export const LATE_REG_SHARE_SPREAD = 5 / 6;
 /** Even a small field sees a couple of late arrivals. */

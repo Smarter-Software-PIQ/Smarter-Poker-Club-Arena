@@ -32,10 +32,16 @@ export function mttPrizeShare(row: { buy_in_amount?: unknown; bounty_amount?: un
 export function mttPrestartPlan(
   field: number,
   maxPlayers: number | null,
-  tournamentId: string
+  tournamentId: string,
+  free = false
 ): number {
   const boundedField = maxPlayers === null ? field : Math.min(field, maxPlayers);
-  const goal = Math.ceil(boundedField * (0.4 + arrivalUnit(tournamentId, 'prestart-share') * 0.2));
+  // A regular event builds a small opening field, regardless of guarantee.
+  // The funded complete-field plan belongs to late registration.
+  const desired = free
+    ? Math.ceil(boundedField * (0.4 + arrivalUnit(tournamentId, 'prestart-share') * 0.2))
+    : 12 + Math.floor(arrivalUnit(tournamentId, 'regular-prestart-field') * 17);
+  const goal = Math.min(boundedField, desired);
   return maxPlayers === null ? goal : Math.max(0, Math.min(maxPlayers - 1, goal));
 }
 
@@ -64,6 +70,32 @@ export function mttArrivalTarget(
     else upper = index;
   }
   return lower;
+}
+
+/** A handful at window opening, then an increasingly busy random trickle. */
+export function mttPrestartArrivalTarget(
+  tournamentId: string,
+  total: number,
+  elapsed: number,
+  free = false
+): number {
+  if (!Number.isSafeInteger(total) || total <= 0 || !Number.isFinite(elapsed) || elapsed < 0)
+    return 0;
+  const opening = Math.min(
+    total,
+    free
+      ? 1 + Math.floor(arrivalUnit(tournamentId, 'free-opening') * 3)
+      : 3 + Math.floor(arrivalUnit(tournamentId, 'regular-opening') * 5)
+  );
+  // mttArrivalTarget has its own random exponent. This extra convex warp
+  // keeps the combined exponent above one, so arrivals increase near start.
+  const exponent = free
+    ? 1.6 + arrivalUnit(tournamentId, 'free-prestart-shape') * 0.6
+    : 2.2 + arrivalUnit(tournamentId, 'regular-prestart-shape') * 0.8;
+  return (
+    opening +
+    mttArrivalTarget(tournamentId, 'prestart', total - opening, Math.min(1, elapsed) ** exponent)
+  );
 }
 
 /** Stored schedules use JSON text and durationMinutes; legacy ladders use seconds. */
