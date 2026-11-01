@@ -7320,6 +7320,7 @@ export class TournamentRecurringService {
        * underrolled entry - and is the shape of the bug that emptied the cash
        * floor on 2026-08-31.
        */
+      const freerollRecoveryPriority = new Set<string>();
       let pool = eligible;
       try {
         const { data: t } = await supabase
@@ -7420,6 +7421,7 @@ export class TournamentRecurringService {
               };
               const needy = pool.filter((h) => broke(h.id));
               if (needy.length > 0) {
+                for (const h of needy) freerollRecoveryPriority.add(h.id);
                 bankrollEvent('freeroll_entered_broke', Math.min(needy.length, count));
                 pool = needy.concat(pool.filter((h) => !broke(h.id)));
               }
@@ -7456,6 +7458,14 @@ export class TournamentRecurringService {
       const orderedWallets = orderHorseTournamentCandidates(walletPool, tournamentId, hour).filter(
         offerable
       );
+      // Preserve the free-entry recovery preference AFTER randomization.
+      // Sorting the fresh array is stable within each randomized funding group.
+      if (freerollRecoveryPriority.size > 0) {
+        orderedWallets.sort(
+          (a, b) =>
+            Number(freerollRecoveryPriority.has(b.id)) - Number(freerollRecoveryPriority.has(a.id))
+        );
+      }
       // Already-paid awards are not constrained by the ordinary funding quota.
       // Bound extra ticket offers, and never increase the ordinary wallet count.
       const recoveryTickets = orderedTickets.slice(0, Math.max(count, 25));

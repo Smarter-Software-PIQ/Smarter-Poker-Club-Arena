@@ -3,6 +3,7 @@ import { TournamentRecurringService } from './TournamentRecurringService.js';
 import { supabase } from './supabase.js';
 import { bankrollPolicyFor } from './HorseBankroll.js';
 import { reportError } from './errorReporter.js';
+import { orderHorseTournamentCandidates } from './HorseTournamentCandidateOrder.js';
 vi.mock('../maintenance/freezeState.js', () => ({ isMaintenanceFrozen: () => false }));
 vi.mock('./errorReporter.js', () => ({ reportError: vi.fn() }));
 vi.mock('./HorseBehavior.js', async (original) => ({
@@ -25,6 +26,7 @@ function harness(payingBalance: number, minBalance = 5.63, ids = [horse]) {
   vi.spyOn(svc, 'horseLoadMap').mockResolvedValue(new Map());
   vi.spyOn(svc, 'clubMemberIdsForTournament').mockResolvedValue(new Set(ids));
   vi.spyOn(svc, 'diamondArenaHost').mockResolvedValue(false);
+  const cheapestPaid: Array<{ buy_in_amount: number; buy_in_fee: number }> = [];
   vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
     const rows =
       table === 'profiles'
@@ -34,7 +36,9 @@ function harness(payingBalance: number, minBalance = 5.63, ids = [horse]) {
               { user_id: horse, club_id: 'default', chip_balance: payingBalance },
               { user_id: horse, club_id: 'other', chip_balance: minBalance },
             ]
-          : [];
+          : table === 'tournaments'
+            ? cheapestPaid
+            : [];
     const q: any = {};
     for (const key of ['select', 'eq', 'in', 'order', 'range', 'limit', 'gt']) q[key] = () => q;
     q.maybeSingle = async () => ({ data: event, error: null });
@@ -50,7 +54,7 @@ function harness(payingBalance: number, minBalance = 5.63, ids = [horse]) {
           : { ok: true };
     return Promise.resolve({ data, error: null }) as any;
   });
-  return { svc, rpc };
+  return { svc, rpc, event, cheapestPaid };
 }
 describe('registration judges the wallet its ordinary entry door will debit', () => {
   it('does not discard a funded horse because an unrelated membership is broke', async () => {
@@ -112,5 +116,43 @@ describe('registration read failures remain visible', () => {
       failure,
       'TournamentRecurring.horse_registration_failed'
     );
+  });
+});
+
+describe('freeroll recovery priority survives event-specific randomization', () => {
+  it('randomizes within funding groups while offering broke horses first', async () => {
+    vi.spyOn(Date.prototype, 'getUTCHours').mockReturnValue(12);
+    const ids = Array.from(
+      { length: 20 },
+      (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`
+    );
+    const ordered = orderHorseTournamentCandidates(
+      ids.map((id) => ({ id })),
+      'event',
+      new Date().getUTCHours()
+    );
+    const broke = ordered[ordered.length - 1].id;
+    const h = harness(1000000, 1000000, ids);
+    h.event.buy_in_amount = 0;
+    h.event.buy_in_fee = 0;
+    h.cheapestPaid.push({ buy_in_amount: 1, buy_in_fee: 0 });
+    const original = h.rpc.getMockImplementation()!;
+    h.rpc.mockImplementation((name: string, args: any) =>
+      name === 'fn_ca_horse_tournament_bankrolls'
+        ? (Promise.resolve({
+            data: ids.map((id) => ({
+              user_id: id,
+              club_id: 'default',
+              chip_balance: id === broke ? 0 : 1000000,
+            })),
+            error: null,
+          }) as any)
+        : original(name, args)
+    );
+    expect(await h.svc.registerHorses('event', 2)).toBe(2);
+    const entered = h.rpc.mock.calls
+      .filter(([name]) => name === 'fn_register_horse_for_tournament')
+      .map(([, args]) => (args as any).p_user_id);
+    expect(entered).toEqual([broke, ordered[0].id]);
   });
 });
