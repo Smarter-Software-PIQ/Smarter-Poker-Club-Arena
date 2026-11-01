@@ -17,6 +17,7 @@ import { supabase } from '../../lib/supabase';
 import { tournamentChipRanks } from '../../utils/tournamentChipRanks';
 import { readTournamentStandings } from '../../services/readTournamentStandings';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { TournamentHourVpip } from './TournamentHourVpip';
@@ -212,6 +213,7 @@ export function TournamentBreakScreen({
   useEffect(() => {
     if (!isVisible || !tournamentId) return;
     let mounted = true;
+    const controller = new AbortController();
     setFacts(null);
     setFactsFailed(false);
     let inFlight = false;
@@ -226,13 +228,18 @@ export function TournamentBreakScreen({
       pending = false;
       try {
         const [tRes, pRes] = await Promise.all([
-          supabase
-            .from('tournaments')
-            .select(
-              'current_level, blind_level_state, blind_structure, prize_pool, current_players, max_players'
-            )
-            .eq('id', tournamentId)
-            .maybeSingle(),
+          runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .from('tournaments')
+                .select(
+                  'current_level, blind_level_state, blind_structure, prize_pool, current_players, max_players'
+                )
+                .eq('id', tournamentId)
+                .abortSignal(signal)
+                .maybeSingle(),
+            { signal: controller.signal }
+          ),
           readTournamentStandings(tournamentId, 'id, user_id, username, chips, status'),
         ]);
         if (!mounted || pending) return;
@@ -334,6 +341,7 @@ export function TournamentBreakScreen({
     void load();
     return () => {
       mounted = false;
+      controller.abort();
       stop();
     };
   }, [isVisible, tournamentId, heroUserId, phase, factsScope]);
