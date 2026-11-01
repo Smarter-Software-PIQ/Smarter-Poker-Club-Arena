@@ -598,10 +598,13 @@ export default function SpinWheel({
       timers.push(
         setTimeout(
           () => {
+            // The callback can run late after a suspended browser resumes.
+            // Read the shared clock again before scheduling any remaining lamps.
+            const callbackElapsed = sharedClock ? Math.max(0, Date.now() - revealAt) : elapsed;
+            const intoChase = Math.max(0, callbackElapsed - (leadInMs + countdownMs));
+            if (intoChase >= chaseMs) return;
             setPhase('chase');
-            /* How far into the CHASE this client already is. `at()` above put us
-             at the right phase; this puts the runner at the right segment. */
-            const intoChase = Math.max(0, elapsed - (leadInMs + countdownMs));
+            setRotorTiming({ duration: chaseMs, elapsed: intoChase });
             const schedule = reduced ? [] : chaseSchedule(order.length, targetIndex, chaseMs);
             const { litNow, remaining } = chaseCatchUp(schedule, intoChase);
             if (playSounds) {
