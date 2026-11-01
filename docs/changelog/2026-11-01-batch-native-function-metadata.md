@@ -16,3 +16,21 @@ The existing provider-native builder requires stock/output equivalence with
 more than5500 synthetic functions and native failure/interrupt contracts before
 exposing the private capture credential. Source/local checks do not replace that
 Linux proof or the pending actual capture, full restore and connected UI cases.
+
+## Existing maintained export baseline
+
+Compared the existing October8 leaderboard batch transformation in
+`scripts/verification-harness/leaderboard-native-function-batch.mjs` and its
+`scripts/dr/build-native-export-client.py` caller. That route already qualifies
+stock schema output/catalogue/restore equivalence, and its dated evidence
+reports508 routine and88 sequence requests reduced to one each. It rewrites
+the metadata SELECT projection, caches all selected routines/sequences, and
+belongs to a separately admitted read-replica isolation route.
+
+This correction reuses the currently failing same-job capture's exact pinned
+source, libpq, ownership, TLS and exported snapshot. It batches only bounded
+consecutive original function EXECUTEs, without replacing their projection or
+changing sequence handling. No bounded transport helper exists in that earlier
+module to import directly. Its historical qualification is useful baseline
+context, not proof for the new transport or this connected run. Neither existing
+leaderboard source nor its provider route is modified or re-executed here.
