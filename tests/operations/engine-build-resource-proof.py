@@ -258,7 +258,7 @@ def main():
             # Qualify the ABI-specific census inside this exact built Linux
             # image. These isolated processes never import the application,
             # contact production, or create a second image/build route.
-            native_cases = ["bounded", "near-limit", "at-cap", "overflow",
+            native_cases = ["bounded", "near-limit", "at-cap", "overflow", "eed-profile", "profile-refusal",
                             "process-refusal", "deadline-refusal", "headroom-refusal", "scan-deadline"]
             receipt["legacy_native_census"] = {}
             for scenario in native_cases:
