@@ -856,7 +856,14 @@ for (const [width, heightOverride] of occupiedViewports)
       : [6, 9]
   ).flatMap((count) =>
     (width === 320 && count === 9
-      ? ['normal', 'large normal', 'large all-in', 'large all-shown']
+      ? [
+          'normal mini',
+          'normal main',
+          'normal none',
+          'large normal',
+          'large all-in',
+          'large all-shown',
+        ]
       : ['all']
     ).map((sceneGroup) => [count, sceneGroup] as const)
   ))
@@ -1024,6 +1031,7 @@ for (const [width, heightOverride] of occupiedViewports)
           const largeHandGroup = sceneGroup.startsWith('large ');
           if (villainCards >= 5 !== largeHandGroup) continue;
           if (largeHandGroup && sceneGroup !== `large ${state}`) continue;
+          if (!largeHandGroup && sceneGroup !== `normal ${jackpot}`) continue;
         }
         // Both rings exercise every occupied state at every phone width.
         const scaledPhone = state === 'scaled-phone';
