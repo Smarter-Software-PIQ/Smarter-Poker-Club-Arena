@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   nearestOpponentShift,
   opponentIdleEnvelope,
+  opponentCaptionBounds,
+  syncOpponentCaptionBoundary,
+  type OpponentAvatarState,
   opponentIdleSpans,
   jointOpponentShifts,
   pushOpponentChain,
@@ -1090,4 +1093,114 @@ it('keeps transparent ear gaps while reserving actual idle-swept wager paint', (
     const top = 200 + (100 - 200) * factor - 1.5 * t;
     expect(opponentPaintSpansTouch(swept, content, { left, top, width: 1, height: 1 })).toBe(true);
   }
+});
+
+describe('bounded opponent fact positioning', () => {
+  it('keeps the exact compact proof inside the real lower third, without changing sizes', () => {
+    const info = { left: 200, top: 155.74537658691406, width: 66, height: 35.1875 };
+    const art = { left: 204, top: 73.25191289822516, width: 62, height: 85.49343321420204 };
+    const bounds = opponentCaptionBounds(info, art);
+    expect(bounds.minTop).toBeCloseTo(Number('130.24753504102652'));
+    expect(bounds.maxRaise).toBeCloseTo(25.49784154588754);
+    expect(info).toEqual({ left: 200, top: 155.74537658691406, width: 66, height: 35.1875 });
+    expect(bounds.minTop).toBeGreaterThan(art.top + art.height - info.height);
+    const shortInfo = { ...info, height: 12 };
+    expect(opponentCaptionBounds(shortInfo, art).minTop).toBeCloseTo(art.top + art.height - 12);
+  });
+  it('restores every nested INFO and ACTION translation, including throw and priorities', () => {
+    for (const throws of [false, true]) {
+      const seats = [document.createElement('div'), document.createElement('div')];
+      seats.forEach(
+        (seat) =>
+          (seat.innerHTML = '<div class="seat__info"></div><div class="seat__action"></div>')
+      );
+      const captions = seats.flatMap((seat) => [...seat.children] as HTMLElement[]);
+      captions[0].style.setProperty('translate', '1px 2px', 'important');
+      const before = captions.map((c) => [
+        c.style.getPropertyValue('translate'),
+        c.style.getPropertyPriority('translate'),
+      ]);
+      const shifts = new WeakMap<HTMLElement, [number, number]>(seats.map((s) => [s, [0, 0]]));
+      const trial = () =>
+        opponentShiftTransaction(seats, shifts, () => {
+          captions[0].style.setProperty('translate', '0px -12px');
+          captions[1].style.setProperty('translate', '0px -25px');
+          expect(
+            opponentShiftTransaction(seats, shifts, () => {
+              captions[2].style.setProperty('translate', '0px -17px');
+              captions[3].style.setProperty('translate', '0px -19px');
+              return true;
+            })
+          ).toBe(true);
+          if (throws) throw new Error('Rejected Caption');
+          return false;
+        });
+      if (throws) expect(trial).toThrow('Rejected Caption');
+      else expect(trial()).toBe(false);
+      expect(
+        captions.map((c) => [
+          c.style.getPropertyValue('translate'),
+          c.style.getPropertyPriority('translate'),
+        ])
+      ).toEqual(before);
+    }
+  });
+  it('retains accepted captions across revisions and restores their immutable preimages once per semantic boundary', () => {
+    const info = document.createElement('div'),
+      action = document.createElement('div');
+    info.className = 'seat__info';
+    action.className = 'seat__action';
+    info.style.setProperty('translate', '1px 2px', 'important');
+    const state: OpponentAvatarState = {
+      key: 'body-a',
+      shifts: new WeakMap(),
+      idleReservedKey: 'body-a',
+    };
+    const captions = [info, action];
+    expect(syncOpponentCaptionBoundary(state, captions, 'hand-a:avatar-a:320')).toBe(false);
+    const preimages = state.captionPreimages;
+    info.style.setProperty('translate', '1px -12px');
+    action.style.setProperty('translate', '0px -25px');
+    expect(syncOpponentCaptionBoundary(state, captions, 'hand-a:avatar-a:320')).toBe(false);
+    expect(info.style.getPropertyValue('translate')).toBe('1px -12px');
+    expect(state.key).toBe('body-a');
+    expect(syncOpponentCaptionBoundary(state, captions, 'hand-b:avatar-a:320')).toBe(true);
+    expect(state.key).toBe('');
+    expect(state.idleReservedKey).toBeUndefined();
+    expect(info.style.getPropertyValue('translate')).toBe('1px 2px');
+    expect(info.style.getPropertyPriority('translate')).toBe('important');
+    expect(action.style.getPropertyValue('translate')).toBe('');
+    state.key = 'body-b';
+    state.idleReservedKey = 'body-b';
+    expect(syncOpponentCaptionBoundary(state, captions, 'hand-b:avatar-a:320')).toBe(false);
+    expect(state.key).toBe('body-b');
+    expect(state.captionPreimages).toBe(preimages);
+    info.style.setProperty('translate', '1px -8px');
+    expect(syncOpponentCaptionBoundary(state, captions, 'hand-b:avatar-b:375')).toBe(true);
+    expect(info.style.getPropertyValue('translate')).toBe('1px 2px');
+    expect(state.captionPreimages).toBe(preimages);
+  });
+  it('does not invalidate body packing after failed trials or ordinary legacy action placement', () => {
+    const seat = document.createElement('div');
+    seat.innerHTML = '<div class="seat__info"></div><div class="seat__action"></div>';
+    const captions = [...seat.children] as HTMLElement[];
+    const state: OpponentAvatarState = {
+      key: 'body',
+      shifts: new WeakMap([[seat, [0, 0]]]),
+      idleReservedKey: 'body',
+    };
+    syncOpponentCaptionBoundary(state, captions, 'hand-a');
+    expect(
+      opponentShiftTransaction([seat], state.shifts, () => {
+        captions[0].style.setProperty('translate', '0px -10px');
+        captions[1].style.setProperty('translate', '0px -20px');
+        return false;
+      })
+    ).toBe(false);
+    captions[1].style.setProperty('translate', '0px 86px');
+    expect(syncOpponentCaptionBoundary(state, captions, 'hand-b')).toBe(false);
+    expect(state.key).toBe('body');
+    expect(state.idleReservedKey).toBe('body');
+    expect(captions[1].style.getPropertyValue('translate')).toBe('0px 86px');
+  });
 });

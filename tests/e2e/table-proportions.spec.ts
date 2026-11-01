@@ -2729,6 +2729,41 @@ test('painted coverage rejects opaque avatar pixels through rotation and clippin
   expect(await covered(), 'Unreadable pixels fail closed under the original bounds').toBe(true);
 });
 
+test('nine-seat top proximity measures decoded crowns and still rejects overlap, distance and unreadable paint', async ({
+  page,
+}) => {
+  await page.setContent(
+    `<div class="table-page" data-seats="9" style="position:relative;width:200px;height:200px"><div class="bbj-mini-plate" style="position:absolute;left:0;top:50px;width:100px;height:20px"></div><div class="seat-wrapper--top"><img class="seat__avatar-img" style="position:absolute;left:0;top:60px;width:100px;height:100px;object-fit:contain"></div></div>`
+  );
+  const paint = async (top: number) =>
+    page.evaluate(async (top) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 100;
+      canvas.getContext('2d')!.fillRect(20, top, 60, 100 - top);
+      const image = document.querySelector<HTMLImageElement>('img')!;
+      image.src = canvas.toDataURL();
+      await image.decode();
+    }, top);
+  const refused = async () =>
+    (await page.evaluate(readMobileTableLayout, {})).violations.includes(
+      'Top Player Does Not Sit Immediately Below Mini BBJ'
+    );
+  await paint(20);
+  expect(await refused(), 'Transparent canvas may cross Mini BBJ while its crown stays close').toBe(
+    false
+  );
+  await paint(0);
+  expect(await refused(), 'Opaque overlap is still refused').toBe(true);
+  await paint(40);
+  expect(await refused(), 'A distant painted crown is still refused').toBe(true);
+  await paint(20);
+  await page.evaluate(() => {
+    HTMLCanvasElement.prototype.getContext = (() =>
+      null) as typeof HTMLCanvasElement.prototype.getContext;
+  });
+  expect(await refused(), 'Unreadable pixels retain the original conservative refusal').toBe(true);
+});
+
 test('painted action coverage protects the pill face without inventing paint in its rounded corners', async ({
   page,
 }) => {

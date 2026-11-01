@@ -14,7 +14,50 @@ export type OpponentAvatarState = {
   key: string;
   shifts: WeakMap<HTMLElement, [number, number]>;
   lowerLaneKey?: string;
+  captionKey?: string;
+  captionPreimages?: WeakMap<HTMLElement, { value: string; priority: string }>;
+  idleReservedKey?: string;
 };
+/** Original inline facts belong to their DOM node, never to a render revision. */
+export function syncOpponentCaptionBoundary(
+  state: OpponentAvatarState,
+  captions: HTMLElement[],
+  key: string
+): boolean {
+  const preimages = (state.captionPreimages ??= new WeakMap());
+  for (const caption of captions)
+    if (!preimages.has(caption))
+      preimages.set(caption, {
+        value: caption.style.getPropertyValue('translate'),
+        priority: caption.style.getPropertyPriority('translate'),
+      });
+  const boundary = state.captionKey !== undefined && state.captionKey !== key;
+  state.captionKey = key;
+  // Failed nested trials restored their INFO already. Legacy action placement
+  // alone is not an accepted caption correction and never forces a new pack.
+  const accepted = captions.some((caption) => {
+    const original = preimages.get(caption)!;
+    return (
+      caption.classList.contains('seat__info') &&
+      (caption.style.getPropertyValue('translate') !== original.value ||
+        caption.style.getPropertyPriority('translate') !== original.priority)
+    );
+  });
+  if (!boundary || !accepted) return false;
+  for (const caption of captions) {
+    const original = preimages.get(caption)!;
+    if (original.value) caption.style.setProperty('translate', original.value, original.priority);
+    else caption.style.removeProperty('translate');
+  }
+  state.key = '';
+  state.idleReservedKey = undefined;
+  return true;
+}
+
+export function opponentCaptionBounds(info: Box, art: Box) {
+  const minTop = Math.max(art.top + (art.height * 2) / 3, art.top + art.height - info.height);
+  return { info, art, minTop, maxRaise: Math.max(0, info.top - minTop) };
+}
 /** Nested wager proposals commit or restore all opponent anchors together. */
 export function opponentShiftTransaction(
   seats: HTMLElement[],
@@ -24,6 +67,13 @@ export function opponentShiftTransaction(
   const saved = seats.map((seat) => ({
     seat,
     shift: shifts.get(seat),
+    captions: Array.from(
+      seat.querySelectorAll<HTMLElement>(':scope > .seat__info,:scope > .seat__action')
+    ).map((element) => ({
+      element,
+      value: element.style.getPropertyValue('translate'),
+      priority: element.style.getPropertyPriority('translate'),
+    })),
     styles: ['--sp-opponent-x', '--sp-opponent-y'].map((name) => ({
       name,
       value: seat.style.getPropertyValue(name),
@@ -44,10 +94,14 @@ export function opponentShiftTransaction(
     return accepted;
   } finally {
     if (!accepted)
-      for (const { seat, shift, styles } of saved) {
+      for (const { seat, shift, styles, captions } of saved) {
         for (const { name, value, priority } of styles) {
           if (value) seat.style.setProperty(name, value, priority);
           else seat.style.removeProperty(name);
+        }
+        for (const { element, value, priority } of captions) {
+          if (value) element.style.setProperty('translate', value, priority);
+          else element.style.removeProperty('translate');
         }
         if (shift) shifts.set(seat, shift);
         else shifts.delete(seat);
@@ -891,7 +945,24 @@ export function createOpponentAvatarLayout(
     const bottom = Math.min(...heroParts.map((part) => part.top)) - 3 - rounding;
     return bottom > top ? { top, bottom } : null;
   };
-  const prepare = () => {
+  const captions = () =>
+    Array.from(
+      scaler.querySelectorAll<HTMLElement>(
+        '.seat:not(.seat--hero) > .seat__info,.seat:not(.seat--hero) > .seat__action'
+      )
+    );
+  const compactAllIn = () =>
+    page.getAttribute('data-seats') === '9' &&
+    window.innerWidth <= 340 &&
+    page.clientWidth <= 340 &&
+    Boolean(scaler.querySelector('.seat__allin-puck')) &&
+    Boolean(scaler.querySelector('.seat__cards--revealed > :nth-child(5)'));
+  const prepare = (handKey = 'current') => {
+    syncOpponentCaptionBoundary(
+      state,
+      captions(),
+      `${handKey}:${window.innerWidth}:${window.innerHeight}:${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${images().map(source).join('|')}`
+    );
     spacingReady = false;
     const all = images().filter((image) => image.complete && image.naturalWidth > 0);
     const hero = all.find((image) => image.closest('.seat--hero'));
@@ -989,6 +1060,7 @@ export function createOpponentAvatarLayout(
       state.key = key;
       state.shifts = new WeakMap();
       state.lowerLaneKey = undefined;
+      state.idleReservedKey = undefined;
       scaler
         .querySelectorAll<HTMLElement>('.seat:not(.seat--hero) > .seat__action')
         .forEach((action) => action.style.removeProperty('translate'));
@@ -1002,6 +1074,261 @@ export function createOpponentAvatarLayout(
     // Allocate once that permanent artwork rise has reached its caption.
     spacingReady = !changed;
     if (changed) schedule();
+    return changed;
+  };
+  const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
+    const old = state.shifts.get(seat);
+    if (!old || !Number.isFinite(deltaY) || seat.classList.contains('seat--hero')) return false;
+    const ratio = tableRenderScale(scaler);
+    const parts = (owner: HTMLElement): Box[] => {
+      const image = owner.querySelector<HTMLImageElement>('.seat__avatar-img');
+      const own = image && resolved.get(source(image));
+      return [
+        ...(image && own ? paintedParts(image) : []),
+        ...Array.from(
+          owner.querySelectorAll(
+            ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
+          )
+        )
+          .map(box)
+          .filter((r) => r.width > 0 && r.height > 0),
+      ];
+    };
+    const pageBox = box(page);
+    const header = page
+      .closest('.multi-table-page')
+      ?.querySelector('.multi-table-page__tab-bar-wrapper');
+    const top = header ? box(header).top + box(header).height + 0.5 : pageBox.top + 0.5;
+    const fixed = Array.from(
+      page.querySelectorAll(
+        '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card,.action-panel-wrapper,.tournament-hud'
+      )
+    )
+      .map(box)
+      .filter((r) => r.width > 0 && r.height > 0);
+    const hero = images().find((image) => image.closest('.seat--hero'));
+    if (hero && resolved.get(source(hero))) fixed.push(...paintedParts(hero));
+    const seats = Array.from(
+      scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
+    );
+    if (seats.some((other) => !state.shifts.has(other))) return false;
+    const board = page.querySelector('.community-area');
+    const lowerLane = lowerLaneLimits();
+    if (!lowerLane && seats.some((other) => other.dataset.opponentLane === 'lower')) return false;
+    const pods = seats.map((other) => ({
+      parts: parts(other),
+      peerParts: (() => {
+        const image = other.querySelector<HTMLImageElement>('.seat__avatar-img');
+        const staticParts = parts(other);
+        const count = image ? paintedParts(image).length : 0;
+        return image ? [...peerPaint(image), ...staticParts.slice(count)] : staticParts;
+      })(),
+      laneTop: other.dataset.opponentLane === 'lower' ? lowerLane?.top : undefined,
+      laneBottom: other.dataset.opponentLane === 'lower' ? lowerLane?.bottom : undefined,
+      capBottom:
+        board &&
+        (other.dataset.opponentLane === 'cap' ||
+          (page.getAttribute('data-seats') === '9' &&
+            other.closest('.seat-wrapper--cap,.seat-wrapper--top')))
+          ? box(board).top
+          : undefined,
+    }));
+    // A wager may make room locally, never move a chair to another row or
+    // leap over the board. The same bound applies to each contacted peer.
+    const maximumMotion = pods.map(({ parts }) =>
+      parts.length
+        ? (Math.max(...parts.map((p) => p.top + p.height)) - Math.min(...parts.map((p) => p.top))) /
+          2
+        : 0
+    );
+    const changes = pushOpponentChain(
+      pods,
+      seats.indexOf(seat),
+      deltaY,
+      fixed,
+      {
+        left: pageBox.left + 2,
+        top,
+        width: pageBox.width - 4,
+        height: pageBox.top + pageBox.height - top - 3,
+      },
+      maximumMotion
+    );
+
+    if (!changes) return false;
+    return opponentShiftTransaction(seats, state.shifts, () => {
+      for (let i = 0; i < seats.length; i++) {
+        if (!changes[i]) continue;
+        const other = seats[i];
+        // Compose with an outer uncommitted proposal's actual position.
+        const current = parseFloat(other.style.getPropertyValue('--sp-opponent-y')) || 0;
+        other.style.setProperty('--sp-opponent-y', `${current + changes[i] / ratio}px`);
+      }
+      return accept();
+    });
+  };
+  const captionRaiseBounds = (seat: HTMLElement) => {
+    if (!compactAllIn() || seat.classList.contains('seat--hero')) return null;
+    const info = seat.querySelector<HTMLElement>(':scope > .seat__info');
+    const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
+    const parts = image ? paintedParts(image) : [];
+    if (!info || !parts.length) return null;
+    const top = Math.min(...parts.map((part) => part.top));
+    const bottom = Math.max(...parts.map((part) => part.top + part.height));
+    const left = Math.min(...parts.map((part) => part.left));
+    const right = Math.max(...parts.map((part) => part.left + part.width));
+    return opponentCaptionBounds(box(info), {
+      left,
+      top,
+      width: right - left,
+      height: bottom - top,
+    });
+  };
+  const tryRaiseCaptionForWager = (
+    seat: HTMLElement,
+    wagerTop: number,
+    accept: () => boolean
+  ): boolean => {
+    const limits = captionRaiseBounds(seat);
+    // wagerTop is the future wager's top edge, not the requested INFO top.
+    // A caller staging a pod movement subtracts that movement from wagerTop.
+    if (!limits || !Number.isFinite(wagerTop)) return false;
+    const raise = Math.max(0, limits.info.top + limits.info.height + 2 - wagerTop);
+    if (raise <= 0.0001 || raise > limits.maxRaise + 0.0001) return false;
+    const seats = Array.from(
+      scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
+    );
+    const info = seat.querySelector<HTMLElement>(':scope > .seat__info')!;
+    const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
+    const ratio = tableRenderScale(scaler);
+    const shift = (element: HTMLElement, delta: number) => {
+      const axes = element.style.getPropertyValue('translate').split(/\s+/).map(parseFloat);
+      element.style.setProperty(
+        'translate',
+        `${axes[0] || 0}px ${(axes[1] || 0) + delta / ratio}px`
+      );
+    };
+    const originalPot = Array.from(page.querySelectorAll('.pot-display,.pot-display__pile')).map(
+      box
+    );
+    const area = (a: Box, b: Box) =>
+      Math.max(0, Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left)) *
+      Math.max(0, Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top));
+    const potAreas = originalPot.map((pot) => area(limits.info, pot));
+    return opponentShiftTransaction(seats, state.shifts, () => {
+      shift(info, -raise);
+      if (action) {
+        const a = box(action),
+          p = box(info);
+        const delta = Math.min(0, p.top - a.height - 3 - a.top);
+        if (delta) shift(action, delta);
+      }
+      if (!accept()) return false;
+      const finalLimits = captionRaiseBounds(seat);
+      if (!finalLimits || box(info).top < finalLimits.minTop - 0.0001) return false;
+      const pageBox = box(page);
+      const header = page
+        .closest('.multi-table-page')
+        ?.querySelector('.multi-table-page__tab-bar-wrapper');
+      const top = header ? box(header).top + box(header).height + 0.5 : pageBox.top + 0.5;
+      const visible = (element: Element) => {
+        const style = getComputedStyle(element);
+        return (
+          style.visibility !== 'hidden' &&
+          style.display !== 'none' &&
+          parseFloat(style.opacity) !== 0
+        );
+      };
+      const fixed = Array.from(
+        page.querySelectorAll(
+          '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.action-panel-wrapper,.tournament-hud,.dealer-button,.seat__cards--revealed .seat__card,.seat--hero .seat__cards .seat__card'
+        )
+      )
+        .filter(visible)
+        .map(box)
+        .filter((r) => r.width > 0 && r.height > 0);
+      const foreign = Array.from(
+        scaler.querySelectorAll<HTMLElement>(
+          '.seat__info,.seat__action,.seat__bounty,.seat__position-badge'
+        )
+      )
+        .filter((element) => element !== info && element !== action && visible(element))
+        .map(box)
+        .filter((r) => r.width > 0 && r.height > 0);
+      const peerTests = images()
+        .filter((image) => !seat.contains(image) && visible(image))
+        .map((image) => preparePaintedTouch(image));
+      const facts = [info, ...(action ? [action] : [])];
+      for (const fact of facts) {
+        const r = box(fact);
+        if (
+          r.left < pageBox.left + 2 - 0.0001 ||
+          r.left + r.width > pageBox.left + pageBox.width - 2 + 0.0001 ||
+          r.top < top - 0.0001 ||
+          r.top + r.height > pageBox.top + pageBox.height - 3 + 0.0001
+        )
+          return false;
+        if (
+          [...fixed, ...foreign].some(
+            (other) =>
+              Math.min(r.left + r.width, other.left + other.width) - Math.max(r.left, other.left) >
+                0.0001 &&
+              Math.min(r.top + r.height, other.top + other.height) - Math.max(r.top, other.top) >
+                0.0001
+          )
+        )
+          return false;
+        if (peerTests.some((touches) => touches(r, 0))) return false;
+        if (fact === action && originalPot.some((pot) => overlap(r, pot, 0))) return false;
+      }
+      // Preserve existing raw-width pot/name overlap; never create more of it.
+      if (originalPot.some((pot, i) => area(box(info), pot) > potAreas[i] + 0.001)) return false;
+      return true;
+    });
+  };
+  const reservePeerIdle = () => {
+    if (!compactAllIn() || !state.key || state.idleReservedKey === state.key) return false;
+    const seats = Array.from(
+      scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
+    );
+    if (seats.some((seat) => !state.shifts.has(seat))) return false;
+    state.idleReservedKey = state.key;
+    let changed = false;
+    // One finite contact pass belongs to this original compact allocation.
+    for (let pass = 0; pass < seats.length; pass++) {
+      let advanced = false;
+      for (const seat of seats) {
+        const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
+        if (!image) continue;
+        const touches = preparePaintedTouch(image);
+        const targets = seats
+          .filter((peer) => peer !== seat)
+          .flatMap((peer) =>
+            Array.from(
+              peer.querySelectorAll(
+                ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
+              )
+            ).map(box)
+          )
+          .filter((r) => r.width > 0 && r.height > 0);
+        const target = targets.find((r) => touches(r, 0));
+        if (!target) continue;
+        const parts = peerPaint(image).filter((part) => overlap(part, target, 0));
+        if (!parts.length) continue;
+        const centre =
+          parts.reduce((sum, part) => sum + part.top + part.height / 2, 0) / parts.length;
+        const down = centre >= target.top + target.height / 2;
+        const delta = down
+          ? Math.max(...parts.map((part) => target.top + target.height - part.top)) + 0.001
+          : Math.min(...parts.map((part) => target.top - part.top - part.height)) - 0.001;
+        if (tryShiftOwnerForWager(seat, delta, () => !preparePaintedTouch(image)(target, 0))) {
+          changed = true;
+          advanced = true;
+          break;
+        }
+      }
+      if (!advanced) break;
+    }
     return changed;
   };
   const space = () => {
@@ -1139,7 +1466,10 @@ export function createOpponentAvatarLayout(
       }
       return movedCaption;
     };
-    if (seats.every((seat) => state.shifts.has(seat))) return clearPotCaptions();
+    if (seats.every((seat) => state.shifts.has(seat))) {
+      const facts = clearPotCaptions();
+      return reservePeerIdle() || facts;
+    }
     // Retry a not-yet-fitted ring from its original captions, so a fallback
     // displacement is never compounded by another metadata/layout event.
     for (const seat of seats)
@@ -1220,7 +1550,8 @@ export function createOpponentAvatarLayout(
     const usedLowerLane = ordered.some(({ seat }) => seat.dataset.opponentLane === 'lower');
     const currentLimits = usedLowerLane ? lowerLaneLimits() : null;
     state.lowerLaneKey = currentLimits ? `${currentLimits.top}:${currentLimits.bottom}` : undefined;
-    return clearPotCaptions() || changed;
+    const facts = clearPotCaptions();
+    return reservePeerIdle() || facts || changed;
   };
   return {
     prepare,
@@ -1233,98 +1564,9 @@ export function createOpponentAvatarLayout(
     // A zero-candidate wager may need its own opponent to leave a little
     // room on the felt. This belongs to the original allocation transaction:
     // no timer, retry event, or independent layout pass is scheduled here.
-    tryShiftOwnerForWager: (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
-      const old = state.shifts.get(seat);
-      if (!old || !Number.isFinite(deltaY) || seat.classList.contains('seat--hero')) return false;
-      const ratio = tableRenderScale(scaler);
-      const parts = (owner: HTMLElement): Box[] => {
-        const image = owner.querySelector<HTMLImageElement>('.seat__avatar-img');
-        const own = image && resolved.get(source(image));
-        return [
-          ...(image && own ? paintedParts(image) : []),
-          ...Array.from(
-            owner.querySelectorAll(
-              ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
-            )
-          )
-            .map(box)
-            .filter((r) => r.width > 0 && r.height > 0),
-        ];
-      };
-      const pageBox = box(page);
-      const header = page
-        .closest('.multi-table-page')
-        ?.querySelector('.multi-table-page__tab-bar-wrapper');
-      const top = header ? box(header).top + box(header).height + 0.5 : pageBox.top + 0.5;
-      const fixed = Array.from(
-        page.querySelectorAll(
-          '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card,.action-panel-wrapper,.tournament-hud'
-        )
-      )
-        .map(box)
-        .filter((r) => r.width > 0 && r.height > 0);
-      const hero = images().find((image) => image.closest('.seat--hero'));
-      if (hero && resolved.get(source(hero))) fixed.push(...paintedParts(hero));
-      const seats = Array.from(
-        scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
-      );
-      if (seats.some((other) => !state.shifts.has(other))) return false;
-      const board = page.querySelector('.community-area');
-      const lowerLane = lowerLaneLimits();
-      if (!lowerLane && seats.some((other) => other.dataset.opponentLane === 'lower')) return false;
-      const pods = seats.map((other) => ({
-        parts: parts(other),
-        peerParts: (() => {
-          const image = other.querySelector<HTMLImageElement>('.seat__avatar-img');
-          const staticParts = parts(other);
-          const count = image ? paintedParts(image).length : 0;
-          return image ? [...peerPaint(image), ...staticParts.slice(count)] : staticParts;
-        })(),
-        laneTop: other.dataset.opponentLane === 'lower' ? lowerLane?.top : undefined,
-        laneBottom: other.dataset.opponentLane === 'lower' ? lowerLane?.bottom : undefined,
-        capBottom:
-          board &&
-          (other.dataset.opponentLane === 'cap' ||
-            (page.getAttribute('data-seats') === '9' &&
-              other.closest('.seat-wrapper--cap,.seat-wrapper--top')))
-            ? box(board).top
-            : undefined,
-      }));
-      // A wager may make room locally, never move a chair to another row or
-      // leap over the board. The same bound applies to each contacted peer.
-      const maximumMotion = pods.map(({ parts }) =>
-        parts.length
-          ? (Math.max(...parts.map((p) => p.top + p.height)) -
-              Math.min(...parts.map((p) => p.top))) /
-            2
-          : 0
-      );
-      const changes = pushOpponentChain(
-        pods,
-        seats.indexOf(seat),
-        deltaY,
-        fixed,
-        {
-          left: pageBox.left + 2,
-          top,
-          width: pageBox.width - 4,
-          height: pageBox.top + pageBox.height - top - 3,
-        },
-        maximumMotion
-      );
-
-      if (!changes) return false;
-      return opponentShiftTransaction(seats, state.shifts, () => {
-        for (let i = 0; i < seats.length; i++) {
-          if (!changes[i]) continue;
-          const other = seats[i];
-          // Compose with an outer uncommitted proposal's actual position.
-          const current = parseFloat(other.style.getPropertyValue('--sp-opponent-y')) || 0;
-          other.style.setProperty('--sp-opponent-y', `${current + changes[i] / ratio}px`);
-        }
-        return accept();
-      });
-    },
+    tryShiftOwnerForWager,
+    captionRaiseBounds,
+    tryRaiseCaptionForWager,
     preparePaintedTouch,
     paintedTouches: (image: HTMLImageElement, target: Box, gap = 0, permanent = true): boolean =>
       preparePaintedTouch(image, permanent)(target, gap),
