@@ -286,6 +286,67 @@ class NativeLogReader(unittest.TestCase):
             self.assertEqual(run(pattern)['candidate'],'unknown')
         run(changed=True)
 
+    def test_pipe_handler_candidates_are_closed_metadata_without_attribution(self):
+        window={'since':'2026-11-01T06:40:00Z','until':'2026-11-01T06:55:00Z'}
+        stamp=1793515680000000000
+        candidates=[{'kind':kind,'availability':'regular_file','bytes':42,'mtimeNs':stamp,
+                     'privateReport':'NEVER_EXPORT'} for kind in ['local_node','system_node']]
+        value={'patternClass':'pipe','handlerClass':'apport','handlerCandidates':candidates}
+        result=reader.core_capture_metadata(value,window)
+        self.assertEqual(result['handlerClass'],'apport')
+        self.assertEqual(len(result['handlerCandidates']),2)
+        self.assertTrue(all(r['incidentAttribution']=='unproven' and r['windowRelation']=='inside' for r in result['handlerCandidates']))
+        self.assertNotIn('NEVER_EXPORT',json.dumps(result))
+        for rows in [candidates*2,list(reversed(candidates)),['PRIVATE'],None]:
+            self.assertEqual(reader.core_capture_metadata({**value,'handlerCandidates':rows},window)['handlerCandidates'],[])
+        for patch_value in [True,-1,'PRIVATE']:
+            bad=[{**r,'bytes':patch_value} for r in candidates]
+            self.assertTrue(all(r['availability']=='unknown' for r in reader.core_capture_metadata({**value,'handlerCandidates':bad},window)['handlerCandidates']))
+        for handler in ['systemd','unknown','PRIVATE']:
+            result=reader.core_capture_metadata({**value,'handlerClass':handler},window)
+            self.assertEqual(result['handlerCandidates'],[])
+            self.assertEqual(result['handlerArtifactLookup'],'unproven')
+
+    def test_actual_pipe_command_allowlists_handler_and_never_reads_reports(self):
+        import contextlib,io,types
+        identity={'Id':'a'*64,'State':{'Pid':123,'StartedAt':'2026-11-01T06:48:00Z'},'Config':{'WorkingDir':'/app'},'HostConfig':{}}
+        def run(pattern, unavailable=False, symlink=False, changed=False, directory_error=False):
+            output=io.StringIO()
+            def read(path,mode):
+                self.assertEqual(mode,'r')
+                allowed={'/proc/sys/kernel/core_pattern':pattern,'/proc/sys/kernel/core_uses_pid':'0','/proc/123/limits':''}
+                self.assertIn(path,allowed) # No report or core contents are opened.
+                return io.StringIO(allowed[path])
+            def open_dir(path,flags,**kwargs):
+                self.assertTrue(flags&os.O_NOFOLLOW);self.assertTrue(flags&os.O_DIRECTORY)
+                self.assertIn(path,['/var','crash'])
+                if directory_error: raise OSError('refused')
+                if path=='crash':self.assertEqual(kwargs,{'dir_fd':10})
+                return 10 if path=='/var' else 11
+            def metadata(name,**kwargs):
+                self.assertIn(name,['_usr_local_bin_node.0.crash','_usr_bin_node.0.crash'])
+                self.assertEqual(kwargs,{'dir_fd':11,'follow_symlinks':False})
+                if unavailable: raise FileNotFoundError()
+                return types.SimpleNamespace(st_mode=stat.S_IFLNK if symlink else stat.S_IFREG,st_uid=0,st_size=42,st_mtime_ns=123)
+            second={**identity,'State':{**identity['State'],'Pid':124}} if changed else identity
+            with patch('subprocess.run',side_effect=[types.SimpleNamespace(stdout=json.dumps(x).encode()) for x in [identity,second]]) as inspect,patch('builtins.open',side_effect=read),patch('os.open',side_effect=open_dir) as opened,patch('os.close'),patch('os.fstat',return_value=types.SimpleNamespace(st_uid=0)),patch('os.stat',side_effect=metadata) as checked,contextlib.redirect_stdout(output):
+                if changed:
+                    with self.assertRaisesRegex(ValueError,'container changed'):exec(reader.CORE_CAPTURE_COMMAND,{})
+                    return
+                exec(reader.CORE_CAPTURE_COMMAND,{})
+            self.assertEqual(inspect.call_count,2)
+            self.assertTrue(all(c.kwargs['timeout']==1 for c in inspect.call_args_list))
+            result=json.loads(output.getvalue())['CoreCapture']
+            if result['handlerClass']!='apport':opened.assert_not_called();checked.assert_not_called()
+            else:self.assertLessEqual(checked.call_count,2)
+            return result
+        self.assertEqual(run('|/usr/share/apport/apport -p %p PRIVATE')['handlerClass'],'apport')
+        for kwargs,status in [({},'regular_file'),({'unavailable':True},'absent'),({'symlink':True},'not_regular_file'),({'directory_error':True},'unknown')]:
+            self.assertTrue(all(r['availability']==status for r in run('|/usr/share/apport/apport',**kwargs)['handlerCandidates']))
+        for pattern in ['|/usr/share/apport/apport-private','|/PRIVATE/apport','|/usr/lib/systemd/systemd-coredump %P','|/lib/systemd/systemd-coredump']:
+            self.assertEqual(run(pattern)['handlerCandidates'],[])
+        run('|/usr/share/apport/apport',changed=True)
+
     def test_coredump_metadata_attributes_exact_container_without_exposing_identity(self):
         window = {'since': '2026-10-31T06:00:00Z', 'until': '2026-10-31T06:15:00Z'}
         event = {'COREDUMP_TIMESTAMP': '1793427052000000', 'COREDUMP_SIGNAL': '11',
