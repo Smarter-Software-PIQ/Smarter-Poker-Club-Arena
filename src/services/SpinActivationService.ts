@@ -32,11 +32,6 @@ export const SPIN_BOARD_STAKES = [1, 2, 3, 5, 10, 20, 50, 100] as const;
 
 export type SpinOwnerKind = 'club' | 'union';
 
-/** A canonical terminal refusal, distinct from an unknown transport outcome. */
-export class SpinCommandRefusedError extends Error {
-  readonly requestResolved = true;
-}
-
 /** Wallets an owner can seed from, by what kind of owner they are. */
 export const SPIN_SEED_SOURCES: Record<SpinOwnerKind, { value: string; label: string }[]> = {
   club: [
@@ -99,8 +94,7 @@ export interface SpinOwnerState {
 async function call<T>(
   body: Record<string, unknown>,
   idempotencyKey?: string,
-  signal?: AbortSignal,
-  actorId?: string
+  signal?: AbortSignal
 ): Promise<T> {
   const {
     data: { session },
@@ -108,8 +102,6 @@ async function call<T>(
   if (signal?.aborted) throw new DOMException('The Request Was Cancelled.', 'AbortError');
   const token = session?.access_token;
   if (!token) throw new Error('Not authenticated');
-  if (actorId && session.user?.id !== actorId)
-    throw new Error('The Spin Request Belongs To Another Account.');
 
   const response = await fetch('/api/club-arena/spin-activation', {
     method: 'POST',
@@ -127,18 +119,7 @@ async function call<T>(
     .catch(() => ({ success: false, error: `HTTP ${response.status}` }));
 
   if (!response.ok || data?.success !== true) {
-    if (
-      response.status === 400 &&
-      data?.success === false &&
-      data?.requestResolved === true &&
-      data?.detail?.ok === false
-    ) {
-      throw new SpinCommandRefusedError(data?.error || 'Spin command refused');
-    }
     throw new Error(data?.error || `Spin activation request failed (HTTP ${response.status})`);
-  }
-  if (body.action !== 'get_state' && data?.result?.ok !== true) {
-    throw new Error('The Spin Command Receipt Could Not Be Verified.');
   }
   return data as T;
 }
@@ -182,42 +163,24 @@ export const spinActivationApi = {
     seedAmount: number,
     offeredMaxStake: number,
     sourceWallet: string,
-    idempotencyKey?: string,
-    identity?: { actorId: string; ownerId: string }
+    idempotencyKey?: string
   ) {
-    return runWithRequestDeadline((signal) =>
-      call<{ result: Record<string, unknown> }>(
-        {
-          action: 'activate',
-          clubId,
-          seedAmount,
-          offeredMaxStake,
-          sourceWallet,
-          ...(identity ? { expectedOwnerId: identity.ownerId } : {}),
-        },
-        idempotencyKey,
-        signal,
-        identity?.actorId
-      )
+    return call<{ result: Record<string, unknown> }>(
+      {
+        action: 'activate',
+        clubId,
+        seedAmount,
+        offeredMaxStake,
+        sourceWallet,
+      },
+      idempotencyKey
     );
   },
 
-  deactivate(
-    clubId: string,
-    idempotencyKey?: string,
-    identity?: { actorId: string; ownerId: string }
-  ) {
-    return runWithRequestDeadline((signal) =>
-      call<{ result: Record<string, unknown> }>(
-        {
-          action: 'deactivate',
-          clubId,
-          ...(identity ? { expectedOwnerId: identity.ownerId } : {}),
-        },
-        idempotencyKey,
-        signal,
-        identity?.actorId
-      )
+  deactivate(clubId: string, idempotencyKey?: string) {
+    return call<{ result: Record<string, unknown> }>(
+      { action: 'deactivate', clubId },
+      idempotencyKey
     );
   },
 };
