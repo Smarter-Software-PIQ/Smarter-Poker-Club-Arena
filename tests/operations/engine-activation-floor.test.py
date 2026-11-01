@@ -81,7 +81,8 @@ class ActivationFloor(unittest.TestCase):
         import io
         import sys
         record = self.owner_record()
-        self.assertEqual(record['ownerWindowId'], '2026-10-31-horse-v63-v70-drained-next-55')
+        fixture_owner = json.loads((self.repo / MANIFEST).read_text())['ownerWindowId']
+        self.assertEqual(record['ownerWindowId'], fixture_owner)
         for name in ('server/scripts/engine-release-seal.py', 'server/src/maintenance/maintenanceSchedulePolicy.json'):
             path = self.repo / name; path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes((ROOT / name).read_bytes())
