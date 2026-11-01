@@ -14097,8 +14097,11 @@ function LiveTablePage({
 
           // TAKE THE BUTTON DOWN WHEN THE OFFER DIES.
           //
-          // The engine expires an offer after 90s and refuses a late reveal with
-          // "That Hand Is Too Old To Rabbit Hunt". It has always SENT expires_at
+          // The FELT offer's beat ends at expires_at; since 2026-11-01 the
+          // engine no longer refuses a late reveal by age (the replayer can
+          // buy any persisted previous hand), but the tile still comes down
+          // on time — the HUD slot is for the impulse window, and the
+          // Previous Hand card is the way back in. The engine has always SENT expires_at
           // for exactly this — and the client ignored it, so the button sat
           // there after the offer was dead and the only thing left to click was
           // a refusal. Offering something that cannot be bought is worse than
@@ -24090,7 +24093,11 @@ function LiveTablePage({
     handSettling,
     handInProgress: tableState.isHandInProgress,
     rabbitAvailable: isRabbitAvailable && rabbitViewIsCurrent,
-    rabbitEnabled: v8Settings.rabbit_hunt_button,
+    // AUTO RUN RABBIT HUNT (Dan 2026-11-01): auto IS the player asking for
+    // the runout, so it keeps the slot live even when the manual button is
+    // hidden — the tile mounts, presses itself, and the cards land on the
+    // board exactly as a tap would put them there.
+    rabbitEnabled: v8Settings.rabbit_hunt_button || v8Settings.auto_rabbit_hunt,
   });
 
   /**
@@ -27299,6 +27306,7 @@ function LiveTablePage({
                 userId={userId === 'guest' ? null : userId}
                 onReveal={handleRabbitReveal}
                 registerHotkey={registerRabbitHotkey}
+                autoRun={v8Settings.auto_rabbit_hunt}
               />
             )}
             <PreviousHandCard

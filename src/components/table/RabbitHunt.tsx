@@ -86,6 +86,14 @@ export interface RabbitHuntProps {
   rabbitDiamondCost?: number | null;
   /** Authenticated player supplied by TablePage, the owner of the session. */
   userId: string | null | undefined;
+  /**
+   * AUTO RUN RABBIT HUNT (Dan 2026-11-01): "always show the run out at the
+   * end of a hand." When true the tile presses ITSELF the moment the offer is
+   * up — the same single-flight, server-charged reveal a tap makes, toasts
+   * and billing included. The setting lives in user_table_settings
+   * (auto_rabbit_hunt, opt-in because a reveal can cost diamonds).
+   */
+  autoRun?: boolean;
   onReveal: () => Promise<RabbitHuntRevealResult>;
   /**
    * P4 2026-09-05: the hotkey's way in. While the tile is mounted with an
@@ -117,6 +125,7 @@ export function RabbitHunt({
   cardsAvailable,
   rabbitDiamondCost,
   userId,
+  autoRun = false,
   onReveal,
   registerHotkey,
 }: RabbitHuntProps) {
@@ -301,6 +310,22 @@ export function RabbitHunt({
   useEffect(() => {
     resetReveal();
   }, [isAvailable, cardsAvailable, resetReveal]);
+
+  /* AUTO RUN RABBIT HUNT (Dan 2026-11-01): the setting presses the SAME
+     handler a thumb presses — single-flight, charged on the server, toasts
+     included — the moment the offer is up. One attempt per offer: TablePage
+     keys this tile by hand number so it mounts fresh for every offer, and
+     the ref stops a re-render from pressing twice while the first press is
+     still settling. A guest has nobody to bill, so auto never fires for one
+     — the manual button already answers that tap with its own "Please Log
+     In" toast, and an automatic toast on every hand would be noise. */
+  const autoPressedRef = useRef(false);
+  useEffect(() => {
+    if (!autoRun || !isAvailable || !userId) return;
+    if (autoPressedRef.current || hasRevealed || isRevealing) return;
+    autoPressedRef.current = true;
+    handleReveal();
+  }, [autoRun, isAvailable, userId, hasRevealed, isRevealing, handleReveal]);
 
   // The hotkey sees exactly what the button sees: a handler while an offer
   // is up and not yet revealed, nothing otherwise.

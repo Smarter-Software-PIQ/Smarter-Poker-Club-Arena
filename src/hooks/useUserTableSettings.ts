@@ -96,6 +96,20 @@ export interface UserTableSettings {
    */
   rabbit_hunt_button: boolean;
   /**
+   * AUTO RUN RABBIT HUNT (Dan 2026-11-01): "always show the run out at the
+   * end of a hand." When ON, the felt tile presses ITSELF the moment an
+   * offer lands — the same single-flight, server-charged reveal a tap makes
+   * (useRabbitHuntReveal), toasts and billing included, so every hand that
+   * ends early shows what would have come without a tap.
+   *
+   * OFF by default, because a reveal can cost diamonds: a switch that spends
+   * money on every hand must be opted INTO, never inherited. It also works
+   * with `rabbit_hunt_button` off — auto IS the player's way of saying they
+   * want the runout, so the tile mounts (and immediately reveals) even when
+   * the manual button is hidden.
+   */
+  auto_rabbit_hunt: boolean;
+  /**
    * VIP ALL-IN SQUEEZE (Dan 2026-09-05): when the player is all-in, each
    * run-out card lands face down under their hand and they squeeze it open
    * themselves (drag on desktop, touch on mobile); it opens on its own
@@ -152,6 +166,10 @@ export const DEFAULT_USER_TABLE_SETTINGS: UserTableSettings = {
   // ca_ws_mux='0' and EngineStateClient falls back to per-table sockets.
   multi_shared_socket: true,
   rabbit_hunt_button: true,
+  // 2026-11-01: auto-reveal spends money (5 diamonds for a non-VIP), so it is
+  // opt-in. DB column default is also false — the pinned equality in
+  // tests/user-table-settings-defaults.test.ts holds.
+  auto_rabbit_hunt: false,
   all_in_squeeze: true, // 2026-09-05: VIP perk, ON by default (Dan); 20260905195426
 };
 
@@ -238,6 +256,13 @@ export const TABLE_SETTINGS_META: SettingMeta[] = [
     key: 'rabbit_hunt_button',
     label: 'Rabbit Hunt Button',
     description: 'Offer To Show The Cards That Would Have Come After A Hand Ends',
+    quick: true,
+  },
+  {
+    key: 'auto_rabbit_hunt',
+    label: 'Auto Run Rabbit Hunt',
+    description:
+      'Automatically Reveal The Run Out Every Time A Hand Ends Early. Each Reveal Is Charged Like A Tap',
     quick: true,
   },
   {
@@ -641,6 +666,7 @@ export function useUserTableSettings(userId: string | null | undefined) {
               row.multi_shared_socket ?? DEFAULT_USER_TABLE_SETTINGS.multi_shared_socket,
             rabbit_hunt_button:
               row.rabbit_hunt_button ?? DEFAULT_USER_TABLE_SETTINGS.rabbit_hunt_button,
+            auto_rabbit_hunt: row.auto_rabbit_hunt ?? DEFAULT_USER_TABLE_SETTINGS.auto_rabbit_hunt,
             all_in_squeeze: row.all_in_squeeze ?? DEFAULT_USER_TABLE_SETTINGS.all_in_squeeze,
           };
           /* A LIVE EDIT OUTRANKS A STALE READ. Anything the user changed while

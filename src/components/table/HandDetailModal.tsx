@@ -57,7 +57,7 @@ import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
 import RecordedPotAwards from '../handdetail/RecordedPotAwards';
 import CardImage, { CardBack } from './CardImage';
-import { replayRabbitOffer, RABBIT_HUNT_OFFER_TTL_MS } from './replayRabbitOffer';
+import { replayRabbitOffer, RABBIT_HUNT_REPLAY_RETENTION_MS } from './replayRabbitOffer';
 import { useRabbitHuntReveal } from './useRabbitHuntReveal';
 import type { RabbitHuntRevealResult } from './RabbitHunt';
 import { cardKey } from '../../utils/handEvaluator';
@@ -209,7 +209,7 @@ function RabbitHuntReplayBlock({
     const refresh = () => setOfferNow(Date.now());
     const timer = setTimeout(
       refresh,
-      Math.max(1, hand.timestamp + RABBIT_HUNT_OFFER_TTL_MS - Date.now() + 1)
+      Math.max(1, hand.timestamp + RABBIT_HUNT_REPLAY_RETENTION_MS - Date.now() + 1)
     );
     document.addEventListener('visibilitychange', refresh);
     return () => {

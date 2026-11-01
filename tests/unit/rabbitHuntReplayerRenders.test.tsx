@@ -141,8 +141,28 @@ describe('the replayer offers the hunt on a hand that still qualifies', () => {
     expect(queryByRole('button', { name: /Show What Would Have Come/i })).toBeNull();
   });
 
-  it('does NOT offer it on a hand older than the engine window', () => {
-    const old = new Date(Date.now() - 120_000).toISOString();
+  it('STILL offers it on a hand past the old felt window (Dan 2026-11-01)', () => {
+    // "If you are looking at a PREVIOUS HAND you can RABBIT HUNT." The engine
+    // persists every captured runout and serves replayed hands from the
+    // sealed offers table, so two minutes old is now squarely on sale.
+    const twoMinutes = new Date(Date.now() - 120_000).toISOString();
+    const { queryByRole } = render(
+      <HandDetailModal
+        isOpen
+        onClose={() => {}}
+        hands={[record({ played_at: twoMinutes })]}
+        heroId={HERO}
+        onRabbitHunt={vi.fn()}
+        rabbitUserId={HERO}
+      />
+    );
+    expect(queryByRole('button', { name: /Show What Would Have Come/i })).not.toBeNull();
+  });
+
+  it('does NOT offer it on a hand older than the 1-day retention', () => {
+    // The persisted runout is pruned after a day (sp_prune_rabbit_hunt_offers),
+    // so past that the button would be a dead control.
+    const old = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
     const { queryByRole } = render(
       <HandDetailModal
         isOpen

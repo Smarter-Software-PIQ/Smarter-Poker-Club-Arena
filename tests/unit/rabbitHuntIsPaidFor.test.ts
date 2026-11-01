@@ -263,11 +263,20 @@ describe('who is offered a hunt, and for how many cards', () => {
     expect(TABLE_PAGE).toMatch(/heroMayHunt/);
   });
 
-  it('an offer goes stale instead of staying buyable forever', () => {
-    // "The map holds the last two hands" stops bounding anything the moment a
-    // table stops dealing, leaving an hours-old hand purchasable.
+  it('a hand the map no longer holds is served from the sealed offers table', () => {
+    // Dan 2026-11-01: previous hands ARE purchasable from the replayer. The
+    // in-memory map still holds only two hands; what makes an older hand
+    // buyable is the RLS-sealed `rabbit_hunt_offers` row the capture path
+    // writes, read back by loadPersistedRabbitOffer. The 90-second age
+    // refusal is gone on purpose — retention is the table's own 1-day prune
+    // — while the felt tile's expiry signal still goes out with the offer.
+    expect(SETTLEMENT).toMatch(/loadPersistedRabbitOffer/);
+    expect(SETTLEMENT).toMatch(/from\('rabbit_hunt_offers'\)/);
+    expect(SETTLEMENT).not.toMatch(/error: 'That Hand Is Too Old To Rabbit Hunt'/);
     expect(SETTLEMENT).toMatch(/RABBIT_HUNT_OFFER_TTL_MS/);
-    expect(SETTLEMENT).toMatch(/offer\.offeredAt > RABBIT_HUNT_OFFER_TTL_MS/);
+    // The persisted row carries the dealt-in set, so the spectator gate
+    // holds on the DB path exactly as it does in memory.
+    expect(SETTLEMENT).toMatch(/eligible_user_ids: Array\.from\(persisted\.eligible\)/);
   });
 
   it('two taps racing the RPC cannot both be billed', () => {
