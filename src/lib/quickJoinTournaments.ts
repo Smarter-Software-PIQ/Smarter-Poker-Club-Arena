@@ -32,6 +32,7 @@
  */
 
 import { supabase } from './supabase';
+import { HUB_TAB_PREFIX, LOBBY_TAB_PREFIX } from '../utils/tabSlots';
 import { tournamentService } from '../services/TournamentService';
 import { tournamentStatus, type LobbyTournamentRow } from '../components/lobby/lobbyEntries';
 import {
@@ -102,7 +103,13 @@ const ENTRY_OPEN_KEYS = new Set(['registering', 'starting_soon', 'late_reg']);
 export async function readTournamentContext(
   activeTableId: string | null
 ): Promise<TournamentQuickJoinContext | CashTableContext | null> {
-  if (!activeTableId) return null;
+  if (
+    !activeTableId ||
+    activeTableId.startsWith(LOBBY_TAB_PREFIX) ||
+    activeTableId.startsWith(HUB_TAB_PREFIX)
+  ) {
+    return null;
+  }
   const { data: tbl, error: tblErr } = await supabase
     .from('tables')
     .select('id, tournament_id')
