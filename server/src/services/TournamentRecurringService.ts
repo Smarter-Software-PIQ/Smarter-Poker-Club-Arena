@@ -1367,8 +1367,8 @@ export function automatedRegistrationIsPermitted(
  */
 /** Owner November 1: regular events build from an hour ahead; free entries start hours ahead. */
 export const MTT_PRESTART_RAMP_MS = 60 * 60 * 1000;
-export const MTT_FREEROLL_PRESTART_RAMP_MS = 6 * 60 * 60 * 1000;
-export const MTT_PRESTART_MAX_HORSES = 28;
+export const MTT_FREEROLL_PRESTART_RAMP_MS = 24 * 60 * 60 * 1000;
+export const MTT_PRESTART_MAX_HORSES = 48;
 
 export function mttIsFreeEntry(row: {
   free_buy?: unknown;
