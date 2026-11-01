@@ -24,6 +24,7 @@
  * Pure except for `readTournamentBuyIns`, which is one bounded read.
  */
 
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import { supabase } from './supabase';
 import { compactChips } from '../utils/format';
 import { FREE_BUY_LABEL } from '../utils/freeBuy';
@@ -89,10 +90,9 @@ export async function readTournamentTabInfo(
   const ids = Array.from(new Set((tableIds || []).filter(Boolean)));
   if (ids.length === 0) return out;
 
-  const { data: tbls, error: tblErr } = await supabase
-    .from('tables')
-    .select('id, tournament_id')
-    .in('id', ids);
+  const { data: tbls, error: tblErr } = await runWithRequestDeadline((signal) =>
+    supabase.from('tables').select('id, tournament_id').in('id', ids).abortSignal(signal)
+  );
   // A failed read is thrown, not answered with "no buy-ins": the caller
   // reports it (tournament_buy_in_read_failed).
   if (tblErr) throw tblErr;
@@ -105,10 +105,13 @@ export async function readTournamentTabInfo(
   const tournamentIds = Array.from(new Set(tournamentOf.values()));
   if (tournamentIds.length === 0) return out;
 
-  const { data: tours, error: tourErr } = await supabase
-    .from('tournaments')
-    .select('id, name, club_id, union_id, buy_in_amount, buy_in_fee')
-    .in('id', tournamentIds);
+  const { data: tours, error: tourErr } = await runWithRequestDeadline((signal) =>
+    supabase
+      .from('tournaments')
+      .select('id, name, club_id, union_id, buy_in_amount, buy_in_fee')
+      .in('id', tournamentIds)
+      .abortSignal(signal)
+  );
   if (tourErr) throw tourErr;
   if (!tours) return out;
 
