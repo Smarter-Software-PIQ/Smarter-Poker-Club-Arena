@@ -39,12 +39,31 @@ main=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','origin/main'],en
 fixture_git('update-ref','refs/remotes/origin/main',main.decode())
 fixture_git('index-pack','--stdin',input=PACK)
 assert len(MANIFEST['objects'])==33
+refs=list(MANIFEST['objects'])
+assert all('\n' not in ref and '\r' not in ref for ref in refs)
+# Resolve the actual immutable refs together. Repeated Git launcher startup can
+# otherwise consume the outer suite deadline before its eleven cases finish.
+batch=fixture_git('cat-file','--batch',input=('\n'.join(refs)+'\n').encode('ascii'))
+offset=0;validated={}
 for ref,item in MANIFEST['objects'].items():
-    assert fixture_git('rev-parse',ref).decode().strip()==item['oid']
-    raw=fixture_git('cat-file','blob',item['oid'])
+    end=batch.find(b'\n',offset)
+    assert end>=offset
+    header=batch[offset:end].decode('ascii').split(' ')
+    assert len(header)==3 and header[0]==item['oid'] and header[1]=='blob'
+    assert header[2].isascii() and header[2].isdecimal()
+    size=int(header[2])
+    assert header[2]==str(size)
+    offset=end+1
+    assert size<=len(batch)-offset-1
+    raw=batch[offset:offset+size]
+    offset+=size
+    assert batch[offset:offset+1]==b'\n'
+    offset+=1
     assert hashlib.sha256(raw).hexdigest()==item['sha256']
     assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==item['oid']
-SOURCES={name:fixture_git('cat-file','blob',Q.OLD+':server/scripts/'+name) for name in Q.SOURCE_HASHES}
+    validated[ref]=raw
+assert offset==len(batch)
+SOURCES={name:validated[Q.OLD+':server/scripts/'+name] for name in Q.SOURCE_HASHES}
 assert all(hashlib.sha256(raw).hexdigest()==Q.SOURCE_HASHES[name] for name,raw in SOURCES.items())
 INSTALLER=(ROOT/'server/scripts/install-engine-supervisor.sh').read_text()
 RUN='41316608416-1'
