@@ -1174,6 +1174,11 @@ export function useProtectedCardLayout(
           return chosen;
         };
         const compactFacts = compactNine && Boolean(scaler.querySelector('.seat__allin-puck'));
+        const compactSixFacts =
+          compactFacts &&
+          Boolean(
+            scaler.querySelector('.seat__cards--opponent.seat__cards--revealed > :nth-child(6)')
+          );
         const entries = buildEntries();
         // A later DOM sibling may already own a retained slot. Reserve the
         // complete retained set before assigning any newly generated pools;
@@ -1299,9 +1304,11 @@ export function useProtectedCardLayout(
                 if (factProbe) {
                   if (
                     !wagerOnFeltWithMargin(candidate, 1) ||
-                    [...keepouts, ...(reservedDealer ? [reservedDealer] : [])].some((other) =>
-                      markerTouches(candidate, other)
-                    )
+                    [
+                      ...keepouts,
+                      ...(compactSixFacts ? [] : fixedWagers),
+                      ...(reservedDealer ? [reservedDealer] : []),
+                    ].some((other) => markerTouches(candidate, other))
                   )
                     return false;
                   const blocked = others.filter(
@@ -1351,7 +1358,7 @@ export function useProtectedCardLayout(
                   )
                 );
               });
-              if (!clearLane || !factProbe) return clearLane;
+              if (!clearLane || !factProbe || !compactSixFacts) return clearLane;
               // A valid provisional chip can occupy the only puck pocket.
               // Release that reservation only inside a joint proof which keeps
               // every already resolved wager and adds this previously blocked
@@ -1470,6 +1477,12 @@ export function useProtectedCardLayout(
                 const x = candidate.left + candidate.width / 2,
                   y = candidate.top + candidate.height / 2;
                 const closest = Math.hypot(x - cx, Math.max(0, Math.abs(y - cy) - localRadius));
+                if (!compactSixFacts)
+                  return initialPlayerCentres.every(
+                    (other) =>
+                      Math.hypot(other.x - cx, other.y - cy) < 1 ||
+                      closest + 1.5 + motion + other.motion < Math.hypot(x - other.x, y - other.y)
+                  );
                 const blockers = initialPlayerCentres.filter(
                   (other) =>
                     Math.hypot(other.x - cx, other.y - cy) >= 1 &&

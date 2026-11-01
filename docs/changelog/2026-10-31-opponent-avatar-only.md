@@ -19,3 +19,5 @@ For compact nine-seat all-in showdowns, derive caption clearance from actual wag
 Project position badges from their permanent avatar pose when retaining card/wager layouts, so a breathing or all-in gesture cannot evict an otherwise valid slot. The mobile top-clearance proof reads decoded crown pixels instead of transparent canvas and retains explicit opaque-overlap, distance and unreadable-pixel refusal controls.
 
 A provisional ordinary chip cannot reserve the only all-in pocket: the compact facts transaction proves all previously resolved markers plus the new puck together, preferring a complete assignment and compatible retained slots. Caption candidates account for one feasible neighbouring movement before the unchanged physical and ownership guards decide the actual fit.
+
+The additional provisional-keeper repair is confined to revealed six-card all-in hands. Five-card hands retain their existing placement path, with both variants covered by the original runout and geometry checks.
