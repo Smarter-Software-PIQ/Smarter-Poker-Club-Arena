@@ -53,6 +53,7 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { reportError } from '../../utils/errorReporter';
+import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import type { UseMysteryBountyResult } from '../../hooks/useMysteryBounty';
 import {
   formatCents,
@@ -126,8 +127,6 @@ interface PlayerPayout {
   position: number | null;
   prize: number;
   status: string | null;
-  /** The row could not be read: say so rather than print 0 as a fact. */
-  unread?: boolean;
 }
 
 export default function MysteryBountyPanel({
@@ -146,7 +145,28 @@ export default function MysteryBountyPanel({
     'global'
   );
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [playerPayout, setPlayerPayout] = useState<PlayerPayout | null>(null);
+  const payoutScope = JSON.stringify([
+    tournamentId,
+    selectedUserId,
+    isMysteryBounty,
+    Boolean(isCompleted),
+  ]);
+  const [payoutRead, setPayoutRead] = useState<{
+    scope: string;
+    status: 'loading' | 'loaded' | 'missing' | 'unread';
+    payout: PlayerPayout | null;
+  } | null>(null);
+  // The render boundary also protects the first paint before effect cleanup.
+  const currentPayout = payoutRead?.scope === payoutScope ? payoutRead : null;
+  const playerPayout = currentPayout?.payout;
+  const payoutMessage =
+    !currentPayout || currentPayout.status === 'loading'
+      ? 'Loading'
+      : currentPayout.status === 'unread'
+        ? 'Could Not Be Read'
+        : currentPayout.status === 'missing'
+          ? 'Not Available'
+          : null;
 
   /**
    * Who won each tier, for the section 33 "Won By" line.
@@ -181,41 +201,52 @@ export default function MysteryBountyPanel({
   const perPlayer = useMemo(() => playerTotalsFromAwards(awards), [awards]);
   const biggest = useMemo(() => largestAward(awards), [awards]);
 
-  // ── Section 41: the selected player's regular prize and final position. ──
+  // Section 41: each read belongs to its event, player and completion state.
   useEffect(() => {
     let alive = true;
-    if (!selectedUserId || !tournamentId) {
-      setPlayerPayout(null);
+    const controller = new AbortController();
+    if (!selectedUserId || !tournamentId || !isMysteryBounty) {
+      setPayoutRead(null);
       return;
     }
+    setPayoutRead({ scope: payoutScope, status: 'loading', payout: null });
     (async () => {
       try {
-        const { data, error } = await supabase
-          .from('tournament_players')
-          .select('position, prize, status')
-          .eq('tournament_id', tournamentId)
-          .eq('user_id', selectedUserId)
-          .maybeSingle();
+        const { data, error } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .from('tournament_players')
+              .select('position, prize, status')
+              .eq('tournament_id', tournamentId)
+              .eq('user_id', selectedUserId)
+              .abortSignal(signal)
+              .maybeSingle(),
+          { signal: controller.signal }
+        );
         if (!alive) return;
         if (error) throw error;
-        setPlayerPayout(
-          data
+        setPayoutRead({
+          scope: payoutScope,
+          status: data ? 'loaded' : 'missing',
+          payout: data
             ? {
                 position: (data as { position: number | null }).position ?? null,
                 prize: Number((data as { prize: number | null }).prize) || 0,
                 status: (data as { status: string | null }).status ?? null,
               }
-            : { position: null, prize: 0, status: null }
-        );
+            : null,
+        });
       } catch (err) {
+        if (!alive) return;
         reportError(err, 'MysteryBountyPanel.loadPlayerPayout');
-        if (alive) setPlayerPayout({ position: null, prize: 0, status: null, unread: true });
+        setPayoutRead({ scope: payoutScope, status: 'unread', payout: null });
       }
     })();
     return () => {
       alive = false;
+      controller.abort();
     };
-  }, [selectedUserId, tournamentId]);
+  }, [selectedUserId, tournamentId, isMysteryBounty, payoutScope]);
 
   if (!isMysteryBounty) return null;
 
@@ -580,8 +611,8 @@ export default function MysteryBountyPanel({
                 <div className={styles.figure}>
                   <span className="sc-label sc-ink--blue">Final Position</span>
                   <span className={`${styles.figureValue} sc-ink--silver`}>
-                    {playerPayout?.unread
-                      ? 'Could Not Be Read'
+                    {payoutMessage
+                      ? payoutMessage
                       : playerPayout?.position
                         ? `#${playerPayout.position}`
                         : 'Not Finished'}
@@ -590,8 +621,8 @@ export default function MysteryBountyPanel({
                 <div className={styles.figure}>
                   <span className="sc-label sc-ink--blue">Tournament Prize</span>
                   <span className={`${styles.figureValue} sc-ink--silver`}>
-                    {playerPayout?.unread
-                      ? 'Could Not Be Read'
+                    {payoutMessage
+                      ? payoutMessage
                       : formatCents(Math.round((playerPayout?.prize ?? 0) * 100), unitCents)}
                   </span>
                 </div>
@@ -600,8 +631,8 @@ export default function MysteryBountyPanel({
             <div className={styles.figure}>
               <span className="sc-label sc-ink--blue">Total Payout</span>
               <span className={`${styles.figureValue} sc-ink--gold`}>
-                {playerPayout?.unread
-                  ? 'Could Not Be Read'
+                {payoutMessage
+                  ? payoutMessage
                   : formatCents(
                       Math.round((playerPayout?.prize ?? 0) * 100) + selectedEarnings,
                       unitCents

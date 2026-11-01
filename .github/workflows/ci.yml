@@ -1575,6 +1575,11 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/run_launch_reset_accounting_fixture.py --fixture scripts/ci/fixtures/hand-prune-one-page.sql --candidate supabase/migrations/20261029154153_hand_history_pruning_commits_one_raw_page_before_releasing_m.sql --work-root "${{ runner.temp }}" --pg-bin "$PG_BIN"
+      - name: Mystery award pages retain every tied reveal exactly once
+        if: matrix.shard == 2
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-mystery-award-page-order.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
       - name: Weekly linked proofs preserve original windows and paid books
         if: matrix.shard == 2
         env:

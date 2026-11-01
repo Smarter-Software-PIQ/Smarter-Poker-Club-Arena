@@ -11,6 +11,7 @@
  * multi-day either way, but a caller that needs to tell the two apart can.
  */
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import type { SealedStagePlanBody } from '../utils/multiDaySchedule';
 
 export type StageState =
@@ -214,10 +215,25 @@ function parseView(raw: Obj): TournamentStageView {
   };
 }
 
-export async function readTournamentStageView(tournamentId: string): Promise<StageViewRead> {
-  const { data, error } = await supabase.rpc('fn_tournament_stage_view', {
-    p_tournament_id: tournamentId,
-  });
+export async function readTournamentStageView(
+  tournamentId: string,
+  signal?: AbortSignal
+): Promise<StageViewRead> {
+  let response;
+  try {
+    response = await runWithRequestDeadline(
+      (requestSignal) =>
+        supabase
+          .rpc('fn_tournament_stage_view', {
+            p_tournament_id: tournamentId,
+          })
+          .abortSignal(requestSignal),
+      { signal }
+    );
+  } catch (error) {
+    return { status: 'unknown', reason: error instanceof Error ? error.message : 'read_failed' };
+  }
+  const { data, error } = response;
   if (error) return { status: 'unknown', reason: error.message || 'rpc_error' };
   if (!isObj(data)) return { status: 'unknown', reason: 'malformed_response' };
   if (data.ok !== true) {
