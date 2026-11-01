@@ -4024,7 +4024,6 @@ jobs:
     # that is the "is main actually green" net (see the schedule note).
     if: github.event_name == 'schedule' && github.event.schedule == '35 6 * * *'
     name: Live Production E2E
-    # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
     timeout-minutes: 25
 
