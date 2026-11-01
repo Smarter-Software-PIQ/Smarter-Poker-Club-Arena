@@ -81,7 +81,10 @@ describe('scheduled launch preparation owns the setup time', () => {
             nextMaintenanceAnnouncement(
               opened + 60_000 + LAUNCH_BREAK_PASS_MARGIN_MS,
               'phase1-hourly'
-            ) - opened - 60_000 - LAUNCH_BREAK_PASS_MARGIN_MS
+            ) -
+              opened -
+              60_000 -
+              LAUNCH_BREAK_PASS_MARGIN_MS
           )
         ).toBe(false);
       }

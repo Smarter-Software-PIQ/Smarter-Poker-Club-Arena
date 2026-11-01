@@ -205,14 +205,19 @@ export function resetTickerSettingsCache(): void {
 }
 
 export const tickerManagementService = {
-  async get(clubId?: string | null, unionId?: string | null): Promise<ManagedTickerSettings> {
+  async get(
+    clubId?: string | null,
+    unionId?: string | null,
+    signal?: AbortSignal
+  ): Promise<ManagedTickerSettings> {
     const key = scopeKey(clubId, unionId);
     const generation = cacheGeneration;
-    const { data, error } = await supabase.rpc('fn_get_game_ticker_settings', {
+    const query = supabase.rpc('fn_get_game_ticker_settings', {
       p_club_id: clubId || null,
       p_union_id: unionId || null,
     });
-    if (generation !== cacheGeneration) return DEFAULT_TICKER_SETTINGS;
+    const { data, error } = await (signal ? query.abortSignal(signal) : query);
+    if (signal?.aborted || generation !== cacheGeneration) return DEFAULT_TICKER_SETTINGS;
     if (error) return lastKnownGood.get(key) ?? DEFAULT_TICKER_SETTINGS;
     const settings = normalizeTickerSettings(data);
     lastKnownGood.set(key, settings);

@@ -6219,5 +6219,23 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "tournamentMainRunnerComposition20261101": {
+    "reason": "Combine reviewed protected main shard2-only accounting route and equivalent UTC fixture with mystery paging gate and live-e2e browser compatibility. Current bindings only; both historical audit records retained. No historical qualification state changed.",
+    "updates": {
+      "tests/fixtures/sep8-spin-custody/source-binding.json": {
+        "previous": "148850046dfdcd1beeb2fcef71c8d0d4854bff05d9bf52cad416c75b05326726",
+        "current": "dc82c4dc79d4ca84e2b9c25354f0a9cbda5a70725bf6abe7dea5ee478e918ea9"
+      },
+      "tests/fixtures/earlybird-fee-custody/source-binding.json": {
+        "previous": "14d7f82212ee76144a73760c061b95be185feed80756b03d2711a3f2211a1425",
+        "current": "97578f0310039c485e4251c7adca0a9d42de355c08ffb7f15a198e812b118da2"
+      }
+    },
+    "historicalEvidenceRestamped": false
+  },
+  "financialMainIntegration20261101": {
+    "reason": "Retain both branch histories and reviewed composed workflow and nested binding identities. No historical evidence restamped.",
+    "historicalEvidenceRestamped": false
   }
 }

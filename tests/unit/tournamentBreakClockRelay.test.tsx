@@ -164,3 +164,23 @@ it('keeps the latest requested refresh when its predecessor completes last', asy
   await act(async () => old.resolve({ name: 'Earlier' }));
   expect(container.querySelector('.tc-name')?.textContent).toBe('Latest');
 });
+
+it('does not carry a fully loaded old break into a pending next tournament', async () => {
+  const next = deferred<any>();
+  reads.tournament
+    .mockResolvedValueOnce({
+      name: 'Old Tournament',
+      on_break: true,
+      break_ends_at: '2026-10-29T17:00:00Z',
+    })
+    .mockReturnValueOnce(next.promise);
+  const { container, rerender } = render(<TournamentClock tournamentId="old" />);
+  await act(async () => {});
+  expect(container.querySelector('.tc-name')?.textContent).toBe('Old Tournament');
+  expect(container.querySelector('.tc-break-overlay')).not.toBeNull();
+  rerender(<TournamentClock tournamentId="new" />);
+  expect(container.querySelector('.tc-name')?.textContent).not.toBe('Old Tournament');
+  expect(container.querySelector('.tc-break-overlay')).toBeNull();
+  await act(async () => next.resolve({ name: 'New Tournament', on_break: false }));
+  expect(container.querySelector('.tc-name')?.textContent).toBe('New Tournament');
+});
