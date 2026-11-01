@@ -1,0 +1,261 @@
+{
+  "observedAt": "2026-11-01T03:44:00Z",
+  "functions": [
+    {
+      "signature": "fn_operator_seal_stage_plan(uuid,jsonb)",
+      "md5": "8ec06ec0a3cce9fcf2d15b2e78aaeaf4",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_operator_seal_stage_plan(p_tournament_id uuid, p_plan jsonb)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\n SET statement_timeout TO '30s'\nAS $function$\nDECLARE\n  v_uid uuid := auth.uid();\n  v_club uuid;\nBEGIN\n  IF v_uid IS NULL THEN\n    RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000';\n  END IF;\n  IF NOT public.fn_caller_session_is_live() THEN\n    RAISE EXCEPTION 'SESSION_REVOKED: this session is signed out - sign in again'\n      USING ERRCODE = '28000';\n  END IF;\n  IF NOT public.fn_capability_available('tournament.multi_day.single_flight') THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'capability_unavailable');\n  END IF;\n  IF p_tournament_id IS NULL THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'invalid_request');\n  END IF;\n  SELECT t.club_id INTO v_club FROM public.tournaments t WHERE t.id = p_tournament_id;\n  IF NOT FOUND THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'tournament_not_found');\n  END IF;\n  IF v_club IS NULL OR NOT COALESCE(public.fn_can_create_games(v_club, v_uid), false) THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'not_authorised');\n  END IF;\n  RETURN public.fn_seal_tournament_stage_plan(p_tournament_id, p_plan);\nEND\n$function$\n"
+    },
+    {
+      "signature": "fn_seal_tournament_stage_plan(uuid,jsonb)",
+      "md5": "c2b49a7ab4fd7f796edec122bfccd7d2",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_seal_tournament_stage_plan(p_tournament_id uuid, p_plan jsonb)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\n SET statement_timeout TO '30s'\nAS $function$\nDECLARE\n  v_t public.tournaments%ROWTYPE;\n  v_existing public.tournament_stage_plans%ROWTYPE;\n  v_zone text;\n  v_stages jsonb;\n  v_stage jsonb;\n  v_n integer;\n  v_i integer;\n  v_end integer;\n  v_prev_end integer := 0;\n  v_start timestamptz;\n  v_prev_start timestamptz;\n  v_entry_levels integer;\n  v_hash text;\n  v_rows jsonb := '[]'::jsonb;\nBEGIN\n  IF NOT public.fn_capability_available('tournament.multi_day.single_flight') THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'capability_unavailable');\n  END IF;\n  IF p_tournament_id IS NULL OR p_plan IS NULL OR jsonb_typeof(p_plan) <> 'object' THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'invalid_request');\n  END IF;\n\n  SELECT * INTO v_t FROM public.tournaments WHERE id = p_tournament_id FOR UPDATE;\n  IF NOT FOUND THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'tournament_not_found');\n  END IF;\n  v_hash := md5(p_plan::text);\n  SELECT * INTO v_existing FROM public.tournament_stage_plans WHERE tournament_id = p_tournament_id;\n  IF FOUND THEN\n    IF v_existing.plan_hash = v_hash THEN\n      RETURN jsonb_build_object('ok', true, 'replay', true, 'tournament_id', p_tournament_id,\n        'plan_hash', v_hash, 'stage_count', v_existing.stage_count);\n    END IF;\n    RETURN jsonb_build_object('ok', false, 'reason', 'plan_already_sealed', 'plan_hash', v_existing.plan_hash);\n  END IF;\n\n  IF v_t.status NOT IN ('ANNOUNCED', 'REGISTERING') THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'tournament_not_plannable', 'status', v_t.status);\n  END IF;\n  IF EXISTS (SELECT 1 FROM public.tournament_players p WHERE p.tournament_id = p_tournament_id) THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'players_registered');\n  END IF;\n  IF upper(COALESCE(v_t.tournament_type, '')) <> 'MTT'\n     OR lower(COALESCE(v_t.variant, '')) IN ('spin', 'sng') THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'format_not_multi_day');\n  END IF;\n\n  IF (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_plan) k) IS DISTINCT FROM ARRAY['stages', 'time_zone'] THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'plan_shape_invalid');\n  END IF;\n  v_zone := p_plan ->> 'time_zone';\n  IF v_zone IS NULL OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names z WHERE z.name = v_zone) THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'time_zone_unknown');\n  END IF;\n  v_stages := p_plan -> 'stages';\n  IF jsonb_typeof(v_stages) IS DISTINCT FROM 'array' THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'plan_shape_invalid');\n  END IF;\n  v_n := jsonb_array_length(v_stages);\n  IF v_n NOT BETWEEN 2 AND 14 THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'stage_count_out_of_range');\n  END IF;\n\n  v_prev_start := v_t.start_time;\n  FOR v_i IN 0 .. v_n - 1 LOOP\n    v_stage := v_stages -> v_i;\n    IF jsonb_typeof(v_stage) IS DISTINCT FROM 'object'\n       OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_stage) k\n                   WHERE k NOT IN ('stage_no', 'end_after_level', 'scheduled_start_utc'))\n       OR jsonb_typeof(v_stage -> 'stage_no') IS DISTINCT FROM 'number'\n       OR (v_stage ->> 'stage_no')::numeric <> v_i + 1 THEN\n      RETURN jsonb_build_object('ok', false, 'reason', 'plan_shape_invalid', 'stage_index', v_i);\n    END IF;\n    IF v_i < v_n - 1 THEN\n      IF jsonb_typeof(v_stage -> 'end_after_level') IS DISTINCT FROM 'number'\n         OR (v_stage ->> 'end_after_level')::numeric <> trunc((v_stage ->> 'end_after_level')::numeric)\n         OR (v_stage ->> 'end_after_level')::numeric <= v_prev_end\n         OR (v_stage ->> 'end_after_level')::numeric > 1000 THEN\n        RETURN jsonb_build_object('ok', false, 'reason', 'stage_end_level_invalid', 'stage_no', v_i + 1);\n      END IF;\n      v_end := (v_stage ->> 'end_after_level')::integer;\n      v_prev_end := v_end;\n    ELSIF v_stage ? 'end_after_level' AND jsonb_typeof(v_stage -> 'end_after_level') <> 'null' THEN\n      RETURN jsonb_build_object('ok', false, 'reason', 'stage_end_level_invalid', 'stage_no', v_i + 1);\n    END IF;\n    IF v_i = 0 THEN\n      IF v_stage ? 'scheduled_start_utc' AND jsonb_typeof(v_stage -> 'scheduled_start_utc') <> 'null' THEN\n        RETURN jsonb_build_object('ok', false, 'reason', 'stage_start_invalid', 'stage_no', 1);\n      END IF;\n    ELSE\n      IF jsonb_typeof(v_stage -> 'scheduled_start_utc') IS DISTINCT FROM 'string' THEN\n        RETURN jsonb_build_object('ok', false, 'reason', 'stage_start_invalid', 'stage_no', v_i + 1);\n      END IF;\n      BEGIN\n        v_start := (v_stage ->> 'scheduled_start_utc')::timestamptz;\n      EXCEPTION WHEN others THEN\n        RETURN jsonb_build_object('ok', false, 'reason', 'stage_start_invalid', 'stage_no', v_i + 1);\n      END;\n      IF v_start <= clock_timestamp() OR (v_prev_start IS NOT NULL AND v_start <= v_prev_start) THEN\n        RETURN jsonb_build_object('ok', false, 'reason', 'stage_start_invalid', 'stage_no', v_i + 1);\n      END IF;\n      v_prev_start := v_start;\n    END IF;\n  END LOOP;\n\n  -- No entry, rebuy or add-on window may cross a bag.\n  v_entry_levels := GREATEST(COALESCE(v_t.late_reg_levels, 0), COALESCE(v_t.rebuy_levels, 0),\n                             COALESCE(v_t.addon_levels, 0));\n  IF (v_stages -> 0 ->> 'end_after_level')::integer <= v_entry_levels THEN\n    RETURN jsonb_build_object('ok', false, 'reason', 'entry_window_crosses_day_end',\n      'entry_levels', v_entry_levels);\n  END IF;\n\n  PERFORM set_config('app.multi_day_stage_writer', p_tournament_id::text, true);\n  INSERT INTO public.tournament_stage_plans\n    (tournament_id, capability_id, rule_version, time_zone, stage_count, plan, plan_hash)\n  VALUES (p_tournament_id, 'tournament.multi_day.single_flight', 'multi-day-v1', v_zone, v_n, p_plan, v_hash);\n  FOR v_i IN 0 .. v_n - 1 LOOP\n    v_stage := v_stages -> v_i;\n    INSERT INTO public.tournament_stages\n      (tournament_id, stage_no, kind, day_no, end_after_level, scheduled_start_utc)\n    VALUES (p_tournament_id, v_i + 1, 'day', v_i + 1,\n            CASE WHEN v_i < v_n - 1 THEN (v_stage ->> 'end_after_level')::integer END,\n            CASE WHEN v_i > 0 THEN (v_stage ->> 'scheduled_start_utc')::timestamptz END);\n    v_rows := v_rows || jsonb_build_object('stage_no', v_i + 1,\n      'end_after_level', CASE WHEN v_i < v_n - 1 THEN (v_stage ->> 'end_after_level')::integer END,\n      'scheduled_start_utc', CASE WHEN v_i > 0 THEN (v_stage ->> 'scheduled_start_utc')::timestamptz END);\n  END LOOP;\n  INSERT INTO public.tournament_stage_transitions\n    (tournament_id, stage_no, kind, idempotency_key, facts)\n  VALUES (p_tournament_id, 1, 'seal', 'seal:' || p_tournament_id::text,\n          jsonb_build_object('plan_hash', v_hash, 'stage_count', v_n, 'time_zone', v_zone));\n  PERFORM set_config('app.multi_day_stage_writer', '', true);\n\n  RETURN jsonb_build_object('ok', true, 'replay', false, 'tournament_id', p_tournament_id,\n    'plan_hash', v_hash, 'stage_count', v_n, 'time_zone', v_zone, 'stages', v_rows);\nEND\n$function$\n"
+    }
+  ],
+  "relations": [
+    {
+      "relname": "tournament_stage_plans",
+      "columns": [
+        {
+          "name": "tournament_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "capability_id",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "rule_version",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "time_zone",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "stage_count",
+          "type": "integer",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "plan",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "plan_hash",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "sealed_at",
+          "type": "timestamp with time zone",
+          "default": "clock_timestamp()",
+          "notnull": true
+        },
+        {
+          "name": "transaction_id",
+          "type": "xid8",
+          "default": "pg_current_xact_id()",
+          "notnull": true
+        }
+      ],
+      "checks": [
+        "CHECK ((capability_id = 'tournament.multi_day.single_flight'::text))",
+        "PRIMARY KEY (tournament_id)",
+        "CHECK ((jsonb_typeof(plan) = 'object'::text))",
+        "CHECK ((plan_hash ~ '^[0-9a-f]{32}$'::text))",
+        "CHECK ((rule_version = 'multi-day-v1'::text))",
+        "CHECK (((stage_count >= 2) AND (stage_count <= 14)))",
+        "CHECK ((btrim(time_zone) <> ''::text))"
+      ],
+      "triggers": [
+        {
+          "name": "tournament_stage_plans_no_truncate",
+          "function": "CREATE OR REPLACE FUNCTION public.fn_multi_day_stage_rows_never_truncate()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\nBEGIN\n  RAISE EXCEPTION 'MULTI_DAY_STAGE_RECORD_IS_PERMANENT: TRUNCATE on % refused', TG_TABLE_NAME\n    USING ERRCODE = '55000';\nEND\n$function$\n",
+          "definition": "CREATE TRIGGER tournament_stage_plans_no_truncate BEFORE TRUNCATE ON public.tournament_stage_plans FOR EACH STATEMENT EXECUTE FUNCTION fn_multi_day_stage_rows_never_truncate()"
+        },
+        {
+          "name": "tournament_stage_plans_rpc_owned",
+          "function": "CREATE OR REPLACE FUNCTION public.fn_multi_day_stage_rows_are_rpc_owned()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\nDECLARE\n  v_tournament uuid;\nBEGIN\n  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN\n    RAISE EXCEPTION 'MULTI_DAY_STAGE_RECORD_IS_PERMANENT: % on % refused', TG_OP, TG_TABLE_NAME\n      USING ERRCODE = '55000';\n  END IF;\n  v_tournament := NEW.tournament_id;\n  IF current_setting('app.multi_day_stage_writer', true) IS DISTINCT FROM v_tournament::text THEN\n    RAISE EXCEPTION 'MULTI_DAY_STAGE_WRITER_REQUIRED: % on % belongs to the stage RPCs', TG_OP, TG_TABLE_NAME\n      USING ERRCODE = '55000';\n  END IF;\n  IF TG_OP = 'INSERT' THEN\n    RETURN NEW;\n  END IF;\n\n  IF TG_TABLE_NAME = 'tournament_stages' THEN\n    IF (NEW.tournament_id, NEW.stage_no, NEW.kind, NEW.day_no, NEW.end_after_level)\n       IS DISTINCT FROM (OLD.tournament_id, OLD.stage_no, OLD.kind, OLD.day_no, OLD.end_after_level)\n       OR NEW.schedule_generation < OLD.schedule_generation THEN\n      RAISE EXCEPTION 'MULTI_DAY_STAGE_STRUCTURE_IS_SEALED' USING ERRCODE = '55000';\n    END IF;\n    RETURN NEW;\n  ELSIF TG_TABLE_NAME = 'tournament_qualification_entitlements' THEN\n    IF OLD.state = 'active' AND NEW.state = 'consumed'\n       AND (NEW.id, NEW.tournament_id, NEW.user_id, NEW.source_stage_no, NEW.source_registration_id,\n            NEW.source_bag_row_id, NEW.stack, NEW.bounty_head, NEW.target_stage_no, NEW.created_at)\n           IS NOT DISTINCT FROM\n           (OLD.id, OLD.tournament_id, OLD.user_id, OLD.source_stage_no, OLD.source_registration_id,\n            OLD.source_bag_row_id, OLD.stack, OLD.bounty_head, OLD.target_stage_no, OLD.created_at) THEN\n      RETURN NEW;\n    END IF;\n    RAISE EXCEPTION 'MULTI_DAY_ENTITLEMENT_IS_CONSUMED_ONCE' USING ERRCODE = '55000';\n  ELSIF TG_TABLE_NAME = 'tournament_stage_resume_receipts' THEN\n    IF (NEW.tournament_id, NEW.stage_no, NEW.resume_id, NEW.schedule_generation, NEW.first_level, NEW.claimed_at)\n       IS DISTINCT FROM\n       (OLD.tournament_id, OLD.stage_no, OLD.resume_id, OLD.schedule_generation, OLD.first_level, OLD.claimed_at)\n       OR OLD.completed_at IS NOT NULL THEN\n      RAISE EXCEPTION 'MULTI_DAY_RESUME_RECEIPT_IS_IMMUTABLE' USING ERRCODE = '55000';\n    END IF;\n    -- Exactly one of: completion, or a successor lease adopting it.\n    IF (NEW.completed_at IS NOT NULL AND NEW.lease_generation = OLD.lease_generation)\n       OR (NEW.completed_at IS NULL AND NEW.lease_generation IS DISTINCT FROM OLD.lease_generation) THEN\n      RETURN NEW;\n    END IF;\n    RAISE EXCEPTION 'MULTI_DAY_RESUME_RECEIPT_IS_IMMUTABLE' USING ERRCODE = '55000';\n  END IF;\n\n  RAISE EXCEPTION 'MULTI_DAY_STAGE_RECEIPT_IS_APPEND_ONLY: UPDATE on % refused', TG_TABLE_NAME\n    USING ERRCODE = '55000';\nEND\n$function$\n",
+          "definition": "CREATE TRIGGER tournament_stage_plans_rpc_owned BEFORE INSERT OR DELETE OR UPDATE ON public.tournament_stage_plans FOR EACH ROW EXECUTE FUNCTION fn_multi_day_stage_rows_are_rpc_owned()"
+        }
+      ]
+    },
+    {
+      "relname": "tournament_stage_transitions",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true
+        },
+        {
+          "name": "tournament_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "stage_no",
+          "type": "integer",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "idempotency_key",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "lease_generation",
+          "type": "uuid",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "schedule_generation",
+          "type": "bigint",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "facts",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "clock_timestamp()",
+          "notnull": true
+        },
+        {
+          "name": "transaction_id",
+          "type": "xid8",
+          "default": "pg_current_xact_id()",
+          "notnull": true
+        }
+      ],
+      "checks": [
+        "CHECK ((jsonb_typeof(facts) = 'object'::text))",
+        "UNIQUE (idempotency_key)",
+        "CHECK ((kind = ANY (ARRAY['seal'::text, 'day_end'::text, 'bag'::text, 'reschedule'::text, 'resume_begin'::text, 'resume_complete'::text])))",
+        "PRIMARY KEY (id)"
+      ],
+      "triggers": [
+        {
+          "name": "tournament_stage_transitions_no_truncate",
+          "function": "CREATE OR REPLACE FUNCTION public.fn_multi_day_stage_rows_never_truncate()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\nBEGIN\n  RAISE EXCEPTION 'MULTI_DAY_STAGE_RECORD_IS_PERMANENT: TRUNCATE on % refused', TG_TABLE_NAME\n    USING ERRCODE = '55000';\nEND\n$function$\n",
+          "definition": "CREATE TRIGGER tournament_stage_transitions_no_truncate BEFORE TRUNCATE ON public.tournament_stage_transitions FOR EACH STATEMENT EXECUTE FUNCTION fn_multi_day_stage_rows_never_truncate()"
+        },
+        {
+          "name": "tournament_stage_transitions_rpc_owned",
+          "function": "CREATE OR REPLACE FUNCTION public.fn_multi_day_stage_rows_are_rpc_owned()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\nDECLARE\n  v_tournament uuid;\nBEGIN\n  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN\n    RAISE EXCEPTION 'MULTI_DAY_STAGE_RECORD_IS_PERMANENT: % on % refused', TG_OP, TG_TABLE_NAME\n      USING ERRCODE = '55000';\n  END IF;\n  v_tournament := NEW.tournament_id;\n  IF current_setting('app.multi_day_stage_writer', true) IS DISTINCT FROM v_tournament::text THEN\n    RAISE EXCEPTION 'MULTI_DAY_STAGE_WRITER_REQUIRED: % on % belongs to the stage RPCs', TG_OP, TG_TABLE_NAME\n      USING ERRCODE = '55000';\n  END IF;\n  IF TG_OP = 'INSERT' THEN\n    RETURN NEW;\n  END IF;\n\n  IF TG_TABLE_NAME = 'tournament_stages' THEN\n    IF (NEW.tournament_id, NEW.stage_no, NEW.kind, NEW.day_no, NEW.end_after_level)\n       IS DISTINCT FROM (OLD.tournament_id, OLD.stage_no, OLD.kind, OLD.day_no, OLD.end_after_level)\n       OR NEW.schedule_generation < OLD.schedule_generation THEN\n      RAISE EXCEPTION 'MULTI_DAY_STAGE_STRUCTURE_IS_SEALED' USING ERRCODE = '55000';\n    END IF;\n    RETURN NEW;\n  ELSIF TG_TABLE_NAME = 'tournament_qualification_entitlements' THEN\n    IF OLD.state = 'active' AND NEW.state = 'consumed'\n       AND (NEW.id, NEW.tournament_id, NEW.user_id, NEW.source_stage_no, NEW.source_registration_id,\n            NEW.source_bag_row_id, NEW.stack, NEW.bounty_head, NEW.target_stage_no, NEW.created_at)\n           IS NOT DISTINCT FROM\n           (OLD.id, OLD.tournament_id, OLD.user_id, OLD.source_stage_no, OLD.source_registration_id,\n            OLD.source_bag_row_id, OLD.stack, OLD.bounty_head, OLD.target_stage_no, OLD.created_at) THEN\n      RETURN NEW;\n    END IF;\n    RAISE EXCEPTION 'MULTI_DAY_ENTITLEMENT_IS_CONSUMED_ONCE' USING ERRCODE = '55000';\n  ELSIF TG_TABLE_NAME = 'tournament_stage_resume_receipts' THEN\n    IF (NEW.tournament_id, NEW.stage_no, NEW.resume_id, NEW.schedule_generation, NEW.first_level, NEW.claimed_at)\n       IS DISTINCT FROM\n       (OLD.tournament_id, OLD.stage_no, OLD.resume_id, OLD.schedule_generation, OLD.first_level, OLD.claimed_at)\n       OR OLD.completed_at IS NOT NULL THEN\n      RAISE EXCEPTION 'MULTI_DAY_RESUME_RECEIPT_IS_IMMUTABLE' USING ERRCODE = '55000';\n    END IF;\n    -- Exactly one of: completion, or a successor lease adopting it.\n    IF (NEW.completed_at IS NOT NULL AND NEW.lease_generation = OLD.lease_generation)\n       OR (NEW.completed_at IS NULL AND NEW.lease_generation IS DISTINCT FROM OLD.lease_generation) THEN\n      RETURN NEW;\n    END IF;\n    RAISE EXCEPTION 'MULTI_DAY_RESUME_RECEIPT_IS_IMMUTABLE' USING ERRCODE = '55000';\n  END IF;\n\n  RAISE EXCEPTION 'MULTI_DAY_STAGE_RECEIPT_IS_APPEND_ONLY: UPDATE on % refused', TG_TABLE_NAME\n    USING ERRCODE = '55000';\nEND\n$function$\n",
+          "definition": "CREATE TRIGGER tournament_stage_transitions_rpc_owned BEFORE INSERT OR DELETE OR UPDATE ON public.tournament_stage_transitions FOR EACH ROW EXECUTE FUNCTION fn_multi_day_stage_rows_are_rpc_owned()"
+        }
+      ]
+    },
+    {
+      "relname": "tournament_stages",
+      "columns": [
+        {
+          "name": "tournament_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "stage_no",
+          "type": "integer",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "day_no",
+          "type": "integer",
+          "default": null,
+          "notnull": true
+        },
+        {
+          "name": "end_after_level",
+          "type": "integer",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "scheduled_start_utc",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false
+        },
+        {
+          "name": "schedule_generation",
+          "type": "bigint",
+          "default": "1",
+          "notnull": true
+        },
+        {
+          "name": "state",
+          "type": "text",
+          "default": "'planned'::text",
+          "notnull": true
+        },
+        {
+          "name": "state_changed_at",
+          "type": "timestamp with time zone",
+          "default": "clock_timestamp()",
+          "notnull": true
+        }
+      ],
+      "checks": [
+        "CHECK ((day_no = stage_no))",
+        "CHECK (((stage_no = 1) OR (scheduled_start_utc IS NOT NULL)))",
+        "CHECK (((end_after_level IS NULL) OR (end_after_level >= 1)))",
+        "CHECK ((kind = 'day'::text))",
+        "PRIMARY KEY (tournament_id, stage_no)",
+        "CHECK ((schedule_generation >= 1))",
+        "CHECK ((stage_no >= 1))",
+        "CHECK ((state = ANY (ARRAY['planned'::text, 'running'::text, 'day_ending'::text, 'bagged'::text, 'scheduled'::text, 'resuming'::text, 'closed'::text])))"
+      ],
+      "triggers": [
+        {
+          "name": "tournament_stages_no_truncate",
+          "function": "CREATE OR REPLACE FUNCTION public.fn_multi_day_stage_rows_never_truncate()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\nBEGIN\n  RAISE EXCEPTION 'MULTI_DAY_STAGE_RECORD_IS_PERMANENT: TRUNCATE on % refused', TG_TABLE_NAME\n    USING ERRCODE = '55000';\nEND\n$function$\n",
+          "definition": "CREATE TRIGGER tournament_stages_no_truncate BEFORE TRUNCATE ON public.tournament_stages FOR EACH STATEMENT EXECUTE FUNCTION fn_multi_day_stage_rows_never_truncate()"
+        },
+        {
+          "name": "tournament_stages_rpc_owned",
+          "function": "CREATE OR REPLACE FUNCTION public.fn_multi_day_stage_rows_are_rpc_owned()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\nDECLARE\n  v_tournament uuid;\nBEGIN\n  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN\n    RAISE EXCEPTION 'MULTI_DAY_STAGE_RECORD_IS_PERMANENT: % on % refused', TG_OP, TG_TABLE_NAME\n      USING ERRCODE = '55000';\n  END IF;\n  v_tournament := NEW.tournament_id;\n  IF current_setting('app.multi_day_stage_writer', true) IS DISTINCT FROM v_tournament::text THEN\n    RAISE EXCEPTION 'MULTI_DAY_STAGE_WRITER_REQUIRED: % on % belongs to the stage RPCs', TG_OP, TG_TABLE_NAME\n      USING ERRCODE = '55000';\n  END IF;\n  IF TG_OP = 'INSERT' THEN\n    RETURN NEW;\n  END IF;\n\n  IF TG_TABLE_NAME = 'tournament_stages' THEN\n    IF (NEW.tournament_id, NEW.stage_no, NEW.kind, NEW.day_no, NEW.end_after_level)\n       IS DISTINCT FROM (OLD.tournament_id, OLD.stage_no, OLD.kind, OLD.day_no, OLD.end_after_level)\n       OR NEW.schedule_generation < OLD.schedule_generation THEN\n      RAISE EXCEPTION 'MULTI_DAY_STAGE_STRUCTURE_IS_SEALED' USING ERRCODE = '55000';\n    END IF;\n    RETURN NEW;\n  ELSIF TG_TABLE_NAME = 'tournament_qualification_entitlements' THEN\n    IF OLD.state = 'active' AND NEW.state = 'consumed'\n       AND (NEW.id, NEW.tournament_id, NEW.user_id, NEW.source_stage_no, NEW.source_registration_id,\n            NEW.source_bag_row_id, NEW.stack, NEW.bounty_head, NEW.target_stage_no, NEW.created_at)\n           IS NOT DISTINCT FROM\n           (OLD.id, OLD.tournament_id, OLD.user_id, OLD.source_stage_no, OLD.source_registration_id,\n            OLD.source_bag_row_id, OLD.stack, OLD.bounty_head, OLD.target_stage_no, OLD.created_at) THEN\n      RETURN NEW;\n    END IF;\n    RAISE EXCEPTION 'MULTI_DAY_ENTITLEMENT_IS_CONSUMED_ONCE' USING ERRCODE = '55000';\n  ELSIF TG_TABLE_NAME = 'tournament_stage_resume_receipts' THEN\n    IF (NEW.tournament_id, NEW.stage_no, NEW.resume_id, NEW.schedule_generation, NEW.first_level, NEW.claimed_at)\n       IS DISTINCT FROM\n       (OLD.tournament_id, OLD.stage_no, OLD.resume_id, OLD.schedule_generation, OLD.first_level, OLD.claimed_at)\n       OR OLD.completed_at IS NOT NULL THEN\n      RAISE EXCEPTION 'MULTI_DAY_RESUME_RECEIPT_IS_IMMUTABLE' USING ERRCODE = '55000';\n    END IF;\n    -- Exactly one of: completion, or a successor lease adopting it.\n    IF (NEW.completed_at IS NOT NULL AND NEW.lease_generation = OLD.lease_generation)\n       OR (NEW.completed_at IS NULL AND NEW.lease_generation IS DISTINCT FROM OLD.lease_generation) THEN\n      RETURN NEW;\n    END IF;\n    RAISE EXCEPTION 'MULTI_DAY_RESUME_RECEIPT_IS_IMMUTABLE' USING ERRCODE = '55000';\n  END IF;\n\n  RAISE EXCEPTION 'MULTI_DAY_STAGE_RECEIPT_IS_APPEND_ONLY: UPDATE on % refused', TG_TABLE_NAME\n    USING ERRCODE = '55000';\nEND\n$function$\n",
+          "definition": "CREATE TRIGGER tournament_stages_rpc_owned BEFORE INSERT OR DELETE OR UPDATE ON public.tournament_stages FOR EACH ROW EXECUTE FUNCTION fn_multi_day_stage_rows_are_rpc_owned()"
+        }
+      ]
+    }
+  ]
+}
