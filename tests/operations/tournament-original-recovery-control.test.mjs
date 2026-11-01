@@ -391,3 +391,198 @@ test('legal BREAK state survives the public canonical projection without private
     0
   );
 });
+
+const nightly = '37b4adc0-f9f4-484e-a914-3c50749055df';
+const nightlyOperation = '2b925cdd-aaa7-4d16-aff9-ef1fa22496f2';
+function closureFixture({
+  tournamentId = nightly,
+  requested = false,
+  failure,
+  lease = {},
+  state = {},
+} = {}) {
+  const calls = [];
+  const operation = tournamentId === nightly ? nightlyOperation : runtime.operation_id;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    if (url.includes('/health')) return { ok: true, json: async () => health };
+    if (url.includes('/engine_tournament_leases?'))
+      return {
+        ok: true,
+        json: async () => [
+          {
+            lease_generation: input.generation,
+            protocol_version: 2,
+            heartbeat_at: new Date().toISOString(),
+            ...lease,
+          },
+        ],
+      };
+    if (url.endsWith('/fn_ca_tournament_abort_stop_state'))
+      return requested
+        ? {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              state: 'stop_requested',
+              operation_id: operation,
+              tournament_id: tournamentId,
+              current_generation: input.generation,
+              pending: true,
+              ...state,
+            }),
+          }
+        : {
+            ok: false,
+            json: async () => ({ code: '55000', message: 'operator_abort_target_not_owned' }),
+          };
+    if (url.endsWith('/fn_ca_request_tournament_abort')) {
+      if (failure === 'busy')
+        return {
+          ok: false,
+          json: async () => ({ code: '55P03', message: 'CANCELLATION_GLOBAL_LANE_BUSY' }),
+        };
+      requested = true;
+      if (failure === 'timeout') throw Error('unknown');
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          operation_id: operation,
+          tournament_ids: [tournamentId],
+          stop_requested: true,
+        }),
+      };
+    }
+    if (url.endsWith('/admin/tournament-abort-boundary')) {
+      // Pending original is a real refusal, never a synthetic ACK.
+      return { ok: false, json: async () => ({ success: false }) };
+    }
+    throw Error('Unexpected Route');
+  };
+  return { calls, fetchImpl };
+}
+for (const tournamentId of [input.tournamentId, nightly]) {
+  test(`closure read and actual boundary refusal retain exact operation: ${tournamentId}`, async () => {
+    for (const action of ['abort_read', 'abort_ack']) {
+      const f = closureFixture({ tournamentId, requested: true });
+      const r = await controlOriginalRecovery(
+        { ...input, tournamentId, action },
+        { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+      );
+      assert.equal(
+        r.request.operationId,
+        tournamentId === nightly ? nightlyOperation : runtime.operation_id
+      );
+      assert.equal(r.outcome, action === 'abort_read' ? 'original_abort_readback' : 'unknown');
+      assert.equal(r.canonicalAfter.pending, true);
+      assert.equal(
+        f.calls.filter((x) => x.url.endsWith('/admin/tournament-abort-boundary')).length,
+        action === 'abort_ack' ? 1 : 0
+      );
+      assert.equal(
+        f.calls.filter((x) => /settle|recovery-prepare|request_tournament_abort/.test(x.url))
+          .length,
+        0
+      );
+    }
+  });
+  test(`unqualified added cohort cannot settle: ${tournamentId}`, async () => {
+    const f = closureFixture({ tournamentId, requested: true });
+    await assert.rejects(
+      controlOriginalRecovery(
+        { ...input, tournamentId, action: 'abort_settle', moneyHash: '0'.repeat(32) },
+        { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+      )
+    );
+    assert.equal(f.calls.length, 0);
+  });
+}
+for (const failure of [undefined, 'busy', 'timeout']) {
+  test(`Nightly request uses fixed intent once with durable readback: ${failure ?? 'success'}`, async () => {
+    const f = closureFixture({ failure });
+    const r = await controlOriginalRecovery(
+      { ...input, tournamentId: nightly, action: 'abort_request' },
+      { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+    );
+    const writes = f.calls.filter((x) => x.url.endsWith('/fn_ca_request_tournament_abort'));
+    assert.equal(writes.length, 1);
+    const payload = JSON.parse(writes[0].options.body);
+    assert.equal(payload.p_operation_id, nightlyOperation);
+    assert.deepEqual(payload.p_tournament_ids, [nightly]);
+    assert.equal(
+      payload.p_reason,
+      'Owner requested closure of all days-old frozen unfinished tournaments. Nightly 10K last recorded hand 2026-10-31T03:30:49Z; refund original charges while preserving earned prizes and hand history. Audit owner chat 01a193b0.'
+    );
+    assert.equal(
+      f.calls.filter((x) => x.url.endsWith('/fn_ca_tournament_abort_stop_state')).length,
+      2
+    );
+    assert.equal(r.outcome, failure ? 'unknown' : 'original_abort_requested_readback');
+    assert.equal(r.canonicalAfter.state, failure === 'busy' ? 'not_requested' : 'stop_requested');
+    assert.equal(JSON.stringify(r).includes('isolated-key'), false);
+  });
+}
+test('already requested Nightly never replays its request', async () => {
+  const f = closureFixture({ requested: true });
+  const r = await controlOriginalRecovery(
+    { ...input, tournamentId: nightly, action: 'abort_request' },
+    { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+  );
+  assert.equal(r.outcome, 'original_abort_already_requested');
+  assert.equal(f.calls.filter((x) => x.url.endsWith('/fn_ca_request_tournament_abort')).length, 0);
+});
+test('stale or changed lease refuses Nightly admission and still reads back', async () => {
+  for (const lease of [
+    { lease_generation: input.nonce },
+    { heartbeat_at: '2000-01-01T00:00:00Z' },
+    { heartbeat_at: 'invalid' },
+    { protocol_version: 1 },
+  ]) {
+    const f = closureFixture({ lease });
+    const r = await controlOriginalRecovery(
+      { ...input, tournamentId: nightly, action: 'abort_request' },
+      { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+    );
+    assert.equal(r.outcome, 'unknown');
+    assert.equal(
+      f.calls.filter((x) => x.url.endsWith('/fn_ca_request_tournament_abort')).length,
+      0
+    );
+    assert.equal(r.canonicalAfter.state, 'not_requested');
+  }
+});
+test('original89 cannot be re-requested and fixed Nightly cannot use recovery withdrawal', async () => {
+  for (const patch of [
+    { action: 'abort_request' },
+    { action: 'prepare', tournamentId: nightly },
+    { action: 'read', tournamentId: nightly },
+  ]) {
+    const f = closureFixture();
+    await assert.rejects(
+      controlOriginalRecovery(
+        { ...input, ...patch },
+        { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+      )
+    );
+    assert.equal(f.calls.length, 0);
+  }
+});
+test('intent is uploaded before any configured service actuation', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../../.github/workflows/tournament-original-recovery-control.yml', import.meta.url),
+    'utf8'
+  );
+  assert.ok(
+    source.indexOf('original20-control-intent-') < source.indexOf('One exact operator action')
+  );
+  assert.ok(source.indexOf('mjs intent') < source.indexOf('original20-control-intent-'));
+  assert.equal(
+    source
+      .slice(0, source.indexOf('One exact operator action'))
+      .includes('secrets.SUPABASE_SERVICE_ROLE_KEY'),
+    false
+  );
+  assert.match(source, /cancel-in-progress: false/);
+});

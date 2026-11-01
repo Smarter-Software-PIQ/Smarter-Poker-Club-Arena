@@ -9,6 +9,12 @@ const COHORT = JSON.parse(
     'utf8'
   )
 );
+const NIGHTLY = JSON.parse(
+  fs.readFileSync(
+    path.join(ROOT, 'scripts/ci/fixtures/tournament-recovery20/nightly-closure-intent.json'),
+    'utf8'
+  )
+);
 const ORIGIN = 'https://engine.smarter.poker';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Responses stay transient for strict control validation. The sole return
@@ -64,7 +70,7 @@ function publicCanonical(value) {
     ...fields(value, {
       ...publicTuple,
       ok: bool,
-      state: enums('stop_requested', 'quiesced', 'settled'),
+      state: enums('not_requested', 'stop_requested', 'quiesced', 'settled'),
       tournament_status: enums(
         'RUNNING',
         'BREAK',
@@ -118,7 +124,7 @@ function publicSettlement(value) {
 function publicResult(result) {
   const output = {
     request: fields(result.request, {
-      action: enums('prepare', 'read', 'abort_read', 'abort_ack', 'abort_settle'),
+      action: enums('prepare', 'read', 'abort_request', 'abort_read', 'abort_ack', 'abort_settle'),
       tournamentId: uuid,
       operationId: uuid,
       nonce: uuid,
@@ -153,27 +159,48 @@ function publicResult(result) {
       'Outcome Unknown. Read Same Operation And Canonical Disposition Before Any Repeat';
   return output;
 }
+export function originalControlIntent(input) {
+  const abort = ['abort_request', 'abort_read', 'abort_ack', 'abort_settle'].includes(input.action);
+  const nightly = input.tournamentId === NIGHTLY.tournamentId;
+  const allowed = abort
+    ? [...COHORT.original89, NIGHTLY.tournamentId]
+    : COHORT.natural_finish_twenty;
+  if (
+    (!abort && !['prepare', 'read'].includes(input.action)) ||
+    !allowed.includes(input.tournamentId) ||
+    (input.action === 'abort_request' && !nightly) ||
+    // The additional20 and Nightly do not have a qualified nonpaying probe.
+    (input.action === 'abort_settle' && !COHORT.unchanged_other69.includes(input.tournamentId)) ||
+    !UUID.test(input.nonce ?? '') ||
+    !UUID.test(input.generation ?? '') ||
+    !SHA.test(input.sha ?? '') ||
+    input.sha === 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
+    !INSTANCE.test(input.instance ?? '')
+  )
+    throw Error('Exact Original Recovery Identity Required; Additional Settlement Not Qualified');
+  return {
+    ...fields(input, {
+      action: enums('prepare', 'read', 'abort_request', 'abort_read', 'abort_ack', 'abort_settle'),
+      tournamentId: uuid,
+      nonce: uuid,
+      generation: uuid,
+      sha: matches(SHA),
+      instance: matches(INSTANCE),
+      moneyHash: matches(MONEY_HASH),
+    }),
+    operationId: nightly ? NIGHTLY.operationId : COHORT.original_operation_id,
+    ...(input.action === 'abort_request' ? { reason: NIGHTLY.reason } : {}),
+  };
+}
 export async function controlOriginalRecovery(
   input,
   { fetchImpl = fetch, serviceIdentity, supabaseUrl } = {}
 ) {
-  const abort = ['abort_read', 'abort_ack', 'abort_settle'].includes(input.action);
-  const allowed = abort ? COHORT.unchanged_other69 : COHORT.natural_finish_twenty;
-  if (
-    (!abort && !['prepare', 'read'].includes(input.action)) ||
-    !allowed.includes(input.tournamentId) ||
-    !UUID.test(input.nonce ?? '') ||
-    !UUID.test(input.generation ?? '') ||
-    !/^[0-9a-f]{40}$/.test(input.sha ?? '') ||
-    input.sha === 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
-    !/^[1-9][0-9]*-[0-9a-f]{8}$/.test(input.instance ?? '') ||
-    !serviceIdentity
-  )
-    throw Error('Exact Original Recovery Identity And Configured Service Required');
-  const result = {
-    request: { ...input, operationId: COHORT.original_operation_id },
-    outcome: 'unknown',
-  };
+  const intent = originalControlIntent(input);
+  if (!serviceIdentity) throw Error('Configured Service Required');
+  const abort = input.action.startsWith('abort_');
+  const operationId = intent.operationId;
+  const result = { request: intent, outcome: 'unknown' };
   async function health() {
     const response = await fetchImpl(`${ORIGIN}/health?original_recovery=${Date.now()}`, {
       redirect: 'error',
@@ -202,7 +229,7 @@ export async function controlOriginalRecovery(
         (input.action === 'abort_settle' && !/^[a-f0-9]{32}$/.test(input.moneyHash ?? ''))
       )
         throw Error('Canonical Database Or Reviewed Money Hash Required');
-      async function rpc(name, args) {
+      async function rpc(name, args, allowAbsent = false) {
         const response = await fetchImpl(`${database.origin}/rest/v1/rpc/${name}`, {
           method: 'POST',
           redirect: 'error',
@@ -214,11 +241,25 @@ export async function controlOriginalRecovery(
           },
           body: JSON.stringify(args),
         });
-        if (!response.ok) throw Error('Canonical Operation Readback Not Established');
+        if (!response.ok) {
+          const error = await response.json();
+          if (
+            allowAbsent &&
+            error?.code === '55000' &&
+            error?.message === 'operator_abort_target_not_owned'
+          )
+            return {
+              ok: true,
+              state: 'not_requested',
+              operation_id: operationId,
+              tournament_id: input.tournamentId,
+            };
+          throw Error('Canonical Operation Readback Not Established');
+        }
         return response.json();
       }
       const ids = {
-        p_operation_id: COHORT.original_operation_id,
+        p_operation_id: operationId,
         p_tournament_id: input.tournamentId,
       };
       function canonical(value) {
@@ -244,10 +285,63 @@ export async function controlOriginalRecovery(
           throw Error('Canonical Original Operation Or Generation Changed');
         return value;
       }
-      result.canonicalBefore = canonical(await rpc('fn_ca_tournament_abort_stop_state', ids));
+      async function readCanonical() {
+        const value = await rpc(
+          'fn_ca_tournament_abort_stop_state',
+          ids,
+          input.tournamentId === NIGHTLY.tournamentId
+        );
+        return value.state === 'not_requested' ? value : canonical(value);
+      }
+      result.canonicalBefore = await readCanonical();
+      if (
+        result.canonicalBefore.state === 'not_requested' &&
+        input.action !== 'abort_request' &&
+        input.action !== 'abort_read'
+      )
+        throw Error('Original Operation Not Requested');
       let mutationAttempted = false;
       try {
-        if (input.action === 'abort_ack') {
+        if (input.action === 'abort_request' && result.canonicalBefore.state === 'not_requested') {
+          // Read only the exact public lease tuple; never infer a current owner
+          // from target absence. The RPC still owns admission atomically.
+          const leaseResponse = await fetchImpl(
+            `${database.origin}/rest/v1/engine_tournament_leases?tournament_id=eq.${input.tournamentId}&select=lease_generation,protocol_version,heartbeat_at`,
+            {
+              redirect: 'error',
+              signal: AbortSignal.timeout(15000),
+              headers: { authorization: `Bearer ${serviceIdentity}`, apikey: serviceIdentity },
+            }
+          );
+          if (!leaseResponse.ok) throw Error('Current Lease Unreadable');
+          const leases = await leaseResponse.json();
+          const age = Date.now() - Date.parse(leases?.[0]?.heartbeat_at);
+          if (
+            !Array.isArray(leases) ||
+            leases.length !== 1 ||
+            leases[0].lease_generation !== input.generation ||
+            leases[0].protocol_version !== 2 ||
+            !Number.isFinite(age) ||
+            age < -5000 ||
+            age > 30000
+          )
+            throw Error('Current Lease Changed');
+          mutationAttempted = true;
+          const requested = await rpc('fn_ca_request_tournament_abort', {
+            p_operation_id: operationId,
+            p_tournament_ids: [input.tournamentId],
+            p_reason: NIGHTLY.reason,
+          });
+          if (
+            requested?.ok !== true ||
+            requested.operation_id !== operationId ||
+            requested.stop_requested !== true ||
+            !Array.isArray(requested.tournament_ids) ||
+            requested.tournament_ids.length !== 1 ||
+            requested.tournament_ids[0] !== input.tournamentId
+          )
+            throw Error('Request Receipt Unknown');
+        } else if (input.action === 'abort_ack') {
           mutationAttempted = true;
           const response = await fetchImpl(`${ORIGIN}/admin/tournament-abort-boundary`, {
             method: 'POST',
@@ -258,13 +352,13 @@ export async function controlOriginalRecovery(
               'content-type': 'application/json',
             },
             body: JSON.stringify({
-              operationId: COHORT.original_operation_id,
+              operationId,
               tournamentId: input.tournamentId,
             }),
           });
           if (!response.ok) throw Error('Abort Boundary Acknowledgement Unknown');
           const body = await response.json();
-          if (body.success !== true || body.runtime?.operation_id !== COHORT.original_operation_id)
+          if (body.success !== true || body.runtime?.operation_id !== operationId)
             throw Error('Abort Boundary Receipt Unknown');
           result.runtime = body.runtime;
         } else if (input.action === 'abort_settle' && result.canonicalBefore.state !== 'settled') {
@@ -285,10 +379,14 @@ export async function controlOriginalRecovery(
         result.mutationAcknowledgement = 'unknown';
       }
       // This one read is a durable observation, never another mutation/retry.
-      result.canonicalAfter = canonical(await rpc('fn_ca_tournament_abort_stop_state', ids));
+      result.canonicalAfter = await readCanonical();
       result.after = await health();
       if (result.mutationAcknowledgement === 'unknown') return publicResult(result);
       if (input.action === 'abort_read') result.outcome = 'original_abort_readback';
+      else if (input.action === 'abort_request' && result.canonicalAfter.state !== 'not_requested')
+        result.outcome = mutationAttempted
+          ? 'original_abort_requested_readback'
+          : 'original_abort_already_requested';
       else if (
         input.action === 'abort_settle' &&
         result.canonicalAfter.state === 'settled' &&
@@ -367,6 +465,20 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   };
   const output = process.env.RECOVERY_RECEIPT_PATH;
   if (!output || !path.isAbsolute(output)) throw Error('Owned Absolute Receipt Path Required');
+  const intentPath = process.env.RECOVERY_INTENT_PATH;
+  if (!intentPath || !path.isAbsolute(intentPath))
+    throw Error('Owned Absolute Intent Path Required');
+  const intent = originalControlIntent(input);
+  if (process.argv[2] === 'intent') {
+    fs.mkdirSync(path.dirname(intentPath), { recursive: true });
+    fs.writeFileSync(intentPath, JSON.stringify(intent, null, 2) + '\n', {
+      mode: 0o600,
+      flag: 'wx',
+    });
+    process.exit(0);
+  }
+  if (JSON.stringify(JSON.parse(fs.readFileSync(intentPath, 'utf8'))) !== JSON.stringify(intent))
+    throw Error('Uploaded Intent Changed');
   const result = await controlOriginalRecovery(input, {
     serviceIdentity: process.env.SUPABASE_SERVICE_ROLE_KEY,
     supabaseUrl: process.env.SUPABASE_URL,
