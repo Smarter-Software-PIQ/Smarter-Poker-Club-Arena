@@ -185,3 +185,117 @@ it('refuses an unknown or mismatched original write acknowledgement without a re
   ).rejects.toThrow('Write Is Unproven');
   expect(transport).toHaveBeenCalledOnce();
 });
+
+const privateBatch = {
+  version: 1 as const,
+  sequence: 1,
+  controller: 'PRIVATE_CONTROLLER',
+  events: [],
+  engine: {},
+};
+it.each([
+  ['ok', 'receipt_not_ok'],
+  ['table_id', 'receipt_table_id'],
+  ['hand_number', 'receipt_hand_number'],
+  ['sequence', 'receipt_sequence'],
+  ['sha256', 'receipt_sha256'],
+  ['writer_generation', 'receipt_writer_generation'],
+])('names only the mismatched %s receipt field without retrying', async (field, reason) => {
+  const transport = vi.fn(async (_name: string, args: Record<string, unknown>) => ({
+    data: {
+      ok: true,
+      table_id: ids.table_id,
+      hand_number: '42',
+      sequence: '1',
+      sha256: args.p_sha256,
+      writer_generation: writer,
+      [field]: 'PRIVATE_RECEIPT',
+    },
+    error: null,
+  }));
+  const failure = await retainHandContinuation(
+    ids,
+    writer,
+    [],
+    privateBatch,
+    () => true,
+    transport
+  ).catch((error: Error) => error);
+  expect(failure).toBeInstanceOf(Error);
+  expect((failure as Error).message).toBe(`Hand Continuation Write Is Unproven [${reason}]`);
+  expect(JSON.stringify(failure)).not.toContain('PRIVATE');
+  expect(transport).toHaveBeenCalledOnce();
+});
+it.each(['55P03', '40001', '57014', 'PRIVATE_CONTROLLER', '55P03\nsecret', 55, null])(
+  'retains only a well-shaped SQLSTATE from a returned transport error (%s)',
+  async (code) => {
+    const transport = vi.fn(async () => ({
+      data: null,
+      error: {
+        code,
+        message: 'PRIVATE_MESSAGE',
+        details: 'PRIVATE_CARDS',
+        hint: 'PRIVATE_PAYLOAD',
+      },
+    }));
+    const failure = await retainHandContinuation(
+      ids,
+      writer,
+      [],
+      privateBatch,
+      () => true,
+      transport
+    ).catch((error: Error) => error);
+    const sqlstate = typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? code : 'unknown';
+    expect((failure as Error).message).toBe(
+      `Hand Continuation Write Is Unproven [transport_error sqlstate=${sqlstate}]`
+    );
+    expect(failure).not.toHaveProperty('code');
+    expect(failure).not.toHaveProperty('cause');
+    expect(transport).toHaveBeenCalledOnce();
+  }
+);
+it('distinguishes lost ownership and missing receipt, preserving successful identity and raw rejection behavior', async () => {
+  const transport = vi.fn(async (_name: string, args: Record<string, unknown>) => ({
+    data: {
+      ok: true,
+      table_id: ids.table_id,
+      hand_number: '42',
+      sequence: '1',
+      sha256: args.p_sha256,
+      writer_generation: writer,
+    },
+    error: null,
+  }));
+  await expect(
+    retainHandContinuation(ids, writer, [], privateBatch, () => true, transport)
+  ).resolves.toBeUndefined();
+  expect(transport).toHaveBeenCalledOnce();
+  transport.mockClear();
+  await expect(
+    retainHandContinuation(ids, writer, [], privateBatch, () => false, transport)
+  ).rejects.toThrow('Owner Changed');
+  expect(transport).not.toHaveBeenCalled();
+  let current = true;
+  const lost = vi.fn(async () => {
+    current = false;
+    return { data: null, error: null };
+  });
+  await expect(
+    retainHandContinuation(ids, writer, [], privateBatch, () => current, lost)
+  ).rejects.toThrow('[owner_changed]');
+  const absent = vi.fn(async () => ({ data: null, error: null }));
+  await expect(
+    retainHandContinuation(ids, writer, [], privateBatch, () => true, absent)
+  ).rejects.toThrow('[receipt_missing]');
+  const original = new Error('transport rejection');
+  const rejected = vi.fn(async () => {
+    throw original;
+  });
+  await expect(
+    retainHandContinuation(ids, writer, [], privateBatch, () => true, rejected)
+  ).rejects.toBe(original);
+  expect(lost).toHaveBeenCalledOnce();
+  expect(absent).toHaveBeenCalledOnce();
+  expect(rejected).toHaveBeenCalledOnce();
+});
