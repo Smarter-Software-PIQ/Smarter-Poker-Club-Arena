@@ -173,6 +173,22 @@ async function expectBoardImagesReady(page: Page, count: 3 | 4): Promise<void> {
 }
 
 test('the big blind can open betting after calling on the prior street', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = window as Window & { legacyTurnControlMounted?: boolean };
+    state.legacyTurnControlMounted = false;
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) {
+          if (
+            node instanceof Element &&
+            (node.matches('.control-strip') || node.querySelector('.control-strip'))
+          ) {
+            state.legacyTurnControlMounted = true;
+          }
+        }
+    }).observe(document, { childList: true, subtree: true });
+  });
+
   // A cold lazy table module can mount after navigation's load event. Its
   // existing 60-second readiness budget must precede preference wire checks.
   let coldTableModuleReads = 0;
@@ -201,6 +217,11 @@ test('the big blind can open betting after calling on the prior street', async (
     expect(engine.accepted.map((action) => action.action)).toEqual(['call', 'check', 'call']);
     expect(engine.problems).toEqual([]);
     expect(engine.timeBankRequests).toEqual([]);
+    expect(
+      await page.evaluate(
+        () => (window as Window & { legacyTurnControlMounted?: boolean }).legacyTurnControlMounted
+      )
+    ).toBe(false);
   } finally {
     engine.dispose();
   }
