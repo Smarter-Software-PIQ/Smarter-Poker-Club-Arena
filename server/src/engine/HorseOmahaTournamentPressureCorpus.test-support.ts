@@ -323,4 +323,9 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // seat) reference base independently of any read; the corpus keeps the
   // explicit off arm (HorseDefenceByOpener.test.ts pins the real policy).
   v72DefenceByOpener: false,
+  // V73 (2026-11-01) answers a 3-bet to the horse's own hold'em open on a
+  // share of the seat's open width independently of any read; the corpus
+  // keeps the explicit off arm (HorseVs3BetDefence.test.ts pins the real
+  // policy).
+  v73Vs3BetDefence: false,
 };

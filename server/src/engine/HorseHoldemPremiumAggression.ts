@@ -53,6 +53,44 @@
  *     chooses between calling and raising. The only checks left are boards
  *     that have plainly passed the hand: four to a flush the horse does not
  *     hold, or four to a straight on the board.
+ *
+ *  4. NO 4-BET IS EVER MADE TO FOLD (Dan 2026-10-31, BINDING). Dan, verbatim:
+ *     "HORSES KEEP MAKING THESE WEIRD 4 BETS ANYTIME I 3 BET, THEN FOLD 100%
+ *     OF THE TIME TO A FIVE BET. YOU NEED TO FIX THIS AND STOP 4 BETTING POTS
+ *     IF THEY ARE FOLDING. ITS SPEWING CHIPS."
+ *     The recorded hand (2026-11-01 02:03 UTC, Saturday Mystery, about 107bb
+ *     deep): a horse opened QQ, Dan 3-bet, the horse 4-bet QQ, Dan moved all
+ *     in, and the horse folded QQ. The 4-bet came from rule 2 (QQ must
+ *     re-raise a 3-bet); the fold came from the brain's deep-tournament 5-bet
+ *     bar, which keeps only AA and KK. Two halves, both applied here, after
+ *     every owner and again at commit:
+ *       a. A sized re-raise over a 3-bet or more (a 4-bet, a non-all-in
+ *          5-bet) is made only with a hand that can call the 5-bet jam it
+ *          invites: QQ+ or AK, and only where the price allows (below).
+ *          Any other hand the brain wanted to re-raise with calls instead;
+ *          QQ/AK too deep to call a jam flat the 3-bet rather than 4-bet and
+ *          fold. An all-in re-raise is left alone: nothing is left to fold
+ *          to. Push/fold depth (20bb effective or less) is left to the brain.
+ *       b. A horse whose own 4-bet has been re-raised calls (AA/KK put the
+ *          rest in through rule 2) whenever the price allows - which, by a,
+ *          is every 4-bet it made unless the re-raise came from a deeper
+ *          stack than the one it 4-bet into.
+ *
+ *     THE PRICE (2026-11-01 refinement; Dan asked that #9065's "always call"
+ *     be reconciled with depth, sizing, pot odds and tournament context).
+ *     Facing a jam for the effective stack S after a 4-bet to F, with D dead
+ *     chips (blinds, antes, callers), a call needs (S - F) / (D + 2S) of the
+ *     pot. The hand's equity is read against a solver-style 5-bet jam range
+ *     (AA, KK, some QQ, AK, A5s/A4s): AA 0.85, KK 0.65, AKs 0.45, QQ 0.44,
+ *     AKo 0.43, JJ 0.42, TT 0.40, anything else 0.35. Tournaments add 0.03
+ *     for the chips a bust costs more than it wins; a raiser read as a maniac
+ *     adds 0.10 to the hand's equity (a wider jam range). Over a 9bb 3-bet
+ *     (4-bet to 2.3x) that lets QQ 4-bet and call off to about 178bb in cash
+ *     and 120bb in a tournament, AKo to about 152bb / 108bb and AKs to about
+ *     214bb / 136bb (the recorded 107bb QQ hand needs 0.41 and calls); deeper
+ *     they
+ *     flat. AA and KK always qualify. The range is opponent-blind: the same
+ *     for every player, adjusted only by the public-play maniac read.
  */
 import type { Card, CardRank, SeatPlayer } from '../types.js';
 import { nlhNutStatus, scoreHoldem } from './HorseEval.js';
@@ -78,13 +116,18 @@ export const HOLDEM_PREMIUM_VARIANTS: ReadonlySet<string> = new Set(['nlh']);
 export const BIG_RERAISE_MULTIPLE = 2.5;
 /** At or under this effective depth, preflop is push/fold: left to the brain. */
 export const PUSH_FOLD_EFFECTIVE_BB = 20;
+/** Rule 2's standard 4-bet: 2.3x the 3-bet plus one per caller. */
+export const FOUR_BET_MULTIPLE = 2.3;
 const TOKEN_CALL_REQUIRED_EQUITY = 0.15;
 const POSTFLOP_JAM_STACK_SHARE = 0.6;
 
 export type HoldemPremiumRule =
   | 'dominated_3bet_fold'
   | 'premium_preflop_raise'
-  | 'premium_postflop_bet';
+  | 'premium_postflop_bet'
+  | 'no_four_bet_bluff'
+  | 'premium_flat_deep_three_bet'
+  | 'four_bettor_continues';
 
 export interface HoldemPremiumDecision {
   action: string;
@@ -133,6 +176,8 @@ export interface HoldemPremiumInput {
   chipUnit?: number;
   /** False skips rule 1 (the commit-time recheck has no opponent reads). */
   dominatedFold?: boolean;
+  /** Tournament chips: rule 4's call price carries the bust premium. */
+  tournament?: boolean;
 }
 
 export interface HoldemPremiumVerdict<D extends HoldemPremiumDecision = HoldemPremiumDecision> {
@@ -143,7 +188,7 @@ export interface HoldemPremiumVerdict<D extends HoldemPremiumDecision = HoldemPr
 const rv = (c: Card | undefined): number => (c ? (RANK_VALUE[c.rank] ?? 0) : 0);
 const finite = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? n : 0);
 
-interface HoleShape {
+export interface HoleShape {
   hi: number;
   lo: number;
   pair: boolean;
@@ -233,13 +278,16 @@ function wetFlop(board: Card[]): boolean {
   return v[2] - v[0] <= 4;
 }
 
-interface PreflopRead {
+export interface PreflopRead {
   raises: number;
   level: number;
   previousLevel: number;
   lastRaiserSeat: number | null;
   callersSinceLastRaise: number;
   heroVoluntary: boolean;
+  /** The raise count right after the hero's own last raise (0 = none):
+   *  3 means the hero made the 4-bet. */
+  heroRaiseLevel: number;
 }
 
 function readPreflop(i: HoldemPremiumInput): PreflopRead {
@@ -250,6 +298,7 @@ function readPreflop(i: HoldemPremiumInput): PreflopRead {
   let lastRaiserSeat: number | null = null;
   let callersSinceLastRaise = 0;
   let heroVoluntary = false;
+  let heroRaiseLevel = 0;
   for (const a of i.actionHistory ?? []) {
     if (a.stage !== 'preflop') continue;
     const act = String(a.action);
@@ -262,6 +311,7 @@ function readPreflop(i: HoldemPremiumInput): PreflopRead {
         raises++;
         lastRaiserSeat = a.seat;
         callersSinceLastRaise = 0;
+        if (isHero) heroRaiseLevel = raises;
       } else if (act === 'all_in') {
         callersSinceLastRaise++;
       }
@@ -277,7 +327,94 @@ function readPreflop(i: HoldemPremiumInput): PreflopRead {
     previousLevel = level;
     level = current;
   }
-  return { raises, level, previousLevel, lastRaiserSeat, callersSinceLastRaise, heroVoluntary };
+  return {
+    raises,
+    level,
+    previousLevel,
+    lastRaiserSeat,
+    callersSinceLastRaise,
+    heroVoluntary,
+    heroRaiseLevel,
+  };
+}
+
+/** Rule 4b's spot: the hero's own 4-bet (or later re-raise) was re-raised. */
+function heroFourBetWasReRaised(read: PreflopRead): boolean {
+  return read.heroRaiseLevel >= 3 && read.raises > read.heroRaiseLevel;
+}
+
+/** Equity against a solver-style 5-bet jam range (rule 4's price read). */
+export function fiveBetJamEquity(h: HoleShape): number {
+  if (h.pair) {
+    if (h.hi === 14) return 0.85;
+    if (h.hi === 13) return 0.65;
+    if (h.hi === 12) return 0.44;
+    if (h.hi === 11) return 0.42;
+    if (h.hi === 10) return 0.4;
+    return 0.35;
+  }
+  if (h.hi === 14 && h.lo === 13) return h.suited ? 0.45 : 0.43;
+  return 0.35;
+}
+/** Rule 4: the bust premium a tournament call carries. */
+export const TOURNAMENT_FIVE_BET_CALL_MARGIN = 0.03;
+/** Rule 4: a maniac's jam range is wider; the hand plays better against it. */
+export const MANIAC_FIVE_BET_EQUITY_BONUS = 0.1;
+
+/**
+ * Rule 4's price: can the hero call a jam for the effective stack after a
+ * re-raise to `raiseTo` against the last raiser? (S - F) / (D + 2S).
+ */
+export function fourBetCommits(
+  i: HoldemPremiumInput,
+  h: HoleShape,
+  read: PreflopRead,
+  raiseTo: number
+): { commits: boolean; required: number; equity: number } {
+  const heroTotal = finite(i.hero.stack) + finite(i.hero.bet);
+  const live = i.players.filter((p) => p.seat !== i.hero.seat && !p.is_folded);
+  const raiser =
+    read.lastRaiserSeat === null ? undefined : live.find((p) => p.seat === read.lastRaiserSeat);
+  const villainTotal = raiser
+    ? finite(raiser.stack) + finite(raiser.bet)
+    : Math.max(0, ...live.map((p) => finite(p.stack) + finite(p.bet)));
+  const stackS = Math.min(heroTotal, villainTotal);
+  const f = Math.min(Math.max(raiseTo, finite(i.hero.bet)), stackS);
+  const dead = Math.max(
+    0,
+    finite(i.pot) - finite(i.hero.bet) - (raiser ? finite(raiser.bet) : finite(i.currentBet))
+  );
+  const maniac = read.lastRaiserSeat !== null && i.raiserIsManiac?.(read.lastRaiserSeat) === true;
+  const equity = fiveBetJamEquity(h) + (maniac ? MANIAC_FIVE_BET_EQUITY_BONUS : 0);
+  if (stackS <= 0 || f >= stackS - 0.005) return { commits: true, required: 0, equity };
+  const required =
+    (stackS - f) / (dead + 2 * stackS) + (i.tournament ? TOURNAMENT_FIVE_BET_CALL_MARGIN : 0);
+  return { commits: equity >= required, required, equity };
+}
+
+/**
+ * The no-4-bet-to-fold spot (rule 4) for an action record list, without
+ * cards: 'reraised_four_bet' when the hero's own 4-bet has been re-raised,
+ * 'facing_three_bet' when the hero faces a 3-bet or more and has not yet
+ * 4-bet, otherwise null. The live worker's receipt validation uses it to
+ * admit exactly the two de-escalations rule 4 makes.
+ */
+export function holdemFourBetSpot(i: {
+  gameVariant: string | undefined;
+  bettingStructure?: string;
+  stage: string;
+  hero: { seat: number };
+  currentBet: number;
+  bigBlind: number;
+  actionHistory?: readonly HoldemPremiumActionRecord[];
+}): 'reraised_four_bet' | 'facing_three_bet' | null {
+  const variant = String(i.gameVariant ?? '').toLowerCase();
+  if (!HOLDEM_PREMIUM_VARIANTS.has(variant) || String(i.stage) !== 'preflop') return null;
+  if (i.bettingStructure && i.bettingStructure !== 'no_limit') return null;
+  const read = readPreflop(i as unknown as HoldemPremiumInput);
+  if (heroFourBetWasReRaised(read)) return 'reraised_four_bet';
+  if (read.raises >= 2 && read.heroRaiseLevel < 3) return 'facing_three_bet';
+  return null;
 }
 
 function inScope(i: HoldemPremiumInput): boolean {
@@ -347,12 +484,32 @@ function preflopVerdict(
   const legal = new Set(i.legalActions ?? []);
   const bb = finite(i.bigBlind);
 
+  const deepEnough = effectiveBB(i, read.lastRaiserSeat) > PUSH_FOLD_EFFECTIVE_BB;
+
+  // 4b. A horse whose 4-bet was re-raised never folds: it calls, and AA/KK
+  // continue into rule 2 below and put the rest in.
+  let continued: HoldemPremiumDecision | null = null;
+  if (
+    decision.action === 'fold' &&
+    toCall > 0.005 &&
+    heroFourBetWasReRaised(read) &&
+    fourBetCommits(i, h, read, finite(i.hero.bet)).commits
+  ) {
+    if (legal.has('call')) continued = keepThink(decision, { action: 'call' });
+    else if (legal.has('all_in')) continued = keepThink(decision, { action: 'all_in' });
+  }
+  if (continued) {
+    const raised = premiumRaise(continued, i, h, read);
+    return raised ?? { rule: 'four_bettor_continues', decision: continued };
+  }
+
   // 1. Dominated hands fold to a big 3-bet.
   const raiserManiac =
     read.lastRaiserSeat !== null && i.raiserIsManiac?.(read.lastRaiserSeat) === true;
   if (
     i.dominatedFold !== false &&
     !raiserManiac &&
+    !heroFourBetWasReRaised(read) &&
     read.raises >= 2 &&
     toCall > 0.005 &&
     (decision.action === 'call' || decision.action === 'raise' || decision.action === 'all_in') &&
@@ -367,7 +524,41 @@ function preflopVerdict(
     }
   }
 
+  // 4a. A sized re-raise over a 3-bet or more is made only with QQ+/AK that
+  // can call the jam it invites. Every other hand calls instead, and QQ/AK
+  // too deep for the price flat, so no 4-bet is ever made to fold.
+  if (
+    decision.action === 'raise' &&
+    read.raises >= 2 &&
+    toCall > 0.005 &&
+    legal.has('call') &&
+    deepEnough
+  ) {
+    if (!isPremium(h)) {
+      return { rule: 'no_four_bet_bluff', decision: keepThink(decision, { action: 'call' }) };
+    }
+    const to = Number.isFinite(decision.amount)
+      ? (decision.amount as number)
+      : FOUR_BET_MULTIPLE * read.level + read.callersSinceLastRaise * read.level;
+    if (!fourBetCommits(i, h, read, to).commits) {
+      return {
+        rule: 'premium_flat_deep_three_bet',
+        decision: keepThink(decision, { action: 'call' }),
+      };
+    }
+  }
+
   // 2. Premiums raise preflop, never flat.
+  return premiumRaise(decision, i, h, read);
+}
+
+function premiumRaise(
+  decision: HoldemPremiumDecision,
+  i: HoldemPremiumInput,
+  h: HoleShape,
+  read: PreflopRead
+): HoldemPremiumVerdict | null {
+  const bb = finite(i.bigBlind);
   const passive = decision.action === 'call' || decision.action === 'check';
   if (!passive || !isPremium(h)) return null;
   if (!isTopPremium(h) && read.raises >= 3) return null;
@@ -377,7 +568,9 @@ function preflopVerdict(
   } else if (read.raises === 1) {
     to = 3 * read.level + read.callersSinceLastRaise * read.level;
   } else if (read.raises === 2) {
-    to = 2.3 * read.level + read.callersSinceLastRaise * read.level;
+    to = FOUR_BET_MULTIPLE * read.level + read.callersSinceLastRaise * read.level;
+    // Rule 4: QQ/AK too deep to call the jam this 4-bet invites flat instead.
+    if (read.heroRaiseLevel < 3 && !fourBetCommits(i, h, read, to).commits) return null;
   } else {
     to = Number.POSITIVE_INFINITY; // AA/KK over a 4-bet: get it in
   }

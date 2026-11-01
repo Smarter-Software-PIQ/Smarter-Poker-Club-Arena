@@ -154,6 +154,12 @@ import {
 import { gtoOpenBar, gtoOpenStrength, gtoSbLimpFloor } from './HorseGtoOpeningRanges.js';
 import { gtoDefence, V72_MAX_OPEN_BB } from './HorseGtoDefenceRanges.js';
 import {
+  gtoVs3Bet,
+  V73_MAX_THREEBET_X,
+  V73_MIN_EFFECTIVE_BB,
+  V73_MIN_THREEBET_X,
+} from './HorseGtoVs3BetRanges.js';
+import {
   decidePreflopV7,
   ploRaiseTo,
   PLO_MIN_OPEN_BB,
@@ -2211,6 +2217,16 @@ export interface HorseDecideOpts {
    *  charts instead of five position buckets; style, ICM, exploit, V53, V57
    *  and V60 move it as before. Default on; explicit false keeps today's. */
   v72DefenceByOpener?: boolean;
+  /** V73 (2026-11-01): Hold'em opener facing one 3-bet with nobody else in
+   *  (three or more dealt in, 25bb+ effective, 3-bet 1.8x-7x the open) - the
+   *  call-or-4-bet width is a share of the opener seat's own open width
+   *  (the 3-bet's minimum defence frequency into this pot times a per-seat,
+   *  in / out of position equity multiplier, then depth) read on a reference
+   *  continue order of pairs, suited hands and AKo/AQo, instead of a fixed
+   *  top-of-the-deck bar. Value 4-bets, the 4-bet bluff, the 5-bet branch
+   *  and the dominated-offsuit fold are unchanged. Default on; explicit
+   *  false keeps today's. */
+  v73Vs3BetDefence?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -3800,6 +3816,7 @@ export function holdemPremiumAggression(
       actionHistory: gs.actionHistory,
       chipUnit: gs.chipUnit ?? (isTournamentMode(gs) ? 1 : 0.01),
       dominatedFold: opts.holdemDominatedFold !== false,
+      tournament: isTournamentMode(gs),
       raiserIsManiac: (seatNo) => {
         const raiser = (gs.players ?? []).find((p) => p.seat === seatNo);
         if (!raiser) return false;
@@ -3814,6 +3831,10 @@ export function holdemPremiumAggression(
   if (telemetryOn(opts)) {
     if (verdict.rule === 'dominated_3bet_fold') noteFire('holdem_dominated_3bet_fold');
     else if (verdict.rule === 'premium_preflop_raise') noteFire('holdem_premium_preflop_raise');
+    else if (verdict.rule === 'no_four_bet_bluff') noteFire('holdem_no_four_bet_bluff');
+    else if (verdict.rule === 'four_bettor_continues') noteFire('holdem_four_bettor_continues');
+    else if (verdict.rule === 'premium_flat_deep_three_bet')
+      noteFire('holdem_premium_flat_deep_three_bet');
     else noteFire('holdem_premium_postflop_bet');
   }
   const next = verdict.decision;
@@ -6452,9 +6473,74 @@ export class HorseLogic {
         defender,
       } as const;
     })();
+    // ═══ V73 THE OPENER FACING A 3-BET (2026-11-01) ═══ hero made the only
+    // open, exactly one player re-raised and nobody has called either raise
+    // (no-limit hold'em, three or more dealt in, 25bb+ effective against the
+    // 3-bettor): the call-or-4-bet width is a share of hero's own seat's open
+    // width on the seat's continue order (HorseGtoVs3BetRanges). Both seats
+    // are indexed from the dealt census, never from who anybody is.
+    const gtoVs3Bet73 = (() => {
+      if (opts.v73Vs3BetDefence === false) return undefined;
+      if (raises !== 2 || !heroWasInitialRaiser || lastRaiserSeat < 0) return undefined;
+      if (callers !== 0 || limpers !== 0 || callersOfPreviousRaise !== 0) return undefined;
+      if (player.cards.length !== 2) return undefined;
+      if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
+      if (gs.allInOrFold === true || gs.straddleActive === true) return undefined;
+      // Hero's open is its only voluntary preflop action so far.
+      const heroActs = history.filter(
+        (a) => a.seat === player.seat && a.action !== 'fold' && a.action !== 'check'
+      ).length;
+      if (heroActs !== 1) return undefined;
+      const dealt73 = dealtHorseTableSize(gs, player.seat);
+      if (dealt73 < 3) return undefined;
+      const reRaiser = gs.players.find((p) => p.seat === lastRaiserSeat);
+      if (!reRaiser || reRaiser.is_all_in || player.bet <= 0) return undefined;
+      const threeBetX = gs.currentBet / player.bet;
+      if (!(threeBetX >= V73_MIN_THREEBET_X && threeBetX <= V73_MAX_THREEBET_X)) return undefined;
+      const effBB =
+        Math.min(player.stack + player.bet, (reRaiser.stack ?? 0) + (reRaiser.bet ?? 0)) / bb;
+      if (!(effBB >= V73_MIN_EFFECTIVE_BB)) return undefined;
+      const openerBehind = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+      const reRaiserBehind = preflopPlayersBehind(lastRaiserSeat, gs, opts.v13 !== false);
+      if (openerBehind === null || reRaiserBehind === null || reRaiserBehind >= openerBehind)
+        return undefined;
+      // Hero has position on every later street when the 3-bettor is a blind
+      // and hero is not (the small blind is out of position to the big blind).
+      const ip73 = reRaiserBehind <= 1 && openerBehind >= 2;
+      // The price: the blind the 3-bettor had posted is not new money, so the
+      // 3-bet's risk is its raise-to less that blind, and the pot it attacks
+      // is everything else in the middle (the open, blinds, any ante).
+      const posted73 =
+        reRaiserBehind === 0
+          ? Math.min(bb, reRaiser.bet)
+          : reRaiserBehind === 1
+            ? Math.min(gs.smallBlind ?? bb / 2, reRaiser.bet)
+            : 0;
+      const risk73 = Math.max(0, reRaiser.bet - posted73);
+      const potBefore73 = Math.max(0, gs.pot - risk73);
+      const r73 = gtoVs3Bet(player.cards[0], player.cards[1], {
+        openerBehind,
+        ip: ip73,
+        ante: (gs.ante ?? 0) > 0,
+        dealt: dealt73,
+        threeBetX,
+        potBeforeBB: potBefore73 / bb,
+        reRaiseRiskBB: risk73 / bb,
+        effectiveBB: effBB,
+        deepDiscipline: (opts.v21Deep ?? true) !== false,
+        tightness: params.tightness,
+      });
+      if (!r73) return undefined;
+      if (telemetryOn(opts)) noteFire('v73_vs3bet_defence');
+      return {
+        strength: clamp01(r73.continueStrength + strengthJitter),
+        continueBar: r73.continueBar,
+      };
+    })();
     const intent = decidePreflopV7({
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
+      ...(gtoVs3Bet73 ? { gtoVs3Bet: gtoVs3Bet73 } : {}),
       ...(ploIcm53 ? { ploIcm: ploIcm53.shifts } : {}),
       strength,
       position,

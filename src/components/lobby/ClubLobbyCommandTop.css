@@ -2697,3 +2697,241 @@
     font-weight: inherit;
   }
 }
+
+/* CHROME ARENA CONTROL DECK — owner-selected October 31 reference.
+   These are the existing live controls printed into complete painted keys.
+   Four tournament families share a row; cash retains its fifth All key.
+   Native artwork proportions and the independent 44px hit area are retained. */
+.club-home .club-lobby-command-top > .club-lobby-command-top__controls {
+  border: 0;
+  border-image: none;
+  background: #000;
+  box-shadow: none;
+}
+.club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls {
+  container: premium-lobby-controls / inline-size;
+}
+.club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls .game-bar {
+  display: block;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls .game-bar__types {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .game-bar__types:has(> :nth-child(5)) {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .game-bar__types
+  .game-bar__type {
+  position: relative;
+  container-type: inline-size;
+  isolation: isolate;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  height: auto;
+  aspect-ratio: 307 / 174;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #e4e7ec;
+  filter: none;
+  --lobby-key-font: 17cqw;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .game-bar__types
+  .game-bar__type::before {
+  content: '';
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 1;
+  border: 0;
+  box-shadow: none;
+  background: url('/assets/club-buttons/game-cards/nlh/spade-nlh-premium-v1/buttons/view-plate-10e21c24e5d6.png')
+    center / contain no-repeat;
+  clip-path: polygon(12% 10%, 88% 10%, 96% 24%, 96% 77%, 88% 90%, 12% 90%, 4% 77%, 4% 24%);
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .game-bar__types
+  .game-bar__type::after {
+  display: none;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .game-bar__types
+  .game-bar__type.is-active {
+  color: #45adff;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-filter-label {
+  position: absolute;
+  inset: 24% 12%;
+  display: grid;
+  place-items: center;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-filter-label__text {
+  font-size: calc(var(--lobby-key-font, 18px) * var(--fit, 1));
+}
+.club-home .club-lobby-command-top .lobby-controls #lobby-game-section-controls .lobby-refinements {
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 4px 0 0;
+  border: 0;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .quickprefs,
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .quickprefs__row--status {
+  display: contents;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .quickprefs__chip,
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .game-bar__filter-btn {
+  position: relative;
+  container-type: inline-size;
+  isolation: isolate;
+  grid-column: auto;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: url('/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png') center /
+    contain no-repeat;
+  box-shadow: none;
+  color: #e4e7ec;
+  filter: none;
+  --lobby-key-font: 12cqw;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .quickprefs__chip::before,
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .quickprefs__chip::after,
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .game-bar__filter-btn::before,
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .game-bar__filter-btn::after {
+  display: none;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .quickprefs__chip.is-on,
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .game-bar__filter-btn.is-set {
+  color: #45adff;
+}
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .game-bar__filter-btn:not(.is-set)
+  > * {
+  opacity: 1;
+}
+/* The desktop sidebar can be narrower than a phone. Size the painted plates
+   from their actual control region, rather than the browser viewport. */
+@container premium-lobby-controls (min-width: 660px) {
+  .club-home
+    .club-lobby-command-top
+    .lobby-controls
+    #lobby-game-section-controls
+    .lobby-refinements {
+    grid-auto-flow: column;
+    grid-template-columns: none;
+  }
+}
+/* Low-profile glass has room for one fitted line, not two lines on the rim. */
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .lobby-refinements
+  .lobby-filter-label__text[data-fit-wrap='true'] {
+  white-space: nowrap;
+}

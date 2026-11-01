@@ -38,6 +38,7 @@
  */
 
 import { useMemo } from 'react';
+import { useSessionHandStats } from '../../hooks/useSessionHandStats';
 import type { SessionStats } from '../../services/SessionStatsService';
 import './SessionAnalytics.css';
 
@@ -47,6 +48,7 @@ import './SessionAnalytics.css';
 
 export interface SessionAnalyticsProps {
   isOpen: boolean;
+  refreshRevision?: string;
   onClose: () => void;
   stats: SessionStats;
   currency?: string;
@@ -56,7 +58,20 @@ export interface SessionAnalyticsProps {
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export function SessionAnalytics({ isOpen, onClose, stats, currency = '' }: SessionAnalyticsProps) {
+export function SessionAnalytics({
+  isOpen,
+  onClose,
+  stats,
+  refreshRevision,
+  currency = '',
+}: SessionAnalyticsProps) {
+  const { stats: persistedHands } = useSessionHandStats(
+    stats.tableId,
+    stats.userId,
+    isOpen,
+    undefined,
+    refreshRevision
+  );
   // ── Sparkline rendering (from the recorded trajectory) ──
   const sparklinePoints = useMemo(() => {
     if (!stats.trajectory || stats.trajectory.length < 2) return '';
@@ -124,23 +139,43 @@ export function SessionAnalytics({ isOpen, onClose, stats, currency = '' }: Sess
           {/* Session counters, every one recorded by SessionStatsService */}
           <div className="sa-grid">
             <div className="sa-grid__item">
-              <span className="sa-grid__value">{stats.handsPlayed}</span>
+              <span className="sa-grid__value">
+                {persistedHands?.handsPlayed.toLocaleString() ?? '-'}
+              </span>
               <span className="sa-grid__label">Hands</span>
             </div>
             <div className="sa-grid__item">
-              <span className="sa-grid__value">{stats.handsWon}</span>
+              <span className="sa-grid__value">
+                {persistedHands?.handsWon?.toLocaleString() ?? '-'}
+              </span>
               <span className="sa-grid__label">Won</span>
             </div>
             <div className="sa-grid__item">
-              <span className="sa-grid__value">{stats.handsPerHour}</span>
+              <span className="sa-grid__value">
+                {persistedHands
+                  ? Math.round(
+                      persistedHands.handsPlayed /
+                        Math.max(
+                          (Date.parse(persistedHands.throughAt ?? new Date().toISOString()) -
+                            Date.parse(persistedHands.startedAt)) /
+                            3_600_000,
+                          1 / 3600
+                        )
+                    ).toLocaleString()
+                  : '-'}
+              </span>
               <span className="sa-grid__label">H/Hour</span>
             </div>
             <div className="sa-grid__item">
-              <span className="sa-grid__value">{stats.vpipPercent}%</span>
+              <span className="sa-grid__value">
+                {persistedHands?.vpipPercent == null ? '-' : `${persistedHands.vpipPercent}%`}
+              </span>
               <span className="sa-grid__label">VPIP</span>
             </div>
             <div className="sa-grid__item">
-              <span className="sa-grid__value">{stats.pfrPercent}%</span>
+              <span className="sa-grid__value">
+                {persistedHands?.pfrPercent == null ? '-' : `${persistedHands.pfrPercent}%`}
+              </span>
               <span className="sa-grid__label">PFR</span>
             </div>
             <div className="sa-grid__item">

@@ -1,0 +1,13 @@
+{
+  "_owner": "PR #9062: weekly rakeback receipts (20261101003530), the player's week so far (20261101022602) and Club Data verified so far (20261101030720). Pending protected-main installation through apply-merged-migration.",
+  "functions": [
+    "fn_my_weekly_rakeback_receipt",
+    "fn_my_rakeback_week_so_far",
+    "fn_club_rakeback_verified_so_far",
+    "smarter_private.club_rakeback_tally_rows"
+  ],
+  "tables": [
+    "smarter_private.club_rakeback_tally_hours",
+    "smarter_private.club_rakeback_tally_done"
+  ]
+}

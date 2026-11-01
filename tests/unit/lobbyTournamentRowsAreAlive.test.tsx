@@ -29,6 +29,7 @@ vi.mock('../../src/services/tableWarmup', () => ({
 vi.mock('../../src/hooks/useSpinTierAvailability', () => ({ useSpinTierAvailability: () => null }));
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   try {
     localStorage.clear();
   } catch {
@@ -112,12 +113,17 @@ describe('a tournament row says what makes it worth playing', () => {
     const heading = list.querySelector(`tr[data-tournament-heading="${entry.id}"]`)!;
     expect(within(heading as HTMLElement).getByText('10K Guarantee')).toBeTruthy();
     expect(heading.querySelector('strong')).toHaveTextContent('10K Guarantee');
-    expect(within(list).getByText(/^Starts In /)).toBeTruthy();
+    expect(list.querySelector('.premium-lobby-clock')).toHaveTextContent(/^Starts In \d+:\d{2}/);
+    expect(list.querySelector('.premium-lobby-clock__value')).toHaveTextContent(/\d+:\d{2}/);
   });
 });
 
 describe('a heading the player taps reorders the whole board', () => {
   it('Players reorders ordinary events while keeping top events pinned', () => {
+    // The fixture starts in 45 minutes and must remain on the viewer's day.
+    // A real clock after 23:15 correctly makes that event ineligible for a pin.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 31, 12));
     const featured = mtt(
       { id: 'small', name: 'Featured Small', current_players: 5 },
       { featured: true }
