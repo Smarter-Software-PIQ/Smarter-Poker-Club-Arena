@@ -7,6 +7,7 @@ import { resolve, dirname } from 'node:path';
  * is labelled Hero and no account, seating or gameplay operation is involved. */
 export function registerObserverAvatarSizingCases() {
   for (const [width, height, emptyBottom] of [
+    [320, 568, false],
     [467, 994, false],
     [600, 1277, false], // The production phone's desktop-reference viewport.
     [652, 996, false],
@@ -210,6 +211,11 @@ export function registerObserverAvatarSizingCases() {
         }, alphaRows);
       const before = await measure();
       expect(Math.max(...before.heights) - Math.min(...before.heights)).toBeLessThan(0.05);
+      const footer = await page.locator('.spectator-footer-bar').boundingBox();
+      for (const panel of before.panels)
+        expect(panel[1] + panel[3], 'observer panel clears the footer').toBeLessThanOrEqual(
+          footer!.y - 2.99
+        );
       await expect(page.locator('.seat--hero')).toHaveCount(0);
       await expect(page.locator('.spectator-footer-bar')).toHaveText('Spectating');
       await expect(page.locator('.action-btn')).toHaveCount(0);

@@ -6,4 +6,6 @@ The occupied bottom chair now supplies the display reference without changing an
 
 Normalization now uses computed pixel dimensions for proportional image slots. Integer `offsetHeight` rounded a real 73.78125px observer reference to 74px and produced a measurable mismatch. No table, card, panel or control dimensions changed.
 
+At initial allocation only, the observer's bottom reference moves up by any measured stack-panel intrusion into the spectator footer, plus the existing 3px clearance. The unchanged native bottom pod extended 45.19px below its rail anchor, into a 35.27px footer gap on a 320x568 phone. Its fitted position stays locked through focus, actions and new hands, and is recalculated only when the ring's real geometry or display reference changes. The seated Hero and all existing dimensions remain unchanged.
+
 Regression coverage includes mixed decoded artwork, occupied and empty bottom chairs, fractional dimensions, repeated preparation, reference protection, phone/reference-phone/iPad rendering, and fixed artwork through focus, actions and new hands. Spectator checks require zero Hero seats, the existing Spectating footer and no player action controls. Existing occupied-player layout checks remain in the same browser gate.
