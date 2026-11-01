@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272506,
-      "sha256": "94aca1a20691a86956145d8ccef3be096ac2b99493a2d8ec9ca396da1580379d"
+      "bytes": 272501,
+      "sha256": "04338555029b84b26150e9d1a81fd393f5a92dbb876c986577a963f6be764f12"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -1970,6 +1970,20 @@
     "currentCiPin": {
       "bytes": 272506,
       "sha256": "94aca1a20691a86956145d8ccef3be096ac2b99493a2d8ec9ca396da1580379d"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "standardUbuntuCompatibility20261101": {
+    "scope": "Pin accounting and browser-dependent CI jobs to previously qualified standard ubuntu-24.04 after ubuntu-latest moved to 26.04 and locked Playwright refused browser installation. All commands, deadlines, assertions and required gates preserved. Current source identity only; hosted validation pending.",
+    "previousCiPin": {
+      "bytes": 272506,
+      "sha256": "94aca1a20691a86956145d8ccef3be096ac2b99493a2d8ec9ca396da1580379d"
+    },
+    "currentCiPin": {
+      "bytes": 272501,
+      "sha256": "04338555029b84b26150e9d1a81fd393f5a92dbb876c986577a963f6be764f12"
     },
     "execution_performed": false,
     "historicalEvidenceRestamped": false,

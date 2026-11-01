@@ -23,6 +23,7 @@ describe('browser qualification parallel delivery', () => {
   it('uses only standard hosted runners across CI and publication', () => {
     for (const file of [
       'ci.yml',
+      'post-deploy-e2e.yml',
       'publish-club-arena.yml',
       'publish-club-arena-client.yml',
       'publish-club-arena-transaction.yml',
@@ -30,8 +31,28 @@ describe('browser qualification parallel delivery', () => {
       const workflow = YAML.parse(readFileSync('.github/workflows/' + file, 'utf8'));
       const jobs = Object.values(workflow.jobs) as Array<Record<string, any>>;
       expect(jobs.filter((job) => job['runs-on']).length).toBeGreaterThan(0);
-      for (const job of jobs.filter((job) => job['runs-on'])) {
-        expect(job['runs-on']).toBe('ubuntu-latest');
+      for (const [name, job] of Object.entries(workflow.jobs) as Array<
+        [string, Record<string, any>]
+      >) {
+        if (!job['runs-on']) continue;
+        const pinned =
+          (file === 'ci.yml' &&
+            [
+              'accounting_postgres',
+              'build',
+              'live-e2e',
+              'css-beats-e2e',
+              'diamond-playfield-e2e',
+            ].includes(name)) ||
+          (file === 'post-deploy-e2e.yml' &&
+            [
+              'private-record-client-proof',
+              'stats-pagination-proof',
+              'production-e2e',
+              'live-table-e2e',
+              'club-channel-lifecycle-e2e',
+            ].includes(name));
+        expect(job['runs-on']).toBe(pinned ? 'ubuntu-24.04' : 'ubuntu-latest');
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
     }
@@ -57,7 +78,9 @@ describe('browser qualification parallel delivery', () => {
 
   it('defaults required native qualification to the approved standard hosted profile', () => {
     for (const job of ['accounting_postgres', 'server_shards']) {
-      expect(ci.jobs[job]['runs-on']).toBe('ubuntu-latest');
+      expect(ci.jobs[job]['runs-on']).toBe(
+        job === 'accounting_postgres' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       expect(ci.jobs[job]['continue-on-error']).toBeUndefined();
       expect(ci.jobs[job].strategy.matrix.shard).toEqual(
         job === 'accounting_postgres' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4]

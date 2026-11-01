@@ -29,3 +29,10 @@ The connection, role and owned data-directory guards prevent applying the
 clock anchor to a connected database. Production migrations and every
 financial assertion remain unchanged. Focused PostgreSQL 17 qualification
 passed, including the subsequent real-clock calendar and downline scenarios.
+
+Normal CI then exposed an upstream runner-image change: ubuntu-latest
+resolved to Ubuntu 26.04, which locked Playwright 1.58 refused before browser
+checks could execute. Browser-dependent CI and post-publication jobs now pin
+the previously working standard Ubuntu 24.04 image; the accounting job uses
+the same stable image for PostgreSQL 17 prerequisites. No paid runner, test
+skip, deadline reduction or alternative publisher is introduced.
