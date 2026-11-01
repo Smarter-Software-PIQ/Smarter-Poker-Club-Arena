@@ -11,7 +11,9 @@ const requireFrame=value=>{if(!value)refuse('FD3_PROTOCOL');};
 
 export function safeNativeDumpDiagnostic(value) {
   const uint=(number,max)=>Number.isSafeInteger(number) && number>=0 && number<=max;
-  if(value?.version!==1 || !uint(value.records,100000) || !uint(value.bytes,MAX_BYTES) ||
+  const currentScope=value?.version===2 && value.object_scope==='effective-selected-components' && value.query_scope==='actual-network-requests';
+  const legacyScope=value?.version===1 && value.object_scope===undefined && value.query_scope===undefined;
+  if((!currentScope && !legacyScope) || !uint(value.records,100000) || !uint(value.bytes,MAX_BYTES) ||
     typeof value.stream_closed!=='boolean' || typeof value.pairs_complete!=='boolean')return null;
   const types={};
   for(const type of TYPES){
@@ -26,7 +28,7 @@ export function safeNativeDumpDiagnostic(value) {
     {type:item.type,started_at_us:item.started_at_us,unpaired_since_received_ms:item.unpaired_since_received_ms}:undefined;
   const object=span(value.last_unpaired_object),query=span(value.last_unpaired_query);
   if(object===undefined || query===undefined)return null;
-  return {version:1,records:value.records,bytes:value.bytes,stream_closed:value.stream_closed,
+  return {version:value.version,...(currentScope?{object_scope:value.object_scope,query_scope:value.query_scope}:{}),records:value.records,bytes:value.bytes,stream_closed:value.stream_closed,
     pairs_complete:value.pairs_complete,types,last_unpaired_object:object,last_unpaired_query:query};
 }
 
@@ -70,7 +72,7 @@ export function createNativeDumpDiagnostic() {
       requireFrame(!retired && Number.isSafeInteger(observedMs) && observedMs>=0 && observedMs<=45000);
       const open=span=>span?{type:span.type,started_at_us:span.us,
         unpaired_since_received_ms:Math.max(0,observedMs-span.receivedMs)}:null;
-      return {version:1,records:sequence,bytes,stream_closed:closed,
+      return {version:2,object_scope:'effective-selected-components',query_scope:'actual-network-requests',records:sequence,bytes,stream_closed:closed,
         pairs_complete:closed && sequence>0 && !object && !query,
         types:Object.fromEntries(TYPES.map(type=>[type,{...buckets[type]}])),
         last_unpaired_object:open(object),last_unpaired_query:open(query)};
@@ -101,6 +103,14 @@ export async function verifyNativeDumpBinary(env) {
     manifest.archive_sha256!==ARCHIVE_SHA ||
     manifest.builder_sha256!==await sourceHash('./native-dump-diagnostic.py') ||
     manifest.helper_sha256!==await sourceHash('./native-dump-diagnostic.c') ||
+    manifest.function_batch_helper_sha256!==await sourceHash('./native-dump-function-batch.c') ||
+    manifest.function_batch_contract_sha256!==await sourceHash('./native-dump-function-batch-test.c') ||
+    manifest.transport!=='consecutive-stock-function-executions-v1' ||
+    manifest.qualification?.function_count_above_production!==5507 ||
+    manifest.qualification?.function_batch_max!==128 ||
+    manifest.qualification?.native_batch_result_faults_refused!==true ||
+    manifest.qualification?.filtered_zero_one_equal!==true ||
+    manifest.qualification?.diagnostic_object_scope!=='effective-selected-components' ||
     manifest.binary_sha256!==digest(await read('bin/pg_dump',32*1024*1024,true)) ||
     manifest.libpq_sha256!==digest(await read('lib/libpq.so.5',16*1024*1024)) ||
     !['passed','sql_bytes_equal','fd3_records_valid','cluster_absent'].every(key=>manifest.qualification?.[key]===true))fail();
