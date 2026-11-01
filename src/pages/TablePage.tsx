@@ -2491,6 +2491,7 @@ function LiveTablePage({
     tableId,
     userId,
     event: engineLastEvent,
+    enabled: !followingPlayer,
     follow: (destination) => {
       if (tableId) sessionStatsService.moveSession(tableId, destination, userId);
       if (embeddedTableId) {
@@ -27345,7 +27346,7 @@ function LiveTablePage({
                   isActive={isActive}
                   /* Dan 2026-10-04: a seat the tournament has just moved here
                      is not "reconnecting" - say what happened. */
-                  movedHereAtMs={arrivedByMoveAtMs}
+                  movedHereAtMs={followingPlayer ? undefined : arrivedByMoveAtMs}
                   tableName={
                     tableState.tableName && tableState.tableName !== 'Loading...'
                       ? formatGameTitle(tableState.tableName)

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { pruneStaleSeatedTabs } from '../src/utils/tabSlots';
 import {
   movePlayerFollow,
   readPlayerFollow,
@@ -93,4 +94,31 @@ it('follows the maintained engine feed because the player table is not WAL-publi
   const source = readFileSync('src/components/table/PlayerFollowSubscription.tsx', 'utf8');
   expect(source).toContain('subscribeTournamentStandings(target.tournamentId');
   expect(source).not.toContain("'postgres_changes'");
+});
+
+it('preserves the watched player when our own seat leaves the same table on reconnect', () => {
+  const watched = {
+    ...source,
+    seated: true,
+    arrivedByMoveAt: 123,
+    isMyTurn: true,
+    holeCards: ['old'],
+  };
+  const tabs = pruneStaleSeatedTabs([watched, played], new Set(['played']));
+  expect(tabs.map((tab) => tab.id)).toEqual(['old', 'played']);
+  expect(tabs[0]).toMatchObject({ followPlayer: target, seated: false, isMyTurn: false });
+  expect(tabs[0].arrivedByMoveAt).toBeUndefined();
+  expect(tabs[0].holeCards).toBeUndefined();
+  const moved = movePlayerFollow(tabs, 0, 'old', target, destination, 4)!;
+  expect(moved.tabs[moved.activeIndex]).toEqual({ ...destination, followPlayer: target });
+  expect(moved.tabs).toContain(played);
+});
+
+it('keeps personal seat moves and their arrival message out of player watching', () => {
+  const multi = readFileSync('src/pages/MultiTablePage.tsx', 'utf8');
+  expect(multi).toContain('sameEventTabs.find((t) => t.seated === true && !t.followPlayer)');
+  expect(multi).not.toContain('?? sameEventTabs[0]');
+  const page = readFileSync('src/pages/TablePage.tsx', 'utf8');
+  expect(page).toContain('enabled: !followingPlayer');
+  expect(page).toContain('movedHereAtMs={followingPlayer ? undefined : arrivedByMoveAtMs}');
 });

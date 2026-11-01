@@ -1503,7 +1503,7 @@ export default function MultiTablePage() {
                   )
                 : [];
               // An observer of the same event is not the chair being moved.
-              const oldTab = sameEventTabs.find((t) => t.seated === true) ?? sameEventTabs[0];
+              const oldTab = sameEventTabs.find((t) => t.seated === true && !t.followPlayer);
               if (!newRow || !oldTab) {
                 // Not a recognisable balancer move - let the rebuild sort it out.
                 requestSeatResync();

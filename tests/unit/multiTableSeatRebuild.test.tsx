@@ -405,6 +405,30 @@ describe('Rendered MultiTable authoritative seat rebuild', () => {
     expect(screen.getByTestId('felt-B')).toBeTruthy();
   });
 
+  it('never replaces an observer when an own-seat INSERT has no confirmed source tab', async () => {
+    mount();
+    await waitFor(() => expect(state.reads).toHaveLength(1));
+    await settle(state.reads[0], []);
+    state.metadataResults.push({
+      data: ['A', 'B'].map((id) => ({
+        id,
+        name: 'Event - Table ' + id,
+        tournament_id: 'event',
+        small_blind: 1,
+        big_blind: 2,
+      })),
+      error: null,
+    });
+    await act(async () => state.inserts[0]({ new: { table_id: 'B', left_at: null } }));
+    expect(screen.getByTestId('felt-A')).toBeTruthy();
+    expect(screen.getByTestId('tabs').getAttribute('data-active')).toBe('A');
+    expect(state.moveSession).not.toHaveBeenCalled();
+    expect(state.toast.info).not.toHaveBeenCalledWith(
+      expect.stringContaining("You've Been Moved"),
+      expect.anything()
+    );
+  });
+
   it('moves the seated source rather than an earlier observer of the same event', async () => {
     mount();
     await waitFor(() => expect(state.reads).toHaveLength(1));

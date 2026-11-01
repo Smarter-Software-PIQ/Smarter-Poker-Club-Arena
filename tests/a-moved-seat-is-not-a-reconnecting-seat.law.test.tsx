@@ -158,7 +158,7 @@ describe('the move is announced once, whichever transport hears it first', () =>
     expect(MTP.match(/arrivedByMoveAtMs=\{table\.arrivedByMoveAt\}/g)).toHaveLength(2);
     const at = PAGE.indexOf('<DisconnectToast');
     const mount = PAGE.slice(at, PAGE.indexOf('/>', at));
-    expect(mount).toMatch(/movedHereAtMs=\{arrivedByMoveAtMs\}/);
+    expect(mount).toMatch(/movedHereAtMs=\{followingPlayer \? undefined : arrivedByMoveAtMs\}/);
     expect(mount).toMatch(/tableName=\{/);
   });
 });
