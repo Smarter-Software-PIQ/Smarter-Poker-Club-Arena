@@ -6,7 +6,18 @@ import { tournamentEntry, type LobbyTournamentRow } from '../../src/components/l
 import type { ArenaGameCardData } from '../../src/components/lobby/game-cards/arenaGameCardTypes';
 const lookup = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({
-  supabase: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: lookup.read }) }) }) },
+  supabase: {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: lookup.read,
+          abortSignal() {
+            return this;
+          },
+        }),
+      }),
+    }),
+  },
 }));
 afterEach(cleanup);
 function Destination({ kind, target }: { kind: 'mtt' | 'sng'; target?: string }) {

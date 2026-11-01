@@ -1,8 +1,10 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 const fx = vi.hoisted(() => ({
   rows: [] as any[],
   requests: [] as number[],
   fail: -1,
+  hang: -1,
+  signals: [] as AbortSignal[],
   removeAfterFirst: false,
 }));
 vi.mock('../../src/lib/supabase', () => ({
@@ -13,6 +15,10 @@ vi.mock('../../src/lib/supabase', () => ({
       let limit = 1000;
       const q: any = {
         select: () => q,
+        abortSignal: (signal: AbortSignal) => {
+          fx.signals.push(signal);
+          return q;
+        },
         eq: () => q,
         order: () => q,
         in: () => q,
@@ -32,6 +38,7 @@ vi.mock('../../src/lib/supabase', () => ({
           if (cursor !== null) offset = fx.rows.findIndex((row) => row.id > cursor);
           if (offset < 0) offset = fx.rows.length;
           fx.requests.push(offset);
+          if (offset === fx.hang) return new Promise(() => {});
           const page = fx.rows.slice(offset, offset + Math.min(limit, 1000));
           const count = cursor === null ? fx.rows.length : fx.rows.length - offset;
           if (fx.removeAfterFirst && fx.requests.length === 1) fx.rows = fx.rows.slice(1);
@@ -50,6 +57,8 @@ import { readTournamentStandings } from '../../src/services/readTournamentStandi
 beforeEach(() => {
   fx.requests = [];
   fx.fail = -1;
+  fx.hang = -1;
+  fx.signals = [];
   fx.rows = [];
   fx.removeAfterFirst = false;
 });
@@ -94,5 +103,22 @@ describe('standings snapshots include every table', () => {
     const result = await readTournamentStandings('mtt', 'id');
     expect(result.data).toBeNull();
     expect(result.error).toMatchObject({ message: 'refused' });
+  });
+});
+
+afterEach(() => vi.useRealTimers());
+describe('standings read liveness', () => {
+  it.each([0, 1000])('returns unknown when page at %i never answers', async (offset) => {
+    vi.useFakeTimers();
+    fx.rows = Array.from({ length: 1001 }, (_, i) => ({ id: String(i).padStart(8, '0') }));
+    fx.hang = offset;
+    let observed: Awaited<ReturnType<typeof readTournamentStandings>> | undefined;
+    void readTournamentStandings('mtt', 'id').then((result) => {
+      observed = result;
+    });
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(observed).toMatchObject({ data: null, count: null, error: expect.any(Error) });
+    expect(fx.signals.at(-1)?.aborted).toBe(true);
+    expect(fx.requests).toEqual(offset === 0 ? [0] : [0, 1000]);
   });
 });
