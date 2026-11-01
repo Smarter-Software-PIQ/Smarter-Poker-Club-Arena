@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272501,
+      "sha256": "04338555029b84b26150e9d1a81fd393f5a92dbb876c986577a963f6be764f12"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -325,8 +325,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 119070,
-      "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+      "bytes": 119066,
+      "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
     }
   },
   "nativePgCron": {
@@ -5866,6 +5866,24 @@
     "execution_performed": false,
     "historicalEvidenceRestamped": false
   },
+  "measuredShardThreeBalance20261031": {
+    "scope": "Source-only reassignment of three isolated suites from shard 3 to existing shards 2, 7 and 6. Commands, assertions, deadlines, artifacts, historical evidence and qualification state remain unchanged. Normal hosted qualification is pending.",
+    "updatedCurrentBindings": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 271733,
+          "sha256": "e539e5040954d7389b78d26b1a32ca70cf58007d3cd22ba5ef462254970df4c0"
+        },
+        "current": {
+          "bytes": 272042,
+          "sha256": "87a7288cfe92dcc026cc3a863ab6eccaa3c7ce5582fd059226d9a6b5ae905fa0"
+        }
+      }
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "tournamentBoundaryQualification20261031": {
     "reason": "Adds isolated tournament PostgreSQL regression to accounting shard 4; preserves existing cash commands, assertions and certificates. Current workflow source identity only.",
     "previous": {
@@ -5908,6 +5926,48 @@
     "current": {
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    }
+  },
+  "accountingBalanceMainIntegration20261031": {
+    "scope": "Merge current main add-on and highlighted-level qualification with measured shard routing. Preserve both parent audit histories and all qualification states. Current CI source identity only; protected integrated checks pending.",
+    "previousBranchCiPin": {
+      "bytes": 272042,
+      "sha256": "87a7288cfe92dcc026cc3a863ab6eccaa3c7ce5582fd059226d9a6b5ae905fa0"
+    },
+    "previousMainCiPin": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "currentCiPin": {
+      "bytes": 272506,
+      "sha256": "94aca1a20691a86956145d8ccef3be096ac2b99493a2d8ec9ca396da1580379d"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "standardUbuntuCompatibility20261101": {
+    "scope": "Pin accounting and browser-dependent CI jobs to previously qualified standard ubuntu-24.04 after ubuntu-latest moved to 26.04 and locked Playwright refused browser installation. All commands, deadlines, assertions and required gates preserved. Current source identity only; hosted validation pending.",
+    "previousCiPin": {
+      "bytes": 272506,
+      "sha256": "94aca1a20691a86956145d8ccef3be096ac2b99493a2d8ec9ca396da1580379d"
+    },
+    "currentCiPin": {
+      "bytes": 272501,
+      "sha256": "04338555029b84b26150e9d1a81fd393f5a92dbb876c986577a963f6be764f12"
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "fixtureContract": {
+      "previous": {
+        "bytes": 119070,
+        "sha256": "18a832acb3f4fe20c563e31766fa484ef8fc8049144703c9c57e8b954067087c"
+      },
+      "current": {
+        "bytes": 119066,
+        "sha256": "debbf954f88ff29f91ce421ec3d72b85b78e789f879088f5868c83f6d30310d2"
+      }
     }
   }
 }

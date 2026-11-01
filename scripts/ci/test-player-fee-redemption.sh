@@ -47,10 +47,7 @@ test -f "${SHARE[0]}"
 # boundary. This changes only this disposable database's zero-argument clock;
 # the original builtin definition is restored normally and by the EXIT trap.
 "${PSQL[@]}" -At -c "SELECT pg_get_functiondef('pg_catalog.now()'::regprocedure)" > "$WORK/restore-now.sql"
-"${PSQL[@]}" <<'FIXTURE_CLOCK'
-CREATE OR REPLACE FUNCTION pg_catalog.now() RETURNS timestamptz LANGUAGE sql STABLE PARALLEL SAFE AS $$ SELECT timestamptz '2026-10-25 12:00:00+00' $$;
-DO $$ BEGIN ASSERT now() = timestamptz '2026-10-25 12:00:00+00', 'historical fixture clock not installed'; END $$;
-FIXTURE_CLOCK
+"${PSQL[@]}" -v fixture_data_directory="$WORK/data" -f "$FIXTURE/fixture-clock.sql"
 # THE REPLAY READS THE CLOCK THE MIGRATION WAS INSTALLED UNDER (2026-10-31).
 # Its proof compares a seven-day window that starts at now() - 7 days with
 # cron splits filtered from that day's UTC midnight. The fixture's hands are

@@ -1394,7 +1394,7 @@ jobs:
     name: Accounting transactions (PostgreSQL 17) shard ${{ matrix.shard }}/7
     # Standard GitHub-hosted runners are free for this public repository.
     # Preserve the complete qualification matrix and fail-closed required verdict.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Run 35276340849 reached V31 after 26m13s and exhausted the 30m job cap.
     # V31 passed in 4m31s in 35276304884. Keep room for hosted runtime variance;
     # every case, statement, cleanup deadline and required gate stays unchanged.
@@ -1445,6 +1445,10 @@ jobs:
     # This balances measured work; it is not a promised future duration.
     # tests/ci-tells-the-truth-faster.law.test.ts pins the split:
     # every suite step belongs to exactly one shard.
+    # Seven-shard measurement: 1380/814/1994/1214/757/710/764 seconds.
+    # Move independent payout (187s), matcher (315s), and base chaos (115s)
+    # from shard 3 to 2/7/6. Same commands and seven runners; the Phase 13
+    # chaos chain stays on 3. Measured work predicts a 1380s maximum, not a guarantee.
     strategy:
       fail-fast: false
       matrix:
@@ -1944,7 +1948,7 @@ jobs:
         run: python3 scripts/ci/test-certification-retirement-postgres.py
 
       - name: Backed payout discovery preserves every conservation term
-        if: matrix.shard == 3
+        if: matrix.shard == 2
         run: python3 scripts/ci/test-backed-payout-scan-postgres.py
 
       - name: Reserved cleanup finds immutable cash sources without a trailing-key scan
@@ -2197,7 +2201,7 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-lightning-remediation-two.sh
       - name: Lightning Phases 6 and 7 match every legal hand, explain every idle player and rotate the blinds fairly
-        if: matrix.shard == 3
+        if: matrix.shard == 7
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-lightning-phase6-matcher.sh
@@ -2247,7 +2251,7 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-lightning-phase12-operator-alerts.sh
       - name: Lightning Phase 12 keeps money and identity exact under load, stress and chaos (real concurrent backends, cancels, terminations and timeouts) and forms under surge
-        if: matrix.shard == 3
+        if: matrix.shard == 6
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
           LIGHTNING_CHAOS_PROFILE: ci
@@ -3816,7 +3820,7 @@ jobs:
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true')
     name: Production Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -4022,7 +4026,7 @@ jobs:
     # that is the "is main actually green" net (see the schedule note).
     if: github.event_name == 'schedule' && github.event.schedule == '35 6 * * *'
     name: Live Production E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
@@ -4439,7 +4443,7 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         partition: [general, portrait]
     # Free standard hosted runners retain every browser shard and the disk-capacity guard.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Run35289214041 needed 9.6m for beats, 7m for Studio, plus 3.3m
     # to build/install; 20m killed the final financial-decision suite.
     # Preserve every suite and its own deadlines, with room for cleanup.
@@ -4834,7 +4838,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 7.1 minutes measured inside the old job; room for a slow browser install.
     timeout-minutes: 25
 

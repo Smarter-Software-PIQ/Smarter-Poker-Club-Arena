@@ -11,7 +11,7 @@ const recovery = " && vars.CA_REQUIRED_NATIVE_PROFILE == 'large'";
 const expression = (standard: string) =>
   '$' + '{{ ' + trusted + recovery + " && 'ca-linux-8core' || '" + standard + "' }}";
 const jobs = [
-  ['accounting_postgres', ci.jobs.accounting_postgres, 'ubuntu-latest'],
+  ['accounting_postgres', ci.jobs.accounting_postgres, 'ubuntu-24.04'],
   ['server_shards', ci.jobs.server_shards, 'ubuntu-latest'],
   ['native-smoke', native.jobs['native-smoke'], 'ubuntu-24.04'],
 ] as const;
@@ -144,6 +144,23 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     installers[0].run = installers[0].run.replace(newInstallCase, '');
     // Normalize only reviewed routing changes; the existing whole-job hashes
     // still enforce every command, assertion, timeout, artifact and ordering.
+    for (const [name, shard] of [
+      [
+        'Lightning Phases 6 and 7 match every legal hand, explain every idle player and rotate the blinds fairly',
+        7,
+      ],
+      [
+        'Lightning Phase 12 keeps money and identity exact under load, stress and chaos (real concurrent backends, cancels, terminations and timeouts) and forms under surge',
+        6,
+      ],
+    ]) {
+      const selected = normalized.jobs.accounting_postgres.steps.filter(
+        (step: { name: string }) => step.name === name
+      );
+      expect(selected).toHaveLength(1);
+      expect(selected[0].if).toBe(`matrix.shard == ${shard}`);
+      selected[0].if = 'matrix.shard == 3';
+    }
     const remappedSteps = [
       ['Backed payout discovery preserves every conservation term', 'matrix.shard == 4'],
       ['Every Diamond SQL acceptance runner is listed', 'matrix.shard == 3'],
@@ -163,12 +180,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
           ? `always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.diamond_sql_acceptance.outcome)`
           : previous;
       expect(selected[0].if).toBe(
-        oldCondition.replace(
-          /matrix.shard == [34]/,
-          name === 'Backed payout discovery preserves every conservation term'
-            ? 'matrix.shard == 3'
-            : 'matrix.shard == 2'
-        )
+        oldCondition.replace(/matrix.shard == [34]/, 'matrix.shard == 2')
       );
       selected[0].if = oldCondition;
     }
@@ -233,8 +245,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       server: 'ubuntu-latest',
       verdict: 'ubuntu-latest',
       'css-beats-gate': 'ubuntu-latest',
-      'css-beats-e2e': 'ubuntu-latest',
-      'diamond-playfield-e2e': 'ubuntu-latest',
+      'css-beats-e2e': 'ubuntu-24.04',
+      'diamond-playfield-e2e': 'ubuntu-24.04',
     };
     // Assert each authorized route before normalizing just that field. The
     // exhaustive sectional fingerprints protect every command and financial gate.
@@ -243,7 +255,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['typecheck_compile', 'unit_shards', 'build']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'build' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['changes', 'source_windows', 'stub_gate']) {
@@ -251,11 +265,15 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['live-e2e', 'post-deploy-check']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'live-e2e' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = formerClientRoute.replace('4core', '8core');
     }
     for (const name of ['accounting_postgres', 'server_shards']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'accounting_postgres' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = expression('ubuntu-latest');
     }
     expect(normalized.jobs.unit_shards.env.VITEST_MAX_THREADS).toBe(8);

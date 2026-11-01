@@ -648,7 +648,7 @@ class CurrentAccountingIdentityTests(unittest.TestCase):
         body = self.job_response()
         # Only the standard accounting_postgres route is approved; retain
         # the provider's exact selected singleton in the timing receipt.
-        for labels in (['ubuntu-latest'],):
+        for labels in (['ubuntu-24.04'],):
             body['jobs'][0]['labels'] = labels
             selected, timing = ci.timing_observation(current, body, 1000)
             self.assertEqual(selected['labels'], labels)
@@ -660,11 +660,11 @@ class CurrentAccountingIdentityTests(unittest.TestCase):
                 with self.subTest(labels=labels, mutation=mutation), self.assertRaises(ci.TimingRequestRefused):
                     ci.timing_observation(current, changed, 1000)
         self.assertIn('/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/', ci.timing_url(current))
-        for labels in (None, [], 'ubuntu-latest', ['ca-linux-8core'], ['ca-linux-4core'], ['ubuntu-24.04'],
+        for labels in (None, [], 'ubuntu-latest', ['ca-linux-8core'], ['ca-linux-4core'], ['ubuntu-latest'], 'ubuntu-24.04',
                        ['self-hosted'], ['ca-linux-8core', 'self-hosted'],
-                       ['ubuntu-latest', 'self-hosted'], ['self-hosted', 'ubuntu-latest'],
-                       ['ca-linux-8core', 'ubuntu-latest'], ['ubuntu-latest', 'ca-linux-8core'],
-                       ['ubuntu-latest', 'ubuntu-latest']):
+                       ['ubuntu-24.04', 'self-hosted'], ['self-hosted', 'ubuntu-24.04'],
+                       ['ca-linux-8core', 'ubuntu-24.04'], ['ubuntu-24.04', 'ca-linux-8core'],
+                       ['ubuntu-24.04', 'ubuntu-24.04']):
             body['jobs'][0]['labels'] = labels
             with self.subTest(labels=labels), self.assertRaises(ci.TimingRequestRefused) as caught:
                 ci.timing_observation(current, body, 1000)
@@ -679,7 +679,7 @@ class CurrentAccountingIdentityTests(unittest.TestCase):
     def job_response(self):
         return {'total_count':1,'jobs':[{'id':42,'run_id':123,'name':ci.ACCOUNTING_JOB_NAME,
                 'runner_name':self.env['RUNNER_NAME'],'head_sha':self.source,'status':'in_progress',
-                'conclusion':None,'completed_at':None,'labels':['ubuntu-latest'],
+                'conclusion':None,'completed_at':None,'labels':['ubuntu-24.04'],
                 'started_at':'1970-01-01T00:16:30Z'}]}
 
     def test_actual_job_start_supplies_finite_caps_without_invocation_time(self):

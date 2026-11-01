@@ -23,6 +23,7 @@ describe('browser qualification parallel delivery', () => {
   it('uses only standard hosted runners across CI and publication', () => {
     for (const file of [
       'ci.yml',
+      'post-deploy-e2e.yml',
       'publish-club-arena.yml',
       'publish-club-arena-client.yml',
       'publish-club-arena-transaction.yml',
@@ -30,8 +31,28 @@ describe('browser qualification parallel delivery', () => {
       const workflow = YAML.parse(readFileSync('.github/workflows/' + file, 'utf8'));
       const jobs = Object.values(workflow.jobs) as Array<Record<string, any>>;
       expect(jobs.filter((job) => job['runs-on']).length).toBeGreaterThan(0);
-      for (const job of jobs.filter((job) => job['runs-on'])) {
-        expect(job['runs-on']).toBe('ubuntu-latest');
+      for (const [name, job] of Object.entries(workflow.jobs) as Array<
+        [string, Record<string, any>]
+      >) {
+        if (!job['runs-on']) continue;
+        const pinned =
+          (file === 'ci.yml' &&
+            [
+              'accounting_postgres',
+              'build',
+              'live-e2e',
+              'css-beats-e2e',
+              'diamond-playfield-e2e',
+            ].includes(name)) ||
+          (file === 'post-deploy-e2e.yml' &&
+            [
+              'private-record-client-proof',
+              'stats-pagination-proof',
+              'production-e2e',
+              'live-table-e2e',
+              'club-channel-lifecycle-e2e',
+            ].includes(name));
+        expect(job['runs-on']).toBe(pinned ? 'ubuntu-24.04' : 'ubuntu-latest');
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
     }
@@ -57,7 +78,9 @@ describe('browser qualification parallel delivery', () => {
 
   it('defaults required native qualification to the approved standard hosted profile', () => {
     for (const job of ['accounting_postgres', 'server_shards']) {
-      expect(ci.jobs[job]['runs-on']).toBe('ubuntu-latest');
+      expect(ci.jobs[job]['runs-on']).toBe(
+        job === 'accounting_postgres' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       expect(ci.jobs[job]['continue-on-error']).toBeUndefined();
       expect(ci.jobs[job].strategy.matrix.shard).toEqual(
         job === 'accounting_postgres' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4]
@@ -479,6 +502,32 @@ describe('one exact-run disposable browser artifact', () => {
       expect(checked.status, checked.stderr).toBe(mutation === 'valid' ? 0 : 1);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('measured accounting shard balance preserves isolated suites', () => {
+  it('routes only the three independent suites and keeps the Phase 13 chain on shard 3', () => {
+    for (const [name, shard] of [
+      ['Backed payout discovery preserves every conservation term', 2],
+      [
+        'Lightning Phases 6 and 7 match every legal hand, explain every idle player and rotate the blinds fairly',
+        7,
+      ],
+      [
+        'Lightning Phase 12 keeps money and identity exact under load, stress and chaos (real concurrent backends, cancels, terminations and timeouts) and forms under surge',
+        6,
+      ],
+      [
+        'Lightning Phase 12 load, stress and chaos rig over the chain through Phase 13 (operator doors, remediation and the rollout drain applied twice)',
+        3,
+      ],
+    ]) {
+      const selected = ci.jobs.accounting_postgres.steps.filter(
+        (step: { name: string }) => step.name === name
+      );
+      expect(selected).toHaveLength(1);
+      expect(selected[0].if).toBe(`matrix.shard == ${shard}`);
     }
   });
 });
