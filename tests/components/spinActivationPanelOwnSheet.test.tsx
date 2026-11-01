@@ -29,6 +29,18 @@ vi.mock('../../src/components/common/Toast', () => ({
   useToast: () => ({ success: toastSuccess, error: toastError }),
 }));
 
+vi.mock('../../src/stores/useUserStore', () => ({
+  useUserStore: (select: any) => select({ user: { id: 'viewer' } }),
+}));
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: { request: async (_key: string, run: () => unknown) => run() },
+  });
+});
+
 import SpinActivationPanel from '../../src/components/club/SpinActivationPanel';
 
 const source = readFileSync('src/components/club/SpinActivationPanel.tsx', 'utf8');
@@ -116,11 +128,11 @@ describe('what the panel prints', () => {
     expect(screen.getByText('You Pay Now').parentElement).toHaveTextContent(`${quoted} Chips`);
     expect(document.body.textContent).not.toMatch(/\d\.\d/);
 
-    // The request still carries the exact amount the pool is short.
+    // The request carries the whole-chip amount displayed and required by the route.
     activate.mockRejectedValue(new Error('Chip Treasury Cannot Cover This Seed'));
     await userEvent.setup().click(buttons[0]);
     await waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
-    expect(activate.mock.calls[0][1]).toBeCloseTo(charge, 6);
+    expect(activate.mock.calls[0][1]).toBe(Math.ceil(charge));
     // A refusal stays on the panel after the toast has gone.
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Chip Treasury Cannot Cover This Seed'

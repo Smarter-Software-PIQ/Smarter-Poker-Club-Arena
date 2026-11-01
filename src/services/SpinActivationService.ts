@@ -99,7 +99,8 @@ export interface SpinOwnerState {
 async function call<T>(
   body: Record<string, unknown>,
   idempotencyKey?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  actorId?: string
 ): Promise<T> {
   const {
     data: { session },
@@ -107,6 +108,8 @@ async function call<T>(
   if (signal?.aborted) throw new DOMException('The Request Was Cancelled.', 'AbortError');
   const token = session?.access_token;
   if (!token) throw new Error('Not authenticated');
+  if (actorId && session.user?.id !== actorId)
+    throw new Error('The Spin Request Belongs To Another Account.');
 
   const response = await fetch('/api/club-arena/spin-activation', {
     method: 'POST',
@@ -133,6 +136,9 @@ async function call<T>(
       throw new SpinCommandRefusedError(data?.error || 'Spin command refused');
     }
     throw new Error(data?.error || `Spin activation request failed (HTTP ${response.status})`);
+  }
+  if (body.action !== 'get_state' && data?.result?.ok !== true) {
+    throw new Error('The Spin Command Receipt Could Not Be Verified.');
   }
   return data as T;
 }
@@ -176,24 +182,42 @@ export const spinActivationApi = {
     seedAmount: number,
     offeredMaxStake: number,
     sourceWallet: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    identity?: { actorId: string; ownerId: string }
   ) {
-    return call<{ result: Record<string, unknown> }>(
-      {
-        action: 'activate',
-        clubId,
-        seedAmount,
-        offeredMaxStake,
-        sourceWallet,
-      },
-      idempotencyKey
+    return runWithRequestDeadline((signal) =>
+      call<{ result: Record<string, unknown> }>(
+        {
+          action: 'activate',
+          clubId,
+          seedAmount,
+          offeredMaxStake,
+          sourceWallet,
+          ...(identity ? { expectedOwnerId: identity.ownerId } : {}),
+        },
+        idempotencyKey,
+        signal,
+        identity?.actorId
+      )
     );
   },
 
-  deactivate(clubId: string, idempotencyKey?: string) {
-    return call<{ result: Record<string, unknown> }>(
-      { action: 'deactivate', clubId },
-      idempotencyKey
+  deactivate(
+    clubId: string,
+    idempotencyKey?: string,
+    identity?: { actorId: string; ownerId: string }
+  ) {
+    return runWithRequestDeadline((signal) =>
+      call<{ result: Record<string, unknown> }>(
+        {
+          action: 'deactivate',
+          clubId,
+          ...(identity ? { expectedOwnerId: identity.ownerId } : {}),
+        },
+        idempotencyKey,
+        signal,
+        identity?.actorId
+      )
     );
   },
 };
