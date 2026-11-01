@@ -2278,7 +2278,7 @@ def control_inventory(request):
 
 def _control_inventory_at(request,parent,repo):
     deadline=time.monotonic()+12
-    git_env={**os.environ,'GIT_NO_REPLACE_OBJECTS':'1','GIT_NO_LAZY_FETCH':'1','GIT_OPTIONAL_LOCKS':'0'}
+    git_env={**{k:v for k,v in os.environ.items() if not k.startswith('GIT_')},'GIT_NO_REPLACE_OBJECTS':'1','GIT_NO_LAZY_FETCH':'1','GIT_OPTIONAL_LOCKS':'0'}
     link=parent/'engine-control'
     if not link.is_symlink(): raise ValueError('Control inventory refused')
     target=link.resolve(strict=True)

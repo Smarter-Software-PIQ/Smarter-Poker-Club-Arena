@@ -2371,6 +2371,7 @@ class ControlInventoryTests(unittest.TestCase):
     def git(self, source):
         def call(args, **kwargs):
             self.assertEqual(args[0],'git')
+            self.assertFalse(any(k.startswith('GIT_') and k not in {'GIT_NO_REPLACE_OBJECTS','GIT_NO_LAZY_FETCH','GIT_OPTIONAL_LOCKS'} for k in kwargs['env']))
             self.assertEqual({k:kwargs['env'].get(k) for k in ['GIT_NO_REPLACE_OBJECTS','GIT_NO_LAZY_FETCH','GIT_OPTIONAL_LOCKS']},
                              {'GIT_NO_REPLACE_OBJECTS':'1','GIT_NO_LAZY_FETCH':'1','GIT_OPTIONAL_LOCKS':'0'})
             if 'merge-base' in args: return subprocess.CompletedProcess(args,0)
@@ -2380,11 +2381,46 @@ class ControlInventoryTests(unittest.TestCase):
                 stdout=(str(len(raw)).encode() if '-s' in args and raw is not None else raw or b''))
         return call
 
+    def test_poisoned_git_routing_cannot_touch_private_sentinel(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sentinel=Path(folder)/'sentinel';sentinel.mkdir()
+            clean={k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
+            def git(*args):
+                return subprocess.run(['git','-C',str(sentinel),*args],env=clean,check=True,capture_output=True).stdout.strip().decode()
+            git('init','--quiet');(sentinel/'retained.txt').write_text('private sentinel working file')
+            git('add','retained.txt');tree=git('write-tree')
+            identity={**clean,'GIT_AUTHOR_NAME':'Sentinel','GIT_AUTHOR_EMAIL':'fixture@example.invalid','GIT_COMMITTER_NAME':'Sentinel','GIT_COMMITTER_EMAIL':'fixture@example.invalid'}
+            sha=subprocess.run(['git','-C',str(sentinel),'commit-tree',tree,'-m','Sentinel'],env=identity,check=True,capture_output=True).stdout.strip().decode()
+            git('update-ref','refs/remotes/origin/main',sha)
+            config=sentinel/'private-config';config.write_text('[core]\n bare = true\n')
+            poison={**clean,'GIT_DIR':str(sentinel/'.git'),'GIT_COMMON_DIR':str(sentinel/'.git'),
+                    'GIT_WORK_TREE':str(sentinel),'GIT_INDEX_FILE':str(sentinel/'.git/index'),
+                    'GIT_OBJECT_DIRECTORY':str(sentinel/'.git/objects'),
+                    'GIT_ALTERNATE_OBJECT_DIRECTORIES':str(sentinel/'.git/objects'),
+                    'GIT_CONFIG_SYSTEM':str(config),'GIT_CONFIG_GLOBAL':str(config),
+                    'GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'core.bare','GIT_CONFIG_VALUE_0':'true'}
+            def snapshot():
+                return {str(p.relative_to(sentinel)):(p.read_bytes(),p.stat().st_mode,p.stat().st_mtime_ns)
+                        for p in sentinel.rglob('*') if p.is_file()}
+            before=snapshot()
+            error=None
+            try:
+                with patch.dict(os.environ,poison,clear=True):
+                    self.test_actual_git_immutable_comparison()
+                    # Exercise the production fixed-repository Git calls under the same poison.
+                    with tempfile.TemporaryDirectory() as generation_root:
+                        parent,generation,source=self.fixture(generation_root)
+                        with patch.object(R.subprocess,'run',side_effect=self.git(source)):
+                            R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+            except Exception as exc: error=exc
+            self.assertEqual(snapshot(),before)
+            if error is not None: raise error
+
     def test_actual_git_immutable_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             parent,generation,source=self.fixture(folder)
             repo=parent/'repo';repo.mkdir()
-            env={**os.environ,'GIT_AUTHOR_NAME':'Native Fixture','GIT_AUTHOR_EMAIL':'fixture@example.invalid',
+            env={**{k:v for k,v in os.environ.items() if not k.startswith('GIT_')},'GIT_AUTHOR_NAME':'Native Fixture','GIT_AUTHOR_EMAIL':'fixture@example.invalid',
                  'GIT_COMMITTER_NAME':'Native Fixture','GIT_COMMITTER_EMAIL':'fixture@example.invalid'}
             def git(*args):
                 return subprocess.run(['git','-C',str(repo),*args],env=env,check=True,capture_output=True).stdout.strip().decode()

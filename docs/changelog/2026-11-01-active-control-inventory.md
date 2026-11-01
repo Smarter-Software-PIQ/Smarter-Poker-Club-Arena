@@ -15,3 +15,7 @@ real-filesystem regression demonstrates the old dynamic import creates an extra
 **pycache** directory and the corrected import preserves the original entries.
 This is source-qualified prevention, not a claim that bytecode caused the host
 failure. The actual closed host inventory remains necessary to identify it.
+
+The isolated Git fixture and fixed-repository inventory Git reads discard inherited
+Git routing/configuration variables. A private poisoned sentinel verifies that
+its refs, index, configuration, objects and working files remain unchanged.
