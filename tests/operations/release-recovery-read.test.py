@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Actual fixed file reader on isolated native files; no host or provider calls."""
 import importlib.util
+import copy
+import hashlib
 import base64
 import contextlib
 import io
@@ -2486,6 +2488,89 @@ class ControlInventoryTests(unittest.TestCase):
                 if case=='invalid-name': (generation/'bad name').touch()
                 with patch.object(R.subprocess,'run',side_effect=self.git(source)),self.assertRaises((ValueError,OSError)):
                     R._control_inventory_at(R.CONTROL_REQUEST,parent,parent/'repo')
+
+class CompositionScaleRecordsTests(unittest.TestCase):
+    def fixture(self, folder):
+        path=Path(folder);request=dict(R.COMPOSITION_SCALE_REQUEST)
+        receipt={'binding':R.COMPOSITION_SCALE_BINDING,'runId':request['runKey'],
+            'candidate':{'image':R.COMPOSITION_SCALE_IMAGE,'revision':request['releaseSha'],
+                'serverTree':R.COMPOSITION_SCALE_TREE,'buildContract':'clean-server-archive-v1'},
+            'status':'refused','error':'Expecting value: line 1 column 1 (char 0) PRIVATE',
+            'cleanupProved':True,'executionAcknowledged':True,'observedOwnedContainer':True,
+            'elapsedMs':1234,'hostAvailableBytes':50*1024**3,'servingBefore':None,'servingAfter':None,
+            'privatePayload':'PRIVATE'}
+        intent={'binding':R.COMPOSITION_SCALE_BINDING,'runId':request['runKey'],
+            'container':'ca-native-scale-'+R.COMPOSITION_SCALE_KEY[:32]}
+        output=b'Debugger listening on ws://127.0.0.1:1/PRIVATE\nFor help, see: https://nodejs.org/en/docs/inspector\n{"ok":true,"private":"PRIVATE"}'
+        for suffix,raw in [('intent',json.dumps(intent).encode()),('json',json.dumps(receipt).encode()),('output',output)]:
+            file=path/(R.COMPOSITION_SCALE_KEY+'.'+suffix);file.write_bytes(raw);file.chmod(0o600)
+        return request,receipt,intent,output
+
+    def test_fixed_identity_original_key_and_sanitized_mixed_output(self):
+        self.assertEqual(R.COMPOSITION_SCALE_KEY,'d5410aed0e347f20481434afa9aaa04fed701fe522f18167ebbf453b62f2bea7')
+        old=dict(R.SCALE_REQUEST)
+        self.assertEqual(R.selection(old),old)
+        self.assertEqual(R.SCALE_KEY,'41dc67789de090a39d2100b275b5127668b70573bc2b184692d9f8f15d001e17')
+        with tempfile.TemporaryDirectory() as folder:
+            request,_,_,raw=self.fixture(folder);fd=os.open(folder,os.O_RDONLY|os.O_DIRECTORY)
+            try: reply=R.composition_scale_records(request,fd)
+            finally:os.close(fd)
+        self.assertEqual(R.validate_reply(reply,request),reply)
+        self.assertEqual(reply['bindingStatus'],'bound_original_records')
+        self.assertEqual(reply['output']['sha256'],hashlib.sha256(raw).hexdigest())
+        self.assertEqual(reply['output']['bytes'],len(raw))
+        self.assertIs(reply['output']['inspectorBanner'],True)
+        self.assertEqual((reply['output']['jsonStatus'],reply['output']['jsonErrorLine'],reply['output']['jsonErrorColumn']),('invalid_document',1,1))
+        self.assertIs(reply['retryAllowed'],False)
+        self.assertNotIn('PRIVATE',json.dumps(reply));self.assertNotIn('ws://',json.dumps(reply))
+        self.assertNotIn('privatePayload',json.dumps(reply))
+        for field in ('mode','runKey','releaseSha'):
+            bad={**request,field:'other'}
+            with self.subTest(field=field),self.assertRaises(ValueError):R.selection(bad)
+        with self.assertRaises(ValueError):R.selection({**request,'image':R.COMPOSITION_SCALE_IMAGE})
+
+    def test_unbound_duplicate_changed_and_oversized_original_records_refuse_projection(self):
+        for mutation in ('wrong-run','wrong-image','wrong-controller','duplicate','oversized','symlink','changed'):
+            with self.subTest(mutation=mutation),tempfile.TemporaryDirectory() as folder:
+                request,receipt,intent,_=self.fixture(folder);path=Path(folder)
+                if mutation=='wrong-run':intent['runId']='1-1'
+                if mutation=='wrong-image':intent=copy.deepcopy(intent);intent['binding']['image']='sha256:'+'f'*64
+                if mutation=='wrong-controller':intent=copy.deepcopy(intent);intent['binding']['controllerSHA256']='f'*64
+                (path/(R.COMPOSITION_SCALE_KEY+'.intent')).write_text(json.dumps(intent))
+                file=path/(R.COMPOSITION_SCALE_KEY+'.output')
+                if mutation=='duplicate':(path/(R.COMPOSITION_SCALE_KEY+'.json')).write_text('{"status":1,"status":2}')
+                if mutation=='oversized':file.write_bytes(b'x'*131073)
+                if mutation=='symlink':file.unlink();file.symlink_to(path/(R.COMPOSITION_SCALE_KEY+'.intent'))
+                fd=os.open(folder,os.O_RDONLY|os.O_DIRECTORY)
+                try:
+                    if mutation=='changed':
+                        original=R.composition_scale_snapshot;count=0
+                        def snapshot(selected):
+                            nonlocal count
+                            count+=1
+                            if count==2:file.write_bytes(b'changed')
+                            return original(selected)
+                        with patch.object(R,'composition_scale_snapshot',side_effect=snapshot):reply=R.composition_scale_records(request,fd)
+                    else:reply=R.composition_scale_records(request,fd)
+                finally:os.close(fd)
+                self.assertIsNone(reply['receipt']);self.assertIsNone(reply['output'])
+                self.assertEqual(R.validate_reply(reply,request),reply)
+
+    def test_transport_rejects_extra_private_fields_coercion_and_forged_binding(self):
+        with tempfile.TemporaryDirectory() as folder:
+            request,_,_,_=self.fixture(folder);fd=os.open(folder,os.O_RDONLY|os.O_DIRECTORY)
+            try:reply=R.composition_scale_records(request,fd)
+            finally:os.close(fd)
+        for key,value in [('raw','PRIVATE'),('image','sha256:'+'f'*64),('bindingKey','f'*64),('retryAllowed',True)]:
+            with self.subTest(key=key),self.assertRaises(ValueError):R.validate_reply({**reply,key:value},request)
+        for key,value in [('inspectorBanner',1),('jsonErrorLine',True),('bytes',131073),('sha256','f'*64),('raw','PRIVATE')]:
+            bad=copy.deepcopy(reply);bad['output'][key]=value
+            with self.subTest(key=key),self.assertRaises(ValueError):R.validate_reply(bad,request)
+        bad=copy.deepcopy(reply);bad['receipt']['raw']='PRIVATE'
+        with self.assertRaises(ValueError):R.validate_reply(bad,request)
+        bad=copy.deepcopy(reply);bad['receipt']['servingBefore']={'container':'c'*64,'image':'sha256:'+'d'*64,'revision':R.EED,'startedAt':'2026-11-01T17:00:00Z','instanceId':'1-12345678','raw':'PRIVATE'}
+        with self.assertRaises(ValueError):R.validate_reply(bad,request)
+
 
 if __name__ == "__main__":
     unittest.main()
