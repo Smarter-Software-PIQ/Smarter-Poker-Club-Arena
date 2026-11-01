@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272192,
+      "sha256": "eee56621ab0b351bd63a42bb1fb425e20ede9d8360446df8f934d68057aa323b"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -1918,5 +1918,24 @@
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
+  },
+  "standardUbuntuCompatibility20261101": {
+    "scope": "Reuse only supported standard Ubuntu24.04 runner correction from57e8375; preserve this branch current CI commands, assertions and all historical evidence. Resolve source identity against actual integrated bytes, excluding unrelated shard/performance changes. Hosted validation pending.",
+    "upstreamCommit": "57e8375c17ab705b638649f9927b25a932f45891",
+    "sourceChanges": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 272197,
+          "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+        },
+        "current": {
+          "bytes": 272192,
+          "sha256": "eee56621ab0b351bd63a42bb1fb425e20ede9d8360446df8f934d68057aa323b"
+        }
+      }
+    },
+    "execution_performed": false,
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }
