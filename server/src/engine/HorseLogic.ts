@@ -303,7 +303,7 @@ import { evaluateTournamentCatastropheGuard } from './HorseTournamentCatastrophe
 import { evaluateTournamentPostflop, type Phase8Mode } from './HorseTournamentPostflop.js';
 import { liveHorsePhase8Safety } from './HorsePhase8Safety.js';
 import { performance } from 'node:perf_hooks';
-import { chipStepFor } from './HorseNlhOpenSize.js';
+import { chipStepFor, nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -3827,6 +3827,7 @@ export function holdemPremiumAggression(
       chipUnit: gs.chipUnit ?? (isTournamentMode(gs) ? 1 : 0.01),
       dominatedFold: opts.holdemDominatedFold !== false,
       tournament: isTournamentMode(gs),
+      openRaiseTo: () => holdemPremiumOpenRaiseTo(player, gs, opts),
       raiserIsManiac: (seatNo) => {
         const raiser = (gs.players ?? []).find((p) => p.seat === seatNo);
         if (!raiser) return false;
@@ -3852,6 +3853,67 @@ export function holdemPremiumAggression(
     return tournamentShoveDiscipline(next, player, gs);
   }
   return next;
+}
+
+/**
+ * V74's open size for an unopened pot, for rule 2 of the hold'em premium
+ * rules: a premium limp or check turned into an open is sized by the same
+ * card-blind draw as every other open (Dan 2026-10-31 / 2026-11-01).
+ */
+function holdemPremiumOpenRaiseTo(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): number | null {
+  if (opts.v74NlhOpenSizes === false || gs.stage !== 'preflop') return null;
+  const bb = Number(gs.bigBlind);
+  if (!(bb > 0)) return null;
+  const position = classifyGamePosition(player.seat, gs, opts.v13 !== false);
+  if (
+    position !== 'early' &&
+    position !== 'middle' &&
+    position !== 'late' &&
+    position !== 'sb' &&
+    position !== 'bb'
+  )
+    return null;
+  const dealt = dealtHorseTableSize(gs, player.seat);
+  let limpers = 0;
+  for (const a of gs.actionHistory ?? []) {
+    if (a.stage !== 'preflop') continue;
+    if (
+      a.action === 'raise' ||
+      a.action === 'bet' ||
+      (a.action === 'all_in' && a.isFullRaise !== undefined)
+    )
+      return null;
+    if (a.action === 'call' || a.action === 'all_in') limpers++;
+  }
+  const heroTotal = (player.stack ?? 0) + (player.bet ?? 0);
+  const deepest = Math.max(
+    0,
+    ...(gs.players ?? [])
+      .filter((p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out)
+      .map((p) => (p.stack ?? 0) + (p.bet ?? 0))
+  );
+  const straddled =
+    gs.straddleActive === true && gs.currentBet > bb * 1.05 && gs.currentBet <= bb * 2.2;
+  return nlhOpenRaiseTo({
+    seat: nlhOpenSeat({
+      position,
+      isButton: gs.dealerSeat !== undefined && player.seat === gs.dealerSeat,
+      trueHeadsUp: dealt === 2,
+    }),
+    depthBB: Math.min(heroTotal, deepest || heroTotal) / bb,
+    tournament: isTournamentMode(gs),
+    anteInPlay: (gs.ante ?? 0) > 0,
+    tableSize: dealt,
+    openUnit: straddled ? gs.currentBet : bb,
+    bigBlind: bb,
+    limpers,
+    sizingMultiplier: 1,
+    rand: fastRandom,
+  });
 }
 
 /** The outer safety net for the hold'em premium rule (#8122), as below. */
