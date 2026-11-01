@@ -60,6 +60,15 @@ BEFORE INSERT ON public.tournaments
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_ca_addon_grant_is_starting_stack();
 
+-- tournaments is a money table, so the trigger is declared in the same
+-- migration that creates it, as the money-trigger register requires.
+INSERT INTO public.ca_declared_money_triggers (table_name, trigger_name, note)
+VALUES (
+  'tournaments',
+  'trg_ca_addon_grant_is_starting_stack',
+  'BEFORE INSERT normalizer (Dan 2026-11-01, binding): a paid add-on tournament is born with addon_chips = starting_chips - "the add on should be the same amount of chips that you start with in the tournament, never less", and it "can never exceed" it. It assigns one column of NEW on INSERT only, reads nothing else, moves no chips and touches no wallet or ledger; Free Buy events keep their owner-designed promotional add-on, skipped by the free_buy flag and by the canonical fn_is_free_buy_event() test the free-buy pricing trigger itself uses.'
+);
+
 -- ── 2. The one-time correction of every unfinished paid row ─────────────────
 SET LOCAL session_replication_role = 'replica';
 
