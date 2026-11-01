@@ -23,6 +23,7 @@ describe('browser qualification parallel delivery', () => {
   it('uses only standard hosted runners across CI and publication', () => {
     for (const file of [
       'ci.yml',
+      'post-deploy-e2e.yml',
       'publish-club-arena.yml',
       'publish-club-arena-client.yml',
       'publish-club-arena-transaction.yml',
@@ -33,7 +34,16 @@ describe('browser qualification parallel delivery', () => {
       expect(hosted.length).toBeGreaterThan(0);
       for (const [name, job] of hosted) {
         const supportedBrowser =
-          file === 'ci.yml' && ['build', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name);
+          (file === 'ci.yml' &&
+            ['build', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name)) ||
+          (file === 'post-deploy-e2e.yml' &&
+            [
+              'private-record-client-proof',
+              'stats-pagination-proof',
+              'production-e2e',
+              'live-table-e2e',
+              'club-channel-lifecycle-e2e',
+            ].includes(name));
         const expected =
           file === 'ci.yml' && name === 'accounting_postgres'
             ? '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
