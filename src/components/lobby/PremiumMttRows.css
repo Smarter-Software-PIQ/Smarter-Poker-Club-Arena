@@ -86,7 +86,7 @@
   background-image: url('/assets/club-buttons/lobby/chrome-arena-mtt-v1/card-featured.png');
 }
 .has-premium-chassis tbody tr.is-featured::after {
-  display: none;
+  display: none !important;
 }
 .has-premium-chassis tbody tr[data-lightning-format='true']::before {
   filter: grayscale(1) brightness(1.35);
@@ -521,4 +521,9 @@
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
+}
+
+.has-premium-chassis tbody tr[data-lightning-format='true'].is-cursor::before,
+.has-premium-chassis tbody tr[data-lightning-format='true'].is-selected::before {
+  filter: grayscale(1) brightness(1.5);
 }

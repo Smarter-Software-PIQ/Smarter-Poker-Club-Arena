@@ -638,6 +638,9 @@ test.describe('the mobile lobby chrome on production', () => {
         )
         .toBe(true);
       const paint = await heading.evaluate(async (element) => {
+        const overlayDisplay = getComputedStyle(element, '::after').display;
+        if (element.matches('.is-featured') && overlayDisplay !== 'none')
+          throw new Error('A format rail is covering the featured red perimeter');
         const backgrounds = [
           getComputedStyle(element, '::before').backgroundImage,
           getComputedStyle(element.querySelector('.lt-tournament-icon,.lt-lightning-icon')!)
@@ -652,7 +655,7 @@ test.describe('the mobile lobby chrome on production', () => {
           if (!image.naturalWidth || !image.naturalHeight)
             throw new Error('Premium art did not load');
         }
-        return { heading: element.textContent, backgrounds };
+        return { heading: element.textContent, backgrounds, overlayDisplay };
       });
       appearance.push({ mode, ...paint });
       await testInfo.attach(`chrome-arena-${mode}-phone.png`, {
