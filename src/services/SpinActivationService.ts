@@ -25,6 +25,7 @@
 import { supabase } from '../lib/supabase';
 import { uuid } from '../utils/uuid';
 import { requiredSeed } from '../config/spinSpec';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 
 /** The Spin board's price points. Mirrors SPIN_BOARD_BUYINS in the engine. */
 export const SPIN_BOARD_STAKES = [1, 2, 3, 5, 10, 20, 50, 100] as const;
@@ -90,15 +91,21 @@ export interface SpinOwnerState {
  * the pool a second time on the next press. A read (`get_state`) needs no
  * key and still gets a fresh one.
  */
-async function call<T>(body: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
+async function call<T>(
+  body: Record<string, unknown>,
+  idempotencyKey?: string,
+  signal?: AbortSignal
+): Promise<T> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
+  if (signal?.aborted) throw new DOMException('The Request Was Cancelled.', 'AbortError');
   const token = session?.access_token;
   if (!token) throw new Error('Not authenticated');
 
   const response = await fetch('/api/club-arena/spin-activation', {
     method: 'POST',
+    signal,
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -111,8 +118,8 @@ async function call<T>(body: Record<string, unknown>, idempotencyKey?: string): 
     .json()
     .catch(() => ({ success: false, error: `HTTP ${response.status}` }));
 
-  if (!data.success) {
-    throw new Error(data.error || `Spin activation request failed (HTTP ${response.status})`);
+  if (!response.ok || data?.success !== true) {
+    throw new Error(data?.error || `Spin activation request failed (HTTP ${response.status})`);
   }
   return data as T;
 }
@@ -140,10 +147,13 @@ export const spinActivationApi = {
    * owner inside a union whose request the API answers 403.
    */
   getState(clubId: string) {
-    return call<{ state: SpinOwnerState; ownerKind: SpinOwnerKind; canManage: boolean }>({
-      action: 'get_state',
-      clubId,
-    });
+    return runWithRequestDeadline((signal) =>
+      call<{ state: SpinOwnerState; ownerKind: SpinOwnerKind; canManage: boolean }>(
+        { action: 'get_state', clubId },
+        undefined,
+        signal
+      )
+    );
   },
 
   /** `idempotencyKey` is the caller's, minted once for the purchase and

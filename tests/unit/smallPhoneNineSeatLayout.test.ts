@@ -32,16 +32,19 @@ describe('nine-seat lanes on a 320px phone', () => {
       expect(x + 29).toBeLessThan(248);
     }
   });
-  it.each([375, 393, 430])('preserves the existing wider phone ring at %spx', (width) => {
-    for (const seat of seatLayoutFor(9)) {
-      const pod = seatPodPx(width, seat.y === 100, canvas.w, {
-        seats: 9,
-        canvasHeightPx: canvas.h,
-      });
-      expect(fitSeatToViewport(seat, canvas, width, pod, undefined, 9)).toEqual(
-        fitSeatToViewport(seat, canvas, width, pod)
-      );
+  it.each([375, 393, 430])('keeps side chairs stable and top panels apart at %spx', (width) => {
+    const ring = fitted(width, 9);
+    for (let i = 0; i < ring.length; i++) {
+      const raw = seatLayoutFor(9)[i];
+      const pod = seatPodPx(width, raw.y === 100, canvas.w, { seats: 9, canvasHeightPx: canvas.h });
+      if (raw.y === 100 || raw.y === 58)
+        expect(ring[i]).toEqual(fitSeatToViewport(raw, canvas, width, pod));
+      if (raw.y === 25) expect(ring[i].y).toBe(22);
+      if (raw.y === 82.5) expect(ring[i].y).toBe(90);
     }
+    const caps = ring.filter((seat) => seat.y < 20);
+    const panel = seatPodPx(width, false, canvas.w, { seats: 9, canvasHeightPx: canvas.h });
+    expect(((caps[1].x - caps[0].x) * canvas.w) / 100).toBeGreaterThanOrEqual(panel.w + 3);
   });
   it('preserves the six-seat ring', () => {
     for (const seat of seatLayoutFor(6)) {
@@ -51,4 +54,36 @@ describe('nine-seat lanes on a 320px phone', () => {
       );
     }
   });
+});
+
+// The owner identified visual seat pairs in a full-table mobile screenshot.
+// Rotation may change the aliases in those positions; geometry must not.
+describe('full portrait seat pair placement', () => {
+  it.each([
+    [393, 322, 570, undefined, 90],
+    [604, 604, 1020, undefined, 98],
+    [393, 393, 660, 0, 98],
+  ])(
+    'raises upper sides and lowers corners at %spx without moving hero/middle',
+    (width, w, h, portraitTaper, lowerY) => {
+      const canvas = { w, h, portraitTaper };
+      const fitted = seatLayoutFor(9).map((seat) =>
+        fitSeatToViewport(
+          seat,
+          canvas,
+          width,
+          seatPodPx(width, seat.y === 100, w, { seats: 9, canvasHeightPx: h }),
+          (width - w) / 2,
+          9
+        )
+      );
+      expect(fitted[3].y).toBe(22);
+      expect(fitted[6].y).toBe(22);
+      expect(fitted[1].y).toBe(lowerY);
+      expect(fitted[8].y).toBe(lowerY);
+      expect(fitted[0]).toEqual({ x: 50, y: 100 });
+      expect(fitted[2].y).toBe(width > 480 || portraitTaper === 0 ? 67 : 54);
+      expect(fitted[7].y).toBe(fitted[2].y);
+    }
+  );
 });

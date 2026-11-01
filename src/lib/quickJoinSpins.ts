@@ -168,12 +168,14 @@ export async function quickJoinSpinRows(
     }
 
     const rows: SpinQuickJoinRow[] = [];
+    const numericStakeByTable = new Map<string, number>();
     for (const b of boards) {
       const live = tableFor.get(String(b.id));
       if (!live) continue; // a board with no table is not an offer
       if (openTableIds.has(live.id)) continue; // already in a tab
       const cost = Number(b.buy_in_amount) || 0;
       const sameStake = cost === ctx.buyIn;
+      numericStakeByTable.set(live.id, cost);
       rows.push({
         id: live.id,
         name: String(b.name ?? 'Spin'),
@@ -205,8 +207,9 @@ export async function quickJoinSpinRows(
       const aSame = a.tier === 'same-stakes' ? 0 : 1;
       const bSame = b.tier === 'same-stakes' ? 0 : 1;
       if (aSame !== bSame) return aSame - bSame;
-      const an = Number(String(a.stakes).replace(/[^\d.]/g, '')) || 0;
-      const bn = Number(String(b.stakes).replace(/[^\d.]/g, '')) || 0;
+      // Localized display labels are not a numeric transport format.
+      const an = numericStakeByTable.get(a.id)!;
+      const bn = numericStakeByTable.get(b.id)!;
       const ad = Math.abs(an - ctx.buyIn);
       const bd = Math.abs(bn - ctx.buyIn);
       if (ad !== bd) return ad - bd;

@@ -65,6 +65,41 @@ const ids = () =>
     el.id.replace('lt-row-', '')
   );
 describe('MTT schedule upgrade', () => {
+  it('pins only today and leaves the future Nightly edition in the normal schedule in both layouts', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    board([
+      event('future-nightly', {
+        name: 'Nightly 10K (NLH)',
+        is_pinned: true,
+        start_time: new Date(now + 2 * 86400000).toISOString(),
+      }),
+      event('ordinary-soon', { start_time: new Date(now + 5 * 60000).toISOString() }),
+      event('today-nightly', {
+        name: 'Nightly 10K (NLH)',
+        is_pinned: true,
+        status: 'RUNNING',
+        start_time: new Date(now - 60000).toISOString(),
+        started_at: new Date(now - 60000).toISOString(),
+        late_reg_mins: 80,
+      }),
+    ]);
+    for (const selector of ['.compact-lobby', '.lobby-table']) {
+      const table = document.querySelector(selector)!;
+      const rows = Array.from(table.querySelectorAll('tr[data-id]'));
+      expect(rows.map((r) => r.getAttribute('data-id'))).toEqual([
+        'today-nightly',
+        'ordinary-soon',
+        'future-nightly',
+      ]);
+      expect(table.querySelector('tr[data-id="today-nightly"]')).toHaveClass('is-featured');
+      expect(table.querySelector('tr[data-id="future-nightly"]')).not.toHaveClass('is-featured');
+      expect(table.querySelector('[data-tournament-heading="future-nightly"]')).not.toHaveClass(
+        'is-featured'
+      );
+    }
+  });
+
   it('defaults to Recommended, all variants and satellites excluded', () => {
     expect(defaultSortForTab('MTT')).toBe('recommended');
     const defaults = emptyFilterValue(FILTER_SPECS.MTT);
@@ -99,6 +134,21 @@ describe('MTT schedule upgrade', () => {
     const stale = { ...e, status: 'starting_soon' as const };
     expect(tournamentClockLine(stale, now)?.text).toBe('Late Reg Ends In 75:30');
     expect(tournamentClockLine(stale, now + 80 * 60000)).toBeNull();
+  });
+  it('shows the level-only late-reg clock from the confirmed first-level start', () => {
+    const e = event('just-started', {
+      status: 'RUNNING',
+      started_at: new Date(now - 270000).toISOString(),
+      current_level: 0,
+      level_started_at: null,
+      late_reg_levels: 10,
+      late_reg_mins: 0,
+      blind_structure: JSON.stringify(Array.from({ length: 10 }, () => ({ durationMinutes: 8 }))),
+    });
+    expect(tournamentClockLine(e, now)?.text).toBe('Late Reg Ends In 75:30');
+    expect(tournamentClockLine({ ...e, raw: { ...e.raw, started_at: null } }, now)).toBeNull();
+    expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: 1 } }, now)).toBeNull();
+    expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: null } }, now)).toBeNull();
   });
   it('shows no live countdown for terminal events or missing start clocks', () => {
     expect(tournamentClockLine(event('completed', { status: 'COMPLETED' }), now)).toBeNull();
@@ -183,6 +233,8 @@ describe('MTT schedule upgrade', () => {
     expect(rows).toHaveLength(2);
     for (const row of rows) expect(row.classList.contains(rowClass)).toBe(true);
     const compact = document.querySelector('.compact-lobby tr[data-id="typed"]')!;
-    expect(within(compact as HTMLElement).getAllByText('10K GTD')).toHaveLength(1);
+    const header = compact.previousElementSibling!;
+    expect(within(header as HTMLElement).getAllByText('10K Guarantee')).toHaveLength(1);
+    expect(within(compact as HTMLElement).queryByText('10K GTD')).toBeNull();
   });
 });

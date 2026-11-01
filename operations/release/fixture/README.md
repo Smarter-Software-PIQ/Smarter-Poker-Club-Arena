@@ -83,8 +83,10 @@ input, and invokes `rit-player-ui-suite.mjs` through the same read-only controls
 mount and locked Chromium runtime. Actual authenticated browser controls drive
 all-in and three-run consent; the existing mobile witness verifies all three
 boards, winning-card timing, chip landings, settled-choice clearing and cold reload.
-Both client origins, full engine SHA, unchanged instance and monotonic uptime
-remain bound before and after. The outer driver owns verified complete cleanup.
+Before the RIT witness is armed, one ordinary hand proves browser Raise, Call,
+full-stack All-in and explicit Fold against the exact same saved hand's bounded
+public action tuples. Both client origins, full engine SHA, unchanged instance
+and monotonic uptime remain bound before and after. The outer driver owns verified complete cleanup.
 
 With a genuinely admitted immutable runtime and full-schema artifact tuple:
 
@@ -92,7 +94,7 @@ With a genuinely admitted immutable runtime and full-schema artifact tuple:
 python3 operations/release/native/qualify-components.py "$CONTROL_CHECKOUT" "$OWNED_OUTPUT" --rit-player-ui
 ```
 
-The result is `rit-player-ui-observations.json`, with exactly four required cases
+The result is `rit-player-ui-observations.json`, with exactly five required cases
 and `product_certificate:false`. This mode is NOT_EXECUTED: source regressions
 and native service smoke do not establish a connected application pass or native
 admission. No active player game or production financial action is permitted.
@@ -561,12 +563,12 @@ accepted. Raw files are removed on every outcome; only sanitized fixed receipts
 are uploaded, including failures and verified cleanup.
 
 The foreground native job reuses one source-bound fixture image lifetime. It
-runs the ten tournament UI cases and four three-run UI cases in two separate
+runs the ten tournament UI cases and five cash action/three-run UI cases in two separate
 fresh fixtures with one exact immutable published client archive and one engine
 built from its actual protected source context. This is isolated observation,
 not release admission, publication, serving-engine adoption or a product
 certificate. Existing release-controller admission remains unchanged. This mode
-is **NOT_EXECUTED** until its actual terminal native receipt establishes all14
+is **NOT_EXECUTED** until its actual terminal native receipt establishes all15
 cases and complete cleanup. No active production player game may be used.
 
 ### Exact original-to-restored public column ordinal adapter
@@ -582,4 +584,34 @@ the expected catalogue. Both scenes bind the independently expected restored
 digest; the original digest remains separately retained. Only fixed mapping
 counts/digests are public; changed column rows and original literal payloads
 remain private and are removed with the owned fixture inputs. This mapping is
-source preparation, not a full-schema or connected fourteen-case pass.
+source preparation, not a full-schema or connected fifteen-case pass.
+
+### Pinned native export function batching
+
+The PostgreSQL17.11 export client uses two distinct changes: private fixed-enum
+cost logging and bounded transport batching of consecutive selected function
+objects. The batch helper preserves the upstream PREPARE, each EXECUTE, the
+same connection/snapshot, rendering and ACL paths. Up to128 EXECUTEs share one
+simple-query message; every individual result must have one row and the exact
+19-column metadata layout. Results are assigned by request ordinal/OID and
+consumed in original object order. Another object type ends the batch. Any
+missing, extra, malformed or failed result refuses the capture without retry.
+The original45-second capture deadline, TLS, complete schema and private output
+limits remain unchanged. The batch is bounded to128MiB private metadata.
+
+Diagnostic wire protocol D1 is unchanged. New cost receipts are version2 with
+closed object_scope and query_scope fields; historical version1 receipts keep
+their original unlabelled semantics. Object counts now mean effective selected
+components; zero-component dispatcher visits are no longer logged. Query spans
+measure actual network requests, including a whole function batch, rather than
+cached per-function reads. The512KiB fixed-channel cap remains enforced.
+
+Before any capture credential is present, the existing reusable native job
+builds stock and changed clients from the same pinned upstream archive. It
+requires identical SQL output (apart from the existing random restrict nonce)
+on a private Unix-only database containing5507 functions/procedures with
+mixed signatures, defaults, SQL bodies, PL/pgSQL and ACLs, plus zero/one-function
+schema filters. Its separate credential-free C result contract exercises batch
+boundaries, excluded objects, malformed/error/missing/extra results, ordinal
+mismatch and interruption. These checks do not certify production capture,
+full-schema restoration, connected tournament/RIT cases or live behavior.

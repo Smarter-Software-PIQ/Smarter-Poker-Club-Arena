@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode } from '../schema-snapshot.mjs';
+import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress } from '../schema-snapshot.mjs';
 import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash } from '../schema-compose.mjs';
 import { schemaCatalogue, schemaCataloguePayload } from '../../native/component-semantic-observations.mjs';
 import { APPLICATION_TRIGGER_WITNESSES } from '../schema-application-hooks.mjs';
@@ -24,6 +24,8 @@ const managed = [...['email()', 'jwt()', 'role()', 'uid()'].map((name) =>
 const ordinary = object('application()', 'public', `CREATE FUNCTION public.application() RETURNS text LANGUAGE sql AS $body$\n-- Name: impostor(); Type: FUNCTION; Schema: auth; Owner: postgres\nSELECT 'kept';\n$body$;`);
 const prefix = '-- PostgreSQL database dump\n\\restrict safeToken\nSET standard_conforming_strings = on;\n';
 const footer = '-- PostgreSQL database dump complete\n\\unrestrict safeToken\n';
+const nativeProof = async () => ({status:'passed',client_major:17,database_postgres:true,read_only:true,
+  repeatable_read:true,snapshot_imported:true,application_name_matches:true,statement_timeout_ms:5000,lock_timeout_ms:1000,elapsed_ms:1});
 
 test('connection diagnostics retain only fixed codes across causes and aggregate failures', () => {
   const privateError = Object.assign(Error('postgres://private:secret@private.invalid'), {code:'ENETUNREACH'});
@@ -35,6 +37,28 @@ test('connection diagnostics retain only fixed codes across causes and aggregate
   assert.equal(connectionFailureCode(cycle), 'UNKNOWN');
   let deep = privateError; for (let i=0;i<20;i++) deep = {cause:deep};
   assert.equal(connectionFailureCode(deep), 'UNKNOWN');
+});
+
+test('dump diagnostics classify only fixed categories and bounded scalar facts', () => {
+  for(const code of ['FD','CLOCK','RANGE','FRAME','WRITE','PAIR'])assert.equal(dumpFailureKind('pg_dump: error: ISOLATED_DUMP_DIAGNOSTIC_'+code+'\n'),'FD3_PROTOCOL');
+  assert.equal(dumpFailureKind('pg_dump: error: ISOLATED_DUMP_DIAGNOSTIC_PRIVATE_SECRET\n'),'UNKNOWN');
+  assert.equal(dumpFailureKind('pg_dump: query failed: permission denied for private-source'), 'PERMISSION_DENIED');
+  assert.equal(dumpFailureKind('certificate verify failed at private-host'), 'TLS_VERIFICATION');
+  assert.equal(dumpFailureKind('canceling statement due to statement timeout'), 'STATEMENT_TIMEOUT');
+  assert.equal(dumpFailureKind('private-provider-secret'), 'UNKNOWN');
+  const result=safeDumpDiagnostic({kind:'private-secret',exit_code:999,signal:'private-host',elapsed_ms:-1,
+    stdout_bytes:Infinity,stderr_bytes:NaN,message:'private-provider-secret'});
+  assert.deepEqual(result,{kind:'UNKNOWN',exit_code:null,signal:'UNKNOWN',elapsed_ms:null,stdout_bytes:null,stderr_bytes:null});
+  assert.equal(safeDumpDiagnostic({cancellation:{sigint_attempted:true,server_cancel_acknowledgement:'ACKNOWLEDGED'}}).cancellation.server_cancel_acknowledgement,'NOT_OBSERVED');
+});
+
+test('capture export uses only the original total deadline minus metadata time and finalization reserve', () => {
+  assert.equal(remainingDumpBudget(45000,3000),37000);
+  assert.equal(remainingDumpBudget(45000,0),40000);
+  assert.equal(remainingDumpBudget(45000,39999),1);
+  for(const now of [40000,45000,50000,NaN,Infinity,0.5])
+    assert.throws(()=>remainingDumpBudget(45000,now),/CAPTURE_REFUSED/);
+  assert.throws(()=>remainingDumpBudget(45001,0),/CAPTURE_REFUSED/);
 });
 
 test('only the exact canonical manual main caller can capture', () => {
@@ -173,7 +197,8 @@ test('one read-only snapshot owns dump/catalogue, closes before publishing exact
   const {Client,calls} = fakeClient();
   const output = path.join(root,'isolated-schema-test');
   const receipt = await captureSchema({output,env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client,
-    dump:async (_,snapshot) => {assert.equal(snapshot,'00000003-0000001B-1');assert.ok(calls.includes('SELECT pg_export_snapshot() AS snapshot'));return prefix+managed+ordinary+footer;}});
+    nativeCheck:async (_,snapshot)=>{assert.equal(snapshot,'00000003-0000001B-1');calls.push('NATIVE');return nativeProof();},
+    dump:async (_,snapshot) => {assert.equal(snapshot,'00000003-0000001B-1');assert.ok(calls.includes('SELECT pg_export_snapshot() AS snapshot'));assert.ok(calls.includes('NATIVE'));return prefix+managed+ordinary+footer;}});
   assert.equal(receipt.current_database_contract_ready,false);
   assert.equal(receipt.public_artifact_permitted,false);
   assert.deepEqual((await readdir(output)).sort(),[...CAPTURE_FILES].sort());
@@ -194,12 +219,96 @@ test('unsafe metadata/dump failures close the original transaction and never rem
   }
   const {Client,calls} = fakeClient();
   await assert.rejects(captureSchema({output:path.join(root,'isolated-schema-fail'),env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client,
+    nativeCheck:nativeProof,
     dump:()=>{throw Error('private provider text');}}));
   assert.ok(calls.includes('ROLLBACK'));assert.deepEqual(await readdir(root),[]);
   const occupied=path.join(root,'isolated-schema-owned-elsewhere');await writeFile(occupied,'preserved');
   await assert.rejects(captureSchema({output:occupied,env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client}),/CAPTURE_REFUSED/);
   assert.equal(await readFile(occupied,'utf8'),'preserved');
 }));
+
+test('native transport refusal prevents dump and closes the original snapshot without publishing', async () => workspace(async root=>{
+  const {Client,calls}=fakeClient();let dumped=false;
+  await assert.rejects(captureSchema({output:path.join(root,'isolated-schema-fail'),env:{...context,RUNNER_TEMP:root,DATABASE_URL:fixtureURL},Client,
+    nativeCheck:async()=>{throw Object.assign(Error('private-provider-secret'),{nativeDiagnostic:{kind:'DEADLINE',exit_code:null,signal:'SIGKILL',elapsed_ms:5000,stdout_bytes:0,stderr_bytes:0}});},
+    dump:()=>{dumped=true;}}),error=>{
+      assert.equal(error.captureStage,'native-snapshot-transport');assert.equal(error.nativeDiagnostic.kind,'DEADLINE');
+      assert.ok(!JSON.stringify(error).includes('private-provider-secret'));return true;
+    });
+  assert.equal(dumped,false);assert.ok(calls.includes('ROLLBACK'));assert.ok(calls.includes('END'));
+  assert.deepEqual(await readdir(root),[]);
+}));
+
+test('native psql imports the original snapshot over strict fixed transport with SQL only on stdin', async ()=>{
+  let observed,sql='';
+  const spawnProcess=(command,args,options)=>{
+    observed={command,args,options};const child=new EventEmitter();
+    child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>{};
+    child.stdin.on('data',bytes=>sql+=bytes.toString());
+    child.stdin.on('finish',()=>{child.stdout.end('t|t|t|t|t|t\n');child.stderr.end();child.emit('close',0,null);});
+    return child;
+  };
+  const result=await verifyNativeSnapshotTransport(databaseConfiguration(fixtureURL),'00000003-0000001B-1',{spawnProcess});
+  assert.equal(result.status,'passed');assert.equal(result.snapshot_imported,true);assert.equal(result.statement_timeout_ms,5000);
+  assert.equal(observed.command,'/usr/lib/postgresql/17/bin/psql');
+  for(const flag of ['--no-psqlrc','--no-password','--set=ON_ERROR_STOP=1'])assert.ok(observed.args.includes(flag));
+  assert.ok(!JSON.stringify(observed.args).includes('00000003'));assert.ok(!JSON.stringify(observed.args).includes('synthetic-only'));
+  assert.match(sql,/BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/);assert.match(sql,/SET TRANSACTION SNAPSHOT '00000003-0000001B-1';/);
+  assert.match(sql,/current_setting\('statement_timeout'\)='5s'/);assert.match(sql,/current_setting\('lock_timeout'\)='1s'/);assert.ok(sql.endsWith('ROLLBACK;\n'));
+  // Startup options are not proof of pooler forwarding. Establish each fact
+  // explicitly before the first snapshot-dependent query, then verify it.
+  const snapshotAt=sql.indexOf('SET TRANSACTION SNAPSHOT');
+  for(const setting of ["SET LOCAL statement_timeout='5s';","SET LOCAL lock_timeout='1s';","SET LOCAL application_name='isolated-schema-readonly-native-transport';"]) {
+    assert.ok(sql.indexOf(setting)>sql.indexOf('BEGIN ISOLATION LEVEL'));
+    assert.ok(sql.indexOf(setting)<snapshotAt);
+    assert.equal(sql.split(setting).length,2);
+  }
+  assert.ok(snapshotAt<sql.indexOf('SELECT current_database()'));
+  assert.match(sql,/SET LOCAL search_path=pg_catalog;/);assert.match(sql,/current_setting\('application_name'\)='isolated-schema-readonly-native-transport'/);
+  assert.equal(observed.options.env.PGSSLMODE,'verify-full');assert.equal(observed.options.env.PGSSLROOTCERT,path.resolve('scripts/ci/certificates/supabase-prod-ca-2021.crt'));
+  assert.ok(!('DATABASE_URL' in observed.options.env));assert.ok(!('PGPASSWORD' in observed.options.env));
+});
+
+test('native transport bounds deadline, bytes, stdin, spawn and boolean refusal without raw errors', async ()=>{
+  const cases=[['DEADLINE',1],['STDOUT_LIMIT',5000],['STDERR_LIMIT',5000],['STDIN',5000],['SPAWN',5000],['FACTS_REFUSED',5000],['PERMISSION_DENIED',5000]];
+  for(const [expected,deadlineMs] of cases){
+    const spawnProcess=()=>{
+      const child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();
+      child.kill=()=>child.emit('close',null,'SIGKILL');
+      child.stdin.on('finish',()=>{
+        if(expected==='STDOUT_LIMIT')child.stdout.end(Buffer.alloc(257,65));
+        if(expected==='STDERR_LIMIT')child.stderr.end(Buffer.alloc(65537,65));
+        if(expected==='STDIN')child.stdin.emit('error',Error('private-provider-secret'));
+        if(expected==='SPAWN'){child.emit('error',Error('private-provider-secret'));child.emit('close',-2,null);}
+        if(expected==='FACTS_REFUSED'){child.stdout.end('f|t|t|t|t|t\n');child.emit('close',0,null);}
+        if(expected==='PERMISSION_DENIED'){child.stderr.end('permission denied for private-relation');child.emit('close',1,null);}
+      });return child;
+    };
+    await assert.rejects(verifyNativeSnapshotTransport(databaseConfiguration(fixtureURL),'00000003-0000001B-1',{spawnProcess,deadlineMs}),error=>{
+      assert.equal(error.message,'ISOLATED_NATIVE_TRANSPORT_FAILED');assert.equal(error.nativeDiagnostic.kind,expected);
+      assert.ok(!JSON.stringify(error).includes('private-'));assert.equal(error.cause,undefined);return true;
+    });
+  }
+  await assert.rejects(verifyNativeSnapshotTransport(databaseConfiguration(fixtureURL),"private'; SELECT 1;",{spawnProcess:()=>{throw Error('must not spawn');}}),/CAPTURE_REFUSED/);
+});
+
+test('native false timeout and false application name remain distinct closed boolean facts', async()=>{
+  for(const [index,name] of [[3,'statement_timeout_5s'],[5,'application_name_matches'],[-1,null]]){
+    const spawnProcess=()=>{
+      const child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>true;
+      child.stdin.on('finish',()=>{
+        const values=['t','t','t','t','t','t'];if(index>=0)values[index]='f';
+        child.stdout.end(index>=0?values.join('|')+'\n':'private-provider-value\n');child.emit('close',0,null);
+      });return child;
+    };
+    await assert.rejects(verifyNativeSnapshotTransport(databaseConfiguration(fixtureURL),'00000003-0000001B-1',{spawnProcess}),error=>{
+      assert.equal(error.nativeDiagnostic.kind,'FACTS_REFUSED');
+      if(name){assert.equal(error.nativeFacts[name],false);assert.equal(Object.keys(error.nativeFacts).length,6);assert.ok(Object.values(error.nativeFacts).every(value=>typeof value==='boolean'));}
+      else assert.equal(error.nativeFacts,undefined);
+      assert.ok(!JSON.stringify(error).includes('private-provider-value'));return true;
+    });
+  }
+});
 
 test('pg_dump uses fixed no-data imported snapshot and no credential argv or inherited environment', async () => {
   const config=databaseConfiguration(fixtureURL);let observed;
@@ -210,13 +319,87 @@ test('pg_dump uses fixed no-data imported snapshot and no credential argv or inh
     return child;
   };
   await dumpSnapshot(config,'00000003-0000001B-1',{spawnProcess});
-  assert.equal(observed.command,'pg_dump');assert.ok(observed.args.includes('--schema-only'));
+  assert.equal(observed.command,'pg_dump');assert.ok(observed.args.includes('--schema-only'));assert.ok(observed.args.includes('--verbose'));
   assert.ok(observed.args.includes('--snapshot=00000003-0000001B-1'));
   assert.ok(observed.args.includes('--lock-wait-timeout=1000'));
   assert.ok(!JSON.stringify(observed.args).includes('synthetic-only'));
   assert.ok(!('DATABASE_URL' in observed.options.env));assert.equal(observed.options.env.PGSSLMODE,'verify-full');
   assert.equal(observed.options.env.PGSSLROOTCERT, path.resolve('scripts/ci/certificates/supabase-prod-ca-2021.crt'));
   assert.equal(schemaHash(await readFile(observed.options.env.PGSSLROOTCERT)), schemaHash(config.ssl.ca));
+});
+
+test('dump failure preserves no private stderr, schema bytes or nested error', async () => {
+  const spawnProcess=()=>{
+    const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>{};
+    queueMicrotask(()=>{child.stdout.end('private-schema');child.stderr.end('pg_dump: query failed: permission denied for private-relation');child.emit('close',1,null);});
+    return child;
+  };
+  await assert.rejects(dumpSnapshot(databaseConfiguration(fixtureURL),'00000003-0000001B-1',{spawnProcess}),error=>{
+    assert.equal(error.message,'ISOLATED_SCHEMA_DUMP_FAILED');
+    assert.equal(error.dumpDiagnostic.kind,'PERMISSION_DENIED');
+    assert.equal(error.dumpDiagnostic.exit_code,1);assert.equal(error.dumpDiagnostic.signal,'NONE');
+    assert.ok(error.dumpDiagnostic.stdout_bytes>0);assert.ok(error.dumpDiagnostic.stderr_bytes>0);
+    assert.ok(!JSON.stringify(error).includes('private-'));assert.equal(error.cause,undefined);return true;
+  });
+});
+
+test('dump deadline and stderr overflow remain distinct terminal refusals', async () => {
+  for (const mode of ['DEADLINE','STDERR_LIMIT','SPAWN']) {
+    const spawnProcess=()=>{
+      const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();
+      child.kill=()=>child.emit('close',null,'SIGKILL');
+      queueMicrotask(()=>{
+        if(mode==='STDERR_LIMIT')child.stderr.end(Buffer.alloc(65537,65));
+        if(mode==='SPAWN'){child.emit('error',Error('private-host-secret'));child.emit('close',-2,null);}
+      });return child;
+    };
+    await assert.rejects(dumpSnapshot(databaseConfiguration(fixtureURL),'00000003-0000001B-1',
+      {spawnProcess,deadlineMs:mode==='DEADLINE'?1:1000}),error=>{
+        assert.equal(error.dumpDiagnostic.kind,mode);assert.equal(error.dumpDiagnostic.exit_code,null);
+        assert.ok(!JSON.stringify(error).includes('private'));return true;
+      });
+  }
+});
+
+test('owned native cancellation requests SIGINT before bounded hard kill and never invents server acknowledgement', async()=>{
+  for(const mode of ['graceful','hard-fallback','first-failure']){
+    const signals=[];
+    const spawnProcess=()=>{
+      const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();
+      child.kill=signal=>{
+        signals.push(signal);
+        if(signal==='SIGINT' && mode==='graceful')queueMicrotask(()=>child.emit('close',1,null));
+        if(signal==='SIGKILL')queueMicrotask(()=>child.emit('close',null,'SIGKILL'));
+        return true;
+      };
+      if(mode==='first-failure')queueMicrotask(()=>child.stderr.end(Buffer.alloc(65537,65)));
+      return child;
+    };
+    await assert.rejects(dumpSnapshot(databaseConfiguration(fixtureURL),'00000003-0000001B-1',
+      {spawnProcess,deadlineMs:25}),error=>{
+        assert.equal(error.dumpDiagnostic.kind,mode==='first-failure'?'STDERR_LIMIT':'DEADLINE');
+        const receipt=error.dumpDiagnostic.cancellation;
+        assert.equal(receipt.sigint_attempted,true);assert.equal(receipt.sigint_os_accepted,true);
+        assert.equal(receipt.sigkill_attempted,mode!=='graceful');assert.equal(receipt.child_close_observed,true);
+        assert.equal(receipt.server_cancel_acknowledgement,'NOT_OBSERVED');return true;
+      });
+    assert.deepEqual(signals,mode==='graceful'?['SIGINT']:['SIGINT','SIGKILL']);
+  }
+});
+
+test('a queued child close cannot bypass its elapsed hard deadline before timer delivery', async()=>{
+  const spawnProcess=()=>{
+    const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>true;
+    queueMicrotask(()=>{
+      const until=performance.now()+10;while(performance.now()<until){}
+      child.stdout.end(prefix+ordinary+footer);child.stderr.end();child.emit('close',0,null);
+    });return child;
+  };
+  await assert.rejects(dumpSnapshot(databaseConfiguration(fixtureURL),'00000003-0000001B-1',
+    {spawnProcess,deadlineMs:1}),error=>{
+      assert.equal(error.dumpDiagnostic.kind,'DEADLINE');assert.equal(error.dumpDiagnostic.exit_code,0);
+      assert.equal(error.dumpDiagnostic.cancellation.child_close_observed,true);return true;
+    });
 });
 
 test('the original catalogue digest and private complete payload use the exact same canonical encoding', async () => {
@@ -228,4 +411,52 @@ test('the original catalogue digest and private complete payload use the exact s
   assert.equal(payload.encoding,'postgres-jsonb-text-sha256/v1');
   const queries=calls.filter((sql)=>sql.includes('WITH user_schemas'));
   assert.equal(queries.length,2);assert.ok(queries[1].includes(`FROM (${queries[0]}) bounded_catalogue`));
+});
+
+ test('dump progress accepts only exact closed native phases and keeps private lines private',()=>{
+  const privateLine='pg_dump: reading user-defined tables private-secret';
+  assert.equal(dumpProgressStage(privateLine+'\n'),'UNKNOWN');
+  assert.equal(dumpProgressStage('pg_dump: last built-in OID is 16383\n'),'SETUP_COMPLETE');
+  for(const line of ['pg_dump: last built-in OID is 4294967296','pg_dump: last built-in OID is private-secret','pg_dump: last built-in OID is 1 trailing'])assert.equal(dumpProgressStage(line+'\n'),'UNKNOWN');
+  assert.equal(dumpProgressStage('pg_dump: last built-in OID is 16383\npg_dump: reading extensions\n'),'READING_EXTENSIONS');
+  assert.equal(dumpProgressStage('pg_dump: reading schemas\n'+privateLine+'\npg_dump: reading user-defined tables\npg_dump: error: private-query\n'),'READING_USER_DEFINED_TABLES');
+  assert.equal(dumpProgressStage(' pg_dump: reading schemas\npg_dump: reading indexes trailing\n'),'UNKNOWN');
+  assert.equal(safeDumpDiagnostic({last_stage:'private-secret'}).last_stage,'UNKNOWN');
+  assert.equal(safeDumpDiagnostic({last_stage:'READING_INDEXES'}).last_stage,'READING_INDEXES');
+  assert.ok(!JSON.stringify(safeDumpDiagnostic({last_stage:privateLine})).includes('private-secret'));
+});
+
+test('actual dump failure preserves only its last exact recognized progress stage',async()=>{
+  const spawnProcess=()=>{
+    const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>true;
+    queueMicrotask(()=>{child.stderr.write('pg_dump: reading user-defined ta');child.stderr.end('bles\npg_dump: private-query-secret\n');child.emit('close',1,null);});return child;
+  };
+  await assert.rejects(dumpSnapshot(databaseConfiguration(fixtureURL),'00000003-0000001B-1',{spawnProcess}),error=>{
+    assert.equal(error.dumpDiagnostic.last_stage,'READING_USER_DEFINED_TABLES');
+    assert.ok(!JSON.stringify(error).includes('private-query-secret'));return true;
+  });
+});
+
+test('native dump phase timing records first received fixed markers and drops parameter values',()=>{
+ const progress=createDumpProgress();
+ progress.push(Buffer.from('pg_dump: reading depen'),3);
+ progress.push(Buffer.from('dency data\n'),8);
+ progress.push(Buffer.from('pg_dump: saving encoding = UTF8\npg_dump: saving "standard_conforming_strings = on"\n'),10);
+ progress.push(Buffer.from('pg_dump: saving "search_path = "private-schema", public"\npg_dump: reading dependency data\nprivate-secret\n'),12);
+ const proof=progress.snapshot();
+ assert.equal(proof.last_stage,'READING_DEPENDENCY_DATA');
+ assert.deepEqual(proof.phase_entries,[{stage:'READING_DEPENDENCY_DATA',entered_at_ms:8},{stage:'SAVING_ENCODING',entered_at_ms:10},{stage:'SAVING_STANDARD_STRINGS',entered_at_ms:10},{stage:'SAVING_SEARCH_PATH',entered_at_ms:12}]);
+ assert.ok(!JSON.stringify(proof).includes('private-'));
+ progress.clear();assert.deepEqual(progress.snapshot(),{last_stage:'UNKNOWN',phase_entries:[]});
+});
+
+test('parameterized native markers and phase receipts refuse malformed or private-shaped inputs',()=>{
+ for(const [line,expected] of [['pg_dump: saving "search_path = "','SAVING_SEARCH_PATH'],['pg_dump: saving "search_path = "a""b", public"','SAVING_SEARCH_PATH'],['pg_dump: saving encoding = UTF8 trailing','UNKNOWN'],['pg_dump: saving "standard_conforming_strings = private"','UNKNOWN'],['pg_dump: saving "search_path = public" trailing','UNKNOWN']])assert.equal(dumpProgressStage(line+'\n'),expected);
+ for(const entries of [[{stage:'private-secret',entered_at_ms:1}],[{stage:'SAVING_ENCODING',entered_at_ms:-1}],[{stage:'SAVING_ENCODING',entered_at_ms:45001}],[{stage:'SAVING_ENCODING',entered_at_ms:2},{stage:'SAVING_SEARCH_PATH',entered_at_ms:1}],[{stage:'SAVING_ENCODING',entered_at_ms:1},{stage:'SAVING_ENCODING',entered_at_ms:2}]])assert.deepEqual(safeDumpDiagnostic({phase_entries:entries}).phase_entries,[]);
+ const entry={stage:'SAVING_ENCODING',entered_at_ms:2,private:'private-secret'};assert.deepEqual(safeDumpDiagnostic({phase_entries:[entry]}).phase_entries,[{stage:'SAVING_ENCODING',entered_at_ms:2}]);
+});
+
+test('private search-path phase recognition is bounded and linear for malformed long identifiers',()=>{
+ for(const value of ['"'+ 'a'.repeat(8200), '"a"'.repeat(2000)+'x', 'public, ', '"unclosed', '"a" x'])assert.equal(dumpProgressStage('pg_dump: saving "search_path = '+value+'"\n'),'UNKNOWN');
+ assert.equal(dumpProgressStage('pg_dump: saving "search_path = "'+ 'a'.repeat(4000)+'", public"\n'),'SAVING_SEARCH_PATH');
 });

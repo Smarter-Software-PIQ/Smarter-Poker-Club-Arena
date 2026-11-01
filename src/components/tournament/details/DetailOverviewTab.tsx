@@ -1,3 +1,4 @@
+import { tournamentEntryTerms } from './entryTerms';
 import {
   useSatelliteAwards,
   satelliteAwardLabel,
@@ -285,7 +286,7 @@ export default function DetailOverviewTab({
     startAtMs - Date.now() > -86_400_000;
 
   useEffect(() => {
-    if (isCompleted || isBagged || isCancelled || startsWhenFull) return;
+    if (isCompleted || isBagged || isCancelled || (startsWhenFull && !isRunning)) return;
     if (!isRunning && !startsWithinADay) return;
     const id = setInterval(() => setTick((n) => (n + 1) % 86_400), 1000);
     return () => clearInterval(id);
@@ -595,8 +596,12 @@ export default function DetailOverviewTab({
        event with both set quoted the late-registration level as the rebuy
        level. Zero means the row does not say, and then no level is printed. */
     const rebuyThrough = Math.max(0, Number(t.rebuy_levels ?? t.late_reg_levels) || 0);
-    const addonFrom = rebuyThrough;
-    const addonTo = rebuyThrough + (Number(t.addon_levels ?? 1) || 1);
+    const entryTerms = tournamentEntryTerms(
+      tournament,
+      serverNow(),
+      overviewUnitCents,
+      clockPaused || maintenanceBreak.active
+    );
     const throughText = rebuyThrough > 0 ? ` thru Lv ${rebuyThrough}` : '';
     const structure = describeMttStructure(
       (blindLevels || []).map((row) => ({
@@ -645,14 +650,19 @@ export default function DetailOverviewTab({
             : 'None',
       },
       {
-        key: 'addon',
-        label: 'Add-On',
-        value: t.add_on_available
-          ? `${chipsCompact(Number(t.addon_chips) || Number(t.starting_chips) || 0)}${
-              rebuyThrough > 0 ? ` Lv ${addonFrom}-${addonTo}` : ''
-            }`
-          : 'None',
+        key: 'late-registration-closes',
+        label: 'Late Registration Closes',
+        value: entryTerms.lateRegistration,
+        wide: true,
       },
+      { key: 'addon', label: 'Add-On', value: entryTerms.addon },
+      ...(entryTerms.addon === 'Yes'
+        ? [
+            { key: 'addon-cost', label: 'Add-On Cost', value: entryTerms.cost! },
+            { key: 'addon-stack', label: 'Add-On Stack', value: entryTerms.stack! },
+            { key: 'addon-when', label: 'Add-On When', value: entryTerms.timing!, wide: true },
+          ]
+        : []),
       {
         key: 'when',
         label: isRunning ? 'Started' : isCompleted ? 'Ended' : isCancelled ? 'Was Due' : 'Starts',
@@ -664,6 +674,20 @@ export default function DetailOverviewTab({
       },
       { key: 'entries', label: 'Entries', value: chips(field.entries) },
     ];
+
+    if (isRunning || isCompleted) {
+      const started = Date.parse(String(t.started_at ?? ''));
+      const end = isCompleted ? Date.parse(String(t.ended_at ?? '')) : serverNow();
+      const elapsed = Math.floor((end - started) / 1000);
+      rows.push({
+        key: 'running-time',
+        label: 'Running Time',
+        value:
+          Number.isFinite(elapsed) && elapsed >= 0
+            ? `${Math.floor(elapsed / 3600).toLocaleString()}h ${Math.floor((elapsed % 3600) / 60)}m ${elapsed % 60}s`
+            : 'Unavailable',
+      });
+    }
 
     if (t.is_bounty) {
       /* THE HEAD AT THE EVENT'S UNIT (2026-09-21): `money` at a chip event,
@@ -745,6 +769,9 @@ export default function DetailOverviewTab({
     field.entries,
     mysteryBounty?.inventory,
     overviewUnitCents,
+    clockPaused,
+    maintenanceBreak.active,
+    tick,
   ]);
 
   /* ── Podium, for a finished event. ── */

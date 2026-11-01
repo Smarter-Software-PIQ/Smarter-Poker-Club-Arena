@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exact current R2/R3 and owned global phase on the existing native board.
-Also: every prepared scope is paid and owed scopes catch up hourly (20261031190020).
+Also: every prepared scope is paid and owed scopes catch up hourly (20261031190020);
+refusals and deferrals reach Production Alerts (20261031201339);
+money is admitted by this week's measured lost statements, not size (20261031223940).
 Reuse only the maintained family's setup, not its unrelated cases. The original
 standalone bank owner runs; its external mint and precomputed inventory/prep are
 explicit adapters. Wallet/ledger/invoice execution and ordering are real PG17.
@@ -32,6 +34,15 @@ extra=r'''
     # every case below runs the CURRENT owners.
     catch_up=next((R/'supabase/migrations').glob('20261031190020_*')).read_text()
     q(catch_up[catch_up.index('-- native:begin'):catch_up.index('-- native:end')])
+    # Slot refusals and deferrals reach Production Alerts (20261031201339).
+    alerts=next((R/'supabase/migrations').glob('20261031201339_*')).read_text()
+    q(alerts[alerts.index('-- native:begin'):alerts.index('-- native:end')])
+    # A scope too large for the 240-second money window is never bundled (20261031214453).
+    window=next((R/'supabase/migrations').glob('20261031214453_*')).read_text()
+    q(window[window.index('-- native:begin'):window.index('-- native:end')])
+    # Money admission by this week's measured lost statements, not size (20261031223940).
+    measured=next((R/'supabase/migrations').glob('20261031223940_*')).read_text()
+    q(measured[measured.index('-- native:begin'):measured.index('-- native:end')])
     # The complete original financial owners execute. Only existing external
     # precomputation and mint transport are adapters, explicitly not live proof.
     q("CREATE FUNCTION caw2_u(label text)RETURNS uuid LANGUAGE sql IMMUTABLE AS $$SELECT md5('owned-phase-second-board:'||label)::uuid$$;")
@@ -123,6 +134,59 @@ extra=r'''
      "VALUES('2026-10-05 07:00Z','2026-10-12 07:00Z',2,'2026-10-12 08:58Z','2026-10-12 09:00Z','2026-10-12 09:04Z','2026-10-12 09:05Z','[{}]');",'weekly_accounting_payout_pauses_slot_check')
     owned_case('a-boundary-cannot-own-a-scope-the-week-no-longer-owes',owed+"UPDATE weekly_accounting_payout_pauses SET scope_plan=scope_plan||jsonb_build_array(scope_plan->0);"+ack(1)+at('2026-10-12 09:00Z')+
      "SELECT smarter_private.weekly_payout_execute(caw_u('owned-run'));",'weekly_payout_prepared_scope_changed')
+    sink=("CREATE TEMP TABLE fixture_alerts(source text,event_key text,alertname text,status text,severity text,payload jsonb);"
+     "CREATE OR REPLACE FUNCTION public.fn_record_operational_alert(p_source text,p_event_key text,p_alertname text,p_status text,p_severity text,p_payload jsonb)RETURNS bigint LANGUAGE sql AS $f$INSERT INTO fixture_alerts VALUES(p_source,p_event_key,p_alertname,p_status,p_severity,p_payload)RETURNING 1::bigint$f$;")
+    def alerted(name,status,severity,n=1):return "SELECT caw_assert((SELECT count(*) FROM fixture_alerts WHERE source='weekly-payout' AND alertname='"+name+"' AND status='"+status+"' AND severity='"+severity+"')="+str(n)+",'alert-"+name+"');"
+    owned_case('a-refused-slot-reaches-production-alerts-once',owed+sink+at('2026-10-12 09:01Z')+stage('weekly_payout_financial_refused','refused')+alerted('WeeklyPayoutSlotRefused','firing','warning')+
+     at('2026-10-12 09:10Z')+stage('weekly_payout_prepared','retry-prepared')+alerted('WeeklyPayoutSlotRefused','firing','warning'))
+    owned_case('a-scope-deferred-at-execution-reaches-production-alerts',owed+sink+"SET LOCAL fixture.refuse_club2='on';"+ack(1)+at('2026-10-12 09:00Z')+
+     "SELECT caw_assert((smarter_private.weekly_payout_due()->>'success')='true','subset-paid');"+alerted('WeeklyPayoutScopeDeferred','firing','warning')+paid("caw_u('club')"))
+    owned_case('a-scope-deferred-at-preparation-reaches-production-alerts',owed+sink+"DELETE FROM weekly_accounting_payout_pauses;SET LOCAL fixture.refuse_club2='on';"+at('2026-10-12 08:52Z')+
+     stage('weekly_payout_prepared','final-subset')+alerted('WeeklyPayoutScopeDeferred','firing','warning'))
+    owned_case('a-week-owing-after-its-last-slot-reaches-production-alerts',owed+sink+"DELETE FROM weekly_accounting_payout_pauses;"+at('2026-10-12 15:58Z')+
+     "SELECT caw_assert(smarter_private.weekly_payout_due() IS NULL,'no-ninth');"+alerted('WeeklyPayoutUnpaidAfterLastSlot','firing','critical'))
+    owned_case('an-alert-failure-never-changes-the-payout-outcome',owed+"CREATE OR REPLACE FUNCTION public.fn_record_operational_alert(text,text,text,text,text,jsonb)RETURNS bigint LANGUAGE plpgsql AS $f$BEGIN RAISE EXCEPTION 'fixture-alert-down';END$f$;"+
+     at('2026-10-12 09:01Z')+stage('weekly_payout_financial_refused','refused-without-alert')+"SELECT caw_assert((SELECT phase='released' FROM weekly_accounting_payout_pauses WHERE attempt_no=1),'released-anyway');"+
+     at('2026-10-12 09:10Z')+stage('weekly_payout_prepared','next-slot-anyway'))
+    # MONEY ADMISSION BY MEASURED LOSS, NOT SIZE (20261031223940). The scheduler's
+    # durable run record (cron.job_run_details) is the only witness of a money
+    # statement that rolled back whole; a lost bundled statement makes each later
+    # slot own one scope; a lost solo statement records that scope only.
+    cron=("CREATE SCHEMA IF NOT EXISTS cron;CREATE TABLE IF NOT EXISTS cron.job(jobid bigint PRIMARY KEY,command text);"
+     "CREATE TABLE IF NOT EXISTS cron.job_run_details(jobid bigint,runid bigint,status text,return_message text,start_time timestamptz,end_time timestamptz);"
+     "INSERT INTO cron.job VALUES(272,'SELECT public.fn_union_settlement_cascade_due();')ON CONFLICT DO NOTHING;")
+    def lost_at(t,runid):return ("INSERT INTO cron.job_run_details VALUES(272,"+str(runid)+",'failed','ERROR:  canceling statement due to statement timeout','"+t+"',('"+t+"'::timestamptz+interval '240 seconds'));")
+    owned_case('a-lost-bundled-money-statement-pays-one-scope-per-later-slot-exactly-once',owed+sink+cron+ack(1)+lost_at('2026-10-12 09:00:00.2Z',1)+
+     at('2026-10-12 09:05Z')+"CREATE TEMP TABLE lost1 AS SELECT smarter_private.weekly_payout_due() a;"+
+     "SELECT caw_assert((SELECT a->>'stage'='weekly_payout_financial_refused' AND a->>'money_lost'='true' FROM lost1),'bundled-statement-lost');"+
+     unpaid("caw_u('club')")+unpaid("caw2_u('club')")+
+     "SELECT caw_assert(NOT EXISTS(SELECT FROM smarter_private.weekly_payout_money_losses),'bundled-loss-names-no-scope');"+
+     at('2026-10-12 09:10Z')+stage('weekly_payout_prepared','solo-prepared')+
+     "SELECT caw_assert((SELECT jsonb_array_length(scope_plan)=1 AND scope_plan->0->>'id'=caw_u('club')::text FROM weekly_accounting_payout_pauses WHERE attempt_no=2),'second-slot-owns-one');"+
+     at('2026-10-12 09:58:30Z')+ack(2)+at('2026-10-12 10:00Z')+"SELECT caw_assert((smarter_private.weekly_payout_due()->>'success')='true','one-paid');"+paid("caw_u('club')")+unpaid("caw2_u('club')")+
+     at('2026-10-12 10:06Z')+stage('weekly_payout_prepared','next-solo')+
+     "SELECT caw_assert((SELECT jsonb_array_length(scope_plan)=1 AND scope_plan->0->>'id'=caw2_u('club')::text FROM weekly_accounting_payout_pauses WHERE attempt_no=3),'third-slot-owns-the-other');"+
+     at('2026-10-12 10:58:30Z')+ack(3)+at('2026-10-12 11:00Z')+"SELECT caw_assert((smarter_private.weekly_payout_due()->>'success')='true','other-paid');"+paid("caw_u('club')")+paid("caw2_u('club')")+
+     "SELECT caw_assert((SELECT count(*)=2 AND sum(amount)=1000 FROM ca_mint_ledger),'each-club-banked-once');"+
+     "SELECT caw_assert((SELECT count(*)=4 FROM accounting_routed_settlement_runs),'four-stage-receipts-no-duplicate');"+
+     at('2026-10-12 11:06Z')+"SELECT caw_assert(smarter_private.weekly_payout_due() IS NULL,'nothing-owed');")
+    owned_case('a-lost-solo-money-statement-records-only-that-scope-and-the-rest-still-pay',owed+sink+cron+
+     "UPDATE weekly_accounting_payout_pauses SET scope_plan=jsonb_build_array(scope_plan->1);"+ack(1)+lost_at('2026-10-12 09:00:00.2Z',2)+
+     at('2026-10-12 09:05Z')+stage('weekly_payout_financial_refused','solo-lost')+
+     "SELECT caw_assert((SELECT count(*)=1 AND bool_and(scope_id=caw2_u('club') AND attempt_no=1 AND evidence->>'runid'='2') FROM smarter_private.weekly_payout_money_losses),'solo-loss-recorded');"+
+     at('2026-10-12 09:10Z')+stage('weekly_payout_prepared','others-prepared')+
+     alerted('WeeklyPayoutScopeMoneyStatementLost','firing','critical')+
+     "SELECT caw_assert((SELECT jsonb_array_length(scope_plan)=1 AND scope_plan->0->>'id'=caw_u('club')::text FROM weekly_accounting_payout_pauses WHERE attempt_no=2),'lost-scope-not-bundled');"+
+     at('2026-10-12 09:58:30Z')+ack(2)+at('2026-10-12 10:00Z')+"SELECT caw_assert((smarter_private.weekly_payout_due()->>'success')='true','rest-paid');"+paid("caw_u('club')")+unpaid("caw2_u('club')")+
+     at('2026-10-12 10:06Z')+"SELECT caw_assert(smarter_private.weekly_payout_due() IS NULL,'lost-scope-gets-no-slot');"+
+     "SELECT caw_assert((SELECT count(*)=2 FROM weekly_accounting_payout_pauses),'no-slot-for-the-lost-scope');")
+    owned_case('a-missed-money-tick-is-not-a-lost-statement',owed+sink+cron+ack(1)+
+     "INSERT INTO cron.job_run_details VALUES(272,3,'succeeded','1 row','2026-10-12 08:55Z','2026-10-12 08:59Z');"+
+     at('2026-10-12 09:05Z')+"CREATE TEMP TABLE missed AS SELECT smarter_private.weekly_payout_due() a;"+
+     "SELECT caw_assert((SELECT a->>'stage'='weekly_payout_financial_refused' AND a->'money_lost' IS NULL FROM missed),'missed-not-lost');"+
+     at('2026-10-12 09:10Z')+stage('weekly_payout_prepared','retry-prepared')+
+     "SELECT caw_assert((SELECT jsonb_array_length(scope_plan)=2 FROM weekly_accounting_payout_pauses WHERE attempt_no=2),'retry-owns-both');")
+    owned_case('size-alone-never-excludes-a-scope',"SELECT caw_assert(to_regclass('smarter_private.weekly_payout_money_window_exclusions') IS NULL AND to_regprocedure('smarter_private.weekly_payout_money_window_fits(text,uuid)') IS NULL,'no-size-cutoff');")
     # Commit only this isolated synthetic board so a second PostgreSQL backend
     # can ACK the original DUE while its original statement is waiting. The
     # observed server wait event supplies synchronization; no guessed delay.

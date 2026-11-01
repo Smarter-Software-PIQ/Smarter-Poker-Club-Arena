@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { reportError } from '../../../utils/errorReporter';
+import { runWithRequestDeadline } from '../../../utils/requestDeadline';
 import {
   recordedSatelliteAwardKind,
   type SatelliteAwardKind,
@@ -47,6 +48,7 @@ export function useSatelliteAwards(
   useEffect(() => {
     if (provided !== undefined || !id || !enabled) return;
     let retired = false;
+    const controller = new AbortController();
     setOwned({ id, scopeKey, rows: [], ready: false, failed: false });
     void (async () => {
       try {
@@ -63,7 +65,10 @@ export function useSatelliteAwards(
             .order('id', { ascending: true })
             .limit(1000);
           if (cursor !== null) query = query.gt('id', cursor);
-          const { data, error } = await query;
+          const { data, error } = await runWithRequestDeadline(
+            (signal) => query.abortSignal(signal),
+            { signal: controller.signal }
+          );
           if (retired) return;
           if (error) throw error;
           if (!Array.isArray(data)) throw new Error('Satellite award response is not an array');
@@ -88,6 +93,7 @@ export function useSatelliteAwards(
     })();
     return () => {
       retired = true;
+      controller.abort();
     };
   }, [id, scopeKey, enabled, provided]);
   const byUser = useMemo(() => {

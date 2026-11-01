@@ -216,6 +216,30 @@ export interface PreflopCtx {
    *  facing a single open (no callers yet), so the marginal flats become
    *  folds while the 3-bet bar is untouched. Undefined = no change. */
   tournamentFlatBump?: number;
+  /**
+   * V70 GTO OPENING RANGES (2026-10-31, HorseGtoOpeningRanges): the open
+   * decision of an unopened, unlimped no-limit hold'em pot reads the hand on
+   * its seat's own reference order. `strength` is that order mapped onto the
+   * holdemPreflopScore scale (same jitter as `strength`), `bar` the seat's
+   * base open bar, `sbLimpFloor` the small blind's limp floor, `players`
+   * behind hero. Undefined = the legacy open (the explicit off arm).
+   */
+  gtoOpen?: { strength: number; bar: number; sbLimpFloor: number; behind: number };
+  /**
+   * V72 GTO DEFENCE BY OPENER (2026-10-31, HorseGtoDefenceRanges): facing one
+   * no-limit hold'em open with nobody in, three or more dealt in. `strength`
+   * is the hand on the (defender, opener seat) continue order (jitter as
+   * `strength`), `continueBar` the continue bar, `valueBar` the value 3-bet
+   * bar on the legacy ladder, `bluffProb` the balanced bluff 3-bet chance,
+   * `defender` the defender class. Undefined = the legacy defence.
+   */
+  gtoDefend?: {
+    strength: number;
+    continueBar: number;
+    valueBar: number;
+    bluffProb: number;
+    defender: 'bb' | 'sb' | 'ip';
+  };
   /** PRNG supplied by the caller (fast xorshift) */
   rand: () => number;
   /**
@@ -303,6 +327,9 @@ const AOF_TIGHTEN_PER_BB = 0.006;
 const AOF_MAX_TIGHTEN = 0.3;
 
 const PUSH_FOLD_MAX_BB = 22;
+/** V70: two- and three-handed, the deepest folded-to stack that plays
+ *  jam-or-fold (the push/fold charts' authority, GtoCharts). */
+const V70_SHORT_HANDED_JAM_MAX_BB = 15;
 
 /**
  * ═══ V34 (2026-09-02): THE SCALE IS NOT A PERCENTILE, SO READ THE TABLE ═══
@@ -431,6 +458,13 @@ const CALL_VS: Record<PreflopPosition, number> = {
  * See the no-open-limp note in the unopened branch.
  */
 const LIMP_BEHIND_MIN = 0.5;
+
+/**
+ * V72: the bluff budget (bluffFreq x aggression) of a balanced horse with no
+ * survival premium. A style's V72 bluff 3-bet frequency is the reference
+ * chart's scaled by its own budget over this one.
+ */
+const BALANCED_BLUFF_BUDGET = 0.17;
 
 /**
  * ── V13 (2026-08-23): THE PRICE-IN GUARD WAS EATING EVERY RAISE ────────────
@@ -980,9 +1014,33 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // 22bb is not a new number: it is the one the sibling branches already
   // chose for this exact failure, and inventing a second convention here
   // would be worse than reusing theirs.
-  const pushFoldNlh =
+  // V70: folded to a no-limit hold'em seat, the GTO open owns every stack
+  // the jam-or-fold zones do not. Where they do (push/fold <= 12bb, the
+  // red and orange M zones up to 22bb) the structure is kept exactly as it
+  // was: replacing the orange-zone shove of the opening range with a small
+  // open measured +1.9 +/- 1.6 bb/100 in the 20bb mirror but -8.7 +/- 2.9
+  // against the human-calibrated field over four seeds (the population
+  // over-folds to the shove), so it is a follow-up, not part of this change.
+  const legacyPushFold =
     !ctx.isOmaha &&
     (stackBB <= 12 || (mzOn && (phase6M ? phase6Red : effM < 6) && effStackBB <= PUSH_FOLD_MAX_BB));
+  const legacyOrangeJam =
+    mzOn && (phase6M ? phase6OrangeOrWorse : effM < 10) && stackBB <= 22 && !ctx.isOmaha;
+  //
+  // Two- and three-handed the M zones are not a depth read at all: the
+  // effective-M table scaling (players / 10) puts a heads-up 40bb stack at
+  // M 5, so every heads-up and spin stack under 22bb played jam-or-fold and
+  // the live heads-up small blind folded half its buttons (46% opened over
+  // 7,692 decisions on 2026-10-31). There the jam-or-fold zone is the
+  // push/fold charts' own, <= 15bb (12bb without the M layer), and every
+  // deeper stack opens.
+  const v70ShortHanded = (ctx.tableSize ?? 6) <= 3;
+  const v70JamZone = v70ShortHanded
+    ? stackBB <= 12 || (mzOn && effStackBB <= V70_SHORT_HANDED_JAM_MAX_BB)
+    : legacyPushFold || legacyOrangeJam;
+  const v70Open =
+    ctx.gtoOpen !== undefined && !ctx.isOmaha && unopened && limpers === 0 && !v70JamZone;
+  const pushFoldNlh = legacyPushFold && !v70Open;
   // V25: the old Omaha gate (<=8bb / M<4) is superseded by the commitment
   // zone above, which triggers on the pot-limit arithmetic rather than a bb
   // count. It stays for the ablation path (ploTourney off).
@@ -1115,13 +1173,31 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     const baseOpen =
       position === 'late' && ctx.isButton === true ? OPEN_THRESH_BUTTON : OPEN_THRESH[position];
     const fullRingEarly = position === 'early' && (ctx.tableSize ?? 6) >= 8 ? 0.06 : 0;
-    let openThresh = t53(baseOpen + fullRingEarly, 'open') + Math.min(limpers, 3) * 0.03;
-    openThresh += depthTighten - depthLoosen - anteWiden + vs35.open;
-    openThresh += phase6Shift('open');
-    // TOURNAMENT AGGRESSION: every seat opens a little wider, the cutoff and
-    // button wider still, and the small blind (one player left to beat, an
-    // ante in the pot) far wider.
-    if (tAggro) openThresh -= position === 'sb' ? 0.08 : position === 'late' ? 0.03 : 0.02;
+    let openThresh: number;
+    if (v70Open) {
+      // V70: the seat's own base bar (its target share, ante tables wider),
+      // scaled by the style and the ICM premium exactly as before. Antes,
+      // the full-ring early seats, depth and the tournament widen are inside
+      // the targets; the spin structure, the Phase 6 cell and the bubble
+      // widen below still move it. An ante-free tournament under 50bb keeps
+      // the old depth tighten: measured against the human-calibrated field,
+      // the 40bb no-ante MTT card ran -1.17 +/- 0.61 bb/100 without it over
+      // four seeds and -0.35 +/- 0.53 with it.
+      openThresh =
+        t(ctx.gtoOpen!.bar) -
+        (ctx.format === 'spin' ? 0.05 : 0) +
+        vs35.open +
+        phase6Shift('open') +
+        (isTourney && !ctx.anteInPlay ? depthTighten : 0);
+    } else {
+      openThresh = t53(baseOpen + fullRingEarly, 'open') + Math.min(limpers, 3) * 0.03;
+      openThresh += depthTighten - depthLoosen - anteWiden + vs35.open;
+      openThresh += phase6Shift('open');
+      // TOURNAMENT AGGRESSION: every seat opens a little wider, the cutoff and
+      // button wider still, and the small blind (one player left to beat, an
+      // ante in the pot) far wider.
+      if (tAggro) openThresh -= position === 'sb' ? 0.08 : position === 'late' ? 0.03 : 0.02;
+    }
     // V37: the captain steals wider near the bubble — the field cannot call.
     openThresh -= 0.06 * Math.max(0, Math.min(1, ctx.bubblePressure ?? 0));
     // V10 LIMP ISOLATION: weak limpers are the softest spot in cash poker.
@@ -1144,7 +1220,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // raises ~40% and limps a band below that (the mix right after this);
     // only a genuinely two-handed table opens the 0.24 range.
     const trueHu = headsUp && (ctx.tableSize ?? 2) <= 2;
-    if (bvb) {
+    if (bvb && !v70Open) {
       openThresh =
         t53(trueHu ? 0.24 : 0.3, 'open') +
         depthTighten -
@@ -1158,13 +1234,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // against the maniac's measured width, already a price.
     if (ctx.maniacOpenBar !== undefined) openThresh = Math.max(openThresh, ctx.maniacOpenBar);
 
-    if (strength >= openThresh) {
+    // V70: the open reads the hand on this seat's order (see gtoOpen).
+    const openStrength = v70Open ? ctx.gtoOpen!.strength : strength;
+    if (openStrength >= openThresh) {
       // V20 ORANGE ZONE (M 6-10): there is no raise-fold — a standard open
       // is a third of the stack, and folding it to a reshove afterward is
       // the worst line short-stack poker offers. The opening range OPEN-JAMS
       // instead. NLH only, capped at 22bb so a big-ante 30bb stack does not
       // start jamming its whole opening range.
-      if (mzOn && (phase6M ? phase6OrangeOrWorse : effM < 10) && stackBB <= 22 && !ctx.isOmaha) {
+      if (legacyOrangeJam && !v70Open) {
         return { a: 'jam' };
       }
       // V37: below the seat line, an open at any depth that jam-or-fold does
@@ -1205,12 +1283,20 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       else if (stackBB <= 25) baseOpen = 2.0 + rand() * 0.4;
       else if (ctx.mode === 'cash' && stackBB > 150) baseOpen = 2.5 + rand() * 0.8;
       if (position === 'late') baseOpen -= 0.15;
+      // V70: out of position against one player, the small blind's solver
+      // open is ~3x, not a button's 2.2x (no ante; an ante pot keeps the
+      // smaller open the dead money already pays for).
+      else if (v70Open && bvb && !trueHu && !ctx.anteInPlay && stackBB > 25) {
+        baseOpen = 2.8 + rand() * 0.4;
+      }
       const sizeBB = (baseOpen + limpers * 1.0) * ctx.sizingMultiplier;
       // V18: in a straddled pot the open is sized off the straddle.
       return { a: 'raiseTo', to: sizeBB * openUnit };
     }
     // BvB limp mix from the SB with playable-but-not-open hands.
-    if (bvb && toCall > 0 && toCall <= bb && strength >= 0.22 && rand() < 0.75) {
+    // V70: the band is read on the small blind's own order, down to its floor.
+    const sbLimpFloor = v70Open ? ctx.gtoOpen!.sbLimpFloor : 0.22;
+    if (bvb && toCall > 0 && toCall <= bb && openStrength >= sbLimpFloor && rand() < 0.75) {
       return { a: 'call' };
     }
     if (toCall === 0) return { a: 'check' };
@@ -1253,15 +1339,20 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // ── Facing a single raise ──
   if (raises === 1) {
     const vs = raiserPosition ?? 'middle';
+    // V72: one open, nobody in, hold'em - the defence is the (defender,
+    // opener seat) reference base from HorseGtoDefenceRanges, and every layer
+    // below moves it the way it moved the bucketed base.
+    const def72 =
+      ctx.gtoDefend !== undefined && callers === 0 && !ctx.isOmaha ? ctx.gtoDefend : null;
     let threeBetThresh =
-      t53(THREEBET_VS[vs] - (ctx.aggression - 1) * 0.08, 'threeBet') +
+      t53((def72 ? def72.valueBar : THREEBET_VS[vs]) - (ctx.aggression - 1) * 0.08, 'threeBet') +
       vs35.threeBet +
       phase6Shift('threeBet');
     // V24: a CALL of a single raise continues the hand, it does not commit
     // the stack - so it carries the price-scaled survival premium (tCall),
     // not the full one. See the note on riskScaled above.
     let callThresh =
-      tCall53(CALL_VS[vs]) +
+      tCall53(def72 ? def72.continueBar : CALL_VS[vs]) +
       callers * 0.025 +
       depthTighten -
       depthLoosen +
@@ -1270,8 +1361,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
 
     // Blinds facing a LATE steal prefer 3-bet-or-fold over cold-calling
     // out of position: shift part of the call band into the 3-bet.
+    // (V72: inside the per-seat reference base.)
     const blindVsSteal = (position === 'sb' || position === 'bb') && vs === 'late';
-    if (blindVsSteal) {
+    if (blindVsSteal && !def72) {
       threeBetThresh =
         t53(0.7 - (ctx.aggression - 1) * 0.08, 'threeBet') +
         vs35.threeBet +
@@ -1280,7 +1372,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     }
     // V11 HEADS-UP DEFENSE: the SB/BTN opens most hands HU, so the BB defends
     // the wide majority — folding 50%+ of hands to a HU open is pure surrender.
-    if (headsUp && position === 'bb') {
+    // (V72 owns blind against blind at three or more dealt in.)
+    if (headsUp && position === 'bb' && !def72) {
       threeBetThresh =
         t53(0.64 - (ctx.aggression - 1) * 0.08, 'threeBet') +
         vs35.threeBet +
@@ -1363,7 +1456,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
                 ? 0.65
                 : 0.72
               : null;
-      if (aggroBar !== null) threeBetThresh = Math.min(threeBetThresh, t(aggroBar));
+      // V72: these bars were this layer's per-bucket 3-bet WIDTHS and the
+      // per-seat reference base replaces them, except against a steal (a
+      // late or small-blind open), where Dan's tournament re-steal stays a
+      // floor under the base: measured on the MTT 25bb mirror over three
+      // seeds, -0.80 +/- 0.53 bb/100 without it and -0.12 +/- 0.47 with it.
+      // The re-steal volume and the flat widening below stay as deviations.
+      if (def72) {
+        if (aggroBar !== null && steal) threeBetThresh = Math.min(threeBetThresh, t(aggroBar));
+      } else if (aggroBar !== null) threeBetThresh = Math.min(threeBetThresh, t(aggroBar));
       else threeBetThresh -= 0.03;
       if (position === 'late' && stackBB >= 25) callThresh -= 0.03;
     }
@@ -1393,7 +1494,11 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
                   : 0.7
               : null;
       // The V12 hunter discount still applies below the cash bar.
-      if (cashBar !== null) threeBetThresh = Math.min(threeBetThresh, t(cashBar) - 0.05 * hunted);
+      // V72: as in the tournament layer, the per-seat base owns the width.
+      if (def72) {
+        /* the V72 base owns the 3-bet width */
+      } else if (cashBar !== null)
+        threeBetThresh = Math.min(threeBetThresh, t(cashBar) - 0.05 * hunted);
       else threeBetThresh -= 0.03;
     }
     threeBetThresh = phase6CapBar(threeBetThresh);
@@ -1500,13 +1605,27 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (tAggro ? 1.3 : 1) *
       // CASH PRESSURE: the same re-steal volume in cash.
       (cAggro ? 1.3 : 1);
+    // V72: the bluffs are the reference bluff chart's classes at its own
+    // frequencies (scaled to the spot's bluff width), moved by everything that
+    // moved the legacy mix: style (the bluff budget against a balanced
+    // horse's), this raiser's fold-to-3-bet read, the bubble, V57/V60. The
+    // blocker multiplier is not applied - the chart is built on blockers.
+    const bluff72 = def72
+      ? def72.bluffProb *
+        Math.max(0.4, Math.min(1.8, bluffBudget / BALANCED_BLUFF_BUDGET)) *
+        f3bScale *
+        (1 + 0.5 * Math.max(0, Math.min(1, ctx.bubblePressure ?? 0))) *
+        (tAggro ? 1.3 : 1) *
+        (cAggro ? 1.3 : 1)
+      : 0;
     if (
       callers === 0 &&
-      strength >= t53(bluffFloor, 'threeBet') &&
-      strength < threeBetThresh &&
+      (def72
+        ? bluff72 > 0 && strength < threeBetThresh
+        : strength >= t53(bluffFloor, 'threeBet') && strength < threeBetThresh) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
-      rand() < bluffFreqHere
+      rand() < (def72 ? bluff72 : bluffFreqHere)
     ) {
       if (ctx.isPotLimit) {
         return { a: 'raiseTo', to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand) };
@@ -1533,7 +1652,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // even money: the blind gets a lot of it, a cold caller gets a little.
     // Nothing in NLH changes - there the equity spread is real, and a fixed
     // percentile means what it says.
-    let callBar = callThresh - bbDiscount;
+    // V72: the continue bar is already the big blind's own width.
+    let callBar = callThresh - (def72 ? 0 : bbDiscount);
     if (ctx.isOmaha && ctx.ploPriceDefense === true) {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
       const priceRelief = Math.max(0, 0.5 - odds); // BB ~0.17, cold call ~0.09
@@ -1559,7 +1679,24 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (ctx.isOmaha && ctx.ploPriceDefense === true) callBar = Math.max(0.28, callBar);
     callBar = phase6CapBar(callBar);
 
-    if (strength >= callBar && priceOK) return { a: 'call' };
+    if ((def72 ? def72.strength : strength) >= callBar && priceOK) return { a: 'call' };
+    if (def72) {
+      // V72: the big blind closes the action at the best price of the orbit,
+      // so (as the V34 floor below did for the buckets) its defence is its
+      // own continue width without the cold-caller depth tighten or the
+      // 16-25bb flat-to-3-bet shift; style and the survival premium still
+      // apply, and V57's tournament big blind widening stays a deviation.
+      if (position === 'bb' && toCall <= bb * 2.5) {
+        const bbBar72 = phase6CapBar(
+          tCall53(def72.continueBar) -
+            (tAggro ? (stackBB <= 25 ? 0.06 : 0.04) : 0) +
+            vs35.bbDefend +
+            phase6Shift('call')
+        );
+        if (def72.strength >= bbBar72) return { a: 'call' };
+      }
+      return { a: 'fold' };
+    }
     /**
      * ═══ V34 (2026-09-02): THE BIG BLIND DEFENDS ITS BLIND ═══════════════
      *
