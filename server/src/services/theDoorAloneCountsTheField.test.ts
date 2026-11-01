@@ -119,7 +119,7 @@ describe('a fill pass leaves the field count to the door', () => {
   });
 });
 
-describe('creating an event publishes its status, never the pass tally', () => {
+describe('creation publishes initial status without rewriting it after seeding', () => {
   function creation(registered: number) {
     const updates: Update[] = [];
     let row: Record<string, unknown> | null = null;
@@ -178,8 +178,8 @@ describe('creating an event publishes its status, never the pass tally', () => {
     const result = await service[method](mtt, 'union', 'club');
     expect(result).toMatchObject({ tournamentId: 'event', registered: 11 });
     // The row starts at zero and the doors count up from there.
-    expect(inserted()).toMatchObject({ current_players: 0 });
-    expect(updates).toEqual([{ table: 'tournaments', payload: { status: 'REGISTERING' } }]);
+    expect(inserted()).toMatchObject({ current_players: 0, status: 'REGISTERING' });
+    expect(updates).toEqual([]);
     expect(countWrites(updates)).toEqual([]);
   });
 
@@ -199,6 +199,6 @@ describe('creating an event publishes its status, never the pass tally', () => {
       payoutStructure: HEADS_UP_PAYOUTS,
     });
     expect(result).toMatchObject({ tournamentId: 'event', registered: 5 });
-    expect(updates).toEqual([{ table: 'tournaments', payload: { status: 'REGISTERING' } }]);
+    expect(updates).toEqual([]);
   });
 });

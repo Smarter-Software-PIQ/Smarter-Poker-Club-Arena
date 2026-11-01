@@ -29,6 +29,28 @@ describe('the active MTT schedule preserves delayed starts', () => {
     expect(visible(row, now)).toBe(true);
     expect(visible({ ...row, started_at: '2026-10-30T18:00:00Z' }, now)).toBe(false);
   });
+  it.each(['2026-10-31T18:01:00Z', '2026-11-01T05:00:00Z'])(
+    'keeps the pre-seated scheduled field visible before its first deal at %s',
+    (start) => {
+      const scheduled = Date.parse(start);
+      const row = { status: 'RUNNING', start_time: start, started_at: start };
+      expect(visible(row, scheduled - 60_000)).toBe(true);
+      expect(visible(row, scheduled)).toBe(true);
+      expect(visible(row, scheduled + 60_000)).toBe(true);
+    }
+  );
+  it('does not turn an inconsistent future start into a scheduled event', () => {
+    expect(
+      visible(
+        {
+          status: 'RUNNING',
+          start_time: '2026-10-30T18:00:00Z',
+          started_at: '2026-10-31T19:00:00Z',
+        },
+        now
+      )
+    ).toBe(false);
+  });
   it('uses the Chicago calendar, including DST, rather than the UTC day', () => {
     const row = { status: 'RUNNING', started_at: '2026-11-01T04:59:59Z' };
     expect(visible(row, Date.parse('2026-11-01T05:00:00Z'))).toBe(false);

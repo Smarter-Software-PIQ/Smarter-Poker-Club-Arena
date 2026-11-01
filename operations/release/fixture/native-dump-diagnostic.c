@@ -73,7 +73,7 @@ ca_diag_object_end(void)
     ca_diag_object = 0;
 }
 
-static void
+void
 ca_diag_query_begin(void)
 {
     if (ca_diag_object == 0)
@@ -84,7 +84,7 @@ ca_diag_query_begin(void)
     ca_diag_emit('Q', 'B');
 }
 
-static void
+void
 ca_diag_query_end(void)
 {
     if (ca_diag_object == 0)

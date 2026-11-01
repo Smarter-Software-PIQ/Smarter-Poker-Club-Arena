@@ -24,6 +24,11 @@ export function isCurrentMttScheduleEvent(row: ScheduleVisibilityRow, now = Date
     'BREAK',
     'BAGGED',
   ].includes(status);
+  // Launch completion seats the field before dealing and persists its
+  // advertised start while already RUNNING. Keep that future scheduled
+  // event visible through preparation, including across Chicago midnight.
+  const scheduled = Date.parse(row.start_time ?? '');
+  if (running && Number.isFinite(started) && started > now && started === scheduled) return true;
   if (Number.isFinite(started) || running) {
     const actualStart = Number.isFinite(started) ? started : Date.parse(row.start_time ?? '');
     return (
@@ -32,7 +37,6 @@ export function isCurrentMttScheduleEvent(row: ScheduleVisibilityRow, now = Date
       chicagoDay.format(actualStart) === chicagoDay.format(now)
     );
   }
-  const scheduled = Date.parse(row.start_time ?? '');
   // Passing the advertised start time does not cancel a registration or event.
   // Keep delayed starts discoverable until an authoritative lifecycle transition.
   return Number.isFinite(scheduled);
