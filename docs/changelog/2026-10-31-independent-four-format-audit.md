@@ -314,6 +314,12 @@ Fresh canonical2026-10-31T23:37:57.242Z/version2.9 receipt, unchanged hashes abo
 
 A30 and A31 share this candidate for independent client delivery on current protected maina939; no engine dependency. Preserve both focused regressions and explicit unknown outcomes. Final integrated checks remain required.
 
+## A40: pre-seated MTTs remain on their advertised schedule
+
+Canonical policies emitted/read2026-11-01T02:15:55.737Z, version2.9 manifest7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52 and A36 individual hashes unchanged. Full policies/root references/checkpoint/storage reread; this isolated protectedbe36cc0 checkout has byte-identical root instructions to the freshly read parent. Shared-capacity mounted disk5s1 verified707GiB free. No competing candidate was changed.
+
+Actual launch authority stamps started_at with the advertised future start, completes RUNNING, then holds the first deal. The new schedule visibility predicate rejects every future started_at, so this valid prepared event disappears before the deal, contrary to the owner direction that future scheduled events remain. Two production-helper regressions fail before repair, including preparation across Chicago midnight. Accept only the running-shaped row whose finite future started_at exactly matches its scheduled start. Existing terminal/old-event/malformed and inconsistent-future controls remain unchanged. All25 focused visibility and mounted schedule assertions pass; client TypeScript compilation passes. Logs scratch/preseated-schedule-before.log/final.log/tsc.log. No artwork, lifecycle write, new timer or engine dependency. Protected publication and affected live proof remain pending; this is not attributed to a historical engine freeze.
+
 ## A36 independent engine submission
 
 Canonical full read receipt2026-11-01T01:52:46.387Z/version2.9/manifest7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52 and full root references/checkpoint/storage apply unchanged. Root instructions are byte-identical. Owned creation-status-delivery starts protected ece24670ee0bc3343326ea0e8c9b57b9253aae83; same-task private dependency links only. Creator source at this base matches the reviewed pre-fix9605 bytes.
