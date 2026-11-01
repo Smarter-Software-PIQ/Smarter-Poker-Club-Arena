@@ -215,12 +215,21 @@ describe('Club Arena Tournament Board lobby design', () => {
     expect(compact).not.toContain('position: sticky');
     const refinements = page.slice(page.indexOf('className="lobby-refinements"'));
     expect(refinements.indexOf('aria-label="Game Status"')).toBeLessThan(
-      refinements.indexOf('className={`game-bar__filter-btn')
+      refinements.indexOf('{filterAndSortButton}')
     );
-    expect(refinements).toContain("gameType === 'ALL' ? 'Sort' : 'Filters And Sort'");
+    expect(refinements.match(/\{filterAndSortButton\}/g)).toHaveLength(2);
+    const filterControl = page.slice(
+      page.indexOf('const filterAndSortButton = ('),
+      page.indexOf('\n  return (', page.indexOf('const filterAndSortButton = ('))
+    );
+    expect(filterControl).toContain('className={`game-bar__filter-btn');
+    expect(filterControl).toContain("gameType === 'ALL' ? 'Sort' : 'Filters And Sort'");
+    expect(filterControl).toContain('setFiltersOpen(true)');
     expect(refinements).toContain('persistAdvFilters(resolvedClubId, next)');
     expect(refinements).toContain('selectFavoritesOnly(!favoritesOnly)');
-    expect(refinements).toContain('isFilterActive(fSpec, fVal)');
+    expect(refinements).not.toContain('<LobbyFilterLabel>Favorites</LobbyFilterLabel>');
+    expect(refinements).toContain('<StickyLobbyFilters');
+    expect(filterControl).toContain('isFilterActive(fSpec, fVal)');
   });
 
   it('uses the same self-contained identity card on mobile and a smaller two-line club notice', () => {

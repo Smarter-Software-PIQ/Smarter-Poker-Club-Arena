@@ -1,3 +1,3 @@
 # tests/table-captions-show-every-word.law.test.ts
 
-Table captions and player names retain every word and wrap instead of truncating, including phone breakpoints (owner October 26, 2026).
+Table captions retain every word and wrap instead of truncating. Player names retain their complete text on one fitted line at every breakpoint (owner update November 1, 2026).

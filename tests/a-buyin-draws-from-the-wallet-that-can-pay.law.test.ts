@@ -201,6 +201,9 @@ describe('tournaments: the entry is charged to a wallet that can pay', () => {
     expect(body('fn_player_spendable_balance')).toMatch(
       /COALESCE\(\s*public\.fn_ca_entry_paying_club\(p_user_id, p_tournament_id\),/
     );
+    expect(body('fn_player_spendable_balance')).toMatch(
+      /COALESCE\(\s*public\.fn_ca_entry_paying_club\(p_user_id, v_table_tournament_id\),/
+    );
     expect(src('src/services/WalletService.ts')).toMatch(
       /p_tournament_id: opts\?\.tournamentId \?\? null/
     );
@@ -208,6 +211,16 @@ describe('tournaments: the entry is charged to a wallet that can pay', () => {
       /tournamentId \? \{ clubId, tournamentId \} : \{ clubId \}/
     );
     expect(src('src/hooks/useTournamentRegistration.ts')).toMatch(/tournamentId: t\.id,/);
+  });
+
+  it('late-registration seat reuse never stamps a departed occupant club over tournament_players.club_id', () => {
+    const fn = body('fn_seat_club_for_user_membership_unchecked');
+    const tpLookup = fn.indexOf('FROM public.tournament_players tp');
+    const preferredCheck = fn.indexOf('IF p_preferred_club IS NOT NULL');
+    expect(tpLookup).toBeGreaterThan(-1);
+    expect(preferredCheck).toBeGreaterThan(tpLookup);
+    const lateReg = body('fn_seat_late_registrant_before_maintenance_gate');
+    expect(lateReg).toMatch(/club_id\s*=\s*COALESCE\(v_tp_club, v_club\)/);
   });
 });
 

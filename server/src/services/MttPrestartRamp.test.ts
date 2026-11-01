@@ -37,7 +37,7 @@ const mtt = (msUntilStart: number, maxPlayers: number | null = 200, isFree = fal
 
 /** Read the cumulative target independently of one call's bounded slice. */
 function curveAt(msUntilStart: number, over: Record<string, unknown> = {}) {
-  for (let current = 0; current <= 200; current++) {
+  for (let current = 0; current <= 300; current++) {
     const target = mttPrestartHorseTarget({
       msUntilStart,
       maxPlayers: null,
@@ -47,7 +47,7 @@ function curveAt(msUntilStart: number, over: Record<string, unknown> = {}) {
     });
     if (target === 0) return current;
   }
-  throw new Error('A normal prestart field must remain below 200');
+  throw new Error('A normal prestart field must remain below 300');
 }
 
 function replay(isFree = false, over: Record<string, unknown> = {}) {
@@ -88,8 +88,8 @@ describe('paid MTTs build a small field from an hour before start', () => {
     expect(opening).toBeLessThanOrEqual(7);
     expect(halfway).toBeGreaterThanOrEqual(opening);
     expect(closing).toBeGreaterThan(halfway);
-    expect(closing).toBeGreaterThanOrEqual(12);
-    expect(closing).toBeLessThanOrEqual(28);
+    expect(closing).toBeGreaterThanOrEqual(32);
+    expect(closing).toBeLessThanOrEqual(48);
     let previous = 0;
     for (let minute = 60; minute > 0; minute--) {
       const next = curveAt(minute * MIN);
@@ -101,8 +101,8 @@ describe('paid MTTs build a small field from an hour before start', () => {
   it('cannot turn a huge guarantee into a hundred prestart purchases', () => {
     for (const guaranteedPrize of [0, 500, 20_000, 5_000_000]) {
       const { current, counts } = replay(false, { guaranteedPrize, buyInPrizeShare: 1 });
-      expect(current).toBeGreaterThanOrEqual(12);
-      expect(current).toBeLessThanOrEqual(28);
+      expect(current).toBeGreaterThanOrEqual(32);
+      expect(current).toBeLessThanOrEqual(48);
       expect(counts.every((count) => count < 100)).toBe(true);
     }
   });
@@ -133,10 +133,10 @@ describe('paid MTTs build a small field from an hour before start', () => {
 });
 
 describe('free entry MTTs build hours ahead', () => {
-  it('uses a separate six-hour horizon and is populated hours from start', () => {
-    expect(MTT_FREEROLL_PRESTART_RAMP_MS).toBe(6 * HOUR);
-    expect(mtt(6 * HOUR + 1, null, true)).toBe(0);
-    for (const remaining of [6 * HOUR, 4 * HOUR, 2 * HOUR]) {
+  it('uses a separate day-long horizon and is populated hours from start', () => {
+    expect(MTT_FREEROLL_PRESTART_RAMP_MS).toBe(24 * HOUR);
+    expect(mtt(24 * HOUR + 1, null, true)).toBe(0);
+    for (const remaining of [24 * HOUR, 4 * HOUR, 2 * HOUR]) {
       expect(mtt(remaining, null, true)).toBeGreaterThan(0);
     }
     expect(mtt(4 * HOUR, null, false)).toBe(0);
@@ -144,14 +144,14 @@ describe('free entry MTTs build hours ahead', () => {
 
   it('keeps the free field increasing through the hours before start', () => {
     let previous = 0;
-    for (let remaining = 6 * HOUR; remaining > 0; remaining -= 10 * MIN) {
+    for (let remaining = 24 * HOUR; remaining > 0; remaining -= 10 * MIN) {
       const next = curveAt(remaining, { isFree: true, guaranteedPrize: 250, buyInPrizeShare: 0 });
       expect(next).toBeGreaterThanOrEqual(previous);
       previous = next;
     }
     const plan = mttPrestartPlan(mttPlannedField(250, 0, ID), null, ID, true);
     expect(replay(true, { guaranteedPrize: 250, buyInPrizeShare: 0 }).current).toBe(plan);
-    expect(previous).toBeGreaterThan(curveAt(6 * HOUR, { isFree: true }));
+    expect(previous).toBeGreaterThan(curveAt(24 * HOUR, { isFree: true }));
   });
 });
 

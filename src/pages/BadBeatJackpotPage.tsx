@@ -259,6 +259,7 @@ export default function BadBeatJackpotPage() {
         if (!winnersFilter) return;
 
         const channel = masterBus.getOrCreateChannel(channelKey);
+        acquiredChannel = channel;
         channel
           .on(
             'postgres_changes',
@@ -285,6 +286,7 @@ export default function BadBeatJackpotPage() {
           });
       };
 
+      let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
       setupRealtime().catch((e) => {
         if (isMounted) setMiniFirstRead('error');
         console.warn('[BadBeatJackpotPage] Realtime setup failed:', e);
@@ -294,7 +296,9 @@ export default function BadBeatJackpotPage() {
         isMounted = false;
         if (stopPool) stopPool();
         if (stopMini) stopMini();
-        masterBus.removeRegisteredChannel(channelKey);
+        if (acquiredChannel) {
+          masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+        }
         if (flashTimerRef.current) {
           clearTimeout(flashTimerRef.current);
           flashTimerRef.current = null;

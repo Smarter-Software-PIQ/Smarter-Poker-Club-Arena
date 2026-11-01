@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import textwrap
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -137,8 +138,8 @@ def require(value, reason):
         raise RuntimeError(reason)
 
 
-def run(args, timeout=10, check=True, pass_fds=()):
-    value = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+def run(args, timeout=10, check=True, pass_fds=(), input=None):
+    value = subprocess.run(args, stdin=subprocess.DEVNULL if input is None else None, input=input, stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, timeout=timeout, pass_fds=pass_fds,
                            env={**os.environ, 'DEBUGINFOD_URLS': '', 'PYTHONDONTWRITEBYTECODE': '1'})
     require(len(value.stdout) + len(value.stderr) <= 1024 * 1024, 'fixture_command_output_bound')
@@ -573,9 +574,29 @@ def qualify(output, feasibility):
                 image = scene.docker('image', 'inspect', '--format', '{{.Id}}', tag)
                 require(re.fullmatch(r'sha256:[0-9a-f]{64}', image), 'fixture_image_identity')
                 scene.images[kind] = image
-            scene.start_sshd()
             # Full production budgets, actual SSH loss and exact original operation.
             target = scene.start(); op = scene.new_operation(); since = time.monotonic_ns() // 1000
+            # Run the exact qualified-source in-memory prerequisite bootstrap,
+            # before any controller state, recorder or owned helper unit exists.
+            units_before = run(['systemctl', 'list-units', '--all', '--plain', '--no-legend', 'ca-native-fault-*.service']).stdout
+            require(not os.path.lexists(STATE) and not os.path.lexists(RAW), 'fixture_preflight_state_already_present')
+            workflow = (ROOT / '.github/workflows/profile-engine-main-thread.yml').read_text()
+            section = workflow.split('if [ "$NATIVE_MODE" = native_prerequisites ]; then\n', 1)[1]
+            bootstrap = textwrap.dedent(section.split("bootstrap=r'''", 1)[1].split("'''", 1)[0])
+            source_digest = digest(CONTROLLER)
+            preflight = json.loads(run(['/usr/bin/python3', '-I', '-B', '-c', bootstrap, scene.expected, source_digest],
+                                       input=CONTROLLER.read_bytes(), timeout=25).stdout)
+            require(preflight.get('schema') == 'native-prerequisites/v1' and preflight.get('readOnly') is True
+                    and preflight.get('engineSHA') == scene.expected and preflight.get('sourceSHA256') == source_digest
+                    and set(preflight.get('tools', {})) == {'perf', 'readelf', 'systemdRun'}
+                    and all(row == {'available': True, 'reason': 'available'} for row in preflight['tools'].values()),
+                    'fixture_prerequisite_metadata_unproven')
+            require(not os.path.lexists(STATE) and not os.path.lexists(RAW)
+                    and run(['systemctl', 'list-units', '--all', '--plain', '--no-legend', 'ca-native-fault-*.service']).stdout == units_before,
+                    'fixture_read_only_preflight_mutated_state')
+            evidence['cases'].append({'case': 'read_only_prerequisites', 'passed': True,
+                                      'noStateOrHelperUnitCreated': True, 'exactSourceBound': True})
+            scene.start_sshd()
             scene.ssh_admit(op)
             wait_for(lambda: (STATE / op / 'operation.json').exists(), 10, 'fixture_ssh_admission')
             original = scene.armed(op)

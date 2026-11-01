@@ -523,7 +523,7 @@ describe('the REGISTERING walk', () => {
   it('retains the actual zero-quota ticket writer through the next discovery pass', async () => {
     const ticket = boardRow('ticket-only', {
       start_time: new Date(DISCOVERY_NOW + 600_000).toISOString(),
-      current_players: 24,
+      current_players: 48,
       buy_in_amount: 20,
       buy_in_fee: 2,
       guaranteed_prize: 0,

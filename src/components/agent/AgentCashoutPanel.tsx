@@ -213,7 +213,8 @@ function AgentCashoutContent({
      * second; an unresolvable id subscribes unfiltered rather than to nothing.
      */
     let cancelled = false;
-    (async () => {
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
+    const setupRealtime = async () => {
       const resolved = clubId ? await resolveClubUUID(clubId) : null;
       if (cancelled || !isMounted.current) return;
 
@@ -225,8 +226,9 @@ function AgentCashoutContent({
       } = { event: '*', schema: 'public', table: 'cashout_requests' };
       if (resolved) changeFilter.filter = `club_id=eq.${resolved}`;
 
-      masterBus
-        .getOrCreateChannel(channelKey)
+      const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
+      channel
         .on('postgres_changes', changeFilter, () => {
           loadCashouts();
         })
@@ -241,13 +243,20 @@ function AgentCashoutContent({
             );
           }
         });
-    })();
+    };
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (!cancelled) void setupRealtime();
+    });
+    void setupRealtime();
 
     return () => {
       cancelled = true;
       unsubBalance();
       unsubMutation();
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
       staggerTimersRef.current.forEach((t) => clearTimeout(t));
       staggerTimersRef.current = [];
     };

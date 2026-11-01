@@ -14,7 +14,7 @@ on:
         description: Existing Inspector sample or one bounded native observation/receipt
         type: choice
         default: inspector
-        options: [inspector, native_fault, native_receipt]
+        options: [inspector, native_fault, native_receipt, native_prerequisites]
       native_operation:
         description: Existing numeric operation only for read-only native_receipt
         required: false
@@ -131,7 +131,7 @@ jobs:
           retention-days: 7
   native-observation:
     needs: verify
-    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'native_fault' || inputs.mode == 'native_receipt') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'native_fault' || inputs.mode == 'native_receipt' || inputs.mode == 'native_prerequisites') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -155,7 +155,7 @@ jobs:
           [[ "$EXPECTED_ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Expected SHA refused'; exit 1; }
           [[ "$HETZNER_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo '::error::Configured host refused'; exit 1; }
           [ -n "$SSH_KEY" ] && [ -n "$HOST_KEY" ] || { echo '::error::Configured SSH metadata unavailable'; exit 1; }
-          if [ "$NATIVE_MODE" = native_fault ]; then
+          if [ "$NATIVE_MODE" = native_fault ] || [ "$NATIVE_MODE" = native_prerequisites ]; then
             [ -z "$REQUESTED_OPERATION" ] || { echo '::error::New capture must use its own run identity'; exit 1; }
             OPERATION="$GITHUB_RUN_ID"
           else
@@ -171,6 +171,44 @@ jobs:
           ssh-keygen -y -f "$SSH_DIR/key" >/dev/null
           ssh-keygen -l -f "$SSH_DIR/known_hosts" >/dev/null
           SSH_ARGS=(-i "$SSH_DIR/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSH_DIR/known_hosts" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=2)
+          if [ "$NATIVE_MODE" = native_prerequisites ]; then
+            SOURCE_SHA=$(sha256sum scripts/ci/native-fault-observation.py | cut -d ' ' -f 1)
+            REMOTE_READ=$(python3 - "$EXPECTED_ENGINE_SHA" "$SOURCE_SHA" <<'PY'
+          import shlex,sys
+          bootstrap=r'''
+          import hashlib,json,re,sys
+          try:
+              sha,digest=sys.argv[1:]
+              assert re.fullmatch(r'[0-9a-f]{40}',sha) and re.fullmatch(r'[0-9a-f]{64}',digest)
+              raw=sys.stdin.buffer.read(131073)
+              assert 0<len(raw)<=131072 and hashlib.sha256(raw).hexdigest()==digest
+              namespace={'__name__':'qualified_native_prerequisite','__file__':'<qualified-native-prerequisite-source>'}
+              exec(compile(raw,'<qualified-native-prerequisite-source>','exec'),namespace)
+              print(json.dumps(namespace['native_prerequisites'](sha,digest),separators=(',',':')))
+          except Exception:
+              print('{"schema":"native-prerequisites-readback/v1","validPrerequisites":false,"reason":"prerequisites_unproven"}')
+              sys.exit(1)
+          '''
+          print(shlex.join(['/usr/bin/timeout','--signal=TERM','--kill-after=2s','25s','/usr/bin/python3','-I','-B','-c',bootstrap,*sys.argv[1:]]))
+          PY
+            )
+            set +e
+            timeout --signal=TERM --kill-after=5s 40s ssh "${SSH_ARGS[@]}" "root@$HETZNER_HOST" "$REMOTE_READ" < scripts/ci/native-fault-observation.py > "$RUNNER_TEMP/native-prerequisites.private"
+            READ_STATUS=$?
+            set -e
+            python3 -B - "$EXPECTED_ENGINE_SHA" "$SOURCE_SHA" "$READ_STATUS" "$RUNNER_TEMP" <<'PY'
+          import importlib.util,json,pathlib,sys
+          spec=importlib.util.spec_from_file_location('native_controller','scripts/ci/native-fault-observation.py')
+          helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+          sha,digest,status,folder=sys.argv[1:];root=pathlib.Path(folder)
+          with (root/'native-prerequisites.private').open('rb') as stream:raw=stream.read(16385)
+          value=helper.prerequisites_outcome(raw,sha,digest,int(status))
+          (root/'native-prerequisites.json').write_text(json.dumps(value,separators=(',',':')))
+          assert value.get('validPrerequisites') is True, 'Native prerequisite read remains unproven'
+          print(json.dumps(value,separators=(',',':')))
+          PY
+            exit 0
+          fi
           if [ "$NATIVE_MODE" = native_fault ]; then
             SOURCE_SHA=$(sha256sum scripts/ci/native-fault-observation.py | cut -d ' ' -f 1)
             REMOTE_COMMAND=$(python3 - "$OPERATION" "$EXPECTED_ENGINE_SHA" "$SOURCE_SHA" <<'PY'
@@ -252,6 +290,7 @@ jobs:
         with:
           name: native-fault-observation-${{ github.run_id }}
           path: |
+            ${{ runner.temp }}/native-prerequisites.json
             ${{ runner.temp }}/native-admission.json
             ${{ runner.temp }}/native-fault-receipt.json
           if-no-files-found: error

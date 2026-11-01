@@ -170,6 +170,7 @@ jobs:
         run: |
           set -euo pipefail
           npx playwright test tests/e2e/production-lobby-filter-audit.spec.ts \
+            tests/e2e/production-player-name-layout.spec.ts \
             --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json \
             --output=test-results/lobby-ui-proof \
             2>&1 | tee e2e-report/lobby-ui-proof/browser.log

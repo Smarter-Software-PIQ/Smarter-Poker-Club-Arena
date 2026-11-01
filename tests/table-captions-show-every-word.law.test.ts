@@ -27,12 +27,12 @@ describe('table captions show every word (owner 2026-10-26)', () => {
 
   it('prints complete player names and wraps winning-hand descriptions on phones', () => {
     const seat = read('src/components/table/SeatSlot.tsx');
-    expect(seat).toContain('{player.name?.trim()}');
+    expect(seat).toContain("<SeatPlayerName name={player.name?.trim() ?? ''} />");
     expect(seat).not.toContain('limitSeatName');
     const css = read('src/components/table/SeatSlot.css');
     const name = css.slice(css.indexOf('.seat__name {')).split('}')[0];
-    expect(name).toContain('white-space: normal');
-    expect(name).toContain('overflow-wrap: anywhere');
+    expect(name).toContain('white-space: nowrap');
+    expect(name).toContain('overflow-wrap: normal');
     expect(css).not.toContain('text-overflow: ellipsis');
     expect(read('src/components/table/PotDisplay.css')).not.toContain('text-overflow: ellipsis');
   });

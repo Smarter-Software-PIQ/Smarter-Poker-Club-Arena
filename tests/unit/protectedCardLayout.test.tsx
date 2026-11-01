@@ -272,3 +272,65 @@ it('mobile top-cap cards stay below the visible page edge', async () => {
   const card = row.querySelector('.seat__card')!.getBoundingClientRect();
   expect(card.top).toBeGreaterThanOrEqual(page.top + 8);
 });
+
+it('does not throw when an occupied opponent seat temporarily has zero measured parts during a render', () => {
+  stubGeometry();
+  const ref = { current: null as HTMLDivElement | null };
+  function LiveTableScene({ handKey }: { handKey: string }) {
+    useProtectedCardLayout(ref, 'rev-1', handKey);
+    return (
+      <div className="table-page" data-seats={9} data-box="0,0,393,852">
+        <div
+          className="table-scaler"
+          data-box="0,0,393,600"
+          ref={(el) => {
+            ref.current = el;
+          }}
+        >
+          <div className="community-area" data-box="60,220,280,90" />
+          <div className="seat-wrapper seat-wrapper--left" data-box="5,100,66,110">
+            <div className="seat seat--compact" data-box="5,100,66,110">
+              <div className="seat__avatar" data-box="5,100,62,85">
+                <img
+                  className="seat__avatar-img"
+                  src="/avatars/vip/dragon.png"
+                  data-box="5,100,62,85"
+                  alt=""
+                />
+              </div>
+              <div className="seat__info" data-box="2,175,66,35" />
+            </div>
+          </div>
+          <div className="seat-wrapper seat-wrapper--left" data-box="5,160,66,110">
+            <div className="seat seat--compact" data-box="5,160,0,0">
+              <div className="seat__avatar" data-box="5,160,0,0" />
+              <div className="seat__info" data-box="2,235,0,0" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  expect(() => render(<LiveTableScene handKey="table-8:53819612" />)).not.toThrow();
+});
+
+it('advancing revision across preflop/flop/turn/river actions does not tear down settled top-pod or revealed-row styles', async () => {
+  stubGeometry();
+  vi.stubGlobal('innerWidth', 393);
+  const h = render(<Fixture revealed revision="preflop-action-1" />);
+  const row = h.container.querySelector<HTMLElement>('.seat__cards--revealed')!;
+  const pod = h.container.querySelector<HTMLElement>('.seat-wrapper--top')!;
+  await waitFor(() => expect(row.style.translate).not.toBe(''));
+  const settledRowTranslate = row.style.translate;
+  const settledPodTranslate = pod.style.translate;
+  expect(settledPodTranslate).not.toBe('');
+
+  const removeSpy = vi.spyOn(CSSStyleDeclaration.prototype, 'removeProperty');
+  for (const rev of ['preflop-action-2', 'flop-deal', 'turn-bet', 'river-call']) {
+    await act(async () => h.rerender(<Fixture revealed revision={rev} />));
+    expect(row.style.translate).toBe(settledRowTranslate);
+    expect(pod.style.translate).toBe(settledPodTranslate);
+  }
+  const removedProps = removeSpy.mock.calls.map(([prop]) => prop);
+  expect(removedProps).not.toContain('--sp-top-seat-shift');
+});

@@ -17,7 +17,7 @@ function beforeStart(
   free = prize === 0
 ) {
   let current = 0;
-  for (let remaining = (free ? 360 : 60) * MIN; remaining > 0; remaining -= MTT_PRESTART_TICK_MS) {
+  for (let remaining = (free ? 1440 : 60) * MIN; remaining > 0; remaining -= MTT_PRESTART_TICK_MS) {
     const target = mttPrestartHorseTarget({
       tournamentId,
       isFree: free,
@@ -49,11 +49,11 @@ describe('varied prestart fields and arrivals throughout late registration', () 
       const expected = mttPrestartPlan(field, null, id, share === 0);
       expect(beforeStart(guarantee, share, null, id)).toBe(expected);
       if (share > 0) {
-        expect(expected).toBeGreaterThanOrEqual(12);
-        expect(expected).toBeLessThanOrEqual(28);
+        expect(expected).toBeGreaterThanOrEqual(32);
+        expect(expected).toBeLessThanOrEqual(48);
       } else {
-        expect(expected).toBeGreaterThanOrEqual(field * 0.4);
-        expect(expected).toBeLessThanOrEqual(Math.ceil(field * 0.6));
+        expect(expected).toBeGreaterThanOrEqual(120);
+        expect(expected).toBeLessThanOrEqual(240);
       }
     }
   );
@@ -62,7 +62,7 @@ describe('varied prestart fields and arrivals throughout late registration', () 
       const plan = mttPrestartPlan(139, cap, 'capped');
       expect(plan).toBeGreaterThan(0);
       expect(plan).toBeLessThan(cap);
-      expect(plan).toBeLessThanOrEqual(28);
+      expect(plan).toBeLessThanOrEqual(48);
       expect(beforeStart(5000, 36, cap, 'capped')).toBe(plan);
     }
     expect(mttPrestartPlan(48, 1, 'capped')).toBe(0);
@@ -80,7 +80,7 @@ describe('varied prestart fields and arrivals throughout late registration', () 
     const opening = mttPrestartHorseTarget({ ...base, msUntilStart: 60 * MIN });
     expect(opening).toBeGreaterThanOrEqual(3);
     expect(opening).toBeLessThanOrEqual(7);
-    expect(beforeStart(1_000_000, 2.5)).toBeLessThanOrEqual(28);
+    expect(beforeStart(1_000_000, 2.5)).toBeLessThanOrEqual(48);
     expect(
       mttPrestartHorseTarget({
         ...base,

@@ -352,12 +352,12 @@ describe('closed complete lobby filter proof', () => {
     action: FILTER_ACTION,
     components: Object.fromEntries(FILTER_COMPONENT_PATHS.map((path) => [path, sha])),
   });
-  it('admits exactly seven tab audits and the shared controls journey without caller input', () => {
+  it('admits exactly seven tab audits, shared controls and the spectator name journey without caller input', () => {
     expect(() => admitDispatch(env, { action: FILTER_ACTION, client_payload: {} })).not.toThrow();
     expect(() =>
       admitDispatch(env, { action: FILTER_ACTION, client_payload: { type: 'MTT' } })
     ).toThrow();
-    expect(assertCases(filterReport(), FILTER_ACTION)).toHaveLength(8);
+    expect(assertCases(filterReport(), FILTER_ACTION)).toHaveLength(9);
     for (const change of [
       (r) => r.suites[0].specs.pop(),
       (r) => r.suites[0].specs.push(r.suites[0].specs[0]),
@@ -394,6 +394,7 @@ describe('closed complete lobby filter proof', () => {
     );
     expect(block).toContain("if: github.event.action == 'verify-lobby-filters'");
     expect(block).toContain('tests/e2e/production-lobby-filter-audit.spec.ts');
+    expect(block).toContain('tests/e2e/production-player-name-layout.spec.ts');
     expect(block).toContain('--project=chromium --workers=1 --retries=0 --trace=off');
     expect(block).not.toContain('production-mobile-lobby-chrome.spec.ts');
     expect(workflow).toContain('cleanupProductionE2EAccount() !== true');

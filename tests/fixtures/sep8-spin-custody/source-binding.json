@@ -68,7 +68,7 @@
     }
   },
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
+    "scripts/ci/classify-ci-changes.mjs": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",
@@ -138,6 +138,13 @@
     "qualification": "No historical financial/native fixture execution or production receipt restamped. Final-head required checks remain necessary."
   },
   "restamp_audit": [
+    {
+      "on": "2026-11-01",
+      "file": "scripts/ci/classify-ci-changes.mjs",
+      "from": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
+      "to": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
+      "why": "Reviewed the exact one-line classifier diff: add the Horse paying-wallet native runner and captured overlay preimage to the existing accounting and routing-test selection. No existing selector is removed or narrowed. Both sole-input regressions fail before correction; all 69 routing tests pass afterward, including neighboring-file exclusions. No financial source, captured rows, monetary assertion, threshold or historical execution status changes. Matching pins are not financial execution or production evidence."
+    },
     {
       "on": "2026-10-07",
       "file": "tests/fixtures/sep8-spin-custody/qualify-current-case-reader.py",

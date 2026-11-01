@@ -1,6 +1,13 @@
 .lobby-filter-label {
   position: absolute;
-  inset: 24% 12%;
+  /* 2172x724 native art stays contained in a 44px hit area. The fitted
+     zone follows the painted face, including desktop letterboxing. */
+  inset: auto;
+  top: 48.5%;
+  left: 50%;
+  width: min(76%, 100.32px);
+  height: min(17.333333cqw, 22.88px);
+  transform: translate(-50%, -50%);
   display: grid;
   place-items: center;
   pointer-events: none;
@@ -17,5 +24,5 @@
   white-space: nowrap;
 }
 .lobby-filter-label__text[data-fit-wrap='true'] {
-  white-space: normal;
+  white-space: nowrap;
 }

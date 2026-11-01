@@ -108,6 +108,8 @@ CHECKPOINT_A0_SHA=a0ab287d902879280f0c915e44f5222c5db4d7df
 CHECKPOINT_8825_SHA=8825af51817f379c4261658ca29ecc9d8d81932d
 CHECKPOINT_EED_SHA=eed06fe51dea622069c661a6213d5b031ff3a9e3
 CHECKPOINT_PREDECESSOR_SHA="$CHECKPOINT_8825_SHA"
+# Initial sealed-read/profile selection is outside the extracted wait loop.
+CHECKPOINT_ALLOCATION_PREDECESSOR_SHA="$CHECKPOINT_PREDECESSOR_SHA"
 legacy_checkpoint_countdown() {{ event "COUNTDOWN:$LOCK_HELD"; printf '%s\\n' $((NOW + 299)); }}
 # The Lightning hold (2026-10-30) is placed on every legacy pass before the
 # entry clock; here it only records that it was asked, unlocked.

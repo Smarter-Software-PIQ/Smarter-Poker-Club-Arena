@@ -32,3 +32,17 @@ The five control-database regressions now execute in the existing native boundar
 Source identity updates retain the exact four affected central-registry pins and the separate cash qualification manifest pin for the additive workflow contract. Their own audits explain the reviewed changes; nested binding hashes are recomputed from actual bytes. All existing financial sources, fixture assertions and qualification statuses are preserved. All1822 central pins and the dedicated nine cash input checks pass; final normal push still owns the remaining local hook result.
 
 The native startup-denial regression resolves its genuine PostgreSQL driver from the fixture package and asserts the locked version. This matches the hosted job, which installs fixture and engine dependencies without root dependencies. Its five cases passed with the fixture-local pg8.20.0, including the actual42501 startup protocol and owned-client cleanup.
+
+Protected-main integration at `c6bd61b20ee64d88e9d79bc264ebdcd95578ad3b`
+retains every concurrent engine and client change, including the EED census
+allocation. The only merge conflict was the containing September-eight source
+binding: its combined hash preserves both the original-web retention audit and
+the additive Horse paying-wallet classifier audit. Financial inputs and previous
+execution states are unchanged. All 35 native fixture/control inputs and the
+native workflow are byte-identical to the qualified `798fa624` candidate; every
+engine script is byte-identical to protected main. The merged application's
+newer engine sources still require their actual hosted qualification.
+
+Integration validation: TypeScript `--noEmit` passed; both fixture CI/routing
+contract files passed all 726 tests; all 1,822 source pins and canonical policy
+integrity passed. These local checks do not certify the 15 connected UI cases.

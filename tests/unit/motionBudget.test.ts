@@ -1,3 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const choreography = readFileSync(
+  resolve(process.cwd(), 'src/components/table/avatarChoreography.css'),
+  'utf8'
+);
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   startMotionBudget,
@@ -112,4 +118,37 @@ describe('motion budget', () => {
     setMotionLite(false);
     expect(document.documentElement.hasAttribute(MOTION_ATTR)).toBe(false);
   });
+});
+
+it('lite motion sheds ambient avatars but never a one-shot gesture, including tense combinations', () => {
+  setMotionLite(true);
+  const ambientRule = [...choreography.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+    ([, selector, body]) =>
+      selector.includes(":root[data-sp-motion='lite']") &&
+      selector.includes('.seat__avatar-wrap') &&
+      /animation:\s*none/.test(body)
+  );
+  expect(ambientRule).toBeTruthy();
+  const selector = ambientRule![1]
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .trim();
+  const wrap = document.createElement('div');
+  document.body.append(wrap);
+  try {
+    for (const tense of [false, true]) {
+      const base = `seat__avatar-wrap${tense ? ' seat__avatar-wrap--tense' : ''}`;
+      wrap.className = base;
+      expect(wrap.matches(selector), 'ambient motion is still shed').toBe(true);
+      for (const gesture of ['push', 'check', 'fold', 'celebrate', 'alert', 'lose']) {
+        wrap.className = `${base} seat__avatar-wrap--${gesture}`;
+        expect(wrap.matches(selector), `${gesture} must play even when tense=${tense}`).toBe(false);
+      }
+    }
+  } finally {
+    wrap.remove();
+    setMotionLite(false);
+  }
 });

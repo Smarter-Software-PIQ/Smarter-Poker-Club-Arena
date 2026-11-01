@@ -23,7 +23,9 @@ function SectionButton({
       aria-controls="lobby-game-section-controls"
       onClick={() => onToggle(section)}
     >
-      <span ref={textRef}>{label}</span>
+      <span className="lobby-game-sections__well">
+        <span ref={textRef}>{label}</span>
+      </span>
     </button>
   );
 }

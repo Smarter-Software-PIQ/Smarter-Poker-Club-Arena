@@ -235,14 +235,19 @@ export const AuditLog: React.FC<AuditLogProps> = ({ clubId }) => {
   // Realtime: rows written by other admins / other devices appear without a
   // manual refresh. audit_trail is in the supabase_realtime publication and
   // postgres_changes applies the owner-read RLS policy server-side.
+  const loadAuditLogRef = useRef(loadAuditLog);
+  loadAuditLogRef.current = loadAuditLog;
+
   useEffect(() => {
     let cancelled = false;
+    let acquiredChannel: ReturnType<typeof masterBus.getOrCreateChannel> | null = null;
     const channelKey = `audit-log-${clubId}`;
-    (async () => {
+    const setupRealtime = async () => {
       const resolvedId = await resolveClubUUID(clubId);
       if (cancelled) return;
-      masterBus
-        .getOrCreateChannel(channelKey)
+      const channel = masterBus.getOrCreateChannel(channelKey);
+      acquiredChannel = channel;
+      channel
         .on(
           'postgres_changes',
           {
@@ -252,16 +257,23 @@ export const AuditLog: React.FC<AuditLogProps> = ({ clubId }) => {
             filter: `club_id=eq.${resolvedId}`,
           },
           () => {
-            if (isMounted.current) loadAuditLog({ silent: true });
+            if (isMounted.current) loadAuditLogRef.current({ silent: true });
           }
         )
         .subscribe();
-    })().catch((e) => console.warn('[AuditLog] Realtime setup failed:', e));
+    };
+    masterBus.registerChannelFactory?.(channelKey, () => {
+      if (!cancelled) void setupRealtime();
+    });
+    setupRealtime().catch((e) => console.warn('[AuditLog] Realtime setup failed:', e));
     return () => {
       cancelled = true;
-      masterBus.removeRegisteredChannel(channelKey);
+      masterBus.removeChannelFactory?.(channelKey);
+      if (acquiredChannel) {
+        masterBus.removeRegisteredChannel(channelKey, acquiredChannel);
+      }
     };
-  }, [clubId, loadAuditLog, isMounted]);
+  }, [clubId, isMounted]);
 
   const getActionIcon = (action: string) => {
     if (action.includes('banned')) return '⊘';

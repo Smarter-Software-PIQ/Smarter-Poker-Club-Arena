@@ -35,6 +35,7 @@ import {
 import { getAnimationSpeed, prefersReducedMotion } from '../../utils/animationSpeed';
 import RiveAvatar from './RiveAvatar';
 import { ActionTimerRing } from './ActionTimerRing';
+import { SeatPlayerName } from './SeatPlayerName';
 import AvatarCosmetics from '../avatars/AvatarCosmetics';
 import { startMotionBudget } from '../../utils/motionBudget';
 import { bustArtGain, BUST_ART_GAIN } from './bustArtGain';
@@ -1290,7 +1291,20 @@ export const SeatSlot = memo(
       resized.observe(seat);
       measure();
       // The art mounts after the seat and swaps on a skin change.
-      const changed = new MutationObserver(schedule);
+      // Ignore countdown/stack text ticks inside `.seat__info` and card flips
+      // inside `.seat__cards`: `measure()` only reads avatar art and `:scope > .seat__action`.
+      const isIrrelevantMutation = (node: Node | null) =>
+        node instanceof Node &&
+        Boolean(
+          (node instanceof Element ? node : node.parentElement)?.closest(
+            '.seat__info, .seat__cards, .seat__bet-chips'
+          )
+        );
+      const changed = new MutationObserver((records) => {
+        if (records.some((record) => !isIrrelevantMutation(record.target))) {
+          schedule();
+        }
+      });
       changed.observe(seat, { childList: true, subtree: true, characterData: true });
       seat.addEventListener('load', schedule, true);
       seat.addEventListener('opponentavatarresize', schedule);
@@ -3475,8 +3489,8 @@ export const SeatSlot = memo(
           {/* Native transform clips drain stationary rounded ink. Timing is
               inherited from the same frozen engine-clock anchor above. */}
           {isActingNow && <ActionTimerRing timing={timerStyle} />}
-          {/* Full names wrap within the seat plate (owner 2026-10-26). */}
-          <span className="seat__name">{player.name?.trim()}</span>
+          {/* Full names fit one line within the plate (owner 2026-11-01). */}
+          <SeatPlayerName name={player.name?.trim() ?? ''} />
           <span
             className={`seat__stack${stackDelta > 0 ? ' seat__stack--up' : ''} ${player.stackPending ? '' : getStackDepthClass(player.stack, bigBlind)}`}
             aria-busy={!!player.stackPending}

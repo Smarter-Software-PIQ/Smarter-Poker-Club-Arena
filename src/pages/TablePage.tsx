@@ -181,7 +181,7 @@ import { useVIPStatus } from '../hooks/useVIP';
 import { CommunityCards } from '../components/table/CommunityCards';
 import { DealerButton } from '../components/table/DealerButton';
 import { DealAnimation } from '../components/table/DealAnimation';
-import { ActionClockSeconds, ActionClockWarning } from '../components/table/ActionClockReadouts';
+import { ActionClockWarning } from '../components/table/ActionClockReadouts';
 import type { SeatPlayer, Card, LastAction, PositionBadge } from '../components/table/SeatSlot';
 import type { SidePot } from '../components/table/PotDisplay';
 import type { BoardStage } from '../components/table/CommunityCards';
@@ -214,7 +214,7 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
 
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
 import lobbyButtonArt from '../assets/lobby-button.webp';
-import { useButtonImage, useTimebankIcon } from '../hooks/useButtonImage';
+import { useButtonImage } from '../hooks/useButtonImage';
 
 import { cashBuyInRange, cashBuyInRefusalText, cashBuyInSeatConflictText } from '../lib/cashBuyIn';
 import {
@@ -1574,7 +1574,6 @@ function LiveTablePage({
   const followingPlayerRef = useRef(followingPlayer);
   followingPlayerRef.current = followingPlayer;
   const addScreenIcon = useButtonImage('icon-addscreen');
-  const timebankIconPage = useTimebankIcon();
   const { tableId: routeTableId } = useParams<{ tableId: string }>();
   const requestedTableId = embeddedTableId || routeTableId;
   // Every table effect receives a database ID or no scope. A URL segment
@@ -2227,7 +2226,7 @@ function LiveTablePage({
       // leaked one subscribed Supabase channel per table mount (x6 in
       // MultiTablePage) for the life of the page.
       try {
-        masterBus.removeRegisteredChannel(`mystery-chest-${tableId}`);
+        masterBus.removeRegisteredChannel(`mystery-chest-${tableId}`, chan);
       } catch {
         /* best effort */
       }
@@ -3087,6 +3086,33 @@ function LiveTablePage({
       );
       heroActedFenceRef.current = fenceVerdict.fence;
       const nextCurrentSeat = fenceVerdict.currentPlayerSeat;
+      // Preserve optimistic hero action fields (label, wager, stack, folded/all_in
+      // status) when an in-flight pre-action snapshot is withheld by the hero-acted
+      // fence (mapped.currentPlayerSeat === prev.heroSeat && nextCurrentSeat === 0).
+      // Once the engine's post-action snapshot arrives (carrying a new actor or a
+      // new decision), its authoritative fields take over seamlessly.
+      const heroWithheldByFence =
+        prev.heroSeat > 0 && mapped.currentPlayerSeat === prev.heroSeat && nextCurrentSeat === 0;
+      const nextLastActions = [...(mapped.lastActions as LastAction[])];
+      if (heroWithheldByFence) {
+        const hIdx = prev.heroSeat - 1;
+        if (prev.lastActions[hIdx]) nextLastActions[hIdx] = prev.lastActions[hIdx];
+        if ((prev.lastBetAmounts[hIdx] ?? 0) > (nextBets[hIdx] ?? 0)) {
+          nextBets[hIdx] = prev.lastBetAmounts[hIdx];
+        }
+        const prevHero = prev.players[hIdx];
+        const mappedHero = nextPlayers[hIdx];
+        if (prevHero && mappedHero && prevHero.id === mappedHero.id) {
+          nextPlayers[hIdx] = {
+            ...mappedHero,
+            status:
+              prevHero.status === 'folded' || prevHero.status === 'all_in'
+                ? prevHero.status
+                : mappedHero.status,
+            stack: Math.min(mappedHero.stack ?? 0, prevHero.stack ?? 0),
+          };
+        }
+      }
       /* LIGHTNING TRANSITION, PHASE 3: THE HERO'S CHAIR MOVES WITH THE ROSTER.
          The chair layout follows heroSeat, and the seat invariant below only
          adopted a new chair after the new roster had painted, so for one
@@ -3162,12 +3188,24 @@ function LiveTablePage({
         // stats + the deal animation never re-fired. Carry it through.
         handNumber: mapped.handNumber > 0 ? mapped.handNumber : prev.handNumber,
         handBlinds: mapped.handBlinds,
-        actionContext: mapped.actionContext,
+        actionContext:
+          mapped.actionContext ??
+          (sameHand &&
+          prev.actionContext &&
+          nextCurrentSeat > 0 &&
+          prev.currentPlayerSeat === nextCurrentSeat &&
+          prev.boardStage === nextStage &&
+          prev.currentBet === mapped.currentBet &&
+          mapped.isTimeBankActive
+            ? prev.actionContext
+            : undefined),
         players: nextPlayers,
         positions: mapped.positions as PositionBadge[],
-        lastActions: mapped.lastActions as LastAction[],
+        lastActions: nextLastActions,
         lastBetAmounts: nextBets,
-        currentBet: mapped.currentBet,
+        currentBet: heroWithheldByFence
+          ? Math.max(mapped.currentBet || 0, prev.currentBet || 0)
+          : mapped.currentBet,
         minRaise: mapped.minRaise,
         lastRaise: mapped.lastRaise,
         // 2026-08-23: the engine's betting structure, carried straight through
@@ -6206,14 +6244,19 @@ function LiveTablePage({
   useProtectedCardLayout(
     tableScalerRef,
     JSON.stringify([
-      tableState.players.map((p) => p && [p.id, p.showCards, p.status, p.holeCards?.length]),
+      tableState.players.map(
+        (p) =>
+          p && [
+            p.id,
+            Boolean(p.showCards || p.status === 'all_in') && (p.holeCards?.length ?? 0) > 0
+              ? p.holeCards?.length
+              : 0,
+          ]
+      ),
       tableState.communityCards,
       tableState.communityCards2,
       tableState.communityCards3,
-      tableState.pot,
       tableState.heroSeat,
-      tableState.lastActions,
-      tableState.lastBetAmounts,
     ]),
     `${tableId}:${tableState.handNumber ?? 0}`
   );
@@ -7471,6 +7514,69 @@ function LiveTablePage({
       tableState.players[tableState.heroSeat - 1]?.status === 'folded',
   });
   const heroPromptedToAct = isHeroTurnContext && !suppressPanelForPreAction;
+
+  useEffect(() => {
+    if (
+      !isHeroTurnContext ||
+      heroDecisionReady ||
+      Boolean(lightningRoom) ||
+      engineWsStatus !== 'connected'
+    ) {
+      return;
+    }
+    let attempts = 0;
+    const maxAttempts = 6;
+    const requestMissingDecision = () => {
+      if (attempts >= maxAttempts) return;
+      attempts += 1;
+      requestEngineSnapshot();
+    };
+    const initialTimer = window.setTimeout(requestMissingDecision, 120);
+    const retryInterval = window.setInterval(() => {
+      if (attempts >= maxAttempts) {
+        window.clearInterval(retryInterval);
+        return;
+      }
+      requestMissingDecision();
+    }, 350);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(retryInterval);
+    };
+  }, [
+    isHeroTurnContext,
+    heroDecisionReady,
+    lightningRoom,
+    engineWsStatus,
+    tableState.handNumber,
+    tableState.boardStage,
+    tableState.currentPlayerSeat,
+    tableState.currentBet,
+    tableState.isTimeBankActive,
+    requestEngineSnapshot,
+  ]);
+
+  useEffect(() => {
+    if (
+      dealInFlight &&
+      tableState.isHandInProgress &&
+      tableState.heroSeat > 0 &&
+      tableState.currentPlayerSeat === tableState.heroSeat &&
+      heroDecisionReady &&
+      (tableState.players[tableState.heroSeat - 1]?.holeCards?.length ?? 0) > 0
+    ) {
+      endDealHold();
+      settleHeroDealSoundRef.current?.(heldHeroDealSoundRef.current);
+    }
+  }, [
+    dealInFlight,
+    tableState.isHandInProgress,
+    tableState.heroSeat,
+    tableState.currentPlayerSeat,
+    tableState.players,
+    heroDecisionReady,
+    endDealHold,
+  ]);
 
   /**
    * The bell and the buzz follow the SAME boolean. The TURN_CHANGE handler
@@ -10630,6 +10736,19 @@ function LiveTablePage({
   useEffect(() => {
     if (showRebuyModal) retryAccountBalance();
   }, [showRebuyModal, retryAccountBalance]);
+  useEffect(() => {
+    if (showBuyInModal || showCashier || addOnPeriod.active) {
+      retryAccountBalance();
+    }
+  }, [showBuyInModal, showCashier, addOnPeriod.active, retryAccountBalance]);
+  useEffect(() => {
+    if (!addOnPeriod.active || accountBalance === null || !Number.isFinite(accountBalance)) return;
+    setAddOnPeriod((prev) =>
+      prev.active && prev.walletBalance !== accountBalance
+        ? { ...prev, walletBalance: accountBalance }
+        : prev
+    );
+  }, [addOnPeriod.active, accountBalance]);
 
   /* The seat-taking for which a positive stack has been seen, and a tick that
      re-runs the bust watch when a fresh seat's settling window closes. */
@@ -17056,7 +17175,7 @@ function LiveTablePage({
       if (breakChannelRef.current) {
         // BUG-C FIX: Read tournamentId from tableStateRef (fresh) instead of stale closure
         const tournId = tableStateRef.current.tournamentId || tableId;
-        masterBus.removeRegisteredChannel(`t-break-${tournId}`);
+        masterBus.removeRegisteredChannel(`t-break-${tournId}`, breakChannelRef.current);
         breakChannelRef.current = null;
       }
       if (addOnChannelRef.current) {
@@ -18434,7 +18553,7 @@ function LiveTablePage({
           }
         }
 
-        // Step 1: Action label (immediate, persists until next action / new street)
+        // Step 1: Action label + immediate seat state (persists until next action / new street)
         if (seatIdx >= 0) {
           // ANIMATION AUDIT 2026-08-19: record the wager where the snapshot
           // cannot erase it, so the chips-to-pot sweep always has a mask.
@@ -18443,14 +18562,33 @@ function LiveTablePage({
             const newActions = [...prev.lastActions];
             newActions[seatIdx] = action as any;
             const newBets = [...prev.lastBetAmounts];
+            const priorBet = prev.lastBetAmounts[seatIdx] || 0;
             if (actionAmount > 0) newBets[seatIdx] = actionAmount;
-            // Pot from snapshot is more accurate than locally summing — pot
-            // updates arrive in the next snapshot. If client already has it,
-            // keep prev.pot; otherwise leave untouched.
+            const players = [...prev.players];
+            const actor = players[seatIdx];
+            if (actor) {
+              const chipDelta = actionAmount > 0 ? Math.max(0, actionAmount - priorBet) : 0;
+              const nextStack =
+                chipDelta > 0 ? Math.max(0, (actor.stack || 0) - chipDelta) : actor.stack;
+              const nextStatus =
+                action === 'fold'
+                  ? ('folded' as any)
+                  : action === 'all_in' || action === 'allin' || (chipDelta > 0 && nextStack === 0)
+                    ? ('all_in' as any)
+                    : actor.status;
+              players[seatIdx] = {
+                ...actor,
+                stack: nextStack,
+                status: nextStatus,
+              };
+            }
             return {
               ...prev,
+              players,
               lastActions: newActions,
               lastBetAmounts: newBets,
+              currentBet:
+                actionAmount > 0 ? Math.max(prev.currentBet || 0, actionAmount) : prev.currentBet,
               ...(prev.currentPlayerSeat === actionSeat ? { currentPlayerSeat: 0 } : {}),
             };
           });
@@ -18792,7 +18930,11 @@ function LiveTablePage({
           });
         }
         // Reset visual state instantly so the new hand starts crisp.
-        heroEngineCardOrderRef.current = null;
+        const heroCardsAlreadyDealtForThisHand =
+          startedHandNumber > 0 && heroDealSoundHandRef.current === startedHandNumber;
+        if (!heroCardsAlreadyDealtForThisHand) {
+          heroEngineCardOrderRef.current = null;
+        }
         setTableState((prev) => {
           // ANIMATION AUDIT 2026-08-19: 'folded' is per-hand state. It was
           // never reset here, so DealAnimation (which mounts off this event,
@@ -18802,12 +18944,19 @@ function LiveTablePage({
           const players = prev.players.map((p) => {
             if (!p) return p;
             const unfolded = p.status === 'folded' ? { ...p, status: 'active' as const } : p;
-            return unfolded.id === userId
-              ? { ...unfolded, holeCards: [], showCards: false }
-              : unfolded;
+            if (unfolded.id === userId) {
+              return heroCardsAlreadyDealtForThisHand &&
+                unfolded.holeCards &&
+                unfolded.holeCards.length > 0
+                ? unfolded
+                : { ...unfolded, holeCards: [], showCards: false };
+            }
+            return unfolded;
           });
           return {
             ...prev,
+            handNumber: startedHandNumber > 0 ? startedHandNumber : prev.handNumber,
+            isHandInProgress: true,
             players,
             lastActions: prev.lastActions.map(() => null),
             lastBetAmounts: prev.lastBetAmounts.map(() => 0),
@@ -18818,6 +18967,17 @@ function LiveTablePage({
             engineStage: 'preflop',
           };
         });
+        // Flush any private hole_cards USER_EVENT frame that arrived ahead of
+        // HAND_STARTED immediately so the hero's cards appear in the same tick.
+        if (
+          earlyHeroCardsRef.current &&
+          startedHandNumber > 0 &&
+          earlyHeroCardsRef.current.hand === startedHandNumber
+        ) {
+          const early = earlyHeroCardsRef.current;
+          earlyHeroCardsRef.current = null;
+          handleHoleCardPayload({ new: early.row });
+        }
         // Re-fetch the hero's cards for the new hand (recovers a dropped insert).
         heroCardFetchRef.current?.();
         setTimeout(() => heroCardFetchRef.current?.(), 1500);
@@ -23318,8 +23478,10 @@ function LiveTablePage({
       reloadTimer = window.setTimeout(() => void reloadRoster(), 250);
     };
 
+    const instanceSuffix = Math.random().toString(36).slice(2, 10);
+    let hasSubscribedOnce = false;
     const channel = supabase
-      .channel(`seat-first-roster-${tableId}`)
+      .channel(`seat-first-roster-${tableId}-${instanceSuffix}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'table_seats', filter: `table_id=eq.${tableId}` },
@@ -23339,19 +23501,39 @@ function LiveTablePage({
           )
       );
     }
-    channel.subscribe();
+    channel.subscribe((status) => {
+      if (cancelled) return;
+      if (status === 'SUBSCRIBED') {
+        if (hasSubscribedOnce) {
+          scheduleReload();
+        }
+        hasSubscribedOnce = true;
+      }
+    });
 
     // Belt for the braces: realtime drops silently, so re-read on a slow
     // cadence regardless. 10s keeps a dead channel's staleness bounded at a
     // fraction of a fill cycle without meaningfully loading the database.
     void reloadRoster();
-    const pollId = window.setInterval(() => void reloadRoster(), 10_000);
+    const pollId = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void reloadRoster();
+    }, 10_000);
+    const onWakeOrOnline = () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      scheduleReload();
+    };
+    window.addEventListener('online', onWakeOrOnline);
+    document.addEventListener('visibilitychange', onWakeOrOnline);
 
     return () => {
       cancelled = true;
       if (reloadTimer) window.clearTimeout(reloadTimer);
       if (fullRecheckTimer) window.clearTimeout(fullRecheckTimer);
       window.clearInterval(pollId);
+      window.removeEventListener('online', onWakeOrOnline);
+      document.removeEventListener('visibilitychange', onWakeOrOnline);
       void supabase.removeChannel(channel);
     };
   }, [tableId, seatFirstBuyIn, playHasBegun, tableState.tournamentId, userId]);
@@ -23691,24 +23873,46 @@ function LiveTablePage({
       debounce = window.setTimeout(() => void reload(), 200);
     };
 
+    const instanceSuffix = Math.random().toString(36).slice(2, 10);
+    let hasSubscribedOnce = false;
     const channel = supabase
-      .channel(`seat-sitout-${tableId}`)
+      .channel(`seat-sitout-${tableId}-${instanceSuffix}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'table_seats', filter: `table_id=eq.${tableId}` },
         schedule
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (cancelled) return;
+        if (status === 'SUBSCRIBED') {
+          if (hasSubscribedOnce) {
+            schedule();
+          }
+          hasSubscribedOnce = true;
+        }
+      });
 
     void reload();
     // Realtime drops silently. A slow poll bounds how stale the tag can get
     // without meaningfully loading the database — one narrow two-column read.
-    const pollId = window.setInterval(() => void reload(), 10_000);
+    const pollId = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void reload();
+    }, 10_000);
+    const onWakeOrOnline = () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      schedule();
+    };
+    window.addEventListener('online', onWakeOrOnline);
+    document.addEventListener('visibilitychange', onWakeOrOnline);
 
     return () => {
       cancelled = true;
       if (debounce) window.clearTimeout(debounce);
       window.clearInterval(pollId);
+      window.removeEventListener('online', onWakeOrOnline);
+      document.removeEventListener('visibilitychange', onWakeOrOnline);
       void supabase.removeChannel(channel);
     };
   }, [tableId, userId, applySeatRemoved, lightningRoom]);
@@ -24059,6 +24263,9 @@ function LiveTablePage({
       let prevLastAction: any = null;
       let prevLastBet: number | null = null;
       let prevStatus: any = null;
+      let prevStack: number | null = null;
+      let prevCurrentBet: number | null = null;
+      let prevStreetBet: number = 0;
       // 2026-08-26: these three used to be assigned unconditionally inside the
       // updater below. A React updater must be PURE, and under concurrent
       // rendering it can be re-invoked against a rebased base state - at which
@@ -24087,18 +24294,41 @@ function LiveTablePage({
           prevLastAction = prev.lastActions[idx] ?? null;
           prevLastBet = prev.lastBetAmounts[idx] ?? 0;
           prevStatus = hero?.status ?? null;
+          prevStack = hero?.stack ?? null;
+          prevCurrentBet = prev.currentBet ?? 0;
+          prevStreetBet = streetBetsRef.current[idx] ?? 0;
         }
 
         const newActions = [...prev.lastActions];
         newActions[idx] = label as any;
 
         const newBets = [...prev.lastBetAmounts];
+        let nextCurrentBet = prev.currentBet || 0;
         if (action === 'call' || action === 'raise' || action === 'allin') {
-          if (typeof amount === 'number' && amount > 0) newBets[idx] = amount;
+          if (typeof amount === 'number' && amount > 0) {
+            newBets[idx] = amount;
+            streetBetsRef.current[idx] = amount;
+            nextCurrentBet = Math.max(nextCurrentBet, amount);
+          }
         }
 
         if (action === 'fold' && hero) {
           players[idx] = { ...hero, status: 'folded' as any };
+        } else if (
+          (action === 'call' || action === 'raise' || action === 'allin') &&
+          hero &&
+          typeof amount === 'number' &&
+          amount > 0
+        ) {
+          const baseBet = prevLastBet ?? 0;
+          const baseStack = prevStack ?? hero.stack ?? 0;
+          const chipDelta = Math.max(0, amount - baseBet);
+          const nextStack = Math.max(0, baseStack - chipDelta);
+          players[idx] = {
+            ...hero,
+            stack: nextStack,
+            status: action === 'allin' || nextStack === 0 ? ('all_in' as any) : hero.status,
+          };
         }
 
         if (prev.currentPlayerSeat === heroSeat && !fenceArmed) {
@@ -24120,6 +24350,7 @@ function LiveTablePage({
           ...prev,
           lastActions: newActions,
           lastBetAmounts: newBets,
+          currentBet: nextCurrentBet,
           players,
           ...(prev.currentPlayerSeat === heroSeat ? { currentPlayerSeat: 0 } : {}),
         };
@@ -24169,6 +24400,7 @@ function LiveTablePage({
         )
           return;
         heroActedFenceRef.current = null;
+        streetBetsRef.current[idx] = prevStreetBet;
         setTableState((prev) => {
           if (prev.actionContext !== priorDecision || prev.handNumber !== priorHand) return prev;
           const newActions = [...prev.lastActions];
@@ -24176,13 +24408,18 @@ function LiveTablePage({
           const newBets = [...prev.lastBetAmounts];
           newBets[idx] = prevLastBet ?? 0;
           const players = [...prev.players];
-          if (players[idx] && prevStatus != null) {
-            players[idx] = { ...players[idx]!, status: prevStatus };
+          if (players[idx]) {
+            players[idx] = {
+              ...players[idx]!,
+              ...(prevStatus != null ? { status: prevStatus } : {}),
+              ...(prevStack != null ? { stack: prevStack } : {}),
+            };
           }
           return {
             ...prev,
             lastActions: newActions,
             lastBetAmounts: newBets,
+            ...(prevCurrentBet != null ? { currentBet: prevCurrentBet } : {}),
             players,
             // Only if nobody else has since been given the turn.
             ...(prev.currentPlayerSeat === 0 ? { currentPlayerSeat: heroSeat } : {}),
@@ -25051,7 +25288,7 @@ function LiveTablePage({
              their next turn. The engine's own PLAYER_ACTION echo turns the
              mode on for a real all-in, and says nothing for a call. */
           {
-            const revert = applyOptimisticHeroAction('allin', heroStack);
+            const revert = applyOptimisticHeroAction('allin', heroAllInTo);
             if (tableId) {
               const ok = await submitActionWithToast(
                 tableId,
@@ -28345,6 +28582,14 @@ function LiveTablePage({
                the pot pill by exactly that lift. */
             const collectDy =
               collectOffset.y + (!markerSize.railBets && pos.y >= 100 && pos.x === 50 ? 30 : 0);
+            const seatBounty = seatBountyBadge({
+              isBountyTournament: Boolean(tableState.isBountyTournament),
+              mysteryChestsLive,
+              chestsOnly: mysteryChestsOnly,
+              playerId: player?.id,
+              playerStatus: player?.status,
+              bountyMap: tableState.bountyMap,
+            });
 
             return (
               <div
@@ -28552,26 +28797,8 @@ function LiveTablePage({
                       : null
                   }
                   isTournament={tableState.isTournament}
-                  bountyValue={
-                    seatBountyBadge({
-                      isBountyTournament: Boolean(tableState.isBountyTournament),
-                      mysteryChestsLive,
-                      chestsOnly: mysteryChestsOnly,
-                      playerId: player?.id,
-                      playerStatus: player?.status,
-                      bountyMap: tableState.bountyMap,
-                    }).value
-                  }
-                  bountyIsMystery={
-                    seatBountyBadge({
-                      isBountyTournament: Boolean(tableState.isBountyTournament),
-                      mysteryChestsLive,
-                      chestsOnly: mysteryChestsOnly,
-                      playerId: player?.id,
-                      playerStatus: player?.status,
-                      bountyMap: tableState.bountyMap,
-                    }).mystery
-                  }
+                  bountyValue={seatBounty.value}
+                  bountyIsMystery={seatBounty.mystery}
                   /* THE GRID THIS TABLE PAYS ON (2026-09-20). `arenaAsset` has
                      been through `parseArenaIdentity`, which writes 'diamonds'
                      only for a row satisfying all three conditions
@@ -29546,47 +29773,9 @@ function LiveTablePage({
              no action buttons are up. They cost a permanent strip of screen on
              a phone to repeat it. */ ? null : (
           <>
-            {/* ─── CONTROL STRIP — Minimal: Time Bank + Timer during hand, Rabbit Hunt after hand ─── */}
-            {/* Dan 2026-09-04: not for a turn the engine is taking on the
-                player's behalf - see heroPromptedToAct. The strip used to
-                stand up (time-bank button, ticking numeral) for the engine's
-                pre-action beat and then vanish with the fold. */}
-            {heroPromptedToAct && (
-              <div className="control-strip control-strip--transparent">
-                {/* Time Bank */}
-                <button
-                  className="control-strip__btn control-strip__btn--icon-img"
-                  title={timeBankUnlimited ? 'Unlimited Lifetime VIP Time Banks' : 'Time Bank'}
-                  onClick={handleActivateTimeBank}
-                  disabled={
-                    (!timeBankUnlimited && (timeBanksRemaining ?? 0) <= 0) || timeBankActive
-                  }
-                >
-                  <span className="control-strip__icon-wrap" aria-hidden="true">
-                    <img
-                      src={timebankIconPage}
-                      className="control-strip__timebank-img"
-                      alt=""
-                      draggable={false}
-                    />
-                    {/* Resolved 2026-08-26: main's stopwatch image is kept; the only thing
-                          carried across is the null case — the count is null until the
-                          TRUE balance loads and must not render a fabricated number. */}
-                    <span className="control-strip__count-overlay">
-                      {timeBankUnlimited ? 'VIP' : (timeBanksRemaining ?? '-')}
-                    </span>
-                  </span>
-                </button>
-
-                {/* Timer Display. PERF 2026-08-25: a leaf that subscribes to
-                      the clock, so the numeral can tick without this component
-                      rendering. Same output as the inline expression it
-                      replaced, `|| 0` included. */}
-                <div className="control-strip__timer">
-                  <ActionClockSeconds clock={actionClock} className="control-strip__timer-val" />
-                </div>
-              </div>
-            )}
+            {/* The legacy stopwatch/countdown strip is intentionally absent.
+                It mounted before the action panel and flashed below the hero.
+                The seat owns the live clock; the HUD owns the bank balance. */}
 
             {/* Rabbit Hunt lives in the bottom-left HUD corner, in the slot it
                 shares with the time-bank tile (`hudSlotControl`, above). It has

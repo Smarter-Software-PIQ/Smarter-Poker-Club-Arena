@@ -58,6 +58,7 @@ class NotificationServiceClass {
   private channel: RealtimeChannel | null = null;
   private callbacks: NotificationCallbacks = {};
   private currentUserId: string | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Subscribe to real-time notifications for a user
@@ -71,7 +72,7 @@ class NotificationServiceClass {
     this.callbacks = callbacks;
 
     this.channel = supabase
-      .channel(`notifications:${userId}`)
+      .channel(`notification-service:${userId}`)
       .on(
         'postgres_changes',
         {
@@ -124,17 +125,32 @@ class NotificationServiceClass {
         if (status === 'CHANNEL_ERROR') {
           if (err)
             reportError(err?.message || err, 'NotificationService._Channel_error_on_notifications');
+          this.scheduleReconnect(userId, callbacks);
         }
         if (status === 'TIMED_OUT') {
-          console.warn(`[NotificationService] Channel notifications:${userId} timed out`);
+          console.warn(`[NotificationService] Channel notification-service:${userId} timed out`);
+          this.scheduleReconnect(userId, callbacks);
         }
       });
+  }
+
+  private scheduleReconnect(userId: string, callbacks: NotificationCallbacks): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.currentUserId !== userId) return;
+      void this.subscribe(userId, callbacks);
+    }, 3000);
   }
 
   /**
    * Unsubscribe from notifications
    */
   async unsubscribe(): Promise<void> {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.channel) {
       await supabase.removeChannel(this.channel);
       this.channel = null;

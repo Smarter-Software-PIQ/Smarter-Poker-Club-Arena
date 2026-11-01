@@ -2688,14 +2688,6 @@
     width: 88px;
     min-width: 88px;
   }
-  .lobby-filter-label {
-    position: static;
-    display: contents;
-  }
-  .lobby-filter-label__text {
-    font-size: inherit;
-    font-weight: inherit;
-  }
 }
 
 /* CHROME ARENA CONTROL DECK — owner-selected October 31 reference.
@@ -2746,16 +2738,17 @@
   width: 100%;
   min-width: 0;
   min-height: 44px;
-  height: auto;
-  aspect-ratio: 307 / 174;
+  height: 44px;
+  aspect-ratio: auto;
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: transparent;
+  background: url('/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png') center /
+    contain no-repeat;
   box-shadow: none;
   color: #e4e7ec;
   filter: none;
-  --lobby-key-font: 17cqw;
+  --lobby-key-font: clamp(12px, 12cqw, 15.84px);
 }
 .club-home
   .club-lobby-command-top
@@ -2763,17 +2756,7 @@
   #lobby-game-section-controls
   .game-bar__types
   .game-bar__type::before {
-  content: '';
-  display: block;
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  opacity: 1;
-  border: 0;
-  box-shadow: none;
-  background: url('/assets/club-buttons/game-cards/nlh/spade-nlh-premium-v1/buttons/view-plate-10e21c24e5d6.png')
-    center / contain no-repeat;
-  clip-path: polygon(12% 10%, 88% 10%, 96% 24%, 96% 77%, 88% 90%, 12% 90%, 4% 77%, 4% 24%);
+  display: none;
 }
 .club-home
   .club-lobby-command-top
@@ -2790,16 +2773,6 @@
   .game-bar__types
   .game-bar__type.is-active {
   color: #45adff;
-}
-.club-home
-  .club-lobby-command-top
-  .lobby-controls
-  #lobby-game-section-controls
-  .lobby-filter-label {
-  position: absolute;
-  inset: 24% 12%;
-  display: grid;
-  place-items: center;
 }
 .club-home
   .club-lobby-command-top
@@ -2863,7 +2836,7 @@
   box-shadow: none;
   color: #e4e7ec;
   filter: none;
-  --lobby-key-font: 12cqw;
+  --lobby-key-font: clamp(12px, 12cqw, 15.84px);
 }
 .club-home
   .club-lobby-command-top
@@ -2925,13 +2898,4 @@
     grid-auto-flow: column;
     grid-template-columns: none;
   }
-}
-/* Low-profile glass has room for one fitted line, not two lines on the rim. */
-.club-home
-  .club-lobby-command-top
-  .lobby-controls
-  #lobby-game-section-controls
-  .lobby-refinements
-  .lobby-filter-label__text[data-fit-wrap='true'] {
-  white-space: nowrap;
 }

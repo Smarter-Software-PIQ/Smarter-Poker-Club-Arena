@@ -589,112 +589,201 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
     const channelKey = `header-data-${userId}`;
     set({ _channelKey: channelKey });
 
-    const channel = masterBus.getOrCreateChannel(channelKey);
-    // JOIN ONLY AS THE SIGNED-IN PLAYER (2026-11-01). This channel used to call
-    // subscribe() the moment loadOnce ran. On a cold load straight onto a table
-    // (no main header, so HeaderAppearanceSync starts it from the user store
-    // before the socket is authorised) it joined without an access token. Row
-    // level security then dropped every INSERT on notifications and passed only
-    // DELETEs: run 41280281132 showed the ringing call's DELETE reaching the
-    // table page and its INSERT never arriving, so no call alert, no message
-    // pop-up and no bell count at a table. subscribeRealtime waits for the
-    // shared realtime admission (socket open and authorised) like every other
-    // page channel.
     const admission = new AbortController();
-    channel.on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${userId}`,
-      },
-      (payload) => {
-        // A direct message arrives as a `new_message` notification. Refresh
-        // the Messages badge and hand the row to the live message popup.
-        const row = (payload?.new ?? null) as Record<string, any> | null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let hasSubscribedOnce = false;
+
+    const refreshAllHeaderCounts = () => {
+      scheduleCount('notifications', async () => {
         try {
-          if (payload?.eventType === 'INSERT' && row?.type === 'incoming_call') {
-            window.dispatchEvent(new CustomEvent(INCOMING_CALL_EVENT, { detail: row }));
-          } else if (payload?.eventType === 'DELETE' && payload?.old?.id) {
-            window.dispatchEvent(
-              new CustomEvent(CALL_ALERT_CLEARED_EVENT, { detail: { id: payload.old.id } })
-            );
+          const { count, error } = await supabase
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', userId)
+            .eq('read', false);
+          if (error) {
+            reportError(error, 'useHeaderDataStore.refreshAllHeaderCounts');
+            return;
           }
+          if (get()._userId === userId) get().setNotificationCount(count || 0);
         } catch (e) {
-          reportError(e, 'useHeaderDataStore.incoming_call_event');
+          reportError(e, 'useHeaderDataStore.async');
+          /* silent */
         }
-        if (payload?.eventType === 'INSERT' && row?.type === 'new_message') {
+      });
+      scheduleCount('messages', async () => {
+        const count = await fetchMessengerUnreadCount();
+        if (count !== null && get()._userId === userId) get().setUnreadMessages(count);
+      });
+    };
+
+    const connectHeaderChannel = () => {
+      if (
+        admission.signal.aborted ||
+        get()._userId !== userId ||
+        get()._channelKey !== channelKey
+      ) {
+        return;
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+
+      const channel = masterBus.getOrCreateChannel(channelKey);
+      // JOIN ONLY AS THE SIGNED-IN PLAYER (2026-11-01). This channel used to call
+      // subscribe() the moment loadOnce ran. On a cold load straight onto a table
+      // (no main header, so HeaderAppearanceSync starts it from the user store
+      // before the socket is authorised) it joined without an access token. Row
+      // level security then dropped every INSERT on notifications and passed only
+      // DELETEs: run 41280281132 showed the ringing call's DELETE reaching the
+      // table page and its INSERT never arriving, so no call alert, no message
+      // pop-up and no bell count at a table. subscribeRealtime waits for the
+      // shared realtime admission (socket open and authorised) like every other
+      // page channel.
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          // A direct message arrives as a `new_message` notification. Refresh
+          // the Messages badge and hand the row to the live message popup.
+          const row = (payload?.new ?? null) as Record<string, any> | null;
           try {
-            window.dispatchEvent(new CustomEvent(NEW_MESSAGE_EVENT, { detail: row }));
+            if (payload?.eventType === 'INSERT' && row?.type === 'incoming_call') {
+              window.dispatchEvent(new CustomEvent(INCOMING_CALL_EVENT, { detail: row }));
+            } else if (payload?.eventType === 'DELETE' && payload?.old?.id) {
+              window.dispatchEvent(
+                new CustomEvent(CALL_ALERT_CLEARED_EVENT, { detail: { id: payload.old.id } })
+              );
+            }
           } catch (e) {
-            reportError(e, 'useHeaderDataStore.new_message_event');
+            reportError(e, 'useHeaderDataStore.incoming_call_event');
           }
-          scheduleCount('messages', async () => {
-            const count = await fetchMessengerUnreadCount();
-            if (count !== null && get()._userId === userId) get().setUnreadMessages(count);
+          if (payload?.eventType === 'INSERT' && row?.type === 'new_message') {
+            try {
+              window.dispatchEvent(new CustomEvent(NEW_MESSAGE_EVENT, { detail: row }));
+            } catch (e) {
+              reportError(e, 'useHeaderDataStore.new_message_event');
+            }
+            scheduleCount('messages', async () => {
+              const count = await fetchMessengerUnreadCount();
+              if (count !== null && get()._userId === userId) get().setUnreadMessages(count);
+            });
+          }
+          // PERF 2026-08-24: this used to run a `count: 'exact'` query
+          // SYNCHRONOUSLY ON EVERY EVENT. This channel lives on the global
+          // header, so it is mounted for every user for the whole session, and
+          // notifications arrive in bursts (a tournament finishing, a club
+          // announcement, a settlement run). Ten notifications meant ten exact
+          // counts. Coalesced: a burst now costs one query. A badge does not
+          // need sub-second precision.
+          scheduleCount('notifications', async () => {
+            try {
+              const { count } = await supabase
+                .from('notifications')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', userId)
+                .eq('read', false);
+              if (get()._userId === userId) get().setNotificationCount(count || 0);
+            } catch (e) {
+              reportError(e, 'useHeaderDataStore.async');
+              /* silent */
+            }
           });
         }
-        // PERF 2026-08-24: this used to run a `count: 'exact'` query
-        // SYNCHRONOUSLY ON EVERY EVENT. This channel lives on the global
-        // header, so it is mounted for every user for the whole session, and
-        // notifications arrive in bursts (a tournament finishing, a club
-        // announcement, a settlement run). Ten notifications meant ten exact
-        // counts. Coalesced: a burst now costs one query. A badge does not
-        // need sub-second precision.
-        scheduleCount('notifications', async () => {
-          try {
-            const { count } = await supabase
-              .from('notifications')
-              .select('*', { count: 'exact', head: true })
-              .eq('user_id', userId)
-              .eq('read', false);
-            get().setNotificationCount(count || 0);
-          } catch (e) {
-            reportError(e, 'useHeaderDataStore.async');
-            /* silent */
+      );
+      void subscribeRealtime(
+        channel,
+        (status: string, err?: Error) => {
+          if (status === 'SUBSCRIBED') {
+            if (hasSubscribedOnce) {
+              // Re-sync counts after a socket drop / reconnect
+              refreshAllHeaderCounts();
+            }
+            hasSubscribedOnce = true;
           }
-        });
+          if (status === 'CHANNEL_ERROR') {
+            console.debug('[HeaderDataStore] Realtime channel error:', err?.message || err);
+            // Auto-retry: remove stale channel and re-create after 3s without
+            // re-running loadOnce (which would leak duplicate bus listeners & intervals)
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              if (
+                admission.signal.aborted ||
+                get()._userId !== userId ||
+                get()._channelKey !== channelKey
+              ) {
+                return;
+              }
+              try {
+                if (typeof masterBus.forceRemoveRegisteredChannel === 'function') {
+                  masterBus.forceRemoveRegisteredChannel(channelKey);
+                } else {
+                  masterBus.removeRegisteredChannel(channelKey);
+                }
+                connectHeaderChannel();
+              } catch (e) {
+                reportError(e, 'useHeaderDataStore.setTimeout');
+                /* silent */
+              }
+            }, 3000);
+          }
+          if (status === 'TIMED_OUT') {
+            console.warn('[HeaderDataStore] Realtime channel timed out - retrying...');
+            // Same retry as CHANNEL_ERROR
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              if (
+                admission.signal.aborted ||
+                get()._userId !== userId ||
+                get()._channelKey !== channelKey
+              ) {
+                return;
+              }
+              try {
+                if (typeof masterBus.forceRemoveRegisteredChannel === 'function') {
+                  masterBus.forceRemoveRegisteredChannel(channelKey);
+                } else {
+                  masterBus.removeRegisteredChannel(channelKey);
+                }
+                connectHeaderChannel();
+              } catch (e) {
+                reportError(e, 'useHeaderDataStore.setTimeout');
+                /* silent */
+              }
+            }, 3000);
+          }
+        },
+        admission.signal
+      );
+    };
+
+    if (typeof masterBus.registerChannelFactory === 'function') {
+      masterBus.registerChannelFactory(channelKey, () => {
+        if (get()._userId === userId && get()._channelKey === channelKey) {
+          connectHeaderChannel();
+        }
+      });
+    }
+    connectHeaderChannel();
+
+    const stopAdmission = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
-    );
-    void subscribeRealtime(
-      channel,
-      (status: string, err?: Error) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.debug('[HeaderDataStore] Realtime channel error:', err?.message || err);
-          // Auto-retry: remove stale channel and re-create after 3s
-          setTimeout(() => {
-            if (get()._userId !== userId || get()._channelKey !== channelKey) return;
-            try {
-              masterBus.removeRegisteredChannel(channelKey);
-              // Re-trigger loadOnce by resetting _loaded flag
-              set({ _loaded: false, _channelKey: null });
-              get().loadOnce(userId);
-            } catch (e) {
-              reportError(e, 'useHeaderDataStore.setTimeout');
-              /* silent */
-            }
-          }, 3000);
-        }
-        if (status === 'TIMED_OUT') {
-          console.warn('[HeaderDataStore] Realtime channel timed out - retrying...');
-          // Same retry as CHANNEL_ERROR
-          setTimeout(() => {
-            if (get()._userId !== userId || get()._channelKey !== channelKey) return;
-            try {
-              masterBus.removeRegisteredChannel(channelKey);
-              set({ _loaded: false, _channelKey: null });
-              get().loadOnce(userId);
-            } catch (e) {
-              reportError(e, 'useHeaderDataStore.setTimeout');
-              /* silent */
-            }
-          }, 3000);
-        }
-      },
-      admission.signal
-    );
-    const stopAdmission = () => admission.abort();
+      admission.abort();
+      if (typeof masterBus.removeChannelFactory === 'function') {
+        masterBus.removeChannelFactory(channelKey);
+      }
+    };
 
     // ── Bus listeners for in-app actions (instant, no realtime delay) ──
     // CRITICAL: Store unsubscribe functions to prevent zombie listeners on logout/login
