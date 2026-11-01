@@ -4,7 +4,7 @@ Captured creator, permission, validator, format and satellite-target authorities
 and table checks execute. Session, commerce and maintenance-release inputs are
 synthetic; unrelated production triggers and live gameplay are not claimed.
 """
-import argparse, hashlib, json, os, select, shutil, subprocess, tempfile, time
+import argparse, hashlib, json, os, select, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 MIGRATION=ROOT/'supabase/migrations/20261101031811_tournament_creates_retain_their_original_request.sql'
@@ -179,6 +179,18 @@ CREATE FUNCTION public.fn_active_maintenance_release_boundary() RETURNS timestam
  sql('retired-not-recreated',counts(),'9:8:10')
  sql('original-receipt-preserved',"SELECT receipt->>'tournament_id' FROM smarter_private.tournament_create_receipts WHERE request_id='"+race+"';",prior['tournament_id'])
  sql('all-source-unchanged',"SELECT md5(pg_get_functiondef('public.fn_create_tournament(uuid,jsonb)'::regprocedure))||':'||md5(pg_get_functiondef('public.fn_create_tournament_governed_legacy(uuid,jsonb)'::regprocedure));",'d3585069bf906c99bdb3ae795ac4304d:3d40ead690de9769287475c206341668')
+ # The same required accounting step owns the connected staged-create path.
+ staged_output=a.output/'staged-create'
+ staged=subprocess.run([sys.executable,'-B',str(ROOT/'scripts/ci/test-tournament-staged-create-request.py'),
+   '--work-root',str(a.work_root),'--output',str(staged_output),'--pg-bin',str(a.pg_bin)],
+   text=True,capture_output=True,env=env,timeout=120)
+ (a.output/'staged-create.log').write_text(staged.stdout+staged.stderr)
+ require(staged.returncode==0,'Staged creation qualification failed: '+staged.stderr[-1800:])
+ stage_report=json.loads((staged_output/'report.json').read_text())
+ require(stage_report.get('passed') is True and stage_report.get('cleanup') is True
+   and stage_report.get('cases') and all(case.get('passed') is True for case in stage_report['cases']),
+   'Staged creation qualification incomplete')
+ report['staged_create_report']='staged-create/report.json'
  report['passed']=True
 finally:
  if started:
