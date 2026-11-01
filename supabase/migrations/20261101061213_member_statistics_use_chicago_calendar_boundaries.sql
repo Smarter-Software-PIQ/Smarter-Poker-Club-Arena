@@ -456,4 +456,10 @@ BEGIN
 END;
 $function$
 ;
+REVOKE ALL ON FUNCTION public.ca_club_member_detail(uuid,uuid,date,date) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.ca_club_member_detail(uuid,uuid,date,date) TO authenticated,service_role;
+REVOKE ALL ON FUNCTION public.ca_club_member_statistics(uuid,uuid,text,date,date) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.ca_club_member_statistics(uuid,uuid,text,date,date) TO authenticated,service_role;
+REVOKE ALL ON FUNCTION public.ca_club_member_downline_in_range(uuid,uuid,date,date) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.ca_club_member_downline_in_range(uuid,uuid,date,date) TO authenticated,service_role;
 COMMIT;
