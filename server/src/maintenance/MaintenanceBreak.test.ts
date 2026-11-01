@@ -1987,8 +1987,10 @@ describe('the maintenance owner cannot outlive shutdown', () => {
   it('joins an announced break persist and cannot arm the countdown after stop', async () => {
     const saving = deferred<void>();
     const timers: Array<{ fn: () => void; ms: number }> = [];
+    let now = Date.parse('2026-10-31T12:10:00Z');
     let saveStarted = false;
     const mb = new MaintenanceBreak({
+      now: () => now,
       engines: () => new Map([['t0', new FakeEngine()]]).entries() as any,
       isRunning: () => true,
       emit: () => {},
@@ -2010,6 +2012,7 @@ describe('the maintenance owner cannot outlive shutdown', () => {
 
     await mb.start();
     expect(timers).toHaveLength(1);
+    now += timers[0].ms;
     timers[0].fn();
     expect(saveStarted).toBe(true);
 
