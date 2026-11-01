@@ -209,7 +209,7 @@ def timing_observation(current, response, now):
         ('status', job.get('status') == 'in_progress'),
         ('conclusion', job.get('conclusion') is None),
         ('completed_at', job.get('completed_at') is None),
-        ('labels', job.get('labels') == ['ubuntu-24.04']),
+        ('labels', job.get('labels') == ['ubuntu-latest']),
     )
     mismatches = [field for field, matches in identity_checks if not matches]
     if mismatches:

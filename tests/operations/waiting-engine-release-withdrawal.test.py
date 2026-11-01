@@ -782,7 +782,13 @@ class AnnouncedCancellation(unittest.TestCase):
             self.assertTrue(entry.exists()); self.assertTrue(reservation.exists())
 
 
-    @unittest.skipUnless(sys.platform.startswith('linux'), 'Real systemd qualification requires Linux; required Linux CI never skips')
+    # A Linux host booted without systemd (an agent container) cannot run the
+    # real fixture, exactly as macOS cannot. Hosted CI (GITHUB_ACTIONS=true)
+    # never skips: a runner without systemd fails qualification there.
+    @unittest.skipUnless(
+        sys.platform.startswith('linux') and (os.environ.get('GITHUB_ACTIONS') == 'true' or Path('/run/systemd/system').is_dir()),
+        'Real systemd qualification requires Linux booted with systemd; required Linux CI never skips',
+    )
     def test_real_linux_mask_reload_and_stop_contract(self):
         result = subprocess.run(['sudo', '-n', sys.executable, '-B', str(ROOT / 'tests/operations/withdrawal-systemd-fixture.py')], capture_output=True, text=True, timeout=50)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
