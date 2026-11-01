@@ -156,3 +156,21 @@ test('invalid sample refusals distinguish missing nodes, nonfinite and negative 
     assert.equal(failureReason(error),reason);
   }
 });
+
+test('native feasibility is PR-only and cannot change the manual Inspector route',()=>{
+  const workflow=readFileSync('.github/workflows/profile-engine-main-thread.yml','utf8');
+  const native=workflow.split('  native-feasibility:\n')[1]?.split('  profile:\n')[0];
+  assert.ok(native,'maintained carrier must invoke actual Linux qualification');
+  assert.match(native,/if: github\.event_name == 'pull_request'/);
+  assert.match(native,/python3 tests\/fixtures\/engine-native-fault\/qualify\.py/);
+  assert.match(native,/if-no-files-found: error/);
+  const manual=workflow.split('  profile:\n')[1];
+  assert.match(manual,/needs: verify/);
+  assert.match(manual,/docker exec -i club-arena-engine node --input-type=module/);
+  assert.doesNotMatch(manual,/qualify\.py|perf record|native-feasibility/);
+  const fixture=readFileSync('tests/fixtures/engine-native-fault/qualify.py','utf8');
+  const image=readFileSync('server/Dockerfile','utf8').match(/^FROM (node:22-slim@sha256:[0-9a-f]{64})$/m)?.[1];
+  assert.ok(image);assert.ok(fixture.includes(`IMAGE = '${image}'`));
+  const syntax=spawnSync('python3',['-c','import pathlib; compile(pathlib.Path("tests/fixtures/engine-native-fault/qualify.py").read_text(),"native-qualification","exec")'],{encoding:'utf8'});
+  assert.equal(syntax.status,0,syntax.stderr);
+});

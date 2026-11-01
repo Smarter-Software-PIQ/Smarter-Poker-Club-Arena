@@ -4,6 +4,7 @@ on:
     paths:
       - 'scripts/ci/profile-engine-main-thread.mjs'
       - 'tests/operations/engine-main-profile.test.mjs'
+      - 'tests/fixtures/engine-native-fault/**'
       - '.github/workflows/profile-engine-main-thread.yml'
   workflow_dispatch:
     inputs:
@@ -26,6 +27,36 @@ jobs:
         with:
           node-version: '22'
       - run: node --test tests/operations/engine-main-profile.test.mjs
+  native-feasibility:
+    name: Actual isolated Node PID1 native GPF feasibility
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated Linux qualification prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y linux-tools-generic gcc libc6-dev
+          PERF_PATH=$(python3 -c 'from pathlib import Path; p=sorted(Path("/usr/lib/linux-tools").glob("*/perf")); assert p; print(p[-1])')
+          test -x "$PERF_PATH"
+          printf 'QUALIFICATION_PERF=%s\n' "$PERF_PATH" >> "$GITHUB_ENV"
+          mountpoint -q /sys/kernel/tracing || sudo mount -t tracefs tracefs /sys/kernel/tracing
+          mkdir -p "$RUNNER_TEMP/native-perf-fixture"
+      - name: Prove actual native fault attribution and finite isolated bounds
+        run: |
+          set -euo pipefail
+          sudo env TMPDIR="$RUNNER_TEMP/native-perf-fixture" python3 tests/fixtures/engine-native-fault/qualify.py \
+            --perf "$QUALIFICATION_PERF" --output artifacts/native-perf-feasibility/qualification.json
+      - name: Retain sanitized qualification only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolated-native-perf-feasibility-${{ github.run_id }}
+          path: artifacts/native-perf-feasibility/qualification.json
+          if-no-files-found: error
+          retention-days: 7
   profile:
     needs: verify
     if: github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
