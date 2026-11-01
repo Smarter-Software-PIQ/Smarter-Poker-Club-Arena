@@ -126,7 +126,9 @@ describe('tournamentFromTableConfig: a 0 buy-in MTT is Free Buy whatever the sli
     );
     expect(c.rebuyCost).toBe(1);
     expect(c.addOnCost).toBe(1);
-    expect(c.addOnChips).toBe(10000);
+    // Dan 2026-11-01: the multiplier no longer inflates the grant - the
+    // add-on is the starting stack (5000 here).
+    expect(c.addOnChips).toBe(5000);
     expect(c.maxRebuys).toBe(2);
   });
 

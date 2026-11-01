@@ -1489,14 +1489,17 @@ body[data-ca-pinned-bar='1'] [data-fullscreen-overlay] {
   white-space: nowrap;
 }
 
-/* All square gameplay tools use the Lobby control's painted footprint. */
+/* All square gameplay tools use the Lobby control's painted footprint.
+   Dan 2026-11-01: "THE TOURNAMENT LOBBY AND PREVIOUS HAND, TIME BANK, AND
+   RABBIT HUNT BUTTONS ALL SHOULD BE THE SAME SIZE AS THE HAMBURGER MENU
+   BUTTON IN THE UPPER LEFT HAND CORNER." The hamburger is
+   --sp-tabbar-control (TableTabBar.css, declared on :root at every width), so
+   the shared tool token reads it and every square tool - lobby plates,
+   previous hand, time bank, rabbit hunt, chat, add-table - is the hamburger's
+   size and can never drift from it. The 40px/48px width steps are gone for
+   the same reason: the hamburger holds one size, so the tools do too. */
 .multi-table-page {
-  --sp-game-tool-size: 40px;
-}
-@media (max-width: 480px) {
-  .multi-table-page {
-    --sp-game-tool-size: 48px;
-  }
+  --sp-game-tool-size: var(--sp-tabbar-control, 52px);
 }
 
 @media (max-width: 480px) {

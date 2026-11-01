@@ -814,10 +814,11 @@ describe('a real break shows its own countdown', () => {
     expect(screen.getByText('2:00')).toBeTruthy();
   });
 
-  it('says Last Hand while the break has no end stamped yet', async () => {
+  it('says Soon while the break has no end stamped yet', async () => {
+    // Dan 2026-11-01: "Last Hand" is the add-on break card's word alone.
     fx.tournamentAnswer = () => ok(running({ on_break: true, break_ends_at: null }));
     await mount();
-    expect(screen.getByText('Last Hand')).toBeTruthy();
+    expect(screen.getByText('Soon')).toBeTruthy();
   });
 
   it('takes the break from the broadcast without a read, and a stale read cannot undo it', async () => {
@@ -828,7 +829,7 @@ describe('a real break shows its own countdown', () => {
 
     const endsAt = iso(Date.now() + 240_000);
     await broadcast('tournament_break', { level: 0, phase: 'last_hand', breakEndsAt: null });
-    expect(screen.getByText('Last Hand')).toBeTruthy();
+    expect(screen.getByText('Soon')).toBeTruthy();
     await broadcast('tournament_break_started', { level: 0, breakEndsAt: endsAt });
     expect(screen.getByText('4:00')).toBeTruthy();
     expect(fx.tournamentReads).toHaveLength(2);

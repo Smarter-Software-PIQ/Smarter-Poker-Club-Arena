@@ -61,6 +61,28 @@ export interface TournamentBreakScreenProps {
   isVisible: boolean;
   /** Public notice for every player, including those who already purchased. */
   addOnNotice?: { cost: number; chips: number; asset?: 'chips' | 'diamonds' };
+  /**
+   * THE CARD WAITS FOR THIS TABLE'S OWN HAND (Dan 2026-11-01, binding): "THE
+   * TOURNAMENT BREAK CARD SHOULD NOT POP UP UNTIL THE HAND AT THE CURRENT
+   * TABLE IS FINISHED ... IT NEEDS TO WAIT UNTIL THE HAND IS COMPLETED AND
+   * THEN POP UP", and for the add-on break: "FIRST CARD SHOULD ONLY APPEAR
+   * WHEN THE TABLE HAS FINISHED ITS HAND AND IS WAITING FOR THE OTHER TABLE
+   * TO FINISH." True while a hand is live at the viewer's table
+   * (tableState.isHandInProgress, which holds through the completion
+   * presentation); while it is true during the 'last_hand' window NOTHING of
+   * this screen renders - not the full card and not the minimized pill. Once
+   * the server's countdown is running the pause is real at every table, so
+   * 'counting_down' is never suppressed by a wedged snapshot.
+   */
+  handInProgress?: boolean;
+  /**
+   * Opens the add-on purchase sheet from the card itself (Dan 2026-11-01:
+   * "WHERE IS THE ACTUAL 'ADD ON BUTTON' ON THE CARD?! THERE IS NO WAY TO
+   * ACTUALLY ADD ON"). A player who declined the auto-presented AddOnModal
+   * changed their mind with no way back in while the 60-second window was
+   * still open. Rendered only with addOnNotice, only while the window counts.
+   */
+  onAddOn?: () => void;
   /** The owning table canvas, so the minimized clock never covers its action bar. */
   tableAnchorRef?: React.RefObject<HTMLElement | null>;
   breakTimeRemaining: number; // seconds
@@ -136,6 +158,8 @@ function formatStack(amount: number): string {
 export function TournamentBreakScreen({
   isVisible,
   addOnNotice,
+  handInProgress = false,
+  onAddOn,
   tableAnchorRef,
   breakTimeRemaining,
   phase = 'counting_down',
@@ -457,7 +481,11 @@ export function TournamentBreakScreen({
 
   // Expiry retires this presentation only. The engine still owns all play
   // and pause authority, including a delayed resume.
-  if (!isVisible || (countingDown && displayTime <= 0)) return null;
+  // Dan 2026-11-01: during the last-hand window the card holds back until the
+  // hand live at THIS table has fully completed - it must never pop over a
+  // hand in progress. See the handInProgress prop note.
+  if (!isVisible || (phase === 'last_hand' && handInProgress) || (countingDown && displayTime <= 0))
+    return null;
 
   // A real button keeps the clock reachable by keyboard as well as touch.
   if (minimized) {
@@ -471,11 +499,14 @@ export function TournamentBreakScreen({
       >
         <span className="break-screen__mini-face">
           <span className="break-screen__mini-badge">
+            {/* Dan 2026-11-01: "Last Hand" belongs to the add-on break alone
+                (the last hand before the add-on period, after re-entry has
+                closed). The regular break announces itself as starting. */}
             {countingDown
               ? `Break: ${formatTime(displayTime)}`
               : addOnNotice
                 ? 'Add-On: Last Hand'
-                : 'Break: Last Hand'}
+                : 'Break: Starting'}
           </span>
           <span className="break-screen__mini-state">
             {countingDown ? 'Paused' : 'Finishing Hands'}
@@ -523,21 +554,35 @@ export function TournamentBreakScreen({
           <div className="break-screen__resumption">
             <div className="break-screen__timer-container">
               <span className="break-screen__time-label">
+                {/* Dan 2026-11-01: on the regular break the card now appears
+                    only after this table's own hand is done, so what it is
+                    doing is waiting on the other tables - and "Last Hand" is
+                    the add-on break's word, never this one's. */}
                 {addOnNotice
                   ? countingDown
                     ? 'Add-On Closes In'
                     : 'Last Hand Before The Add-On Period'
                   : countingDown
                     ? 'Play Resumes In'
-                    : 'Finishing The Last Hand'}
+                    : 'Waiting For Tables To Finish'}
               </span>
               <span
                 className={`break-screen__time ${!countingDown ? 'break-screen__time--waiting' : ''}`}
                 role="timer"
-                aria-label={countingDown ? 'Time Until Play Resumes' : 'Last Hand In Play'}
+                aria-label={
+                  countingDown
+                    ? 'Time Until Play Resumes'
+                    : addOnNotice
+                      ? 'Last Hand In Play'
+                      : 'Break Starting Soon'
+                }
                 style={{ color: getTimerColor() }}
               >
-                {countingDown ? formatTime(displayTime) : 'Last Hand'}
+                {countingDown
+                  ? formatTime(displayTime)
+                  : addOnNotice
+                    ? 'Last Hand'
+                    : 'Starting Soon'}
               </span>
               <svg className="break-screen__progress" viewBox="0 0 200 4" aria-hidden="true">
                 <path className="break-screen__progress-track" d="M0 2 H200" />
@@ -618,6 +663,25 @@ export function TournamentBreakScreen({
                 </span>
               </div>
             </div>
+          )}
+
+          {/* THE ADD ON ROW (Dan 2026-11-01): "WHERE IS THE ACTUAL 'ADD ON
+              BUTTON' ON THE CARD?! THERE IS NO WAY TO ACTUALLY ADD ON." A
+              console action is a ROW on the black glass with a lit word, never
+              a drawn button (#ClubArenaConsole). It appears only while the
+              60-second window is actually open; tapping it re-presents the
+              add-on purchase sheet from the durable tournament row, which
+              proves eligibility itself - a player who already added on or
+              busted is simply not re-offered. */}
+          {addOnNotice && onAddOn && countingDown && (
+            <button
+              type="button"
+              className="break-screen__addon-row"
+              onClick={onAddOn}
+              aria-label={`Add On For ${addOnNotice.cost.toLocaleString('en-US')}`}
+            >
+              Add On For {addOnNotice.cost.toLocaleString('en-US')}
+            </button>
           )}
 
           <div className="break-screen__stats">

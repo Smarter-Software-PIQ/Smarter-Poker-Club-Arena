@@ -136,7 +136,14 @@ export function withMidwayStructure<T extends Record<string, unknown>>(
     addon_cost: addon ? purchaseCost(row.addon_cost) : null,
     // Free Buy's owner-approved early add-on remains available at sit-down.
     addon_from_start: addon && free ? row.addon_from_start === true : false,
-    addon_chips: addon ? (free ? 10000 : Math.max(Number(row.addon_chips) || 0, stack * 2)) : null,
+    /* Dan 2026-11-01, binding: "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF
+       CHIPS THAT THE TOURNAMENT STARTED WITH, THE ADD ON SHOULD BE THE SAME
+       AMOUNT OF CHIPS THAT YOU START WITH IN THE TOURNAMENT, NEVER LESS!" So
+       a paid event's add-on IS the starting stack - the 2x floor this carried
+       put 80K on a 40K-stack Sunday Funday and is gone. Free Buy keeps its
+       owner-designed 1-chip/10K promotional add-on (FREE_BUY_TIERS,
+       FreeBuy.ts), the one standing exception. */
+    addon_chips: addon ? (free ? 10000 : stack) : null,
     addon_levels: addon ? 1 : null,
     // Dan 2026-10-25: "ADD ON BREAK SHOULD ONLY BE 60 SECONDS, UNLESS IT HAPPENS TO
     // BE AT THE SAME TIME AS THE :55 BREAK, THEN ITS 5 MINUTES, THEY ARE NOT THE

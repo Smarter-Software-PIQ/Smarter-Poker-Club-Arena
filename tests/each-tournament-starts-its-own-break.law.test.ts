@@ -78,6 +78,7 @@ describe('each tournament starts its own break', () => {
     );
     expect(SCREEN).toContain('? `Break: ${formatTime(displayTime)}`');
     expect(SCREEN).toContain("? 'Add-On: Last Hand'");
-    expect(SCREEN).toContain(": 'Break: Last Hand'");
+    // Dan 2026-11-01: "Last Hand" is the add-on break's word alone.
+    expect(SCREEN).toContain(": 'Break: Starting'");
   });
 });

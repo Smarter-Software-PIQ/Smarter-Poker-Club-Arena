@@ -21,6 +21,7 @@ import { formatGameTitle } from '../../utils/formatGameTitle';
 import { useButtonImage } from '../../hooks/useButtonImage';
 import { isTournamentGameCode } from '../../utils/gameCode';
 import { tournamentTabBuyInLabel, tournamentTabEventName } from '../../lib/tournamentTabLabel';
+import lobbyButtonArt from '../../assets/lobby-button.webp';
 import './TableTabBar.css';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1335,6 +1336,44 @@ export function TableTabBar({
             </>
           );
         })()}
+
+      {/* THE LOBBY PLATE, LOCKED IN THE BAR'S RIGHT CORNER (Dan 2026-11-01):
+          "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER
+          IN THE ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE THE POKER TABLE
+          PAGE. AND THE TOURNAMENT LOBBY ... BUTTONS ALL SHOULD BE THE SAME
+          SIZE AS THE HAMBURGER MENU BUTTON IN THE UPPER LEFT HAND CORNER."
+
+          Dan's approved LOBBY artwork (assets/lobby-button.webp), the same
+          plate the felt corner used to carry, now a --sp-tabbar-control square
+          like the hamburger. It renders only while the ACTIVE tab is a
+          tournament table, and opens THAT table's TournamentLobbyModal through
+          TABLE_MENU_ACTION 'TOURNAMENT_LOBBY'. The tab strip is flex: 1, so
+          this sits against the right edge whatever the strip holds. */}
+      {(() => {
+        const activeTabInfo = tabs.find((t) => t.id === activeTabId);
+        if (!activeTabInfo?.isTournament || activeIsLobby) return null;
+        return (
+          <button
+            type="button"
+            className="table-tab-bar__lobby-btn"
+            onClick={() =>
+              masterBus.emit('TABLE_MENU_ACTION', {
+                tableId: activeTabId,
+                action: 'TOURNAMENT_LOBBY',
+              })
+            }
+            aria-label="Open Tournament Lobby"
+            title="Tournament Lobby"
+          >
+            <img
+              className="table-tab-bar__lobby-btn-img"
+              src={lobbyButtonArt}
+              alt=""
+              draggable={false}
+            />
+          </button>
+        );
+      })()}
 
       {/* Table Menu */}
       <div className="table-tab-bar__menu-container">

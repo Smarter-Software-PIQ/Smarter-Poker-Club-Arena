@@ -127,17 +127,37 @@ describe('it is collapsible, and collapsing it never resizes the felt', () => {
   });
 });
 
-describe('the corner holds the lobby button', () => {
-  it('a Lobby-sized button with the LOBBY plate that opens the tournament lobby', () => {
+describe('the lobby button lives on the action bar, never the felt (Dan 2026-11-01)', () => {
+  // "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER IN
+  //  THE ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE THE POKER TABLE PAGE. AND
+  //  THE TOURNAMENT LOBBY ... BUTTONS ALL SHOULD BE THE SAME SIZE AS THE
+  //  HAMBURGER MENU BUTTON IN THE UPPER LEFT HAND CORNER."
+  const TAB = strip(read('src/components/table/TableTabBar.tsx'));
+  const TAB_CSS = strip(read('src/components/table/TableTabBar.css'));
+  it('the felt corner carries no lobby control at all', () => {
     const corner = PAGE.slice(PAGE.indexOf('upperRight={'), PAGE.indexOf('bottomLeft={'));
-    expect(corner).toMatch(/className="tournament-lobby-corner-btn"/);
-    expect(corner).toMatch(/setShowTournamentLobby\(true\)/);
-    expect(corner).toMatch(/aria-label="Open Tournament Lobby"/);
-    expect(corner).toMatch(/src=\{lobbyButtonArt\}/);
-    expect(PAGE).toMatch(/import lobbyButtonArt from '\.\.\/assets\/lobby-button\.webp';/);
-    const btn = rule(DOCK_CSS, '.tournament-lobby-corner-btn {');
-    expect(btn).toMatch(/width:\s*var\(--sp-game-tool-size, 40px\)/);
-    expect(btn).toMatch(/height:\s*var\(--sp-game-tool-size, 40px\)/);
+    expect(corner).not.toMatch(/tournament-lobby-corner-btn/);
+    expect(corner).not.toMatch(/lobbyButtonArt/);
+    expect(corner).not.toMatch(/setShowTournamentLobby/);
+    expect(DOCK_CSS).not.toMatch(/\.tournament-lobby-corner-btn \{/);
+  });
+  it('the tab bar carries the LOBBY plate at the hamburger footprint and routes to the active table', () => {
+    expect(TAB).toMatch(/import lobbyButtonArt from '\.\.\/\.\.\/assets\/lobby-button\.webp';/);
+    expect(TAB).toMatch(/className="table-tab-bar__lobby-btn"/);
+    expect(TAB).toMatch(/aria-label="Open Tournament Lobby"/);
+    expect(TAB).toMatch(/action: 'TOURNAMENT_LOBBY',?/);
+    // Only a tournament tab shows it; a lobby tab never does.
+    expect(TAB).toMatch(/if \(!activeTabInfo\?\.isTournament \|\| activeIsLobby\) return null;/);
+    // The table answers the bus action by opening its own lobby modal - in
+    // the subscription declared AFTER setShowTournamentLobby, because the
+    // no-TDZ law refuses a new use-before-declare on this route.
+    expect(PAGE).toMatch(
+      /if \(event\.action === 'TOURNAMENT_LOBBY'\) \{[\s\S]{0,700}?setShowTournamentLobby\(true\);/
+    );
+    const btn = rule(TAB_CSS, '.table-tab-bar__lobby-btn {');
+    expect(btn).toMatch(/width:\s*var\(--sp-tabbar-control\)/);
+    expect(btn).toMatch(/height:\s*var\(--sp-tabbar-control\)/);
+    expect(btn).toMatch(/order:\s*50/);
   });
 });
 

@@ -2509,6 +2509,15 @@ class TournamentService {
         )
       )
     );
+    /* Dan 2026-11-01, binding: "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF
+       CHIPS THAT THE TOURNAMENT STARTED WITH, THE ADD ON SHOULD BE THE SAME
+       AMOUNT OF CHIPS THAT YOU START WITH IN THE TOURNAMENT, NEVER LESS!" The
+       ROW is the one authority everywhere (this quote, the engine's
+       broadcasts, the break card's notice), and the rule is enforced where
+       rows are born: midwayStructurePolicy and tournamentFromTableConfig both
+       write addon_chips = starting_chips now. Free Buy's owner-designed
+       1-chip/10K promotional add-on is the standing exception, which is why
+       this must NOT reorder to starting_chips-first. */
     const chips = Number(
       (kind === 'rebuy' ? tournament.rebuy_chips : tournament.addon_chips) ||
         tournament.starting_chips ||

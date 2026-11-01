@@ -59,6 +59,12 @@
   --sp-hud-tile-bg: rgba(10, 12, 18, 0.72);
   /* Owner October 20: square gameplay tools match the Lobby footprint. */
   --sp-hud-tile-radius: 10px;
+  /* Dan 2026-11-01: the tiles are the hamburger's size now, but the CHAIN is
+     unchanged - this still reads --sp-game-tool-size (the one token every
+     square gameplay tool shares, pinned by
+     tests/all-in-cannot-leave-and-the-hud-slot.test.ts), and THAT token now
+     reads the hamburger's --sp-tabbar-control at its declarations
+     (MultiTablePage.css / TablePage.css). One size, one source. */
   --sp-hud-tile-size: var(--sp-game-tool-size, 40px);
   --sp-hud-tile-fg: rgba(255, 255, 255, 0.86);
   position: fixed;
@@ -306,7 +312,10 @@
 @media (max-width: 480px) {
   .table-hud,
   .hud-seat-change-dock {
-    --sp-hud-tile-size: var(--sp-game-tool-size, 34px);
+    /* Dan 2026-11-01: no phone-size drop here any more - the shared
+       --sp-game-tool-size token follows the hamburger at every width, so this
+       override keeps only the radius. */
+    --sp-hud-tile-size: var(--sp-game-tool-size, 40px);
     --sp-hud-tile-radius: 8px;
   }
 }
