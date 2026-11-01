@@ -3544,6 +3544,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Stall closure requires an exact recorded hand
+        if: matrix.shard == 7
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-stall-progress-proof.py
+
       - name: Certified V31 PostgreSQL 17 behavior gate
         if: >-
           matrix.shard == 7 &&
