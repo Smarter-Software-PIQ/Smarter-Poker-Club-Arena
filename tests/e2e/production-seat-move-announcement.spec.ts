@@ -530,6 +530,24 @@ test('the published table explains controlled seat moves without moving a player
       expect(Math.abs(action.height - actions[0].height)).toBeLessThan(1.5);
     }
     evidence.equalSeatSizing = equalSeatSizing;
+    // Retain the actual visual slots and painted bounds for owner review.
+    // Aliases rotate with the hero; placement is a property of the slot.
+    evidence.seatPositions = await page.locator('.table-page').evaluate((page) => {
+      const box = (element: Element | null) => element?.getBoundingClientRect().toJSON() ?? null;
+      return {
+        page: box(page),
+        canvas: box(page.querySelector('.table-scaler')),
+        seats: [...page.querySelectorAll<HTMLElement>('.seat-wrapper')].map((wrapper) => ({
+          x: parseFloat(wrapper.style.left),
+          y: parseFloat(wrapper.style.top),
+          hero: Boolean(wrapper.querySelector('.seat--hero')),
+          name: wrapper.querySelector('.seat__name')?.textContent,
+          avatar: box(wrapper.querySelector('.seat__avatar-img')),
+          panel: box(wrapper.querySelector('.seat__info')),
+          action: box(wrapper.querySelector('.seat__action')),
+        })),
+      };
+    });
     const sizingScreenshot = info.outputPath('mobile-live-table-equal-seat-sizing.png');
     await page.screenshot({ path: sizingScreenshot });
     await info.attach('mobile-published-equal-seat-sizing', {
