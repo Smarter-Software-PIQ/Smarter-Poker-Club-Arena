@@ -2229,6 +2229,17 @@ export interface HorseDecideOpts {
    *  and the dominated-offsuit fold are unchanged. Default on; explicit
    *  false keeps today's. */
   v73Vs3BetDefence?: boolean;
+  /** V75 (2026-11-01): the V73 opener-facing-a-3-bet width also answers the
+   *  SQUEEZE (hero's open was called, then one player re-raised, nobody has
+   *  called the re-raise): the callers' chips widen the width as dead money
+   *  through the same MDF arithmetic, and each live caller still to act
+   *  behind hero narrows it by the V75 realisation factor
+   *  (HorseGtoVs3BetRanges.V75_LIVE_CALLER_FACTOR). Same scope bounds as
+   *  V73 otherwise; value 4-bets, the 5-bet branch, the dominated-offsuit
+   *  fold and the V18 squeeze exploit read are unchanged. Default on;
+   *  explicit false keeps the squeeze node on today's fixed bar (V73's pure
+   *  3-bet node is untouched by this flag). */
+  v75SqueezeDefence?: boolean;
   /** V74 (2026-11-01, Dan 2026-10-31 "MIN RAISE TO 2.5-4X OPENING RANGES"):
    *  no-limit hold'em raise-first-in opens draw from a band chosen by seat,
    *  table, format, depth and antes (HorseNlhOpenSize), never from the cards.
@@ -6568,7 +6579,17 @@ export class HorseLogic {
     const gtoVs3Bet73 = (() => {
       if (opts.v73Vs3BetDefence === false) return undefined;
       if (raises !== 2 || !heroWasInitialRaiser || lastRaiserSeat < 0) return undefined;
-      if (callers !== 0 || limpers !== 0 || callersOfPreviousRaise !== 0) return undefined;
+      if (callers !== 0 || limpers !== 0) return undefined;
+      // ═══ V75 THE SQUEEZED OPENER (2026-11-01) ═══ hero's open was called
+      // before the 3-bet landed. Every caller of the open acts AFTER hero
+      // against the 3-bet (hero is the earliest live seat once the action
+      // returns), so each is a live range behind: its chips are dead money
+      // inside potBefore73 below (a better price, through the same MDF
+      // arithmetic) and its live cards cost realisation
+      // (HorseGtoVs3BetRanges.V75_LIVE_CALLER_FACTOR).
+      const squeeze75 = callersOfPreviousRaise >= 1;
+      if (squeeze75 && opts.v75SqueezeDefence === false) return undefined;
+      if (callersOfPreviousRaise !== 0 && !squeeze75) return undefined;
       if (player.cards.length !== 2) return undefined;
       if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
       if (gs.allInOrFold === true || gs.straddleActive === true) return undefined;
@@ -6615,9 +6636,10 @@ export class HorseLogic {
         effectiveBB: effBB,
         deepDiscipline: (opts.v21Deep ?? true) !== false,
         tightness: params.tightness,
+        ...(squeeze75 ? { liveCallersBehind: callersOfPreviousRaise } : {}),
       });
       if (!r73) return undefined;
-      if (telemetryOn(opts)) noteFire('v73_vs3bet_defence');
+      if (telemetryOn(opts)) noteFire(squeeze75 ? 'v75_squeeze_defence' : 'v73_vs3bet_defence');
       return {
         strength: clamp01(r73.continueStrength + strengthJitter),
         continueBar: r73.continueBar,
