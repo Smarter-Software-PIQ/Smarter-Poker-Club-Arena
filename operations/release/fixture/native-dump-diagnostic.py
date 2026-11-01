@@ -576,8 +576,11 @@ def build(repo, output):
         # generated-header ordering. Complete it before parallel object builds.
         BUILD_STAGE = 'GENERATED_HEADERS'
         command(['make', '-C', 'src/backend', 'generated-headers'], cwd=source, env=env, timeout=120)
+        # Direct pg_dump has overlapping recursive port/common archive writers.
+        # Its parent src/Makefile serializes interdependent directories; keep
+        # the same ordering for both direct builds, within original deadlines.
         BUILD_STAGE = 'STOCK_BUILD'
-        command(['make', '-C', 'src/bin/pg_dump', '-j2', 'pg_dump'], cwd=source, env=env, timeout=420)
+        command(['make', '-C', 'src/bin/pg_dump', '-j1', 'pg_dump'], cwd=source, env=env, timeout=420)
         stock_executable = work / 'stock-pg_dump'
         shutil.copyfile(source / 'src/bin/pg_dump/pg_dump', stock_executable)
         stock_executable.chmod(0o700)
@@ -589,7 +592,7 @@ def build(repo, output):
         batch_helper = repo / 'operations/release/fixture/native-dump-function-batch.c'
         shutil.copyfile(batch_helper, source / 'src/bin/pg_dump/native-dump-function-batch.c')
         BUILD_STAGE = 'DIAGNOSTIC_BUILD'
-        command(['make', '-C', 'src/bin/pg_dump', '-j2', 'pg_dump'], cwd=source, env=env, timeout=120)
+        command(['make', '-C', 'src/bin/pg_dump', '-j1', 'pg_dump'], cwd=source, env=env, timeout=120)
         (output / 'bin').mkdir(mode=0o700)
         shutil.copyfile(source / 'src/bin/pg_dump/pg_dump', output / 'bin/pg_dump')
         (output / 'bin/pg_dump').chmod(0o500)

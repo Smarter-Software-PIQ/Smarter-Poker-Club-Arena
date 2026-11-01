@@ -611,7 +611,7 @@ measure actual network requests, including a whole function batch, rather than
 cached per-function reads. The512KiB fixed-channel cap remains enforced.
 
 Before any capture credential is present, the existing reusable native job
-builds stock and changed clients from the same pinned upstream archive. It
+builds stock and changed clients from the same pinned upstream archive. Both direct pg_dump builds serialize overlapping recursive library prerequisites with one job, retaining their original420/120-second deadlines. It
 requires identical SQL output (apart from the existing random restrict nonce)
 on a private Unix-only database containing5507 functions/procedures with
 mixed signatures, defaults, SQL bodies, PL/pgSQL and ACLs, plus zero/one-function

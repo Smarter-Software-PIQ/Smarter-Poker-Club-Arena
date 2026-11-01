@@ -280,3 +280,23 @@ test('actual native C producer and both independent decoders agree on compact wi
     assert.notEqual(spawnSync('python3',['-B','-c',script],{input:invalid,encoding:'utf8',timeout:5000}).status,0);
   }finally{await rm(root,{recursive:true,force:true});}
 });
+
+// The direct target bypasses src/Makefile's interdirectory serialization.
+test('both native direct target builds serialize shared prerequisite writers within original deadlines',()=>{
+  const script=`import ast
+from pathlib import Path
+root=ast.parse(Path('operations/release/fixture/native-dump-diagnostic.py').read_text())
+build=next(n for n in root.body if isinstance(n,ast.FunctionDef) and n.name=='build')
+commands=[]
+for node in ast.walk(build):
+ if not isinstance(node,ast.Call) or not isinstance(node.func,ast.Name) or node.func.id!='command' or not node.args:continue
+ try:args=ast.literal_eval(node.args[0])
+ except (ValueError,TypeError):continue
+ if args[:3]==['make','-C','src/bin/pg_dump']:
+  timeout=next(ast.literal_eval(k.value) for k in node.keywords if k.arg=='timeout')
+  commands.append((args,timeout))
+assert commands==[(['make','-C','src/bin/pg_dump','-j1','pg_dump'],420),(['make','-C','src/bin/pg_dump','-j1','pg_dump'],120)]
+print('original bounded serialized stock and diagnostic target builds')`;
+  const result=spawnSync('python3',['-B','-c',script],{encoding:'utf8',timeout:5000});
+  assert.equal(result.status,0,result.stderr);
+});
