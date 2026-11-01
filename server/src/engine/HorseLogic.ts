@@ -152,6 +152,7 @@ import {
 // V7 (2026-07-24): position-pair preflop mastery — 3-bet/4-bet bluffs, blind
 // vs blind, squeezes, stack depth, reshoves, ICM. See HorsePreflop.ts.
 import { gtoOpenBar, gtoOpenStrength, gtoSbLimpFloor } from './HorseGtoOpeningRanges.js';
+import { gtoDefence, V72_MAX_OPEN_BB } from './HorseGtoDefenceRanges.js';
 import {
   decidePreflopV7,
   ploRaiseTo,
@@ -2197,6 +2198,12 @@ export interface HorseDecideOpts {
    *  target widths; the jam-or-fold zones are untouched. Default on;
    *  explicit false keeps today's open. */
   v70GtoOpeningRanges?: boolean;
+  /** V72 (2026-10-31): Hold'em facing one open with nobody in (three or more
+   *  dealt in) - the call / 3-bet base is set per (defender seat, opener
+   *  seat by dealt-in players behind, open size, ante) from reference GTO
+   *  charts instead of five position buckets; style, ICM, exploit, V53, V57
+   *  and V60 move it as before. Default on; explicit false keeps today's. */
+  v72DefenceByOpener?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -6348,8 +6355,48 @@ export class HorseLogic {
         behind,
       };
     })();
+    // ═══ V72 GTO DEFENCE BY OPENER (2026-10-31) ═══ facing one no-limit
+    // hold'em open with nobody in (three or more dealt in), the call and the
+    // 3-bet read the (defender, opener seat) reference base
+    // (HorseGtoDefenceRanges). Both seats are indexed from the dealt census
+    // exactly as V70 indexes the open, never from who anybody is.
+    const gtoDefend72 = (() => {
+      if (opts.v72DefenceByOpener === false) return undefined;
+      if (raises !== 1 || callers !== 0 || limpers !== 0 || lastRaiserSeat < 0) return undefined;
+      if (heroPreviouslyActed || player.cards.length !== 2) return undefined;
+      if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
+      if (gs.allInOrFold === true || gs.straddleActive === true) return undefined;
+      const dealt72 = dealtHorseTableSize(gs, player.seat);
+      if (dealt72 < 3) return undefined;
+      const opener = gs.players.find((p) => p.seat === lastRaiserSeat);
+      if (!opener || opener.is_all_in) return undefined;
+      const openToBB = bb > 0 ? gs.currentBet / bb : 0;
+      if (!(openToBB > 1.05 && openToBB <= V72_MAX_OPEN_BB)) return undefined;
+      const openerBehind = preflopPlayersBehind(lastRaiserSeat, gs, opts.v13 !== false);
+      const heroBehind = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+      if (openerBehind === null || heroBehind === null || heroBehind >= openerBehind)
+        return undefined;
+      const defender = heroBehind === 0 ? 'bb' : heroBehind === 1 ? 'sb' : 'ip';
+      const d72 = gtoDefence(player.cards[0], player.cards[1], {
+        defender,
+        openerBehind,
+        defenderBehind: heroBehind,
+        ante: (gs.ante ?? 0) > 0,
+        openToBB,
+      });
+      if (!d72) return undefined;
+      if (telemetryOn(opts)) noteFire('v72_defend_vs_opener');
+      return {
+        strength: clamp01(d72.continueStrength + strengthJitter),
+        continueBar: d72.continueBar,
+        valueBar: d72.valueBar,
+        bluffProb: d72.bluffProb,
+        defender,
+      } as const;
+    })();
     const intent = decidePreflopV7({
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
+      ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
       ...(ploIcm53 ? { ploIcm: ploIcm53.shifts } : {}),
       strength,
       position,

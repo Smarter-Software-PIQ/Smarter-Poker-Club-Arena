@@ -187,7 +187,8 @@
   line-height: 1.1;
 }
 
-.break-screen__my-position {
+.break-screen__my-position,
+.break-screen__vpip {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
@@ -195,6 +196,15 @@
   padding-block: 2.5cqw;
   border-top: 1px solid #000;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+}
+
+.break-screen__vpip {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.break-screen__vpip .break-screen__my-stack {
+  text-align: right;
+  white-space: normal;
 }
 
 .break-screen__my-rank,
