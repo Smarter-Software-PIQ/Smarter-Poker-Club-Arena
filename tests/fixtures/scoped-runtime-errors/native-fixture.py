@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 import subprocess
+import stat
 import sys
 import tempfile
 import unittest
@@ -225,6 +226,65 @@ class NativeLogReader(unittest.TestCase):
         with patch.object(reader, 'capture', side_effect=OSError('SECRET')):
             failed = reader.read_restart_incident(window, b'')
         self.assertTrue(all(s == {'status': 'unavailable'} for s in failed['sources'].values()))
+
+    def test_core_capture_metadata_is_closed_and_temporally_honest(self):
+        window={'since':'2026-11-01T06:40:00Z','until':'2026-11-01T06:55:00Z'}
+        stamp=int(datetime.datetime(2026,11,1,6,48,tzinfo=datetime.timezone.utc).timestamp()*1000000000)
+        value={'patternClass':'file_relative','usesPid':0,'processSoft':0,'processHard':'unlimited',
+               'containerSoft':'unlimited','containerHard':'unlimited','candidate':'regular_file',
+               'candidateBytes':1234,'candidateMtimeNs':stamp,'path':'SECRET','core':'PRIVATE'}
+        result=reader.core_capture_metadata(value,window)
+        self.assertEqual(result['candidateBytes'],1234)
+        self.assertEqual(result['candidateWindowRelation'],'inside')
+        self.assertEqual(result['processSoft'],0)
+        self.assertEqual(result['incidentAttribution'],'unproven')
+        self.assertEqual(result['temporalScope'],'current_container_process_not_crashed_process')
+        self.assertNotIn('SECRET',json.dumps(result)); self.assertNotIn('PRIVATE',json.dumps(result))
+        for time,relation in [(stamp-3600*10**9,'before'),(stamp+3600*10**9,'after')]:
+            self.assertEqual(reader.core_capture_metadata({**value,'candidateMtimeNs':time},window)['candidateWindowRelation'],relation)
+        for patch in [{'candidateBytes':True},{'candidateMtimeNs':'SECRET'},{'candidateBytes':-1}]:
+            self.assertEqual(reader.core_capture_metadata({**value,**patch},window)['candidate'],'unknown')
+        self.assertEqual(reader.core_capture_metadata(None,window)['candidate'],'unknown')
+
+    def test_actual_core_metadata_command_is_read_only_and_refuses_changed_container(self):
+        import contextlib, io, types
+        identity={'Id':'a'*64,'State':{'Pid':123,'StartedAt':'2026-11-01T06:48:00Z'},
+                  'Config':{'WorkingDir':'/app'},'HostConfig':{'Ulimits':[{'Name':'core','Soft':-1,'Hard':-1}]}}
+        def run(pattern='core', changed=False, regular=True, missing=False, uses='0', working='/app'):
+            output=io.StringIO(); opened=[]
+            def read(path,mode):
+                values={'/proc/sys/kernel/core_pattern':pattern,'/proc/sys/kernel/core_uses_pid':uses,
+                        '/proc/123/limits':'Max core file size        0        unlimited        bytes'}
+                self.assertIn(path,values) # A core is never opened.
+                self.assertEqual(mode,'r'); return io.StringIO(values[path])
+            def opened_fd(path,flags,**kwargs):
+                opened.append((path,flags,kwargs)); return 10 if len(opened)==1 else 11
+            current={**identity,'Config':{'WorkingDir':working}}
+            second={**current,'State':{**current['State'],'Pid':124}} if changed else current
+            replies=[types.SimpleNamespace(stdout=json.dumps(x).encode()) for x in (current,second)]
+            mode=stat.S_IFREG if regular else stat.S_IFLNK
+            with patch('subprocess.run',side_effect=replies) as inspect, patch('builtins.open',side_effect=read), patch('os.open',side_effect=opened_fd), patch('os.close'), patch('os.stat',side_effect=FileNotFoundError() if missing else None,return_value=types.SimpleNamespace(st_mode=mode,st_size=42,st_mtime_ns=123)) as metadata, contextlib.redirect_stdout(output):
+                if changed:
+                    with self.assertRaisesRegex(ValueError,'container changed'): exec(reader.CORE_CAPTURE_COMMAND,{})
+                    return
+                exec(reader.CORE_CAPTURE_COMMAND,{})
+            for call in inspect.call_args_list:
+                self.assertEqual(call.kwargs['timeout'],1)
+                self.assertNotIn('{{json .}}',call.args[0]) # No env, argv or full configuration.
+            if pattern=='core' and uses=='0' and working=='/app':
+                self.assertTrue(opened[1][1]&os.O_NOFOLLOW)
+                metadata.assert_called_once_with('core',dir_fd=11,follow_symlinks=False)
+            else:
+                metadata.assert_not_called(); self.assertEqual(opened,[])
+            return json.loads(output.getvalue())['CoreCapture']
+        self.assertEqual(run()['candidate'],'regular_file')
+        self.assertEqual(run(regular=False)['candidate'],'not_regular_file')
+        self.assertEqual(run(missing=True)['candidate'],'absent')
+        self.assertEqual(run(uses='1')['candidate'],'unknown')
+        self.assertEqual(run(working='/PRIVATE')['candidate'],'unknown')
+        for pattern in ['|/PRIVATE/handler','/PRIVATE/core.%p','core.%p']:
+            self.assertEqual(run(pattern)['candidate'],'unknown')
+        run(changed=True)
 
     def test_coredump_metadata_attributes_exact_container_without_exposing_identity(self):
         window = {'since': '2026-10-31T06:00:00Z', 'until': '2026-10-31T06:15:00Z'}
