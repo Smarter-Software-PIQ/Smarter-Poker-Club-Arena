@@ -52,11 +52,11 @@ function harness(over: Record<string, unknown> = {}) {
 
 describe('free entry classification reads the initial charge, not the prize share', () => {
   it.each([
-    [{ buy_in_amount: 0, buy_in_fee: 0 }, true, 6],
-    [{ buy_in_amount: 0, buy_in_fee: null }, true, 6],
+    [{ buy_in_amount: 0, buy_in_fee: 0 }, true, 24],
+    [{ buy_in_amount: 0, buy_in_fee: null }, true, 24],
     [{ buy_in_amount: 0, buy_in_fee: 5 }, false, 1],
     [{ buy_in_amount: 5, buy_in_fee: 0, bounty_amount: 5 }, false, 1],
-    [{ free_buy: true, buy_in_amount: 36, buy_in_fee: 0 }, true, 6],
+    [{ free_buy: true, buy_in_amount: 36, buy_in_fee: 0 }, true, 24],
     [{ buy_in_fee: 0 }, false, 1],
   ] as const)('classifies %j as free=%s with a %sh window', (row, free, hours) => {
     expect(mttIsFreeEntry(row)).toBe(free);
@@ -85,7 +85,7 @@ describe('automated MTT callers share the paid-hour and free-hours entry policy'
       expect(h.load).toHaveBeenCalledTimes(2);
     }
   );
-  it.each([6, 4])('admits zero-cost initial entry %sh ahead', async (hours) => {
+  it.each([24, 12, 4])('admits zero-cost initial entry %sh ahead', async (hours) => {
     const h = harness({
       buy_in_amount: 0,
       start_time: new Date(NOW + hours * 60 * 60_000).toISOString(),
@@ -114,7 +114,7 @@ describe('automated MTT callers share the paid-hour and free-hours entry policy'
   it('keeps the free window finite', async () => {
     const h = harness({
       buy_in_amount: 0,
-      start_time: new Date(NOW + 6 * 60 * 60_000 + 1).toISOString(),
+      start_time: new Date(NOW + 24 * 60 * 60_000 + 1).toISOString(),
     });
     await h.svc.registerHorses('event', 139);
     expect(h.load).not.toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe('scheduled horse timing stays in required native accounting', () => {
 describe('restarted MTTs exist for their signup window', () => {
   it.each([
     { entry: { buy_in_amount: 10, buy_in_fee: 1 }, minutes: 60 },
-    { entry: { buy_in_amount: 0, buy_in_fee: 0 }, minutes: 360 },
+    { entry: { buy_in_amount: 0, buy_in_fee: 0 }, minutes: 1440 },
   ])('retains the entry window without a guarantee: $minutes minutes', ({ entry, minutes }) => {
     const now = Date.parse('2026-11-01T06:00:00Z');
     expect(
