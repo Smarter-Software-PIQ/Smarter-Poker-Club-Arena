@@ -24,6 +24,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { runWithRequestDeadline } from '../utils/requestDeadline';
 import { reportError } from '../utils/errorReporter';
 import { tierRank } from '../config/mysteryBountyTiers';
 import { formatPrizeCentsAtUnit } from '../utils/format';
@@ -406,9 +407,13 @@ export const MysteryBountyService = {
   ): Promise<MysteryBountyInventory | null> {
     if (!tournamentId) return null;
     try {
-      const { data, error } = await supabase.rpc('fn_mystery_bounty_inventory', {
-        p_tournament_id: tournamentId,
-      });
+      const { data, error } = await runWithRequestDeadline((signal) =>
+        supabase
+          .rpc('fn_mystery_bounty_inventory', {
+            p_tournament_id: tournamentId,
+          })
+          .abortSignal(signal)
+      );
       if (error) throw error;
       if (!data) return null;
       return parseInventory(data);
@@ -427,11 +432,15 @@ export const MysteryBountyService = {
   ): Promise<MysteryBountyAwards> {
     if (!tournamentId) return { total: 0, rows: [] };
     try {
-      const { data, error } = await supabase.rpc('fn_mystery_bounty_awards', {
-        p_tournament_id: tournamentId,
-        p_limit: limit,
-        p_offset: offset,
-      });
+      const { data, error } = await runWithRequestDeadline((signal) =>
+        supabase
+          .rpc('fn_mystery_bounty_awards', {
+            p_tournament_id: tournamentId,
+            p_limit: limit,
+            p_offset: offset,
+          })
+          .abortSignal(signal)
+      );
       if (error) throw error;
       if (opts?.strict) {
         const envelope = data as { total?: unknown; rows?: unknown } | null;
@@ -500,9 +509,13 @@ export const MysteryBountyService = {
   ): Promise<MysteryBountyLeaderboardRow[]> {
     if (!tournamentId) return [];
     try {
-      const { data, error } = await supabase.rpc('fn_mystery_bounty_leaderboard', {
-        p_tournament_id: tournamentId,
-      });
+      const { data, error } = await runWithRequestDeadline((signal) =>
+        supabase
+          .rpc('fn_mystery_bounty_leaderboard', {
+            p_tournament_id: tournamentId,
+          })
+          .abortSignal(signal)
+      );
       if (error) throw error;
       return parseLeaderboard(data);
     } catch (err) {
