@@ -6210,10 +6210,7 @@ function LiveTablePage({
       tableState.communityCards,
       tableState.communityCards2,
       tableState.communityCards3,
-      tableState.pot,
       tableState.heroSeat,
-      tableState.lastActions,
-      tableState.lastBetAmounts,
     ]),
     `${tableId}:${tableState.handNumber ?? 0}`
   );
@@ -7471,6 +7468,28 @@ function LiveTablePage({
       tableState.players[tableState.heroSeat - 1]?.status === 'folded',
   });
   const heroPromptedToAct = isHeroTurnContext && !suppressPanelForPreAction;
+
+  useEffect(() => {
+    if (
+      dealInFlight &&
+      tableState.isHandInProgress &&
+      tableState.heroSeat > 0 &&
+      tableState.currentPlayerSeat === tableState.heroSeat &&
+      heroDecisionReady &&
+      (tableState.players[tableState.heroSeat - 1]?.holeCards?.length ?? 0) > 0
+    ) {
+      endDealHold();
+      settleHeroDealSoundRef.current?.(heldHeroDealSoundRef.current);
+    }
+  }, [
+    dealInFlight,
+    tableState.isHandInProgress,
+    tableState.heroSeat,
+    tableState.currentPlayerSeat,
+    tableState.players,
+    heroDecisionReady,
+    endDealHold,
+  ]);
 
   /**
    * The bell and the buzz follow the SAME boolean. The TURN_CHANGE handler

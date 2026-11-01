@@ -822,6 +822,9 @@ function CommunityCardsComponent({
   // paint once before replacing it with the face-down reveal. Existing cards
   // and boards mounted after reconnect retain their static presentation.
   useLayoutEffect(() => {
+    for (let i = 0; i < visibleCount; i++) {
+      if (cards[i]) preloadImage(getCardImagePath(cards[i], deckStyle));
+    }
     const prevCount = prevVisibleCountRef.current;
     // 700ms used to be enough, but the two-phase flop (land face down, then
     // fan open) runs to ~1.22s. Clearing at 700ms tore the flip markup out

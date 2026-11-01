@@ -1203,4 +1203,22 @@ describe('bounded opponent fact positioning', () => {
     expect(state.idleReservedKey).toBe('body');
     expect(captions[1].style.getPropertyValue('translate')).toBe('0px 86px');
   });
+  it('never throws when an opponent seat temporarily has zero measured parts', () => {
+    const shifts = jointOpponentShifts(
+      [
+        { parts: [], side: -1, outwardOnly: true },
+        { parts: [{ left: 20, top: 100, width: 80, height: 100 }], side: -1, outwardOnly: true },
+      ],
+      [],
+      bounds,
+      0,
+      true,
+      220
+    );
+    expect(shifts).toEqual([
+      [0, 0],
+      [0, 0],
+    ]);
+    expect(opponentFitsLowerLane([], [], bounds, 220)).toBe(false);
+  });
 });

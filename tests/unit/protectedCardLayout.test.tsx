@@ -272,3 +272,58 @@ it('mobile top-cap cards stay below the visible page edge', async () => {
   const card = row.querySelector('.seat__card')!.getBoundingClientRect();
   expect(card.top).toBeGreaterThanOrEqual(page.top + 8);
 });
+
+it('live-table handKey keeps opponent avatars at fixed positions while retaining normalized bust scale', () => {
+  stubGeometry();
+  const ref = { current: null as HTMLDivElement | null };
+  function LiveTableScene({ handKey }: { handKey: string }) {
+    useProtectedCardLayout(ref, 'rev-1', handKey);
+    return (
+      <div className="table-page" data-seats={9} data-box="0,0,393,852">
+        <div
+          className="table-scaler"
+          data-box="0,0,393,600"
+          ref={(el) => {
+            ref.current = el;
+          }}
+        >
+          <div className="community-area" data-box="60,220,280,90" />
+          <div className="seat-wrapper seat-wrapper--left" data-box="5,100,66,110">
+            <div className="seat seat--compact" data-box="5,100,66,110">
+              <div className="seat__avatar" data-box="5,100,62,85">
+                <img
+                  className="seat__avatar-img"
+                  src="/avatars/vip/dragon.png"
+                  data-box="5,100,62,85"
+                  alt=""
+                />
+              </div>
+              <div className="seat__info" data-box="2,175,66,35" />
+            </div>
+          </div>
+          <div className="seat-wrapper seat-wrapper--left" data-box="5,160,66,110">
+            <div className="seat seat--compact" data-box="5,160,66,110">
+              <div className="seat__avatar" data-box="5,160,62,85">
+                <img
+                  className="seat__avatar-img"
+                  src="/avatars/vip/fox.png"
+                  data-box="5,160,62,85"
+                  alt=""
+                />
+              </div>
+              <div className="seat__info" data-box="2,235,66,35" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const h = render(<LiveTableScene handKey="table-8:53819612" />);
+  const seats = h.container.querySelectorAll<HTMLElement>('.seat--compact');
+  expect(seats).toHaveLength(2);
+  for (const seat of seats) {
+    expect(seat.style.getPropertyValue('--sp-opponent-x')).toBe('');
+    expect(seat.style.getPropertyValue('--sp-opponent-y')).toBe('');
+    expect(seat.getAttribute('data-opponent-lane')).toBeNull();
+  }
+});
