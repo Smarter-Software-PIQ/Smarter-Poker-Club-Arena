@@ -30,6 +30,7 @@ import { tournamentBlinds, tournamentLevel } from './tournamentFigures';
 import { compactChips } from '../../utils/format';
 import {
   cashTitleLines,
+  isLightningCashRow,
   cashStyleNote,
   formatClock,
   lateRegEndMs,
@@ -311,15 +312,6 @@ export function tournamentSignals(entry: LobbyEntry): TournamentSignal[] {
   if (keys.has('satellite')) out.push('satellite');
   if (entry.guaranteeValue >= HOT_GUARANTEE_THRESHOLD) out.push('hot-gtd');
   return out;
-}
-
-/** Format identity, independent of whether its live pool is currently joinable. */
-function isLightningCashRow(entry: LobbyEntry): boolean {
-  return (
-    entry.kind === 'cash' &&
-    !entry.game?.noLightning &&
-    cashTemplateKey(entry.game?.template ?? '') === 'madness'
-  );
 }
 
 /** The live clock line: "Starts In 4:31" or "Late Reg Ends In 12:03". */

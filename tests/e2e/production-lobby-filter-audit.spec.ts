@@ -82,6 +82,7 @@ const publicRowFields = [
   'is_rebuy',
   'is_reentry',
   'cluster_template',
+  'cluster_handedness',
   'cluster_mode',
 ];
 function persistProgress(page: Page) {
@@ -491,6 +492,7 @@ function expectedExteriorLed(row: Row, spec: GameFilterSpec, cash: boolean): Led
     const lightning =
       Boolean(row.cluster_id) &&
       ['action', 'madness', 'lightning'].includes(template) &&
+      number(row.cluster_handedness ?? row.max_players) === 6 &&
       !['short_deck', 'pineapple', 'plo8', 'flo8'].includes(key);
     const colors: Record<string, LedDecision['color']> = {
       nlh: 'blue',
@@ -545,6 +547,48 @@ async function assertExteriorLeds(
   spec: GameFilterSpec,
   cash: boolean
 ) {
+  if (cash) {
+    await expect
+      .poll(
+        () =>
+          page
+            .locator(
+              '.has-premium-chassis:visible tr[data-game-heading][data-kind="cash"] .lt-tournament-heading__name'
+            )
+            .evaluateAll((titles) =>
+              titles.flatMap((title) => {
+                const face = title.getBoundingClientRect();
+                const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+                const ink: DOMRect[] = [];
+                while (walker.nextNode()) {
+                  if (!walker.currentNode.textContent?.trim()) continue;
+                  const range = document.createRange();
+                  range.selectNodeContents(walker.currentNode);
+                  ink.push(
+                    ...[...range.getClientRects()].filter(
+                      (rect) => rect.width > 0 && rect.height > 0
+                    )
+                  );
+                }
+                return ink.length &&
+                  ink.every(
+                    (rect) =>
+                      rect.left >= face.left - 1 &&
+                      rect.right <= face.right + 1 &&
+                      rect.top >= face.top - 1 &&
+                      rect.bottom <= face.bottom + 1
+                  )
+                  ? []
+                  : [{ text: title.textContent, face, ink }];
+              })
+            ),
+        {
+          message:
+            'Full cash titles, including Lightning, must paint inside their actual header face',
+        }
+      )
+      .toEqual([]);
+  }
   const readings = await page
     .locator(
       '.has-premium-chassis:visible tbody tr[data-id]:visible, .has-premium-chassis:visible tbody tr[data-game-heading]:visible'
@@ -556,6 +600,8 @@ async function assertExteriorLeds(
         return {
           id: element.getAttribute('data-id') || element.getAttribute('data-game-heading')!,
           heading: element.hasAttribute('data-game-heading'),
+          titleText:
+            element.querySelector('.lt-tournament-heading__name')?.textContent?.trim() ?? null,
           beforeFilter: before.filter,
           beforeArt: before.backgroundImage,
           afterFilter: after.filter,
@@ -579,6 +625,13 @@ async function assertExteriorLeds(
     const raw = rawRows.get(reading.id);
     expect(raw, `LED ${reading.id} must have an independently observed raw source`).toBeTruthy();
     const expected = expectedExteriorLed(raw!, spec, cash);
+    if (cash && reading.heading) {
+      expect(reading.titleText, 'Each cash title is visibly populated').toBeTruthy();
+      expect(
+        /^Lightning /.test(reading.titleText!),
+        'The title must name exactly the raw-source Lightning format'
+      ).toBe(expected.color === 'white');
+    }
     expect(reading.beforeFilter, 'The silver/black frame art must remain untinted').toBe('none');
     expect(reading.actualColor, `Raw-source palette ${reading.id}`).toBe(expected.color);
     expect(reading.actualSides, `Raw-source LED zones ${reading.id}`).toBe(expected.sides);
