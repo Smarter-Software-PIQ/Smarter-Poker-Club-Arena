@@ -33,7 +33,8 @@ describe('browser qualification parallel delivery', () => {
       expect(hosted.length).toBeGreaterThan(0);
       for (const [name, job] of hosted) {
         const supportedBrowser =
-          file === 'ci.yml' && ['build', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name);
+          file === 'ci.yml' &&
+          ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name);
         const expected =
           file === 'ci.yml' && name === 'accounting_postgres'
             ? '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
