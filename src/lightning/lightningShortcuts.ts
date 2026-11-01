@@ -20,6 +20,7 @@ export function lightningShortcut(
 ): LightningShortcutAction | null {
   if (
     modifier === 'off' ||
+    typeof event.key !== 'string' ||
     event.repeat ||
     event.isComposing ||
     event.ctrlKey ||

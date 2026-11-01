@@ -28,7 +28,9 @@ const FAST_RETRY_INTERVALS = [5_000, 10_000, 20_000]; // Aggressive retry on fai
 class SupabaseConnectionWatchdog {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private initialCheckTimer: ReturnType<typeof setTimeout> | null = null;
   private onlineCheckTimer: ReturnType<typeof setTimeout> | null = null; // FIX: Track handleOnline timer
+  private checkInFlight: Promise<void> | null = null;
   private consecutiveFailures = 0;
   private isConnected = true;
   private started = false;
@@ -45,11 +47,14 @@ class SupabaseConnectionWatchdog {
     window.addEventListener('offline', this.handleOffline);
 
     // Start periodic health checks
-    this.heartbeatTimer = setInterval(() => this.checkHealth(), HEARTBEAT_INTERVAL);
+    this.heartbeatTimer = setInterval(() => void this.checkHealth(), HEARTBEAT_INTERVAL);
 
     // Initial check: wait for connection to stabilize
     const initialDelay = 8_000;
-    setTimeout(() => this.checkHealth(), initialDelay);
+    this.initialCheckTimer = setTimeout(() => {
+      this.initialCheckTimer = null;
+      void this.checkHealth();
+    }, initialDelay);
   }
 
   /**
@@ -64,6 +69,10 @@ class SupabaseConnectionWatchdog {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
     }
+    if (this.initialCheckTimer) {
+      clearTimeout(this.initialCheckTimer);
+      this.initialCheckTimer = null;
+    }
     // FIX: Clear the handleOnline timer to prevent fire-after-stop
     if (this.onlineCheckTimer) {
       clearTimeout(this.onlineCheckTimer);
@@ -75,7 +84,15 @@ class SupabaseConnectionWatchdog {
   }
 
   /** Check Supabase connectivity through GoTrue's successful health route. */
-  private async checkHealth(): Promise<void> {
+  private checkHealth(): Promise<void> {
+    if (this.checkInFlight) return this.checkInFlight;
+    this.checkInFlight = this.checkHealthOnce().finally(() => {
+      this.checkInFlight = null;
+    });
+    return this.checkInFlight;
+  }
+
+  private async checkHealthOnce(): Promise<void> {
     if (!navigator.onLine) {
       this.markFailure();
       // Don't give up — schedule aggressive retry
@@ -83,10 +100,9 @@ class SupabaseConnectionWatchdog {
       return;
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PING_TIMEOUT);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), PING_TIMEOUT);
-
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/health`, {
         method: 'GET',
         headers: {
@@ -94,7 +110,6 @@ class SupabaseConnectionWatchdog {
         },
         signal: controller.signal,
       });
-      clearTimeout(timeout);
 
       // GoTrue's authenticated health route returns a quiet 2xx response. The
       // former bare PostgREST-root probe returned 401 by design, which made
@@ -107,11 +122,13 @@ class SupabaseConnectionWatchdog {
         this.scheduleRetry();
       }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
+      if (err?.name === 'AbortError') {
         console.warn('[Watchdog] Health check timed out - retrying');
       }
       this.markFailure();
       this.scheduleRetry();
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
