@@ -87,8 +87,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 272197,
-      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+      "bytes": 272578,
+      "sha256": "8a564229281706f6091bfcab6968f6a513e3a5d9b277f31fefc0c4aa84b6e976"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -1938,5 +1938,34 @@
       "bytes": 272197,
       "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
     }
+  },
+  "playwrightSupportedUbuntuSourceAudit20261031": {
+    "scope": "Current CI source binding only. Exactly css-beats-e2e and diamond-playfield-e2e use standard GitHub-hosted ubuntu-24.04 instead of ubuntu-latest. Required run 41258035858 failed before browser execution because latest became Ubuntu 26.04, unsupported by locked Playwright 1.58. Last successful equivalent 41254582162 used Ubuntu 24.04. All commands, assertions, matrices, permissions, timeouts and financial/native qualification are unchanged.",
+    "previousCiPin": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "currentCiPin": {
+      "bytes": 272493,
+      "sha256": "7bb0223e2ebd8b0f9931b8699f41886185b3d1adaecec37349571ba024b157db"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "execution_performed": false,
+    "qualification": "Source binding only; no financial, native, installed or live certification is restamped. Exact-head protected checks and publication remain required."
+  },
+  "productionBuildPlaywrightImageSourceAudit20261031": {
+    "scope": "Current CI source identity only: Production Build also installs Playwright 1.58 Chromium for its performance checks. Exact job124711609859 failed before that browser ran on Ubuntu26.04. Use the same supported standard hosted Ubuntu24.04 image as the other two browser jobs. No command, assertion, timeout, matrix or financial/native qualification changed.",
+    "previousCiPin": {
+      "bytes": 272493,
+      "sha256": "7bb0223e2ebd8b0f9931b8699f41886185b3d1adaecec37349571ba024b157db"
+    },
+    "currentCiPin": {
+      "bytes": 272578,
+      "sha256": "8a564229281706f6091bfcab6968f6a513e3a5d9b277f31fefc0c4aa84b6e976"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "execution_performed": false
   }
 }

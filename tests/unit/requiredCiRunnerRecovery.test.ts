@@ -232,9 +232,10 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       unit: 'ubuntu-latest',
       server: 'ubuntu-latest',
       verdict: 'ubuntu-latest',
+      build: 'ubuntu-24.04',
       'css-beats-gate': 'ubuntu-latest',
-      'css-beats-e2e': 'ubuntu-latest',
-      'diamond-playfield-e2e': 'ubuntu-latest',
+      'css-beats-e2e': 'ubuntu-24.04',
+      'diamond-playfield-e2e': 'ubuntu-24.04',
     };
     // Assert each authorized route before normalizing just that field. The
     // exhaustive sectional fingerprints protect every command and financial gate.
@@ -242,7 +243,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       expect(normalized.jobs[name]['runs-on'], name).toBe(route);
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
-    for (const name of ['typecheck_compile', 'unit_shards', 'build']) {
+    for (const name of ['typecheck_compile', 'unit_shards']) {
       expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
