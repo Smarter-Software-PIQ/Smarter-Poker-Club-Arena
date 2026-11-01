@@ -599,7 +599,11 @@ missing, extra, malformed or failed result refuses the capture without retry.
 The original45-second capture deadline, TLS, complete schema and private output
 limits remain unchanged. The batch is bounded to128MiB private metadata.
 
-Diagnostic wire protocol D1 is unchanged. New cost receipts are version2 with
+Diagnostic wire protocol D2 uses fixed12-byte closed records for sequence,
+kind/edge/type and monotonic microseconds; legacy D1 reading remains supported.
+The compact wire preserves every semantic fact within the same512KiB cap,
+rather than stopping the complete schema export because verbose diagnostics
+exhausted that cap. New cost receipts remain version2 with
 closed object_scope and query_scope fields; historical version1 receipts keep
 their original unlabelled semantics. Object counts now mean effective selected
 components; zero-component dispatcher visits are no longer logged. Query spans

@@ -270,12 +270,24 @@ def validate_frames(data):
     obj = None
     query = None
     query_count = 0
-    for line in data.splitlines():
-        require(len(line) < 96)
-        match = re.fullmatch(rb'D1 ([1-9][0-9]{0,5}) ([OQ]) ([BE]) (FUNCTION|RELATION|TYPE|OTHER) (0|[1-9][0-9]{0,7})', line)
-        require(match is not None)
-        seq, level, boundary, group, elapsed = match.groups()
-        seq, elapsed = int(seq), int(elapsed)
+    def frames():
+        if data.startswith(b'D2'):
+            require(len(data) % 12 == 0)
+            groups = [b'FUNCTION', b'RELATION', b'TYPE', b'OTHER']
+            for offset in range(0, len(data), 12):
+                row = data[offset:offset + 12]
+                require(row[:2] == b'D2' and row[6] < 16 and row[11] == 10)
+                tag = row[6]
+                yield (int.from_bytes(row[2:6], 'big'), b'Q' if tag & 2 else b'O',
+                       b'E' if tag & 1 else b'B', groups[tag >> 2], int.from_bytes(row[7:11], 'big'))
+        else:
+            for line in data.splitlines():
+                require(len(line) < 96)
+                match = re.fullmatch(rb'D1 ([1-9][0-9]{0,5}) ([OQ]) ([BE]) (FUNCTION|RELATION|TYPE|OTHER) (0|[1-9][0-9]{0,7})', line)
+                require(match is not None)
+                seq, level, boundary, group, elapsed = match.groups()
+                yield (int(seq), level, boundary, group, int(elapsed))
+    for seq, level, boundary, group, elapsed in frames():
         require(seq == sequence + 1 and seq <= 100000 and previous <= elapsed <= 45000000)
         sequence, previous = seq, elapsed
         if level == b'O':
