@@ -1242,6 +1242,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { v59Plo6RiverUnpaired: false },
   },
+  // V74 (2026-10-31): an Omaha semi-bluff raise needs a draw. Default ON:
+  // a is today's brain, b is the brain without the gate.
+  {
+    name: 'plo4_v74_semibluff_needs_draw',
+    variant: 'plo4',
+    pairs: 6000,
+    a: {},
+    b: { v74OmahaSemiBluffNeedsDraw: false },
+  },
+  {
+    name: 'plo5_v74_semibluff_needs_draw',
+    variant: 'plo5',
+    pairs: 6000,
+    a: {},
+    b: { v74OmahaSemiBluffNeedsDraw: false },
+  },
   /*
    * LEAGUE-GATED SELF-TUNER (Dan 2026-10-19: "League-gated nudges"). The
    * nightly tuner proposes +/-0.02 moves on three dials. A move reaches a live

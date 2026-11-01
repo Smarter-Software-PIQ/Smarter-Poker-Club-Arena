@@ -168,10 +168,10 @@ def check_window(record, now, deadline, mode):
         return
     if record['schema'] == PHASE1_CAPABILITY:
         return  # The canonical routine-cycle seal owns the actual window.
-    # Static publication has no five-minute engine replacement deadline.
+    # Static publication validates immutable policy/source above, but an
+    # engine activation timestamp is not a client API compatibility contract.
+    # Independent clients have no engine maintenance prerequisite.
     if mode == 'publish':
-        if now < record.get('clientPublicationEpoch', record['activationEpoch']):
-            raise ValueError('client publication is not yet permitted')
         return
     if now >= record['expiresEpoch']:
         raise ValueError('one-time activation window expired')

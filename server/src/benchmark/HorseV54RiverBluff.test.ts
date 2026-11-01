@@ -35,7 +35,11 @@ const CARDS: Array<[string, string | undefined]> = [
   ['plo6_v54_river_bluff', 'plo6'],
 ];
 
-describe('V54 river bluff is measured in every variant', { timeout: 900_000 }, () => {
+// The PLO6 card plays 6,000 paired hands. Measured 2026-11-01: about 700 s
+// on a hosted CI runner and 1,017 s on a two-core agent box (main, alone), so
+// a 900 s budget refused the pre-push gate on every engine change there. The
+// assertions are unchanged; only the wall-clock budget has headroom now.
+describe('V54 river bluff is measured in every variant', { timeout: 2_400_000 }, () => {
   beforeAll(() => {
     enableBrainTelemetry();
     drainFires();

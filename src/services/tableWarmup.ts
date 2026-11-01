@@ -48,6 +48,7 @@
  * the engine snapshot remain the authorities that follow.
  */
 import { getFreshAccessToken } from '../lib/authToken';
+import { NATIVE_RESUME_EVENT } from '../lib/nativeResume';
 import { engineSocketMux, isMuxEnabled, type MuxTableSocket } from './EngineSocketMux';
 import { tableService } from './TableService';
 import { preloadRoute } from '../utils/ChunkPreloader';
@@ -308,6 +309,7 @@ export function observeLobbyTableWarmups(roots: HTMLElement[]): () => void {
   };
   document.addEventListener('visibilitychange', resume);
   window.addEventListener('pageshow', resume);
+  window.addEventListener(NATIVE_RESUME_EVENT, resume);
   window.addEventListener('online', resume);
   const refresh = setInterval(warmVisible, SEATS_FRESH_MS);
   return () => {
@@ -315,6 +317,7 @@ export function observeLobbyTableWarmups(roots: HTMLElement[]): () => void {
     observer?.disconnect();
     document.removeEventListener('visibilitychange', resume);
     window.removeEventListener('pageshow', resume);
+    window.removeEventListener(NATIVE_RESUME_EVENT, resume);
     window.removeEventListener('online', resume);
     if (timer !== null) clearTimeout(timer);
     clearInterval(refresh);

@@ -1,0 +1,7 @@
+# Complete tournament context inventories
+
+The lifecycle context reader treated the REST response ceiling as the entire mystery chest and satellite entitlement inventory. It also refused a valid roster above 10,000 entrants despite unlimited MTT admission. This could omit a large chest, understate the satellite award depth, or leave a large field without a usable context. No historical freeze is attributed to these reproduced defects.
+
+The three reads now use maintained keyset pagination with their verified primary keys, exact remaining counts and unique ordered identities. Missing, short, duplicate or failed pages remain unknown. No field-size ceiling is invented. The existing five-second refresh deadline and cache generation/in-flight ownership stop further page admission after timeout or retirement. There is one attempt per page, no new polling, and no strategy, ICM calculation, financial authority or production schema change.
+
+Actual lifecycle regressions reproduce the three large-field failures and two ignored later-page errors. The unlimited reproduction uses the maintained unlimited-mtt-v2 admission contract; an earlier fixture incorrectly named v1 and is not its qualifying baseline. Final verification covers 37 lifecycle/cache cases and 17 unchanged derivation cases, including refusal of short/unproved counts and no additional page after the owning refresh times out. Server compilation and source bindings are recorded in the parent audit checkpoint. Protected engine delivery and actual runtime adoption remain separate requirements.

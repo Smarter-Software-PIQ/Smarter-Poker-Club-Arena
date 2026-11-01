@@ -9,6 +9,135 @@ const operation = '00000000-0000-4000-8000-000000009902';
 const generation = '00000000-0000-4000-8000-000000009903';
 
 describe('abort certificates retain physical source and lease identity', () => {
+  it('joins and fences the actual empty manager before acknowledging an absent table', async () => {
+    const host = { canCertifyTournamentTableAbsent: vi.fn(() => true) };
+    const manager = new TournamentManager(
+      tournament,
+      host as any,
+      generation,
+      performance.now() + 30_000
+    ) as any;
+    const request = {
+      operation_id: operation,
+      tournament_id: tournament,
+      current_generation: generation,
+      tables: [
+        { table_id: 'absent-table', lifecycle: '3', required: true, durable_hand_number: 19 },
+      ],
+    };
+    io.rpc.mockImplementation(async (name: string) => ({
+      data: name === 'fn_ca_tournament_abort_stop_state' ? { ok: true, ...request } : { ok: true },
+      error: null,
+    }));
+    expect(await manager.acknowledgeTournamentAbortBoundary(request)).toMatchObject({
+      state: 'acknowledged',
+    });
+    expect(manager.shutdownDrainFenceApplied).toBe(true);
+    expect(io.rpc).toHaveBeenCalledWith(
+      'fn_ca_ack_tournament_abort_boundary',
+      expect.objectContaining({
+        p_hand_number: 19,
+        p_evidence: expect.objectContaining({
+          kind: 'tournament_abort_absent_boundary_v2',
+          engine_id: null,
+        }),
+      })
+    );
+    host.canCertifyTournamentTableAbsent.mockReturnValue(false);
+    expect(await manager.acknowledgeTournamentAbortBoundary(request)).toMatchObject({
+      state: 'pending',
+      reason: 'original_owner_changed',
+    });
+    await manager.stop();
+    io.rpc.mockReset();
+  });
+  it('reobserves the same stopped original after its final retention changes the reviewed hash', async () => {
+    let finish!: () => void;
+    const stopped = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let hash = 'before-stop';
+    let first = true;
+    const manager = new TournamentManager(
+      tournament,
+      {} as any,
+      generation,
+      performance.now() + 30_000
+    ) as any;
+    const request = {
+      operation_id: operation,
+      tournament_id: tournament,
+      current_generation: generation,
+      closureMode: 'equal_share',
+      tables: [
+        {
+          table_id: 'original-table',
+          lifecycle: '3',
+          required: true,
+          durable_hand_number: 19,
+          cancellable_permit_id: 'original-permit',
+          cancellable_hand_hash: hash,
+        },
+      ],
+    };
+    const engine = {
+      parkForTournamentAbort: vi.fn(async () => false),
+      prepareTournamentAbortBoundary: vi.fn(),
+      captureParkedTournamentAbortIdentity: vi.fn(() => null),
+      retireTournamentAbortBoundary: vi.fn(async () => {
+        await stopped;
+        hash = 'retained-at-stop';
+      }),
+      captureStoppedTournamentAbortIdentity: vi.fn(() => ({
+        lifecycle: '3',
+        hand_number: 19,
+        engine_id: 'same-original',
+        allocation_epoch: null,
+      })),
+    };
+    manager.tableEngines.set('original-table', engine);
+    io.rpc.mockImplementation(async (name: string) => {
+      if (name === 'fn_ca_tournament_abort_stop_state')
+        return {
+          data: {
+            ok: true,
+            ...request,
+            tables: request.tables.map((table) => ({ ...table, cancellable_hand_hash: hash })),
+          },
+          error: null,
+        };
+      if (name === 'fn_ca_cancel_tournament_abort_unsettled_hand') {
+        if (first) {
+          first = false;
+          return { data: null, error: { message: 'unknown reply' } };
+        }
+        return { data: { ok: true, outcome: 'aborted_unsettled' }, error: null };
+      }
+      return { data: { ok: true }, error: null };
+    });
+    const run = manager.acknowledgeTournamentAbortBoundary(request);
+    await vi.waitFor(() => expect(engine.retireTournamentAbortBoundary).toHaveBeenCalledOnce());
+    expect(
+      io.rpc.mock.calls.some(([name]) => name === 'fn_ca_cancel_tournament_abort_unsettled_hand')
+    ).toBe(false);
+    finish();
+    await expect(run).rejects.toThrow('hand_disposition_unknown');
+    expect(io.rpc).toHaveBeenCalledWith(
+      'fn_ca_cancel_tournament_abort_unsettled_hand',
+      expect.objectContaining({ p_expected_hash: 'retained-at-stop' })
+    );
+    expect(
+      await manager.acknowledgeTournamentAbortBoundary({
+        ...request,
+        tables: request.tables.map((table) => ({ ...table, cancellable_hand_hash: hash })),
+      })
+    ).toMatchObject({ state: 'acknowledged' });
+    expect(manager.tableEngines.get('original-table')).toBe(engine);
+    expect(engine.parkForTournamentAbort).not.toHaveBeenCalled();
+    manager.tableEngines.clear();
+    await manager.stop();
+    io.rpc.mockReset();
+  });
   it('joins lifecycle completion, its queued movement and the writer that movement admits', async () => {
     const deferred = () => {
       let resolve!: () => void;

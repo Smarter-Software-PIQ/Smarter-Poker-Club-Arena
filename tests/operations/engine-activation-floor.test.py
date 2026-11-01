@@ -250,7 +250,7 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_owner_window_is_exact_bounded_and_needs_full_lead(self):
         r = self.owner_record()
         self.assertEqual(r['schema'], floor.OWNER_CAPABILITY)
-        with self.assertRaises(ValueError): floor.check_window(r, r['clientPublicationEpoch']-1, r['expiresEpoch']+1, 'publish')
+        floor.check_window(r, r['clientPublicationEpoch']-1, r['expiresEpoch']+1, 'publish')
         floor.check_window(r, r['clientPublicationEpoch'], r['clientPublicationEpoch']+120, 'publish')
         floor.check_window(r, r['activationEpoch'], r['activationEpoch'] + 8400, 'admit')
         for now, deadline in [(r['activationEpoch']-1,r['expiresEpoch']+1), (r['expiresEpoch']-419,r['expiresEpoch']+1), (r['activationEpoch'],r['activationEpoch']+419)]:
@@ -570,12 +570,50 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertIn('frozen intake v1 path unit differs; install a new protocol version instead', source)
 
     def test_client_floor_is_independent_of_backlog_and_engine_expiry(self):
-        r = self.record
-        for reuse in ('true', 'false', 'error'):
-            with self.subTest(reuse=reuse), self.assertRaises(ValueError):
-                floor.check_window(r, r['activationEpoch'] - 1, r['expiresEpoch'] + 100, 'publish')
-        floor.check_window(r, r['activationEpoch'], r['expiresEpoch'] + 100, 'publish')
-        floor.check_window(r, r['expiresEpoch'] + 1, r['expiresEpoch'] + 100, 'publish')
+        import sys
+        def invoke(target, control, now, deadline):
+            # Run the actual publisher CLI over real immutable Git fixtures.
+            # Only the clock is fixed; policy(), parser and check_window run.
+            script = ("import runpy,sys; from unittest.mock import patch; "
+                      "sys.argv=sys.argv[1:]; "
+                      "clock=patch('time.time',return_value=" + str(now) + "); "
+                      "clock.start(); runpy.run_path(sys.argv[0],run_name='__main__')")
+            return subprocess.run([sys.executable, '-B', '-c', script,
+                str(ROOT / HELPER), 'publish', '--repo', str(self.repo),
+                '--target', target, '--control', control, '--deadline', str(deadline)],
+                capture_output=True, text=True, timeout=15)
+        for r in (self.record, self.owner_record()):
+            for now in (r['preparationEpoch']-1, r['activationEpoch']-1,
+                        r['activationEpoch'], r['expiresEpoch']+1):
+                with self.subTest(schema=r['schema'], now=now):
+                    result = invoke(r['targetSha'], r['controlSha'], now, now+120)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = r if now < r['expiresEpoch'] else {'schema': 'legacy-no-activation-floor'}
+                    self.assertEqual(json.loads(result.stdout), expected)
+            # All engine modes retain their exact early/expired refusals.
+            for mode in ('prepare', 'admit', 'runtime'):
+                for now in (r['preparationEpoch']-1, r['expiresEpoch']):
+                    with self.subTest(mode=mode, now=now), self.assertRaises(ValueError):
+                        floor.check_window(r, now, r['expiresEpoch']+120, mode)
+            for now, deadline in ((0, 120), (True, 120), (1, 1)):
+                with self.assertRaises(ValueError): floor.check_window(r, now, deadline, 'publish')
+        # Publication remains fail-closed on protected identity, schema and
+        # exact control source. A static client never bypasses policy().
+        valid = self.sha
+        now = self.record['preparationEpoch']-1
+        result = invoke('a'*40, valid, now, now+120)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('activation floor refused:', result.stderr)
+        for path, changed in ((MANIFEST, json.dumps({**DAILY, 'schema':'unknown'})),
+                              (HELPER, '# incompatible control parser\n')):
+            original = (self.repo/path).read_bytes()
+            (self.repo/path).write_text(changed)
+            bad = self.commit()
+            result = invoke(bad if path == MANIFEST else valid, bad, now, now+120)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn('activation floor refused:', result.stderr)
+            (self.repo/path).write_bytes(original)
+            self.commit()
         caller = (ROOT / '.github/workflows/publish-club-arena.yml').read_text()
         self.assertIn('uses: ./.github/workflows/publish-club-arena-client.yml', caller)
         source = (ROOT / '.github/workflows/publish-club-arena-client.yml').read_text()
@@ -584,6 +622,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertIn('admit, client-tests, build-and-store, publication-floor]', production)
         admission = source[source.index('  publication-floor:'):source.index('  production:')]
         self.assertIn('engine-release-activation-floor.py publish', admission)
+        self.assertIn('--target "$TARGET_SHA" --control "$TARGET_SHA"', admission)
         self.assertNotIn('outputs.publish', admission)
         self.assertNotIn('secrets:', admission)
 

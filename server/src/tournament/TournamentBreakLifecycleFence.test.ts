@@ -128,6 +128,26 @@ afterEach(() => {
 });
 
 describe('break release requires persistence and current ownership', () => {
+  it('releases the field and clock while the break-end announcement is pending', async () => {
+    const notification = deferred<boolean>();
+    const manager = new BreakHarness();
+    manager.activate();
+    manager.forceBreakState();
+    stubBreakPersistence();
+    const engine = { resumeDealing: vi.fn() };
+    manager.addTableEngine(engine);
+    manager.broadcastCall.mockImplementationOnce(() => notification.promise);
+    const resuming = manager.resumeFromBreak();
+    await vi.waitFor(() => expect(manager.broadcastCall).toHaveBeenCalledOnce());
+    const releasedBeforeReceipt = engine.resumeDealing.mock.calls.length;
+    const clockBeforeReceipt = manager.clockCall.mock.calls.length;
+    notification.resolve(false);
+    await resuming;
+    manager.fence();
+    expect(releasedBeforeReceipt).toBe(1);
+    expect(clockBeforeReceipt).toBe(1);
+  });
+
   it('holds the break after a returned database error and retries once to release it', async () => {
     vi.useFakeTimers();
     const manager = new BreakHarness();
@@ -169,7 +189,7 @@ describe('break release requires persistence and current ownership', () => {
     manager.fence();
   });
 
-  it('does not release tables when notification returns after ownership is fenced', async () => {
+  it('does not release tables again when notification returns after ownership is fenced', async () => {
     const broadcast = deferred<boolean>();
     stubBreakPersistence();
     const manager = new BreakHarness();
@@ -180,11 +200,13 @@ describe('break release requires persistence and current ownership', () => {
     manager.addTableEngine(engine);
     const resuming = manager.resumeFromBreak();
     await vi.waitFor(() => expect(manager.broadcastCall).toHaveBeenCalledOnce());
+    expect(engine.resumeDealing).toHaveBeenCalledOnce();
+    expect(manager.clockCall).toHaveBeenCalledOnce();
     manager.fence();
     broadcast.resolve(true);
     await resuming;
-    expect(engine.resumeDealing).not.toHaveBeenCalled();
-    expect(manager.clockCall).not.toHaveBeenCalled();
+    expect(engine.resumeDealing).toHaveBeenCalledOnce();
+    expect(manager.clockCall).toHaveBeenCalledOnce();
   });
 
   it('cancels a failed-clear retry when ownership ends', async () => {
@@ -203,6 +225,41 @@ describe('break release requires persistence and current ownership', () => {
 });
 
 describe('tournament break lifecycle fence', () => {
+  it('does not announce after the physical park callback fences this manager', async () => {
+    const manager = new BreakHarness();
+    manager.activate();
+    stubBreakPersistence();
+    const engine = { pauseAfterHand: vi.fn(() => manager.fence()) };
+    manager.addTableEngine(engine);
+    const laterEngine = { pauseAfterHand: vi.fn() };
+    (manager as any).tableEngines.set('table-2', laterEngine);
+    await manager.pauseForBreak(300_000);
+    expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
+    expect(laterEngine.pauseAfterHand).not.toHaveBeenCalled();
+    expect(manager.broadcastCall).not.toHaveBeenCalled();
+  });
+
+  it('parks the field before waiting for the break announcement', async () => {
+    const notification = deferred<boolean>();
+    const manager = new BreakHarness();
+    manager.activate();
+    stubBreakPersistence();
+    const engine = { pauseAfterHand: vi.fn() };
+    manager.addTableEngine(engine);
+    manager.broadcastCall.mockImplementationOnce(() => notification.promise);
+    const pausing = manager.pauseForBreak(300_000);
+    await vi.waitFor(() => expect(manager.broadcastCall).toHaveBeenCalledOnce());
+    const parkedBeforeReceipt = engine.pauseAfterHand.mock.calls.length;
+    notification.resolve(false);
+    await pausing;
+    manager.fence();
+    expect(parkedBeforeReceipt).toBe(1);
+    expect(engine.pauseAfterHand).toHaveBeenCalledWith(420_000, {
+      beforeNextHand: true,
+      untilResumed: true,
+    });
+  });
+
   it.each([false, true])(
     'does not restart a break after a delayed duplicate eligibility read (released=%s)',
     async (released) => {
@@ -273,7 +330,7 @@ describe('tournament break lifecycle fence', () => {
       expect(manager.breakIsActive()).toBe(nextBreak);
       if (!nextBreak) {
         await manager.pauseForBreak(300_000);
-        expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
+        expect(engine.pauseAfterHand).toHaveBeenCalledTimes(pauses + 1);
       }
       manager.fence();
     }
@@ -317,7 +374,7 @@ describe('tournament break lifecycle fence', () => {
     expect(engine.pauseAfterHand).not.toHaveBeenCalled();
   });
 
-  it('does not pause tables when the break broadcast returns after the fence', async () => {
+  it('does not repark tables when the break broadcast returns after the fence', async () => {
     const broadcast = deferred<boolean>();
     const manager = new BreakHarness();
     manager.activate();
@@ -328,11 +385,12 @@ describe('tournament break lifecycle fence', () => {
 
     const pausing = manager.pauseForBreak(300_000);
     await vi.waitFor(() => expect(manager.broadcastCall).toHaveBeenCalledOnce());
+    expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
     manager.fence();
     broadcast.resolve(true);
     await pausing;
 
-    expect(engine.pauseAfterHand).not.toHaveBeenCalled();
+    expect(engine.pauseAfterHand).toHaveBeenCalledOnce();
   });
 
   it.each([false, true])(

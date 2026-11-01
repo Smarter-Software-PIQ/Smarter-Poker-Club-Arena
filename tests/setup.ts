@@ -69,8 +69,18 @@ Object.defineProperty(navigator, 'locks', {
     request: (name: string, options: unknown, callback?: () => unknown) => {
       const action = typeof options === 'function' ? (options as () => unknown) : callback;
       if (!action) throw new TypeError('A Web Lock Callback Is Required');
+      const available = !browserLockTails.has(name);
+      const invoke = action as (lock: { name: string; mode: string } | null) => unknown;
+      if (
+        typeof options === 'object' &&
+        options &&
+        'ifAvailable' in options &&
+        options.ifAvailable &&
+        !available
+      )
+        return Promise.resolve(invoke(null));
       const prior = browserLockTails.get(name) ?? Promise.resolve();
-      const next = prior.catch(() => undefined).then(action);
+      const next = prior.catch(() => undefined).then(() => invoke({ name, mode: 'exclusive' }));
       browserLockTails.set(name, next);
       void next
         .finally(() => {
@@ -96,6 +106,7 @@ Object.defineProperty(navigator, 'locks', {
 // calls .single() / .maybeSingle() first. Suites that need specific rows still
 // override with their own vi.mock — this only stops the default from crashing.
 vi.mock('../src/lib/supabase', () => ({
+  getAuthUser: vi.fn(async () => ({ data: { user: null }, error: null })),
   supabase: {
     auth: {
       signInWithPassword: vi.fn(() => Promise.resolve({ data: { user: null }, error: null })),

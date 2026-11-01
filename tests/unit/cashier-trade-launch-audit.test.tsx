@@ -160,6 +160,8 @@ vi.mock('../../src/utils/clubIdResolver', async (importOriginal) => ({
 }));
 
 import { supabase } from '../../src/lib/supabase';
+import { engineChannelClient } from '../../src/services/EngineStateClient';
+import * as GameServerAPI from '../../src/services/GameServerAPI';
 import { useMasterBusChannel } from '../../src/hooks/useMasterBusChannel';
 import {
   restoreDurableCashierTransfers,
@@ -260,6 +262,11 @@ beforeEach(async () => {
   durableRows.clear();
   state.frozen = false;
   vi.clearAllMocks();
+  // The real maintenance hook retains its subscriptions, but this mounted
+  // cashier fixture must not open a live engine transport. Otherwise its
+  // singleton reconnect can outlive jsdom and reject after all assertions pass.
+  vi.spyOn(engineChannelClient, 'connect').mockResolvedValue(undefined);
+  vi.spyOn(GameServerAPI, 'getServerStatus').mockResolvedValue(null);
   localStorage.clear();
   document.title = 'Poker Arena | Smarter Poker';
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });

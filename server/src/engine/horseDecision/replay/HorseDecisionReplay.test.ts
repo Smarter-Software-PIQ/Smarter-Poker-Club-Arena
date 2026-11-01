@@ -42,12 +42,30 @@ describe('Phase 6C exact-input replay through the worker runtime', () => {
     expect(second.qualification.rng.after.replayed).toBe(first.qualification.rng.after.replayed);
   });
 
-  it('reproduces a labeled-fallback tournament raise and a cash decision', async () => {
-    for (const id of [IDS.tournamentLabeledFallback, IDS.cashNlhPreflop, IDS.cashPlo4Preflop]) {
+  it('reproduces the cash decisions', async () => {
+    for (const id of [IDS.cashNlhPreflop, IDS.cashPlo4Preflop]) {
       const verdict = await replay(id);
       expect(verdict.status, `${id}: ${verdict.reason}`).toBe('reproduced');
       expect(verdict.replayedAction).toEqual(verdict.originalAction);
     }
+  });
+
+  it('replays the labeled-fallback tournament open on the new open size, deterministically', async () => {
+    // The recorded decision is a 3-handed button open to exactly 100 at a
+    // 50 big blind: a min-raise from the V28 ladder that Dan's 2026-10-31
+    // order replaced ("NOT ALWAYS THE MINIMUM RAISE POSSIBLE"). The inputs,
+    // the route and the atlas cell still agree; only the size moved, to a
+    // draw from the tournament ante button band (HorseNlhOpenSize).
+    const first = await replay(IDS.tournamentLabeledFallback);
+    expect(first.originalAction).toEqual({ action: 'raise', amount: 100 });
+    expect(first.status).toBe('diverged');
+    expect(first.reason).toBe('action');
+    expect(first.qualification.status).toBe('agreed');
+    expect(first.replayedAction?.action).toBe('raise');
+    expect(first.replayedAction?.amount).toBeGreaterThanOrEqual(100);
+    expect(first.replayedAction?.amount).toBeLessThanOrEqual(120);
+    const second = await replay(IDS.tournamentLabeledFallback);
+    expect(second.replayedAction).toEqual(first.replayedAction);
   });
 
   it('refuses a chart-route decision while the chart store it consulted is not loaded', async () => {

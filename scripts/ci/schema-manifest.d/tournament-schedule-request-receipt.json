@@ -1,0 +1,4 @@
+{
+  "_comment": "Installed by protected migration 20261101021323_schedule_creates_keep_their_request_receipt.sql. Read back 2026-11-01T13:26:45Z: definition md5 a0d87fa39719736c225fc9d43b424008, authenticated EXECUTE, one matching migration history record.",
+  "functions": ["fn_create_tournament_schedule_request"]
+}

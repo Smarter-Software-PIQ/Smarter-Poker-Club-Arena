@@ -328,4 +328,8 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // keeps the explicit off arm (HorseVs3BetDefence.test.ts pins the real
   // policy).
   v73Vs3BetDefence: false,
+  // V74 (2026-11-01) sizes hold'em raise-first-in opens from seat, table,
+  // format, depth and antes independently of any read; the corpus keeps the
+  // explicit off arm (HorseNlhOpenSize.law.test.ts pins the real policy).
+  v74NlhOpenSizes: false,
 };

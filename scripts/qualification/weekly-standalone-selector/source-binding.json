@@ -2125,6 +2125,42 @@
     "reason": "Retain both branch histories and reviewed composed workflow and nested binding identities. No historical evidence restamped.",
     "historicalEvidenceRestamped": false
   },
+  "browserRunnerCompatibility20261101ClosureBranchRecord": {
+    "reason": "Four browser-bearing CI jobs use standard hosted Ubuntu24.04 because locked Playwright1.58 refuses the advanced Ubuntu26.04 image. Reviewed diff changes only runner labels; exhaustive normalized workflow contracts preserve every command, permission, assertion, financial matrix and deadline. Current source identity only, no financial or live recertification.",
+    "previous": {
+      "bytes": 272197,
+      "sha256": "890d21fcce14ce142221ade4002df9ed84580c85b232b97365af479959ef43d9"
+    },
+    "current": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    }
+  },
+  "nativeRunnerCompatibility20261101ClosureBranchRecord": {
+    "reason": "Required accounting shard2 failed compiling pinned pg_net0.19.5 with Ubuntu26.04 curl headers at curl/multi.h:429. Only accounting_postgres runner moves to compatible standard hosted Ubuntu24.04; all commands, financial assertions, matrix, deadlines and historical qualification states remain unchanged. Current source identity only; Linux qualification remains required.",
+    "previous": {
+      "bytes": 272193,
+      "sha256": "4236957d0f0594592c1f8760af805dfbdfc3c6e3a40a81b54bcbcd728320f1df"
+    },
+    "current": {
+      "bytes": 272348,
+      "sha256": "29497acd59b7b6bd06447287ef41a08e70f23742e15f2f3a940f0fc40fef5eb1"
+    }
+  },
+  "closureMainIntegration20261101": {
+    "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
+    "updatedCurrentInputs": [".github/workflows/ci.yml"],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "financialMainIntegration20261101ClosureBranchRecord": {
+    "reason": "Preserve both histories, existing qualified receipt parser and connected closure-native qualification. Current nested identities only.",
+    "historicalEvidenceRestamped": false
+  },
+  "closureAwardOrderIntegration20261101": {
+    "reason": "Preserve both branch histories, protected mystery-award gate and closure runtime/parser/native qualification. Current source identities only; no historical verdict restamped.",
+    "historicalEvidenceRestamped": false
+  },
   "tournamentCreateRequestNativeEnforcement20261101": {
     "reason": "Adds actual PostgreSQL 17 tournament creation request replay, atomic rollback and satellite partial-outcome qualification to existing accounting shard 3. Existing financial execution and historical qualification remain unchanged. Current workflow fingerprint is source identity, not financial certification.",
     "previousWorkflowSha256": {
@@ -2199,6 +2235,11 @@
       "bytes": 273355,
       "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
     },
+    "historicalEvidenceRestamped": false,
+    "execution_performed": false
+  },
+  "closureCreationIntegration20261101": {
+    "reason": "Preserve both protected creation and closure histories and all native gates; current composed source fingerprints only.",
     "historicalEvidenceRestamped": false,
     "execution_performed": false
   }

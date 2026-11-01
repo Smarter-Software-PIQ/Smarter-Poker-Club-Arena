@@ -134,7 +134,8 @@ import {
   HorseTopUpPass,
   TournamentRecurringService,
   mttPrestartHorseTarget,
-  MTT_PRESTART_RAMP_MS,
+  mttHorsePrestartWindowMs,
+  mttIsFreeEntry,
   MTT_PRESTART_TICK_MS,
   seatFirstStartStalled,
   SEAT_FIRST_START_STALL_MS,
@@ -8621,6 +8622,7 @@ export class GameServer {
           buy_in_amount: number | null;
           bounty_amount: number | null;
           buy_in_fee: number | null;
+          free_buy: boolean | null;
           guaranteed_prize: number | null;
           prize_pool: number | null;
           prize_pool_finalized: boolean | null;
@@ -8629,7 +8631,7 @@ export class GameServer {
             let q = supabase
               .from('tournaments')
               .select(
-                'format_contract, id, name, start_time, current_players, min_players, max_players, variant, tournament_type, buy_in_amount, bounty_amount, buy_in_fee, guaranteed_prize, prize_pool, prize_pool_finalized'
+                'format_contract, id, name, start_time, current_players, min_players, max_players, variant, tournament_type, buy_in_amount, bounty_amount, buy_in_fee, free_buy, guaranteed_prize, prize_pool, prize_pool_finalized'
               )
               .eq('status', 'REGISTERING')
               .order('id', { ascending: true })
@@ -8717,7 +8719,7 @@ export class GameServer {
               // A stale counter must not postpone the roster read that sets
               // a large field's preparation budget. Read the next maintenance
               // cycle independently of that hint; later bookings stay bounded.
-              Date.parse(String(t.start_time)) <= registeringReadAt + 60 * 60_000 ||
+              Date.parse(String(t.start_time)) <= registeringReadAt + mttHorsePrestartWindowMs(t) ||
               scheduledPreparationAt(Date.parse(String(t.start_time)), t.current_players) <=
                 rosterHorizon)
         );
@@ -8753,7 +8755,7 @@ export class GameServer {
           isPersistedUnlimitedMtt(t) &&
           t.prize_pool_finalized !== true &&
           Date.parse(String(t.start_time)) > registeringReadAt &&
-          Date.parse(String(t.start_time)) - registeringReadAt <= MTT_PRESTART_RAMP_MS;
+          Date.parse(String(t.start_time)) - registeringReadAt <= mttHorsePrestartWindowMs(t);
         const ticketTargets =
           this.directAdmissionIsCurrent(generation) && !isMaintenanceFrozen()
             ? await this.readPendingSatelliteTicketTargets()
@@ -9038,7 +9040,11 @@ export class GameServer {
            * rule is bought seats, not registrations.
            */
           const msUntilStart = startTime - now;
-          if (!poolFinalized && msUntilStart > 0 && msUntilStart <= MTT_PRESTART_RAMP_MS) {
+          if (
+            !poolFinalized &&
+            msUntilStart > 0 &&
+            msUntilStart <= mttHorsePrestartWindowMs(tournament)
+          ) {
             const lastRamp = this.lastMttRampAt.get(tournament.id) ?? 0;
             if (now - lastRamp >= MTT_PRESTART_TICK_MS) {
               // The whole decision - window, curve, seat-first exclusion, pool
@@ -9046,15 +9052,15 @@ export class GameServer {
               // rule is tested without a database and this call site cannot
               // drift from it.
               const rampTarget = mttPrestartHorseTarget({
+                tournamentId: tournament.id,
+                isFree: mttIsFreeEntry(tournament),
                 msUntilStart,
                 maxPlayers: tournament.effective_max_players,
                 format_contract: tournament.format_contract,
                 variant: String(tournament.variant ?? ''),
                 currentPlayers: tournament.current_players ?? 0,
-                /* A GUARANTEED event ramps to whatever covers it, not to the
-                   default 24. These three columns were already being selected
-                   here and simply not used. buy_in_amount is the PRIZE side:
-                   the fee is rake and never reaches the pool. */
+                // Keep regular prestart fields small; the complete funded plan
+                // continues through late registration instead of buying 100 up front.
                 guaranteedPrize: Number(tournament.guaranteed_prize) || 0,
                 prizePool: Number((tournament as { prize_pool?: unknown }).prize_pool) || 0,
                 buyInPrizeShare: mttPrizeShare(tournament),
@@ -12008,7 +12014,8 @@ export class GameServer {
 
   async acknowledgeTournamentAbortBoundary(
     operationId: string,
-    tournamentId: string
+    tournamentId: string,
+    closureMode?: 'equal_share'
   ): Promise<unknown> {
     const { data, error } = await supabase.rpc('fn_ca_tournament_abort_stop_state', {
       p_operation_id: operationId,
@@ -12074,9 +12081,10 @@ export class GameServer {
       return {
         state: 'pending',
         operation_id: operationId,
+        tournament_id: tournamentId,
         reason: 'current_original_manager_unavailable',
       };
-    return manager.acknowledgeTournamentAbortBoundary(data);
+    return manager.acknowledgeTournamentAbortBoundary({ ...data, closureMode });
   }
 
   private async repairOrphanedTournamentSeats(): Promise<void> {
@@ -13814,6 +13822,19 @@ export class GameServer {
    */
   ownsTournamentTableEngine(tableId: string, engine: ServerTableEngine): boolean {
     return this.tableEngines.get(tableId) === engine && this.tournamentOwnedTables.has(tableId);
+  }
+
+  canCertifyTournamentTableAbsent(tournamentId: string, manager: object, tableId: string): boolean {
+    return (
+      this.tournamentEngines.get(tournamentId) === manager &&
+      !this.tournamentManagerLeaseReleaseOperations.has(tournamentId) &&
+      !this.tournamentManagerPendingLeaseReleases.has(tournamentId) &&
+      (this.tournamentDiagnosticRetirements.get(tournamentId)?.size ?? 0) === 0 &&
+      !this.tableEngines.has(tableId) &&
+      !this.tournamentOwnedTables.has(tableId) &&
+      !ServerTableEngine.hasProcessEngineForTable(tableId) &&
+      this.tournamentRetirementCustody.admissionAllowed(tableId)
+    );
   }
 
   private sleep(ms: number): Promise<void> {
