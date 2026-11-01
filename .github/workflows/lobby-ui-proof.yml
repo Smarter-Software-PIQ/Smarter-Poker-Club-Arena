@@ -5,7 +5,7 @@ run-name: Scoped Lobby UI Proof ${{ github.event.action }} ${{ github.sha }}
 # from the protected default branch; callers cannot select code or test inputs.
 on:
   repository_dispatch:
-    types: [verify-lobby-ui, verify-spectator-notifications]
+    types: [verify-lobby-ui, verify-spectator-notifications, verify-tournament-favorites]
 
 permissions:
   contents: read
@@ -17,8 +17,8 @@ concurrency:
 
 jobs:
   verify:
-    name: ${{ github.event.action == 'verify-spectator-notifications' && 'Verify Spectator And Notification Recovery' || 'Verify Saved Lobby, Plus Page And Row Owners' }}
-    runs-on: ubuntu-latest
+    name: ${{ github.event.action == 'verify-tournament-favorites' && 'Verify Tournament Favorite Priority' || github.event.action == 'verify-spectator-notifications' && 'Verify Spectator And Notification Recovery' || 'Verify Saved Lobby, Plus Page And Row Owners' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       PROOF_RUN_ID: ${{ github.run_id }}
@@ -130,6 +130,24 @@ jobs:
           node scripts/verification-harness/lobby-ui-proof.mjs merge-recovery
           report_rc=$?
           [ "$spectator_rc" -eq 0 ] && [ "$notification_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
+
+      - name: Verify only tournament favorite priority and persistence
+        if: github.event.action == 'verify-tournament-favorites'
+        timeout-minutes: 12
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          ARENA_BASE_URL: https://smarter.poker/hub/club-arena
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/lobby-ui-proof/report.json
+        run: |
+          set -euo pipefail
+          npx playwright test tests/e2e/production-mobile-lobby-chrome.spec.ts \
+            --grep 'tournament favorites stay below current pins across sorting and reload$' \
+            --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json \
+            --output=test-results/lobby-ui-proof \
+            2>&1 | tee e2e-report/lobby-ui-proof/browser.log
 
       - name: Pin the published client after the selected cases
         id: after

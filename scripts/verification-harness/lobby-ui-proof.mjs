@@ -43,14 +43,34 @@ export const RECOVERY_COMPONENT_PATHS = [
   'src/hooks/usePlayerPreference.ts',
   'src/lib/tableSettingIntents.ts',
 ];
+export const FAVORITE_ACTION = 'verify-tournament-favorites';
+export const FAVORITE_CASES = [
+  {
+    file: 'production-mobile-lobby-chrome.spec.ts',
+    title: 'tournament favorites stay below current pins across sorting and reload',
+    project: 'chromium',
+  },
+];
+export const FAVORITE_COMPONENT_PATHS = [...new Set([
+  ...COMPONENT_PATHS,
+  'src/components/lobby/LobbyTable.tsx',
+  'src/components/lobby/tournamentFavoriteOrder.ts',
+  'src/components/lobby/lobbyCardContext.ts',
+  'src/components/lobby/lobbySortBridge.ts',
+  'src/lib/featuredOnItsDay.ts',
+  'src/hooks/usePlayerPreference.ts',
+  'src/lib/tableSettingIntents.ts',
+])];
 function selection(action) {
   if (action === 'verify-lobby-ui')
     return CASE_PAIRS.map(([file, title]) => ({ file, title, project: 'chromium' }));
   if (action === RECOVERY_ACTION) return RECOVERY_CASES;
+  if (action === FAVORITE_ACTION) return FAVORITE_CASES;
   throw new Error('Unknown closed Lobby proof request.');
 }
 function componentPaths(action) {
   selection(action);
+  if (action === FAVORITE_ACTION) return FAVORITE_COMPONENT_PATHS;
   return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
 }
 
@@ -62,7 +82,7 @@ export function admitDispatch(environment, event) {
     !SHA.test(environment.GITHUB_SHA || '') ||
     !ID.test(environment.PROOF_RUN_ID || '') ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(environment.GITHUB_REPOSITORY || '') ||
-    !['verify-lobby-ui', RECOVERY_ACTION].includes(event?.action) ||
+    !['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION].includes(event?.action) ||
     !event.client_payload ||
     Array.isArray(event.client_payload) ||
     typeof event.client_payload !== 'object' ||
@@ -297,7 +317,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       ) + '\n'
     );
     console.log(
-      'All three scoped Lobby cases passed once on the pinned live client; owned account cleanup verified.'
+      'All admitted scoped Lobby cases passed once on the pinned live client; owned account cleanup verified.'
     );
   } else
     throw new Error(
