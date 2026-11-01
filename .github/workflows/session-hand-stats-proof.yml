@@ -39,6 +39,8 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: Install locked verifier dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Qualify the closed verifier and its refusal cases
+        run: node --test tests/operations/session-hand-stats-proof.test.mjs
       - name: Require installed scoped account cleanup
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
