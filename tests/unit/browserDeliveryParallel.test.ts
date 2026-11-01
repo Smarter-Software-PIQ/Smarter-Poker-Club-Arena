@@ -23,6 +23,7 @@ describe('browser qualification parallel delivery', () => {
   it('uses only standard hosted runners across CI and publication', () => {
     for (const file of [
       'ci.yml',
+      'post-deploy-e2e.yml',
       'publish-club-arena.yml',
       'publish-club-arena-client.yml',
       'publish-club-arena-transaction.yml',
@@ -33,8 +34,16 @@ describe('browser qualification parallel delivery', () => {
       expect(hosted.length).toBeGreaterThan(0);
       for (const [name, job] of hosted) {
         const supportedBrowser =
-          file === 'ci.yml' &&
-          ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name);
+          (file === 'ci.yml' &&
+            ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name)) ||
+          (file === 'post-deploy-e2e.yml' &&
+            [
+              'private-record-client-proof',
+              'stats-pagination-proof',
+              'production-e2e',
+              'live-table-e2e',
+              'club-channel-lifecycle-e2e',
+            ].includes(name));
         const expected =
           file === 'ci.yml' && name === 'accounting_postgres'
             ? '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}"
@@ -63,6 +72,13 @@ describe('browser qualification parallel delivery', () => {
       group: 'publish-club-arena-production',
       'cancel-in-progress': false,
     });
+  });
+
+  it('keeps live-table browser verification on the supported fixed hosted image', () => {
+    const workflow = YAML.parse(readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8'));
+    const liveTable = workflow.jobs['live-table-e2e'];
+    expect(liveTable['runs-on']).toBe('ubuntu-24.04');
+    expect(liveTable['continue-on-error']).toBeUndefined();
   });
 
   it('defaults required native qualification to the approved standard hosted profile', () => {

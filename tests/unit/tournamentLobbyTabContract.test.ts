@@ -297,6 +297,12 @@ describe('initials', () => {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 describe('normaliseTabId', () => {
+  it.each(['__proto__', 'constructor', '  CONSTRUCTOR  ', 'toString'])(
+    'refuses inherited tab key %s',
+    (raw) => {
+      expect(normaliseTabId(raw)).toBe('detail');
+    }
+  );
   it('sends the retired ids to the tabs that absorbed them', () => {
     expect(normaliseTabId('chips')).toBe('ranking');
     expect(normaliseTabId('payouts')).toBe('rewards');

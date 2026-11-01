@@ -112,7 +112,8 @@ describe('a tournament row says what makes it worth playing', () => {
     const heading = list.querySelector(`tr[data-tournament-heading="${entry.id}"]`)!;
     expect(within(heading as HTMLElement).getByText('10K Guarantee')).toBeTruthy();
     expect(heading.querySelector('strong')).toHaveTextContent('10K Guarantee');
-    expect(within(list).getByText(/^Starts In /)).toBeTruthy();
+    expect(list.querySelector('.premium-lobby-clock')).toHaveTextContent(/^Starts In \d+:\d{2}/);
+    expect(list.querySelector('.premium-lobby-clock__value')).toHaveTextContent(/\d+:\d{2}/);
   });
 });
 

@@ -19,6 +19,9 @@ vi.mock('../src/lib/supabase', () => ({
           mocks.select(...args);
           return {
             eq: (_: string, id: string) => ({
+              abortSignal() {
+                return this;
+              },
               maybeSingle: async () => ({
                 data: ['missing', 'denied'].includes(id) ? null : { name: `Target ${id}` },
                 error: id === 'denied' ? new Error('Permission Denied') : null,
