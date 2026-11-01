@@ -10,8 +10,9 @@ const trusted =
 const recovery = " && vars.CA_REQUIRED_NATIVE_PROFILE == 'large'";
 const expression = (standard: string) =>
   '$' + '{{ ' + trusted + recovery + " && 'ca-linux-8core' || '" + standard + "' }}";
+const accountingRoute = '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}";
 const jobs = [
-  ['accounting_postgres', ci.jobs.accounting_postgres, 'ubuntu-latest'],
+  ['accounting_postgres', ci.jobs.accounting_postgres, accountingRoute],
   ['server_shards', ci.jobs.server_shards, 'ubuntu-latest'],
   ['native-smoke', native.jobs['native-smoke'], 'ubuntu-24.04'],
 ] as const;
@@ -232,7 +233,6 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       unit: 'ubuntu-latest',
       server: 'ubuntu-latest',
       verdict: 'ubuntu-latest',
-      build: 'ubuntu-24.04',
       'css-beats-gate': 'ubuntu-latest',
       'css-beats-e2e': 'ubuntu-24.04',
       'diamond-playfield-e2e': 'ubuntu-24.04',
@@ -243,8 +243,10 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       expect(normalized.jobs[name]['runs-on'], name).toBe(route);
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
-    for (const name of ['typecheck_compile', 'unit_shards']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+    for (const name of ['typecheck_compile', 'unit_shards', 'build']) {
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'build' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['changes', 'source_windows', 'stub_gate']) {
@@ -256,7 +258,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       normalized.jobs[name]['runs-on'] = formerClientRoute.replace('4core', '8core');
     }
     for (const name of ['accounting_postgres', 'server_shards']) {
-      expect(normalized.jobs[name]['runs-on']).toBe('ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'accounting_postgres' ? accountingRoute : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = expression('ubuntu-latest');
     }
     expect(normalized.jobs.unit_shards.env.VITEST_MAX_THREADS).toBe(8);
@@ -382,20 +386,22 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
           `return (${step.if.replace(/^\$\{\{\s*|\s*\}\}$/g, '')});`
         )({ connected_ui_observations: false }, () => true)
     );
-    expect(defaultSteps).toHaveLength(8);
+    expect(defaultSteps).toHaveLength(10);
     expect(defaultSteps.slice(2).map((step: { name: string }) => step.name)).toEqual([
       'Native alert intake survives actual process death without duplicate queue submission',
       'Install locked fixture test dependencies on the disposable CI runner',
       'Compile the actual engine for isolated EV actors',
+      'Build and qualify logging-only native schema export diagnostics',
       'Check financial route and fixture ownership boundaries',
       'Build exact committed fixture and smoke native services',
       'Preserve sanitized native smoke and cleanup observations',
+      "Remove only this job's qualified native diagnostic tool",
     ]);
     // Whole reviewed native workflow identity now includes the guarded manual
     // private-capture branch; every default stage and55m budget is asserted above.
     normalized.jobs['native-smoke']['runs-on'] = expression('ubuntu-24.04');
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
-      '0cca7581c1985d4f2a7f040108ae80c4041740862d2881b96943266b95394e7f'
+      'ea69d731aed295651f61ffd41eab0b826db7bdcbf89436dd49d2e20d45c21273'
     );
   });
 });
