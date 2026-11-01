@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket as _socketmod
 import subprocess
 import sys
 import tempfile
@@ -39,8 +40,15 @@ socket = cluster / 's'
 socket.mkdir()
 env = {k: v for k, v in os.environ.items() if not k.startswith('PG')}
 env['LC_ALL'] = 'C'
+# The port only names the private Unix socket (listen_addresses is empty), but
+# a FIXED 55784 sits inside the ephemeral range - and was shared with
+# test-highlighted-level-clock.py, so the two fixtures could also collide with
+# each other on one runner. Ask the kernel for a port that is free right now.
+with _socketmod.socket() as _probe:
+    _probe.bind(('127.0.0.1', 0))
+    port = str(_probe.getsockname()[1])
 psql = [str(pg / 'psql'), '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose',
-        '-h', str(socket), '-p', '55784', '-U', 'postgres', '-d', 'postgres']
+        '-h', str(socket), '-p', port, '-U', 'postgres', '-d', 'postgres']
 results = {'scope': 'cashier conservation sealed wallet days', 'cases': [], 'passed': False}
 
 
@@ -119,7 +127,7 @@ try:
     r = command([pg / 'initdb', '-D', cluster / 'data', '-A', 'trust', '-U', 'postgres'])
     assert r.returncode == 0, r.stderr
     r = command([pg / 'pg_ctl', '-D', cluster / 'data', '-l', cluster / 'postgres.log',
-                 '-o', f'-k {socket} -p 55784 -c listen_addresses= -c fsync=off -c TimeZone=America/Chicago',
+                 '-o', f'-k {socket} -p {port} -c listen_addresses= -c fsync=off -c TimeZone=America/Chicago',
                  '-w', 'start'])
     assert r.returncode == 0, r.stderr
     run('minimal-report-schema', f"""
