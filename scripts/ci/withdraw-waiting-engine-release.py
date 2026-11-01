@@ -185,6 +185,20 @@ THAW_STEPS = {'sit_out_at', 'hold_expires_at', 'addon_period_ends_at', 'reversib
               'reconnect_presence', 'reconnect_snapshots', 'lightning_drain_deadline_at'}
 
 
+# A separate immutable profile; the historical bd11 contract above is unchanged.
+E9F_CONTROL = '303d8cc7d38a97c3bcdc32a577b555232ad726bf'
+E9F_TARGET = 'e9f00025bd4e2670ed9d1b5714ef94135bcf0224'
+E9F_RUN = '41283363258-1'
+E9F_DEADLINE = '1793528863'
+E9F_MANIFEST = '24cc5dbdfd46117934fd82d832da146c1373f7676ef6b4447455be9c599ad4a7'
+E9F_HASHES = {'engine-release-database-proof.py': '7034aa6f2d42a7a321c1e610fa517acd165367512aa8f3e62aaee719a4703155', 'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4', 'engine-release-seal.py': '7ea266198c0a59e223ba662027352f5a45291d7d9fe25753d3c7dd2ec63916b2', 'engine-release-transaction.sh': 'e87f2c5d97039656eb953c2155cab1b2948d93e8bbff85efa30385a95e841e20', 'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83', 'engine-release-activation-floor.py': '850c6056e1eb630b8ca6729b5b654c40612f1c25d692999c8cf5fe3b985ddef2'}
+E9F_WRAPPER_HASH = 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c'
+
+
+def e9f_profile(request):
+    return request.get('runKey') == E9F_RUN and request.get('releaseSha') == E9F_TARGET and request.get('controlSha') == E9F_CONTROL
+
+
 def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
@@ -417,7 +431,7 @@ def prove_unit_empty(unit, bindings=None):
 
 
 def empty_retry_admission(unit, state, key, evidence):
-    require(key == '41177442979-1' and 'engine-release-requests/'+key+'.awaiting-certificate' not in evidence['originals'])
+    require(key in {'41177442979-1', E9F_RUN} and 'engine-release-requests/'+key+'.awaiting-certificate' not in evidence['originals'])
     require(state['MainPID'] == '0' and state['ActiveState'] == 'activating' and state['SubState'] == 'auto-restart')
     raw = command(['systemctl', 'show', unit, '--all', '-p', 'Type', '-p', 'Restart', '-p', 'RestartUSec'])
     require(dict(line.split('=', 1) for line in raw.splitlines()) ==
@@ -502,6 +516,36 @@ def own_thaw(stamp):
     return prove_thaw(rows, active, stamp, round(time.time() * 1000))
 
 
+def e9f_own_thaw(stamp):
+    # The fixed canonical store is used only inside this protected host helper.
+    # Only bounded GETs, no RPC or production write, and redirects are refused.
+    helper = PARENT / 'engine-control-generations' / E9F_CONTROL / 'engine-release-database-proof.py'
+    require(source_hash(helper) == E9F_HASHES[helper.name])
+    spec = importlib.util.spec_from_file_location('qualified_withdrawal_database_reader', helper)
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
+    values = reader.read_fixed_env(Path('/opt/club-arena/server/.env'))
+    require(values.get('SUPABASE_URL', '').rstrip('/') == 'https://kuklfnapbkmacvwxktbh.supabase.co'
+            and bool(values.get('SUPABASE_SERVICE_ROLE_KEY')))
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs): return None
+    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    def get(table, query):
+        url = values['SUPABASE_URL'].rstrip('/') + '/rest/v1/' + table + '?' + urlencode(query)
+        key = values['SUPABASE_SERVICE_ROLE_KEY']
+        request = urllib.request.Request(url, headers={'apikey': key, 'authorization': 'Bearer ' + key,
+                                                     'cache-control': 'no-cache, no-store'})
+        with opener.open(request, timeout=5) as response:
+            raw = response.read(32769)
+            require(len(raw) <= 32768)
+            return json.loads(raw)
+    stamp_iso = datetime.datetime.fromtimestamp(stamp / 1000, datetime.timezone.utc).isoformat()
+    rows = get('engine_maintenance_thaws', {'select': 'contract_version,announced_at,freeze_started_at,release_target_at,thawed_at,ownership_token,release_generation,shifted,frozen_seconds',
+                                          'announced_at': 'eq.' + stamp_iso, 'limit': '2'})
+    active = get('engine_maintenance_break', {'select': 'id', 'id': 'eq.true', 'limit': '2'})
+    return prove_thaw(rows, active, stamp, round(time.time() * 1000))
+
+
 def observe_seal_state(generation):
     """Reuse pinned validation without SealLock, directory creation or writes."""
     path = ROOT / 'engine-release-seal.json'
@@ -523,6 +567,8 @@ def observe_seal_state(generation):
 
 
 def announcement_evidence(request, after_stop=False, read_only=False):
+    if e9f_profile(request):
+        return e9f_announcement_evidence(request, after_stop, read_only)
     require(request['controlSha'] == request['releaseSha'] == CANCEL_CONTROL)
     key = request['runKey']
     generation = PARENT / 'engine-control-generations' / CANCEL_CONTROL
@@ -596,6 +642,85 @@ def announcement_evidence(request, after_stop=False, read_only=False):
             'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()), 'thaw': own_thaw(stamp)}
 
 
+def e9f_announcement_evidence(request, after_stop=False, read_only=False, observed=None):
+    require(e9f_profile(request))
+    key = request['runKey']
+    generation = PARENT / 'engine-control-generations' / E9F_CONTROL
+    require(generation.resolve(strict=True) == generation)
+    for name, expected in E9F_HASHES.items(): require(source_hash(generation / name) == expected)
+    require(source_hash(PARENT / 'engine-release-unit-wrapper-v1.sh') == E9F_WRAPPER_HASH)
+    reqroot = ROOT / 'engine-release-requests'
+    originals = {}
+    marker_missing = not os.path.lexists(reqroot / (key + '.awaiting-certificate'))
+    for suffix in ['request', 'intent', 'awaiting-certificate']:
+        if suffix == 'awaiting-certificate' and marker_missing:
+            continue
+        raw = regular(reqroot / (key + '.' + suffix), 0o600)
+        originals['engine-release-requests/' + key + '.' + suffix] = digest(raw.encode())
+        if suffix == 'request': lines = raw.splitlines(); request_raw = raw
+        elif suffix == 'intent': require(raw == request_raw)
+        else: require(raw.strip() == request['releaseSha'])
+    require(len(lines) == 6 and lines[0] == E9F_TARGET and lines[3:5] == [str(generation), E9F_CONTROL])
+    require(lines[1] == 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41283363258' and lines[2] == 'Smarter-Poker' and lines[5] == E9F_DEADLINE and time.time() > int(E9F_DEADLINE))
+    if not after_stop:
+        # The pinned transaction removes this advisory marker on entry/exit.
+        # Only this expired original's positive announced disposition replaces it.
+        require(e9f_profile(request))
+        require(command(['python3', str(generation / 'engine-release-activation-floor.py'),
+                         'disposition', '--repo', '/opt/club-arena', '--target', E9F_TARGET,
+                         '--control', E9F_CONTROL, '--deadline', lines[5],
+                         '--request-root', str(reqroot), '--run-id', key]) == 'announced')
+    entry_raw = regular(reqroot / (key + '.activation-entry'), 0o600)
+    entry = json.loads(entry_raw)
+    require(set(entry) == {'schema', 'runId', 'targetSha', 'controlSha', 'manifestSha256', 'phase'}
+            and entry['schema'] == 'engine-release-activation-floor/v2-owner-window' and entry['runId'] == key
+            and entry['targetSha'] == E9F_TARGET and entry['controlSha'] == E9F_CONTROL and entry['phase'] == 'announcement')
+    reservation_raw = regular(ROOT / ('engine-recovery-window-' + key + '.json'), 0o600)
+    reservation = json.loads(reservation_raw)
+    require(set(reservation) == {'runId', 'sha', 'announcedAt', 'cause'} and reservation['runId'] == key
+            and reservation['sha'] == E9F_TARGET and reservation['cause'] == 'urgent')
+    stamp = reservation['announcedAt']
+    require(type(stamp) is int and stamp + 420000 < time.time() * 1000)
+    # Existing immutable floor verifier binds announcement to the qualified manifest/window.
+    require(command([str(generation / 'engine-release-activation-floor.py'), 'reservation', '--repo', '/opt/club-arena',
+                     '--target', E9F_TARGET, '--control', E9F_CONTROL, '--deadline', lines[5],
+                     '--run-id', key, '--state-root', str(ROOT)]) == str(stamp))
+    require(entry['manifestSha256'] == E9F_MANIFEST)
+    require(regular(reqroot / (key + '.activation-entry'), 0o600) == entry_raw and regular(ROOT / ('engine-recovery-window-' + key + '.json'), 0o600) == reservation_raw and regular(reqroot / (key + '.request'), 0o600) == request_raw and regular(reqroot / (key + '.intent'), 0o600) == request_raw)
+    if observed is not None:
+        observed.update(announcedAtMs=stamp, phase='announcement', manifestSha256=E9F_MANIFEST, requestDeadlineEpoch=int(lines[5]), entrySha256=digest(entry_raw.encode()), reservationSha256=digest(reservation_raw.encode()), sourceHashes=dict(E9F_HASHES), wrapperSha256=E9F_WRAPPER_HASH, thaw=None)
+    for suffix in ['break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json']:
+        require(not os.path.lexists(reqroot / (key + '.' + suffix)))
+    released_path = reqroot / (key + '.lightning-hold.json.released')
+    released_raw = regular(released_path, 0o600)
+    spec = importlib.util.spec_from_file_location('qualified_withdrawal_hold_reader', generation / 'engine-release-lightning-hold.py')
+    helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+    released = helper.own_record(released_path, key)
+    require(released is not None and released['phase'] == 'released')
+    seal = generation / 'engine-release-seal.py'
+    if read_only:
+        state = observe_seal_state(generation)
+        require(not isinstance(state.get('pending'), dict) and state['desired']['sha'] == request['desiredSha'])
+    else:
+        require(command([str(seal), 'pending-owner']) == 'none')
+        require(command([str(seal), 'get', 'desired-sha']) == request['desiredSha'])
+    pin = ROOT / 'engine-release-generation-pins' / (key + '.generation')
+    require(regular(pin, 0o600) == str(generation) + '\n' + E9F_CONTROL + '\n')
+    originals[str(pin.relative_to(ROOT))] = digest(regular(pin, 0o600).encode())
+    for directory, suffix in [('engine-intake-requests', 'intent'), ('engine-intake-requests', 'request'), ('engine-image-leases', 'lease')]:
+        path = ROOT / directory / (key + '.' + suffix)
+        if os.path.lexists(path):
+            raw = regular(path, 0o600)
+            require(raw.splitlines() == ([request['releaseSha']] if directory == 'engine-image-leases'
+                                        else [lines[0], lines[4], lines[1], lines[2], lines[5]]))
+            originals[str(path.relative_to(ROOT))] = digest(raw.encode())
+    require(not os.path.lexists(ROOT / 'engine-release-results' / (key + '.json')))
+    thaw = e9f_own_thaw(stamp)
+    if observed is not None: observed['thaw'] = thaw
+    return {'originals': originals, 'entryHash': digest(entry_raw.encode()),
+            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()), 'thaw': thaw}
+
+
 def unchanged_evidence(actual, expected, key):
     actual = dict(actual); expected = dict(expected)
     left = actual.pop('originals'); right = expected.pop('originals')
@@ -639,6 +764,7 @@ def collect_cancellation_admission(request, units, container, read_only=False):
     evidence = evidence_read()
     stop_contract = loaded_stop_contract(units[0], key)
     state = unit_snapshot(units[0])
+    if e9f_profile(request): require(state['MainPID'] == '0')
     require(state['ActiveState'] in {'active', 'activating'} and INVOCATION_PATTERN(state['InvocationID']))
     if state['MainPID'] == '0':
         empty_retry_admission(units[0], state, key, evidence)
@@ -711,6 +837,7 @@ def cancel_announced(request):
         schema = intent['schema']
         require(set(intent) == {'schema', 'request', 'container', 'evidence', 'originalUnit', 'originalProcess', 'originalChild', 'stopContract'} | ({'admission', 'unitCgroups'} if empty_admission else set())
                 and schema in {CANCEL_SCHEMA, EMPTY_CANCEL_SCHEMA})
+        if e9f_profile(request): require(empty_admission)
         if empty_admission:
             require(intent['admission'] == 'positive-empty-auto-restart' and intent['originalProcess'] is None and intent['originalChild'] is None)
             require(intent['originalUnit']['MainPID'] == '0' and intent['originalUnit']['SubState'] == 'auto-restart')
@@ -722,7 +849,7 @@ def cancel_announced(request):
         original_group = intent['originalUnit']['ControlGroup'] or (None if empty_admission else '')
         require(set(intent['evidence']['originals']) <= allowed and all(re.fullmatch('[0-9a-f]{64}', value) for value in intent['evidence']['originals'].values()))
         if empty_admission and not os.path.lexists(issued_path):
-            require(key == '41177442979-1' and 'engine-release-requests/'+key+'.awaiting-certificate' not in intent['evidence']['originals'])
+            require((key == '41177442979-1' or e9f_profile(request) and empty_admission) and 'engine-release-requests/'+key+'.awaiting-certificate' not in intent['evidence']['originals'])
             require(announcement_evidence(request) == intent['evidence'])
             require(container_identity(request) == intent['container']); health_pair(request)
             loaded_stop_contract(units[0], key, allow_masked=masked(units), bindings=bindings)
@@ -745,7 +872,7 @@ def cancel_announced(request):
         current = unit_snapshot(units[0])
         if (not empty_admission and not os.path.lexists(issued_path) and current != intent['originalUnit']
                 and not (current['MainPID'] == '0' and current['ActiveState'] in {'inactive', 'failed'})):
-            require(key == '41177442979-1' and 'engine-release-requests/'+key+'.awaiting-certificate' not in intent['evidence']['originals'])
+            require((key == '41177442979-1' or e9f_profile(request) and empty_admission) and 'engine-release-requests/'+key+'.awaiting-certificate' not in intent['evidence']['originals'])
             for original in [intent['originalProcess'], intent['originalChild']]:
                 try:
                     process(original['pid'])
@@ -859,11 +986,12 @@ def INVOCATION_PATTERN(value):
 
 
 DIAGNOSTIC_SCHEMA = 'withdrawal-predicate-observation/v1'
+E9F_DIAGNOSTIC_SCHEMA = 'e9f-expired-announcement-observation/v1'
 DIAGNOSTIC_STAGES = {'selection', 'health_pair', 'container_identity', 'announcement_evidence', 'source_hash',
     'regular', 'observe_seal_state', 'own_thaw', 'prove_thaw', 'loaded_stop_contract', 'unit_snapshot', 'empty_retry_admission',
     'configured_service_cgroup', 'prove_unit_empty', 'prove_unloaded_unit_empty', 'manager_unit_absent',
     'own_wants_edge', 'collect_cancellation_admission', 'cancel_announced', 'cancellation_directory', 'process',
-    'quiet_units', 'masked', 'remote', 'main'}
+    'quiet_units', 'masked', 'remote', 'main', 'e9f_announcement_evidence', 'e9f_own_thaw'}
 DIAGNOSTIC_CODES = {'predicate_refused', 'read_unavailable', 'command_unproved', 'deadline', 'unknown'}
 
 
@@ -882,6 +1010,27 @@ def diagnostic_error(error):
 
 
 def validate_diagnostic(value, request):
+    require(isinstance(value, dict))
+    if value.get('schema') == E9F_DIAGNOSTIC_SCHEMA:
+        require(e9f_profile(request) and request.get('mode') == 'observe_expired_announcement')
+        require(set(value) == {'schema','request','readOnly','result','retryAllowed','failure','originalEvidence'})
+        evidence = value['originalEvidence']
+        require(isinstance(evidence, dict))
+        if evidence:
+            require(set(evidence) == {'announcedAtMs','phase','manifestSha256','requestDeadlineEpoch','entrySha256','reservationSha256','sourceHashes','wrapperSha256','thaw'})
+            require(type(evidence['announcedAtMs']) is int and 1793516700000 <= evidence['announcedAtMs'] and evidence['announcedAtMs'] + 420000 <= 1793525100000)
+            require(evidence['phase'] == 'announcement' and evidence['manifestSha256'] == E9F_MANIFEST and evidence['requestDeadlineEpoch'] == int(E9F_DEADLINE))
+            thaw = evidence['thaw']
+            if thaw is not None:
+                require(isinstance(thaw,dict) and set(thaw) == {'announcedAtMs','freezeStartedAtMs','releasedThroughMs','ownershipToken','generation'})
+                require(thaw['announcedAtMs'] == evidence['announcedAtMs'] and thaw['freezeStartedAtMs'] == evidence['announcedAtMs']+120000 and thaw['releasedThroughMs'] == evidence['announcedAtMs']+420000)
+                require(type(thaw['generation']) is int and thaw['generation'] > 0 and isinstance(thaw['ownershipToken'],str) and re.fullmatch(r'[0-9a-fA-F-]{36}',thaw['ownershipToken']) is not None)
+            require(evidence['sourceHashes'] == E9F_HASHES and evidence['wrapperSha256'] == E9F_WRAPPER_HASH)
+            require(all(re.fullmatch('[0-9a-f]{64}', evidence[k]) is not None for k in ('entrySha256','reservationSha256')))
+        base = {k:v for k,v in value.items() if k != 'originalEvidence'}
+        base['schema'] = DIAGNOSTIC_SCHEMA
+        validate_diagnostic(base, request)
+        return value
     require(isinstance(value, dict) and set(value) == {'schema','request','readOnly','result','retryAllowed','failure'})
     require(value['schema'] == DIAGNOSTIC_SCHEMA and value['request'] == request and value['retryAllowed'] is False)
     require(value['readOnly'] is (request.get('mode') == 'observe_expired_announcement'))
@@ -898,11 +1047,16 @@ def validate_diagnostic(value, request):
 def observe_cancellation(request):
     answer = {'schema':DIAGNOSTIC_SCHEMA, 'request':request, 'readOnly':True,
               'result':'unproved', 'retryAllowed':False, 'failure':None}
+    if e9f_profile(request):
+        answer['schema'] = E9F_DIAGNOSTIC_SCHEMA
+        answer['originalEvidence'] = {}
     original_bytecode = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     try:
         require(os.getuid() == 0)
         canonical = request | {'mode':'cancel_expired_announcement'}
+        if e9f_profile(request):
+            e9f_announcement_evidence(canonical, read_only=True, observed=answer['originalEvidence'])
         units = cancel_units(request['runKey'])
         for unit in units: own_wants_edge(unit)
         health_pair(canonical)
@@ -1016,7 +1170,7 @@ def main():
         reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=150)
         require(len(reply.stdout) <= 4096)
         answer = json.loads(reply.stdout)
-        if isinstance(answer, dict) and answer.get('schema') == DIAGNOSTIC_SCHEMA:
+        if isinstance(answer, dict) and answer.get('schema') in {DIAGNOSTIC_SCHEMA, E9F_DIAGNOSTIC_SCHEMA}:
             validate_diagnostic(answer, request)
             destination = Path('artifacts/engine-withdrawal'); destination.mkdir(parents=True, exist_ok=True)
             (destination / 'diagnostic.json').write_text(json.dumps(answer, indent=2)+'\n')

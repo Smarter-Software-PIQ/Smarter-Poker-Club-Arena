@@ -343,7 +343,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 with self.assertRaises(ValueError): module.save_once(path, {'value': 2})
                 self.assertEqual(json.loads(path.read_text()), {'value': 1})
 
-    def harness(self, folder, patches):
+    def harness(self, folder, patches, e9f=False):
         root = Path(folder); state = root / 'state'; state.mkdir()
         systemd = root / 'systemd'; systemd.mkdir(); (systemd / 'multi-user.target.wants').mkdir()
         proc = root / 'proc'; proc.mkdir(); parent = root / 'control'; parent.mkdir()
@@ -351,6 +351,7 @@ class AnnouncedCancellation(unittest.TestCase):
         request = {'runKey': '41177442979-1', 'releaseSha': module.CANCEL_CONTROL,
                    'controlSha': module.CANCEL_CONTROL, 'desiredSha': 'c' * 40,
                    'instanceId': '1-1234abcd', 'mode': 'cancel_expired_announcement'}
+        if e9f: request.update(runKey=module.E9F_RUN, releaseSha=module.E9F_TARGET, controlSha=module.E9F_CONTROL)
         key = request['runKey']; units = module.cancel_units(key); group = '/system.slice/' + units[0]
         original = {'MainPID': '12', 'InvocationID': 'f' * 32, 'ActiveState': 'activating',
                     'SubState': 'start', 'Result': 'success', 'ExecMainCode': '0', 'ExecMainStatus': '0', 'ControlGroup': group}
@@ -576,9 +577,9 @@ class AnnouncedCancellation(unittest.TestCase):
                         self.assertEqual(control['stopCount'], 0)
 
     def test_empty_retry_masks_without_stop_and_resumes_only_after_quiet(self):
-        for race in [False, True]:
-            with self.subTest(race=race), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
-                request, control, state, _, _, units = self.harness(folder, patches)
+        for e9f, race in [(False, False), (False, True), (True, False), (True, True)]:
+            with self.subTest(e9f=e9f, race=race), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request, control, state, _, _, units = self.harness(folder, patches, e9f=e9f)
                 evidence = module.announcement_evidence(request)
                 marker = 'engine-release-requests/'+request['runKey']+'.awaiting-certificate'
                 evidence['originals'].pop(marker); (state/marker).unlink()
@@ -794,6 +795,96 @@ class AnnouncedCancellation(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('owned fixture retired', result.stdout)
         self.assertIn('30-second auto-restart empty admission and natural masked quiescence passed without stop.', result.stdout)
+
+
+class E9fAnnouncement(unittest.TestCase):
+    def fixture(self, folder, patches, failure=None):
+        root = Path(folder); state=root/'state'; state.mkdir(); parent=root/'parent'; parent.mkdir()
+        generation=parent/'engine-control-generations'/module.E9F_CONTROL; generation.mkdir(parents=True)
+        req={'runKey':module.E9F_RUN,'releaseSha':module.E9F_TARGET,'controlSha':module.E9F_CONTROL,
+             'desiredSha':'c'*40,'instanceId':'1-1234abcd','mode':'cancel_expired_announcement'}
+        key=req['runKey']; requests=state/'engine-release-requests'; requests.mkdir()
+        lines='\n'.join([req['releaseSha'],'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41283363258','Smarter-Poker',str(generation),req['controlSha'],module.E9F_DEADLINE])+'\n'
+        if failure=='deadline': lines=lines.replace(module.E9F_DEADLINE,'1793528864')
+        for suffix in ('request','intent'): (requests/(key+'.'+suffix)).write_text(lines)
+        entry={'schema':'engine-release-activation-floor/v2-owner-window','runId':key,'targetSha':req['releaseSha'],'controlSha':req['controlSha'],'manifestSha256':module.E9F_MANIFEST,'phase':'announcement'}
+        if failure=='runtime': entry['phase']='runtime'
+        if failure=='manifest': entry['manifestSha256']='0'*64
+        if failure=='foreign': entry['targetSha']='a'*40
+        (requests/(key+'.activation-entry')).write_text(json.dumps(entry))
+        stamp=1793519580000  # fixture-only retained reservation, not runtime inference
+        reservation={'runId':key,'sha':req['releaseSha'],'announcedAt':stamp,'cause':'urgent'}
+        if failure=='reservation': reservation['sha']='a'*40
+        (state/('engine-recovery-window-'+key+'.json')).write_text(json.dumps(reservation))
+        (requests/(key+'.lightning-hold.json.released')).write_text('released')
+        (generation/'engine-release-lightning-hold.py').write_text("def own_record(path,key): return {'phase':'released'}\n")
+        pin=state/'engine-release-generation-pins'; pin.mkdir(); (pin/(key+'.generation')).write_text(str(generation)+'\n'+req['controlSha']+'\n')
+        if failure in {'checkpoint','break','hold'}: (requests/(key+{'checkpoint':'.legacy-checkpoint-intent','break':'.break-deadline','hold':'.lightning-hold.json'}[failure])).write_text('present')
+        def command(args,timeout=5):
+            if 'disposition' in args: return 'entered' if failure=='disposition' else 'announced'
+            if 'reservation' in args: return str(stamp)
+            if 'pending-owner' in args: return 'other' if failure=='pending' else 'none'
+            return req['desiredSha']
+        for name,value in [('ROOT',state),('PARENT',parent)]: patches.enter_context(patch.object(module,name,value))
+        patches.enter_context(patch.object(module,'regular',side_effect=lambda path,mode=None:Path(path).read_text()))
+        patches.enter_context(patch.object(module,'source_hash',side_effect=lambda path:'0'*64 if failure=='source' else module.E9F_WRAPPER_HASH if path.name=='engine-release-unit-wrapper-v1.sh' else module.E9F_HASHES[path.name]))
+        patches.enter_context(patch.object(module,'command',side_effect=command))
+        patches.enter_context(patch.object(module.time,'time',return_value=int(module.E9F_DEADLINE)+10))
+        patches.enter_context(patch.object(module,'observe_seal_state',return_value={'desired':{'sha':req['desiredSha']}}))
+        thaw=patches.enter_context(patch.object(module,'e9f_own_thaw',return_value={'announcedAtMs':stamp,'freezeStartedAtMs':stamp+120000,'releasedThroughMs':stamp+420000,'ownershipToken':'a'*36,'generation':1}))
+        if failure=='thaw': thaw.side_effect=ValueError('incomplete own thaw')
+        return req,stamp
+
+    def test_exact_profile_reads_authoritative_stamp_and_refuses_boundaries(self):
+        for failure in [None,'deadline','runtime','manifest','foreign','reservation','checkpoint','break','hold','pending','source','disposition','thaw']:
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory(dir=TEST_TMP) as folder,ExitStack() as patches:
+                req,stamp=self.fixture(folder,patches,failure); observed={}
+                if failure is None:
+                    evidence=module.e9f_announcement_evidence(req,observed=observed)
+                    self.assertEqual(evidence['thaw']['announcedAtMs'],stamp); self.assertEqual(observed['announcedAtMs'],stamp)
+                else:
+                    with self.assertRaises(ValueError): module.e9f_announcement_evidence(req,observed=observed)
+                    if failure=='thaw': self.assertEqual(observed['announcedAtMs'],stamp)
+                    if failure in {'source','foreign','manifest','runtime','reservation','deadline','disposition'}: self.assertEqual(observed,{})
+
+    def test_profile_hashes_bind_actual_pinned_source(self):
+        for name,expected in module.E9F_HASHES.items():
+            self.assertEqual(module.digest(subprocess.check_output(['git','show',module.E9F_CONTROL+':server/scripts/'+name],cwd=ROOT)),expected)
+        self.assertEqual(module.digest(subprocess.check_output(['git','show',module.E9F_CONTROL+':server/scripts/engine-release-unit-wrapper.sh'],cwd=ROOT)),module.E9F_WRAPPER_HASH)
+        self.assertEqual(module.digest(subprocess.check_output(['git','show',module.E9F_CONTROL+':server/release/activation-floor.json'],cwd=ROOT)),module.E9F_MANIFEST)
+
+    def test_positive_readonly_receipt_includes_owned_thaw_but_no_retry_authority(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder,ExitStack() as patches:
+            req,stamp=self.fixture(folder,patches); req['mode']='observe_expired_announcement'
+            patches.enter_context(patch.object(module.os,'getuid',return_value=0))
+            patches.enter_context(patch.object(module,'own_wants_edge'))
+            patches.enter_context(patch.object(module,'health_pair'))
+            patches.enter_context(patch.object(module,'container_identity',return_value={}))
+            patches.enter_context(patch.object(module,'collect_cancellation_admission',return_value={}))
+            answer=module.observe_cancellation(req)
+            self.assertEqual(answer['result'],'predicates_passed_at_read')
+            self.assertEqual(answer['originalEvidence']['thaw']['announcedAtMs'],stamp)
+            self.assertFalse(answer['retryAllowed']); self.assertTrue(answer['readOnly'])
+            for field,bad in [('manifestSha256','0'*64),('announcedAtMs',stamp+1),('sourceHashes',{})]:
+                changed={**answer,'originalEvidence':{**answer['originalEvidence'],field:bad}}
+                with self.assertRaises(ValueError): module.validate_diagnostic(changed,req)
+
+    def test_new_profile_cannot_adopt_a_live_retry(self):
+        req={'runKey':module.E9F_RUN,'releaseSha':module.E9F_TARGET,'controlSha':module.E9F_CONTROL}
+        with patch.object(module,'announcement_evidence',return_value={}),patch.object(module,'loaded_stop_contract',return_value={}),patch.object(module,'unit_snapshot',return_value={'MainPID':'123'}),patch.object(module,'process') as process:
+            with self.assertRaises(ValueError): module.collect_cancellation_admission(req,module.cancel_units(req['runKey']),{})
+            process.assert_not_called()
+
+    def test_readonly_refusal_retains_bound_stamp_without_mutation(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder,ExitStack() as patches:
+            req,stamp=self.fixture(folder,patches,'thaw'); req['mode']='observe_expired_announcement'
+            patches.enter_context(patch.object(module.os,'getuid',return_value=0))
+            with patch.object(module,'cancel_announced') as mutate,patch.object(module,'save_once') as save:
+                answer=module.observe_cancellation(req)
+                self.assertEqual(answer['schema'],module.E9F_DIAGNOSTIC_SCHEMA)
+                self.assertEqual(answer['originalEvidence']['announcedAtMs'],stamp)
+                self.assertEqual(answer['result'],'unproved'); self.assertFalse(answer['retryAllowed'])
+                mutate.assert_not_called();save.assert_not_called()
 
 
 if __name__ == '__main__':
