@@ -670,6 +670,13 @@
 .compact-lobby.has-premium-chassis tbody tr[data-id] > td:first-child {
   padding-bottom: 1cqw !important;
 }
+/* Center the three-line seat-first stack in its native glass. The PLO5/6
+   satellite witness at 378px had ink y0.109..38.24 in a y1.134..38.556 face;
+   0.65cqw leaves balanced ink clearance without reducing the 12px font floor. */
+.compact-lobby.has-premium-chassis tbody tr[data-id][data-kind='sng'] > td:first-child,
+.compact-lobby.has-premium-chassis tbody tr[data-id][data-kind='spin'] > td:first-child {
+  padding-bottom: 0.65cqw !important;
+}
 .has-premium-chassis tbody tr[data-id] .lt-name__phase {
   font: inherit;
   white-space: normal;
