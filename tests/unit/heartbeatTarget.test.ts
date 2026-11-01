@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { sliceMethod } from '../helpers/sourceWindow';
+import { sliceEnclosingBlock, sliceMethod } from '../helpers/sourceWindow';
 import {
   createHeartbeatRecoveryGuard,
   shouldAskTableRow,
@@ -79,9 +79,7 @@ describe('TablePage heartbeat wiring', () => {
     expect(page).toContain('if (beatInFlight) return;');
     expect(page).toContain('beatInFlight = true;');
     expect(page).toContain('beatInFlight = false;');
-    const reconnectEdge = page.indexOf('resetEngineCircuitBreaker();');
-    expect(reconnectEdge).toBeGreaterThan(-1);
-    const reconnectSlice = page.slice(reconnectEdge, reconnectEdge + 600);
+    const reconnectSlice = sliceEnclosingBlock(page, 'resetEngineCircuitBreaker();');
     expect(reconnectSlice).toContain('turnRendered: heroActionRenderedRef.current');
     expect(reconnectSlice).toContain('rebuyPromptOpen: bustRebuyOpenRef.current');
     expect(reconnectSlice).toContain('autoTimeBank: autoTimeBankPreferenceRef.current');
