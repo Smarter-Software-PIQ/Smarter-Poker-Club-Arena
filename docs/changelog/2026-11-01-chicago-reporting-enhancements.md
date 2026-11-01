@@ -5,3 +5,5 @@ Member ledger and performance screens share Club Data and Union Data's cached Ch
 The native reporting regression now overlays later migration definitions before running the actual RPC assertions. Its history scanner ignores comments and strings and refuses unqualified drops/renames. Multi-week, cutoff and open-ended fee windows compare against raw receipts.
 
 A read-only live 30-day measurement found the fee helper took35.076 seconds scanning all raw receipts. The replacement uses existing UTC daily totals and subtracts only the partial timestamp edges, retaining standing-share rounding, fixed redemption timestamps, fee eligibility and Overall. The candidate SELECT plan took15.294 milliseconds; exact totals matched in one snapshot. Publication and installed verification are recorded in CHECKPOINT-stats-chicago.md.
+
+Dated downlines now use one bulk fee read instead of repeating the query for each member. A584-member30-day candidate read took329.455ms; the repeated-query form exceeded its8-second bounded probe. Bulk totals retain exact member filtering and standing-share/redemption conservation.

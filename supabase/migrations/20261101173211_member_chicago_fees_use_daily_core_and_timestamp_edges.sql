@@ -42,7 +42,7 @@ AS $function$
        AND ra.created_at >= r.effective_from
        AND (r.effective_until IS NULL OR ra.created_at < r.effective_until)
      WHERE r.club_id = p_club_id
-       AND (p_user_id IN(r.from_user,r.to_user))
+       AND (p_user_id IS NULL OR p_user_id IN(r.from_user,r.to_user))
        AND ra.created_at>=b.from_at AND (b.to_at IS NULL OR ra.created_at<b.to_at)
        AND ra.rake_amount > 0
        AND public.fn_ca_launch_accounting_accepts(ra.club_id,(SELECT rr.created_at FROM public.rake_records rr WHERE rr.id=ra.rake_record_id))
@@ -53,7 +53,7 @@ AS $function$
        -- Complete UTC buckets remain the source of truth. Only the excluded
        -- portions of the first and last buckets require timestamped receipts.
        SELECT club_id,user_id,day,rake_cents FROM public.ca_club_rake_daily_user
-        WHERE club_id=p_club_id AND user_id=p_user_id
+        WHERE club_id=p_club_id AND (p_user_id IS NULL OR user_id=p_user_id)
           AND day >= greatest(coalesce(p_from,public.fn_ca_fee_counting_start()),public.fn_ca_fee_counting_start())
           AND (p_to IS NULL OR day <= p_to+1)
        UNION ALL
@@ -65,7 +65,7 @@ AS $function$
          (edge_bounds.to_at,(p_to+2)::timestamp AT TIME ZONE 'UTC')
        ) edge(start_at,end_at)
        JOIN public.rake_attributions ra ON ra.club_id=p_club_id
-         AND ra.player_id=p_user_id AND ra.created_at>=edge.start_at AND ra.created_at<edge.end_at
+         AND (p_user_id IS NULL OR ra.player_id=p_user_id) AND ra.created_at>=edge.start_at AND ra.created_at<edge.end_at
        WHERE ra.rake_amount>0
          AND public.fn_ca_launch_accounting_accepts(ra.club_id,(SELECT rr.created_at FROM public.rake_records rr WHERE rr.id=ra.rake_record_id))
        UNION ALL
@@ -102,4 +102,71 @@ $function$
 ;
 REVOKE ALL ON FUNCTION public.ca_club_member_chicago_fee_totals(uuid,date,date,uuid) FROM PUBLIC,anon,authenticated,service_role;
 
+DO $guard$ BEGIN IF md5(pg_get_functiondef('public.ca_club_member_downline_in_range(uuid,uuid,date,date)'::regprocedure)) IS DISTINCT FROM '44c44f89398eef6620ab425f996ab573' THEN RAISE EXCEPTION 'Chicago downline source changed before optimization'; END IF; END $guard$;
+CREATE OR REPLACE FUNCTION public.ca_club_member_downline_in_range(p_club_id uuid, p_user_id uuid, p_from date, p_to date)
+ RETURNS TABLE(user_id uuid, player_number text, alias text, username text, role text, role_rank integer, depth integer, chip_balance numeric, total_fees numeric, is_online boolean)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_scope uuid[] := public.fn_club_scope_ids(p_club_id);
+  v_access text := public.ca_club_roster_access(p_club_id, p_user_id);
+BEGIN
+  IF v_access NOT IN ('staff', 'downline', 'service') OR v_scope IS NULL THEN RETURN; END IF;
+
+  IF p_from IS NOT NULL AND p_to IS NOT NULL AND p_from > p_to THEN
+    RAISE EXCEPTION 'The Start Date Must Come Before The End Date' USING ERRCODE='22023';
+  END IF;
+
+
+  RETURN QUERY
+  WITH RECURSIVE edges AS MATERIALIZED (
+    SELECT DISTINCT cm.user_id AS child, cm.agent_id AS parent
+      FROM public.club_members cm
+     WHERE cm.club_id = p_club_id AND cm.agent_id IS NOT NULL AND cm.agent_id <> cm.user_id
+       AND coalesce(cm.status, 'approved') IN ('active', 'approved')
+  ), tree AS (
+    SELECT e.child, 1 AS depth FROM edges e WHERE e.parent = p_user_id
+    UNION ALL
+    SELECT e.child, t.depth + 1 FROM tree t JOIN edges e ON e.parent = t.child WHERE t.depth < 20
+  ), flat AS MATERIALIZED (
+    SELECT t.child AS uid, min(t.depth)::int AS depth FROM tree t GROUP BY t.child
+  ), mem AS MATERIALIZED (
+    SELECT DISTINCT ON (cm.user_id) cm.user_id AS uid, cm.role, cm.chip_balance,
+           public.fn_club_role_rank(cm.role) AS role_rank
+      FROM public.club_members cm
+     WHERE cm.club_id = p_club_id AND cm.user_id IN (SELECT f.uid FROM flat f)
+       AND coalesce(cm.status, 'approved') IN ('active', 'approved')
+     ORDER BY cm.user_id, public.fn_club_role_rank(cm.role) DESC, cm.joined_at ASC
+  ), seated AS MATERIALIZED (
+    SELECT DISTINCT ts.user_id AS uid FROM public.table_seats ts
+      JOIN public.tables t ON t.id = ts.table_id
+     WHERE ts.left_at IS NULL AND ts.user_id IN (SELECT f.uid FROM flat f)
+       AND t.status IN ('waiting', 'running')
+       AND (ts.club_id = p_club_id OR t.club_id = p_club_id)
+  ), fees AS MATERIALIZED (
+    -- One bulk fee read for both dated and Overall downlines.
+    SELECT lf.user_id AS uid, lf.total_fees AS fee_total
+      FROM public.ca_club_member_chicago_fee_totals(p_club_id,p_from,p_to,NULL) lf
+     WHERE lf.user_id IN (SELECT f.uid FROM flat f)
+  )
+  SELECT f.uid, pr.player_number::text,
+         public.fn_arena_name(pr.alias, pr.username, pr.display_name,
+                              pr.first_name, pr.last_name, pr.full_name)::text,
+         coalesce(pr.username, '')::text, coalesce(m.role, 'player')::text,
+         coalesce(m.role_rank, 0), f.depth, coalesce(m.chip_balance, 0)::numeric,
+         round(coalesce(fe.fee_total, 0), 2)::numeric,
+         s.uid IS NOT NULL OR (coalesce(pr.is_online, false) AND pr.last_seen > now() - interval '5 minutes')
+    FROM flat f LEFT JOIN mem m ON m.uid = f.uid LEFT JOIN public.profiles pr ON pr.id = f.uid
+    LEFT JOIN seated s ON s.uid = f.uid LEFT JOIN fees fe ON fe.uid = f.uid
+   WHERE pr.status IS DISTINCT FROM 'deleted'
+   ORDER BY f.depth, coalesce(m.role_rank, 0) DESC,
+            lower(public.fn_arena_name(pr.alias, pr.username, pr.display_name,
+                                       pr.first_name, pr.last_name, pr.full_name));
+END;
+$function$
+;
+REVOKE ALL ON FUNCTION public.ca_club_member_downline_in_range(uuid,uuid,date,date) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.ca_club_member_downline_in_range(uuid,uuid,date,date) TO authenticated,service_role;
 COMMIT;

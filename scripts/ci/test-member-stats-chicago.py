@@ -106,6 +106,10 @@ def main():
   q(f"INSERT INTO smarter_private.player_fee_redemptions VALUES({c},{u},'2026-11-03',100);")
   # Fixed UTC-midnight redemption belongs to the preceding Chicago date.
   yes(f"SELECT (SELECT cash_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{u}))=(SELECT count(*)*.23 FROM({expected('2026-11-02')})e)-(SELECT sum(round(n*.23*5000/100)) FROM(SELECT count(*) n FROM({expected('2026-11-02')})e GROUP BY (played_at AT TIME ZONE 'UTC')::date)x)/100-1")
+  yes(f"SELECT coalesce(sum(cash_fees),0)=(SELECT count(*)*.23 FROM({expected('2026-11-02')})e)-1 FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',NULL)")
+  for member in [u,other]:
+   yes(f"SELECT (SELECT total_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',NULL) WHERE user_id={member})=(SELECT total_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{member}))")
+  print('PASS bulk fees conserve receipts and exactly match each selected-member result')
   print('PASS standing shares conserve selected-window fees; fixed redemption timestamp retained')
   q(f"UPDATE club_members SET agent_id={other} WHERE user_id={u};")
   yes(f"SELECT (SELECT total_fees FROM ca_club_member_downline_in_range({c},{other},'2026-11-02','2026-11-02'))=(SELECT total_fees FROM ca_club_member_chicago_fee_totals({c},'2026-11-02','2026-11-02',{u}))")
