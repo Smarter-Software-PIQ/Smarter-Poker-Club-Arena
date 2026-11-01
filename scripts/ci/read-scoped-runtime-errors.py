@@ -554,6 +554,22 @@ handler = re.match(r'^\|(/[^\s]+)(?:\s|$)', pattern or '')
 m['handlerClass'] = {'/usr/share/apport/apport':'apport',
     '/usr/lib/systemd/systemd-coredump':'systemd',
     '/lib/systemd/systemd-coredump':'systemd'}.get(handler[1] if handler else '', 'unknown')
+# Admit only the reviewed kernel placeholder grammar; never export arguments.
+m['apportArgumentProfile']={'status':'unsupported','globalPid':False,'coreLimit':False,'dumpMode':False}
+if m['handlerClass']=='apport':
+    tokens=(pattern or '').split()[1:];seen={};valid=True;executable=False
+    placeholders={'p':'%p','s':'%s','c':'%c','d':'%d','P':'%P','u':'%u','g':'%g','F':'%F'}
+    while tokens:
+        token=tokens.pop(0)
+        if token=='--':
+            executable=tokens==['%E'];valid=valid and executable;tokens=[];break
+        match=re.fullmatch(r'-([pscdPugF])(.+)?',token)
+        if not match or match[1] in seen:valid=False;break
+        key=match[1];value=match[2] if match[2] is not None else tokens.pop(0) if tokens else None
+        if value!=placeholders[key]:valid=False;break
+        seen[key]=value
+    if valid and {'p','s','c','d'}.issubset(seen):
+        m['apportArgumentProfile']={'status':'canonical_kernel_placeholders','globalPid':'P' in seen,'coreLimit':True,'dumpMode':True}
 m['handlerCandidates'] = []
 m['handlerSourceSHA256']='unknown'; m['apportPackageVersion']='unknown'
 if m['handlerClass']=='apport':
@@ -586,10 +602,29 @@ if m['handlerClass']=='apport':
     except (OSError,ValueError,subprocess.SubprocessError): pass
     finally:
         for descriptor in reversed(handles): os.close(descriptor)
+m['apportFileutilsSHA256']='unknown'
+if m['handlerClass']=='apport' and m['handlerSourceSHA256']=='1b8b5e2c53e8970dd2f47c9a0892030d1ebad57cae1f7242c43a6252f1f6dff2' and m['apportPackageVersion']=='2.28.1-0ubuntu3.8':
+    handles=[]
+    try:
+        parent=None
+        for part in ['/usr','lib','python3','dist-packages','apport']:
+            fd=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,**({'dir_fd':parent} if parent is not None else {}))
+            handles.append(fd);parent=fd;info=os.fstat(fd)
+            if info.st_uid!=0 or info.st_mode&0o022:raise ValueError('fileutils ancestry refused')
+        fd=os.open('fileutils.py',os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW,dir_fd=parent);handles.append(fd)
+        before=os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_uid!=0 or before.st_mode&0o022 or not 0<before.st_size<=131072:raise ValueError('fileutils refused')
+        raw=os.read(fd,131073);after=os.fstat(fd)
+        fileutils_identity=lambda v:(v.st_dev,v.st_ino,v.st_size,v.st_mtime_ns,v.st_ctime_ns,v.st_uid,v.st_mode)
+        if len(raw)!=before.st_size or fileutils_identity(before)!=fileutils_identity(after):raise ValueError('fileutils changed')
+        m['apportFileutilsSHA256']=hashlib.sha256(raw).hexdigest()
+    except (OSError,ValueError):pass
+    finally:
+        for fd in reversed(handles):os.close(fd)
 # Current process only; no inference about an earlier crash or forwarding result.
 current_uid=None
 m['apportCurrentContext']={'status':'unknown'}
-m['apportLogTail']={'status':'unknown'}
+m['apportLogTail']={'status':'unknown','reason':'unqualified_profile'}
 qualified_apport=(m['handlerClass']=='apport' and m['handlerSourceSHA256']=='1b8b5e2c53e8970dd2f47c9a0892030d1ebad57cae1f7242c43a6252f1f6dff2' and m['apportPackageVersion']=='2.28.1-0ubuntu3.8')
 if qualified_apport:
     try:
@@ -619,20 +654,21 @@ if qualified_apport:
         route='host_handling_predicate' if a_mnt is True else 'forward_attempt_predicate' if a_mnt is False and a_pid is False else 'mount_only_ignore_predicate' if a_mnt is False and a_pid is True else 'unknown'
         m['apportCurrentContext']={'status':'observed','realUidClass':'root' if real==0 else 'nonroot','effectiveUidClass':'root' if effective==0 else 'nonroot','uidRelationship':'same' if real==effective else 'different','mountNamespace':mnt,'pidNamespace':pidns,'cgroupClass':group,'modeledRoute':route}
     except (OSError,ValueError):pass
-    handles=[]
+    handles=[];log_reason='io_error'
     try:
         parent=None
         for part in ['/var','log']:
             fd=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,**({'dir_fd':parent} if parent is not None else {}))
             handles.append(fd);parent=fd;info=os.fstat(fd)
-            if info.st_uid!=0 or info.st_mode&0o022:raise ValueError('log ancestry refused')
+            if info.st_uid!=0 or info.st_mode&0o022:log_reason='untrusted_ancestry';raise ValueError('log ancestry refused')
         fd=os.open('apport.log',os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW,dir_fd=parent)
         handles.append(fd);before=os.fstat(fd)
-        if not stat.S_ISREG(before.st_mode) or before.st_uid!=0 or before.st_mode&0o022 or not 0<=before.st_size<=9007199254740991:raise ValueError('log refused')
+        if not stat.S_ISREG(before.st_mode) or before.st_uid!=0 or before.st_mode&0o022:log_reason='untrusted_file';raise ValueError('log refused')
+        if not 0<=before.st_size<=9007199254740991:log_reason='read_bound';raise ValueError('log bound')
         offset=max(0,before.st_size-65536);os.lseek(fd,offset,os.SEEK_SET)
         raw=os.read(fd,65536);after=os.fstat(fd)
         stable=lambda x:(x.st_dev,x.st_ino,x.st_size,x.st_mtime_ns,x.st_ctime_ns,x.st_uid,x.st_mode)
-        if len(raw)!=min(before.st_size,65536) or stable(before)!=stable(after):raise ValueError('log changed')
+        if len(raw)!=min(before.st_size,65536) or stable(before)!=stable(after):log_reason='changed';raise ValueError('log changed')
         if offset:raw=raw.split(b'\n',1)[1] if b'\n' in raw else b''
         patterns={
             'unpackaged_ignored':r'executable does not belong to a package, ignoring',
@@ -645,15 +681,26 @@ if qualified_apport:
             'core_write_limit':r'aborting core dump writing, (?:size [0-9]+ exceeds current limit|size exceeds current limit [0-9]+)',
             'core_write_failed':r'aborting core dump writing, could not write',
             'core_overflow':r'core dump exceeded [0-9]+ MiB, dropped to avoid memory overflow',
-            'apport_busy':r'another apport instance is already running, aborting'}
+            'apport_busy':r'another apport instance is already running, aborting',
+            'process_replaced':r'process was replaced after Apport started, ignoring',
+            'uid_gid_mismatch':r"process uid/gid doesn't match expected, ignoring",
+            'executable_modified':r'executable was modified after program start, ignoring',
+            'process_disappeared':r'.+ not found\. Cannot collect crash information for process [0-9]+ any more\.',
+            'report_create_failed':r'Could not create report file: .+',
+            'missing_executable':r'could not determine ExecutablePath, aborting',
+            'session_closing':r'happens for shutting down session, ignoring',
+            'watchdog_ignored':r'Ignoring systemd watchdog restart',
+            'lock_unavailable':r'cannot create lock file \(uid [0-9]+\): .+',
+            'unhandled_exception':r'Unhandled exception:'}
         counts={key:0 for key in patterns}
         for line in raw.decode('utf-8',errors='replace').splitlines():
             match=re.fullmatch(r'(?:INFO|ERROR|WARNING|DEBUG|CRITICAL): apport \(pid [0-9]+\) [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]{3}: (.*)',line)
             if match:
                 for key,pattern in patterns.items():
                     if re.fullmatch(pattern,match[1]):counts[key]+=1
-        m['apportLogTail']={'status':'observed','mtimeNs':before.st_mtime_ns,'truncated':offset>0,'counts':counts}
-    except (OSError,ValueError):pass
+        m['apportLogTail']={'status':'observed','reason':'bounded_tail','mtimeNs':before.st_mtime_ns,'truncated':offset>0,'counts':counts}
+    except FileNotFoundError:m['apportLogTail']={'status':'unknown','reason':'missing'}
+    except (OSError,ValueError):m['apportLogTail']={'status':'unknown','reason':log_reason}
     finally:
         for fd in reversed(handles):os.close(fd)
 # The reviewed Apport version uses this candidate store for unpackaged raw cores.
@@ -661,7 +708,7 @@ if qualified_apport:
 m['apportCoreStore']={'status':'unknown','reason':'current_owner_unproven' if qualified_apport and current_uid is None else 'unqualified_handler','candidates':[]}
 if (m['handlerClass']=='apport'
         and m['handlerSourceSHA256']=='1b8b5e2c53e8970dd2f47c9a0892030d1ebad57cae1f7242c43a6252f1f6dff2'
-        and m['apportPackageVersion']=='2.28.1-0ubuntu3.8' and current_uid is not None):
+        and m['apportPackageVersion']=='2.28.1-0ubuntu3.8' and m['apportFileutilsSHA256']=='f065edaa8efce8b6a6e29e4edf7cbd2eeee4c6be2e30718cb8d8010eac2b0f0f' and current_uid is not None):
     handles=[]
     store={'status':'unknown','reason':'unavailable','candidates':[]}
     try:
@@ -778,12 +825,22 @@ def core_capture_metadata(value, window):
             result['handlerSourceSHA256']=fingerprint
             if isinstance(version,str) and re.fullmatch(r'[0-9][A-Za-z0-9.+:~\-]{0,95}',version):
                 result['apportPackageVersion']=version
+    result['apportArgumentProfile']={'status':'unsupported','globalPid':False,'coreLimit':False,'dumpMode':False}
+    args=value.get('apportArgumentProfile')
+    if (result['handlerClass']=='apport' and result['handlerSourceSHA256']=='1b8b5e2c53e8970dd2f47c9a0892030d1ebad57cae1f7242c43a6252f1f6dff2' and result['apportPackageVersion']=='2.28.1-0ubuntu3.8'
+            and isinstance(args,dict) and args.get('status')=='canonical_kernel_placeholders'
+            and all(type(args.get(key)) is bool for key in ('globalPid','coreLimit','dumpMode')) and args['coreLimit'] and args['dumpMode']):
+        result['apportArgumentProfile']={key:args[key] for key in ('status','globalPid','coreLimit','dumpMode')}
+    result['apportFileutilsSHA256']='unknown'
+    digest=value.get('apportFileutilsSHA256')
+    if result['handlerClass']=='apport' and isinstance(digest,str) and re.fullmatch(r'[0-9a-f]{64}',digest):result['apportFileutilsSHA256']=digest
+    result['apportCoreStorePathScope']='reviewed_source_default_only_not_handler_environment'
     result['apportCoreStore']={'status':'unknown','reason':'unqualified_handler','candidates':[]}
     store=value.get('apportCoreStore')
     qualified=(result['handlerSourceSHA256']=='1b8b5e2c53e8970dd2f47c9a0892030d1ebad57cae1f7242c43a6252f1f6dff2'
                and result['apportPackageVersion']=='2.28.1-0ubuntu3.8')
     result['apportCurrentContext']={'status':'unknown','temporalScope':'current_process_not_crashed_process','forwardingOutcome':'unproven','modeledRouteCondition':'only_if_kernel_supplies_global_pid'}
-    result['apportLogTail']={'status':'unknown','incidentAttribution':'unproven','absenceMeans':'nonexhaustive_current_file_tail'}
+    result['apportLogTail']={'status':'unknown','reason':'unqualified_profile','incidentAttribution':'unproven','absenceMeans':'nonexhaustive_current_file_tail'}
     context=value.get('apportCurrentContext')
     if qualified and isinstance(context,dict) and context.get('status')=='observed':
         allowed={'realUidClass':{'root','nonroot'},'effectiveUidClass':{'root','nonroot'},
@@ -796,16 +853,18 @@ def core_capture_metadata(value, window):
     log=value.get('apportLogTail')
     categories={'unpackaged_ignored','container_no_support','container_broken_apport','mount_namespace_ignored',
                 'forward_security_refused','forward_timeout','core_write_started','core_write_limit',
-                'core_write_failed','core_overflow','apport_busy'}
+                'core_write_failed','core_overflow','apport_busy','process_replaced','uid_gid_mismatch','executable_modified','process_disappeared','report_create_failed','missing_executable','session_closing','watchdog_ignored','lock_unavailable','unhandled_exception'}
+    if qualified and isinstance(log,dict) and log.get('status')=='unknown' and isinstance(log.get('reason'),str) and log['reason'] in {'missing','untrusted_ancestry','untrusted_file','changed','read_bound','io_error'}:
+        result['apportLogTail']['reason']=log['reason']
     if qualified and isinstance(log,dict) and log.get('status')=='observed':
         stamp,counts=log.get('mtimeNs'),log.get('counts')
         if (type(stamp) is int and 0<=stamp<=9223372036854775807 and type(log.get('truncated')) is bool
                 and isinstance(counts,dict) and set(counts)==categories
                 and all(type(count) is int and 0<=count<=65536 for count in counts.values())):
-            result['apportLogTail'].update(status='observed',mtimeNs=stamp,truncated=log['truncated'],counts=dict(counts))
+            result['apportLogTail'].update(status='observed',reason='bounded_tail',mtimeNs=stamp,truncated=log['truncated'],counts=dict(counts))
     reasons={'current_owner_unproven','unavailable','store_or_boot_unavailable','directory_truncated','candidate_limit',
              'candidate_unavailable','untrusted_candidate','directory_changed'}
-    if qualified and isinstance(store,dict):
+    if qualified and result['apportFileutilsSHA256']=='f065edaa8efce8b6a6e29e4edf7cbd2eeee4c6be2e30718cb8d8010eac2b0f0f' and isinstance(store,dict):
         if store.get('status')=='unknown' and store.get('reason') in reasons:
             result['apportCoreStore']={'status':'unknown','reason':store['reason'],'candidates':[]}
         elif (store.get('status')=='observed' and store.get('reason')=='bounded_complete'
