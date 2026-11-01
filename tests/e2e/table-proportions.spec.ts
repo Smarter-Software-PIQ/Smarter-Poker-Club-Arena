@@ -1434,6 +1434,14 @@ for (const [width, heightOverride] of occupiedViewports)
                 new Promise<void>((resolve) =>
                   requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
                 );
+              // SeatSlot starts the one-shot motion sampler on mount. It
+              // decides after 60 visible frames and may clear a manually set
+              // lite flag. Let that real decision finish before this finite
+              // CSS witness takes ownership; no sampler or motion is disabled.
+              for (let sampled = 0; sampled < 61; ) {
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+                if (document.visibilityState === 'visible') sampled += 1;
+              }
               const originalSeat = seat.className;
               const originalWrap = wrap.className;
               const root = document.documentElement;
