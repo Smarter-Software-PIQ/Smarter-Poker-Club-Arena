@@ -221,8 +221,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 273719,
-      "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
+      "bytes": 273932,
+      "sha256": "bb86a60ef227c84fc59ae7a9aac49323bf07262cfab180c9715a39bdef4188f2"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6270,5 +6270,18 @@
       "sha256": "29fcb7914a6e06234075a515d25dad7768ff22178898c9216a38bebbe9492fdb"
     },
     "historicalEvidenceRestamped": false
+  },
+  "stallProgressQualification20261101": {
+    "reason": "Add only the exact recorded-hand stall regression to existing accounting shard7. All existing native pg_cron cash inputs, steps, deadlines, assertions and historical qualification remain unchanged. Current workflow source identity only.",
+    "previous": {
+      "bytes": 273355,
+      "sha256": "604f564041cac0c27f4c8a178515c923d722f5acedb00e046d7d1d3979497188"
+    },
+    "current": {
+      "bytes": 273568,
+      "sha256": "50c652f40f358616b2305301a654f4c5659688235963efb5f7a04226c2da297e"
+    },
+    "historicalEvidenceRestamped": false,
+    "execution_performed": false
   }
 }

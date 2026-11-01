@@ -320,6 +320,7 @@ class NativeLogReader(unittest.TestCase):
                 self.assertIn(path,allowed) # No report or core contents are opened.
                 return io.StringIO(allowed[path])
             def open_dir(path,flags,**kwargs):
+                if path=='/usr': raise OSError('protocol metadata unavailable in artifact fixture')
                 self.assertTrue(flags&os.O_NOFOLLOW);self.assertTrue(flags&os.O_DIRECTORY)
                 self.assertIn(path,['/var','crash'])
                 if directory_error: raise OSError('refused')
@@ -348,6 +349,68 @@ class NativeLogReader(unittest.TestCase):
         for pattern in ['|/usr/share/apport/apport-private','|/PRIVATE/apport','|/usr/lib/systemd/systemd-coredump %P','|/lib/systemd/systemd-coredump']:
             self.assertEqual(run(pattern)['handlerCandidates'],[])
         run('|/usr/share/apport/apport',changed=True)
+
+    def test_apport_protocol_export_is_closed_and_requires_source_fingerprint(self):
+        window={'since':'2026-11-01T06:40:00Z','until':'2026-11-01T06:55:00Z'}
+        value={'patternClass':'pipe','handlerClass':'apport','handlerSourceSHA256':'a'*64,
+               'apportPackageVersion':'2.28.1-0ubuntu3.8','rawSource':'PRIVATE'}
+        result=reader.core_capture_metadata(value,window)
+        self.assertEqual(result['handlerSourceSHA256'],'a'*64)
+        self.assertEqual(result['apportPackageVersion'],'2.28.1-0ubuntu3.8')
+        self.assertNotIn('PRIVATE',json.dumps(result))
+        for field,bad in [('handlerSourceSHA256','A'*64),('handlerSourceSHA256',None),('apportPackageVersion','PRIVATE ARGS'),('apportPackageVersion','1'+'a'*96)]:
+            result=reader.core_capture_metadata({**value,field:bad},window)
+            self.assertEqual(result[field],'unknown')
+        self.assertEqual(reader.core_capture_metadata({**value,'handlerSourceSHA256':'unknown'},window)['apportPackageVersion'],'unknown')
+        self.assertEqual(reader.core_capture_metadata({**value,'handlerClass':'systemd'},window)['handlerSourceSHA256'],'unknown')
+
+    def test_actual_apport_fingerprint_reads_only_fixed_trusted_bounded_source(self):
+        import contextlib,hashlib,io,types
+        identity={'Id':'a'*64,'State':{'Pid':123,'StartedAt':'2026-11-01T06:48:00Z'},'Config':{'WorkingDir':'/app'},'HostConfig':{}}
+        source=b'qualified fixed handler source'
+        def run(failure=None):
+            output=io.StringIO();opened=[];queries=[];file_reads=0
+            def read(path,mode):
+                allowed={'/proc/sys/kernel/core_pattern':'|/usr/share/apport/apport -p %p PRIVATE',
+                         '/proc/sys/kernel/core_uses_pid':'0','/proc/123/limits':''}
+                self.assertIn(path,allowed);return io.StringIO(allowed[path])
+            def open_fd(path,flags,**kwargs):
+                if path=='/var':raise OSError('artifact metadata unavailable')
+                self.assertTrue(flags&os.O_NOFOLLOW)
+                self.assertIn(path,['/usr','share','apport'])
+                if failure=='directory' and path=='share':raise OSError('symlink refused')
+                opened.append(path);return len(opened)
+            def fstat(fd):
+                nonlocal file_reads
+                if fd<4:return types.SimpleNamespace(st_uid=0,st_mode=0o755)
+                file_reads+=1
+                return types.SimpleNamespace(st_uid=1 if failure=='owner' else 0,
+                    st_mode=stat.S_IFLNK if failure=='symlink' else stat.S_IFREG|0o644|(0o002 if failure=='writable' else 0),
+                    st_size=262145 if failure=='size' else len(source),st_dev=1,
+                    st_ino=2 if failure=='changed' and file_reads>1 else 1,st_mtime_ns=1,st_ctime_ns=1)
+            def execute(args,**kwargs):
+                queries.append((args,kwargs))
+                if args[0]=='/usr/bin/dpkg-query':
+                    self.assertEqual(args,['/usr/bin/dpkg-query','--show','--showformat=${Version}','apport'])
+                    self.assertEqual(kwargs['timeout'],0.5)
+                    if failure=='timeout':raise subprocess.TimeoutExpired(args,0.5)
+                    return types.SimpleNamespace(stdout=b'PRIVATE ARGS' if failure=='version' else b'2.28.1-0ubuntu3.8')
+                self.assertEqual(kwargs['timeout'],1);return types.SimpleNamespace(stdout=json.dumps(identity).encode())
+            with patch('subprocess.run',side_effect=execute),patch('builtins.open',side_effect=read),patch('os.open',side_effect=open_fd),patch('os.fstat',side_effect=fstat),patch('os.read',return_value=source) as source_read,patch('os.close'),contextlib.redirect_stdout(output):
+                exec(reader.CORE_CAPTURE_COMMAND,{})
+            result=json.loads(output.getvalue())['CoreCapture']
+            if failure not in ['directory','owner','symlink','writable','size']:
+                source_read.assert_called_once_with(4,262145)
+            self.assertEqual(sum(args[0]=='docker' for args,_ in queries),2)
+            self.assertLessEqual(len(queries),3)
+            return result,queries
+        result,_=run();self.assertEqual(result['handlerSourceSHA256'],hashlib.sha256(source).hexdigest())
+        self.assertEqual(result['apportPackageVersion'],'2.28.1-0ubuntu3.8')
+        for failure in ['directory','owner','symlink','writable','size','changed']:
+            result,queries=run(failure);self.assertEqual(result['handlerSourceSHA256'],'unknown')
+            self.assertEqual(len(queries),2)
+        for failure in ['timeout','version']:
+            result,_=run(failure);self.assertEqual(result['apportPackageVersion'],'unknown')
 
     def test_coredump_metadata_attributes_exact_container_without_exposing_identity(self):
         window = {'since': '2026-10-31T06:00:00Z', 'until': '2026-10-31T06:15:00Z'}
