@@ -27,6 +27,7 @@ PREFIX = 'postgresql-17.11/'
 BUILD_STAGE = 'INPUT'
 FIRST_FAILURE_STAGE = None
 FIRST_COMMAND_FAILURE = None
+COMMAND_SITES = {'BATCH_COMPILE', 'BATCH_EXECUTE', 'D3_CAPABILITY', 'RUNTIME_NPM', 'RUNTIME_HYDRATE'}
 STAGES = {'INPUT','DOWNLOAD','SOURCE_GUARDS','CONFIGURE','GENERATED_HEADERS','STOCK_BUILD','LIBPQ_INSTALL',
           'DIAGNOSTIC_BUILD','VERSION','SYNTHETIC_RUNTIME','SYNTHETIC_CLUSTER','SYNTHETIC_SEED',
           'SYNTHETIC_STOCK','SYNTHETIC_DIAGNOSTIC','SQL_EQUIVALENCE','SYNTHETIC_CLEANUP','OUTPUT','CLEANUP'}
@@ -205,7 +206,8 @@ def self_test(archive):
             'fixed_frame_boundaries_refuse': True, 'closed_peer_fd3_handoff': True, 'first_failure_stage_preserved': True, 'foreign_operation_preserved': True, 'actual_archive_members_validated': True, 'archive_member_boundaries_refuse': True}
 
 
-def command(args, *, cwd, env, timeout=120, data=None):
+def command(args, *, cwd, env, timeout=120, data=None, site=None):
+    require(site is None or site in COMMAND_SITES)
     # Stream finite private build output: never inherit or publish raw logs.
     output, errors = bytearray(), bytearray()
     selector = selectors.DefaultSelector()
@@ -245,7 +247,8 @@ def command(args, *, cwd, env, timeout=120, data=None):
             FIRST_COMMAND_FAILURE = {'kind': failure_kind,
                 'exit_code': code if type(code) is int and 0 <= code <= 255 else None,
                 'stdout_bytes': min(len(output), 8 * 1024 * 1024 + 65536),
-                'stderr_bytes': min(len(errors), 8 * 1024 * 1024 + 65536)}
+                'stderr_bytes': min(len(errors), 8 * 1024 * 1024 + 65536),
+                **({'site': site} if site is not None else {})}
         raise
     finally:
         selector.close()
@@ -443,19 +446,19 @@ def qualify_batch_contract(repo, work, env):
         shutil.copyfile(repo / 'operations/release/fixture' / name, directory / name)
     executable = directory / 'contract'
     command(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
-             'native-dump-function-batch-test.c', '-o', str(executable)], cwd=directory, env=env)
+             'native-dump-function-batch-test.c', '-o', str(executable)], cwd=directory, env=env, site='BATCH_COMPILE')
     for count in [0, 1, 127, 128, 129, 5507]:
-        command([str(executable), 'valid', str(count)], cwd=directory, env=env, timeout=5)
-    command([str(executable), 'excluded-boundary', '129'], cwd=directory, env=env, timeout=5)
+        command([str(executable), 'valid', str(count)], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
+    command([str(executable), 'excluded-boundary', '129'], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
     # Exact selected FUNC/RELATION/TYPE/AGG sequence retains stock render order;
     # only DO_FUNC requests share a fully drained metadata batch.
     for count in [0, 1, 127, 128, 129, 512, 513]:
-        command([str(executable), 'mixed', str(count)], cwd=directory, env=env, timeout=5)
+        command([str(executable), 'mixed', str(count)], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
     for mode in ['seq-valid', 'seq-mixed', 'seq-filter']:
         for count in [0, 1, 127, 128, 129, 512, 513]:
-            command([str(executable), mode, str(count)], cwd=directory, env=env, timeout=5)
+            command([str(executable), mode, str(count)], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
     for mode in ['interleave-function-first', 'interleave-sequence-first']:
-        command([str(executable), mode, '257'], cwd=directory, env=env, timeout=5)
+        command([str(executable), mode, '257'], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
     for mode in ['shared-bytes', 'shared-bytes-sequence-first', 'seq-partial']:
         result = subprocess.run([str(executable), mode, '257'], cwd=directory, env=env,
                                 capture_output=True, timeout=5)
@@ -495,15 +498,15 @@ def qualify(repo, work, output, env, stock_executable):
     # decoders, including the original fixed record/byte boundaries.
     command(['node', '--test', '--test-name-pattern=real D3 C producer|D3 retains the exact original byte cap',
              str(repo / 'operations/release/fixture/representative/schema-native-dump-diagnostic.test.mjs')],
-            cwd=repo, env=env)
+            cwd=repo, env=env, site='D3_CAPABILITY')
     runtime = work / 'runtime'
     runtime.mkdir()
     existing = repo / 'scripts/ci/probes/chip-journal-atomicity/postgres-runtime'
     for file in ['package.json', 'package-lock.json', 'query.mjs']:
         shutil.copyfile(existing / file, runtime / file)
-    command(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], cwd=runtime, env=env, timeout=180)
+    command(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], cwd=runtime, env=env, timeout=180, site='RUNTIME_NPM')
     package = runtime / 'node_modules/@embedded-postgres/linux-x64'
-    command(['node', 'scripts/hydrate-symlinks.js'], cwd=package, env=env)
+    command(['node', 'scripts/hydrate-symlinks.js'], cwd=package, env=env, site='RUNTIME_HYDRATE')
     pg = package / 'native/bin'
     lib_env = {**env, 'LD_LIBRARY_PATH': str(package / 'native/lib')}
     data = work / 'data'

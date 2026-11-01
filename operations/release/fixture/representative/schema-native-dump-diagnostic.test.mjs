@@ -382,3 +382,30 @@ test('D3 retains the exact original byte cap without extra records',()=>{
   assert.throws(()=>exact.push(Buffer.from([0]),2),error=>error.diagnosticKind==='FD3_LIMIT');
   assert.deepEqual(exact.snapshot(2).limit,{kind:'TOTAL_BYTES',observed_at_least:512*1024+1});assert.ok(safeNativeDumpDiagnostic(exact.snapshot(2)));
 });
+
+
+test('native build command failures retain only closed first site and bounded facts',async()=>{
+  const root=await mkdtemp(path.join(process.env.TMPDIR ?? process.env.RUNNER_TEMP,'closed-command-site-'));
+  try{
+    const script=`import importlib.util,sys,os,json
+spec=importlib.util.spec_from_file_location('n','operations/release/fixture/native-dump-diagnostic.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+for site in sorted(m.COMMAND_SITES):
+ m.FIRST_COMMAND_FAILURE=None
+ try:m.command([sys.executable,'-c',"import sys;print('private-argv-secret');sys.stderr.write('private-sql-secret');sys.exit(7)"],cwd=sys.argv[1],env=os.environ,site=site)
+ except RuntimeError:pass
+ first=dict(m.FIRST_COMMAND_FAILURE)
+ assert first=={'kind':'EXIT_NONZERO','exit_code':7,'stdout_bytes':20,'stderr_bytes':18,'site':site},first
+ try:m.command([sys.executable,'-c','raise SystemExit(9)'],cwd=sys.argv[1],env=os.environ,site='BATCH_EXECUTE')
+ except RuntimeError:pass
+ assert m.FIRST_COMMAND_FAILURE==first
+ assert 'private' not in json.dumps(first) and sys.argv[1] not in json.dumps(first)
+m.FIRST_COMMAND_FAILURE=None
+try:m.command([sys.executable],cwd=sys.argv[1],env=os.environ,site='private-invalid-site')
+except RuntimeError:pass
+else:raise AssertionError('unclosed site accepted')
+assert m.FIRST_COMMAND_FAILURE is None
+print('closed-first-site-pass')`;
+    const result=spawnSync('python3',['-B','-c',script,root],{encoding:'utf8',timeout:10000});
+    assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'closed-first-site-pass');assert.equal(result.stderr,'');
+  }finally{await rm(root,{recursive:true,force:true});}
+});
