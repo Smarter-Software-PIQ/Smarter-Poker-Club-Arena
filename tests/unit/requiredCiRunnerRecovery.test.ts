@@ -243,7 +243,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['typecheck_compile', 'unit_shards', 'build']) {
-      expect(normalized.jobs[name]['runs-on']).toBe(name === 'build' ? 'ubuntu-24.04' : 'ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'build' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['changes', 'source_windows', 'stub_gate']) {
@@ -251,7 +253,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       normalized.jobs[name]['runs-on'] = formerClientRoute;
     }
     for (const name of ['live-e2e', 'post-deploy-check']) {
-      expect(normalized.jobs[name]['runs-on']).toBe(name === 'live-e2e' ? 'ubuntu-24.04' : 'ubuntu-latest');
+      expect(normalized.jobs[name]['runs-on']).toBe(
+        name === 'live-e2e' ? 'ubuntu-24.04' : 'ubuntu-latest'
+      );
       normalized.jobs[name]['runs-on'] = formerClientRoute.replace('4core', '8core');
     }
     for (const name of ['accounting_postgres', 'server_shards']) {

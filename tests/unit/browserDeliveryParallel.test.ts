@@ -32,7 +32,8 @@ describe('browser qualification parallel delivery', () => {
       expect(jobs.filter(([, job]) => job['runs-on']).length).toBeGreaterThan(0);
       for (const [jobId, job] of jobs.filter(([, job]) => job['runs-on'])) {
         const pinnedBrowser =
-          file === 'ci.yml' && ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(jobId);
+          file === 'ci.yml' &&
+          ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(jobId);
         expect(job['runs-on']).toBe(pinnedBrowser ? 'ubuntu-24.04' : 'ubuntu-latest');
         expect(job['runs-on']).not.toMatch(/ca-linux|self-hosted|vars\./);
       }
