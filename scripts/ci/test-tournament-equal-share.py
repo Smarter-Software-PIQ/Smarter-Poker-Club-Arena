@@ -40,6 +40,8 @@ def main():
   original_query="SELECT jsonb_object_agg(signature,md5(pg_get_functiondef(signature::regprocedure))) FROM unnest(ARRAY["+','.join("'"+x+"'" for x in originals)+"]) signature;"
   _,originals_before,_=e.sql(db,original_query,label='v3-owners-before')
   e.sql(db,file=MIGRATION,label='exact-equal-share-migration')
+  _,postimages,_=e.sql(db,"SELECT jsonb_object_agg(p.oid::regprocedure::text,md5(pg_get_functiondef(p.oid))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','smarter_private') AND p.proname IN ('fn_ca_preview_tournament_abort_equal_share','fn_ca_settle_tournament_abort_equal_share','tournament_equal_share_receipt','equal_share_retirement_must_close','fn_refuse_zero_chip_field_elimination','fn_credit_and_log','fn_ca_tournament_cancellation_receipt');",label='equal-share-installed-postimages')
+  e.report['postimages']=json.loads(postimages.strip())
   proof=next(line.removeprefix('-- @live-proof: ') for line in MIGRATION.read_text().splitlines() if line.startswith('-- @live-proof: '))
   _,proof_result,_=e.sql(db,'SELECT '+proof+';',label='equal-share-exact-live-proof')
   assert proof_result.strip()=='t'
@@ -55,10 +57,11 @@ def main():
   sql_file(e,db,'second-funded-entry-and-prior-award',"BEGIN;SELECT set_config('request.jwt.claims','{\"sub\":\"d1000000-0000-4000-8000-000000000002\",\"role\":\"authenticated\",\"session_id\":\"d4000000-0000-4000-8000-000000000003\"}',true),set_config('request.jwt.claim.role','authenticated',true),set_config('request.jwt.claim.sub','d1000000-0000-4000-8000-000000000002',true);SET LOCAL ROLE authenticated;SELECT public.fn_register_for_tournament_request('"+event+"','ec000000-0000-4000-8000-000000000001');RESET ROLE;"+SERVICE+"SELECT public.fn_credit_and_log('d1000000-0000-4000-8000-000000000001',0.01,'tourney:"+event+":native-earlier-award','prize','Native earlier paid award preserved','"+event+"','PLAYER',NULL,NULL,NULL,'reconcile');COMMIT;")
   sql_file(e,db,'local-playing-scene',"BEGIN;SET LOCAL session_replication_role=replica;UPDATE tournament_players SET status='playing' WHERE tournament_id='"+event+"';COMMIT;")
   money_hash=prepare_quiesced(e,db,event,op,table)
-  from equal_share_native_cases import exercise,diamond_cases
+  from equal_share_native_cases import exercise,diamond_cases,capacity_case
   exercise(e,db,ROOT,event,op,money_hash,'chip',[90,89.99],20)
   diamond_cases(e,db,ROOT,diamond)
-  _,postimages,_=e.sql(db,"SELECT jsonb_object_agg(p.oid::regprocedure::text,md5(pg_get_functiondef(p.oid))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','smarter_private') AND p.proname IN ('fn_ca_settle_tournament_abort_equal_share','tournament_equal_share_receipt','equal_share_retirement_must_close','fn_refuse_zero_chip_field_elimination','fn_credit_and_log','fn_ca_tournament_cancellation_receipt');",label='equal-share-qualified-postimages')
+  capacity_case(e,db,ROOT)
+  _,postimages,_=e.sql(db,"SELECT jsonb_object_agg(p.oid::regprocedure::text,md5(pg_get_functiondef(p.oid))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','smarter_private') AND p.proname IN ('fn_ca_preview_tournament_abort_equal_share','fn_ca_settle_tournament_abort_equal_share','tournament_equal_share_receipt','equal_share_retirement_must_close','fn_refuse_zero_chip_field_elimination','fn_credit_and_log','fn_ca_tournament_cancellation_receipt');",label='equal-share-qualified-postimages')
   e.report['postimages']=json.loads(postimages.strip())
   e.report['source_sha256'].update({str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [MIGRATION,Path(__file__),ROOT/'scripts/ci/equal_share_native_cases.py',ROOT/'tests/fixtures/tournament-fee-lifecycle/full-lifecycle-earning.sql']})
   e.report['passed']=True;e.report['status']='passed'

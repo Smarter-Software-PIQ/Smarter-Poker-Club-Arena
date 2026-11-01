@@ -3,6 +3,7 @@
   "_comment": "Explicit generation-drained equal-share terminal mode, preserving original-charge refund and earned award authorities.",
   "functions": [
     "fn_ca_settle_tournament_abort_equal_share",
+    "fn_ca_preview_tournament_abort_equal_share",
     "smarter_private.tournament_equal_share_receipt",
     "smarter_private.equal_share_retirement_must_close"
   ]

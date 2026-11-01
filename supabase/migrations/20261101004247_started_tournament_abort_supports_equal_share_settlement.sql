@@ -1,4 +1,4 @@
--- @live-proof: (SELECT bool_and(coalesce(md5(pg_get_functiondef(to_regprocedure(signature)))=expected,false)) FROM (VALUES ('fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)','79a02afa15bc228b57c5340d0fc391b2'),('fn_ca_tournament_cancellation_receipt(uuid,uuid)','b6dad088592fcbbf313ddab376478532'),('fn_credit_and_log(uuid,numeric,text,text,text,uuid,text,uuid,uuid,integer,text)','f7bcbff31505ec690f310df7dc0a19ff'),('fn_refuse_zero_chip_field_elimination()','8150bc16b61800e79d5355f1b3507a9a'),('smarter_private.equal_share_retirement_must_close()','d6711284f022f2ae11664d2ed3c50045'),('smarter_private.tournament_equal_share_receipt(uuid,uuid)','0b7eb6f3ffc7f221f07d2708dc002834')) x(signature,expected)) AND EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='smarter_private.tournament_abort_targets'::regclass AND tgname='equal_share_retirement_must_close' AND tgdeferrable AND tginitdeferred AND tgenabled='O') AND NOT has_function_privilege('authenticated','public.fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)','EXECUTE')
+-- @live-proof: (SELECT bool_and(coalesce(md5(pg_get_functiondef(to_regprocedure(signature)))=expected,false)) FROM (VALUES ('fn_ca_preview_tournament_abort_equal_share(uuid,uuid,text)','64371a889e6723b0f80c70310831b0bb'),('fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)','b88bcee008774d5e9eab175bc87d3b04'),('fn_ca_tournament_cancellation_receipt(uuid,uuid)','b6dad088592fcbbf313ddab376478532'),('fn_credit_and_log(uuid,numeric,text,text,text,uuid,text,uuid,uuid,integer,text)','f7bcbff31505ec690f310df7dc0a19ff'),('fn_refuse_zero_chip_field_elimination()','8150bc16b61800e79d5355f1b3507a9a'),('smarter_private.equal_share_retirement_must_close()','d6711284f022f2ae11664d2ed3c50045'),('smarter_private.tournament_equal_share_receipt(uuid,uuid)','574b3f32a9dbc54f989618901bf868f6')) x(signature,expected)) AND EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='smarter_private.tournament_abort_targets'::regclass AND tgname='equal_share_retirement_must_close' AND tgdeferrable AND tginitdeferred AND tgenabled='O') AND NOT has_function_privilege('authenticated','public.fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_ca_preview_tournament_abort_equal_share(uuid,uuid,text)','EXECUTE')
 -- Explicit started-event equal-share disposition, separate from original-charge
 -- refunds. Combined unawarded prize and bounty banks go equally to remaining
 -- players, preserving earned awards and original hands. Fees keep their owner.
@@ -138,6 +138,7 @@ BEGIN
  'source_player_count',cardinality(player_ids),'refunded_count',cardinality(refunded_ids),'refund_line_count',jsonb_array_length(financial->'refunds'),'ticket_return_count',0,'ticket_returns','[]'::jsonb,'total_ticket_returned',0,
  'total_refunded',(financial->>'total_refunded')::numeric,'fees_reversed',fees_reversed,'closed_table_count',cardinality(table_ids),'source_seat_count',cardinality(seat_ids),'released_seat_count',cardinality(released_ids),'refunds',financial->'refunds','settled_at',settled,
  'original_started_at',t.started_at,'financial',financial,'fee_receipt',fee_receipt,'pre_abort_roster',pre_roster,'pre_abort_seats',pre_seats,'preserved_history',before_history,'quiescence',a.quiescence,'payout_history',(SELECT md5(coalesce(jsonb_agg(to_jsonb(p) ORDER BY id)::text,'[]')) FROM public.tournament_payouts p WHERE tournament_id=p_tournament_id),'fee_settlement',(SELECT to_jsonb(r) FROM public.tournament_rake_settlements r WHERE tournament_id=p_tournament_id),'terminal_snapshot',smarter_private.tournament_abort_terminal_snapshot(p_tournament_id));
+ v_receipt:=v_receipt||jsonb_build_object('allocation_hash',md5((financial->'shares')::text));
  UPDATE smarter_private.tournament_abort_targets SET state='settled',receipt=v_receipt,settled_at=settled WHERE tournament_id=p_tournament_id AND operation_id=p_operation_id;
  INSERT INTO public.tournament_cancellation_receipts(tournament_id,actor_id,receipt_version,source_player_count,source_player_ids,refunded_count,refunded_registration_ids,refund_line_count,ticket_return_count,ticket_return_ids,total_ticket_returned,zero_refund_count,zero_refund_registration_ids,total_refunded,fees_reversed,total_rake_before,total_rake_after,closed_table_count,closed_table_ids,source_seat_count,source_seat_ids,released_seat_count,released_seat_ids,fee_reversal_ids,escrow_closed_at,escrow_close_note,spin_unwind_tournament_id,receipt,settled_at)
  VALUES(p_tournament_id,actor,4,cardinality(player_ids),player_ids,cardinality(refunded_ids),refunded_ids,jsonb_array_length(financial->'refunds'),0,'{}',0,cardinality(zero_ids),zero_ids,(financial->>'total_refunded')::numeric,fees_reversed,rake_before,rake_after,cardinality(table_ids),table_ids,cardinality(seat_ids),seat_ids,cardinality(released_ids),released_ids,fee_ids,settled,v_close_note,NULL,v_receipt,settled);
@@ -188,6 +189,7 @@ BEGIN
  OR h.receipt->'terminal_snapshot' IS DISTINCT FROM smarter_private.tournament_abort_terminal_snapshot(p_tournament_id)
  OR h.receipt->'fee_settlement' IS DISTINCT FROM (SELECT to_jsonb(r) FROM public.tournament_rake_settlements r WHERE tournament_id=p_tournament_id)
  OR h.receipt->>'payout_history' IS DISTINCT FROM (SELECT md5(coalesce(jsonb_agg(to_jsonb(p) ORDER BY id)::text,'[]')) FROM public.tournament_payouts p WHERE tournament_id=p_tournament_id)
+ OR h.receipt->>'allocation_hash' IS DISTINCT FROM md5((h.receipt->'financial'->'shares')::text)
  OR jsonb_typeof(h.receipt->'financial'->'shares') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'equal_share_terminal_receipt_evidence_changed' USING ERRCODE='P0404';END IF;
  IF EXISTS(SELECT 1 FROM (VALUES ('total_distributed'),('prize_before'),('bounty_before'),('fee_before'),('unit_scale')) key(name)
  WHERE jsonb_typeof(h.receipt->'financial'->key.name) IS DISTINCT FROM 'number' OR (h.receipt->'financial'->>key.name)::numeric<0
@@ -225,4 +227,28 @@ DO $migration$DECLARE source text;needle text:='  IF v_h.receipt_version=3 AND';
 END $migration$;
 REVOKE ALL ON FUNCTION public.fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text) TO service_role;
+
+-- Explicit financial preflight: the exact settlement and every deferred check
+-- execute inside a subtransaction that is unconditionally rolled back.
+INSERT INTO public.ca_money_rpc_registry(proname,status,notes)
+VALUES('fn_ca_preview_tournament_abort_equal_share','approved','Explicit rollback-only preview of canonical equal-share settlement; never commits awards') ON CONFLICT(proname) DO NOTHING;
+DO $migration$BEGIN IF NOT EXISTS(SELECT 1 FROM public.ca_money_rpc_registry WHERE proname='fn_ca_preview_tournament_abort_equal_share' AND status='approved') THEN RAISE EXCEPTION 'equal_share_preview_authority_not_approved' USING ERRCODE='42501';END IF;END $migration$;
+CREATE FUNCTION public.fn_ca_preview_tournament_abort_equal_share(p_operation_id uuid,p_tournament_id uuid,p_expected_money_hash text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,smarter_private AS $fn$
+DECLARE preview_receipt jsonb; completed boolean:=false;
+BEGIN
+ IF coalesce(auth.role(),'')<>'service_role' THEN RAISE EXCEPTION 'operator_abort_service_required' USING ERRCODE='42501';END IF;
+ BEGIN
+  preview_receipt:=public.fn_ca_settle_tournament_abort_equal_share(p_operation_id,p_tournament_id,p_expected_money_hash);
+  SET CONSTRAINTS ALL IMMEDIATE;
+  completed:=true;
+  RAISE EXCEPTION 'equal_share_preview_forced_rollback' USING ERRCODE='P0E01';
+ EXCEPTION WHEN SQLSTATE 'P0E01' THEN
+  IF NOT completed OR SQLERRM<>'equal_share_preview_forced_rollback' THEN RAISE;END IF;
+ END;
+ RETURN jsonb_build_object('preview_only',true,'rolled_back',true,'operation_id',p_operation_id,'tournament_id',p_tournament_id,'money_hash',p_expected_money_hash,'allocation_hash',preview_receipt->>'allocation_hash','receipt',preview_receipt);
+END $fn$;
+REVOKE ALL ON FUNCTION public.fn_ca_preview_tournament_abort_equal_share(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_preview_tournament_abort_equal_share(uuid,uuid,text) TO service_role;
+
 COMMIT;
