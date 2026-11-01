@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import YAML from 'yaml';
 import './protection-applicability.test.mjs';
 import './revision-boundaries.test.mjs';
 import './producer-boundary.test.mjs';
@@ -256,10 +257,14 @@ for(const repo of ['evil/Smarter-Poker-Club-Arena','Smarter-Software-PIQ/evil','
 test('all qualification and publication jobs use only fixed standard hosted runners',()=>{
   for(const file of ['ci.yml','publish-club-arena.yml','publish-club-arena-client.yml','publish-club-arena-transaction.yml','component-fixture-native-smoke.yml']){
     const text=fs.readFileSync(new URL('../.github/workflows/'+file,import.meta.url),'utf8');
-    const routes=[...text.matchAll(/^    runs-on: (.+)$/gm)].map(match=>match[1]);
-    assert.ok(routes.length,file);
-    for(const route of routes)assert.equal(route,file==='component-fixture-native-smoke.yml'?'ubuntu-24.04':'ubuntu-latest',file);
-    assert.doesNotMatch(routes.join('\n'),/ca-linux|self-hosted|vars\./);
+    const jobs=Object.entries(YAML.parse(text).jobs).filter(([,job])=>job['runs-on']);
+    assert.ok(jobs.length,file);
+    for(const [name,job] of jobs){
+      const supportedBrowserImage=file==='ci.yml'&&['css-beats-e2e','diamond-playfield-e2e'].includes(name);
+      const expected=file==='component-fixture-native-smoke.yml'||supportedBrowserImage?'ubuntu-24.04':'ubuntu-latest';
+      assert.equal(job['runs-on'],expected,file+':'+name);
+      assert.doesNotMatch(job['runs-on'],/ca-linux|self-hosted|vars\./);
+    }
   }
 });
 
