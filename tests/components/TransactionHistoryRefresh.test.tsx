@@ -46,6 +46,8 @@ vi.mock('../../src/hooks/useVisibilityRefresh', () => ({
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/components/rewards/RewardsSurfaceHeader', () => ({ default: () => null }));
+// The week-so-far card reads its own RPC; this file pins the statement's reads.
+vi.mock('../../src/components/wallet/RakebackWeekSoFar', () => ({ default: () => null }));
 vi.mock('../../src/components/tournament/TournamentPaymentStatus', () => ({
   default: () => null,
 }));
