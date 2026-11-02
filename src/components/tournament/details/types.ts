@@ -1,3 +1,4 @@
+import { placeGuarantee } from '../../../utils/tournamentPrizeFunding';
 import type { FollowTournamentPlayer } from '../../../utils/followTournamentPlayer';
 import type { SatelliteAwardView } from './useSatelliteAwards';
 /**
@@ -497,10 +498,11 @@ export function tournamentRowUnitCents(row: TournamentArenaEmbed | null | undefi
  */
 export function effectivePrizePool(
   poolValue: number | null | undefined,
-  guaranteeValue: number | null | undefined
+  guaranteeValue: number | null | undefined,
+  bountyPool: number | null | undefined = 0
 ): number {
   const pool = finite(poolValue);
-  const guarantee = finite(guaranteeValue);
+  const guarantee = placeGuarantee(guaranteeValue, bountyPool);
   return guarantee > 0 ? Math.max(pool, guarantee) : pool;
 }
 
@@ -516,9 +518,10 @@ export function effectivePlaceLadderPool(
   fieldSize: number,
   bubbleProtection: boolean,
   buyInAmount: number,
-  isSatellite: boolean
+  isSatellite: boolean,
+  bountyPool: number | null | undefined = 0
 ): number | null {
-  const pool = effectivePrizePool(poolValue, guaranteeValue);
+  const pool = effectivePrizePool(poolValue, guaranteeValue, bountyPool);
   const structure = parsePayoutStructure(structureValue) ?? [];
   return prizePoolAvailableToPlaces(
     pool,

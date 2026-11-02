@@ -14,7 +14,7 @@
  * The server split that into prize_pool 10,050 and bounty_pool 4,275 and the
  * Rewards headline printed only the 10,050.
  */
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, render, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -23,7 +23,18 @@ import type {
   TournamentTabProps,
 } from '../../src/components/tournament/details/types';
 
-vi.mock('../../src/lib/supabase', () => ({ supabase: { from: vi.fn() } }));
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: {
+    from: vi.fn(),
+    rpc: vi.fn((_name, args) => ({
+      abortSignal: () =>
+        Promise.resolve({
+          data: { tournament_id: args.p_tournament_id, collected: 14325, overlay: 0 },
+          error: null,
+        }),
+    })),
+  },
+}));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/components/tournament/MysteryBountyPanel', () => ({ default: () => null }));
 
@@ -101,13 +112,15 @@ describe('Rewards: the Total Prize Pool is every buy-in, rebuy and add-on', () =
     expect(poolTile(container)).not.toBe('10,050');
   });
 
-  it('shows where it comes from, and the lines add up to the headline', () => {
+  it('shows where it comes from, and the lines add up to the headline', async () => {
     const { container } = render(<RewardsTab {...props()} />);
-    expect(mixRows(container)).toEqual([
-      ['276 Buy-Ins × 27', '7,452'],
-      ['9 Rebuys × 27', '243'],
-      ['221 Add-Ons × 30', '6,630'],
-    ]);
+    await waitFor(() =>
+      expect(mixRows(container)).toEqual([
+        ['276 Buy-Ins × 27', '7,452'],
+        ['9 Rebuys × 27', '243'],
+        ['221 Add-Ons × 30', '6,630'],
+      ])
+    );
     const split = container.querySelector('.rw-mix__split')?.textContent ?? '';
     expect(split).toContain('Place Prizes10,050');
     expect(split).toContain('Bounty Pool4,275');

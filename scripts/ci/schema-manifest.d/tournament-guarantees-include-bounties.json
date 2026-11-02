@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/bounty-guarantee-01a19a86; install merged 20261102043648 before client verification",
+  "tables": [],
+  "functions": ["fn_ca_place_guarantee", "fn_ca_tournament_prize_funding"]
+}

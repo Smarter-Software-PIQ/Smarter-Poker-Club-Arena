@@ -408,7 +408,11 @@ export default function DetailOverviewTab({
   /* ── Prize pool: the stored pool is authoritative, the guarantee is a floor. ── */
   const prize = useMemo(() => {
     return {
-      effective: effectivePrizePool(tournament?.prize_pool, tournament?.guaranteed_prize),
+      effective: effectivePrizePool(
+        tournament?.prize_pool,
+        tournament?.guaranteed_prize,
+        tournament?.bounty_pool
+      ),
       ladder: effectivePlaceLadderPool(
         tournament?.prize_pool,
         tournament?.guaranteed_prize,
@@ -416,7 +420,8 @@ export default function DetailOverviewTab({
         field.entries,
         tournament?.bubble_protection === true,
         Number(tournament?.buy_in_amount) || 0,
-        isSatellite
+        isSatellite,
+        tournament?.bounty_pool
       ),
       guarantee: Number(tournament?.guaranteed_prize) || 0,
     };

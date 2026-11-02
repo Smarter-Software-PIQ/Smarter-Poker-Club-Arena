@@ -732,7 +732,8 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
       tournamentFieldSize ?? 0,
       tournament.bubble_protection === true,
       Number(tournament.buy_in_amount) || 0,
-      panelIsSatellite
+      panelIsSatellite,
+      tournament.bounty_pool
     );
   }, [panelIsSatellite, panelPayouts, tournament, tournamentFieldSize]);
 

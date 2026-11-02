@@ -1293,7 +1293,8 @@ export default function TournamentPage() {
       fieldSize,
       selectedTournament.bubble_protection === true,
       Number(selectedTournament.buy_in_amount) || 0,
-      selectedIsSatellite
+      selectedIsSatellite,
+      selectedTournament.bounty_pool
     );
   }, [
     durableEntryCount,

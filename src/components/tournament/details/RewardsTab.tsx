@@ -298,6 +298,63 @@ export default function RewardsTab({
   const t = (tournament || {}) as unknown as RewardColumns;
   const tournamentId = tournament?.id;
 
+  const fundingKey = `${tournamentId}:${t.prize_pool}:${t.bounty_pool}:${t.prize_pool_finalized}`;
+  const [funding, setFunding] = useState<{
+    key: string;
+    collected: number;
+    overlay: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!tournamentId || !(Number(t.guaranteed_prize) > 0)) return;
+    let cancelled = false;
+    let active: AbortController | null = null;
+    const load = async () => {
+      active?.abort();
+      const controller = new AbortController();
+      active = controller;
+      try {
+        const { data, error } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .rpc('fn_ca_tournament_prize_funding', {
+                p_tournament_id: tournamentId,
+              })
+              .abortSignal(signal),
+          { signal: controller.signal }
+        );
+        if (error) throw error;
+        if (cancelled || controller.signal.aborted) return;
+        if (
+          !data ||
+          data.tournament_id !== tournamentId ||
+          !Number.isFinite(Number(data.collected)) ||
+          !Number.isFinite(Number(data.overlay))
+        ) {
+          setFunding(null);
+          return;
+        }
+        setFunding({
+          key: fundingKey,
+          collected: Number(data.collected),
+          overlay: Number(data.overlay),
+        });
+      } catch (error) {
+        if (!cancelled && !controller.signal.aborted) {
+          setFunding(null);
+          reportError(error, 'RewardsTab.prize_funding_load_failed');
+        }
+      }
+    };
+    const unsubscribe = subscribeTournamentStandings(tournamentId, () => void load());
+    void load();
+    return () => {
+      cancelled = true;
+      active?.abort();
+      unsubscribe();
+    };
+  }, [tournamentId, fundingKey, t.guaranteed_prize]);
+  const currentFunding = funding?.key === fundingKey ? funding : null;
+
   const isPko = !!t.is_pko;
   const isMystery = !!t.is_mystery_bounty;
   const isBountyEvent = !!t.is_bounty || isPko || isMystery;
@@ -449,16 +506,17 @@ export default function RewardsTab({
 
   /* ── THE POOL ─────────────────────────────────────────────────────────── */
 
-  const dbPool = num(t.prize_pool);
+  const collectedPool = currentFunding?.collected ?? null;
   const guarantee = num(t.guaranteed_prize);
   const hasGuarantee = guarantee > 0;
-  /* The advertised pool is whichever is larger. The DB pool is authoritative
-     for what was actually collected; the guarantee is what the club promised,
-     and the difference is the overlay the club funds itself. Shared with
-     Detail's podium via `effectivePrizePool` so the two cannot disagree. */
-  const effectivePool = effectivePrizePool(t.prize_pool, t.guaranteed_prize);
-  const overlay = hasGuarantee ? Math.max(0, guarantee - dbPool) : 0;
-  const guaranteeMet = hasGuarantee && overlay <= 0;
+  /* Stored places already include funded overlay. The combined guarantee
+     floors places only after subtracting bounties; escrow independently
+     distinguishes entry contributions from house funding. */
+  const effectivePool = effectivePrizePool(t.prize_pool, t.guaranteed_prize, t.bounty_pool);
+  const overlay = currentFunding
+    ? Math.max(currentFunding.overlay, hasGuarantee ? guarantee - currentFunding.collected : 0)
+    : 0;
+  const guaranteeMet = hasGuarantee && collectedPool !== null && collectedPool >= guarantee;
 
   const isFinalised = !!t.prize_pool_finalized;
 
@@ -619,7 +677,8 @@ export default function RewardsTab({
     entryCount,
     t.bubble_protection === true,
     num(t.buy_in_amount),
-    isSatellite
+    isSatellite,
+    t.bounty_pool
   );
   const bubbleProtectionReserve =
     placeLadderPool === null ? 0 : Math.max(0, effectivePool - placeLadderPool);
@@ -727,14 +786,17 @@ export default function RewardsTab({
     const buyInTotal = cents(buyInCount * buyIn);
     const rebuyTotal = cents(rebuyCount * perRebuy);
     const addOnTotal = cents(addOnCount * perAddOn);
-    const collected = num(t.prize_pool) + bountyShare;
+    const collected =
+      currentFunding?.collected ?? (hasGuarantee ? null : num(t.prize_pool) + bountyShare);
     /* A cent of rounding per purchase is the most the server's fee rounding can
        move it; anything wider means entries this rule did not price (free
        seats, satellite winners) and the amounts are withheld, not guessed. */
     const purchases = buyInCount + rebuyCount + addOnCount;
     const tolerance = Math.max(1, purchases * 0.01);
     const reconciles =
-      purchases > 0 && Math.abs(buyInTotal + rebuyTotal + addOnTotal - collected) <= tolerance;
+      collected !== null &&
+      purchases > 0 &&
+      Math.abs(buyInTotal + rebuyTotal + addOnTotal - collected) <= tolerance;
 
     return {
       buyInCount,
@@ -756,6 +818,8 @@ export default function RewardsTab({
     t.addon_cost,
     t.prize_pool,
     bountyShare,
+    currentFunding,
+    hasGuarantee,
   ]);
 
   const showRebuyLine = composition.rebuyCount > 0;
@@ -812,7 +876,11 @@ export default function RewardsTab({
               <span className="tl-stat__label">Guaranteed</span>
               <span className="tl-stat__value">{chips(guarantee)}</span>
               <span className={`tl-stat__sub ${guaranteeMet ? 'rw-sub--good' : 'rw-sub--warn'}`}>
-                {guaranteeMet ? 'Guarantee Met' : `${chips(overlay)} Overlay`}
+                {!currentFunding
+                  ? 'Funding Not Available'
+                  : guaranteeMet
+                    ? 'Covered By Entries'
+                    : `${chips(overlay)} Overlay`}
               </span>
             </div>
           )}
@@ -866,22 +934,24 @@ export default function RewardsTab({
           )}
         </div>
 
-        {hasGuarantee && !guaranteeMet && effectivePool > 0 && (
+        {hasGuarantee && currentFunding && !guaranteeMet && effectivePool > 0 && (
           <div className="rw-gtd">
             <div className="rw-gtd__row">
               <span className="rw-gtd__label">Collected Against The Guarantee</span>
               <span className="rw-gtd__figure">
-                {chips(dbPool)} Of {chips(guarantee)}
+                {chips(collectedPool)} Of {chips(guarantee)}
               </span>
             </div>
             <div className="tl-meter" aria-hidden="true">
               <div
                 className="tl-meter__fill tl-meter__fill--under"
-                style={{ width: `${Math.min(100, (dbPool / guarantee) * 100)}%` }}
+                style={{ width: `${Math.min(100, ((collectedPool ?? 0) / guarantee) * 100)}%` }}
               />
             </div>
             <p className="rw-gtd__note">
-              The Club Covers The {chips(overlay)} Overlay If The Field Does Not Close It
+              {isFinalised || isComplete
+                ? `The House Funded ${chips(overlay)} Above Entry Contributions`
+                : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
             </p>
           </div>
         )}
