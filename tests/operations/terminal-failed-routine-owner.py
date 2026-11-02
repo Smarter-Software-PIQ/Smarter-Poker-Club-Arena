@@ -1129,7 +1129,7 @@ class PreattachmentOwner(unittest.TestCase):
             with self.assertRaises(observer.ScopedRefusal) as error:observer.routine_remote(observer.ROUTINE_REQUEST,fd)
             self.assertEqual((error.exception.phase,error.exception.code),('routine_disposition','file_missing'))
         # Oversize remains refused, now with a closed diagnostic. No cap bump.
-        (root/'engine-release-seal.json').write_bytes(b' '*65537)
+        (root/'engine-release-seal.json').write_bytes(b' '*(observer.ROUTINE_SEAL_MAX_BYTES+1))
         with self.assertRaises(observer.ScopedRefusal) as error:observer.routine_remote(observer.ROUTINE_REQUEST,fd)
         self.assertEqual((error.exception.phase,error.exception.code),('routine_seal_read','file_size'))
         out=observer.refusal(observer.ROUTINE_REQUEST,error.exception)
