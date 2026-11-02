@@ -78,10 +78,10 @@ describe('Game is fixed information, never a popup or sort control (owner2026-10
         JSON.stringify({ key, dir: 'desc', chosen: true })
       );
       board();
-      expect(ids()).toEqual(['game-1', 'game-2']);
+      expect(ids()).toEqual(['game-2', 'game-1']);
       const compact = document.querySelector('.compact-lobby thead') as HTMLElement;
       fireEvent.click(within(compact).getByRole('button', { name: /stakes/i }));
-      expect(ids()).toEqual(['game-2', 'game-1']);
+      expect(ids()).toEqual(['game-1', 'game-2']);
       expect(document.querySelector('[aria-haspopup="menu"]')).toBeNull();
     }
   );

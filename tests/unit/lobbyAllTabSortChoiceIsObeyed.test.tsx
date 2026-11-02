@@ -63,9 +63,9 @@ function board(orderChosen?: boolean) {
 }
 
 describe('the ALL tab obeys the Sort By order the player chose', () => {
-  it('the default order still floats a featured game', () => {
+  it('the default cash stakes order also applies to featured games', () => {
     const ids = board();
-    expect(ids()).toEqual(['low-featured', 'high', 'mid']);
+    expect(ids()).toEqual(['high', 'mid', 'low-featured']);
   });
 
   it('a chosen Sort By keeps the page order: the featured pin stands down', () => {
