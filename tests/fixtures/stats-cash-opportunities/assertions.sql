@@ -1,5 +1,10 @@
 \set ON_ERROR_STOP on
 
+-- One session-stable fixture clock keeps every replay payload identical while
+-- remaining inside the real rolling window on any execution date. Each tested
+-- statement still owns its original transaction.
+SELECT set_config('fixture.stats_cash_played_at',now()::text,false);
+
 INSERT INTO public.clubs(id,lifecycle_status,asset) VALUES
  ('10000000-0000-0000-0000-000000000001','active','chips'),
  ('10000000-0000-0000-0000-000000000002','retired','chips');
@@ -31,7 +36,7 @@ CREATE FUNCTION public.fixture_stats_v2(p_hand uuid,p_stack numeric) RETURNS jso
 SELECT jsonb_build_object('version',2,'facts',jsonb_build_array(jsonb_build_object(
  'hand_id',p_hand,'user_id','20000000-0000-0000-0000-000000000001',
  'club_id','10000000-0000-0000-0000-000000000001','table_id','40000000-0000-0000-0000-000000000009',
- 'tournament_id',NULL,'played_at','2026-10-03T12:00:00Z','game_variant','nlh','big_blind',2,
+ 'tournament_id',NULL,'played_at',current_setting('fixture.stats_cash_played_at'),'game_variant','nlh','big_blind',2,
  'seat',1,'position','BTN','players_dealt',2,'opponent_ids',jsonb_build_array('20000000-0000-0000-0000-000000000002'),
  'hole_cards',NULL,'hand_class','AKs','invested',10,'returned',15,'net',5,'net_bb',2.5,
  'rake_paid',0,'vpip',true,'pfr',true,'three_bet',true,'four_bet',false,

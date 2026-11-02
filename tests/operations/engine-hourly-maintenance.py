@@ -428,7 +428,13 @@ printf 'NOOP\n'
         row={'MESSAGE':seal.FAILED_ROUTINE_LITERAL,'_SYSTEMD_UNIT':f'club-arena-engine-release-v1@{seal.FAILED_ROUTINE_RUN}.service',
              '_SYSTEMD_INVOCATION_ID':'a'*32,'__REALTIME_TIMESTAMP':str(seal.FAILED_ROUTINE_COMPLETED*1000000)}
         with patch.object(seal,'FAILED_ROUTINE_DIGEST',digest),patch.object(seal,'failed_routine_command',return_value=json.dumps(row)) as command:
-            self.assertEqual(seal.failed_routine_history(failure,seal.time.monotonic()+10)['atMicros'],seal.FAILED_ROUTINE_COMPLETED*1000000)
+            first=seal.failed_routine_history(failure,seal.time.monotonic()+10)
+            self.assertEqual(first['atMicros'],seal.FAILED_ROUTINE_COMPLETED*1000000)
+            reordered=json.dumps(dict(reversed(list(row.items()))))
+            self.assertNotEqual(seal.hashlib.sha256(json.dumps(row).encode()).hexdigest(),seal.hashlib.sha256(reordered.encode()).hexdigest())
+            command.return_value=reordered
+            self.assertEqual(seal.failed_routine_history(failure,seal.time.monotonic()+10),first)
+            self.assertEqual(first['journalDigest'],seal.failed_routine_digest(row))
             for bad in [[],[row,row],[{**row,'MESSAGE':'different'}],[{**row,'_SYSTEMD_INVOCATION_ID':'b'*32}],
                         [{**row,'__REALTIME_TIMESTAMP':str((seal.FAILED_ROUTINE_START-120)*1000000)}]]:
                 command.return_value='\n'.join(json.dumps(v) for v in bad)
@@ -440,16 +446,21 @@ printf 'NOOP\n'
         self.assertEqual(seal.FAILED_ROUTINE_SOURCES['engine-release-transaction.sh'],
             '3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39')
         def native(command,deadline,limit=32768):
-            if command[0]=='busctl':return 'a(sus) 0'
+            if command[0]=='busctl':
+                if 'GetUnit' in command:
+                    selected_unit[0]=command[-1];return 'o /org/freedesktop/systemd1/unit/fixture'
+                if 'get-property' in command:return 's '+json.dumps(selected_unit[0])
+                return 'a(sus) 0'
             unit=command[2];extension=unit.rsplit('.',1)[1];prefix='release' if '-release-' in unit else 'intake'
             values={'LoadState':'loaded','ActiveState':'inactive','SubState':'dead','UnitFileState':'disabled',
                 'Job':'','FragmentPath':f'/etc/systemd/system/club-arena-engine-{prefix}-v1@.{extension}','DropInPaths':''}
-            if extension=='service':values.update(MainPID='0',ControlPID='0',ControlGroup='')
+            if extension=='service':values.update(MainPID='0',ControlPID='0',ControlGroup='',Slice='system-'+unit.split('@',1)[0].replace('-',r'\x2d')+'.slice')
             return '\n'.join(k+'='+v for k,v in values.items())
+        selected_unit=[None]
         with patch.object(seal,'failed_routine_command',side_effect=native),patch.object(seal,'require_absent'):
             self.assertEqual(len(seal.failed_routine_native_proof(seal.time.monotonic()+10)),3)
         for reply in ['a(sus) 1 "/system.slice/private" 42 "private"','a(sus) 0 unexpected','', 'unavailable']:
-            def unproved(command,deadline,limit=32768):return reply if command[0]=='busctl' else native(command,deadline,limit)
+            def unproved(command,deadline,limit=32768):return reply if 'GetUnitProcesses' in command else native(command,deadline,limit)
             with patch.object(seal,'failed_routine_command',side_effect=unproved),patch.object(seal,'require_absent'),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
                 seal.failed_routine_native_proof(seal.time.monotonic()+10)
         self.assertEqual(seal.failed_routine_command(['python3','-c','print("bounded")'],seal.time.monotonic()+2,16),'bounded')
@@ -482,6 +493,85 @@ printf 'NOOP\n'
         with patch.object(db,'read_leader',return_value=('eed06fe5','1-other',2)),patch.object(db,'build_opener') as network,self.assertRaises(ValueError):
             db.verify_failed_routine_idle('https://'+db.PROJECT_HOST,'fixture-key','1-abcdef12',15)
         network.assert_not_called()
+
+    def test_unloaded_failed_custody_requires_positive_manager_kernel_and_metadata_proofs(self):
+        unit=f'club-arena-engine-intake-v1@{seal.FAILED_ROUTINE_RUN}.service'
+        context={'MainPID':'0','ControlPID':'0','ControlGroup':'',
+                 'Slice':r'system-club\x2darena\x2dengine\x2dintake\x2dv1.slice'}
+        group='/system.slice/'+context['Slice']+'/'+unit
+        no_unit=seal.FailedRoutineProcessLookup(1,b'',('Call failed: Unit '+unit+' not loaded.').encode())
+        def command(args,deadline,limit=32768):
+            if 'GetUnit' in args:raise no_unit
+            if 'ListUnitsByPatterns' in args:return 'a(ssssssouso) 0'
+            if '-.slice' in args:return 'ControlGroup=/'
+            raise AssertionError(args)
+        with patch.object(seal,'failed_routine_command',side_effect=command) as native, \
+             patch.object(seal,'failed_routine_unit_snapshot',return_value=context), \
+             patch.object(seal,'failed_routine_cgroup_empty',return_value='absent') as kernel:
+            self.assertEqual(seal.failed_routine_service_empty(unit,context,seal.time.monotonic()+10),'unloaded-manager-cgroup-empty')
+            kernel.assert_called_once();self.assertEqual(kernel.call_args.args[0],group)
+            self.assertEqual(sum('ListUnitsByPatterns' in call.args[0] for call in native.call_args_list),2)
+        for stderr in [b'Call failed: Access denied',b'',b'Call failed: Connection refused']:
+            with patch.object(seal,'failed_routine_command',side_effect=seal.FailedRoutineProcessLookup(1,b'',stderr)), \
+                 patch.object(seal,'failed_routine_cgroup_empty') as kernel,redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                seal.failed_routine_service_empty(unit,context,seal.time.monotonic()+10)
+            kernel.assert_not_called()
+        for field,value in [('Slice','system-foreign.slice'),('ControlGroup','/system.slice/foreign'),('MainPID','22'),('ControlPID','22')]:
+            with self.subTest(field=field),patch.object(seal,'failed_routine_command',side_effect=command), \
+                 patch.object(seal,'failed_routine_unit_snapshot',return_value=context),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                seal.failed_routine_service_empty(unit,{**context,field:value},seal.time.monotonic()+10)
+        for reply in ['', 'a(ssssssouso) 1', 'as 0', 'a(ssssssouso) 0 unexpected']:
+            def malformed(args,deadline,limit=32768):return reply if 'ListUnitsByPatterns' in args else command(args,deadline,limit)
+            with patch.object(seal,'failed_routine_command',side_effect=malformed),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                seal.failed_routine_service_empty(unit,context,seal.time.monotonic()+10)
+        with patch.object(seal,'failed_routine_command',side_effect=command), \
+             patch.object(seal,'failed_routine_cgroup_empty',return_value='populated-zero'), \
+             patch.object(seal,'failed_routine_unit_snapshot',return_value={**context,'ControlPID':'1'}), \
+             redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+            seal.failed_routine_service_empty(unit,context,seal.time.monotonic()+10)
+
+    def test_failed_custody_kernel_reader_does_not_turn_permissions_or_missing_events_into_absence(self):
+        group='/system.slice/system-fixture.slice/fixture@1.service'
+        directory=Namespace(st_uid=0,st_mode=seal.stat.S_IFDIR|0o755)
+        regular=Namespace(st_uid=0,st_mode=seal.stat.S_IFREG|0o644)
+        def info(fd):return regular if fd==14 else directory
+        def read_with(opens,raw=b'populated 0\nfrozen 0\n',metadata=info):
+            with patch.object(seal.os,'open',side_effect=opens),patch.object(seal.os,'fstat',side_effect=metadata), \
+                 patch.object(seal.os,'read',return_value=raw),patch.object(seal.os,'close'):
+                return seal.failed_routine_cgroup_empty(group,seal.time.monotonic()+10)
+        self.assertEqual(read_with([10,11,12,13,14]),'populated-zero')
+        self.assertEqual(read_with([10,11,12,FileNotFoundError(seal.errno.ENOENT,'gone')]),'absent')
+        for failure in [PermissionError(seal.errno.EACCES,'unreadable'),OSError(seal.errno.ELOOP,'symlink'),
+                        OSError(seal.errno.ENOTDIR,'not directory'),FileNotFoundError('unknown errno')]:
+            with self.subTest(failure=type(failure).__name__),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                read_with([10,11,12,failure])
+        with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+            read_with([10,11,12,13,FileNotFoundError(seal.errno.ENOENT,'missing events')])
+        for raw in [b'populated 1\n',b'populated 0\npopulated 0\n',b'populated 0 extra\n',b'',b'x'*1025]:
+            with self.subTest(raw=raw[:32]),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):read_with([10,11,12,13,14],raw)
+        for metadata in [lambda fd:Namespace(st_uid=1,st_mode=seal.stat.S_IFDIR|0o755),
+                         lambda fd:Namespace(st_uid=0,st_mode=seal.stat.S_IFDIR|0o777)]:
+            with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):read_with([10,11,12,13,14],metadata=metadata)
+        workflow=(ROOT/'.github/workflows/engine-build-resource-proof.yml').read_text()
+        self.assertIn('tests/operations/failed-routine-custody-systemd-fixture.py --require-linux',workflow)
+        fixture=(ROOT/'tests/operations/failed-routine-custody-systemd-fixture.py').read_text()
+        self.assertIn("route == 'unloaded-manager-cgroup-empty'",fixture)
+        self.assertIn('genuine_lookup_refusal(unit)',fixture)
+        spec=importlib.util.spec_from_file_location('failed_routine_cleanup',ROOT/'tests/operations/failed-routine-custody-systemd-fixture.py')
+        native=importlib.util.module_from_spec(spec);spec.loader.exec_module(native)
+        fixture_unit='failed-routine-fixture.slice';fixture_group=Path('/sys/fs/cgroup/system.slice')/fixture_unit
+        with patch.object(native,'fixture_manager_row',return_value=None) as manager, \
+             patch.object(native,'owned_group_state',return_value='absent'),patch.object(native,'run') as stop:
+            self.assertEqual(native.retire_fixture_unit(fixture_unit,fixture_group,(fixture_group,),(fixture_unit,)),'already-absent')
+            self.assertEqual(manager.call_count,2);stop.assert_not_called()
+        with patch.object(native,'fixture_manager_row',side_effect=PermissionError('unknown manager')), \
+             patch.object(native,'owned_group_state',return_value='absent'),patch.object(native,'run') as stop,self.assertRaises(PermissionError):
+            native.retire_fixture_unit(fixture_unit,fixture_group,(fixture_group,),(fixture_unit,))
+        stop.assert_not_called()
+        with patch.object(native,'fixture_manager_row',return_value={'activeState':'active','subState':'active'}), \
+             patch.object(native,'owned_group_state',return_value='empty'), \
+             patch.object(native,'run',side_effect=subprocess.CalledProcessError(1,['systemctl','stop',fixture_unit])),self.assertRaises(subprocess.CalledProcessError):
+            native.retire_fixture_unit(fixture_unit,fixture_group,(fixture_group,),(fixture_unit,))
 
 
 if __name__ == '__main__':

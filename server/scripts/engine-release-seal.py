@@ -16,6 +16,7 @@ sealed desired image without a token.
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import json
@@ -24,6 +25,7 @@ from pathlib import Path
 import re
 import secrets
 import selectors
+import shlex
 import stat
 import subprocess
 import sys
@@ -1660,6 +1662,13 @@ def validate_failed_routine_resolution(resolution: dict[str, Any], cycle: dict[s
     failed_routine_require(failed_routine_json(path) == resolution)
 
 
+class FailedRoutineProcessLookup(Exception):
+    """Bounded failed lookup, never an empty-process certificate."""
+    def __init__(self, status: int, stdout: bytes, stderr: bytes):
+        super().__init__('Native process lookup failed')
+        self.status, self.stdout, self.stderr = status, stdout, stderr
+
+
 def failed_routine_command(command: list[str], deadline: float, limit: int = 32768) -> str:
     deadline = min(deadline, time.monotonic() + 5)
     failed_routine_require(deadline > time.monotonic())
@@ -1667,7 +1676,7 @@ def failed_routine_command(command: list[str], deadline: float, limit: int = 327
     chunks = {False: bytearray(), True: bytearray()}
     try:
         child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'})
+                                 env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'LC_ALL': 'C', 'LANG': 'C'})
         with selectors.DefaultSelector() as selector:
             selector.register(child.stdout, selectors.EVENT_READ, False)
             selector.register(child.stderr, selectors.EVENT_READ, True)
@@ -1682,8 +1691,14 @@ def failed_routine_command(command: list[str], deadline: float, limit: int = 327
                     else:
                         chunks[key.data].extend(part)
                         failed_routine_require(len(chunks[key.data]) <= bound)
-        failed_routine_require(child.wait(timeout=max(.001, deadline - time.monotonic())) == 0 and
-                               time.monotonic() < deadline)
+        status = child.wait(timeout=max(.001, deadline - time.monotonic()))
+        failed_routine_require(time.monotonic() < deadline)
+        manager = ['busctl', '--system', '--timeout=1s', 'call', 'org.freedesktop.systemd1',
+                   '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager']
+        if status > 0 and len(command) == 10 and command[:7] == manager and command[7:9] in (
+                ['GetUnit', 's'], ['GetUnitProcesses', 's']):
+            raise FailedRoutineProcessLookup(status, bytes(chunks[False]), bytes(chunks[True]))
+        failed_routine_require(status == 0)
         return bytes(chunks[False]).decode('utf8').strip()
     except (OSError, UnicodeError, subprocess.SubprocessError):
         die('exact failed routine native proof failed or timed out')
@@ -1715,30 +1730,128 @@ def failed_routine_source_proof() -> dict[str, str]:
     return dict(FAILED_ROUTINE_SOURCES)
 
 
+def failed_routine_unit_snapshot(unit: str, deadline: float) -> dict[str, str]:
+    # The production caller below selects only its three original fixed units.
+    # A unique isolated systemd fixture uses this same read-only algorithm.
+    failed_routine_require(re.fullmatch(r'[A-Za-z0-9-]+@[1-9][0-9]*(?:-[1-9][0-9]*)?\.(?:service|path)', unit) is not None and len(unit) <= 255)
+    prefix, extension = unit.split('@', 1)[0], unit.rsplit('.', 1)[1]
+    properties = ['LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job', 'FragmentPath', 'DropInPaths']
+    if extension == 'service':
+        properties += ['MainPID', 'ControlPID', 'ControlGroup', 'Slice']
+    raw = failed_routine_command(['systemctl', 'show', unit, '--no-pager', '--all',
+                                 '--property=' + ','.join(properties)], deadline)
+    pairs = [line.split('=', 1) for line in raw.splitlines()]
+    failed_routine_require(all(len(row) == 2 for row in pairs) and len(pairs) == len(properties))
+    value = dict(pairs)
+    failed_routine_require(set(value) == set(properties) and value['LoadState'] in {'loaded', 'not-found'} and
+        value['ActiveState'] in {'inactive', 'failed'} and value['SubState'] in {'dead', 'failed'} and
+        value['UnitFileState'] in {'', 'disabled', 'static'} and value['Job'] in {'', '0'} and
+        value['DropInPaths'] == '' and value['FragmentPath'] == f'/etc/systemd/system/{prefix}@.{extension}')
+    if extension == 'service':
+        expected_slice = 'system-' + prefix.replace('-', r'\x2d') + '.slice'
+        expected_group = '/system.slice/' + expected_slice + '/' + unit
+        failed_routine_require(value['MainPID'] == value['ControlPID'] == '0' and
+            value['Slice'] == expected_slice and value['ControlGroup'] in {'', expected_group})
+    return value
+
+
+def failed_routine_service_group(unit: str, before: dict[str, str], deadline: float) -> str:
+    failed_routine_require(unit.endswith('.service') and re.fullmatch(r'[A-Za-z0-9-]+', unit.split('@', 1)[0]) is not None)
+    # Default template Slice is independently obtained from the native unit;
+    # no caller-supplied or guessed cgroup filesystem path is followed.
+    expected_slice = 'system-' + unit.split('@', 1)[0].replace('-', r'\x2d') + '.slice'
+    failed_routine_require(before['Slice'] == expected_slice)
+    root = failed_routine_command(['systemctl', 'show', '--all', '-p', 'ControlGroup', '--', '-.slice'], deadline, 256)
+    failed_routine_require(root == 'ControlGroup=/')
+    group = '/system.slice/' + expected_slice + '/' + unit
+    failed_routine_require(before['ControlGroup'] in {'', group})
+    return group
+
+
+def failed_routine_cgroup_empty(group: str, deadline: float) -> str:
+    """Read actual cgroup-v2 evidence via no-follow directory descriptors."""
+    failed_routine_require(group.startswith('/system.slice/') and len(group.split('/')) == 4 and
+        all(part not in {'.', '..', ''} for part in group.split('/')[1:]))
+    descriptors = []
+    try:
+        current = os.open('/sys/fs/cgroup', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        descriptors.append(current)
+        for part in group.split('/')[1:]:
+            failed_routine_require(time.monotonic() < deadline)
+            info = os.fstat(current)
+            failed_routine_require(info.st_uid == 0 and stat.S_ISDIR(info.st_mode) and not info.st_mode & 0o022)
+            try:
+                current = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
+            except FileNotFoundError as error:
+                failed_routine_require(error.errno == errno.ENOENT)
+                return 'absent'
+            descriptors.append(current)
+        info = os.fstat(current)
+        failed_routine_require(info.st_uid == 0 and stat.S_ISDIR(info.st_mode) and not info.st_mode & 0o022)
+        fd = os.open('cgroup.events', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=current)
+        descriptors.append(fd)
+        info = os.fstat(fd)
+        failed_routine_require(info.st_uid == 0 and stat.S_ISREG(info.st_mode))
+        raw = os.read(fd, 1025)
+        failed_routine_require(len(raw) <= 1024 and time.monotonic() < deadline)
+        rows = [line.split() for line in raw.decode('ascii').splitlines()]
+        failed_routine_require(all(len(row) == 2 and row[0] in {'populated', 'frozen'} and row[1] in {'0', '1'} for row in rows))
+        value = dict(rows)
+        failed_routine_require(len(value) == len(rows) and value.get('populated') == '0')
+        return 'populated-zero'
+    except (OSError, UnicodeError):
+        die('exact failed routine cgroup evidence is unreadable; original owner retained')
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+def failed_routine_manager_absent(unit: str, deadline: float) -> None:
+    raw = failed_routine_command(['busctl', '--system', '--timeout=1s', 'call', 'org.freedesktop.systemd1',
+        '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
+        'ListUnitsByPatterns', 'asas', '0', '1', unit], deadline, 4096)
+    failed_routine_require(raw.split() == ['a(ssssssouso)', '0'])
+
+
+def failed_routine_service_empty(unit: str, before: dict[str, str], deadline: float) -> str:
+    failed_routine_require(unit.endswith('.service') and before['MainPID'] == before['ControlPID'] == '0')
+    try:
+        resolved = shlex.split(failed_routine_command(['busctl', '--system', '--timeout=1s', 'call',
+            'org.freedesktop.systemd1', '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
+            'GetUnit', 's', unit], deadline, 4096))
+        failed_routine_require(len(resolved) == 2 and resolved[0] == 'o' and
+            re.fullmatch(r'/org/freedesktop/systemd1/unit/[A-Za-z0-9_]+', resolved[1]) is not None)
+        identity = ['busctl', '--system', '--timeout=1s', 'get-property', 'org.freedesktop.systemd1',
+                    resolved[1], 'org.freedesktop.systemd1.Unit', 'Id']
+        failed_routine_require(shlex.split(failed_routine_command(identity, deadline, 4096)) == ['s', unit])
+        processes = failed_routine_command(['busctl', '--system', '--timeout=1s', 'call',
+            'org.freedesktop.systemd1', '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
+            'GetUnitProcesses', 's', unit], deadline, 4096)
+        failed_routine_require(processes.split() == ['a(sus)', '0'])
+        failed_routine_require(shlex.split(failed_routine_command(identity, deadline, 4096)) == ['s', unit])
+        failed_routine_require(failed_routine_unit_snapshot(unit, deadline) == before)
+        return 'loaded-manager-empty'
+    except FailedRoutineProcessLookup as error:
+        # A known NoSuchUnit diagnostic merely selects an independent proof.
+        # Permission errors, failed parsing, bounded-read failures and every
+        # other refusal remain unknown. The error itself never proves empty.
+        failed_routine_require(error.status > 0 and error.stdout == b'' and
+            error.stderr.strip() == ('Call failed: Unit ' + unit + ' not loaded.').encode('ascii'))
+        group = failed_routine_service_group(unit, before, deadline)
+        failed_routine_manager_absent(unit, deadline)
+        failed_routine_cgroup_empty(group, deadline)
+        failed_routine_manager_absent(unit, deadline)
+        failed_routine_require(failed_routine_unit_snapshot(unit, deadline) == before)
+        return 'unloaded-manager-cgroup-empty'
+
+
 def failed_routine_native_proof(deadline: float) -> dict[str, Any]:
     units = {}
     for prefix, extension in (('release', 'service'), ('intake', 'service'), ('intake', 'path')):
         unit = f'club-arena-engine-{prefix}-v1@{FAILED_ROUTINE_RUN}.{extension}'
-        properties = ['LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job', 'FragmentPath', 'DropInPaths']
+        value = failed_routine_unit_snapshot(unit, deadline)
         if extension == 'service':
-            properties += ['MainPID', 'ControlPID', 'ControlGroup']
-        raw = failed_routine_command(['systemctl', 'show', unit, '--no-pager', '--all',
-                                      '--property=' + ','.join(properties)], deadline)
-        pairs = [line.split('=', 1) for line in raw.splitlines()]
-        failed_routine_require(all(len(row) == 2 for row in pairs) and len(pairs) == len(properties))
-        value = dict(pairs)
-        failed_routine_require(set(value) == set(properties) and value['LoadState'] in {'loaded', 'not-found'} and
-            value['ActiveState'] in {'inactive', 'failed'} and value['SubState'] in {'dead', 'failed'} and
-            value['UnitFileState'] in {'', 'disabled', 'static'} and value['Job'] in {'', '0'} and
-            value['DropInPaths'] == '' and value['FragmentPath'] ==
-            f'/etc/systemd/system/club-arena-engine-{prefix}-v1@.{extension}')
-        if extension == 'service':
-            failed_routine_require(value['MainPID'] == value['ControlPID'] == '0' and
-                                   value['ControlGroup'] in {'', '/system.slice/' + unit})
-            processes = failed_routine_command(['busctl', '--system', '--timeout=1s', 'call',
-                'org.freedesktop.systemd1', '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
-                'GetUnitProcesses', 's', unit], deadline, 4096)
-            failed_routine_require(processes.split() == ['a(sus)', '0'])
+            failed_routine_service_empty(unit, value, deadline)
         require_absent(Path('/etc/systemd/system/multi-user.target.wants') / unit)
         require_absent(Path('/etc/systemd/system/paths.target.wants') / unit)
         units[unit] = value
@@ -1785,7 +1898,9 @@ def failed_routine_history(failure: dict[str, Any], deadline: float) -> dict[str
                               stamp < (FAILED_ROUTINE_START - 120) * 1000000)
     except (ValueError, TypeError, KeyError):
         die('exact failed routine native refusal is unreadable')
-    return {'journalDigest': hashlib.sha256(raw.encode()).hexdigest(), 'atMicros': stamp}
+    # The journal's JSON key order is serialization, not a changed native fact.
+    # Preserve every validated metadata field in the canonical recheck digest.
+    return {'journalDigest': failed_routine_digest(row), 'atMicros': stamp}
 
 
 def failed_routine_current(args: argparse.Namespace, deadline: float) -> dict[str, Any]:
