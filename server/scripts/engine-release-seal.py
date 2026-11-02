@@ -2953,6 +2953,7 @@ def parser() -> argparse.ArgumentParser:
     resolve_failed.add_argument('--invocation-id', required=True)
     resolve_failed.set_defaults(handler=cmd_resolve_failed_routine)
     resolve_terminal = commands.add_parser('resolve-terminal-routine-failures')
+    resolve_terminal.add_argument('--repo', default='/opt/club-arena')
     resolve_terminal.add_argument('--engine-lock-fd', type=int, required=True)
     resolve_terminal.add_argument('--run-id', required=True)
     resolve_terminal.add_argument('--sha', required=True)

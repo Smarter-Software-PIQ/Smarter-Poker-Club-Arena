@@ -575,8 +575,11 @@ class CancelledAnnouncementOwner(unittest.TestCase):
 
     def resolve(self):
         with patch.object(seal.os, 'geteuid', return_value=0), redirect_stdout(io.StringIO()) as out:
-            seal.cmd_resolve_terminal_routine_failures(Namespace(repo='/qualified/repo', engine_lock_fd=9,
-                run_id=LIVE_RUN, sha=TARGET_SHA, control_sha=CONTROL_SHA, invocation_id=INVOCATION))
+            args = seal.parser().parse_args(['resolve-terminal-routine-failures', '--engine-lock-fd', '9',
+                '--run-id', LIVE_RUN, '--sha', TARGET_SHA, '--control-sha', CONTROL_SHA,
+                '--invocation-id', INVOCATION])
+            self.assertEqual(args.repo, '/opt/club-arena')
+            args.handler(args)
         return out.getvalue().strip()
 
     def test_cancellation_resolves_without_fabricating_a_failure_and_replays(self):
