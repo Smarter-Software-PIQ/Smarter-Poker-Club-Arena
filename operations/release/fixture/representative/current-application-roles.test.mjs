@@ -165,7 +165,8 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     postgresExtensionOwnerBeginSql, postgresExtensionOwnerEndSql,
     legacyDblinkAclInstallSql, legacyDblinkAclObservationSql } =
     await import('../current-application-roles.mjs');
-  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl', 'legacy-acl']) {
+  const { graphqlLegacyAclInstallSql, graphqlLegacyAclObservationSql } = await import('../graphql-legacy-acl.mjs');
+  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl', 'legacy-acl', 'graphql-acl']) {
     const installed = structuredClone(
       currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
     );
@@ -175,6 +176,8 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     let temporaryOwnerCreates = 0;
     let applicationDdl = 0;
     let backendPid = 200;
+    let graphqlInstallerPid;
+    let graphqlInstalls = 0;
     class Client {
       constructor(options) {
         this.options = options;
@@ -184,6 +187,19 @@ test('native extension installer uses actual owning sessions and refuses wrong v
       }
       async connect() {}
       async query(sql) {
+        if (sql === graphqlLegacyAclInstallSql) {
+          assert.equal(installed.length, 2);
+          assert.equal(this.owner, 'supabase_admin');
+          assert.equal(this.transaction, true);
+          graphqlInstallerPid = this.processID; graphqlInstalls++;
+        }
+        if (sql === graphqlLegacyAclObservationSql) {
+          assert.notEqual(this.processID, graphqlInstallerPid);
+          assert.equal(installed.length, 13);
+          return {rows:[{graphql_legacy_acl_exact: drift !== 'graphql-acl'}]};
+        }
+        if (sql.startsWith('BEGIN;')) this.transaction = true;
+        if (sql === 'COMMIT' || sql === 'ROLLBACK') this.transaction = false;
         if (sql === legacyDblinkAclInstallSql) {
           assert.equal(installed.find((item) => item.name === 'dblink')?.owner, 'supabase_admin');
           assert.ok(sql.includes('REVOKE GRANT OPTION FOR EXECUTE'));
@@ -251,12 +267,14 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     };
     if (drift) await assert.rejects(installCurrentApplicationExtensions(args), error => {
       if (drift === 'legacy-acl') return error.message === 'FIXTURE_ASSERT_LEGACY_DBLINK_POSTIMAGE';
+      if (drift === 'graphql-acl') return error.message === 'FIXTURE_ASSERT_GRAPHQL_LEGACY_ACL_POSTIMAGE';
       assert.deepEqual(nativeFailureDiagnostic('fixture-preimage-current-application-role-extension',error),
         {status:'failed',stage:'fixture-preimage-current-application-role-extension',error:'AssertionError',
          assertion_site:drift==='namespace-acl'?'EXTENSION_NAMESPACE_POSTIMAGE':'EXTENSION_POSTIMAGE'});
       return true;
     });
     else assert.equal((await installCurrentApplicationExtensions(args)).installed, 13);
+    assert.equal(graphqlInstalls, 1);
     assert.equal(statements.length, 11);
     assert.equal(namespaceCreates, 1);
     assert.equal(temporaryOwnerCreates, 1);

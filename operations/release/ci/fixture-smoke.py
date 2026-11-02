@@ -13,7 +13,7 @@ import uuid
 import importlib.util
 import time
 
-FILES = ('Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
+FILES = ('graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
          'runtime-files.mjs', 'gateway.mjs', 'auth-fixture.mjs', 'auth-bootstrap-proof.mjs',
          'service-role-boundary.mjs', 'realtime-control-plane.mjs', 'realtime-legacy-relations.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
          'seed-fixture.mjs', 'native-smoke.mjs', 'observation-bridge.mjs', 'build-image.sh', 'smoke-image.sh')
