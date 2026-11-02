@@ -66,7 +66,7 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
         const rect = await button.boundingBox();
         expect(rect!.height).toBeGreaterThanOrEqual(44);
         expect(rect!.width).toBeGreaterThanOrEqual(140);
-        expect(rect!.width / rect!.height).toBeCloseTo(2.4, 2);
+        expect(rect!.width / rect!.height).toBeCloseTo(1566 / 672, 2);
         const paint = await button.evaluate((el) => {
           const box = el.getBoundingClientRect();
           const art = getComputedStyle(el, '::before');

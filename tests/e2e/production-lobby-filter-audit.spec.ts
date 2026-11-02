@@ -866,7 +866,7 @@ async function assertLobbyControlsInsidePaint(page: Page) {
   expect(families).toHaveLength(2);
   expect(Math.abs(families[0].top - families[1].top)).toBeLessThan(1);
   expect(families[1].left).toBeGreaterThan(families[0].left + families[0].width);
-  for (const family of families) expect(family.width / family.height).toBeCloseTo(2.4, 2);
+  for (const family of families) expect(family.width / family.height).toBeCloseTo(1566 / 672, 2);
   if (await page.evaluate(() => innerWidth === 393)) {
     const reference = await page
       .locator('.lobby-top__main > .lobby-top__identity, .lobby-top__main > .lobby-bbj')
@@ -900,7 +900,7 @@ async function assertLobbyControlsInsidePaint(page: Page) {
             buttons.flatMap((button) => {
               const family = button.classList.contains('lobby-game-sections__button');
               const box = button.getBoundingClientRect();
-              const ratio = family ? 2.4 : 3;
+              const ratio = family ? 1566 / 672 : 3;
               const width = Math.min(box.width, box.height * ratio);
               const height = width / ratio;
               const left = box.left + (box.width - width) / 2;
