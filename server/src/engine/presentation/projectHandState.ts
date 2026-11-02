@@ -331,6 +331,18 @@ export function projectLiveHandState(
         ctx.blindSeats ?? null
       );
       const reveal = ctx.reveal;
+      let showdownHandNameByUser: Map<string, string> | null = null;
+      if (
+        (state.stage === 'showdown' || reveal.runoutRevealActive) &&
+        ctx.showdownResults.length > 0
+      ) {
+        showdownHandNameByUser = new Map<string, string>();
+        for (const r of ctx.showdownResults) {
+          if (!showdownHandNameByUser.has(r.userId)) {
+            showdownHandNameByUser.set(r.userId, r.handName ?? '');
+          }
+        }
+      }
       return (state.players ?? []).map((p) => {
         // SHOWDOWN SYSTEM 2026-08-25: a hand mucked at showdown stays private.
         const muckedHere = reveal.isMuckedAtShowdown(p.user_id);
@@ -365,9 +377,7 @@ export function projectLiveHandState(
           ...ctx.seats.seatContinuity(p),
           is_waiting_for_bb: ctx.waitingForBB.has(p.user_id),
           is_mucked: state.stage === 'showdown' && !p.is_folded && muckedHere,
-          hand_name: showCards
-            ? (ctx.showdownResults.find((r) => r.userId === p.user_id)?.handName ?? '')
-            : '',
+          hand_name: showCards ? (showdownHandNameByUser?.get(p.user_id) ?? '') : '',
         };
       });
     })(),

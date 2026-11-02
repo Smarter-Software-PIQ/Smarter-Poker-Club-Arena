@@ -7040,6 +7040,12 @@ export class HorseLogic {
       })(),
       rand: fastRandom,
     });
+    // V74 / V76 receipts reported by the preflop engine (no action change).
+    if (telemetryOn(opts)) {
+      if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
+      else if (intent.receipt === 'v76_retired_four_bet_bluff')
+        noteFire('v76_retired_four_bet_bluff');
+    }
     notePhase6Route(
       phase6?.policy.fallbackReason === 'unsupported_variant' ? 'variant_fallback' : 'atlas',
       'intent_engine'

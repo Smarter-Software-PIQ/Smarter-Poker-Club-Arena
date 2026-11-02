@@ -923,7 +923,25 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
       '/opt/qualification/controls/operations/release/native/schema-restore-plan.mjs'
     );
     const originalSchema = await readFile(schemaRoot + '/schema.sql', 'utf8');
-    const restorePlan = renderSchemaRestorePlan(originalSchema);
+    // Full captured inputs carry the original password-free role catalogue.
+    // Validate it before the temporary restore role or any default reset exists.
+    let originalRoles;
+    try {
+      const roleBytes = await readFile('/inputs/role-catalogue.json','utf8');
+      assert.ok(Buffer.byteLength(roleBytes) <= 32*1024*1024);
+      originalRoles = JSON.parse(roleBytes);
+      assert.equal(originalRoles.scope,'password-free-role-catalogue');
+      assert.equal(originalRoles.contains_passwords_or_user_rows,false);
+      const {captureRoleCatalogue} = await import('/opt/qualification/controls/operations/release/fixture/schema-snapshot.mjs');
+      const ordered = value => Array.isArray(value) ? value.map(ordered) : value && typeof value === 'object'
+        ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,ordered(value[key])])) : value;
+      assert.deepEqual(ordered(await captureRoleCatalogue(db)),ordered(originalRoles));
+    } catch (error) {
+      // Legacy minimal fixtures without sequence DEFAULT ACLs need no metadata;
+      // the source planner refuses an absent catalogue whenever such blocks exist.
+      if (error.code !== 'ENOENT') throw error;
+    }
+    const restorePlan = renderSchemaRestorePlan(originalSchema,{roleCatalogue:originalRoles});
     // Preserve the exact extracted source separately; the input ZIP never changes.
     // Only fixed role contexts surround unchanged original object bytes.
     await writeFile(schemaRoot + '/source-schema.sql', originalSchema, { flag: 'wx', mode: 0o400 });

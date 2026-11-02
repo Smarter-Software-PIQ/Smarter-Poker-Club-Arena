@@ -23,6 +23,117 @@ STAMP = '2026-09-27T00:00:00.123456789Z '
 
 
 class NativeLogReader(unittest.TestCase):
+    def test_stopped_container_retains_exit_evidence_without_proc_reads(self):
+        import shlex
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            docker = directory/'docker'
+            state = {'Pid': 0, 'Running': False, 'OOMKilled': True, 'ExitCode': 137,
+                     'StartedAt': '2026-11-02T14:00:00Z', 'FinishedAt': '2026-11-02T14:43:00Z'}
+            docker.write_text('#!/bin/sh\n[ "$1" = inspect ] && [ "$2" = --format ] && [ "$4" = club-arena-engine ] || exit 1\nprintf "%s\\n" '+shlex.quote(json.dumps({'Id': 'a'*64, 'State': state}))+'\n')
+            docker.chmod(0o700)
+            result = subprocess.run([sys.executable, '-c', reader.CORE_CAPTURE_COMMAND],
+                                    env={**os.environ, 'PATH': str(directory)+':/usr/bin:/bin'},
+                                    capture_output=True, text=True, timeout=4)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {'Id': 'a'*64, 'State': state, 'CoreCapture': None})
+
+    def test_real_http_outage_is_redacted_and_malformed_identity_is_unknown(self):
+        import http.server
+        import threading
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(502)
+                self.end_headers()
+                self.wfile.write(b'PRIVATE upstream details')
+            def log_message(self, *args):
+                pass
+        server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = reader.incident_health('http://127.0.0.1:'+str(server.server_port))
+            self.assertEqual(result['status'], 'unavailable')
+            self.assertIsNone(result['identity'])
+            self.assertNotIn('PRIVATE', json.dumps(result))
+        finally:
+            server.shutdown()
+            thread.join(timeout=1)
+            server.server_close()
+        for body in [[], {'version': 123, 'instanceId': 'fixture'}, {'version': 'abcdef01', 'instanceId': []}]:
+            response = Mock()
+            response.status = 200
+            response.read.return_value = json.dumps(body).encode()
+            context = Mock()
+            context.__enter__ = Mock(return_value=response)
+            context.__exit__ = Mock(return_value=False)
+            with patch.object(reader.urllib.request, 'build_opener', return_value=Mock(open=Mock(return_value=context))):
+                self.assertEqual(reader.incident_health()['status'], 'unavailable')
+
+    def test_broken_http_framing_is_unavailable_and_ordinary_reads_still_refuse(self):
+        import http.client
+        import http.server
+        import threading
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Transfer-Encoding', 'chunked')
+                self.end_headers()
+                self.wfile.write(b'PRIVATE-invalid-chunk-size\r\n')
+            def log_message(self, *args):
+                pass
+        server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            origin = 'http://127.0.0.1:'+str(server.server_port)
+            with self.assertRaises(http.client.IncompleteRead):
+                reader.health(origin)
+            result = reader.incident_health(origin)
+            self.assertEqual(result['status'], 'unavailable')
+            self.assertIsNone(result['identity'])
+            self.assertEqual(result['failure']['category'], 'io_unavailable')
+            self.assertNotIn('PRIVATE', json.dumps(result))
+        finally:
+            server.shutdown()
+            thread.join(timeout=1)
+            server.server_close()
+
+    def test_restart_incident_collects_during_health_outage(self):
+        import base64
+        import io
+        now = datetime.datetime.now(datetime.timezone.utc)
+        request = {'scopes': SCOPES, 'windowStart': (now-datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                   'restartIncident': True}
+        encoded = base64.b64encode(json.dumps(request).encode()).decode()
+        evidence = {'sources': {'kernel': {'status': 'observed', 'records': []}}}
+        with patch.object(sys, 'argv', ['reader', '--remote', encoded]), \
+             patch.object(reader, 'health', side_effect=reader.http.client.BadStatusLine('PRIVATE health failed')), \
+             patch.object(reader, 'capture', side_effect=OSError('PRIVATE container unavailable')), \
+             patch.object(reader, 'archived_window', return_value=([], {'status': 'unavailable'})), \
+             patch.object(reader, 'read_restart_incident', return_value=evidence) as host_read, \
+             patch('sys.stdout', new_callable=io.StringIO) as output:
+            reader.main()
+        result = json.loads(output.getvalue())
+        host_read.assert_called_once()
+        self.assertIsNone(result['hostEngineBefore'])
+        self.assertIsNone(result['hostEngineAfter'])
+        self.assertEqual(result['restartIncident'], evidence)
+        self.assertEqual(result['incidentAvailability']['currentLogs']['status'], 'unavailable')
+        self.assertEqual(result['incidentAvailability']['healthBefore']['status'], 'unavailable')
+        self.assertNotIn('PRIVATE', output.getvalue())
+
+    def test_ordinary_observation_still_refuses_health_outage(self):
+        import base64
+        request = {'scopes': SCOPES, 'windowStart': None}
+        encoded = base64.b64encode(json.dumps(request).encode()).decode()
+        with patch.object(sys, 'argv', ['reader', '--remote', encoded]), \
+             patch.object(reader, 'health', side_effect=OSError('offline')), \
+             patch.object(reader, 'capture') as capture:
+            with self.assertRaises(OSError):
+                reader.main()
+        capture.assert_not_called()
+
     def test_original_ten_incident_is_exact_expiring_and_exclusive(self):
         import copy
         now = datetime.datetime(2026, 11, 1, tzinfo=datetime.timezone.utc)
@@ -1592,7 +1703,7 @@ class NativeLogReader(unittest.TestCase):
 
     def test_transport_admission_ephemeral_permissions_and_failure_cleanup(self):
         original_run = subprocess.run
-        for fail in ['none', 'transport', 'identity', 'host_identity', 'window', 'mux', 'missing_mux', 'extra_mux', 'lease', 'missing_lease', 'extra_lease', 'historical', 'missing_historical', 'extra_historical', 'historical_logs']:
+        for fail in ['none', 'transport', 'identity', 'host_identity', 'window', 'mux', 'missing_mux', 'extra_mux', 'lease', 'missing_lease', 'extra_lease', 'historical', 'missing_historical', 'extra_historical', 'historical_logs', 'restart_outage', 'restart_changed']:
             with self.subTest(fail=fail), tempfile.TemporaryDirectory() as name:
                 directory = Path(name)
                 generated = directory/'fixture_key'
@@ -1601,15 +1712,18 @@ class NativeLogReader(unittest.TestCase):
                 pin = 'fixture.example '+(directory/'fixture_key.pub').read_text()
                 event = directory/'event.json'
                 payload = {'tournament_log_observation': SCOPES}
+                restart = fail in ['restart_outage', 'restart_changed']
                 mux = fail in ['mux', 'missing_mux']
                 historical = fail in ['historical', 'missing_historical', 'historical_logs']
                 lease = fail in ['lease', 'missing_lease'] or historical
-                start = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ') if mux or lease else None
+                start = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ') if mux or lease or restart else None
                 if historical:
                     start = (datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=4)).strftime('%Y-%m-%dT%H:%M:%SZ')
                 window = reader.completed_window(start, reader.MAX_METRICS_WINDOW_AGE) if historical else reader.log_window(start)
                 if historical:
                     payload['leaseHistoricalMetricsOnly'] = True
+                if restart:
+                    payload.update(tournament_log_window_start=start, restartIncident=True)
                 if mux:
                     payload.update(tournament_log_window_start=start, mux_subscription_timing=True)
                 if lease:
@@ -1630,15 +1744,17 @@ class NativeLogReader(unittest.TestCase):
                     self.assertIn('IdentitiesOnly=yes', args)
                     self.assertIn(f'ConnectTimeout={reader.CONNECT_TIMEOUT}', args)
                     self.assertGreater(kwargs['timeout'], 2 * reader.HEALTH_TIMEOUT + reader.CAPTURE_TIMEOUT + reader.CONNECT_TIMEOUT)
-                    self.assertEqual(kwargs['timeout'], 60 if lease else 55)
+                    self.assertEqual(kwargs['timeout'], 75 if restart else 60 if lease else 55)
                     self.assertEqual(args[-2], 'root@fixture.example')
                     self.assertRegex(args[-1], r"^python3 - --remote '[A-Za-z0-9+/=]+'$")
                     self.assertEqual(kwargs['input'], (ROOT/'scripts/ci/read-scoped-runtime-errors.py').read_bytes())
                     import base64
                     request = json.loads(base64.b64decode(args[-1].split("'")[1]))
-                    self.assertEqual(request, {'scopes': SCOPES, 'windowStart': start, **({'muxTiming': True} if mux else {}), **({'leaseIncidentMetrics': True} if lease else {}), **({'leaseHistoricalMetricsOnly': True} if historical else {})})
+                    self.assertEqual(request, {'scopes': SCOPES, 'windowStart': start, **({'muxTiming': True} if mux else {}), **({'leaseIncidentMetrics': True} if lease else {}), **({'leaseHistoricalMetricsOnly': True} if historical else {}), **({'restartIncident': True} if restart else {})})
                     host = {**identity, 'instanceId': 'other-host'} if fail == 'host_identity' else identity
                     output = {'schema': 'scoped-runtime-errors/v1', 'readOnly': True, 'window': reader.observation_window_description(window, historical), 'hostEngineBefore': host, 'hostEngineAfter': host, **reader.extract(b'', SCOPES)}
+                    if restart:
+                        output.update(restartIncident={'sources': {}}, incidentAvailability={})
                     if fail in ['mux', 'extra_mux']:
                         output['muxSubscriptionTimings'] = reader.extract_mux_timings(self.mux_line(self.mux_record()).encode())
                     if historical:
@@ -1657,9 +1773,10 @@ class NativeLogReader(unittest.TestCase):
                 try:
                     os.chdir(directory)
                     env = {'GITHUB_EVENT_NAME': 'repository_dispatch', 'GITHUB_EVENT_PATH': str(event), 'RUNNER_TEMP': str(directory), 'HETZNER_HOST': 'fixture.example', 'HETZNER_SSH_PRIVATE_KEY': private, 'HETZNER_HOST_KEY': pin}
-                    after = {**identity, 'instanceId': '2-changed'} if fail == 'identity' else identity
-                    with patch.dict(os.environ, env), patch.object(sys, 'argv', [str(ROOT/'scripts/ci/read-scoped-runtime-errors.py')]), patch.object(reader, 'health', side_effect=[identity, after]), patch.object(subprocess, 'run', side_effect=transport):
-                        if fail in ['none', 'mux', 'lease', 'historical']:
+                    after = {**identity, 'instanceId': '2-changed'} if fail in ['identity', 'restart_changed'] else identity
+                    readings = [OSError('PRIVATE outage'), OSError('PRIVATE outage')] if fail == 'restart_outage' else [identity, after]
+                    with patch.dict(os.environ, env), patch.object(sys, 'argv', [str(ROOT/'scripts/ci/read-scoped-runtime-errors.py')]), patch.object(reader, 'health', side_effect=readings), patch.object(subprocess, 'run', side_effect=transport):
+                        if fail in ['none', 'mux', 'lease', 'historical', 'restart_outage', 'restart_changed']:
                             reader.main()
                         else:
                             with self.assertRaises(RuntimeError):
@@ -1667,11 +1784,15 @@ class NativeLogReader(unittest.TestCase):
                     self.assertEqual(len(calls), 1)
                     self.assertFalse(list(directory.glob('scoped-engine-read-*')))
                     output = directory/'artifacts/scoped-runtime-errors/observation.json'
-                    self.assertEqual(output.exists(), fail in ['none', 'mux', 'lease', 'historical'])
+                    self.assertEqual(output.exists(), fail in ['none', 'mux', 'lease', 'historical', 'restart_outage', 'restart_changed'])
                     if output.exists():
                         saved = json.loads(output.read_text())
                         self.assertEqual('muxSubscriptionTimings' in saved, mux)
                         self.assertEqual('leaseIncidentMetrics' in saved, lease)
+                        if restart:
+                            self.assertEqual(saved['identityContinuity'], 'unproven' if fail == 'restart_outage' else 'changed_or_different')
+                            self.assertNotIn('PRIVATE', output.read_text())
+                            self.assertEqual(saved['hostAuthentication'], 'configured_pinned_ssh_host')
                         if mux:
                             self.assertEqual(saved['muxSubscriptionTimings']['matchingRecords'], 1)
                         self.assertNotIn(private, output.read_text())

@@ -1,0 +1,3 @@
+# tests/a-horse-belongs-to-one-assigned-club.law.test.ts
+
+Owner order 2026-11-02: every canonical horse belongs to exactly one assigned club (500 Deep Stack Society, 500 The Felt Society, none in KINGS CLUB). The law pins the fixed manifest and its sha256, the enforcement inside the three existing admission trigger bodies (membership, live seat with its wallet club, tournament entry, rejoin), union routing that may only fund a horse from its assigned club, the split operation's preconditions (week paid, fleet off, no seats, custody, cashouts, escrow or tickets), its duplicate protection and records-retained departures, and that Kings Club's display addition is labelled separately instead of blended into real counts.

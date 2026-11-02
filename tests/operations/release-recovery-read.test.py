@@ -2859,6 +2859,37 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
             self.assertEqual(before, {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
                                      for p in root.rglob('*') if p.is_file()})
 
+    def test_aggregate_history_exceeds_one_receipt_without_exporting_private_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); state, cycle, _ = self.fixture(root)
+            state['retained_private_history'] = 'NEVER-EXPORT-' * 6000
+            path = root / 'engine-release-seal.json'
+            self.write(path, state)
+            before = path.read_bytes()
+            self.assertGreater(len(before), 65536)
+            answer = self.read(root)
+            self.assertEqual(answer['sealSha256'], hashlib.sha256(before).hexdigest())
+            self.assertEqual(answer['owners'][0]['runId'], cycle['runId'])
+            self.assertNotIn('NEVER-EXPORT', json.dumps(answer))
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_aggregate_bound_does_not_widen_individual_receipts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); state, cycle, result = self.fixture(root)
+            path = root / 'engine-release-seal.json'
+            raw = path.read_bytes()
+            path.write_bytes(raw + b' ' * (R.ROUTINE_SEAL_MAX_BYTES - len(raw)))
+            answer = self.read(root)
+            self.assertEqual(answer['sealSha256'], hashlib.sha256(path.read_bytes()).hexdigest())
+            with path.open('ab') as stream: stream.write(b' ')
+            with self.assertRaises(R.ScopedRefusal) as caught: self.read(root)
+            self.assertEqual((caught.exception.phase,caught.exception.code),('routine_seal_read','file_size'))
+            self.write(path, state)
+            result['private_capsule'] = 'x' * 65536
+            self.write(root / 'engine-release-results' / (cycle['runId'] + '.json'), result)
+            with self.assertRaises(R.ScopedRefusal) as caught: self.read(root)
+            self.assertEqual((caught.exception.phase,caught.exception.code),('routine_results','file_size'))
+
     def resolution_fixture(self, root):
         state, cycle, result = self.fixture(root)
         cycle['policyDigest'] = '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578'

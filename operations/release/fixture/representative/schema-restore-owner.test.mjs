@@ -9,6 +9,7 @@ const {
 } = owner;
 test('one fixed fresh-administrator psql child owns all three commands in one transaction', () => {
   assert.deepEqual(Object.keys(owner).sort(), [
+    'renderSequenceDefaultAclOrderSql',
     'schemaRestoreOwnerBeginSql',
     'schemaRestoreOwnerEndSql',
     'schemaRestoreOwnerEnvironment',

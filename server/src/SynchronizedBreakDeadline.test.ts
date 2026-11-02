@@ -659,3 +659,69 @@ describe('The tournament break ends with the maintenance break', () => {
     );
   });
 });
+
+/*
+ * A RESTART AT THE :55 MARK DOES NOT SKIP THE BREAK (2026-11-02).
+ *
+ * The engine restarted at 05:54:50 UTC. Its :55 trigger fired before discovery
+ * had adopted any tournament, returned without opening the window, and every
+ * tournament adopted seconds later dealt straight through the hour's break.
+ */
+describe('Synchronized Break After A Restart', () => {
+  it('opens the window with no tournament adopted yet, and holds one adopted inside it', async () => {
+    const owner = server([]);
+    owner.breakCountdownStarted = false;
+    await owner.triggerSynchronizedBreak();
+    expect(owner.breakEndsAt).toBeGreaterThan(Date.now());
+    expect(owner.remainingBreakMs()).toBeGreaterThan(1000);
+
+    const adopted = manager('adopted-after-trigger');
+    adopted.onBreak = false;
+    owner.tournamentEngines.set(adopted.tournamentId, adopted);
+    persistence();
+    await owner.holdIfBreakIsRunning(adopted);
+    expect(adopted.pauseForBreak).toHaveBeenCalledOnce();
+    expect(owner.waitForAllTablesParked).toHaveBeenCalledWith([adopted]);
+  });
+
+  it('closes an empty window at the top of the hour', async () => {
+    vi.setSystemTime(new Date('2026-09-10T12:55:10.000Z'));
+    const owner = server([]);
+    owner.breakCountdownStarted = false;
+    await owner.triggerSynchronizedBreak();
+    expect(owner.remainingBreakMs()).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(Date.parse('2026-09-10T13:00:00.000Z') - Date.now());
+    expect(owner.breakEndsAt).toBe(0);
+    expect(owner.remainingBreakMs()).toBe(0);
+  });
+
+  it('never gives a tournament adopted mid-break a second break', async () => {
+    const restored = manager('restored-on-break');
+    restored.onBreak = true;
+    restored.synchronizedBreakEndsAtMs = Date.now() + 200_000;
+    const owner = server([restored]);
+    owner.breakCountdownStarted = false;
+    await owner.triggerSynchronizedBreak();
+    expect(restored.pauseForBreak).not.toHaveBeenCalled();
+    expect(owner.waitForAllTablesParked).not.toHaveBeenCalled();
+    await owner.holdIfBreakIsRunning(restored);
+    expect(restored.pauseForBreak).not.toHaveBeenCalled();
+  });
+
+  it('a process that starts inside :55-:00 takes this hour break; one that starts earlier does not', () => {
+    const inside = Object.assign(server([]), {
+      triggerSynchronizedBreak: vi.fn().mockResolvedValue(undefined),
+    });
+    vi.setSystemTime(new Date('2026-09-10T12:56:30.000Z'));
+    inside.catchUpSynchronizedBreakAtBoot();
+    expect(inside.triggerSynchronizedBreak).toHaveBeenCalledOnce();
+    expect(inside.launchServerLifecycleJob).toHaveBeenCalledOnce();
+
+    const before = Object.assign(server([]), {
+      triggerSynchronizedBreak: vi.fn().mockResolvedValue(undefined),
+    });
+    vi.setSystemTime(new Date('2026-09-10T12:54:59.000Z'));
+    before.catchUpSynchronizedBreakAtBoot();
+    expect(before.triggerSynchronizedBreak).not.toHaveBeenCalled();
+  });
+});

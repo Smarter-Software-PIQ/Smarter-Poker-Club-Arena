@@ -3811,6 +3811,21 @@ export abstract class TournamentManagerBase {
   }
 
   /**
+   * A BREAK THIS MANAGER IS ALREADY RUNNING TO ITS OWN END (2026-11-02).
+   *
+   * A manager adopted mid-break (resume() with on_break true) re-pauses its
+   * tables, fixes synchronizedBreakEndsAtMs from the row and arms its own
+   * resume. The server must not hand it to a second break of the same hour:
+   * runTournamentBreak would stamp a fresh five minutes on top and the event
+   * would sit out longer than everyone else. A tournament merely announced
+   * for the last hand has no end yet (synchronizedBreakEndsAtMs is 0), so it
+   * still takes its break.
+   */
+  hasOwnRunningBreak(): boolean {
+    return this.onBreak && this.synchronizedBreakEndsAtMs > Date.now();
+  }
+
+  /**
    * Which deliberate authority of this manager is holding dealing on purpose
    * right now, inside that authority's own bound, or null (2026-10-12).
    *

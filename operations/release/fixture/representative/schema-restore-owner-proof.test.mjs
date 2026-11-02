@@ -17,7 +17,7 @@ test('rollback-only owner qualification invokes fixed genuine psql route and bot
  assert.ok(args.includes('supabase_admin')&&args.includes('/run/postgresql')&&args.includes('club_arena_qualification'));
  assert.ok(!args.includes('--single-transaction')&&!args.includes('-f'));
  assert.equal(args.filter(x=>x==='-c').length,1);
- const sql=args.at(-1);assert.ok(sql.startsWith('BEGIN;\n'+schemaRestoreOwnerBeginSql));
+ const sql=args.at(-1);assert.ok(Buffer.byteLength(sql,'utf8')+1<131072,'actual Linux argv includes terminating NUL');assert.ok(sql.startsWith('BEGIN;\n'+schemaRestoreOwnerBeginSql));
  assert.ok(sql.includes(schemaRestoreOwnerEndSql+'\nROLLBACK;'));
  assert.match(sql,/LOAD 'supautils';\nSET LOCAL ROLE postgres;\nCREATE EVENT TRIGGER fixture_restore_pg_event/);
  assert.match(sql,/ALTER EVENT TRIGGER fixture_restore_pg_event OWNER TO postgres;\nSET LOCAL ROLE fixture_schema_restore_owner;\nCREATE EVENT TRIGGER fixture_restore_admin_event/);

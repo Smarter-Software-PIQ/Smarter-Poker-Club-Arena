@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import {schemaRestoreOwnerBeginSql,schemaRestoreOwnerEndSql,schemaRestorePsqlArguments,schemaRestoreOwnerEnvironment} from './schema-restore-owner.mjs';
+import {readFileSync} from 'node:fs';
+import {extendedRolePreimage} from './current-application-roles.mjs';
+import {schemaRestoreOwnerBeginSql,schemaRestoreOwnerEndSql,schemaRestorePsqlArguments,schemaRestoreOwnerEnvironment,renderSequenceDefaultAclOrderSql} from './schema-restore-owner.mjs';
 
 // An isolated rollback-only qualification of the actual managed library route.
 // Real restoration retains the owner's full single-transaction file arguments.
@@ -34,6 +36,59 @@ const snapshotSql=`SELECT current_database()='club_arena_qualification' AND inet
  'library_extensions',current_setting('supautils.privileged_extensions'),
  'library_reserved_roles',current_setting('supautils.reserved_roles'),
  'library_reserved_memberships',current_setting('supautils.reserved_memberships'))::text) AS catalogue_sha256`;
+// Source-bound captured role template, not the native observed catalogue.
+const defaultRoleTemplate=extendedRolePreimage(JSON.parse(readFileSync(new URL('./role-alignment-aligned.json',import.meta.url),'utf8')));
+const sourceSequenceRows=defaultRoleTemplate.default_acl.filter(row=>row.type==='S');
+const sequenceOrder=renderSequenceDefaultAclOrderSql({scope:'password-free-role-catalogue',
+ contains_passwords_or_user_rows:false,default_acl:defaultRoleTemplate.default_acl});
+const identifier=value=>'"'+value.replaceAll('"','""')+'"';
+const literal=value=>"'"+value.replaceAll("'","''")+"'";
+const replaySequenceDefaults=sourceSequenceRows.flatMap(row=>row.acl.map(grant=>
+ `ALTER DEFAULT PRIVILEGES FOR ROLE ${identifier(row.creator)}${row.schema==='GLOBAL'?'':` IN SCHEMA ${identifier(row.schema)}`} GRANT ${grant.privilege} ON SEQUENCES TO ${grant.grantee==='PUBLIC'?'PUBLIC':identifier(grant.grantee)}${grant.grantable?' WITH GRANT OPTION':''};`)).join('\n');
+const sequenceProbe='fixture_sequence_acl_probe';
+const sequenceDdl=`CREATE SCHEMA ${sequenceProbe} AUTHORIZATION postgres;
+ CREATE TABLE ${sequenceProbe}.serial_owner(id bigserial);
+ ALTER TABLE ${sequenceProbe}.serial_owner OWNER TO postgres;
+ CREATE TABLE ${sequenceProbe}.serial_reader(id bigserial);
+ ALTER TABLE ${sequenceProbe}.serial_reader OWNER TO postgres;
+ CREATE TABLE ${sequenceProbe}.identity_owner(id bigint NOT NULL);
+ ALTER TABLE ${sequenceProbe}.identity_owner OWNER TO postgres;
+ ALTER TABLE ${sequenceProbe}.identity_owner ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY;
+ CREATE TABLE ${sequenceProbe}.identity_reader(id bigint NOT NULL);
+ ALTER TABLE ${sequenceProbe}.identity_reader OWNER TO postgres;
+ ALTER TABLE ${sequenceProbe}.identity_reader ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY;
+ GRANT SELECT ON SEQUENCE ${sequenceProbe}.serial_reader_id_seq,${sequenceProbe}.identity_reader_id_seq TO authenticated;`;
+const ownerOnlySequenceAcl=[['postgres','postgres','SELECT',false],['postgres','postgres','UPDATE',false],['postgres','postgres','USAGE',false]];
+const readerSequenceAcl=[['postgres','authenticated','SELECT',false],...ownerOnlySequenceAcl];
+const fixedSequenceAssert=`DO $sequence_acl_assert$
+BEGIN
+ IF (SELECT count(*)=4 AND bool_and(c.relowner=(SELECT oid FROM pg_roles WHERE rolname='postgres')
+ AND (SELECT jsonb_agg(jsonb_build_array(pg_get_userbyid(a.grantor),pg_get_userbyid(a.grantee),a.privilege_type,a.is_grantable)
+ ORDER BY pg_get_userbyid(a.grantee),a.privilege_type) FROM aclexplode(coalesce(c.relacl,acldefault('s',c.relowner))) a)
+ = CASE WHEN c.relname IN('serial_reader_id_seq','identity_reader_id_seq')
+ THEN ${literal(JSON.stringify(readerSequenceAcl))}::jsonb ELSE ${literal(JSON.stringify(ownerOnlySequenceAcl))}::jsonb END)
+ FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='${sequenceProbe}' AND c.relkind='S') IS DISTINCT FROM TRUE
+ THEN RAISE EXCEPTION 'FIXTURE_SEQUENCE_DEFAULT_ROUNDTRIP_REQUIRED'; END IF;
+END $sequence_acl_assert$;`;
+const sequenceProofSql=`SAVEPOINT fixture_sequence_default_order;
+${sequenceOrder.begin}
+${sequenceDdl}
+${replaySequenceDefaults}
+${sequenceOrder.end}
+${fixedSequenceAssert}
+ROLLBACK TO SAVEPOINT fixture_sequence_default_order;
+RELEASE SAVEPOINT fixture_sequence_default_order;
+DO $sequence_default_rollback$
+BEGIN
+ BEGIN
+  EXECUTE ${literal(sequenceOrder.begin+'\n'+sequenceDdl+'\n'+replaySequenceDefaults+'\n'+sequenceOrder.end+'\nSELECT 1/0;')};
+  RAISE EXCEPTION 'FIXTURE_SEQUENCE_DEFAULT_FAULT_NOT_REACHED';
+ EXCEPTION WHEN division_by_zero THEN NULL;
+ END;
+ IF EXISTS(SELECT FROM pg_namespace WHERE nspname='${sequenceProbe}')
+ OR NULLIF(current_setting('fixture.sequence_defaults_active',true),'') IS NOT NULL
+ THEN RAISE EXCEPTION 'FIXTURE_SEQUENCE_DEFAULT_ROLLBACK_REQUIRED'; END IF;
+END $sequence_default_rollback$;`;
 const probeSql=`BEGIN;
 ${schemaRestoreOwnerBeginSql}
 CREATE SCHEMA ${probeSchema} AUTHORIZATION postgres;
@@ -70,6 +125,7 @@ DROP TABLE ${probeSchema}.storage_probe;
 DROP FUNCTION ${probeSchema}.plain(),${probeSchema}.pg_event(),${probeSchema}.admin_event();
 DROP SCHEMA ${probeSchema};
 SET LOCAL ROLE fixture_schema_restore_owner;
+${sequenceProofSql}
 ${schemaRestoreOwnerEndSql}
 ROLLBACK;
 SELECT 'FIXTURE_SCHEMA_RESTORE_OWNER_PROOF_PASSED';`;
@@ -80,6 +136,9 @@ export async function qualifySchemaRestoreOwner({supervisor,db}) {
   assert.equal(before.rows.length,1); assert.equal(before.rows[0].context_exact,true);
   assert.equal(before.rows[0].probes_absent,true); assert.match(before.rows[0].catalogue_sha256,/^[0-9a-f]{32}$/);
   const prefix=schemaRestorePsqlArguments.slice(0,schemaRestorePsqlArguments.indexOf('-c')).filter(value=>value!=='--single-transaction');
+  // Linux amd64 bounds each individual argv string to MAX_ARG_STRLEN,
+  // independently of ARG_MAX. Include the terminating NUL and fail before spawn.
+  assert.ok(Buffer.byteLength(probeSql,'utf8')+1<131072,'FIXTURE_OWNER_PROBE_ARGV_LIMIT');
   const result=await supervisor.command('/usr/lib/postgresql/17/bin/psql',[...prefix,'-c',probeSql],schemaRestoreOwnerEnvironment);
   assert.equal(typeof result.stdout,'string');
   assert.equal(result.stdout.split('\n').filter(line=>line.trim()==='FIXTURE_SCHEMA_RESTORE_OWNER_PROOF_PASSED').length,1);

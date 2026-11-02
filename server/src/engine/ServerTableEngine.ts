@@ -278,9 +278,17 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
        resolvePendingPineappleDiscards, so the map is reconciled here too. */
     this.pruneSettledPineappleDeadlines();
     const byUser: Record<string, number> = {};
-    for (const [seat, at] of this.pineappleDiscardDeadlines) {
-      const p = this.seatedPlayers.find((sp) => sp.seat_number === seat);
-      if (p) byUser[p.user_id] = at;
+    if (this.pineappleDiscardDeadlines.size > 0) {
+      const userIdBySeat = new Map<number, string>();
+      for (const sp of this.seatedPlayers) {
+        if (!userIdBySeat.has(sp.seat_number)) {
+          userIdBySeat.set(sp.seat_number, sp.user_id);
+        }
+      }
+      for (const [seat, at] of this.pineappleDiscardDeadlines) {
+        const userId = userIdBySeat.get(seat);
+        if (userId !== undefined) byUser[userId] = at;
+      }
     }
     return {
       discard_deadline_ms: this.pineappleDiscardBaseDeadlineMs,
@@ -295,9 +303,29 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
    * bets, which would flip `leave_locked` off every time the hero opened for
    * more than their profit. The roster stack is what the seat holds.
    */
+  private continuityStackLookup: Map<string, number> | null = null;
+
   private continuityStack(userId: string, fallback: number): number {
+    if (this.continuityStackLookup !== null) {
+      return this.continuityStackLookup.get(userId) ?? fallback;
+    }
     const seated = this.seatedPlayers.find((sp) => sp.user_id === userId);
     return seated ? seated.stack : fallback;
+  }
+
+  /**
+   * Pre-index roster stacks by user_id once per broadcast/resync projection so
+   * per-seat chip-continuity checks are O(1) instead of scanning seatedPlayers
+   * on every seat. Preserves first-match semantics of Array.prototype.find.
+   */
+  private rosterStackByUserMap(): Map<string, number> {
+    const map = new Map<string, number>();
+    for (const sp of this.seatedPlayers) {
+      if (!map.has(sp.user_id)) {
+        map.set(sp.user_id, sp.stack);
+      }
+    }
+    return map;
   }
 
   /**
@@ -325,57 +353,59 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
        reveal gates (the requester's own cards, the showdown / all-in runout
        rule with the muck, the per-card show once the hand is over) live in
        src/engine/presentation/projectHandState.ts. */
-    return projectResyncHandState(
-      state,
-      {
-        table_id: this.tableId,
-        hand_number: this.handCount,
-        dealerSeatFallback: this.currentHandDealerSeat,
-        blindSeats: this.postedBlindSeatsForLabels(),
-        // VARIANT OVERRIDE 2026-08-28 (spec §10.1): what game THIS hand is.
-        hand_variant: this.activeHandVariant(),
-        // Bomb pot countdown, kill pots, and THE REGULAR ANTE (Dan 2026-09-04).
-        boardExtras: {
-          ...this.bombPotSnapshotFields(),
-          ...this.killPotSnapshotFields(),
-          ...this.anteSnapshotFields(),
-          ...this.handBlindSnapshotFields(),
-        },
-        bettingStructure: this.bettingStructureFields(state),
-        action_context: this.publishedActionContext(),
-        turn_start_time_ms: this.playerTurnStartTime,
-        turnDurationSeconds: this.playerTurnDuration,
-        // Dan 2026-08-18: the server's own "now", so the client can subtract its skew.
-        server_time_ms: Date.now(),
-        pineappleFields: this.pineappleDiscardSnapshotFields(),
-        /* THE THIRD PAYLOAD, AND THE ONE THAT MATTERS MOST (2026-08-31 audit):
-           the resync must say how wide the table is, from the table row. */
-        max_seats: Number(this.tableInfo?.max_players) || 0,
-        is_anonymous: this.tableInfo?.is_anonymous === true,
-        seats: {
-          seatIdentity: (p) => ({ ...this.seatIdentity(p) }),
-          /* THE ENGINE, NOT THE ROSTER (2026-08-28): the hand roster's copy of
-             is_sitting_out is deliberately always false. */
-          seatPresence: (p) => ({
-            is_sitting_out: this.disconnectEngine.isSittingOut(this.tableId, p.user_id),
-            is_disconnected: !this.disconnectEngine.isConnected(this.tableId, p.user_id),
-            time_bank_remaining: this.timeBankEngine.getRemainingSeconds(this.tableId, p.user_id),
-            time_bank_uses_remaining: this.timeBankEngine.getUsesRemaining(this.tableId, p.user_id),
-          }),
-          // CHIP CONTINUITY: the stay clock, judged on the ROSTER stack.
-          seatContinuity: (p) => ({
-            ...this.chipContinuity.seatFields(p.user_id, this.continuityStack(p.user_id, p.stack)),
-          }),
-        },
-        reveal: {
-          runoutRevealActive: this.runoutRevealActive,
-          isMuckedAtShowdown: (userId) => this.isMuckedAtShowdown(userId),
-          showHandCards: this.showHandCards,
-          handHasWinners: this.currentHandWinnerIds.length > 0,
-        },
+    const ctx: Parameters<typeof projectResyncHandState>[1] = {
+      table_id: this.tableId,
+      hand_number: this.handCount,
+      dealerSeatFallback: this.currentHandDealerSeat,
+      blindSeats: this.postedBlindSeatsForLabels(),
+      // VARIANT OVERRIDE 2026-08-28 (spec §10.1): what game THIS hand is.
+      hand_variant: this.activeHandVariant(),
+      // Bomb pot countdown, kill pots, and THE REGULAR ANTE (Dan 2026-09-04).
+      boardExtras: {
+        ...this.bombPotSnapshotFields(),
+        ...this.killPotSnapshotFields(),
+        ...this.anteSnapshotFields(),
+        ...this.handBlindSnapshotFields(),
       },
-      requestingUserId
-    );
+      bettingStructure: this.bettingStructureFields(state),
+      action_context: this.publishedActionContext(),
+      turn_start_time_ms: this.playerTurnStartTime,
+      turnDurationSeconds: this.playerTurnDuration,
+      // Dan 2026-08-18: the server's own "now", so the client can subtract its skew.
+      server_time_ms: Date.now(),
+      pineappleFields: this.pineappleDiscardSnapshotFields(),
+      /* THE THIRD PAYLOAD, AND THE ONE THAT MATTERS MOST (2026-08-31 audit):
+         the resync must say how wide the table is, from the table row. */
+      max_seats: Number(this.tableInfo?.max_players) || 0,
+      is_anonymous: this.tableInfo?.is_anonymous === true,
+      seats: {
+        seatIdentity: (p) => ({ ...this.seatIdentity(p) }),
+        /* THE ENGINE, NOT THE ROSTER (2026-08-28): the hand roster's copy of
+           is_sitting_out is deliberately always false. */
+        seatPresence: (p) => ({
+          is_sitting_out: this.disconnectEngine.isSittingOut(this.tableId, p.user_id),
+          is_disconnected: !this.disconnectEngine.isConnected(this.tableId, p.user_id),
+          time_bank_remaining: this.timeBankEngine.getRemainingSeconds(this.tableId, p.user_id),
+          time_bank_uses_remaining: this.timeBankEngine.getUsesRemaining(this.tableId, p.user_id),
+        }),
+        // CHIP CONTINUITY: the stay clock, judged on the ROSTER stack.
+        seatContinuity: (p) => ({
+          ...this.chipContinuity.seatFields(p.user_id, this.continuityStack(p.user_id, p.stack)),
+        }),
+      },
+      reveal: {
+        runoutRevealActive: this.runoutRevealActive,
+        isMuckedAtShowdown: (userId) => this.isMuckedAtShowdown(userId),
+        showHandCards: this.showHandCards,
+        handHasWinners: this.currentHandWinnerIds.length > 0,
+      },
+    };
+    this.continuityStackLookup = this.rosterStackByUserMap();
+    try {
+      return projectResyncHandState(state, ctx, requestingUserId);
+    } finally {
+      this.continuityStackLookup = null;
+    }
   }
 
   /**
@@ -427,65 +457,71 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
 
     const state = this.publishedHandState();
     if (!state) return Promise.resolve();
+    this.continuityStackLookup = this.rosterStackByUserMap();
 
     // Phase 1.1 PR-2: Build the payload once and publish it to the
     // authoritative WebSocket hub. Lightning Phase 6 (2026-09-27): built by
     // projectLiveHandState, the one projection both dealers share
     // (src/engine/presentation/projectHandState.ts). ONE payload for every
     // subscriber, so it carries no hole card before showdown.
-    const payload = projectLiveHandState(state, {
-      table_id: this.tableId,
-      hand_number: this.handCount,
-      dealerSeatFallback: this.currentHandDealerSeat,
-      blindSeats: this.postedBlindSeatsForLabels(),
-      hand_variant: this.activeHandVariant(),
-      boardExtras: {
-        ...this.bombPotSnapshotFields(),
-        ...this.killPotSnapshotFields(),
-        ...this.anteSnapshotFields(),
-        ...this.handBlindSnapshotFields(),
-      },
-      winnerIds: this.currentHandWinnerIds,
-      winners: this.currentHandWinners,
-      bettingStructure: this.bettingStructureFields(state),
-      action_context: this.publishedActionContext(true),
-      turn_start_time_ms: this.playerTurnStartTime,
-      turnDurationSeconds: this.playerTurnDuration,
-      server_time_ms: Date.now(),
-      pineappleFields: this.pineappleDiscardSnapshotFields(),
-      time_bank_active: this.timeBankActivatedThisTurn,
-      disconnect_states: this.disconnectEngine.getFsmStatesForTable(this.tableId),
-      /* HOW MANY SEATS THIS TABLE HAS — FROM THE ONLY PARTY THAT KNOWS
-         (Dan 2026-08-31, phase 1 of the seat-truth contract): the table row,
-         never the roster. */
-      max_seats: Number(this.tableInfo?.max_players) || 0,
-      is_anonymous: this.tableInfo?.is_anonymous === true,
-      waitingForBB: this.waitingForBB,
-      postBBWhenClear: this.postBBWhenClear,
-      postingBBToEnter: this.postingBBToEnter,
-      showdownResults: this.currentHandShowdownResults,
-      seats: {
-        seatIdentity: (p) => ({ ...this.seatIdentity(p) }),
-        /* THE ENGINE, NOT THE ROSTER (2026-08-28): the hand roster's copy of
-           is_sitting_out is deliberately always false. */
-        seatPresence: (p) => ({
-          is_sitting_out: this.disconnectEngine.isSittingOut(this.tableId, p.user_id),
-          is_disconnected: !this.disconnectEngine.isConnected(this.tableId, p.user_id),
-          time_bank_remaining: this.timeBankEngine.getRemainingSeconds(this.tableId, p.user_id),
-          time_bank_uses_remaining: this.timeBankEngine.getUsesRemaining(this.tableId, p.user_id),
-        }),
-        // CHIP CONTINUITY: the stay clock, judged on the ROSTER stack.
-        seatContinuity: (p) => ({
-          ...this.chipContinuity.seatFields(p.user_id, this.continuityStack(p.user_id, p.stack)),
-        }),
-      },
-      reveal: {
-        runoutRevealActive: this.runoutRevealActive,
-        isMuckedAtShowdown: (userId) => this.isMuckedAtShowdown(userId),
-        showHandCards: this.showHandCards,
-        handHasWinners: this.currentHandWinnerIds.length > 0,
-      },
-    });
+    let payload: Record<string, unknown>;
+    try {
+      payload = projectLiveHandState(state, {
+        table_id: this.tableId,
+        hand_number: this.handCount,
+        dealerSeatFallback: this.currentHandDealerSeat,
+        blindSeats: this.postedBlindSeatsForLabels(),
+        hand_variant: this.activeHandVariant(),
+        boardExtras: {
+          ...this.bombPotSnapshotFields(),
+          ...this.killPotSnapshotFields(),
+          ...this.anteSnapshotFields(),
+          ...this.handBlindSnapshotFields(),
+        },
+        winnerIds: this.currentHandWinnerIds,
+        winners: this.currentHandWinners,
+        bettingStructure: this.bettingStructureFields(state),
+        action_context: this.publishedActionContext(true),
+        turn_start_time_ms: this.playerTurnStartTime,
+        turnDurationSeconds: this.playerTurnDuration,
+        server_time_ms: Date.now(),
+        pineappleFields: this.pineappleDiscardSnapshotFields(),
+        time_bank_active: this.timeBankActivatedThisTurn,
+        disconnect_states: this.disconnectEngine.getFsmStatesForTable(this.tableId),
+        /* HOW MANY SEATS THIS TABLE HAS — FROM THE ONLY PARTY THAT KNOWS
+           (Dan 2026-08-31, phase 1 of the seat-truth contract): the table row,
+           never the roster. */
+        max_seats: Number(this.tableInfo?.max_players) || 0,
+        is_anonymous: this.tableInfo?.is_anonymous === true,
+        waitingForBB: this.waitingForBB,
+        postBBWhenClear: this.postBBWhenClear,
+        postingBBToEnter: this.postingBBToEnter,
+        showdownResults: this.currentHandShowdownResults,
+        seats: {
+          seatIdentity: (p) => ({ ...this.seatIdentity(p) }),
+          /* THE ENGINE, NOT THE ROSTER (2026-08-28): the hand roster's copy of
+             is_sitting_out is deliberately always false. */
+          seatPresence: (p) => ({
+            is_sitting_out: this.disconnectEngine.isSittingOut(this.tableId, p.user_id),
+            is_disconnected: !this.disconnectEngine.isConnected(this.tableId, p.user_id),
+            time_bank_remaining: this.timeBankEngine.getRemainingSeconds(this.tableId, p.user_id),
+            time_bank_uses_remaining: this.timeBankEngine.getUsesRemaining(this.tableId, p.user_id),
+          }),
+          // CHIP CONTINUITY: the stay clock, judged on the ROSTER stack.
+          seatContinuity: (p) => ({
+            ...this.chipContinuity.seatFields(p.user_id, this.continuityStack(p.user_id, p.stack)),
+          }),
+        },
+        reveal: {
+          runoutRevealActive: this.runoutRevealActive,
+          isMuckedAtShowdown: (userId) => this.isMuckedAtShowdown(userId),
+          showHandCards: this.showHandCards,
+          handHasWinners: this.currentHandWinnerIds.length > 0,
+        },
+      });
+    } finally {
+      this.continuityStackLookup = null;
+    }
 
     // Phase 1.1 PR-5: Publish ONLY to the authoritative WebSocket hub.
     // The legacy Supabase Realtime broadcast path has been deleted.

@@ -94,3 +94,38 @@ test('fixed field ordinals and order-only mismatch survive while diagnostic fail
   assert.deepEqual(result.parity.sections,[[12,0,1,1]]);
   assert.ok(!JSON.stringify(result).includes('private-role'));
 });
+
+// Capture27's four changed sections must all remain diagnosable within eight
+// samples; this is a failure-channel regression, not native catalogue proof.
+test('stratified eight-sample witness retains every changed section and exact 38/28/4/1 counts',()=>{
+  const original=Object.fromEntries(keys.map(key=>[key,[]]));
+  for(let i=0;i<38;i++) original.access.push(['relation:S','public',privateName+i,'owner',[]]);
+  for(let i=0;i<28;i++) original.constraints.push(['public',privateName,i.toString(),'CHECK (true)',true]);
+  for(let i=0;i<4;i++) original.triggers.push(['public',privateName,i.toString(),'CREATE TRIGGER before','O']);
+  original.indexes.push({schemaname:'public',tablename:privateName,indexname:privateName,tablespace:null,indexdef:'CREATE INDEX before'});
+  const actual=structuredClone(original);
+  actual.access.forEach(row=>row[4].push(['owner','owner','SELECT',false]));
+  actual.constraints.forEach(row=>row[3]='CHECK (false)');
+  actual.triggers.forEach(row=>row[3]='CREATE TRIGGER after');
+  actual.indexes[0].indexdef='CREATE INDEX after';
+  const expected={encoding:payload([]).encoding,catalogue_digest:'a'.repeat(64),catalogue_text:JSON.stringify(original)};
+  const observed={...expected,catalogue_digest:'b'.repeat(64),catalogue_text:JSON.stringify(actual)};
+  const row=nativeFailureDiagnostic(stage,failure({expected,observed}));
+  assert.deepEqual(row.parity.sections,[[0,38,38,38],[6,28,28,28],[7,4,4,4],[8,1,1,1]]);
+  assert.deepEqual(row.parity.samples.map(sample=>sample[0]),[0,6,7,8,0,6,7,0]);
+  assert.deepEqual(Object.fromEntries([0,6,7,8].map(section=>[section,row.parity.samples.filter(sample=>sample[0]===section).length])),{0:3,6:2,7:2,8:1});
+  assert.equal(row.parity.samples.length,8);
+  assert.equal(row.parity.truncated,true);
+  assert.equal(row.parity.version,1);
+  assert.ok(Buffer.byteLength(JSON.stringify(row))<=2048);
+  assert.ok(!JSON.stringify(row).includes(privateName));
+  for(const section of [0,6,7,8]) {
+    const samples=row.parity.samples.filter(sample=>sample[0]===section);
+    assert.deepEqual(samples.map(sample=>sample[1]),samples.map(sample=>sample[1]).sort());
+    assert.ok(samples.every(sample=>sample[2]===0));
+  }
+  // The independent decoder must accept the same v1 protocol with no relaxation.
+  const code="import importlib.util,json,sys;spec=importlib.util.spec_from_file_location('smoke',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);row=json.load(sys.stdin);out=m.native_failures(json.dumps(row));assert len(out)==1 and out[0]['parity']==row['parity'];print('stratified decoder passed')";
+  const decoded=spawnSync('python3',['-B','-c',code,new URL('../../ci/fixture-smoke.py',import.meta.url).pathname],{input:JSON.stringify(row),encoding:'utf8',timeout:10000});
+  assert.equal(decoded.status,0,decoded.stderr);
+});

@@ -27,7 +27,7 @@ test('real catches use shared emitter and the separate guarded installer preserv
   assert.deepEqual(schemaRestoreOwnerEnvironment,{PGOPTIONS:'-c search_path=pg_catalog -c session_preload_libraries='});
   assert.ok(restore.includes('throw schemaRestoreFailure(error)'));
   assert.ok(s.includes('const applicationOwner = await assertApplicationOwnerBoundary(db)'));
-  assert.ok(s.includes('renderSchemaRestorePlan(originalSchema)'));
+  assert.ok(s.includes('renderSchemaRestorePlan(originalSchema,{roleCatalogue:originalRoles})'));
   assert.ok(s.includes("schemaRoot + '/source-schema.sql', originalSchema"));
   assert.ok(s.indexOf('await qualifySchemaRestoreOwner({ supervisor, db })')<s.indexOf("stage = 'genuine-service-schema-preimage'"));
   assert.ok(s.includes('SCHEMA_PREFLIGHT_STAGES.includes(next)'));
