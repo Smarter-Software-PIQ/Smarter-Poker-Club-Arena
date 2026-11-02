@@ -409,7 +409,35 @@ function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
       aria-label={label}
       title={label}
     >
-      {art ? <LobbyArtSymbol kind={art} /> : <SignalIcon kind={kind} />}
+      {kind === 'rebuy' && entry.kind !== 'spin' ? (
+        <>
+          <img
+            className="lt-rebuy-addon-art"
+            src={`${import.meta.env.BASE_URL}game-card-icons/rebuy-addon-raised-chip-v1.png`}
+            alt=""
+            aria-hidden="true"
+          />
+          <span className="lt-rebuy-addon-caption">
+            {entry.rules.some((rule) => rule.key === 'rebuy') &&
+            entry.rules.some((rule) => rule.key === 'addon') ? (
+              <>
+                <span>REBUY &amp; </span>
+                <span>ADD ON</span>
+              </>
+            ) : entry.rules.some((rule) => rule.key === 'rebuy') ? (
+              'REBUY'
+            ) : entry.rules.some((rule) => rule.key === 'reentry') ? (
+              'RE-ENTRY'
+            ) : (
+              'ADD ON'
+            )}
+          </span>
+        </>
+      ) : art ? (
+        <LobbyArtSymbol kind={art} />
+      ) : (
+        <SignalIcon kind={kind} />
+      )}
     </span>
   );
 }
