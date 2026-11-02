@@ -4,7 +4,7 @@
 -- Preserve the final nightly 10K, 1.5K, Six-Card 500 and 200-entry/25K terms.
 -- Exact IDs, schedule identities and original amounts make this finite and
 -- idempotent. No wallet, payout, tournament participation or schedule edits.
--- @live-proof: NOT EXISTS (SELECT 1 FROM public.tournaments t JOIN (VALUES  ('4b235295-d4d9-4f8c-b1b4-e5f2fc195dc2'::uuid,'df30c416-0f1f-482c-9b04-0ead175eb6fe'::uuid,500::numeric,250::numeric),  ('6eb99ddf-8e57-4b39-8a30-9151dbcaa350'::uuid,'594dcaae-3c08-49ab-937a-e9191f9e21a9'::uuid,500::numeric,250::numeric)) AS b(id,schedule_id,old_guarantee,new_guarantee) ON t.id=b.id WHERE t.id=b.id AND t.schedule_id=b.schedule_id AND t.guaranteed_prize=b.old_guarantee  AND t.created_at >= '2026-11-02 06:00+00'::timestamptz  AND t.start_time >= '2026-11-02 06:00+00'::timestamptz  AND upper(t.status) IN ('ANNOUNCED','REGISTERING')  AND NOT coalesce(t.prize_pool_finalized,false)  AND NOT coalesce(t.entry_contract_locked,false)  AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp WHERE tp.tournament_id=t.id))
+-- @live-proof: NOT EXISTS (SELECT 1 FROM public.tournaments t JOIN (VALUES  ('4b235295-d4d9-4f8c-b1b4-e5f2fc195dc2'::uuid,'df30c416-0f1f-482c-9b04-0ead175eb6fe'::uuid,500::numeric,250::numeric),  ('6eb99ddf-8e57-4b39-8a30-9151dbcaa350'::uuid,'594dcaae-3c08-49ab-937a-e9191f9e21a9'::uuid,500::numeric,250::numeric),  ('dea1331d-a6d2-4163-9f0a-8291607b427e'::uuid,'e25b7f77-07ed-4cbd-9077-3adafc1381e0'::uuid,1500::numeric,750::numeric)) AS b(id,schedule_id,old_guarantee,new_guarantee) ON t.id=b.id WHERE t.id=b.id AND t.schedule_id=b.schedule_id AND t.guaranteed_prize=b.old_guarantee  AND t.created_at >= '2026-11-02 06:00+00'::timestamptz  AND t.start_time >= '2026-11-02 06:00+00'::timestamptz  AND upper(t.status) IN ('ANNOUNCED','REGISTERING')  AND NOT coalesce(t.prize_pool_finalized,false)  AND NOT coalesce(t.entry_contract_locked,false)  AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp WHERE tp.tournament_id=t.id))
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '8s';
@@ -27,7 +27,8 @@ END $copy$;
 
 WITH baseline(id,schedule_id,old_guarantee,new_guarantee) AS (VALUES
  ('4b235295-d4d9-4f8c-b1b4-e5f2fc195dc2'::uuid,'df30c416-0f1f-482c-9b04-0ead175eb6fe'::uuid,500::numeric,250::numeric),
- ('6eb99ddf-8e57-4b39-8a30-9151dbcaa350'::uuid,'594dcaae-3c08-49ab-937a-e9191f9e21a9'::uuid,500::numeric,250::numeric)
+ ('6eb99ddf-8e57-4b39-8a30-9151dbcaa350'::uuid,'594dcaae-3c08-49ab-937a-e9191f9e21a9'::uuid,500::numeric,250::numeric),
+ ('dea1331d-a6d2-4163-9f0a-8291607b427e'::uuid,'e25b7f77-07ed-4cbd-9077-3adafc1381e0'::uuid,1500::numeric,750::numeric)
 )
 UPDATE public.tournaments t
 SET guaranteed_prize=b.new_guarantee,
