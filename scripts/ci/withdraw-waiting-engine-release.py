@@ -282,13 +282,82 @@ def select_current26_profile():
     MARKERLESS_ORIGINALS[PHASE1_RUN] = '1793644848'
 
 
+PINNED_CANCELLATION_RUNS = frozenset({'41400905104-1', SECOND_PHASE1_RUN, CURRENT26_RUN, E9_RUN, '41177442979-1'})
+GENERIC_SOURCE_NAMES = ('engine-release-database-proof.py', 'engine-release-lightning-hold.py', 'engine-release-seal.py',
+                        'engine-release-transaction.sh', 'engine-release-recover.sh', 'engine-release-activation-floor.py')
+REPO = Path('/opt/club-arena')
+
+
+def protected_sources(control):
+    """Exact hashes of the owner's control as protected main recorded it."""
+    require(SHA.fullmatch(control) is not None)
+    git = ['git', '-C', str(REPO)]
+    env = {**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'LC_ALL': 'C'}
+    subprocess.run(git + ['merge-base', '--is-ancestor', control, 'refs/remotes/origin/main'],
+                   capture_output=True, timeout=10, check=True, env=env)
+    hashes = {}
+    for name in GENERIC_SOURCE_NAMES:
+        raw = subprocess.run(git + ['show', control + ':server/scripts/' + name], capture_output=True,
+                             timeout=10, check=True, env=env).stdout
+        require(0 < len(raw) < 262144)
+        hashes[name] = digest(raw)
+    return hashes
+
+
+def select_generic_phase1_profile(request):
+    """Any later expired v3-phase1 announcement-only owner, derived from its own
+    immutable host records. No early-timer tolerance: its freeze must start and
+    end exactly at the announced 2/7-minute marks. Every downstream predicate of
+    the pinned phase1 profile (no committed run, unchanged runtime, no live
+    unit, intent or pin after cancellation, receipt) still applies unchanged."""
+    global PHASE1_RUN, PHASE1_CONTROL, PHASE1_TARGET, PHASE1_DESIRED, PHASE1_STAMP, PHASE1_START, PHASE1_END, PHASE1_TOKEN, PHASE1_HASHES
+    key = request['runKey']
+    require(key not in PINNED_CANCELLATION_RUNS and request.get('mode') in {'cancel_expired_announcement', 'observe_expired_announcement'})
+    reservation = json.loads(regular(ROOT / ('engine-recovery-window-' + key + '.json'), 0o600))
+    entry = json.loads(regular(ROOT / 'engine-release-requests' / (key + '.activation-entry'), 0o600))
+    require(isinstance(reservation, dict) and set(reservation) == {'runId', 'sha', 'announcedAt', 'cause'}
+            and reservation['runId'] == key and reservation['sha'] == request['releaseSha']
+            and type(reservation['announcedAt']) is int and reservation['announcedAt'] > 0)
+    require(isinstance(entry, dict) and entry.get('schema') == 'engine-release-activation-floor/v3-phase1'
+            and entry.get('runId') == key and entry.get('targetSha') == request['releaseSha']
+            and entry.get('controlSha') == request['controlSha'] and entry.get('manifestSha256') == PHASE1_POLICY
+            and entry.get('phase') == 'announcement')
+    PHASE1_RUN = key
+    PHASE1_CONTROL = request['controlSha']
+    PHASE1_TARGET = request['releaseSha']
+    PHASE1_DESIRED = request['desiredSha']
+    PHASE1_STAMP = reservation['announcedAt']
+    PHASE1_START = PHASE1_STAMP + 120000
+    PHASE1_END = PHASE1_STAMP + 420000
+    PHASE1_TOKEN = None
+    PHASE1_HASHES = protected_sources(PHASE1_CONTROL)
+    request_path = ROOT / 'engine-release-requests' / (key + '.request')
+    if os.path.lexists(request_path):
+        lines = regular(request_path, 0o600).splitlines()
+        require(len(lines) == 6 and re.fullmatch(r'[1-9][0-9]{9}', lines[5]) is not None)
+        MARKERLESS_ORIGINALS[key] = lines[5]
+    else:
+        MARKERLESS_ORIGINALS.pop(key, None)
+
+
+
+def select_profile(request):
+    if request['runKey'] == SECOND_PHASE1_RUN:
+        select_second_phase1_profile()
+    elif request['runKey'] == CURRENT26_RUN:
+        select_current26_profile()
+    elif (request['runKey'] not in PINNED_CANCELLATION_RUNS
+          and request.get('mode') in {'cancel_expired_announcement', 'observe_expired_announcement'}):
+        select_generic_phase1_profile(request)
+
+
 def cancellation_profile(request):
     if request['runKey'] == PHASE1_RUN:
         require(request['controlSha'] == PHASE1_CONTROL and request['releaseSha'] == PHASE1_TARGET
                 and request['desiredSha'] == PHASE1_DESIRED)
         return {'control': PHASE1_CONTROL, 'target': PHASE1_TARGET, 'hashes': PHASE1_HASHES,
                 'wrapper': WRAPPER_HASH, 'manifest': PHASE1_POLICY,
-                'deadline': MARKERLESS_ORIGINALS[PHASE1_RUN]}
+                'deadline': MARKERLESS_ORIGINALS.get(PHASE1_RUN)}
     if request['runKey'] == E9_RUN:
         require(request['controlSha'] == E9_CONTROL and request['releaseSha'] == E9_TARGET)
         return {'control': E9_CONTROL, 'target': E9_TARGET, 'hashes': E9_HASHES,
@@ -581,7 +650,7 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL):
     if control == PHASE1_CONTROL:
         # Historical recovery only, never an activation tolerance. This exact
         # predecessor's scheduled callback fired one millisecond early.
-        require(stamp == PHASE1_STAMP and row.get('ownership_token') == PHASE1_TOKEN
+        require(stamp == PHASE1_STAMP and (PHASE1_TOKEN is None or row.get('ownership_token') == PHASE1_TOKEN)
                 and row.get('release_generation') == 1)
         starts, ends = PHASE1_START, PHASE1_END
     require(row.get('contract_version') == 3 and time_ms(row.get('announced_at')) == stamp
@@ -1090,15 +1159,17 @@ def current26_cancelled_runtime(request, receipt):
     Docker container's newer incarnation proves the old runtime ended. This is
     read-only custody evidence, never cancellation replay or restart authority.
     """
-    require(request['runKey'] == CURRENT26_RUN)
+    # Also the generic later owner: the same proof, with its own receipt image.
+    require(request['runKey'] == CURRENT26_RUN or request['runKey'] not in PINNED_CANCELLATION_RUNS)
     live = container_identity(request)
     if live == receipt['container']:
         health_pair(request)
         return {'request': request, 'container': live, 'process': None}
     old = receipt['container']
     observed = time_ms(receipt['observedAt'])
-    require(live['id'] == old['id'] and live['image'] == old['image'] ==
-            'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+    require(live['id'] == old['id'] and live['image'] == old['image']
+            and (request['runKey'] != CURRENT26_RUN or
+                 old['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b')
             and time_ms(old['startedAt']) < observed < time_ms(live['startedAt']) <= time.time() * 1000)
     template = ('{"id":{{json .Id}},"startedAt":{{json .State.StartedAt}},'
                 '"running":{{json .State.Running}},"image":{{json .Image}},'
@@ -1171,7 +1242,7 @@ def phase1_cancellation_proof():
         require(not os.path.lexists(own_wants_edge(unit)))
     quiet_units(units, receipt['originalControlGroup'], True, receipt['unitCgroups'])
     runtime = None
-    if PHASE1_RUN == CURRENT26_RUN:
+    if PHASE1_RUN == CURRENT26_RUN or PHASE1_RUN not in PINNED_CANCELLATION_RUNS:
         runtime = current26_cancelled_runtime(request, receipt)
     else:
         require(container_identity(request) == receipt['container']); health_pair(request)
@@ -1253,8 +1324,7 @@ def observe_cancellation(request):
 
 
 def remote(request):
-    if request['runKey'] == SECOND_PHASE1_RUN: select_second_phase1_profile()
-    if request['runKey'] == CURRENT26_RUN: select_current26_profile()
+    select_profile(request)
     if request.get('mode') == 'observe_expired_announcement': return observe_cancellation(request)
     if request.get('mode') == 'cancel_expired_announcement':
         return cancel_announced(request)
@@ -1331,6 +1401,16 @@ def main():
         print(json.dumps(phase1_cancellation_proof(), sort_keys=True))
         return
     if sys.argv[1:] == ['--phase1-cancellation-proof']:
+        print(json.dumps(phase1_cancellation_proof(), sort_keys=True))
+        return
+    if (len(sys.argv) == 3 and sys.argv[1] == '--phase1-cancellation-proof'
+            and RUN.fullmatch(sys.argv[2]) and sys.argv[2] not in PINNED_CANCELLATION_RUNS):
+        # The owner's own immutable receipt names the request; the proof below
+        # revalidates every field of it against the retained host records.
+        receipt = json.loads(regular(ROOT / 'engine-release-cancellations' / (sys.argv[2] + '.receipt.json'), 0o600))
+        request = selection(receipt.get('request') if isinstance(receipt, dict) else None)
+        require(request['runKey'] == sys.argv[2] and request.get('mode') == 'cancel_expired_announcement')
+        select_generic_phase1_profile(request)
         print(json.dumps(phase1_cancellation_proof(), sort_keys=True))
         return
     if len(sys.argv) == 3 and sys.argv[1] == '--remote':

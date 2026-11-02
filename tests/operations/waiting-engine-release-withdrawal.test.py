@@ -455,6 +455,63 @@ class AnnouncedCancellation(unittest.TestCase):
             self.test_phase1_seal_requires_original_uncommitted_cycle_and_no_transaction()
             self.test_phase1_actual_pinned_v3_floor_bootstrap_and_no_bytecode()
 
+    def test_generic_later_owner_profile_is_derived_from_its_own_records(self):
+        # A later announcement-only owner needs no new code: its window comes
+        # from its own reservation, its sources from protected-main Git, and
+        # the freeze must sit exactly on the announced marks (no tolerance).
+        control = module.SECOND_PHASE1_CONTROL
+        request = {'runKey': '41599999999-1', 'releaseSha': 'c' * 40, 'controlSha': control,
+                   'desiredSha': module.PHASE1_DESIRED, 'instanceId': '1-b22cba29',
+                   'mode': 'cancel_expired_announcement'}
+        stamp = 1793635085893
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, patch.dict(module.__dict__, clear=False), \
+                patch.dict(module.MARKERLESS_ORIGINALS, clear=False):
+            root = Path(folder)
+            (root / 'engine-release-requests').mkdir()
+            reservation = {'runId': request['runKey'], 'sha': request['releaseSha'], 'announcedAt': stamp, 'cause': 'urgent'}
+            entry = {'schema': 'engine-release-activation-floor/v3-phase1', 'runId': request['runKey'],
+                     'targetSha': request['releaseSha'], 'controlSha': control,
+                     'manifestSha256': module.PHASE1_POLICY, 'phase': 'announcement'}
+            def write(path, value):
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+            write(root / ('engine-recovery-window-' + request['runKey'] + '.json'), reservation)
+            write(root / 'engine-release-requests' / (request['runKey'] + '.activation-entry'), entry)
+            req = root / 'engine-release-requests' / (request['runKey'] + '.request')
+            req.write_text('\n'.join([request['releaseSha'], 'url', 'actor', '/g', control, '1793644848']) + '\n'); req.chmod(0o600)
+            module.ROOT = root; module.REPO = ROOT
+            real_regular = module.regular
+            module.regular = lambda path, mode=None: Path(path).read_text()
+            try:
+                module.select_profile(request)
+            finally:
+                module.regular = real_regular
+            self.assertEqual((module.PHASE1_RUN, module.PHASE1_CONTROL, module.PHASE1_TARGET),
+                             (request['runKey'], control, request['releaseSha']))
+            self.assertEqual((module.PHASE1_STAMP, module.PHASE1_START, module.PHASE1_END),
+                             (stamp, stamp + 120000, stamp + 420000))
+            self.assertIsNone(module.PHASE1_TOKEN)
+            self.assertEqual(module.PHASE1_HASHES, module.SECOND_PHASE1_HASHES)
+            self.assertEqual(module.MARKERLESS_ORIGINALS[request['runKey']], '1793644848')
+            profile = module.cancellation_profile(request)
+            self.assertEqual((profile['control'], profile['target']), (control, request['releaseSha']))
+            for field in ('releaseSha', 'controlSha', 'desiredSha'):
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    module.cancellation_profile(request | {field: 'a' * 40})
+            iso = lambda ms: module.datetime.datetime.fromtimestamp(ms / 1000, module.datetime.timezone.utc).isoformat()
+            row = {'contract_version': 3, 'announced_at': iso(stamp), 'freeze_started_at': iso(stamp + 120000),
+                'release_target_at': iso(stamp + 420000), 'thawed_at': iso(stamp + 341600),
+                'ownership_token': 'a993695f-4a6a-4cb3-99af-b88765f21c99', 'release_generation': 1, 'frozen_seconds': 300,
+                'shifted': dict.fromkeys(module.THAW_STEPS, 0) | {'complete': True, '_targets_snapshotted': True,
+                    '_target_counts': dict.fromkeys(module.THAW_STEPS, 0)}}
+            prove = lambda value: module.prove_thaw([value], [], stamp, stamp + 500000, control)
+            self.assertEqual(prove(row)['thawRecordedAtMs'], stamp + 341600)
+            for change in ({'freeze_started_at': iso(stamp + 119999)}, {'release_target_at': iso(stamp + 419999)},
+                           {'release_generation': 2}):
+                with self.subTest(change=change), self.assertRaises(ValueError): prove(row | change)
+        for pinned in ('41400905104-1', module.E9_RUN, '41177442979-1'):
+            with self.subTest(pinned=pinned), self.assertRaises(ValueError):
+                module.select_generic_phase1_profile(request | {'runKey': pinned})
+
     def test_phase1_actual_pinned_v3_floor_bootstrap_and_no_bytecode(self):
         with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
             state = Path(folder) / 'state'; state.mkdir()
