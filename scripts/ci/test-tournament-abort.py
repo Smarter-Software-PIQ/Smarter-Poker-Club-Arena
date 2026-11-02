@@ -111,6 +111,7 @@ END$$;""")
   equal_report=json.loads((a.evidence/'equal-share/equal-share-report.json').read_text())
   assert equal_report.get('passed') is True and equal_report.get('cleanup')=={'stopped':True,'removed':True}
   assert len(equal_report['cases'])==65
+  assert equal_report['receipt_readback']=={'passed':True,'cases':10,'private_authority_unchanged':True,'business_rows_unchanged':True}
   e.report['equal_share']={'passed':True,'cases':65,'report':'equal-share/equal-share-report.json'}
   e.report['source_sha256'][str(equal_driver.relative_to(ROOT))]=hashlib.sha256(equal_driver.read_bytes()).hexdigest()
   boundary_driver=ROOT/'scripts/ci/test-tournament-closure-boundary.py'

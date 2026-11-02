@@ -40,6 +40,11 @@ export function schemaCompositionMissingWitness(error) {
   const witness = failureSites.get(error).witness;
   return witness ? structuredClone(witness) : null;
 }
+export function schemaCompositionManagedMissingWitness(error) {
+  if (schemaCompositionFailureSite(error) !== 'MANAGED_OBJECT_MISSING') return null;
+  const witness = failureSites.get(error).witness;
+  return witness ? structuredClone(witness) : null;
+}
 const refused = (site, witness = null) => {
   throw markFailure(new Error('SCHEMA_COMPOSITION_PREIMAGE_REQUIRED'), site, witness);
 };
@@ -110,6 +115,52 @@ const managedObject = (item) => MANAGED_SCHEMAS.includes(item.schema) ||
   (item.type === 'SCHEMA' && [...MANAGED_SCHEMAS, 'public'].includes(item.name)) ||
   (item.type === 'ACL' && [...MANAGED_SCHEMAS, 'public'].some((name) => item.name === `SCHEMA ${name}`)) ||
   item.type === 'EXTENSION' || (item.type === 'COMMENT' && item.name.startsWith('EXTENSION '));
+
+// Observe only proven managed, non-application-hook keys absent from native.
+// A later invalid hook cannot replace the first missing-object refusal. Its
+// classifier refusal remains owned by the unchanged sequential comparison loop.
+function managedMissingWitness(original, native) {
+  const rows = [];
+  let total = 0;
+  for (const [ordinal, item] of original.objects.entries()) {
+    if (native.has(item.key) || !managedObject(item)) continue;
+    let applicationHook;
+    try { applicationHook = applicationTriggerWitness(item); }
+    catch { continue; }
+    if (applicationHook) continue;
+    total++;
+    if (rows.length === 16) continue;
+    rows.push({
+      captured_ordinal: ordinal,
+      key_sha256: schemaHash(item.key),
+      object_type: witnessTypes.has(item.type) ? item.type : 'OTHER',
+      schema: witnessSchemas.has(item.schema) ? item.schema : 'OTHER',
+    });
+  }
+  return { version: 1, total, truncated: total > rows.length, rows };
+}
+
+// Genuine pg_cron functions are extension members: pg_dump emits their ACLs,
+// not replacement FUNCTION definitions. The native exporter independently runs
+// assertFixtureCronCatalog and its real metadata API before this exact dump.
+const cronApiAclKeys = new Set([
+  'FUNCTION "alter_job"("job_id" bigint, "schedule" "text", "command" "text", "database" "text", "username" "text", "active" boolean)',
+  'FUNCTION "job_cache_invalidate"()',
+  'FUNCTION "schedule"("schedule" "text", "command" "text")',
+  'FUNCTION "schedule"("job_name" "text", "schedule" "text", "command" "text")',
+  'FUNCTION "schedule_in_database"("job_name" "text", "schedule" "text", "command" "text", "database" "text", "username" "text", "active" boolean)',
+  'FUNCTION "unschedule"("job_id" bigint)',
+  'FUNCTION "unschedule"("job_name" "text")',
+].map(name => JSON.stringify(['ACL', 'cron', name])));
+function genuineCronArchiveContract(service) {
+  const extensions = service.objects.filter(item => item.type === 'EXTENSION' && item.name === 'pg_cron');
+  const schemaAcls = service.objects.filter(item => item.type === 'ACL' && item.name === 'SCHEMA "cron"');
+  const apiAcls = service.objects.filter(item => item.type === 'ACL' && item.schema === 'cron' && item.name.startsWith('FUNCTION '));
+  return extensions.length === 1 && extensions[0].schema === '-' && extensions[0].owner === '-' &&
+    schemaAcls.length === 1 && schemaAcls[0].schema === '-' && schemaAcls[0].owner === 'supabase_admin' &&
+    apiAcls.length === 7 && apiAcls.every(item => item.owner === 'supabase_admin' && cronApiAclKeys.has(item.key)) &&
+    !service.objects.some(item => item.type === 'FUNCTION' && item.schema === 'cron');
+}
 
 // pg_dump object headers are recognized ONLY outside SQL strings, dollar
 // bodies and block comments. A function body cannot invent an object boundary.
@@ -233,7 +284,8 @@ export function composeSchema(capture, serviceDump) {
     if (managed) {
       const expected = native.get(item.key);
       if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256)
-        refused(!expected ? 'MANAGED_OBJECT_MISSING' : expected.owner !== item.owner ? 'MANAGED_OWNER_DIFFERENT' : 'MANAGED_BLOCK_DIFFERENT');
+        refused(!expected ? 'MANAGED_OBJECT_MISSING' : expected.owner !== item.owner ? 'MANAGED_OWNER_DIFFERENT' : 'MANAGED_BLOCK_DIFFERENT',
+          !expected ? managedMissingWitness(original, native) : null);
       sql += item.parts.filter((part) => part.stream).map((part) => part.text).join('');
       removed.push({ key: item.key, sha256: item.sha256 });
     } else {
@@ -246,7 +298,7 @@ export function composeSchema(capture, serviceDump) {
   // unrelated bootstrap. Exact Auth helper and cron contracts must be present.
   for (const name of ['email()', 'jwt()', 'role()', 'uid()'])
     if (!original.objects.some((item) => item.schema === 'auth' && item.type === 'FUNCTION' && item.name === name)) refused('AUTH_HELPER_REQUIRED');
-  if (original.objects.filter((item) => item.schema === 'cron' && item.type === 'FUNCTION').length < 3 || removed.length < 7) refused('CRON_CONTRACT_REQUIRED');
+  if (!genuineCronArchiveContract(service) || removed.length < 7) refused('CRON_CONTRACT_REQUIRED');
   return {
     sql: sql + original.footer,
     manifest: { version: 1, scope: 'exact-native-service-schema-composition',
