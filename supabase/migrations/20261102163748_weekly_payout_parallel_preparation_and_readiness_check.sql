@@ -250,7 +250,7 @@ BEGIN
   'round_windows',(SELECT jsonb_object_agg(kind,cnt) FROM (SELECT p.kind,count(*) cnt FROM public.accounting_close_partials p WHERE p.period_end=e GROUP BY p.kind) z)) INTO missing;
  BEGIN
   PERFORM public.fn_record_operational_alert('weekly-payout','not-ready-at-0330:'||e::text,'WeeklyPayoutNotReadyHalfHourBefore','firing','critical',
-   jsonb_build_object('period_end',e,'due',due,'owed',plan,'missing',missing,'observed_at',n));
+   jsonb_build_object('target_task_id','01a09b86-5ba8-7290-8657-1041f13dd3ca','period_end',e,'due',due,'owed',plan,'missing',missing,'observed_at',n));
  EXCEPTION WHEN OTHERS THEN NULL;
  END;
  RETURN jsonb_build_object('ready',false,'missing',missing);
