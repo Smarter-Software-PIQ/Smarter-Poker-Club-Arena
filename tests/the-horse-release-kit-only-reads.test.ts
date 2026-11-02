@@ -70,6 +70,57 @@ describe('horse release verification kit', () => {
     expect(run('sql', 'nope', '2026-11-03T00:00:00Z', '2026-11-03T01:00:00Z').status).not.toBe(0);
   });
 
+  it('slices refuse a non-positive step, a naive timestamp and an empty window', () => {
+    expect(run('slices', '2026-11-03T00:00:00Z', '2026-11-03T10:00:00Z', '0').status).not.toBe(0);
+    expect(run('slices', '2026-11-03T00:00:00Z', '2026-11-03T10:00:00Z', '-1').status).not.toBe(0);
+    expect(run('slices', '2026-11-03T00:00:00', '2026-11-03T10:00:00Z', '4').status).not.toBe(0);
+    expect(run('slices', '2026-11-03T10:00:00Z', '2026-11-03T10:00:00Z', '4').status).not.toBe(0);
+    expect(run('sql', 'v79', '2026-11-03T00:00:00', '2026-11-03T04:00:00Z').status).not.toBe(0);
+  });
+
+  it('the read-only checker refuses statements that could write or hide text', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kit-check-'));
+    try {
+      const bad = {
+        two: 'select 1; select 2',
+        into: 'select 1 into t',
+        sideEffect: 'select pg_terminate_backend(1)',
+        advisory: 'select pg_advisory_lock(1)',
+        escapeString: "select E'x' as a",
+        dollar: 'select $$x$$',
+        unterminated: "select 'open",
+        blockComment: 'select 1 /* hide */ ; delete from t',
+        setOnly: 'set statement_timeout = 0',
+      };
+      for (const [name, sql] of Object.entries(bad)) {
+        const f = join(dir, `${name}.sql`);
+        writeFileSync(f, sql + '\n');
+        expect(run('check-file', f).status, name).not.toBe(0);
+      }
+      const good = join(dir, 'good.sql');
+      writeFileSync(good, "with a as (select 'it''s; delete' as x) select * from a\n");
+      expect(run('check-file', good).status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('combine-v79 gives no interval or verdict from a single hand and refuses malformed lines', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'v79-one-'));
+    try {
+      const grid = new Array(22).fill(0).join(',');
+      writeFileSync(join(dir, 'one.txt'), `A|weak_2_9|2|1|-40|1600|-80|4|0|0|${grid}\n`);
+      const r = run('combine-v79', join(dir, 'one.txt'));
+      expect(r.status, r.err).toBe(0);
+      expect(r.out).toContain('insufficient');
+      expect(r.out).not.toContain('below 0');
+      writeFileSync(join(dir, 'bad.txt'), 'A|weak_2_9|2|1\n');
+      expect(run('combine-v79', join(dir, 'bad.txt')).status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('slices a window into bounded calls', () => {
     const r = run('slices', '2026-11-03T00:00:00Z', '2026-11-03T10:00:00Z', '4');
     expect(r.out.trim().split('\n')).toEqual([

@@ -611,7 +611,8 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   const unopenedForGuard = ctx.raises === 0 && ctx.currentBet <= bb * 1.05;
   const callIsAllIn = effCall >= stack * 0.99;
   if (unopenedForGuard && !callIsAllIn) return out;
-  return { a: 'call' };
+  // The receipt says which band decided; the priced-in call still came from it.
+  return out.receipt ? { a: 'call', receipt: out.receipt } : { a: 'call' };
 }
 
 function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
