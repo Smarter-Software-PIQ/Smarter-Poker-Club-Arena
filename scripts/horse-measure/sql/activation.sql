@@ -26,6 +26,7 @@ FROM (VALUES
   ('v77_seat_jam', 'V77'),
   ('v78_no_committing_bluff_raise', 'V78'),
   ('v79_top_pair_weak_kicker', 'V79'),
+  ('v80_top_pair_strong_kicker', 'V80'),
   ('holdem_no_four_bet_bluff', 'rule 4a'),
   ('holdem_premium_flat_deep_three_bet', 'rule 4a'),
   ('holdem_four_bettor_continues', 'rule 4b'),

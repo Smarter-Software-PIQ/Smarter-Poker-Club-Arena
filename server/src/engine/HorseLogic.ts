@@ -2410,6 +2410,16 @@ export interface HorseDecideOpts {
    *  measured over-bluffer and an already-priced-in call (pot odds under
    *  25%) keep today. Default on; explicit false keeps today's equity. */
   v79TopPairWeakKicker?: boolean;
+  /** V80 (2026-11-02, Phase 2 of the Burls/Dan top-pair program): the V79
+   *  cap extended to hold'em top pair with a T-or-better kicker (not pairing
+   *  the board) in cell A ONLY (wager >= 0.9 pot, board top Q+, deeper than
+   *  60bb, not a heads-up table, not a bounty / PKO / mystery-bounty event),
+   *  where the decision EV of the horses' own calls was below zero on two
+   *  independent days for every kicker band (v80InMeasuredCell). Cell B (0.6-0.9
+   *  pot) keeps today for strong kickers: its turn calls straddle zero. A
+   *  measured over-bluffer keeps today. Default on; explicit false keeps
+   *  today's equity. */
+  v80TopPairStrongKicker?: boolean;
   /** Phase 7 Round 1: final action-specific tournament utility arbiter.
    *  Complete schema-v1 tournament decisions evaluate every legal action
    *  family after all legacy strategy layers; no global style multiplier can
@@ -4264,6 +4274,58 @@ export function v79InMeasuredCell(o: {
   if (o.potFrac >= 0.9) return true;
   // Cell B: heads-up only (multiway n 48 straddles zero).
   return o.potFrac >= 0.6 && o.boardTopRank === 14 && !o.tournament && o.headsUp;
+}
+
+/**
+ * ═══ V80 TOP PAIR, ANY KICKER, CELL A (2026-11-02) ═══
+ * Phase 2 of the top-pair program. V79's scope note recorded that a T+ kicker
+ * loses as much in the same cells; V80 measures it on its own and admits only
+ * what replicates. Evidence: DECISION EV of the horses' turn/river calls of a
+ * bet they did not start (net + chips already invested at the node, bb; chops
+ * at their fractional return; later streets included), hand_history +
+ * ca_hand_facts (every hand kept), old engine eed06fe5 (no V79), 95% CIs
+ * clustered by hand, cell A (wager >= 0.9 pot, board top Q+, > 60bb
+ * effective, not a heads-up table, not a bounty event), two independent days:
+ *   T-Q kicker, 2026-11-01 13:20 to 11-02 13:20 UTC: T -42.72 [-58.39, -27.04]
+ *     n 105; J -48.92 [-70.22, -27.61] n 99; Q -36.36 [-59.39, -13.34] n 67.
+ *   T-Q kicker, 2026-10-31 13:20 to 11-01 13:20 UTC: -48.49 [-59.77, -37.22]
+ *     n 286 (230 hands); turn -41.01, river -56.87, cash -41.52, tournament
+ *     -80.65, multiway -26.79 [-51.03, -2.55], each below zero.
+ *   K-A kicker: day 1 K -21.43 [-50.60, 7.74] n 48 and A -27.14 [-71.84,
+ *     17.56] n 32 (straddle alone); day 2 -34.80 [-54.66, -14.95] n 98;
+ *     pooled -29.82 [-45.42, -14.22] n 178 (151 hands).
+ *   Both days pooled: T-Q -46.02 [-54.03, -38.01] n 557 (453 hands).
+ *   Turn-to-river planning: a turn call that the horse followed with more
+ *   river chips lost -53.12 [-71.58, -34.65] n 117, a turn call that was its
+ *   last commitment -24.45 [-32.13, -16.76] n 40 (day 1, T+ kicker): both
+ *   below zero, so the turn node is capped too, not just the river.
+ * Not admitted: cell B (0.6-0.9 pot, ace-high, heads-up, outside
+ *   tournaments) with a T+ kicker, -20.63 [-38.77, -2.49] n 80 on day 1 but
+ *   its turn calls straddle (-13.87 [-37.95, 10.22], n 49) and it has no
+ *   second day; it keeps today. Every V79 exclusion stands (heads-up tables,
+ *   bounty events, 60bb or less, J-high-or-lower boards, under 0.9 pot).
+ * Limits: only the horses' own calls are observed (no counterfactual fold
+ * policy), ICM is not modelled, the price ignores players to act behind, and a
+ * measured over-bluffer keeps today. In the cell equity is capped at the same
+ * 0.25 as V79, below every admitted price (0.9 pot+ prices at 0.32+), so the
+ * decision is a fold.
+ */
+export function v80TopPairStrongKicker(hole: Card[], board: Card[]): boolean {
+  if (!hole || hole.length !== 2 || !board || board.length < 3) return false;
+  if (hole[0].rank === hole[1].rank) return false;
+  const top = Math.max(...board.map((c) => RANK_VALUES[c.rank]));
+  if (board.filter((c) => RANK_VALUES[c.rank] === top).length !== 1) return false;
+  const hit = hole.findIndex((c) => RANK_VALUES[c.rank] === top);
+  if (hit < 0) return false;
+  const kicker = hole[1 - hit];
+  if (RANK_VALUES[kicker.rank] <= V79_WEAK_KICKER_MAX) return false;
+  return !board.some((c) => c.rank === kicker.rank);
+}
+export function v80InMeasuredCell(o: Parameters<typeof v79InMeasuredCell>[0]): boolean {
+  if (o.headsUpTable || o.bountyEvent) return false;
+  if (!(o.effectiveBB > V79_MIN_EFFECTIVE_BB)) return false;
+  if (o.boardTopRank < 12) return false;
+  return o.potFrac >= 0.9; // cell A only
 }
 
 export const V68_IMPLIED_MIN_POT_FRAC = 0.7;
@@ -10535,8 +10597,13 @@ export class HorseLogic {
 
     // ═══ V79 TOP PAIR, WEAK KICKER (2026-11-02, qualified cells) ═══ see
     // v79InMeasuredCell. Applied to eq15 so it reaches every consumer below.
+    const weak79 = opts.v79TopPairWeakKicker !== false && v79TopPairWeakKicker(player.cards, board);
+    const strong80 =
+      !weak79 &&
+      opts.v80TopPairStrongKicker !== false &&
+      v80TopPairStrongKicker(player.cards, board);
     if (
-      opts.v79TopPairWeakKicker !== false &&
+      (weak79 || strong80) &&
       !vi.isOmaha &&
       !vi.isShortDeck &&
       vi.holeCount === 2 &&
@@ -10545,8 +10612,7 @@ export class HorseLogic {
       (street === 'turn' || isRiver) &&
       cat === 2 &&
       toCall > 0 &&
-      exploit.callDownMod <= 1 &&
-      v79TopPairWeakKicker(player.cards, board)
+      exploit.callDownMod <= 1
     ) {
       const bettor79 = gs.players
         .filter((p) => p.seat !== player.seat && !p.is_folded)
@@ -10556,25 +10622,26 @@ export class HorseLogic {
           player.stack + (player.bet ?? 0),
           bettor79 ? (bettor79.stack ?? 0) + (bettor79.bet ?? 0) : Infinity
         ) / (gs.bigBlind > 0 ? gs.bigBlind : 1);
-      if (
-        v79InMeasuredCell({
-          potFrac,
-          boardTopRank: Math.max(...board.map((c) => RANK_VALUES[c.rank])),
-          tournament: isTournamentMode(gs),
-          effectiveBB: effBB79,
-          headsUp: oppCount === 1,
-          headsUpTable: dealtHorseTableSize(gs, player.seat) <= 2,
-          bountyEvent:
-            isTournamentMode(gs) &&
-            (gs.tournament?.isPko === true ||
-              gs.tournament?.isBounty === true ||
-              gs.tournament?.isMysteryBounty === true ||
-              (gs.tournament?.bountyFactor ?? 0) > 0),
-        }) &&
-        eq15 > V79_CAP
-      ) {
+      const cell79 = {
+        potFrac,
+        boardTopRank: Math.max(...board.map((c) => RANK_VALUES[c.rank])),
+        tournament: isTournamentMode(gs),
+        effectiveBB: effBB79,
+        headsUp: oppCount === 1,
+        headsUpTable: dealtHorseTableSize(gs, player.seat) <= 2,
+        bountyEvent:
+          isTournamentMode(gs) &&
+          (gs.tournament?.isPko === true ||
+            gs.tournament?.isBounty === true ||
+            gs.tournament?.isMysteryBounty === true ||
+            (gs.tournament?.bountyFactor ?? 0) > 0),
+      };
+      if ((weak79 ? v79InMeasuredCell(cell79) : v80InMeasuredCell(cell79)) && eq15 > V79_CAP) {
         eq15 = V79_CAP;
-        if (tele15) noteFire('v79_top_pair_weak_kicker');
+        if (tele15) {
+          if (weak79) noteFire('v79_top_pair_weak_kicker');
+          else noteFire('v80_top_pair_strong_kicker');
+        }
       }
     }
 
