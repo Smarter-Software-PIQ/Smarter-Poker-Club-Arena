@@ -166,7 +166,10 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     legacyDblinkAclInstallSql, legacyDblinkAclObservationSql } =
     await import('../current-application-roles.mjs');
   const { graphqlLegacyAclInstallSql, graphqlLegacyAclObservationSql } = await import('../graphql-legacy-acl.mjs');
-  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl', 'legacy-acl', 'graphql-acl']) {
+  const { authCapturedAclInstallSql, authCapturedAclObservationSql } = await import('../auth-captured-acls.mjs');
+  const { realtimeCapturedAclInstallSql, realtimeCapturedAclObservationSql } = await import('../realtime-captured-acls.mjs');
+  const { dblinkCapturedInitialAclInstallSql, dblinkCapturedInitialAclObservationSql } = await import('../dblink-captured-initial-acl.mjs');
+  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl', 'legacy-acl', 'graphql-acl', 'auth-acl', 'realtime-acl', 'dblink-initial-acl']) {
     const installed = structuredClone(
       currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
     );
@@ -178,6 +181,14 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     let backendPid = 200;
     let graphqlInstallerPid;
     let graphqlInstalls = 0;
+    const capturedInstalls = [];
+    const capturedInstallerPids = new Set();
+    const capturedObservers = [];
+    const captured = [
+      [authCapturedAclInstallSql, authCapturedAclObservationSql, 'auth-acl', 'auth_captured_acl_exact', 2],
+      [realtimeCapturedAclInstallSql, realtimeCapturedAclObservationSql, 'realtime-acl', 'realtime_captured_acl_exact', 2],
+      [dblinkCapturedInitialAclInstallSql, dblinkCapturedInitialAclObservationSql, 'dblink-initial-acl', 'dblink_captured_initial_acl_exact', 10],
+    ];
     class Client {
       constructor(options) {
         this.options = options;
@@ -187,6 +198,22 @@ test('native extension installer uses actual owning sessions and refuses wrong v
       }
       async connect() {}
       async query(sql) {
+        for (const [install, observation, family, field, count] of captured) {
+          if (sql === install) {
+            assert.equal(installed.length, count, family);
+            assert.equal(this.owner, 'supabase_admin');
+            assert.equal(this.transaction, true);
+            assert.equal(this.processID, graphqlInstallerPid);
+            capturedInstalls.push(family); capturedInstallerPids.add(this.processID);
+          }
+          if (sql === observation) {
+            assert.equal(installed.length, 13);
+            assert.notEqual(this.processID, graphqlInstallerPid);
+            assert.ok(!capturedInstallerPids.has(this.processID));
+            capturedObservers.push(family);
+            return {rows:[{[field]: drift !== family}]};
+          }
+        }
         if (sql === graphqlLegacyAclInstallSql) {
           assert.equal(installed.length, 2);
           assert.equal(this.owner, 'supabase_admin');
@@ -203,6 +230,8 @@ test('native extension installer uses actual owning sessions and refuses wrong v
         if (sql === legacyDblinkAclInstallSql) {
           assert.equal(installed.find((item) => item.name === 'dblink')?.owner, 'supabase_admin');
           assert.ok(sql.includes('REVOKE GRANT OPTION FOR EXECUTE'));
+          assert.equal(installed.length, 10);
+          assert.deepEqual(capturedInstalls, ['auth-acl', 'realtime-acl', 'dblink-initial-acl']);
         }
         if (sql === legacyDblinkAclObservationSql) return {rows:[{legacy_dblink_exact:drift !== 'legacy-acl'}]};
         if (sql.includes(' AS owned')) return { rows: [{ owned: true }] };
@@ -268,12 +297,21 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     if (drift) await assert.rejects(installCurrentApplicationExtensions(args), error => {
       if (drift === 'legacy-acl') return error.message === 'FIXTURE_ASSERT_LEGACY_DBLINK_POSTIMAGE';
       if (drift === 'graphql-acl') return error.message === 'FIXTURE_ASSERT_GRAPHQL_LEGACY_ACL_POSTIMAGE';
+      if (drift === 'auth-acl') return error.message === 'FIXTURE_ASSERT_AUTH_CAPTURED_ACL_POSTIMAGE';
+      if (drift === 'realtime-acl') return error.message === 'FIXTURE_ASSERT_REALTIME_CAPTURED_ACL_POSTIMAGE';
+      if (drift === 'dblink-initial-acl') return error.message === 'FIXTURE_ASSERT_DBLINK_CAPTURED_INITIAL_ACL_POSTIMAGE';
       assert.deepEqual(nativeFailureDiagnostic('fixture-preimage-current-application-role-extension',error),
         {status:'failed',stage:'fixture-preimage-current-application-role-extension',error:'AssertionError',
          assertion_site:drift==='namespace-acl'?'EXTENSION_NAMESPACE_POSTIMAGE':'EXTENSION_POSTIMAGE'});
       return true;
     });
     else assert.equal((await installCurrentApplicationExtensions(args)).installed, 13);
+    assert.deepEqual(capturedInstalls, ['auth-acl', 'realtime-acl', 'dblink-initial-acl']);
+    assert.equal(capturedInstallerPids.size, 1);
+    const expectedObservers = drift === 'graphql-acl' ? [] : drift === 'auth-acl' ? ['auth-acl']
+      : drift === 'realtime-acl' ? ['auth-acl', 'realtime-acl']
+      : ['auth-acl', 'realtime-acl', 'dblink-initial-acl'];
+    assert.deepEqual(capturedObservers, expectedObservers);
     assert.equal(graphqlInstalls, 1);
     assert.equal(statements.length, 11);
     assert.equal(namespaceCreates, 1);

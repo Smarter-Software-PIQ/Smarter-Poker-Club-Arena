@@ -772,6 +772,27 @@ state; a separate post-commit admin observer repeats that check. No direct
 catalog write, binary-upgrade mode, provider substitution or schema exclusion is
 used. Exact full-schema comparison remains mandatory.
 
+Capture18 identified thirteen remaining raw ACL differences after the namespace
+baseline matched. The same bounded private admin transaction now configures the
+captured Auth ACL order on four tables and one sequence without changing effective
+privileges, and restores postgres SELECT/INSERT grant options on the Realtime
+parent and five consecutive partitions. Exact native preimages, owners, relation
+shapes, the 83-entry Realtime ledger and absent initial privileges are required.
+The dblink configuration helper records the captured five-role initial EXECUTE
+baseline for only its two privileged signatures using ordinary extension-context
+GRANT, drops with no members, and restores the fresh current ACL before the
+unchanged legacy dblink profile runs. All thirteen final ACLs are checked again
+by an independent post-commit observer. Wrong identity, drift or repeated
+adaptation refuses; rollback remains owned by the existing transaction.
+
+These modules and the explicit dblink helper control/SQL are included in both
+the reviewed Docker context and sanitized source receipt. Isolated PostgreSQL17
+proof matches all thirteen raw before/after ACL block hashes and sizes from
+capture18, including ACL ordering and initial privilege semantics. This is
+captured fixture configuration, not a claim about historical production changes
+or upstream service migrations. Genuine Linux providers, strict full-schema
+comparison and the fifteen connected cases remain separate required evidence.
+
 Credential-free native smoke now invokes the existing `schema-preimage` command
 in its fresh preimage container. The original pre-alignment catalogue witness
 remains unchanged, but readiness additionally requires the current38-role graph,
