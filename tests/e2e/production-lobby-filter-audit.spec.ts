@@ -10,6 +10,7 @@ import {
 import { readLobbyPreferenceOwner } from './support/lobbyPreferenceProof';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
 import { diamondEntryRead, settleDiamondSpinsOffer } from './support/diamondInvitationOffer';
+import { tournamentBoardScope, type ObservedLobbyScope } from './support/lobbySourceCensus';
 
 // The catalogue supplies control names only. Expected membership below is an
 // independent calculation over actual responses, never the product matcher.
@@ -46,6 +47,7 @@ test.describe.configure({ mode: 'default', timeout: 180_000 });
 const actionTimelines = new WeakMap<Page, unknown[]>();
 const diagnosticRows = new WeakMap<Page, Map<string, Row>>();
 const diagnosticScopes = new WeakMap<Page, unknown[]>();
+const browserDiagnostics = new WeakMap<Page, unknown[]>();
 const publicRowFields = [
   'id',
   'club_id',
@@ -100,6 +102,7 @@ function persistProgress(page: Page) {
         )
       ),
       membershipScopes: diagnosticScopes.get(page),
+      browserDiagnostics: browserDiagnostics.get(page),
       observerErrors: observer?.errors,
       lifecycleWitnesses: observer?.witnesses,
     })
@@ -119,6 +122,7 @@ test.afterEach(async ({ page }, info) => {
         errors: observer.errors,
         lifecycleWitnesses: observer.witnesses,
         actions: actionTimelines.get(page),
+        browserDiagnostics: browserDiagnostics.get(page),
       })
     ),
     contentType: 'application/json',
@@ -665,38 +669,6 @@ async function assertExteriorLeds(
   }
   return readings;
 }
-type ObservedLobbyScope = { unionId: string | null; clubIds: string[] };
-function scopeFromTournamentQuery(url: URL): ObservedLobbyScope | undefined {
-  const uuid = /^[0-9a-f-]{36}$/i;
-  const expression = url.searchParams.get('or')?.replace(/^\((.*)\)$/, '$1');
-  if (expression) {
-    const union =
-      /^union_id\.eq\.([0-9a-f-]{36}),and\(club_id\.eq\.([0-9a-f-]{36}),is_private\.eq\.true\)$/i.exec(
-        expression
-      );
-    if (union && union[2].toLowerCase() === CLUB_ID.toLowerCase())
-      return { unionId: union[1].toLowerCase(), clubIds: [CLUB_ID] };
-  }
-  const filter = url.searchParams.get('club_id');
-  const clubs =
-    filter?.startsWith('in.(') && filter.endsWith(')')
-      ? filter
-          .slice(4, -1)
-          .split(',')
-          .map((value) => value.replace(/^"|"$/g, '').trim().toLowerCase())
-      : filter?.startsWith('eq.')
-        ? [filter.slice(3).toLowerCase()]
-        : [];
-  if (
-    clubs.length &&
-    clubs.every((value) => uuid.test(value)) &&
-    clubs.includes(CLUB_ID.toLowerCase())
-  )
-    return { unionId: null, clubIds: [...new Set(clubs)].sort() };
-  if ([expression, filter].some((value) => value?.includes(CLUB_ID)))
-    throw new Error('The observed tournament membership query has an unrecognized scope');
-  return undefined;
-}
 function independentlyInScope(row: Row, scope: ObservedLobbyScope): boolean {
   return scope.unionId
     ? row.union_id === scope.unionId ||
@@ -880,14 +852,14 @@ async function assertLobbyControlsInsidePaint(page: Page) {
       reference,
       'The actual club identity and jackpot form the owner reference pair'
     ).toHaveLength(2);
-    for (let index = 0; index < 2; index++) {
-      expect(Math.abs(families[index].width - reference[index].width)).toBeLessThanOrEqual(1);
-      expect(Math.abs(families[index].height - reference[index].height)).toBeLessThanOrEqual(1);
-    }
     await test.info().attach('native-family-reference-pair.json', {
       body: JSON.stringify({ families, reference }),
       contentType: 'application/json',
     });
+    for (let index = 0; index < 2; index++) {
+      expect(Math.abs(families[index].width - reference[index].width)).toBeLessThanOrEqual(1);
+      expect(Math.abs(families[index].height - reference[index].height)).toBeLessThanOrEqual(1);
+    }
   }
   await expect
     .poll(
@@ -1207,6 +1179,57 @@ async function setup(page: Page) {
   ).toBe(true);
   page.setDefaultTimeout(10_000);
   actionTimelines.set(page, []);
+  const diagnostics: unknown[] = [];
+  browserDiagnostics.set(page, diagnostics);
+  const safeDiagnostic = (value: string) =>
+    value
+      .replace(/https?:\/\/[^\s"'<>]+/g, (value) => {
+        try {
+          const url = new URL(value);
+          return url.origin + url.pathname;
+        } catch {
+          return '[url]';
+        }
+      })
+      .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[token]')
+      .replace(/Bearer\s+[^\s"']+/gi, 'Bearer [token]')
+      .replace(
+        /((?:access_token|refresh_token|apikey|authorization)["']?\s*[:=]\s*)[^\s,}]+/gi,
+        '$1[redacted]'
+      )
+      .slice(0, 3000);
+  const recordDiagnostic = (kind: string, value: Record<string, string>) => {
+    if (diagnostics.length >= 50) return;
+    diagnostics.push({
+      kind,
+      observedAt: Date.now(),
+      ...Object.fromEntries(
+        Object.entries(value).map(([key, value]) => [key, safeDiagnostic(value)])
+      ),
+    });
+    persistProgress(page);
+  };
+  page.on('pageerror', (error) =>
+    recordDiagnostic('pageerror', {
+      message: error.message,
+      stack: error.stack || '',
+    })
+  );
+  page.on('console', (message) => {
+    if (
+      message.type() === 'error' &&
+      /ErrorBoundary|CHUNK_LOAD_EXHAUSTED|Deferred_service_start_failed/.test(message.text())
+    )
+      recordDiagnostic('console-error', { message: message.text() });
+  });
+  page.on('requestfailed', (request) => {
+    if (['document', 'script', 'stylesheet'].includes(request.resourceType()))
+      recordDiagnostic('requestfailed', {
+        url: request.url(),
+        resourceType: request.resourceType(),
+        message: request.failure()?.errorText || 'Unknown transport failure',
+      });
+  });
   const participation: string[] = [];
   await page.route(
     /\/(?:action|leave|post-bb|buyin|addchips|rebuy|cashout|sitout|seat-move|seat-change|rest\/v1\/(?:table_seats|tournament_players|wallet_transactions|rpc\/(?:fn_cash_game_join|atomic_table_buyin|fn_lightning_join|fn_lightning_buy_in|fn_take_seat_and_buy_in|fn_register_for_tournament|fn_unregister_from_tournament|fn_leave_seat_and_refund|atomic_table_rebuy|process_tournament_rebuy|fn_join_waitlist)))(?:[/?#]|$)/,
@@ -1348,19 +1371,29 @@ async function setup(page: Page) {
       }
       if (response.request().method() !== 'GET' && !url.pathname.endsWith('/get_club_home')) return;
       if (!/\/(?:tables|tournaments|get_club_home)$/.test(url.pathname)) return;
+      let tournamentScope: ObservedLobbyScope | undefined;
       if (url.pathname.endsWith('/tournaments')) {
-        const scope = scopeFromTournamentQuery(url);
-        if (scope) {
-          if (observedScope && JSON.stringify(observedScope) !== JSON.stringify(scope))
-            throw new Error('The observed tournament membership scope changed during this case');
-          if (!observedScope)
-            scopeWitnesses.push({
-              source: 'scoped-tournament-query',
-              observedAt: Date.now(),
-              ...scope,
-            });
-          observedScope = scope;
+        const queryWitness: Record<string, unknown> = {
+          source: 'tournament-query-provenance',
+          observedAt: Date.now(),
+          query: Object.fromEntries(
+            ['select', 'status', 'start_time', 'order', 'limit', 'club_id', 'or']
+              .filter((key) => url.searchParams.has(key))
+              .map((key) => [key, url.searchParams.get(key)])
+          ),
+        };
+        scopeWitnesses.push(queryWitness);
+        tournamentScope = tournamentBoardScope(url, CLUB_ID);
+        queryWitness.boardCensus = Boolean(tournamentScope);
+        if (tournamentScope) {
+          queryWitness.scope = tournamentScope;
+          if (observedScope && JSON.stringify(observedScope) !== JSON.stringify(tournamentScope))
+            throw new Error(
+              'The complete tournament board membership scope changed during this case'
+            );
+          observedScope = tournamentScope;
         }
+        persistProgress(page);
       }
       observe(
         url.pathname,
@@ -1374,8 +1407,18 @@ async function setup(page: Page) {
           const homeScope =
             url.pathname.endsWith('/get_club_home') &&
             object(response.request().postDataJSON()).p_club_key === CLUB_ID;
-          const boardCensus = queryScope || homeScope;
-          if (Array.isArray(body)) accept(body, boardCensus ? true : undefined);
+          const boardCensus =
+            (url.pathname.endsWith('/tournaments') ? Boolean(tournamentScope) : queryScope) ||
+            homeScope;
+          if (Array.isArray(body) && tournamentScope) {
+            for (const value of body) {
+              const row = object(value);
+              accept(
+                [row],
+                completeTournamentMembership(row) && independentlyInScope(row, tournamentScope)
+              );
+            }
+          } else if (Array.isArray(body)) accept(body, boardCensus ? true : undefined);
           else {
             accept(body.tables, boardCensus ? true : undefined);
             accept(body.tournaments, boardCensus ? true : undefined);
@@ -1578,10 +1621,12 @@ for (const type of TYPES) {
       'Every baseline row must have an actual source response'
     ).toBe(true);
     if (!cash) {
-      expect(
-        baseline.every((id) => belongsToObservedFamily(h.rawRows.get(id)!, type)),
-        'The baseline must independently belong to the scoped source census and selected family'
-      ).toBe(true);
+      await expect
+        .poll(() => baseline.every((id) => belongsToObservedFamily(h.rawRows.get(id)!, type)), {
+          message:
+            'The baseline must independently belong to the scoped source census and selected family',
+        })
+        .toBe(true);
     }
     const evidence: unknown[] = [];
     await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));

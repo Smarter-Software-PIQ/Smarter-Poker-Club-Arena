@@ -10,65 +10,82 @@ test.use({ viewport: { width: 393, height: 852 }, trace: 'off', video: 'off' });
 
 /** Read painted text ranges and the actual plate's content bounds, not overflow CSS alone. */
 async function nameGeometry(page: Page) {
-  return page
-    .locator('.seat__info:not([aria-hidden="true"]) .seat__name:visible')
-    .evaluateAll((names) =>
-      names.map((well) => {
-        const value = well.querySelector('.seat__name-text') || well;
-        const plate = well.closest('.seat__info')!;
-        const seat = plate.closest('.seat')!;
-        const seatLabel = seat.getAttribute('aria-label') || '';
-        const beforeStack = seatLabel.slice(0, seatLabel.lastIndexOf(', Stack '));
-        const fullName = beforeStack
-          .replace(/^Seat \d+: /, '')
-          .replace(/(?: \((?:Acting Now|Folded|All In)\))+$/, '')
-          .trim();
-        const box = well.getBoundingClientRect();
-        const plateBox = plate.getBoundingClientRect();
-        const css = getComputedStyle(plate);
-        const valueCss = getComputedStyle(value);
-        const scaleX = plateBox.width / ((plate as HTMLElement).offsetWidth || plateBox.width);
-        const px = (text: string) => Number.parseFloat(text) || 0;
-        const inner = {
-          left: plateBox.left + (px(css.borderLeftWidth) + px(css.paddingLeft)) * scaleX,
-          right: plateBox.right - (px(css.borderRightWidth) + px(css.paddingRight)) * scaleX,
-        };
-        const range = document.createRange();
-        range.selectNodeContents(value);
-        const ink = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
-        const baselines = [...new Set(ink.map((rect) => Math.round(rect.top * 2) / 2))];
-        const text = value.textContent?.trim() || '';
-        return {
-          text,
-          fullName,
-          fontSize: px(valueCss.fontSize),
-          whiteSpace: valueCss.whiteSpace,
-          lineCount: baselines.length,
-          ink: ink.map((rect) => ({
-            left: rect.left,
-            right: rect.right,
-            top: rect.top,
-            bottom: rect.bottom,
-          })),
-          box: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
-          inner,
-          complete:
-            Boolean(text) &&
-            text === fullName &&
-            text === well.getAttribute('title')?.trim() &&
-            !text.includes('\u2026'),
-          fits:
-            ink.length > 0 &&
-            ink.every(
-              (rect) =>
-                rect.left >= Math.max(box.left, inner.left) - 1 &&
-                rect.right <= Math.min(box.right, inner.right) + 1 &&
-                rect.top >= box.top - 1 &&
-                rect.bottom <= box.bottom + 1
-            ),
-        };
-      })
+  return page.evaluate(() => {
+    // Query and measure in one browser task. A keyed live plate may remount
+    // between locator resolution and a later evaluation, especially on resize.
+    const names = [
+      ...document.querySelectorAll('.seat__info:not([aria-hidden="true"]) .seat__name'),
+    ].filter(
+      (well) => well.getClientRects().length > 0 && getComputedStyle(well).visibility !== 'hidden'
     );
+    return names.map((well) => {
+      const value = well.querySelector('.seat__name-text');
+      const plate = well.closest('.seat__info');
+      const seat = plate?.closest('.seat[data-player-id][role="region"]');
+      if (!well.isConnected || !plate?.isConnected || !seat?.isConnected || !value) {
+        return {
+          text: well.textContent?.trim() || '',
+          fullName: '',
+          fontSize: 0,
+          whiteSpace: '',
+          lineCount: 0,
+          complete: false,
+          fits: false,
+          invalidGeometry: 'A painted name lacks its connected occupied seat, plate or text',
+        };
+      }
+      const seatLabel = seat.getAttribute('aria-label') || '';
+      const beforeStack = seatLabel.slice(0, seatLabel.lastIndexOf(', Stack '));
+      const fullName = beforeStack
+        .replace(/^Seat \d+: /, '')
+        .replace(/(?: \((?:Acting Now|Folded|All In)\))+$/, '')
+        .trim();
+      const box = well.getBoundingClientRect();
+      const plateBox = plate.getBoundingClientRect();
+      const css = getComputedStyle(plate);
+      const valueCss = getComputedStyle(value);
+      const scaleX = plateBox.width / ((plate as HTMLElement).offsetWidth || plateBox.width);
+      const px = (text: string) => Number.parseFloat(text) || 0;
+      const inner = {
+        left: plateBox.left + (px(css.borderLeftWidth) + px(css.paddingLeft)) * scaleX,
+        right: plateBox.right - (px(css.borderRightWidth) + px(css.paddingRight)) * scaleX,
+      };
+      const range = document.createRange();
+      range.selectNodeContents(value);
+      const ink = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+      const baselines = [...new Set(ink.map((rect) => Math.round(rect.top * 2) / 2))];
+      const text = value.textContent?.trim() || '';
+      return {
+        text,
+        fullName,
+        fontSize: px(valueCss.fontSize),
+        whiteSpace: valueCss.whiteSpace,
+        lineCount: baselines.length,
+        ink: ink.map((rect) => ({
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+        })),
+        box: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+        inner,
+        complete:
+          Boolean(text) &&
+          text === fullName &&
+          text === well.getAttribute('title')?.trim() &&
+          !text.includes('\u2026'),
+        fits:
+          ink.length > 0 &&
+          ink.every(
+            (rect) =>
+              rect.left >= Math.max(box.left, inner.left) - 1 &&
+              rect.right <= Math.min(box.right, inner.right) + 1 &&
+              rect.top >= box.top - 1 &&
+              rect.bottom <= box.bottom + 1
+          ),
+      };
+    });
+  });
 }
 
 test('live spectator player names stay complete on one line inside their plates', async ({

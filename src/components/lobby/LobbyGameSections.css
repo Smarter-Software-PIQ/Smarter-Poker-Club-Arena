@@ -93,6 +93,6 @@
 @media (max-width: 900px) {
   .lobby-game-sections {
     gap: 6px;
-    padding: 0 2px 6px;
+    padding: 0 0 6px;
   }
 }
