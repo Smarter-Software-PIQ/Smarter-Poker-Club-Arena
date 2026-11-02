@@ -630,6 +630,12 @@ describe('closed remaining sticky-tail proof', () => {
     expect(helper).toContain('await expect(controls).toBeInViewport()');
     expect(helper).toContain('await expect(rail).toBeHidden()');
     expect(helper).toContain("row.closest('.lobby-table-wrap')?.scrollTop ?? 0");
+    const desktop = helper.slice(helper.indexOf('await page.setViewportSize'));
+    expect(desktop).toContain(
+      '.lobby-table-wrap:visible .lobby-table > tbody > tr.lt-row[data-kind="cash"][data-id]:visible'
+    );
+    expect(desktop).toContain('await expect.poll(() => desktopRows.count()).toBeGreaterThan(1)');
+    expect(desktop).not.toContain('h.rows');
     expect(helper).toContain('.toBeGreaterThan(0)');
     expect(helper).toContain('await assertLobbyControlsInsidePaint(page)');
     expect(helper).toContain('await assertRegistrationInkInsideFrame(page)');

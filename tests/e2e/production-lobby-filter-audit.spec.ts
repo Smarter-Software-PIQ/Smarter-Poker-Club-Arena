@@ -2521,10 +2521,16 @@ async function assertCashFamilyStickyTail(
   await assertLobbyControlsInsidePaint(page);
   // Desktop uses its real inner catalogue scroll event, not the phone's page
   // intersection. Resizing alone is not evidence of that desktop transition.
-  await h.rows.first().scrollIntoViewIfNeeded({ timeout: 10_000 });
-  await h.rows.last().scrollIntoViewIfNeeded({ timeout: 10_000 });
+  const desktopRows = page.locator(
+    '.lobby-table-wrap:visible .lobby-table > tbody > tr.lt-row[data-kind="cash"][data-id]:visible'
+  );
+  await expect.poll(() => desktopRows.count()).toBeGreaterThan(1);
+  await desktopRows.first().scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await desktopRows.last().scrollIntoViewIfNeeded({ timeout: 10_000 });
   await expect
-    .poll(() => h.rows.last().evaluate((row) => row.closest('.lobby-table-wrap')?.scrollTop ?? 0))
+    .poll(() =>
+      desktopRows.last().evaluate((row) => row.closest('.lobby-table-wrap')?.scrollTop ?? 0)
+    )
     .toBeGreaterThan(0);
   await expect(rail).toBeVisible();
   await expect(rail).toBeInViewport();
