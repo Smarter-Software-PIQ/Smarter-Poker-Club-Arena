@@ -19,6 +19,7 @@
 --     operator cap, funds each horse through the leg above; trusted callers only.
 --
 -- DML only: no DDL, no schema reload.
+-- @live-proof: (SELECT count(*)=2 FROM public.ca_money_rpc_registry WHERE proname IN ('fn_ca_horse_split_wallet_leg','fn_ca_horse_club_split_execute') AND status='approved')
 BEGIN;
 SET LOCAL statement_timeout='10s';
 SET LOCAL lock_timeout='2s';
