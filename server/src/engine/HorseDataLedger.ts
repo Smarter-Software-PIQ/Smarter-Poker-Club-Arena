@@ -846,6 +846,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V75'
   ),
   flag(
+    'v79TopPairWeakKicker',
+    '2026-11-02 (Burls via Dan: horses "stack off with top pair, no weak kickers") the brain never read the kicker: V11 domination exempts top pair and every one-pair shade is price-only; hold\'em top pair whose other hole card is a 9 or lower not pairing the board (the HorseHandReview top_pair_weak_kicker definition) facing a turn or river wager of 0.6 pot or more, or one committing 40%+ of the stack, has eq15 CAPPED (the V20/V21 cap pattern; the raw read prices top pair against a random range, ~0.9) at 0.45 for a 0.6-pot wager falling linearly to 0.30 at pot-sized and above (just under the 33% a pot-sized bet needs), 0.45 when a smaller wager commits it, before the committed call/jam test, the value raise and the river/turn verdicts; measured before (3 days to 2026-11-02): 828 tagged NLH hands -39,835bb, 443 calls of a bet the horse did not start won 10.2% (-28,925bb), unchanged by V63-V70; a measured over-bluffer (callDownMod > 1) and a call already priced in (pot odds < 25%) keep today; explicit off arm keeps today',
+    'V79'
+  ),
+  flag(
     'v78NoCommittingBluffRaise',
     '2026-11-02 (Dan: "I GET RANDOMLY RAISED ON THE TURN AND THEN THE HORSE JUST CALLS OFF AN ENTIRE STACK WITH A10"; hand 6a30e154: A-T, 8-6-9-3, check-raised a 15 bet to 67 with 84 effective, then called the jam) a hold\'em postflop semi-bluff or check-raise bluff raise (the generic semi-bluff branch, which needs no real draw, and the V8 scare-card check-raise) that legalized is NOT all-in yet puts 40% or more of hero\'s remaining stack in is not made: a stack that small cannot fold to the re-shove, so the never-raise-to-fold rule turns it into a forced call-off; the hand falls through to the priced call / fold verdict and its barrel plan is withdrawn; all-in sizings, smaller raises and every value raise (two pair+, the value branch) untouched; every random roll consumed in its original order; explicit off arm keeps today',
     'V78'
@@ -2188,6 +2193,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V73',
     'decide_nlh',
     0.002
+  ),
+  receipt(
+    'v79_top_pair_weak_kicker',
+    'HorseLogic (V79)',
+    "Hold'em top pair with a 9-or-lower kicker facing a 0.6-pot+ or stack-committing turn/river wager: equity shaded",
+    'V79',
+    'decide_nlh'
   ),
   receipt(
     'v78_no_committing_bluff_raise',
