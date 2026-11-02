@@ -703,6 +703,9 @@ describe('the actual mounted View caller awaits table preparation', () => {
     fireEvent.click(buttons[0]);
     await flush();
     expect(h.prepareTable).toHaveBeenCalledWith('known-table');
+    fireEvent.click(buttons[0]);
+    await flush();
+    expect(h.prepareTable).toHaveBeenCalledTimes(1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6_000);
     });
@@ -765,4 +768,32 @@ describe('View Game from a persistent embedded lobby', () => {
     expect(screen.queryByText('Prepared Table Route')).toBeNull();
     expect(h.warning).toHaveBeenCalledWith('Could Not Connect To The Table. Please Try Again.');
   });
+});
+
+describe('cash viewing uses one spectator door in every mode', () => {
+  it.each(['must_move', 'lightning', 'pending_on', 'draining'])(
+    '%s rows prepare the public table without opening the Lightning join page',
+    async (mode) => {
+      h.authenticated = true;
+      await mountCachedTable(
+        {
+          lifecycle: 'live',
+          cluster_id: 'game-a',
+          cluster_front: true,
+          role: 'main',
+          main_index: 1,
+          cluster_mode: mode,
+          cluster_template: 'action',
+          cluster_handedness: 6,
+          cluster_players: 4,
+          cluster_tables: 1,
+        },
+        true
+      );
+      fireEvent.click(screen.getAllByRole('button', { name: /^View Game/i })[0]);
+      await flush();
+      expect(h.prepareTable).toHaveBeenCalledExactlyOnceWith('known-table');
+      expect(screen.getByText('Prepared Table Route')).toBeTruthy();
+    }
+  );
 });

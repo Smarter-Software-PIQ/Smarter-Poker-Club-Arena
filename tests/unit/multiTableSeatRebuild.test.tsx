@@ -290,6 +290,11 @@ function Location() {
     <>
       <output data-testid="location">{useLocation().pathname}</output>
       <button onClick={() => navigate('/table/A')}>Enter Assigned Tournament</button>
+      {['A', 'B', 'C', 'D'].map((id) => (
+        <button key={id} onClick={() => navigate(`/table/${id}`)}>
+          View Cash {id}
+        </button>
+      ))}
     </>
   );
 }
@@ -956,4 +961,38 @@ it('does not apply a late tournament result after its metadata deadline', async 
   });
   expect(screen.getByTestId('tab-A').getAttribute('data-name')).toBe('');
   expect(state.tournamentRead).toHaveBeenCalledTimes(1);
+});
+
+describe('cash View reuses mounted game tabs', () => {
+  it('focuses the existing table at the cap without duplicating or remounting it', async () => {
+    await seatA();
+    for (const id of ['B', 'C', 'D']) {
+      fireEvent.click(screen.getByText(`View Cash ${id}`));
+      await waitFor(() => expect(screen.getByTestId('tabs').getAttribute('data-active')).toBe(id));
+    }
+    fireEvent.click(screen.getByText('View Cash A'));
+    await waitFor(() => expect(screen.getByTestId('tabs').getAttribute('data-active')).toBe('A'));
+    expect(screen.getByTestId('tabs').textContent?.split(',')).toEqual(['A', 'B', 'C', 'D']);
+    expect(state.reportAtUnmount.has('A')).toBe(false);
+    expect(state.toast.warning).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('View Cash A'));
+    expect(screen.getByTestId('tabs').getAttribute('data-active')).toBe('A');
+    expect(screen.getByTestId('tabs').textContent?.split(',')).toHaveLength(4);
+  });
+
+  it('returns from a persistent lobby borrowing the same cash-table URL', async () => {
+    await seatA();
+    await act(async () => masterBus.emit('OPEN_LOBBY_TAB', {}));
+    expect(screen.getByTestId('tabs').getAttribute('data-active')).not.toBe('A');
+    expect(screen.getByTestId('location').textContent).toBe('/table/A');
+    fireEvent.click(screen.getByText('View Cash A'));
+    await waitFor(() => expect(screen.getByTestId('tabs').getAttribute('data-active')).toBe('A'));
+    expect(
+      screen
+        .getByTestId('tabs')
+        .textContent?.split(',')
+        .filter((id) => id === 'A')
+    ).toHaveLength(1);
+    expect(state.reportAtUnmount.has('A')).toBe(false);
+  });
 });

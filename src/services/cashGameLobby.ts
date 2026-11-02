@@ -506,8 +506,8 @@ export function joinGameRefusalText(err: unknown): string {
   if (code === 'INSUFFICIENT_CHIPS') {
     const need = Number(msg.split(':')[1]);
     return Number.isFinite(need) && need > 0
-      ? `Not Enough Chips. You Need At Least ${need.toLocaleString('en-US', { maximumFractionDigits: 2 })} Chips To Join This Game.`
-      : 'Not Enough Chips To Join This Game.';
+      ? `Not Enough Chips In Your Active Club Wallet. You Need At Least ${need.toLocaleString('en-US', { maximumFractionDigits: 2 })} Chips To Join This Game. Chips In Other Clubs Are Separate.`
+      : 'Not Enough Chips In Your Active Club Wallet To Join This Game. Chips In Other Clubs Are Separate.';
   }
   if (code === 'INSUFFICIENT_SETTLED_DIAMONDS') {
     const need = Number(msg.split(':')[1]);

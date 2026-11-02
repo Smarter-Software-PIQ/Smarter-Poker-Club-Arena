@@ -18,9 +18,12 @@ describe('Diamond game entry names its own asset and refusal', () => {
       'Sign In Again'
     );
   });
-  it('retains the chip-game sentence', () => {
+  it('names the active club wallet rather than implying every club is unfunded', () => {
     expect(joinGameRefusalText({ message: 'INSUFFICIENT_CHIPS:12.5' })).toBe(
-      'Not Enough Chips. You Need At Least 12.5 Chips To Join This Game.'
+      'Not Enough Chips In Your Active Club Wallet. You Need At Least 12.5 Chips To Join This Game. Chips In Other Clubs Are Separate.'
+    );
+    expect(joinGameRefusalText({ message: 'INSUFFICIENT_CHIPS:208.10' })).toBe(
+      'Not Enough Chips In Your Active Club Wallet. You Need At Least 208.1 Chips To Join This Game. Chips In Other Clubs Are Separate.'
     );
   });
 });

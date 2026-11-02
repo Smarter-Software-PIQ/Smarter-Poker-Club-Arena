@@ -797,6 +797,17 @@
         "20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
         "20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql"
       ]
+    },
+    {
+      "id": "2026-11-01-attention14-two-sql-database-operation",
+      "ownerOrder": "Dan directly in Attention14 chat 01a1975a-bf0a-7a53-94ae-b7c53f3fc8ad on November1,2026 ordered: \"Resolve the engine census blocker, install all three migrations, and finish settlement. Use the swarm and keep the consolidation chat read-only. Do not stop at another status report or claim success until all 14 are verified complete.\" This NEW fixed database-only operation names only the same qualified04247 then05048 files. Through the existing stage-engine-release owner_window_id and maintained request_database_break=true route, reserve one fixed Deployment Recovery window without engine replacement. Before reservation read exact history, original outcomes and current ownership; installed SQL is never replayed. Preserve unchanged sealed image/SHA/instance, source and engine mutation locks, no awaiting engine transaction or pending/finalization, rolling-hour seal, full120second notice,300second durable hand-boundary freeze and285second admission certificate,150second installer opening and100second commit reserve, one transaction and one attempt per file,1second lock,5second statement and8second accepted transaction budgets, first-refusal stop and verified own-window v3 thaw. A partial first-file commit remains durable if the second refuses; no replay or fabricated all-or-nothing claim. This entry adds no engine activation authority,174851 installation, payment, balance edit, tournament-start hold, scheduler, watcher, second publisher or automatic renewal. Unknown outcomes preserve their original identity. Fixed bounds expire without extension.",
+      "contains": "4e9c32285477176df8e4afcef4e743d5fe961047",
+      "notBefore": "2026-11-01T23:25:00Z",
+      "notAfter": "2026-11-02T02:25:00Z",
+      "migrations": [
+        "20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
+        "20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql"
+      ]
     }
   ]
 }

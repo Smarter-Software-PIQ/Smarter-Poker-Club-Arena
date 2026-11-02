@@ -4111,10 +4111,9 @@ button.post-bb-overlay-button {
    plus a wide, soft, edgeless pool that has no perceivable boundary. */
 .seat-wrapper--spot .seat:not(.seat--empty) {
   filter: brightness(1.18) saturate(1.08);
-  transform: scale(1.04);
-  transition:
-    filter 0.25s ease,
-    transform 0.25s ease;
+  /* Attention changes brightness, never the chair's size or position. */
+  transform: none;
+  transition: filter 0.25s ease;
 }
 
 .seat-wrapper--spot::before {
