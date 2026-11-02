@@ -23,6 +23,10 @@ RUN = re.compile(r'^[1-9][0-9]{0,19}-[1-9][0-9]{0,3}$')
 SHA = re.compile(r'^[0-9a-f]{40}$')
 CAUSES = {'urgent', 'engine-degraded', 'deadline'}
 MAX_BYTES = 65536
+# A seal is aggregate history, not one receipt: its existing shape admits up to
+# 256 cycles. Bound that document separately by 256 single-record byte budgets.
+# Individual receipts and the exported projection retain their existing bounds.
+ROUTINE_SEAL_MAX_BYTES = 256 * MAX_BYTES
 FAILURE_SCHEMA = 'existing-release-recovery-refusal/v1'
 # Literal, reviewed codes only. Exception text and transport output never cross
 # this protocol, including unknown errors from the selected native reader.
@@ -648,7 +652,7 @@ def routine_remote(request, root_fd):
         name = 'engine-release-seal.json'
         seal_before = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
         stage = 'seal_read'
-        state, raw = read_json(root_fd, name, private=True, with_bytes=True)
+        state, raw = read_json(root_fd, name, private=True, with_bytes=True, limit=ROUTINE_SEAL_MAX_BYTES)
         stage = 'seal_shape'
         routine_require(type(state.get('schema')) is int and state['schema'] == 1 and
                         type(state.get('generation')) is int and state['generation'] >= 1)
@@ -718,7 +722,7 @@ def routine_remote(request, root_fd):
                 _, reread = read_json(result_fd, result_name, private=True, with_bytes=True)
                 routine_require(reread == result_raw and identity(result_stat) ==
                                 identity(os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)))
-            _, reread = read_json(root_fd, name, private=True, with_bytes=True)
+            _, reread = read_json(root_fd, name, private=True, with_bytes=True, limit=ROUTINE_SEAL_MAX_BYTES)
             routine_require(reread == raw and identity(seal_before) == identity(os.stat(name, dir_fd=root_fd, follow_symlinks=False)) and
                             identity(directory) == identity(os.fstat(root_fd)) and
                             identity(result_dir) == identity(os.fstat(result_fd)) and time.monotonic() - started < 5)
@@ -1324,25 +1328,26 @@ def unique_object(pairs):
     return result
 
 
-def read_json(directory_fd, name, private=False, with_bytes=False):
+def read_json(directory_fd, name, private=False, with_bytes=False, limit=MAX_BYTES):
     """Fixed relative file, no links, bounded bytes, unchanged inode/time/size."""
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
     try:
         before = os.fstat(fd)
-        if before.st_size > MAX_BYTES:
+        if before.st_size > limit:
             raise ValueError('Persisted evidence file size refused')
         if (not stat.S_ISREG(before.st_mode)
                 or (private and (before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) != 0o600))):
             raise ValueError('Persisted evidence file refused')
-        raw = b''
-        while len(raw) <= MAX_BYTES:
-            part = os.read(fd, min(4096, MAX_BYTES + 1 - len(raw)))
+        chunks, size = [], 0
+        while size <= limit:
+            part = os.read(fd, min(65536, limit + 1 - size))
             if not part:
                 break
-            raw += part
+            chunks.append(part); size += len(part)
+        raw = b''.join(chunks)
         after = os.fstat(fd)
         identity = lambda row: (row.st_dev, row.st_ino, row.st_size, row.st_mtime_ns, row.st_ctime_ns, row.st_uid, row.st_mode)
-        if identity(before) != identity(after) or len(raw) != before.st_size or len(raw) > MAX_BYTES:
+        if identity(before) != identity(after) or len(raw) != before.st_size or len(raw) > limit:
             raise ValueError('Persisted evidence changed')
         value = json.loads(raw, object_pairs_hook=unique_object)
         if not isinstance(value, dict):
