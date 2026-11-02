@@ -13,6 +13,12 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('provider', ROOT / 'scripts/ci/native-perf-install-provider.py')
 provider = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(provider)
+adapter_spec = importlib.util.spec_from_file_location('adapter', ROOT / 'scripts/ci/native-perf-terminal-diagnostics.py')
+adapter = importlib.util.module_from_spec(adapter_spec)
+adapter_spec.loader.exec_module(adapter)
+planner_spec = importlib.util.spec_from_file_location('planner', ROOT / 'scripts/ci/native-perf-install.py')
+planner = importlib.util.module_from_spec(planner_spec)
+planner_spec.loader.exec_module(planner)
 
 
 class ProviderBoundaries(unittest.TestCase):
@@ -52,7 +58,7 @@ class ProviderBoundaries(unittest.TestCase):
                         'identityControllerSHA256': value['identityControllerSHA256'],
                         'planSourceSHA256': '739f7ea64f41d7aa0ba421362ba200ed6fcc767a9d227351011cb5de951155ac',
                         'phase': 'refused', 'commandFailure': None, 'aptAttemptRecorded': False,
-                        'originalRecordsUnchanged': True, 'packages': {'verified': False, 'rows': [], 'dpkgAuditClean': None},
+                        'originalRecordsUnchanged': True, 'packages': adapter.package_report({kind: adapter.empty_query(kind, sorted(set(planner.TARGETS) | planner.DEPENDENCIES)) for kind in adapter.QUERY_COMMANDS}, sorted(set(planner.TARGETS) | planner.DEPENDENCIES)),
                         'retryAllowed': False, 'nativeCauseProven': False}
                     return 0, json.dumps(diagnostic).encode()
                 return 0, json.dumps(value).encode()

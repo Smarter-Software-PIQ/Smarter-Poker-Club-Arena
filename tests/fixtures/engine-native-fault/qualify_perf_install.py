@@ -326,7 +326,7 @@ def main():
                 input=(ROOT / 'scripts/ci/native-perf-terminal-diagnostics.py').read_bytes(), timeout=25, check=False)
             planner = helper.load('original_terminal_plan', 'package-plan.py', adapter.PLAN)
             diagnostic = adapter.diagnostic_outcome(child.stdout, receipt, child.returncode, planner, helper)
-            if diagnostic is None or diagnostic['phase'] != 'verified' or diagnostic['aptAttemptRecorded'] is not True or diagnostic['packages']['verified'] is not True:
+            if diagnostic is None or diagnostic['phase'] != 'verified' or diagnostic['aptAttemptRecorded'] is not True or diagnostic['packages']['schema'] != adapter.PACKAGE_SCHEMA or diagnostic['packages']['verified'] is not True or not all(query['verified'] and query['stage'] == 'complete' and query['reason'] == 'verified' and query['commandFailure'] is None for query in diagnostic['packages']['queries'].values()):
                 raise RuntimeError('fixture_terminal_diagnostics_unproven')
             if set(work.iterdir()) != before_entries or any((work / name).read_bytes() != raw for name, raw in before_records.items()):
                 raise RuntimeError('fixture_terminal_diagnostics_wrote_state')
