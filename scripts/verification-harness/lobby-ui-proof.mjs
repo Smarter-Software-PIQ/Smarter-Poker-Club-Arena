@@ -121,6 +121,7 @@ export const FILTER_CASES = [
   },
 ];
 export const FILTER_COMPONENT_PATHS = [
+  'src/hooks/useMttLobbyEntryCounts.ts',
   'src/lib/shellReloadBlocker.ts',
   'src/hooks/useShellUpdateGate.ts',
   'src/utils/tournamentLobbyRead.ts',
