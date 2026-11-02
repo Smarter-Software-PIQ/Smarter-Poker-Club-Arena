@@ -9,6 +9,7 @@ import { graphqlLegacyAclInstallSql, graphqlLegacyAclObservationSql } from './gr
 import { authCapturedAclInstallSql, authCapturedAclObservationSql } from './auth-captured-acls.mjs';
 import { realtimeCapturedAclInstallSql, realtimeCapturedAclObservationSql } from './realtime-captured-acls.mjs';
 import { dblinkCapturedInitialAclInstallSql, dblinkCapturedInitialAclObservationSql } from './dblink-captured-initial-acl.mjs';
+import { installSql as managedBootstrapFunctionsInstallSql, observationSql as managedBootstrapFunctionsObservationSql } from './managed-bootstrap-functions.mjs';
 
 export const currentRoleGraphWitness =
   'sha256:3a2743a41de40149f61ac411400e0009b9e2f55ae9497117041f8e71156ac679';
@@ -760,6 +761,14 @@ export async function installCurrentApplicationExtensions({
         throw error;
       }
     }
+    await bootstrap.query("BEGIN; SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='5s';");
+    try {
+      await bootstrap.query(managedBootstrapFunctionsInstallSql);
+      await bootstrap.query('COMMIT');
+    } catch (error) {
+      await bootstrap.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
     const legacyObserver = databaseOwner.own(new Client({
       host: '/run/postgresql', user: 'supabase_admin', database: 'club_arena_qualification',
       connectionTimeoutMillis: 5000, query_timeout: 8000, statement_timeout: 8000,
@@ -785,6 +794,9 @@ export async function installCurrentApplicationExtensions({
       assert.deepEqual((await legacyObserver.query(legacyDblinkAclObservationSql)).rows,
         [{legacy_dblink_exact: true}],
         new assert.AssertionError({message: 'FIXTURE_ASSERT_LEGACY_DBLINK_POSTIMAGE'}));
+      assert.deepEqual((await legacyObserver.query(managedBootstrapFunctionsObservationSql)).rows,
+        [{managed_bootstrap_functions_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_MANAGED_BOOTSTRAP_FUNCTIONS_POSTIMAGE'}));
     } finally {
       await databaseOwner.end(legacyObserver);
     }
