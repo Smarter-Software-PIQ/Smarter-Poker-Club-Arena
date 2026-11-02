@@ -6,8 +6,8 @@
       "sha256": "89b593fd5afe44d6568e2751bcd209b7b5cc10ad1c48e98c13efe8ea15d26e87"
     },
     "scripts/ci/test-mtt-unlimited.py": {
-      "bytes": 44960,
-      "sha256": "09a224758539d72c8348d09682ac72a4dce4108800d59a506270fb64fe76e82e"
+      "bytes": 45013,
+      "sha256": "74f688967a9c8e4b99eb3ccd2b5a8f3624e569ae4a88870898b2faee0501e43b"
     },
     "scripts/dev/probe-retained-source-correction-pg17.sh": {
       "bytes": 1314,
@@ -241,5 +241,20 @@
   "mttFifteenPercentQualification20261029": {
     "reason": "Owner changed all new and unfinalized MTTs to 15%, preserving finalized ladders. Existing required MTT preparation invokes one bounded private PG17 migration/ladder proof before unchanged preparation checks. Only this reviewed test harness pin changes; CI workflow bytes and financial qualification assertions stay unchanged.",
     "validation": "Actual isolated PostgreSQL 17 source-bound native proof passed; exact-head hosted accounting remains mandatory."
+  },
+  "ownedSocketParentSourceAudit20261102": {
+    "file": "scripts/ci/test-mtt-unlimited.py",
+    "previous": {
+      "bytes": 44960,
+      "sha256": "09a224758539d72c8348d09682ac72a4dce4108800d59a506270fb64fe76e82e"
+    },
+    "current": {
+      "bytes": 45013,
+      "sha256": "74f688967a9c8e4b99eb3ccd2b5a8f3624e569ae4a88870898b2faee0501e43b"
+    },
+    "reason": "Reviewed exact constructor diff: default private PostgreSQL sockets to the supplied owned work parent instead of hard-coded /tmp; preserve explicit socket-parent override. Financial SQL, formulas, assertions, deadlines and historical receipts unchanged.",
+    "validation": "35 runner regressions passed. Separate extended MTT activation fixture passed four native groups and 14 stock isolation races. This metadata change does not recertify historical cash17, retained18 or fifteen-percent execution receipts. Exact-head required checks remain mandatory.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }
