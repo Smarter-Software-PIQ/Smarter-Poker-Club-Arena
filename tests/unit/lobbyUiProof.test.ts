@@ -13,6 +13,8 @@ import {
   FAVORITE_CASES,
   FAVORITE_COMPONENT_PATHS,
   FILTER_ACTION,
+  FILTER_FINISH_ACTION,
+  FILTER_FINISH_CASES,
   FILTER_CASES,
   FILTER_COMPONENT_PATHS,
 } from '../../scripts/verification-harness/lobby-ui-proof.mjs';
@@ -185,6 +187,7 @@ it('keeps each closed mode limited to its owned browser journeys with cleanup', 
     'verify-spectator-notifications',
     'verify-tournament-favorites',
     'verify-lobby-filters',
+    'verify-lobby-filter-finish',
   ]);
   expect(workflow).toContain('npx playwright install --with-deps chromium webkit');
   expect(readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8')).toContain(
@@ -400,5 +403,71 @@ describe('closed complete lobby filter proof', () => {
     expect(workflow).toContain('cleanupProductionE2EAccount() !== true');
     for (const mode of ['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION])
       expect(workflow).toContain(`if: github.event.action == '${mode}'`);
+  });
+});
+
+describe('closed remaining filter proof', () => {
+  const finishReport = () => ({
+    suites: [
+      {
+        specs: FILTER_FINISH_CASES.map(({ file, title, project }) => ({
+          file,
+          title,
+          ok: true,
+          tests: [
+            {
+              projectName: project,
+              status: 'expected',
+              expectedStatus: 'passed',
+              results: [{ status: 'passed', retry: 0 }],
+            },
+          ],
+        })),
+      },
+    ],
+  });
+  const finishPin = () => ({
+    ...pin(),
+    action: FILTER_FINISH_ACTION,
+    components: Object.fromEntries(FILTER_COMPONENT_PATHS.map((path) => [path, sha])),
+  });
+  it('runs exactly the two unfinished journeys and refuses arbitrary selection or incomplete results', () => {
+    expect(() =>
+      admitDispatch(env, { action: FILTER_FINISH_ACTION, client_payload: {} })
+    ).not.toThrow();
+    expect(() =>
+      admitDispatch(env, { action: FILTER_FINISH_ACTION, client_payload: { grep: 'other' } })
+    ).toThrow();
+    expect(assertCases(finishReport(), FILTER_FINISH_ACTION)).toHaveLength(2);
+    expect(FILTER_CASES).toHaveLength(9);
+    for (const alter of [
+      (r) => r.suites[0].specs.pop(),
+      (r) => r.suites[0].specs.push(r.suites[0].specs[0]),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].retry = 1),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].status = 'skipped'),
+      (r) => (r.suites[0].specs[0].title = FILTER_CASES[0].title),
+    ]) {
+      const value = finishReport();
+      alter(value);
+      expect(() => assertCases(value, FILTER_FINISH_ACTION)).toThrow();
+    }
+  });
+  it('retains all runtime pins, stable release identity, and verified cleanup', () => {
+    const cleanup = { verified: true, runId: '123' };
+    expect(() => assertPins(finishPin(), finishPin(), cleanup, FILTER_FINISH_ACTION)).not.toThrow();
+    expect(() =>
+      assertPins(
+        finishPin(),
+        { ...finishPin(), clientSha: 'b'.repeat(40) },
+        cleanup,
+        FILTER_FINISH_ACTION
+      )
+    ).toThrow();
+    expect(() =>
+      assertPins(finishPin(), finishPin(), { ...cleanup, verified: false }, FILTER_FINISH_ACTION)
+    ).toThrow();
+    const missing = finishPin();
+    delete missing.components[FILTER_COMPONENT_PATHS[0]];
+    expect(() => assertPins(missing, missing, cleanup, FILTER_FINISH_ACTION)).toThrow();
   });
 });

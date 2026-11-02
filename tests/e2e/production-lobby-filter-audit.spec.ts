@@ -41,6 +41,11 @@ const SORTS = [
 ] as const;
 test.use({
   ...devices['iPhone 13'],
+  // The seven completed journeys and Retina frame measurements are retained
+  // from 41390545949. The closed finish request checks remaining interactions
+  // at the same CSS viewport; the complete catalogue keeps native Retina.
+  deviceScaleFactor:
+    process.env.LOBBY_FILTER_FINISH === '1' ? 1 : devices['iPhone 13'].deviceScaleFactor,
   viewport: { width: 393, height: 852 },
   timezoneId: 'America/Chicago',
   trace: 'off',
@@ -79,6 +84,7 @@ const publicRowFields = [
   'satellite_target_id',
   'is_satellite',
   'proof_board_census',
+  'proof_entry_count',
   'name',
   'is_featured',
   'is_pinned',
@@ -2601,34 +2607,9 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     )
       expect(item.phase).toBe('Registration Closed');
   }
-  await expect
-    .poll(() =>
-      h.rows.evaluateAll((elements) =>
-        elements.flatMap((element) =>
-          [...element.querySelectorAll('.lt-status,.lt-name__phase')].flatMap((label) => {
-            const box = label.getBoundingClientRect();
-            if (!box.width || !box.height) return [];
-            const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
-            const failures: string[] = [];
-            while (walker.nextNode()) {
-              if (!walker.currentNode.textContent?.trim()) continue;
-              const range = document.createRange();
-              range.selectNodeContents(walker.currentNode);
-              for (const ink of range.getClientRects())
-                if (
-                  ink.left < box.left - 1 ||
-                  ink.right > box.right + 1 ||
-                  ink.top < box.top - 1 ||
-                  ink.bottom > box.bottom + 1
-                )
-                  failures.push(`${element.getAttribute('data-id')}:${label.textContent}`);
-            }
-            return failures;
-          })
-        )
-      )
-    )
-    .toEqual([]);
+  // The painted registration well is the containment boundary. Condensed
+  // glyph ink may extend beyond its line box without leaving that well.
+  await assertRegistrationInkInsideFrame(page);
   await testInfo.attach('lobby-registration-labels-phone.png', {
     body: await page.screenshot(),
     contentType: 'image/png',
@@ -2798,6 +2779,115 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
         participation: h.participation,
       })
     ),
+    contentType: 'application/json',
+  });
+});
+
+// The complete run retained seven passing journeys and all 107 MTT filter
+// controls. Finish only the MTT sort/persistence tail that its case deadline
+// did not reach; do not replay the seven completed journeys.
+test('remaining MTT entry and status sorts persist after reload', async ({ page }, testInfo) => {
+  const h = await setup(page);
+  await h.choose('MTT');
+  let sheet = await h.open();
+  await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
+  await expect.poll(h.hasCompleteCensus).toBe(true);
+  await expect.poll(async () => (await h.ids()).length).toBeGreaterThan(0);
+  const headings = page.locator('.compact-lobby:visible thead');
+  await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
+  for (const [pattern, key] of [
+    [/^Entries/, 'players'],
+    [/^Status/, 'status'],
+  ] as const) {
+    const button = headings.getByRole('button', { name: pattern });
+    for (let click = 0; click < 2; click++) {
+      await clickControl(button);
+      const direction = await button.locator('..').getAttribute('aria-sort');
+      expect(['ascending', 'descending']).toContain(direction);
+      await assertSort(
+        page,
+        'MTT',
+        key === 'players'
+          ? direction === 'ascending'
+            ? 'players_asc'
+            : 'players'
+          : direction === 'ascending'
+            ? 'status_asc'
+            : 'status_desc',
+        h.rawRows
+      );
+      await expect(page.getByRole('menu')).toHaveCount(0);
+    }
+  }
+  sheet = await h.open();
+  await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+  await clickControl(sheet.getByRole('button', { name: 'Small', exact: true }));
+  for (const [index, game] of FILTER_SPECS.MTT.games!.entries()) {
+    const button = sheet.getByRole('button', { name: game.label, exact: true });
+    if (((await button.getAttribute('aria-pressed')) === 'true') !== (index === 0))
+      await clickControl(button);
+  }
+  const saved = await h.state('MTT');
+  expect(saved.games).toEqual([FILTER_SPECS.MTT.games![0].key]);
+  const checkMembership = async () => {
+    await expect
+      .poll(async () => {
+        const actual = sorted(await h.ids());
+        const expected = sorted(
+          [...h.rawRows.values()]
+            .filter(
+              (row) =>
+                belongsToObservedFamily(row, 'MTT') &&
+                independentMatch(row, saved, FILTER_SPECS.MTT, false, h.rawRows)
+            )
+            .map((row) => row.id)
+        );
+        return JSON.stringify(actual) === JSON.stringify(expected);
+      })
+      .toBe(true);
+  };
+  await checkMembership();
+  await clickControl(sheet.getByRole('button', { name: /^Apply .*Filters$/ }));
+  await expect(sheet).toBeHidden();
+  await expect
+    .poll(
+      () =>
+        h.saves.some(
+          (save) =>
+            save.user_id === h.owner &&
+            save.club_id === CLUB_ID &&
+            JSON.stringify(object(save.filters).MTT) === JSON.stringify(saved)
+        ),
+      { timeout: 15000 }
+    )
+    .toBe(true);
+  const readback = page.waitForResponse(
+    (response) =>
+      response.ok() &&
+      response.request().method() === 'GET' &&
+      new URL(response.url()).pathname.endsWith('/user_lobby_filters') &&
+      new URL(response.url()).searchParams.get('user_id') === `eq.${h.owner}` &&
+      new URL(response.url()).searchParams.get('club_id') === `eq.${CLUB_ID}` &&
+      new URL(response.url()).searchParams.get('select')?.split(',').includes('filters') === true
+  );
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const remote = await (await readback).json();
+  expect(object(object(Array.isArray(remote) ? remote[0] : remote).filters).MTT).toEqual(saved);
+  await prepareCashLobbyActions(page);
+  await h.choose('MTT');
+  sheet = await h.open();
+  expect(await h.state('MTT')).toEqual(saved);
+  await checkMembership();
+  await expect(sheet.getByRole('button', { name: 'Small', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+  await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
+  expect(h.participation).toEqual([]);
+  await testInfo.attach('remaining-mtt-sorts-and-persistence.json', {
+    body: Buffer.from(JSON.stringify({ saved, actions: actionTimelines.get(page) })),
     contentType: 'application/json',
   });
 });

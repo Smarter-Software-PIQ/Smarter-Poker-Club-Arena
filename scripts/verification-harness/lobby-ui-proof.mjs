@@ -103,6 +103,19 @@ export const FAVORITE_COMPONENT_PATHS = [
   ]),
 ];
 export const FILTER_ACTION = 'verify-lobby-filters';
+export const FILTER_FINISH_ACTION = 'verify-lobby-filter-finish';
+export const FILTER_FINISH_CASES = [
+  {
+    file: 'production-lobby-filter-audit.spec.ts',
+    title: 'remaining MTT entry and status sorts persist after reload',
+    project: 'chromium',
+  },
+  {
+    file: 'production-lobby-filter-audit.spec.ts',
+    title: 'sticky lobby controls and cross-tab sorting remain accessible and durable',
+    project: 'chromium',
+  },
+];
 export const FILTER_CASES = [
   ...['HOLDEM', 'OMAHA', 'LIMIT', 'MTT', 'SPIN', 'SNG', 'SATELLITE'].map((type) => ({
     file: 'production-lobby-filter-audit.spec.ts',
@@ -161,12 +174,13 @@ function selection(action) {
   if (action === RECOVERY_ACTION) return RECOVERY_CASES;
   if (action === FAVORITE_ACTION) return FAVORITE_CASES;
   if (action === FILTER_ACTION) return FILTER_CASES;
+  if (action === FILTER_FINISH_ACTION) return FILTER_FINISH_CASES;
   throw new Error('Unknown closed Lobby proof request.');
 }
 function componentPaths(action) {
   selection(action);
   if (action === FAVORITE_ACTION) return FAVORITE_COMPONENT_PATHS;
-  if (action === FILTER_ACTION) return FILTER_COMPONENT_PATHS;
+  if (action === FILTER_ACTION || action === FILTER_FINISH_ACTION) return FILTER_COMPONENT_PATHS;
   return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
 }
 
@@ -178,7 +192,13 @@ export function admitDispatch(environment, event) {
     !SHA.test(environment.GITHUB_SHA || '') ||
     !ID.test(environment.PROOF_RUN_ID || '') ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(environment.GITHUB_REPOSITORY || '') ||
-    !['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION, FILTER_ACTION].includes(event?.action) ||
+    ![
+      'verify-lobby-ui',
+      RECOVERY_ACTION,
+      FAVORITE_ACTION,
+      FILTER_ACTION,
+      FILTER_FINISH_ACTION,
+    ].includes(event?.action) ||
     !event.client_payload ||
     Array.isArray(event.client_payload) ||
     typeof event.client_payload !== 'object' ||

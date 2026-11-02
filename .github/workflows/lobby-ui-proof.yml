@@ -11,6 +11,7 @@ on:
         verify-spectator-notifications,
         verify-tournament-favorites,
         verify-lobby-filters,
+        verify-lobby-filter-finish,
       ]
 
 permissions:
@@ -171,6 +172,27 @@ jobs:
           set -euo pipefail
           npx playwright test tests/e2e/production-lobby-filter-audit.spec.ts \
             tests/e2e/production-player-name-layout.spec.ts \
+            --grep-invert 'remaining MTT entry and status sorts persist after reload$' \
+            --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json \
+            --output=test-results/lobby-ui-proof \
+            2>&1 | tee e2e-report/lobby-ui-proof/browser.log
+
+      - name: Verify only the remaining MTT and shared lobby checks
+        if: github.event.action == 'verify-lobby-filter-finish'
+        timeout-minutes: 15
+        env:
+          TZ: America/Chicago
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          ARENA_BASE_URL: https://smarter.poker/hub/club-arena
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          LOBBY_FILTER_FINISH: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/lobby-ui-proof/report.json
+        run: |
+          set -euo pipefail
+          npx playwright test tests/e2e/production-lobby-filter-audit.spec.ts \
+            --grep '(remaining MTT entry and status sorts persist after reload|sticky lobby controls and cross-tab sorting remain accessible and durable)$' \
             --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json \
             --output=test-results/lobby-ui-proof \
             2>&1 | tee e2e-report/lobby-ui-proof/browser.log
