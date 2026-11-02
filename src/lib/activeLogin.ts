@@ -1,101 +1,124 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- *  ONE ACTIVE DEVICE PER ACCOUNT: a new login signs out every other device
+ *  ONE ACTIVE PHYSICAL DEVICE PER ACCOUNT, WITH APPROVAL-BASED PAIRING
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Dan, 2026-11-01: "Every other poker app and site in the world kicks you out
- * of one device when you log into your account from another device...
- * regardless if its desktop, mobile or ipad, it needs to log out of all
- * previous sessions. You can have multiple desktop windows and login's open,
- * just not different devices."
+ * Dan, 2026-11-01: a login on a different physical device must sign the others
+ * out, while every browser on the SAME physical device stays signed in.
  *
- * This is the CLIENT half: after a sign-in it tells the database "this login
- * is now the account's active one" through `ca_claim_active_login`, sending
- * the same per-install id the multi-account detector reads (deviceSighting).
- * The database does the enforcement: a claim from a NEW GoTrue session
- * deletes every other auth session for the account - EXCEPT sessions whose
- * claims came from the same device address and platform, which the database
- * reads from the request itself, so every browser and window on one computer
- * stays signed in together (Dan, 2026-11-01) - and raises the existing
- * ca_player_session_revocations event, so the engine closes the kicked
- * device's table sockets and the kicked client bounces to sign-in through
- * sessionRevoked.ts - the exact machinery the operator force logout uses.
+ * THE CONSTRAINT. Browsers are sandboxed, so no header (IP, user agent,
+ * platform) is an unforgeable per-machine identity, and two browsers on one
+ * Mac cannot share anything automatically. "These two browsers are the same
+ * device" can only be asserted by the user and proven by a browser already
+ * signed in on that device. So each browser carries a stable random token
+ * (getDeviceId), the database groups tokens into physical devices, and a new
+ * browser joins an existing device only by APPROVAL from one already on it.
  *
- * WHY IT CLAIMS ON INITIAL_SESSION TOO. On the web the login happens on the
- * World Hub's page, so by the time this SPA boots the session already exists
- * and supabase-js announces INITIAL_SESSION, never SIGNED_IN. A NEW claim is
- * deduplicated per GoTrue session_id (localStorage, memory as fallback), so a
- * re-emitted SIGNED_IN on tab focus claims nothing new - and the database
- * treats a re-claim of the active session as a no-op anyway.
+ * THE FLOW (server contract in migration 20261102023127):
+ *   - claim(token): a bound browser is activated (its device becomes active,
+ *     other devices are signed out); the first browser on a new account auto
+ *     enrolls; a NEW browser on an account that already has a device gets
+ *     back needs_choice and this module asks the user.
+ *   - user picks "same device as X"  -> request_pairing(X); a browser on X
+ *     shows an Approve prompt (delivered over realtime); on approve this
+ *     browser re-claims and coexists.
+ *   - user picks "new device"        -> register_new_device (signs others out).
+ *   - a dead/resumed session         -> handleEngineAuthRejection, which asks
+ *     GoTrue directly and bounces to sign-in, never on a network error.
  *
- * WHY EVERY BOOT RE-VERIFIES (2026-11-01, second half). A device that is
- * OFFLINE when another device's login kicks it misses the realtime
- * revocation event, and its signature-valid JWT keeps every PostgREST read
- * working for days (the 2026-09-04 outage lesson), so on resume it LOOKS
- * signed in until it touches the engine. So INITIAL_SESSION always calls the
- * claim function, even for a session this install already claimed: the
- * database answers `same` in one cheap read when all is well, and
- * `session_gone` when the session was revoked while this device slept. On
- * `session_gone` the client hands the verdict to handleEngineAuthRejection,
- * which asks GoTrue directly (the one authority) and only then signs out -
- * with "Your Account Was Signed In On Another Device" when the database says
- * another login superseded this one.
- *
- * Never throws, never blocks rendering or login. A claim that cannot reach
- * the database is retried on the next auth event for that session, and a
- * network error never signs anyone out.
+ * All UI here is plain DOM (like announceSessionEnded): it must work before
+ * React mounts and during a reconnect. Title Case, no em dashes (house rule).
  */
 import { supabase } from './supabase';
 import { getDeviceId } from './deviceSighting';
 import { parseJwtPayload } from './authUtils';
 
-export const CLAIMED_LOGIN_STORAGE_KEY = 'ca_claimed_login_session';
-
-/** The source handed to handleEngineAuthRejection by a dead resume whose
- * account was NOT taken over by another login (operator force logout, ban). */
+export const ENROLLED_DEVICE_STORAGE_KEY = 'ca_enrolled_device_id';
 export const RESUME_SESSION_GONE_SOURCE = 'resume:session_gone';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 let started = false;
-let memoryClaimed: string | null = null;
-let inFlight: string | null = null;
+let claiming: string | null = null;
+let myDeviceId: string | null = null;
+let approveListenerUp = false;
 const verifiedThisBoot = new Set<string>();
 const bounced = new Set<string>();
+const choosingFor = new Set<string>();
 
+interface DeviceRow {
+  id: string;
+  label: string;
+}
 interface ClaimAnswer {
   ok?: boolean;
   why?: string;
   superseded?: boolean;
+  bound?: boolean;
+  first?: boolean;
+  device_id?: string;
+  needs_choice?: boolean;
+  devices?: DeviceRow[];
 }
 
-/** The GoTrue session id inside an access token, or null. */
 export function sessionIdOf(token: string | null | undefined): string | null {
   if (!token) return null;
   const sid = parseJwtPayload(token)?.session_id;
   return typeof sid === 'string' && UUID_RE.test(sid.toLowerCase()) ? sid.toLowerCase() : null;
 }
 
-function alreadyClaimed(sid: string): boolean {
-  if (memoryClaimed === sid) return true;
+/** A friendly default name for THIS browser. A label only, never identity. */
+function defaultLabel(): string {
   try {
-    return localStorage.getItem(CLAIMED_LOGIN_STORAGE_KEY) === sid;
+    const ua = navigator.userAgent || '';
+    const os = /iphone/i.test(ua)
+      ? 'iPhone'
+      : /ipad/i.test(ua)
+        ? 'iPad'
+        : /android/i.test(ua)
+          ? 'Android'
+          : /macintosh|mac os x/i.test(ua)
+            ? 'Mac'
+            : /windows/i.test(ua)
+              ? 'Windows'
+              : /cros/i.test(ua)
+                ? 'Chromebook'
+                : /linux/i.test(ua)
+                  ? 'Linux'
+                  : 'This Device';
+    const br = /edg\//i.test(ua)
+      ? 'Edge'
+      : /chrome|crios/i.test(ua)
+        ? 'Chrome'
+        : /firefox|fxios/i.test(ua)
+          ? 'Firefox'
+          : /safari/i.test(ua)
+            ? 'Safari'
+            : 'Browser';
+    return `${br} on ${os}`;
   } catch {
-    return false;
+    return 'This Device';
   }
 }
 
-function rememberClaimed(sid: string): void {
-  memoryClaimed = sid;
+function rememberDevice(id: string | undefined): void {
+  if (!id) return;
+  myDeviceId = id;
   try {
-    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, sid);
+    localStorage.setItem(ENROLLED_DEVICE_STORAGE_KEY, id);
   } catch {
-    /* private mode: memory carries it for the life of the tab */
+    /* private mode */
+  }
+}
+function recallDevice(): string | null {
+  if (myDeviceId) return myDeviceId;
+  try {
+    return localStorage.getItem(ENROLLED_DEVICE_STORAGE_KEY);
+  } catch {
+    return null;
   }
 }
 
-/** A dead resumed session: let the revoked-session machinery decide. It asks
- * GoTrue directly and never signs anyone out on a network error. */
 async function bounceDeadSession(sid: string, superseded: boolean): Promise<void> {
   if (bounced.has(sid)) return;
   bounced.add(sid);
@@ -106,48 +129,219 @@ async function bounceDeadSession(sid: string, superseded: boolean): Promise<void
       true
     );
   } catch {
-    /* the engine's own 4401 path remains the backstop */
+    /* the engine's own 4401 path is the backstop */
   }
 }
 
-/**
- * Claim this login as the account's single active one. A NEW session claims
- * (and the database kicks the others); a session this install already claimed
- * claims again only when `verify` is set - the boot re-check that catches a
- * kick this device slept through. A definitive `session_gone` answer is
- * handed to the revoked-session machinery; a transport failure changes
- * nothing and the next auth event retries.
- */
-export async function claimActiveLogin(
+/** Enroll this browser for the signed-in session. Idempotent per session. */
+export async function enrollDevice(
   token: string | null | undefined,
   verify = false
 ): Promise<void> {
   const sid = sessionIdOf(token);
-  if (!sid || inFlight === sid || bounced.has(sid)) return;
-  const isReclaim = alreadyClaimed(sid);
-  if (isReclaim && (!verify || verifiedThisBoot.has(sid))) return;
-  inFlight = sid;
+  if (!sid || claiming === sid || bounced.has(sid) || choosingFor.has(sid)) return;
+  // A bound browser re-verifies at most once per boot; a brand new browser
+  // always runs so it can prompt.
+  if (verify && verifiedThisBoot.has(sid) && recallDevice()) return;
+  claiming = sid;
   try {
     const { data, error } = await supabase.rpc('ca_claim_active_login', {
       p_device_id: getDeviceId(),
+      p_label: defaultLabel(),
     });
-    if (!error) {
-      const answer = (data ?? {}) as ClaimAnswer;
-      verifiedThisBoot.add(sid);
-      if (answer.ok === false && answer.why === 'session_gone') {
-        void bounceDeadSession(sid, answer.superseded === true);
-      } else if (answer.ok !== false) {
-        rememberClaimed(sid);
-      }
+    if (error) return; // transport failure: the next auth event retries
+    const a = (data ?? {}) as ClaimAnswer;
+    verifiedThisBoot.add(sid);
+    if (a.ok === false && a.why === 'session_gone') {
+      void bounceDeadSession(sid, a.superseded === true);
+      return;
+    }
+    if (a.bound) {
+      rememberDevice(a.device_id);
+      startApproveListener();
+      return;
+    }
+    if (a.needs_choice) {
+      choosingFor.add(sid);
+      void askSameOrNewDevice(sid, a.devices ?? []);
     }
   } catch {
-    /* unreachable database: the next auth event for this session retries */
+    /* unreachable: the next auth event retries */
   } finally {
-    if (inFlight === sid) inFlight = null;
+    if (claiming === sid) claiming = null;
   }
 }
 
-/** Wire the claim to sign-in and session restore. Idempotent. */
+/** The user's choice for a brand new browser. */
+async function askSameOrNewDevice(sid: string, devices: DeviceRow[]): Promise<void> {
+  const choice = await promptSameOrNew(devices);
+  try {
+    if (choice.kind === 'new') {
+      const { data, error } = await supabase.rpc('ca_register_new_device', {
+        p_device_id: getDeviceId(),
+        p_label: defaultLabel(),
+      });
+      const a = (data ?? {}) as ClaimAnswer;
+      if (!error && a.ok !== false) {
+        rememberDevice(a.device_id);
+        startApproveListener();
+      }
+    } else {
+      await requestPairingAndWait(choice.deviceId, choice.label);
+    }
+  } catch {
+    /* leave unbound; a later event or reload retries */
+  } finally {
+    choosingFor.delete(sid);
+  }
+}
+
+/** Ask a browser on the chosen device to approve, and wait for the verdict. */
+async function requestPairingAndWait(deviceId: string, label: string): Promise<void> {
+  const { data, error } = await supabase.rpc('ca_request_pairing', {
+    p_device_id: getDeviceId(),
+    p_target_device_id: deviceId,
+    p_label: defaultLabel(),
+  });
+  const req = (data ?? {}) as { ok?: boolean; request_id?: string };
+  if (error || req.ok === false || !req.request_id) {
+    promptNewDeviceFallback();
+    return;
+  }
+  const dialog = showWaitingForApproval(label);
+  const verdict = await waitForPairingVerdict(req.request_id);
+  dialog.close();
+  if (verdict === 'approved') {
+    // Bound now: re-claim to pin this session to the device and coexist.
+    const { data: d2, error: e2 } = await supabase.rpc('ca_claim_active_login', {
+      p_device_id: getDeviceId(),
+      p_label: defaultLabel(),
+    });
+    const a = (d2 ?? {}) as ClaimAnswer;
+    if (!e2 && a.bound) {
+      rememberDevice(a.device_id);
+      startApproveListener();
+    }
+  } else {
+    promptNewDeviceFallback();
+  }
+}
+
+/** Subscribe to this pairing request's row; resolve when it is decided. */
+function waitForPairingVerdict(requestId: string): Promise<'approved' | 'denied' | 'timeout'> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v: 'approved' | 'denied' | 'timeout') => {
+      if (done) return;
+      done = true;
+      try {
+        void supabase.removeChannel(ch);
+      } catch {
+        /* */
+      }
+      clearInterval(poll);
+      clearTimeout(timer);
+      resolve(v);
+    };
+    const ch = supabase
+      .channel(`pairing-wait:${requestId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'ca_pairing_requests',
+          filter: `id=eq.${requestId}`,
+        },
+        (p) => {
+          const s = String((p.new as Record<string, unknown>)?.status ?? '');
+          if (s === 'approved') finish('approved');
+          else if (s === 'denied' || s === 'expired') finish('denied');
+        }
+      )
+      .subscribe();
+    // Realtime can miss the first event; poll as a backstop.
+    const poll = setInterval(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('ca_pairing_requests')
+          .select('status')
+          .eq('id', requestId)
+          .maybeSingle();
+        if (error) return;
+        const st = String((data as { status?: string } | null)?.status ?? '');
+        if (st === 'approved') finish('approved');
+        else if (st === 'denied' || st === 'expired') finish('denied');
+      } catch {
+        /* keep waiting */
+      }
+    }, 2500);
+    const timer = setTimeout(() => finish('timeout'), 180_000);
+  });
+}
+
+/**
+ * Listen for pairing requests aimed at THIS browser's device and show an
+ * Approve prompt. Only a browser already on the target device sees this, and
+ * the server refuses a resolve from any other device, so it is unforgeable.
+ */
+export function startApproveListener(): void {
+  if (approveListenerUp) return;
+  const mine = recallDevice();
+  if (!mine) return;
+  approveListenerUp = true;
+  try {
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        const uid = data.session?.user?.id;
+        if (!uid) {
+          approveListenerUp = false;
+          return;
+        }
+        supabase
+          .channel(`pairing-approve:${uid}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'ca_pairing_requests',
+              filter: `user_id=eq.${uid}`,
+            },
+            (p) => void maybeShowApprove(p.new as Record<string, unknown>)
+          )
+          .subscribe();
+      })
+      .catch(() => {
+        approveListenerUp = false;
+      });
+  } catch {
+    approveListenerUp = false;
+  }
+}
+
+async function maybeShowApprove(row: Record<string, unknown>): Promise<void> {
+  const mine = recallDevice();
+  if (!mine) return;
+  if (String(row.status ?? '') !== 'pending') return;
+  if (String(row.target_device_id ?? '') !== mine) return;
+  const reqId = String(row.id ?? '');
+  const label = String(row.label ?? 'A New Browser');
+  if (!reqId) return;
+  const approve = await promptApprove(label);
+  try {
+    await supabase.rpc('ca_resolve_pairing', {
+      p_request_id: reqId,
+      p_approve: approve,
+      p_caller_device_id: getDeviceId(),
+    });
+  } catch {
+    /* the requester can retry or choose new device */
+  }
+}
+
+/** Wire enrollment to sign-in and session restore. Idempotent. */
 export function startSingleActiveLogin(): void {
   if (started) return;
   started = true;
@@ -156,19 +350,168 @@ export function startSingleActiveLogin(): void {
       if (event !== 'SIGNED_IN' && event !== 'INITIAL_SESSION') return;
       const token = session?.access_token;
       const verify = event === 'INITIAL_SESSION';
-      // Avoid calling SDK methods inside the SDK's held auth-state lock.
-      queueMicrotask(() => void claimActiveLogin(token, verify));
+      queueMicrotask(() => void enrollDevice(token, verify));
     });
   } catch {
-    /* auth unavailable: nothing to claim */
+    /* auth unavailable */
   }
 }
 
-/** Test seam. */
 export function __resetActiveLoginForTests(): void {
   started = false;
-  memoryClaimed = null;
-  inFlight = null;
+  claiming = null;
+  myDeviceId = null;
+  approveListenerUp = false;
   verifiedThisBoot.clear();
   bounced.clear();
+  choosingFor.clear();
+}
+
+// ── DOM UI (self-contained, theme-neutral, Title Case, no em dashes) ────────
+
+function overlay(): HTMLDivElement {
+  const w = document.createElement('div');
+  w.setAttribute('role', 'alertdialog');
+  w.style.cssText =
+    'position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;' +
+    'background:rgba(0,0,0,.82);padding:24px;font-family:system-ui,-apple-system,sans-serif;';
+  return w;
+}
+function card(): HTMLDivElement {
+  const c = document.createElement('div');
+  c.style.cssText =
+    'max-width:380px;width:100%;background:#15181d;border:1px solid #2b6cb0;border-radius:14px;padding:22px 20px;' +
+    'color:#fff;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.6);';
+  return c;
+}
+function heading(text: string): HTMLDivElement {
+  const h = document.createElement('div');
+  h.textContent = text;
+  h.style.cssText = 'font-size:19px;font-weight:700;margin-bottom:10px;';
+  return h;
+}
+function body(text: string): HTMLDivElement {
+  const b = document.createElement('div');
+  b.textContent = text;
+  b.style.cssText = 'font-size:14px;line-height:1.45;opacity:.9;margin-bottom:18px;';
+  return b;
+}
+function button(text: string, primary: boolean): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = text;
+  b.style.cssText =
+    'width:100%;padding:12px;border:0;border-radius:10px;margin-top:8px;font-size:15px;font-weight:700;cursor:pointer;' +
+    (primary ? 'background:#2f7fe0;color:#fff;' : 'background:#2a2f37;color:#fff;');
+  return b;
+}
+
+type Choice = { kind: 'new' } | { kind: 'same'; deviceId: string; label: string };
+
+function promptSameOrNew(devices: DeviceRow[]): Promise<Choice> {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined') {
+      resolve({ kind: 'new' });
+      return;
+    }
+    const w = overlay();
+    const c = card();
+    c.append(heading('Is This The Same Device?'));
+    c.append(
+      body(
+        'You Are Already Signed In On Another Device. If This Is The Same Computer, Add This Browser To It. Otherwise Sign In As A New Device, Which Signs Out The Others.'
+      )
+    );
+    for (const d of devices.slice(0, 5)) {
+      const b = button(`Same As ${d.label}`, true);
+      b.addEventListener('click', () => {
+        w.remove();
+        resolve({ kind: 'same', deviceId: d.id, label: d.label });
+      });
+      c.append(b);
+    }
+    const nb = button('This Is A New Device', false);
+    nb.addEventListener('click', () => {
+      w.remove();
+      resolve({ kind: 'new' });
+    });
+    c.append(nb);
+    w.append(c);
+    document.body.append(w);
+  });
+}
+
+function showWaitingForApproval(label: string): { close: () => void } {
+  if (typeof document === 'undefined') return { close: () => {} };
+  const w = overlay();
+  const c = card();
+  c.append(heading('Waiting For Approval'));
+  c.append(
+    body(
+      `Open Club Arena On ${label} And Tap Approve To Add This Browser. This Window Updates On Its Own.`
+    )
+  );
+  w.append(c);
+  document.body.append(w);
+  return { close: () => w.remove() };
+}
+
+function promptApprove(label: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined') {
+      resolve(false);
+      return;
+    }
+    const w = overlay();
+    const c = card();
+    c.append(heading('Add A New Browser?'));
+    c.append(
+      body(
+        `${label} Is Trying To Sign In On This Device. Approve It Only If You Opened It. If Not, Deny It.`
+      )
+    );
+    const ap = button('Approve', true);
+    ap.addEventListener('click', () => {
+      w.remove();
+      resolve(true);
+    });
+    const dn = button('Deny', false);
+    dn.addEventListener('click', () => {
+      w.remove();
+      resolve(false);
+    });
+    c.append(ap, dn);
+    w.append(c);
+    document.body.append(w);
+  });
+}
+
+function promptNewDeviceFallback(): void {
+  if (typeof document === 'undefined') return;
+  const w = overlay();
+  const c = card();
+  c.append(heading('Not Approved'));
+  c.append(
+    body(
+      'This Browser Was Not Added To Your Other Device. You Can Sign In As A New Device, Which Signs Out The Others.'
+    )
+  );
+  const nb = button('Sign In As A New Device', true);
+  nb.addEventListener('click', () => {
+    w.remove();
+    void supabase
+      .rpc('ca_register_new_device', { p_device_id: getDeviceId(), p_label: defaultLabel() })
+      .then(({ data }) => {
+        const a = (data ?? {}) as ClaimAnswer;
+        if (a.ok !== false) {
+          rememberDevice(a.device_id);
+          startApproveListener();
+        }
+      });
+  });
+  const cb = button('Not Now', false);
+  cb.addEventListener('click', () => w.remove());
+  c.append(nb, cb);
+  w.append(c);
+  document.body.append(w);
 }
