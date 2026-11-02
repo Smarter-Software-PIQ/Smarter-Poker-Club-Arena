@@ -82,6 +82,7 @@ try {
       samples.push({
         elapsedMs: Math.round(performance.now() - started),
         rssBytes: process.memoryUsage().rss,
+        mainMemory: process.memoryUsage(),
         workerMemory: status.workerMemory,
       });
   }
@@ -102,6 +103,7 @@ console.log(
       eventLoopP99Ms: delay.percentile(99) / 1e6,
       samples,
       final: pool.status(),
+      memoryPlateau: 'not_established_by_execution_success',
       limitation:
         'Finite mixed-calculator qualification only; not whole-engine load, production plateau, or Linux capacity proof.',
     },
@@ -109,3 +111,8 @@ console.log(
     2
   )
 );
+
+// Preserve the report before refusing any dropped calculation.
+assert(completed > 0, 'qualification must execute actual calculations');
+assert.equal(refused, 0, 'qualification refused calculations');
+assert.equal(pool.status().phase, 'stopped');

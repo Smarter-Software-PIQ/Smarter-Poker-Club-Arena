@@ -14,6 +14,17 @@ spec.loader.exec_module(proof)
 class OriginalBuildResourceEvidenceTests(unittest.TestCase):
     boundary = f'ENGINE_BUILD_RESOURCE_BOUNDARY=memory:{proof.LIMIT},swap:0,cpu:100000 100000'
 
+    def test_real_calculator_qualification_and_refusal_guard_run_in_existing_gate(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / '.github/workflows/engine-build-resource-proof.yml').read_text()
+        for command in ('node --test scripts/qualify-equity-memory.test.mjs',
+                        'node scripts/qualify-equity-memory.mjs 1200 > ../work/engine-build-resource-proof/equity-memory-linux.json'):
+            self.assertIn(command, workflow)
+        self.assertIn('      - server/scripts/qualify-equity-memory.mjs', workflow)
+        self.assertIn('      - server/scripts/qualify-equity-memory.test.mjs', workflow)
+        self.assertIn('          path: work/engine-build-resource-proof/', workflow)
+        self.assertIn('          NODE_OPTIONS: --max-old-space-size=6144', workflow)
+
     def test_no_resolve_emitter_selects_actual_imported_runtime_json(self):
         root = Path(__file__).resolve().parents[2] / 'server'
         config = json.loads((root / 'tsconfig.emit.json').read_text())
