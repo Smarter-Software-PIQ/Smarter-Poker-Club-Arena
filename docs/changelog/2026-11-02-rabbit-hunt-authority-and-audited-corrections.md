@@ -1,0 +1,7 @@
+# Rabbit Hunt: The One Day Limit Is Enforced Where Cards Are Read, And Charges Can Be Corrected
+
+- **One day, enforced by the authority.** The engine reads a saved run out back only if it was saved less than 1 day ago, for a purchase or a free reopen, whether or not the ten minute prune has deleted it yet. A row without a readable timestamp is refused.
+- **Nothing about another player's hand.** A player who was not dealt in now gets the same answer as a hand with nothing saved, from `fn_rabbit_hunt_replay_status` and from the engine. Before this, any signed in player could probe a table and hand number and learn whether that hand ended before the river.
+- **Audited charge correction.** `fn_correct_rabbit_hunt_charge` (service role only) gives back what one reveal consumed. It is bound to the engine's request id and both receipts. A credit charge restores one use to the named credit; a VIP allowance charge releases one count from the charge's month. Diamond charges are refused. A second call for the same reveal changes nothing. Every correction is recorded in the append only `rabbit_hunt_charge_corrections`.
+- **Tests.** `scripts/ci/test-rabbit-hunt-authority.sh` (native PostgreSQL 17, inside the Data Console native suite) fails on the previous status function and passes after, covering grants, bindings, replay, duplicates and the append only audit. `RabbitHuntReveal.behaviour.test.ts` covers the one day read bound and the non-participant answer.
+- The engine half goes live with the next engine release; the database half with this migration.

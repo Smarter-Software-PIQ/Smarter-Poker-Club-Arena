@@ -1240,12 +1240,26 @@ export class MaintenanceBreak {
        from announcedAt, so arm only the time still left until that same
        absolute :55 boundary. */
     const countdownAt = this.announcedAt + MaintenanceBreak.LAST_HAND_LEAD_MS;
+    const startScheduledCountdown = () => {
+      if (
+        !this.lifecycleIsCurrent(generation) ||
+        this.phase !== 'last_hand' ||
+        this.announcedAt + MaintenanceBreak.LAST_HAND_LEAD_MS !== countdownAt
+      )
+        return;
+      this.countdownTimer = null;
+      // Timers may fire before the absolute wall-clock boundary. That is not
+      // the explicit early/manual entry supported by beginCountdown: keep the
+      // durable promise and re-arm only its remaining notice.
+      const remaining = countdownAt - this.now();
+      if (remaining > 0) {
+        this.countdownTimer = this.setTimer(startScheduledCountdown, remaining);
+        return;
+      }
+      this.launchLifecycleJob(this.beginCountdown(), 'countdown failed to start');
+    };
     this.countdownTimer = this.setTimer(
-      () => {
-        this.countdownTimer = null;
-        if (!this.lifecycleIsCurrent(generation)) return;
-        this.launchLifecycleJob(this.beginCountdown(), 'countdown failed to start');
-      },
+      startScheduledCountdown,
       Math.max(0, countdownAt - this.now())
     );
   }

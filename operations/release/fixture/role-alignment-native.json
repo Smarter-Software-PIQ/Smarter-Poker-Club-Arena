@@ -376,7 +376,7 @@
         "postgres=U*/supabase_admin",
         "service_role=U/supabase_admin",
         "supabase_admin=UC/supabase_admin",
-        "supabase_realtime_admin=U*C*/supabase_admin"
+        "supabase_realtime_admin=UC/supabase_admin"
       ],
       "name": "realtime",
       "owner": "supabase_admin"
@@ -521,7 +521,7 @@
         {
           "grantee": "postgres",
           "grantor": "supabase_admin",
-          "grantable": false,
+          "grantable": true,
           "privilege": "INSERT"
         },
         {
@@ -539,7 +539,7 @@
         {
           "grantee": "postgres",
           "grantor": "supabase_admin",
-          "grantable": false,
+          "grantable": true,
           "privilege": "SELECT"
         },
         {

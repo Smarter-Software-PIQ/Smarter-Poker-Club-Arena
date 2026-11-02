@@ -56,6 +56,8 @@ interface Summary {
   today_out_count: number;
   week_in: number;
   week_out: number;
+  week_complete?: boolean;
+  month_complete?: boolean;
   month_in: number;
   month_out: number;
 }
@@ -67,8 +69,18 @@ interface LogResponse {
   has_more?: boolean;
   summary?: Summary;
   out_categories?: string[];
-  logged_since?: string;
+  history?: History;
 }
+
+/** How much history is closed and listed (20261102083808). */
+interface History {
+  complete_from: string;
+  closed_through: string;
+  filling: boolean;
+  logged_since: string;
+}
+
+const EXPORT_PAGE = 5000;
 
 /** House names for the categories a treasury actually sees. */
 const CATEGORY_NAMES: Record<string, string> = {
@@ -141,6 +153,8 @@ export function UnionTreasuryLog({
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<LogRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [history, setHistory] = useState<History | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [cats, setCats] = useState<string[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -183,6 +197,7 @@ export function UnionTreasuryLog({
         setHasMore(Boolean(res.has_more));
         if (!after) {
           setSummary(res.summary ?? null);
+          setHistory(res.history ?? null);
           setCats(res.out_categories || []);
         }
       } catch (e) {
@@ -200,39 +215,85 @@ export function UnionTreasuryLog({
     void load(null);
   }, [load]);
 
-  const exportCsv = () => {
-    const header = [
-      'Date',
-      'Type',
-      'Category',
-      'Amount',
-      'Entries',
-      'Counterparty',
-      'Club',
-      'By',
-      'Balance After',
-      'Notes',
-    ];
-    const body = rows.map((r) => [
-      r.entry_kind === 'daily_in' ? r.log_day : r.occurred_at,
-      r.entry_kind === 'out' ? 'Out' : r.entry_kind === 'daily_in' ? 'Daily In' : 'In',
-      r.entry_kind === 'daily_in' ? 'Daily Total Collected' : categoryName(r.category),
-      r.entry_kind === 'out' ? -Number(r.amount) : Number(r.amount),
-      r.entries,
-      counterparty(r),
-      r.club_name ?? '',
-      r.performed_by_name ?? '',
-      r.balance_after ?? '',
-      r.description ?? '',
-    ]);
-    downloadCsv(`${walletLabel.replace(/\s+/g, '-').toLowerCase()}-log.csv`, toCsv(header, body));
+  /* Exports the WHOLE log for the current view, not just the rows on screen:
+     it pages through the same RPC, 5,000 rows a call, until there is no more. */
+  const exportCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const all: LogRow[] = [];
+      let after: LogRow | null = null;
+      for (;;) {
+        const { data, error: rpcError } = await supabase.rpc('fn_union_treasury_log', {
+          p_union_id: unionId,
+          p_wallet: wallet,
+          p_kind: kind,
+          p_before: after ? after.occurred_at : null,
+          p_before_id: after ? after.id : null,
+          p_limit: EXPORT_PAGE,
+          p_category: category || null,
+          p_search: query || null,
+        });
+        if (rpcError) throw rpcError;
+        const res = (data || {}) as LogResponse;
+        if (!res.authorized) throw new Error(res.error || 'Not Authorized');
+        const page = res.rows || [];
+        all.push(...page);
+        if (!res.has_more || page.length === 0) break;
+        after = page[page.length - 1];
+      }
+      const header = [
+        'Date',
+        'Type',
+        'Category',
+        'Amount',
+        'Entries',
+        'Counterparty',
+        'Club',
+        'By',
+        balanceLabel,
+        'Notes',
+      ];
+      const body = all.map((r) => [
+        r.entry_kind === 'daily_in' ? r.log_day : r.occurred_at,
+        r.entry_kind === 'out' ? 'Out' : r.entry_kind === 'daily_in' ? 'Daily In' : 'In',
+        r.entry_kind === 'daily_in' ? 'Daily Total Collected' : categoryName(r.category),
+        r.entry_kind === 'out' ? -Number(r.amount) : Number(r.amount),
+        r.entries,
+        counterparty(r),
+        r.club_name ?? '',
+        r.performed_by_name ?? '',
+        r.balance_after ?? '',
+        r.description ?? '',
+      ]);
+      downloadCsv(`${walletLabel.replace(/\s+/g, '-').toLowerCase()}-log.csv`, toCsv(header, body));
+    } catch (e) {
+      reportError(e, 'UnionTreasuryLog.export');
+      setError('Could Not Export The Transaction Log.');
+    } finally {
+      setExporting(false);
+    }
   };
+
+  /* What "balance" on a row means (verified 2026-11-02). Promo and the jackpot
+     banks carry the wallet's own balance at that moment. A Spins row carries
+     the live spin pool's balance, which excludes the idle reserve, so it is
+     named for what it is. Union Bank and Rake rows carry none: the ledger does
+     not record one, and the screen does not guess. Daily rows are totals. */
+  const balanceLabel = wallet === 'spins_treasury' ? 'Spin Pool Balance After' : 'Balance After';
 
   const todayIn = Number(summary?.today_in?.amount ?? 0);
 
   return (
     <section aria-label={`${walletLabel} Transaction Log`}>
       <WalletDeskHeading title="Transaction Log" meta={walletLabel} />
+      {history && (
+        <p className="wdesk__empty" role="status">
+          {history.filling
+            ? `History Complete From ${dayName(history.complete_from)}. Earlier History Is Still Filling In.`
+            : `History Complete From ${dayName(history.complete_from)}.`}
+        </p>
+      )}
 
       {summary && (
         <div className="wdesk__list">
@@ -241,7 +302,7 @@ export function UnionTreasuryLog({
             sub={
               <>
                 <span className="wdesk__in">{`In +${exactChipFigure(todayIn)}`}</span>
-                <span className="wdesk__sep">{`${fmt(Number(summary.today_in?.entries ?? 0))} Collections`}</span>
+                <span className="wdesk__sep">{`${fmt(Number(summary.today_in?.entries ?? 0))} Entries`}</span>
                 <span className="wdesk__sep wdesk__out">{`Out -${exactChipFigure(Number(summary.today_out))}`}</span>
                 <span className="wdesk__sep">{`${fmt(Number(summary.today_out_count))} Outs`}</span>
               </>
@@ -249,7 +310,11 @@ export function UnionTreasuryLog({
             figure={exactChipFigure(todayIn - Number(summary.today_out))}
           />
           <WalletDeskRow
-            name="Last 7 Days"
+            name={
+              summary.week_complete === false && history
+                ? `Since ${dayName(history.complete_from)}`
+                : 'Last 7 Days'
+            }
             sub={
               <>
                 <span className="wdesk__in">{`In +${exactChipFigure(Number(summary.week_in))}`}</span>
@@ -259,7 +324,11 @@ export function UnionTreasuryLog({
             figure={exactChipFigure(Number(summary.week_in) - Number(summary.week_out))}
           />
           <WalletDeskRow
-            name="Last 30 Days"
+            name={
+              summary.month_complete === false && history
+                ? `Since ${dayName(history.complete_from)}`
+                : 'Last 30 Days'
+            }
             sub={
               <>
                 <span className="wdesk__in">{`In +${exactChipFigure(Number(summary.month_in))}`}</span>
@@ -289,10 +358,10 @@ export function UnionTreasuryLog({
         <button
           type="button"
           className="wdesk__word"
-          onClick={exportCsv}
-          disabled={rows.length === 0}
+          onClick={() => void exportCsv()}
+          disabled={rows.length === 0 || exporting}
         >
-          Export CSV
+          {exporting ? 'Exporting...' : 'Export CSV'}
         </button>
       </div>
 
@@ -379,7 +448,7 @@ export function UnionTreasuryLog({
                       <span className="wdesk__sep">{titleCase(r.description)}</span>
                     )}
                     {r.balance_after != null && (
-                      <span className="wdesk__sep">{`Balance After ${exactChipFigure(Number(r.balance_after))}`}</span>
+                      <span className="wdesk__sep">{`${balanceLabel} ${exactChipFigure(Number(r.balance_after))}`}</span>
                     )}
                   </>
                 }

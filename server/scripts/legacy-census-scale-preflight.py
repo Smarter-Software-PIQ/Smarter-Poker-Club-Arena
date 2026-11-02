@@ -183,14 +183,16 @@ def write_state(path, value, exclusive=False):
 def daemon_lists_no_container(name, timeout):
     # Authoritative absence that does not depend on CLI wording: the daemon
     # answered (exit 0) and lists no container by this exact name.
-    listing = command(['docker', 'ps', '--all', '--no-trunc', '--filter', 'name=^/?' + re.escape(name) + '$',
+    identity_filter = 'id=' + name if re.fullmatch(r'[0-9a-f]{64}', name) else 'name=^/?' + re.escape(name) + '$'
+    listing = command(['docker', 'ps', '--all', '--no-trunc', '--filter', identity_filter,
                        '--format', '{{.ID}}'], timeout=timeout, check=False)
     return listing.returncode == 0 and listing.stdout.strip() == ''
 
 
-def inspect_own(name, key, timeout):
+def inspect_own(name, key, timeout, expected_id=None, image=None):
     result = command(['docker', 'inspect', '--format',
-                      '{{json .Id}} {{json (index .Config.Labels "' + LABEL + '")}}', name],
+                      '{{json .Id}} {{json (index .Config.Labels "' + LABEL + '")}}' +
+                      (' {{json .Image}}' if image else ''), name],
                      timeout=timeout, check=False)
     if result.returncode:
         # 2026-10-31: the first production run (receiver 41226449485) removed
@@ -205,12 +207,14 @@ def inspect_own(name, key, timeout):
                 'owned disposable container state unknown')
         return False
     values = result.stdout.strip().split()
-    require(len(values) == 2 and json.loads(values[1]) == key and
+    require(len(values) == (3 if image else 2) and json.loads(values[1]) == key and
             re.fullmatch(r'[0-9a-f]{64}', json.loads(values[0])), 'disposable container ownership refused')
+    require(expected_id is None or json.loads(values[0]) == expected_id, 'disposable container identity drift')
+    require(image is None or json.loads(values[2]) == image, 'disposable container image drift')
     return True
 
 
-def cleanup(name, key, deadline, kill=False, seen=None):
+def cleanup(name, key, deadline, kill=False, seen=None, expected_id=None, image=None):
     # 2026-11-01 (receiver 41272015208): each command used to be capped at
     # 1.5 s although the profile reserves 5 s for cleanup, so `docker rm -f`
     # of a ~6.7 GB container still running behind a killed client timed out
@@ -222,17 +226,32 @@ def cleanup(name, key, deadline, kill=False, seen=None):
         value = deadline - time.monotonic() - reserve
         require(value > 0, 'disposable cleanup deadline exhausted')
         return value
-    observed = inspect_own(name, key, remaining(CLEANUP_STEP_RESERVE_S * 3))
+    target = expected_id or name
+    ownership = {'expected_id': expected_id, 'image': image} if expected_id else {}
+    observed = inspect_own(target, key, remaining(CLEANUP_STEP_RESERVE_S * 3), **ownership)
     if seen is not None:
         seen['observed'] = seen.get('observed', False) or observed
     if observed:
         if kill:
             # A container that already exited answers non-zero here; the
             # forced removal below and the absence proof stay authoritative.
-            command(['docker', 'kill', name], timeout=remaining(CLEANUP_STEP_RESERVE_S * 2), check=False)
-        command(['docker', 'rm', '-f', name], timeout=remaining(CLEANUP_STEP_RESERVE_S))
-    require(not inspect_own(name, key, remaining(0)), 'disposable cleanup not proved')
+            command(['docker', 'kill', target], timeout=remaining(CLEANUP_STEP_RESERVE_S * 2), check=False)
+        command(['docker', 'rm', '-f', target], timeout=remaining(CLEANUP_STEP_RESERVE_S))
+    require(not inspect_own(target, key, remaining(0), **ownership), 'disposable cleanup not proved')
     return observed
+
+
+def creation_identity(path, attempt, name, key, image):
+    """Recover only the fsynced acknowledgement for this exact measurement."""
+    if not path.exists():
+        return {}
+    value = read_state(path)
+    require(type(value) is dict and set(value) == {'attempt','container','containerId','image','key'} and
+            type(value['attempt']) is int and value['attempt'] == attempt and
+            value['container'] == name and value['key'] == key and value['image'] == image and
+            re.fullmatch(r'[0-9a-f]{64}', str(value['containerId'])),
+            'disposable creation receipt binding refused')
+    return {'expected_id':value['containerId'], 'image':image}
 
 
 def validate_result(result, fixture_sha):
@@ -329,6 +348,8 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
     fixture_deadline_ms = int((time.time() + FIXTURE_S) * 1000)
     result, exit_code, acknowledged, cleanup_ok = None, None, False, False
     seen = {'observed': False}
+    container_id = None
+    created_path = output_path.with_name(output_path.name + '.created')
     # (message, timing). Only an outcome whose every refusal is wall clock may
     # earn the one fresh re-measurement; fit, identity and signal refusals and
     # unproved cleanup never do.
@@ -340,7 +361,7 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
         stderr_path = output_path.with_name(output_path.name + '.stderr')
         with os.fdopen(os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb', buffering=0) as output, \
                 os.fdopen(os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb', buffering=0) as errors_output:
-            args = ['docker', 'run', '--pull', 'never', '--name', name, '--label', LABEL+'='+key,
+            args = ['docker', 'create', '--pull', 'never', '--name', name, '--label', LABEL+'='+key,
                     '--restart', 'no', '--no-healthcheck', '--network', 'none', '--read-only', '--memory', str(CAP),
                     '--memory-swap', str(CAP), '--cpus', '1', '--pids-limit', '32', '--log-driver', 'none',
                     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--user', '65534:65534',
@@ -350,12 +371,29 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
                     '/app/native/legacy-census/scale-fixture.mjs', fixture_sha, str(fixture_deadline_ms),
                     digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
                     digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes())]
+            # Creation acknowledges one immutable container before any fixture
+            # executes. Persist it before start so a slow attach/inspect cannot
+            # turn an acknowledged creation into an unknown delayed create.
             try:
-                execution = capture_fixture(args, stdin=subprocess.DEVNULL, stdout=output, stderr=errors_output,
-                                           timeout=max(0.1, client_deadline - time.monotonic()),
-                                           preexec_fn=cap_output)
+                created = command(args, timeout=max(0.001, client_deadline-time.monotonic()))
             except subprocess.TimeoutExpired:
-                errors.append(('docker run client exceeded its %d second budget' % CLIENT_S, True))
+                errors.append(('docker create client exceeded its %d second budget' % CLIENT_S, True))
+                raise FixtureDeadline()
+            require(re.fullmatch(r'[0-9a-f]{64}', created.stdout.strip()),
+                    'disposable creation acknowledgement malformed')
+            container_id = created.stdout.strip()
+            write_state(created_path, {'attempt':attempt, 'container':name, 'containerId':container_id,
+                                      'image':image, 'key':key}, exclusive=True)
+            remaining = client_deadline-time.monotonic()
+            if remaining <= 0:
+                errors.append(('docker create/start client exceeded its %d second budget' % CLIENT_S, True))
+                raise FixtureDeadline()
+            try:
+                execution = capture_fixture(['docker','start','--attach',container_id],
+                                           stdin=subprocess.DEVNULL, stdout=output, stderr=errors_output,
+                                           timeout=remaining, preexec_fn=cap_output)
+            except subprocess.TimeoutExpired:
+                errors.append(('docker start client exceeded its %d second budget' % CLIENT_S, True))
                 raise FixtureDeadline()
             acknowledged = True
             exit_code = execution.returncode
@@ -374,10 +412,11 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
         errors.append((str(exc), False))
     finally:
         try:
-            seen['observed'] = cleanup(name, key, cleanup_deadline, kill=not acknowledged, seen=seen) or seen['observed']
+            ownership = {'expected_id':container_id, 'image':image} if container_id else {}
+            seen['observed'] = cleanup(name, key, cleanup_deadline, kill=not acknowledged, seen=seen, **ownership) or seen['observed']
             # Absence after an unknown Docker client outcome cannot exclude
             # a create still completing in the daemon. Never certify it.
-            require(acknowledged or seen['observed'],
+            require(container_id or acknowledged or seen['observed'],
                     'container creation acknowledgement unknown; cleanup remains unknown')
             cleanup_ok = True
         except Exception as exc:
@@ -388,6 +427,7 @@ def measure(attempt, name, key, image, fixture_sha, output_path, host_available)
     messages = [message for message, _ in errors] + cleanup_errors
     return {'attempt': attempt, 'container': name, 'elapsedMs': elapsed, 'exitCode': exit_code,
             'cleanupProved': cleanup_ok, 'executionAcknowledged': acknowledged,
+            'creationAcknowledged': container_id is not None, 'containerId':container_id,
             'observedOwnedContainer': seen['observed'], 'result': result,
             'hostAvailableBytes': host_available,
             'timedOut': bool(errors) and all(timing for _, timing in errors),
@@ -402,6 +442,8 @@ def receipt_for(binding, candidate, run_id, attempts, fresh):
     return {'binding':binding, 'candidate':candidate, 'status':'qualified' if qualified else 'refused',
             'runId':run_id, 'at':time.time(), 'elapsedMs':latest['elapsedMs'],
             'cleanupProved':latest['cleanupProved'], 'executionAcknowledged':latest['executionAcknowledged'],
+            'creationAcknowledged':latest.get('creationAcknowledged', False),
+            'containerId':latest.get('containerId'),
             'observedOwnedContainer':latest['observedOwnedContainer'],
             'servingBefore':latest['servingBefore'], 'servingAfter':latest['servingAfter'],
             'result':latest['result'], 'hostAvailableBytes':latest['hostAvailableBytes'],
@@ -410,13 +452,13 @@ def receipt_for(binding, candidate, run_id, attempts, fresh):
 
 def fresh_remeasurement(record):
     # 'available' only for a wall-clock refusal whose container is proved
-    # gone, or can still be proved gone because it was seen or its exit was
-    # acknowledged. Everything else is bound to the image for good.
+    # gone, or can still be proved gone because creation, observation or exit
+    # was acknowledged. Everything else is bound to the image for good.
     if record['error'] is None and record['cleanupProved'] is True:
         return 'unused'
     if record['timedOut'] is True and (record['cleanupProved'] is True or
                                        record['observedOwnedContainer'] is True or
-                                       record['executionAcknowledged'] is True):
+                                       record['executionAcknowledged'] is True or record.get('creationAcknowledged') is True):
         return 'available'
     return 'none'
 
@@ -453,6 +495,11 @@ def main(image, run_id, deadline):
         intents = {1: STATE / (key + '.intent'), 2: STATE / (key + '.attempt-2.intent')}
         outputs = {1: STATE / (key + '.output'), 2: STATE / (key + '.attempt-2.output')}
 
+        def cleanup_attempt(attempt):
+            created_path = outputs[attempt].with_name(outputs[attempt].name + '.created')
+            ownership = creation_identity(created_path, attempt, names[attempt], key, image)
+            return cleanup(names[attempt], key, time.monotonic() + reserve, **ownership)
+
         def run_measurement(attempt):
             host_available = admit_measurement(run_id, before_serving)
             # Exclusive creation: each measurement's intent can exist once.
@@ -480,7 +527,7 @@ def main(image, run_id, deadline):
                 intent = read_state(intents[attempt])
                 require(intent.get('binding') == binding and intent.get('container') == names[attempt],
                         'unresolved scale cleanup custody refused')
-                require(cleanup(names[attempt], key, time.monotonic() + reserve),
+                require(cleanup_attempt(attempt),
                         'prior creation acknowledgement remains unknown; no automatic repeat')
             raise RuntimeError('scale outcome for this image is refused for good; no automatic repeat')
 
@@ -509,7 +556,7 @@ def main(image, run_id, deadline):
             intent = read_state(intents[1])
             require(intent.get('binding') == binding and intent.get('container') == name,
                     'existing one-shot intent custody refused')
-            require(cleanup(name, key, time.monotonic() + reserve),
+            require(cleanup_attempt(1),
                     'prior creation acknowledgement remains unknown; no automatic repeat')
             raise RuntimeError('prior scale intent has no positive receipt; own cleanup proved, no automatic repeat')
         else:
@@ -528,8 +575,9 @@ def main(image, run_id, deadline):
         # the first one did; without it the refusal stays retryable by a new
         # receiver run, and the fresh measurement can still happen only once.
         if first['cleanupProved'] is not True:
-            require(cleanup(names[1], key, time.monotonic() + reserve) or
-                    first['executionAcknowledged'] is True or first['observedOwnedContainer'] is True,
+            require(cleanup_attempt(1) or
+                    first['executionAcknowledged'] is True or first['observedOwnedContainer'] is True or
+                    first.get('creationAcknowledged') is True,
                     'first measurement creation acknowledgement unknown; no fresh re-measurement')
             first['cleanupProved'] = True
             first['cleanupProvedLater'] = {'runId':run_id, 'at':time.time()}

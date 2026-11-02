@@ -338,7 +338,8 @@ COMPOSITION_SITES = frozenset({
     'UNKNOWN', 'DUMP_BOUNDARIES', 'DUMP_HEADER', 'DUMP_NAME_SHAPE', 'DUMP_DUPLICATE_KEY',
     'SCHEMA_CREDENTIAL_PATTERN', 'SCHEMA_DENIED_TYPE', 'NATIVE_OBJECT_MISSING',
     'NATIVE_OWNER_DIFFERENT', 'NATIVE_BLOCK_DIFFERENT', 'APPLICATION_HOOK',
-    'APPLICATION_HOOK_IN_NATIVE', 'MANAGED_OBJECT_MISSING', 'MANAGED_OWNER_DIFFERENT',
+    'APPLICATION_HOOK_IN_NATIVE', 'APPLICATION_POLICY', 'APPLICATION_POLICY_IN_NATIVE',
+    'MANAGED_OBJECT_MISSING', 'MANAGED_OWNER_DIFFERENT',
     'MANAGED_BLOCK_DIFFERENT', 'AUTH_HELPER_REQUIRED', 'CRON_CONTRACT_REQUIRED'})
 COMPOSITION_PHASES = frozenset({'import', 'input-read', 'compose', 'sql-write', 'manifest-write', 'unknown'})
 COMPOSITION_COMMAND = """
@@ -518,6 +519,7 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
         'operations/release/fixture/native-dump-diagnostic.c',
         'scripts/ci/certificates/supabase-prod-ca-2021.crt',
         'operations/release/fixture/schema-compose.mjs', 'operations/release/fixture/schema-application-hooks.mjs',
+        'operations/release/fixture/schema-application-policies.mjs',
         'operations/release/fixture/current-application-roles.mjs',
         'operations/release/fixture/schema-catalogue-restore-map.mjs',
         'operations/release/native/schema-preflight.mjs',

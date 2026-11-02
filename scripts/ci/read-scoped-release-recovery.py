@@ -231,6 +231,8 @@ def routine_failure_resolution(value, cycle, result, result_fd):
               'noAnnouncementRecorded': None, 'databaseIdleRecorded': None}
     if value is None:
         return answer, None
+    if isinstance(value, dict) and value.get('result') == 'cancelled-announcement-proved':
+        return cancelled_announcement_resolution(value, cycle, result, result_fd, answer)
     if isinstance(value, dict) and value.get('result') == 'terminal-failure-proved':
         return terminal_failure_resolution(value, cycle, result, result_fd, answer)
     routine_require(cycle['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and
@@ -361,6 +363,87 @@ def terminal_failure_resolution(value, cycle, result, result_fd, answer):
     return answer, (name, metadata, raw)
 
 
+CANCELLED_PHASE1_SOURCES = {
+    'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6',
+    'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4',
+    'engine-release-seal.py': '1c21d9e35b1bf76c72df58bab7adc8c09ce2d2bd8d98d5680f8a0c934386e2bb',
+    'engine-release-transaction.sh': 'c4fd7e47f65c76d60b1af2bd4d09893038516c57d335e181f0346dd58faae418',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e',
+}
+
+CANCELLED_PHASE1_RUN = '41400905104-1'
+CANCELLED_PHASE1_SHA = '197c2b733698b9eb62a90f7c91b42b263a028ef1'
+CANCELLED_PHASE1_WINDOW = {'announcedAt': 1793602682415, 'startsAt': 1793602802415,
+                          'endsAt': 1793603102415, 'verified': True}
+CANCELLED_PHASE1_THAW = {'announcedAtMs': 1793602682415, 'freezeStartedAtMs': 1793602802414,
+                       'releasedThroughMs': 1793603102414,
+                       'ownershipToken': 'b7fd9bbf-95c0-4ff2-af3c-55c7ec4cd01f', 'generation': 1,
+                       'thawRecordedAtMs': 1793603023814}
+
+
+def cancelled_phase1_started_at(value, observed_at):
+    if not isinstance(value, str):
+        return False
+    try:
+        started = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+        # Cancellation preserves the current runtime throughout its own operation.
+        # It does not require the preannouncement process to have survived.
+        birth = started.timestamp() * 1000
+        return (started.tzinfo is not None and 0 < birth < observed_at * 1000
+            and (birth < CANCELLED_PHASE1_WINDOW['announcedAt']
+                 or birth > max(CANCELLED_PHASE1_WINDOW['endsAt'], CANCELLED_PHASE1_THAW['thawRecordedAtMs'])))
+    except ValueError:
+        return False
+
+
+def cancelled_phase1_cycle(cycle):
+    routine_require(cycle == {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+        'policyDigest': NINEF_POLICY_DIGEST, 'startsAt': 1793602800, 'endsAt': 1793603100,
+        'runId': CANCELLED_PHASE1_RUN, 'sha': CANCELLED_PHASE1_SHA, 'controlSha': CANCELLED_PHASE1_SHA,
+        'status': 'reserved', 'window': CANCELLED_PHASE1_WINDOW})
+
+
+def cancelled_announcement_resolution(resolution, cycle, result, result_fd, answer):
+    cancelled_phase1_cycle(cycle)
+    routine_require(isinstance(resolution, dict) and set(resolution) == {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'verifiedByControlSha', 'verifiedByTargetSha', 'invocationId', 'observedAt', 'proof'}
+        and resolution['schema'] == 1 and resolution['result'] == 'cancelled-announcement-proved'
+        and resolution['originalCycle'] == cycle and RUN.fullmatch(str(resolution['verifiedByRunId']))
+        and resolution['verifiedByRunId'] != CANCELLED_PHASE1_RUN
+        and SHA.fullmatch(str(resolution['verifiedByControlSha']))
+        and SHA.fullmatch(str(resolution['verifiedByTargetSha']))
+        and CANCELLED_PHASE1_SHA not in (resolution['verifiedByControlSha'], resolution['verifiedByTargetSha'])
+        and INVOCATION.fullmatch(str(resolution['invocationId']))
+        and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > CANCELLED_PHASE1_WINDOW['endsAt'])
+    proof = resolution['proof']
+    routine_require(isinstance(proof, dict) and set(proof) == {'schema', 'originalCycle', 'recordHashes',
+        'retainedHashes', 'sourceHashes', 'thaw', 'container', 'instanceId', 'qualifiedHelperSHA256'}
+        and proof['schema'] == 'cancelled-routine-announcement-proof/v1' and proof['originalCycle'] == cycle
+        and proof['sourceHashes'] == CANCELLED_PHASE1_SOURCES
+        and proof['thaw'] == CANCELLED_PHASE1_THAW and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}', str(proof['instanceId']))
+        and isinstance(proof['container'], dict) and set(proof['container']) == {'id', 'startedAt', 'image'}
+        and re.fullmatch(r'[0-9a-f]{64}', str(proof['container']['id']))
+        and cancelled_phase1_started_at(proof['container']['startedAt'], resolution['observedAt'])
+        and proof['container']['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+        and re.fullmatch('[0-9a-f]{64}', str(proof['qualifiedHelperSHA256'])))
+    for key, names in (('recordHashes', {'receipt','intent','quiescent','stop-issued'}),
+                       ('retainedHashes', {'entryHash','reservationHash','releasedHoldHash'})):
+        routine_require(isinstance(proof[key], dict) and set(proof[key]) == names
+            and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof[key].values()))
+    routine_require(result is None)
+    name = CANCELLED_PHASE1_RUN + '.' + resolution['verifiedByRunId'] + '.' + resolution['invocationId'] + '.terminal-resolution.json'
+    metadata = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
+    receipt, raw = read_json(result_fd, name, private=True, with_bytes=True)
+    routine_require(receipt == resolution)
+    answer.update(present=True, sha256=routine_digest(resolution), receiptSha256=hashlib.sha256(raw).hexdigest(),
+                  verifiedByRunId=resolution['verifiedByRunId'], controlSha=resolution['verifiedByControlSha'],
+                  targetSha=resolution['verifiedByTargetSha'],
+                  invocationSha256=hashlib.sha256(resolution['invocationId'].encode()).hexdigest(),
+                  observedAt=resolution['observedAt'], cycleMatches=True, failureMatches=True, receiptMatches=True,
+                  databaseIdleRecorded=True)
+    return answer, (name, metadata, raw)
+
+
 def routine_remote(request, root_fd):
     """Read only fixed canonical files with existing private stable-file reader.
 
@@ -386,7 +469,8 @@ def routine_remote(request, root_fd):
     routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict) and
                     isinstance(resolutions, dict) and
                     all(isinstance(v, dict) and (k == FAILED_CUSTODY_REQUEST['runKey'] or
-                                                 (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved'))
+                                                 (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
+                                                 (k == CANCELLED_PHASE1_RUN and v.get('result') == 'cancelled-announcement-proved'))
                         for k, v in resolutions.items()))
     if resolutions:
         routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
@@ -487,7 +571,20 @@ def validate_routine_reply(value, request):
             'noAnnouncementRecorded', 'databaseIdleRecorded'} and
             type(resolution['present']) is bool and type(row['unresolvedOwner']) is bool and
             row['unresolvedOwner'] is (not resolution['present']))
-        if resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
+        if resolution['present'] and row['runId'] == CANCELLED_PHASE1_RUN:
+            cycle = {k: row[k] for k in ('runId','sha','controlSha','policyId','policyDigest','kind','status','startsAt','endsAt','window')}
+            cancelled_phase1_cycle(cycle)
+            routine_require(row['failurePresent'] is False and row['result']['present'] is False
+                and row['committed']['present'] is False
+                and all(isinstance(resolution[k], str) and re.fullmatch('[0-9a-f]{64}', resolution[k])
+                    for k in ('sha256', 'receiptSha256', 'invocationSha256'))
+                and RUN.fullmatch(str(resolution['verifiedByRunId'])) and resolution['verifiedByRunId'] != CANCELLED_PHASE1_RUN
+                and all(SHA.fullmatch(str(resolution[k])) and resolution[k] != CANCELLED_PHASE1_SHA
+                    for k in ('controlSha', 'targetSha'))
+                and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > CANCELLED_PHASE1_WINDOW['endsAt']
+                and all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches', 'databaseIdleRecorded'))
+                and resolution['noAnnouncementRecorded'] is None)
+        elif resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
             # The recorded 9f terminal-failure proof: the exact reserved failed
             # cycle, no commit, receipted by a different current verifier.
             routine_require(ninef_row(row) and row['failurePresent'] is True and
@@ -532,7 +629,9 @@ def validate_routine_reply(value, request):
                             row['failurePresent'] == (result['cycleFailureMatches'] is not None))
         else:
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
-        if resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
+        if resolution['present'] and row['runId'] == CANCELLED_PHASE1_RUN:
+            routine_require(result['present'] is False and row['failurePresent'] is False)
+        elif resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
             routine_require(row['runId'] == NINEF_RUN and result['present'] is True and
                             result['sha256'] == NINEF_FAILURE == row['failureSha256'] and
                             result['outcome'] == 'failed' and result['identityMatches'] is True and

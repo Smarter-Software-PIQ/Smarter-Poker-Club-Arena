@@ -25,6 +25,23 @@ function client(overrides = {}) {
 const render = (binding, source = template, secret = password) =>
   renderFixtureRoleAlignmentSql(source, { password: secret, clientBinding: binding });
 
+test('Realtime91 native grant options transition through the fixed intermediate role contract', async () => {
+  const dir = new URL('../../operations/release/fixture/', import.meta.url);
+  const grants = (file) => JSON.parse(readFileSync(new URL(file, dir), 'utf8')).default_acl
+    .find((entry) => entry.creator === 'supabase_admin' && entry.schema === 'realtime' && entry.type === 'r')
+    .acl.filter((entry) => entry.grantee === 'postgres' && ['SELECT', 'INSERT'].includes(entry.privilege));
+  assert.deepEqual(grants('role-alignment-native.json').map((entry) => entry.grantable), [true, true]);
+  assert.deepEqual(grants('role-alignment-aligned.json').map((entry) => entry.grantable), [false, false]);
+  await withHeldFixtureRoleAlignmentClient(client(), async binding => {
+    const sql = render(binding);
+    const transition = 'ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "realtime" REVOKE GRANT OPTION FOR SELECT, INSERT ON TABLES FROM "postgres" RESTRICT;';
+    assert.equal(sql.split(transition).length - 1, 1);
+    assert.ok(sql.indexOf(transition) < sql.indexOf("RAISE EXCEPTION 'FIXTURE_FULL_ROLE_POSTIMAGE_REQUIRED'"));
+  });
+  assert.ok(readFileSync(new URL('current-application-roles.mjs', dir), 'utf8')
+    .includes('ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT SELECT, INSERT ON TABLES TO postgres WITH GRANT OPTION;'));
+});
+
 test('binds the held actual query and renders exact PID plus backend birth at both boundaries', async () => {
   const application = client();
   await withHeldFixtureRoleAlignmentClient(application, async binding => {

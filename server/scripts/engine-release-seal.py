@@ -991,6 +991,9 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner == FAILED_ROUTINE_RUN:
         validate_failed_routine_resolution(resolution, cycle)
         return
+    if owner == CANCELLED_PHASE1_RUN:
+        validate_cancelled_phase1_resolution(resolution, cycle)
+        return
     if owner != NINEF_RUN:
         die('routine failure resolution history is invalid')
     ninef_cycle(cycle)
@@ -1041,6 +1044,96 @@ def terminal_receipt_path(owner: str, verifier: str, invocation: str) -> Path:
     return RESULT_DIR / f'{owner}.{verifier}.{invocation}.terminal-resolution.json'
 
 
+CANCELLED_PHASE1_SOURCES = {
+    'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6',
+    'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4',
+    'engine-release-seal.py': '1c21d9e35b1bf76c72df58bab7adc8c09ce2d2bd8d98d5680f8a0c934386e2bb',
+    'engine-release-transaction.sh': 'c4fd7e47f65c76d60b1af2bd4d09893038516c57d335e181f0346dd58faae418',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e',
+}
+
+CANCELLED_PHASE1_RUN = '41400905104-1'
+CANCELLED_PHASE1_SHA = '197c2b733698b9eb62a90f7c91b42b263a028ef1'
+CANCELLED_PHASE1_WINDOW = {'announcedAt': 1793602682415, 'startsAt': 1793602802415,
+                          'endsAt': 1793603102415, 'verified': True}
+CANCELLED_PHASE1_THAW = {'announcedAtMs': 1793602682415, 'freezeStartedAtMs': 1793602802414,
+                       'releasedThroughMs': 1793603102414,
+                       'ownershipToken': 'b7fd9bbf-95c0-4ff2-af3c-55c7ec4cd01f', 'generation': 1,
+                       'thawRecordedAtMs': 1793603023814}
+
+
+def cancelled_phase1_started_at(value: Any, observed_at: int) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        started = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        # Cancellation preserves the current runtime throughout its own operation.
+        # It does not require the preannouncement process to have survived.
+        birth = started.timestamp() * 1000
+        return (started.tzinfo is not None and 0 < birth < observed_at * 1000
+            and (birth < CANCELLED_PHASE1_WINDOW['announcedAt']
+                 or birth > max(CANCELLED_PHASE1_WINDOW['endsAt'], CANCELLED_PHASE1_THAW['thawRecordedAtMs'])))
+    except ValueError:
+        return False
+
+
+def cancelled_phase1_cycle(cycle: Any) -> None:
+    failed_routine_require(cycle == {'kind': 'hourly-reset', 'policyId': SCHEDULE_POLICY_ID,
+        'policyDigest': NINEF_POLICY_DIGEST, 'startsAt': 1793602800, 'endsAt': 1793603100,
+        'runId': CANCELLED_PHASE1_RUN, 'sha': CANCELLED_PHASE1_SHA, 'controlSha': CANCELLED_PHASE1_SHA,
+        'status': 'reserved', 'window': CANCELLED_PHASE1_WINDOW})
+
+
+def validate_cancelled_phase1_resolution(resolution: Any, cycle: dict[str, Any], verify_receipt: bool = True) -> None:
+    cancelled_phase1_cycle(cycle)
+    failed_routine_require(isinstance(resolution, dict) and set(resolution) == TERMINAL_RESOLUTION_KEYS
+        and resolution['schema'] == 1 and resolution['result'] == 'cancelled-announcement-proved'
+        and resolution['originalCycle'] == cycle and RUN_ID_RE.fullmatch(str(resolution['verifiedByRunId']))
+        and resolution['verifiedByRunId'] != CANCELLED_PHASE1_RUN
+        and SHA_RE.fullmatch(str(resolution['verifiedByControlSha']))
+        and SHA_RE.fullmatch(str(resolution['verifiedByTargetSha']))
+        and CANCELLED_PHASE1_SHA not in (resolution['verifiedByControlSha'], resolution['verifiedByTargetSha'])
+        and INVOCATION_ID_RE.fullmatch(str(resolution['invocationId']))
+        and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > CANCELLED_PHASE1_WINDOW['endsAt'])
+    proof = resolution['proof']
+    failed_routine_require(isinstance(proof, dict) and set(proof) == {'schema', 'originalCycle', 'recordHashes',
+        'retainedHashes', 'sourceHashes', 'thaw', 'container', 'instanceId', 'qualifiedHelperSHA256'}
+        and proof['schema'] == 'cancelled-routine-announcement-proof/v1' and proof['originalCycle'] == cycle
+        and proof['sourceHashes'] == CANCELLED_PHASE1_SOURCES
+        and proof['thaw'] == CANCELLED_PHASE1_THAW and INSTANCE_ID_RE.fullmatch(str(proof['instanceId']))
+        and isinstance(proof['container'], dict) and set(proof['container']) == {'id', 'startedAt', 'image'}
+        and CONTAINER_ID_RE.fullmatch(str(proof['container']['id']))
+        and cancelled_phase1_started_at(proof['container']['startedAt'], resolution['observedAt'])
+        and proof['container']['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+        and re.fullmatch('[0-9a-f]{64}', str(proof['qualifiedHelperSHA256'])))
+    for key, names in (('recordHashes', {'receipt','intent','quiescent','stop-issued'}),
+                       ('retainedHashes', {'entryHash','reservationHash','releasedHoldHash'})):
+        failed_routine_require(isinstance(proof[key], dict) and set(proof[key]) == names
+            and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof[key].values()))
+    if verify_receipt:
+        path = terminal_receipt_path(CANCELLED_PHASE1_RUN, resolution['verifiedByRunId'], resolution['invocationId'])
+        failed_routine_require(failed_routine_json(path) == resolution)
+
+
+def cancelled_phase1_proof(args: argparse.Namespace, state: dict[str, Any], cycle: dict[str, Any],
+                           deadline: float) -> dict[str, Any]:
+    cancelled_phase1_cycle(cycle)
+    failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+        and CANCELLED_PHASE1_RUN not in state['committedRuns']
+        and time.time() * 1000 > CANCELLED_PHASE1_WINDOW['endsAt'])
+    # Execute only this transaction's immutable protected source, not whatever
+    # another checkout or later main currently contains. The helper is read-only
+    # in this mode; cancellation must already have its own durable receipt.
+    source = failed_routine_command(['git', '-C', args.repo, 'show',
+        str(args.control_sha) + ':scripts/ci/withdraw-waiting-engine-release.py'], deadline, 131072)
+    proof = json.loads(failed_routine_command([sys.executable, '-B', '-c', source,
+        '--phase1-cancellation-proof'], deadline, 16384, max_seconds=30))
+    failed_routine_require(proof.get('originalCycle') == cycle)
+    proof['qualifiedHelperSHA256'] = hashlib.sha256(source.encode()).hexdigest()
+    return proof
+
+
 def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     """Inside the existing transaction, under the engine and seal locks, record a
     terminal-failure proof for each expired failed foreign routine owner whose
@@ -1052,12 +1145,12 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     state; an interrupted run resumes with exactly those bytes."""
     run_id = str(args.run_id)
     invocation = str(args.invocation_id)
-    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id == NINEF_RUN or
+    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN} or
             os.geteuid() != 0):
         die('terminal routine failure proof identity is invalid')
     sha = valid_sha(str(args.sha))
     control_sha = valid_sha(str(args.control_sha))
-    if sha == NINEF_SHA:
+    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA}:
         die('terminal routine failure proof identity is invalid')
     require_engine_lock(args.engine_lock_fd)
     deadline = time.monotonic() + 45
@@ -1066,22 +1159,25 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         proved = []
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
-            if owner != NINEF_RUN or owner == run_id or not routine_owner_unresolved(state, cycle):
+            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
             current = failed_routine_current(args, deadline)
-            proof = terminal_owner_proof(state, cycle, deadline)
+            prove = (lambda: cancelled_phase1_proof(args, state, cycle, deadline)) if owner == CANCELLED_PHASE1_RUN else (lambda: terminal_owner_proof(state, cycle, deadline))
+            proof = prove()
             if proof is None:
                 continue
             # Every witness, including this verifier's own request, intent,
             # generation pin and live unit, is observed again against an
             # unchanged seal immediately before the receipt, audit and
             # compare-and-swap.
-            if (load_state() != state or terminal_owner_proof(state, cycle, deadline) != proof or
+            if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'cancelled-announcement-proved' if owner == CANCELLED_PHASE1_RUN else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
+            if owner == CANCELLED_PHASE1_RUN:
+                validate_cancelled_phase1_resolution(resolution, cycle, verify_receipt=False)
             receipt = terminal_receipt_path(owner, run_id, invocation)
             try:
                 receipt.lstat()
@@ -2116,8 +2212,8 @@ class FailedRoutineProcessLookup(Exception):
         self.status, self.stdout, self.stderr = status, stdout, stderr
 
 
-def failed_routine_command(command: list[str], deadline: float, limit: int = 32768) -> str:
-    deadline = min(deadline, time.monotonic() + 5)
+def failed_routine_command(command: list[str], deadline: float, limit: int = 32768, *, max_seconds: int = 5) -> str:
+    deadline = min(deadline, time.monotonic() + max_seconds)
     failed_routine_require(deadline > time.monotonic())
     child = None
     chunks = {False: bytearray(), True: bytearray()}
@@ -2863,6 +2959,7 @@ def parser() -> argparse.ArgumentParser:
     resolve_failed.add_argument('--invocation-id', required=True)
     resolve_failed.set_defaults(handler=cmd_resolve_failed_routine)
     resolve_terminal = commands.add_parser('resolve-terminal-routine-failures')
+    resolve_terminal.add_argument('--repo', default='/opt/club-arena')
     resolve_terminal.add_argument('--engine-lock-fd', type=int, required=True)
     resolve_terminal.add_argument('--run-id', required=True)
     resolve_terminal.add_argument('--sha', required=True)

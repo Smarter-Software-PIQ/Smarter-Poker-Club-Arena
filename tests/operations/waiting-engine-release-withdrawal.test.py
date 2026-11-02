@@ -262,6 +262,169 @@ class Withdrawal(unittest.TestCase):
 
 
 class AnnouncedCancellation(unittest.TestCase):
+    def phase1_request(self):
+        return {'runKey': module.PHASE1_RUN, 'releaseSha': module.PHASE1_CONTROL,
+            'controlSha': module.PHASE1_CONTROL, 'desiredSha': module.PHASE1_DESIRED,
+            'instanceId': '1-2ced3e43', 'mode': 'cancel_expired_announcement'}
+
+    def test_phase1_actual_pinned_v3_floor_bootstrap_and_no_bytecode(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            state = Path(folder) / 'state'; state.mkdir()
+            parent = Path(folder) / 'parent'; parent.mkdir()
+            request = self.phase1_request(); key = request['runKey']
+            generation = parent / 'engine-control-generations' / module.PHASE1_CONTROL
+            generation.mkdir(parents=True)
+            for name in ('engine-release-activation-floor.py', 'engine-release-seal.py'):
+                raw = subprocess.check_output(['git', 'show', module.PHASE1_CONTROL + ':server/scripts/' + name], cwd=ROOT)
+                (generation / name).write_bytes(raw)
+            (generation / 'engine-release-lightning-hold.py').write_text("def own_record(path,key): return {'phase':'released'}\n")
+            reqroot = state / 'engine-release-requests'; reqroot.mkdir()
+            raw = '\n'.join([module.PHASE1_CONTROL, 'url', 'actor', str(generation), module.PHASE1_CONTROL, '1793613481']) + '\n'
+            for suffix in ('request', 'intent'): (reqroot / (key + '.' + suffix)).write_text(raw)
+            entry = {'schema': 'engine-release-activation-floor/v3-phase1', 'runId': key,
+                'targetSha': module.PHASE1_CONTROL, 'controlSha': module.PHASE1_CONTROL,
+                'manifestSha256': module.PHASE1_POLICY, 'phase': 'announcement'}
+            (reqroot / (key + '.activation-entry')).write_text(json.dumps(entry))
+            (reqroot / (key + '.activation-entry')).chmod(0o600)
+            (reqroot / (key + '.lightning-hold.json.released')).write_text('released')
+            window = {'announcedAt': module.PHASE1_STAMP, 'startsAt': module.PHASE1_STAMP + 120000,
+                'endsAt': module.PHASE1_STAMP + 420000, 'verified': True}
+            cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f', 'policyDigest': module.PHASE1_POLICY,
+                'startsAt': 1793602800, 'endsAt': 1793603100, 'runId': key, 'sha': module.PHASE1_CONTROL,
+                'controlSha': module.PHASE1_CONTROL, 'status': 'reserved', 'window': window}
+            seal = {'schema': 1, 'generation': 312, 'highWaterSha': module.PHASE1_DESIRED,
+                'desired': {'sha': module.PHASE1_DESIRED, 'imageId': 'sha256:' + 'a' * 64},
+                'pending': None, 'finalization': None, 'committedRuns': {}, 'routineMaintenanceCycles': {'1793602800': cycle}}
+            (state / 'engine-release-seal.json').write_text(json.dumps(seal))
+            reservation = state / ('engine-recovery-window-' + key + '.json')
+            reservation.write_text(json.dumps({'runId': key, 'sha': module.PHASE1_CONTROL, 'announcedAt': module.PHASE1_STAMP, 'cause': 'urgent'}))
+            reservation.chmod(0o600)
+            pins = state / 'engine-release-generation-pins'; pins.mkdir()
+            (pins / (key + '.generation')).write_text(str(generation) + '\n' + module.PHASE1_CONTROL + '\n')
+            calls = []
+            def command(args, timeout=5):
+                calls.append(args)
+                self.assertEqual(args[:2], ['python3', '-B'])
+                # Real old197 floor CLI and imported seal, against real Git197
+                # policy bytes and isolated canonical files. No production IO.
+                selected = [str(ROOT) if arg == '/opt/club-arena' else arg for arg in args]
+                env = dict(os.environ); env.pop('PYTHONDONTWRITEBYTECODE', None)
+                return subprocess.check_output(selected, env=env, timeout=timeout, text=True).strip()
+            for name, value in [('ROOT', state), ('PARENT', parent)]:
+                patches.enter_context(patch.object(module, name, value))
+            patches.enter_context(patch.object(module, 'regular', side_effect=lambda p, mode=None: Path(p).read_text()))
+            patches.enter_context(patch.object(module, 'source_hash', side_effect=lambda p: module.WRAPPER_HASH if p.name == 'engine-release-unit-wrapper-v1.sh' else module.PHASE1_HASHES[p.name]))
+            patches.enter_context(patch.object(module, 'command', side_effect=command))
+            patches.enter_context(patch.object(module, 'own_thaw', return_value={'complete': True}))
+            # Cycle is expired, although the request deadline is still future.
+            patches.enter_context(patch.object(module.time, 'time', return_value=1793603200))
+            answer = module.announcement_evidence(request, read_only=True)
+            self.assertEqual(answer['entryHash'], module.digest((reqroot / (key + '.activation-entry')).read_bytes()))
+            self.assertEqual(len(calls), 2)
+            self.assertIn('--request-root', calls[1])
+            self.assertFalse((generation / '__pycache__').exists())
+            for field, value in [('manifestSha256', 'a' * 64), ('schema', 'engine-release-activation-floor/v2-owner-window')]:
+                (reqroot / (key + '.activation-entry')).write_text(json.dumps(entry | {field: value}))
+                with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                    module.announcement_evidence(request, read_only=True)
+                (reqroot / (key + '.activation-entry')).write_text(json.dumps(entry))
+
+    def test_phase1_final_proof_requires_immutable_receipts_quiescence_and_no_custody(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            root = Path(folder); directory = root / 'engine-release-cancellations'; directory.mkdir()
+            reqroot = root / 'engine-release-requests'; reqroot.mkdir()
+            request = self.phase1_request(); key = module.PHASE1_RUN
+            container = {'id': 'a' * 64, 'image': 'sha256:' + 'b' * 64, 'startedAt': '2026-11-02T05:54:48Z'}
+            states = [{'MainPID': '0', 'ActiveState': 'inactive'} for _ in range(3)]
+            bindings = {u: '/system.slice/' + u for u in module.cancel_units(key)[:2]}
+            retained = {'entryHash': reqroot / (key + '.activation-entry'),
+                'reservationHash': root / ('engine-recovery-window-' + key + '.json'),
+                'releasedHoldHash': reqroot / (key + '.lightning-hold.json.released')}
+            for name, path in retained.items(): path.write_text(name)
+            thaw = {'announcedAtMs': module.PHASE1_STAMP, 'freezeStartedAtMs': module.PHASE1_START,
+                'releasedThroughMs': module.PHASE1_END, 'ownershipToken': module.PHASE1_TOKEN, 'generation': 1, 'thawRecordedAtMs': 1793603023814}
+            evidence = {name: module.digest(path.read_bytes()) for name, path in retained.items()} | {'thaw': thaw}
+            intent = {'schema': module.EMPTY_CANCEL_SCHEMA, 'request': request, 'container': container,
+                'admission': 'positive-empty-auto-restart', 'originalProcess': None, 'originalChild': None,
+                'unitCgroups': bindings, 'evidence': evidence}
+            receipt = {'schema': module.EMPTY_CANCEL_SCHEMA, 'request': request, 'container': container,
+                'result': 'cancelled-expired-announcement', 'servingInstanceUnchanged': True,
+                'originalTerminalEdgesRetired': True, 'quiescent': True, 'actualUnitStates': states,
+                'unitCgroups': bindings, 'originalControlGroup': '', 'stopDisposition': 'not-needed-already-quiescent'}
+            raw_intent = json.dumps(intent)
+            records = {'intent': raw_intent, 'receipt': json.dumps(receipt),
+                'quiescent': json.dumps({'schema': module.EMPTY_CANCEL_SCHEMA, 'actualUnitStates': states}),
+                'stop-issued': json.dumps({'schema': module.EMPTY_CANCEL_SCHEMA,
+                    'intentHash': module.digest(raw_intent.encode()), 'stopDisposition': 'not-needed-already-quiescent'})}
+            for name, raw in records.items(): (directory / (key + '.' + name + '.json')).write_text(raw)
+            patches.enter_context(patch.object(module, 'ROOT', root))
+            patches.enter_context(patch.object(module.os, 'getuid', return_value=0))
+            patches.enter_context(patch.object(module, 'regular', side_effect=lambda p, mode=None: Path(p).read_text()))
+            patches.enter_context(patch.object(module, 'source_hash', side_effect=lambda p: module.WRAPPER_HASH if p.name == 'engine-release-unit-wrapper-v1.sh' else module.PHASE1_HASHES[p.name]))
+            patches.enter_context(patch.object(module, 'masked', return_value=True))
+            patches.enter_context(patch.object(module, 'own_wants_edge', side_effect=lambda unit: root / ('absent-' + unit)))
+            quiet = patches.enter_context(patch.object(module, 'quiet_units'))
+            patches.enter_context(patch.object(module, 'container_identity', return_value=container))
+            patches.enter_context(patch.object(module, 'health_pair'))
+            patches.enter_context(patch.object(module, 'own_thaw', return_value=thaw))
+            patches.enter_context(patch.object(module, 'phase1_seal_evidence', return_value={'original': True}))
+            proof = module.phase1_cancellation_proof()
+            self.assertEqual(proof['recordHashes'], {name: module.digest(raw.encode()) for name, raw in records.items()})
+            self.assertEqual(quiet.call_count, 2)
+            for suffix in ('request', 'intent', 'break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json'):
+                path = reqroot / (key + '.' + suffix); path.write_text('retained')
+                with self.subTest(suffix=suffix), self.assertRaises(ValueError): module.phase1_cancellation_proof()
+                path.unlink()
+            with patch.object(module, 'quiet_units', side_effect=ValueError('successor process')):
+                with self.assertRaises(ValueError): module.phase1_cancellation_proof()
+            with patch.object(module, 'container_identity', return_value=container | {'startedAt': '2026-11-02T07:30:00Z'}):
+                with self.assertRaises(ValueError): module.phase1_cancellation_proof()
+            receipt['stopDisposition'] = 'requested'
+            (directory / (key + '.receipt.json')).write_text(json.dumps(receipt))
+            with self.assertRaises(ValueError): module.phase1_cancellation_proof()
+
+    def test_phase1_profile_and_original_sources_are_exact(self):
+        request = self.phase1_request()
+        profile = module.cancellation_profile(request)
+        for name, expected in profile['hashes'].items():
+            raw = subprocess.check_output(['git', 'show', module.PHASE1_CONTROL + ':server/scripts/' + name], cwd=ROOT)
+            self.assertEqual(module.digest(raw), expected)
+        for field in ('runKey', 'releaseSha', 'controlSha', 'desiredSha'):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                module.cancellation_profile(request | {field: '41400905104-2' if field == 'runKey' else 'a' * 40})
+
+    def test_phase1_thaw_is_exact_historical_tuple_not_a_timestamp_tolerance(self):
+        stamp = module.PHASE1_STAMP
+        iso = lambda ms: module.datetime.datetime.fromtimestamp(ms / 1000, module.datetime.timezone.utc).isoformat()
+        row = {'contract_version': 3, 'announced_at': iso(stamp), 'freeze_started_at': iso(module.PHASE1_START),
+            'release_target_at': iso(module.PHASE1_END), 'thawed_at': iso(module.PHASE1_END - 1000),
+            'ownership_token': module.PHASE1_TOKEN, 'release_generation': 1, 'frozen_seconds': 300,
+            'shifted': dict.fromkeys(module.THAW_STEPS, 0) | {'complete': True, '_targets_snapshotted': True,
+                '_target_counts': dict.fromkeys(module.THAW_STEPS, 0)}}
+        prove = lambda value: module.prove_thaw([value], [], stamp, stamp + 500000, module.PHASE1_CONTROL)
+        self.assertEqual(prove(row)['freezeStartedAtMs'], module.PHASE1_START)
+        self.assertEqual(prove(row)['thawRecordedAtMs'], module.PHASE1_END - 1000)
+        for change in ({'freeze_started_at': iso(module.PHASE1_START + 1)},
+                {'release_target_at': iso(module.PHASE1_END + 1)}, {'ownership_token': 'a' * 36},
+                {'release_generation': 2}, {'contract_version': 2}, {'shifted': {'complete': True}}):
+            with self.subTest(change=change), self.assertRaises(ValueError): prove(row | change)
+        with self.assertRaises(ValueError): module.prove_thaw([row], [], stamp, stamp + 500000)
+
+    def test_phase1_seal_requires_original_uncommitted_cycle_and_no_transaction(self):
+        cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f', 'policyDigest': module.PHASE1_POLICY,
+            'startsAt': 1793602800, 'endsAt': 1793603100, 'runId': module.PHASE1_RUN,
+            'sha': module.PHASE1_CONTROL, 'controlSha': module.PHASE1_CONTROL, 'status': 'reserved',
+            'window': {'announcedAt': module.PHASE1_STAMP, 'startsAt': module.PHASE1_STAMP + 120000,
+                'endsAt': module.PHASE1_STAMP + 420000, 'verified': True}}
+        state = {'desired': {'sha': module.PHASE1_DESIRED}, 'pending': None, 'finalization': None,
+            'committedRuns': {}, 'routineMaintenanceCycles': {'1793602800': cycle}}
+        with patch.object(module, 'observe_seal_state', return_value=state):
+            self.assertEqual(module.phase1_seal_evidence(Path('unused')), cycle)
+        for change in ({'pending': {}}, {'finalization': {}}, {'committedRuns': {module.PHASE1_RUN: {}}},
+                {'desired': {'sha': 'a' * 40}}, {'routineMaintenanceCycles': {}}):
+            with self.subTest(change=change), patch.object(module, 'observe_seal_state', return_value=state | change), self.assertRaises(ValueError):
+                module.phase1_seal_evidence(Path('unused'))
+
     def test_e9_source_profile_is_exact_and_pinned_source_bytes_match(self):
         request = {'runKey':'41283363258-1','releaseSha':'e9f00025bd4e2670ed9d1b5714ef94135bcf0224',
                    'controlSha':'303d8cc7d38a97c3bcdc32a577b555232ad726bf','desiredSha':'c'*40,
@@ -366,6 +529,70 @@ class AnnouncedCancellation(unittest.TestCase):
                                     thaw_read.assert_called_once_with(stamp,request['controlSha'])
                                 self.assertFalse((generation/'__pycache__').exists(), 'hold-reader import changed immutable generation inventory')
                                 self.assertEqual(before,{p.name:p.read_bytes() for p in generation.iterdir()})
+
+    def test_phase1_mask_only_empty_retry_retires_once_without_signalling(self):
+        for race in [False,True]:
+            with self.subTest(race=race), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request,control,state,entry,reservation,units=self.harness(folder,patches,self.phase1_request())
+                patches.enter_context(patch.object(module,'own_thaw',return_value={'released':True, 'thawRecordedAtMs':1793603023814}))
+                patches.enter_context(patch.object(module,'phase1_seal_evidence'))
+                patches.enter_context(patch.object(module,'phase1_cancellation_proof'))
+                evidence=module.announcement_evidence(request);marker='engine-release-requests/'+request['runKey']+'.awaiting-certificate'
+                evidence['originals'].pop(marker);(state/marker).unlink();snapshot=module.unit_snapshot.side_effect
+                def retry_snapshot(unit,service_context=False):
+                    row=snapshot(unit)
+                    if unit==units[0] and not control['stopped']:
+                        row.update(MainPID='0',SubState='auto-restart',ControlGroup='')
+                        if race and any(cmd[:2]==['systemctl','daemon-reload'] for cmd in control['commands']):row.update(MainPID='22',InvocationID='e'*32,SubState='start')
+                    if service_context:row.update(Slice='system-fixture.slice',ControlPID='0')
+                    return row
+                with patch.object(module,'unit_snapshot',side_effect=retry_snapshot),patch.object(module,'empty_retry_admission'), \
+                     patch.object(module,'prove_unit_empty',side_effect=lambda unit,bindings=None:retry_snapshot(unit)), \
+                     patch.object(module,'configured_service_cgroup',side_effect=lambda unit,context:'/system.slice/'+unit):
+                    # Mask acknowledgment may be lost/race; never stop a successor.
+                    with patch.object(module.time,'monotonic',side_effect=[0,1000,2000,3000,4000,5000]), self.assertRaises(ValueError):module.cancel_announced(request)
+                    self.assertEqual(control['stopCount'],0)
+                    self.assertTrue((state/'engine-release-cancellations'/(request['runKey']+'.intent.json')).exists())
+                    control['stopped']=True
+                    answer=module.cancel_announced(request);again=module.cancel_announced(request)
+                    self.assertEqual(answer,again);self.assertEqual(answer['stopDisposition'],'not-needed-already-quiescent')
+                    self.assertTrue(answer['originalTerminalEdgesRetired']);self.assertEqual(control['stopCount'],0)
+                    self.assertTrue(entry.exists());self.assertTrue(reservation.exists())
+                    self.assertFalse(any(cmd[:2]==['systemctl','stop'] for cmd in control['commands']))
+
+    def test_phase1_live_invocation_refuses_before_mask_or_stop(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder,ExitStack() as patches:
+            request,control,state,_,_,units=self.harness(folder,patches,self.phase1_request())
+            with self.assertRaises(ValueError):module.cancel_announced(request)
+            self.assertEqual(control['stopCount'],0)
+            self.assertFalse(any((module.SYSTEMD/unit).exists() for unit in units))
+
+    def test_phase1_runtime_birth_refuses_inside_window_or_unknown_before_mask(self):
+        for stamp in ('2026-11-02T06:58:02.415Z', '2026-11-02T07:02:00Z',
+                      '2026-11-02T07:05:02.415Z', '2099-01-01T00:00:00Z',
+                      '2026-11-02T07:21:51.848', 'unknown'):
+            with self.subTest(stamp=stamp), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request,control,state,_,_,units=self.harness(folder,patches,self.phase1_request())
+                control['container']['startedAt'] = stamp
+                with self.assertRaises(ValueError): module.cancel_announced(request)
+                self.assertEqual(control['stopCount'], 0)
+                self.assertFalse(any((module.SYSTEMD/unit).exists() for unit in units))
+                self.assertFalse((state/'engine-release-cancellations'/(request['runKey']+'.intent.json')).exists())
+
+    def test_phase1_unproved_empty_admission_cannot_create_masks_or_issue_stop(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder,ExitStack() as patches:
+            request,control,state,_,_,units=self.harness(folder,patches,self.phase1_request())
+            snapshot=module.unit_snapshot.side_effect
+            def empty_snapshot(unit,service_context=False):
+                row=snapshot(unit)
+                if unit==units[0]:row.update(MainPID='0',SubState='auto-restart')
+                return row
+            with patch.object(module,'unit_snapshot',side_effect=empty_snapshot), \
+                 patch.object(module,'empty_retry_admission',side_effect=ValueError('native evidence unavailable')):
+                with self.assertRaises(ValueError):module.cancel_announced(request)
+            self.assertEqual(control['stopCount'],0)
+            self.assertFalse(any((module.SYSTEMD/unit).exists() for unit in units))
+            self.assertFalse((state/'engine-release-cancellations'/(request['runKey']+'.intent.json')).exists())
 
     def test_e9_mask_only_empty_retry_retires_once_without_signalling(self):
         for race in [False,True]:
@@ -541,9 +768,9 @@ class AnnouncedCancellation(unittest.TestCase):
         reservation = state / ('engine-recovery-window-' + key + '.json'); reservation.write_text('original')
         released = state / 'engine-release-requests' / (key + '.lightning-hold.json.released'); released.write_text('released')
         evidence = {'releasedHoldHash': module.digest(released.read_bytes()), 'originals': originals, 'entryHash': module.digest(entry.read_bytes()),
-                    'reservationHash': module.digest(reservation.read_bytes()), 'thaw': {'released': True}}
+                    'reservationHash': module.digest(reservation.read_bytes()), 'thaw': {'released': True, **({'thawRecordedAtMs': 1793603023814} if key == module.PHASE1_RUN else {})}}
         control = {'stopped': False, 'stopCount': 0, 'unknownStop': False, 'cgroupEmpty': True,
-                   'evidenceFails': False, 'commands': [], 'container': {'id': 'a' * 64, 'image': 'sha256:' + 'b' * 64, 'startedAt': 'original'}}
+                   'evidenceFails': False, 'commands': [], 'container': {'id': 'a' * 64, 'image': 'sha256:' + 'b' * 64, 'startedAt': '2026-11-02T07:21:51.848Z' if key == module.PHASE1_RUN else 'original'}}
         def command(args, timeout=5):
             control['commands'].append(args)
             if args[:3] == ['systemctl', 'stop', '--no-block']:

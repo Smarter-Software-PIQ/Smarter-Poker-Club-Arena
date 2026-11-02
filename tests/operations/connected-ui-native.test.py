@@ -291,6 +291,16 @@ class BootstrapReadBoundary(unittest.TestCase):
 
 
 class CompositionFailureDiagnostics(unittest.TestCase):
+    def test_source_bound_application_policy_failures_survive_the_closed_boundary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'diagnostic.json'
+            for site in ['APPLICATION_POLICY','APPLICATION_POLICY_IN_NATIVE']:
+                valid={'version':1,'scope':'exact-service-composition-failure','phase':'compose','site':site}
+                path.write_text(json.dumps(valid));path.chmod(0o600)
+                self.assertEqual(MODULE.composition_failure(path),valid)
+                path.write_text(json.dumps({**valid,'phase':'input-read'}))
+                self.assertEqual(MODULE.composition_failure(path)['site'],'UNKNOWN')
+
     def test_decoder_refuses_unknown_shape_codes_phase_metadata_and_private_bytes(self):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'diagnostic.json'

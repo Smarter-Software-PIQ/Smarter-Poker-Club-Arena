@@ -102,6 +102,12 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   bash "$repo/scripts/ci/test-member-jackpot-win-loss.sh"
 
+# Rabbit hunt availability describes only the caller's own hands, and a charge
+# correction is bound to its receipts, audited and applied at most once.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  bash "$repo/scripts/ci/test-rabbit-hunt-authority.sh"
+
 # Player Hub reads the entire persisted tournament or cash sitting.
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   RUNNER_TEMP="$DATA_CONSOLE_PG_SCRATCH_PARENT" \

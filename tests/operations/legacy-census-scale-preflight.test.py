@@ -42,16 +42,105 @@ class Response(io.BytesIO):
 
 
 class ScaleBoundary(unittest.TestCase):
+    def test_acknowledged_create_survives_start_and_inspect_timeout(self):
+        cid = 'a'*64
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)/'output'
+            def create(args, **kwargs):
+                self.assertEqual(args[:2], ['docker','create'])
+                return subprocess.CompletedProcess(args,0,cid+'\n','')
+            def start(args, **kwargs):
+                self.assertEqual(args, ['docker','start','--attach',cid])
+                created = json.loads(output.with_name('output.created').read_text())
+                self.assertEqual(created, {'attempt':1,'container':'own','containerId':cid,
+                    'image':'sha256:'+'b'*64,'key':'k'*64})
+                self.assertEqual(output.with_name('output.created').stat().st_mode & 0o777,0o600)
+                raise subprocess.TimeoutExpired(args,kwargs['timeout'])
+            with patch.object(m,'command',side_effect=create), patch.object(m,'capture_fixture',side_effect=start), patch.object(m,'cleanup',side_effect=subprocess.TimeoutExpired(['docker','inspect'],3)):
+                record=m.measure(1,'own','k'*64,'sha256:'+'b'*64,'f'*64,output,1)
+            self.assertTrue(record['creationAcknowledged'])
+            self.assertFalse(record['executionAcknowledged'])
+            self.assertFalse(record['cleanupProved'])
+            self.assertEqual(m.fresh_remeasurement(record),'available')
+
+    def test_unknown_or_malformed_creation_never_starts_or_earns_a_repeat(self):
+        for answer in [subprocess.TimeoutExpired(['docker','create'],35),
+                       subprocess.CompletedProcess([],0,'not-a-container',''),
+                       subprocess.CompletedProcess([],1,'','daemon refused')]:
+            with self.subTest(answer=answer), tempfile.TemporaryDirectory() as folder:
+                output=Path(folder)/'out'
+                with patch.object(m,'command',side_effect=[answer]), patch.object(m,'capture_fixture') as start, patch.object(m,'cleanup',return_value=False):
+                    record=m.measure(1,'own','k'*64,'sha256:'+'a'*64,'f'*64,output,1)
+                start.assert_not_called()
+                self.assertFalse(record['creationAcknowledged'])
+                self.assertFalse(record['cleanupProved'])
+                self.assertEqual(m.fresh_remeasurement(record),'none')
+                self.assertFalse(output.with_name('out.created').exists())
+
+    def test_creation_receipt_must_be_durable_before_start(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/'out'
+            with patch.object(m,'command',return_value=subprocess.CompletedProcess([],0,'a'*64,'a')), patch.object(m,'write_state',side_effect=OSError('fsync refused')), patch.object(m,'capture_fixture') as start, patch.object(m,'cleanup',return_value=True):
+                record=m.measure(1,'own','k'*64,'sha256:'+'a'*64,'f'*64,output,1)
+            start.assert_not_called()
+            self.assertIn('fsync refused',record['error'])
+            self.assertEqual(m.fresh_remeasurement(record),'none')
+
+    def test_recovered_creation_is_exact_and_cleanup_never_follows_a_reused_name(self):
+        value={'attempt':1,'container':'own','containerId':'a'*64,'image':'sha256:'+'b'*64,'key':'k'*64}
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'out.created'
+            # Exercise actual exclusive/fsynced output, then root custody in
+            # isolation on this non-root development host.
+            m.write_state(path,value,exclusive=True)
+            with patch.object(m,'read_state',return_value=value):
+                self.assertEqual(m.creation_identity(path,1,'own','k'*64,'sha256:'+'b'*64),
+                    {'expected_id':'a'*64,'image':'sha256:'+'b'*64})
+            for field,bad in [('attempt',True),('attempt',2),('container','other'),('containerId','bad'),('image','sha256:'+'c'*64),('key','x'*64)]:
+                forged={**value,field:bad}
+                with self.subTest(field=field,bad=bad), patch.object(m,'read_state',return_value=forged), self.assertRaisesRegex(RuntimeError,'receipt binding'):
+                    m.creation_identity(path,1,'own','k'*64,'sha256:'+'b'*64)
+        for cid,image,key in [('c'*64,'sha256:'+'b'*64,'k'*64),('a'*64,'sha256:'+'c'*64,'k'*64),('a'*64,'sha256:'+'b'*64,'wrong')]:
+            response=subprocess.CompletedProcess([],0,' '.join(map(json.dumps,[cid,key,image])),'')
+            with self.subTest(cid=cid,image=image,key=key), patch.object(m,'command',return_value=response) as cmd, self.assertRaises(RuntimeError):
+                m.cleanup('own','k'*64,time.monotonic()+5,kill=True,expected_id='a'*64,image='sha256:'+'b'*64)
+            self.assertEqual(cmd.call_count,1)
+            self.assertEqual(cmd.call_args.args[0][-1],'a'*64)
+
+    def test_immutable_id_absence_uses_daemon_id_filter(self):
+        unknown=subprocess.CompletedProcess([],1,'','unexpected inspect wording')
+        listed=subprocess.CompletedProcess([],0,'a'*64+'\n','')
+        with patch.object(m,'command',side_effect=[unknown,listed]) as cmd, self.assertRaisesRegex(RuntimeError,'unknown'):
+            m.inspect_own('a'*64,'k'*64,1,expected_id='a'*64,image='sha256:'+'b'*64)
+        self.assertIn('id='+'a'*64,cmd.call_args_list[1].args[0])
+        self.assertFalse(any(item.startswith('name=') for item in cmd.call_args_list[1].args[0]))
+
+    def test_create_and_attach_share_one_original_client_budget(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/'out'
+            clock={'now':100.0}
+            def create(args,**kwargs):
+                self.assertEqual(kwargs['timeout'],35)
+                clock['now']+=7
+                return subprocess.CompletedProcess(args,0,'a'*64,'')
+            def start(args,**kwargs):
+                self.assertEqual(kwargs['timeout'],28)
+                raise subprocess.TimeoutExpired(args,28)
+            with patch.object(m.time,'monotonic',side_effect=lambda:clock['now']), patch.object(m,'command',side_effect=create), patch.object(m,'capture_fixture',side_effect=start), patch.object(m,'cleanup',return_value=True):
+                record=m.measure(1,'own','k'*64,'sha256:'+'b'*64,'f'*64,output,1)
+            self.assertTrue(record['timedOut'])
+            self.assertTrue(record['cleanupProved'])
+
     def test_actual_child_json_stdout_and_inspector_stderr_are_separate(self):
         real_popen = subprocess.Popen
         payload = json.dumps(valid_result())
         child = 'import sys;sys.stderr.write("Debugger listening on ws://127.0.0.1:1/redacted\\nFor help, see: https://nodejs.org/en/docs/inspector\\n");sys.stderr.flush();sys.stdout.write(' + repr(payload) + ')'
         def process(args, **kwargs):
-            self.assertEqual(args[:2], ['docker', 'run'])
+            self.assertEqual(args, ['docker','start','--attach','a'*64])
             return real_popen([sys.executable, '-c', child], **kwargs)
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder) / 'output'
-            with patch.object(m.subprocess, 'Popen', side_effect=process), patch.object(m, 'cleanup', return_value=True):
+            with patch.object(m,'command',return_value=subprocess.CompletedProcess([],0,'a'*64+'\n','')), patch.object(m.subprocess, 'Popen', side_effect=process), patch.object(m, 'cleanup', return_value=True):
                 record = m.measure(1, 'own', 'k'*64, 'sha256:'+'a'*64, 'f'*64, output, 1)
             self.assertIsNone(record['error'], record['error'])
             self.assertEqual(json.loads(output.read_text()), valid_result())
@@ -249,7 +338,7 @@ class ScaleBoundary(unittest.TestCase):
                     self.fail('signal did not refuse')
                 previous = signal.signal(signum, m.refuse_signal)
                 try:
-                    with patch.object(m,'STATE',state), patch.object(m.os,'geteuid',return_value=0), patch.object(m.sys,'platform','linux'), patch.object(m,'serving',return_value=identity), patch.object(m,'candidate_identity',return_value={}), patch.object(m,'secure_directory'), patch.object(m.os,'fstat',return_value=type('S',(),{'st_mode':0o100600,'st_uid':0})()), patch.object(m.Path,'read_text',read), patch.object(m,'capture_fixture',side_effect=interrupt), patch.object(m,'cleanup',return_value=observed) as cleanup:
+                    with patch.object(m,'STATE',state), patch.object(m.os,'geteuid',return_value=0), patch.object(m.sys,'platform','linux'), patch.object(m,'serving',return_value=identity), patch.object(m,'candidate_identity',return_value={}), patch.object(m,'secure_directory'), patch.object(m.os,'fstat',return_value=type('S',(),{'st_mode':0o100600,'st_uid':0})()), patch.object(m.Path,'read_text',read), patch.object(m,'command',side_effect=interrupt), patch.object(m,'cleanup',return_value=observed) as cleanup:
                         with self.assertRaisesRegex(RuntimeError,'interrupted by signal'):
                             m.main('sha256:'+'a'*64,'42-1',str(int(time.time())+600))
                         cleanup.assert_called_once()
@@ -323,6 +412,12 @@ class ScaleBoundary(unittest.TestCase):
     def run_measure(self, run, commands):
         with tempfile.TemporaryDirectory(prefix='native-scale-measure-') as directory:
             output = Path(directory)/'out'
+            # A separate create acknowledgement precedes start/attach. The
+            # cleanup must inspect the immutable ID and exact image as well.
+            commands = [subprocess.CompletedProcess([],0,'a'*64+'\n','')] + [
+                subprocess.CompletedProcess(item.args,item.returncode,
+                    item.stdout+' '+json.dumps('sha256:'+'a'*64) if item.returncode==0 and item.stdout.startswith('"'+'a'*64) else item.stdout,
+                    item.stderr) for item in commands]
             with patch.object(m,'capture_fixture',side_effect=run) as docker, patch.object(m,'command',side_effect=commands) as cmd:
                 record = m.measure(1,'own','k'*64,'sha256:'+'a'*64,'f'*64,output,1)
             return record, docker, cmd
@@ -332,13 +427,14 @@ class ScaleBoundary(unittest.TestCase):
         def slow(args, **kwargs):
             raise subprocess.TimeoutExpired(args, kwargs['timeout'])
         record, docker, cmd = self.run_measure(slow, self.own_commands(True))
-        args, kwargs = docker.call_args.args[0], docker.call_args.kwargs
+        args, kwargs = cmd.call_args_list[0].args[0], docker.call_args.kwargs
+        self.assertEqual(docker.call_args.args[0], ['docker','start','--attach','a'*64])
         # The fixture's own deadline is 2 s inside the 35 s client deadline.
         self.assertAlmostEqual(int(args[-3])/1000 - started, 33, delta=1)
         self.assertEqual(args[-2:], [m.digest((m.ROOT/'legacy-engine-checkpoint.mjs').read_bytes()),
                                     m.digest((m.ROOT/'legacy-census-scale-composition.mjs').read_bytes())])
         self.assertAlmostEqual(kwargs['timeout'], 35, delta=1)
-        self.assertEqual([call.args[0][1] for call in cmd.call_args_list], ['inspect','kill','rm','inspect'])
+        self.assertEqual([call.args[0][1] for call in cmd.call_args_list], ['create','inspect','kill','rm','inspect'])
         self.assertIs(record['timedOut'], True)
         self.assertIs(record['cleanupProved'], True)
         self.assertIs(record['executionAcknowledged'], False)
@@ -350,7 +446,7 @@ class ScaleBoundary(unittest.TestCase):
             kwargs['stdout'].write(b'Error: fixed allocation exceeded disposable fixture deadline\n')
             return subprocess.CompletedProcess(args, 1)
         record, _, cmd = self.run_measure(deadline, self.own_commands(False))
-        self.assertEqual([call.args[0][1] for call in cmd.call_args_list], ['inspect','rm','inspect'])
+        self.assertEqual([call.args[0][1] for call in cmd.call_args_list], ['create','inspect','rm','inspect'])
         self.assertIs(record['timedOut'], True)
         self.assertIn('refused at its own deadline', record['error'])
         self.assertEqual(m.fresh_remeasurement(record), 'available')
@@ -363,13 +459,14 @@ class ScaleBoundary(unittest.TestCase):
             with self.subTest(output=output):
                 self.assertIs(record['timedOut'], False)
                 self.assertEqual(m.fresh_remeasurement(record), 'none')
-        # A timeout whose cleanup is unknown never earns a re-measurement.
+        # Known creation remains eligible, but cleanup must be proved before
+        # a fresh measurement may actually begin.
         def slow(args, **kwargs):
             raise subprocess.TimeoutExpired(args, kwargs['timeout'])
         unknown = subprocess.CompletedProcess([],1,'','daemon unavailable')
         record, _, _ = self.run_measure(slow, [unknown, unknown])
         self.assertIs(record['cleanupProved'], False)
-        self.assertEqual(m.fresh_remeasurement(record), 'none')
+        self.assertEqual(m.fresh_remeasurement(record), 'available')
 
     def gate(self, state, deadline_s=600):
         identity = {'revision':next(iter(m.LEGACY))}
@@ -476,6 +573,26 @@ class ScaleBoundary(unittest.TestCase):
             self.assertIn('refused for good', error)
             measure.assert_not_called()
             self.assertTrue(clean.call_args.args[0].endswith('-2'))
+
+    def test_later_cleanup_recovers_created_id_before_the_one_fresh_measurement(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state=Path(folder)
+            def measurements(attempt,name,key,image,fixture_sha,output,available):
+                if attempt==1:
+                    m.write_state(output.with_name(output.name+'.created'),
+                        {'attempt':1,'container':name,'containerId':'a'*64,'image':image,'key':key},exclusive=True)
+                    record=self.record(1,timed_out=True,cleanup=False,observed=False)
+                    record.update(creationAcknowledged=True,containerId='a'*64)
+                    return record
+                return self.record(2,qualified=True)
+            error,receipt,measure,clean,_=self.main_with(state,measurements)
+            self.assertIsNone(error)
+            self.assertEqual(measure.call_count,2)
+            self.assertEqual(clean.call_args.kwargs,{'expected_id':'a'*64,'image':'sha256:'+'a'*64})
+            self.assertTrue(receipt['attempts'][0]['cleanupProved'])
+            error,_,measure,_,_=self.main_with(state,[])
+            self.assertIsNone(error)
+            measure.assert_not_called()
 
     def test_unproved_first_cleanup_is_proved_before_the_fresh_measurement(self):
         with tempfile.TemporaryDirectory(prefix='native-scale-later-') as directory:

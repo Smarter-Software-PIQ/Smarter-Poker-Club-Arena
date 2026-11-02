@@ -7,6 +7,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
+const READER = readFileSync(
+  'supabase/migrations/20261102083808_union_treasury_log_shows_only_closed_history.sql',
+  'utf8'
+);
 const MIG = readFileSync(
   'supabase/migrations/20261102063939_union_treasury_transaction_logs.sql',
   'utf8'
@@ -55,5 +59,25 @@ describe('union treasury transaction log', () => {
 
   it('names the timezone the day closes in', () => {
     expect(MIG).toContain("AT TIME ZONE 'America/Chicago'");
+  });
+
+  it('never lists or totals a day before every hour of it has closed (verified 2026-11-02)', () => {
+    // A daily row waits for the day's last hour; nothing older than the newest
+    // gap-free run of closed hours is listed or summed while history fills.
+    expect(READER).toContain('<= v_closed_until)');
+    expect(READER).toContain('AND t.occurred_at >= v_from_ts');
+    expect(READER).toContain("'filling',        v_cover_start > v_floor");
+    expect(LOG).toContain('Earlier History Is Still Filling In.');
+  });
+
+  it('exports the whole filtered log, not just the rows on screen', () => {
+    expect(READER).toContain('least(greatest(coalesce(p_limit, 50), 1), 5000)');
+    expect(LOG).toMatch(/for \(;;\) \{[\s\S]*?p_limit: EXPORT_PAGE[\s\S]*?if \(!res\.has_more/);
+  });
+
+  it('names the Spins row balance for what it is: the spin pool, not the treasury', () => {
+    expect(LOG).toContain(
+      "wallet === 'spins_treasury' ? 'Spin Pool Balance After' : 'Balance After'"
+    );
   });
 });
