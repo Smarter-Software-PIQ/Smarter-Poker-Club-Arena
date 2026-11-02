@@ -1,3 +1,4 @@
+import { tournamentEntryDescription } from '../../utils/tournamentPrizeFunding';
 import {
   markTournamentEntered,
   tournamentSeatNavigationOptions,
@@ -1892,8 +1893,10 @@ export default function TournamentDetails({
     );
   }
 
-  const shortDescription = (tournament as unknown as { short_description?: string | null })
-    .short_description;
+  const shortDescription = tournamentEntryDescription(
+    tournament,
+    tournamentRowUnitCents(tabProps.tournament)
+  );
 
   /* What state the event is in, in the words the footer already uses for it.
      One reading of `status`, so the pill in the header and the badge in the

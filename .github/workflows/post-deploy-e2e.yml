@@ -989,6 +989,29 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/ci/production-e2e-account.mjs create
 
+      - name: Verify the reported bounty guarantee and charged entry breakdown
+        id: bounty_guarantee
+        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success'
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/bounty-guarantee.json
+        run: npx playwright test tests/e2e/production-bounty-guarantee.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
+
+      - name: Retain bounty guarantee browser evidence
+        if: always() && steps.bounty_guarantee.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-deploy-bounty-guarantee
+          path: |
+            e2e-report/bounty-guarantee.json
+            e2e-report/bounty-guarantee.png
+            test-results/production-bounty-guarantee-*/
+          if-no-files-found: error
+          retention-days: 7
+
       # The Player Command route is intentionally staff-only. Give the brand
       # new reserved identity a zero-balance admin membership before any
       # browser starts. The helper refuses existing memberships and non-test

@@ -165,6 +165,28 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    const bountyStep = {
+      name: 'Tournament guarantees include funded bounties',
+      if: 'matrix.shard == 1',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+      run: 'python3 -B scripts/ci/test-bounty-guarantee-postgres.py',
+    };
+    const bountySteps = normalized.jobs.accounting_postgres.steps;
+    const bountyIndex = bountySteps.findIndex(
+      (step: { name: string }) => step.name === bountyStep.name
+    );
+    expect(
+      bountySteps.filter((step: { name: string }) => step.name === bountyStep.name)
+    ).toHaveLength(1);
+    expect(bountySteps[bountyIndex]).toStrictEqual(bountyStep);
+    expect(bountySteps[bountyIndex - 1]?.name).toBe(
+      'MTT lobby entries count committed registrations and rebuys'
+    );
+    expect(bountySteps[bountyIndex + 1]?.name).toBe(
+      'Cash top-up retries read their original receipt'
+    );
+    // Enforce the exact added native gate before checking every prior workflow fingerprint.
+    bountySteps.splice(bountyIndex, 1);
     const entriesStep = {
       name: 'MTT lobby entries count committed registrations and rebuys',
       if: 'matrix.shard == 4',
