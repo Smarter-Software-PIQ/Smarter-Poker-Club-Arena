@@ -191,6 +191,98 @@ class DatabaseReservation(unittest.TestCase):
         with self.assertRaises(SystemExit):self.reserve()
 
 
+class DatabasePairReservation(unittest.TestCase):
+    setUp = DatabaseReservation.setUp
+    tearDown = DatabaseReservation.tearDown
+    restore_environment = DatabaseReservation.restore_environment
+    git = DatabaseReservation.git
+    publish_window = DatabaseReservation.publish_window
+
+    def prepare_pair(self):
+        # Import only the actual protected anchor commit object, not its tree.
+        # The disposable serving/control commits genuinely descend from it.
+        anchor = seal.ATTENTION14_DATABASE_PAIR_ANCHOR
+        raw = subprocess.check_output(['git', '-C', str(ROOT), 'cat-file', 'commit', anchor])
+        imported = subprocess.check_output(['git', '-C', str(self.repo), 'hash-object', '-w', '-t',
+            'commit', '--stdin'], input=raw).decode().strip()
+        self.assertEqual(imported, anchor)
+        # Older ancestors are irrelevant; this disposable graph ends at the real anchor.
+        (self.repo/'.git/shallow').write_text(anchor+'\n')
+        tree = self.git('rev-parse', 'HEAD^{tree}').strip()
+        self.serving = subprocess.check_output(['git', '-C', str(self.repo), 'commit-tree', tree,
+            '-p', anchor], input=b'disposable serving descendant\n').decode().strip()
+        self.git('update-ref', 'refs/heads/main', self.serving)
+        self.state['desired']['sha'] = self.serving
+        self.state['highWaterSha'] = self.serving
+        seal.write_state(self.state); self.before = seal.STATE_FILE.read_bytes()
+        self.window.update(id=seal.ATTENTION14_DATABASE_PAIR_ID, contains=anchor,
+            notBefore='2026-11-01T23:25:00Z', notAfter='2026-11-02T02:25:00Z',
+            migrations=[f for f, _ in seal.ATTENTION14_DATABASE_PAIR])
+        for file, expected in seal.ATTENTION14_DATABASE_PAIR:
+            data = (ROOT/'supabase/migrations'/file).read_bytes()
+            self.assertEqual(hashlib.sha256(data).hexdigest(), expected)
+            (self.repo/'supabase/migrations'/file).write_bytes(data)
+        self.publish_window()
+
+    def reserve_pair(self, at='2026-11-01T23:30:00+00:00'):
+        from unittest.mock import patch
+        stamp = datetime.fromisoformat(at).timestamp()
+        request = {'runId':'100-1', 'controlSha':self.control, 'servingSha':self.serving,
+            'windowId':self.window['id']}
+        with patch.object(seal.time, 'time', return_value=stamp):
+            return seal.reserve_database_window(request, str(self.repo))
+
+    def assert_no_pair_reservation(self):
+        self.assertFalse((seal.STATE_DIR/'engine-recovery-window-100-1.json').exists())
+        self.assertEqual(seal.STATE_FILE.read_bytes(), self.before)
+        self.assertFalse(seal.AUDIT_FILE.exists())
+
+    def test_exact_pair_has_ordered_typed_replay_binding(self):
+        self.prepare_pair(); first = self.reserve_pair(); second = self.reserve_pair()
+        self.assertEqual(first, second)
+        self.assertEqual(first['type'], 'database-maintenance-pair/v1')
+        self.assertEqual(first['migrations'], [{'migration':f, 'migrationSHA256':h}
+            for f, h in seal.ATTENTION14_DATABASE_PAIR])
+        self.assertNotIn('migration', first)
+        self.assertEqual(first['endsAt']-first['announcedAt'], 420000)
+        self.assertEqual(seal.STATE_FILE.read_bytes(), self.before)
+        self.assertEqual(len(seal.AUDIT_FILE.read_text().splitlines()), 1)
+
+    def test_wrong_pair_authority_refuses_before_journal(self):
+        self.prepare_pair(); original = copy.deepcopy(self.window)
+        for key, value in [('id','unknown-pair'), ('contains',self.serving),
+                ('notAfter','2026-11-02T02:26:00Z'),
+                ('migrations',list(reversed(original['migrations']))),
+                ('migrations',original['migrations']+[original['migrations'][0]]),
+                ('migrations',[original['migrations'][0]]),
+                ('migrations',[original['migrations'][0]]*2)]:
+            with self.subTest(key=key,value=value):
+                self.window=copy.deepcopy(original);self.window[key]=value;self.publish_window()
+                with self.assertRaises(SystemExit):self.reserve_pair()
+                self.assert_no_pair_reservation()
+
+    def test_pair_hash_change_refuses_before_journal(self):
+        self.prepare_pair()
+        for file, _ in seal.ATTENTION14_DATABASE_PAIR:
+            p=self.repo/'supabase/migrations'/file; data=p.read_bytes();p.write_bytes(data+b'-- altered\n')
+            self.publish_window()
+            with self.assertRaises(SystemExit):self.reserve_pair()
+            self.assert_no_pair_reservation();p.write_bytes(data)
+
+    def test_pair_must_fit_fixed_expiry_and_keeps_original_unknown(self):
+        self.prepare_pair()
+        for at in ['2026-11-01T23:24:59+00:00','2026-11-02T02:18:01+00:00',
+                '2026-11-02T02:25:00+00:00']:
+            with self.subTest(at=at):
+                with self.assertRaises(SystemExit):self.reserve_pair(at)
+                self.assert_no_pair_reservation()
+        first=self.reserve_pair()
+        path=seal.STATE_DIR/'engine-recovery-window-100-1.json'
+        altered=copy.deepcopy(first);altered['migrations'].reverse();seal.write_json_atomic(path,altered)
+        with self.assertRaises(SystemExit):self.reserve_pair()
+        self.assertEqual(json.loads(path.read_text()),altered)
+
+
 CONTROLLER_SPEC = importlib.util.spec_from_file_location('db_controller', ROOT/'scripts/ci/database-maintenance-window.py')
 controller = importlib.util.module_from_spec(CONTROLLER_SPEC)
 CONTROLLER_SPEC.loader.exec_module(controller)
@@ -366,6 +458,60 @@ class ControllerLifecycle(unittest.TestCase):
         p=seal.STATE_DIR/'engine-release-requests';p.mkdir();(p/'200-1.awaiting-certificate').write_text('owned')
         with self.assertRaises(ValueError):controller.remote()
         self.assertFalse((seal.STATE_DIR/'engine-recovery-window-100-1.json').exists())
+
+
+class PairControllerLifecycle(unittest.TestCase):
+    setUp = ControllerLifecycle.setUp
+    tearDown = ControllerLifecycle.tearDown
+    git = DatabaseReservation.git
+    publish_window = DatabaseReservation.publish_window
+    request = DatabaseReservation.request
+    prepare_pair = DatabasePairReservation.prepare_pair
+
+    def test_pair_reservation_through_same_instance_own_thaw(self):
+        from unittest.mock import patch
+        import io, time
+        self.prepare_pair()
+        # The Docker transport fixture must describe the new disposable serving descendant.
+        (self.root/'bin/docker').write_text('#!/usr/bin/env python3\nimport json\nprint(json.dumps('+
+            repr({'running':True,**self.state['desired']})+'))\n')
+        fixed = datetime.fromisoformat('2026-11-01T23:30:00+00:00').timestamp()
+        self.clock.now = fixed
+        request = {'runId':'100-1','controlSha':self.control,'servingSha':self.serving,
+            'windowId':seal.ATTENTION14_DATABASE_PAIR_ID}
+        controller.sys.stdin = io.StringIO(json.dumps(request)+'\n'+
+            json.dumps({'runId':'100-1','installer':'passed'})+'\n')
+        with patch.object(time,'time',return_value=fixed):
+            controller.remote()
+        self.assertEqual([m['phase'] for m in self.messages],['reserved','install','terminal'])
+        receipt=self.messages[-1]['receipt']
+        self.assertEqual(receipt['result'],'completed')
+        self.assertTrue(receipt['thawed'])
+        self.assertEqual(receipt['type'],'database-maintenance-pair/v1')
+        self.assertEqual(receipt['migrations'],[{'migration':f,'migrationSHA256':h}
+            for f,h in seal.ATTENTION14_DATABASE_PAIR])
+        self.assertEqual(receipt['servingSha'],self.serving)
+        self.assertEqual(sum(a[0]=='docker' for a in self.sent),1)
+        self.assertEqual(seal.STATE_FILE.read_bytes(),self.before)
+
+
+class PairTerminalBinding(unittest.TestCase):
+    def test_protected_local_pair_and_exact_terminal(self):
+        old=os.getcwd()
+        try:
+            os.chdir(ROOT)
+            expected=controller.expected_pair_binding('2026-11-01-attention14-two-sql-database-operation')
+            controller.validate_pair_terminal(copy.deepcopy(expected),expected)
+            for mutate in [lambda r:r['migrations'].reverse(),
+                    lambda r:r['migrations'].pop(),
+                    lambda r:r['migrations'][1].update(migrationSHA256='0'*64),
+                    lambda r:r.update(type='database-maintenance/v1'),
+                    lambda r:r.update(migration='ambiguous')]:
+                receipt=copy.deepcopy(expected);mutate(receipt)
+                with self.assertRaises(ValueError):controller.validate_pair_terminal(receipt,expected)
+            self.assertIsNone(controller.expected_pair_binding('native-db'))
+            controller.validate_pair_terminal({},None)
+        finally:os.chdir(old)
 
 
 class RunnerPreflight(unittest.TestCase):
