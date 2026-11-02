@@ -37,3 +37,10 @@ test('cache metadata is exact before any native filesystem read',()=>{
  for(const bad of [undefined,null,true,'1048576',0,1048575,1048577])
   assert.throws(()=>loadLegacyNativeCensus({...descriptor,prototypeCacheBytes:bad}),/artifact identity refused/);
 });
+test('control driver passes custodyIntent.nativeCensus.prototypeCacheBytes to native memory admission when nativeArtifact is a CDP RemoteObject handle',()=>{
+ assert.match(
+  js,
+  /legacyNativeCensusMemoryAdmission\(\s*memory\.value,\s*custodyIntent\.nativeCensus\.prototypeCacheBytes\s*\)/
+ );
+ assert.equal(js.includes('nativeArtifact.prototypeCacheBytes'),false);
+});
