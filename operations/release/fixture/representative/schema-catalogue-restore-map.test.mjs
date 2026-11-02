@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { buildCatalogueRestorePlan } from '../schema-catalogue-restore-map.mjs';
+import { buildCatalogueRestorePlan, CONSTRAINT_RESTORE_RULES } from '../schema-catalogue-restore-map.mjs';
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 const column = (schema, table, name, ordinal) =>
   [schema, table, name, 'integer', 'pg_catalog', 'int4', true, null, ordinal, -1, 'b', null];
@@ -38,7 +38,7 @@ function mapped(body) {
 test('fixed original-bound map compacts public only, preserves Auth, all metadata and input bytes', async () => {
   const body = original(); const input = payload(body); const before = structuredClone(input);
   const plan = await buildCatalogueRestorePlan(dbFor(mapped(body), (q) => {
-    assert.deepEqual(q.values, [input.catalogue_text]); assert.equal(q.query_timeout, 5000);
+    assert.deepEqual(q.values, [input.catalogue_text, '[]']); assert.equal(q.query_timeout, 5000);
     assert.match(q.text, /\$1::text::jsonb/); assert.match(q.text, /WITH ORDINALITY/);
     assert.match(q.text, /row_number\(\) OVER/); assert.match(q.text, /item->>0 = 'public'/);
     assert.match(q.text, /jsonb_set\(item, '\{8\}'/); assert.match(q.text, /ORDER BY position/);
@@ -108,4 +108,42 @@ test('provider and literal-bearing validation errors expose only fixed refusal t
       assert.equal(error.cause, undefined); return true;
     });
   }
+});
+
+
+test('four exact original-bound varchar array coercions map only their independently specified target definitions', async () => {
+  const b = original();
+  b.constraints = CONSTRAINT_RESTORE_RULES.map(r => [r.schema,r.relation,r.name,r.original,true]);
+  const before = payload(b); const expected = mapped(b);
+  for (const [i,r] of CONSTRAINT_RESTORE_RULES.entries()) expected.constraints[i][3] = r.restored;
+  const plan = await buildCatalogueRestorePlan(dbFor(expected), before);
+  assert.equal(plan.mapping.version,2);
+  assert.equal(plan.mapping.constraint_changed_rows_count,4);
+  assert.equal(plan.mapping.constraints_count,4);
+  assert.equal(plan.mapping.original_digest,before.catalogue_digest);
+  assert.equal(plan.mapping.constraint_changed_rows_digest,sha(JSON.stringify(plan.mapping.constraint_changed_rows)));
+  assert.ok(!JSON.stringify(plan.mapping.public_receipt).includes('CHECK'));
+  assert.ok(!JSON.stringify(plan.mapping.public_receipt).includes('crew_members'));
+  for (const r of CONSTRAINT_RESTORE_RULES) {
+    const canonical = original(); canonical.constraints = [[r.schema,r.relation,r.name,r.restored,false]];
+    const unchanged = await buildCatalogueRestorePlan(dbFor(mapped(canonical)),payload(canonical));
+    assert.equal(unchanged.mapping.constraint_changed_rows_count,0);
+    assert.equal(JSON.parse(unchanged.expected_catalogue_text).constraints[0][4],false);
+  }
+});
+
+test('known constraint near-match identity, literal, type, order and operator drift refuses before SQL', async () => {
+  for (const r of CONSTRAINT_RESTORE_RULES) for (const change of [
+    row => {row[0]='auth';}, row => {row[1]+='_other';}, row => {row[2]+='_other';},
+    row => {row[3]=row[3].replace('character varying','text');},
+    row => {row[3]=row[3].replace(' = ANY',' <> ALL');},
+    row => {row[3]=row[3].replace("'", "'changed");},
+    row => {row[3]=row[3].replace('::text =','::varchar =');},
+    row => {const values=/ARRAY\[(.*)\]::text\[\]/.exec(row[3])[1];row[3]=row[3].replace(values,values.split(', ').reverse().join(', '));},
+  ]) {
+    const b=original();const row=[r.schema,r.relation,r.name,r.original,true];change(row);b.constraints=[row];
+    await assert.rejects(buildCatalogueRestorePlan({query:()=>assert.fail('must refuse before SQL')},payload(b)),/SCHEMA_CATALOGUE_RESTORE_MAP_REFUSED/);
+  }
+  const r=CONSTRAINT_RESTORE_RULES[0];const b=original();b.constraints=[[r.schema,r.relation,r.name,r.original,true],[r.schema,r.relation,r.name,r.original,true]];
+  await assert.rejects(buildCatalogueRestorePlan({query:()=>assert.fail('must refuse before SQL')},payload(b)));
 });

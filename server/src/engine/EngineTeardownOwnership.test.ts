@@ -464,4 +464,67 @@ describe('table-engine lifecycle ownership', () => {
     expect(restart).not.toHaveBeenCalled();
     await engine.stop();
   });
+
+  it('caches snapshot HandConfig across mid-hand saveSnapshot calls and invalidates on hand or rake config changes', async () => {
+    const engine = new ServerTableEngine('80808080-8080-4080-8080-808080808080') as any;
+    const saveSpy = vi.spyOn(db, 'saveHandStateSnapshot').mockResolvedValue(undefined);
+    try {
+      engine.tableInfo = {
+        id: engine.tableId,
+        game_variant: 'nlh',
+        game_type: 'cash',
+        small_blind: 1,
+        big_blind: 2,
+        ante: 0,
+        max_players: 6,
+        bbj_percent: 100,
+        rake_percent: 5,
+        rake_cap_bb: 3,
+        union_id: null,
+      };
+      engine.handCount = 42;
+      const controllerA = {
+        getState: () => ({
+          stage: 'preflop',
+          pot: 3,
+          players: [{ seat: 1, user_id: 'u1', username: 'P1', stack: 199, is_horse: false }],
+        }),
+        getDiamondRakeScheduleSnapshot: () => null,
+      };
+      engine.handController = controllerA;
+
+      const rakeSpy = vi.spyOn(engine, 'getFullRakeAndBBJConfig');
+
+      await engine.saveSnapshot();
+      await engine.saveSnapshot();
+      await engine.saveSnapshot();
+
+      expect(saveSpy).toHaveBeenCalledTimes(3);
+      expect(rakeSpy).toHaveBeenCalledTimes(1);
+      const firstConfig = saveSpy.mock.calls[0][0].configJson;
+      expect(saveSpy.mock.calls[1][0].configJson).toBe(firstConfig);
+      expect(saveSpy.mock.calls[2][0].configJson).toBe(firstConfig);
+
+      // Mutate rake_percent mid-session -> invalidates cached HandConfig immediately
+      engine.tableInfo.rake_percent = 4;
+      await engine.saveSnapshot();
+      expect(rakeSpy).toHaveBeenCalledTimes(2);
+      const secondConfig = saveSpy.mock.calls[3][0].configJson;
+      expect(secondConfig).not.toBe(firstConfig);
+      expect((secondConfig.rakeConfig as any).percent).toBe(4);
+
+      // New HandController instance -> invalidates cached HandConfig immediately
+      engine.handCount = 43;
+      engine.handController = {
+        ...controllerA,
+      };
+      await engine.saveSnapshot();
+      expect(rakeSpy).toHaveBeenCalledTimes(3);
+      expect(saveSpy.mock.calls[4][0].configJson.handNumber).toBe(43);
+    } finally {
+      engine.handController = null;
+      saveSpy.mockRestore();
+      await engine.stop();
+    }
+  });
 });

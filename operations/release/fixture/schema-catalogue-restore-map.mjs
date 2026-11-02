@@ -5,10 +5,24 @@ import { createHash } from 'node:crypto';
 
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const MAX_BYTES = 33554432;
-const RULE = 'public-live-column-rank/v1';
+const RULE = 'public-live-column-rank-and-exact-varchar-array/v2';
+// These four original definitions were independently read from the source
+// catalogue. PostgreSQL 17.6 and 17.11 both parse their whole-array coercion
+// into these exact per-element coercions. No restored observation is an input.
+export const CONSTRAINT_RESTORE_RULES = Object.freeze([
+  ['crew_members', 'crew_members_role_check', 'role', ['owner','admin','member']],
+  ['insurance_offer_events', 'insurance_offer_events_event_check', 'event',
+    ['offered','accepted','declined','timeout','cashed_out','settled']],
+  ['insurance_transactions', 'insurance_transactions_bank_type_check', 'bank_type', ['union','club']],
+  ['referrals', 'referrals_status_check', 'status', ['pending','completed']],
+].map(([relation, name, column, values]) => Object.freeze({ schema:'public', relation, name,
+  original: `CHECK (${column}::text = ANY (ARRAY[${values.map(value => `'${value}'::character varying`).join(', ')}]::text[]))`,
+  restored: `CHECK (${column}::text = ANY (ARRAY[${values.map(value => `'${value}'::character varying::text`).join(', ')}]))`,
+})));
+
 const KEYS = ['access', 'roles', 'memberships', 'functions', 'columns',
   'policies', 'constraints', 'triggers', 'indexes', 'rls'].sort();
-// No catalogue tables, observer input, identifiers or configurable namespace.
+// No catalogue-table or observer reads and no configurable namespace.
 const RESTORE_SQL = `WITH original AS (SELECT $1::text::jsonb AS body),
   ranked AS (
     SELECT item, position,
@@ -20,11 +34,25 @@ const RESTORE_SQL = `WITH original AS (SELECT $1::text::jsonb AS body),
       COALESCE((SELECT pg_catalog.jsonb_agg(
         CASE WHEN item->>0 = 'public'
           THEN pg_catalog.jsonb_set(item, '{8}', pg_catalog.to_jsonb(rank), false)
-          ELSE item END ORDER BY position) FROM ranked), '[]'::jsonb), false) AS body,
+          ELSE item END ORDER BY position) FROM ranked), '[]'::jsonb), false) AS ranked_body,
       body::text = $1::text AS original_is_canonical
     FROM original
+  ), constraints_mapped AS (
+    SELECT pg_catalog.jsonb_set(ranked_body, '{constraints}',
+      COALESCE((SELECT pg_catalog.jsonb_agg(
+        CASE WHEN change.item IS NOT NULL
+          THEN pg_catalog.jsonb_set(constraint_row.item, '{3}', change.item->'restored', false)
+          ELSE constraint_row.item END ORDER BY constraint_row.position)
+        FROM pg_catalog.jsonb_array_elements(ranked_body->'constraints')
+          WITH ORDINALITY AS constraint_row(item, position)
+        LEFT JOIN pg_catalog.jsonb_array_elements($2::text::jsonb) AS change(item)
+          ON constraint_row.item->>0=change.item->>'schema'
+          AND constraint_row.item->>1=change.item->>'relation'
+          AND constraint_row.item->>2=change.item->>'name'
+          AND constraint_row.item->>3=change.item->>'original'), '[]'::jsonb), false) AS body,
+      original_is_canonical FROM mapped
   ) SELECT CASE WHEN pg_catalog.octet_length(body::text) <= 33554432
-      THEN body::text END AS expected_catalogue_text, original_is_canonical FROM mapped`;
+      THEN body::text END AS expected_catalogue_text, original_is_canonical FROM constraints_mapped`;
 
 function validate(payload) {
   assert.equal(payload?.version, 1, 'RESTORE_MAP_VERSION');
@@ -83,9 +111,29 @@ async function buildPlan(db, originalPayload) {
       original_attnum: row[8], restored_attnum: rank });
     row[8] = rank;
   }
+  const constraintChanges = [];
+  const constraintKeys = new Set();
+  for (const row of expected.constraints) {
+    assert.ok(Array.isArray(row) && row.length === 5, 'RESTORE_MAP_CONSTRAINT_SHAPE');
+    assert.ok(row.slice(0,4).every(value => typeof value === 'string' && value.length > 0)
+      && typeof row[4] === 'boolean', 'RESTORE_MAP_CONSTRAINT_FIELDS');
+    const key = JSON.stringify(row.slice(0,3));
+    assert.ok(!constraintKeys.has(key), 'RESTORE_MAP_CONSTRAINT_DUPLICATE');
+    constraintKeys.add(key);
+    const rule = CONSTRAINT_RESTORE_RULES.find(rule => rule.name === row[2] ||
+      rule.original === row[3] || rule.restored === row[3]);
+    if (!rule) continue;
+    assert.deepEqual(row.slice(0,3), [rule.schema,rule.relation,rule.name], 'RESTORE_MAP_CONSTRAINT_KEY');
+    assert.ok(row[3] === rule.original || row[3] === rule.restored, 'RESTORE_MAP_CONSTRAINT_SOURCE');
+    if (row[3] === rule.original) {
+      constraintChanges.push({schema:rule.schema,relation:rule.relation,name:rule.name,
+        original:rule.original,restored:rule.restored});
+      row[3] = rule.restored;
+    }
+  }
   // PostgreSQL, not JSON.stringify, owns the canonical whole-catalogue bytes.
   // The caller supplies its existing exclusive bounded read-only connection.
-  const result = await db.query({ text: RESTORE_SQL, values: [originalPayload.catalogue_text],
+  const result = await db.query({ text: RESTORE_SQL, values: [originalPayload.catalogue_text, JSON.stringify(constraintChanges)],
     query_timeout: 5000 });
   assert.ok(result?.rows?.length === 1, 'RESTORE_MAP_RESULT');
   const row = result.rows[0];
@@ -95,14 +143,17 @@ async function buildPlan(db, originalPayload) {
   // Also refuse a SQL/transport result changing any non-mapped field or Auth ordinal.
   assert.deepEqual(JSON.parse(row.expected_catalogue_text), expected, 'RESTORE_MAP_UNEXPECTED_CHANGE');
   const restoredDigest = digest(row.expected_catalogue_text);
-  const summary = { version: 1, rule: RULE, original_digest: originalPayload.catalogue_digest,
+  const summary = { version: 2, rule: RULE, original_digest: originalPayload.catalogue_digest,
     restored_digest: restoredDigest, columns_count: original.columns.length,
     public_columns_count: publicCount, changed_rows_count: changed.length,
     changed_rows_digest_encoding: 'utf8-json-stringify-ordered-object-array/v1',
-    changed_rows_digest: digest(JSON.stringify(changed)) };
+    changed_rows_digest: digest(JSON.stringify(changed)),
+    constraints_count: original.constraints.length,
+    constraint_changed_rows_count: constraintChanges.length,
+    constraint_changed_rows_digest: digest(JSON.stringify(constraintChanges)) };
   return { expected_catalogue_text: row.expected_catalogue_text,
     expected_catalogue_digest: restoredDigest,
-    mapping: { ...summary, changed_rows: changed, public_receipt: { ...summary } } };
+    mapping: { ...summary, changed_rows: changed, constraint_changed_rows: constraintChanges, public_receipt: { ...summary } } };
 }
 
 // Refusal must never expose literal definitions, column names or provider text.

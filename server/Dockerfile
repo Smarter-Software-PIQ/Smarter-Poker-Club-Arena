@@ -71,7 +71,15 @@ LABEL sp.alert-journal.schema=1
 # every request on a new socket aborted as supabase_timeout and the platform
 # stopped dealing. Measured in-container: 43,121ms default vs 82ms with this
 # flag. Baked here so the fix survives any .env rewrite.
-ENV NODE_OPTIONS=--dns-result-order=ipv4first
+# 2026-11-02: an explicit main-isolate heap ceiling. Node 22's default on
+# engine-01 is 4144 MB, and eed06fe5 died 15 times in 72 hours on "Ineffective
+# mark-compacts near heap limit" while retired table engines piled up (fixed at
+# the root by #8692 and pinned by aRetiredTableEngineIsCollectable.law.test.ts).
+# This is headroom, not the fix: the host has 61 GB, the serving heap of a
+# healthy engine sits near 1 GB, and a heap that grows anyway now has 2 GB more
+# room before V8 gives up. An explicit --max-old-space-size on a command line
+# (every docker exec probe passes its own) still overrides this value.
+ENV NODE_OPTIONS="--dns-result-order=ipv4first --max-old-space-size=6144"
 EXPOSE 8080
 
 # 2026-08-15 DEPLOY VERIFIABILITY.
