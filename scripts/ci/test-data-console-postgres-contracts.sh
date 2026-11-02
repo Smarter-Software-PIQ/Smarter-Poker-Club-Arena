@@ -108,6 +108,11 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   bash "$repo/scripts/ci/test-rabbit-hunt-authority.sh"
 
+# Only reserved certification accounts get a short, audited test VIP.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  bash "$repo/scripts/ci/test-certification-vip-grant.sh"
+
 # Player Hub reads the entire persisted tournament or cash sitting.
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   RUNNER_TEMP="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
