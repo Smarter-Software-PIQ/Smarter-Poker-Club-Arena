@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/mtt-lobby-entries-01a198b1",
+  "_comment": "Qualified read-only aggregate declaration; protected-main installation and live readback are separate evidence.",
+  "functions": ["fn_mtt_lobby_entry_counts"]
+}
