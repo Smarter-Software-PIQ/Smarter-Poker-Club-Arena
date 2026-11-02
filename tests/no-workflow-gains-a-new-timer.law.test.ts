@@ -76,6 +76,11 @@ const TIMERS: ReadonlyArray<readonly [string, string]> = [
   // Read-only, once weekly: at most 56 bounded windows / 90 seconds, no release authority.
   ['horse-human-scoreboard.yml', '0 14 * * 1'],
   ['telemetry-exposure.yml', '10 6,18 * * *'],
+  // Owner explicitly approved a daily automated live rabbit hunt check,
+  // 2026-11-02 ("GO AHEAD AND FULLY BUILD ... ALL OF THESE", item 5). Once a
+  // day; while the serving engine lacks #9233/#9314 it reads /health and the
+  // git ancestry only and creates nothing.
+  ['rabbit-hunt-certification.yml', '37 16 * * *'],
 ];
 
 /** Blank YAML `#` comments, quote-aware so a trailing note keeps its value. */
@@ -148,8 +153,8 @@ describe('no workflow gains a new timer', () => {
 
   it('the surface is the size it was measured at', () => {
     expect(found).toHaveLength(TIMERS.length);
-    expect(TIMERS).toHaveLength(15);
-    expect(new Set(TIMERS.map(([f]) => f)).size).toBe(11);
+    expect(TIMERS).toHaveLength(16);
+    expect(new Set(TIMERS.map(([f]) => f)).size).toBe(12);
   });
 
   it('schema-manifest-refresh keeps the two that three other laws bound it to', () => {
