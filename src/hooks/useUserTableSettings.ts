@@ -792,7 +792,14 @@ export function useUserTableSettings(userId: string | null | undefined) {
           readTableSettingIntent(userId, setting)
         )
           return;
-        if (locallyTouchedRef.current.has(setting as keyof UserTableSettings)) return;
+        // Only an asynchronous database echo can be stale here. Another
+        // mounted control's user gesture is the latest choice, even when this
+        // instance edited the same key earlier. Fence hydration with it too.
+        if (event.payload?.origin?.startsWith('postgres-sync:')) {
+          if (locallyTouchedRef.current.has(setting as keyof UserTableSettings)) return;
+        } else {
+          locallyTouchedRef.current.add(setting as keyof UserTableSettings);
+        }
         /* Derived from the ref and assigned OUTSIDE the updater. React may run
            an updater in a render it then discards (concurrent interruption,
            StrictMode double-invoke); mutating the ref in there can leave it

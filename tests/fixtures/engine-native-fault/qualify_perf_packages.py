@@ -228,7 +228,7 @@ def main():
         outcome['sourceBindings'] = {name: sha((ROOT / name).read_bytes()) for name in (
             'scripts/ci/native-perf-install-controller.py', 'scripts/ci/native-perf-install-stage.py',
             'scripts/ci/native-perf-install-provider.py', 'scripts/ci/native-perf-install-profile.json',
-            'scripts/ci/native-fault-observation.py',
+            'scripts/ci/native-fault-observation.py', 'scripts/ci/native-perf-terminal-diagnostics.py',
             'tests/fixtures/engine-native-fault/qualify_perf_install.py',
             'tests/fixtures/engine-native-fault/qualify_perf_missing_archive.py',
             '.github/workflows/profile-engine-main-thread.yml')}

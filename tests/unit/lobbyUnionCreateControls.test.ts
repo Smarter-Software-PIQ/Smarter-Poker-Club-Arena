@@ -110,7 +110,8 @@ describe('club lobby creation controls', () => {
     expect(page).toContain("table: 'tables', filter: `union_id=eq.${unionId}`");
     expect(page).toContain("table: 'tournaments', filter: `union_id=eq.${unionId}`");
     expect(page).toContain('applyClubScope(tableQuery');
-    expect(page).toContain('applyClubScope(clubTournamentQuery');
+    expect(page).toContain('applyClubScope(query');
+    expect(page).toContain('readTournamentLobbyWindow(async (after) =>');
   });
 });
 

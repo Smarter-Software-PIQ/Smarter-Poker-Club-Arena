@@ -91,7 +91,7 @@ interface Hit {
   bad_beat_avatar_url: string | null;
   bad_beat_name: string;
   bad_beat_hand: string | null;
-  bad_beat_amount: number | null;
+  bad_beat_amount: number | string | null;
   bad_beat_cards: HistoryCard[] | null;
   hand_winner_name: string;
   hand_winner_hand: string | null;
@@ -406,6 +406,8 @@ export function BBJRecentHits({
       const winnerMade = bestFive(winnerHole, board, hit.game_variant);
       return {
         hit,
+        hole,
+        winnerHole,
         cards: made ? made.cards : hole,
         /**
          * THE HAND THAT BEAT IT. `fn_bbj_recent_hits` has always returned
@@ -548,7 +550,7 @@ export function BBJRecentHits({
         </div>
       )}
 
-      {shown.map(({ hit, cards, label, beatBy, beatByLabel }) => {
+      {shown.map(({ hit, hole, winnerHole, cards, label, beatBy, beatByLabel }) => {
         // Id first: two players can share a display name, and lighting up the
         // wrong row on a money surface is not a cosmetic mistake.
         const isYou = currentUserId
@@ -564,6 +566,11 @@ export function BBJRecentHits({
             : Number(hit.total_payout);
         const amountLabel =
           Number.isFinite(amount) && amount >= 0 ? compactChips(amount) : 'Unavailable';
+        const share =
+          hit.bad_beat_amount == null || String(hit.bad_beat_amount).trim() === ''
+            ? NaN
+            : Number(hit.bad_beat_amount);
+        const shareLabel = Number.isFinite(share) && share >= 0 ? `+${compactChips(share)}` : null;
         const gameType = gameTypeLabel(hit.game_variant);
 
         return (
@@ -576,7 +583,7 @@ export function BBJRecentHits({
               clickable
                 ? `Total Paid Out ${amountLabel}` +
                   (hit.kind === 'mini' ? ' From The Mini Jackpot' : '') +
-                  ` For ${hit.bad_beat_name} With ${label}` +
+                  ` For ${hit.bad_beat_name} With ${label}. Jackpot Winner Received ${shareLabel ?? 'Unavailable'}` +
                   (beatByLabel ? `, Beaten By ${hit.hand_winner_name} With ${beatByLabel}` : '') +
                   '. Open The Hand.'
                 : undefined
@@ -611,6 +618,16 @@ export function BBJRecentHits({
             <div className="bbj-hits__who">
               <span className="bbj-hits__name">
                 {hit.bad_beat_name}
+                {shareLabel ? (
+                  <span
+                    className="bbj-hits__share"
+                    aria-label={`Jackpot Winner Received ${shareLabel}`}
+                  >
+                    {shareLabel}
+                  </span>
+                ) : (
+                  <span className="bbj-hits__hand-label">Payout Unavailable</span>
+                )}
                 {isYou && <span className="bbj-hits__you">YOU</span>}
                 {hit.kind === 'mini' && (
                   <span className="bbj-hits__mini" title="Mini Bad Beat Jackpot">
@@ -637,8 +654,9 @@ export function BBJRecentHits({
                   </div>
                 )}
                 <span className="bbj-hits__handname">{label}</span>
+                <HoleCards cards={hole} player={hit.bad_beat_name} />
               </div>
-              {(beatBy.length > 0 || beatByLabel) && (
+              {(beatBy.length > 0 || beatByLabel || hit.hand_winner_name) && (
                 <div className="bbj-hits__beat">
                   <span className="bbj-hits__beat-label">Lost To</span>
                   {beatBy.length > 0 && (
@@ -649,6 +667,7 @@ export function BBJRecentHits({
                     </div>
                   )}
                   <span className="bbj-hits__handname">{beatByLabel}</span>
+                  <HoleCards cards={winnerHole} player={hit.hand_winner_name} />
                   <span className="bbj-hits__beat-name">{hit.hand_winner_name}</span>
                 </div>
               )}
@@ -679,6 +698,24 @@ export function BBJRecentHits({
       )}
 
       {onOpenHand && <p className="bbj-hits__hint">Tap A Jackpot For Hands And Payouts.</p>}
+    </div>
+  );
+}
+
+/** These are the stored dealt cards, never the derived five-card made hand. */
+function HoleCards({ cards, player }: { cards: DeckCard[]; player: string }) {
+  return (
+    <div className="bbj-hits__hole" role="group" aria-label={`${player} Hole Cards`}>
+      <span className="bbj-hits__hand-label">Hole Cards</span>
+      {cards.length > 0 ? (
+        <div className="bbj-hits__cards">
+          {cards.map((card, i) => (
+            <CardImage key={i} card={card} size="xs" />
+          ))}
+        </div>
+      ) : (
+        <span className="bbj-hits__hand-label">Unavailable</span>
+      )}
     </div>
   );
 }

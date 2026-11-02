@@ -204,6 +204,15 @@ mapfile() {
 set -euo pipefail
 case "\${1:-}:\${2:-}" in
   pending-owner:) printf '%s\\n' none ;;
+  # This isolated source has no historical 3e owner. Bind only its exact call.
+  resolve-failed-routine:--engine-lock-fd)
+    [ "$#" = 11 ] && [ "\${3:-}" = 9 ] &&
+      [ "\${4:-}:\${5:-}" = '--run-id:${runKey}' ] &&
+      [ "\${6:-}:\${7:-}" = '--sha:${targetSha}' ] &&
+      [ "\${8:-}:\${9:-}" = '--control-sha:${controlSha}' ] &&
+      [ "\${10:-}:\${11:-}" = '--invocation-id:${'2'.repeat(32)}' ] || exit 87
+    printf '%s\\n' not-needed
+    ;;
   check-routine-owner:--run-id) printf '%s\\n' none ;;
   get:desired-sha) printf '%s\\n' '${sourceSha}' ;;
   get:high-water-sha)

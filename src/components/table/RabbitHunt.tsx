@@ -319,13 +319,24 @@ export function RabbitHunt({
      still settling. A guest has nobody to bill, so auto never fires for one
      — the manual button already answers that tap with its own "Please Log
      In" toast, and an automatic toast on every hand would be noise. */
+  /* AUTO RUN SPENDS ONLY ON A FRESH VIP ANSWER (2026-11-02 review).
+     `autoRun` arrives from TablePage as (stored setting AND useVIPStatus),
+     and useVIPStatus is read once per page and refreshed only on an
+     entitlement event - so a membership that lapsed while the tab stayed open
+     kept pressing the paid reveal at the full non-VIP diamond price (the
+     engine sells the felt window to everyone, so it cannot refuse). This
+     tile already asks vipService.checkVIPStatus on every mount, i.e. on
+     every offer; the automatic press now waits for THAT answer and fires
+     only when it says VIP. A failed lookup never answers, so it never
+     auto-spends; the manual button is unaffected. */
+  const freshVipForAuto = lookupAnswered && entitlementBelongsToUser && isVIP;
   const autoPressedRef = useRef(false);
   useEffect(() => {
-    if (!autoRun || !isAvailable || !userId) return;
+    if (!autoRun || !isAvailable || !userId || !freshVipForAuto) return;
     if (autoPressedRef.current || hasRevealed || isRevealing) return;
     autoPressedRef.current = true;
     handleReveal();
-  }, [autoRun, isAvailable, userId, hasRevealed, isRevealing, handleReveal]);
+  }, [autoRun, isAvailable, userId, freshVipForAuto, hasRevealed, isRevealing, handleReveal]);
 
   // The hotkey sees exactly what the button sees: a handler while an offer
   // is up and not yet revealed, nothing otherwise.

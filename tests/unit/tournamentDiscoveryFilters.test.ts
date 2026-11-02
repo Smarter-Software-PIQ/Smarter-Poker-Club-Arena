@@ -864,16 +864,16 @@ describe('the ALL tab status chips use the derived rule', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-describe('the capped-count "+" measures the tournament list against its own cap', () => {
-  it('compares the tournament count with the limit the tournament query uses', () => {
-    const start = CLUB_HOME.indexOf('const clubTournamentQuery = supabase');
-    const query = CLUB_HOME.slice(start, CLUB_HOME.indexOf('applyClubScope(clubTournamentQuery'));
+describe('the capped-count "+" does not label a completed tournament window as truncated', () => {
+  it('keeps each request capped while marking only the still-capped cash list', () => {
+    const start = CLUB_HOME.indexOf('const clubTournamentQuery = (after: string | null) =>');
+    expect(start).toBeGreaterThan(-1);
+    const query = CLUB_HOME.slice(start, CLUB_HOME.indexOf('applyClubScope(query', start));
     expect(query).toContain('.limit(QUERY_LIMITS.MODERATE)');
-    expect(CLUB_HOME).toMatch(
-      /clubTournamentResult\.data\?\.length \?\? 0\) >= QUERY_LIMITS\.MODERATE/
-    );
+    expect(CLUB_HOME).toContain('readTournamentLobbyWindow(async (after) =>');
+    expect(CLUB_HOME).toContain('setCountsCapped(tableCapped)');
     expect(CLUB_HOME).not.toMatch(
-      /clubTournamentResult\.data\?\.length \?\? 0\) >= QUERY_LIMITS\.LIST/
+      /clubTournamentResult\.data\?\.length \?\? 0\) >= QUERY_LIMITS\.(?:MODERATE|LIST)/
     );
   });
 });

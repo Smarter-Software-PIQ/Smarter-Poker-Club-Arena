@@ -123,6 +123,28 @@ def main():
         phase = 'receipt'
         status, raw = command([*ssh, remote], timeout=220, bound=16384)
         result = helper.receipt_outcome(raw, args.operation, profile_sha, source_sha, 'production', args.expected_engine_sha, status)
+        if args.mode == 'receipt':
+            result['diagnosticReadVerified'] = False
+            if result.get('validReceipt') is True and all(result.get(key) is True for key in ('sameInvocation', 'terminal', 'helperCgroupEmpty')) and result.get('managerTerminalEvidence') != 'unproven':
+                # Preserve original receipt authority and failed-install exit.
+                # This separately qualified program reads stdin, never stages a
+                # new controller or touches the original operation's files.
+                try:
+                    adapter_path = ROOT / 'scripts/ci/native-perf-terminal-diagnostics.py'
+                    adapter_spec = importlib.util.spec_from_file_location('terminal_diagnostics', adapter_path)
+                    adapter = importlib.util.module_from_spec(adapter_spec)
+                    adapter_spec.loader.exec_module(adapter)
+                    result['diagnosticSourceSHA256'] = sha(adapter_path.read_bytes())
+                    plan_spec = importlib.util.spec_from_file_location('terminal_plan', ROOT / 'scripts/ci/native-perf-install.py')
+                    planner = importlib.util.module_from_spec(plan_spec)
+                    plan_spec.loader.exec_module(planner)
+                    remote = shlex.join(['/usr/bin/python3', '-I', '-B', '-', args.operation])
+                    diagnostic_status, diagnostic_raw = command([*ssh, remote], input=adapter_path.read_bytes(), timeout=25, bound=32768)
+                    diagnostic = adapter.diagnostic_outcome(diagnostic_raw, result, diagnostic_status, planner, helper)
+                    if diagnostic is not None:
+                        result.update(diagnosticReadVerified=True, terminalDiagnostics=diagnostic)
+                except Exception:
+                    pass  # Unknown read cannot promote installation or retry.
     except Exception as error:
         # Unknown effects remain owned by the original numeric operation. No
         # host state, package transaction, intent or receipt is removed/retried.
