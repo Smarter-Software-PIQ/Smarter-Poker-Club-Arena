@@ -4,6 +4,8 @@ The original operation's verified read preserves 21 installed dependency facts, 
 
 The existing Ubuntu qualifier now authenticates and retains the fixed hwdata 0.379-1 archive alongside the original three tools. It verifies its exact bytes, package identity, dependencies and absence of maintainer scripts or triggers. The existing disposable Ubuntu missing-archive case keeps its original exit100/no-dpkg proof, then requires a fresh hwdata installation with only its fixed dependency closure, no upgrades or removals, unchanged unrelated package inventory and a clean audit. Existing host service identity checks remain intact.
 
+The receipt explicitly scopes its legacy unchanged-state and absent-marker facts to the original failed attempt; the subsequent fresh installation has its own scope.
+
 The existing private-administration dpkg case additionally verifies the exact fixed no-match stderr and explicit not-installed/empty-version shape. Empty output alone remains unknown. The production read adapter is unchanged.
 
 Only successful real Linux execution can emit the nested four-package profile proposal, bound to that actual new run, exact archive hashes and all source bindings. It labels individual isolated package evidence and leaves combined recovery, recovery admission and production installation unqualified. The original installer, profile, native identity controller, planner, provider and workflow remain unchanged. No new expiry or native-fault case is added.

@@ -149,6 +149,8 @@ def main():
         result.update(hwdataFreshInstallVerified=True, hwdataSHA256=hwdata['sha256'],
             hwdataVersion=hwdata['version'], normalAptHooksPreserved=True,
             noUpgradesOrRemovals=True, installedDependencyVersions=fresh_plan,
+            missingArchiveProofScope='original_failed_attempt_before_hwdata_install',
+            hwdataInstallProofScope='fresh_disposable_ubuntu_only',
             combinedRecoveryTransactionQualified=False)
         result.update(qualified=True, reason='missing_private_archive_refused_before_dpkg',
             aptExitCode=install.returncode, packageStateUnchanged=True, dpkgInvocationMarkerAbsent=True,
