@@ -101,8 +101,8 @@ class RetainedFirstRefusalTests(unittest.TestCase):
         end = source.index('    local fresh_health cause', start)
         path.write_text(source[:start] + source[end:])
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
-                         R.RETAINED_REFUSAL_PREVIOUS_SOURCES[path.name])
-        with patch.object(R, 'RETAINED_REFUSAL_SOURCES', R.RETAINED_REFUSAL_PREVIOUS_SOURCES):
+                         R.RETAINED_REFUSAL_PRIOR_SOURCES[0][path.name])
+        with patch.object(R, 'RETAINED_REFUSAL_SOURCES', R.RETAINED_REFUSAL_PRIOR_SOURCES[0]):
             self.produce()
         answer = self.read()
         self.assertEqual(answer['mode'], 'retained_first_refusal')

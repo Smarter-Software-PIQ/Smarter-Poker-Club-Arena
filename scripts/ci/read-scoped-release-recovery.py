@@ -516,16 +516,84 @@ def cancelled_phase1_cycle(cycle):
         'status': 'reserved', 'window': owner_window})
 
 
+GENERIC_CANCELLED_SOURCE_NAMES = frozenset(CANCELLED_PHASE1_SOURCES)
+
+
+def generic_cancelled_profile(cycle, resolution):
+    """A later announcement-only owner: identity from its own cycle, no tolerance."""
+    w = cycle.get('window') if isinstance(cycle, dict) else None
+    proof = resolution.get('proof') if isinstance(resolution, dict) else None
+    thaw = proof.get('thaw') if isinstance(proof, dict) else None
+    ints = lambda *v: all(type(x) is int for x in v)
+    routine_require(isinstance(cycle, dict) and set(cycle) == {'kind', 'policyId', 'policyDigest', 'startsAt', 'endsAt',
+            'runId', 'sha', 'controlSha', 'status', 'window'}
+        and cycle['runId'] not in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}
+        and RUN.fullmatch(str(cycle['runId'])) and SHA.fullmatch(str(cycle['sha'])) and SHA.fullmatch(str(cycle['controlSha']))
+        and cycle['kind'] == 'hourly-reset' and cycle['policyId'] == 'phase1-hourly-01a1944f'
+        and cycle['policyDigest'] == NINEF_POLICY_DIGEST and cycle['status'] == 'reserved'
+        and isinstance(w, dict) and set(w) == {'announcedAt', 'startsAt', 'endsAt', 'verified'} and w['verified'] is True
+        and ints(w['announcedAt'], w['startsAt'], w['endsAt'], cycle['startsAt'], cycle['endsAt'])
+        and w['startsAt'] == w['announcedAt'] + 120000 and w['endsAt'] == w['announcedAt'] + 420000
+        and cycle['startsAt'] == w['startsAt'] // 3600000 * 3600 and cycle['endsAt'] == cycle['startsAt'] + 300)
+    routine_require(isinstance(proof, dict) and isinstance(proof.get('sourceHashes'), dict)
+        and set(proof['sourceHashes']) == GENERIC_CANCELLED_SOURCE_NAMES
+        and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof['sourceHashes'].values())
+        and isinstance(thaw, dict) and set(thaw) == {'announcedAtMs', 'freezeStartedAtMs', 'releasedThroughMs',
+            'ownershipToken', 'generation', 'thawRecordedAtMs'}
+        and thaw['announcedAtMs'] == w['announcedAt'] and thaw['freezeStartedAtMs'] == w['startsAt']
+        and thaw['releasedThroughMs'] == w['endsAt'] and type(thaw['generation']) is int and thaw['generation'] > 0
+        and isinstance(thaw['ownershipToken'], str)
+        and re.fullmatch(r'[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}', thaw['ownershipToken'].lower())
+        and type(thaw['thawRecordedAtMs']) is int and w['startsAt'] <= thaw['thawRecordedAtMs'])
+    return cycle['runId'], cycle['controlSha'], proof['sourceHashes'], w, thaw
+
+
+def generic_started_at(value, observed_at, window, thaw):
+    if not isinstance(value, str):
+        return False
+    try:
+        started = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+        birth = started.timestamp() * 1000
+        return (started.tzinfo is not None and 0 < birth < observed_at * 1000
+            and (birth < window['announcedAt'] or birth > max(window['endsAt'], thaw['thawRecordedAtMs'])))
+    except ValueError:
+        return False
+
+
+def generic_cancelled_row(row):
+    """A projected later announcement-only owner (never a pinned or failed one)."""
+    w = row.get('window')
+    return (row.get('runId') not in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, NINEF_RUN, DAILY_REFUSAL_RUN,
+                                     PREATTACH_RUN, FAILED_CUSTODY_REQUEST['runKey']}
+            and row.get('failurePresent') is False and row.get('status') == 'reserved'
+            and row.get('kind') == 'hourly-reset' and row.get('policyDigest') == NINEF_POLICY_DIGEST
+            and isinstance(w, dict) and set(w) == {'announcedAt', 'startsAt', 'endsAt', 'verified'}
+            and w['verified'] is True and all(type(w[k]) is int for k in ('announcedAt', 'startsAt', 'endsAt'))
+            and w['startsAt'] == w['announcedAt'] + 120000 and w['endsAt'] == w['announcedAt'] + 420000
+            and type(row.get('startsAt')) is int and row['startsAt'] == w['startsAt'] // 3600000 * 3600
+            and row.get('endsAt') == row['startsAt'] + 300)
+
+
 def cancelled_announcement_resolution(resolution, cycle, result, result_fd, answer):
-    owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
-    cancelled_phase1_cycle(cycle)
+    pinned = cycle.get('runId') in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}
+    if pinned:
+        owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
+        cancelled_phase1_cycle(cycle)
+        started_ok = lambda value, observed: cancelled_phase1_started_at(value, observed, owner_run)
+        image_ok = lambda image: image == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+        shas = {owner_sha}
+    else:
+        owner_run, owner_sha, owner_sources, owner_window, owner_thaw = generic_cancelled_profile(cycle, resolution)
+        started_ok = lambda value, observed: generic_started_at(value, observed, owner_window, owner_thaw)
+        image_ok = lambda image: re.fullmatch(r'sha256:[0-9a-f]{64}', str(image)) is not None
+        shas = {cycle['sha'], cycle['controlSha']}
     routine_require(isinstance(resolution, dict) and set(resolution) == {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'verifiedByControlSha', 'verifiedByTargetSha', 'invocationId', 'observedAt', 'proof'}
         and resolution['schema'] == 1 and resolution['result'] == 'cancelled-announcement-proved'
         and resolution['originalCycle'] == cycle and RUN.fullmatch(str(resolution['verifiedByRunId']))
         and resolution['verifiedByRunId'] != owner_run
         and SHA.fullmatch(str(resolution['verifiedByControlSha']))
         and SHA.fullmatch(str(resolution['verifiedByTargetSha']))
-        and not ({owner_sha, cancelled_phase1_target(owner_run)} & {resolution['verifiedByControlSha'], resolution['verifiedByTargetSha']})
+        and not ((shas | ({cancelled_phase1_target(owner_run)} if pinned else set())) & {resolution['verifiedByControlSha'], resolution['verifiedByTargetSha']})
         and INVOCATION.fullmatch(str(resolution['invocationId']))
         and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > owner_window['endsAt'])
     proof = resolution['proof']
@@ -536,8 +604,8 @@ def cancelled_announcement_resolution(resolution, cycle, result, result_fd, answ
         and proof['thaw'] == owner_thaw and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}', str(proof['instanceId']))
         and isinstance(proof['container'], dict) and set(proof['container']) == {'id', 'startedAt', 'image'}
         and re.fullmatch(r'[0-9a-f]{64}', str(proof['container']['id']))
-        and cancelled_phase1_started_at(proof['container']['startedAt'], resolution['observedAt'], owner_run)
-        and proof['container']['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+        and started_ok(proof['container']['startedAt'], resolution['observedAt'])
+        and image_ok(proof['container']['image'])
         and re.fullmatch('[0-9a-f]{64}', str(proof['qualifiedHelperSHA256'])))
     for key, names in (('recordHashes', {'receipt','intent','quiescent','stop-issued'}),
                        ('retainedHashes', {'entryHash','reservationHash','releasedHoldHash'})):
@@ -684,7 +752,7 @@ def routine_remote(request, root_fd):
                                                      (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
                                                      (k == DAILY_REFUSAL_RUN and v.get('result') == 'unentered-daily-cycle-proved') or
                                                      (k == PREATTACH_RUN and v.get('result') == 'preattach-refusal-proved') or
-                                                     (k in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} and v.get('result') == 'cancelled-announcement-proved'))
+                                                     (RUN.fullmatch(str(k)) and k not in {NINEF_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} and v.get('result') == 'cancelled-announcement-proved'))
                             for k, v in resolutions.items()))
         if resolutions:
             routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
@@ -815,6 +883,18 @@ def validate_routine_reply(value, request):
                 and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > owner_window['endsAt']
                 and all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches', 'databaseIdleRecorded'))
                 and resolution['noAnnouncementRecorded'] is None)
+        elif resolution['present'] and generic_cancelled_row(row):
+            w = row['window']
+            routine_require(row['failurePresent'] is False and row['result']['present'] is False
+                and row['committed']['present'] is False
+                and all(isinstance(resolution[k], str) and re.fullmatch('[0-9a-f]{64}', resolution[k])
+                    for k in ('sha256', 'receiptSha256', 'invocationSha256'))
+                and RUN.fullmatch(str(resolution['verifiedByRunId'])) and resolution['verifiedByRunId'] != row['runId']
+                and all(SHA.fullmatch(str(resolution[k])) and resolution[k] not in {row['sha'], row['controlSha']}
+                    for k in ('controlSha', 'targetSha'))
+                and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > w['endsAt']
+                and all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches', 'databaseIdleRecorded'))
+                and resolution['noAnnouncementRecorded'] is None)
         elif resolution['present'] and row['runId'] == PREATTACH_RUN:
             preattach_reply(row, resolution)
         elif resolution['present'] and row['runId'] == DAILY_REFUSAL_RUN:
@@ -874,7 +954,7 @@ def validate_routine_reply(value, request):
                             row['failurePresent'] == (result['cycleFailureMatches'] is not None))
         else:
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
-        if resolution['present'] and row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
+        if resolution['present'] and (row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} or generic_cancelled_row(row)):
             routine_require(result['present'] is False and row['failurePresent'] is False)
         elif resolution['present'] and row['runId'] == PREATTACH_RUN:
             preattach_reply(row, resolution)
@@ -1538,11 +1618,28 @@ def original_announcement_remote(request, root_fd):
 
 
 RETAINED_REFUSAL_GENERATIONS = Path('/usr/local/lib/club-arena/engine-control-generations')
-RETAINED_REFUSAL_PREVIOUS_SOURCES = {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'}
-RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': '5ee65d37ba3b331cbbe6d4d088e0a04c0b15310152c168b2ed7321bbf91e4657'}
-# Closed reviewed generations; never accept arbitrary source or lose old receipts.
-RETAINED_REFUSAL_SOURCE_PROFILES = (RETAINED_REFUSAL_PREVIOUS_SOURCES, RETAINED_REFUSAL_SOURCES)
+RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '119904f8f15c092379b9ce4d4ce7454eb33278e3dfce55db2d2745eca05f03e6'}
+# Earlier exact producer pairs whose generations may still hold retained receipts.
+RETAINED_REFUSAL_PRIOR_SOURCES = ({'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '2e554293f754a6ccfe25d3837eb3126300cfe3b02813fd8b853cf6ee24bd4a3d'}, {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'},)
 RETAINED_REFUSAL_SCHEMA = 'retained-first-refusal-observation/v1'
+
+
+def retained_refusal_profile(source_fd):
+    """Select one exact known producer pair; any other bytes refuse as before."""
+    def digest(name):
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=source_fd)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 1048576:
+                raise ValueError('retained diagnostic source metadata')
+            return hashlib.sha256(os.read(fd, 1048577)).hexdigest()
+        finally:
+            os.close(fd)
+    actual = {name: digest(name) for name in RETAINED_REFUSAL_SOURCES}
+    for profile in (RETAINED_REFUSAL_SOURCES,) + RETAINED_REFUSAL_PRIOR_SOURCES:
+        if actual == profile:
+            return profile
+    raise ValueError('retained diagnostic source changed')
 
 def diagnostic_read(path: Path, *, private: bool = True) -> bytes:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -1667,7 +1764,8 @@ def retained_refusal_remote(request, root_fd):
             raise ValueError('retained diagnostic private directory')
         sources = {}
         source_stats = {}
-        for name in RETAINED_REFUSAL_SOURCES:
+        profile = retained_refusal_profile(source_fd)
+        for name, expected in profile.items():
             check()
             fd = os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=source_fd)
             try:
@@ -1675,13 +1773,10 @@ def retained_refusal_remote(request, root_fd):
                 if not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid() or before.st_mode&0o022 or before.st_size>1048576:
                     raise ValueError('retained diagnostic source metadata')
                 raw = os.read(fd,1048577)
-                if len(raw)!=before.st_size or identity(before)!=identity(os.fstat(fd)):
+                if len(raw)!=before.st_size or identity(before)!=identity(os.fstat(fd)) or hashlib.sha256(raw).hexdigest()!=expected:
                     raise ValueError('retained diagnostic source changed')
                 sources[name]=raw;source_stats[name]=identity(before)
             finally:os.close(fd)
-        source_digests = {name: hashlib.sha256(raw).hexdigest() for name, raw in sources.items()}
-        if source_digests not in RETAINED_REFUSAL_SOURCE_PROFILES:
-            raise ValueError('retained diagnostic source changed')
         receipt_bytes=0
         def read(name,schema):
             nonlocal receipt_bytes
@@ -1690,8 +1785,8 @@ def retained_refusal_remote(request, root_fd):
             receipt_bytes+=len(raw)
             if receipt_bytes>8192:raise ValueError('retained combined receipt bound')
             expected_binding={'runId':request['runKey'],'targetSha':request['releaseSha'],'controlSha':request['controlSha'],
-                'generation':str(generation),'transactionSha256':source_digests['engine-release-transaction.sh'],
-                'producerSha256':source_digests['engine-release-seal.py']}
+                'generation':str(generation),'transactionSha256':profile['engine-release-transaction.sh'],
+                'producerSha256':profile['engine-release-seal.py']}
             binding=value.get('binding')
             if not isinstance(binding,dict) or set(binding)!=set(expected_binding)|{'requestSha256','pinSha256'} or any(binding.get(k)!=v for k,v in expected_binding.items()) or any(not re.fullmatch('[0-9a-f]{64}',str(binding[k])) for k in ('requestSha256','pinSha256')):
                 raise ValueError('retained diagnostic binding')
@@ -1713,7 +1808,7 @@ def retained_refusal_remote(request, root_fd):
             if attempt['invocationId']!=first['invocationId'] or attempt['binding']!=first['binding']:
                 raise ValueError('retained original attempt binding')
             attempts=[(attempt,digest)]
-        for name in RETAINED_REFUSAL_SOURCES:
+        for name in profile:
             check()
             if identity(os.stat(name,dir_fd=source_fd,follow_symlinks=False))!=source_stats[name]:raise ValueError('retained source bookend changed')
         if identity(os.fstat(directory_fd))!=identity(directory):raise ValueError('retained directory changed')

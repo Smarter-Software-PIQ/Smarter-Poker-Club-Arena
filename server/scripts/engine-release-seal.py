@@ -1065,6 +1065,10 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
         validate_cancelled_phase1_resolution(resolution, cycle)
         return
+    if owner not in pinned_routine_owners() and isinstance(resolution, dict) \
+            and resolution.get('result') == 'cancelled-announcement-proved':
+        validate_generic_cancelled_resolution(resolution, cycle)
+        return
     if owner != NINEF_RUN:
         die('routine failure resolution history is invalid')
     ninef_cycle(cycle)
@@ -1242,6 +1246,141 @@ def cancelled_phase1_proof(args: argparse.Namespace, state: dict[str, Any], cycl
     proof['qualifiedHelperSHA256'] = hashlib.sha256(source.encode()).hexdigest()
     return proof
 
+
+
+# Any later expired announcement-only owner is resolved by the same proof
+# without a per-run code change. Its identity comes from its own immutable
+# cycle; its sources from protected-main Git at its own control; its window
+# and thaw must agree exactly (no early-timer tolerance); the withdrawal
+# receipt, trace absence, unchanged runtime and seal checks are those of the
+# pinned owners above. Pinned historical owners keep their exact profiles.
+GENERIC_CANCELLED_SOURCE_NAMES = frozenset(CANCELLED_PHASE1_SOURCES)
+GENERIC_CANCELLED_CYCLE_KEYS = frozenset({'kind', 'policyId', 'policyDigest', 'startsAt', 'endsAt', 'runId',
+                                          'sha', 'controlSha', 'status', 'window'})
+UUID_RE = re.compile(r'^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$')
+
+
+def pinned_routine_owners() -> set[str]:
+    return {FAILED_ROUTINE_RUN, NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN,
+            CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN}
+
+
+def generic_cancelled_cycle(cycle: Any) -> dict[str, int]:
+    failed_routine_require(generic_cancelled_shape(cycle))
+    return cycle['window']
+
+
+def generic_cancelled_shape(cycle: Any) -> bool:
+    w = cycle.get('window') if isinstance(cycle, dict) else None
+    ints = lambda *v: all(type(x) is int for x in v)
+    return bool(isinstance(cycle, dict) and set(cycle) == GENERIC_CANCELLED_CYCLE_KEYS
+        and RUN_ID_RE.fullmatch(str(cycle['runId'])) is not None and cycle['runId'] not in pinned_routine_owners()
+        and SHA_RE.fullmatch(str(cycle['sha'])) is not None and SHA_RE.fullmatch(str(cycle['controlSha'])) is not None
+        and cycle['kind'] == 'hourly-reset' and cycle['policyId'] == SCHEDULE_POLICY_ID
+        and cycle['policyDigest'] == NINEF_POLICY_DIGEST and cycle['status'] == 'reserved'
+        and isinstance(w, dict) and set(w) == {'announcedAt', 'startsAt', 'endsAt', 'verified'} and w['verified'] is True
+        and ints(w['announcedAt'], w['startsAt'], w['endsAt'], cycle['startsAt'], cycle['endsAt'])
+        and w['announcedAt'] > 0 and w['startsAt'] == w['announcedAt'] + 120000 and w['endsAt'] == w['announcedAt'] + 420000
+        and cycle['startsAt'] == w['startsAt'] // 3600000 * 3600 and cycle['endsAt'] == cycle['startsAt'] + 300)
+
+
+def generic_cancelled_candidate(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    """Only an expired, never-committed announcement-only owner with a withdrawal receipt."""
+    if not generic_cancelled_shape(cycle):
+        return False
+    w = cycle['window']
+    return (cycle['runId'] not in state['committedRuns'] and time.time() * 1000 > w['endsAt']
+            and os.path.lexists(STATE_DIR / 'engine-release-cancellations' / (cycle['runId'] + '.receipt.json')))
+
+
+def generic_cancelled_started_at(value: Any, observed_at: int, window: dict[str, int], thaw: dict[str, Any]) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        started = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        birth = started.timestamp() * 1000
+        return (started.tzinfo is not None and 0 < birth < observed_at * 1000
+            and (birth < window['announcedAt'] or birth > max(window['endsAt'], thaw['thawRecordedAtMs'])))
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
+def validate_generic_cancelled_resolution(resolution: Any, cycle: dict[str, Any], verify_receipt: bool = True) -> None:
+    w = generic_cancelled_cycle(cycle)
+    owner_run = cycle['runId']
+    failed_routine_require(isinstance(resolution, dict) and set(resolution) == TERMINAL_RESOLUTION_KEYS
+        and resolution['schema'] == 1 and resolution['result'] == 'cancelled-announcement-proved'
+        and resolution['originalCycle'] == cycle and RUN_ID_RE.fullmatch(str(resolution['verifiedByRunId']))
+        and resolution['verifiedByRunId'] != owner_run
+        and SHA_RE.fullmatch(str(resolution['verifiedByControlSha']))
+        and SHA_RE.fullmatch(str(resolution['verifiedByTargetSha']))
+        and not {cycle['sha'], cycle['controlSha']} & {resolution['verifiedByControlSha'], resolution['verifiedByTargetSha']}
+        and INVOCATION_ID_RE.fullmatch(str(resolution['invocationId']))
+        and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > w['endsAt'])
+    proof = resolution['proof']
+    failed_routine_require(isinstance(proof, dict) and set(proof) == {'schema', 'originalCycle', 'recordHashes',
+        'retainedHashes', 'sourceHashes', 'thaw', 'container', 'instanceId', 'qualifiedHelperSHA256'}
+        and proof['schema'] == 'cancelled-routine-announcement-proof/v1' and proof['originalCycle'] == cycle
+        and isinstance(proof['sourceHashes'], dict) and set(proof['sourceHashes']) == GENERIC_CANCELLED_SOURCE_NAMES
+        and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof['sourceHashes'].values())
+        and INSTANCE_ID_RE.fullmatch(str(proof['instanceId']))
+        and isinstance(proof['container'], dict) and set(proof['container']) == {'id', 'startedAt', 'image'}
+        and CONTAINER_ID_RE.fullmatch(str(proof['container']['id']))
+        and re.fullmatch(r'sha256:[0-9a-f]{64}', str(proof['container']['image']))
+        and re.fullmatch('[0-9a-f]{64}', str(proof['qualifiedHelperSHA256'])))
+    thaw = proof['thaw']
+    failed_routine_require(isinstance(thaw, dict) and set(thaw) == {'announcedAtMs', 'freezeStartedAtMs',
+        'releasedThroughMs', 'ownershipToken', 'generation', 'thawRecordedAtMs'}
+        and thaw['announcedAtMs'] == w['announcedAt'] and thaw['freezeStartedAtMs'] == w['startsAt']
+        and thaw['releasedThroughMs'] == w['endsAt'] and isinstance(thaw['ownershipToken'], str)
+        and UUID_RE.fullmatch(thaw['ownershipToken'].lower()) is not None
+        and type(thaw['generation']) is int and thaw['generation'] > 0
+        and type(thaw['thawRecordedAtMs']) is int
+        and w['startsAt'] <= thaw['thawRecordedAtMs'] <= resolution['observedAt'] * 1000
+        and generic_cancelled_started_at(proof['container']['startedAt'], resolution['observedAt'], w, thaw))
+    for key, names in (('recordHashes', {'receipt','intent','quiescent','stop-issued'}),
+                       ('retainedHashes', {'entryHash','reservationHash','releasedHoldHash'})):
+        failed_routine_require(isinstance(proof[key], dict) and set(proof[key]) == names
+            and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof[key].values()))
+    if verify_receipt:
+        path = terminal_receipt_path(owner_run, resolution['verifiedByRunId'], resolution['invocationId'])
+        failed_routine_require(failed_routine_json(path) == resolution)
+
+
+def generic_cancelled_sources(repo: str, control: str, deadline: float) -> dict[str, str]:
+    """The owner's own protected-main sources, never caller-supplied hashes."""
+    failed_routine_require(SHA_RE.fullmatch(control) is not None)
+    failed_routine_command(['git', '-C', repo, 'merge-base', '--is-ancestor', control, 'refs/remotes/origin/main'], deadline)
+    hashes = {}
+    for name in sorted(GENERIC_CANCELLED_SOURCE_NAMES):
+        left = deadline - time.monotonic()
+        failed_routine_require(left > 0)
+        try:
+            raw = subprocess.run(['git', '-C', repo, 'show', control + ':server/scripts/' + name],
+                                 stdin=subprocess.DEVNULL, capture_output=True, check=True, timeout=min(left, 10),
+                                 env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'LC_ALL': 'C'}).stdout
+        except (OSError, subprocess.SubprocessError):
+            die('exact failed routine native proof failed or timed out')
+        failed_routine_require(0 < len(raw) < 262144)
+        hashes[name] = hashlib.sha256(raw).hexdigest()
+    return hashes
+
+
+def generic_cancelled_proof(args: argparse.Namespace, state: dict[str, Any], cycle: dict[str, Any],
+                            deadline: float) -> dict[str, Any]:
+    w = generic_cancelled_cycle(cycle)
+    owner_run = cycle['runId']
+    failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+        and owner_run not in state['committedRuns'] and time.time() * 1000 > w['endsAt'])
+    source = failed_routine_command(['git', '-C', args.repo, 'show',
+        str(args.control_sha) + ':scripts/ci/withdraw-waiting-engine-release.py'], deadline, 131072)
+    proof = json.loads(failed_routine_command([sys.executable, '-B', '-c', source,
+        '--phase1-cancellation-proof', owner_run], deadline, 16384, max_seconds=30))
+    failed_routine_require(isinstance(proof, dict) and proof.get('originalCycle') == cycle
+        and proof.get('sourceHashes') == generic_cancelled_sources(args.repo, cycle['controlSha'], deadline)
+        and isinstance(proof.get('container'), dict) and proof['container'].get('image') == state['desired']['imageId'])
+    proof['qualifiedHelperSHA256'] = hashlib.sha256(source.encode()).hexdigest()
+    return proof
 
 
 DAILY_REFUSAL_RUN = '41421209814-1'
@@ -1605,7 +1744,9 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         proved = []
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
-            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
+            generic = owner not in pinned_routine_owners() and generic_cancelled_candidate(state, cycle)
+            if (owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN}
+                    and not generic) or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
             if owner == PREATTACH_RUN:
                 establish_preattach_disposition(args, state, cycle, deadline)
@@ -1615,6 +1756,14 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
                 prove = lambda: daily_refusal_proof(state, cycle, deadline)
             if owner == PREATTACH_RUN:
                 prove = lambda: preattach_proof(state, cycle, deadline)
+            if generic:
+                def prove() -> dict[str, Any] | None:
+                    # An unproved generic owner simply stays authoritative; the
+                    # ordinary owner check that follows still refuses.
+                    try:
+                        return generic_cancelled_proof(args, state, cycle, deadline)
+                    except (SystemExit, ValueError, KeyError, TypeError):
+                        return None
             proof = prove()
             if proof is None:
                 continue
@@ -1625,11 +1774,16 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} else 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} or generic else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
             if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
                 validate_cancelled_phase1_resolution(resolution, cycle, verify_receipt=False)
+            if generic:
+                try:
+                    validate_generic_cancelled_resolution(resolution, cycle, verify_receipt=False)
+                except SystemExit:
+                    continue  # unproved: the owner stays authoritative
             if owner == DAILY_REFUSAL_RUN:
                 validate_daily_refusal_resolution(resolution, cycle, verify_receipt=False)
             if owner == PREATTACH_RUN:

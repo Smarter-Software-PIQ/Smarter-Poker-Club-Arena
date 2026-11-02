@@ -956,7 +956,13 @@ raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.
     promise_args=(--promise-floor-proof "$proof")
   fi
   if [ "$LOCK_HELD" != 1 ]; then acquire_engine_lock 'routine window binding'; took=1; fi
-  source_target_is_current
+  # This runs inside command substitutions (legacy_checkpoint_countdown and
+  # maintenance_certificate return their value on stdout). A forward target
+  # behind main prints ENGINE_RELEASE_SUPERSEDED_BY on stdout; captured, it
+  # became part of the break-end epoch and killed the owner at its own
+  # window ("unbound variable" / "integer expression expected") after the
+  # announcement, wedging every later release. Keep stdout clean here.
+  source_target_is_current >&2
   bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID" "${promise_args[@]}")" || rc=$?
   if [ "$took" = 1 ]; then release_engine_lock; fi
   [ "$rc" = 0 ] || return "$rc"
