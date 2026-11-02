@@ -33,6 +33,118 @@ def kernel_evidence(owner='unknown'):
             else {'stage':'snapshot','code':'unproved'})
 
 
+
+class RetainedFirstRefusalTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(prefix='retained-refusal-',dir=os.environ.get('TMPDIR'))
+        self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name)
+        self.control='b'*40
+        self.generations=self.root/'generations'
+        self.generation=self.generations/self.control
+        self.generation.mkdir(parents=True,mode=0o700)
+        for name in R.RETAINED_REFUSAL_SOURCES:
+            (self.generation/name).write_bytes((ROOT/'server/scripts'/name).read_bytes())
+        self.requests=self.root/'engine-release-requests';self.requests.mkdir(mode=0o700)
+        self.pins=self.root/'engine-release-generation-pins';self.pins.mkdir(mode=0o700)
+        self.request={'mode':'retained_first_refusal','runKey':'123-1','releaseSha':'a'*40,'controlSha':self.control}
+        self.request_path=self.requests/'123-1.request';self.pin_path=self.pins/'123-1.generation'
+        url='https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/runs/123'
+        self.request_path.write_text('a'*40+'\n'+url+'\nPRIVATE_ACTOR_DO_NOT_EXPORT\n'+str(self.generation)+'\n'+self.control+'\n1999999999\n')
+        self.pin_path.write_text(str(self.generation)+'\n'+self.control+'\n')
+        self.request_path.chmod(0o600);self.pin_path.chmod(0o600)
+        self.env={**os.environ,'ENGINE_RELEASE_STATE_DIR':str(self.root),'PYTHONDONTWRITEBYTECODE':'1'}
+        self.args=['python3','-B',str(ROOT/'server/scripts/engine-release-seal.py'),'diagnostic-first-refusal',
+            '--run-id','123-1','--sha','a'*40,'--control-sha',self.control,'--invocation-id','c'*32,
+            '--generation',str(self.generation),'--request',str(self.request_path),'--pin',str(self.pin_path),
+            '--run-url',url,'--origin','die','--exit-code','37']
+        for name,value in [('STATE_ROOT',self.root),('RETAINED_REFUSAL_GENERATIONS',self.generations)]:
+            patcher=patch.object(R,name,value);patcher.start();self.addCleanup(patcher.stop)
+        self.record=self.root/'engine-release-diagnostics/123-1.first-refusal.json'
+
+    def produce(self,attempt=False):
+        # Producer CLI/atomic fsync/trap behavior is separately enforced by the
+        # 13-case native wrapper. These independently assembled schema fixtures
+        # exercise the read-only parser without six repeated CLI startups.
+        binding={'runId':'123-1','targetSha':'a'*40,'controlSha':self.control,
+            'generation':str(self.generation),'requestSha256':hashlib.sha256(self.request_path.read_bytes()).hexdigest(),
+            'pinSha256':hashlib.sha256(self.pin_path.read_bytes()).hexdigest(),
+            'transactionSha256':R.RETAINED_REFUSAL_SOURCES['engine-release-transaction.sh'],
+            'producerSha256':R.RETAINED_REFUSAL_SOURCES['engine-release-seal.py']}
+        envelope={'diagnosticOnly':True,'binding':binding,'invocationId':'c'*32,'observedAt':'2026-11-02T16:12:13+00:00'}
+        directory=self.record.parent;directory.mkdir(mode=0o700)
+        original_attempt={**envelope,'schema':'engine-release-attempt/v1',
+            'terminalObservation':'UNKNOWN_UNTIL_FIRST_REFUSAL_OR_CANONICAL_RESULT'}
+        target=directory/('123-1.attempt-'+'c'*32+'.json')
+        target.write_text(json.dumps(original_attempt));target.chmod(0o600)
+        if attempt:return
+        state={k:'UNKNOWN' for k in ('checkpointRequired','drainedCutover','prepared','mutationStarted','lockHeld',
+            'checkpointBudgetSeconds','checkpointWorkMs','checkpointProfile','predecessorSha','certificateExitStatus','breakEndEpoch')}
+        value={**envelope,'schema':'engine-release-first-refusal/v1','origin':'die','stage':'UNKNOWN','exitCode':37,
+            'signal':'UNKNOWN','sourceLine':0,'sourceLineSha256':None,'command':'SOURCE_LINE_ONLY_NOT_ARGV',
+            'knownStateDigests':{k:None for k in ('seal','checkpointIntent','breakDeadline','awaitingCertificate')},
+            'checkpointPath':str(self.request_path.with_suffix('.legacy-checkpoint-intent')),'shellState':state,
+            'predecessor':{'selectedSha':'UNKNOWN','sealSha256':None},
+            'certificate':{'exitStatus':'UNKNOWN','breakEndEpoch':'UNKNOWN','deadlineSha256':None,'awaitingMarkerSha256':None}}
+        self.record.write_text(json.dumps(value));self.record.chmod(0o600)
+
+    def read(self):
+        with patch.object(R.subprocess,'run',side_effect=AssertionError('no command execution')):
+            return R.remote(self.request)
+
+    def test_retained_selector_is_exact(self):
+        self.assertEqual(R.selection(self.request),self.request)
+        for key,value in [('extra','path'),('controlSha','../escape'),('runKey','123'),('releaseSha','BAD')]:
+            wrong={**self.request,key:value}
+            with self.assertRaises(ValueError):R.selection(wrong)
+
+    def test_retained_read_after_cleanup_closed_projection_no_execution(self):
+        self.produce();self.request_path.unlink();self.pin_path.unlink()
+        before=self.record.read_bytes()
+        answer=self.read()
+        self.assertEqual(answer['observation'],'first_refusal_observed')
+        self.assertEqual(answer['exitCode'],37)
+        self.assertEqual(R.validate_reply(answer,self.request),answer)
+        serialized=json.dumps(answer)
+        for forbidden in ['PRIVATE_ACTOR','checkpointPath','generation/','/usr/local/','requestSha256']:
+            self.assertNotIn(forbidden,serialized)
+        self.assertEqual(self.record.read_bytes(),before)
+        self.assertLess(len(serialized.encode()),8192)
+
+    def test_retained_attempt_only_is_unknown_not_terminal(self):
+        self.produce(attempt=True);self.request_path.unlink();self.pin_path.unlink()
+        answer=self.read()
+        self.assertEqual(answer['observation'],'unknown_no_first_refusal')
+        self.assertEqual(answer['attemptCount'],0)
+        self.assertIsNone(answer['exitCode'])
+        self.assertTrue(answer['diagnosticOnly'])
+
+    def test_retained_corrupt_private_symlink_and_source_refuse(self):
+        self.produce();original=self.record.read_bytes()
+        self.record.chmod(0o644)
+        with self.assertRaises(ValueError):self.read()
+        self.record.chmod(0o600);self.record.write_text('{}')
+        with self.assertRaises(ValueError):self.read()
+        self.record.unlink();self.record.symlink_to(self.request_path)
+        with self.assertRaises(OSError):self.read()
+        self.record.unlink();self.record.write_bytes(original);self.record.chmod(0o600)
+        (self.generation/'engine-release-seal.py').write_text('untrusted code must not execute')
+        with self.assertRaises(ValueError):self.read()
+
+    def test_retained_deadline_and_export_tampering_refuse(self):
+        self.produce()
+        with patch.object(R.time,'monotonic',side_effect=[0,6]):
+            with self.assertRaises(ValueError):self.read()
+        answer=self.read()
+        for key,value in [('exitCode',0),('stage','raw secret text'),('extra','/secret'),('signal','SIGKILL')]:
+            with self.assertRaises(ValueError):R.validate_reply({**answer,key:value},self.request)
+
+    def test_retained_exact_original_attempt_is_required(self):
+        self.produce()
+        (self.record.parent/('123-1.attempt-'+'c'*32+'.json')).unlink()
+        with self.assertRaises((ValueError,FileNotFoundError)):self.read()
+
+
 class ServingRoleTests(unittest.TestCase):
     def test_pending_retains_exact_expired_announcement_causes(self):
         unit = {'activeState':'activating','subState':'start','invocationId':'a'*32}
