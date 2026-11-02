@@ -173,6 +173,24 @@ describe('cross-version bootstrap compatibility contract (Phase 2)', () => {
     expect(rem138Res.status, rem138Res.stderr || rem138Res.stdout).toBe(0);
     expect(rem138Res.stderr).toContain('Ran 6 tests');
     expect(rem138Res.stderr).toContain('OK');
+
+    // 7. Phase 5 Daily 04:00 Chicago schedule restoration, Attention14 closure & worktree cleanup verifier suite
+    const phase5Res = spawnSync(
+      'python3',
+      [
+        '-B',
+        resolve(ROOT, 'tests/operations/verify-phase5-completion-and-daily-restoration.test.py'),
+      ],
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 15_000,
+      }
+    );
+    expect(phase5Res.error).toBeUndefined();
+    expect(phase5Res.status, phase5Res.stderr || phase5Res.stdout).toBe(0);
+    expect(phase5Res.stderr).toContain('Ran 6 tests');
+    expect(phase5Res.stderr).toContain('OK');
   });
 
   it('verifies the promise migration SHA-256 matches the immutable historical record', () => {
