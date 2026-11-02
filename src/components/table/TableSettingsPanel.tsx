@@ -34,9 +34,13 @@
  * stagger. The only thing that moved is the paint.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { type UserTableSettings, TABLE_SETTINGS_META } from '../../hooks/useUserTableSettings';
 import { useVIPStatus } from '../../hooks/useVIP';
+import {
+  describeAutoRunAllowance,
+  fetchRabbitHuntChargePreview,
+} from '../../services/rabbitHuntPricing';
 import { masterBus } from '../../core/MasterBus';
 import { ALL_IN_SQUEEZE_VIP_REQUIRED_MESSAGE } from '../../presentation/cardPresentation/squeezeEligibility';
 import { SpadeConsole } from '../console/SpadeConsole';
@@ -101,6 +105,22 @@ export function TableSettingsPanel({
 }: TableSettingsPanelProps) {
   const [visibleItems, setVisibleItems] = useState<Set<number>>(new Set());
   const { isVIP, isLoading: vipLoading } = useVIPStatus();
+  /* THE AUTO RUN ALLOWANCE, LIVE (2026-11-02): how many reveals are left, read
+     from fn_rabbit_hunt_charge_preview, so Auto Run never spends by surprise. */
+  const [rabbitAllowance, setRabbitAllowance] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isVIP) {
+      setRabbitAllowance(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchRabbitHuntChargePreview().then((p) => {
+      if (!cancelled) setRabbitAllowance(describeAutoRunAllowance(p));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVIP]);
 
   // Stagger animation on mount
   React.useEffect(() => {
@@ -177,6 +197,14 @@ export function TableSettingsPanel({
                   <span className="tsp-item__desc" id={descriptionId}>
                     {meta.description}
                   </span>
+                  {meta.key === 'auto_rabbit_hunt' && rabbitAllowance ? (
+                    <span
+                      className="tsp-item__desc tsp-item__allowance"
+                      data-testid="auto-rabbit-allowance"
+                    >
+                      {rabbitAllowance}
+                    </span>
+                  ) : null}
                 </span>
                 {/* THE STATE IS A WORD, NOT A PILL. The master paints no
                     switch, and a 999px green track with a white thumb is the

@@ -270,7 +270,7 @@ export const TABLE_SETTINGS_META: SettingMeta[] = [
     key: 'auto_rabbit_hunt',
     label: 'Auto Run Rabbit Hunt',
     description:
-      'Automatically Reveal The Run Out Every Time A Hand Ends Early. Each Reveal Is Charged Like A Tap. VIP Perk',
+      'Automatically Reveal The Run Out Every Time A Hand Ends Early. Each Reveal Uses Your Rabbit Hunts Like A Tap: Unlimited With Lifetime VIP, 100 A Month With VIP, Then Credits, Then Diamonds. VIP Perk',
     /* VIP-gated like all_in_squeeze, and deliberately NOT `quick`: the Hero
        Hub's quick list writes straight through toggleSetting with no VIP
        gate in front of it. */

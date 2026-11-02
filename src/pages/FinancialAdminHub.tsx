@@ -163,6 +163,13 @@ const NAV_ITEMS: Array<{
     staffOnly: true,
   },
   {
+    label: 'Rabbit Hunt Desk',
+    description: 'Correct One Rabbit Hunt Reveal Charge, Audited Under Your Name',
+    path: '/rabbit-hunt-desk',
+    tone: 'blue',
+    staffOnly: true,
+  },
+  {
     label: 'Drift Incidents',
     description: 'Ledger Drift Detection And 20-Minute Reconciliation Queue',
     path: '/financial-incidents',
