@@ -15,6 +15,9 @@ import {
   FILTER_ACTION,
   FILTER_CASES,
   FILTER_COMPONENT_PATHS,
+  MTT_ENTRIES_ACTION,
+  MTT_ENTRIES_CASES,
+  MTT_ENTRIES_COMPONENT_PATHS,
 } from '../../scripts/verification-harness/lobby-ui-proof.mjs';
 const sha = 'a'.repeat(40);
 const env = {
@@ -44,6 +47,57 @@ const report = () => ({
       })),
     },
   ],
+});
+
+describe('focused production MTT entries proof', () => {
+  const entryReport = () => ({
+    suites: [
+      {
+        specs: MTT_ENTRIES_CASES.map(({ file, title }) => ({
+          ...report().suites[0].specs[0],
+          file,
+          title,
+        })),
+      },
+    ],
+  });
+  const entryPin = () => ({
+    ...pin(),
+    action: MTT_ENTRIES_ACTION,
+    components: Object.fromEntries(MTT_ENTRIES_COMPONENT_PATHS.map((path) => [path, sha])),
+  });
+  it('admits only the fixed entry case and pins its counter through cleanup', () => {
+    expect(() =>
+      admitDispatch(env, { action: MTT_ENTRIES_ACTION, client_payload: {} })
+    ).not.toThrow();
+    expect(() =>
+      admitDispatch(env, { action: MTT_ENTRIES_ACTION, client_payload: { grep: 'other' } })
+    ).toThrow();
+    expect(assertCases(entryReport(), MTT_ENTRIES_ACTION)).toHaveLength(1);
+    const wrong = entryReport();
+    wrong.suites[0].specs[0].title = 'unrelated case';
+    expect(() => assertCases(wrong, MTT_ENTRIES_ACTION)).toThrow();
+    const cleanup = { verified: true, runId: '123' };
+    expect(() => assertPins(entryPin(), entryPin(), cleanup, MTT_ENTRIES_ACTION)).not.toThrow();
+    const missingCounter = entryPin();
+    delete missingCounter.components['src/hooks/useMttLobbyEntryCounts.ts'];
+    expect(() => assertPins(entryPin(), missingCounter, cleanup, MTT_ENTRIES_ACTION)).toThrow();
+  });
+  it('keeps the complete original filter selection and uses the same production account route', async () => {
+    const { readFileSync } = await import('node:fs');
+    const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
+    const block = workflow.slice(
+      workflow.indexOf('- name: Verify live MTT entries'),
+      workflow.indexOf('- name: Verify every lobby filter')
+    );
+    expect(FILTER_CASES).toHaveLength(9);
+    expect(block).toContain("if: github.event.action == 'verify-mtt-entries'");
+    expect(block).toContain(
+      "--grep 'live MTT entries match committed counts and Buy-In typography$'"
+    );
+    expect(block).toContain('--project=chromium --workers=1 --retries=0 --trace=off');
+    expect(workflow).toContain('cleanupProductionE2EAccount() !== true');
+  });
 });
 const pin = () => ({
   schema: 1,
@@ -185,6 +239,7 @@ it('keeps each closed mode limited to its owned browser journeys with cleanup', 
     'verify-spectator-notifications',
     'verify-tournament-favorites',
     'verify-lobby-filters',
+    MTT_ENTRIES_ACTION,
   ]);
   expect(workflow).toContain('npx playwright install --with-deps chromium webkit');
   expect(readFileSync('tests/e2e/production-mobile-lobby-chrome.spec.ts', 'utf8')).toContain(
