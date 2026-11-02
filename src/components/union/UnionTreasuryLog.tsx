@@ -7,9 +7,9 @@
  *
  * Reads fn_union_treasury_log (migration 20261102063939). Every out is its own
  * row. Routine collection (rake, jackpot drops, spin entries, the jackpot
- * promo sweep, overlay returns) arrives as ONE "Daily Total Collected" row per
+ * promo sweep) arrives as ONE "Daily Total Collected" row per
  * Chicago day, with its breakdown. One-off credits (transfers, settlements,
- * seeds) are listed individually because they are decisions, not collection.
+ * seeds, overlay returns) are listed individually because they are decisions, not collection.
  * Today's collection is still running, so it is shown as a live figure at the
  * top instead of a row; its row appears once the day closes.
  */
@@ -19,6 +19,7 @@ import { reportError } from '../../utils/errorReporter';
 import { fmt } from '../../utils/format';
 import { exactChipFigure } from '../../utils/cashierAmount';
 import { enumToTitleCase, titleCase } from '../../utils/titleCase';
+import { downloadCsv, toCsv } from '../../utils/downloadCsv';
 import { WalletDeskHeading, WalletDeskRow } from '../wallet/WalletDesk';
 
 export type TreasuryLogWallet =
@@ -124,11 +125,6 @@ function counterparty(r: LogRow): string {
   return '';
 }
 
-function csvCell(v: unknown): string {
-  const s = v == null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
 export function UnionTreasuryLog({
   unionId,
   wallet,
@@ -204,7 +200,7 @@ export function UnionTreasuryLog({
   }, [load]);
 
   const exportCsv = () => {
-    const head = [
+    const header = [
       'Date',
       'Type',
       'Category',
@@ -216,29 +212,19 @@ export function UnionTreasuryLog({
       'Balance After',
       'Notes',
     ];
-    const lines = rows.map((r) =>
-      [
-        r.entry_kind === 'daily_in' ? r.log_day : r.occurred_at,
-        r.entry_kind === 'out' ? 'Out' : r.entry_kind === 'daily_in' ? 'Daily In' : 'In',
-        r.entry_kind === 'daily_in' ? 'Daily Total Collected' : categoryName(r.category),
-        r.entry_kind === 'out' ? -Number(r.amount) : Number(r.amount),
-        r.entries,
-        counterparty(r),
-        r.club_name ?? '',
-        r.performed_by_name ?? '',
-        r.balance_after ?? '',
-        r.description ?? '',
-      ]
-        .map(csvCell)
-        .join(',')
-    );
-    const blob = new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${walletLabel.replace(/\s+/g, '-').toLowerCase()}-log.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const body = rows.map((r) => [
+      r.entry_kind === 'daily_in' ? r.log_day : r.occurred_at,
+      r.entry_kind === 'out' ? 'Out' : r.entry_kind === 'daily_in' ? 'Daily In' : 'In',
+      r.entry_kind === 'daily_in' ? 'Daily Total Collected' : categoryName(r.category),
+      r.entry_kind === 'out' ? -Number(r.amount) : Number(r.amount),
+      r.entries,
+      counterparty(r),
+      r.club_name ?? '',
+      r.performed_by_name ?? '',
+      r.balance_after ?? '',
+      r.description ?? '',
+    ]);
+    downloadCsv(`${walletLabel.replace(/\s+/g, '-').toLowerCase()}-log.csv`, toCsv(header, body));
   };
 
   const todayIn = Number(summary?.today_in?.amount ?? 0);
