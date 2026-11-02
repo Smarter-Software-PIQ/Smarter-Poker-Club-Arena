@@ -306,21 +306,50 @@ class VerifyRemaining138SettlementsTests(unittest.TestCase):
             if e["tournament_id"] == "0fc27b7b-4290-4e73-8680-9791e021f114"
         )
         diamond_ev["ledger_proof"]["ca_mint_house_mint_amount"] = "2799"
+        diamond_ev["ledger_proof"]["positive_bounty_legs"] = 0
         diamond_ev["pending_custody_rows"] = 1
         diamond_ev["open_guarantee_earmark"] = 500
         diamond_ev["hand_dispositions"]["reserved_permits_remaining"] = 1
         diamond_ev["runtime_retirement"]["runtime_retired"] = False
+        diamond_ev["allocation_hash"] = ""
+        diamond_ev["receipt"]["allocation_hash"] = ""
         snap["prior_awards_and_closures_after"]["diamond_prior_bounty_sum"] = "7800"
 
         res = verifier.verify_remaining_138_postsettle(snap)
         self.assertFalse(res["ok"])
         joined = " | ".join(res["errors"])
         self.assertIn("ca_mint_ledger house mint", joined)
+        self.assertIn("share-derived legs", joined)
+        self.assertIn("missing recorded allocation_hash", joined)
         self.assertIn("unreleased custody", joined)
         self.assertIn("open_guarantee_earmark", joined)
         self.assertIn("reserved_permits_remaining=1", joined)
         self.assertIn("equal_share_runtime_retired", joined)
         self.assertIn("prior_awards_and_closures_after", joined)
+
+    def test_combined_prize_bounty_share_allocation_hash_matches_pko_diamond_events(self) -> None:
+        # Verify combined prize + bounty split on all 3 PKO Diamond events (0fc27b7b, 28fd0051, e287e6b9)
+        for tid, exp_p, exp_b, exp_cnt in (
+            ("0fc27b7b-4290-4e73-8680-9791e021f114", Decimal("20000"), Decimal("1350"), 58),
+            ("28fd0051-32fa-408d-950e-3a556c5979b2", Decimal("15000"), Decimal("8325"), 61),
+            ("e287e6b9-630d-4f2e-a205-d21841a490d8", Decimal("30000"), Decimal("12825"), 84),
+        ):
+            players = [
+                {
+                    "registration_id": f"{tid[:8]}-reg-{idx:04d}",
+                    "user_id": f"{tid[:8]}-usr-{idx:04d}",
+                    "registered_at": f"2026-10-30T12:{idx // 60:02d}:{idx % 60:02d}Z",
+                }
+                for idx in range(1, exp_cnt + 1)
+            ]
+            shares, md5_hash = verifier.compute_equal_shares_for_event(
+                tid, "diamonds", exp_p, exp_b, players
+            )
+            self.assertEqual(len(shares), exp_cnt)
+            self.assertEqual(sum(Decimal(str(s["prize"])) for s in shares), exp_p)
+            self.assertEqual(sum(Decimal(str(s["bounty"])) for s in shares), exp_b)
+            self.assertEqual(sum(Decimal(str(s["amount"])) for s in shares), exp_p + exp_b)
+            self.assertEqual(len(md5_hash), 32)
 
     def test_cli_preflight_and_postsettle_exit_zero(self) -> None:
         script_path = REPO_ROOT / "scripts" / "operations" / "verify_remaining_138_settlements.py"

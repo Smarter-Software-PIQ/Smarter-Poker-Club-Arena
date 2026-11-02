@@ -33,6 +33,7 @@ EXCLUDED_MYSTERY_BOUNTY_ID = "16761305-83ad-4282-be72-5b9cb2dd88bc"
 DIAMOND_ARENA_CLUB_ID = "002c2d27-9584-4e52-835a-bb2be148fc81"
 DIAMOND_HOUSE_HOLDER_ID = "00000000-0000-0000-0000-00000000d1a0"
 CHIP_UNION_ID = "fade0000-0000-0000-0000-000000000001"
+EXPECTED_SETTLE_FUNCTION_MD5 = "ef3c8122a5fccc4f90630c1672080240"
 DIAMOND_FREEBUY_ZERO_FEE_IDS = frozenset({
     "10146b16-aaac-4606-a2aa-7bbc3863b750",
     "6429087f-a9d1-49a3-b7cf-85e1ee283ac9",
@@ -1764,20 +1765,6 @@ def _dec(value: Any) -> Decimal:
     return Decimal(str(value))
 
 
-def _pg_numeric_div_100_json_number(units: int) -> int | float:
-    """Match PostgreSQL numeric / 100 jsonb_build_object number formatting."""
-    if units % 100 == 0:
-        return units // 100
-    return Decimal(units) / Decimal(100)
-
-
-class _PgNumericJsonEncoder(json.JSONEncoder):
-    def default(self, o: Any) -> Any:
-        if isinstance(o, Decimal):
-            return float(o)
-        return super().default(o)
-
-
 def format_pg_jsonb_shares(shares: Sequence[Mapping[str, Any]], asset: str) -> str:
     """Serialize financial->'shares' with exact PostgreSQL jsonb::text formatting."""
     unit_scale = 1 if asset == "diamonds" else 100
@@ -2234,8 +2221,13 @@ def verify_remaining_138_postsettle(snapshot: Mapping[str, Any]) -> dict[str, An
             errors.append(f"Event {tid} receipt.mode must be 'started_operator_equal_share', got {receipt.get('mode')}")
         if str(receipt.get("operation_id", "")) != exp_op_id:
             errors.append(f"Event {tid} receipt.operation_id mismatch")
-        if int(receipt.get("eligible_Reset_count", receipt.get("eligible_player_count", -1))) != exp_players:
+        if int(receipt.get("eligible_player_count", -1)) != exp_players:
             errors.append(f"Event {tid} receipt eligible_player_count mismatch: expected {exp_players}")
+        pre_abort_roster = receipt.get("pre_abort_roster")
+        if pre_abort_roster is not None and (not isinstance(pre_abort_roster, list) or len(pre_abort_roster) < exp_players):
+            errors.append(f"Event {tid} receipt.pre_abort_roster must preserve at least {exp_players} rows")
+        if int(ev.get("preactivation_mystery_cache_remaining", 0)) != 0:
+            errors.append(f"Event {tid} has unretired preactivation_mystery_cache_remaining")
 
         fin = receipt.get("financial", {})
         if str(fin.get("asset", "")) != asset:
@@ -2252,35 +2244,45 @@ def verify_remaining_138_postsettle(snapshot: Mapping[str, Any]) -> dict[str, An
             errors.append(f"Event {tid} total_rake_after must equal total_rake_before")
 
         shares = fin.get("shares")
-        if isinstance(shares, list):
-            if len(shares) != exp_players:
-                errors.append(f"Event {tid} shares length mismatch: expected {exp_players}, got {len(shares)}")
+        if not isinstance(shares, list) or len(shares) != exp_players:
+            errors.append(f"Event {tid} financial.shares must be a list of length {exp_players}")
+        else:
             computed_md5 = compute_pg_shares_md5(shares, asset)
-            recorded_md5 = str(ev.get("allocation_hash") or receipt.get("allocation_hash") or computed_md5)
-            if computed_md5 != recorded_md5:
+            recorded_md5 = str(ev.get("allocation_hash") or receipt.get("allocation_hash") or "")
+            if not recorded_md5:
+                errors.append(f"Event {tid} missing recorded allocation_hash")
+            elif computed_md5 != recorded_md5:
                 errors.append(f"Event {tid} allocation_hash mismatch: computed {computed_md5} != recorded {recorded_md5}")
             sum_share_prize = sum((_dec(s.get("prize")) for s in shares), Decimal("0"))
             sum_share_bounty = sum((_dec(s.get("bounty")) for s in shares), Decimal("0"))
             sum_share_amount = sum((_dec(s.get("amount")) for s in shares), Decimal("0"))
             if sum_share_prize != exp_prize or sum_share_bounty != exp_bounty or sum_share_amount != exp_total:
                 errors.append(f"Event {tid} shares sum mismatch vs escrow pre-image")
-        else:
-            if not ev.get("allocation_hash"):
-                errors.append(f"Event {tid} missing shares list and allocation_hash")
 
         # Ledger & credit receipt verification per asset
         ledger = ev.get("ledger_proof", {})
-        pos_prize_legs = int(ledger.get("positive_prize_legs", exp_players if exp_prize > 0 else 0))
-        pos_bounty_legs = int(ledger.get("positive_bounty_legs", exp_players if exp_bounty > 0 else 0))
-        expected_credit_legs = pos_prize_legs + pos_bounty_legs
+        if isinstance(shares, list) and len(shares) == exp_players:
+            calc_pos_prize_legs = sum(1 for s in shares if _dec(s.get("prize")) > 0)
+            calc_pos_bounty_legs = sum(1 for s in shares if _dec(s.get("bounty")) > 0)
+        else:
+            calc_pos_prize_legs = exp_players if exp_prize > 0 else 0
+            calc_pos_bounty_legs = exp_players if exp_bounty > 0 else 0
+
+        pos_prize_legs = int(ledger.get("positive_prize_legs", calc_pos_prize_legs))
+        pos_bounty_legs = int(ledger.get("positive_bounty_legs", calc_pos_bounty_legs))
+        if pos_prize_legs != calc_pos_prize_legs or pos_bounty_legs != calc_pos_bounty_legs:
+            errors.append(
+                f"Event {tid} positive_prize_legs/positive_bounty_legs ({pos_prize_legs}/{pos_bounty_legs}) != share-derived legs ({calc_pos_prize_legs}/{calc_pos_bounty_legs})"
+            )
+        expected_credit_legs = calc_pos_prize_legs + calc_pos_bounty_legs
 
         if int(ledger.get("wallet_credit_idempotency_rows", -1)) != expected_credit_legs:
             errors.append(
                 f"Event {tid} wallet_credit_idempotency_rows ({ledger.get('wallet_credit_idempotency_rows')}) != expected_credit_legs ({expected_credit_legs})"
             )
-        if int(ledger.get("equal_share_payout_rows", -1)) != pos_prize_legs:
+        if int(ledger.get("equal_share_payout_rows", -1)) != calc_pos_prize_legs:
             errors.append(
-                f"Event {tid} tournament_payouts rows ({ledger.get('equal_share_payout_rows')}) != positive_prize_legs ({pos_prize_legs})"
+                f"Event {tid} tournament_payouts rows ({ledger.get('equal_share_payout_rows')}) != positive_prize_legs ({calc_pos_prize_legs})"
             )
         if _dec(ledger.get("equal_share_payout_sum")) != exp_prize:
             errors.append(

@@ -171,7 +171,7 @@ describe('cross-version bootstrap compatibility contract (Phase 2)', () => {
     );
     expect(rem138Res.error).toBeUndefined();
     expect(rem138Res.status, rem138Res.stderr || rem138Res.stdout).toBe(0);
-    expect(rem138Res.stderr).toContain('Ran 5 tests');
+    expect(rem138Res.stderr).toContain('Ran 6 tests');
     expect(rem138Res.stderr).toContain('OK');
   });
 
