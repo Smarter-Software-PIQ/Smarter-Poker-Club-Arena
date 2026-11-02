@@ -214,11 +214,11 @@ describe('waiting-game tabs default to the current player count', () => {
     }
   );
 
-  it('keeps Recommended for MTT and cash variants', () => {
-    for (const tab of ['MTT', 'HOLDEM', 'OMAHA', 'LIMIT', 'MIXED'] as const) {
-      expect(sortForTab(EMPTY_VIEW_PREFS, tab)).toBe('recommended');
+  it('keeps MTT Recommended and defaults every cash tab to highest stakes', () => {
+    expect(sortForTab(EMPTY_VIEW_PREFS, 'MTT')).toBe('recommended');
+    for (const tab of ['ALL', 'HOLDEM', 'OMAHA', 'LIMIT', 'MIXED'] as const) {
+      expect(sortForTab(EMPTY_VIEW_PREFS, tab)).toBe('stakes_high');
     }
-    expect(defaultSortForTab('ALL')).toBe('recommended');
   });
 });
 
@@ -255,11 +255,11 @@ it.each(['ALL', 'HOLDEM', 'OMAHA', 'LIMIT', 'MIXED'] as const)(
     });
     seed(raw);
     const prefs = loadViewPrefs(CLUB);
-    expect(prefs.sortByTab[tab]).toBe('recommended');
+    expect(prefs.sortByTab[tab]).toBe('stakes_high');
     expect(sortForTab({ ...prefs, sortByTab: { [tab]: 'starting_soon' } }, tab)).toBe(
-      'recommended'
+      'stakes_high'
     );
-    expect(prefs.sortByTab.ALL).toBe('recommended');
+    expect(prefs.sortByTab.ALL).toBe('stakes_high');
     expect(prefs.sortByTab.MTT).toBe('starting_soon');
     expect(prefs.sortByTab.SATELLITE).toBe('starting_soon');
     expect(localStorage.getItem(KEY)).toBe(raw);
