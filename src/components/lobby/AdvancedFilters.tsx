@@ -28,6 +28,7 @@ import { awaitPreferenceSave } from '../../lib/tableSettingIntents';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { holdShellReload } from '../../lib/shellReloadBlocker';
 import { createPortal } from 'react-dom';
 import {
   FILTER_SPECS,
@@ -427,6 +428,9 @@ export default function AdvancedFilters({
   onApply,
   sortOnly = false,
 }: AdvancedFiltersProps) {
+  // A deployed shell must not replace a sheet while the player is editing.
+  // All closing paths unmount this owner and release only its own lease.
+  useEffect(() => holdShellReload(), []);
   const [activeType, setActiveType] = useState<FilterGameType>(
     // ALL has no spec of its own; open on Hold'em, the first that does.
     initialType === 'ALL' ? 'HOLDEM' : initialType
