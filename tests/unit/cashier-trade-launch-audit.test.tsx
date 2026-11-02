@@ -500,8 +500,12 @@ describe('large cashier roster stays complete and progressively rendered', () =>
     expect(items.map((item) => item.user_id)).toEqual(state.roster.map((row) => row.user_id));
     expect(items.every((item) => item.amount === 0.2)).toBe(true);
     expect(new Set(items.map((item) => item.op_id)).size).toBe(26);
-    expect(screen.getByText('Confirmed Total: 5.20 Chips')).toBeInTheDocument();
-    expect(screen.getAllByText('Confirmed', { exact: true })).toHaveLength(26);
+    expect(screen.queryByRole('region', { name: 'Batch Transfer Receipt' })).toBeNull();
+    expect(
+      screen
+        .getAllByRole('checkbox', { name: /^Include / })
+        .every((box) => !(box as HTMLInputElement).checked)
+    ).toBe(true);
   });
 
   it('finds the last member across four server pages while initially mounting only 25 rows', async () => {
@@ -1444,7 +1448,7 @@ it('Phase 4: places the working roster before the read-only reconciliation repor
   expect(roster.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
-it('Phase 5: sends exact individual amounts and displays only the acknowledged total and references', async () => {
+it('sends exact individual amounts and resets the cashier after confirmation', async () => {
   state.roster = [player(0, 75), player(1, 50)];
   state.agentWallet = 0.3;
   state.batch = async (args) => ({
@@ -1466,10 +1470,19 @@ it('Phase 5: sends exact individual amounts and displays only the acknowledged t
   });
   expect(within(dialog).getByText(/Total: 0.30/)).toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
-  const receipt = await screen.findByRole('region', { name: 'Batch Transfer Receipt' });
-  expect(receipt).toHaveTextContent('Confirmed Total: 0.30 Chips');
-  expect(receipt).toHaveTextContent('Reference: receipt-0');
-  expect(receipt).toHaveTextContent('Reference: receipt-1');
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Send Out' })).toBeNull());
+  expect(screen.queryByRole('region', { name: 'Batch Transfer Receipt' })).toBeNull();
+  expect(
+    screen
+      .getAllByRole('checkbox', { name: /^Include / })
+      .every((box) => !(box as HTMLInputElement).checked)
+  ).toBe(true);
+  expect(toastMocks.success).toHaveBeenCalledWith(
+    expect.stringContaining('Sent 0.30 Total'),
+    undefined,
+    undefined,
+    expect.stringContaining('receipt-0')
+  );
   expect(
     state.rpcCalls.find((call) => call.name === 'fn_cashier_batch_transfer')?.args.p_items
   ).toEqual([
@@ -2368,5 +2381,42 @@ it.each(
         amount: 5,
       }),
     ]);
+  }
+);
+
+it.each(['send', 'ticket'] as const)(
+  'returns to the cashier start after a confirmed %s, with fresh keys for the next send',
+  async (kind) => {
+    state.roster = [player(0, 75), player(1, 50)];
+    mountCashier();
+    await synchronized();
+    fireEvent.change(screen.getByRole('searchbox', { name: /Search .*Members/ }), {
+      target: { value: 'Player 1' },
+    });
+    const dialog = await openSendOut('10', 1);
+    if (kind === 'ticket') {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Send Ticket', exact: true }));
+      await chooseTournament(dialog);
+    }
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByRole('searchbox', { name: /Search .*Members/ })).toHaveValue('');
+    expect(screen.queryByRole('region', { name: 'Batch Transfer Receipt' })).toBeNull();
+    expect(
+      screen.queryByText('Unconfirmed Outcomes Must Be Verified Before Starting A New Transfer.')
+    ).toBeNull();
+    expect(screen.getAllByRole('checkbox', { name: /^Include / })).toHaveLength(2);
+    for (const box of screen.getAllByRole('checkbox', { name: /^Include / }))
+      expect(box).not.toBeChecked();
+    expect(readCashierTransferRecovery(USER_ID, CLUB_A)).toBeNull();
+    const next = await openSendOut('10', 1);
+    fireEvent.click(within(next).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const calls = state.rpcCalls.filter((call) => call.name === 'fn_cashier_batch_transfer');
+    expect(calls).toHaveLength(2);
+    expect(calls[1].args.p_batch_id).not.toBe(calls[0].args.p_batch_id);
+    expect((calls[1].args.p_items as any[])[0].op_id).not.toBe(
+      (calls[0].args.p_items as any[])[0].op_id
+    );
   }
 );
