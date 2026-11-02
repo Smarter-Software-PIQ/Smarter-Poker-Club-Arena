@@ -343,6 +343,30 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             repo=str(self.root), sha=B_SHA, control_sha=B_SHA, run_id='888000444-1')))
         self.assertEqual(seal.load_state()['routineMaintenanceCycles'], state['routineMaintenanceCycles'])
 
+    def test_canonical_routine_observation_reports_the_recorded_terminal_owner(self):
+        import shutil
+        self.assertEqual(self.resolve(), DEAD_RUN)
+        root = self.root / 'observer-root'
+        results = root / 'engine-release-results'
+        results.mkdir(parents=True)
+        os.chmod(root, 0o700); os.chmod(results, 0o700)
+        shutil.copyfile(seal.STATE_FILE, root / 'engine-release-seal.json')
+        for source in (seal.result_path(DEAD_RUN), seal.terminal_receipt_path(DEAD_RUN, LIVE_RUN, INVOCATION)):
+            shutil.copyfile(source, results / source.name)
+        for path in [root / 'engine-release-seal.json', *results.iterdir()]:
+            os.chmod(path, 0o600)
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        reply = observer.routine_remote(observer.ROUTINE_REQUEST, fd)
+        observer.validate_routine_reply(reply, observer.ROUTINE_REQUEST)
+        [row] = [r for r in reply['owners'] if r['runId'] == DEAD_RUN]
+        self.assertTrue(row['failureResolution']['present'])
+        self.assertFalse(row['unresolvedOwner'])
+        # Removing the receipt makes the canonical observation refuse rather than guess.
+        (results / seal.terminal_receipt_path(DEAD_RUN, LIVE_RUN, INVOCATION).name).unlink()
+        with self.assertRaises((ValueError, FileNotFoundError)):
+            observer.routine_remote(observer.ROUTINE_REQUEST, fd)
+
     def test_recorded_resolution_must_match_its_original_cycle_exactly(self):
         self.assertEqual(self.resolve(), DEAD_RUN)
         good = seal.load_state()
