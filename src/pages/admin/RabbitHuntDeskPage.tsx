@@ -178,7 +178,7 @@ export default function RabbitHuntDeskPage() {
               className="admin-input"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Username, Player Number Or Id"
+              placeholder="Username, Player Number Or ID"
               aria-label="Player"
             />
           </label>
