@@ -77,7 +77,9 @@ def load_original(folder):
     return helper, native, planner
 
 
-PACKAGE_SCHEMA = 'native-perf-package-readback/v2'
+PACKAGE_SCHEMA = 'native-perf-package-readback/v3'
+STATUS_ROW_REASONS = frozenset(('not_observed', 'verified', 'malformed_fields', 'non_ascii',
+    'unsupported_architecture', 'duplicate', 'status_malformed', 'version_missing', 'version_malformed'))
 QUERY_STAGES = {
     'tool_metadata': frozenset(('tool_missing', 'tool_untrusted', 'tool_not_executable', 'tool_unknown')),
     'command': frozenset(('command_nonzero', 'command_bound', 'command_timeout', 'command_unavailable')),
@@ -89,26 +91,66 @@ QUERY_COMMANDS = {'status': 'package_status', 'policy': 'unproven', 'audit': 'pa
 
 def empty_query(kind, names):
     rows = [] if kind == 'audit' else [dict(package=name, verified=False,
-        **({'status': 'unknown', 'installedVersion': None} if kind == 'status' else {'candidateVersion': None})) for name in names]
+        **({'status': 'unknown', 'installedVersion': None, 'reason': 'not_observed'} if kind == 'status' else {'candidateVersion': None})) for name in names]
     return {'verified': False, 'stage': 'tool_metadata', 'reason': 'tool_unknown',
         'commandFailure': None, 'rows': rows, 'auditClean': None}
 
 
-def status_rows(raw, names, version_pattern):
+def status_result(raw, names, version_pattern):
     rows = empty_query('status', names)['rows']
     indexed = {row['package']: row for row in rows}
-    seen = set()
-    for line in raw.decode('ascii').splitlines():
-        parts = line.split('\t')
-        if len(parts) != 3:
-            refuse()
-        name, state, version = parts
-        name = name.removesuffix(':amd64')
-        if name not in indexed or name in seen or not version_pattern.fullmatch(version) or not re.fullmatch(r'(?:unknown|install|hold|deinstall|purge) (?:ok|reinstreq) (?:not-installed|config-files|half-installed|unpacked|half-configured|triggers-awaited|triggers-pending|installed)', state):
-            refuse()
-        seen.add(name)
-        indexed[name].update(verified=True, status='installed' if state == 'install ok installed' else 'other', installedVersion=version)
-    return rows
+    seen, malformed = set(), False
+    # One bad fixed-package row must not erase unrelated validated facts.
+    # Unknown names are never exported or treated as allowlisted absence.
+    lines = raw.split(b'\n')
+    if lines[-1:] == [b'']:
+        lines.pop()
+    for raw_line in lines:
+        raw_name = raw_line.split(b'\t', 1)[0]
+        try:
+            label = raw_name.decode('ascii')
+        except UnicodeError:
+            malformed = True
+            continue
+        name, separator, architecture = label.partition(':')
+        if name not in indexed:
+            malformed = True
+            continue
+        row = indexed[name]
+        reason = None
+        if name in seen:
+            reason = 'duplicate'
+        else:
+            seen.add(name)
+            if separator and architecture != 'amd64':
+                reason = 'unsupported_architecture'
+            try:
+                parts = raw_line.decode('ascii').split('\t')
+            except UnicodeError:
+                parts = []
+                reason = reason or 'non_ascii'
+            if len(parts) != 3:
+                reason = reason or 'malformed_fields'
+            elif reason is None:
+                _, state, version = parts
+                if not re.fullmatch(r'(?:unknown|install|hold|deinstall|purge) (?:ok|reinstreq) (?:not-installed|config-files|half-installed|unpacked|half-configured|triggers-awaited|triggers-pending|installed)', state):
+                    reason = 'status_malformed'
+                elif not version:
+                    # No absent-state inference without independently qualified
+                    # dpkg semantics; empty versions remain explicit UNKNOWN.
+                    reason = 'version_missing'
+                elif not version_pattern.fullmatch(version):
+                    reason = 'version_malformed'
+                else:
+                    row.update(verified=True, reason='verified', status='installed' if state == 'install ok installed' else 'other', installedVersion=version)
+        if reason is not None:
+            malformed = True
+            row.update(verified=False, reason=reason, status='unknown', installedVersion=None)
+    return rows, malformed
+
+
+def status_rows(raw, names, version_pattern):
+    return status_result(raw, names, version_pattern)[0]
 
 
 def policy_rows(raw, names, version_pattern):
@@ -191,11 +233,14 @@ def package_query(helper, native, planner, kind, names, args):
         value.update(verified=True, stage='complete', reason='verified', auditClean=not bool(result.stdout))
         return value
     try:
-        parsed = status_rows(result.stdout, names, planner.DEBIAN_VERSION) if kind == 'status' else policy_rows(result.stdout, names, planner.DEBIAN_VERSION)
+        parsed, malformed = status_result(result.stdout, names, planner.DEBIAN_VERSION) if kind == 'status' else (policy_rows(result.stdout, names, planner.DEBIAN_VERSION), False)
     except (ValueError, UnicodeError, TypeError):
         value.update(stage='parse', reason=kind + '_malformed')
         return value
     value['rows'] = parsed
+    if malformed:
+        value.update(stage='parse', reason='status_malformed')
+        return value
     if value['commandFailure'] is not None:
         return value
     complete = all(row['verified'] for row in parsed)
@@ -259,13 +304,15 @@ def valid_package_report(value, planner, helper):
         if query['auditClean'] is not None or len(query['rows']) != len(names):
             return False
         for row, name in zip(query['rows'], names):
-            expected = {'package', 'verified', 'status', 'installedVersion'} if kind == 'status' else {'package', 'verified', 'candidateVersion'}
+            expected = {'package', 'verified', 'status', 'installedVersion', 'reason'} if kind == 'status' else {'package', 'verified', 'candidateVersion'}
             if not isinstance(row, dict) or set(row) != expected or row['package'] != name or type(row['verified']) is not bool:
                 return False
             version = row['installedVersion'] if kind == 'status' else row['candidateVersion']
             if version is not None and (not isinstance(version, str) or not planner.DEBIAN_VERSION.fullmatch(version)):
                 return False
             if kind == 'status':
+                if not isinstance(row['reason'], str) or row['reason'] not in STATUS_ROW_REASONS or row['verified'] != (row['reason'] == 'verified'):
+                    return False
                 if row['verified'] and (row['status'] not in ('installed', 'other') or version is None):
                     return False
                 if not row['verified'] and (row['status'] != 'unknown' or version is not None):
@@ -276,8 +323,9 @@ def valid_package_report(value, planner, helper):
             return False
         # Only a successfully parsed partial status/policy output can carry
         # positive rows in an incomplete query. Metadata/timeouts/truncation
-        # and malformed output cannot manufacture installed/candidate facts.
-        partial = query['stage'] == 'parse' and query['reason'] == kind + '_incomplete'
+        # cannot manufacture installed/candidate facts. Status row failures
+        # invalidate only their own fixed-package facts.
+        partial = query['stage'] == 'parse' and (query['reason'] == kind + '_incomplete' or kind == 'status' and query['reason'] == 'status_malformed')
         partial = partial or (kind == 'status' and query['stage'] in ('command', 'parse') and failure is not None and failure['exitCode'] == 1 and not failure['boundExceeded'] and query['reason'] not in ('status_empty', 'status_malformed'))
         if not query['verified'] and not partial and any(row['verified'] for row in query['rows']):
             return False
