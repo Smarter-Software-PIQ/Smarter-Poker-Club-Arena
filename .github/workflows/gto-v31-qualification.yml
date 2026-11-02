@@ -53,12 +53,16 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: control
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Resolve the healthy serving source
+      - name: Pin the immutable engine artifact
         id: context
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node control/scripts/ci/gto-v31-qualification.mjs resolve
       - uses: actions/checkout@v4
         with:
