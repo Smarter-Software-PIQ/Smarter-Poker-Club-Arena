@@ -939,8 +939,30 @@ async function assertLobbyControlsInsidePaint(page: Page) {
                     'chrome-arena-controls-v1/filter-plate.png'
                   );
               const scaleY = parseFloat(art.height) / 724;
-              const scaleLeft = parseFloat(art.borderLeftWidth) / 330;
-              const scaleRight = parseFloat(art.borderRightWidth) / 330;
+              const widths = art.borderImageWidth
+                .trim()
+                .split(/\s+/)
+                .map((value) =>
+                  /^0(?:\.0+)?$/.test(value)
+                    ? 0
+                    : /^\d+(?:\.\d+)?px$/.test(value)
+                      ? parseFloat(value)
+                      : NaN
+                );
+              const sides =
+                widths.length === 1
+                  ? [widths[0], widths[0], widths[0], widths[0]]
+                  : widths.length === 2
+                    ? [widths[0], widths[1], widths[0], widths[1]]
+                    : widths.length === 3
+                      ? [widths[0], widths[1], widths[2], widths[1]]
+                      : widths.length === 4
+                        ? widths
+                        : [NaN, NaN, NaN, NaN];
+              const validWidths =
+                widths.length >= 1 && widths.length <= 4 && widths.every(Number.isFinite);
+              const scaleLeft = validWidths ? sides[3] / 330 : NaN;
+              const scaleRight = validWidths ? sides[1] / 330 : NaN;
               const wrongPaintBounds =
                 family &&
                 (![

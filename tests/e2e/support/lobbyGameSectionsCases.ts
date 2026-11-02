@@ -71,11 +71,35 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
           const box = el.getBoundingClientRect();
           const art = getComputedStyle(el, '::before');
           const scaleY = parseFloat(art.height) / 724;
-          const scaleLeft = parseFloat(art.borderLeftWidth) / 330;
-          const scaleRight = parseFloat(art.borderRightWidth) / 330;
+          const widths = art.borderImageWidth
+            .trim()
+            .split(/\s+/)
+            .map((value) =>
+              /^0(?:\.0+)?$/.test(value)
+                ? 0
+                : /^\d+(?:\.\d+)?px$/.test(value)
+                  ? parseFloat(value)
+                  : NaN
+            );
+          const sides =
+            widths.length === 1
+              ? [widths[0], widths[0], widths[0], widths[0]]
+              : widths.length === 2
+                ? [widths[0], widths[1], widths[0], widths[1]]
+                : widths.length === 3
+                  ? [widths[0], widths[1], widths[2], widths[1]]
+                  : widths.length === 4
+                    ? widths
+                    : [NaN, NaN, NaN, NaN];
+          const validWidths =
+            widths.length >= 1 && widths.length <= 4 && widths.every(Number.isFinite);
+          const scaleLeft = validWidths ? sides[3] / 330 : NaN;
+          const scaleRight = validWidths ? sides[1] / 330 : NaN;
           return {
             source: art.borderImageSource,
             slice: art.borderImageSlice,
+            paintWidths: art.borderImageWidth,
+            layoutBorderLeft: art.borderLeftWidth,
             scaleY,
             scaleLeft,
             scaleRight,
@@ -87,10 +111,14 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
             height: box.height,
           };
         });
+        await testInfo.attach(`native-paint-${width}-${await button.textContent()}.json`, {
+          body: JSON.stringify(paint),
+          contentType: 'application/json',
+        });
         expect(paint.source).toContain('chrome-arena-controls-v1/filter-plate.png');
         expect(paint.slice).toBe('0 330 fill');
-        expect(paint.scaleLeft).toBeCloseTo(paint.scaleY, 3);
-        expect(paint.scaleRight).toBeCloseTo(paint.scaleY, 3);
+        expect(paint.scaleLeft, JSON.stringify(paint)).toBeCloseTo(paint.scaleY, 3);
+        expect(paint.scaleRight, JSON.stringify(paint)).toBeCloseTo(paint.scaleY, 3);
         expect(Math.abs(paint.left)).toBeLessThanOrEqual(1);
         expect(Math.abs(paint.top)).toBeLessThanOrEqual(1);
         expect(Math.abs(paint.right - paint.width)).toBeLessThanOrEqual(1);

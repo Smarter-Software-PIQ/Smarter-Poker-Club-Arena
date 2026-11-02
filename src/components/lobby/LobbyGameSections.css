@@ -45,7 +45,8 @@
   border-width: 0 28.097062579821cqw;
   border-image-source: url('/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png');
   border-image-slice: 0 330 fill;
-  border-image-width: 1;
+  /* Paint widths retain fractional precision independently of snapped layout borders. */
+  border-image-width: 0 28.097062579821cqw;
   border-image-repeat: stretch;
 }
 
