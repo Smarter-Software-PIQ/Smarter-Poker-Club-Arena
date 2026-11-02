@@ -188,7 +188,7 @@ function parityDetails(expected, observed, roleMode) {
       ? ['version','scope','roles','memberships','role_settings','default_acl','contains_passwords_or_user_rows'].sort()
       : paritySections.slice(0,10).map(row => row[0]).sort());
   }
-  const sections = [], samples = [];
+  const sections = [], samples = [], sectionSamples = [];
   let changes = 0;
   for (let index = roleMode ? 10 : 0; index < (roleMode ? 14 : 10); index++) {
     const [name, identity] = paritySections[index];
@@ -210,11 +210,12 @@ function parityDetails(expected, observed, roleMode) {
     };
     const a = keyed(left), b = keyed(right);
     let count = 0;
+    const candidates = [];
     for (const hash of [...new Set([...a.keys(), ...b.keys()])].sort()) {
       const av = a.get(hash), bv = b.get(hash);
       if (parityJSON(av) === parityJSON(bv)) continue;
       count++; changes++;
-      if (samples.length === 8) continue;
+      if (candidates.length === 8) continue;
       let fields = [];
       if (av && bv) {
         const keys = Array.isArray(av) ? Array.from({length: Math.max(av.length,bv.length)}, (_,i) => i)
@@ -222,14 +223,25 @@ function parityDetails(expected, observed, roleMode) {
         assert.ok(keys.length <= 32);
         fields = keys.flatMap((key,ordinal) => parityJSON(av[key]) === parityJSON(bv[key]) ? [] : [ordinal]);
       }
-      samples.push([index, hash, av ? bv ? 0 : 1 : 2, fields]);
+      candidates.push([index, hash, av ? bv ? 0 : 1 : 2, fields]);
     }
     if (!count && parityJSON(left) !== parityJSON(right)) {
       count = 1; changes++;
-      if (samples.length < 8) samples.push([index, parityHash('ordered-row-identities'), 3, []]);
+      candidates.push([index, parityHash('ordered-row-identities'), 3, []]);
     }
-    if (count) sections.push([index, left.length, right.length, count]);
+    if (count) {
+      sections.push([index, left.length, right.length, count]);
+      sectionSamples.push(candidates);
+    }
   }
+  // Count every difference, but share the original eight public sample slots
+  // across changed sections before taking a second sample from any section.
+  // Each section retains at most eight private candidates in hashed-key order.
+  for (let round = 0; round < 8 && samples.length < 8; round++)
+    for (const candidates of sectionSamples) {
+      if (samples.length === 8) break;
+      if (candidates[round]) samples.push(candidates[round]);
+    }
   return {sections, samples, truncated: changes > samples.length || changes === 0};
 }
 export function recordCatalogueParityFailure(error, gate, inputs) {

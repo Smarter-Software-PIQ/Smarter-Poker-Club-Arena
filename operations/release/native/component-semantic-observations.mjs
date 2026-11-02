@@ -94,7 +94,7 @@ async function canonicalSchemaCatalogue(db, includePayload) {
       UNION ALL SELECT 'schema',n.nspname,n.nspname,n.nspowner,
         coalesce(n.nspacl,acldefault('n',n.nspowner)) FROM user_schemas n
       UNION ALL SELECT 'relation:'||c.relkind::text,n.nspname,c.relname,c.relowner,
-        coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 'S'::"char" ELSE 'r'::"char" END,c.relowner))
+        coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 's'::"char" ELSE 'r'::"char" END,c.relowner))
       FROM pg_class c JOIN user_schemas n ON n.oid=c.relnamespace
       WHERE c.relkind IN ('r','p','v','m','f','S')
       UNION ALL SELECT 'column',n.nspname,c.relname||'.'||a.attname,c.relowner,

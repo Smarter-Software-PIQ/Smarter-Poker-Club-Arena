@@ -970,9 +970,49 @@ async function services() {
     });
     // The actual bridge captures floor=1 before this new, fixed test row exists.
     await insertHand(2);
-    const { schemaCatalogue } = await import(
+    const { schemaCatalogue, schemaCataloguePayload } = await import(
       controlModules + 'component-semantic-observations.mjs'
     );
+    // CANONICAL_SEQUENCE_ACL_PROBE_BEGIN: genuine rollback-only native proof.
+    // A private namespace avoids application namespace-specific creator ACLs.
+    // NULL relacl must use sequence privileges, not the foreign-server fallback.
+    assert.deepEqual((await db.query(`SELECT current_database()='club_arena_qualification'
+      AND current_user='postgres' AND session_user='postgres'
+      AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user)
+      AND to_regnamespace('fixture_canonical_sequence_acl_probe') IS NULL
+      AND NOT EXISTS(SELECT FROM pg_default_acl WHERE defaclrole=current_user::regrole
+        AND defaclnamespace=0 AND defaclobjtype='S') AS preimage_exact`)).rows,
+      [{preimage_exact:true}]);
+    await db.query('BEGIN');
+    let sequenceProbeFailure;
+    try {
+      await db.query(`CREATE SCHEMA fixture_canonical_sequence_acl_probe;
+        CREATE SEQUENCE fixture_canonical_sequence_acl_probe.owner_sequence`);
+      assert.deepEqual((await db.query(`SELECT relkind='S' AND relacl IS NULL
+        AND relowner=current_user::regrole AS null_owner_acl
+        FROM pg_class WHERE oid='fixture_canonical_sequence_acl_probe.owner_sequence'::regclass`)).rows,
+        [{null_owner_acl:true}]);
+      const sequencePayload = await schemaCataloguePayload(db);
+      const sequenceRows = JSON.parse(sequencePayload.catalogue_text).access.filter(row =>
+        row[0]==='relation:S' && row[1]==='fixture_canonical_sequence_acl_probe' && row[2]==='owner_sequence');
+      assert.deepEqual(sequenceRows, [['relation:S','fixture_canonical_sequence_acl_probe','owner_sequence','postgres',
+        [['postgres','postgres','SELECT',false],['postgres','postgres','UPDATE',false],['postgres','postgres','USAGE',false]]]]);
+      // Independently require PostgreSQL's sequence ACL default to contain all
+      // three literal owner privileges; no copied catalogue expression supplies it.
+      assert.deepEqual((await db.query(`SELECT array_agg(privilege_type ORDER BY privilege_type) AS privileges
+        FROM aclexplode(acldefault('s',current_user::regrole))`)).rows,
+        [{privileges:['SELECT','UPDATE','USAGE']}]);
+    } catch (error) {
+      sequenceProbeFailure = error;
+    } finally {
+      try { await db.query('ROLLBACK'); } catch (error) { sequenceProbeFailure ??= error; }
+    }
+    if (sequenceProbeFailure) throw sequenceProbeFailure;
+    assert.deepEqual((await db.query(`SELECT to_regnamespace('fixture_canonical_sequence_acl_probe') IS NULL
+      AND current_user='postgres' AND session_user='postgres'
+      AND NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user) AS probe_absent`)).rows,
+      [{probe_absent:true}]);
+    // CANONICAL_SEQUENCE_ACL_PROBE_END
     const catalogueDigest = await schemaCatalogue(db);
     stage = 'observer-and-browser-handoff';
     await writeFile(

@@ -998,3 +998,28 @@ identities are hashed; literal names, definitions, grants and compared values
 remain private. The existing independent native decoder rejects unknown or
 malformed diagnostic fields. This does not admit a mismatched schema or change
 readiness, cleanup, Auth checks or the fifteen required connected cases.
+
+### Sequence privilege observation and restore ordering
+
+The canonical catalogue uses PostgreSQL's lowercase `s` ACL-default API code
+for sequences. Uppercase `S` denotes a foreign server and incorrectly reduces
+a NULL sequence ACL to owner USAGE alone. An explicit owner-only sequence ACL
+and its equivalent NULL representation must compare with SELECT, UPDATE and
+USAGE intact. No grant is discarded from the comparison.
+
+Captured sequence default privileges are deferred until after application
+objects are restored. Identity sequence creation uses its table owner's
+defaults even under the private defaultless restore creator. Installing those
+defaults early can therefore introduce grants absent from the original object.
+The composer retains the exact original sequence DEFAULT ACL blocks in their
+late dump positions, while preserving bidirectional native block checks. The
+private transaction validates its original role/default catalogue, temporarily
+clears only the affected sequence defaults, and requires the whole original
+default catalogue and role graph afterward. Other default-privilege types and
+existing genuine service objects are preserved. Failure rolls back the restore.
+
+Mismatch samples share the same eight-record and 2048-byte bounds across
+changed sections, so access differences cannot hide every constraint, trigger
+and index example. Sampling never changes exact parity, the first error or
+readiness. Native privilege and rollback cases remain separate from the full
+captured-schema comparison and all fifteen connected cases.
