@@ -27,14 +27,11 @@ LANGUAGE sql STABLE AS $$
   ((((p_now AT TIME ZONE p_tz)::date+1)::timestamp) AT TIME ZONE p_tz)
 $$;
 
--- Keep replay payloads identical within this run and inside the live 30-day
--- query window. A literal calendar date eventually ages out of that window.
-SELECT set_config('fixture.stats_played_at', now()::text, false);
 CREATE FUNCTION public.fixture_stats_v2(p_hand uuid,p_stack numeric) RETURNS jsonb LANGUAGE sql AS $$
 SELECT jsonb_build_object('version',2,'facts',jsonb_build_array(jsonb_build_object(
  'hand_id',p_hand,'user_id','20000000-0000-0000-0000-000000000001',
  'club_id','10000000-0000-0000-0000-000000000001','table_id','40000000-0000-0000-0000-000000000009',
- 'tournament_id',NULL,'played_at',current_setting('fixture.stats_played_at'),'game_variant','nlh','big_blind',2,
+ 'tournament_id',NULL,'played_at',(((now() AT TIME ZONE 'UTC')::date - 1)::timestamp AT TIME ZONE 'UTC' + interval '12 hours'),'game_variant','nlh','big_blind',2,
  'seat',1,'position','BTN','players_dealt',2,'opponent_ids',jsonb_build_array('20000000-0000-0000-0000-000000000002'),
  'hole_cards',NULL,'hand_class','AKs','invested',10,'returned',15,'net',5,'net_bb',2.5,
  'rake_paid',0,'vpip',true,'pfr',true,'three_bet',true,'four_bet',false,
