@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { HorseMind } from './HorseMind.js';
 import {
   decayAndAdd,
+  decayAndAddOpportunityScoped,
   exploitHandIncrements,
   freshExploitCounters,
 } from './HorseOpponentExploit.js';
-import { MEMORY_VARIANTS, opponentMemoryKey, validOpponentProfile } from './HorseOpponentMemory.js';
+import {
+  blendOpponentMemoryWithExpiry,
+  MEMORY_VARIANTS,
+  opponentMemoryKey,
+  validOpponentProfile,
+} from './HorseOpponentMemory.js';
 import { decodeHorseDecisionReads, encodeHorseDecisionReads } from './HorseDecisionReadFrame.js';
 
 const uid = '40000000-0000-4000-8000-000000000001';
@@ -99,5 +105,48 @@ describe('variant and session durable opponent reads', () => {
     const frame = encodeHorseDecisionReads(view, players as never, null);
     expect(frame.bytes).toBeLessThan(10000);
     HorseMind.reset();
+  });
+
+  it('preserves rare-opportunity stats (riverCall, foldTo3Bet) under opportunity-scoped decay and tapers stale donor weights (Item 12)', () => {
+    const counters = freshExploitCounters();
+    // Simulate 15 river-call opportunities where villain called every time
+    const riverInc = exploitHandIncrements([
+      { userId: 'hero', action: 'bet', stage: 'river' },
+      { userId: uid, action: 'call', stage: 'river' },
+    ]).get(uid)!;
+    for (let i = 0; i < 15; i++) {
+      decayAndAddOpportunityScoped(counters, riverInc);
+    }
+    const savedRiverOpp = counters.riverCallOpp;
+    const savedRiverCall = counters.riverCall;
+    expect(savedRiverOpp).toBeGreaterThan(8);
+
+    // Now simulate 60 preflop fold hands with ZERO river opportunities
+    const preflopFoldInc = exploitHandIncrements([
+      { userId: uid, action: 'fold', stage: 'preflop' },
+    ]).get(uid)!;
+    for (let i = 0; i < 60; i++) {
+      decayAndAddOpportunityScoped(counters, preflopFoldInc);
+    }
+    // Under opportunity-scoped decay, riverCallOpp and riverCall do NOT evaporate during preflop-only hands
+    expect(counters.riverCallOpp).toBeCloseTo(savedRiverOpp, 9);
+    expect(counters.riverCall).toBeCloseTo(savedRiverCall, 9);
+    expect(
+      validOpponentProfile({
+        user_id: uid,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'short',
+        observed_hands: 75,
+        initialized: true,
+        counters,
+      })
+    ).toBe(true);
+
+    // Staleness-weighted donor blend tapers both by exact.hands and by handsSinceDonorUpdate
+    const donor = aggressive();
+    const freshDonorBlend = blendOpponentMemoryWithExpiry(undefined, [donor], 0)!;
+    const halfLifeDonorBlend = blendOpponentMemoryWithExpiry(undefined, [donor], 120)!;
+    expect(halfLifeDonorBlend.hands).toBeCloseTo(freshDonorBlend.hands * 0.5, 6);
   });
 });

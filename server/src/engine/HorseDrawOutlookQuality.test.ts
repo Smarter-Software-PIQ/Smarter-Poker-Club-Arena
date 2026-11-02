@@ -81,3 +81,31 @@ it.each([
     nextCardOutlook(cards(hole), cards(board), variantInfo(variant), false)
   );
 });
+
+describe('Omaha Hi-Lo (PLO8 / FLO8) nut-low completion and counterfeit outlook (Item 21)', () => {
+  it.each(['plo8', 'flo8'])(
+    '%s classifies nut-low completion outs as good and nut-low counterfeit outs as scare',
+    (variant) => {
+      const vi = variantInfo(variant);
+      // Hero holds A-2-K-Q on 3c 4d Js: any 5, 6, 7, 8 completes the nut low (good)
+      const drawOutlook = nextCardOutlook(cards('As 2s Kh Qd'), cards('3c 4d Js'), vi);
+      expect(drawOutlook.good).toContain('5h');
+      expect(drawOutlook.good).toContain('6h');
+      expect(drawOutlook.good).toContain('7h');
+      expect(drawOutlook.good).toContain('8h');
+
+      // Hero holds bare A-2 (As 2s Kh Qd) on 3c 4d 8s (made nut low): an Ace or Deuce
+      // counterfeits hero's nut low without backup and is classified as scare even though it pairs hero
+      const madeLowOutlook = nextCardOutlook(cards('As 2s Kh Qd'), cards('3c 4d 8s'), vi);
+      expect(madeLowOutlook.scare).toContain('Ah');
+      expect(madeLowOutlook.scare).toContain('2h');
+      expect(madeLowOutlook.good).not.toContain('Ah');
+      expect(madeLowOutlook.good).not.toContain('2h');
+
+      // Hero holds A-2-3 counterfeit protection (As 2s 3s Qd) on 4c 5d 8s: Ah counterfeits the Ace
+      // but hero retains the 2-3 nut low, so Ah is NOT a counterfeit scare
+      const protectedLowOutlook = nextCardOutlook(cards('As 2s 3s Qd'), cards('4c 5d 8s'), vi);
+      expect(protectedLowOutlook.scare).not.toContain('Ah');
+    }
+  );
+});

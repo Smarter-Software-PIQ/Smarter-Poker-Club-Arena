@@ -4861,7 +4861,35 @@ export abstract class ServerTableEngineBase {
         `Table engine ${this.tableId} teardown failed in ${failures.length} operation(s)`
       );
     }
+    this.releaseClosedTableHandMemory();
     this.terminalTeardownComplete = true;
+  }
+
+  /**
+   * Releases retained per-hand arrays/maps after a clean, non-quarantined table
+   * teardown (`terminalTeardownComplete === true`) so closed cash/MTT/SNG tables
+   * do not retain their last hand's action/pot/hole-card objects in heap.
+   */
+  protected releaseClosedTableHandMemory(): void {
+    this.currentHandHoleCards.clear();
+    this.currentHandDealtStacks.clear();
+    this.currentHandSeatGenerations.clear();
+    this.currentHandContributions.clear();
+    this.currentHandReturnedUncalled.clear();
+    this.currentHandCashoutRedirects.clear();
+    this.currentHandActions.length = 0;
+    this.currentHandWinners.length = 0;
+    this.currentHandWinnersByBoard.length = 0;
+    this.currentHandPerPotAwards.length = 0;
+    this.currentHandPots.length = 0;
+    this.currentHandCommunityCards.length = 0;
+    this.currentHandCommunityCards2.length = 0;
+    this.currentHandCommunityCards3.length = 0;
+    this.currentHandRitExtraBoards.length = 0;
+    this.currentHandShowdownResults.length = 0;
+    this.currentHandInsuranceSettlements.length = 0;
+    this.retainedPublicHandState = null;
+    this.retainedPreparedOriginalController = null;
   }
 
   /**
