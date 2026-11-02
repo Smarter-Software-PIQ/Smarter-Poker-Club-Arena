@@ -5103,6 +5103,7 @@
     "fn_queue_video_native_rendition",
     "fn_queue_video_transcode",
     "fn_queue_youtube_verification",
+    "fn_rabbit_hunt_replay_status",
     "fn_raise_financial_alert",
     "fn_raise_notification",
     "fn_raise_server_financial_alert",
