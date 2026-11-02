@@ -39,8 +39,8 @@ const diamondPackage: DiamondPackage = {
   name: 'First Stack',
   diamonds: 500,
   bonus: 50,
-  priceUsd: 3.99,
-  priceCents: 399,
+  priceUsd: 4,
+  priceCents: 400,
   cardCheckoutReady: true,
   diamondCheckoutReady: false,
 };
@@ -50,8 +50,8 @@ const monthlyPlan: VipPlan = {
   checkoutPlan: 'vip-monthly',
   name: 'VIP Monthly',
   period: 'Month',
-  priceUsd: 19.99,
-  priceDiamonds: 1999,
+  priceUsd: 20,
+  priceDiamonds: 2000,
   features: ['Every VIP Feature'],
   cardCheckoutReady: true,
   diamondCheckoutReady: true,
@@ -117,7 +117,7 @@ describe('Marketplace native payment safety hold', () => {
     pretendNative(true);
     const { refreshDiamonds, refreshMembership } = renderMarketplacePaymentSurfaces();
 
-    expect(screen.getByRole('button', { name: 'Buy 550 Diamonds For 3.99 USD' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Buy 550 Diamonds For 4 USD' })).toBeDisabled();
     expect(screen.getByText('App Store Checkout Paused')).toBeVisible();
     expect(
       screen.getByText(
@@ -128,7 +128,7 @@ describe('Marketplace native payment safety hold', () => {
       screen.queryByRole('button', { name: 'Subscribe To VIP Monthly With Card' })
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Pay 1,999 Diamonds For VIP Monthly' })
+      screen.getByRole('button', { name: 'Pay 2,000 Diamonds For VIP Monthly' })
     ).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Manage Subscription' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Restore Purchases' })).toBeDisabled();
@@ -140,13 +140,13 @@ describe('Marketplace native payment safety hold', () => {
     pretendNative(false);
     renderMarketplacePaymentSurfaces();
 
-    expect(screen.getByRole('button', { name: 'Buy 550 Diamonds For 3.99 USD' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Buy 550 Diamonds For 4 USD' })).toBeEnabled();
     expect(screen.getByText('Buy Securely')).toBeVisible();
     expect(
       screen.getByRole('button', { name: 'Subscribe To VIP Monthly With Card' })
     ).toBeEnabled();
     expect(
-      screen.getByRole('button', { name: 'Pay 1,999 Diamonds For VIP Monthly' })
+      screen.getByRole('button', { name: 'Pay 2,000 Diamonds For VIP Monthly' })
     ).toBeEnabled();
     expect(
       screen.queryByText(/App Store Checkout Is Temporarily Unavailable/)
