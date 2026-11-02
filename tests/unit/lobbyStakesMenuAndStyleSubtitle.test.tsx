@@ -231,13 +231,17 @@ function renderLobby(selected: string[] = [], onStylesChange = vi.fn()) {
 }
 
 describe('Lightning Games lobby identity', () => {
-  it('replaces the dot with the painted bolt only for Lightning rows, including legacy aliases', () => {
+  it('uses the existing painted fire for Lightning rows, including legacy aliases', () => {
     renderLobby();
     const icons = screen.getAllByRole('img', { name: 'Lightning Games' });
     expect(icons).toHaveLength(2);
     const premiumCss = read('src/components/lobby/PremiumMttRows.css');
     expect(premiumCss).toContain("[data-tournament-icon='lightning']");
-    expect(premiumCss).toContain('chrome-arena-mtt-v1/lightning.png');
+    expect(premiumCss).toContain('.lt-tournament-icon[data-lobby-symbol]');
+    for (const icon of icons) {
+      expect(icon.getAttribute('data-lobby-symbol')).toBe('fire');
+      expect(icon.querySelector('[data-lobby-art="fire"] [data-atlas-width]')).not.toBeNull();
+    }
     const stakeValues = document.querySelectorAll('.premium-cash-stakes-value');
     expect(stakeValues.length).toBeGreaterThan(0);
     for (const value of stakeValues) {

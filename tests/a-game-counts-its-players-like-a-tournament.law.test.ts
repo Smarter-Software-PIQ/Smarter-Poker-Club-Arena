@@ -9,8 +9,9 @@
  *
  * So on the board a game is ONE row (its Main 1), its player figure is the
  * count inside the whole game, it has no capacity and no seat bar, it is
- * never FULL (a full Main opens a feeder), and how many tables are open
- * stands beside the count. The feeder and the other mains are never rows.
+ * never FULL (a full Main opens a feeder). The feeder and the other mains are
+ * never rows. Owner update November 1: cash cards show only the player total,
+ * without a table-count line, capacity denominator or seat bar.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -177,13 +178,14 @@ describe('the wiring', () => {
 
   it('the seats meter never draws a bar or a denominator for a game', () => {
     const table = read('src/components/lobby/LobbyTable.tsx');
-    expect(table).toMatch(/if \(entry\.game\) return <GameCounter entry=\{entry\} \/>;/);
+    expect(table).toMatch(/if \(entry\.kind === 'cash'\) return <GameCounter entry=\{entry\} \/>;/);
     const counter = table.slice(
       table.indexOf('function GameCounter'),
       table.indexOf('function SeatsMeter')
     );
     expect(counter).not.toMatch(/capacity|lt-seats__bar/);
-    expect(counter).toMatch(/'Table' : 'Tables'/);
+    expect(counter).not.toMatch(/lt-seats__tables|entry\.game\?\.tables|'Table' : 'Tables'/);
+    expect(counter).toContain('entry.players.toLocaleString()');
   });
 
   it('get_club_home carries the game-wide figures and drops closed cluster tables', () => {

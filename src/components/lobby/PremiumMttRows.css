@@ -796,3 +796,19 @@
 .has-premium-chassis tbody tr[data-led-sides='none']::after {
   display: none !important;
 }
+
+/* Reuse the actual rocket targeting sight and flame, without a chip backing. */
+.has-premium-chassis [data-game-heading] .lt-tournament-icon[data-lobby-symbol] {
+  background-image: none;
+  top: 2.2cqw;
+  left: 6.15%;
+  width: 10.5%;
+  height: 10.5cqw;
+  filter: none;
+}
+.has-premium-chassis [data-game-heading] .lt-tournament-icon svg.lt-lobby-art-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  visibility: visible;
+}

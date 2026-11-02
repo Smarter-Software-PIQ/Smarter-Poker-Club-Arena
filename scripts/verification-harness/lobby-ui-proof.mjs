@@ -61,6 +61,11 @@ export const FAVORITE_CASES = [
 ];
 export const FAVORITE_COMPONENT_PATHS = [
   ...new Set([
+    'src/throwables/AtlasSprite.tsx',
+    'src/throwables/atlasUrl.ts',
+    'src/throwables/artwork.generated.json',
+    'public/images/throwables/animated/rocket.webp',
+
     ...COMPONENT_PATHS,
     'src/components/lobby/LobbyTable.tsx',
     'src/components/lobby/tournamentFavoriteOrder.ts',
@@ -103,6 +108,24 @@ export const FAVORITE_COMPONENT_PATHS = [
   ]),
 ];
 export const FILTER_ACTION = 'verify-lobby-filters';
+export const FILTER_FINISH_ACTION = 'verify-lobby-filter-finish';
+export const FILTER_FINISH_CASES = [
+  {
+    file: 'production-player-name-layout.spec.ts',
+    title: 'live spectator player names stay complete on one line inside their plates',
+    project: 'chromium',
+  },
+  {
+    file: 'production-lobby-filter-audit.spec.ts',
+    title: 'remaining MTT entry and status sorts persist after reload',
+    project: 'chromium',
+  },
+  {
+    file: 'production-lobby-filter-audit.spec.ts',
+    title: 'sticky lobby controls and cross-tab sorting remain accessible and durable',
+    project: 'chromium',
+  },
+];
 export const MTT_ENTRIES_ACTION = 'verify-mtt-entries';
 export const MTT_ENTRIES_CASES = [
   {
@@ -172,12 +195,18 @@ export const FILTER_COMPONENT_PATHS = [
     'src/lightning/lightningSessionApi.ts',
   ]),
 ];
+export const FILTER_FINISH_COMPONENT_PATHS = [
+  ...FILTER_COMPONENT_PATHS,
+  'src/pages/TablePage.tsx',
+  'src/hooks/useTableArt.ts',
+];
 function selection(action) {
   if (action === 'verify-lobby-ui')
     return CASE_PAIRS.map(([file, title]) => ({ file, title, project: 'chromium' }));
   if (action === RECOVERY_ACTION) return RECOVERY_CASES;
   if (action === FAVORITE_ACTION) return FAVORITE_CASES;
   if (action === FILTER_ACTION) return FILTER_CASES;
+  if (action === FILTER_FINISH_ACTION) return FILTER_FINISH_CASES;
   if (action === MTT_ENTRIES_ACTION) return MTT_ENTRIES_CASES;
   throw new Error('Unknown closed Lobby proof request.');
 }
@@ -185,6 +214,7 @@ function componentPaths(action) {
   selection(action);
   if (action === FAVORITE_ACTION) return FAVORITE_COMPONENT_PATHS;
   if (action === FILTER_ACTION) return FILTER_COMPONENT_PATHS;
+  if (action === FILTER_FINISH_ACTION) return FILTER_FINISH_COMPONENT_PATHS;
   if (action === MTT_ENTRIES_ACTION) return MTT_ENTRIES_COMPONENT_PATHS;
   return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
 }
@@ -202,6 +232,7 @@ export function admitDispatch(environment, event) {
       RECOVERY_ACTION,
       FAVORITE_ACTION,
       FILTER_ACTION,
+      FILTER_FINISH_ACTION,
       MTT_ENTRIES_ACTION,
     ].includes(event?.action) ||
     !event.client_payload ||

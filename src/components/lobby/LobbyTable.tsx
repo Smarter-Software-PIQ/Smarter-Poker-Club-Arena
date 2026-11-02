@@ -1,3 +1,4 @@
+import { AtlasSprite } from '../../throwables/AtlasSprite';
 import { useMttLobbyEntryCounts } from '../../hooks/useMttLobbyEntryCounts';
 import { isRecordedSatelliteTournament } from '../../utils/tournamentFilters';
 import { useSatelliteDestination } from './game-cards/useTournamentCardText';
@@ -380,19 +381,49 @@ const TOURNAMENT_ICON_LABELS: Record<TournamentFormatIcon, string> = {
   standard: 'Tournament',
 };
 
+function LobbyArtSymbol({ kind }: { kind: 'target' | 'fire' }) {
+  return (
+    <svg
+      className="lt-lobby-art-icon"
+      data-lobby-art={kind}
+      viewBox="0 0 66 66"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <AtlasSprite
+        src="rocket"
+        rect={kind === 'target' ? [815, 105, 430, 435] : [540, 90, 224, 510]}
+        x={0}
+        y={0}
+        width={66}
+        height={66}
+      />
+    </svg>
+  );
+}
+
 function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
   const kind = tournamentFormatIcon(entry);
   if (!kind) return null;
   const label = TOURNAMENT_ICON_LABELS[kind];
+  const art =
+    entry.kind === 'spin'
+      ? null
+      : kind === 'bounty'
+        ? 'target'
+        : kind === 'hyper' || kind === 'turbo'
+          ? 'fire'
+          : null;
   return (
     <span
       className="lt-tournament-icon"
       data-tournament-icon={kind}
+      data-lobby-symbol={art ?? undefined}
       role="img"
       aria-label={label}
       title={label}
     >
-      <SignalIcon kind={kind} />
+      {art ? <LobbyArtSymbol kind={art} /> : <SignalIcon kind={kind} />}
     </span>
   );
 }
@@ -623,25 +654,17 @@ function StartsCell({ entry }: { entry: LobbyEntry }) {
   );
 }
 
-/**
- * R10 (Dan 2026-09-04): a must-move game's players are counted like a
- * tournament's - the number inside the whole game, no denominator, no bar -
- * with how many tables are open beside it.
- */
+/** Cash cards show the game's player total, without a second table-count line. */
 function GameCounter({ entry }: { entry: LobbyEntry }) {
-  const tables = entry.game?.tables ?? 1;
   return (
     <span className="lt-seats lt-seats--game">
       <span className="lt-seats__num">{entry.players.toLocaleString()}</span>
-      <span className="lt-seats__tables">
-        {tables} {tables === 1 ? 'Table' : 'Tables'}
-      </span>
     </span>
   );
 }
 
 function SeatsMeter({ entry }: { entry: LobbyEntry }) {
-  if (entry.game) return <GameCounter entry={entry} />;
+  if (entry.kind === 'cash') return <GameCounter entry={entry} />;
   const pct =
     entry.capacity > 0 ? Math.min(100, Math.round((entry.players / entry.capacity) * 100)) : 0;
   const full = entry.capacity > 0 && entry.players >= entry.capacity;
@@ -891,10 +914,13 @@ function TournamentHeadingRow({
               <span
                 className="lt-tournament-icon"
                 data-tournament-icon="lightning"
+                data-lobby-symbol="fire"
                 role="img"
                 aria-label="Lightning Games"
                 title="Lightning Games"
-              />
+              >
+                <LobbyArtSymbol kind="fire" />
+              </span>
             ) : (
               <span
                 className="lt-tournament-icon"
