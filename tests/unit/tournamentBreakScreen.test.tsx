@@ -181,6 +181,44 @@ describe('the tournament break card', () => {
     expect(onAddOn).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps an Add On button under the minimized clock during the add-on period (Dan 2026-11-02)', () => {
+    const table = document.createElement('div');
+    document.body.append(table);
+    const onAddOn = vi.fn();
+    const view = render(
+      <TournamentBreakScreen
+        {...props}
+        tableAnchorRef={{ current: table }}
+        phase="counting_down"
+        breakTimeRemaining={60}
+        addOnNotice={{ cost: 50, chips: 30000, asset: 'chips' }}
+        onAddOn={onAddOn}
+      />
+    );
+    // Closing the card must never leave the player without a way to add on.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const clock = within(table).getByRole('button', { name: 'Open Break Screen' });
+    const addOn = within(table).getByRole('button', { name: 'Add On' });
+    expect(addOn.closest('.break-screen__minimized-stack')).toBe(
+      clock.closest('.break-screen__minimized-stack')
+    );
+    fireEvent.click(addOn);
+    expect(onAddOn).toHaveBeenCalledTimes(1);
+    // A plain break's minimized clock carries no Add On button.
+    view.rerender(
+      <TournamentBreakScreen
+        {...props}
+        tableAnchorRef={{ current: table }}
+        phase="counting_down"
+        onAddOn={onAddOn}
+      />
+    );
+    expect(within(table).queryByRole('button', { name: 'Add On' })).toBeNull();
+    view.unmount();
+    table.remove();
+  });
+
   it('minimizes and reopens through accessible buttons without blocking the table', () => {
     render(<TournamentBreakScreen {...props} />);
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'false');
