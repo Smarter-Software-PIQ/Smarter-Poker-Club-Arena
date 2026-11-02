@@ -1027,6 +1027,12 @@ async function assertRegistrationInkInsideFrame(page: Page) {
             return [...row.querySelectorAll('.lt-status,.lt-name__phase')].flatMap((label) => {
               const box = label.getBoundingClientRect();
               if (!box.width || !box.height) return [];
+              const cell = label.closest('td');
+              if (!cell) return [{ id: row.getAttribute('data-id'), missingCell: true }];
+              const cellBox = cell.getBoundingClientRect();
+              const cellStyle = getComputedStyle(cell);
+              const minimumX = cellBox.left + parseFloat(cellStyle.paddingLeft);
+              const maximumX = cellBox.right - parseFloat(cellStyle.paddingRight);
               const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
               const failures: unknown[] = [];
               while (walker.nextNode()) {
@@ -1034,7 +1040,12 @@ async function assertRegistrationInkInsideFrame(page: Page) {
                 const range = document.createRange();
                 range.selectNodeContents(walker.currentNode);
                 for (const ink of range.getClientRects()) {
-                  if (ink.top < minimum || ink.bottom > maximum)
+                  if (
+                    ink.top < minimum ||
+                    ink.bottom > maximum ||
+                    ink.left < minimumX - 1 ||
+                    ink.right > maximumX + 1
+                  )
                     failures.push({
                       id: row.getAttribute('data-id'),
                       text: label.textContent,
@@ -1042,6 +1053,10 @@ async function assertRegistrationInkInsideFrame(page: Page) {
                       bottom: ink.bottom - frame.top,
                       minimum: minimum - frame.top,
                       maximum: maximum - frame.top,
+                      left: ink.left,
+                      right: ink.right,
+                      minimumX,
+                      maximumX,
                     });
                 }
               }
@@ -2791,6 +2806,9 @@ test('remaining MTT entry and status sorts persist after reload', async ({ page 
   await h.choose('MTT');
   let sheet = await h.open();
   await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+  const include = sheet.getByRole('button', { name: 'Include Satellites', exact: true });
+  await clickControl(include);
+  await expect(include).toHaveAttribute('aria-pressed', 'true');
   await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   await expect.poll(h.hasCompleteCensus).toBe(true);
   await expect.poll(async () => (await h.ids()).length).toBeGreaterThan(0);
@@ -2883,7 +2901,27 @@ test('remaining MTT entry and status sorts persist after reload', async ({ page 
     'aria-pressed',
     'true'
   );
+  const otherTabs = await page.evaluate(
+    (cache) =>
+      Object.fromEntries(
+        Object.entries(JSON.parse(localStorage.getItem(cache) || '{}')).filter(
+          ([key]) => key !== 'MTT'
+        )
+      ),
+    h.cache
+  );
   await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+  expect(
+    await page.evaluate(
+      (cache) =>
+        Object.fromEntries(
+          Object.entries(JSON.parse(localStorage.getItem(cache) || '{}')).filter(
+            ([key]) => key !== 'MTT'
+          )
+        ),
+      h.cache
+    )
+  ).toEqual(otherTabs);
   await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
   expect(h.participation).toEqual([]);
   await testInfo.attach('remaining-mtt-sorts-and-persistence.json', {

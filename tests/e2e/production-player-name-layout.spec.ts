@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { TABLE_ART_MAX_COVER_MS } from '../../src/hooks/useTableArt';
 import { CASH_SPECTATOR_ACTION, CASH_TABLE_CARD_SELECTOR } from './support/cashTableCandidates';
 import { openLobbyGameSection } from './support/lobbyGameSections';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
@@ -193,7 +194,7 @@ test('live spectator player names stay complete on one line inside their plates'
   ] as const) {
     await page.setViewportSize({ width, height });
     const paintedTable = page.locator('.table-page[data-table-art="ready"]:visible');
-    await expect(paintedTable).toBeVisible();
+    await expect(paintedTable).toBeVisible({ timeout: TABLE_ART_MAX_COVER_MS + 5_000 });
     await expect(page.locator('.table-art-cover:visible')).toHaveCount(0);
     await expect
       .poll(async () => (await nameGeometry(page)).length, {
