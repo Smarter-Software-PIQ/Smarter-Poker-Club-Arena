@@ -82,8 +82,30 @@ describe('the second line of a templated game is its style, never its stakes', (
       const lines = cashTitleLines(e);
       expect(lines.subtitle).toBe(t.label);
       expect(lines.subtitle).not.toMatch(/\d/);
-      expect(lines.headline).toMatch(/^NLH/);
+      expect(lines.headline).toMatch(t.id === 'madness' ? /^Lightning NLH/ : /^NLH/);
     }
+  });
+
+  it('names only eligible Lightning formats in the title, even while their pool is empty', () => {
+    for (const template of ['action', 'madness']) {
+      const lightning = cashEntry(
+        table({ cluster_id: 'g', cluster_template: template, current_players: 0 })
+      );
+      expect(cashTitleLines(lightning).headline).toBe('Lightning NLH 1/2');
+      for (const excluded of ['short_deck', 'plo8', 'flo8', 'pineapple']) {
+        const ordinary = cashEntry(
+          table({ cluster_id: 'g', cluster_template: template, game_variant: excluded })
+        );
+        expect(cashTitleLines(ordinary).headline).not.toMatch(/^Lightning /);
+      }
+      const nineSeat = cashEntry(
+        table({ cluster_id: 'g', cluster_template: template, max_players: 9 })
+      );
+      expect(cashTitleLines(nineSeat).headline).not.toMatch(/^Lightning /);
+    }
+    expect(
+      cashTitleLines(cashEntry(table({ cluster_id: 'g', cluster_template: 'classic' }))).headline
+    ).toBe('NLH 1/2');
   });
 
   it('strips a leading-dot stake off an untemplated name (the formatGameTitle shape)', () => {

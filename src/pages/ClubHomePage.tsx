@@ -4932,31 +4932,31 @@ function ClubHomePageContent({
                "THE DETAILS BUTTON SHOULD TAKE YOU TO THE TOURNAMENT LOBBY
                SCREEN" — unconditionally, not only once it is running. */
       onViewTable: (e) =>
-        e.kind === 'cash' && e.game && isLightningMode((e.raw as LobbyTableRow).cluster_mode)
-          ? navigate(lightningRoute(e.game.id))
-          : e.kind === 'cash'
-            ? void handleViewCashTable(e.id)
-            : /* Dan 2026-08-20: "there is 'no lobby' for a spin, you just start
+        // Every cash mode observes its public table. Lightning's entry page
+        // is the participation door; its public anchor already projects play.
+        e.kind === 'cash'
+          ? void handleViewCashTable(e.id)
+          : /* Dan 2026-08-20: "there is 'no lobby' for a spin, you just start
                on a table." Watch and Return To Game on a spin therefore open
                the game's live TABLE (spinQuickJoin resolves the current one,
                stale ids and recycled siblings included) — an MTT keeps its
                own lobby screen. Heads-up SNGs ride the same table route for
                the same reason; multi-seat SNGs are registration games and
                keep the lobby. */
-              e.kind === 'spin' || (e.kind === 'sng' && e.capacity > 0 && e.capacity <= 2)
-              ? spinQuickJoin(
-                  {
-                    id: e.id,
-                    name: e.name,
-                    buy_in_amount: Number(
-                      filteredTournamentsRef.current.find((t) => t.id === e.id)?.buy_in_amount ??
-                        e.buyInValue ??
-                        0
-                    ),
-                  },
-                  e.kind === 'sng' ? 'sng' : 'spin'
-                )
-              : openTournamentLobby(e.id),
+            e.kind === 'spin' || (e.kind === 'sng' && e.capacity > 0 && e.capacity <= 2)
+            ? spinQuickJoin(
+                {
+                  id: e.id,
+                  name: e.name,
+                  buy_in_amount: Number(
+                    filteredTournamentsRef.current.find((t) => t.id === e.id)?.buy_in_amount ??
+                      e.buyInValue ??
+                      0
+                  ),
+                },
+                e.kind === 'sng' ? 'sng' : 'spin'
+              )
+            : openTournamentLobby(e.id),
     }),
     [
       waitlistedTableIds,
@@ -5645,6 +5645,16 @@ function ClubHomePageContent({
               <section className="lobby-controls" aria-label="Browse Games">
                 <div className="lobby-controls__heading">
                   <strong className="lobby-controls__title">Find Your Game</strong>
+                  {gameSection && currentUserId && gameType !== 'ALL' && (
+                    <button
+                      type="button"
+                      className="lobby-controls__favorites"
+                      aria-pressed={favoritesOnly}
+                      onClick={() => selectFavoritesOnly(!favoritesOnly)}
+                    >
+                      <LobbyFilterLabel>Favorites</LobbyFilterLabel>
+                    </button>
+                  )}
                 </div>
                 <LobbyGameSections
                   selected={gameSection}
@@ -5870,7 +5880,7 @@ function ClubHomePageContent({
               onBrowse={(button) => {
                 button
                   .closest('.club-home')
-                  ?.querySelector('#lobby-game-section-controls')
+                  ?.querySelector('.lobby-controls__heading')
                   ?.scrollIntoView({ block: 'start' });
               }}
               onFavorites={() => selectFavoritesOnly(!favoritesOnly)}

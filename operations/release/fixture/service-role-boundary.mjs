@@ -99,8 +99,7 @@ export function serviceRoleBootstrapSql(password) {
     ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth
       GRANT EXECUTE ON FUNCTIONS TO postgres, dashboard_user;
     ALTER ROLE supabase_auth_admin SET search_path TO auth;
-    GRANT CREATE ON DATABASE club_arena_qualification TO supabase_auth_admin;
-    CREATE SCHEMA _realtime AUTHORIZATION supabase_admin;`;
+    GRANT CREATE ON DATABASE club_arena_qualification TO supabase_auth_admin;`;
 }
 
 // The managed Auth migration ledger is an exception to the captured Auth

@@ -309,6 +309,103 @@ out="$(owner_apply 2>&1)" || fail "owner repeat failed: $out"
 [ "$(counts)" = "3 3 3" ] || fail 'owner repeat changed state'
 pass 'explicit owner exception refuses a scheduled freeze, installs once in owned recovery, and duplicate is a no-op'
 
+# 10. Two queued files through the unchanged real owner-window installer/applier.
+# Each disposable pair gets unique versions/columns; no production SQL is used.
+pair_fixture() {
+  local tag="$1" first_version="$2" second_version="$3" first_fault="$4" second_fault="$5"
+  PAIR_CASE="$WORK/pair-$tag"
+  mkdir -p "$PAIR_CASE/supabase/migrations" "$PAIR_CASE/server/release"
+  PAIR_FIRST="${first_version}_window_fixture_pair_${tag}_first.sql"
+  PAIR_SECOND="${second_version}_window_fixture_pair_${tag}_second.sql"
+  cat > "$PAIR_CASE/supabase/migrations/$PAIR_FIRST" <<SQL
+-- @install-window: daily-maintenance
+BEGIN;
+ALTER TABLE public.clubs ADD COLUMN window_fixture_pair_${tag}_first integer;
+$first_fault
+COMMIT;
+SQL
+  cat > "$PAIR_CASE/supabase/migrations/$PAIR_SECOND" <<SQL
+-- @install-window: daily-maintenance
+BEGIN;
+DO \$pair_order\$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+   WHERE table_schema='public' AND table_name='clubs' AND column_name='window_fixture_pair_${tag}_first') THEN
+  RAISE EXCEPTION 'second file ran before first committed';
+ END IF;
+END \$pair_order\$;
+ALTER TABLE public.hand_history ADD COLUMN window_fixture_pair_${tag}_second integer;
+$second_fault
+COMMIT;
+SQL
+  git -C "$PAIR_CASE" init -q
+  git -C "$PAIR_CASE" -c user.name=WindowFixture -c user.email=window-fixture@example.invalid commit -q --allow-empty -m 'isolated two-file owner-window fixture'
+  local head
+  head="$(git -C "$PAIR_CASE" rev-parse HEAD)"
+  PAIR_CASE="$PAIR_CASE" PAIR_HEAD="$head" PAIR_FIRST="$PAIR_FIRST" PAIR_SECOND="$PAIR_SECOND" node --input-type=module <<'JS'
+import {writeFileSync} from 'node:fs';
+const at=Date.now();
+writeFileSync(process.env.PAIR_CASE+'/server/release/owner-maintenance-windows.json',JSON.stringify({version:1,databaseWindows:[{
+ id:'native-pair-proof',contains:process.env.PAIR_HEAD,ownerOrder:'Isolated native two-file installation qualification only',
+ notBefore:new Date(at-60000).toISOString(),notAfter:new Date(at+3600000).toISOString(),
+ migrations:[process.env.PAIR_FIRST,process.env.PAIR_SECOND]
+}]}));
+JS
+  su_sql "SELECT public.fixture_open_window(240); UPDATE public.engine_maintenance_break SET reason='Deployment Recovery',break_started_at=clock_timestamp()-interval '1 second',announced_at=clock_timestamp()-interval '2 minutes';" >/dev/null
+}
+pair_install() {
+  (cd "$PAIR_CASE" && node "$ROOT/scripts/ci/install-window-migrations.mjs" \
+    --owner-window native-pair-proof --ssl-root-cert "$CA")
+}
+pair_history() {
+  su_sql "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version IN ('$1','$2')"
+}
+
+pair_fixture success 20991231000005 20991231000006 '' ''
+out="$(pair_install 2>&1)" || fail "two queued files failed: $out"
+echo "$out" > "$EVIDENCE/10-pair-success.log"
+grep -q 'INSTALLED 2 migration' <<<"$out" || fail 'both queued files were not installed'
+[ "$(pair_history 20991231000005 20991231000006)" = 2 ] || fail 'pair history missing'
+[ "$(su_sql "SELECT a.xmin::text::bigint < b.xmin::text::bigint FROM supabase_migrations.schema_migrations a,supabase_migrations.schema_migrations b WHERE a.version='20991231000005' AND b.version='20991231000006'")" = t ] || fail 'pair transactions were out of order'
+for file in "$PAIR_FIRST" "$PAIR_SECOND"; do
+  [ "$(su_sql "SELECT statements[1]=pg_read_file('$PAIR_CASE/supabase/migrations/$file') FROM supabase_migrations.schema_migrations WHERE version='${file:0:14}'")" = t ] || fail 'pair history differs from exact source'
+done
+out="$(pair_install 2>&1)" || fail "pair duplicate failed: $out"
+grep -q 'NOTHING QUEUED' <<<"$out" || fail 'pair duplicate was not a no-op'
+[ "$(pair_history 20991231000005 20991231000006)" = 2 ] || fail 'pair duplicate changed history'
+pass 'two queued files commit in order with exact history and duplicate no-op'
+
+# A real PostgreSQL exception exercises REFUSED; class08 deliberately exercises
+# the applier's UNKNOWN classification, not a claim of a real network failure.
+for kind in refused unknown; do
+  if [ "$kind" = refused ]; then code_expected=1; state=55000; first=20991231000007; second=20991231000008
+  else code_expected=3; state=08006; first=20991231000009; second=20991231000010; fi
+  fault="DO \$fault\$ BEGIN RAISE EXCEPTION 'isolated first-file fault' USING ERRCODE='$state'; END \$fault\$;"
+  pair_fixture "$kind" "$first" "$second" "$fault" ''
+  set +e
+  out="$(pair_install 2>&1)"; code=$?
+  set -e
+  echo "$out" > "$EVIDENCE/10-pair-$kind.log"
+  [ "$code" = "$code_expected" ] || fail "first $kind returned $code: $out"
+  [ "$(pair_history "$first" "$second")" = 0 ] || fail "first $kind committed history"
+  [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name IN ('window_fixture_pair_${kind}_first','window_fixture_pair_${kind}_second')")" = 0 ] || fail "first $kind left either column"
+  [ "$(grep -Fxc "[apply] $PAIR_FIRST" <<<"$out")" = 1 ] || fail "first $kind did not invoke its original file exactly once"
+  ! grep -Fxq "[apply] $PAIR_SECOND" <<<"$out" || fail "first $kind invoked second file"
+  pass "first-file $kind stops before second file and preserves original outcome"
+done
+
+fault="DO \$fault\$ BEGIN RAISE EXCEPTION 'isolated second-file refusal' USING ERRCODE='55000'; END \$fault\$;"
+pair_fixture partial 20991231000011 20991231000012 '' "$fault"
+set +e
+out="$(pair_install 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/10-pair-partial.log"
+[ "$code" = 1 ] || fail "second refusal returned $code: $out"
+[ "$(pair_history 20991231000011 20991231000012)" = 1 ] || fail 'second refusal lost first committed history'
+[ "$(su_sql "SELECT version='20991231000011' AND statements[1]=pg_read_file('$PAIR_CASE/supabase/migrations/$PAIR_FIRST') FROM supabase_migrations.schema_migrations WHERE version IN ('20991231000011','20991231000012')")" = t ] || fail 'partial history differs from first source'
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name='window_fixture_pair_partial_first'")" = 1 ] || fail 'first commit was lost'
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name='window_fixture_pair_partial_second'")" = 0 ] || fail 'second refusal committed its column'
+pass 'second-file refusal preserves the first exact committed transaction'
+
 su_sql "SELECT version || ' ' || name FROM supabase_migrations.schema_migrations ORDER BY version" \
   > "$EVIDENCE/history.txt"
 su_sql "SELECT id || ' ' || session_role || ' ' || coalesce(application_name, '') || ' ' || first_command || ' :: ' || reason FROM public.ca_break_window_migration_overrides ORDER BY id" \

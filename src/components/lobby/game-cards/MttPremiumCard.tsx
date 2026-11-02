@@ -115,6 +115,7 @@ export function MttPremiumCard({
           data-zone="secondaryAction"
           className="agc-mtt-premium__action agc-mtt-premium__action--secondary"
           onClick={actions.onSecondary}
+          disabled={!actions.onSecondary || actions.secondaryDisabled}
         >
           <Fitted enabled={fitReady} text={actions.secondaryLabel} />
         </button>

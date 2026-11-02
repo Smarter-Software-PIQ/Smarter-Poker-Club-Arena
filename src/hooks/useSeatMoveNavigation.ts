@@ -7,11 +7,14 @@ export function useSeatMoveNavigation({
   tableId,
   userId,
   event,
+  enabled = true,
   follow,
 }: {
   tableId: string | undefined;
   userId: string;
   event: Record<string, unknown> | null;
+  /** Explicit player watching owns navigation independently of the account seat. */
+  enabled?: boolean;
   follow: (destination: string) => void;
 }) {
   const pending = useRef({
@@ -22,9 +25,13 @@ export function useSeatMoveNavigation({
 
   const followRef = useRef(follow);
   followRef.current = follow;
-  const scope = useRef({ tableId, userId });
-  if (scope.current.tableId !== tableId || scope.current.userId !== userId) {
-    scope.current = { tableId, userId };
+  const scope = useRef({ tableId, userId, enabled });
+  if (
+    scope.current.tableId !== tableId ||
+    scope.current.userId !== userId ||
+    scope.current.enabled !== enabled
+  ) {
+    scope.current = { tableId, userId, enabled };
   }
   const validation = useRef(0);
   const mounted = useRef(false);
@@ -40,6 +47,12 @@ export function useSeatMoveNavigation({
       pending.current = { tableId, event: null, destinations: new Map() };
     }
     const state = pending.current;
+    if (!enabled) {
+      state.event = event;
+      state.destinations.clear();
+      validation.current++;
+      return;
+    }
     if (event !== state.event) {
       state.event = event;
       const data = (event?.data ?? event) as Record<string, unknown> | null;
@@ -95,5 +108,5 @@ export function useSeatMoveNavigation({
         if (isCurrent()) reportError(error, 'useSeatMoveNavigation.currentSeatRead');
       }
     })();
-  }, [tableId, userId, event]);
+  }, [tableId, userId, event, enabled]);
 }

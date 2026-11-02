@@ -225,6 +225,7 @@ export function NlhPremiumCard({
             aria-label={actions.secondaryLabel}
             style={premiumZoneStyle(NLH_PREMIUM_ZONES.secondaryAction)}
             onClick={actions.onSecondary}
+            disabled={!actions.onSecondary || actions.secondaryDisabled}
           >
             <NlhActionLabel text={actions.secondaryLabel} />
           </button>

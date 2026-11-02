@@ -178,11 +178,44 @@ body:JSON.stringify({announcedAt,cause:'urgent'}),signal:AbortSignal.timeout(150
         require(receipt['result'] == 'completed', 'Database maintenance receipt is unproven')
 
 
+def expected_pair_binding(window_id):
+    if window_id != '2026-11-01-attention14-two-sql-database-operation':
+        return None
+    pairs = [
+        ('20261101004247_started_tournament_abort_supports_equal_share_settlement.sql',
+         'd42ad78995ffb0c626636e10c41b9b350119995e20c7ef71c4578ac99bfca1aa'),
+        ('20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql',
+         '3a292905ddf7daffc696f5cb836255a220060ba0631a126872ad30ecb7908a29'),
+    ]
+    doc = json.loads(Path('server/release/owner-maintenance-windows.json').read_text())
+    matches = [w for w in doc.get('databaseWindows', []) if w.get('id') == window_id]
+    require(doc.get('version') == 1 and len(matches) == 1, 'Database pair authority is ambiguous')
+    w = matches[0]
+    require(w.get('contains') == '4e9c32285477176df8e4afcef4e743d5fe961047'
+        and w.get('notBefore') == '2026-11-01T23:25:00Z'
+        and w.get('notAfter') == '2026-11-02T02:25:00Z'
+        and w.get('migrations') == [f for f, _ in pairs], 'Database pair authority differs')
+    migrations = []
+    for file, expected_hash in pairs:
+        actual_hash = hashlib.sha256((Path('supabase/migrations') / file).read_bytes()).hexdigest()
+        require(actual_hash == expected_hash, 'Database pair source differs')
+        migrations.append({'migration': file, 'migrationSHA256': actual_hash})
+    return {'type': 'database-maintenance-pair/v1', 'migrations': migrations}
+
+
+def validate_pair_terminal(terminal, expected):
+    if expected is not None:
+        require(all(terminal.get(k) == v for k, v in expected.items())
+            and 'migration' not in terminal and 'migrationSHA256' not in terminal,
+            'Database pair terminal binding differs from protected source')
+
+
 def runner():
     require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch')
     require(os.environ.get('GITHUB_REF') == 'refs/heads/main')
     window_id = os.environ.get('OWNER_WINDOW_ID', '')
     require(re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', window_id) is not None)
+    expected_pair = expected_pair_binding(window_id)
     preflight = subprocess.run(['node', 'scripts/ci/install-window-migrations.mjs', '--owner-window', window_id, '--preflight-only',
         '--ssl-root-cert', 'scripts/ci/certificates/supabase-prod-ca-2021.crt'], capture_output=True, text=True, timeout=30)
     require(preflight.returncode == 0, 'Migration read-only preflight refused; no break requested')
@@ -242,6 +275,7 @@ def runner():
             out = Path('artifacts/database-maintenance'); out.mkdir(parents=True, exist_ok=True)
             (out / 'receipt.json').write_text(json.dumps(terminal, indent=2) + '\n')
         require(terminal is not None and proc.wait(timeout=10) == 0)
+        validate_pair_terminal(terminal, expected_pair)
         require(terminal.get('controlSHA256') == hashlib.sha256(source.encode()).hexdigest())
         require(terminal.get('sealSHA256') == hashlib.sha256(Path('server/scripts/engine-release-seal.py').read_bytes()).hexdigest())
         require(terminal['result'] == 'completed' and terminal['thawed'] is True)

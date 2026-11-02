@@ -50,7 +50,7 @@ test('actual isolated smoke control staging can import its observation protocol 
   }
 });
 
-test('native source hash evidence covers exactly the staged observation control allowlist', async () => {
+test('native source hash evidence covers staged observation controls and exact original-input retention files', async () => {
   const python = path.join(root, 'operations/release/ci/fixture-smoke.py');
   const code =
     "import importlib.util,json,sys;spec=importlib.util.spec_from_file_location('smoke',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);print(json.dumps(m.CONTROL_FILES))";
@@ -59,5 +59,15 @@ test('native source hash evidence covers exactly the staged observation control 
     timeout: 10000,
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout).sort(), (await smokeHelpers()).sort());
+  const retentionInputs = [
+    'operations/release/native/original-web-artifact-api.json',
+    'operations/release/native/original-web-retention.json',
+    'operations/release/native/original-web-retention.py',
+  ];
+  // The import closure is staged inside smoke; retained-input admission and
+  // provenance run on the owning host and must also be source-bound.
+  assert.deepEqual(
+    JSON.parse(result.stdout).sort(),
+    [...(await smokeHelpers()), ...retentionInputs].sort()
+  );
 });

@@ -249,13 +249,13 @@ describe('no chair is held for a player who cannot pay for it', () => {
   it('the lobby says how many chips the game needs', async () => {
     const { joinGameRefusalText } = await import('../src/services/cashGameLobby');
     expect(joinGameRefusalText(new Error('INSUFFICIENT_CHIPS:200.00'))).toBe(
-      'Not Enough Chips. You Need At Least 200 Chips To Join This Game.'
+      'Not Enough Chips In Your Active Club Wallet. You Need At Least 200 Chips To Join This Game. Chips In Other Clubs Are Separate.'
     );
     expect(joinGameRefusalText(new Error('INSUFFICIENT_CHIPS:46.07'))).toBe(
-      'Not Enough Chips. You Need At Least 46.07 Chips To Join This Game.'
+      'Not Enough Chips In Your Active Club Wallet. You Need At Least 46.07 Chips To Join This Game. Chips In Other Clubs Are Separate.'
     );
     expect(joinGameRefusalText(new Error('INSUFFICIENT_CHIPS'))).toBe(
-      'Not Enough Chips To Join This Game.'
+      'Not Enough Chips In Your Active Club Wallet To Join This Game. Chips In Other Clubs Are Separate.'
     );
   });
 });
