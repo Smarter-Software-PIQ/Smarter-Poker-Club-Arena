@@ -16,6 +16,8 @@ import {
   FILTER_FINISH_ACTION,
   FILTER_FINISH_CASES,
   FILTER_FINISH_COMPONENT_PATHS,
+  STICKY_TAIL_ACTION,
+  STICKY_TAIL_CASES,
   FILTER_CASES,
   FILTER_COMPONENT_PATHS,
   MTT_ENTRIES_ACTION,
@@ -243,6 +245,7 @@ it('keeps each closed mode limited to its owned browser journeys with cleanup', 
     'verify-tournament-favorites',
     'verify-lobby-filters',
     'verify-lobby-filter-finish',
+    STICKY_TAIL_ACTION,
     MTT_ENTRIES_ACTION,
   ]);
   expect(workflow).toContain('npx playwright install --with-deps chromium webkit');
@@ -535,5 +538,111 @@ describe('closed remaining filter proof', () => {
       delete missing.components[path];
       expect(() => assertPins(missing, missing, cleanup, FILTER_FINISH_ACTION)).toThrow();
     }
+  });
+});
+
+describe('closed remaining sticky-tail proof', () => {
+  const tailReport = () => ({
+    suites: [
+      {
+        specs: STICKY_TAIL_CASES.map(({ file, title, project }) => ({
+          file,
+          title,
+          ok: true,
+          tests: [
+            {
+              projectName: project,
+              status: 'expected',
+              expectedStatus: 'passed',
+              results: [{ status: 'passed', retry: 0 }],
+            },
+          ],
+        })),
+      },
+    ],
+  });
+  const tailPin = () => ({
+    ...pin(),
+    action: STICKY_TAIL_ACTION,
+    components: Object.fromEntries(FILTER_FINISH_COMPONENT_PATHS.map((path) => [path, sha])),
+  });
+  it('admits only the one unverified tail with complete runtime pins and stable cleanup', () => {
+    expect(() =>
+      admitDispatch(env, { action: STICKY_TAIL_ACTION, client_payload: {} })
+    ).not.toThrow();
+    expect(() =>
+      admitDispatch(env, { action: STICKY_TAIL_ACTION, client_payload: { grep: 'other' } })
+    ).toThrow();
+    expect(assertCases(tailReport(), STICKY_TAIL_ACTION)).toHaveLength(1);
+    expect(FILTER_CASES).toHaveLength(9);
+    expect(FILTER_FINISH_CASES).toHaveLength(3);
+    for (const alter of [
+      (r) => r.suites[0].specs.pop(),
+      (r) => r.suites[0].specs.push(r.suites[0].specs[0]),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].retry = 1),
+      (r) => (r.suites[0].specs[0].tests[0].results[0].status = 'skipped'),
+      (r) => (r.suites[0].specs[0].title = FILTER_CASES[0].title),
+    ]) {
+      const value = tailReport();
+      alter(value);
+      expect(() => assertCases(value, STICKY_TAIL_ACTION)).toThrow();
+    }
+    const cleanup = { verified: true, runId: '123' };
+    expect(() => assertPins(tailPin(), tailPin(), cleanup, STICKY_TAIL_ACTION)).not.toThrow();
+    for (const field of ['clientSha', 'publisherRunId']) {
+      expect(() =>
+        assertPins(
+          tailPin(),
+          { ...tailPin(), [field]: field === 'clientSha' ? 'b'.repeat(40) : '789' },
+          cleanup,
+          STICKY_TAIL_ACTION
+        )
+      ).toThrow();
+    }
+    expect(() =>
+      assertPins(tailPin(), tailPin(), { ...cleanup, verified: false }, STICKY_TAIL_ACTION)
+    ).toThrow();
+    for (const path of FILTER_FINISH_COMPONENT_PATHS) {
+      const missing = tailPin();
+      delete missing.components[path];
+      expect(() => assertPins(missing, missing, cleanup, STICKY_TAIL_ACTION)).toThrow();
+    }
+  });
+  it('keeps one fixed native scroll journey in the protected workflow', async () => {
+    const { readFileSync } = await import('node:fs');
+    const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
+    const block = workflow.slice(
+      workflow.indexOf('- name: Verify only the remaining cash-family'),
+      workflow.indexOf('- name: Pin the published client after')
+    );
+    expect(block).toContain("if: github.event.action == 'verify-lobby-sticky-tail'");
+    expect(block).toContain(
+      "--grep 'remaining cash-family and desktop sticky controls stay accessible$'"
+    );
+    expect(block).toContain('--project=chromium --workers=1 --retries=0 --trace=off');
+    expect(block).not.toContain('production-player-name-layout.spec.ts');
+    const spec = readFileSync('tests/e2e/production-lobby-filter-audit.spec.ts', 'utf8');
+    const helper = spec.slice(
+      spec.indexOf('async function assertCashFamilyStickyTail('),
+      spec.indexOf("test('remaining cash-family")
+    );
+    expect(helper).toContain("await h.choose('ALL')");
+    expect(helper).toContain('await expect(controls).toBeInViewport()');
+    expect(helper).toContain('await expect(rail).toBeHidden()');
+    expect(helper).toContain("row.closest('.lobby-table-wrap')?.scrollTop ?? 0");
+    expect(helper).toContain('.toBeGreaterThan(0)');
+    expect(helper).toContain('await assertLobbyControlsInsidePaint(page)');
+    expect(helper).toContain('await assertRegistrationInkInsideFrame(page)');
+    expect(helper.match(/await assertLobbyControlsInsidePaint\(page\)/g)).toHaveLength(2);
+    const paint = spec.slice(
+      spec.indexOf('async function assertLobbyControlsInsidePaint('),
+      spec.indexOf('/** The native lower glass')
+    );
+    expect(paint).toContain("machine.dataset.compactLobbyControls === 'true'");
+    expect(paint).toContain('expect(families).toHaveLength(0)');
+    expect(paint).toContain('expect(families).toHaveLength(2)');
+    expect(paint).toContain('.lobby-sticky-filters > button:visible');
+    expect(paint).toContain('.toBeGreaterThanOrEqual(2)');
+    expect(helper).not.toContain('dispatchEvent');
   });
 });
