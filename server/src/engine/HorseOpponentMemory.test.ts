@@ -5,9 +5,13 @@ import {
   decayAndAddOpportunityScoped,
   exploitHandIncrements,
   freshExploitCounters,
+  mergeExploitRows,
+  observeExploitRow,
+  type ExploitCounters,
 } from './HorseOpponentExploit.js';
 import {
   blendOpponentMemoryWithExpiry,
+  computeDonorHandClockStaleness,
   MEMORY_VARIANTS,
   opponentMemoryKey,
   validOpponentProfile,
@@ -148,5 +152,44 @@ describe('variant and session durable opponent reads', () => {
     const freshDonorBlend = blendOpponentMemoryWithExpiry(undefined, [donor], 0)!;
     const halfLifeDonorBlend = blendOpponentMemoryWithExpiry(undefined, [donor], 120)!;
     expect(halfLifeDonorBlend.hands).toBeCloseTo(freshDonorBlend.hands * 0.5, 6);
+
+    // Donor hand clock staleness clamps negative or non-finite deltas (e.g. donor has 80 observed hands, new table has 2)
+    expect(computeDonorHandClockStaleness(80, 2)).toBe(0);
+    expect(computeDonorHandClockStaleness(80, 200)).toBe(120);
+    expect(computeDonorHandClockStaleness(NaN, 100)).toBe(0);
+    expect(blendOpponentMemoryWithExpiry(undefined, [donor], -78)!.hands).toBeCloseTo(
+      freshDonorBlend.hands,
+      9
+    );
+
+    // Wire opportunityScoped through observeExploitRow and mergeExploitRows across 100 mixed hands
+    const liveStore = new Map<string, ExploitCounters>();
+    for (let i = 0; i < 100; i++) {
+      const sandbox = new Map<string, ExploitCounters>();
+      const inc =
+        i % 10 === 0
+          ? exploitHandIncrements([
+              { userId: 'hero', action: 'raise', stage: 'preflop', amount: 6, isFullRaise: true },
+              { userId: uid, action: 'raise', stage: 'preflop', amount: 18, isFullRaise: true },
+              { userId: 'hero', action: 'call', stage: 'preflop', amount: 12 },
+              { userId: 'hero', action: 'bet', stage: 'river', amount: 20, isFullRaise: true },
+              { userId: uid, action: i % 20 === 0 ? 'call' : 'fold', stage: 'river', amount: 20 },
+            ]).get(uid)!
+          : preflopFoldInc;
+      observeExploitRow(sandbox, `holdem:short|${uid}`, inc, 100, true);
+      mergeExploitRows(liveStore, sandbox, 100, true);
+      const current = liveStore.get(`holdem:short|${uid}`)!;
+      expect(
+        validOpponentProfile({
+          user_id: uid,
+          variant: 'nlh',
+          mode: 'cash',
+          size: 'short',
+          observed_hands: i + 1,
+          initialized: true,
+          counters: current,
+        })
+      ).toBe(true);
+    }
   });
 });

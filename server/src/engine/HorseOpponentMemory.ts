@@ -150,6 +150,33 @@ export function blendOpponentMemory(
 export const OPPONENT_MEMORY_DONOR_HALF_LIFE_HANDS = 120;
 
 /**
+ * Computes the non-negative hand-clock staleness (`handsSinceDonorUpdate`) of a
+ * donor profile (`donorObservedHands` at `currentDonorHandClock`).
+ *
+ * Importantly, donor staleness must NEVER be computed as
+ * `exact.observed_hands - donor.observed_hands`: a player who played 80 hands
+ * at 6-max (`donor.observed_hands = 80`) and then sat down at 9-max (`exact.observed_hands = 2`)
+ * would produce `-78` under that naive difference. Instead, the hand clock
+ * compares the monotonic hand counter at which the donor bucket was last
+ * observed against the current monotonic hand counter for that player/context,
+ * clamping negative or non-finite deltas to `0`.
+ */
+export function computeDonorHandClockStaleness(
+  donorLastObservedHandClock: number,
+  currentHandClock: number
+): number {
+  if (
+    !Number.isFinite(donorLastObservedHandClock) ||
+    !Number.isFinite(currentHandClock) ||
+    donorLastObservedHandClock < 0 ||
+    currentHandClock <= donorLastObservedHandClock
+  ) {
+    return 0;
+  }
+  return currentHandClock - donorLastObservedHandClock;
+}
+
+/**
  * Staleness-weighted donor blend (`v2` — Item 12): decays the cross-table-size
  * donor weight exponentially as `handsSinceDonorUpdate` grows (half-life =
  * `OPPONENT_MEMORY_DONOR_HALF_LIFE_HANDS`) and linearly tapers the donor weight
@@ -170,9 +197,11 @@ export function blendOpponentMemoryWithExpiry(
     0,
     (OPPONENT_MEMORY_THIN_HANDS - exactHands) / OPPONENT_MEMORY_THIN_HANDS
   );
+  const safeHandsSinceDonor =
+    Number.isFinite(handsSinceDonorUpdate) && handsSinceDonorUpdate > 0 ? handsSinceDonorUpdate : 0;
   const stalenessFactor =
-    handsSinceDonorUpdate > 0
-      ? Math.pow(0.5, handsSinceDonorUpdate / OPPONENT_MEMORY_DONOR_HALF_LIFE_HANDS)
+    safeHandsSinceDonor > 0
+      ? Math.pow(0.5, safeHandsSinceDonor / OPPONENT_MEMORY_DONOR_HALF_LIFE_HANDS)
       : 1;
   const effectiveWeight = OPPONENT_MEMORY_DONOR_WEIGHT * thinTaper * stalenessFactor;
   if (effectiveWeight <= 1e-6) return exact;

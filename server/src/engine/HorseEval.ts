@@ -571,6 +571,8 @@ export function nextCardOutlook(
     }
   }
   const heroCanMakeLow = heroLowRanks.size >= 2;
+  const boardLowPossibleBefore =
+    quality && vi.isOmaha && vi.isHiLo ? boardNutLowPartial(board) < Infinity : false;
   const heroHasNutLowBefore =
     heroCanMakeLow &&
     (() => {
@@ -581,6 +583,10 @@ export function nextCardOutlook(
     if (!heroCanMakeLow) return false;
     const heroLow = scoreOmahaLowPartial(hole, b);
     return heroLow < Infinity && heroLow === boardNutLowPartial(b);
+  };
+  const heroLowDrawCounterfeitedOnComplete = (b: Card[]): boolean => {
+    if (!heroCanMakeLow || boardLowPossibleBefore) return false;
+    return boardNutLowPartial(b) < Infinity && scoreOmahaLowPartial(hole, b) === Infinity;
   };
   const next: Card[] = board.slice();
   for (const c of base) {
@@ -608,7 +614,13 @@ export function nextCardOutlook(
     const sharedPair =
       holdem && after <= 3 && !hole.some((h) => h.rank === c.rank) && (rankN.get(c.rank) || 0) > 0;
     if (after > out.madeNow && !sharedPair) {
-      if (quality && vi.isOmaha && vi.isHiLo && heroHasNutLowBefore && !heroHasNutLowAfter(next)) {
+      if (
+        quality &&
+        vi.isOmaha &&
+        vi.isHiLo &&
+        ((heroHasNutLowBefore && !heroHasNutLowAfter(next)) ||
+          heroLowDrawCounterfeitedOnComplete(next))
+      ) {
         out.scare.push(k);
         continue;
       }
@@ -616,7 +628,10 @@ export function nextCardOutlook(
       continue;
     }
     if (quality && vi.isOmaha && vi.isHiLo && heroCanMakeLow) {
-      if (heroHasNutLowBefore && !heroHasNutLowAfter(next)) {
+      if (
+        (heroHasNutLowBefore && !heroHasNutLowAfter(next)) ||
+        heroLowDrawCounterfeitedOnComplete(next)
+      ) {
         out.scare.push(k);
         continue;
       }

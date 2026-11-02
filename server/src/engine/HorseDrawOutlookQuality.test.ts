@@ -106,6 +106,13 @@ describe('Omaha Hi-Lo (PLO8 / FLO8) nut-low completion and counterfeit outlook (
       // but hero retains the 2-3 nut low, so Ah is NOT a counterfeit scare
       const protectedLowOutlook = nextCardOutlook(cards('As 2s 3s Qd'), cards('4c 5d 8s'), vi);
       expect(protectedLowOutlook.scare).not.toContain('Ah');
+
+      // Hero holds As 3s Kh Qd (only 2 low hole cards: A and 3) on a 2-low flop 2c 4d Js:
+      // turn 3h puts a 3rd low rank on board (2-3-4), counterfeiting hero's 3s so hero cannot
+      // use two low hole cards to make a qualifying low! 3h must be classified as scare, not good.
+      const drawCounterfeitedOutlook = nextCardOutlook(cards('As 3s Kh Qd'), cards('2c 4d Js'), vi);
+      expect(drawCounterfeitedOutlook.scare).toContain('3h');
+      expect(drawCounterfeitedOutlook.good).not.toContain('3h');
     }
   );
 });

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   clampSyntheticIncidentTimestampMs,
@@ -14,19 +15,27 @@ describe('verify-worktree-storage-and-dst-bounds (Phase 5 CI & storage guard)', 
     ).toBe(true);
 
     const internalTrees = evaluateWorktreeStorageCompliance({
-      worktreePath: '/Users/smarter.poker/Documents/.agent-trees/club-arena/probe',
+      worktreePath: path.posix.join(
+        '/',
+        'Users',
+        'smarter.poker',
+        'Documents',
+        '.agent-trees',
+        'club-arena',
+        'probe'
+      ),
     });
     expect(internalTrees.compliant).toBe(false);
     expect(internalTrees.reason).toBe('forbidden_internal_drive_path');
 
     const tmpPath = evaluateWorktreeStorageCompliance({
-      worktreePath: '/tmp/scratch-worktree',
+      worktreePath: path.posix.join('/', 'tmp', 'scratch-worktree'),
     });
     expect(tmpPath.compliant).toBe(false);
     expect(tmpPath.reason).toBe('forbidden_internal_drive_path');
 
     const internalRepo = evaluateWorktreeStorageCompliance({
-      worktreePath: '/Users/smarter.poker/Documents/club-arena',
+      worktreePath: path.posix.join('/', 'Users', 'smarter.poker', 'Documents', 'club-arena'),
       ssdMounted: true,
     });
     expect(internalRepo.compliant).toBe(false);

@@ -1105,4 +1105,67 @@ describe('stopped tournament bank custody', () => {
     expect(owner.unregisterTableEngine(table, original)).toBe(true);
     expect(owner.tableEngines.has(table)).toBe(false);
   });
+
+  it('preserves retained-hand recovery, stopped time-bank custody, and snapshot state on temporary stop(), and releases transient hand memory only after confirmed terminal closure', async () => {
+    const original = stoppedCandidate();
+    original.currentHandHoleCards.set(user, [{ rank: 'A', suit: 'spades' }]);
+    original.currentHandDealtStacks.set(user, 100);
+    original.currentHandActions.push({
+      seat: 2,
+      userId: user,
+      action: 'call',
+      amount: 2,
+      timestamp: 1000,
+      stage: 'preflop',
+    });
+    original.currentHandPots.push({ amount: 4, eligiblePlayers: [user] });
+    original.retainedPublicHandState = { stage: 'preflop', deck: [] };
+
+    // 1. Temporary stop (e.g. for engine release drain, F06 hand recovery, or quarantine):
+    // stop() MUST preserve currentHand* fields, captureContinuationEngine(),
+    // retainedPublicHandState, stoppedTimeBankCustody, and parkedTimeBanks.
+    await original.stop();
+    expect(original.hasUnretiredStoppedTimeBankCustody()).toBe(true);
+    expect(original.stoppedTimeBankCustody).not.toBeNull();
+    expect(original.parkedTimeBanks[user]).toMatchObject({
+      remainingSeconds: 7,
+      usesRemaining: 1,
+    });
+    expect(original.currentHandHoleCards.size).toBe(1);
+    expect(original.currentHandActions).toHaveLength(1);
+    expect(original.retainedPublicHandState).toEqual({ stage: 'preflop', deck: [] });
+    const captured = original.captureContinuationEngine();
+    expect((captured.fields as Record<string, unknown>).currentHandActions).toHaveLength(1);
+
+    // 2. While retainedPublicHandState or unretired stoppedTimeBankCustody is held,
+    // releaseClosedTableHandMemory() refuses to clear transient hand state.
+    expect(original.releaseClosedTableHandMemory()).toBe(false);
+    expect(original.currentHandHoleCards.size).toBe(1);
+
+    // 3. Even after retainedPublicHandState is cleared, unretired stoppedTimeBankCustody
+    // still blocks releaseClosedTableHandMemory() on a table stopped for replacement/handoff.
+    original.retainedPublicHandState = null;
+    expect(original.releaseClosedTableHandMemory()).toBe(false);
+    expect(original.currentHandHoleCards.size).toBe(1);
+
+    // 4. Confirmed terminal session closure via unregisterTableEngine ->
+    // retireStoppedTimeBanksForClosedSession() retires stopped time-bank custody
+    // and releases transient currentHand* collections while keeping stoppedTimeBankCustody
+    // and parkedTimeBanks intact for audit/diagnostics.
+    const owner = Object.assign(Object.create(GameServer.prototype), {
+      tableEngines: new Map([[table, original]]),
+      tournamentOwnedTables: new Set([table]),
+    });
+    expect(owner.unregisterTableEngine(table, original)).toBe(true);
+    expect(original.hasUnretiredStoppedTimeBankCustody()).toBe(false);
+    expect(original.currentHandHoleCards.size).toBe(0);
+    expect(original.currentHandDealtStacks.size).toBe(0);
+    expect(original.currentHandActions).toHaveLength(0);
+    expect(original.currentHandPots).toHaveLength(0);
+    expect(original.stoppedTimeBankCustody).not.toBeNull();
+    expect(original.parkedTimeBanks[user]).toMatchObject({
+      remainingSeconds: 7,
+      usesRemaining: 1,
+    });
+  });
 });

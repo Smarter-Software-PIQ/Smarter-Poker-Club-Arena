@@ -4861,16 +4861,46 @@ export abstract class ServerTableEngineBase {
         `Table engine ${this.tableId} teardown failed in ${failures.length} operation(s)`
       );
     }
-    this.releaseClosedTableHandMemory();
     this.terminalTeardownComplete = true;
   }
 
   /**
-   * Releases retained per-hand arrays/maps after a clean, non-quarantined table
-   * teardown (`terminalTeardownComplete === true`) so closed cash/MTT/SNG tables
-   * do not retain their last hand's action/pot/hole-card objects in heap.
+   * Releases transient per-hand arrays/maps ONLY when a table session is
+   * terminally closed (`terminalTeardownComplete === true`, `tableFSM === 'closed'`,
+   * process ownership released, no retained/unretained hand continuation, no
+   * snapshot flush/timer pending, and no unretired stopped time-bank custody).
+   *
+   * Temporarily stopped engines (stopped for engine release drain, F06 hand
+   * recovery, time-bank custody handoff, or quarantine) NEVER call this during
+   * `performStop()`, preserving `captureContinuationEngine()`,
+   * `retainedPublicHandState`, `retainedPreparedOriginalController`,
+   * `stoppedTimeBankCustody`, and `parkedTimeBanks`.
    */
-  protected releaseClosedTableHandMemory(): void {
+  public releaseClosedTableHandMemory(): boolean {
+    if (
+      !this.terminal ||
+      !this.terminalTeardownDrained ||
+      !this.terminalTeardownComplete ||
+      this.tableFSM.state !== 'closed' ||
+      !this.hasReleasedProcessOwnership() ||
+      this.handController !== null ||
+      this.isOriginalInputPending() ||
+      (this.handContinuation?.isUnretained() ?? false) ||
+      this.retainedPublicHandState !== null ||
+      this.retainedPreparedOriginalController !== null ||
+      this.hasUnresolvedF06Preparation() ||
+      this.hasClaimedTournamentMoveBoundary() ||
+      this.snapshotTimer !== null ||
+      this.snapshotFlushPromise !== null ||
+      this.hasSettlementInFlight() ||
+      this.postHandTasksPromise !== null ||
+      this.hasUnretiredStoppedTimeBankCustody() ||
+      this.timeBankAccountingUnconfirmed ||
+      this.timeBankAccountingPending.size > 0 ||
+      this.presenceSavePending > 0
+    ) {
+      return false;
+    }
     this.currentHandHoleCards.clear();
     this.currentHandDealtStacks.clear();
     this.currentHandSeatGenerations.clear();
@@ -4888,8 +4918,9 @@ export abstract class ServerTableEngineBase {
     this.currentHandRitExtraBoards.length = 0;
     this.currentHandShowdownResults.length = 0;
     this.currentHandInsuranceSettlements.length = 0;
-    this.retainedPublicHandState = null;
-    this.retainedPreparedOriginalController = null;
+    this.currentHandTimerLog.length = 0;
+    this.currentHandNotificationLog.length = 0;
+    return true;
   }
 
   /**
@@ -8388,7 +8419,10 @@ export abstract class ServerTableEngineBase {
   /** Only the existing confirmed-terminal table cleanup caller may end a
    * table session. An unknown debit remains held even when the game ended. */
   retireStoppedTimeBanksForClosedSession(): boolean {
-    if (!this.hasUnretiredStoppedTimeBankCustody()) return true;
+    if (!this.hasUnretiredStoppedTimeBankCustody()) {
+      this.releaseClosedTableHandMemory();
+      return true;
+    }
     if (
       !this.terminalTeardownComplete ||
       !this.stoppedTimeBankCustody ||
@@ -8398,6 +8432,7 @@ export abstract class ServerTableEngineBase {
     )
       return false;
     this.stoppedTimeBankCustodyTransferred = true;
+    this.releaseClosedTableHandMemory();
     return true;
   }
 
