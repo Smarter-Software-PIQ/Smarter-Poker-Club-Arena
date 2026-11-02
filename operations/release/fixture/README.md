@@ -790,3 +790,23 @@ empty-role preimage, exact owned extension set and final absence are asserted.
 The application stays NOSUPERUSER throughout, with its original managed session
 and server/role preload configuration unchanged. No extension metadata is edited
 directly and no captured owner/version/ACL assertion is relaxed.
+
+### Private Realtime control database
+
+The same disposable PostgreSQL cluster keeps genuine Realtime control migrations
+and tenant configuration in club_arena_realtime_control, owned by the original
+initdb admin with PUBLIC CONNECT revoked. Application postgres and API roles
+cannot connect; actual postgres login denial and database privileges are checked
+before and after role alignment. The application database has no \_realtime
+schema, matching the independently observed production namespace boundary.
+
+Both entrypoints run the original Realtime migrate/server against that control
+database. The stock seed retains its original release entrypoint and native SQL.
+Its child first asserts the already loaded Realtime.Repo control database, then
+sets only that child's DB_NAME to the application database while the unchanged
+seed derives its tenant target. Repository configuration stays fixed; the child
+restores its environment before exiting. The exact82 application migration ledger,
+message-column contract and genuine control tenant82 witness are checked through
+separate bounded owned connections. Actual causal Realtime, RLS and peer refusals
+remain required. All control proof clients close before unchanged cluster-wide
+preimage quiescence; schema export still selects every application schema.

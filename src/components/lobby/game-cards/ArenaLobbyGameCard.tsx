@@ -14,13 +14,16 @@ export function arenaGameCardActionsForEntry(
   const mine = playerStateOf(entry, ctx);
 
   if (entry.kind === 'cash') {
+    const viewDisabled = Boolean(ctx.actionBusy || !ctx.onViewTable);
     if (mine === 'seated') {
       return {
         primaryLabel: 'Return To Game',
+        primaryDisabled: viewDisabled,
         primaryTone: 'green',
         onPrimary: () => ctx.onViewTable?.(entry),
         secondaryLabel: 'Details',
         onSecondary: () => ctx.onViewTable?.(entry),
+        secondaryDisabled: viewDisabled,
       };
     }
     /* A disabled game (or a paused table) is not taking players; the door
@@ -34,6 +37,7 @@ export function arenaGameCardActionsForEntry(
         primaryDisabled: true,
         secondaryLabel: entry.game ? 'View Game' : 'View Table',
         onSecondary: () => ctx.onViewTable?.(entry),
+        secondaryDisabled: viewDisabled,
       };
     }
     if (!entry.game?.lightning && (entry.status === 'full' || entry.status === 'waitlist')) {
@@ -45,6 +49,7 @@ export function arenaGameCardActionsForEntry(
         primaryDisabled: !ctx.onWaitlistToggle,
         secondaryLabel: entry.game ? 'Watch Game' : 'Watch Table',
         onSecondary: () => ctx.onViewTable?.(entry),
+        secondaryDisabled: viewDisabled,
       };
     }
     /* GATE 6 (OPORD 1.4 s2.9): a must-move game is JOIN GAME / VIEW GAME -
@@ -60,6 +65,7 @@ export function arenaGameCardActionsForEntry(
         primaryDisabled: true,
         secondaryLabel: game ? 'View Game' : 'View Table',
         onSecondary: () => ctx.onViewTable?.(entry),
+        secondaryDisabled: viewDisabled,
       };
     }
     /* LIGHTNING TRANSITION PHASE 5: a game switching modes (Lightning
@@ -72,6 +78,7 @@ export function arenaGameCardActionsForEntry(
         primaryDisabled: true,
         secondaryLabel: 'View Game',
         onSecondary: () => ctx.onViewTable?.(entry),
+        secondaryDisabled: viewDisabled,
       };
     }
     /* LIGHTNING PHASE 6: a Lightning Cluster's door is JOIN LIGHTNING; the
@@ -87,6 +94,7 @@ export function arenaGameCardActionsForEntry(
         primaryDisabled: joinsClosed || !ctx.onJoinTable,
         secondaryLabel: 'View Game',
         onSecondary: () => ctx.onViewTable?.(entry),
+        secondaryDisabled: viewDisabled,
       };
     }
     return {
@@ -96,6 +104,7 @@ export function arenaGameCardActionsForEntry(
       primaryDisabled: !ctx.onJoinTable,
       secondaryLabel: game ? 'View Game' : 'View Table',
       onSecondary: () => ctx.onViewTable?.(entry),
+      secondaryDisabled: viewDisabled,
     };
   }
 

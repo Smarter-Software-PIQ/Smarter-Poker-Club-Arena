@@ -137,6 +137,7 @@ function Actions({ actions }: { actions: ArenaGameCardActions }) {
           className="agc-action agc-action--secondary"
           data-zone="secondaryAction"
           onClick={actions.onSecondary}
+          disabled={!actions.onSecondary || actions.secondaryDisabled}
         >
           {actions.showIcons !== false && (
             <i className="agc-action__icon">

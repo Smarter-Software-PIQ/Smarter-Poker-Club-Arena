@@ -2896,7 +2896,7 @@ class FailedRoutineCustodyTests(unittest.TestCase):
                 answer = self.run_reader(state, base / 'missing', base / 'missing-units')
             probe.assert_not_called()
             self.assertFalse(answer['sourceQualified'])
-            self.assertTrue(all(v['status'] == 'unknown' for v in answer['units'].values()))
+            self.assertTrue(all((v['status'], v['phase'], v['reason']) == ('unknown', 'source', 'source_unproved') for v in answer['units'].values()))
             self.assertEqual(answer['databaseFreezeThaw'], 'not_observed')
             self.assertFalse(answer['retryAllowed'])
             R.validate_reply(answer, R.FAILED_CUSTODY_REQUEST)
@@ -2910,7 +2910,7 @@ class FailedRoutineCustodyTests(unittest.TestCase):
             path = state / 'engine-release-requests' / '41349091113-1.request'
             path.write_text(R.FAILED_CUSTODY_CONTROL + '\nhttps://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41349091113\nprivate-not-exported\n' + str('/usr/local/lib/club-arena/engine-control-generations/' + R.FAILED_CUSTODY_CONTROL) + '\n' + R.FAILED_CUSTODY_CONTROL + '\n1793579999\n'); path.chmod(0o600)
             stable = {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in base.rglob('*') if p.is_file()}
-            observed = lambda unit, deadline: ({'status': 'observed', 'inactive': True, 'noJob': True, 'disabled': True,
+            observed = lambda unit, deadline: ({'status': 'observed', 'phase': 'complete', 'reason': 'observed', 'inactive': True, 'noJob': True, 'disabled': True,
                          'noMainOrControlPid': None if unit.endswith('.path') else True,
                          'processEnumerationEmpty': None if unit.endswith('.path') else True, 'cgroup': 'not-applicable' if unit.endswith('.path') else 'manager-empty'}, '9' * 64)
             with patch.object(R, 'failed_custody_canonical', return_value=self.canonical()), \
@@ -2942,12 +2942,43 @@ class FailedRoutineCustodyTests(unittest.TestCase):
                 bad = dict(fields, **{field: value})
                 wrong = '\n'.join(k + '=' + v for k, v in bad.items()).encode()
                 with patch.object(R, 'inspector_command', return_value=wrong) as refused:
-                    self.assertEqual(R.failed_custody_unit(unit, R.time.monotonic() + 3)[0]['status'], 'unknown')
+                    row = R.failed_custody_unit(unit, R.time.monotonic() + 3)[0]
+                    self.assertEqual((row['status'], row['phase'], row['reason']), ('unknown', 'metadata_source', 'source_refused'))
                 self.assertEqual(refused.call_count, 1)
             raw = '\n'.join(k + '=' + v for k, v in fields.items()).encode()
             with patch.object(R, 'inspector_command', side_effect=[raw, b'a(sus) 0']) as probe:
                 row, _ = R.failed_custody_unit(unit, R.time.monotonic() + 3)
-            self.assertEqual(row['status'], 'observed'); self.assertTrue(row['inactive'])
+            self.assertEqual((row['status'], row['phase'], row['reason']), ('observed', 'complete', 'observed')); self.assertTrue(row['inactive'])
+            # Closed phase/reason diagnostics never expose native output/errors.
+            for error, code in [(ValueError('Inspector read deadline'), 'command_deadline'),
+                                (ValueError('Inspector read size'), 'command_size'),
+                                (ValueError('Inspector native unavailable'), 'command_nonzero'),
+                                (OSError('private path'), 'native_unavailable')]:
+                with patch.object(R, 'inspector_command', side_effect=error):
+                    failed, binding = R.failed_custody_unit(unit, R.time.monotonic() + 3)
+                self.assertEqual((failed['status'], failed['phase'], failed['reason']), ('unknown', 'metadata_read', code))
+                self.assertIsNone(binding); self.assertNotIn('private', json.dumps(failed))
+                self.assertTrue(all(failed[k] is None for k in ('inactive', 'noJob', 'disabled', 'noMainOrControlPid', 'processEnumerationEmpty')))
+                if not unit.endswith('.path'):
+                    with patch.object(R, 'inspector_command', side_effect=[raw, error]):
+                        failed, binding = R.failed_custody_unit(unit, R.time.monotonic() + 3)
+                    self.assertEqual((failed['phase'], failed['reason']), ('process_read', code))
+                    self.assertIsNone(binding); self.assertIsNone(failed['processEnumerationEmpty'])
+            bad_metadata = [(b'\xff', 'metadata_decode', 'decode_refused'),
+                            (raw + b'\nUnexpected=private', 'metadata_fields', 'fields_refused'),
+                            (raw.replace(b'ActiveState=inactive', b'ActiveState=private'), 'metadata_state', 'value_refused')]
+            if not unit.endswith('.path'):
+                bad_metadata.append((raw.replace(b'MainPID=0', b'MainPID=private'), 'metadata_pids', 'value_refused'))
+            for bad, phase, code in bad_metadata:
+                with patch.object(R, 'inspector_command', return_value=bad):
+                    failed, binding = R.failed_custody_unit(unit, R.time.monotonic() + 3)
+                self.assertEqual((failed['phase'], failed['reason']), (phase, code))
+                self.assertIsNone(binding); self.assertNotIn('private', json.dumps(failed))
+            if not unit.endswith('.path'):
+                with patch.object(R, 'inspector_command', side_effect=[raw, b'\xff']):
+                    failed, binding = R.failed_custody_unit(unit, R.time.monotonic() + 3)
+                self.assertEqual((failed['phase'], failed['reason']), ('process_decode', 'decode_refused'))
+                self.assertIsNone(binding)
             if unit.endswith('.path'):
                 self.assertIsNone(row['processEnumerationEmpty']); self.assertIsNone(row['noMainOrControlPid'])
                 self.assertEqual(row['cgroup'], 'not-applicable'); self.assertEqual(probe.call_count, 1)
@@ -2963,7 +2994,8 @@ class FailedRoutineCustodyTests(unittest.TestCase):
             self.assertFalse(row['inactive']); self.assertFalse(row['noJob']); self.assertFalse(row['processEnumerationEmpty'])
             for malformed in (b'a(sus) malformed', b'a(sus) 00', b'a(sus) 1'):
                 with patch.object(R, 'inspector_command', side_effect=[raw, malformed]):
-                    self.assertEqual(R.failed_custody_unit(unit, R.time.monotonic() + 3)[0]['status'], 'unknown')
+                    failed = R.failed_custody_unit(unit, R.time.monotonic() + 3)[0]
+                self.assertEqual((failed['status'], failed['phase'], failed['reason']), ('unknown', 'process_shape', 'shape_refused'))
             with patch.object(R, 'inspector_command', side_effect=ValueError('raw private error')):
                 row, _ = R.failed_custody_unit(unit, R.time.monotonic() + 3)
             self.assertEqual(row['status'], 'unknown'); self.assertNotIn('private', json.dumps(row))
@@ -2972,7 +3004,7 @@ class FailedRoutineCustodyTests(unittest.TestCase):
     def test_changed_records_and_native_state_refuse_stable_observation(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder); state = self.state(base / 'state'); parent, systemd = self.sources(base)
-            result = ({'status': 'unknown', 'inactive': None, 'noJob': None, 'disabled': None,
+            result = ({'status': 'unknown', 'phase': 'metadata_read', 'reason': 'command_nonzero', 'inactive': None, 'noJob': None, 'disabled': None,
                        'noMainOrControlPid': None, 'processEnumerationEmpty': None, 'cgroup': 'unknown'}, None)
             calls = 0
             def changed(unit, deadline):
@@ -2995,6 +3027,11 @@ class FailedRoutineCustodyTests(unittest.TestCase):
             with patch.object(R, 'failed_custody_canonical', return_value=self.canonical()):
                 answer = self.run_reader(state, base / 'missing', base / 'missing')
             for mutate in (lambda v: v['records']['checkpoint'].update(body='private'),
+                           lambda v: v.update(schema='failed-routine-custody-observation/v1'),
+                           lambda v: v['units']['intakeService'].update(phase='private'),
+                           lambda v: v['units']['intakeService'].update(reason='private'),
+                           lambda v: v['units']['intakeService'].update(phase='complete', reason='observed'),
+                           lambda v: v['units']['intakeService'].update(phase='process_read', reason='command_nonzero'),
                            lambda v: v['units']['releaseService'].update(status='observed'),
                            lambda v: v['runtime'].update(status='observed'),
                            lambda v: v.update(sourceQualified=True)):
@@ -3049,9 +3086,18 @@ class FailedRoutineHistoricalTests(unittest.TestCase):
             generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
             generation.mkdir(parents=True)
             path = generation / 'engine-release-transaction.sh'
-            path.write_bytes((ROOT / 'server/scripts/engine-release-transaction.sh').read_bytes())
+            source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_bytes()
+            path.write_bytes(source)
             result = R.failed_custody_transaction(parent, R.time.monotonic() + 3)
-            self.assertEqual(result[0], R.FAILED_CUSTODY_TRANSACTION_SHA256)
+            # The byte reader hashes its input, which can advance on main.
+            # Historical qualification still requires the immutable original.
+            self.assertEqual(result[0], hashlib.sha256(source).hexdigest())
+            foreign = ('0' * 64, result[1])
+            with patch.object(R, 'bounded_journal') as command:
+                answer = R.failed_custody_historical((foreign, self.inputs()[1]), R.time.monotonic() + 10)
+            self.assertFalse(answer['sourceMatches'])
+            self.assertEqual(answer['status'], 'unknown')
+            command.assert_not_called()
             self.assertGreater(path.stat().st_size, R.MAX_BYTES)
             row = R.intake_record(parent, ('engine-control-generations', R.FAILED_CUSTODY_CONTROL, path.name), False, R.time.monotonic() + 3)[0]
             self.assertEqual(row['status'], 'unknown')

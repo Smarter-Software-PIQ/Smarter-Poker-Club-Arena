@@ -139,12 +139,11 @@ describe('tournament headers span their whole event frame', () => {
   it('tracks visible wide columns after responsive shedding without changing the compact span', () => {
     board(100);
     const wide = document.querySelector('.lobby-table')!;
-    for (const cls of ['format', 'actions', 'leveltime', 'tlevel', 'tstack']) {
-      (wide.querySelector(`thead .lt-col-${cls}`) as HTMLElement).style.display = 'none';
-    }
+    expect(wide.querySelectorAll('thead th')).toHaveLength(4);
+    (wide.querySelector('thead .lt-col-players') as HTMLElement).style.display = 'none';
     fireEvent.resize(window);
     expect(wide.querySelector('tr[data-tournament-heading] td')!.getAttribute('colspan')).toBe(
-      String(wide.querySelectorAll('thead th').length - 5)
+      String(wide.querySelectorAll('thead th').length - 1)
     );
     expect(wide.querySelector('tr[data-id] td[data-last-visible="true"]')?.className).toContain(
       'lt-col-status'

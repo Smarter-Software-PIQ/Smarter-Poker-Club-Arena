@@ -140,6 +140,7 @@ test('bootstrap SQL accepts only the fixture random hex password, never a SQL fr
     assert.throws(() => serviceRoleBootstrapSql(bad), /FIXTURE_RANDOM_DATABASE_PASSWORD_REQUIRED/);
   }
   const sql = serviceRoleBootstrapSql('a'.repeat(64));
+  assert.equal(sql.includes('CREATE SCHEMA _realtime'), false);
   assert.match(sql, /supabase_auth_admin LOGIN NOINHERIT CREATEROLE/);
   assert.match(sql, /CREATE SCHEMA auth AUTHORIZATION supabase_admin/);
   assert.ok(!sql.includes('TO supabase_admin WITH ADMIN OPTION'));

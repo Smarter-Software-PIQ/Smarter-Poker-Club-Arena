@@ -1040,6 +1040,18 @@ def database_container_identity() -> dict[str, Any]:
     return json.loads(run(["docker", "container", "inspect", "--format", template, "club-arena-engine"]))
 
 
+# One fixed owner-authorized operation, not generic multi-file admission.
+ATTENTION14_DATABASE_PAIR_ID = "2026-11-01-attention14-two-sql-database-operation"
+ATTENTION14_DATABASE_PAIR_ANCHOR = "4e9c32285477176df8e4afcef4e743d5fe961047"
+ATTENTION14_DATABASE_PAIR_BOUNDS = ("2026-11-01T23:25:00Z", "2026-11-02T02:25:00Z")
+ATTENTION14_DATABASE_PAIR = (
+    ("20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
+     "d42ad78995ffb0c626636e10c41b9b350119995e20c7ef71c4578ac99bfca1aa"),
+    ("20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql",
+     "3a292905ddf7daffc696f5cb836255a220060ba0631a126872ad30ecb7908a29"),
+)
+
+
 def reserve_database_window(request: dict[str, Any], repo: str) -> dict[str, Any]:
     """One reviewed DB operation, sharing the release seal's rolling-hour ledger.
 
@@ -1081,15 +1093,32 @@ def reserve_database_window(request: dict[str, Any], repo: str) -> dict[str, Any
             die("database window has no owner order")
         git_is_ancestor(repo, valid_sha(window.get("contains", "")), control, "database window anchor is absent")
         files = window.get("migrations")
-        if not isinstance(files, list) or len(files) != 1 or not re.fullmatch(r"[0-9]{14}_[a-z0-9_]+\.sql", files[0]):
-            die("database operation must name exactly one migration")
-        sql_bytes = subprocess.run(["git", "-C", repo, "show", control + ":supabase/migrations/" + files[0]],
-                                   check=True, capture_output=True, timeout=30).stdout
-        sql = sql_bytes.decode()
-        if "-- @install-window: daily-maintenance" not in sql.splitlines():
-            die("database operation migration is not a maintenance file")
-        binding = {**request, "type": "database-maintenance/v1", "imageId": state["desired"]["imageId"], "migration": files[0],
-                   "migrationSHA256": hashlib.sha256(sql_bytes).hexdigest()}
+        if window["id"] == ATTENTION14_DATABASE_PAIR_ID:
+            if (window.get("contains") != ATTENTION14_DATABASE_PAIR_ANCHOR
+                    or (window.get("notBefore"), window.get("notAfter")) != ATTENTION14_DATABASE_PAIR_BOUNDS
+                    or files != [f for f, _ in ATTENTION14_DATABASE_PAIR]):
+                die("database pair differs from its exact reviewed authority")
+            migrations = []
+            for file, expected_hash in ATTENTION14_DATABASE_PAIR:
+                sql_bytes = subprocess.run(["git", "-C", repo, "show", control + ":supabase/migrations/" + file],
+                                           check=True, capture_output=True, timeout=30).stdout
+                actual_hash = hashlib.sha256(sql_bytes).hexdigest()
+                if (actual_hash != expected_hash
+                        or "-- @install-window: daily-maintenance" not in sql_bytes.decode().splitlines()):
+                    die("database pair SQL differs from its exact qualified bytes")
+                migrations.append({"migration": file, "migrationSHA256": actual_hash})
+            binding = {**request, "type": "database-maintenance-pair/v1",
+                       "imageId": state["desired"]["imageId"], "migrations": migrations}
+        else:
+            if not isinstance(files, list) or len(files) != 1 or not re.fullmatch(r"[0-9]{14}_[a-z0-9_]+\.sql", files[0]):
+                die("database operation must name exactly one migration")
+            sql_bytes = subprocess.run(["git", "-C", repo, "show", control + ":supabase/migrations/" + files[0]],
+                                       check=True, capture_output=True, timeout=30).stdout
+            sql = sql_bytes.decode()
+            if "-- @install-window: daily-maintenance" not in sql.splitlines():
+                die("database operation migration is not a maintenance file")
+            binding = {**request, "type": "database-maintenance/v1", "imageId": state["desired"]["imageId"], "migration": files[0],
+                       "migrationSHA256": hashlib.sha256(sql_bytes).hexdigest()}
         path = STATE_DIR / (RECOVERY_WINDOW_PREFIX + request["runId"] + ".json")
         if path.exists():
             receipt = json.loads(path.read_text())

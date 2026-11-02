@@ -159,6 +159,13 @@ export const SESSION_ENDED_PROMPT_MS = 4_000;
 export const SESSION_ENDED_TITLE = 'Your Session Has Ended';
 export const SESSION_ENDED_BODY =
   'You Were Signed Out On This Device, So The Table Cannot Reconnect. Taking You To Sign In Again.';
+export const SESSION_ENDED_BODY_ANOTHER_DEVICE =
+  'Your Account Was Signed In On Another Device, So This Device Was Signed Out. Taking You To Sign In Again.';
+
+/** The revocation op_id prefix ca_claim_active_login writes (2026-11-01). */
+export const DEVICE_LOGIN_OP_PREFIX = 'device_login:';
+/** The source handleEngineAuthRejection stores for that kick, for the copy above. */
+export const ANOTHER_DEVICE_SOURCE = 'account:another_device_login';
 export const SESSION_ENDED_BUTTON = 'Sign In Now';
 
 /**
@@ -170,7 +177,7 @@ export const SESSION_ENDED_BUTTON = 'Sign In Now';
  * and the page is about to leave anyway; the one thing the player needs is
  * a sentence saying WHY, and a button. Title Case, no em dashes (5.7).
  */
-export function announceSessionEnded(onGo: () => void): void {
+export function announceSessionEnded(onGo: () => void, body: string = SESSION_ENDED_BODY): void {
   if (typeof document === 'undefined') {
     onGo();
     return;
@@ -193,7 +200,7 @@ export function announceSessionEnded(onGo: () => void): void {
     h.textContent = SESSION_ENDED_TITLE;
     h.style.cssText = 'font-size:19px;font-weight:700;margin-bottom:10px;';
     const b = document.createElement('div');
-    b.textContent = SESSION_ENDED_BODY;
+    b.textContent = body;
     b.style.cssText = 'font-size:14px;line-height:1.45;opacity:.9;margin-bottom:18px;';
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -320,7 +327,11 @@ export async function handleEngineAuthRejection(
               !currentSessionScope() &&
               window.location.assign(
                 loginRedirectUrl(window.location.pathname, window.location.search)
-              )
+              ),
+            // A single-active-device kick says WHY in its own words (2026-11-01).
+            source === ANOTHER_DEVICE_SOURCE
+              ? SESSION_ENDED_BODY_ANOTHER_DEVICE
+              : SESSION_ENDED_BODY
           );
         }
       }
@@ -338,13 +349,16 @@ export async function handleEngineAuthRejection(
 }
 
 /** The slice of the Supabase client the revocation channel uses (injected in tests). */
-type RevocationSession = { access_token?: string | null; user?: { id?: string | null } | null } | null;
+type RevocationSession = {
+  access_token?: string | null;
+  user?: { id?: string | null } | null;
+} | null;
 export interface RevocationRealtimeClient {
   channel(name: string): {
     on(
       type: 'postgres_changes',
       filter: { event: '*'; schema: string; table: string; filter: string },
-      callback: () => void
+      callback: (payload?: { new?: Record<string, unknown> }) => void
     ): { subscribe(callback?: (status: string) => void): unknown };
   };
   removeChannel(channel: unknown): unknown;
@@ -375,9 +389,7 @@ export const REVOCATION_CHANNEL_RETRY_MS = 30_000;
  */
 export function installPlayerSessionRevocationEvents(
   loadClient: () => Promise<RevocationRealtimeClient> = () =>
-    import('./supabase').then(
-      ({ supabase }) => supabase as unknown as RevocationRealtimeClient
-    )
+    import('./supabase').then(({ supabase }) => supabase as unknown as RevocationRealtimeClient)
 ): () => void {
   let disposed = false;
   let stopChannel: (() => void) | null = null;
@@ -415,8 +427,17 @@ export function installPlayerSessionRevocationEvents(
               table: 'ca_player_session_revocations',
               filter: `user_id=eq.${userId}`,
             },
-            () => {
-              void handleEngineAuthRejection('operator:force_logout', true);
+            (payload) => {
+              // ca_claim_active_login stamps its kicks; everything else on
+              // this table is the operator force logout. Either way the probe
+              // decides - only a session GoTrue says is dead signs out.
+              const opId = String(payload?.new?.op_id ?? '');
+              void handleEngineAuthRejection(
+                opId.startsWith(DEVICE_LOGIN_OP_PREFIX)
+                  ? ANOTHER_DEVICE_SOURCE
+                  : 'operator:force_logout',
+                true
+              );
             }
           )
           .subscribe((status) => {

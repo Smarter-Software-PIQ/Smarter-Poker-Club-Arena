@@ -537,11 +537,6 @@
   "scope": "owned-post-service-preimage",
   "schemas": [
     {
-      "acl": null,
-      "name": "_realtime",
-      "owner": "supabase_admin"
-    },
-    {
       "acl": [
         "anon=U/supabase_admin",
         "authenticated=U/supabase_admin",

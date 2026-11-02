@@ -1,3 +1,4 @@
+import { REALTIME_CONTROL_DATABASE, realtimeControlConnection, REALTIME_SEED_EXPRESSION, createRealtimeControlDatabase, assertRealtimeControlIdentity, assertRealtimeControlIsolation } from './realtime-control-plane.mjs';
 import { configureFixtureSafeupdate } from './safeupdate-provider.mjs';
 import { captureFixtureServicePreimage } from './service-preimage.mjs';
 import { alignFixtureRoles } from './role-alignment.mjs';
@@ -455,8 +456,9 @@ async function jsonHealth(url, field, headers = {}) {
   }
 }
 
-export async function realtimeMigrated(db) {
+export async function realtimeMigrated(db, control) {
   await assertFixtureServiceBootstrap(db);
+  await assertRealtimeControlIdentity(control);
   try {
     const result = await db.query(`SELECT
       (SELECT count(*)=82 AND min(version)=20211116024918 AND max(version)=20260714120000
@@ -466,9 +468,10 @@ export async function realtimeMigrated(db) {
         ON d.adrelid=a.attrelid AND d.adnum=a.attnum
         WHERE a.attrelid='realtime.messages'::regclass AND a.attname='skip_broadcast'
           AND a.atttypid='boolean'::regtype AND a.attnotnull AND pg_get_expr(d.adbin,d.adrelid)='false') AND
-      EXISTS(SELECT 1 FROM _realtime.tenants WHERE external_id='realtime-dev' AND migrations_ran=82)
-      AS complete`);
-    return result.rows[0]?.complete === true;
+      to_regnamespace('_realtime') IS NULL AS complete`);
+    const tenant = await control.query(`SELECT EXISTS(SELECT 1 FROM _realtime.tenants
+      WHERE external_id='realtime-dev' AND migrations_ran=82) AS complete`);
+    return result.rows[0]?.complete === true && tenant.rows[0]?.complete === true;
   } catch (error) {
     // A service still creating its catalog may not be ready. Authorization
     // and transport errors are failures, not sixty seconds of false readiness.
@@ -509,6 +512,7 @@ async function checkPackage() {
     'auth-fixture.mjs',
     'auth-bootstrap-proof.mjs',
     'service-role-boundary.mjs',
+    'realtime-control-plane.mjs',
     'actors.mjs',
     'tournament-admission.mjs',
     'financial-route-phase.mjs',
@@ -556,7 +560,7 @@ function serviceEnvironments(secrets) {
       DB_PORT: '5432',
       DB_USER: 'supabase_admin',
       DB_PASSWORD: password,
-      DB_NAME: database,
+      DB_NAME: REALTIME_CONTROL_DATABASE,
       DB_SSL: 'false',
       DB_IP_VERSION: 'ipv4',
       REALTIME_IP_VERSION: 'ipv4',
@@ -719,6 +723,7 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
     await assertBootstrapPostgresConfiguration(db);
     await createFixtureApplicationOwner(db);
     await db.query(`CREATE DATABASE ${database} OWNER postgres`);
+    await createRealtimeControlDatabase(db, pg.Client, supervisor.databaseOwner);
     await db.query('REVOKE CONNECT ON DATABASE postgres, template1 FROM PUBLIC');
     await supervisor.databaseOwner.end(db);
     db = supervisor.databaseOwner.own(
@@ -752,7 +757,7 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
     await supervisor.command('/app/bin/migrate', [], env.realtime);
     await supervisor.command(
       '/app/bin/realtime',
-      ['eval', 'Realtime.Release.seeds(Realtime.Repo)'],
+      ['eval', REALTIME_SEED_EXPRESSION],
       env.realtime
     );
     // The seed calls genuine tenant migrations, but its process exit alone
@@ -761,11 +766,15 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
     const realtimeBootstrap = supervisor.databaseOwner.own(
       new pg.Client({ ...connection, user: 'supabase_admin', database })
     );
+    const realtimeControl = supervisor.databaseOwner.own(new pg.Client(realtimeControlConnection));
     try {
       await realtimeBootstrap.connect();
-      await supervisor.until(() => realtimeMigrated(realtimeBootstrap));
+      await realtimeControl.connect();
+      await supervisor.until(() => realtimeMigrated(realtimeBootstrap, realtimeControl));
+      await assertRealtimeControlIsolation(realtimeBootstrap, pg.Client, supervisor.databaseOwner);
     } finally {
-      await supervisor.databaseOwner.end(realtimeBootstrap);
+      try { await supervisor.databaseOwner.end(realtimeControl); }
+      finally { await supervisor.databaseOwner.end(realtimeBootstrap); }
     }
     const applyRoleAlignment = async () => {
       stage = 'full-role-alignment';
@@ -815,6 +824,7 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
           Client: pg.Client,
           databaseOwner: supervisor.databaseOwner,
         });
+        await assertRealtimeControlIsolation(db, pg.Client, supervisor.databaseOwner);
         stage = 'genuine-service-schema-preimage';
         await supervisor.command(`${pgBin}/pg_dump`, [
           '--no-password',
@@ -871,6 +881,7 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
       Client: pg.Client,
       databaseOwner: supervisor.databaseOwner,
     });
+    await assertRealtimeControlIsolation(db, pg.Client, supervisor.databaseOwner);
     // The held connection remains untouched throughout role alignment and its
     // observers. After genuine extension creation, reconnect to activate settings.
     await supervisor.databaseOwner.end(db);
