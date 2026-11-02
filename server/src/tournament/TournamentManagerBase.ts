@@ -11065,6 +11065,38 @@ export abstract class TournamentManagerBase {
     }
 
     const lastLevel = blindStructure[lastPlayableIndex(blindStructure)];
+    const lastPlayableBb = Number(lastLevel?.bigBlind);
+    const cachedRatio = (this as any)?._cachedOverflowStepRatio as
+      | { structure: any[]; length: number; lastBb: number; ratio: number }
+      | undefined;
+    const stepRatio =
+      cachedRatio &&
+      cachedRatio.structure === blindStructure &&
+      cachedRatio.length === blindStructure.length &&
+      Object.is(cachedRatio.lastBb, lastPlayableBb)
+        ? cachedRatio.ratio
+        : (() => {
+            /**
+             * THE LADDER'S OWN CADENCE, NOT A DOUBLING (2026-08-31).
+             *
+             * This used to double per level, which on production meant 95.7% of MTTs
+             * spent their late game on a curve faster than HYPER_TURBO. The ratio is
+             * now measured from the structure the tournament was actually advertised
+             * with, clamped to [1.15, 1.6] inside observedStepRatio. Derived from the
+             * PERSISTED array, so it is the same number after a restart — the
+             * anchoring contract in the note above is preserved exactly.
+             */
+            const computed = observedStepRatio(blindStructure.map((l: any) => Number(l?.bigBlind)));
+            if (this && typeof this === 'object') {
+              (this as any)._cachedOverflowStepRatio = {
+                structure: blindStructure,
+                length: blindStructure.length,
+                lastBb: lastPlayableBb,
+                ratio: computed,
+              };
+            }
+            return computed;
+          })();
     const escalated = escalatedBlindLevel(
       lastLevel,
       i,
@@ -11074,17 +11106,7 @@ export abstract class TournamentManagerBase {
       // A derived row keeps the advertised duration. Timer readers apply
       // acceleration once, just as they do for a persisted row.
       this.rawLevelDurationMs(lastLevel) / 60000,
-      /**
-       * THE LADDER'S OWN CADENCE, NOT A DOUBLING (2026-08-31).
-       *
-       * This used to double per level, which on production meant 95.7% of MTTs
-       * spent their late game on a curve faster than HYPER_TURBO. The ratio is
-       * now measured from the structure the tournament was actually advertised
-       * with, clamped to [1.15, 1.6] inside observedStepRatio. Derived from the
-       * PERSISTED array, so it is the same number after a restart — the
-       * anchoring contract in the note above is preserved exactly.
-       */
-      observedStepRatio(blindStructure.map((l: any) => Number(l?.bigBlind)))
+      stepRatio
     );
 
     return this.capLevelToTournamentChips(escalated);
