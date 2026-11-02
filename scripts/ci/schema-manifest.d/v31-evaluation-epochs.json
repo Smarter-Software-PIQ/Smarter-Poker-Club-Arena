@@ -1,0 +1,10 @@
+{
+  "_owner": "v31-r7-receiver-claude-01a17e88 feat/v31-qualification-engine-epochs: 20261102151428_v31_evaluation_epochs_bind_the_engine_commit (installs only from protected main)",
+  "tables": ["gto_v31_evaluation_epochs"],
+  "functions": [
+    "fn_gto_v31_open_evaluation_epoch",
+    "fn_gto_v31_evaluation_matchup",
+    "fn_gto_v31_evaluation_epoch_guard",
+    "fn_gto_v31_release_evaluation_guard"
+  ]
+}
