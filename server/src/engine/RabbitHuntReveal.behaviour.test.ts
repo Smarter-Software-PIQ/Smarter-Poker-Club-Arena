@@ -518,6 +518,66 @@ describe('a previous hand is purchasable, by a VIP (Dan 2026-11-01)', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it('two simultaneous purchases of a saved hand bill once', async () => {
+    behindTheEngine({ rabbit_hunt_offers: PERSISTED_ROW, profiles: VIP_PROFILE });
+    let release!: () => void;
+    rpc.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              data: { success: true, source: 'vip_monthly', vip_remaining: 99 },
+              error: null,
+            });
+        })
+    );
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    const a = reveal(HERO, HAND);
+    const b = reveal(HERO, HAND);
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect([ra.success, rb.success].filter(Boolean)).toHaveLength(1);
+  });
+
+  it('a retry after a lost response reuses the same purchase on a saved hand', async () => {
+    behindTheEngine({ rabbit_hunt_offers: PERSISTED_ROW, profiles: VIP_PROFILE });
+    const committed = new Map<string, Record<string, unknown>>();
+    rpc.mockImplementation(async (_fn: string, args: { p_request_id: string }) => {
+      const prior = committed.get(args.p_request_id);
+      if (prior) return { data: { ...prior, idempotent: true, consumed: false }, error: null };
+      committed.set(args.p_request_id, { success: true, source: 'vip_monthly', consumed: true });
+      throw new Error('response lost after commit');
+    });
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    expect((await reveal(HERO, HAND)).success).toBe(false);
+    const { reveal: retry } = makeEngine({ rabbitHuntOffers: new Map() });
+    const second = await retry(HERO, HAND);
+    expect(second.success).toBe(true);
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc.mock.calls[0]?.[1]?.p_request_id).toBe(rpc.mock.calls[1]?.[1]?.p_request_id);
+    expect(committed.size).toBe(1);
+  });
+
+  it('a retry that arrives after the day is refused without another charge', async () => {
+    behindTheEngine({
+      rabbit_hunt_offers: {
+        ...PERSISTED_ROW,
+        data: {
+          ...PERSISTED_ROW.data,
+          created_at: new Date(Date.now() - 86_400_000 - 1_000).toISOString(),
+        },
+      },
+      profiles: VIP_PROFILE,
+    });
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    const r = await reveal(HERO, HAND);
+    expect(r.success).toBe(false);
+    expect(r.cards).toBeUndefined();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it('a saved row with no readable timestamp is refused, not treated as fresh', async () => {
     behindTheEngine({
       rabbit_hunt_offers: { ...PERSISTED_ROW, data: { ...PERSISTED_ROW.data, created_at: null } },
