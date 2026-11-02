@@ -112,12 +112,47 @@ def profile(raw, expected):
     return value
 
 
+COMMANDS = frozenset(('apt_simulation', 'apt_install', 'package_metadata', 'package_status',
+    'package_audit', 'perf_version', 'unit_submit', 'unit_query', 'unit_journal', 'unproven'))
+COMMAND_CATEGORIES = frozenset(('unsupported_file', 'permission', 'archive_missing',
+    'dependency_conflict', 'authentication', 'lock_busy', 'unknown'))
+
+
+def command_failure_outcome(value):
+    if not isinstance(value, dict) or set(value) != {'command', 'exitCode', 'categories', 'boundExceeded'}:
+        return None
+    if not isinstance(value['command'], str) or value['command'] not in COMMANDS or type(value['exitCode']) is not int or not -255 <= value['exitCode'] <= 255 or type(value['boundExceeded']) is not bool:
+        return None
+    if not isinstance(value['categories'], list) or not 1 <= len(value['categories']) <= len(COMMAND_CATEGORIES) or any(not isinstance(item, str) or item not in COMMAND_CATEGORIES for item in value['categories']):
+        return None
+    return value
+
+
+class CommandFailure(RuntimeError):
+    def __init__(self, args, result):
+        super().__init__('apt_failed_unknown_partial_state')
+        name = Path(args[0]).name
+        labels = {'dpkg-deb': 'package_metadata', 'dpkg-query': 'package_status',
+            'dpkg': 'package_audit', 'perf': 'perf_version', 'systemd-run': 'unit_submit',
+            'systemctl': 'unit_query', 'journalctl': 'unit_journal'}
+        label = 'apt_simulation' if name == 'apt-get' and '--simulate' in args else 'apt_install' if name == 'apt-get' else labels.get(name, 'unproven')
+        raw = result.stderr[:65536].lower()
+        markers = {'unsupported_file': (b'unsupported file',), 'permission': (b'permission denied',),
+            'archive_missing': (b'no such file', b'could not open'),
+            'dependency_conflict': (b'unmet dependencies', b'not installable', b'unable to correct problems'),
+            'authentication': (b'not authenticated', b'unauthenticated', b'not signed'),
+            'lock_busy': (b'could not get lock', b'unable to acquire')}
+        self.public = {'command': label, 'exitCode': result.returncode,
+            'categories': sorted(key for key, needles in markers.items() if any(token in raw for token in needles)) or ['unknown'],
+            'boundExceeded': len(result.stdout) > 65536 or len(result.stderr) > 65536}
+
+
 def run(args, timeout=10, accepted=(0,)):
     result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL, timeout=timeout, env={**os.environ, 'LC_ALL': 'C',
+        stderr=subprocess.PIPE, timeout=timeout, env={**os.environ, 'LC_ALL': 'C',
         'DEBIAN_FRONTEND': 'noninteractive', 'NEEDRESTART_MODE': 'l'})
     if result.returncode not in accepted or len(result.stdout) > 65536:
-        refuse('apt_failed_unknown_partial_state')
+        raise CommandFailure(args, result)
     return result.stdout
 
 
@@ -290,6 +325,8 @@ def execute(native, op):
             refuse('target_changed')
         record.update(result='install_verified', phase='verified')
     except Exception as error:
+        if isinstance(error, CommandFailure):
+            record['commandFailure'] = error.public
         reason = str(error)
         result = reason if reason in REASONS else 'apt_failed_unknown_partial_state' if record.get('phase') == 'installing' else 'installer_unproven'
         record.update(result=result, phase='refused')

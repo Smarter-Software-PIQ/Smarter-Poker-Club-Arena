@@ -367,11 +367,13 @@ def main():
             try:
                 record = native.read_json(work / 'operation.json')
                 result['operationState'] = {
+                    'commandFailure': source.command_failure_outcome(record.get('commandFailure')),
                     'phase': record.get('phase') if record.get('phase') in {'prepared', 'preparing', 'installing', 'verifying', 'verified', 'refused'} else 'unproven',
                     'reason': record.get('result') if record.get('result') in getattr(source, 'REASONS', ()) else 'unproven',
                     'aptAttemptRecorded': (work / 'apt-attempt.json').is_file()}
             except Exception:
-                result['operationState'] = {'phase': 'unproven'}
+                result['operationState'] = {
+                    'commandFailure': source.command_failure_outcome(record.get('commandFailure')),'phase': 'unproven'}
     finally:
         signal.alarm(0)  # Parent reserves180s for the bounded Scene cleanup.
         try:

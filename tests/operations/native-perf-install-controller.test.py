@@ -9,6 +9,21 @@ helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 
 
+class CommandDiagnostics(unittest.TestCase):
+    def test_failed_command_exports_only_closed_operation_and_stderr_categories(self):
+        response = helper.subprocess.CompletedProcess([], 100, b'', b'Unsupported file /PRIVATE/SECRET.deb given on commandline')
+        with patch.object(helper.subprocess, 'run', return_value=response):
+            with self.assertRaises(helper.CommandFailure) as caught:
+                helper.run(['/usr/bin/apt-get', '--simulate', 'install', '/PRIVATE/SECRET.deb'])
+        value = caught.exception.public
+        self.assertEqual(value, {'command': 'apt_simulation', 'exitCode': 100,
+            'categories': ['unsupported_file'], 'boundExceeded': False})
+        self.assertNotIn('PRIVATE', json.dumps(value))
+        self.assertEqual(helper.command_failure_outcome(value), value)
+        for key, bad in [('command', 'PRIVATE'), ('command', []), ('categories', ['PRIVATE']), ('categories', [{}]), ('exitCode', True)]:
+            self.assertIsNone(helper.command_failure_outcome({**value, key: bad}))
+
+
 class QualificationDiagnostics(unittest.TestCase):
     def test_private_ssh_text_only_exports_bounded_closed_categories(self):
         path = Path(__file__).resolve().parents[1] / 'fixtures/engine-native-fault/qualify_perf_install.py'
