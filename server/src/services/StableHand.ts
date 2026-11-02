@@ -87,8 +87,8 @@ export interface HostPopulation {
   n: number;
 }
 
-export function peakCap(n: number): number {
-  return Math.floor(0.4 * n * CASH_ACTIVITY_SCALE);
+export function peakCap(n: number, activityScale = CASH_ACTIVITY_SCALE): number {
+  return Math.floor(0.4 * n * activityScale);
 }
 /**
  * The overnight hard ceiling, 03:00-08:00 Chicago.
@@ -107,8 +107,8 @@ export function peakCap(n: number): number {
 export const CASH_ACTIVITY_SCALE = 0.5;
 export const NIGHT_CAP_PCT = 0.05 * CASH_ACTIVITY_SCALE;
 
-export function nightCap(n: number): number {
-  return Math.floor(NIGHT_CAP_PCT * n);
+export function nightCap(n: number, activityScale = CASH_ACTIVITY_SCALE): number {
+  return Math.floor(0.05 * activityScale * n);
 }
 
 /** Section 7.2 tag split, recomputed from live N as the OPORD instructs. */
@@ -206,13 +206,17 @@ export function isNightWindow(chicagoHour: number): boolean {
 
 /** Linear interpolation between the two bracketing hours, so there is no
  *  cliff at 01:00 (the OPORD calls that out explicitly). */
-export function curvePctAt(chicagoHour: number, minute = 0): number {
+export function curvePctAt(
+  chicagoHour: number,
+  minute = 0,
+  activityScale = CASH_ACTIVITY_SCALE
+): number {
   const h = ((Math.floor(chicagoHour) % 24) + 24) % 24;
   const next = (h + 1) % 24;
   const a = OCCUPANCY_CURVE_PCT[h];
   const b = OCCUPANCY_CURVE_PCT[next];
   const f = Math.min(59, Math.max(0, minute)) / 60;
-  return (a + (b - a) * f) * CASH_ACTIVITY_SCALE;
+  return (a + (b - a) * f) * activityScale;
 }
 
 export interface OccupancyTarget {
@@ -234,11 +238,12 @@ export interface OccupancyTarget {
 export function occupancyTargetForHost(
   n: number,
   chicagoHour: number,
-  minute = 0
+  minute = 0,
+  activityScale = CASH_ACTIVITY_SCALE
 ): OccupancyTarget {
-  const pk = peakCap(n);
-  const nt = nightCap(n);
-  const pct = curvePctAt(chicagoHour, minute);
+  const pk = peakCap(n, activityScale);
+  const nt = nightCap(n, activityScale);
+  const pct = curvePctAt(chicagoHour, minute, activityScale);
 
   const raw = Math.round((pct / 100) * n);
   let target = raw;
@@ -254,7 +259,7 @@ export function occupancyTargetForHost(
   }
 
   // +/-2pp of N, then re-clamp: a band must never lift you over a hard cap.
-  const band = Math.round(0.02 * n * CASH_ACTIVITY_SCALE);
+  const band = Math.round(0.02 * n * activityScale);
   let min = Math.max(0, target - band);
   let max = target + band;
   max = Math.min(max, pk);

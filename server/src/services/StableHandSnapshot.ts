@@ -404,6 +404,7 @@ export async function buildFloorSnapshot(): Promise<FloorSnapshot> {
   }
 
   return {
+    cashActivityScale: now.cashActivityScale,
     chicagoHour: now.hour,
     chicagoMinute: now.minute,
     hosts,

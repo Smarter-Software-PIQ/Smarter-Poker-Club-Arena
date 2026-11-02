@@ -153,6 +153,78 @@ DO $proof$ BEGIN
  IF (SELECT count(*) FROM profiles WHERE horse_status='disabled')<>1 THEN RAISE EXCEPTION 'global horse state changed'; END IF;
 END $proof$;
 """
+# November owner update: qualify the exact migration on the same isolated database.
+NOVEMBER = ROOT / "supabase/migrations/20261102015546_restrict_horse_cash_games_and_cut_schedule_at_midnight.sql"
+november_sql = NOVEMBER.read_text()
+cluster_before = (ROOT / "scripts/qualification/fixtures/horse-cash-november/cluster-before.sql").read_text()
+november_setup = """
+ALTER TABLE tables ADD COLUMN game_variant text DEFAULT 'nlh', ADD COLUMN small_blind numeric DEFAULT 0.5, ADD COLUMN big_blind numeric DEFAULT 1;
+"""
+november_assertions = """
+DO $proof$ DECLARE v text; BEGIN
+ FOREACH v IN ARRAY ARRAY['pineapple','crazy_pineapple','short_deck','shortdeck','6+','plo8','plo4','plo5','plo6'] LOOP
+  IF NOT fn_horse_cash_game_allowed(v,2,5,null,'2026-11-02 05:59:59.999+00')
+   OR fn_horse_cash_game_allowed(v,2,5,null,'2026-11-02 06:00+00')
+   OR NOT fn_horse_cash_game_allowed(v,2,5,lpad('1001',32,'0')::uuid,'2026-11-02 06:00+00')
+  THEN RAISE EXCEPTION 'boundary, tournament preservation or exclusion failed: %',v; END IF;
+ END LOOP;
+ FOREACH v IN ARRAY ARRAY['plo4','plo5','plo6'] LOOP
+  IF NOT fn_horse_cash_game_allowed(v,.5,1,null,'2026-11-02 06:00+00')
+   OR fn_horse_cash_game_allowed(v,1,2,null,'2026-11-02 06:00+00')
+   OR fn_horse_cash_game_allowed(v,.5,null,null,'2026-11-02 06:00+00')
+  THEN RAISE EXCEPTION 'PLO limit or unknown stake failed: %',v; END IF;
+ END LOOP;
+ IF NOT fn_horse_cash_game_allowed('nlh',1,2,null,'2026-11-02 06:00+00')
+   OR NOT fn_horse_cash_game_allowed('flo8',.5,1,null,'2026-11-02 06:00+00')
+ THEN RAISE EXCEPTION 'unrelated cash game changed'; END IF;
+ IF has_function_privilege('anon','fn_horse_cash_game_allowed(text,numeric,numeric,uuid,timestamptz)','EXECUTE')
+   OR NOT has_function_privilege('service_role','fn_horse_cash_game_allowed(text,numeric,numeric,uuid,timestamptz)','EXECUTE')
+ THEN RAISE EXCEPTION 'cash policy ACL wrong'; END IF;
+ IF (fn_cash_cluster_tick(lpad('1',32,'0')::uuid)->>'skipped') <> 'frozen' THEN RAISE EXCEPTION 'freeze guard lost'; END IF;
+END $proof$;
+"""
+# Exercise the installed guard at a future date without changing the host clock.
+# Only the helper's DEFAULT argument is fixed in this isolated database;
+# the candidate body and the trigger remain byte-for-byte the installed source.
+helper = re.search(r"CREATE OR REPLACE FUNCTION public\.fn_horse_cash_game_allowed\([\s\S]*?\$function\$;", november_sql).group(0)
+future_helper = helper.replace('DEFAULT now()', "DEFAULT '2026-11-02 06:00+00'::timestamptz")
+november_guard_proof = """
+UPDATE tables SET game_variant='plo5',small_blind=2,big_blind=5;
+DO $proof$ DECLARE target integer; BEGIN
+ FOREACH target IN ARRAY ARRAY[101,103] LOOP
+  BEGIN
+   INSERT INTO table_seats VALUES(lpad('1',32,'0')::uuid,lpad(target::text,32,'0')::uuid,null,null,100);
+   RAISE EXCEPTION 'restricted horse admitted in Club or Diamond cash';
+  EXCEPTION WHEN insufficient_privilege THEN
+   IF SQLERRM NOT LIKE 'horse_cash_game_restricted:%' THEN RAISE; END IF;
+  END;
+ END LOOP;
+END $proof$;
+-- Tournament seats, humans, settlement updates and pending owned moves survive.
+INSERT INTO table_seats VALUES(lpad('1',32,'0')::uuid,lpad('102',32,'0')::uuid,null,null,100);
+INSERT INTO profiles VALUES(lpad('90',32,'0')::uuid,false,'active',null);
+INSERT INTO table_seats VALUES(lpad('90',32,'0')::uuid,lpad('101',32,'0')::uuid,null,null,100);
+UPDATE table_seats SET stack=105,active_game_scope=lpad('77',32,'0')::uuid WHERE table_id=lpad('103',32,'0')::uuid;
+INSERT INTO table_seats VALUES(lpad('8',32,'0')::uuid,lpad('101',32,'0')::uuid,null,lpad('77',32,'0')::uuid,105);
+UPDATE table_seats SET left_at=now() WHERE user_id=lpad('8',32,'0')::uuid;
+"""
+capacity_after = re.search(r"  v_table_cap := g.cap_mains \+ 1;[\s\S]*?v_table_cap := greatest\(1, floor\(v_table_cap \* 0.5\)::integer\);", cluster_before).group(0)
+replacement = re.search(r"\$insert\$(v_table_cap := greatest[\s\S]*?)\$insert\$", november_sql).group(1)
+capacity_after = capacity_after.replace('v_table_cap := greatest(1, floor(v_table_cap * 0.5)::integer);',replacement)
+november_capacity_proof = """
+CREATE FUNCTION pg_temp.november_cap(p_cap integer,p_second boolean,p_at timestamptz) RETURNS integer LANGUAGE plpgsql AS $cap$
+DECLARE g record;v_table_cap integer;v_now timestamptz:=p_at;
+BEGIN SELECT p_cap cap_mains,p_second allow_second_feeder INTO g;
+""" + capacity_after + """
+RETURN v_table_cap; END $cap$;
+DO $proof$ DECLARE cap integer;second boolean; BEGIN
+FOR cap IN 1..32 LOOP FOREACH second IN ARRAY ARRAY[false,true] LOOP
+ IF pg_temp.november_cap(cap,second,'2026-11-02 05:59:59+00') <> greatest(1,floor((cap+1+CASE WHEN second THEN 1 ELSE 0 END)*.5)::integer)
+ OR pg_temp.november_cap(cap,second,'2026-11-02 06:00+00') <> greatest(1,floor((cap+1+CASE WHEN second THEN 1 ELSE 0 END)*.2)::integer)
+ THEN RAISE EXCEPTION 'dated capacity reduction wrong'; END IF;
+END LOOP; END LOOP;
+END $proof$;
+"""
 work = Path(os.environ.get("RUNNER_TEMP", str(ROOT / "work")))
 work.mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
@@ -162,7 +234,7 @@ with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
     subprocess.run([str(bindir/"initdb"), "-D", str(d/"data"), "-A", "trust", "--no-locale"], check=True, stdout=subprocess.DEVNULL)
     subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "-l", str(d/"postgres.log"), "-o", f"-k {d} -p 55439 -c listen_addresses='' -c fsync=off", "start"], check=True, stdout=subprocess.DEVNULL)
     try:
-        subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
-        print("PASS: native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit")
+        subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions+november_setup+cluster_before+november_sql+november_assertions+future_helper+november_guard_proof+november_capacity_proof, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
+        print("PASS: November midnight policy, every prohibited variant, PLO ceiling, tournament/human/owned-move/settlement preservation, both dated capacity branches; native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit")
     finally:
         subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "stop", "-m", "fast"], check=True, stdout=subprocess.DEVNULL)

@@ -436,8 +436,8 @@
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47430,
-      "sha256": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62"
+      "bytes": 47474,
+      "sha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -6517,5 +6517,18 @@
     },
     "historicalEvidenceRestamped": false,
     "execution_performed": false
+  },
+  "horseCashNovemberInputRouting20261102": {
+    "reason": "Include the new November cash policy predecessor fixture in existing required cash native qualification input routing. Existing financial assertions and historical evidence preserved. Source identity only, not live certification.",
+    "path": "scripts/ci/classify-ci-changes.mjs",
+    "previous": {
+      "bytes": 47430,
+      "sha256": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62"
+    },
+    "current": {
+      "bytes": 47474,
+      "sha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785"
+    },
+    "historicalEvidenceRestamped": false
   }
 }
