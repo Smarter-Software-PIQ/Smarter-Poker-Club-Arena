@@ -40,7 +40,7 @@ DECLARE
  v_run uuid; v_op uuid; v_wallets jsonb; v_wallet jsonb; v_result jsonb; v_prior jsonb;
  v_saved jsonb; v_key text; v_note text;
  v_users uuid[]; v_user uuid; v_covered boolean;
- v_raked text[]; w record;
+ v_raked text[]; rw record;
 BEGIN
  IF NOT public.fn_caller_is_engine() THEN RAISE EXCEPTION 'midway_promo_service_required' USING ERRCODE='42501'; END IF;
  IF p_from IS NULL OR p_to IS NULL
@@ -62,10 +62,10 @@ BEGIN
  -- week". Each (club, horse) pair that has any payable earning source (cash
  -- rake or tournament fee) earned inside the week, read window by window.
  v_raked:=ARRAY[]::text[];
- FOR w IN SELECT x.window_start,x.window_end FROM public.fn_accounting_close_windows(p_from,p_to)x ORDER BY 1 LOOP
+ FOR rw IN SELECT x.window_start,x.window_end FROM public.fn_accounting_close_windows(p_from,p_to)x ORDER BY 1 LOOP
   v_raked:=v_raked||ARRAY(SELECT DISTINCT s.club_id::text||':'||s.player_id::text
    FROM public.accounting_payable_earning_sources s JOIN public.profiles hp ON hp.id=s.player_id
-   WHERE s.earned_at>=w.window_start AND s.earned_at<w.window_end AND hp.is_horse IS TRUE AND s.rake_credit>0);
+   WHERE s.earned_at>=rw.window_start AND s.earned_at<rw.window_end AND hp.is_horse IS TRUE AND s.rake_credit>0);
  END LOOP;
  v_raked:=ARRAY(SELECT DISTINCT unnest(v_raked));
  -- Take the existing stats-user gates before the bank and row locks.
