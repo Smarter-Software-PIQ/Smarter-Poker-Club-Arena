@@ -1133,3 +1133,192 @@ test('equal canonical service read binds both operation and tournament without a
   );
   assert.equal(equalWrites(f).length, 0);
 });
+
+const retirementManifest = JSON.parse(
+  (await import('node:fs')).readFileSync(
+    new URL(
+      '../../scripts/ci/fixtures/tournament-abort/owner-retirement-nov2-manifest.json',
+      import.meta.url
+    ),
+    'utf8'
+  )
+);
+const retirementMember = retirementManifest.targets[0];
+function retirementFixture({
+  initial = 'not_requested',
+  timeout = false,
+  stale = false,
+  changedEvent = false,
+  wrongOperation = false,
+  changedRuntime = false,
+} = {}) {
+  const calls = [];
+  let state = initial;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    if (url.includes('/health'))
+      return {
+        ok: true,
+        json: async () => ({ ...health, ...(changedRuntime ? { instanceId: '1-deadbeef' } : {}) }),
+      };
+    if (url.includes('/tournaments?'))
+      return {
+        ok: true,
+        json: async () => [
+          {
+            id: retirementMember.tournament_id,
+            started_at: changedEvent
+              ? '2026-11-02T07:00:00Z'
+              : retirementMember.original_started_at,
+            status: 'RUNNING',
+          },
+        ],
+      };
+    if (url.includes('/engine_tournament_leases?'))
+      return {
+        ok: true,
+        json: async () => [
+          {
+            lease_generation: input.generation,
+            protocol_version: 2,
+            heartbeat_at: new Date(Date.now() - (stale ? 60000 : 0)).toISOString(),
+          },
+        ],
+      };
+    if (url.endsWith('/fn_ca_tournament_abort_stop_state'))
+      return state === 'not_requested'
+        ? {
+            ok: false,
+            json: async () => ({ code: '55000', message: 'operator_abort_target_not_owned' }),
+          }
+        : {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              state,
+              operation_id: wrongOperation ? input.nonce : retirementMember.original_operation_id,
+              tournament_id: retirementMember.tournament_id,
+              current_generation: input.generation,
+              current_boundary_valid: state === 'quiesced',
+              quiescence_generation: input.generation,
+              money_hash: '0'.repeat(32),
+              receipt: state === 'settled' ? { private_field: privateCanary } : null,
+              private_field: privateCanary,
+            }),
+          };
+    if (url.endsWith('/fn_ca_request_tournament_abort')) {
+      state = 'stop_requested';
+      if (timeout) throw Error(privateCanary);
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          stop_requested: true,
+          operation_id: retirementMember.original_operation_id,
+          tournament_ids: [retirementMember.tournament_id],
+        }),
+      };
+    }
+    if (url.endsWith('/admin/tournament-abort-boundary')) {
+      state = 'quiesced';
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          runtime: { operation_id: retirementMember.original_operation_id },
+        }),
+      };
+    }
+    throw Error('Unexpected financial or control path');
+  };
+  return {
+    calls,
+    run: (action) =>
+      controlOriginalRecovery(
+        { ...input, action, tournamentId: retirementMember.tournament_id },
+        { fetchImpl, serviceIdentity: privateCanary, supabaseUrl: db }
+      ),
+  };
+}
+const retirementWrites = (f) =>
+  f.calls.filter(
+    (c) => c.url.endsWith('/fn_ca_request_tournament_abort') || c.url.includes('/admin/')
+  );
+test('owner control binds all140 exact operations and excludes all73 waiting events and money actions', () => {
+  for (const m of retirementManifest.targets) {
+    const r = originalControlIntent({
+      ...input,
+      action: 'owner_read',
+      tournamentId: m.tournament_id,
+    });
+    assert.equal(r.operationId, m.original_operation_id);
+    assert.equal(r.disposition, 'no_financial_action');
+    assert.match(r.manifestHash, /^[a-f0-9]{64}$/);
+  }
+  for (const id of retirementManifest.preserved_outside_diamond_event_ids)
+    assert.throws(() =>
+      originalControlIntent({ ...input, action: 'owner_request', tournamentId: id })
+    );
+  assert.throws(() =>
+    originalControlIntent({
+      ...input,
+      action: 'owner_settle',
+      tournamentId: retirementMember.tournament_id,
+    })
+  );
+});
+test('owner request writes once under original operation then reads durable state', async () => {
+  const f = retirementFixture();
+  const r = await f.run('owner_request');
+  assert.equal(r.outcome, 'owner_stop_requested');
+  assert.equal(retirementWrites(f).length, 1);
+  const body = JSON.parse(retirementWrites(f)[0].options.body);
+  assert.equal(body.p_operation_id, retirementMember.original_operation_id);
+  assert.deepEqual(body.p_tournament_ids, [retirementMember.tournament_id]);
+  assert.match(body.p_reason, /equal-share superseded/);
+  assert.equal(JSON.stringify(r).includes(privateCanary), false);
+});
+test('owner request lost acknowledgement stays unknown without retry despite committed stop readback', async () => {
+  const f = retirementFixture({ timeout: true });
+  const r = await f.run('owner_request');
+  assert.equal(r.outcome, 'unknown');
+  assert.equal(r.canonicalAfter.state, 'stop_requested');
+  assert.equal(retirementWrites(f).length, 1);
+  assert.equal(JSON.stringify(r).includes(privateCanary), false);
+});
+for (const scene of [
+  { stale: true },
+  { changedEvent: true },
+  { wrongOperation: true, initial: 'stop_requested' },
+  { changedRuntime: true },
+])
+  test('owner prewrite identity refusal ' + JSON.stringify(scene), async () => {
+    const f = retirementFixture(scene);
+    assert.equal((await f.run('owner_request')).outcome, 'unknown');
+    assert.equal(retirementWrites(f).length, 0);
+  });
+test('owner existing stop and prior committed disposition never initiate another request', async () => {
+  for (const initial of ['stop_requested', 'settled']) {
+    const f = retirementFixture({ initial });
+    const r = await f.run('owner_request');
+    assert.equal(
+      r.outcome,
+      initial === 'settled' ? 'prior_disposition_preserved' : 'owner_stop_already_requested'
+    );
+    assert.equal(retirementWrites(f).length, 0);
+    assert.equal(JSON.stringify(r).includes(privateCanary), false);
+  }
+});
+test('owner ACK verifies actual current boundary and read does not actuate', async () => {
+  const f = retirementFixture({ initial: 'stop_requested' });
+  const r = await f.run('owner_ack');
+  assert.equal(r.outcome, 'owner_boundary_verified');
+  assert.equal(retirementWrites(f).length, 1);
+  assert.deepEqual(JSON.parse(retirementWrites(f)[0].options.body), {
+    operationId: retirementMember.original_operation_id,
+    tournamentId: retirementMember.tournament_id,
+  });
+  const read = retirementFixture({ initial: 'stop_requested' });
+  assert.equal((await read.run('owner_read')).outcome, 'owner_stop_readback');
+  assert.equal(retirementWrites(read).length, 0);
+});

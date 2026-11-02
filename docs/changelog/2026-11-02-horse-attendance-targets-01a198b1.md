@@ -129,3 +129,9 @@ fixture allowance with the original five-second helper deadline. The integrated
 wrapper passes all three checks in 36.20 seconds. Object bytes use a distinct
 variable so the newer timestamp-mutation case retains its original request text.
 Root and server compilation pass; all 117 bound financial inputs are unchanged.
+
+The next protected integration retains the stronger foreign-Git sentinel
+wrapper and native environment isolation byte-for-byte from main. Its 59
+cases pass with the private object closure (three wrapper checks, 44.97s),
+and the sentinel proves no HEAD or refs changed. Root compilation passes;
+the 117 financial source hashes still match the retained qualification.

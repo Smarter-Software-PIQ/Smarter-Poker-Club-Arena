@@ -14,6 +14,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+# A pre-push hook exports its owning GIT_DIR. Every Git call below must
+# resolve the explicitly selected source or disposable proof repository.
+# Inheriting the hook pointer makes the pinned floor traverse today's main
+# instead and can write fixture refs into the caller's repository.
+for _git_name in tuple(os.environ):
+    if _git_name.startswith('GIT_'):
+        os.environ.pop(_git_name)
+
 # macOS requires the caller's owned SSD TMPDIR; hosted Linux supplies RUNNER_TEMP.
 TEST_TMP = os.environ.get('TMPDIR') or (os.environ.get('RUNNER_TEMP') if sys.platform.startswith('linux') else None)
 if not TEST_TMP:

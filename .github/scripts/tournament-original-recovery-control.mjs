@@ -1,3 +1,8 @@
+import {
+  OWNER_ACTIONS,
+  ownerRetirementIntent,
+  controlOwnerRetirement,
+} from './owner-retirement-control.mjs';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -207,6 +212,7 @@ function publicResult(result) {
   return output;
 }
 export function originalControlIntent(input) {
+  if (OWNER_ACTIONS.includes(input.action)) return ownerRetirementIntent(input);
   const equal = EQUAL_ACTIONS.includes(input.action);
   const equalCohorts = [EQUAL, FROZEN_EVENTS].filter((cohort) =>
     cohort.members.some((row) => row.tournamentId === input.tournamentId)
@@ -264,6 +270,8 @@ export async function controlOriginalRecovery(
   input,
   { fetchImpl = fetch, serviceIdentity, supabaseUrl } = {}
 ) {
+  if (OWNER_ACTIONS.includes(input.action))
+    return controlOwnerRetirement(input, { fetchImpl, serviceIdentity, supabaseUrl });
   const intent = originalControlIntent(input);
   if (!serviceIdentity) throw Error('Configured Service Required');
   const abort = input.action.startsWith('abort_');
