@@ -1,0 +1,9 @@
+# Cancelled release custody across a predecessor restart
+
+The exact 26/FFF release was positively withdrawn at 17:51:58 UTC, preserving its immutable cancellation receipt, original announcement and full owned thaw. Before the next protected resolver entered at 18:09 UTC, the serving sealed predecessor had a different process incarnation. The final proof still compared live container start and health instance with the earlier receipt, so it refused before candidate preparation or runtime mutation. The original cancellation remains true; its historical runtime identity cannot describe a later process.
+
+The correction is limited to the existing exact 26 cancellation proof. It retains all original source, receipt, native quiescence, masked edges, canonical cycle, seal and owned thaw checks. A successor must independently prove the same Docker container and sealed image, ordered receipt and restart times, a real stable kernel process in that container, and matching healthy local/public current identity. The final proof describes that qualified current runtime while retaining hashes of every original cancellation record. Historical 197 and 6d profiles keep their existing behavior. Missing, changed or ambiguous witnesses refuse resolution.
+
+This is recovery of the existing blocked deployment, with no new phase or product work. The original receipt is never rewritten, cancellation is never replayed, and a timestamp alone does not authorize custody release. Publication and live resolver/engine proof remain required.
+
+Validation: focused maintained withdrawal qualification, its required wrapper, normal repository hooks, exact-head protected checks and actual provider/live readback are recorded in the owning Attention14 checkpoint. Source or test success alone is not deployment completion.
