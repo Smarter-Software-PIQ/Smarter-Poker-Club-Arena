@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import errno
 import fcntl
 import hashlib
@@ -521,6 +522,9 @@ def cmd_bootstrap_running(args: argparse.Namespace) -> None:
 # revokes new cycles even for an older still-contained target.
 SCHEDULE_POLICY_PATH = 'server/src/maintenance/maintenanceSchedulePolicy.json'
 SCHEDULE_POLICY_ID = 'phase1-hourly-01a1944f'
+DAILY_BOOTSTRAP_SHA = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+DAILY_BOOTSTRAP_SCHEDULE_DIGEST = '37d3e1b4e70668e95123dce068e0a828f8f02d44956b1566510fada02b56ad6b'
+
 
 
 def schedule_policy(repo: str, sha: str) -> dict[str, Any]:
@@ -566,6 +570,23 @@ def routine_window(c: dict[str, Any], *, verified: bool = False) -> dict[str, An
     return w
 
 
+def daily_bootstrap_schedule(repo: str, sha: str, schedule: Any, starts: int) -> bool:
+    # The serving daily predecessor has no Phase1 JSON policy. Its actual
+    # 04:00 Chicago source remains valid for the first protected hourly rollout.
+    # Do not infer authorization from a reason string or from a missing policy.
+    if sha != DAILY_BOOTSTRAP_SHA or not isinstance(schedule, dict): return False
+    expected={'timeZone':'America/Chicago','startHour':4,'startMinute':0,
+              'durationMs':300000,'hourlyCashFreeze':False}
+    if (any(schedule.get(k)!=v for k,v in expected.items())
+            or any(type(schedule.get(k)) is not int for k in ('startHour','startMinute','durationMs'))
+            or schedule.get('hourlyCashFreeze') is not False
+            or schedule.get('frequency') is not None or schedule.get('policyId') is not None): return False
+    local=datetime.fromtimestamp(starts/1000,ZoneInfo('America/Chicago'))
+    if local.hour!=4 or local.minute!=0: return False
+    raw=run(['git','-C',repo,'show',f'{valid_sha(sha)}:server/src/maintenance/maintenanceSchedule.ts'])
+    return hashlib.sha256(raw.strip().encode()).hexdigest()==DAILY_BOOTSTRAP_SCHEDULE_DIGEST
+
+
 def cmd_bind_routine_window(args: argparse.Namespace) -> None:
     raw = sys.stdin.read(1048577)
     if len(raw)>1048576: die('routine health binding exceeds its bound')
@@ -596,10 +617,11 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
             s=m.get('schedule')
             expected={'timeZone':'America/Chicago','frequency':'phase1-hourly','policyId':SCHEDULE_POLICY_ID,
                       'startHour':None,'startMinute':0,'durationMs':300000,'hourlyCashFreeze':True}
-            if (not isinstance(s,dict) or type(s.get('startMinute')) is not int or type(s.get('durationMs')) is not int
-                    or s.get('hourlyCashFreeze') is not True or any(s.get(k)!=v for k,v in expected.items())
-                    or schedule_policy(args.repo,state['desired']['sha'])['phase1Status']!='active'):
-                die('routine serving hourly source is unproved')
+            hourly=(isinstance(s,dict) and type(s.get('startMinute')) is int and type(s.get('durationMs')) is int
+                    and s.get('hourlyCashFreeze') is True and all(s.get(k)==v for k,v in expected.items())
+                    and schedule_policy(args.repo,state['desired']['sha'])['phase1Status']=='active')
+            if not hourly and not daily_bootstrap_schedule(args.repo,state['desired']['sha'],s,w['startsAt']):
+                die('routine serving scheduled source is unproved')
         elif m['reason']=='Deployment Recovery':
             path=STATE_DIR/f'engine-recovery-window-{args.run_id}.json'
             try: reservation=json.loads(path.read_text())
@@ -735,12 +757,12 @@ def ninef_cycle(cycle: Any) -> None:
         failure.get('invocationId') == NINEF_INVOCATION)
 
 
-def ninef_sources(deadline: float) -> dict[str, str]:
+def ninef_sources(deadline: float, control: str = NINEF_SHA, expected: dict[str, str] = NINEF_SOURCES) -> dict[str, str]:
     """The seven original 9f control sources and the three unit templates they installed."""
     parent = Path('/usr/local/lib/club-arena')
-    generation = parent / 'engine-control-generations' / NINEF_SHA
-    originals = {name: failed_routine_bytes(generation / name, 512 * 1024) for name in NINEF_SOURCES}
-    failed_routine_require(all(hashlib.sha256(raw).hexdigest() == NINEF_SOURCES[name]
+    generation = parent / 'engine-control-generations' / control
+    originals = {name: failed_routine_bytes(generation / name, 512 * 1024) for name in expected}
+    failed_routine_require(all(hashlib.sha256(raw).hexdigest() == expected[name]
                                for name, raw in originals.items()))
     failed_routine_require(failed_routine_bytes(parent / 'engine-release-unit-wrapper-v1.sh', 512 * 1024) ==
                            originals['engine-release-unit-wrapper.sh'])
@@ -755,7 +777,7 @@ def ninef_sources(deadline: float) -> dict[str, str]:
                 .replace('\\$', '$')
         failed_routine_require(failed_routine_bytes(Path('/etc/systemd/system') / template) == content.encode())
     failed_routine_require(time.monotonic() < deadline)
-    return dict(NINEF_SOURCES)
+    return dict(expected)
 
 
 def terminal_checkpoint_refusal(run_id: str, failure: dict[str, Any], window: dict[str, Any], deadline: float) -> str:
@@ -991,6 +1013,9 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner == FAILED_ROUTINE_RUN:
         validate_failed_routine_resolution(resolution, cycle)
         return
+    if owner == DAILY_REFUSAL_RUN:
+        validate_daily_refusal_resolution(resolution, cycle)
+        return
     if owner == CANCELLED_PHASE1_RUN:
         validate_cancelled_phase1_resolution(resolution, cycle)
         return
@@ -1134,6 +1159,88 @@ def cancelled_phase1_proof(args: argparse.Namespace, state: dict[str, Any], cycl
     return proof
 
 
+
+DAILY_REFUSAL_RUN = '41421209814-1'
+DAILY_REFUSAL_SHA = 'e64c2a68a211040b645efac90cef44206fc8b4a1'
+DAILY_REFUSAL_FAILURE = '98f2ad6cc2a23ea4e8c8c68ab08439d9c95e850e5753d249d065ebfa303964f2'
+DAILY_REFUSAL_WINDOW = {'announcedAt':1793613480003,'startsAt':1793613600003,'endsAt':1793613900003}
+DAILY_REFUSAL_SOURCES = {
+    'engine-release-transaction.sh': 'ba136c0a67c835c9a33b23876b5b02a52309034fc747afa2727d001068a6383d',
+    'engine-release-seal.py': '61f2e81984f36cd990e4bbbd9f22bf8721917c2b854bc38706fd22d5c92b41ba',
+    'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e',
+    'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6',
+    'engine-release-unit-wrapper.sh': 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'install-engine-supervisor.sh': 'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'install-engine-intake.sh': '5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+}
+
+def daily_refusal_cycle(cycle: Any) -> None:
+    failed_routine_require(isinstance(cycle,dict) and cycle.get('runId')==DAILY_REFUSAL_RUN
+        and cycle.get('sha')==cycle.get('controlSha')==DAILY_REFUSAL_SHA
+        and cycle.get('startsAt')==1793613600 and cycle.get('endsAt')==1793613900
+        and cycle.get('status')=='reserved' and cycle.get('window') is None
+        and cycle.get('kind')=='hourly-reset' and cycle.get('policyId')==SCHEDULE_POLICY_ID
+        and cycle.get('policyDigest')==NINEF_POLICY_DIGEST
+        and failed_routine_digest(cycle.get('failure'))==DAILY_REFUSAL_FAILURE)
+
+
+def validate_daily_refusal_resolution(value: Any, cycle: dict[str,Any], verify_receipt: bool = True) -> None:
+    daily_refusal_cycle(cycle)
+    failed_routine_require(isinstance(value,dict) and set(value)==TERMINAL_RESOLUTION_KEYS
+        and value['schema']==1 and value['result']=='unentered-daily-cycle-proved' and value['originalCycle']==cycle
+        and RUN_ID_RE.fullmatch(str(value['verifiedByRunId'])) and value['verifiedByRunId']!=DAILY_REFUSAL_RUN
+        and all(SHA_RE.fullmatch(str(value[k])) and value[k]!=DAILY_REFUSAL_SHA
+                for k in ('verifiedByControlSha','verifiedByTargetSha'))
+        and INVOCATION_ID_RE.fullmatch(str(value['invocationId']))
+        and type(value['observedAt']) is int and value['observedAt']>1793613966)
+    proof=value['proof']
+    failed_routine_require(isinstance(proof,dict) and set(proof)=={'failureDigest','sourceDigests','nativeDigest','runtime','database'}
+        and proof['failureDigest']==DAILY_REFUSAL_FAILURE and proof['sourceDigests']==DAILY_REFUSAL_SOURCES
+        and re.fullmatch('[0-9a-f]{64}',str(proof['nativeDigest'])))
+    runtime=proof['runtime']
+    failed_routine_require(isinstance(runtime,dict) and set(runtime)=={'containerId','startedAt','instanceId'}
+        and CONTAINER_ID_RE.fullmatch(str(runtime['containerId'])) and INSTANCE_ID_RE.fullmatch(str(runtime['instanceId'])))
+    birth=datetime.fromisoformat(runtime['startedAt'].replace('Z','+00:00'))
+    failed_routine_require(birth.tzinfo is not None and 0<birth.timestamp()<value['observedAt'])
+    expected={'schema':'terminal-owned-thaw/v1','sha':FAILED_ROUTINE_DESIRED,'instanceId':runtime['instanceId'],
+              'databaseIdle':True,'freshLeader':True,'ownedV3Thaw':True,**DAILY_REFUSAL_WINDOW}
+    failed_routine_require(proof['database']==expected
+        and all(type(proof['database'][k]) is bool for k in ('databaseIdle','freshLeader','ownedV3Thaw'))
+        and all(type(proof['database'][k]) is int for k in DAILY_REFUSAL_WINDOW))
+    if verify_receipt:
+        failed_routine_require(failed_routine_json(terminal_receipt_path(DAILY_REFUSAL_RUN,value['verifiedByRunId'],value['invocationId']))==value)
+
+
+def daily_refusal_proof(state: dict[str,Any], cycle: dict[str,Any], deadline: float) -> dict[str,Any] | None:
+    # This controller never bound or entered the naturally scheduled daily
+    # break. Preserve that fact: do not synthesize an announcement or rewrite
+    # the cycle. Full thaw of the actual daily break is additional proof.
+    try:
+        daily_refusal_cycle(cycle)
+        failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+            and DAILY_REFUSAL_RUN not in state['committedRuns'] and time.time()>1793613966
+            and state['desired']['sha']==FAILED_ROUTINE_DESIRED and state['desired']['imageId']==FAILED_ROUTINE_IMAGE
+            and load_failure(DAILY_REFUSAL_RUN)==cycle['failure'])
+        sources=ninef_sources(deadline,DAILY_REFUSAL_SHA,DAILY_REFUSAL_SOURCES)
+        # Positive native quiescence and absence of every original request,
+        # checkpoint/retirement intent, hold, image lease and recovery notice.
+        native=failed_routine_native_proof(deadline,DAILY_REFUSAL_RUN)
+        runtime=failed_routine_runtime(deadline)  # Includes closed Inspector.
+        control=Path(__file__).resolve().parent
+        raw=failed_routine_command([str(control/'engine-release-database-proof.py'),'--env-file',
+            os.environ.get('ENV_FILE',os.environ.get('REPO_DIR','/opt/club-arena')+'/server/.env'),
+            '--sha',FAILED_ROUTINE_DESIRED,'--instance-id',runtime['instanceId'],'--terminal-owned-thaw',
+            '--window-announced-ms',str(DAILY_REFUSAL_WINDOW['announcedAt']),
+            '--window-starts-ms',str(DAILY_REFUSAL_WINDOW['startsAt']),
+            '--window-ends-ms',str(DAILY_REFUSAL_WINDOW['endsAt']),
+            '--timeout-seconds','4','--max-heartbeat-age-seconds','15'],deadline)
+        return {'failureDigest':DAILY_REFUSAL_FAILURE,'sourceDigests':sources,
+                'nativeDigest':failed_routine_digest(native),'runtime':runtime,'database':json.loads(raw)}
+    except (SystemExit,Exception):
+        return None
+
+
 def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     """Inside the existing transaction, under the engine and seal locks, record a
     terminal-failure proof for each expired failed foreign routine owner whose
@@ -1145,12 +1252,12 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     state; an interrupted run resumes with exactly those bytes."""
     run_id = str(args.run_id)
     invocation = str(args.invocation_id)
-    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN} or
+    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN} or
             os.geteuid() != 0):
         die('terminal routine failure proof identity is invalid')
     sha = valid_sha(str(args.sha))
     control_sha = valid_sha(str(args.control_sha))
-    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA}:
+    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA}:
         die('terminal routine failure proof identity is invalid')
     require_engine_lock(args.engine_lock_fd)
     deadline = time.monotonic() + 45
@@ -1159,10 +1266,12 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         proved = []
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
-            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
+            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
             current = failed_routine_current(args, deadline)
             prove = (lambda: cancelled_phase1_proof(args, state, cycle, deadline)) if owner == CANCELLED_PHASE1_RUN else (lambda: terminal_owner_proof(state, cycle, deadline))
+            if owner == DAILY_REFUSAL_RUN:
+                prove = lambda: daily_refusal_proof(state, cycle, deadline)
             proof = prove()
             if proof is None:
                 continue
@@ -1173,11 +1282,13 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'cancelled-announcement-proved' if owner == CANCELLED_PHASE1_RUN else 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner == CANCELLED_PHASE1_RUN else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
             if owner == CANCELLED_PHASE1_RUN:
                 validate_cancelled_phase1_resolution(resolution, cycle, verify_receipt=False)
+            if owner == DAILY_REFUSAL_RUN:
+                validate_daily_refusal_resolution(resolution, cycle, verify_receipt=False)
             receipt = terminal_receipt_path(owner, run_id, invocation)
             try:
                 receipt.lstat()
@@ -2388,10 +2499,10 @@ def failed_routine_service_empty(unit: str, before: dict[str, str], deadline: fl
         return 'unloaded-manager-cgroup-empty'
 
 
-def failed_routine_native_proof(deadline: float) -> dict[str, Any]:
+def failed_routine_native_proof(deadline: float, owner: str = FAILED_ROUTINE_RUN) -> dict[str, Any]:
     units = {}
     for prefix, extension in (('release', 'service'), ('intake', 'service'), ('intake', 'path')):
-        unit = f'club-arena-engine-{prefix}-v1@{FAILED_ROUTINE_RUN}.{extension}'
+        unit = f'club-arena-engine-{prefix}-v1@{owner}.{extension}'
         value = failed_routine_unit_snapshot(unit, deadline)
         if extension == 'service':
             failed_routine_service_empty(unit, value, deadline)
@@ -2399,7 +2510,7 @@ def failed_routine_native_proof(deadline: float) -> dict[str, Any]:
         require_absent(Path('/etc/systemd/system/paths.target.wants') / unit)
         units[unit] = value
     roots = (
-        (STATE_DIR / 'engine-release-requests', ('request', 'intent', 'activation-entry',
+        (STATE_DIR / 'engine-release-requests', ('request', 'intent', 'activation-entry', 'drill',
          'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'main-inspector-retirement-receipt',
          'lightning-hold.json', 'lightning-hold.json.released', 'break-deadline', 'awaiting-certificate')),
         (STATE_DIR / 'engine-intake-requests', ('request', 'intent')),
@@ -2407,8 +2518,8 @@ def failed_routine_native_proof(deadline: float) -> dict[str, Any]:
         (STATE_DIR / 'engine-image-leases', ('lease',)))
     for root, suffixes in roots:
         for suffix in suffixes:
-            require_absent(root / (FAILED_ROUTINE_RUN + '.' + suffix))
-    require_absent(STATE_DIR / ('engine-recovery-window-' + FAILED_ROUTINE_RUN + '.json'))
+            require_absent(root / (owner + '.' + suffix))
+    require_absent(STATE_DIR / ('engine-recovery-window-' + owner + '.json'))
     return units
 
 

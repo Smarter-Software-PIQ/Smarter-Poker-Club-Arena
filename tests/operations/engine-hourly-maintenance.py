@@ -61,7 +61,7 @@ class HourlyCycle(unittest.TestCase):
             seal.cmd_reserve_routine_cycle(Namespace(repo=str(self.repo),sha=self.sha,control_sha=self.sha,run_id=run))
         return json.loads(out.getvalue())
 
-    def bind_window(self,c,delay_ms=0,reason='Scheduled Engine Maintenance'):
+    def bind_window(self,c,delay_ms=0,reason='Scheduled Engine Maintenance',schedule=None):
         stamp=(c['startsAt']-120)*1000+delay_ms
         starts=stamp+120000; ends=starts+300000
         phase='last_hand' if int(self.clock.return_value*1000)<starts else 'counting_down'
@@ -72,10 +72,78 @@ class HourlyCycle(unittest.TestCase):
                          'startHour':None,'startMinute':0,'durationMs':300000,'hourlyCashFreeze':True},
              'presentation':{'active':True,'phase':phase,'reason':reason,'break_id':stamp,
                              'break_ends_at':ends,'scheduled_ends_at':ends}}}
+        if schedule is not None: h['maintenance']['schedule']=schedule
         out=io.StringIO()
         with patch.object(seal.sys,'stdin',io.StringIO(json.dumps(h))), redirect_stdout(out):
             seal.cmd_bind_routine_window(Namespace(repo=str(self.repo),run_id=c['runId']))
         return json.loads(out.getvalue())
+
+    def test_daily_predecessor_binds_only_its_source_and_chicago_cycle(self):
+        # Real old schedule bytes in an isolated Git commit; the fixture SHA
+        # stands for the qualified predecessor, never for an arbitrary source.
+        path=self.repo/'server/src/maintenance/maintenanceSchedule.ts'
+        path.write_bytes(subprocess.check_output(['git','-C',str(ROOT),'show',
+            'eed06fe51dea622069c661a6213d5b031ff3a9e3:server/src/maintenance/maintenanceSchedule.ts'],env=self.env))
+        self.git('add','.'); self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','-qm','daily predecessor fixture')
+        self.sha=self.git('rev-parse','HEAD'); self.git('update-ref','refs/remotes/origin/main',self.sha)
+        state=seal.load_state(); state['desired']['sha']=self.sha; seal.write_state(state)
+        self.clock.return_value=1793611800  # Nov2 03:30 Chicago, after DST.
+        c=self.reserve(); self.clock.return_value=c['startsAt']-119
+        daily={'timeZone':'America/Chicago','startHour':4,'startMinute':0,'durationMs':300000,'hourlyCashFreeze':False}
+        with patch.object(seal,'DAILY_BOOTSTRAP_SHA',self.sha,create=True):
+            self.assertFalse(seal.daily_bootstrap_schedule(str(self.repo),self.sha,daily,1793617200003))
+            self.assertEqual(self.bind_window(c,3,schedule=daily)['window']['startsAt'],1793613600003)
+            for bad in ({**daily,'startHour':3},{**daily,'hourlyCashFreeze':True},
+                        {**daily,'frequency':'phase1-hourly'},{**daily,'durationMs':True}):
+                self.assert_refused(lambda:self.bind_window(c,3,schedule=bad))
+            self.clock.return_value=c['startsAt']+1
+            self.assertEqual(self.bind_window(c,3,schedule=daily)['window']['endsAt'],1793613900003)
+        self.assert_refused(lambda:self.bind_window(c,3,schedule=daily))
+        # Identical labels cannot vouch for modified source.
+        path.write_text('not the qualified daily scheduler')
+        self.git('add','.'); self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','-qm','changed schedule')
+        changed=self.git('rev-parse','HEAD'); self.git('update-ref','refs/remotes/origin/main',changed)
+        state=seal.load_state(); state['desired']['sha']=changed; seal.write_state(state)
+        with patch.object(seal,'DAILY_BOOTSTRAP_SHA',changed,create=True):
+            self.assert_refused(lambda:self.bind_window(c,3,schedule=daily))
+
+    def test_daily_predecessor_certificate_and_lightning_predicates(self):
+        import datetime
+        source=(ROOT/'server/scripts/engine-release-transaction.sh').read_text()
+        programs=[]
+        for section,end in [('hold_lightning_when_counting_down() {','release_lightning_hold_if_break_over() {'),
+                            ('maintenance_certificate() {','legacy_checkpoint_countdown() {'),
+                            ('legacy_checkpoint_countdown() {','persist_break_deadline() {')]:
+            chunk=source[source.index(section):source.index(end,source.index(section))]
+            # Execute the actual Python programs carrying schedule admission.
+            programs += [part.split("\n'",1)[0] for part in chunk.split("python3 -c '\n")[1:]
+                         if 'hourly=isinstance(schedule' in part.split("\n'",1)[0]]
+        self.assertEqual(len(programs),3)
+        for now in (1793613601,1772960401):  # winter and spring DST 04:00 Chicago
+            start=now-1; end=start+300
+            class Clock(datetime.datetime):
+                @classmethod
+                def now(cls,tz=None): return cls.fromtimestamp(now,tz)
+            daily={'timeZone':'America/Chicago','startHour':4,'startMinute':0,'durationMs':300000,'hourlyCashFreeze':False}
+            for program in programs:
+                for phase in (['last_hand','counting_down'] if 'EARLY_HOLD_STAMP' in program else ['counting_down']):
+                    at=start-60 if phase=='last_hand' else now
+                    self.clock.return_value=at
+                    for changed,expected in [({},0),({'startHour':3},1),({'hourlyCashFreeze':True},1)]:
+                        m={'reason':'Scheduled Engine Maintenance','active':True,'phase':phase,'durableConfirmed':True,
+                           'remainingMs':299000,'breakEndsAt':end*1000,'readyForRestart':True,'unparkedTables':0,
+                           'schedule':{**daily,**changed},'presentation':{'active':True,'phase':phase,
+                            'reason':'Scheduled Engine Maintenance','break_id':(start-120)*1000,
+                            'break_ends_at':end*1000,'scheduled_ends_at':end*1000}}
+                        h={'releaseSha':'eed06fe51dea622069c661a6213d5b031ff3a9e3','running':True,'weeklyPayout':None,'maintenance':m}
+                        env={'PHASE1_CYCLE_START':str(start),'PHASE1_WINDOW_START':str(start*1000),
+                             'PHASE1_WINDOW_END':str(end*1000),'MIN_BREAK_MS':'285000','ENTRY_MODE':'initial',
+                             'EXPECTED_BREAK_END_EPOCH':'0','EARLY_HOLD_STAMP':str((start-120)*1000) if phase=='last_hand' else '0'}
+                        with patch.dict(os.environ,env,clear=True),patch.object(datetime,'datetime',Clock), \
+                             patch.object(seal.sys,'stdin',io.StringIO(json.dumps(h))),redirect_stdout(io.StringIO()):
+                            try: exec(compile(program,'actual-transaction-admission','exec'),{})
+                            except SystemExit as result: self.assertEqual(result.code,expected,(phase,changed))
+                            else: self.assertEqual(expected,0,(phase,changed))
 
     def assert_refused(self,call):
         before=seal.STATE_FILE.read_bytes()

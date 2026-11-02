@@ -231,6 +231,8 @@ def routine_failure_resolution(value, cycle, result, result_fd):
               'noAnnouncementRecorded': None, 'databaseIdleRecorded': None}
     if value is None:
         return answer, None
+    if isinstance(value, dict) and value.get('result') == 'unentered-daily-cycle-proved':
+        return daily_refusal_resolution(value, cycle, result, result_fd, answer)
     if isinstance(value, dict) and value.get('result') == 'cancelled-announcement-proved':
         return cancelled_announcement_resolution(value, cycle, result, result_fd, answer)
     if isinstance(value, dict) and value.get('result') == 'terminal-failure-proved':
@@ -363,6 +365,70 @@ def terminal_failure_resolution(value, cycle, result, result_fd, answer):
     return answer, (name, metadata, raw)
 
 
+DAILY_REFUSAL_RUN = '41421209814-1'
+DAILY_REFUSAL_SHA = 'e64c2a68a211040b645efac90cef44206fc8b4a1'
+DAILY_REFUSAL_FAILURE = '98f2ad6cc2a23ea4e8c8c68ab08439d9c95e850e5753d249d065ebfa303964f2'
+DAILY_REFUSAL_WINDOW = {'announcedAt':1793613480003,'startsAt':1793613600003,'endsAt':1793613900003}
+DAILY_REFUSAL_SOURCES = {
+    'engine-release-transaction.sh': 'ba136c0a67c835c9a33b23876b5b02a52309034fc747afa2727d001068a6383d',
+    'engine-release-seal.py': '61f2e81984f36cd990e4bbbd9f22bf8721917c2b854bc38706fd22d5c92b41ba',
+    'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e',
+    'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6',
+    'engine-release-unit-wrapper.sh': 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'install-engine-supervisor.sh': 'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'install-engine-intake.sh': '5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+}
+
+def daily_refusal_cycle(cycle: object) -> None:
+    routine_require(isinstance(cycle,dict) and cycle.get('runId')==DAILY_REFUSAL_RUN
+        and cycle.get('sha')==cycle.get('controlSha')==DAILY_REFUSAL_SHA
+        and cycle.get('startsAt')==1793613600 and cycle.get('endsAt')==1793613900
+        and cycle.get('status')=='reserved' and cycle.get('window') is None
+        and cycle.get('kind')=='hourly-reset' and cycle.get('policyId')=='phase1-hourly-01a1944f'
+        and cycle.get('policyDigest')==NINEF_POLICY_DIGEST
+        and routine_digest(cycle.get('failure'))==DAILY_REFUSAL_FAILURE)
+
+
+def validate_daily_refusal_resolution(value: object, cycle: dict, verify_receipt: bool = False) -> None:
+    daily_refusal_cycle(cycle)
+    routine_require(isinstance(value,dict) and set(value)=={'originalCycle', 'proof', 'verifiedByRunId', 'observedAt', 'result', 'verifiedByControlSha', 'verifiedByTargetSha', 'invocationId', 'schema'}
+        and value['schema']==1 and value['result']=='unentered-daily-cycle-proved' and value['originalCycle']==cycle
+        and RUN.fullmatch(str(value['verifiedByRunId'])) and value['verifiedByRunId']!=DAILY_REFUSAL_RUN
+        and all(SHA.fullmatch(str(value[k])) and value[k]!=DAILY_REFUSAL_SHA
+                for k in ('verifiedByControlSha','verifiedByTargetSha'))
+        and INVOCATION.fullmatch(str(value['invocationId']))
+        and type(value['observedAt']) is int and value['observedAt']>1793613966)
+    proof=value['proof']
+    routine_require(isinstance(proof,dict) and set(proof)=={'failureDigest','sourceDigests','nativeDigest','runtime','database'}
+        and proof['failureDigest']==DAILY_REFUSAL_FAILURE and proof['sourceDigests']==DAILY_REFUSAL_SOURCES
+        and re.fullmatch('[0-9a-f]{64}',str(proof['nativeDigest'])))
+    runtime=proof['runtime']
+    routine_require(isinstance(runtime,dict) and set(runtime)=={'containerId','startedAt','instanceId'}
+        and re.fullmatch('[0-9a-f]{64}',str(runtime['containerId'])) and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}',str(runtime['instanceId'])))
+    birth=datetime.datetime.fromisoformat(runtime['startedAt'].replace('Z','+00:00'))
+    routine_require(birth.tzinfo is not None and 0<birth.timestamp()<value['observedAt'])
+    expected={'schema':'terminal-owned-thaw/v1','sha':'eed06fe51dea622069c661a6213d5b031ff3a9e3','instanceId':runtime['instanceId'],
+              'databaseIdle':True,'freshLeader':True,'ownedV3Thaw':True,**DAILY_REFUSAL_WINDOW}
+    routine_require(proof['database']==expected
+        and all(type(proof['database'][k]) is bool for k in ('databaseIdle','freshLeader','ownedV3Thaw'))
+        and all(type(proof['database'][k]) is int for k in DAILY_REFUSAL_WINDOW))
+
+
+def daily_refusal_resolution(value, cycle, result, result_fd, answer):
+    validate_daily_refusal_resolution(value,cycle)
+    routine_require(result==cycle['failure'])
+    name=DAILY_REFUSAL_RUN+'.'+value['verifiedByRunId']+'.'+value['invocationId']+'.terminal-resolution.json'
+    metadata=os.stat(name,dir_fd=result_fd,follow_symlinks=False)
+    receipt,raw=read_json(result_fd,name,private=True,with_bytes=True)
+    routine_require(receipt==value)
+    answer.update(present=True,sha256=routine_digest(value),receiptSha256=hashlib.sha256(raw).hexdigest(),
+        verifiedByRunId=value['verifiedByRunId'],controlSha=value['verifiedByControlSha'],targetSha=value['verifiedByTargetSha'],
+        invocationSha256=hashlib.sha256(value['invocationId'].encode()).hexdigest(),observedAt=value['observedAt'],
+        cycleMatches=True,failureMatches=True,receiptMatches=True,databaseIdleRecorded=True)
+    return answer,(name,metadata,raw)
+
+
 CANCELLED_PHASE1_SOURCES = {
     'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6',
     'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4',
@@ -470,6 +536,7 @@ def routine_remote(request, root_fd):
                     isinstance(resolutions, dict) and
                     all(isinstance(v, dict) and (k == FAILED_CUSTODY_REQUEST['runKey'] or
                                                  (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
+                                                 (k == DAILY_REFUSAL_RUN and v.get('result') == 'unentered-daily-cycle-proved') or
                                                  (k == CANCELLED_PHASE1_RUN and v.get('result') == 'cancelled-announcement-proved'))
                         for k, v in resolutions.items()))
     if resolutions:
@@ -584,6 +651,18 @@ def validate_routine_reply(value, request):
                 and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > CANCELLED_PHASE1_WINDOW['endsAt']
                 and all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches', 'databaseIdleRecorded'))
                 and resolution['noAnnouncementRecorded'] is None)
+        elif resolution['present'] and row['runId'] == DAILY_REFUSAL_RUN:
+            routine_require(row['sha']==row['controlSha']==DAILY_REFUSAL_SHA and row['status']=='reserved'
+                and row['startsAt']==1793613600 and row['endsAt']==1793613900 and row['window'] is None
+                and row['failurePresent'] is True and row['failureSha256']==DAILY_REFUSAL_FAILURE
+                and row['committed']['present'] is False
+                and all(isinstance(resolution[k],str) and re.fullmatch('[0-9a-f]{64}',resolution[k])
+                        for k in ('sha256','receiptSha256','invocationSha256'))
+                and RUN.fullmatch(str(resolution['verifiedByRunId'])) and resolution['verifiedByRunId']!=DAILY_REFUSAL_RUN
+                and all(SHA.fullmatch(str(resolution[k])) and resolution[k]!=DAILY_REFUSAL_SHA for k in ('controlSha','targetSha'))
+                and type(resolution['observedAt']) is int and resolution['observedAt']>1793613966
+                and all(resolution[k] is True for k in ('cycleMatches','failureMatches','receiptMatches','databaseIdleRecorded'))
+                and resolution['noAnnouncementRecorded'] is None)
         elif resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
             # The recorded 9f terminal-failure proof: the exact reserved failed
             # cycle, no commit, receipted by a different current verifier.
@@ -631,6 +710,18 @@ def validate_routine_reply(value, request):
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
         if resolution['present'] and row['runId'] == CANCELLED_PHASE1_RUN:
             routine_require(result['present'] is False and row['failurePresent'] is False)
+        elif resolution['present'] and row['runId'] == DAILY_REFUSAL_RUN:
+            routine_require(row['sha']==row['controlSha']==DAILY_REFUSAL_SHA and row['status']=='reserved'
+                and row['startsAt']==1793613600 and row['endsAt']==1793613900 and row['window'] is None
+                and row['failurePresent'] is True and row['failureSha256']==DAILY_REFUSAL_FAILURE
+                and row['committed']['present'] is False
+                and all(isinstance(resolution[k],str) and re.fullmatch('[0-9a-f]{64}',resolution[k])
+                        for k in ('sha256','receiptSha256','invocationSha256'))
+                and RUN.fullmatch(str(resolution['verifiedByRunId'])) and resolution['verifiedByRunId']!=DAILY_REFUSAL_RUN
+                and all(SHA.fullmatch(str(resolution[k])) and resolution[k]!=DAILY_REFUSAL_SHA for k in ('controlSha','targetSha'))
+                and type(resolution['observedAt']) is int and resolution['observedAt']>1793613966
+                and all(resolution[k] is True for k in ('cycleMatches','failureMatches','receiptMatches','databaseIdleRecorded'))
+                and resolution['noAnnouncementRecorded'] is None)
         elif resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
             routine_require(row['runId'] == NINEF_RUN and result['present'] is True and
                             result['sha256'] == NINEF_FAILURE == row['failureSha256'] and

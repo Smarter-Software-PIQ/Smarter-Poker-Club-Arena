@@ -546,9 +546,10 @@ if m.get("phase") == "last_hand":
         start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0")); planned=start-120000
         schedule=m.get("schedule")
         hourly=isinstance(schedule,dict) and schedule.get("frequency")=="phase1-hourly" and schedule.get("policyId")=="phase1-hourly-01a1944f" and schedule.get("timeZone")=="America/Chicago" and schedule.get("startHour") is None and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is True
+        legacy_daily=d.get("releaseSha")=="eed06fe51dea622069c661a6213d5b031ff3a9e3" and isinstance(schedule,dict) and schedule.get("timeZone")=="America/Chicago" and type(schedule.get("startHour")) is int and schedule["startHour"]==4 and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is False and schedule.get("frequency") is None and schedule.get("policyId") is None and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).hour==4 and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).minute==0
         reason=m.get("reason")
         if not (stamp in (0,planned) and reason in ("Deployment Recovery","Scheduled Engine Maintenance")
-                and (reason=="Deployment Recovery" or hourly) and d.get("running") is True
+                and (reason=="Deployment Recovery" or hourly or legacy_daily) and d.get("running") is True
                 and "weeklyPayout" in d and d["weeklyPayout"] is None
                 and m.get("active") is True and m.get("durableConfirmed") is True
                 and isinstance(p,dict) and p.get("active") is True and p.get("phase")=="last_hand"
@@ -579,7 +580,9 @@ if cycle:
     schedule=m.get("schedule")
     hourly=isinstance(schedule,dict) and schedule.get("frequency")=="phase1-hourly" and schedule.get("policyId")=="phase1-hourly-01a1944f" and schedule.get("timeZone")=="America/Chicago" and schedule.get("startHour") is None and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is True
     start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
-    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or m.get("reason")=="Deployment Recovery")
+    # bind_phase1_window already proves exact serving source and original owner.
+    legacy_daily=d.get("releaseSha")=="eed06fe51dea622069c661a6213d5b031ff3a9e3" and isinstance(schedule,dict) and schedule.get("timeZone")=="America/Chicago" and type(schedule.get("startHour")) is int and schedule["startHour"]==4 and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is False and schedule.get("frequency") is None and schedule.get("policyId") is None and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).hour==4 and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).minute==0
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
     if not daily: raise SystemExit(1)
 emergency = m.get("reason") == "Deployment Recovery"
 transition = os.environ.get("DAILY_TRANSITION") == "1" and m.get("schedule") is None and local.minute >= 55 and m.get("reason") == "Scheduled Engine Maintenance"
@@ -1226,7 +1229,9 @@ if cycle:
     schedule=m.get("schedule")
     hourly=isinstance(schedule,dict) and schedule.get("frequency")=="phase1-hourly" and schedule.get("policyId")=="phase1-hourly-01a1944f" and schedule.get("timeZone")=="America/Chicago" and schedule.get("startHour") is None and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is True
     start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
-    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or m.get("reason")=="Deployment Recovery")
+    # bind_phase1_window already proves exact serving source and original owner.
+    legacy_daily=isinstance(schedule,dict) and schedule.get("timeZone")=="America/Chicago" and type(schedule.get("startHour")) is int and schedule["startHour"]==4 and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is False and schedule.get("frequency") is None and schedule.get("policyId") is None and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).hour==4 and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).minute==0
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
     if not daily: raise SystemExit(1)
 emergency=(m.get("reason")=="Deployment Recovery")
 transition=(os.environ.get("DAILY_TRANSITION")=="1" and m.get("schedule") is None and local.minute>=55 and m.get("reason")=="Scheduled Engine Maintenance")
@@ -1441,7 +1446,9 @@ if cycle:
     schedule=m.get("schedule")
     hourly=isinstance(schedule,dict) and schedule.get("frequency")=="phase1-hourly" and schedule.get("policyId")=="phase1-hourly-01a1944f" and schedule.get("timeZone")=="America/Chicago" and schedule.get("startHour") is None and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is True
     start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
-    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or m.get("reason")=="Deployment Recovery")
+    # bind_phase1_window already proves exact serving source and original owner.
+    legacy_daily=d.get("releaseSha")=="eed06fe51dea622069c661a6213d5b031ff3a9e3" and isinstance(schedule,dict) and schedule.get("timeZone")=="America/Chicago" and type(schedule.get("startHour")) is int and schedule["startHour"]==4 and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is False and schedule.get("frequency") is None and schedule.get("policyId") is None and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).hour==4 and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).minute==0
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
     if not daily: raise SystemExit(1)
 emergency=(m.get("reason")=="Deployment Recovery")
 transition=(os.environ.get("DAILY_TRANSITION")=="1" and m.get("schedule") is None and local.minute>=55 and m.get("reason")=="Scheduled Engine Maintenance")
