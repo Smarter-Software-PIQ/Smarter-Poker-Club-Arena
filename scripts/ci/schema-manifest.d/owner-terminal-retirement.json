@@ -1,0 +1,27 @@
+{
+  "_owner": "fix/owner-terminal-retirement-01a19ccc",
+  "_comment": "Exact immutable owner retirement, source-only until protected installation.",
+  "tables": ["smarter_private.owner_retirement_pool_transfers"],
+  "columns": {
+    "smarter_private.owner_retirement_pool_transfers": [
+      "tournament_id",
+      "operation_id",
+      "asset",
+      "destination_id",
+      "prize",
+      "bounty",
+      "fee",
+      "receipt",
+      "transaction_id",
+      "created_at",
+      "refund_fee_reserved"
+    ]
+  },
+  "functions": [
+    "fn_ca_owner_retire_tournament",
+    "smarter_private.owner_retirement_transfer_pools",
+    "smarter_private.owner_retirement_receipt",
+    "smarter_private.owner_retirement_transfer_must_close",
+    "smarter_private.owner_retirement_pool_transfer_immutable"
+  ]
+}
