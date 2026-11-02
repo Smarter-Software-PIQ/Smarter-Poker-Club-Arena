@@ -192,6 +192,27 @@ export async function retireOwnedMainInspector({
       'send_outcome_unknown',
       'close_ack_refused',
     ]);
+    // Preserve the closed kernel predicate vocabulary through the transport
+    // boundary. Never project native paths, syscall messages or metadata.
+    if (error?.message === 'main_inspector_socket_unproved') {
+      const steps = new Set([
+        'members',
+        'identities',
+        'namespace',
+        'socket_rows',
+        'listener',
+        'descriptors',
+        'listener_owner',
+        'clients',
+        'identity_recheck',
+        'snapshot_recheck',
+        'binding_recheck',
+      ]);
+      return {
+        ...result(false, 'main_inspector_socket_unproved'),
+        ...(steps.has(error.kernelStep) ? { kernelStep: error.kernelStep } : {}),
+      };
+    }
     return result(false, reasons.has(error?.message) ? error.message : 'outcome_unknown');
   }
 }

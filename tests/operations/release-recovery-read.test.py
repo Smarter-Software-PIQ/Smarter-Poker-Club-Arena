@@ -2907,7 +2907,8 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
             path.write_bytes(b'x' * (R.MAX_BYTES + 1))
             with self.assertRaises(ValueError): self.read(root)
             path.unlink(); path.symlink_to('/does-not-exist')
-            with self.assertRaises(OSError): self.read(root)
+            with self.assertRaises(R.ScopedRefusal) as caught: self.read(root)
+            self.assertEqual((caught.exception.phase,caught.exception.code),('routine_seal_read','evidence_refused'))
 
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); state, cycle, result, resolution, receipt, digest = self.resolution_fixture(root)
@@ -2934,9 +2935,11 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
                 receipt.chmod(0o600); receipt.write_bytes(b'x' * (R.MAX_BYTES + 1))
                 with self.assertRaises(ValueError): self.read(root)
                 receipt.unlink()
-                with self.assertRaises(FileNotFoundError): self.read(root)
+                with self.assertRaises(R.ScopedRefusal) as caught: self.read(root)
+                self.assertEqual((caught.exception.phase,caught.exception.code),('routine_disposition','file_missing'))
                 receipt.symlink_to('/does-not-exist')
-                with self.assertRaises(OSError): self.read(root)
+                with self.assertRaises(R.ScopedRefusal) as caught: self.read(root)
+                self.assertEqual((caught.exception.phase,caught.exception.code),('routine_disposition','evidence_refused'))
 
     def test_racing_canonical_file_and_new_result_are_refused(self):
         with tempfile.TemporaryDirectory() as folder:

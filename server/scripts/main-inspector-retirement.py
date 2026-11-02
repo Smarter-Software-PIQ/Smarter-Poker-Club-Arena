@@ -118,7 +118,16 @@ def entry_state(run):
                         return 1
                     same |= container_identity(claim.get('containerIdentity')) == live_identity
                 if same and (prior is None or not positive(completed, prior)):
-                    return 1
+                    # Distinct historical pre-attachment disposition, never a
+                    # fabricated successful close or permission to replay owner.
+                    if owner != '41452708967-1' or prior is None or completed is not None:
+                        return 1
+                    digest = hashlib.sha256(json.dumps(prior, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+                    result = subprocess.run([str(CONTROL / 'engine-release-seal.py'),
+                        'attest-preattach-resolution', '--run-id', owner, '--claim-digest', digest],
+                        check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=remaining())
+                    if result.stdout != b'preattach-refusal-proved\n':
+                        return 1
         intent = root / (run + '.main-inspector-retirement-intent')
         receipt = root / (run + '.main-inspector-retirement-receipt')
         def present(path):

@@ -1,6 +1,9 @@
 // Isolated qualification only: no production host, credentials or game API.
 import assert from 'node:assert/strict';
-import { observeFixtureKernelRefusals, observeFixtureDiscoverySocket } from './main-inspector-kernel-diagnostic.mjs';
+import {
+  observeFixtureKernelRefusals,
+  observeFixtureDiscoverySocket,
+} from './main-inspector-kernel-diagnostic.mjs';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -84,10 +87,15 @@ async function fixtureNativeEntry(container, identity, scenario = 'success', hos
     'main-inspector-retirement-entry.mjs',
   ]
     .map((name) => {
-      const maintained = fs.readFileSync(new URL('../../server/scripts/' + name, import.meta.url), 'utf8');
+      const maintained = fs.readFileSync(
+        new URL('../../server/scripts/' + name, import.meta.url),
+        'utf8'
+      );
       return name === 'main-inspector-socket-qualification.mjs'
         ? observeFixtureKernelRefusals(maintained, `direct-${scenario}`)
-        : name === 'main-inspector-retirement-entry.mjs' ? observeFixtureDiscoverySocket(maintained) : maintained;
+        : name === 'main-inspector-retirement-entry.mjs'
+          ? observeFixtureDiscoverySocket(maintained)
+          : maintained;
     })
     .join('\n');
   const busyNonce = randomUUID();
@@ -252,7 +260,33 @@ process.once('exit', () => process.getBuiltinModule('node:fs').writeSync(2, 'fix
       remainingMs: marker.busyUntil - observation.observedAt,
     };
   }
-  const source = discoveryObservation + closeBoundaryLoad + maintainedSource;
+  // In the real pinned Linux process, close one owned /dev/null FD only
+  // after /proc enumerated it. All socket reads and native results stay real.
+  const disappearancePrelude =
+    scenario === 'success'
+      ? `
+const fixtureChurnFs = process.getBuiltinModule('node:fs');
+const fixtureChurnFd = fixtureChurnFs.openSync('/dev/null', 'r');
+const fixtureChurnPath = '/proc/' + process.pid + '/fd/' + fixtureChurnFd;
+let fixtureChurnObserved = false;
+`
+      : '';
+  const disappearanceBoundary = `
+          if (!fixtureChurnObserved && path === fixtureChurnPath) {
+            fixtureChurnFs.closeSync(fixtureChurnFd);
+            fixtureChurnObserved = true;
+            fixtureChurnFs.writeSync(2, 'fixture-descriptor-disappearance:observed\\n');
+          }
+          value = inspectorFs.readlinkSync(path);`;
+  const readlinkBoundary = '          value = inspectorFs.readlinkSync(path);';
+  if (scenario === 'success') assert.equal(maintainedSource.split(readlinkBoundary).length, 2);
+  const source =
+    discoveryObservation +
+    closeBoundaryLoad +
+    disappearancePrelude +
+    (scenario === 'success'
+      ? maintainedSource.replace(readlinkBoundary, disappearanceBoundary)
+      : maintainedSource);
   if (hostWrapper) {
     const hostRoot = join(fixtureDirectory, 'host-wrapper-' + scenario);
     const control = join(hostRoot, 'control');
@@ -271,7 +305,9 @@ process.once('exit', () => process.getBuiltinModule('node:fs').writeSync(2, 'fix
         (name === 'main-inspector-retirement-entry.mjs' ? closeBoundaryLoad : '') +
           (name === 'main-inspector-socket-qualification.mjs'
             ? observeFixtureKernelRefusals(maintained, `host-${scenario}`)
-            : name === 'main-inspector-retirement-entry.mjs' ? observeFixtureDiscoverySocket(maintained) : maintained)
+            : name === 'main-inspector-retirement-entry.mjs'
+              ? observeFixtureDiscoverySocket(maintained)
+              : maintained)
       );
     }
     const inspected = await fixtureInspect();
@@ -414,10 +450,20 @@ process.once('exit', () => process.getBuiltinModule('node:fs').writeSync(2, 'fix
       clearTimeout(timer);
       if (protocolFailure) {
         // Only the closed fixture tags survive; native paths/FDs never leave the child.
-        const diagnostic = stderr.split('\n').filter((line) =>
-          /^fixture-kernel-diagnostic:(direct|host)-(success|deferred-close-timeout):(tcp-state-(established|syn_sent|syn_recv|fin_wait_1|fin_wait_2|time_wait|close|close_wait|last_ack|listen|closing|new_syn_recv|unknown)-discovery-(yes|no|unknown)|predicate-[0-9]{1,2}|syscall-(ENOENT|EACCES|EPERM|EBADF|EIO|EINTR|unknown))$/.test(line)
-        ).slice(0, 12).join(';');
-        return reject(new Error(`native fixture ${scenario}: ${protocolFailure.message}; ${diagnostic || 'no closed kernel diagnostic'}`));
+        const diagnostic = stderr
+          .split('\n')
+          .filter((line) =>
+            /^fixture-kernel-diagnostic:(direct|host)-(success|deferred-close-timeout):(tcp-state-(established|syn_sent|syn_recv|fin_wait_1|fin_wait_2|time_wait|close|close_wait|last_ack|listen|closing|new_syn_recv|unknown)-discovery-(yes|no|unknown)|predicate-[0-9]{1,2}|syscall-(ENOENT|EACCES|EPERM|EBADF|EIO|EINTR|unknown))$/.test(
+              line
+            )
+          )
+          .slice(0, 12)
+          .join(';');
+        return reject(
+          new Error(
+            `native fixture ${scenario}: ${protocolFailure.message}; ${diagnostic || 'no closed kernel diagnostic'}`
+          )
+        );
       }
       try {
         assert.equal(signal, null, 'native entry must exit normally');
@@ -433,6 +479,12 @@ process.once('exit', () => process.getBuiltinModule('node:fs').writeSync(2, 'fix
         const discovery = stderr.match(/^fixture-discovery:(.+)$/m);
         assert.ok(discovery, 'actual discovery operation counts must be observed');
         assert.deepEqual(JSON.parse(discovery[1]), { initial: 1, afterAckBeforeClose: 0 });
+        if (scenario === 'success')
+          assert.match(
+            stderr,
+            /^fixture-descriptor-disappearance:observed$/m,
+            'the actual enumerated Linux descriptor must disappear before readlink'
+          );
         const outcome = JSON.parse(lines[1]);
         assert.equal(outcome.ok, scenario === 'success');
         assert.equal(

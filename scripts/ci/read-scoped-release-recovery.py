@@ -71,6 +71,9 @@ REFUSALS = {
     'Inspector absence identity export': ('inspector', 'export_absence_identity'),
 }
 REFUSAL_CODES = set(REFUSALS.values()) | {('remote', 'evidence_refused'), ('inspector', 'intent_unavailable'), ('inspector', 'identity_changed'), ('inspector', 'native_scalar_unavailable')}
+ROUTINE_READ_STAGES = {'directory','seal_read','seal_shape','cycles','results','disposition','recheck','reply'}
+ROUTINE_READ_CODES = {'file_size','permission_denied','file_missing','file_changed','evidence_refused'}
+REFUSAL_CODES |= {('routine_' + stage, code) for stage in ROUTINE_READ_STAGES for code in ROUTINE_READ_CODES}
 REFUSAL_CODES |= {('serving_role', 'binding_unproved'), ('serving_role', 'evidence_unavailable')}
 # Only fixed stage/code literals cross the existing refusal protocol. The
 # current-serving reader never exports exception text or native output.
@@ -231,6 +234,8 @@ def routine_failure_resolution(value, cycle, result, result_fd):
               'noAnnouncementRecorded': None, 'databaseIdleRecorded': None}
     if value is None:
         return answer, None
+    if isinstance(value, dict) and value.get('result') == 'preattach-refusal-proved':
+        return preattach_resolution(value, cycle, result, result_fd, answer)
     if isinstance(value, dict) and value.get('result') == 'unentered-daily-cycle-proved':
         return daily_refusal_resolution(value, cycle, result, result_fd, answer)
     if isinstance(value, dict) and value.get('result') == 'cancelled-announcement-proved':
@@ -531,95 +536,211 @@ def cancelled_announcement_resolution(resolution, cycle, result, result_fd, answ
     return answer, (name, metadata, raw)
 
 
-def routine_remote(request, root_fd):
-    """Read only fixed canonical files with existing private stable-file reader.
+PREATTACH_RUN = '41452708967-1'
+PREATTACH_SHA = '08e3edee7aaa1ca235403e3812504fd6cf88206c'
+PREATTACH_INVOCATION = 'ca957c4b8b6c40fe8f47ea2bb6e1ce93'
+PREATTACH_PROPOSAL = 'd40c983e9c26be190ca0167f17f0d35b07b9daa4f9984e17d8b339c8bb7b13c0'
+PREATTACH_CONTAINER = 'e236a170ab73204b2a0826fdccb9efb36f21043ccd2bf009ce64421b7a1e0a4b'
+PREATTACH_SOURCES = {
+    'engine-release-transaction.sh': '0a78bdb9e5b3ba761ea1daf4bbec55c42b2ee654a98d71a5850a46ef313a5abe',
+    'engine-release-unit-wrapper.sh': 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'install-engine-supervisor.sh': 'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'install-engine-intake.sh': '5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+    'main-inspector-retirement.py': '80cc6afcd4aa40540603132b893e9d0880f08606b9a2aac6494aac1bea8bd7e5',
+    'main-inspector-retirement-entry.mjs': 'b1a6141c4f11455f96d55b81acd24ba950f90902b96720467701f5ad0e2fa801',
+    'retire-owned-main-inspector.mjs': 'dd91b8fa3e514a032b8b1133b1985988710c07239f692e8aeef65d21427f5d44',
+    'main-inspector-socket-qualification.mjs': 'a34c84ab8e1cd0f92b645a02e89a379d863f07da0021a9930643f90eea8a5482',
+}
 
-    No production module import, subprocess, lock creation, state repair,
-    mutation, process probe, listener action or authority inference.
-    """
-    routine_require(selection(request) == ROUTINE_REQUEST)
-    started = time.monotonic()
-    directory = os.fstat(root_fd)
-    routine_require(stat.S_ISDIR(directory.st_mode) and directory.st_uid == os.geteuid() and
-                    stat.S_IMODE(directory.st_mode) == 0o700)
-    identity = lambda x: (x.st_dev, x.st_ino, x.st_size, x.st_mtime_ns, x.st_ctime_ns, x.st_uid, x.st_mode)
-    name = 'engine-release-seal.json'
-    seal_before = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-    state, raw = read_json(root_fd, name, private=True, with_bytes=True)
-    routine_require(type(state.get('schema')) is int and state['schema'] == 1 and
-                    type(state.get('generation')) is int and state['generation'] >= 1)
-    desired = state.get('desired')
-    routine_require(isinstance(desired, dict) and isinstance(desired.get('sha'), str) and SHA.fullmatch(desired['sha']) and
-                    isinstance(desired.get('imageId'), str) and re.fullmatch(r'sha256:[0-9a-f]{64}', desired['imageId']))
-    cycles, committed = state.get('routineMaintenanceCycles'), state.get('committedRuns')
-    resolutions = state.get('routineFailureResolutions', {})
-    routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict) and
-                    isinstance(resolutions, dict) and
-                    all(isinstance(v, dict) and (k == FAILED_CUSTODY_REQUEST['runKey'] or
-                                                 (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
-                                                 (k == DAILY_REFUSAL_RUN and v.get('result') == 'unentered-daily-cycle-proved') or
-                                                 (k in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} and v.get('result') == 'cancelled-announcement-proved'))
-                        for k, v in resolutions.items()))
-    if resolutions:
-        routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
-                            for owner in resolutions) and
-                        all(c.get('status') == 'reserved' for c in cycles.values()
-                            if isinstance(c, dict) and c.get('runId') in resolutions))
-    owners = []
-    for key, cycle in sorted(cycles.items()):
-        row = routine_cycle_metadata(key, cycle)
-        if cycle['status'] != 'sealed':
-            owners.append((cycle, row))
-    routine_require(len(owners) <= 8 and len({c['runId'] for c, _ in owners}) == len(owners))
-    result_fd = os.open('engine-release-results', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
-    observed = []
+def preattach_cycle(cycle):
+    routine_require(isinstance(cycle, dict) and cycle.get('runId') == PREATTACH_RUN
+        and cycle.get('sha') == cycle.get('controlSha') == PREATTACH_SHA
+        and cycle.get('startsAt') == 1793628000 and cycle.get('endsAt') == 1793628300
+        and cycle.get('status') == 'reserved' and cycle.get('window') is None
+        and cycle.get('kind') == 'hourly-reset' and cycle.get('policyId') == 'phase1-hourly-01a1944f'
+        and cycle.get('policyDigest') == NINEF_POLICY_DIGEST)
+    failure = cycle.get('failure')
+    routine_require(isinstance(failure, dict) and set(failure) == {
+        'schema', 'runId', 'result', 'sha', 'controlSha', 'invocationId', 'transactionExitStatus',
+        'recoveredDesiredSha', 'recoveredDesiredImageId', 'completedAt'}
+        and type(failure['schema']) is int and failure['schema'] == 1
+        and failure['runId'] == PREATTACH_RUN and failure['sha'] == failure['controlSha'] == PREATTACH_SHA
+        and failure['invocationId'] == PREATTACH_INVOCATION and failure['result'] == 'failed'
+        and type(failure['transactionExitStatus']) is int and failure['transactionExitStatus'] == 1
+        and failure['recoveredDesiredSha'] == EED
+        and failure['recoveredDesiredImageId'] == FAILED_CUSTODY_IMAGE
+        and type(failure['completedAt']) is int and 1793627880 <= failure['completedAt'] < 1793628000)
+
+def preattach_resolution(value, cycle, result, result_fd, answer):
+    """Observe the distinct historical disposition, never claim native close."""
+    preattach_cycle(cycle)
+    routine_require(result == cycle['failure'] and isinstance(value,dict) and set(value)=={
+        'schema','result','originalCycle','verifiedByRunId','verifiedByControlSha','verifiedByTargetSha',
+        'invocationId','observedAt','proof'} and type(value['schema']) is int and value['schema']==1
+        and value['result']=='preattach-refusal-proved' and value['originalCycle']==cycle
+        and RUN.fullmatch(str(value['verifiedByRunId'])) and value['verifiedByRunId']!=PREATTACH_RUN
+        and all(SHA.fullmatch(str(value[k])) and value[k]!=PREATTACH_SHA for k in ('verifiedByControlSha','verifiedByTargetSha'))
+        and INVOCATION.fullmatch(str(value['invocationId'])) and type(value['observedAt']) is int
+        and cycle['failure']['completedAt'] < value['observedAt'] < 4102444800)
+    p=value['proof']
+    routine_require(isinstance(p,dict) and set(p)=={'failureDigest','claimDigest','sourceDigests','nativeDigest',
+        'historical','runtime','nativeCloseInvoked','retryAllowed'} and p['failureDigest']==routine_digest(result)
+        and p['sourceDigests']==PREATTACH_SOURCES and p['nativeCloseInvoked'] is False and p['retryAllowed'] is False
+        and all(re.fullmatch('[0-9a-f]{64}',str(p[k])) for k in ('claimDigest','nativeDigest'))
+        and isinstance(p['historical'],dict) and set(p['historical'])=={'journalDigest','atMicros'}
+        and re.fullmatch('[0-9a-f]{64}',str(p['historical']['journalDigest'])) and type(p['historical']['atMicros']) is int
+        and 1793627880000000 <= p['historical']['atMicros'] < (result['completedAt']+1)*1000000)
+    r=p['runtime']
+    routine_require(isinstance(r,dict) and r.get('databaseIdle') is True and r.get('freshLeader') is True)
+    if r.get('mode')=='original-clientless-inspector':
+        routine_require(set(r)=={'mode','containerIdentitySHA256','instanceId','bindingDigest','databaseIdle','freshLeader'}
+            and r['containerIdentitySHA256']==PREATTACH_CONTAINER and r['instanceId']=='1-2790e861'
+            and re.fullmatch('[0-9a-f]{64}',str(r['bindingDigest'])))
+    else:
+        routine_require(set(r)=={'mode','containerId','startedAt','instanceId','hostPid','originalProcess','databaseIdle','freshLeader'}
+            and r['mode']=='successor-inspector-closed' and re.fullmatch('[0-9a-f]{64}',str(r['containerId']))
+            and type(r['hostPid']) is int and r['hostPid']>0 and re.fullmatch('[1-9][0-9]*-[0-9a-f]{8}',str(r['instanceId']))
+            and r['instanceId']!='1-2790e861' and r['originalProcess'] in {'kernel-enoent','pid-reused-after-claim'})
+        born=datetime.datetime.fromisoformat(r['startedAt'].replace('Z','+00:00'))
+        routine_require(born.tzinfo is not None and 1793627880 < born.timestamp() <= value['observedAt'])
+    name=PREATTACH_RUN+'.'+value['verifiedByRunId']+'.'+value['invocationId']+'.terminal-resolution.json'
+    metadata=os.stat(name,dir_fd=result_fd,follow_symlinks=False)
+    receipt,raw=read_json(result_fd,name,private=True,with_bytes=True)
+    routine_require(receipt==value)
+    answer.update(present=True,sha256=routine_digest(value),receiptSha256=hashlib.sha256(raw).hexdigest(),
+        verifiedByRunId=value['verifiedByRunId'],controlSha=value['verifiedByControlSha'],targetSha=value['verifiedByTargetSha'],
+        invocationSha256=hashlib.sha256(value['invocationId'].encode()).hexdigest(),observedAt=value['observedAt'],
+        cycleMatches=True,failureMatches=True,receiptMatches=True,noAnnouncementRecorded=True,databaseIdleRecorded=True)
+    return answer,(name,metadata,raw)
+
+
+def preattach_reply(row, resolution):
+    result=row['result']
+    routine_require(row['sha']==row['controlSha']==PREATTACH_SHA and row['status']=='reserved'
+        and row['startsAt']==1793628000 and row['endsAt']==1793628300 and row['window'] is None
+        and row['policyDigest']==NINEF_POLICY_DIGEST and row['kind']=='hourly-reset'
+        and row['failurePresent'] is True and row['committed']['present'] is False
+        and result['present'] is True and result['outcome']=='failed' and result['identityMatches'] is True
+        and result['cycleFailureMatches'] is True and result['sha256']==row['failureSha256']
+        and type(result['completedAt']) is int and 1793627880 <= result['completedAt'] < 1793628000
+        and all(re.fullmatch('[0-9a-f]{64}',str(resolution[k])) for k in ('sha256','receiptSha256','invocationSha256'))
+        and RUN.fullmatch(str(resolution['verifiedByRunId'])) and resolution['verifiedByRunId']!=PREATTACH_RUN
+        and all(SHA.fullmatch(str(resolution[k])) and resolution[k]!=PREATTACH_SHA for k in ('controlSha','targetSha'))
+        and type(resolution['observedAt']) is int and result['completedAt']<resolution['observedAt']<4102444800
+        and all(resolution[k] is True for k in ('cycleMatches','failureMatches','receiptMatches','noAnnouncementRecorded','databaseIdleRecorded')))
+
+
+def routine_remote(request, root_fd):
+    stage = 'directory'
     try:
-        result_dir = os.fstat(result_fd)
-        routine_require(result_dir.st_uid == os.geteuid() and stat.S_IMODE(result_dir.st_mode) == 0o700)
-        for cycle, row in owners:
-            routine_require(time.monotonic() - started < 5)
-            result_name = cycle['runId'] + '.json'
-            try:
-                result_stat = os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)
-                result, result_raw = read_json(result_fd, result_name, private=True, with_bytes=True)
-            except FileNotFoundError:
-                result_stat, result, result_raw = None, None, None
-            failure = cycle.get('failure')
-            routine_require(failure is None or isinstance(failure, dict))
-            row.update(failurePresent=failure is not None,
-                       failureSha256=None if failure is None else routine_digest(failure),
-                       result=routine_result(result, cycle),
-                       committed=routine_owner(None if cycle['runId'] not in committed else
-                                               {'runId': cycle['runId'], **committed[cycle['runId']]}))
-            resolution, observation = routine_failure_resolution(resolutions.get(cycle['runId']), cycle, result, result_fd)
-            if resolution['present']:
-                routine_require(cycle['runId'] not in committed)
-            row.update(failureResolution=resolution, unresolvedOwner=not resolution['present'])
-            if observation is not None: observed.append(observation)
-            observed.append((result_name, result_stat, result_raw))
-        # Verify every observed/absent file and original canonical bytes again.
-        for result_name, result_stat, result_raw in observed:
-            if result_stat is None:
+        """Read only fixed canonical files with existing private stable-file reader.
+
+        No production module import, subprocess, lock creation, state repair,
+        mutation, process probe, listener action or authority inference.
+        """
+        routine_require(selection(request) == ROUTINE_REQUEST)
+        started = time.monotonic()
+        directory = os.fstat(root_fd)
+        routine_require(stat.S_ISDIR(directory.st_mode) and directory.st_uid == os.geteuid() and
+                        stat.S_IMODE(directory.st_mode) == 0o700)
+        identity = lambda x: (x.st_dev, x.st_ino, x.st_size, x.st_mtime_ns, x.st_ctime_ns, x.st_uid, x.st_mode)
+        name = 'engine-release-seal.json'
+        seal_before = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        stage = 'seal_read'
+        state, raw = read_json(root_fd, name, private=True, with_bytes=True)
+        stage = 'seal_shape'
+        routine_require(type(state.get('schema')) is int and state['schema'] == 1 and
+                        type(state.get('generation')) is int and state['generation'] >= 1)
+        desired = state.get('desired')
+        routine_require(isinstance(desired, dict) and isinstance(desired.get('sha'), str) and SHA.fullmatch(desired['sha']) and
+                        isinstance(desired.get('imageId'), str) and re.fullmatch(r'sha256:[0-9a-f]{64}', desired['imageId']))
+        cycles, committed = state.get('routineMaintenanceCycles'), state.get('committedRuns')
+        resolutions = state.get('routineFailureResolutions', {})
+        routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict) and
+                        isinstance(resolutions, dict) and
+                        all(isinstance(v, dict) and (k == FAILED_CUSTODY_REQUEST['runKey'] or
+                                                     (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
+                                                     (k == DAILY_REFUSAL_RUN and v.get('result') == 'unentered-daily-cycle-proved') or
+                                                     (k == PREATTACH_RUN and v.get('result') == 'preattach-refusal-proved') or
+                                                     (k in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} and v.get('result') == 'cancelled-announcement-proved'))
+                            for k, v in resolutions.items()))
+        if resolutions:
+            routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
+                                for owner in resolutions) and
+                            all(c.get('status') == 'reserved' for c in cycles.values()
+                                if isinstance(c, dict) and c.get('runId') in resolutions))
+        stage = 'cycles'
+        owners = []
+        for key, cycle in sorted(cycles.items()):
+            row = routine_cycle_metadata(key, cycle)
+            if cycle['status'] != 'sealed':
+                owners.append((cycle, row))
+        routine_require(len(owners) <= 8 and len({c['runId'] for c, _ in owners}) == len(owners))
+        stage = 'results'
+        result_fd = os.open('engine-release-results', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
+        observed = []
+        try:
+            result_dir = os.fstat(result_fd)
+            routine_require(result_dir.st_uid == os.geteuid() and stat.S_IMODE(result_dir.st_mode) == 0o700)
+            for cycle, row in owners:
+                stage = 'results'
+                routine_require(time.monotonic() - started < 5)
+                result_name = cycle['runId'] + '.json'
                 try:
-                    os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)
+                    result_stat = os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)
+                    result, result_raw = read_json(result_fd, result_name, private=True, with_bytes=True)
                 except FileNotFoundError:
-                    continue
-                raise ValueError('Routine owner evidence changed')
-            _, reread = read_json(result_fd, result_name, private=True, with_bytes=True)
-            routine_require(reread == result_raw and identity(result_stat) ==
-                            identity(os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)))
-        _, reread = read_json(root_fd, name, private=True, with_bytes=True)
-        routine_require(reread == raw and identity(seal_before) == identity(os.stat(name, dir_fd=root_fd, follow_symlinks=False)) and
-                        identity(directory) == identity(os.fstat(root_fd)) and
-                        identity(result_dir) == identity(os.fstat(result_fd)) and time.monotonic() - started < 5)
-    finally:
-        os.close(result_fd)
-    answer = {'schema': ROUTINE_SCHEMA, 'readOnly': True, **request,
-              'sealSha256': hashlib.sha256(raw).hexdigest(), 'generation': state['generation'],
-              'desiredSha': desired['sha'], 'desiredImageId': desired['imageId'],
-              'pending': routine_owner(state.get('pending')), 'finalization': routine_owner(state.get('finalization')),
-              'owners': [row for _, row in owners], 'limitation': ROUTINE_LIMITATION}
-    return validate_routine_reply(answer, request)
+                    result_stat, result, result_raw = None, None, None
+                failure = cycle.get('failure')
+                routine_require(failure is None or isinstance(failure, dict))
+                row.update(failurePresent=failure is not None,
+                           failureSha256=None if failure is None else routine_digest(failure),
+                           result=routine_result(result, cycle),
+                           committed=routine_owner(None if cycle['runId'] not in committed else
+                                                   {'runId': cycle['runId'], **committed[cycle['runId']]}))
+                stage = 'disposition'
+                resolution, observation = routine_failure_resolution(resolutions.get(cycle['runId']), cycle, result, result_fd)
+                if resolution['present']:
+                    routine_require(cycle['runId'] not in committed)
+                row.update(failureResolution=resolution, unresolvedOwner=not resolution['present'])
+                if observation is not None: observed.append(observation)
+                observed.append((result_name, result_stat, result_raw))
+            stage = 'recheck'
+            # Verify every observed/absent file and original canonical bytes again.
+            for result_name, result_stat, result_raw in observed:
+                if result_stat is None:
+                    try:
+                        os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        continue
+                    raise ValueError('Routine owner evidence changed')
+                _, reread = read_json(result_fd, result_name, private=True, with_bytes=True)
+                routine_require(reread == result_raw and identity(result_stat) ==
+                                identity(os.stat(result_name, dir_fd=result_fd, follow_symlinks=False)))
+            _, reread = read_json(root_fd, name, private=True, with_bytes=True)
+            routine_require(reread == raw and identity(seal_before) == identity(os.stat(name, dir_fd=root_fd, follow_symlinks=False)) and
+                            identity(directory) == identity(os.fstat(root_fd)) and
+                            identity(result_dir) == identity(os.fstat(result_fd)) and time.monotonic() - started < 5)
+        finally:
+            os.close(result_fd)
+        stage = 'reply'
+        answer = {'schema': ROUTINE_SCHEMA, 'readOnly': True, **request,
+                  'sealSha256': hashlib.sha256(raw).hexdigest(), 'generation': state['generation'],
+                  'desiredSha': desired['sha'], 'desiredImageId': desired['imageId'],
+                  'pending': routine_owner(state.get('pending')), 'finalization': routine_owner(state.get('finalization')),
+                  'owners': [row for _, row in owners], 'limitation': ROUTINE_LIMITATION}
+        return validate_routine_reply(answer, request)
+
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        if isinstance(error, ScopedRefusal):
+            raise
+        code = ('permission_denied' if isinstance(error, PermissionError) else
+                'file_missing' if isinstance(error, FileNotFoundError) else
+                'file_size' if str(error) == 'Persisted evidence file size refused' else
+                'file_changed' if str(error) in {'Persisted evidence changed','Routine owner evidence changed'} else
+                'evidence_refused')
+        raise ScopedRefusal('routine_' + stage, code) from None
 
 
 def validate_routine_reply(value, request):
@@ -673,6 +794,8 @@ def validate_routine_reply(value, request):
                 and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > owner_window['endsAt']
                 and all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches', 'databaseIdleRecorded'))
                 and resolution['noAnnouncementRecorded'] is None)
+        elif resolution['present'] and row['runId'] == PREATTACH_RUN:
+            preattach_reply(row, resolution)
         elif resolution['present'] and row['runId'] == DAILY_REFUSAL_RUN:
             routine_require(row['sha']==row['controlSha']==DAILY_REFUSAL_SHA and row['status']=='reserved'
                 and row['startsAt']==1793613600 and row['endsAt']==1793613900 and row['window'] is None
@@ -732,6 +855,8 @@ def validate_routine_reply(value, request):
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
         if resolution['present'] and row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
             routine_require(result['present'] is False and row['failurePresent'] is False)
+        elif resolution['present'] and row['runId'] == PREATTACH_RUN:
+            preattach_reply(row, resolution)
         elif resolution['present'] and row['runId'] == DAILY_REFUSAL_RUN:
             routine_require(row['sha']==row['controlSha']==DAILY_REFUSAL_SHA and row['status']=='reserved'
                 and row['startsAt']==1793613600 and row['endsAt']==1793613900 and row['window'] is None
@@ -1204,7 +1329,9 @@ def read_json(directory_fd, name, private=False, with_bytes=False):
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
     try:
         before = os.fstat(fd)
-        if (not stat.S_ISREG(before.st_mode) or before.st_size > MAX_BYTES
+        if before.st_size > MAX_BYTES:
+            raise ValueError('Persisted evidence file size refused')
+        if (not stat.S_ISREG(before.st_mode)
                 or (private and (before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) != 0o600))):
             raise ValueError('Persisted evidence file refused')
         raw = b''
