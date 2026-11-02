@@ -78,7 +78,7 @@ describe('the Sort The Board chips drive the board', () => {
   it('on a cash tab each chip takes effect, and Recommended returns the default', () => {
     localStorage.clear();
     const { press, ids } = board('OMAHA');
-    expect(ids()).toEqual(['low', 'mid', 'high']); // default: Stakes Low To High
+    expect(ids()).toEqual(['high', 'mid', 'low']); // default: Stakes High To Low
     press('stakes_high', 1);
     expect(ids()).toEqual(['high', 'mid', 'low']);
     press('players', 2);
@@ -87,7 +87,7 @@ describe('the Sort The Board chips drive the board', () => {
     expect(ids()).toEqual(['low', 'mid', 'high']);
     press('players', 4);
     press('recommended', 5);
-    expect(ids()).toEqual(['low', 'mid', 'high']);
+    expect(ids()).toEqual(['high', 'mid', 'low']);
     expect(
       JSON.parse(localStorage.getItem('ca_player_preference:guest:lobby:headingSort:OMAHA:club-x')!)
     ).toEqual({ key: '', dir: 'asc', chosen: false });
