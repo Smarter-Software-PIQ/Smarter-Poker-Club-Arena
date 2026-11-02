@@ -84,6 +84,20 @@ with its window; none is a profitability claim.
   0); cell B weak kicker n 9, -19.36bb (straddles 0). A 6-hour run gives A weak
   n 47, B weak n 23: the cells need days of data before they can speak.
 
+- Phase 3 preflop residuals (2026-11-02, old engine):
+  - 4-bet-then-fold (`sql four-bet-fold`), 04:00-16:00 UTC: nlh cash 58 of
+    441 4-bets, nlh tournament 25 of 777; pot-limit Omaha, short deck and the
+    limit games 2 of 1,000+ combined, so no non-hold'em rule was needed. In
+    the 83 nlh hands 82 5-bets came from the 3-bettor and 70 were all in;
+    folded hands were QQ, AK, JJ, TT, 99, AQ, AJs and KK.
+    `HorseFourBetThenFoldRealHands.law.test.ts` replays all 83 through
+    today's brain: no style 4-bets and then folds (rules 4, 4a and 4b close
+    every path); with rule 4 off the replay reproduces the leak.
+  - Tournament reshoves over one open at 15-30bb (`sql reshove`), 24 hours
+    to 16:00 UTC: all-in-adjusted EV at or above zero in every cell with
+    n >= 5, including over UTG openers 9-handed (+2.5bb, n 73) and 4-6 handed
+    (+2.5bb, n 24 at 15-20bb). The Phase 6 reshove node was left unchanged.
+
 ### After a release
 
 1. Confirm `releaseSha` on `/health` contains the candidate, the release
