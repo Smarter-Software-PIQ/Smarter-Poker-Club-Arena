@@ -695,10 +695,67 @@ def routine_owner_unresolved(state: dict[str, Any], cycle: dict[str, Any]) -> bo
 
 
 TERMINAL_OWNER_SETTLE_MS = 60_000
-TERMINAL_RESOLUTION_KEYS = {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'invocationId',
-                            'observedAt', 'proof'}
+TERMINAL_RESOLUTION_KEYS = {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'verifiedByControlSha',
+                            'verifiedByTargetSha', 'invocationId', 'observedAt', 'proof'}
 TERMINAL_PROOF_KEYS = {'failureDigest', 'checkpointIntentDigest', 'checkpointRefusalDigest', 'originalProcess',
-                       'runtime', 'database'}
+                       'sourceDigests', 'runtime', 'database'}
+
+# The terminal proof releases exactly one known owner: the 9f census refusal.
+# 41349091113-1 (3e) keeps its own pinned resolution; every other owner stays
+# authoritative/UNKNOWN.
+NINEF_RUN = '41379310363-1'
+NINEF_SHA = '9f8219ae08053f72a7ccc0a903f75219e29e042b'
+NINEF_POLICY_DIGEST = '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578'
+NINEF_FAILURE = 'eef58f952edf7b0935559e4001e14e59712550988ea80d3079060f132251a4ee'
+NINEF_INVOCATION = '3b9945ef4bdf4c5dbb993c6cf8d4be60'
+NINEF_COMPLETED_AT = 1793592315
+NINEF_WINDOW = {'announcedAt': 1793591884929, 'startsAt': 1793592004929, 'endsAt': 1793592304929,
+                'verified': True}
+NINEF_CENSUS_SOURCE = '7840d64c30a0c179b50380d9dad9c9bb51027a690d50dc32422856ea56662506'
+NINEF_SOURCES = {
+    'engine-release-transaction.sh': '40a9a7cb2e72b938e2702cbea3967e1aab018221787a0f51c32231b29304772a',
+    'legacy-engine-checkpoint.sh': '32cc0a07bb7f3b5e51f6625969eee68b66c400e51976a9748f6548a40be54758',
+    'legacy-engine-checkpoint.mjs': 'ff22153dc600c6a29c4f3471e90c4babdb518e1afdf4748bb03e84e5a8b8c316',
+    'engine-release-unit-wrapper.sh': 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'install-engine-supervisor.sh': 'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'install-engine-intake.sh': '5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+}
+NINEF_TRANSPORT_PREFIX = 'op=queryObjects,cause=request_timeout,method=Runtime.evaluate,allowanceMs=59000,waitedMs='
+
+
+def ninef_cycle(cycle: Any) -> None:
+    failure = cycle.get('failure') if isinstance(cycle, dict) else None
+    failed_routine_require(isinstance(cycle, dict) and cycle.get('runId') == NINEF_RUN and
+        cycle.get('sha') == cycle.get('controlSha') == NINEF_SHA and cycle.get('status') == 'reserved' and
+        cycle.get('startsAt') == 1793592000 and cycle.get('endsAt') == 1793592300 and
+        cycle.get('policyDigest') == NINEF_POLICY_DIGEST and cycle.get('kind') == 'hourly-reset' and
+        cycle.get('window') == NINEF_WINDOW and isinstance(failure, dict) and
+        failed_routine_digest(failure) == NINEF_FAILURE and failure.get('completedAt') == NINEF_COMPLETED_AT and
+        failure.get('invocationId') == NINEF_INVOCATION)
+
+
+def ninef_sources(deadline: float) -> dict[str, str]:
+    """The seven original 9f control sources and the three unit templates they installed."""
+    parent = Path('/usr/local/lib/club-arena')
+    generation = parent / 'engine-control-generations' / NINEF_SHA
+    originals = {name: failed_routine_bytes(generation / name, 512 * 1024) for name in NINEF_SOURCES}
+    failed_routine_require(all(hashlib.sha256(raw).hexdigest() == NINEF_SOURCES[name]
+                               for name, raw in originals.items()))
+    failed_routine_require(failed_routine_bytes(parent / 'engine-release-unit-wrapper-v1.sh', 512 * 1024) ==
+                           originals['engine-release-unit-wrapper.sh'])
+    for source, marker, template in (
+            ('install-engine-supervisor.sh', 'cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n',
+             'club-arena-engine-release-v1@.service'),
+            ('install-engine-intake.sh', 'cat > "$UNIT_STAGE" <<\'UNIT\'\n', 'club-arena-engine-intake-v1@.service'),
+            ('install-engine-intake.sh', 'cat > "$PATH_STAGE" <<\'UNIT\'\n', 'club-arena-engine-intake-v1@.path')):
+        content = originals[source].decode().split(marker, 1)[1].split('\nUNIT\n', 1)[0] + '\n'
+        if source == 'install-engine-supervisor.sh':
+            content = content.replace('$UNIT_WRAPPER_V1', str(parent / 'engine-release-unit-wrapper-v1.sh')) \
+                .replace('\\$', '$')
+        failed_routine_require(failed_routine_bytes(Path('/etc/systemd/system') / template) == content.encode())
+    failed_routine_require(time.monotonic() < deadline)
+    return dict(NINEF_SOURCES)
 
 
 def terminal_checkpoint_refusal(run_id: str, failure: dict[str, Any], window: dict[str, Any], deadline: float) -> str:
@@ -711,7 +768,7 @@ def terminal_checkpoint_refusal(run_id: str, failure: dict[str, Any], window: di
     raw = failed_routine_command(['journalctl', '--unit=' + unit, '_SYSTEMD_INVOCATION_ID=' + failure['invocationId'],
         '--no-pager', '--output=json',
         '--output-fields=MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP',
-        '--lines=4', '--grep="checkpointInvoked":false'], deadline, 65536)
+        '--lines=4', '--grep="checkpointInvoked":'], deadline, 65536)
     rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
     failed_routine_require(len(rows) == 1)
     row = rows[0]
@@ -722,7 +779,10 @@ def terminal_checkpoint_refusal(run_id: str, failure: dict[str, Any], window: di
         window['startsAt'] * 1000 <= int(stamp) <= (failure['completedAt'] + 1) * 1000000 and
         isinstance(outcome, dict) and outcome.get('ok') is False and outcome.get('retryAllowed') is False and
         outcome.get('checkpointInvoked') is False and 'checkpoint' not in outcome and 'progress' not in outcome and
-        isinstance(outcome.get('transportDetail'), str) and outcome['transportDetail'].endswith(',invoked=no'))
+        outcome.get('reason') == 'inspector cleanup not verified' and outcome.get('inspectorClosed') is False and
+        outcome.get('cleanupConnections') == 0 and isinstance(outcome.get('transportDetail'), str) and
+        outcome['transportDetail'].startswith(NINEF_TRANSPORT_PREFIX) and
+        outcome['transportDetail'].endswith(',invoked=no'))
     return failed_routine_digest(row)
 
 
@@ -777,8 +837,9 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
     try:
         failure = cycle.get('failure')
         run_id = str(cycle.get('runId', ''))
-        if cycle.get('status') != 'reserved' or not isinstance(failure, dict) or not RUN_ID_RE.fullmatch(run_id):
+        if cycle.get('status') != 'reserved' or not isinstance(failure, dict) or run_id != NINEF_RUN:
             return None
+        ninef_cycle(cycle)
         if state.get('pending') is not None or state.get('finalization') is not None:
             return None
         if run_id in state.get('committedRuns', {}):
@@ -841,7 +902,10 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
                 INSTANCE_ID_RE.fullmatch(str(intent.get('instance', ''))) is not None and
                 type(intent.get('hostPid')) is int and intent['hostPid'] > 0 and
                 type(intent.get('at')) in (int, float) and isinstance(intent.get('startedAt'), str) and
-                window['startsAt'] / 1000 <= intent['at'] < durable['completedAt']):
+                window['startsAt'] / 1000 <= intent['at'] < durable['completedAt'] and
+                isinstance(intent.get('nativeCensus'), dict) and
+                intent['nativeCensus'].get('candidateSHA') == NINEF_SHA and
+                intent['nativeCensus'].get('sourceSHA256') == NINEF_CENSUS_SOURCE):
             return None
         intent_started = datetime.fromisoformat(intent['startedAt'].replace('Z', '+00:00')).timestamp()
         if not (intent_started < intent['at'] and live['StartedAt'] != intent['startedAt'] and
@@ -852,6 +916,7 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
             return None
         original = 'kernel-enoent' if birth is None else 'pid-reused-after-intent'
         refusal = terminal_checkpoint_refusal(run_id, durable, window, deadline)
+        sources = ninef_sources(deadline)
         instances = []
         for url in ('http://127.0.0.1:8080/health',
                     os.environ.get('ENGINE_URL', 'https://engine.smarter.poker').rstrip('/') + '/health'):
@@ -859,8 +924,9 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
                 url + '?terminal-owner=' + str(time.time_ns())], deadline, 1048576))
             m = h.get('maintenance', {}) if isinstance(h, dict) else {}
             if not (h.get('releaseSha') == desired['sha'] and h.get('status') == 'ok' and
+                    h.get('running') is True and h.get('liveness') == 'ok' and
                     INSTANCE_ID_RE.fullmatch(str(h.get('instanceId', ''))) is not None and
-                    m.get('active') is False and m.get('phase') == 'idle'):
+                    m.get('active') is False and m.get('phase') == 'idle' and m.get('durableConfirmed') is False):
                 return None
             instances.append(h['instanceId'])
         if instances[0] != instances[1] or instances[0] == intent['instance']:
@@ -880,6 +946,7 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
                 'checkpointIntentDigest': failed_routine_digest(intent),
                 'checkpointRefusalDigest': refusal,
                 'originalProcess': original,
+                'sourceDigests': sources,
                 'runtime': {'containerId': container['Id'], 'startedAt': live['StartedAt'], 'hostPid': live['Pid'],
                             'instanceId': instances[0]},
                 'database': database}
@@ -896,8 +963,14 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner == FAILED_ROUTINE_RUN:
         validate_failed_routine_resolution(resolution, cycle)
         return
+    if owner != NINEF_RUN:
+        die('routine failure resolution history is invalid')
+    ninef_cycle(cycle)
     proof = resolution.get('proof') if isinstance(resolution, dict) else None
     if not (isinstance(resolution, dict) and set(resolution) == TERMINAL_RESOLUTION_KEYS and
+            SHA_RE.fullmatch(str(resolution['verifiedByControlSha'])) is not None and
+            SHA_RE.fullmatch(str(resolution['verifiedByTargetSha'])) is not None and
+            resolution['verifiedByTargetSha'] != NINEF_SHA and
             resolution['schema'] == 1 and resolution['result'] == 'terminal-failure-proved' and
             resolution['originalCycle'] == cycle and cycle.get('runId') == owner and
             cycle.get('status') == 'reserved' and isinstance(cycle.get('failure'), dict) and
@@ -910,6 +983,7 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
             isinstance(proof, dict) and set(proof) == TERMINAL_PROOF_KEYS and
             proof['failureDigest'] == failed_routine_digest(cycle['failure']) and
             proof['originalProcess'] in {'kernel-enoent', 'pid-reused-after-intent'} and
+            proof['sourceDigests'] == NINEF_SOURCES and
             all(isinstance(proof[k], str) and re.fullmatch('[0-9a-f]{64}', proof[k]) is not None
                 for k in ('checkpointIntentDigest', 'checkpointRefusalDigest')) and
             isinstance(proof['runtime'], dict) and isinstance(proof['database'], dict) and
@@ -952,7 +1026,12 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     state; an interrupted run resumes with exactly those bytes."""
     run_id = str(args.run_id)
     invocation = str(args.invocation_id)
-    if not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation):
+    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id == NINEF_RUN or
+            os.geteuid() != 0):
+        die('terminal routine failure proof identity is invalid')
+    sha = valid_sha(str(args.sha))
+    control_sha = valid_sha(str(args.control_sha))
+    if sha == NINEF_SHA:
         die('terminal routine failure proof identity is invalid')
     require_engine_lock(args.engine_lock_fd)
     deadline = time.monotonic() + 45
@@ -961,18 +1040,22 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         proved = []
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
-            if owner == run_id or not routine_owner_unresolved(state, cycle):
+            if owner != NINEF_RUN or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
+            current = failed_routine_current(args, deadline)
             proof = terminal_owner_proof(state, cycle, deadline)
             if proof is None:
                 continue
-            # Every witness is observed again, against an unchanged seal,
-            # immediately before the receipt, audit and compare-and-swap.
-            if load_state() != state or terminal_owner_proof(state, cycle, deadline) != proof:
+            # Every witness, including this verifier's own request, intent,
+            # generation pin and live unit, is observed again against an
+            # unchanged seal immediately before the receipt, audit and
+            # compare-and-swap.
+            if (load_state() != state or terminal_owner_proof(state, cycle, deadline) != proof or
+                    failed_routine_current(args, deadline) != current):
                 continue
             resolution = {'schema': 1, 'result': 'terminal-failure-proved', 'originalCycle': cycle,
-                'verifiedByRunId': run_id, 'invocationId': invocation, 'observedAt': int(time.time()),
-                'proof': proof}
+                'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
+                'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
             receipt = terminal_receipt_path(owner, run_id, invocation)
             try:
                 receipt.lstat()
@@ -2756,6 +2839,8 @@ def parser() -> argparse.ArgumentParser:
     resolve_terminal = commands.add_parser('resolve-terminal-routine-failures')
     resolve_terminal.add_argument('--engine-lock-fd', type=int, required=True)
     resolve_terminal.add_argument('--run-id', required=True)
+    resolve_terminal.add_argument('--sha', required=True)
+    resolve_terminal.add_argument('--control-sha', required=True)
     resolve_terminal.add_argument('--invocation-id', required=True)
     resolve_terminal.set_defaults(handler=cmd_resolve_terminal_routine_failures)
     current = commands.add_parser('current-cycle-policy')

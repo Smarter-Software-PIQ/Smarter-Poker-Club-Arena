@@ -24,6 +24,7 @@ from typing import NoReturn
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_opener
+from uuid import UUID
 
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -401,6 +402,13 @@ def verify_failed_routine_idle(base_url: str, service_key: str, instance_id: str
         raise ValueError('failed routine database retains a maintenance owner')
 
 
+TERMINAL_THAW_TARGETS = frozenset({
+    'sit_out_at', 'hold_expires_at', 'addon_period_ends_at', 'reversible_until', 'reveal_deadline_at',
+    'rebuy_prompt_until', 'bomb_pot_next_due_at', 'cash_stay_last_tick_at', 'cash_rejoin_expires_at',
+    'level_started_at', 'cluster_break_eligible_since', 'cluster_move_expires_at', 'reconnect_presence',
+    'reconnect_snapshots', 'lightning_drain_deadline_at'})
+
+
 def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instance_id: str, max_age: int,
                                announced_ms: int, starts_ms: int, ends_ms: int) -> dict:
     """Read-only: the failed owner's own break ended in one complete v3 thaw,
@@ -432,22 +440,37 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
         raise ValueError('terminal owner database retains a maintenance owner')
     starts_iso = datetime.fromtimestamp(starts_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
     rows = get('engine_maintenance_thaws', {'select': 'freeze_started_at,announced_at,thawed_at,frozen_seconds,'
-               'contract_version,release_target_at,release_generation,thawed_by,shifted',
+               'contract_version,release_target_at,release_generation,ownership_token,thawed_by,shifted',
                'freeze_started_at': 'eq.' + starts_iso, 'limit': '2'}, 65536)
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         raise ValueError('terminal owner thaw receipt is not unique')
     row, now_ms = rows[0], int(time.time() * 1000)
     shifted = row.get('shifted')
+    token = row.get('ownership_token')
+    try:
+        token_ok = isinstance(token, str) and str(UUID(token)).lower() == token.lower()
+    except ValueError:
+        token_ok = False
+    # The v3 thaw ledger shape: every shifted target column with its snapshotted
+    # target count, both non-negative integers and equal, plus the two markers.
+    counts = shifted.get('_target_counts') if isinstance(shifted, dict) else None
+    shape_ok = (isinstance(shifted, dict) and isinstance(counts, dict) and
+                set(shifted) == TERMINAL_THAW_TARGETS | {'complete', '_targets_snapshotted', '_target_counts'} and
+                set(counts) == TERMINAL_THAW_TARGETS and shifted.get('_targets_snapshotted') is True and
+                all(type(shifted[k]) is int and shifted[k] >= 0 and counts[k] == shifted[k]
+                    for k in TERMINAL_THAW_TARGETS))
     if (millis(row.get('announced_at')) != announced_ms or millis(row.get('freeze_started_at')) != starts_ms or
             millis(row.get('release_target_at')) != ends_ms or row.get('contract_version') != 3 or
             row.get('release_generation') != 1 or Decimal(str(row.get('frozen_seconds'))) != Decimal(300) or
-            row.get('thawed_by') != sha[:8] or not isinstance(shifted, dict) or shifted.get('complete') is not True or
+            row.get('thawed_by') != sha[:8] or not token_ok or not shape_ok or shifted.get('complete') is not True or
             not starts_ms <= millis(row.get('thawed_at')) <= now_ms or now_ms <= ends_ms):
         raise ValueError('terminal owner owned v3 thaw is unproved')
     future = get('engine_maintenance_thaws', {'select': 'release_target_at', 'contract_version': 'eq.3',
                  'release_target_at': 'gt.' + datetime.now(timezone.utc).isoformat(), 'limit': '1'}, 4096)
     if future != []:
         raise ValueError('a later release boundary remains authoritative')
+    if get('engine_maintenance_break', {'select': 'id', 'limit': '1'}, 4096) != []:
+        raise ValueError('terminal owner database acquired a maintenance owner')
     version, leader, age = read_leader(base_url, service_key, 1.5)
     if version != sha[:8] or leader != instance_id or not -30 <= age <= max_age:
         raise ValueError('terminal owner leader identity changed')

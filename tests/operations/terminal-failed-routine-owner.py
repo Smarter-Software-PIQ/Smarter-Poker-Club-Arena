@@ -28,10 +28,12 @@ observer_spec = importlib.util.spec_from_file_location('terminal_owner_observer'
 observer = importlib.util.module_from_spec(observer_spec)
 observer_spec.loader.exec_module(observer)
 
-DEAD_RUN = '555000111-1'
+# The one owner the terminal proof may release: the exact 9f census refusal.
+DEAD_RUN = seal.NINEF_RUN
 LIVE_RUN = '777000333-1'
-A_SHA, B_SHA = 'a' * 40, 'b' * 40
-A_IMAGE = 'sha256:' + 'a' * 64
+A_SHA, B_SHA = 'eed06fe51dea622069c661a6213d5b031ff3a9e3', seal.NINEF_SHA
+TARGET_SHA, CONTROL_SHA = 'c' * 40, 'c' * 40
+A_IMAGE = 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
 OTHER_IMAGE = 'sha256:' + 'c' * 64
 CONTAINER = 'd' * 64
 INVOCATION = 'e' * 32
@@ -62,15 +64,15 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'ENGINE_RELEASE_IMAGE_LEASE_ROOT': str(self.root / 'leases'),
             'ENGINE_RELEASE_LOCK_FILE': str(state_dir / 'lock')})
         env.start(); self.addCleanup(env.stop)
-        start = (int(time.time()) // 3600 - 2) * 3600
+        start = 1793592000
         self.start = start
         self.failure = {'schema': 1, 'runId': DEAD_RUN, 'result': 'failed', 'sha': B_SHA, 'controlSha': B_SHA,
-            'invocationId': 'f' * 32, 'transactionExitStatus': 1, 'recoveredDesiredSha': A_SHA,
-            'recoveredDesiredImageId': A_IMAGE, 'completedAt': start + 330}
-        announced = start * 1000 + 4929 - 120000
-        self.window = {'announcedAt': announced, 'startsAt': announced + 120000, 'endsAt': announced + 420000,
-                       'verified': True}
-        self.cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f', 'policyDigest': 'd' * 64,
+            'invocationId': seal.NINEF_INVOCATION, 'transactionExitStatus': 1, 'recoveredDesiredSha': A_SHA,
+            'recoveredDesiredImageId': A_IMAGE, 'completedAt': seal.NINEF_COMPLETED_AT}
+        self.assertEqual(seal.failed_routine_digest(self.failure), seal.NINEF_FAILURE)
+        self.window = dict(seal.NINEF_WINDOW)
+        self.cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+            'policyDigest': seal.NINEF_POLICY_DIGEST,
             'startsAt': start, 'endsAt': start + 300, 'runId': DEAD_RUN, 'sha': B_SHA, 'controlSha': B_SHA,
             'status': 'reserved', 'failure': self.failure, 'window': self.window}
         self.base = {'schema': 1, 'desired': {'sha': A_SHA, 'imageId': A_IMAGE, 'legacyUnlabelled': False},
@@ -79,20 +81,31 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         self.intent = {'instance': '1-24d59baf', 'container': CONTAINER,
             'startedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(start - 3600)),
             'hostPid': 666945, 'source': A_SHA, 'runId': DEAD_RUN, 'controlSha': B_SHA, 'at': start + 19.4,
-            'retryAllowed': False, 'nativeCensus': {}}
+            'retryAllowed': False, 'nativeCensus': {'candidateSHA': B_SHA, 'sourceSHA256': seal.NINEF_CENSUS_SOURCE}}
         self.units, self.probes = {}, []
         self.mocks = {}
         for name, fake in {'failed_routine_unit_snapshot': self.native_unit,
                            'failed_routine_service_empty': self.service_empty,
                            'require_engine_lock': lambda _fd: None,
                            'terminal_inspect_container': self.container, 'failed_routine_command': self.command,
-                           'terminal_proc_birth': self.birth,
+                           'terminal_proc_birth': self.birth, 'ninef_sources': self.sources,
+                           'failed_routine_current': self.current,
                            # Production reads root-owned 0600 files only; the fixture runs unprivileged.
                            'failed_routine_json': lambda path: json.loads(Path(path).read_text())}.items():
             p = patch.object(seal, name, side_effect=fake); self.mocks[name] = p.start(); self.addCleanup(p.stop)
         self.reset()
 
     # host fakes
+    def sources(self, _deadline):
+        if not self.sources_ok:
+            seal.die('fixture source pin differs')
+        return dict(seal.NINEF_SOURCES)
+
+    def current(self, args, _deadline):
+        self.current_calls += 1
+        return {'requestDigest': '0' * 64, 'unit': {'InvocationID': args.invocation_id},
+                'drift': self.current_calls if self.current_drift else 0}
+
     def reset(self):
         seal.write_state(copy.deepcopy(self.base))
         seal.write_json_atomic(seal.result_path(DEAD_RUN), self.failure)
@@ -100,12 +113,13 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         for p in list(self.request_root.iterdir()) + list(seal.RESULT_DIR.glob('*.terminal-resolution.json')):
             p.unlink()
         self.units.clear(); self.probes.clear(); self.cgroup_empty = True; self.unit_flip = None
+        self.sources_ok, self.current_calls, self.current_drift = True, 0, False
         self.write_intent()
         self.live = {'Id': CONTAINER, 'Image': A_IMAGE,
                      'State': {'Status': 'running', 'Pid': 758052,
                                'StartedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(self.start + 1600))}}
-        self.health = {'releaseSha': A_SHA, 'status': 'ok', 'instanceId': INSTANCE,
-                       'maintenance': {'active': False, 'phase': 'idle'}}
+        self.health = {'releaseSha': A_SHA, 'status': 'ok', 'instanceId': INSTANCE, 'running': True,
+                       'liveness': 'ok', 'maintenance': {'active': False, 'phase': 'idle', 'durableConfirmed': False}}
         self.public_health = None
         self.database = {'schema': 'terminal-owned-thaw/v1', 'sha': A_SHA, 'instanceId': INSTANCE,
                          'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True,
@@ -164,8 +178,11 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             call()
 
     def resolve(self, invocation=INVOCATION):
-        return self.quiet(lambda: seal.cmd_resolve_terminal_routine_failures(
-            Namespace(engine_lock_fd=9, run_id=LIVE_RUN, invocation_id=invocation)))
+        # Production runs as root; only the resolver sees euid 0 (the observer keeps the real owner check).
+        with patch.object(seal.os, 'geteuid', return_value=0):
+            return self.quiet(lambda: seal.cmd_resolve_terminal_routine_failures(
+                Namespace(engine_lock_fd=9, run_id=LIVE_RUN, sha=TARGET_SHA, control_sha=CONTROL_SHA,
+                          invocation_id=invocation)))
 
     def resolve_or_refusal(self):
         try:
@@ -199,6 +216,10 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                 resolution = state['routineFailureResolutions'][DEAD_RUN]
                 self.assertEqual(resolution['result'], 'terminal-failure-proved')
                 self.assertEqual(resolution['originalCycle'], self.cycle)
+                self.assertEqual((resolution['verifiedByControlSha'], resolution['verifiedByTargetSha']),
+                                 (CONTROL_SHA, TARGET_SHA))
+                self.assertEqual(resolution['proof']['sourceDigests'], seal.NINEF_SOURCES)
+                self.assertGreaterEqual(self.current_calls, 2, 'the current verifier was not re-read before the CAS')
                 self.assertEqual(resolution['proof']['originalProcess'],
                                  'pid-reused-after-intent' if old_pid_birth else 'kernel-enoent')
                 receipt = seal.terminal_receipt_path(DEAD_RUN, LIVE_RUN, INVOCATION)
@@ -214,7 +235,8 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
     def test_interrupted_proof_resumes_with_its_original_receipt_bytes(self):
         proof = seal.terminal_owner_proof(seal.load_state(), self.cycle, time.monotonic() + 45)
         original = {'schema': 1, 'result': 'terminal-failure-proved', 'originalCycle': self.cycle,
-                    'verifiedByRunId': LIVE_RUN, 'invocationId': INVOCATION, 'observedAt': self.start + 900,
+                    'verifiedByRunId': LIVE_RUN, 'verifiedByControlSha': CONTROL_SHA,
+                    'verifiedByTargetSha': TARGET_SHA, 'invocationId': INVOCATION, 'observedAt': self.start + 900,
                     'proof': proof}
         seal.write_json_atomic(seal.terminal_receipt_path(DEAD_RUN, LIVE_RUN, INVOCATION), original)
         self.assertEqual(self.resolve(), DEAD_RUN)
@@ -290,6 +312,32 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'refusal outside the break': lambda: self.journal[0].update(
                 __REALTIME_TIMESTAMP=str((self.start - 600) * 1000000)),
             'thaw for another window': lambda: self.database.update(startsAt=self.window['startsAt'] + 1),
+            'later checkpoint invoked row': lambda: self.journal.append({**self.journal[0], 'MESSAGE': json.dumps(
+                {**json.loads(self.journal[0]['MESSAGE']), 'ok': True, 'checkpointInvoked': True})}),
+            'refusal for another reason': lambda: self.journal[0].update(MESSAGE=json.dumps(
+                {**json.loads(self.journal[0]['MESSAGE']), 'reason': 'deadline'})),
+            'inspector closed': lambda: self.journal[0].update(MESSAGE=json.dumps(
+                {**json.loads(self.journal[0]['MESSAGE']), 'inspectorClosed': True})),
+            'cleanup connections left': lambda: self.journal[0].update(MESSAGE=json.dumps(
+                {**json.loads(self.journal[0]['MESSAGE']), 'cleanupConnections': 1})),
+            'refusal for another operation': lambda: self.journal[0].update(MESSAGE=json.dumps(
+                {**json.loads(self.journal[0]['MESSAGE']),
+                 'transportDetail': 'op=heapSnapshot,cause=request_timeout,invoked=no'})),
+            'census for another candidate': bad_intent(nativeCensus={'candidateSHA': A_SHA,
+                                                                     'sourceSHA256': seal.NINEF_CENSUS_SOURCE}),
+            'census from another source': bad_intent(nativeCensus={'candidateSHA': B_SHA, 'sourceSHA256': '0' * 64}),
+            'census missing': bad_intent(nativeCensus=None),
+            'original sources unproved': lambda: setattr(self, 'sources_ok', False),
+            'verifier changed during proof': lambda: setattr(self, 'current_drift', True),
+            'verifier unknown': lambda: self.mocks['failed_routine_current'].configure_mock(
+                side_effect=lambda _a, _d: seal.die('request unreadable')),
+            'engine not running': lambda: self.health.update(running=False),
+            'liveness not ok': lambda: self.health.update(liveness='degraded'),
+            'durable break confirmed': lambda: self.health['maintenance'].update(durableConfirmed=True),
+            'cycle failure invocation differs': lambda: (seal.write_state({**seal.load_state(),
+                'routineMaintenanceCycles': {str(self.start): {**self.cycle,
+                    'failure': {**self.failure, 'invocationId': '0' * 32}}}}),
+                seal.write_json_atomic(seal.result_path(DEAD_RUN), {**self.failure, 'invocationId': '0' * 32})),
         }
         for name, arrange in cases.items():
             with self.subTest(name):
@@ -316,12 +364,33 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                 ('changed record', {**resolution, 'observedAt': resolution['observedAt'] + 1}, self.cycle),
                 ('self verified', {**resolution, 'verifiedByRunId': DEAD_RUN}, self.cycle),
                 ('other cycle', resolution, {**self.cycle, 'sha': A_SHA}),
+                ('sources differ', {**resolution, 'proof': {**resolution['proof'], 'sourceDigests': {}}}, self.cycle),
+                ('verifier targets 9f', {**resolution, 'verifiedByTargetSha': B_SHA}, self.cycle),
+                ('database unchecked', {**resolution, 'proof': {**resolution['proof'], 'database': None}}, self.cycle),
                 ('extra field', {**resolution, 'note': 'x'}, self.cycle)]:
             with self.subTest(name), self.assertRaisesRegex(ValueError, 'Routine owner evidence refused'):
                 observer.terminal_failure_resolution(value, cycle, self.failure, fd, blank())
         receipt.unlink()
         with self.assertRaises((ValueError, FileNotFoundError)):
             observer.terminal_failure_resolution(resolution, self.cycle, self.failure, fd, blank())
+
+    def test_no_other_failed_owner_is_ever_terminally_resolved(self):
+        other = '555000111-1'
+        failure = {**self.failure, 'runId': other, 'invocationId': 'f' * 32}
+        cycle = {**self.cycle, 'runId': other, 'failure': failure}
+        seal.write_json_atomic(seal.result_path(other), failure)
+        state = {**copy.deepcopy(self.base), 'routineMaintenanceCycles': {str(self.start): cycle}}
+        seal.write_state(state)
+        self.assertIsNone(seal.terminal_owner_proof(state, cycle, time.monotonic() + 45))
+        self.assertEqual(self.resolve(), 'not-needed')
+        self.refused(self.owner)
+        # A fabricated record for that owner, receipt included, is refused rather than honoured.
+        record = {'schema': 1, 'result': 'terminal-failure-proved', 'originalCycle': cycle,
+                  'verifiedByRunId': LIVE_RUN, 'verifiedByControlSha': CONTROL_SHA, 'verifiedByTargetSha': TARGET_SHA,
+                  'invocationId': INVOCATION, 'observedAt': self.start + 900, 'proof': {}}
+        seal.write_json_atomic(seal.terminal_receipt_path(other, LIVE_RUN, INVOCATION), record)
+        seal.write_state({**state, 'routineFailureResolutions': {other: record}})
+        self.refused(self.owner)
 
     def test_a_recorded_resolution_needs_its_identical_receipt(self):
         self.assertEqual(self.resolve(), DEAD_RUN)
@@ -381,6 +450,9 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'thaw not recorded': lambda r: r['proof']['database'].update(ownedV3Thaw=False),
             'refusal digest missing': lambda r: r['proof'].update(checkpointRefusalDigest=None),
             'failure digest differs': lambda r: r['proof'].update(failureDigest='0' * 64),
+            'sources differ': lambda r: r['proof'].update(sourceDigests={}),
+            'verifier targets 9f': lambda r: r.update(verifiedByTargetSha=B_SHA),
+            'verifier control missing': lambda r: r.pop('verifiedByControlSha'),
         }.items():
             with self.subTest(name):
                 state = copy.deepcopy(good)

@@ -2631,7 +2631,7 @@ legacy_entry_read timeout --signal=TERM --kill-after=1s 60s \
 # native unit). Unproved owners stay authoritative for the check below.
 legacy_entry_read timeout --signal=TERM --kill-after=1s 60s \
   "$RELEASE_SEAL" resolve-terminal-routine-failures --engine-lock-fd 9 --run-id "$RUN_ID" \
-  --invocation-id "$INVOCATION_ID" >/dev/null \
+  --sha "$SHA" --control-sha "$CONTROL_SHA" --invocation-id "$INVOCATION_ID" >/dev/null \
   || die 'a terminal routine failure proof refused or is unknown'
 # Pure durable ownership read precedes any desired-runtime restoration. New
 # source policy/cycle admission still follows canonical committed-run replay.
