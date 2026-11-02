@@ -537,7 +537,10 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
 
 class CancelledAnnouncementOwner(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'])
+        scratch = os.environ.get('TMPDIR')
+        if sys.platform == 'darwin' and not scratch:
+            scratch = '/Volumes/SmarterWork/agent-work'
+        self.tmp = tempfile.TemporaryDirectory(prefix='cancelled-owner-', dir=scratch)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         for name, value in {'STATE_DIR': self.root, 'STATE_FILE': self.root / 'engine-release-seal.json',
