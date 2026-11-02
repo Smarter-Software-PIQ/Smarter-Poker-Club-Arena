@@ -14,6 +14,9 @@ vi.mock('../../src/services/tableWarmup', () => ({
   observeLobbyTableWarmups: () => () => undefined,
 }));
 vi.mock('../../src/hooks/useSpinTierAvailability', () => ({ useSpinTierAvailability: () => null }));
+vi.mock('../../src/hooks/useMttLobbyEntryCounts', () => ({
+  useMttLobbyEntryCounts: (rows: unknown[]) => rows,
+}));
 afterEach(cleanup);
 
 const game = cashEntry({
@@ -54,6 +57,14 @@ function mount() {
 }
 
 describe('compact lobby selection is a pre-commit detail step', () => {
+  it('shows only the cash player number under Players, without table counts or capacity', () => {
+    const { list } = mount();
+    const players = list.querySelector('tbody td[data-label="Players"]')!;
+    expect(players.textContent).toBe('3');
+    expect(players.querySelector('.lt-seats__num')?.textContent).toBe('3');
+    expect(players.querySelector('.lt-seats__tables')).toBeNull();
+    expect(players.querySelector('.lt-seats__bar')).toBeNull();
+  });
   it('labels satellite entry prices as buy-ins on both boards', () => {
     render(
       <MemoryRouter>
@@ -120,6 +131,36 @@ const eventRow = {
 } as LobbyTournamentRow;
 
 describe('favorites are reachable in the mobile board', () => {
+  it('uses the actual rocket target art for a bounty card, without changing its identity', () => {
+    const entry = tournamentEntry({ ...eventRow, is_bounty: true }, 'mtt');
+    render(
+      <MemoryRouter>
+        <LobbyTable
+          entries={[entry]}
+          category="MTT"
+          selectedId={null}
+          onSelect={vi.fn()}
+          onActivate={vi.fn()}
+          ctx={{
+            seatedIds: new Set(),
+            registeredIds: new Set(),
+            waitlistedIds: new Set(),
+            favoriteIds: new Set(),
+          }}
+        />
+      </MemoryRouter>
+    );
+    const icons = screen.getAllByRole('img', { name: 'Bounty Tournament' });
+    expect(icons.length).toBeGreaterThan(0);
+    for (const icon of icons) {
+      expect(icon.getAttribute('data-lobby-symbol')).toBe('target');
+      expect(
+        icon.querySelector('[data-lobby-art="target"] [data-atlas-width]')?.getAttribute('style')
+      ).toContain('rocket.webp');
+      expect(icon.getAttribute('data-tournament-icon')).toBe('bounty');
+    }
+  });
+
   it.each(['cash', 'mtt', 'spin', 'sng'] as const)(
     'toggles %s without opening or buying',
     (kind) => {

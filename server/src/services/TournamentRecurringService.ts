@@ -1,7 +1,7 @@
 import {
   mttPlannedField,
   mttPrestartPlan,
-  mttPrizeShare,
+  mttGuaranteeEntryAmount,
   mttPrestartArrivalTarget,
 } from './mttHorseArrivalPlan.js';
 import { orderHorseTournamentCandidates } from './HorseTournamentCandidateOrder.js';
@@ -2112,12 +2112,12 @@ export function mttPrestartHorseTarget(opts: {
    * takes to COVER it - see the note below.
    */
   guaranteedPrize?: number;
-  /** `tournaments.prize_pool` - what the field has actually paid in so far. */
+  /** Published regular pool; may include house prefunding, not proof of entries. */
   prizePool?: number;
   /**
-   * `tournaments.buy_in_amount` - the PRIZE side of the entry. The fee is rake
-   * and never reaches the pool, so using the total here would under-count the
-   * entries needed and leave the guarantee short.
+   * Legacy option name: full advertised entry charge (buy-in plus fee).
+   * The guarantee includes regular and bounty prizes. Attendance uses the
+   * owner's no-rake break-even floor; actual prize/rake accounting is separate.
    */
   buyInPrizeShare?: number;
 }): number {
@@ -7061,7 +7061,7 @@ export class TournamentRecurringService {
             currentPlayers: current,
             guaranteedPrize: Number(entryEvent.guaranteed_prize),
             prizePool: Number(entryEvent.prize_pool),
-            buyInPrizeShare: mttPrizeShare(entryEvent),
+            buyInPrizeShare: mttGuaranteeEntryAmount(entryEvent),
           });
           count = Math.min(count, Math.max(0, target - current));
           // A paid award still uses the existing bounded ticket-only recovery

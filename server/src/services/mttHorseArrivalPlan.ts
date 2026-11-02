@@ -11,22 +11,34 @@ function arrivalUnit(tournamentId: string, purpose: string): number {
   );
 }
 
-/** Random field size, preserving the funded guarantee as a minimum. */
+/** Random field size, preserving the no-rake guarantee coverage floor. */
 export function mttPlannedField(
   guarantee: number,
-  prizeShare: number,
+  entryAmount: number,
   tournamentId: string
 ): number {
   // A house-funded pool is not evidence that entrants have arrived.
-  const funded = guarantee > 0 && prizeShare > 0 ? Math.ceil(guarantee / prizeShare) : 0;
+  const funded = guarantee > 0 && entryAmount > 0 ? Math.ceil(guarantee / entryAmount) : 0;
   const minimum = Math.max(32, Number.isSafeInteger(funded) ? funded : 0);
   // The floor is financial coverage, not a round-number registration target.
   const spread = Math.max(16, Math.ceil(minimum * 0.3));
   return minimum + 1 + Math.floor(arrivalUnit(tournamentId, 'field') * spread);
 }
 
-export function mttPrizeShare(row: { buy_in_amount?: unknown; bounty_amount?: unknown }): number {
-  return Math.max(0, (Number(row.buy_in_amount) || 0) - (Number(row.bounty_amount) || 0));
+/**
+ * The advertised guarantee covers regular prizes AND bounties. The owner's
+ * no-rake break-even floor uses the full entry charge, not a regular-pool share.
+ * This plans attendance only; it never redirects fees or changes payout splits.
+ */
+export function mttGuaranteeEntryAmount(row: {
+  buy_in_amount?: unknown;
+  buy_in_fee?: unknown;
+  bounty_amount?: unknown;
+}): number {
+  const buyIn = Number(row.buy_in_amount ?? 0);
+  const fee = Number(row.buy_in_fee ?? 0);
+  if (!Number.isFinite(buyIn) || !Number.isFinite(fee) || buyIn < 0 || fee < 0) return 0;
+  return (Math.round(buyIn * 100) + Math.round(fee * 100)) / 100;
 }
 
 export function mttPrestartPlan(
