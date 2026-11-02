@@ -1865,6 +1865,8 @@ export function columnsFor(category: LobbyCategory): ColumnDef[] {
 // ─── The table ─────────────────────────────────────────────────────────────
 interface LobbyTableProps {
   entries: LobbyEntry[];
+  /** Raw data snapshot identity; a reconnect may leave visible counters unchanged. */
+  tournamentSnapshot?: readonly unknown[];
   category: LobbyCategory;
   selectedId: string | null;
   onSelect: (entry: LobbyEntry) => void;
@@ -1910,6 +1912,7 @@ interface LobbyTableProps {
 
 export default function LobbyTable({
   entries: suppliedEntries,
+  tournamentSnapshot,
   category,
   selectedId,
   onSelect,
@@ -1923,7 +1926,7 @@ export default function LobbyTable({
   onHeadingSort,
   orderLabel,
 }: LobbyTableProps) {
-  const boardEntries = useMttLobbyEntryCounts(suppliedEntries);
+  const boardEntries = useMttLobbyEntryCounts(suppliedEntries, tournamentSnapshot);
   const boardNow = useSharedSecondTick(boardEntries.some((e) => e.kind === 'mtt'));
   const liveEntries = useMemo(
     () =>

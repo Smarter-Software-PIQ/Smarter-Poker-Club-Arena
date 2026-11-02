@@ -6042,6 +6042,7 @@ function ClubHomePageContent({
             {gameSection && (lobbyEntries.length > 0 || loading) && (
               <LobbyTable
                 entries={lobbyEntries}
+                tournamentSnapshot={tournaments}
                 clubId={club.id}
                 category={gameType as LobbyCategory}
                 selectedId={panelOpen ? selectedId : null}

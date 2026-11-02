@@ -7,7 +7,10 @@ import { reportError } from '../utils/errorReporter';
 /** One bounded aggregate for the board, refreshed by its existing committed
  * tournament events (registration/seat count and rebuy prize-pool updates).
  * No per-event roster downloads, additional channels or polling loop. */
-export function useMttLobbyEntryCounts(rows: LobbyEntry[]): LobbyEntry[] {
+export function useMttLobbyEntryCounts(
+  rows: LobbyEntry[],
+  snapshot?: readonly unknown[]
+): LobbyEntry[] {
   const [counts, setCounts] = useState<Map<string, number>>(new Map());
   const [readFailed, setReadFailed] = useState(false);
   const signature = JSON.stringify(
@@ -19,6 +22,8 @@ export function useMttLobbyEntryCounts(rows: LobbyEntry[]): LobbyEntry[] {
       })
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
   );
+  // The parent replaces the raw snapshot after an authoritative reconnect read.
+  // Its identity is independent of the clock-driven presentation arrays.
   useEffect(() => {
     const ids = (JSON.parse(signature) as unknown[][]).map((row) => String(row[0]));
     if (!ids.length) return;
@@ -80,7 +85,7 @@ export function useMttLobbyEntryCounts(rows: LobbyEntry[]): LobbyEntry[] {
       window.removeEventListener('online', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [signature]);
+  }, [signature, snapshot]);
   return useMemo(
     () =>
       rows.map((row) =>

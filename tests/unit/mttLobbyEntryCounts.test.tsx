@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useMttLobbyEntryCounts } from '../../src/hooks/useMttLobbyEntryCounts';
@@ -36,6 +37,27 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 describe('MTT lobby reads durable entry totals separately from active seats', () => {
+  it('refreshes a recovered snapshot even when its visible counters are unchanged', async () => {
+    rpc
+      .mockReturnValueOnce(answer([{ tournament_id: 'a', entries: 142 }]))
+      .mockReturnValueOnce(answer([{ tournament_id: 'a', entries: 143 }]));
+    const rows = [row()];
+    const { result, rerender } = renderHook(
+      ({ snapshot }) => useMttLobbyEntryCounts(rows, snapshot),
+      { initialProps: { snapshot: [{}] } }
+    );
+    await waitFor(() => expect(result.current[0].entryCount).toBe(142));
+    rerender({ snapshot: [{}] });
+    await waitFor(() => expect(result.current[0].entryCount).toBe(143));
+  });
+  it('wires the authoritative parent snapshot instead of a clock-driven view array', () => {
+    expect(readFileSync('src/pages/ClubHomePage.tsx', 'utf8')).toContain(
+      'tournamentSnapshot={tournaments}'
+    );
+    expect(readFileSync('src/components/lobby/LobbyTable.tsx', 'utf8')).toMatch(
+      /useMttLobbyEntryCounts\(\s*suppliedEntries,\s*tournamentSnapshot\s*\)/
+    );
+  });
   it('prints the aggregate while retaining the active count for admission', async () => {
     rpc.mockReturnValue(answer([{ tournament_id: 'a', entries: 142 }]));
     const { result, rerender } = renderHook(({ rows }) => useMttLobbyEntryCounts(rows), {
@@ -102,7 +124,8 @@ describe('MTT lobby reads durable entry totals separately from active seats', ()
   });
   it('does not requery on an unrelated render or open per-tournament roster reads', async () => {
     rpc.mockReturnValue(answer([{ tournament_id: 'a', entries: 142 }]));
-    const { result, rerender } = renderHook(({ rows }) => useMttLobbyEntryCounts(rows), {
+    const snapshot = [{}];
+    const { result, rerender } = renderHook(({ rows }) => useMttLobbyEntryCounts(rows, snapshot), {
       initialProps: { rows: [row()] },
     });
     await waitFor(() => expect(result.current[0].entryCount).toBe(142));
