@@ -267,6 +267,17 @@ class AnnouncedCancellation(unittest.TestCase):
             'controlSha': module.PHASE1_CONTROL, 'desiredSha': module.PHASE1_DESIRED,
             'instanceId': '1-2ced3e43', 'mode': 'cancel_expired_announcement'}
 
+    def test_second_early_timer_profile_and_actual_original_controller(self):
+        # A separate module namespace models one remote helper process. Old
+        # profile tests below continue to exercise the original 197 identity.
+        with patch.dict(module.__dict__, clear=False):
+            module.select_second_phase1_profile()
+            self.assertEqual(module.PHASE1_RUN,'41432783729-1')
+            self.test_phase1_profile_and_original_sources_are_exact()
+            self.test_phase1_thaw_is_exact_historical_tuple_not_a_timestamp_tolerance()
+            self.test_phase1_seal_requires_original_uncommitted_cycle_and_no_transaction()
+            self.test_phase1_actual_pinned_v3_floor_bootstrap_and_no_bytecode()
+
     def test_phase1_actual_pinned_v3_floor_bootstrap_and_no_bytecode(self):
         with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
             state = Path(folder) / 'state'; state.mkdir()
@@ -279,7 +290,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 (generation / name).write_bytes(raw)
             (generation / 'engine-release-lightning-hold.py').write_text("def own_record(path,key): return {'phase':'released'}\n")
             reqroot = state / 'engine-release-requests'; reqroot.mkdir()
-            raw = '\n'.join([module.PHASE1_CONTROL, 'url', 'actor', str(generation), module.PHASE1_CONTROL, '1793613481']) + '\n'
+            raw = '\n'.join([module.PHASE1_CONTROL, 'url', 'actor', str(generation), module.PHASE1_CONTROL, module.MARKERLESS_ORIGINALS[module.PHASE1_RUN]]) + '\n'
             for suffix in ('request', 'intent'): (reqroot / (key + '.' + suffix)).write_text(raw)
             entry = {'schema': 'engine-release-activation-floor/v3-phase1', 'runId': key,
                 'targetSha': module.PHASE1_CONTROL, 'controlSha': module.PHASE1_CONTROL,
@@ -290,24 +301,32 @@ class AnnouncedCancellation(unittest.TestCase):
             window = {'announcedAt': module.PHASE1_STAMP, 'startsAt': module.PHASE1_STAMP + 120000,
                 'endsAt': module.PHASE1_STAMP + 420000, 'verified': True}
             cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f', 'policyDigest': module.PHASE1_POLICY,
-                'startsAt': 1793602800, 'endsAt': 1793603100, 'runId': key, 'sha': module.PHASE1_CONTROL,
+                'startsAt': (module.PHASE1_STAMP+120000)//3600000*3600, 'endsAt': (module.PHASE1_STAMP+120000)//3600000*3600+300, 'runId': key, 'sha': module.PHASE1_CONTROL,
                 'controlSha': module.PHASE1_CONTROL, 'status': 'reserved', 'window': window}
             seal = {'schema': 1, 'generation': 312, 'highWaterSha': module.PHASE1_DESIRED,
                 'desired': {'sha': module.PHASE1_DESIRED, 'imageId': 'sha256:' + 'a' * 64},
-                'pending': None, 'finalization': None, 'committedRuns': {}, 'routineMaintenanceCycles': {'1793602800': cycle}}
+                'pending': None, 'finalization': None, 'committedRuns': {}, 'routineMaintenanceCycles': {str(cycle['startsAt']): cycle}}
             (state / 'engine-release-seal.json').write_text(json.dumps(seal))
             reservation = state / ('engine-recovery-window-' + key + '.json')
             reservation.write_text(json.dumps({'runId': key, 'sha': module.PHASE1_CONTROL, 'announcedAt': module.PHASE1_STAMP, 'cause': 'urgent'}))
             reservation.chmod(0o600)
             pins = state / 'engine-release-generation-pins'; pins.mkdir()
             (pins / (key + '.generation')).write_text(str(generation) + '\n' + module.PHASE1_CONTROL + '\n')
+            # Keep exact immutable Git objects, but qualify ancestry at that
+            # original protected revision rather than traversing today's entire
+            # unrelated main history inside the five-second helper budget.
+            proof_repo = Path(folder) / 'proof.git'
+            subprocess.run(['git', 'init', '--bare', '-q', str(proof_repo)], check=True)
+            objects = subprocess.check_output(['git', 'rev-parse', '--path-format=absolute', '--git-path', 'objects'], cwd=ROOT, text=True).strip()
+            (proof_repo / 'objects/info/alternates').write_text(objects + '\n')
+            subprocess.run(['git', '-C', str(proof_repo), 'update-ref', 'refs/remotes/origin/main', module.PHASE1_CONTROL], check=True)
             calls = []
             def command(args, timeout=5):
                 calls.append(args)
                 self.assertEqual(args[:2], ['python3', '-B'])
-                # Real old197 floor CLI and imported seal, against real Git197
+                # Real pinned floor CLI and imported seal, against exact original
                 # policy bytes and isolated canonical files. No production IO.
-                selected = [str(ROOT) if arg == '/opt/club-arena' else arg for arg in args]
+                selected = [str(proof_repo) if arg == '/opt/club-arena' else arg for arg in args]
                 env = dict(os.environ); env.pop('PYTHONDONTWRITEBYTECODE', None)
                 return subprocess.check_output(selected, env=env, timeout=timeout, text=True).strip()
             for name, value in [('ROOT', state), ('PARENT', parent)]:
@@ -317,7 +336,7 @@ class AnnouncedCancellation(unittest.TestCase):
             patches.enter_context(patch.object(module, 'command', side_effect=command))
             patches.enter_context(patch.object(module, 'own_thaw', return_value={'complete': True}))
             # Cycle is expired, although the request deadline is still future.
-            patches.enter_context(patch.object(module.time, 'time', return_value=1793603200))
+            patches.enter_context(patch.object(module.time, 'time', return_value=(module.PHASE1_END+100000)/1000))
             answer = module.announcement_evidence(request, read_only=True)
             self.assertEqual(answer['entryHash'], module.digest((reqroot / (key + '.activation-entry')).read_bytes()))
             self.assertEqual(len(calls), 2)
@@ -412,12 +431,12 @@ class AnnouncedCancellation(unittest.TestCase):
 
     def test_phase1_seal_requires_original_uncommitted_cycle_and_no_transaction(self):
         cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f', 'policyDigest': module.PHASE1_POLICY,
-            'startsAt': 1793602800, 'endsAt': 1793603100, 'runId': module.PHASE1_RUN,
+            'startsAt': (module.PHASE1_STAMP+120000)//3600000*3600, 'endsAt': (module.PHASE1_STAMP+120000)//3600000*3600+300, 'runId': module.PHASE1_RUN,
             'sha': module.PHASE1_CONTROL, 'controlSha': module.PHASE1_CONTROL, 'status': 'reserved',
             'window': {'announcedAt': module.PHASE1_STAMP, 'startsAt': module.PHASE1_STAMP + 120000,
                 'endsAt': module.PHASE1_STAMP + 420000, 'verified': True}}
         state = {'desired': {'sha': module.PHASE1_DESIRED}, 'pending': None, 'finalization': None,
-            'committedRuns': {}, 'routineMaintenanceCycles': {'1793602800': cycle}}
+            'committedRuns': {}, 'routineMaintenanceCycles': {str(cycle['startsAt']): cycle}}
         with patch.object(module, 'observe_seal_state', return_value=state):
             self.assertEqual(module.phase1_seal_evidence(Path('unused')), cycle)
         for change in ({'pending': {}}, {'finalization': {}}, {'committedRuns': {module.PHASE1_RUN: {}}},

@@ -494,6 +494,7 @@ raise SystemExit(0 if d.get("phase") == "pausing" else 1)
   http_code="${response##*$'\n'}"
   body="${response%$'\n'*}"
   case "$http_code" in 200|503) ;; *) return 0 ;; esac
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then bind_phase1_window "$body" || return 0; fi
   # Synchronous operator calls at countdown spent the headroom before
   # the unchanged 285s entry reserve. Prepare only an exact owned announcement
   # during its two-minute lead; this pauses formation, never an active hand.
@@ -505,7 +506,6 @@ m=d.get("maintenance") if isinstance(d,dict) else None
 raise SystemExit(0 if isinstance(m,dict) and m.get("phase")=="last_hand" else 1)
 ' 2>/dev/null; then
     if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
-      bind_phase1_window "$body" || return 0
       early_stamp=$((PHASE1_WINDOW_START - 120000))
     else
       [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
@@ -582,7 +582,7 @@ if cycle:
     start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
     # bind_phase1_window already proves exact serving source and original owner.
     legacy_daily=d.get("releaseSha")=="eed06fe51dea622069c661a6213d5b031ff3a9e3" and isinstance(schedule,dict) and schedule.get("timeZone")=="America/Chicago" and type(schedule.get("startHour")) is int and schedule["startHour"]==4 and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is False and schedule.get("frequency") is None and schedule.get("policyId") is None and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).hour==4 and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).minute==0
-    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==int(os.environ.get("PHASE1_OBSERVED_WINDOW_END",str(end))) and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
     if not daily: raise SystemExit(1)
 emergency = m.get("reason") == "Deployment Recovery"
 transition = os.environ.get("DAILY_TRANSITION") == "1" and m.get("schedule") is None and local.minute >= 55 and m.get("reason") == "Scheduled Engine Maintenance"
@@ -861,7 +861,9 @@ phase1_reset_required() {
 
 bind_phase1_window() {
   [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || return 0
-  local body="$1" took=0 rc=0 bound
+  local body="$1" took=0 rc=0 bound proof instance
+  local -a promise_args=()
+  unset PHASE1_OBSERVED_WINDOW_END
   # No engine-lock traffic for idle/unrelated health. Only this cycle's actual
   # announced00minute may enter the durable compare-and-swap below.
   if ! printf '%s' "$body" | PHASE1_CYCLE_START="$PHASE1_CYCLE_START" python3 -c '
@@ -872,13 +874,26 @@ try:
  ok=m.get("active") is True and m.get("phase") in ("last_hand","counting_down") and type(stamp) is int and cycle*1000 <= stamp+120000 < (cycle+60)*1000
 except Exception: ok=False
 raise SystemExit(0 if ok else 1)'; then return 1; fi
+  # Only the immutable old engine's demonstrated early observation needs the
+  # database witness. Normal windows retain the existing no-extra-read path.
+  if printf '%s' "$body" | python3 -c '
+import json,sys
+h=json.load(sys.stdin); m=h.get("maintenance") or {}; p=m.get("presentation") or {}
+a=p.get("break_id")
+raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.get("break_ends_at")!=a+420000 or p.get("scheduled_ends_at")!=a+420000) else 1)'; then
+    instance="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("instanceId",""))')" || return 1
+    proof="$(legacy_entry_read "$DATABASE_PROOF" --env-file "$ENV_FILE" \
+      --sha eed06fe51dea622069c661a6213d5b031ff3a9e3 --instance-id "$instance" --maintenance-promise)" || return 1
+    promise_args=(--promise-floor-proof "$proof")
+  fi
   if [ "$LOCK_HELD" != 1 ]; then acquire_engine_lock 'routine window binding'; took=1; fi
   source_target_is_current
-  bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID")" || rc=$?
+  bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID" "${promise_args[@]}")" || rc=$?
   if [ "$took" = 1 ]; then release_engine_lock; fi
   [ "$rc" = 0 ] || return "$rc"
   read -r PHASE1_WINDOW_START PHASE1_WINDOW_END <<<"$(printf '%s' "$bound" | python3 -c 'import json,sys; w=json.load(sys.stdin)["window"]; print(w["startsAt"],w["endsAt"])')"
-  export PHASE1_WINDOW_START PHASE1_WINDOW_END
+  PHASE1_OBSERVED_WINDOW_END="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["maintenance"]["presentation"]["break_ends_at"])')" || return 1
+  export PHASE1_WINDOW_START PHASE1_WINDOW_END PHASE1_OBSERVED_WINDOW_END
 }
 
 seconds_to_next_break() {
@@ -1231,7 +1246,7 @@ if cycle:
     start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
     # bind_phase1_window already proves exact serving source and original owner.
     legacy_daily=isinstance(schedule,dict) and schedule.get("timeZone")=="America/Chicago" and type(schedule.get("startHour")) is int and schedule["startHour"]==4 and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is False and schedule.get("frequency") is None and schedule.get("policyId") is None and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).hour==4 and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).minute==0
-    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==int(os.environ.get("PHASE1_OBSERVED_WINDOW_END",str(end))) and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
     if not daily: raise SystemExit(1)
 emergency=(m.get("reason")=="Deployment Recovery")
 transition=(os.environ.get("DAILY_TRANSITION")=="1" and m.get("schedule") is None and local.minute>=55 and m.get("reason")=="Scheduled Engine Maintenance")
@@ -1243,7 +1258,7 @@ if floor_end:
     if os.environ.get("ACTIVATION_FLOOR_OWNER_WINDOW"):
         stamp=int(os.environ.get("FLOOR_ANNOUNCED_AT", "0"))
         if not (stamp > 0 and stamp/1000+120 <= now < stamp/1000+420 <= floor_end
-                and emergency and m.get("breakEndsAt")==stamp+420000):
+                and emergency and m.get("breakEndsAt")==int(os.environ.get("PHASE1_OBSERVED_WINDOW_END",str(stamp+420000)))):
             raise SystemExit(1)
     elif not (floor_end-300 <= now < floor_end and daily and m.get("reason")=="Scheduled Engine Maintenance"):
         raise SystemExit(1)
@@ -1448,7 +1463,7 @@ if cycle:
     start=int(os.environ.get("PHASE1_WINDOW_START","0")); end=int(os.environ.get("PHASE1_WINDOW_END","0"))
     # bind_phase1_window already proves exact serving source and original owner.
     legacy_daily=d.get("releaseSha")=="eed06fe51dea622069c661a6213d5b031ff3a9e3" and isinstance(schedule,dict) and schedule.get("timeZone")=="America/Chicago" and type(schedule.get("startHour")) is int and schedule["startHour"]==4 and type(schedule.get("startMinute")) is int and schedule["startMinute"]==0 and type(schedule.get("durationMs")) is int and schedule["durationMs"]==300000 and schedule.get("hourlyCashFreeze") is False and schedule.get("frequency") is None and schedule.get("policyId") is None and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).hour==4 and datetime.fromtimestamp(start/1000,ZoneInfo("America/Chicago")).minute==0
-    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==end and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
+    daily=start>0 and start/1000 <= time.time() < end/1000 and m.get("breakEndsAt")==int(os.environ.get("PHASE1_OBSERVED_WINDOW_END",str(end))) and (hourly or legacy_daily or m.get("reason")=="Deployment Recovery")
     if not daily: raise SystemExit(1)
 emergency=(m.get("reason")=="Deployment Recovery")
 transition=(os.environ.get("DAILY_TRANSITION")=="1" and m.get("schedule") is None and local.minute>=55 and m.get("reason")=="Scheduled Engine Maintenance")
@@ -1460,7 +1475,7 @@ if floor_end:
     if os.environ.get("ACTIVATION_FLOOR_OWNER_WINDOW"):
         stamp=int(os.environ.get("FLOOR_ANNOUNCED_AT", "0"))
         if not (stamp > 0 and stamp/1000+120 <= now < stamp/1000+420 <= floor_end
-                and emergency and m.get("breakEndsAt")==stamp+420000):
+                and emergency and m.get("breakEndsAt")==int(os.environ.get("PHASE1_OBSERVED_WINDOW_END",str(stamp+420000)))):
             raise SystemExit(1)
     elif not (floor_end-300 <= now < floor_end and daily and m.get("reason")=="Scheduled Engine Maintenance"):
         raise SystemExit(1)
@@ -1947,6 +1962,15 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
       echo '[engine-release-transaction] legacy inspector absence is not proved; no recovery window requested and no inspector was touched'
       return 0
     fi
+  fi
+  # Refuse before the announcement-entry record if the old runtime's permanent
+  # database promise contract has not reached production yet.
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ]; then
+    local promise_instance
+    promise_instance="$(printf '%s' "$health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("instanceId",""))')" || die 'old runtime identity unreadable before announcement'
+    "$DATABASE_PROOF" --env-file "$ENV_FILE" --sha "$CHECKPOINT_EED_SHA" \
+      --instance-id "$promise_instance" --maintenance-promise >/dev/null \
+      || die 'original maintenance promise contract is unproved; no recovery announcement requested'
   fi
   FLOOR_RESERVATION_FRESH=0
   if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then

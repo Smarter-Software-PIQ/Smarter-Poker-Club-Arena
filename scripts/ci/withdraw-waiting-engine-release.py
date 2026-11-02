@@ -210,6 +210,24 @@ PHASE1_HASHES = {
 MARKERLESS_ORIGINALS = {'41177442979-1': '1793440868', E9_RUN: '1793528863', PHASE1_RUN: '1793613481'}
 
 
+# This command handles one selected immutable operation per process. Selecting
+# the second witnessed early-timer failure never broadens the original profile.
+SECOND_PHASE1_RUN = '41432783729-1'
+SECOND_PHASE1_CONTROL = '6d178de0dbb1bdb2d74fb9b478a11768619a0a93'
+SECOND_PHASE1_HASHES = {'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6', 'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4', 'engine-release-seal.py': '0811a7631975ba6a52f682324cb0fd43bb3240e7cb40b261d44490a386cd5d70', 'engine-release-transaction.sh': '2b19a4f63063275eb63d9d7d071b8caf57d8389b7d294f39402c8171cd963652', 'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83', 'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e'}
+
+def select_second_phase1_profile():
+    global PHASE1_RUN, PHASE1_CONTROL, PHASE1_STAMP, PHASE1_START, PHASE1_END, PHASE1_TOKEN, PHASE1_HASHES
+    PHASE1_RUN = SECOND_PHASE1_RUN
+    PHASE1_CONTROL = SECOND_PHASE1_CONTROL
+    PHASE1_STAMP = 1793620685533
+    PHASE1_START = 1793620805532
+    PHASE1_END = 1793621105532
+    PHASE1_TOKEN = 'c677673f-f968-4a21-a795-c1bcb175f6d9'
+    PHASE1_HASHES = SECOND_PHASE1_HASHES
+    MARKERLESS_ORIGINALS[PHASE1_RUN] = '1793629489'
+
+
 def cancellation_profile(request):
     if request['runKey'] == PHASE1_RUN:
         require(request['controlSha'] == request['releaseSha'] == PHASE1_CONTROL
@@ -593,9 +611,10 @@ def phase1_seal_evidence(generation):
     require(state.get('pending') is None and state.get('finalization') is None
             and PHASE1_RUN not in state.get('committedRuns', {})
             and state['desired']['sha'] == PHASE1_DESIRED)
-    cycle = state.get('routineMaintenanceCycles', {}).get('1793602800')
+    cycle_start = (PHASE1_STAMP + 120000) // 3600000 * 3600
+    cycle = state.get('routineMaintenanceCycles', {}).get(str(cycle_start))
     expected = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
-                'policyDigest': PHASE1_POLICY, 'startsAt': 1793602800, 'endsAt': 1793603100,
+                'policyDigest': PHASE1_POLICY, 'startsAt': cycle_start, 'endsAt': cycle_start + 300,
                 'runId': PHASE1_RUN, 'sha': PHASE1_CONTROL, 'controlSha': PHASE1_CONTROL,
                 'status': 'reserved', 'window': {'announcedAt': PHASE1_STAMP,
                     'startsAt': PHASE1_STAMP + 120000, 'endsAt': PHASE1_STAMP + 420000, 'verified': True}}
@@ -1089,6 +1108,7 @@ def observe_cancellation(request):
 
 
 def remote(request):
+    if request['runKey'] == SECOND_PHASE1_RUN: select_second_phase1_profile()
     if request.get('mode') == 'observe_expired_announcement': return observe_cancellation(request)
     if request.get('mode') == 'cancel_expired_announcement':
         return cancel_announced(request)
@@ -1156,6 +1176,10 @@ def remote(request):
 
 
 def main():
+    if sys.argv[1:] == ['--phase1-cancellation-proof', SECOND_PHASE1_RUN]:
+        select_second_phase1_profile()
+        print(json.dumps(phase1_cancellation_proof(), sort_keys=True))
+        return
     if sys.argv[1:] == ['--phase1-cancellation-proof']:
         print(json.dumps(phase1_cancellation_proof(), sort_keys=True))
         return
