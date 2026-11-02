@@ -1089,9 +1089,7 @@ async function assertSort(page: Page, type: Tab | 'ALL', sort: string, raw: Map<
   const effective =
     sort === 'recommended'
       ? cash
-        ? type === 'ALL'
-          ? 'stakes_high'
-          : 'stakes_low'
+        ? 'stakes_high'
         : type === 'MTT'
           ? 'phase'
           : 'tournament-recommended'
@@ -1114,7 +1112,7 @@ async function assertSort(page: Page, type: Tab | 'ALL', sort: string, raw: Map<
           );
         const groups = new Map<string, number[][]>();
         for (const item of actual) {
-          if (type !== 'ALL' && (item.pinned || item.favorite)) continue;
+          if (!cash && (item.pinned || item.favorite)) continue;
           if (type === 'ALL' && item.kind !== 'cash') return ['Unexpected Non-Cash ALL Row'];
           const row = raw.get(item.id);
           if (!row) return ['Missing Raw Row'];
