@@ -762,6 +762,19 @@
         "path": "server/release/activation-floor.json",
         "sha256": "7b4c7ee419d8c21d0e8cfb6d5eb71e2e7017ad6d2d5b06269a15ddc00c80e565"
       }
+    },
+    {
+      "id": "2026-11-02-phase1-plo-horse-hourly-55-cutover",
+      "ownerOrder": "Dan, directly in the MAIN HORSE BRAIN PLO Phase 1 chat (session_01TLQer9MnhBkQFbSEevq8zY), America/Chicago. On 2026-11-01 at 14:43 he ordered verbatim: \"GET THESE DONE NOW, AND YOU DO NOT HAVE TO WAIT UNTIL 4AM.  AS SOON AS YOU ARE READY YOU CAN DO AN ENGINE RESET AT ANY OF THE :55 BREAKS AS NEEDED TO GET THIS FULLY PUBLISHED UPDATED AND VERIFIED.  BUT ONLY AT THE :55 BREAK, BUT YOU CAN DO IT EVERY HOUR IF YOU NEED TOO\". On 2026-11-02 at 01:24 he wrote verbatim: \"Please pick up where you left off, complete the task in full and do not claim success until you have verified that everything is 100% accomplished for this task.\" This NEW owner-ordered window follows 2026-11-02-fresh-engine-window-after-seal-unbrick (#9278, 04:15Z-09:25Z), which expired without adoption: receiver 41400905104 (197c2b73) failed with the original routine cycle expired unresolved, fixed by #9312 (e64c2a68), which this window requires the release to contain together with the routine-owner fixes #9244, #9231, #9287 and the bounded census traversal #9288. Per the order it grants only at the :55 break: Chicago minute 53 last-hand announcement and minute 55 activation, at most once per hour, from 11:00Z to 17:00Z. It is agent-selected under those orders, adds no migration, and widens nothing the certificate admits: the 120s notice, hand-boundary drain, durable freeze, strict certificate, census re-read before the one-shot intent, the one-window-per-hour seal, rollback and v3 thaw are unchanged, as are the 300s, 285s, 245s, 135s and 40s budgets. ONE actual activation; no scheduler, watcher, second publisher or retry loop. Diamond remains closed. It ends at 17:00Z, before the 2026-11-03 daily preparation, and expires without renewal. All previous entries remain unchanged.",
+      "contains": "e64c2a68a211040b645efac90cef44206fc8b4a1",
+      "notBefore": "2026-11-02T11:00:00Z",
+      "notAfter": "2026-11-02T17:00:00Z",
+      "announceAtChicagoMinutes": [53],
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "f209a473b8b55039af90620424d10ad6a1250d0d5ec33fa04140bc5f9209d399"
+      }
     }
   ],
   "databaseWindows": [
