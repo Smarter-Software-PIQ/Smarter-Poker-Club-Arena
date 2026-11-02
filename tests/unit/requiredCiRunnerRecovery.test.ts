@@ -678,7 +678,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // private-capture branch; every default stage and55m budget is asserted above.
     normalized.jobs['native-smoke']['runs-on'] = expression('ubuntu-24.04');
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
-      'f6d7cf20fe528a40a49c44a24bfca4aa22da3503a41ea4e2b7e72fc6ff57262c'
+      '13a3a555958b2a8bd92ba5a7a45083c0af0993c9f02b10e885c1d858aefa8afc'
     );
   });
 });

@@ -7,3 +7,5 @@ After genuine Realtime migrations, `configureFixtureRealtimeCapturedRelations` a
 Focused tests:14 passed/zero skips. Disposable PostgreSQL17.11 verified actual configuration, repeat refusal and independent readback. A real SQL permission failure after the ledger change verified transaction rollback restores the NOT NULL preimage. This SQL harness constructs synthetic service-shaped tables and explicit upstream83 version inputs; it does not claim genuine Realtime migration execution. Node26.3.0 was used locally. Pinned Node22, genuine provider/Linux and complete-schema acceptance remain pending ROOT integration. Own PostgreSQL was stopped and scratch removed.
 
 ROOT wires configuration after genuine tenant migrations and completed native five-partition setup, before private schema preimage export. Existing fixture entrypoints and workflows were not edited by this helper loan.
+
+The existing hosted bootstrap command includes this helper regression suite. The closed whole-workflow identity in requiredCiRunnerRecovery is updated for that single test addition; stage ordering, permissions, budgets and cleanup assertions remain unchanged.
