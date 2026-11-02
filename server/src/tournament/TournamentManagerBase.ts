@@ -2405,7 +2405,8 @@ export abstract class TournamentManagerBase {
   private successorHandoffIssued = false;
 
   private requestSuccessorDrain(): boolean {
-    if (!this.isRunning() || this.successorDrainRequested) return false;
+    if (!this.isRunning()) return false;
+    const alreadyRequested = this.successorDrainRequested;
     this.successorDrainRequested = true;
     for (const table of this.tableEngines.values()) {
       if (table.isRunning())
@@ -2414,7 +2415,7 @@ export abstract class TournamentManagerBase {
     this.completeSuccessorDrain();
     // Acceptance reserves the caller's existing bounded handoff allowance.
     // The last park edge completes it; repeated requests spend no allowance.
-    return true;
+    return !alreadyRequested;
   }
 
   private completeSuccessorDrain(): boolean {
@@ -2464,7 +2465,8 @@ export abstract class TournamentManagerBase {
     )
       return false;
     // Not awaited: the manager's stop drains this very recovery job.
-    return this.requestSuccessorDrain();
+    this.requestSuccessorDrain();
+    return this.successorDrainRequested;
   }
 
   private async performManagedTableEngineRecovery(
@@ -2490,12 +2492,14 @@ export abstract class TournamentManagerBase {
       });
     }
     if (!this.lifecycleIsCurrent(lifecycle) || this.tableEngines.get(tableId) !== engine) return;
+    if (this.successorDrainRequested && this.completeSuccessorDrain()) return;
     // A retained unknown BEGIN belongs to this failed original. Resolve it
     // through its existing custody owner now, rather than waiting for this
     // table's turn in the ordinary balance pass. Retirement may remove or
     // continue the table, so the same exact-owner check follows the await.
     await this.recoverStoppedOriginalAdmission(tableId, engine);
     if (!this.lifecycleIsCurrent(lifecycle) || this.tableEngines.get(tableId) !== engine) return;
+    if (this.successorDrainRequested && this.completeSuccessorDrain()) return;
     if (!(await this.resolveTournamentSeatMoveQuarantine(tableId, engine))) {
       if (!this.lifecycleIsCurrent(lifecycle) || this.tableEngines.get(tableId) !== engine) return;
       if (this.handUnprovedOriginalToSuccessorGeneration(engine)) return;
@@ -2504,6 +2508,7 @@ export abstract class TournamentManagerBase {
       return;
     }
     if (!this.lifecycleIsCurrent(lifecycle) || this.tableEngines.get(tableId) !== engine) return;
+    if (this.successorDrainRequested && this.completeSuccessorDrain()) return;
 
     /* A REPEAT DEATH WAITS ITS TURN (2026-10-17). A runtime death on a table
        that has been healthy is replaced at once, below. A death on a table
