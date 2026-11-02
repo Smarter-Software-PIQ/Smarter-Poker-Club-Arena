@@ -68,7 +68,7 @@
     }
   },
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
+    "scripts/ci/classify-ci-changes.mjs": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",
@@ -1835,6 +1835,13 @@
   },
   "closureSessionStatsIntegration20261101": {
     "reason": "Preserve both protected session-statistics and closure audit histories; active input hashes identify integrated source only. No historical qualification verdict changed.",
+    "historicalEvidenceRestamped": false
+  },
+  "horseCashNovemberInputRouting20261102": {
+    "reason": "Reviewed classifier-only addition routes the November horse cash predecessor fixture into the existing required accounting qualification. Existing accounting assertions and historical evidence are unchanged; this is source identity, not live certification.",
+    "path": "scripts/ci/classify-ci-changes.mjs",
+    "previousSha256": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
+    "currentSha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
     "historicalEvidenceRestamped": false
   }
 }

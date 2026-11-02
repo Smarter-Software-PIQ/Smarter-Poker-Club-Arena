@@ -551,7 +551,7 @@
     "tests/fixtures/legacy-fee-finality/custody-core.sql": "288e953c3b4c75c8eea9e0608a0f2d4b953c4437c9cfe6d50a450a801053d0eb",
     "tests/fixtures/legacy-fee-finality/fn_satellite_transfer_ledger_is_immutable.sql": "51af53e6eb44440aa9901452b42adb4bf3c7ab31ea21cdc1e4e9404c44bea407",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
-    "scripts/ci/classify-ci-changes.mjs": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
+    "scripts/ci/classify-ci-changes.mjs": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
     "tests/fixtures/legacy-fee-finality/source-binding.json": "ef531f66df5f045c92e83bdb4e576807db2333797fd29bda694c1b84810e1500",
@@ -7651,6 +7651,13 @@
   },
   "closureSessionStatsIntegration20261101": {
     "reason": "Preserve both protected session-statistics and closure audit histories; active input hashes identify integrated source only. No historical qualification verdict changed.",
+    "historicalEvidenceRestamped": false
+  },
+  "horseCashNovemberInputRouting20261102": {
+    "reason": "Reviewed classifier-only addition routes the November horse cash predecessor fixture into the existing required accounting qualification. Existing accounting assertions and historical evidence are unchanged; this is source identity, not live certification.",
+    "path": "scripts/ci/classify-ci-changes.mjs",
+    "previousSha256": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
+    "currentSha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
     "historicalEvidenceRestamped": false
   }
 }
