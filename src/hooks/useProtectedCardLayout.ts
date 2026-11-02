@@ -576,6 +576,23 @@ export function useProtectedCardLayout(
           pod.style.setProperty('--sp-top-seat-shift', `${shift}px`);
         }
       });
+      // A seat can leave the top lane while it is on screen: a tournament
+      // table renders one snapshot as a cash table on reconnect (its top seats
+      // carry seat-wrapper--top until isTournament arrives), and the seat count
+      // can change. The shift belongs to the lane, not to the seat, so a pod
+      // outside it keeps none. Without this the reconnect's shift stayed on a
+      // tournament's cap seat for the rest of the session and parked that
+      // player on the felt (Dan 2026-11-02, jam_degen, Sunday Funday Late PKO).
+      const lane = new Set(topPods());
+      scaler
+        .querySelectorAll<HTMLElement>('.seat-wrapper--cap, .seat-wrapper--top')
+        .forEach((pod) => {
+          if (lane.has(pod)) return;
+          settled.current.pods.delete(pod);
+          settled.current.podPoses.delete(pod);
+          pod.style.removeProperty('translate');
+          pod.style.removeProperty('--sp-top-seat-shift');
+        });
       const chrome = Array.from(page.querySelectorAll('.bbj-widget, .bbj-mini-plate'))
         .map((element) => element.getBoundingClientRect())
         .filter((box) => box.width > 0 && box.height > 0);
@@ -2464,10 +2481,12 @@ export function useProtectedCardLayout(
       scaler
         .querySelectorAll<HTMLElement>('.seat-wrapper--cap .seat, .seat-wrapper--top .seat')
         .forEach((seat) => seat.style.removeProperty('--sp-wrap-overlap'));
-      topPods().forEach((pod) => {
-        pod.style.removeProperty('translate');
-        pod.style.removeProperty('--sp-top-seat-shift');
-      });
+      scaler
+        .querySelectorAll<HTMLElement>('.seat-wrapper--cap, .seat-wrapper--top')
+        .forEach((pod) => {
+          pod.style.removeProperty('translate');
+          pod.style.removeProperty('--sp-top-seat-shift');
+        });
       scaler
         .querySelectorAll<HTMLElement>('.seat__cards--revealed')
         .forEach((row) => row.style.removeProperty('translate'));

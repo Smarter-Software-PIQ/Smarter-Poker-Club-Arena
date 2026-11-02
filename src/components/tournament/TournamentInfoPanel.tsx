@@ -56,6 +56,7 @@ import {
 } from '../../utils/tournamentEntryWindow';
 import {
   effectivePlaceLadderPool,
+  effectivePrizePool,
   placePrize,
   resolvePayoutStructure,
   tournamentRowUnitCents,
@@ -256,7 +257,7 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
     const ranked = [...alive].sort((a, b) => num(b.chips) - num(a.chips));
     const ranks = tournamentChipRanks(alive);
     const myRank = mine ? (ranks.get(mine.user_id) ?? 0) : 0;
-    const pool = Math.max(num(t?.prize_pool), num(t?.guaranteed_prize));
+    const pool = effectivePrizePool(t?.prize_pool, t?.guaranteed_prize, t?.bounty_pool);
     return {
       entriesAlive: alive.length,
       entriesTotal: fieldSize ?? rows.length,
@@ -297,7 +298,8 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
       fieldSize ?? 0,
       t.bubble_protection === true,
       num(t.buy_in_amount),
-      isSatellite
+      isSatellite,
+      t.bounty_pool
     );
   }, [fieldSize, isSatellite, payouts, t]);
   /**

@@ -971,7 +971,11 @@ function RankingTabForTournament({
 
   const isFinished = String(tournament.status || '').toUpperCase() === 'COMPLETED';
   const finished = finishedFieldSummary(tournament, entries);
-  const finishedPool = effectivePrizePool(tournament.prize_pool, tournament.guaranteed_prize);
+  const finishedPool = effectivePrizePool(
+    tournament.prize_pool,
+    tournament.guaranteed_prize,
+    tournament.bounty_pool
+  );
   const finishedPaid =
     finished.paid > 0 ? finished.paid : (resolvePayoutStructure(tournament) ?? []).length;
 

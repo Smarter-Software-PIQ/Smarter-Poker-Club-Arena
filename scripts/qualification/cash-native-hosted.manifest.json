@@ -428,8 +428,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274616,
-      "sha256": "f4ec36959376d050de14f675b6818ffc5afe17d1d59ed13d8d1d44aed93156ee"
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6530,5 +6530,16 @@
       "sha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785"
     },
     "historicalEvidenceRestamped": false
+  },
+  "bountyGuaranteeNativeEnforcement20261102": {
+    "reason": "Reviewed additive isolated bounty guarantee qualification in accounting shard 1; existing cash assertions and fixtures unchanged. Current source identity only.",
+    "previous": {
+      "bytes": 274616,
+      "sha256": "f4ec36959376d050de14f675b6818ffc5afe17d1d59ed13d8d1d44aed93156ee"
+    },
+    "current": {
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+    }
   }
 }

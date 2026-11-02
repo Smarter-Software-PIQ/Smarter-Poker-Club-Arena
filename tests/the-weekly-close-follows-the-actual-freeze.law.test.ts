@@ -37,6 +37,27 @@ describe('the weekly close follows the actual freeze', () => {
     expect(native).toContain('AFTER last_hand skips every original gate/cascade');
     expect(native).toContain('metadata mutation refuse atomically');
   });
+  it('uses the supported cron API with a serializable preimage and least-privilege regression', () => {
+    const migration = readFileSync(
+      'supabase/migrations/20261102055042_weekly_accounting_maintenance_admission_uses_owned_cron_api.sql',
+      'utf8'
+    );
+    expect(migration).toContain('BEGIN;\nSET TRANSACTION ISOLATION LEVEL SERIALIZABLE;');
+    expect(migration).not.toMatch(/FOR UPDATE|GRANT|SET ROLE|UPDATE cron\.job/);
+    expect(migration).toContain('PERFORM cron.alter_job(job_id:=272,command:=candidate)');
+    const failed = readFileSync(
+      'supabase/migrations/20261102040938_weekly_accounting_tick_defers_before_maintenance_table_reads.sql',
+      'utf8'
+    );
+    expect(failed.startsWith('-- SUPERSEDED BY 20261102055042\n')).toBe(true);
+    const native = readFileSync(
+      'scripts/ci/test-weekly-accounting-maintenance-admission-postgres.py',
+      'utf8'
+    );
+    expect(native).toContain("glob('20261102055042_*')");
+    expect(native).toContain('SELECT-only non-superuser cannot directly lock cron catalog');
+    expect(native).toContain('SERIALIZABLE API update refuses concurrent row change with40001');
+  });
   it('parses a runnable pull request workflow', () => {
     const workflow = parse(readFileSync('.github/workflows/weekly-close-hour-guard.yml', 'utf8'));
     expect(workflow.on.pull_request.paths).toContain('supabase/migrations/**');

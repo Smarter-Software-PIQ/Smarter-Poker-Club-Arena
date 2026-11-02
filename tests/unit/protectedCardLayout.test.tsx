@@ -14,6 +14,7 @@ function Fixture({
   width = 393,
   avatarSource = '',
   topCap = false,
+  podClass,
 }: {
   revealed: boolean;
   revision?: string;
@@ -24,6 +25,7 @@ function Fixture({
   width?: number;
   avatarSource?: string;
   topCap?: boolean;
+  podClass?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useProtectedCardLayout(ref, revision);
@@ -34,7 +36,7 @@ function Fixture({
         <div className="community-area" data-box={`60,${boardTop},280,90`} />
         <div className="pot-display" data-box={`160,${potTop},80,30`} />
         <div className="seat__info" data-box="10,410,100,40" />
-        <div className={`seat-wrapper--top${topCap ? ' seat-wrapper--cap' : ''}`}>
+        <div className={podClass ?? `seat-wrapper--top${topCap ? ' seat-wrapper--cap' : ''}`}>
           <img
             className="seat__avatar-img"
             src={avatarSource || undefined}
@@ -340,4 +342,21 @@ it('advancing revision across preflop/flop/turn/river actions does not tear down
   }
   const removedProps = removeSpy.mock.calls.map(([prop]) => prop);
   expect(removedProps).not.toContain('--sp-top-seat-shift');
+});
+
+it('a seat that leaves the top lane drops its shift (Dan 2026-11-02, jam_degen on the felt)', async () => {
+  /* A tournament table renders one snapshot as a cash table on reconnect, so
+     its top seats carry seat-wrapper--top and are shifted. When isTournament
+     arrives they are cap-only, outside the nine-seat lane. The shift must go
+     with the lane, or that player sits on the felt for the rest of the session. */
+  stubGeometry();
+  const h = render(<Fixture revealed={false} podClass="seat-wrapper--top seat-wrapper--cap" />);
+  const pod = () => h.container.querySelector<HTMLElement>('.seat-wrapper--cap')!;
+  await waitFor(() => expect(pod().style.getPropertyValue('--sp-top-seat-shift')).not.toBe(''));
+  expect(pod().style.translate).not.toBe('');
+  await act(async () =>
+    h.rerender(<Fixture revealed={false} revision="tournament" podClass="seat-wrapper--cap" />)
+  );
+  await waitFor(() => expect(pod().style.getPropertyValue('--sp-top-seat-shift')).toBe(''));
+  expect(pod().style.translate).toBe('');
 });

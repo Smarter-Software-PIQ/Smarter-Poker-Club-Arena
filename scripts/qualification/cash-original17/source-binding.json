@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274616,
-      "sha256": "f4ec36959376d050de14f675b6818ffc5afe17d1d59ed13d8d1d44aed93156ee"
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
     },
     "scripts/ci/satellite_qualifier_fixture.py": {
       "bytes": 18466,
@@ -2621,6 +2621,17 @@
     "currentCiPin": {
       "bytes": 274616,
       "sha256": "f4ec36959376d050de14f675b6818ffc5afe17d1d59ed13d8d1d44aed93156ee"
+    }
+  },
+  "bountyGuaranteeNativeEnforcement20261102": {
+    "reason": "Add the isolated PG17 bounty-inclusive guarantee regression to accounting shard 1. Reviewed exact seven-line workflow addition; existing steps, financial assertions, deadlines and safeguards are preserved. Current source identity only; no historical qualification restamped.",
+    "previousCiPin": {
+      "bytes": 274616,
+      "sha256": "f4ec36959376d050de14f675b6818ffc5afe17d1d59ed13d8d1d44aed93156ee"
+    },
+    "currentCiPin": {
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
     }
   }
 }
