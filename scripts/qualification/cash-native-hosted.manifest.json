@@ -428,8 +428,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274871,
-      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+      "bytes": 275034,
+      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6541,5 +6541,20 @@
       "bytes": 274871,
       "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
     }
+  },
+  "pgdgRepositoryKeySourceAudit20261102": {
+    "reason": "Reviewed exact CI installer diff: fetch the byte-identical official PGDG signing key from its package repository after repeated website TLS EOF failures before tests. Preserve HTTPS, curl failure propagation, Signed-By, package versions, test assertions, deadlines, financial inputs and every historical qualification state.",
+    "previousCiPin": {
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+    },
+    "currentCiPin": {
+      "bytes": 275034,
+      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
+    },
+    "keySha256": "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76",
+    "validation": "Eight local installer/mirror regressions pass; hosted exact-head qualification remains required. Source identity only, not native scheduler, financial or live recertification.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

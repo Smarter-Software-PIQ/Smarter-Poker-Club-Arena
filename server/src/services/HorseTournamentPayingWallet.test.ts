@@ -17,6 +17,7 @@ function harness(payingBalance: number, minBalance = 5.63, ids = [horse]) {
     id: 'event',
     format_contract: 'mtt-v2',
     status: 'RUNNING',
+    current_players: 0,
     club_id: 'union',
     union_id: 'union',
     buy_in_amount: 45,
@@ -61,18 +62,19 @@ describe('registration judges the wallet its ordinary entry door will debit', ()
     expect(bankrollPolicyFor(horse).tournamentBuyInsToEnter).toBe(60);
     const h = harness(9727.4);
     expect(await h.svc.registerHorses('event', 1)).toBe(1);
-    expect(h.rpc).toHaveBeenCalledWith('fn_register_horse_for_tournament', {
+    expect(h.rpc).toHaveBeenCalledWith('fn_register_horse_for_tournament_to_target', {
       p_tournament_id: 'event',
       p_user_id: horse,
       p_allow_wallet_charge: true,
+      p_target_live_entries: 1,
     });
   });
   it('does not add wallets together or use a richer wallet the entry will not debit', async () => {
     const h = harness(50, 10000);
     expect(await h.svc.registerHorses('event', 1)).toBe(0);
-    expect(h.rpc.mock.calls.some(([name]) => name === 'fn_register_horse_for_tournament')).toBe(
-      false
-    );
+    expect(
+      h.rpc.mock.calls.some(([name]) => name === 'fn_register_horse_for_tournament_to_target')
+    ).toBe(false);
   });
 });
 
@@ -87,7 +89,7 @@ describe('refused candidates cannot monopolize the bounded offer queue', () => {
     let purchases = 0;
     const rejected = new Set<string>();
     h.rpc.mockImplementation((name: string, args: any) => {
-      if (name !== 'fn_register_horse_for_tournament') return original(name, args);
+      if (name !== 'fn_register_horse_for_tournament_to_target') return original(name, args);
       purchases++;
       if (rejected.size < 10) rejected.add(args.p_user_id);
       return Promise.resolve({
@@ -151,8 +153,74 @@ describe('freeroll recovery priority survives event-specific randomization', () 
     );
     expect(await h.svc.registerHorses('event', 2)).toBe(2);
     const entered = h.rpc.mock.calls
-      .filter(([name]) => name === 'fn_register_horse_for_tournament')
+      .filter(([name]) => name === 'fn_register_horse_for_tournament_to_target')
       .map(([, args]) => (args as any).p_user_id);
     expect(entered).toEqual([broke, ordered[0].id]);
   });
+});
+
+describe('MTT attendance targets reach the serialized purchase authority', () => {
+  it('carries the caller target rather than reconstructing it from a stale counter', async () => {
+    const h = harness(10000);
+    h.event.current_players = 5;
+    expect(await h.svc.registerHorses('event', 1, false, undefined, false, 9)).toBe(1);
+    expect(h.rpc).toHaveBeenCalledWith('fn_register_horse_for_tournament_to_target', {
+      p_tournament_id: 'event',
+      p_user_id: horse,
+      p_allow_wallet_charge: true,
+      p_target_live_entries: 9,
+    });
+  });
+
+  it('stops normally at a filled target without marking a Horse as refused', async () => {
+    const h = harness(10000);
+    const refused = vi.spyOn(h.svc.horseEntryBackoff, 'refused');
+    const original = h.rpc.getMockImplementation()!;
+    h.rpc.mockImplementation((name: string, args: any) =>
+      name === 'fn_register_horse_for_tournament_to_target'
+        ? (Promise.resolve({
+            data: { ok: false, reason: 'horse_attendance_target_met' },
+            error: null,
+          }) as any)
+        : original(name, args)
+    );
+    expect(await h.svc.registerHorses('event', 1)).toBe(0);
+    expect(refused).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'diamond_arena_closed',
+    'operator_floor_parked',
+    'tournament_not_seatable',
+    'tournament_not_found',
+  ])('ends the whole admission pass for %s without penalizing a Horse', async (reason) => {
+    const h = harness(10000, 10000, [horse, '00000000-0000-4000-8000-000000000002']);
+    const refused = vi.spyOn(h.svc.horseEntryBackoff, 'refused');
+    const original = h.rpc.getMockImplementation()!;
+    h.rpc.mockImplementation((name: string, args: any) =>
+      name === 'fn_register_horse_for_tournament_to_target'
+        ? (Promise.resolve({ data: { ok: false, reason }, error: null }) as any)
+        : original(name, args)
+    );
+    expect(await h.svc.registerHorses('event', 2, true)).toBe(0);
+    expect(refused).not.toHaveBeenCalled();
+    expect(
+      h.rpc.mock.calls.filter(([name]) => name === 'fn_register_horse_for_tournament_to_target')
+    ).toHaveLength(1);
+  });
+
+  it.each([NaN, Infinity, -1, 1.5])(
+    'refuses invalid targets before a purchase: %s',
+    async (target) => {
+      const h = harness(10000);
+      expect(await h.svc.registerHorses('event', 1, false, undefined, false, target)).toBe(0);
+      expect(
+        h.rpc.mock.calls.some(([name]) => name === 'fn_register_horse_for_tournament_to_target')
+      ).toBe(false);
+      expect(reportError).toHaveBeenCalledWith(
+        expect.any(TypeError),
+        'TournamentRecurring.horse_registration_failed'
+      );
+    }
+  );
 });

@@ -6908,7 +6908,8 @@ export class TournamentRecurringService {
             shortfall,
             opts.allLanes === true,
             pass,
-            opts.redeemTickets === true
+            opts.redeemTickets === true,
+            targetPlayers
           );
         }
 
@@ -7000,7 +7001,8 @@ export class TournamentRecurringService {
     count: number,
     allLanes = false,
     pass?: HorseTopUpPass,
-    redeemTickets = false
+    redeemTickets = false,
+    targetLiveEntries?: number
   ): Promise<number> {
     const generation = this.lifecycleGeneration;
     try {
@@ -7039,10 +7041,19 @@ export class TournamentRecurringService {
         );
         if (count <= 0 || isMaintenanceFrozen() || this.stopOperation) return 0;
       }
+      const isMtt = isPersistedUnlimitedMtt(entryEvent);
+      let attendanceTarget =
+        targetLiveEntries ?? Math.max(0, Number(entryEvent.current_players) || 0) + count;
       if (
-        isPersistedUnlimitedMtt(entryEvent) &&
-        ['ANNOUNCED', 'REGISTERING'].includes(String(entryEvent.status).toUpperCase())
+        isMtt &&
+        (!Number.isSafeInteger(attendanceTarget) ||
+          attendanceTarget < 0 ||
+          !Number.isSafeInteger(count) ||
+          count < 0)
       ) {
+        throw new TypeError('Invalid Horse attendance target');
+      }
+      if (isMtt && ['ANNOUNCED', 'REGISTERING'].includes(String(entryEvent.status).toUpperCase())) {
         const startMs = Date.parse(String(entryEvent.start_time ?? ''));
         const current = Math.max(0, Number(entryEvent.current_players) || 0);
         const now = Date.now();
@@ -7064,6 +7075,7 @@ export class TournamentRecurringService {
             buyInPrizeShare: mttGuaranteeEntryAmount(entryEvent),
           });
           count = Math.min(count, Math.max(0, target - current));
+          attendanceTarget = Math.min(attendanceTarget, target);
           // A paid award still uses the existing bounded ticket-only recovery
           // after this clock opens, even when ordinary funding is already met.
           if (count <= 0 && !redeemTickets) return 0;
@@ -7525,17 +7537,23 @@ export class TournamentRecurringService {
           continue;
         }
         const attemptedAt = new Date().toISOString();
-        const { data: res, error: regError } = await supabase.rpc(
-          'fn_register_horse_for_tournament',
-          {
-            p_tournament_id: tournamentId,
-            p_user_id: horse.id,
-            // A hinted ticket that disappears between the read and this RPC
-            // must not become a wallet charge. A newly-issued ticket is still
-            // consumed first by the database even when this is true.
-            p_allow_wallet_charge: !ticketHintIds.has(horse.id),
-          }
-        );
+        const registrationArgs = {
+          p_tournament_id: tournamentId,
+          p_user_id: horse.id,
+          // A hinted ticket that disappears between the read and this RPC
+          // must not become a wallet charge. A newly-issued ticket is still
+          // consumed first by the database even when this is true.
+          p_allow_wallet_charge: !ticketHintIds.has(horse.id),
+        };
+        // The caller's roster snapshot cannot serialize independent fill
+        // passes. The target-qualified door checks the real field under the
+        // ordinary acquisition lock, then delegates the same paid admission.
+        const { data: res, error: regError } = await (isMtt
+          ? supabase.rpc('fn_register_horse_for_tournament_to_target', {
+              ...registrationArgs,
+              p_target_live_entries: attendanceTarget,
+            })
+          : supabase.rpc('fn_register_horse_for_tournament', registrationArgs));
 
         if (regError) {
           const capRefusal = horseEntryCapRefusalContext(
@@ -7567,7 +7585,12 @@ export class TournamentRecurringService {
             [
               'registration_closed',
               'tournament_full',
+              'tournament_not_found',
+              'tournament_not_seatable',
+              'diamond_arena_closed',
+              'operator_floor_parked',
               'horse_registration_not_open',
+              'horse_attendance_target_met',
               'platform_frozen',
             ].includes(reason)
           )

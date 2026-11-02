@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274871,
-      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+      "bytes": 275034,
+      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
     },
     "scripts/ci/satellite_qualifier_fixture.py": {
       "bytes": 18466,
@@ -210,8 +210,8 @@
       "sha256": "e4e050861cd66b668833fff0948a8fcbf0fe0db861e325a6d5f30ec4feed6b15"
     },
     "scripts/ci/test-mtt-unlimited.py": {
-      "bytes": 44960,
-      "sha256": "09a224758539d72c8348d09682ac72a4dce4108800d59a506270fb64fe76e82e"
+      "bytes": 46447,
+      "sha256": "8e51d40d3b4d299105fec9ccee784bd0f0889b249d5bf559ae18760dbe078e8a"
     },
     "scripts/dev/probe-cash-original17-pg17.sh": {
       "bytes": 1215,
@@ -2633,5 +2633,43 @@
       "bytes": 274871,
       "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
     }
+  },
+  "ownedSocketParentSourceAudit20261102": {
+    "file": "scripts/ci/test-mtt-unlimited.py",
+    "previous": {
+      "bytes": 44960,
+      "sha256": "09a224758539d72c8348d09682ac72a4dce4108800d59a506270fb64fe76e82e"
+    },
+    "current": {
+      "bytes": 45013,
+      "sha256": "74f688967a9c8e4b99eb3ccd2b5a8f3624e569ae4a88870898b2faee0501e43b"
+    },
+    "reason": "Reviewed exact constructor diff: default private PostgreSQL sockets to the supplied owned work parent instead of hard-coded /tmp; preserve explicit socket-parent override. Financial SQL, formulas, assertions, deadlines and historical receipts unchanged.",
+    "validation": "35 runner regressions passed. Separate extended MTT activation fixture passed four native groups and 14 stock isolation races. This metadata change does not recertify historical cash17, retained18 or fifteen-percent execution receipts. Exact-head required checks remain mandatory.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "pgdgRepositoryKeySourceAudit20261102": {
+    "reason": "Reviewed exact installer-only workflow diff: fetch the byte-identical PGDG signing key from apt.postgresql.org instead of the repeatedly failing website TLS endpoint. Preserve HTTPS/curl failure propagation/Signed-By, every package version, test, assertion, deadline, runner, financial input and historical receipt.",
+    "previousCiPin": {
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+    },
+    "currentCiPin": {
+      "bytes": 275034,
+      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
+    },
+    "keySha256": "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76",
+    "validation": "Both official endpoints returned identical key bytes; eight local installer/mirror regressions pass. Exact-head hosted native execution remains required. Source identity only, not historical financial or live recertification.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "ownedSocketByteBudgetSourceAudit20261102": {
+    "scope": "Resource-owner socket path selection only; no financial rule or existing assertion changed.",
+    "source": "scripts/ci/test-mtt-unlimited.py",
+    "sha256": "8e51d40d3b4d299105fec9ccee784bd0f0889b249d5bf559ae18760dbe078e8a",
+    "bytes": 46447,
+    "reason": "Actual hosted failure: archive-root socket exceeded 107 bytes. Retain short owned work parents, honor explicit socket root, use configured private temporary root only when the default is overlong, refuse explicit overlong roots and clean constructor allocations.",
+    "qualification": "Source binding updated; refreshed native and hosted results remain required. Historical qualification and remaining acceptance are unchanged."
   }
 }

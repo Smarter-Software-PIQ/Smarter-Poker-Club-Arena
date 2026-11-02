@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/horse-phase2-lifecycle-01a198b1",
+  "_comment": "Target-qualified Horse admission must be installed before an engine using it activates. Economic decisions remain in the existing ordinary entry authority.",
+  "functions": ["fn_register_horse_for_tournament_to_target"]
+}
