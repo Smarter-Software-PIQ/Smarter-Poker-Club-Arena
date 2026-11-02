@@ -20,6 +20,8 @@ on:
       - scripts/ci/v31-atomic-promotion.test.mjs
       - scripts/ci/inspect-v31-worker-readiness.mjs
       - server/scripts/*evaluation-worker*.mjs
+      - server/src/scripts/gtoV31Evaluate.ts
+      - server/src/benchmark/GtoV31EvaluationConfig.ts
       - server/scripts/gto-v31-evaluate-worker.mjs
       - server/scripts/build-public-hist215-native.mjs
       - server/native/**
@@ -55,6 +57,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned protected-main commit the real-closure test reads
+        run: git fetch --no-tags --depth=1 origin ee9fd8eded24d2f832cbe9de865e2d8932fa648f
       - uses: actions/setup-node@v4
         with:
           node-version: 22

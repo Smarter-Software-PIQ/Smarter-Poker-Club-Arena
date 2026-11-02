@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { invocation, servingIdentity, pinOwner, epochReceipts, selectEpoch, promotionPlan, maintenanceRefusal,
-  evaluatorArguments, hostTranscript, OUTCOMES, promotionRequest, PROMOTION_BUDGET_MS } from './gto-v31-qualification.mjs';
+import { invocation, servingIdentity, pinOwner, epochReceipts, selectEpoch as select, promotionPlan, maintenanceRefusal,
+  evaluatorArguments, hostTranscript, OUTCOMES, promotionRequest, PROMOTION_BUDGET_MS, EPOCH_PROTOCOL, epochProtocolPresent,
+  epochAwareCommit } from './gto-v31-qualification.mjs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+
+/** Every commit in these fixtures carries the epoch protocol unless a test says otherwise. */
+const selectEpoch = (args) => select({ epochAware: () => true, ...args });
 
 const id = '2687c795-6014-543e-85fd-460f418da6c3';
 const valid = { eventName: 'workflow_dispatch', ref: 'refs/heads/main', repository: 'Smarter-Poker/Smarter-Poker-Club-Arena', repositoryId: '1132369872', inputs: { dataset: id, operation: 'evaluate', reason: '' } };
@@ -139,4 +147,42 @@ test('promotion requests and evaluator arguments carry no override or interpolat
   assert.deepEqual(evaluatorArguments(id, 'evaluate'), ['scripts/gto-v31-evaluate-worker.mjs', `--dataset=${id}`]);
   assert.throws(() => evaluatorArguments(id, 'promote'));
   assert.throws(() => evaluatorArguments('not-a-uuid', 'evaluate'));
+});
+
+test('an epoch is never spent on a commit whose evaluator predates epochs', () => {
+  const reason = 'Serving engine advanced past the evaluated decision closure';
+  const stale = (sha) => sha !== C2;
+  assert.throws(() => select({ dataset: ds(), servingSha: C2, reason: null, epochAware: stale }), /predates the epoch-aware evaluator/);
+  const open = ds({ epochs: [epoch(E1, 1, C1)], evaluations: [heldout] });
+  assert.throws(() => select({ dataset: open, servingSha: C2, compatibleWithServing: false, reason, epochAware: stale }), /predates/);
+  assert.throws(() => select({ dataset: open, servingSha: C2, compatibleWithServing: true, epochAware: () => false }), /predates/);
+  assert.throws(() => select({ dataset: ds(), servingSha: C2 }), /protocol must be checked/);
+  assert.equal(select({ dataset: ds(), servingSha: C1, epochAware: (sha) => sha === C1 }).engineSha, C1);
+  const sources = Object.fromEntries(Object.entries(EPOCH_PROTOCOL).map(([p, marker]) => [p, `x\n${marker}\n`]));
+  assert.equal(epochProtocolPresent(sources), true);
+  for (const path of Object.keys(EPOCH_PROTOCOL))
+    assert.equal(epochProtocolPresent({ ...sources, [path]: 'export const legacy = 1;' }), false, path);
+});
+
+test('the epoch protocol is read from the exact commit in a real git history', () => {
+  const dir = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'v31-protocol-'));
+  const git = (...args) => {
+    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout.trim();
+  };
+  const write = (files) => { for (const [p, t] of Object.entries(files)) { mkdirSync(dirname(join(dir, p)), { recursive: true }); writeFileSync(join(dir, p), t); } };
+  try {
+    git('init', '-q', '-b', 'main');
+    write(Object.fromEntries(Object.keys(EPOCH_PROTOCOL).map((p) => [p, 'legacy\n'])));
+    git('add', '-A'); git('commit', '-q', '-m', 'legacy evaluator');
+    const legacy = git('rev-parse', 'HEAD');
+    write(Object.fromEntries(Object.entries(EPOCH_PROTOCOL).map(([p, marker]) => [p, `${marker}\n`])));
+    git('add', '-A'); git('commit', '-q', '-m', 'epoch-aware evaluator');
+    const aware = git('rev-parse', 'HEAD');
+    assert.equal(epochAwareCommit(dir, legacy), false);
+    assert.equal(epochAwareCommit(dir, aware), true);
+    assert.equal(epochAwareCommit(dir, 'f'.repeat(40)), false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

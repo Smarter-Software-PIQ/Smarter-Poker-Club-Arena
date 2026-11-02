@@ -48,12 +48,13 @@
 --     epoch; the receipt commit must equal the epoch commit; epoch n>1 result
 --     rows carry the matchup suffix _epoch<n> (fn_gto_v31_evaluation_matchup)
 --     because horse_league_results is unique per (run_date, matchup).
---   fn_gto_v31_promote_dataset(dataset, engine_commit, serving_commit): the
---     promotion names the engine commit it promotes for, which must be the
---     open epoch's commit, and requires the eight distinct win/tie receipts of
---     exactly that epoch plus the held-out pass. It records the promoted
---     engine commit and the serving engine commit on the epoch. The old
---     one-argument promotion keeps its signature and grants but refuses.
+--   fn_gto_v31_promote_dataset_epoch(dataset, engine_commit, serving_commit):
+--     the promotion names the engine commit it promotes for, which must be
+--     the open epoch's commit, and requires the eight distinct win/tie
+--     receipts of exactly that epoch plus the held-out pass. It records the
+--     promoted engine commit and the serving engine commit on the epoch. It is
+--     a NEW name, so fn_gto_v31_promote_dataset keeps exactly one overload
+--     (the one-argument door, same signature and grants), which now refuses.
 --   ca_gto_v31_certification_status: adds current_epoch, evaluation_epochs and
 --     each receipt's epoch and engine commit (additive; contract v1 kept).
 --
@@ -65,7 +66,7 @@
 -- keeps the existing grants byte-identical; new functions get service_role.
 -- Native proof: scripts/ci/test-v31-evaluation-epochs.py (PostgreSQL 17).
 --
--- @live-proof: to_regclass('public.gto_v31_evaluation_epochs') IS NOT NULL AND to_regclass('public.gto_v31_release_evaluations_one_per_engine_commit') IS NOT NULL AND to_regprocedure('public.fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)') IS NOT NULL AND has_function_privilege('service_role','public.fn_gto_v31_promote_dataset(uuid,text,text)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_gto_v31_promote_dataset(uuid,text,text)','EXECUTE') AND NOT has_function_privilege('anon','public.fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)','EXECUTE') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='gto_v31_release_evaluations_dataset_id_evaluation_kind_game_key')
+-- @live-proof: to_regclass('public.gto_v31_evaluation_epochs') IS NOT NULL AND to_regclass('public.gto_v31_release_evaluations_one_per_engine_commit') IS NOT NULL AND to_regprocedure('public.fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)') IS NOT NULL AND has_function_privilege('service_role','public.fn_gto_v31_promote_dataset_epoch(uuid,text,text)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_gto_v31_promote_dataset_epoch(uuid,text,text)','EXECUTE') AND NOT has_function_privilege('anon','public.fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)','EXECUTE') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='gto_v31_release_evaluations_dataset_id_evaluation_kind_game_key') AND (SELECT count(*) FROM pg_proc WHERE proname='fn_gto_v31_promote_dataset' AND pronamespace='public'::regnamespace)=1
 
 BEGIN;
 SET LOCAL statement_timeout='20s';
@@ -95,7 +96,7 @@ BEGIN
     RAISE EXCEPTION 'ca_gto_v31_certification_status_preimage_changed';
   END IF;
   IF to_regclass('public.gto_v31_evaluation_epochs') IS NOT NULL
-     OR to_regprocedure('public.fn_gto_v31_promote_dataset(uuid,text,text)') IS NOT NULL
+     OR to_regprocedure('public.fn_gto_v31_promote_dataset_epoch(uuid,text,text)') IS NOT NULL
      OR to_regprocedure('public.fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)') IS NOT NULL THEN
     RAISE EXCEPTION 'v31_evaluation_epochs_already_installed';
   END IF;
@@ -286,11 +287,18 @@ BEGIN
      OR COALESCE(length(btrim(p_reason)),0) NOT BETWEEN 20 AND 2000 OR p_reason ~ '[[:cntrl:]]' THEN
     RAISE EXCEPTION 'an evaluation epoch needs an accountable opener and an audited reason of 20 to 2000 characters';
   END IF;
-  SELECT * INTO v_dataset FROM public.gto_v31_datasets WHERE dataset_id=p_dataset_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'dataset does not exist'; END IF;
-  -- The same estate lock as mark-candidate and promotion, taken in the same
-  -- order (dataset row, then gate): an epoch never changes underneath a
-  -- release decision and the two can never deadlock.
+  -- Lock only a dataset that is awaiting evaluation. An active row is never
+  -- locked here, so this can never wait on (or block) a promotion that holds
+  -- the release gate while it retires the active dataset. Lock order is the
+  -- same as mark-candidate and promotion: the awaiting dataset row, then gate.
+  SELECT * INTO v_dataset FROM public.gto_v31_datasets
+   WHERE dataset_id=p_dataset_id AND state IN ('evaluating','candidate') FOR UPDATE;
+  IF NOT FOUND THEN
+    IF EXISTS (SELECT 1 FROM public.gto_v31_datasets WHERE dataset_id=p_dataset_id) THEN
+      RAISE EXCEPTION 'dataset is not awaiting evaluation; a promoted, retired or rejected dataset never reopens evaluation';
+    END IF;
+    RAISE EXCEPTION 'dataset does not exist';
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('smarter-poker:gto-v31-release-gate', 0));
   IF v_dataset.state NOT IN ('evaluating','candidate')
      OR EXISTS (SELECT 1 FROM public.gto_v31_evaluation_epochs p
@@ -779,7 +787,7 @@ END;
 $function$;
 
 -- New: promotion binds the evaluated engine commit and records the serving commit.
-CREATE FUNCTION public.fn_gto_v31_promote_dataset(p_dataset_id uuid, p_engine_commit text, p_serving_commit text)
+CREATE FUNCTION public.fn_gto_v31_promote_dataset_epoch(p_dataset_id uuid, p_engine_commit text, p_serving_commit text)
  RETURNS text
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -882,10 +890,10 @@ BEGIN
   RETURN v_dataset.dataset_checksum;
 END;
 $function$;
-REVOKE ALL ON FUNCTION public.fn_gto_v31_promote_dataset(uuid,text,text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_gto_v31_promote_dataset(uuid,text,text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_gto_v31_promote_dataset_epoch(uuid,text,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_gto_v31_promote_dataset_epoch(uuid,text,text) TO service_role;
 
--- The unbound promotion keeps its signature and grants and refuses.
+-- The unbound promotion keeps its single signature and its grants, and refuses.
 CREATE OR REPLACE FUNCTION public.fn_gto_v31_promote_dataset(p_dataset_id uuid)
  RETURNS text
  LANGUAGE plpgsql
@@ -893,9 +901,12 @@ CREATE OR REPLACE FUNCTION public.fn_gto_v31_promote_dataset(p_dataset_id uuid)
  SET search_path TO 'public'
 AS $function$
 BEGIN
-  RAISE EXCEPTION 'promotion must name the evaluated engine commit and the serving engine commit: fn_gto_v31_promote_dataset(dataset, engine_commit, serving_commit)';
+  RAISE EXCEPTION 'promotion must name the evaluated engine commit and the serving engine commit: fn_gto_v31_promote_dataset_epoch(dataset, engine_commit, serving_commit)';
 END;
 $function$;
+-- Its live grant (postgres, service_role) restated so no default privilege can widen it.
+REVOKE ALL ON FUNCTION public.fn_gto_v31_promote_dataset(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_gto_v31_promote_dataset(uuid) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.ca_gto_v31_certification_status(p_dataset_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb

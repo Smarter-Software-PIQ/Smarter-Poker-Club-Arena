@@ -34,7 +34,7 @@ export async function promoteOnce(args, env, client) {
   if (before.state !== 'candidate' || epoch.promoted_at) return [10, { result: 'refused', reason: 'not_candidate' }];
   let response;
   try {
-    response = await client.rpc('fn_gto_v31_promote_dataset', {
+    response = await client.rpc('fn_gto_v31_promote_dataset_epoch', {
       p_dataset_id: datasetId, p_engine_commit: engineSha, p_serving_commit: servingSha,
     });
   } catch { return [20, { result: 'unknown' }]; }

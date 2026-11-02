@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -223,7 +224,7 @@ def scenario(cluster, migration_text):
     proof = re.search(r'^-- @live-proof: (.+)$', migration_text, re.M).group(1)
     assert db.sql(f'SELECT {proof}') == 't', 'live proof must hold after install'
     assert acls(db) == acl_before, 'replaced functions must keep byte-identical grants'
-    for fn in ['fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)', 'fn_gto_v31_promote_dataset(uuid,text,text)']:
+    for fn in ['fn_gto_v31_open_evaluation_epoch(uuid,text,text,text)', 'fn_gto_v31_promote_dataset_epoch(uuid,text,text)']:
         assert db.sql(f"SELECT has_function_privilege('service_role','public.{fn}','EXECUTE')") == 't'
         for role in ['anon', 'authenticated']:
             assert db.sql(f"SELECT has_function_privilege('{role}','public.{fn}','EXECUTE')") == 'f', (fn, role)
@@ -261,8 +262,9 @@ def scenario(cluster, migration_text):
 
     # Promotion is bound to the evaluated epoch's commit (a version change between
     # the checks and the promotion call is refused inside the database).
-    db.sql(f"SELECT public.fn_gto_v31_promote_dataset('{ds}',{q(C2)},{q(SERVING)})", refused='differs from the evaluated epoch')
+    db.sql(f"SELECT public.fn_gto_v31_promote_dataset_epoch('{ds}',{q(C2)},{q(SERVING)})", refused='differs from the evaluated epoch')
     db.sql(f"SELECT public.fn_gto_v31_promote_dataset('{ds}')", refused='must name the evaluated engine commit')
+    assert db.sql("SELECT count(*) FROM pg_proc WHERE proname='fn_gto_v31_promote_dataset'") == '1'
     assert db.sql(f"SELECT state FROM gto_v31_datasets WHERE dataset_id='{ds}'") == 'candidate'
 
     # A new epoch for a different commit: audited, prior rows untouched and immutable.
@@ -293,18 +295,30 @@ def scenario(cluster, migration_text):
     record_all(db, ds, checksum, C2, 2, bb100=5.0)
     total = db.sql(f"SELECT count(*)||'/'||count(DISTINCT evaluation_engine_commit) FROM gto_v31_release_evaluations WHERE dataset_id='{ds}' AND evaluation_kind<>'heldout'")
     assert total == '16/2', total
-    db.sql(f"SELECT public.fn_gto_v31_promote_dataset('{ds}',{q(C2)},{q(SERVING)})", refused='dataset is not a candidate')
+    db.sql(f"SELECT public.fn_gto_v31_promote_dataset_epoch('{ds}',{q(C2)},{q(SERVING)})", refused='dataset is not a candidate')
     db.sql(f"SELECT public.fn_gto_v31_mark_candidate('{ds}')")
-    db.sql(f"SELECT public.fn_gto_v31_promote_dataset('{ds}',{q(C1)},{q(SERVING)})", refused='differs from the evaluated epoch')
-    db.sql(f"SELECT public.fn_gto_v31_promote_dataset('{ds}',{q(C2)},'nope')", refused='full serving engine commit')
-    assert db.sql(f"SELECT public.fn_gto_v31_promote_dataset('{ds}',{q(C2)},{q(SERVING)})") == checksum
+    db.sql(f"SELECT public.fn_gto_v31_promote_dataset_epoch('{ds}',{q(C1)},{q(SERVING)})", refused='differs from the evaluated epoch')
+    db.sql(f"SELECT public.fn_gto_v31_promote_dataset_epoch('{ds}',{q(C2)},'nope')", refused='full serving engine commit')
+    assert db.sql(f"SELECT public.fn_gto_v31_promote_dataset_epoch('{ds}',{q(C2)},{q(SERVING)})") == checksum
     row = db.sql(f"SELECT d.state||'|'||p.epoch_no||'|'||p.engine_commit||'|'||p.promoted_serving_commit FROM gto_v31_datasets d "
                  f"JOIN gto_v31_evaluation_epochs p ON p.dataset_id=d.dataset_id AND p.promoted_at IS NOT NULL WHERE d.dataset_id='{ds}'")
     assert row == f'active|2|{C2}|{SERVING}', row
     assert receipts_digest(db, ds) != before and db.sql(
         f"SELECT count(*) FROM gto_v31_release_evaluations WHERE dataset_id='{ds}' AND evaluation_epoch_id='{e1['epoch_id']}'") == '8'
 
-    # Reopening after promotion is refused forever.
+    # Reopening after promotion is refused forever, without ever waiting on the
+    # release gate a concurrent promotion holds (no lock-order deadlock).
+    holder = subprocess.Popen([pg_bin('psql'), '-h', str(cluster.sock), '-p', cluster.port, '-U', 'postgres', '-d', db.name,
+                               '-X', '-q', '-c', "BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('smarter-poker:gto-v31-release-gate', 0)); "
+                               f"SELECT 1 FROM gto_v31_datasets WHERE dataset_id='{ds}' FOR UPDATE; SELECT pg_sleep(4); COMMIT;"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(1)
+        out = db.sql(f"SET lock_timeout='2s'; SELECT public.fn_gto_v31_open_evaluation_epoch('{ds}',{q(C3)},'github-actions:test',{q(REASON)})",
+                     refused='never reopens evaluation')
+        assert 'lock timeout' not in out, out
+    finally:
+        holder.wait(timeout=30)
     open_epoch(db, ds, C3, refused='never reopens evaluation')
     record(db, ds, 'league', 'cash', result(db, checksum, 'league', 'cash', C3, 3), refused='not awaiting evaluation')
     db.sql(f"UPDATE gto_v31_evaluation_epochs SET promoted_serving_commit={q(C3)} WHERE epoch_id='{e2['epoch_id']}'",
@@ -357,8 +371,9 @@ MUTATIONS = [
     ('a commit may be evaluated twice',
      "    RAISE EXCEPTION 'an engine commit is evaluated at most once per dataset';\n", "    NULL;\n"),
     ('evaluation reopens after promotion',
-     "  IF v_dataset.state NOT IN ('evaluating','candidate')\n     OR EXISTS",
-     "  IF false\n     AND EXISTS"),
+     [("  IF v_dataset.state NOT IN ('evaluating','candidate')\n     OR EXISTS", "  IF false\n     AND EXISTS"),
+      ("   WHERE dataset_id=p_dataset_id AND state IN ('evaluating','candidate') FOR UPDATE;",
+       "   WHERE dataset_id=p_dataset_id FOR UPDATE;")], None),
     ('qualification counts every epoch',
      "     AND e.game_family IN ('cash','spin','tourney_ev','tourney_icm')\n     AND e.evaluation_epoch_id=v_epoch_id;",
      "     AND e.game_family IN ('cash','spin','tourney_ev','tourney_icm');"),
@@ -386,9 +401,12 @@ def main():
         if '--mutations' in sys.argv:
             survived = []
             for label, old, new in MUTATIONS:
-                assert text.count(old) == 1, f'mutation anchor not unique: {label}'
+                mutated = text
+                for a, b in (old if isinstance(old, list) else [(old, new)]):
+                    assert mutated.count(a) == 1, f'mutation anchor not unique: {label}'
+                    mutated = mutated.replace(a, b)
                 try:
-                    scenario(cluster, text.replace(old, new))
+                    scenario(cluster, mutated)
                 except AssertionError as error:
                     print(f'  killed: {label} ({str(error).splitlines()[0][:120]})')
                 else:

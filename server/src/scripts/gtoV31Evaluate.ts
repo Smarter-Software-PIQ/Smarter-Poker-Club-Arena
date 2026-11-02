@@ -34,6 +34,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const FAMILIES: GtoV31EvaluationFamily[] = ['cash', 'spin', 'tourney_ev', 'tourney_icm'];
 const KINDS: GtoV31EvaluationKind[] = ['paired_replay', 'league'];
 const HEX40 = /^[0-9a-f]{40}$/;
+/** Qualification refuses to pin an epoch to a commit whose evaluator lacks this protocol. */
+const GTO_V31_EVALUATION_EPOCH_PROTOCOL = 'smarter-poker.gto-v31-evaluation-epochs.v1';
 
 interface StatusEvaluation {
   kind: GtoV31EvaluationKind | 'heldout';
@@ -325,6 +327,9 @@ async function main(): Promise<void> {
     throw new Error(`dataset state ${status.state} cannot be evaluated`);
   }
   const epoch = openEpochFor(status, engineCommit);
+  console.log(
+    `[gto-v31-evaluate] ${GTO_V31_EVALUATION_EPOCH_PROTOCOL}: epoch ${epoch.epoch_no} pins ${engineCommit}`
+  );
 
   for (const kind of KINDS) {
     for (const family of FAMILIES) {

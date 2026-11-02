@@ -5,7 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { closureCompatible, closureDifferences, decisionClosure, CLOSURE_EXTRAS } from './v31-decision-closure.mjs';
+import { closureCompatible, closureDifferences, decisionClosure, CLOSURE_EXTRAS, DYNAMIC_SITES } from './v31-decision-closure.mjs';
+import { fileURLToPath } from 'node:url';
 
 function repo() {
   const dir = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'v31-closure-'));
@@ -30,6 +31,8 @@ const BASE = {
   'server/src/engine/horseDecision/lane.ts': "import '../brain.js';\nexport const lane=1;\n",
   'server/src/engine/horseDecision/client.ts': "const m=await import('./worker.js');\n",
   'server/src/engine/horseDecision/worker.ts': 'export const w=1;\n',
+  'server/src/benchmark/HorseLeagueComputeProcess.ts': "import '../engine/brain.js';\n",
+  'server/src/benchmark/HorseLeagueComputeWorker.ts': 'export const c=1;\n',
   'server/src/scripts/reloadPublic215Stores.ts': "import { x } from 'node:fs';\n",
   'server/src/unrelated.ts': 'export const u=1;\n',
   'server/package.json': '{}\n', 'server/package-lock.json': '{"v":1}\n', 'server/tsconfig.json': '{}\n',
@@ -41,7 +44,8 @@ test('the closure follows static, dynamic, side-effect and import.meta.url edges
   const r = repo();
   try {
     const c0 = r.commit(BASE, 'base');
-    const files = decisionClosure(r.dir, c0);
+    const { files, errors } = decisionClosure(r.dir, c0);
+    assert.deepEqual(errors, []);
     for (const path of ['server/scripts/finite.mjs', 'server/src/scripts/gtoV31Evaluate.ts', 'server/src/engine/policy.ts',
       'server/src/engine/horseDecision/worker.ts', ...CLOSURE_EXTRAS.filter((x) => x in BASE)]) assert.equal(typeof files[path], 'string', path);
     assert.equal(files['server/src/unrelated.ts'], undefined);
@@ -85,4 +89,66 @@ test('a serving engine that predates the entries is incompatible; a pin that lac
     assert.throws(() => closureCompatible(r.dir, 'abc', c0));
     assert.deepEqual(closureDifferences({ a: '1' }, { a: '1', b: null }), ['b']);
   } finally { r.cleanup(); }
+});
+
+test('an unresolved specifier or an unacknowledged dynamic path refuses the closure', () => {
+  for (const [label, lane, error] of [
+    ['dynamic import', "const name = process.env.X;\nawait import(name);\nexport const lane=1;\n", /^dynamic server\/src\/engine\/horseDecision\/lane\.ts: await import\(name\)/],
+    ['template worker URL', "const v='a';\nnew URL(`./policy${v}.js`, import.meta.url);\n", /^dynamic .*new URL\(`\.\/policy/],
+    ['runtime file read', "import { readFileSync } from 'node:fs';\nreadFileSync(process.argv[2]);\n", /^dynamic .*readFileSync\(process\.argv\[2\]\)/],
+    ['missing module', "import '../missing.js';\n", /^unresolved server\/src\/engine\/horseDecision\/lane\.ts: \.\.\/missing\.js/],
+  ]) {
+    const r = repo();
+    try {
+      const good = r.commit(BASE, 'base');
+      const bad = r.commit({ 'server/src/engine/horseDecision/lane.ts': lane }, label);
+      const { errors } = decisionClosure(r.dir, bad);
+      assert.equal(errors.length, 1, `${label}: ${errors}`);
+      assert.match(errors[0], error, label);
+      assert.throws(() => closureCompatible(r.dir, bad, good), /not closed/, label);
+      const serving = closureCompatible(r.dir, good, bad);
+      assert.equal(serving.compatible, false, label);
+      assert.ok(serving.differences.some((d) => d.startsWith('closure-error ')), label);
+    } finally { r.cleanup(); }
+  }
+});
+
+test('imports outside server/ are followed, and literal sources/data a closure file names are included', () => {
+  const r = repo();
+  try {
+    const c0 = r.commit({ ...BASE,
+      'server/src/engine/policy.ts': "import { rake } from '../../../src/config/rake.js';\nexport const SOURCES=['src/engine/digested.ts','evidence/x.json'];\nexport const policy=rake;\n",
+      'src/config/rake.ts': 'export const rake=1;\n', 'server/src/engine/digested.ts': 'export const d=1;\n',
+      'evidence/x.json': '{}\n' }, 'outside');
+    const { files, errors } = decisionClosure(r.dir, c0);
+    assert.deepEqual(errors, []);
+    for (const path of ['src/config/rake.ts', 'server/src/engine/digested.ts', 'evidence/x.json']) assert.equal(typeof files[path], 'string', path);
+    const c1 = r.commit({ 'src/config/rake.ts': 'export const rake=2;\n' }, 'client rake change');
+    assert.deepEqual(closureCompatible(r.dir, c0, c1).differences, ['src/config/rake.ts']);
+  } finally { r.cleanup(); }
+});
+
+// The real repository at a pinned protected-main commit (fetched by the contract job).
+const PINNED = 'ee9fd8eded24d2f832cbe9de865e2d8932fa648f';
+const ROOT = spawnSync('git', ['-C', dirname(fileURLToPath(import.meta.url)), 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
+test('the real decision closure at a pinned main commit holds the decision code the import walk alone missed', () => {
+  const have = spawnSync('git', ['-C', ROOT, 'cat-file', '-e', `${PINNED}^{commit}`]).status === 0;
+  assert.ok(have, `pinned commit ${PINNED} must be fetched (git fetch --depth=1 origin ${PINNED})`);
+  const { files, errors } = decisionClosure(ROOT, PINNED);
+  assert.deepEqual(errors, []);
+  for (const path of [
+    'server/src/engine/horseDecision/worker.ts', 'server/src/engine/horseDecision/workerRuntime.ts',
+    'server/src/engine/horseDecision/mindMirror.ts', 'server/src/engine/horseDecision/observerReads.ts',
+    'server/src/benchmark/HorseLeagueComputeProcess.ts', 'server/src/benchmark/HorseLeagueComputeWorker.ts',
+    'server/src/services/GtoPostflopLoader.ts', 'server/src/services/GtoChartLoader.ts',
+    'server/src/services/HorseMindHydrator.ts', 'server/src/services/HorseExploitHydrator.ts',
+    'server/src/services/horseCorrectiveReview/kernelComposition.ts', 'server/src/services/horseDecisionJournal/worker.ts',
+    'server/src/engine/HorsePhase8PolicyDigest.ts', 'server/src/engine/HorseQualifiedAuthority.ts',
+    'server/src/engine/HorseFeatureAuthority.ts', 'server/src/gto/SolverPolicyArtifactLoader.ts',
+    'server/release-evidence/README.md', 'src/config/RakeConfig.ts', 'package-lock.json', 'server/package-lock.json',
+    'server/native/public_hist215_wtl.cc',
+  ]) assert.equal(typeof files[path], 'string', path);
+  assert.ok(Object.keys(files).length > 8000);
+  // Every acknowledged site names a file that exists at the pin (no stale acknowledgements hide drift).
+  for (const site of DYNAMIC_SITES) assert.equal(typeof files[site.file], 'string', site.file);
 });

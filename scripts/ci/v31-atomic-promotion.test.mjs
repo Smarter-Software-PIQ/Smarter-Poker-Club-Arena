@@ -27,6 +27,7 @@ if [ "$1" = exec ]; then
   if [ "$2" = -i ]; then
     cat > /dev/null
     if [ "$#" -eq 10 ]; then
+      [ -f "$S/promote_hang" ] && exec /bin/sleep 30
       cat "$S/promote_out"; rc=$(cat "$S/promote_rc")
       [ -f "$S/swap_after_promote" ] && cp "$S/swap_after_promote" "$S/identity"
       exit "$rc"
@@ -36,10 +37,23 @@ if [ "$1" = exec ]; then
     echo "{\\"stage\\":\\"readiness\\",\\"attempt\\":$n}"; exit "$rc"
   fi
   op=$5
+  [ -f "$S/\${op}_hang" ] && exec /bin/sleep 30
   echo "{\\"operation\\":\\"$op\\"}"; exit "$(cat "$S/\${op}_rc")"
 fi
 exit 99
 `;
+// Only where GNU timeout is absent (macOS): same contract, kill on expiry, exit 124.
+const FAKE_TIMEOUT = `#!/usr/bin/env bash
+while [[ $1 == --* ]]; do shift; done
+t=$1; shift
+exec 3<&0
+"$@" <&3 & pid=$!
+( /bin/sleep "$t"; kill -TERM "$pid" 2>/dev/null ) >/dev/null 2>&1 & killer=$!
+wait "$pid"; rc=$?
+if kill -0 "$killer" 2>/dev/null; then kill "$killer" 2>/dev/null; else rc=124; fi
+exit "$rc"
+`;
+const HAS_TIMEOUT = spawnSync('bash', ['-c', 'command -v timeout'], { encoding: 'utf8' }).status === 0;
 const FAKE_FLOCK = '#!/usr/bin/env bash\nexit "${FAKE_FLOCK_RC:-0}"\n';
 const FAKE_DATE = `#!/usr/bin/env bash
 for a in "$@"; do
@@ -52,7 +66,8 @@ function world(overrides = {}) {
   const root = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'v31-atomic-'));
   const bin = join(root, 'bin'), state = join(root, 'state');
   for (const dir of [bin, state]) spawnSync('mkdir', ['-p', dir]);
-  for (const [name, body] of [['docker', FAKE_DOCKER], ['flock', FAKE_FLOCK], ['date', FAKE_DATE], ['sleep', '#!/bin/sh\nexit 0\n']]) {
+  for (const [name, body] of [['docker', FAKE_DOCKER], ['flock', FAKE_FLOCK], ['date', FAKE_DATE], ['sleep', '#!/bin/sh\nexit 0\n'],
+    ...(HAS_TIMEOUT ? [] : [['timeout', FAKE_TIMEOUT]])]) {
     writeFileSync(join(bin, name), body); chmodSync(join(bin, name), 0o755);
   }
   const s = {
@@ -64,7 +79,7 @@ function world(overrides = {}) {
   const lock = join(root, 'engine-up.lock');
   if (overrides.lock !== false) writeFileSync(lock, '');
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_STATE: state, V31_ENGINE_LOCK: lock,
-    V31_READINESS_PAUSE: '0', FAKE_EPOCH: String(overrides.epoch ?? SAFE), FAKE_CHICAGO: overrides.chicago ?? '0920',
+    V31_READINESS_PAUSE: '0', ...(overrides.budget ? { V31_BUDGET_SECONDS: String(overrides.budget) } : {}), FAKE_EPOCH: String(overrides.epoch ?? SAFE), FAKE_CHICAGO: overrides.chicago ?? '0920',
     FAKE_FLOCK_RC: overrides.flock ?? '0' };
   return { root, state, env, calls: () => (existsSync(join(state, 'calls')) ? readFileSync(join(state, 'calls'), 'utf8').trim().split('\n') : []) };
 }
@@ -249,12 +264,12 @@ test('the container promotes exactly the evaluated epoch for the serving commit'
     current_epoch: { epoch_id: 'e1', epoch_no: 2, engine_commit: ENGINE, promoted_at: 'now', promoted_serving_commit: SERVING } };
   const db = fakeDb({ after: promoted });
   assert.deepEqual((await promoteOnce(ARGV, env, db))[0], 0);
-  assert.deepEqual(db.calls[1], ['fn_gto_v31_promote_dataset', { p_dataset_id: DATASET, p_engine_commit: ENGINE, p_serving_commit: SERVING }]);
+  assert.deepEqual(db.calls[1], ['fn_gto_v31_promote_dataset_epoch', { p_dataset_id: DATASET, p_engine_commit: ENGINE, p_serving_commit: SERVING }]);
   // Re-run after a partial load: never promotes again.
   const rerun = fakeDb({ state: 'active', epoch: promoted.current_epoch });
   const [code, body] = await promoteOnce(ARGV, env, rerun);
   assert.equal(code, 0); assert.equal(body.result, 'already-promoted');
-  assert.ok(!rerun.calls.some(([n]) => n === 'fn_gto_v31_promote_dataset'));
+  assert.ok(!rerun.calls.some(([n]) => n === 'fn_gto_v31_promote_dataset_epoch'));
 });
 
 test('the container refuses before any change, and reports unknown outcomes as unknown', async () => {
@@ -273,6 +288,32 @@ test('the container refuses before any change, and reports unknown outcomes as u
     const [got] = await promoteOnce(argv, e, db);
     assert.equal(got, code, label);
     if (code === 10 && label !== 'database gate raised')
-      assert.ok(!db.calls.some(([n]) => n === 'fn_gto_v31_promote_dataset'), label);
+      assert.ok(!db.calls.some(([n]) => n === 'fn_gto_v31_promote_dataset_epoch'), label);
   }
+});
+
+test('a hung step is killed at the deadline and reported explicitly, never holding the lock past the budget', () => {
+  for (const [hang, code, outcome, absent] of [['promote_hang', 67, 'promotion-outcome-unknown', 'reload'],
+    ['reload_hang', 68, 'promoted-load-incomplete', 'readiness']]) {
+    const w = world({ state: { [hang]: '1' }, budget: 4 });
+    try {
+      const started = Date.now();
+      const r = host(w);
+      const elapsed = Date.now() - started;
+      assert.equal(r.code, code, hang);
+      assert.equal(r.t.outcome, outcome, hang);
+      assert.ok(elapsed < 15000, `${hang} took ${elapsed} ms`);
+      assert.ok(!kinds(w.calls()).includes(absent), hang);
+    } finally { rmSync(w.root, { recursive: true, force: true }); }
+  }
+  // The budget can only shrink: a larger override is ignored.
+  const host_sh = readFileSync(HOST, 'utf8');
+  assert.match(host_sh, /BUDGET_SECONDS=480\n/);
+  assert.match(host_sh, /\(\( V31_BUDGET_SECONDS < BUDGET_SECONDS \)\)/);
+  for (const step of ['bounded 60 docker exec -i', 'bounded 170 docker exec', 'bounded 60 docker exec "$CONTAINER" node dist/scripts/reloadPublic215Stores.js status',
+    'bounded 45 docker exec -i', 'bounded 20 docker container inspect'])
+    assert.ok(host_sh.includes(step), step);
+  const calls = host_sh.split('\n').filter((line) => !line.trim().startsWith('#') && /\bdocker (?:exec|container)/.test(line));
+  assert.equal(calls.length, 5);
+  for (const line of calls) assert.match(line, /bounded \d+ docker /, line);
 });

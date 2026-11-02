@@ -19,16 +19,32 @@
 #   69 promoted-loaded-readiness-unproved (CHANGED: re-run reloads and re-proves)
 #   70 serving-identity-changed      (CHANGED or not: inspect, then re-run)
 #   75 refused-lock-or-boundary      (lock busy/missing or a maintenance boundary)
+#
+# BOUNDED. One absolute deadline (at most BUDGET_SECONDS after the start, well
+# inside the :50 boundary the start window leaves) bounds every docker step
+# through `timeout`, every pause and the whole run. A hung step is killed and
+# reported as its explicit outcome; the lock is released on every exit path.
+# SIGHUP/SIGPIPE are ignored only so a dropped SSH session still reaches a
+# recorded outcome, which the deadline guarantees happens within the budget.
 set -uo pipefail
-# The operation always completes to a recorded outcome, even if the SSH session drops.
 trap '' HUP PIPE
 LOCK=${V31_ENGINE_LOCK:-/var/lock/club-arena-engine-up.lock}
 CONTAINER=club-arena-engine
 BUDGET_MINUTES=9
+BUDGET_SECONDS=480
+# A caller may only SHRINK the budget (the tests use this for a hung step).
+if [[ ${V31_BUDGET_SECONDS:-} =~ ^[0-9]+$ ]] && (( V31_BUDGET_SECONDS < BUDGET_SECONDS )); then
+  BUDGET_SECONDS=$V31_BUDGET_SECONDS
+fi
 READINESS_ATTEMPTS=6
 READINESS_PAUSE=${V31_READINESS_PAUSE:-20}
+locked=0
 
-outcome() { printf 'V31_ATOMIC_OUTCOME %s\n' "$1"; exit "$2"; }
+outcome() {
+  printf 'V31_ATOMIC_OUTCOME %s\n' "$1"
+  if [ "$locked" -eq 1 ]; then flock -u 9 2>/dev/null; exec 9>&-; fi
+  exit "$2"
+}
 stage() { printf 'V31_ATOMIC_STAGE %s %s\n' "$1" "$2"; }
 last_json() { printf '%s\n' "$1" | grep -E '^\{.*\}$' | tail -n 1; }
 
@@ -44,6 +60,7 @@ done
 test -f "$LOCK" || outcome refused-lock-missing 75
 exec 9>"$LOCK"
 flock -n 9 || outcome refused-lock-busy 75
+locked=1
 
 # Never start where the run could reach an hourly :50-:10 boundary or the
 # daily 03:50-04:06 America/Chicago maintenance window.
@@ -53,16 +70,27 @@ if (( minute < 10 || minute > 49 - BUDGET_MINUTES )); then outcome refused-maint
 chicago=$(TZ=America/Chicago date +%H%M) || outcome refused-clock 75
 chicago=$((10#$chicago))
 if (( chicago >= 350 - BUDGET_MINUTES && chicago <= 406 )); then outcome refused-daily-maintenance 75; fi
+deadline=$(( now + BUDGET_SECONDS ))
+remaining() { local t; t=$(date -u +%s) || t=$deadline; echo $(( deadline - t )); }
+# bounded <cap-seconds> command...: runs within min(cap, time left before the deadline).
+bounded() {
+  local cap=$1 left
+  shift
+  left=$(remaining)
+  (( left > 2 )) || return 124
+  (( cap < left )) || cap=$left
+  timeout --signal=TERM --kill-after=5 "$cap" "$@"
+}
 
 identity() {
-  docker container inspect -f '{{.Id}}|{{.Image}}|{{.State.StartedAt}}|{{.State.Status}}|{{index .Config.Labels "org.opencontainers.image.revision"}}' "$CONTAINER"
+  bounded 20 docker container inspect -f '{{.Id}}|{{.Image}}|{{.State.StartedAt}}|{{.State.Status}}|{{index .Config.Labels "org.opencontainers.image.revision"}}' "$CONTAINER"
 }
 before=$(identity) || outcome refused-serving-identity 65
 case "$before" in *"|running|$serving") ;; *) outcome refused-serving-identity 65 ;; esac
 unchanged() { [ "$(identity 2>/dev/null)" = "$before" ]; }
 
 # 1. Promotion of exactly the evaluated epoch (or proof it already happened).
-promotion=$(printf '%s' "$promote_js" | base64 -d | docker exec -i "$CONTAINER" node --input-type=module - "$dataset" "$checksum" "$engine" "$serving")
+promotion=$(printf '%s' "$promote_js" | base64 -d | bounded 60 docker exec -i "$CONTAINER" node --input-type=module - "$dataset" "$checksum" "$engine" "$serving")
 code=$?
 stage promote "$(last_json "$promotion")"
 unchanged || outcome serving-identity-changed 70
@@ -73,14 +101,14 @@ case "$code" in
 esac
 
 # 2. One explicit eight-worker load of the now-active dataset.
-load=$(docker exec "$CONTAINER" node dist/scripts/reloadPublic215Stores.js reload "$request" "$dataset" "$checksum")
+load=$(bounded 170 docker exec "$CONTAINER" node dist/scripts/reloadPublic215Stores.js reload "$request" "$dataset" "$checksum")
 code=$?
 stage load "$(last_json "$load")"
 unchanged || outcome serving-identity-changed 70
 [ "$code" -eq 0 ] || outcome promoted-load-incomplete 68
 
 # 3. A fresh eight-worker status read of the same request identity.
-status=$(docker exec "$CONTAINER" node dist/scripts/reloadPublic215Stores.js status "$request" "$dataset" "$checksum")
+status=$(bounded 60 docker exec "$CONTAINER" node dist/scripts/reloadPublic215Stores.js status "$request" "$dataset" "$checksum")
 code=$?
 stage status "$(last_json "$status")"
 [ "$code" -eq 0 ] || outcome promoted-loaded-readiness-unproved 69
@@ -88,10 +116,12 @@ stage status "$(last_json "$status")"
 # 4. Natural readiness: each worker made an accepted decision with the store loaded.
 attempt=1
 while :; do
-  ready=$(printf '%s' "$ready_js" | base64 -d | docker exec -i "$CONTAINER" node --input-type=module - "$ready_request")
+  ready=$(printf '%s' "$ready_js" | base64 -d | bounded 45 docker exec -i "$CONTAINER" node --input-type=module - "$ready_request")
   code=$?
   stage readiness "$(last_json "$ready")"
   if [ "$code" -ne 2 ] || [ "$attempt" -ge "$READINESS_ATTEMPTS" ]; then break; fi
+  # Never pause past the deadline: stop with the incomplete readiness instead.
+  if (( $(remaining) <= READINESS_PAUSE + 5 )); then break; fi
   attempt=$((attempt + 1))
   sleep "$READINESS_PAUSE"
 done

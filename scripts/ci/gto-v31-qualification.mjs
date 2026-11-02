@@ -55,6 +55,31 @@ export function servingIdentity(body) {
   return { releaseSha: body.releaseSha };
 }
 
+/**
+ * Files whose epoch protocol a pinned commit must carry: an evaluator that
+ * predates epochs would ignore the epoch matchup and spend the epoch for good.
+ */
+export const EPOCH_PROTOCOL = Object.freeze({
+  'server/src/scripts/gtoV31Evaluate.ts':
+    "const GTO_V31_EVALUATION_EPOCH_PROTOCOL = 'smarter-poker.gto-v31-evaluation-epochs.v1';",
+  'server/src/benchmark/GtoV31EvaluationConfig.ts': 'export function evaluationMatchup(',
+});
+export function epochProtocolPresent(sources) {
+  return Object.entries(EPOCH_PROTOCOL).every(([path, marker]) =>
+    typeof sources?.[path] === 'string' && sources[path].includes(marker));
+}
+/** The epoch protocol at an exact commit, read from git (never a working tree). */
+export function epochAwareCommit(repo, sha) {
+  if (!fullSha(sha)) return false;
+  const sources = {};
+  for (const path of Object.keys(EPOCH_PROTOCOL)) {
+    const result = spawnSync('git', ['-C', repo, 'show', `${sha}:${path}`], { encoding: 'utf8', timeout: 20000, maxBuffer: 1 << 26 });
+    if (result.status !== 0) return false;
+    sources[path] = result.stdout;
+  }
+  return epochProtocolPresent(sources);
+}
+
 /** Replay/league receipts of exactly one epoch; any receipt in it bound to another commit is refused. */
 export function epochReceipts(dataset, epoch) {
   const receipts = (dataset.evaluations ?? []).filter((r) => KINDS.includes(r.kind) && r.evaluation_epoch_id === epoch.epoch_id);
@@ -99,7 +124,8 @@ export function pinOwner(dataset) {
  * commit (promotion then waits for a closure-identical serving engine).
  */
 export function selectEpoch({ dataset, servingSha, servingComplete = true, controlSha = servingSha,
-  compatibleWithServing, reason }) {
+  compatibleWithServing, reason, epochAware }) {
+  if (typeof epochAware !== 'function') throw new Error('The pinned evaluator protocol must be checked');
   if (!['evaluating', 'candidate'].includes(dataset?.state)) throw new Error('A sealed evaluating/candidate dataset is required');
   if (!fullSha(servingSha) || !fullSha(controlSha)) throw new Error('Full serving and control engine commits are required');
   const pin = servingComplete === true ? servingSha : controlSha;
@@ -107,16 +133,21 @@ export function selectEpoch({ dataset, servingSha, servingComplete = true, contr
   if (epoch?.promoted_at) throw new Error('A promoted dataset never reopens evaluation');
   if ((dataset.evaluations ?? []).some((r) => KINDS.includes(r.kind) && r.verdict === 'loss'))
     throw new Error('A dataset that lost an evaluation is never re-evaluated');
+  const aware = (sha) => {
+    if (epochAware(sha) !== true)
+      throw new Error(`Engine commit ${sha} predates the epoch-aware evaluator; refusing to spend an evaluation epoch on it`);
+    return sha;
+  };
   if (epoch === null)
-    return { action: 'open-first', engineSha: pin,
+    return { action: 'open-first', engineSha: aware(pin),
       reason: reason ?? `Initial evaluation epoch pinned to the ${pin === servingSha ? 'serving engine' : 'protected control commit'} ${pin}` };
-  if (compatibleWithServing === true) return { action: 'resume', engineSha: epoch.engine_commit, epochNo: epoch.epoch_no };
+  if (compatibleWithServing === true) return { action: 'resume', engineSha: aware(epoch.engine_commit), epochNo: epoch.epoch_no };
   if (compatibleWithServing !== false) throw new Error('Closure compatibility must be decided before selecting an epoch');
   if (!reason)
     throw new Error('The serving engine is not closure-compatible with the open epoch; a new epoch needs an explicit audited reason');
   if ((dataset.evaluation_epochs ?? []).some((e) => e.engine_commit === pin))
     throw new Error('An engine commit is evaluated at most once per dataset');
-  return { action: 'open-next', engineSha: pin, reason };
+  return { action: 'open-next', engineSha: aware(pin), reason };
 }
 
 /** Promotion (or a load-only resume of an already promoted epoch) of exactly the evaluated epoch. */
@@ -323,6 +354,7 @@ async function resolveEvaluation(selected, directory, contextPath) {
   const compatibility = epoch ? closureCompatible(control, epoch.engine_commit, serving.releaseSha) : null;
   const choice = selectEpoch({ dataset, servingSha: serving.releaseSha, controlSha: process.env.GITHUB_SHA,
     servingComplete: closureComplete(decisionClosure(control, serving.releaseSha)), reason: selected.reason,
+    epochAware: (sha) => epochAwareCommit(control, sha),
     compatibleWithServing: compatibility?.compatible });
   protectedCommit(control, choice.engineSha);
   let opened = null;
@@ -355,6 +387,7 @@ async function runEvaluation(selected, directory, contextPath) {
     if (git(runtime, ['rev-parse', 'HEAD']) !== context.releaseSha || git(runtime, ['status', '--porcelain', '--untracked-files=all']))
       throw new Error('Runtime checkout does not exactly match the clean pinned engine commit');
     protectedCommit(runtime, context.releaseSha);
+    if (!epochAwareCommit(runtime, context.releaseSha)) throw new Error('The pinned runtime lacks the epoch-aware evaluator');
     // Production may advance during an evaluation; the epoch pin never moves.
     const before = await status(selected.dataset);
     const epoch = pinOwner(before);
