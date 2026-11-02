@@ -24,6 +24,7 @@ BEGIN
 END $copy$;
 
 WITH baseline(id, old_guarantee) AS (VALUES
+ ('e842cd87-9419-402a-98fd-2451c627bb5f'::uuid, 500::numeric),
  ('0251fba4-dcc2-41f0-aec2-9cd567785c3d'::uuid, 500.00::numeric),
  ('0418daad-05a5-4aa7-9728-5bf1a3ac12cc'::uuid, 500.00::numeric),
  ('04746fce-4bad-4547-96ac-7e87b398648c'::uuid, 5000.00::numeric),

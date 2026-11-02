@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ScheduledTournamentService } from './ScheduledTournamentService.js';
+import { supabase } from './supabase.js';
+afterEach(() => vi.restoreAllMocks());
 import { readFileSync } from 'node:fs';
 import {
   withReducedTournamentGuarantee as apply,
-  guaranteeTargetNameFilter,
   GUARANTEE_REDUCTION_START_MS as start,
 } from './TournamentGuaranteePolicy.js';
 const base = {
@@ -47,14 +49,58 @@ describe('November midnight tournament guarantee reduction', () => {
     expect(result.name).toBe('40 Chip Freezeout - 2.5K GTD (NLH)');
     expect(result.short_description).toBe('2.5K GTD | 20K Stack | 8 Min Levels');
   });
-  it('keeps satellites connected to original committed and reduced target names', () => {
-    expect(guaranteeTargetNameFilter('40 Chip Freezeout - 5K GTD (NLH)')).toBe(
-      'name.ilike."40 Chip Freezeout - 5K GTD (NLH)%",name.ilike."40 Chip Freezeout - 2.5K GTD (NLH)%"'
+  it('uses unchanged schedule identity so reduced 5K cannot match the separate 2.5K event', () => {
+    const source = readFileSync(
+      new URL('./ScheduledTournamentService.ts', import.meta.url),
+      'utf8'
     );
-    expect(guaranteeTargetNameFilter('Nightly 10K (NLH)')).toContain('Nightly 5K (NLH)');
-    expect(guaranteeTargetNameFilter('Sunday 200 Deep Stack')).toBe(
-      'name.ilike."Sunday 200 Deep Stack%"'
+    expect(source).toContain(".from('tournament_schedules').select('id').eq('name', name)");
+    const live = source.slice(
+      source.indexOf('private async resolveSatelliteTarget('),
+      source.indexOf('// RESTART-EVERY')
     );
+    expect(live.match(/query\.in\('schedule_id', targetSchedules\)/g)).toHaveLength(2);
+    expect(live).not.toContain('guaranteeTargetNameFilter');
+  });
+  it('queries the original schedule ID after its displayed guarantee has changed', async () => {
+    const ids: unknown[][] = [];
+    const scheduleQuery: any = {
+      select: vi.fn(() => scheduleQuery),
+      eq: vi.fn(() => scheduleQuery),
+      then: (resolve: any) =>
+        Promise.resolve({ data: [{ id: 'original-five-k-schedule' }], error: null }).then(resolve),
+    };
+    const eventQuery: any = {
+      select: vi.fn(() => eventQuery),
+      eq: vi.fn(() => eventQuery),
+      in: vi.fn((...args: unknown[]) => {
+        ids.push(args);
+        return eventQuery;
+      }),
+      gt: vi.fn(() => eventQuery),
+      order: vi.fn(() => eventQuery),
+      limit: vi.fn(() => eventQuery),
+      maybeSingle: vi.fn(async () => ({
+        data: {
+          id: 'same-target',
+          name: '40 Chip Freezeout - 2.5K GTD (NLH)',
+          start_time: '2026-11-03T06:00:00Z',
+        },
+        error: null,
+      })),
+    };
+    vi.spyOn(supabase, 'from').mockImplementation((table: string) =>
+      table === 'tournament_schedules' ? scheduleQuery : eventQuery
+    );
+    const result = await (new ScheduledTournamentService() as any).cancelledSatelliteTarget(
+      { club_id: 'club', union_id: 'union' },
+      '40 Chip Freezeout - 5K GTD (NLH)',
+      new Date('2026-11-02T06:00:00Z')
+    );
+    expect(scheduleQuery.eq).toHaveBeenCalledWith('name', '40 Chip Freezeout - 5K GTD (NLH)');
+    expect(scheduleQuery.eq).toHaveBeenCalledWith('union_id', 'union');
+    expect(ids).toContainEqual(['schedule_id', ['original-five-k-schedule']]);
+    expect(result.id).toBe('same-target');
   });
   it('applies after the fixed/weekly row builder and before Diamond pricing or admission', () => {
     const source = readFileSync(

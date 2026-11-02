@@ -51,20 +51,3 @@ export function withReducedTournamentGuarantee(
       : {}),
   };
 }
-
-/** Stable named-family lookup across the owner's guarantee label change. */
-export function guaranteeTargetNameFilter(prefix: string): string {
-  const safe = prefix.replace(/[%_]/g, '');
-  const reduced = safe
-    .replace(
-      /(Nightly )(\d+(?:\.\d+)?)(K?)/g,
-      (_, lead: string, amount: string, unit: string) => `${lead}${Number(amount) / 2}${unit}`
-    )
-    .replace(
-      /(\d+(?:\.\d+)?)(K?)( GTD)/g,
-      (_, amount: string, unit: string, suffix: string) => `${Number(amount) / 2}${unit}${suffix}`
-    );
-  // PostgREST quoted values protect punctuation in event names (notably NLH).
-  const quote = (value: string) => JSON.stringify(value + '%');
-  return [...new Set([safe, reduced])].map((value) => `name.ilike.${quote(value)}`).join(',');
-}
