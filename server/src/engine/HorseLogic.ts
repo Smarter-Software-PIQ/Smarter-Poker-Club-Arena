@@ -2389,6 +2389,15 @@ export interface HorseDecideOpts {
    *  a smaller raise and every value raise are untouched; the random roll
    *  is consumed exactly as before. Default on; explicit false keeps today. */
   v78NoCommittingBluffRaise?: boolean;
+  /** V79 (2026-11-02, Burls via Dan: horses "stack off with top pair, no
+   *  weak kickers"): hold'em top pair with a weak kicker (9 or lower, not
+   *  pairing the board) facing a turn or river wager of 0.6 pot or more, or
+   *  one that commits 40%+ of the stack, has its equity capped at 0.45
+   *  falling to 0.30 at pot-sized wagers (v79WeakKickerCap) before every
+   *  call, jam and raise verdict; a
+   *  measured over-bluffer and an already-priced-in call (pot odds under
+   *  25%) keep today. Default on; explicit false keeps today's equity. */
+  v79TopPairWeakKicker?: boolean;
   /** Phase 7 Round 1: final action-specific tournament utility arbiter.
    *  Complete schema-v1 tournament decisions evaluate every legal action
    *  family after all legacy strategy layers; no global style multiplier can
@@ -4160,6 +4169,52 @@ export function v65TurnOnePairShade(
  * review hands (12% sample, |net| >= 20bb): turn draws facing a bet of 0.7
  * pot or more won 31-35% (cash n=164, -2,961bb sampled).
  */
+/**
+ * ═══ V79 TOP PAIR, WEAK KICKER (2026-11-02) ═══
+ * Burls via Dan: horses "stack off with top pair, no weak kickers". The
+ * brain never read the kicker: V11's domination penalty exempts top pair
+ * (zero overcards above it) and every one-pair shade (V61/V63/V65/V66/V67)
+ * depends only on the price. Measured (3 days to 2026-11-02, NLH review
+ * hands tagged top_pair_weak_kicker_stackoff): 828 hands, -39,835bb; the
+ * largest share, 443 calls of a bet the horse did not start (420 on the
+ * river), won 10.2% for -28,925bb, unchanged by the V63-V70 release. Against
+ * the range that bets big into top pair, a weak kicker is dominated by every
+ * better top pair and chops at best, so its equity is shaded on top of the
+ * price shades.
+ *
+ * Top pair with a weak kicker: exactly one hole card pairs the board's
+ * highest rank (board top rank unpaired on the board, hole cards unpaired),
+ * and the other hole card is a 9 or lower that does not pair the board (the
+ * same definition HorseHandReview tags).
+ */
+export const V79_WEAK_KICKER_MAX = 9;
+export function v79TopPairWeakKicker(hole: Card[], board: Card[]): boolean {
+  if (!hole || hole.length !== 2 || !board || board.length < 3) return false;
+  if (hole[0].rank === hole[1].rank) return false;
+  const top = Math.max(...board.map((c) => RANK_VALUES[c.rank]));
+  if (board.filter((c) => RANK_VALUES[c.rank] === top).length !== 1) return false;
+  const hit = hole.findIndex((c) => RANK_VALUES[c.rank] === top);
+  if (hit < 0) return false;
+  const kicker = hole[1 - hit];
+  const kv = RANK_VALUES[kicker.rank];
+  if (kv > V79_WEAK_KICKER_MAX) return false;
+  return !board.some((c) => c.rank === kicker.rank);
+}
+/** The equity CAP (the V20/V21 cap pattern, not a subtraction: the Monte
+ *  Carlo read prices top pair against a random range, ~0.9 here, where a
+ *  9-or-lower kicker is rarely outkicked; no shade on that read reaches the
+ *  price). Against the range that bets big into top pair, every better top
+ *  pair outkicks it: this class realised 10.2% calling such bets. The cap
+ *  falls from 0.45 at a 0.6-pot wager to 0.30 at pot-sized and above (just
+ *  under the 33% a pot-sized bet needs); a call committing 40%+ of the stack
+ *  against a smaller wager is capped at 0.45. */
+export const V79_CAP_HIGH = 0.45;
+export const V79_CAP_LOW = 0.3;
+export function v79WeakKickerCap(potFrac: number): number {
+  const t = Math.max(0, Math.min(1, (potFrac - 0.6) / 0.4));
+  return V79_CAP_HIGH - (V79_CAP_HIGH - V79_CAP_LOW) * t;
+}
+
 export const V68_IMPLIED_MIN_POT_FRAC = 0.7;
 export const V68_IMPLIED_MIN_SPR = 1.5;
 export function v68NoRoomToBePaid(
@@ -10401,6 +10456,33 @@ export class HorseLogic {
       if (eq15 > 0.45) {
         eq15 = 0.45;
         if (tele15) noteFire('v21_scare_cap');
+      }
+    }
+
+    // ═══ V79 TOP PAIR, WEAK KICKER (2026-11-02) ═══ see v79TopPairWeakKicker.
+    // Applied to eq15 so it reaches every consumer below: the committed
+    // call / jam test, the value raise, and the river and turn verdicts.
+    if (
+      opts.v79TopPairWeakKicker !== false &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      vi.holeCount === 2 &&
+      !multiBoard36 &&
+      !gs.bombPot &&
+      (street === 'turn' || isRiver) &&
+      cat === 2 &&
+      toCall > 0 &&
+      potOdds >= 0.25 &&
+      exploit.callDownMod <= 1 &&
+      v79TopPairWeakKicker(player.cards, board)
+    ) {
+      const commits79 = stack > 0 && toCall >= 0.4 * stack;
+      if (potFrac >= 0.6 || commits79) {
+        const cap79 = v79WeakKickerCap(potFrac);
+        if (eq15 > cap79) {
+          eq15 = cap79;
+          if (tele15) noteFire('v79_top_pair_weak_kicker');
+        }
       }
     }
 
