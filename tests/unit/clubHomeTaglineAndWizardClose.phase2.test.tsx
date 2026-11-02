@@ -178,7 +178,7 @@ beforeEach(() => {
     const result = table === 'clubs' ? deferred() : null;
     if (result) h.clubReads.push(result);
     const q: any = {};
-    for (const method of ['select', 'eq', 'is', 'not', 'or', 'order', 'limit', 'in', 'lte'])
+    for (const method of ['select', 'eq', 'is', 'not', 'or', 'order', 'limit', 'in', 'lte', 'gt'])
       q[method] = () => q;
     q.maybeSingle = () => {
       if (result) return result.promise;
@@ -199,7 +199,13 @@ beforeEach(() => {
           data: table === 'tournaments' ? h.tournaments : table === 'tables' ? h.tables : [],
           error: null,
         })
-      ).then(resolve, reject);
+      )
+        .then((value: any) =>
+          table === 'tournaments'
+            ? { ...value, count: Array.isArray(value.data) ? value.data.length : null }
+            : value
+        )
+        .then(resolve, reject);
     return q;
   });
 });
@@ -278,7 +284,7 @@ describe('the tournament row reviews every lobby-admitted status', () => {
       h.setupReads = [DONE];
       h.tournaments = [
         {
-          id: 'event-a',
+          id: '00000000-0000-4000-8000-000000000201',
           club_id: 'club-a',
           name: 'Synthetic MTT',
           format_contract: 'mtt-v1',
@@ -301,7 +307,9 @@ describe('the tournament row reviews every lobby-admitted status', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
       fireEvent.click(screen.getByRole('tab', { name: "MTT'S", exact: true }));
       await flush();
-      const row = document.querySelector('.lt-row[data-kind="mtt"][data-id="event-a"]');
+      const row = document.querySelector(
+        '.lt-row[data-kind="mtt"][data-id="00000000-0000-4000-8000-000000000201"]'
+      );
       expect(row, 'the actual lobby did not render the synthetic admitted event').not.toBeNull();
       fireEvent.click(row!);
       await flush();
@@ -335,7 +343,7 @@ describe('Find Your Game starts with two separate sections', () => {
     ];
     h.tournaments = [
       {
-        id: 'event-a',
+        id: '00000000-0000-4000-8000-000000000201',
         club_id: 'club-a',
         name: 'Tournament Fixture',
         format_contract: 'mtt-v1',
@@ -373,7 +381,9 @@ describe('Find Your Game starts with two separate sections', () => {
         .map((t) => t.textContent)
     ).toEqual(['All', 'Running', 'Sort']);
     expect(document.querySelector('.lt-row[data-id="cash-a"]')).not.toBeNull();
-    expect(document.querySelector('.lt-row[data-id="event-a"]')).toBeNull();
+    expect(
+      document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000201"]')
+    ).toBeNull();
     expect(document.querySelector('.club-home__games')?.hasAttribute('hidden')).toBe(false);
     fireEvent.click(screen.getByRole('tab', { name: 'PLO', exact: true }));
     await flush();
@@ -393,7 +403,9 @@ describe('Find Your Game starts with two separate sections', () => {
     fireEvent.click(tournaments);
     await flush();
     expect(names()).toEqual(["MTT'S", 'SPINS', "SIT N GO'S", 'SATELLITES']);
-    expect(document.querySelector('.lt-row[data-id="event-a"]')).not.toBeNull();
+    expect(
+      document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000201"]')
+    ).not.toBeNull();
     expect(document.querySelector('.lt-row[data-id="cash-a"]')).toBeNull();
     expect(cash.getAttribute('aria-expanded')).toBe('false');
     expect(tournaments.getAttribute('aria-expanded')).toBe('true');
@@ -437,28 +449,39 @@ it('shows only recorded MTT and SNG satellites when Satellites is selected', asy
   h.tournaments = [
     {
       ...row,
-      id: 'sat-mtt',
+      id: '00000000-0000-4000-8000-000000000202',
       name: 'MTT Qualifier',
       format_contract: 'mtt-v1',
       tournament_type: 'SATELLITE',
     },
     {
       ...row,
-      id: 'sat-sng',
+      id: '00000000-0000-4000-8000-000000000203',
       name: 'SNG Qualifier',
       format_contract: 'seat-first-satellite-v1',
       max_players: 2,
     },
-    { ...row, id: 'regular-mtt', name: 'Satellite Name Only', format_contract: 'mtt-v1' },
-    { ...row, id: 'regular-sng', name: 'Regular SNG', format_contract: 'sng-v1', max_players: 6 },
+    {
+      ...row,
+      id: '00000000-0000-4000-8000-000000000204',
+      name: 'Satellite Name Only',
+      format_contract: 'mtt-v1',
+    },
+    {
+      ...row,
+      id: '00000000-0000-4000-8000-000000000205',
+      name: 'Regular SNG',
+      format_contract: 'sng-v1',
+      max_players: 6,
+    },
   ];
   await mountLobby();
   fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
   fireEvent.click(screen.getByRole('tab', { name: 'SATELLITES', exact: true }));
   await flush();
-  for (const id of ['sat-mtt', 'sat-sng'])
+  for (const id of ['00000000-0000-4000-8000-000000000202', '00000000-0000-4000-8000-000000000203'])
     expect(document.querySelector(`.lt-row[data-id="${id}"]`)).not.toBeNull();
-  for (const id of ['regular-mtt', 'regular-sng'])
+  for (const id of ['00000000-0000-4000-8000-000000000204', '00000000-0000-4000-8000-000000000205'])
     expect(document.querySelector(`.lt-row[data-id="${id}"]`)).toBeNull();
   expect(h.register).not.toHaveBeenCalled();
 });
@@ -486,8 +509,11 @@ describe('lobby filters stay attached to the selected game', () => {
   it('filters a satellite by poker game instead of its satellite subtype', async () => {
     h.setupReads = [DONE];
     h.tournaments = [
-      tournament('nlh-satellite', { variant: 'satellite', tournament_type: 'SATELLITE' }),
-      tournament('plo-satellite', {
+      tournament('00000000-0000-4000-8000-000000000206', {
+        variant: 'satellite',
+        tournament_type: 'SATELLITE',
+      }),
+      tournament('00000000-0000-4000-8000-000000000207', {
         variant: 'satellite',
         tournament_type: 'SATELLITE',
         game_type: 'PLO4',
@@ -514,32 +540,27 @@ describe('lobby filters stay attached to the selected game', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
     fireEvent.click(screen.getByRole('tab', { name: 'SATELLITES', exact: true }));
     await flush();
-    expect(document.querySelector('.lt-row[data-id="nlh-satellite"]')).not.toBeNull();
-    expect(document.querySelector('.lt-row[data-id="plo-satellite"]')).toBeNull();
+    expect(
+      document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000206"]')
+    ).not.toBeNull();
+    expect(
+      document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000207"]')
+    ).toBeNull();
     expect(h.register).not.toHaveBeenCalled();
   });
 
   it('keeps Favorites available to undo when moving from cash to tournaments', async () => {
     h.setupReads = [DONE];
-    h.tournaments = [tournament('ordinary-mtt')];
+    h.tournaments = [tournament('00000000-0000-4000-8000-000000000208')];
     await mountLobby();
     fireEvent.click(screen.getByRole('button', { name: 'Cash Games', exact: true }));
     fireEvent.click(screen.getByRole('tab', { name: 'NLH', exact: true }));
     await flush();
-    fireEvent.click(
-      within(screen.getByRole('navigation', { name: 'Quick Lobby Filters' })).getByRole('button', {
-        name: 'Favorites',
-        exact: true,
-      })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Favorites', exact: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
     await flush();
-    const favorites = within(
-      screen.getByRole('navigation', { name: 'Quick Lobby Filters' })
-    ).getByRole('button', {
-      name: 'Favorites',
-      exact: true,
-    });
+    // At rest the compact rail is hidden; the one primary Favorites action owns undo.
+    const favorites = screen.getByRole('button', { name: 'Favorites', exact: true });
     expect(
       within(screen.getByLabelText('Game Status')).queryByRole('button', {
         name: 'Favorites',
@@ -550,18 +571,26 @@ describe('lobby filters stay attached to the selected game', () => {
       within(screen.getByLabelText('Game Status')).getAllByRole('button').at(-1)
     ).toHaveAccessibleName('Filters And Sort');
     expect(favorites).toHaveAttribute('aria-pressed', 'true');
-    expect(document.querySelector('.lt-row[data-id="ordinary-mtt"]')).toBeNull();
+    expect(
+      document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000208"]')
+    ).toBeNull();
     fireEvent.click(favorites);
     await flush();
     expect(favorites).toHaveAttribute('aria-pressed', 'false');
-    expect(document.querySelector('.lt-row[data-id="ordinary-mtt"]')).not.toBeNull();
+    expect(
+      document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000208"]')
+    ).not.toBeNull();
   });
 
   it('sheet tab changes switch the board and save sorting under the new tab only', async () => {
     h.setupReads = [DONE];
     h.tournaments = [
-      tournament('mtt'),
-      tournament('spin', { variant: 'spin', format_contract: 'spin-v1', max_players: 3 }),
+      tournament('00000000-0000-4000-8000-000000000211'),
+      tournament('00000000-0000-4000-8000-000000000212', {
+        variant: 'spin',
+        format_contract: 'spin-v1',
+        max_players: 3,
+      }),
     ];
     await mountLobby();
     fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
@@ -629,7 +658,7 @@ it('Satellite Starting Time puts scheduled MTT dates ahead of seat-first recycle
   h.tournaments = [
     {
       ...base,
-      id: 'seat-first-satellite',
+      id: '00000000-0000-4000-8000-000000000209',
       name: 'Seat First Qualifier',
       format_contract: 'seat-first-satellite-v1',
       max_players: 2,
@@ -637,7 +666,7 @@ it('Satellite Starting Time puts scheduled MTT dates ahead of seat-first recycle
     },
     {
       ...base,
-      id: 'scheduled-satellite',
+      id: '00000000-0000-4000-8000-000000000210',
       name: 'Scheduled Qualifier',
       format_contract: 'mtt-v1',
       max_players: null,
@@ -661,8 +690,11 @@ it('Satellite Starting Time puts scheduled MTT dates ahead of seat-first recycle
     const ids = Array.from(body.querySelectorAll('.lt-row[data-id]')).map((row) =>
       row.getAttribute('data-id')
     );
-    if (ids.includes('scheduled-satellite')) {
-      expect(ids).toEqual(['scheduled-satellite', 'seat-first-satellite']);
+    if (ids.includes('00000000-0000-4000-8000-000000000210')) {
+      expect(ids).toEqual([
+        '00000000-0000-4000-8000-000000000210',
+        '00000000-0000-4000-8000-000000000209',
+      ]);
       witnessed += 1;
     }
   }

@@ -178,7 +178,7 @@ beforeEach(() => {
     const result = table === 'clubs' ? deferred() : null;
     if (result) h.clubReads.push(result);
     const q: any = {};
-    for (const method of ['select', 'eq', 'is', 'not', 'or', 'order', 'limit', 'in', 'lte'])
+    for (const method of ['select', 'eq', 'is', 'not', 'or', 'order', 'limit', 'in', 'lte', 'gt'])
       q[method] = () => q;
     q.maybeSingle = () => {
       if (result) return result.promise;
@@ -201,7 +201,13 @@ beforeEach(() => {
               data: table === 'tournaments' ? h.tournaments : table === 'tables' ? h.tables : [],
               error: null,
             }))
-      ).then(resolve, reject);
+      )
+        .then((value: any) =>
+          table === 'tournaments'
+            ? { ...value, count: Array.isArray(value.data) ? value.data.length : null }
+            : value
+        )
+        .then(resolve, reject);
     return q;
   });
 });
@@ -452,7 +458,7 @@ describe('a shared game link', () => {
     h.setupReads = [DONE];
     saveTab('HOLDEM');
     h.tables = [ordinaryTable('holdem', 'nlh', 'Holdem Saved Tab')];
-    h.tournaments = [mtt('event', 'Nightly Event')];
+    h.tournaments = [mtt('00000000-0000-4000-8000-000000000101', 'Nightly Event')];
     await mountLobby('gone');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(search().has('game')).toBe(false);
@@ -489,17 +495,17 @@ describe('a shared game link', () => {
       JSON.stringify({ at: Date.now(), data: { club: newClub(), tables: cachedTables } })
     );
     h.tables = cachedTables;
-    h.tournaments = [mtt('event', 'Nightly Event')];
+    h.tournaments = [mtt('00000000-0000-4000-8000-000000000101', 'Nightly Event')];
     const gate = deferred<void>();
     h.tournamentGate = gate.promise;
-    await mountLobby('event');
+    await mountLobby('00000000-0000-4000-8000-000000000101');
     // No family opens until the requested tournament has answered.
     expect(document.querySelector('.lt-row[data-id="holdem"]')).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
     await act(async () => gate.resolve());
     await settle();
     expect(screen.getByRole('dialog', { name: 'Nightly Event Lobby' })).toBeTruthy();
-    expect(search().get('game')).toBe('event');
+    expect(search().get('game')).toBe('00000000-0000-4000-8000-000000000101');
     expect(h.pushView).not.toHaveBeenCalled();
     expect(h.pushFilters).not.toHaveBeenCalled();
   });
