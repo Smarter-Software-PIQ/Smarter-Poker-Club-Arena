@@ -98,11 +98,26 @@ with its window; none is a profitability claim.
     n >= 5, including over UTG openers 9-handed (+2.5bb, n 73) and 4-6 handed
     (+2.5bb, n 24 at 15-20bb). The Phase 6 reshove node was left unchanged.
 
+- Phase 4 Omaha (V81), old engine, 47,806 PLO4/PLO5 horse turn/river calls
+  of a bet the horse did not start (`sql omaha-calls` in 4-hour slices, then
+  `cd server && npx tsx ../scripts/horse-measure/omaha-call-cells.ts FILES`),
+  hand classified at the decision with the engine's evaluator; decision EV
+  of the call against folding, CIs clustered by hand; day A 2026-10-31 16:00
+  to 11-01 16:00 UTC, day B 11-01 16:00 to 11-02 16:00 UTC, wager >= 0.9 pot:
+  river non-nut straight -48.9 / -36.8bb, river straight on a flush board
+  -43.4 / -43.5, river paired-board straight -33.0 / -21.0, river 3rd-nut-or-
+  worse flush -53.6 / -77.9, river paired-board nut flush -44.6 / -38.0,
+  river cash two pair -44.2 / -40.6, turn dominated flush -23.5 / -13.8, turn
+  paired-board straight -32.0 / -16.5 (every CI below zero on both days).
+  Winners left alone: nut straights (+26.9 / +3.0 river+turn), unpaired nut
+  flushes, one pair. After V81 these cells' call counts should fall to near
+  zero and `v81_omaha_big_bet_call_fold` should fire.
+
 ### After a release
 
 1. Confirm `releaseSha` on `/health` contains the candidate, the release
    receipt is SEALED and the thaw is complete; take START from that moment.
-2. `sql activation START_DAY`: the control must be non-zero; every V74-V80
+2. `sql activation START_DAY`: the control must be non-zero; every V74-V81
    receipt should be non-zero within hours (V62 stays 0: it is opt-in).
 3. Re-run ladder, seat-jams, v78 and v79 on windows that start after START and
    compare with the block above (like with like, report n with every number).

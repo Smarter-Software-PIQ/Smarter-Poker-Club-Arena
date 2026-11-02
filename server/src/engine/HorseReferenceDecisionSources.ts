@@ -62,6 +62,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the NLH premium-aggression and dominated-hand 3-bet fold rules applied to the final decision after every other layer (Dan 2026-10-25)',
     'src/engine/HorsePloPairedBoardFold.ts':
       'the PLO4/PLO5/PLO6 paired-board fold applied to the final decision after every other layer (Dan 2026-10-25)',
+    'src/engine/HorseOmahaBigBetCalls.ts':
+      'the V81 PLO4/PLO5 big-bet call fold in measured losing cells, applied in the final wager rules right after the paired-board fold (Phase 4, 2026-11-02)',
     'src/engine/HorseShortAllInCallFloor.ts':
       'the tournament short all-in call floor (under 3BB shove, 20BB+ horse calls), the last action rule after every other layer (Dan 2026-10-26)',
     'src/engine/HorseOmahaImpliedDraw.ts':

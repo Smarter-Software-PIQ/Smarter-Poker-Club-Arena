@@ -851,6 +851,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V79'
   ),
   flag(
+    'v81OmahaBigBetCalls',
+    "2026-11-02 (Phase 4, Omaha leak program) PLO4/PLO5 turn/river CALLS of a wager >= 0.9 pot the horse did not start fold in the measured cells only (HorseOmahaBigBetCalls.v81Cell; hand classified at the decision with omahaNutStatus, not the final board): river straight on a flush board, non-nut straight, straight on a paired board, 3rd-nut-or-worse flush, nut flush on a paired board, cash two pair; turn 3rd-nut-or-worse flush and paired-board straight. Decision EV of the horses' own calls (net + chips already in, bb; chops fractional; later streets included; hand_history + ca_hand_facts, old engine eed06fe5, 47,806 calls over two days, CIs clustered by hand) below zero on BOTH days in every admitted cell (e.g. river non-nut straight -48.9 and -36.8bb, river dominated flush -53.6 and -77.9bb, river cash two pair -44.2 and -40.6bb); not admitted: turn flush-board / non-nut straights and two pair, 0.5-0.9 pot, second-nut flushes, sets, full houses, nut straights, one pair; excluded: heads-up tables, bounty events, 20bb or less, a horse with chips already in this street, hi-lo, multi-board, bomb pots; complements the live paired-board fold (committing calls) with the non-committing pot-sized calls it leaves open; runs in the wager_rules node after the paired-board fold; limits: only the horses' calls are observed, ICM not modelled, the price ignores players to act behind; explicit off arm keeps today",
+    'V81'
+  ),
+  flag(
     'v80TopPairStrongKicker',
     "2026-11-02 (Phase 2 of the Burls/Dan top-pair program) the V79 0.25 equity cap is extended to hold'em top pair with a T-or-better kicker not pairing the board, in V79 cell A ONLY (turn/river wager >= 0.9 pot, board top Q+, > 60bb effective, not a heads-up table, not a bounty/PKO/mystery-bounty event), where the decision EV of the horses' own calls (net + chips already in, bb; chops at their fractional return; later streets included; hand_history + ca_hand_facts, old engine eed06fe5, CIs clustered by hand) was below zero on two independent days: T-Q kicker -46.02bb [-54.03, -38.01] n 557 pooled (each day and each of T, J, Q below zero alone), K-A kicker -29.82bb [-45.42, -14.22] n 178 pooled (day 2 below zero alone, day 1 straddled); turn calls followed by more river chips -53.12bb and last-commitment turn calls -24.45bb, both below zero; cell B (0.6-0.9 pot) with a T+ kicker is NOT admitted (turn calls straddle, one day only); a measured over-bluffer keeps today; limits: only the horses' calls are observed, ICM not modelled, the price ignores players to act behind; explicit off arm keeps today",
     'V80'
@@ -2213,6 +2218,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em facing one 3-bet: the V7 4-bet-bluff band rolled and was retired; the hand took the call / fold read instead",
     'V76',
     'decide_nlh'
+  ),
+  receipt(
+    'v81_omaha_big_bet_call_fold',
+    'HorseLogic (V81)',
+    'PLO4/PLO5 turn/river call of a 0.9-pot+ wager in a measured losing cell: folded',
+    'V81',
+    'decide_omaha'
   ),
   receipt(
     'v80_top_pair_strong_kicker',

@@ -1,0 +1,3 @@
+# server/src/engine/HorseOmahaBigBetCalls.law.test.ts
+
+V81: in PLO4 and PLO5 a horse facing a turn or river wager of at least 0.9 pot that it did not start folds instead of calling only in the cells where the decision EV of the horses' own calls was below zero on two independent days (river straights on a flush board, non-nut straights, paired-board straights, dominated flushes, paired-board nut flushes, cash two pair; turn dominated flushes and paired-board straights); nut hands, smaller wagers, other classes, heads-up tables, a bettor measured as a postflop over-bluffer (pinned by HorseManiacPressure.law.test.ts) and the off arm are answered exactly as before, the fold is a valid signed receipt, and labels never matter.
