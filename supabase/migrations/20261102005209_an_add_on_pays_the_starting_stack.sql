@@ -1,4 +1,5 @@
 -- 20261102005209_an_add_on_pays_the_starting_stack.sql
+-- @install-window: daily-maintenance
 --
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
@@ -25,7 +26,8 @@
 --      can reintroduce an oversized or undersized add-on (CLAUDE.md 10.11:
 --      fix at the root, not a sweep).
 --
---   2. A one-time backfill corrects every tournament that has not ended.
+--   2. The one-time correction of every tournament that has not ended
+--      lives in 20261102024023 (immediate, row locks only).
 --      Finished events keep their historical addon_chips: settled
 --      conservation arithmetic (RakebackSettlerService's chips-in-play
 --      estimate) reads them, and a settled record is never rewritten
@@ -35,11 +37,14 @@
 -- stack (server/src/services/FreeBuy.ts, changed in the same commit): Dan's
 -- 2026-11-01 ruling is categorical, "any and all" tournaments.
 --
--- LOCKS: CREATE TRIGGER takes SHARE ROW EXCLUSIVE on tournaments, which is not
--- one of the three daily-window tables (clubs/tables/hand_history) and whose
--- writers are short transactions. lock_timeout is set so a busy moment refuses
--- this migration cleanly instead of queueing behind live play (CLAUDE.md
--- DDL policy rule 9); apply it once, never in a retry loop.
+-- LOCKS: CREATE TRIGGER takes SHARE ROW EXCLUSIVE on tournaments, which the
+-- live engine's row writes hold in effectively every instant of play: two
+-- explicit installs on 2026-11-02 (runs 41378014012 and 41378313309) were
+-- refused on a 2 s lock timeout with nothing applied. Per CLAUDE.md DDL rule
+-- 10 this file therefore installs in the daily maintenance window, DDL only
+-- (tournaments carries freeze guards). The one-time correction of unfinished
+-- events moved to its own immediate migration, which needs only row locks:
+-- 20261102024023_unfinished_add_ons_pay_the_starting_stack.sql.
 --
 -- Wrap ALL DDL for one change in ONE transaction: every DDL statement fires
 -- Supabase's schema-cache reload, which takes ~28s on this database, and ten
@@ -47,7 +52,7 @@
 
 BEGIN;
 
-SET LOCAL lock_timeout = '2s';
+SET LOCAL lock_timeout = '1s';
 
 CREATE OR REPLACE FUNCTION public.fn_ca_addon_pays_the_starting_stack()
 RETURNS trigger
@@ -81,15 +86,5 @@ INSERT INTO public.ca_declared_money_triggers(table_name,trigger_name,note)
 VALUES('tournaments','zz_addon_pays_the_starting_stack',
   'Dan 2026-11-01: pins addon_chips to starting_chips on every add-on tournament write, so an add-on pays exactly the starting stack.')
 ON CONFLICT DO NOTHING;
-
--- One-time correction for every event that has not ended. The trigger above
--- normalizes the rows as this UPDATE touches them; the WHERE keeps the write
--- set to the rows that are actually wrong.
-UPDATE public.tournaments
-   SET addon_chips = starting_chips
- WHERE add_on_available IS TRUE
-   AND ended_at IS NULL
-   AND COALESCE(starting_chips, 0) > 0
-   AND addon_chips IS DISTINCT FROM starting_chips;
 
 COMMIT;
