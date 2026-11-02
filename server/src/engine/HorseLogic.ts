@@ -2379,6 +2379,16 @@ export interface HorseDecideOpts {
   callDeductionPricing?: boolean;
   /** Apply the existing raised-hand call-only rule before committed-stack shoves. */
   committedRaiseDiscipline?: boolean;
+  /** V78 (2026-11-02, Dan: "I GET RANDOMLY RAISED ON THE TURN AND THEN THE
+   *  HORSE JUST CALLS OFF AN ENTIRE STACK WITH A10"): a hold'em postflop
+   *  semi-bluff or bluff raise (no two pair or better) that, legalized, is
+   *  NOT all-in yet puts 40% or more of hero's remaining stack in is not
+   *  made: it would leave a stack too small to fold, so the never-raise-to-
+   *  fold rule turns every re-shove into a forced call-off. The hand falls
+   *  through to the priced call / fold verdict instead. An all-in sizing,
+   *  a smaller raise and every value raise are untouched; the random roll
+   *  is consumed exactly as before. Default on; explicit false keeps today. */
+  v78NoCommittingBluffRaise?: boolean;
   /** Phase 7 Round 1: final action-specific tournament utility arbiter.
    *  Complete schema-v1 tournament decisions evaluate every legal action
    *  family after all legacy strategy layers; no global style multiplier can
@@ -11034,7 +11044,19 @@ export class HorseLogic {
       // to remove, on the lines where a coherent story matters most.
       planBarrel(equity);
       const raiseToAmt = currentBet + (pot + toCall) * (0.8 + fastRandom() * 0.3);
-      return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
+      // V78: a semi-bluff raise that commits 40%+ of the stack without
+      // being all-in cannot fold to the re-shove it invites; price the hand
+      // as a call or a fold instead. Every roll is consumed in its original
+      // order; the barrel plan just written is withdrawn (no raise, no story).
+      if (
+        !multiBoard36 &&
+        this.v78CommitsWithoutJam(raiseToAmt * params.sizingMultiplier, player, gs, vi, opts)
+      ) {
+        HorseMind.notePlan(handKey, player.user_id, false);
+        if (tele15) noteFire('v78_no_committing_bluff_raise');
+      } else {
+        return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
+      }
     }
 
     // V8 NLH: OOP check-raise bluff on a fresh scare card WE block — the
@@ -11063,7 +11085,13 @@ export class HorseLogic {
         // V13: same as above — a check-raise bluff is the start of a story.
         planBarrel(equity);
         const raiseToAmt = currentBet + (pot + toCall) * (0.85 + fastRandom() * 0.25);
-        return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
+        if (this.v78CommitsWithoutJam(raiseToAmt * params.sizingMultiplier, player, gs, vi, opts)) {
+          // V78: a check-raise bluff that cannot fold to the re-shove.
+          HorseMind.notePlan(handKey, player.user_id, false);
+          if (tele15) noteFire('v78_no_committing_bluff_raise');
+        } else {
+          return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
+        }
       }
     }
     // V8 NLH: river blocker raise-bluff — polarizing raise with air that
@@ -11785,6 +11813,27 @@ export class HorseLogic {
       a.action === b.action &&
       (!['bet', 'raise'].includes(a.action) || (a.amount ?? null) === (b.amount ?? null))
     );
+  }
+
+  /**
+   * V78: true when a hold'em non-value raise of `raiseTo` would, once
+   * legalized, stay a non-all-in raise that puts >= 40% of hero's remaining
+   * stack in. Side-effect free (legalize is pure). Hold'em, two cards, one
+   * board, no bomb pot only.
+   */
+  private static v78CommitsWithoutJam(
+    raiseTo: number,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): boolean {
+    if (opts.v78NoCommittingBluffRaise === false) return false;
+    if (vi.isOmaha || vi.isShortDeck || vi.holeCount !== 2 || gs.bombPot) return false;
+    const legal = this.legalize({ action: 'raise', amount: raiseTo, thinkTime: 0 }, player, gs, vi);
+    if (legal.action !== 'raise' || typeof legal.amount !== 'number') return false;
+    const added = legal.amount - (player.bet ?? 0);
+    return player.stack > 0 && added >= 0.4 * player.stack;
   }
 
   private static legalize(
