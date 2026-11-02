@@ -812,3 +812,18 @@
   height: 100%;
   visibility: visible;
 }
+
+/* Distinct approved artwork: Lightning is a bolt; Turbo is a chrome turbine. */
+.has-premium-chassis [data-game-heading] .lt-tournament-icon[data-lobby-symbol='lightning'] {
+  top: 3.7cqw;
+  left: 7.65%;
+  width: 7.5%;
+  height: 7.5cqw;
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/lightning.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='turbo'] {
+  background-image: url('/game-card-icons/turbo.png');
+}
+.has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='hyper'] {
+  background-image: url('/game-card-icons/hyper-turbo.png');
+}

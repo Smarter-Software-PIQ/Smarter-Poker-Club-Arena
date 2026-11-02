@@ -98,6 +98,10 @@ describe('one tournament identity icon beside each headline', () => {
         expect(icons[0].closest('.compact-lobby__title, .lt-name__line1')).not.toBeNull();
         expect(icons[0].getAttribute('data-tournament-icon')).toBe(tournamentFormatIcon(entry));
         expect(icons[0].querySelector('svg')).not.toBeNull();
+        if (['turbo', 'hyper'].includes(tournamentFormatIcon(entry) ?? '')) {
+          expect(icons[0].hasAttribute('data-lobby-symbol')).toBe(false);
+          expect(icons[0].querySelector('[data-lobby-art]')).toBeNull();
+        }
         expect(icons[0].getAttribute('aria-label')).toMatch(/Tournament/);
         expect(within(row as HTMLElement).queryByText('Top Event')).toBeNull();
       }

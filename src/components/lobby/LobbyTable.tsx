@@ -381,7 +381,7 @@ const TOURNAMENT_ICON_LABELS: Record<TournamentFormatIcon, string> = {
   standard: 'Tournament',
 };
 
-function LobbyArtSymbol({ kind }: { kind: 'target' | 'fire' }) {
+function LobbyArtSymbol({ kind }: { kind: 'target' }) {
   return (
     <svg
       className="lt-lobby-art-icon"
@@ -390,14 +390,7 @@ function LobbyArtSymbol({ kind }: { kind: 'target' | 'fire' }) {
       aria-hidden="true"
       focusable="false"
     >
-      <AtlasSprite
-        src="rocket"
-        rect={kind === 'target' ? [815, 105, 430, 435] : [540, 90, 224, 510]}
-        x={0}
-        y={0}
-        width={66}
-        height={66}
-      />
+      <AtlasSprite src="rocket" rect={[815, 105, 430, 435]} x={0} y={0} width={66} height={66} />
     </svg>
   );
 }
@@ -406,14 +399,7 @@ function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
   const kind = tournamentFormatIcon(entry);
   if (!kind) return null;
   const label = TOURNAMENT_ICON_LABELS[kind];
-  const art =
-    entry.kind === 'spin'
-      ? null
-      : kind === 'bounty'
-        ? 'target'
-        : kind === 'hyper' || kind === 'turbo'
-          ? 'fire'
-          : null;
+  const art = entry.kind === 'spin' ? null : kind === 'bounty' ? 'target' : null;
   return (
     <span
       className="lt-tournament-icon"
@@ -914,12 +900,12 @@ function TournamentHeadingRow({
               <span
                 className="lt-tournament-icon"
                 data-tournament-icon="lightning"
-                data-lobby-symbol="fire"
+                data-lobby-symbol="lightning"
                 role="img"
                 aria-label="Lightning Games"
                 title="Lightning Games"
               >
-                <LobbyArtSymbol kind="fire" />
+                <SignalIcon kind="turbo" />
               </span>
             ) : (
               <span
