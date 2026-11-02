@@ -220,6 +220,8 @@ export interface RosterMember {
   last_login: string | null;
   nickname: string | null;
   remark: string | null;
+  /** Effective own-play rakeback, as a fraction; absent on older servers. */
+  effective_rakeback_rate?: number | null;
   can_view_financials: boolean;
   can_view_notes: boolean;
   in_viewer_downline: boolean;
@@ -262,6 +264,13 @@ export function mapRosterRow(row: Record<string, unknown>): RosterMember {
     last_login: (row.last_login as string) ?? null,
     nickname: (row.nickname as string) ?? null,
     remark: (row.remark as string) ?? null,
+    effective_rakeback_rate:
+      row.can_view_financials === true &&
+      isMetric(row.effective_rakeback_rate) &&
+      Number(row.effective_rakeback_rate) >= 0 &&
+      Number(row.effective_rakeback_rate) <= 1
+        ? Number(row.effective_rakeback_rate)
+        : null,
     can_view_financials: row.can_view_financials === true,
     can_view_notes: row.can_view_notes === true,
     in_viewer_downline: row.in_viewer_downline === true,

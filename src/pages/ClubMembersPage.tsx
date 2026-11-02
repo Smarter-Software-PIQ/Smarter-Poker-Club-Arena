@@ -1,3 +1,4 @@
+import { rakebackFigure } from '../utils/rosterRakeback';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -2139,6 +2140,7 @@ export const MemberRow = memo(function MemberRow({
             <span className="member-simple-balance" title={feeTitle(member, winLoss, feeLabel)}>
               <strong>{periodFeeText(winLoss?.fees, winLossUnavailable)}</strong>
               <span>{feeLabel}</span>
+              <span>Rakeback {rakebackFigure(member.effective_rakeback_rate)}</span>
               {(member.downline_total ?? 0) > 0 && winLoss?.downline_fees !== undefined && (
                 <span className="member-simple-balance__downline">
                   Downline {periodFeeText(winLoss?.downline_fees, winLossUnavailable)}
@@ -2162,6 +2164,7 @@ export const MemberRow = memo(function MemberRow({
                   {winLossText(winLoss, winLossUnavailable)}
                 </span>
               </span>
+              <Metric label="Rakeback" value={rakebackFigure(member.effective_rakeback_rate)} />
               {columns.has('downlines') && (
                 <Metric label="Downlines" value={countFigure(member.downline_total)} />
               )}

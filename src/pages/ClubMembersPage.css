@@ -1428,7 +1428,11 @@ body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'
     overflow-wrap: anywhere;
     white-space: normal;
   }
+  .members-simple .member-row__open {
+    padding-block: 4px;
+  }
   .members-simple .member-simple-balance {
+    gap: 1px;
     max-width: 58px;
   }
   .members-simple .member-simple-balance > span {

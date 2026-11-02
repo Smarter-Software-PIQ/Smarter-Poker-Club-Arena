@@ -28,6 +28,7 @@ export function rosterSearchKey(userId: string, clubId: string): string {
 export function sanitizeRosterMemberForCache(row: RosterMember): RosterMember {
   return {
     ...row,
+    effective_rakeback_rate: null,
     chip_balance: null,
     player_wallet: null,
     agent_wallet: null,
