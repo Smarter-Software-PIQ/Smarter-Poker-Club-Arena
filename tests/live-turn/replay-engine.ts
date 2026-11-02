@@ -109,6 +109,31 @@ export class ReplayEngine {
   /** Actions the page sent that the recorded engine would have accepted. */
   readonly accepted: AcceptedAction[] = [];
   resyncRequests = 0;
+  httpStateRequests = 0;
+  private withholdDecisionPollsRemaining = 0;
+
+  /**
+   * Withhold `action_context` for the next N recovery polls (RESYNC or HTTP
+   * GET /state/:tableId) as well as any outgoing SNAPSHOT/DELTA/turn_change
+   * while N > 0, then automatically release the authoritative `action_context`
+   * on the (N+1)th recovery request.
+   */
+  withholdDecisionForPolls(polls: number): void {
+    this.withholdDecisionPollsRemaining = Math.max(0, Math.floor(polls));
+  }
+
+  /** Force-close all active engine WebSockets to simulate a mid-turn link drop. */
+  disconnectSockets(): void {
+    for (const socket of [...this.sockets]) {
+      try {
+        socket.close({ code: 1006, reason: 'simulated mid-turn link drop' });
+      } catch {
+        /* already closed */
+      }
+      this.sockets.delete(socket);
+      this.heldResyncSockets.delete(socket);
+    }
+  }
 
   /** Synthetic retention boundary: the visible hand has no input token yet.
    * Keep the authoritative decision so the next explicit RESYNC returns it.
@@ -124,6 +149,76 @@ export class ReplayEngine {
           state: { ...this.state, action_context: null },
         })
       );
+    }
+  }
+
+  /**
+   * Synthetic mid-turn time-bank snapshot: `time_bank_active: true` with
+   * `action_context: null` on the same turn start clock, reproducing the hub's
+   * retention-boundary scrub during `TIME_BANK_ACTIVATED`.
+   */
+  publishMidTurnTimeBankSnapshot(): void {
+    if (!this.state) return;
+    this.lastSeq++;
+    for (const socket of this.sockets) {
+      socket.send(
+        JSON.stringify({
+          type: 'SNAPSHOT',
+          tableId: this.recording.table,
+          seq: this.lastSeq,
+          state: { ...this.state, time_bank_active: true, action_context: null },
+        })
+      );
+    }
+  }
+
+  /**
+   * Emit a synthetic stale previous-hand snapshot where the hero's clock
+   * expires in `expiresInMs` (e.g. 250ms), followed by the new hand's
+   * `hand_started` event and initial SNAPSHOT. This reproduces the exact race
+   * where a previous hand's expiring clock on the client could fire `onTimeout`
+   * and auto-spend a UTG time bank while UTG `action_context` is still withheld.
+   */
+  publishStalePreviousHandExpiringClock(expiresInMs = 250): void {
+    if (!this.state) return;
+    const now = Date.now();
+    this.lastSeq++;
+    const staleState: Record<string, unknown> = {
+      ...this.state,
+      hand_number: 0,
+      stage: 'river',
+      current_player: this.recording.hero,
+      action_context: 'stale-prev-hand:river:9:2:0',
+      turn_start_time_ms: now - 14_750,
+      turn_duration_ms: 15_000,
+      turn_deadline_ms: now + expiresInMs,
+      server_time_ms: now,
+    };
+    for (const socket of this.sockets) {
+      socket.send(
+        JSON.stringify({
+          type: 'SNAPSHOT',
+          tableId: this.recording.table,
+          seq: this.lastSeq,
+          state: staleState,
+        })
+      );
+      socket.send(
+        JSON.stringify({
+          type: 'EVENT',
+          tableId: this.recording.table,
+          seq: 1,
+          ts: now + 5,
+          payload: {
+            type: 'hand_started',
+            table_id: this.recording.table,
+            hand_number: 1,
+            dealer_seat: 6,
+            timestamp: now + 5,
+          },
+        })
+      );
+      this.sendSnapshotTo(socket);
     }
   }
 
@@ -270,14 +365,14 @@ export class ReplayEngine {
           }, 5_000);
           this.play(0, Date.now());
         } else {
-          this.sendSnapshotTo(ws);
+          this.sendSnapshotTo(ws, false);
         }
       } else if (msg.type === 'RESYNC') {
         this.resyncRequests++;
         if (this.resyncReplyRelease) {
           this.heldResyncSockets.add(ws);
           this.startResyncReplyLease?.();
-        } else this.sendSnapshotTo(ws);
+        } else this.sendSnapshotTo(ws, true);
       } else if (msg.type === 'UNSUBSCRIBE') {
         this.sockets.delete(ws);
         this.heldResyncSockets.delete(ws);
@@ -289,14 +384,21 @@ export class ReplayEngine {
     });
   }
 
-  private sendSnapshotTo(ws: WebSocketRoute): void {
+  private sendSnapshotTo(ws: WebSocketRoute, countAsRecoveryPoll = false): void {
     if (!this.state) return;
+    let wireState: Record<string, unknown> = this.state;
+    if (this.withholdDecisionPollsRemaining > 0) {
+      if (countAsRecoveryPoll && this.state.current_player === this.recording.hero) {
+        this.withholdDecisionPollsRemaining -= 1;
+      }
+      wireState = { ...this.state, action_context: null };
+    }
     ws.send(
       JSON.stringify({
         type: 'SNAPSHOT',
         tableId: this.recording.table,
         seq: this.lastSeq,
-        state: this.state,
+        state: wireState,
       })
     );
   }
@@ -363,6 +465,30 @@ export class ReplayEngine {
       return;
     }
     const state = this.state as Record<string, any> | null;
+    let outboundFrame = frame;
+    if (this.withholdDecisionPollsRemaining > 0) {
+      if (frame.type === 'SNAPSHOT' && frame.state && typeof frame.state === 'object') {
+        outboundFrame = { ...frame, state: { ...frame.state, action_context: null } };
+      } else if (frame.type === 'DELTA' && Array.isArray(frame.patch)) {
+        outboundFrame = {
+          ...frame,
+          patch: frame.patch.map((op: { path?: string; op?: string; value?: unknown }) =>
+            op.path === '/action_context' ? { ...op, value: null } : op
+          ),
+        };
+      } else if (
+        frame.type === 'EVENT' &&
+        frame.payload &&
+        typeof frame.payload === 'object' &&
+        'action_context' in frame.payload
+      ) {
+        const { action_context: _ignored, ...restPayload } = frame.payload as Record<
+          string,
+          unknown
+        >;
+        outboundFrame = { ...frame, payload: restPayload };
+      }
+    }
     this.sent.push({
       at: Date.now(),
       type: String(frame.type),
@@ -376,7 +502,7 @@ export class ReplayEngine {
               .slice(1)
               .join(':')} clock ${state?.turn_start_time_ms}`,
     });
-    const data = JSON.stringify(frame);
+    const data = JSON.stringify(outboundFrame);
     for (const socket of this.sockets) {
       try {
         socket.send(data);
@@ -416,6 +542,18 @@ export class ReplayEngine {
     }
     if (url.pathname === '/away') return this.json(route, { success: true, tracked: true });
     if (url.pathname === '/health') return this.json(route, { status: 'ok', liveness: 'ok' });
+    if (url.pathname.startsWith('/state/') && request.method() === 'GET') {
+      const requestedTable = url.pathname.slice('/state/'.length);
+      if (requestedTable !== this.recording.table || !this.state) {
+        return this.json(route, { success: false, error: 'Table not found' }, 404);
+      }
+      this.httpStateRequests++;
+      const wireState =
+        this.withholdDecisionPollsRemaining > 0
+          ? { ...this.state, action_context: null }
+          : this.state;
+      return this.json(route, wireState, 200);
+    }
     return route.fallback();
   }
 

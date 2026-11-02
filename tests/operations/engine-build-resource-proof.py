@@ -259,7 +259,8 @@ def main():
             # image. These isolated processes never import the application,
             # contact production, or create a second image/build route.
             native_cases = ["bounded", "near-limit", "at-cap", "overflow", "eed-profile", "profile-refusal",
-                            "process-refusal", "deadline-refusal", "headroom-refusal", "scan-deadline"]
+                            "process-refusal", "deadline-refusal", "headroom-refusal", "scan-deadline",
+                            "cache-saturation", "cache-depth-boundaries"]
             receipt["legacy_native_census"] = {}
             for scenario in native_cases:
                 name = f"engine-native-census-{os.getpid()}-{scenario}"

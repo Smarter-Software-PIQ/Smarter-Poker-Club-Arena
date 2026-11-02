@@ -344,9 +344,9 @@ COMPOSITION_PHASES = frozenset({'import', 'input-read', 'compose', 'sql-write', 
 COMPOSITION_COMMAND = """
 import {readFile,writeFile} from 'node:fs/promises';
 const [modulePath,a,b,c,d,diagnostic]=process.argv.slice(1);
-let phase='import', classify=()=> 'UNKNOWN', witness=()=>null;
+let phase='import', classify=()=> 'UNKNOWN', witness=()=>null, missingWitness=()=>null;
 try {
-  const module=await import(modulePath); classify=module.schemaCompositionFailureSite; witness=module.schemaCompositionMismatchWitness;
+  const module=await import(modulePath); classify=module.schemaCompositionFailureSite; witness=module.schemaCompositionMismatchWitness; missingWitness=module.schemaCompositionMissingWitness;
   phase='input-read'; const capture=await readFile(a,'utf8'), service=await readFile(b,'utf8');
   phase='compose'; const r=module.composeSchema(capture,service);
   phase='sql-write'; await writeFile(c,r.sql,{flag:'wx',mode:0o600});
@@ -356,6 +356,8 @@ try {
   const value={version:1,scope:'exact-service-composition-failure',phase,site};
   const mismatch=phase==='compose' ? witness(error) : null;
   if(mismatch!==null) value.mismatch=mismatch;
+  const missing=phase==='compose' ? missingWitness(error) : null;
+  if(missing!==null) value.missing=missing;
   try { await writeFile(diagnostic,JSON.stringify(value),{flag:'wx',mode:0o600}); } catch {}
   process.exitCode=1;
 }
@@ -394,6 +396,29 @@ def validate_composition_mismatch(value):
         keys.add(row['key_sha256'])
 
 
+def validate_composition_missing(value):
+    require(isinstance(value, dict) and set(value) == {'version', 'total', 'truncated', 'rows'} and
+            type(value['version']) is int and value['version'] == 1 and
+            type(value['total']) is int and 1 <= value['total'] <= 4194304 and
+            type(value['truncated']) is bool and isinstance(value['rows'], list) and
+            len(value['rows']) == min(value['total'], 16) and
+            value['truncated'] == (value['total'] > 16))
+    kinds = {'SCHEMA', 'FUNCTION', 'TABLE', 'VIEW', 'TYPE', 'SEQUENCE', 'ACL', 'DEFAULT ACL',
+             'COMMENT', 'EXTENSION', 'INDEX', 'CONSTRAINT', 'TRIGGER', 'POLICY', 'OTHER'}
+    schemas = {'auth', 'realtime', '_realtime', 'cron', 'extensions', 'public', '-', 'OTHER'}
+    previous = -1
+    keys = set()
+    for row in value['rows']:
+        require(isinstance(row, dict) and set(row) == {'native_ordinal', 'key_sha256', 'object_type', 'schema'})
+        require(type(row['native_ordinal']) is int and previous < row['native_ordinal'] <= 4194304 and
+                isinstance(row['object_type'], str) and row['object_type'] in kinds and
+                isinstance(row['schema'], str) and row['schema'] in schemas and
+                isinstance(row['key_sha256'], str) and re.fullmatch('[0-9a-f]{64}', row['key_sha256']) and
+                row['key_sha256'] not in keys)
+        previous = row['native_ordinal']
+        keys.add(row['key_sha256'])
+
+
 def composition_failure(path):
     unknown = {'version': 1, 'scope': 'exact-service-composition-failure', 'phase': 'unknown', 'site': 'UNKNOWN'}
     try:
@@ -415,7 +440,7 @@ def composition_failure(path):
                 result[key] = value
             return result
         value = json.loads(raw, object_pairs_hook=unique)
-        require(isinstance(value, dict) and set(value) in (set(unknown), set(unknown) | {'mismatch'}) and type(value['version']) is int and
+        require(isinstance(value, dict) and set(value) in (set(unknown), set(unknown) | {'mismatch'}, set(unknown) | {'missing'}) and type(value['version']) is int and
                 value['version'] == 1 and value['scope'] == unknown['scope'] and
                 isinstance(value['phase'], str) and value['phase'] in COMPOSITION_PHASES and
                 isinstance(value['site'], str) and value['site'] in COMPOSITION_SITES and
@@ -423,6 +448,9 @@ def composition_failure(path):
         if 'mismatch' in value:
             require(value['phase'] == 'compose' and value['site'] == 'NATIVE_BLOCK_DIFFERENT')
             validate_composition_mismatch(value['mismatch'])
+        if 'missing' in value:
+            require(value['phase'] == 'compose' and value['site'] == 'NATIVE_OBJECT_MISSING')
+            validate_composition_missing(value['missing'])
         return value
     except (OSError, ValueError, TypeError, RuntimeError, KeyError):
         return unknown

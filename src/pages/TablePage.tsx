@@ -133,6 +133,11 @@ import {
 import { sitOutMsRemaining, sitOutBadgeLabel } from '../lib/sitOutDeadline';
 import { heroMayReopenBetting } from '../lib/raiseReopen';
 import { TOURNAMENT_CHAMPION_DISPLAY_MS } from '../utils/tournamentChampion';
+import type { TournamentResultRead } from '../services/tournamentResult';
+import {
+  exitCancelledTournament,
+  isUnrankedTournamentCancellation,
+} from '../services/tournamentCancellationExit';
 import { awaitTournamentResultEnrichment } from '../utils/tournamentResultEnrichment';
 import {
   readMySatelliteQualifierResult,
@@ -662,7 +667,13 @@ import {
 import { PreviousHandCard } from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
 import { reportClientWarning, reportError } from '../utils/errorReporter';
-import { submitTableDecision, tableDecisionIsReady } from '../lib/tableActionDecision';
+import {
+  resolveSnapshotActionContext,
+  resolveTurnChangeActionContext,
+  startMissingDecisionPoller,
+  submitTableDecision,
+  tableDecisionIsReady,
+} from '../lib/tableActionDecision';
 import { safeErrorMessage, shouldSurfaceError } from '../utils/safeErrorMessage';
 import { serverNow } from '../utils/serverClock';
 import { visibleTimeBankAllowance } from '../utils/timeBankAllowanceView';
@@ -3203,19 +3214,42 @@ function LiveTablePage({
         // stats + the deal animation never re-fired. Carry it through.
         handNumber: mapped.handNumber > 0 ? mapped.handNumber : prev.handNumber,
         handBlinds: mapped.handBlinds,
-        actionContext:
-          mapped.actionContext ??
-          (sameHand &&
-          prev.actionContext &&
-          nextCurrentSeat > 0 &&
-          prev.currentPlayerSeat === nextCurrentSeat &&
-          prev.boardStage === nextStage &&
-          prev.currentBet === mapped.currentBet &&
-          (mapped.isTimeBankActive ||
-            (mapped.actionTimerStartTime !== undefined &&
-              mapped.actionTimerStartTime === prev.actionTimerStartTime))
-            ? prev.actionContext
-            : undefined),
+        actionContext: resolveSnapshotActionContext({
+          incomingActionContext: mapped.actionContext,
+          previousActionContext: prev.actionContext,
+          answeredDecision: heroActedFenceRef.current?.decision,
+          sameHand,
+          nextCurrentSeat,
+          previousCurrentSeat: prev.currentPlayerSeat,
+          nextStage,
+          previousStage: prev.boardStage,
+          nextCurrentBet: mapped.currentBet,
+          previousCurrentBet: prev.currentBet,
+          nextMinRaise: mapped.minRaise,
+          previousMinRaise: prev.minRaise,
+          nextLastRaise: mapped.lastRaise,
+          previousLastRaise: prev.lastRaise,
+          nextWagersCapped: mapped.wagersCapped,
+          previousWagersCapped: prev.wagersCapped,
+          nextBettingStructure: mapped.bettingStructure,
+          previousBettingStructure: prev.bettingStructure,
+          nextFixedBetSize: mapped.fixedBetSize,
+          previousFixedBetSize: prev.fixedBetSize,
+          nextFixedRaiseSize: mapped.fixedRaiseSize,
+          previousFixedRaiseSize: prev.fixedRaiseSize,
+          nextPotLimitPot: mapped.potLimitPot,
+          previousPotLimitPot: prev.potLimitPot,
+          nextActorBet: nextCurrentSeat > 0 ? nextBets[nextCurrentSeat - 1] : undefined,
+          previousActorBet:
+            nextCurrentSeat > 0 ? prev.lastBetAmounts?.[nextCurrentSeat - 1] : undefined,
+          nextActorStatus:
+            nextCurrentSeat > 0 ? nextPlayers[nextCurrentSeat - 1]?.status : undefined,
+          previousActorStatus:
+            nextCurrentSeat > 0 ? prev.players[nextCurrentSeat - 1]?.status : undefined,
+          isTimeBankActive: Boolean(mapped.isTimeBankActive),
+          nextTurnStartTimeMs: mapped.actionTimerStartTime,
+          previousTurnStartTimeMs: prev.actionTimerStartTime,
+        }),
         players: nextPlayers,
         positions: mapped.positions as PositionBadge[],
         lastActions: nextLastActions,
@@ -5313,6 +5347,7 @@ function LiveTablePage({
   /* The pending tournament-exit navigation, so the subscription's cleanup can
      cancel it. See goToLobbyWithResult. */
   const tournamentExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verifyDurableTournamentExitRef = useRef<(() => Promise<void>) | null>(null);
   const goToLobbyWithResultRef = useRef<
     ((position: number, prize: number, delayMs: number) => void) | null
   >(null);
@@ -7557,9 +7592,17 @@ function LiveTablePage({
       return;
     }
     let cancelled = false;
-    let httpInFlight = false;
+    const requestedTableId = tableId;
     const applyLiveTurnState = (raw: Record<string, unknown> | null) => {
-      if (cancelled || !raw || typeof raw !== 'object' || !userId) return;
+      if (cancelled || !raw || typeof raw !== 'object' || !userId || !requestedTableId) return;
+      const rawTableId = (raw as { table_id?: unknown }).table_id;
+      if (
+        typeof rawTableId === 'string' &&
+        rawTableId.length > 0 &&
+        rawTableId !== requestedTableId
+      ) {
+        return;
+      }
       const mapped = mapEngineSnapshot(
         raw as unknown as Parameters<typeof mapEngineSnapshot>[0],
         userId,
@@ -7569,11 +7612,29 @@ function LiveTablePage({
         return;
       }
       setTableState((prev) => {
+        if (prev.tableId && prev.tableId !== requestedTableId) {
+          return prev;
+        }
         if (
           prev.handNumber !== mapped.handNumber ||
           prev.currentPlayerSeat !== mapped.currentPlayerSeat ||
           prev.boardStage !== mapped.boardStage
         ) {
+          return prev;
+        }
+        const fenceVerdict = judgeSnapshotAgainstFence(
+          heroActedFenceRef.current,
+          {
+            hand: mapped.handNumber,
+            actorSeat: mapped.currentPlayerSeat,
+            decision: mapped.actionContext,
+            clock: mapped.actionTimerStartTime,
+            actorFolded: mapped.players[mapped.currentPlayerSeat - 1]?.status === 'folded',
+          },
+          Date.now()
+        );
+        heroActedFenceRef.current = fenceVerdict.fence;
+        if (fenceVerdict.currentPlayerSeat <= 0) {
           return prev;
         }
         return {
@@ -7593,28 +7654,21 @@ function LiveTablePage({
         };
       });
     };
-    const requestMissingDecision = () => {
-      if (cancelled) return;
-      requestEngineSnapshot();
-      if (tableId && userId && !httpInFlight) {
-        httpInFlight = true;
-        void GameServerAPI.getTableState(tableId)
-          .then((live) => {
-            applyLiveTurnState(live);
-          })
-          .finally(() => {
-            httpInFlight = false;
-          });
-      }
-    };
-    const initialTimer = window.setTimeout(requestMissingDecision, 120);
-    const retryInterval = window.setInterval(() => {
-      requestMissingDecision();
-    }, 350);
+    const stopPoller = startMissingDecisionPoller({
+      requestSnapshot: () => {
+        if (!cancelled) requestEngineSnapshot();
+      },
+      fetchTableState:
+        requestedTableId && userId
+          ? () => GameServerAPI.getTableState(requestedTableId)
+          : undefined,
+      onTableState: (live) => {
+        applyLiveTurnState(live);
+      },
+    });
     return () => {
       cancelled = true;
-      window.clearTimeout(initialTimer);
-      window.clearInterval(retryInterval);
+      stopPoller();
     };
   }, [
     isHeroTurnContext,
@@ -15483,6 +15537,7 @@ function LiveTablePage({
         // Subscribe to tournament break + add-on events via Realtime
         if (table.tournament_id) {
           const durableTournamentId = table.tournament_id;
+          const durableTableId = table.id;
           let committedSatelliteQualification: SatelliteQualifierResult | null = null;
           const durableTournamentName = table.name;
           const breakChanKey = `t-break-${durableTournamentId}`;
@@ -15535,11 +15590,13 @@ function LiveTablePage({
              was the last one. Single-table mode has no such subscriber, so it
              still navigates here. */
           let exitStarted = false;
+          let cancellationExitStarted = false;
+          let durableCancellationResult: TournamentResultRead | undefined;
           let terminalCompletionWitnessed = loadedTournamentStatus === 'COMPLETED';
           let terminalCelebrationStarted = false;
 
           const goToLobbyWithResult = (position: number, prize: number, delayMs: number) => {
-            if (exitStarted) return;
+            if (!isMounted || exitStarted || cancellationExitStarted) return;
             if (terminalCompletionWitnessed && !terminalCelebrationStarted) return;
             exitStarted = true;
 
@@ -15562,11 +15619,21 @@ function LiveTablePage({
                    a no-op. The bounded fallback preserves the broadcast's
                    authoritative position/prize and always reaches the card,
                    close signals and navigation below. */
-                const full = await resultEnrichment;
+                const enriched = await resultEnrichment;
+                const full = durableCancellationResult ?? enriched;
+                if (!isMounted || cancellationExitStarted) return;
+                if (isUnrankedTournamentCancellation(full)) {
+                  exitStarted = false;
+                  await exitFromDurableCancellation(full?.tournamentStatus);
+                  return;
+                }
                 publishSessionSummary({
                   handStatsTarget: tableId ? { tableId, userId, asOf: Date.now() } : undefined,
                   // Initial result recovery has no surviving play-session counters.
-                  resultOnly: loadedFinishedReportReady || loadedTournamentStatus === 'COMPLETED',
+                  resultOnly:
+                    loadedFinishedReportReady ||
+                    loadedTournamentStatus === 'COMPLETED' ||
+                    loadedTournamentStatus === 'CANCELLED',
                   arenaAsset: tableState.arenaAsset,
                   duration: Math.floor((Date.now() - sessionStartRef.current) / 1000),
                   handsPlayed: handsPlayedRef.current,
@@ -16007,6 +16074,56 @@ function LiveTablePage({
             }
           }
 
+          let cancellationExitInFlight = false;
+          async function exitFromDurableCancellation(status: unknown): Promise<void> {
+            if (!isMounted || durableCompletionHandled || cancellationExitInFlight) return;
+            cancellationExitInFlight = true;
+            try {
+              const exited = await exitCancelledTournament({
+                tournamentStatus: status,
+                tableId: durableTableId,
+                tournamentId: durableTournamentId,
+                userId,
+                isCurrent: () => isMounted && !durableCompletionHandled,
+                onResult: (result) => {
+                  // Preserve an earned result already waiting on its display
+                  // timer, and use the same report path on a cold cancelled URL.
+                  durableCancellationResult = result;
+                  goToLobbyWithResult(Number(result.finishPlace) || 0, result.prize, 0);
+                },
+                onExit: () => {
+                  durableCompletionHandled = true;
+                  cancellationExitStarted = true;
+                  exitStarted = true;
+                  if (durableCompletionRetryTimer) clearTimeout(durableCompletionRetryTimer);
+                  durableCompletionRetryTimer = null;
+                  if (tournamentExitTimerRef.current) clearTimeout(tournamentExitTimerRef.current);
+                  tournamentExitTimerRef.current = null;
+                  const seatAtExit = tableStateRef.current.heroSeat;
+                  heroSeatRef.current = 0;
+                  setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+                  toast.info('This Tournament Has Been Cancelled.');
+                  if (userId && userId !== 'guest') {
+                    masterBus.emit('SESSION_ENDED', { tableId: durableTableId, userId });
+                  }
+                  masterBus.emit('TABLE_LEFT', { tableId: durableTableId, seat: seatAtExit });
+                  masterBus.emit('TABLE_MENU_ACTION', {
+                    tableId: durableTableId,
+                    action: 'CLOSE_TABLE_TAB',
+                  });
+                  // The container keeps every other played or observed tab.
+                  if (!embeddedTableId) {
+                    const clubId = lobbyClubIdRef.current;
+                    navigate(clubId ? `/clubs/${clubId}` : '/');
+                  }
+                },
+              });
+              if (!exited) scheduleDurableCompletionRetry();
+            } finally {
+              cancellationExitInFlight = false;
+            }
+          }
+
           async function verifyDurableCompletion(): Promise<void> {
             if (!isMounted || durableCompletionHandled) return;
             const { data: terminal, error: terminalError } = await supabase
@@ -16034,6 +16151,10 @@ function LiveTablePage({
               loadedSatelliteTarget = satelliteTarget;
             }
             applyDurableFinalTableState(terminal);
+            if (terminal.status === 'CANCELLED') {
+              await exitFromDurableCancellation(terminal.status);
+              return;
+            }
             if (terminal.status === 'COMPLETED') {
               terminalCompletionWitnessed = true;
               await exitFromDurableCompletion();
@@ -16067,6 +16188,9 @@ function LiveTablePage({
                 applyDurableFinalTableState(payload.new);
                 if (typeof payload.new?.on_break === 'boolean')
                   void refreshTournamentBreakRef.current();
+                if (payload.new?.status === 'CANCELLED') {
+                  void verifyDurableCompletion();
+                }
                 if (payload.new?.status === 'COMPLETED') {
                   terminalCompletionWitnessed = true;
                   void exitFromDurableCompletion();
@@ -16947,6 +17071,7 @@ function LiveTablePage({
               }
             });
           breakChannelRef.current = breakChan;
+          verifyDurableTournamentExitRef.current = verifyDurableCompletion;
           // Bootstrap the durable backstop independently of Realtime status.
           // A channel can time out before ever reporting SUBSCRIBED, and a
           // successful non-terminal read below keeps the capped poll alive.
@@ -17286,6 +17411,7 @@ function LiveTablePage({
          a hold released after teardown would otherwise navigate a page that has
          already moved on. Cleared here, published where it is declared. */
       goToLobbyWithResultRef.current = null;
+      verifyDurableTournamentExitRef.current = null;
     };
   }, [tableId, userId]);
 
@@ -18134,6 +18260,11 @@ function LiveTablePage({
     observePublicEventRef.current(tableId ?? '', evt.type, evt.data);
 
     switch (evt.type) {
+      case 'ENGINE_RESTARTING':
+        // Retirement uses the existing restart frame. Only durable database
+        // cancellation can close this tab; an ordinary restart stays mounted.
+        void verifyDurableTournamentExitRef.current?.();
+        break;
       case 'ENGINE_EVENT_GAP': {
         const reason = String((evt.data as { reason?: unknown }).reason || '');
         if (reason !== 'reconnect' && reason !== 'event_sequence_gap') break;
@@ -19275,6 +19406,7 @@ function LiveTablePage({
         const newSeat = (evt.data as any).seat as number;
         if (typeof newSeat === 'number' && newSeat > 0) {
           const actionContext = (evt.data as { action_context?: string }).action_context;
+          const eventHandNumber = Number((evt.data as { hand_number?: unknown }).hand_number);
           const deadlineMs = Number((evt.data as { deadline_ms?: unknown }).deadline_ms);
           const timestampMs = Number((evt.data as { timestamp?: unknown }).timestamp);
           setTableState((prev) => {
@@ -19307,12 +19439,18 @@ function LiveTablePage({
             );
             heroActedFenceRef.current = verdict.fence;
             if (!verdict.accept) return prev;
-            const resolvedActionContext =
-              typeof actionContext === 'string' && actionContext.length > 0
-                ? actionContext
-                : prev.currentPlayerSeat === newSeat
-                  ? prev.actionContext
-                  : undefined;
+            const resolvedActionContext = resolveTurnChangeActionContext({
+              incomingActionContext: actionContext,
+              previousActionContext: prev.actionContext,
+              answeredDecision: heroActedFenceRef.current?.decision,
+              isHandInProgress: prev.isHandInProgress,
+              newSeat,
+              previousCurrentSeat: prev.currentPlayerSeat,
+              eventHandNumber,
+              previousHandNumber: prev.handNumber,
+              eventTimestampMs: timestampMs,
+              previousTurnStartTimeMs: prev.actionTimerStartTime,
+            });
             return {
               ...prev,
               currentPlayerSeat: newSeat,

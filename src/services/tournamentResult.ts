@@ -8,6 +8,8 @@ import { reportError } from '../utils/errorReporter';
 export interface TournamentResultRead extends TournamentResult {
   /** A failed or absent read never proves that an entrant finished. */
   entryStatus?: string | null;
+  /** Committed event state; cancellation never implies a finishing rank. */
+  tournamentStatus?: string | null;
 }
 
 export async function fetchTournamentResult(
@@ -65,7 +67,7 @@ export async function fetchTournamentResult(
            is_mystery_bounty gates the second read below, so an ordinary
            freezeout makes no extra RPC calls on the way out of the table. */
         .select(
-          'format_contract, name, current_players, variant, tournament_type, is_mystery_bounty, buy_in_amount, buy_in_fee'
+          'status, format_contract, name, current_players, variant, tournament_type, is_mystery_bounty, buy_in_amount, buy_in_fee'
         )
         .eq('id', tournamentId)
         .maybeSingle(),
@@ -101,7 +103,7 @@ export async function fetchTournamentResult(
     }
 
     const qualification =
-      entry?.status === 'winner' && entry.position === null
+      entry?.position === null && (entry.status === 'winner' || tourney?.status === 'CANCELLED')
         ? await readMySatelliteQualifierResult(tournamentId, userId)
         : null;
     return {
@@ -114,6 +116,7 @@ export async function fetchTournamentResult(
         : undefined,
       name: tourney?.name || undefined,
       entryStatus: entry?.status ?? null,
+      tournamentStatus: tourney?.status ?? null,
       finishSequence:
         entry?.elimination_sequence == null ? undefined : String(entry.elimination_sequence),
       tournamentId,

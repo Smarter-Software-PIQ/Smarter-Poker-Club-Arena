@@ -6,7 +6,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress, catalogueFailureKind, catalogueDiagnostics, safeCatalogueDiagnostic, captureRoleCatalogue } from '../schema-snapshot.mjs';
-import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite, schemaCompositionMismatchWitness } from '../schema-compose.mjs';
+import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite, schemaCompositionMismatchWitness, schemaCompositionMissingWitness } from '../schema-compose.mjs';
 import { schemaCatalogue, schemaCataloguePayload } from '../../native/component-semantic-observations.mjs';
 import { APPLICATION_TRIGGER_WITNESSES } from '../schema-application-hooks.mjs';
 
@@ -836,4 +836,54 @@ SELECT 1;`]) {
   // An unrecognized SET is definition text, not an ignored setting.
   const extra = "SET application_name = 'not a stream transition';\n\n";
   assert.equal(dumpObjects(managed + extra).objects.at(-1).text.endsWith(extra), true);
+});
+
+
+test('missing native object witness identifies only actual absent keys and preserves exact refusal', () => {
+  const secret = object('private_missing_name()', 'auth', "SELECT 'private_body';", 'FUNCTION', 'private_owner');
+  let error;
+  assert.throws(() => composeSchema(prefix + managed + footer, prefix + managed + secret + footer), caught => {
+    error = caught;
+    return caught.message === 'SCHEMA_COMPOSITION_PREIMAGE_REQUIRED';
+  });
+  assert.equal(schemaCompositionFailureSite(error), 'NATIVE_OBJECT_MISSING');
+  assert.equal(schemaCompositionMismatchWitness(error), null);
+  const native = dumpObjects(prefix + managed + secret + footer).objects.at(-1);
+  const witness = schemaCompositionMissingWitness(error);
+  assert.deepEqual(witness, { version: 1, total: 1, truncated: false, rows: [{
+    native_ordinal: 7, key_sha256: schemaHash(native.key), object_type: 'FUNCTION', schema: 'auth',
+  }] });
+  for (const value of ['private_missing_name', 'private_body', 'private_owner', 'SELECT', native.key, 'captured_', 'owner_match'])
+    assert.equal(JSON.stringify(witness).includes(value), false);
+  witness.rows[0].schema = 'mutated';
+  assert.equal(schemaCompositionMissingWitness(error).rows[0].schema, 'auth');
+  for (const hostile of [new Error(error.message), Object.assign(new Error(), { missing: witness }),
+    new Proxy(error, { get() { throw Error('must not inspect'); } }), new (class extends Error {})()])
+    assert.equal(schemaCompositionMissingWitness(hostile), null);
+  error.extra = 'tampered';
+  assert.equal(schemaCompositionMissingWitness(error), null);
+  delete error.extra;
+  Object.defineProperty(error, 'message', { get() { throw Error('must not inspect getter'); } });
+  assert.equal(schemaCompositionMissingWitness(error), null);
+  assert.doesNotThrow(() => composeSchema(prefix + managed + footer, prefix + managed + footer));
+});
+
+test('missing witness is bounded, native-ordered and excludes present differing objects', () => {
+  const blocks = Array.from({ length: 18 }, (_, i) => object('private_' + i, 'private_schema', 'SELECT 1;', 'PRIVATE TYPE', 'private_owner'));
+  let error;
+  try { composeSchema(blocks[0], blocks[0] + blocks.slice(1).join('')); } catch (caught) { error = caught; }
+  const witness = schemaCompositionMissingWitness(error);
+  assert.equal(witness.total, 17);
+  assert.equal(witness.truncated, true);
+  assert.equal(witness.rows.length, 16);
+  assert.equal(witness.rows[0].native_ordinal, 1);
+  assert.equal(witness.rows.at(-1).native_ordinal, 16);
+  assert.ok(witness.rows.every(row => row.object_type === 'OTHER' && row.schema === 'OTHER'));
+  assert.ok(Buffer.byteLength(JSON.stringify(witness)) < 16384);
+  assert.equal(JSON.stringify(witness).includes('private'), false);
+  let mismatch;
+  try { composeSchema(blocks[0], blocks[0].replace('SELECT 1;', 'SELECT 2;') + blocks[1]); } catch (caught) { mismatch = caught; }
+  assert.equal(schemaCompositionFailureSite(mismatch), 'NATIVE_BLOCK_DIFFERENT');
+  assert.equal(schemaCompositionMissingWitness(mismatch), null);
+  assert.equal(schemaCompositionMismatchWitness(mismatch).total, 1);
 });
