@@ -66,6 +66,11 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         env.start(); self.addCleanup(env.stop)
         start = 1793592000
         self.start = start
+        # The immutable failed window is historical. Keep the observation clock
+        # relative to it: the "not settled" case's ten-hour bound otherwise
+        # expires as wall time advances, turning a refusal fixture into approval.
+        clock = patch.object(seal.time, 'time', return_value=start + 3600)
+        clock.start(); self.addCleanup(clock.stop)
         self.failure = {'schema': 1, 'runId': DEAD_RUN, 'result': 'failed', 'sha': B_SHA, 'controlSha': B_SHA,
             'invocationId': seal.NINEF_INVOCATION, 'transactionExitStatus': 1, 'recoveredDesiredSha': A_SHA,
             'recoveredDesiredImageId': A_IMAGE, 'completedAt': seal.NINEF_COMPLETED_AT}

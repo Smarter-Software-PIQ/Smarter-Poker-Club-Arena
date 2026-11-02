@@ -11,6 +11,12 @@ witnesses use the existing failed-observation path. A bounded maintenance pause
 cannot certify recovery. No scheduler, game repair, money path or historical
 episode is changed.
 
+Required CI also exposed a historical release-proof fixture using the real clock:
+its ten-hour unsettled-window case expired with calendar time. The fixture now
+observes its immutable failed window at a fixed relative time. Production release
+guards and their ownership requirements are unchanged; all 25 qualification
+cases run through the same maintained seal code.
+
 The existing required shard-7 PostgreSQL gate now exercises the final body for
 absent, foreign, old, future and malformed hand evidence; the exact freshness
 boundary; incomplete and ambiguous telemetry; standby, boot and maintenance;
