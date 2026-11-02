@@ -231,6 +231,14 @@ guarantee_proof = (ROOT / "scripts/qualification/fixtures/horse-cash-november/gu
 guarantee_live_proof = next(line.removeprefix("-- @live-proof: ") for line in guarantee_sql.splitlines() if line.startswith("-- @live-proof: "))
 guarantee_before = "DO $proof$ BEGIN IF (" + guarantee_live_proof + ") IS DISTINCT FROM false THEN RAISE EXCEPTION 'uninstalled guarantee proof must fail'; END IF; END $proof$;"
 guarantee_after = "DO $proof$ BEGIN IF (" + guarantee_live_proof + ") IS DISTINCT FROM true THEN RAISE EXCEPTION 'installed guarantee proof must pass'; END IF; END $proof$;"
+transition_sql = (ROOT / "supabase/migrations/20261102041113_halve_transition_tournament_guarantees_once.sql").read_text()
+transition_setup = (ROOT / "scripts/qualification/fixtures/horse-cash-november/transition-guarantees.sql").read_text()
+transition_proof = (ROOT / "scripts/qualification/fixtures/horse-cash-november/transition-guarantee-proof.sql").read_text()
+transition_protected = (ROOT / "scripts/qualification/fixtures/horse-cash-november/transition-guarantee-protected.sql").read_text()
+transition_protected_proof = (ROOT / "scripts/qualification/fixtures/horse-cash-november/transition-guarantee-protected-proof.sql").read_text()
+transition_live_proof = next(line.removeprefix("-- @live-proof: ") for line in transition_sql.splitlines() if line.startswith("-- @live-proof: "))
+transition_before = "DO $proof$ BEGIN IF (" + transition_live_proof + ") IS DISTINCT FROM false THEN RAISE EXCEPTION 'uninstalled transition proof must fail'; END IF; END $proof$;"
+transition_after = "DO $proof$ BEGIN IF (" + transition_live_proof + ") IS DISTINCT FROM true THEN RAISE EXCEPTION 'installed transition proof must pass'; END IF; END $proof$;"
 work = Path(os.environ.get("RUNNER_TEMP", str(ROOT / "work")))
 work.mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
@@ -240,7 +248,7 @@ with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
     subprocess.run([str(bindir/"initdb"), "-D", str(d/"data"), "-A", "trust", "--no-locale"], check=True, stdout=subprocess.DEVNULL)
     subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "-l", str(d/"postgres.log"), "-o", f"-k {d} -p 55439 -c listen_addresses='' -c fsync=off", "start"], check=True, stdout=subprocess.DEVNULL)
     try:
-        subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions+november_setup+cluster_before+november_sql+november_assertions+future_helper+november_guard_proof+november_capacity_proof+guarantee_setup+guarantee_before+guarantee_sql+guarantee_after+guarantee_proof+guarantee_sql+guarantee_after+guarantee_proof, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
-        print("PASS: guarantee reduction and repeat application, entered/running/locked/finalized preservation, accurate labels; November midnight policy, every prohibited variant, PLO ceiling, tournament/human/owned-move/settlement preservation, both dated capacity branches; native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit")
+        subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions+november_setup+cluster_before+november_sql+november_assertions+future_helper+november_guard_proof+november_capacity_proof+guarantee_setup+guarantee_before+guarantee_sql+guarantee_after+guarantee_proof+guarantee_sql+guarantee_after+guarantee_proof+transition_setup+transition_before+transition_sql+transition_after+transition_proof+transition_sql+transition_after+transition_proof+transition_protected+transition_sql+transition_protected_proof+transition_after+guarantee_proof, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
+        print("PASS: transition guarantees and repeat application with entered/locked/running preservation; guarantee reduction and repeat application, entered/running/locked/finalized preservation, accurate labels; November midnight policy, every prohibited variant, PLO ceiling, tournament/human/owned-move/settlement preservation, both dated capacity branches; native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit")
     finally:
         subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "stop", "-m", "fast"], check=True, stdout=subprocess.DEVNULL)
