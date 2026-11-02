@@ -28,7 +28,7 @@ export function validatePlayerUIIngress(value) {
   requireSchemaSourceContract(value.source_contract);
   assert.match(value.control_sha, /^[0-9a-f]{40}$/);
   assert.match(value.schema_catalogue_digest, /^[0-9a-f]{64}$/);
-  assert.match(value.runtime_image, /^[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}$/);
+  assert.match(value.runtime_image, /^(?:sha256:[0-9a-f]{64}|[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64})(?![\s\S])/);
   assert.match(value.engine_sha, /^[0-9a-f]{40}$/);
   assert.match(value.web_sha, /^[0-9a-f]{40}$/);
   assert.ok(Array.isArray(value.cohorts) && value.cohorts.length === 3);

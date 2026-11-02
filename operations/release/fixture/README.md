@@ -1054,3 +1054,9 @@ required. No scheduler job starts and no production object is changed.
 Native source qualification, strict complete-schema parity, all fifteen isolated
 connected cases and complete cleanup still determine acceptance. These source
 changes alone do not establish any of those results.
+
+The connected tournament ingress accepts either the existing immutable registry
+reference or the exact local Docker image ID supplied by its native controller.
+Mutable tags and malformed or whitespace-bearing IDs remain refused. The outer
+controller still binds the returned runtime identity exactly, and the separately
+admitted registry route retains its existing registry-digest requirement.

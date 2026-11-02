@@ -18,3 +18,9 @@ cleanup remain mandatory. The expected restore never comes from an observation.
 
 Qualification and delivery evidence remain in the owning checkpoint. Full-schema
 and connected acceptance are pending until the actual protected candidate runs.
+
+Connected ingress additionally preserves both actual immutable runtime identity
+formats: an admitted registry digest and the local Docker image ID returned by
+native qualification. An exact caller-shaped regression reproduces rejection of
+the latter; strict ID/tag/whitespace and other ingress refusals remain enforced.
+No runtime image is substituted and outer exact-image result binding is unchanged.
