@@ -155,6 +155,7 @@ import { gtoOpenBar, gtoOpenStrength, gtoSbLimpFloor } from './HorseGtoOpeningRa
 import { gtoDefence, V72_MAX_OPEN_BB } from './HorseGtoDefenceRanges.js';
 import {
   gtoVs3Bet,
+  openWidth,
   V73_MAX_THREEBET_X,
   V73_MIN_EFFECTIVE_BB,
   V73_MIN_THREEBET_X,
@@ -2256,6 +2257,16 @@ export interface HorseDecideOpts {
    *  Default on; explicit false restores the band (historical corpora
    *  only). */
   v76RetireFourBetBluffBand?: boolean;
+  /** V77 (2026-11-02, Burls via Dan: "JAMMING ALL IN TOO MUCH, THEY AREN'T
+   *  CONSIDERING THE UTG OR EARLY POSITION OPENERS"): the no-limit hold'em
+   *  push/fold jam over exactly one open is tightened by the opener's V70
+   *  per-seat open width (dealt-census indexed, ante-aware): the bar rises
+   *  with the share of the late reference width the opener's seat does not
+   *  open, up to +0.10 for the narrowest early seats and exactly zero for a
+   *  40%+ (button/blind) width. Tighten-only; first-in jams (V71/V27), the
+   *  shove caps, raises >= 2 and Omaha untouched. Default on; explicit
+   *  false keeps today's seat-blind bar. */
+  v77SeatAwareJams?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -6663,10 +6674,27 @@ export class HorseLogic {
         continueBar: r73.continueBar,
       };
     })();
+    // ═══ V77 SEAT-AWARE SHORT-STACK JAMS (2026-11-02) ═══ the V70 open
+    // width of the seat that made the only raise hero faces, for the
+    // push/fold jam tighten (HorsePreflop). Hold'em, two cards, exactly one
+    // raise; both seats indexed from the dealt census, never from who
+    // anybody is.
+    const openerWidth77 = (() => {
+      if (opts.v77SeatAwareJams === false) return undefined;
+      if (raises !== 1 || lastRaiserSeat < 0) return undefined;
+      if (player.cards.length !== 2 || vi.isOmaha || vi.isShortDeck) return undefined;
+      const ob77 = preflopPlayersBehind(lastRaiserSeat, gs, opts.v13 !== false);
+      if (ob77 === null) return undefined;
+      const dealt77 = dealtHorseTableSize(gs, player.seat);
+      if (dealt77 < 2) return undefined;
+      if (telemetryOn(opts)) noteFire('v77_seat_jam');
+      return openWidth(ob77, (gs.ante ?? 0) > 0, dealt77);
+    })();
     const intent = decidePreflopV7({
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
       ...(gtoVs3Bet73 ? { gtoVs3Bet: gtoVs3Bet73 } : {}),
+      ...(openerWidth77 !== undefined ? { openerOpenWidthPct: openerWidth77 } : {}),
       ...(ploIcm53 ? { ploIcm: ploIcm53.shifts } : {}),
       strength,
       position,
