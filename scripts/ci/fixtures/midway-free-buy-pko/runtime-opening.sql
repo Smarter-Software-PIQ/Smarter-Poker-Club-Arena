@@ -1,0 +1,3 @@
+INSERT INTO tournaments(id,club_id,tournament_type,variant,status,free_buy,is_pko,is_bounty,is_mystery_bounty,buy_in_amount,buy_in_fee,starting_chips,blind_structure,payout_structure,prize_pool,prize_pool_finalized)
+VALUES('10000000-0000-0000-0000-000000000001','fade0000-0000-0000-0000-000000000001','SPIN','spin','REGISTERING',false,false,false,false,50,0,300,'[{"level":1,"duration":300}]','[{"place":1,"percentage":100}]',100,false);
+INSERT INTO tournament_players(id,tournament_id,user_id,status) SELECT gen_random_uuid(),'10000000-0000-0000-0000-000000000001',gen_random_uuid(),'playing' FROM generate_series(1,3);
