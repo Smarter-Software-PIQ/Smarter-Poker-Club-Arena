@@ -1053,6 +1053,37 @@ def INVOCATION_PATTERN(value):
     return isinstance(value, str) and re.fullmatch(r'[0-9a-f]{32}', value) is not None
 
 
+def serving_instance():
+    """The serving instance id from the fixed local endpoint; health_pair then
+    binds it on both endpoints together with the desired release."""
+    with urllib.request.urlopen('http://127.0.0.1:8080/health?withdraw=' + str(time.time_ns()), timeout=5) as response:
+        require(response.geturl().split('?', 1)[0] == 'http://127.0.0.1:8080/health')
+        raw = response.read(65537)
+        require(len(raw) <= 65536)
+        instance = json.loads(raw).get('instanceId')
+    require(isinstance(instance, str) and INSTANCE.fullmatch(instance) is not None)
+    return instance
+
+
+def serving_desired_runtime(request, recorded):
+    """The serving desired runtime at proof time (2026-11-02).
+
+    The withdrawal receipt records the container that was serving when the
+    cancellation ran. eed06fe5 restarts on its own (run 41469215622-1 was
+    cancelled at 17:50Z on instance 1-43c66515; the engine restarted at
+    18:05:11Z), and the receipt is immutable, so requiring that exact birth made
+    the proof permanently impossible after any restart. The consuming seal
+    already admits a later birth of the same desired image
+    (cancelled_phase1_started_at). This proves exactly that: the same immutable
+    image, running the desired release, healthy and idle on both endpoints.
+    """
+    live = container_identity(request)
+    require(live['image'] == recorded['image'])
+    current = dict(request, instanceId=serving_instance())
+    health_pair(current)
+    return live, current
+
+
 def phase1_cancellation_proof():
     """Read-only final evidence consumed by the owning sealed transaction.
 
@@ -1098,18 +1129,18 @@ def phase1_cancellation_proof():
     for unit in units:
         require(not os.path.lexists(own_wants_edge(unit)))
     quiet_units(units, receipt['originalControlGroup'], True, receipt['unitCgroups'])
-    require(container_identity(request) == receipt['container']); health_pair(request)
+    live, current = serving_desired_runtime(request, receipt['container'])
     thaw = own_thaw(PHASE1_STAMP, PHASE1_CONTROL)
     require(thaw == evidence['thaw'])
-    phase1_runtime_birth(request, receipt['container'], thaw)
+    phase1_runtime_birth(request, live, thaw)
     cycle = phase1_seal_evidence(generation)
     quiet_units(units, receipt['originalControlGroup'], True, receipt['unitCgroups'])
-    require(container_identity(request) == receipt['container'])
+    require(container_identity(current) == live); health_pair(current)
     for name, raw in records.items(): require(regular(directory / (PHASE1_RUN + '.' + name + '.json'), 0o600) == raw)
     return {'schema': 'cancelled-routine-announcement-proof/v1', 'originalCycle': cycle,
             'recordHashes': {name: digest(raw.encode()) for name, raw in records.items()},
             'retainedHashes': {name: evidence[name] for name in retained}, 'sourceHashes': PHASE1_HASHES,
-            'thaw': thaw, 'container': receipt['container'], 'instanceId': request['instanceId']}
+            'thaw': thaw, 'container': live, 'instanceId': current['instanceId']}
 
 
 

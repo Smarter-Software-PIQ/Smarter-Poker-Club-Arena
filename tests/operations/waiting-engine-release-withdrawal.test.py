@@ -510,9 +510,11 @@ class AnnouncedCancellation(unittest.TestCase):
             quiet = patches.enter_context(patch.object(module, 'quiet_units'))
             patches.enter_context(patch.object(module, 'container_identity', return_value=container))
             patches.enter_context(patch.object(module, 'health_pair'))
+            patches.enter_context(patch.object(module, 'serving_instance', return_value=request['instanceId']))
             patches.enter_context(patch.object(module, 'own_thaw', return_value=thaw))
             patches.enter_context(patch.object(module, 'phase1_seal_evidence', return_value={'original': True}))
             proof = module.phase1_cancellation_proof()
+            self.assertEqual((proof['container'], proof['instanceId']), (container, request['instanceId']))
             self.assertEqual(proof['recordHashes'], {name: module.digest(raw.encode()) for name, raw in records.items()})
             self.assertEqual(quiet.call_count, 2)
             for suffix in ('request', 'intent', 'break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json'):
@@ -521,7 +523,22 @@ class AnnouncedCancellation(unittest.TestCase):
                 path.unlink()
             with patch.object(module, 'quiet_units', side_effect=ValueError('successor process')):
                 with self.assertRaises(ValueError): module.phase1_cancellation_proof()
-            with patch.object(module, 'container_identity', return_value=container | {'startedAt': '2026-11-02T07:30:00Z'}):
+            # eed06fe5 restarts on its own after the cancellation (41469215622-1: cancelled on
+            # 1-43c66515, restarted 18:05:11Z). A later birth of the same desired image proves,
+            # bound to the serving container and instance at proof time, as the seal admits.
+            reborn = container | {'startedAt': '2026-11-02T07:30:00Z'}
+            with patch.object(module, 'container_identity', return_value=reborn), \
+                 patch.object(module, 'serving_instance', return_value='1-17a6d6ef'):
+                later = module.phase1_cancellation_proof()
+            self.assertEqual((later['container'], later['instanceId']), (reborn, '1-17a6d6ef'))
+            # Another image is not the sealed desired runtime.
+            with patch.object(module, 'container_identity', return_value=reborn | {'image': 'sha256:' + 'c' * 64}):
+                with self.assertRaises(ValueError): module.phase1_cancellation_proof()
+            # A birth inside the announced window is never admitted.
+            with patch.object(module, 'container_identity', return_value=container | {'startedAt': '2026-11-02T07:02:00Z'}):
+                with self.assertRaises(ValueError): module.phase1_cancellation_proof()
+            # A malformed serving instance refuses.
+            with patch.object(module, 'serving_instance', side_effect=ValueError('Exact waiting release admission refused')):
                 with self.assertRaises(ValueError): module.phase1_cancellation_proof()
             receipt['stopDisposition'] = 'requested'
             (directory / (key + '.receipt.json')).write_text(json.dumps(receipt))

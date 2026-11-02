@@ -937,7 +937,16 @@ raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.
     promise_args=(--promise-floor-proof "$proof")
   fi
   if [ "$LOCK_HELD" != 1 ]; then acquire_engine_lock 'routine window binding'; took=1; fi
-  source_target_is_current
+  # STDOUT BELONGS TO THE CALLER'S CAPTURE (2026-11-02). This function runs
+  # inside `$(maintenance_certificate ...)` and `$(legacy_checkpoint_countdown
+  # ...)`, whose stdout is the break remainder / break-end epoch. When the
+  # target is behind protected main, source_target_is_current prints
+  # ENGINE_RELEASE_SUPERSEDED_BY=<sha> to stdout, so the captured "epoch" became
+  # that line plus the epoch and `set -u` arithmetic died at the cutover second
+  # (run 41469215622-1, 16:00:13Z: "<sha>: unbound variable", leaving an
+  # announcement-only owner). Its proof and refusal are unchanged; only the
+  # informational line goes to stderr here.
+  source_target_is_current >&2
   bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID" "${promise_args[@]}")" || rc=$?
   if [ "$took" = 1 ]; then release_engine_lock; fi
   [ "$rc" = 0 ] || return "$rc"
@@ -3013,6 +3022,13 @@ while :; do
       bounded_sleep 5
       continue
     fi
+    # Only a bare epoch is a break end; anything else refuses before mutation.
+    if ! [[ "$LEGACY_COUNTDOWN_END" =~ ^[1-9][0-9]*$ ]]; then
+      LEGACY_ENTRY_DEADLINE_MS=0
+      echo '[engine-release-transaction] legacy countdown returned a non-epoch value; refused before entry' >&2
+      bounded_sleep 5
+      continue
+    fi
     LEGACY_ENTRY_BREAK_END_EPOCH="$LEGACY_COUNTDOWN_END"
     legacy_entry_trace admitted verified
   elif [ "$CERTIFICATE_RC" -eq 2 ]; then
@@ -3100,6 +3116,14 @@ while :; do
   if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ]; then
     if ! LEGACY_COUNTDOWN_END="$(legacy_checkpoint_countdown "$BREAK_ENTRY_BUDGET_MS" "$LEGACY_ENTRY_BREAK_END_EPOCH" locked)"; then
       legacy_entry_trace refused countdown_refused
+      LEGACY_ENTRY_DEADLINE_MS=0
+      release_engine_lock
+      bounded_sleep 5
+      continue
+    fi
+    # The locked recheck must name the same bare epoch it was admitted with.
+    if [ "$LEGACY_COUNTDOWN_END" != "$LEGACY_ENTRY_BREAK_END_EPOCH" ]; then
+      legacy_entry_trace refused countdown_epoch_mismatch
       LEGACY_ENTRY_DEADLINE_MS=0
       release_engine_lock
       bounded_sleep 5
