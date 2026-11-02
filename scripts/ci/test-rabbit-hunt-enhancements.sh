@@ -23,4 +23,10 @@ migration="$repo/supabase/migrations/20261102165142_rabbit_hunt_price_preview_ow
 grep -q RABBIT_HUNT_ENHANCEMENTS_ASSERTIONS_OK "$work/after.log"
 "${psql[@]}" -f "$migration"
 "${psql[@]}" -At -c "SELECT count(*) FROM public.rabbit_hunt_owned_runouts" | grep -qx 2
-echo 'RABBIT_HUNT_ENHANCEMENTS PASS: preview order and bounds, no cards, owned run-out exact slice, buyer only, kept after prune, backfill, staff door audited and replay-safe, service door unchanged, private core, replay-safe migration'
+# 20261102181258: the receipt may land before the saved run-out (Auto Run).
+either="$repo/supabase/migrations/20261102181258_rabbit_hunt_kept_runout_either_write_order.sql"
+"${psql[@]}" -f "$either"
+"${psql[@]}" -f "$either"
+"${psql[@]}" -f "$repo/tests/fixtures/rabbit-hunt-enhancements/either-order.sql" | tee "$work/either.log"
+grep -q RABBIT_HUNT_EITHER_ORDER_OK "$work/either.log"
+echo 'RABBIT_HUNT_ENHANCEMENTS PASS: preview order and bounds, no cards, owned run-out exact slice, buyer only, kept after prune, backfill, staff door audited and replay-safe, service door unchanged, private core, replay-safe migration, kept in either write order'
