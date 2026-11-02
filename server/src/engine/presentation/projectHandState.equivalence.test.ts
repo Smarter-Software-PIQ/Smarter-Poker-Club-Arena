@@ -418,4 +418,46 @@ describe('the shared projection is the engine projection it replaced', () => {
     expect(e.getTableState('u1')).toBeNull();
     expect(legacyResync(e, 'u1')).toBeNull();
   });
+
+  it('indexes seatedPlayers and showdownResults once per broadcast/resync without per-seat Array.prototype.find scans', async () => {
+    const rnd = mulberry32(20261102);
+    const { e, h, n } = engineFor(rnd);
+    h.start();
+    e.seatedPlayers = Array.from({ length: n }, (_, i) => ({
+      seat_number: i + 1,
+      user_id: `u${i + 1}`,
+      username: `P${i + 1}`,
+      stack: 500 + i * 10,
+      is_horse: false,
+    }));
+    e.currentHandShowdownResults = Array.from({ length: n }, (_, i) => ({
+      userId: `u${i + 1}`,
+      handRanking: i + 1,
+      handName: `Indexed Hand ${i + 1}`,
+      kickers: [],
+      holeCards: [],
+      seat: i + 1,
+      revealOrder: i,
+      mucked: false,
+    }));
+    (h as any).state.stage = 'showdown';
+    e.runoutRevealActive = true;
+
+    const seatedFindSpy = vi.spyOn(e.seatedPlayers, 'find');
+    const showdownFindSpy = vi.spyOn(e.currentHandShowdownResults, 'find');
+
+    const live = await livePayload(e);
+    const resync = e.getTableState('u1');
+
+    expect(seatedFindSpy).not.toHaveBeenCalled();
+    expect(showdownFindSpy).not.toHaveBeenCalled();
+    expect(live.players.map((p: any) => p.hand_name)).toEqual(
+      Array.from({ length: n }, (_, i) => `Indexed Hand ${i + 1}`)
+    );
+
+    const { hand_blinds: _liveStakes, ...legacyLiveShape } = live;
+    expect(JSON.stringify(legacyLiveShape)).toBe(JSON.stringify(legacyLive(e)));
+    const { hand_blinds: _resyncStakes, ...legacyResyncShape } = resync;
+    expect(JSON.stringify(legacyResyncShape)).toBe(JSON.stringify(legacyResync(e, 'u1')));
+  });
 });

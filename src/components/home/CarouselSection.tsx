@@ -75,6 +75,8 @@ export interface ClubStats {
   activeCash?: number | null;
   /** Of those, distinct players in tournaments, Spins and SNGs. */
   activeEvents?: number | null;
+  /** Owner-set display addition, labelled separately; never part of the real counts. */
+  displayAddition?: { members: number; active: number; label: string } | null;
 }
 
 export interface CarouselSectionProps {
@@ -308,6 +310,7 @@ export default function CarouselSection({
                     : club.logo_url
                 }
                 entityType={club.entity_type || 'club'}
+                displayAddition={stats?.displayAddition ?? null}
               />
             )}
           </PageErrorBoundary>

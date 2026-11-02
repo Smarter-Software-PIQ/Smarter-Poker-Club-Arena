@@ -131,6 +131,7 @@ import {
   canRestoreFinishedTournamentReport,
 } from '../services/tournamentResult';
 import { sitOutMsRemaining, sitOutBadgeLabel } from '../lib/sitOutDeadline';
+import { knownTableIsTournament, rememberTableIsTournament } from '../lib/tableKindMemory';
 import { heroMayReopenBetting } from '../lib/raiseReopen';
 import { TOURNAMENT_CHAMPION_DISPLAY_MS } from '../utils/tournamentChampion';
 import type { TournamentResultRead } from '../services/tournamentResult';
@@ -2608,7 +2609,9 @@ function LiveTablePage({
       positions: Array(maxP).fill(null),
       lastActions: Array(maxP).fill(null),
       lastBetAmounts: Array(maxP).fill(0),
-      isTournament: false,
+      // A re-mount must not paint a tournament table as a cash table before
+      // its row loads (Dan 2026-11-02, jam_degen on the felt). See tableKindMemory.
+      isTournament: knownTableIsTournament(tableId) ?? false,
       bountyMap: {},
       isBountyTournament: false,
     };
@@ -14622,6 +14625,10 @@ function LiveTablePage({
         let loadedSatelliteTarget: string | null = null;
         let loadedFinishedReportReady = false;
         let durableParticipantWitnessed = false;
+        rememberTableIsTournament(
+          table.id,
+          table.game_type === 'tournament' || !!table.tournament_id
+        );
         setTableState((prev) => {
           if (!isMounted) return prev;
           // Metadata can resolve after the socket has already painted a hand.
