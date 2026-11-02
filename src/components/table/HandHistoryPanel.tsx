@@ -155,6 +155,12 @@ export interface HandRecord {
   bbjFee: number;
   /** The table's name, for the export header. */
   tableName?: string;
+  /**
+   * The table the hand was dealt at (hand_history.table_id). The Hand History
+   * page needs it to rabbit hunt a previous hand (Dan 2026-11-01); the engine
+   * keys a run-out by table and hand number.
+   */
+  tableId?: string | null;
   /** Bomb-pot facts, when the hand was one. */
   bombPot?: {
     trigger_reason?: string;

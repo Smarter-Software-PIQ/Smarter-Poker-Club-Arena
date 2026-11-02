@@ -34,6 +34,11 @@ import { exportToCSV } from '../lib/export';
 import { masterBus } from '../core/MasterBus';
 import HandReplay from '../components/replay/HandReplay';
 import HandDetailModal from '../components/table/HandDetailModal';
+import {
+  buyReplayRabbitHunt,
+  readReplayRabbitReceipt,
+} from '../components/table/replayRabbitPurchase';
+import { useVIPStatus } from '../hooks/useVIP';
 import HandDetailView from '../components/handdetail/HandDetailView';
 import HandNoteEditor from '../components/handdetail/HandNoteEditor';
 import HandFlagControl from '../components/handdetail/HandFlagControl';
@@ -138,6 +143,10 @@ export default function HandHistoryPage() {
   const gameMode = statsGameMode(searchParams.get('gameMode'));
   const { user } = useAuthUser();
   const userId = user?.id ?? null;
+  /* Rabbit hunting a previous hand is VIP only past the felt window (Dan
+     2026-11-01); the modal shows a non-VIP the note instead of a button the
+     engine would refuse. The engine is the authority either way. */
+  const { isVIP: viewerIsVip } = useVIPStatus();
   const drilldownKey = searchParams.toString();
   const statsDrilldown = useMemo(
     () => readStatsDrilldown(new URLSearchParams(drilldownKey)),
@@ -1275,6 +1284,21 @@ export default function HandHistoryPage() {
             hands={[detailHand]}
             initialHandId={detailHand.id}
             heroId={userId ?? ''}
+            /* PREVIOUS-HAND RABBIT HUNT (Dan 2026-11-01): the same purchase the
+               table's replayer makes, for the hand on screen. Only where the
+               record names its table - the engine keys a run-out by table. */
+            onRabbitHunt={
+              detailHand.tableId
+                ? (handNumber) => buyReplayRabbitHunt(detailHand.tableId as string, handNumber)
+                : undefined
+            }
+            onRabbitHuntReceipt={
+              detailHand.tableId
+                ? (handNumber) => readReplayRabbitReceipt(detailHand.tableId as string, handNumber)
+                : undefined
+            }
+            rabbitUserId={userId}
+            rabbitIsVIP={viewerIsVip}
             onReplay={(hand) => {
               setDetailSelection(null);
               setReplayId(hand.id);
