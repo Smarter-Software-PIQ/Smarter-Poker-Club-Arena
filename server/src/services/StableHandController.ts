@@ -1,3 +1,4 @@
+import { cashActivityScaleAt } from './HorseCashSchedule.js';
 /**
  * OPERATION STABLE HAND - the floor planner.
  *
@@ -114,6 +115,7 @@ export interface HostSnapshot {
 }
 
 export interface FloorSnapshot {
+  cashActivityScale?: number;
   chicagoHour: number;
   chicagoMinute: number;
   hosts: HostSnapshot[];
@@ -300,7 +302,12 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
   for (const host of snap.hosts) {
     const running = shapedTables(host);
     const targets = shapeTargets(running.length);
-    const occ = occupancyTargetForHost(host.n, snap.chicagoHour, snap.chicagoMinute);
+    const occ = occupancyTargetForHost(
+      host.n,
+      snap.chicagoHour,
+      snap.chicagoMinute,
+      snap.cashActivityScale
+    );
 
     const buckets = {
       FULL: [] as TableSnapshot[],
@@ -567,8 +574,12 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
     }
 
     if (populationKnown) {
-      if (host.uniqueLive > peakCap(host.n)) plan.alerts.push(`over_peak_cap host=${host.hostId}`);
-      if (isNightWindow(snap.chicagoHour) && host.uniqueLive > nightCap(host.n)) {
+      if (host.uniqueLive > peakCap(host.n, snap.cashActivityScale))
+        plan.alerts.push(`over_peak_cap host=${host.hostId}`);
+      if (
+        isNightWindow(snap.chicagoHour) &&
+        host.uniqueLive > nightCap(host.n, snap.cashActivityScale)
+      ) {
         plan.alerts.push(`over_night_cap host=${host.hostId}`);
       }
     }
@@ -621,6 +632,7 @@ export function chicagoNow(d: Date = new Date()): {
   hour: number;
   minute: number;
   weekday: number;
+  cashActivityScale: number;
 } {
   const f = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Chicago',
@@ -634,6 +646,7 @@ export function chicagoNow(d: Date = new Date()): {
   return {
     hour: Number(parts.hour) % 24,
     minute: Number(parts.minute),
+    cashActivityScale: cashActivityScaleAt(d.getTime()),
     weekday: Math.max(0, days.indexOf(String(parts.weekday))),
   };
 }
@@ -685,12 +698,12 @@ export function stakeForBand(band: StakeBand): { sb: number; bb: number } | null
  */
 export function stableHandHostCaps(
   eligibleByHost: ReadonlyMap<string, number>,
-  now: { hour: number; minute: number }
+  now: { hour: number; minute: number; cashActivityScale?: number }
 ): Map<string, number> {
   const caps = new Map<string, number>();
   for (const [hostId, n] of eligibleByHost) {
     if (!Number.isFinite(n) || n <= 0) continue;
-    caps.set(hostId, occupancyTargetForHost(n, now.hour, now.minute).max);
+    caps.set(hostId, occupancyTargetForHost(n, now.hour, now.minute, now.cashActivityScale).max);
   }
   return caps;
 }

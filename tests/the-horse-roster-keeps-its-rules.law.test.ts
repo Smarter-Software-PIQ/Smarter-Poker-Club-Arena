@@ -75,7 +75,7 @@ describe('scheduled hours remain authoritative for the full fleet', () => {
   });
 });
 
-describe('all cash cluster capacity is halved at the original opening decision', () => {
+describe('cash cluster capacity retains its historical baseline and dated owner reduction', () => {
   it('includes feeders and retains a playable minimum without a second writer', () => {
     const body = flat(lastDefinition('fn_cash_cluster_tick').body);
     expect(body).toContain('v_table_cap := g.cap_mains + 1');
@@ -88,6 +88,11 @@ it('native input edits select the existing required accounting qualification', (
   const selected = classifyChangedPaths(['scripts/qualification/test-cash-half-top-horses.py']);
   expect(selected.server).toBe(true);
   expect(selected.tests).toBe(true);
+  const fixture = classifyChangedPaths([
+    'scripts/qualification/fixtures/horse-cash-november/cluster-before.sql',
+  ]);
+  expect(fixture.server).toBe(true);
+  expect(fixture.tests).toBe(true);
 });
 
 it('the selected cash roster cannot bypass the daily occupancy cap', () => {
@@ -121,4 +126,14 @@ it('limits the cash selection to Club Arena, keeping funded Diamond eligibility 
   expect(rotator).toContain('cashRosterAllows(uid, t) === false');
   expect(rotator).toContain('arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id)');
   expect(rotator).toContain('benchedIds.has(uid) ||');
+});
+
+it('the November owner policy reduces the existing cash cap only at Chicago midnight', () => {
+  const sql = read(
+    '20261102015546_restrict_horse_cash_games_and_reduce_schedule_at_chicago_midnight.sql'
+  );
+  expect(sql).toContain('THEN 0.2 ELSE 0.5 END');
+  expect(sql).toContain('2026-11-02 00:00:00 America/Chicago');
+  expect(sql).toContain('p_tournament_id IS NOT NULL');
+  expect(sql).toContain('horse_cash_game_restricted');
 });
