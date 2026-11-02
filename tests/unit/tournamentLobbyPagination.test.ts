@@ -19,7 +19,7 @@ function reader(source: ReturnType<typeof rows>) {
     read: async (after: string | null) => {
       calls.push(after);
       return {
-        data: source.filter((row) => after === null || row.id > after).slice(0, 500),
+        data: source.filter((row) => after === null || row.id > after).slice(0, 500), // window-ok: Actual tournament data page, not a source-text window.
         error: null,
         count: source.filter((row) => after === null || row.id > after).length,
       };
