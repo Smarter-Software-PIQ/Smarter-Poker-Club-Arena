@@ -64,6 +64,7 @@ import {
   type WalletDeskAction,
 } from '../wallet/WalletDesk';
 import '../wallet/WalletDesk.css';
+import UnionTreasuryLog from './UnionTreasuryLog';
 import { platformFrozenMessage } from '../../utils/platformFrozen';
 
 export type TreasuryDetailMode = 'rake' | 'bbj' | 'backup';
@@ -376,6 +377,8 @@ export default function UnionTreasuryDetailModal({
             {rake.ledger?.asOf ? ` Ledger As Of ${when(rake.ledger.asOf)}.` : ''}
           </p>
 
+          <UnionTreasuryLog unionId={unionId} wallet="rake_treasury" walletLabel="Rake Treasury" />
+
           <WalletDeskHeading
             title={`By Club, Last ${rake.windowDays} Days`}
             meta={`${fmt(rake.byClub.length)} ${rake.byClub.length === 1 ? 'Club' : 'Clubs'}`}
@@ -434,6 +437,12 @@ export default function UnionTreasuryDetailModal({
             Healthy Pool Drifts Away From It As It Pays. Allocated Lifetime{' '}
             {exactChipFigure(bbj.allocatedLifetime)}.
           </p>
+
+          <UnionTreasuryLog
+            unionId={unionId}
+            wallet={mode === 'backup' ? 'backup_bbj' : 'main_bbj'}
+            walletLabel={mode === 'backup' ? 'Backup Jackpot' : 'Main Jackpot'}
+          />
 
           {mode === 'backup' && (
             <>

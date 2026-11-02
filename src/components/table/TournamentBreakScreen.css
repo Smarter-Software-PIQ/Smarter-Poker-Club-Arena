@@ -482,3 +482,34 @@
   font-size: 13px;
   text-align: center;
 }
+
+/* Minimized add-on clock (Dan 2026-11-02): the Add On button sits directly
+   under the timer pill. The stack owns the position; the pill inside it flows. */
+.break-screen__minimized-stack {
+  position: fixed;
+  z-index: 700;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(240px, 56%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.break-screen__minimized-stack--on-table {
+  position: absolute;
+  top: 65%;
+  z-index: 70;
+}
+.break-screen__minimized-stack > .break-screen__minimized {
+  position: static;
+  transform: none;
+  width: 100%;
+}
+.break-screen__mini-addon-btn {
+  width: 72%;
+  margin: 6px auto 0;
+  min-height: 44px;
+  background: rgba(10, 14, 20, 0.92);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+}

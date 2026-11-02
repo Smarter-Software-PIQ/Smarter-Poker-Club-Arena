@@ -600,9 +600,7 @@ async function controlEqualShare(
     if (value?.state === 'settled') {
       // The stop-state row alone is not economic validation. Invoke the
       // canonical reader, which revalidates credits and the terminal snapshot.
-      const receipt = await rpc('fn_ca_tournament_cancellation_receipt', {
-        p_tournament_id: input.tournamentId,
-      });
+      const receipt = await rpc('fn_ca_tournament_abort_equal_share_receipt', ids);
       if (
         !settled({ ...value, receipt }) ||
         JSON.stringify(receipt) !== JSON.stringify(value.receipt)

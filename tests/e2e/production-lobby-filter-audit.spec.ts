@@ -865,16 +865,31 @@ async function assertLobbyControlsInsidePaint(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
   });
-  const families = await page.locator('.lobby-game-sections__button').evaluateAll((buttons) =>
-    buttons.map((button) => {
-      const box = button.getBoundingClientRect();
-      return { left: box.left, top: box.top, width: box.width, height: box.height };
-    })
-  );
-  expect(families).toHaveLength(2);
-  expect(Math.abs(families[0].top - families[1].top)).toBeLessThan(1);
-  expect(families[1].left).toBeGreaterThan(families[0].left + families[0].width);
-  for (const family of families) expect(family.width / family.height).toBeCloseTo(1566 / 672, 2);
+  const compactDesktop = await page
+    .locator('.club-lobby-machine')
+    .evaluate((machine) => innerWidth > 900 && machine.dataset.compactLobbyControls === 'true');
+  const families = await page
+    .locator('.lobby-game-sections__button:visible')
+    .evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const box = button.getBoundingClientRect();
+        return { left: box.left, top: box.top, width: box.width, height: box.height };
+      })
+    );
+  if (compactDesktop) {
+    await expect(page.locator('.club-lobby-command-top__controls')).toBeHidden();
+    expect(families).toHaveLength(0);
+    await expect(page.locator('.lobby-sticky-filters')).toBeInViewport();
+    expect(
+      await page.locator('.lobby-sticky-filters > button:visible').count()
+    ).toBeGreaterThanOrEqual(2);
+  } else {
+    await expect(page.locator('.club-lobby-command-top__controls')).toBeVisible();
+    expect(families).toHaveLength(2);
+    expect(Math.abs(families[0].top - families[1].top)).toBeLessThan(1);
+    expect(families[1].left).toBeGreaterThan(families[0].left + families[0].width);
+    for (const family of families) expect(family.width / family.height).toBeCloseTo(1566 / 672, 2);
+  }
   if (await page.evaluate(() => innerWidth === 393)) {
     const reference = await page
       .locator('.lobby-top__main > .lobby-top__identity, .lobby-top__main > .lobby-bbj')
@@ -2471,6 +2486,64 @@ async function readScheduleHeader(page: Page, cash = false) {
   return geometry;
 }
 
+async function assertCashFamilyStickyTail(
+  page: Page,
+  h: Awaited<ReturnType<typeof setup>>,
+  testInfo: TestInfo
+) {
+  // ALL has enough actual cash cards to overflow both viewports. The preceding
+  // shared journey ends on LIMIT, whose small catalogue need not scroll.
+  await h.choose('ALL');
+  await expect.poll(async () => (await h.ids()).length).toBeGreaterThan(1);
+  const rail = page.locator('.lobby-sticky-filters');
+  const controls = page.locator('#lobby-game-section-controls');
+  const cashFamily = page.getByRole('button', { name: 'Cash Games', exact: true });
+  await clickControl(cashFamily);
+  await expect(cashFamily).toHaveAttribute('aria-expanded', 'false');
+  await expect(rail).toBeHidden();
+  await clickControl(cashFamily);
+  await expect(cashFamily).toHaveAttribute('aria-expanded', 'true');
+  // Native clicking brings the full selector deck back into view. The compact
+  // rail must stay hidden there, then return when those controls scroll away.
+  await expect(controls).toBeInViewport();
+  await expect(rail).toBeHidden();
+  await h.rows.last().scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect(rail).toBeVisible();
+  await expect(rail).toBeInViewport();
+  await testInfo.attach('sticky-family-phone.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.locator('.lobby-controls__heading').scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect(controls).toBeInViewport();
+  await expect(rail).toBeHidden();
+  await assertLobbyControlsInsidePaint(page);
+  // Desktop uses its real inner catalogue scroll event, not the phone's page
+  // intersection. Resizing alone is not evidence of that desktop transition.
+  await h.rows.first().scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await h.rows.last().scrollIntoViewIfNeeded({ timeout: 10_000 });
+  await expect
+    .poll(() => h.rows.last().evaluate((row) => row.closest('.lobby-table-wrap')?.scrollTop ?? 0))
+    .toBeGreaterThan(0);
+  await expect(rail).toBeVisible();
+  await expect(rail).toBeInViewport();
+  await assertLobbyControlsInsidePaint(page);
+  await assertRegistrationInkInsideFrame(page);
+  await testInfo.attach('sticky-lobby-wide.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+}
+
+test('remaining cash-family and desktop sticky controls stay accessible', async ({
+  page,
+}, testInfo) => {
+  const h = await setup(page);
+  await assertCashFamilyStickyTail(page, h, testInfo);
+  expect(h.participation).toEqual([]);
+});
+
 test('sticky lobby controls and cross-tab sorting remain accessible and durable', async ({
   page,
 }, testInfo) => {
@@ -2873,21 +2946,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
     await expect.poll(async () => (await h.view()).sortByTab?.[type]).toBe('recommended');
   }
   await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
-  const cashFamily = page.getByRole('button', { name: 'Cash Games', exact: true });
-  await clickControl(cashFamily);
-  await expect(cashFamily).toHaveAttribute('aria-expanded', 'false');
-  await expect(rail).toBeHidden();
-  await clickControl(cashFamily);
-  await expect(cashFamily).toHaveAttribute('aria-expanded', 'true');
-  await expect(rail).toBeVisible();
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await expect(rail).toBeInViewport();
-  await assertLobbyControlsInsidePaint(page);
-  await assertRegistrationInkInsideFrame(page);
-  await testInfo.attach('sticky-lobby-wide.png', {
-    body: await page.screenshot(),
-    contentType: 'image/png',
-  });
+  await assertCashFamilyStickyTail(page, h, testInfo);
   expect(h.participation).toEqual([]);
   await testInfo.attach('shared-filter-audit.json', {
     body: Buffer.from(

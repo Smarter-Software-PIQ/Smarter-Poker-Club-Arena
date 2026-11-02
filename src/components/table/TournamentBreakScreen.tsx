@@ -534,6 +534,29 @@ export function TournamentBreakScreen({
         </span>
       </button>
     );
+    /* THE ADD-ON IS NEVER UNREACHABLE (Dan 2026-11-02): "DURING THE ADD ON
+       PERIOD, IT GIVES YOU TWO SCREENS TO 'ADD ON' BUT IF YOU CLOSE THEM BOTH
+       THERE IS NO WAY TO 'ADD ON'. IT SHOULD BE ON THE TABLE AT THE BOTTOM OF
+       THE TIMER." While the add-on period is counting down, the minimized
+       clock carries an Add On button directly beneath it. It opens the same
+       confirmed, price-bound offer modal as the break card's button. */
+    if (addOnNotice && onAddOn && countingDown) {
+      const stack = (
+        <div
+          className={`break-screen__minimized-stack${tableAnchor ? ' break-screen__minimized-stack--on-table' : ''}`}
+        >
+          {button}
+          <button
+            type="button"
+            className="break-screen__addon-btn break-screen__mini-addon-btn"
+            onClick={onAddOn}
+          >
+            Add On
+          </button>
+        </div>
+      );
+      return tableAnchor ? createPortal(stack, tableAnchor) : stack;
+    }
     return tableAnchor ? createPortal(button, tableAnchor) : button;
   }
 

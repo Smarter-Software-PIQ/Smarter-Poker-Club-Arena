@@ -11,8 +11,48 @@ ROOT=Path(__file__).resolve().parents[2]
 ABORT=ROOT/'supabase/migrations/20261030161824_started_tournament_abort_uses_original_charges_and_a_drained.sql'
 MIGRATION=ROOT/'supabase/migrations/20261101004247_started_tournament_abort_supports_equal_share_settlement.sql'
 RETIREMENT=ROOT/'supabase/migrations/20261101174851_equal_share_retirement_preserves_preactivation_mystery_bount.sql'
+
+def qualify_receipt_readback(e,db,event,op):
+ from equal_share_native_cases import snapshot
+ migration=ROOT/'supabase/migrations/20261102070619_equal_share_receipt_readback_uses_owned_service_authority.sql'
+ # Reconstruct the confirmed production ACL boundary; the historical monetary
+ # fixture ran as its superuser and therefore could not detect this denial.
+ sql_file(e,db,'receipt-private-acl-boundary',"REVOKE ALL ON FUNCTION public.fn_ca_tournament_cancellation_receipt(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;")
+ before=snapshot(e,db,'receipt-reader-before')
+ private="public.fn_ca_tournament_cancellation_receipt('"+event+"',NULL)"
+ wrapper="public.fn_ca_tournament_abort_equal_share_receipt('"+op+"','"+event+"')"
+ def refused(label,body,reason,role='service_role',claims=SERVICE):
+  sql_file(e,db,label,"BEGIN;"+body[0]+claims+"SET LOCAL ROLE "+role+";DO $$DECLARE refused boolean:=false;BEGIN BEGIN PERFORM "+body[1]+";EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '"+reason+"%' THEN RAISE;END IF;refused:=true;END;IF NOT refused THEN RAISE EXCEPTION 'expected read refusal absent';END IF;END$$;ROLLBACK;")
+  assert snapshot(e,db,label+'-unchanged')==before
+ refused('receipt-before-private-service-denied',('',private),'permission denied for function fn_ca_tournament_cancellation_receipt')
+ _,acl_before,_=e.sql(db,"SELECT jsonb_agg(jsonb_build_object('oid',oid,'acl',proacl,'source',md5(pg_get_functiondef(oid))) ORDER BY oid) FROM pg_proc WHERE oid IN ('public.fn_ca_tournament_cancellation_receipt(uuid,uuid)'::regprocedure,'smarter_private.tournament_equal_share_receipt(uuid,uuid)'::regprocedure);",label='receipt-private-authority-before')
+ e.sql(db,file=migration,label='exact-operation-bound-receipt-migration')
+ _,wrapper_md5,_=e.sql(db,"SELECT md5(pg_get_functiondef('public.fn_ca_tournament_abort_equal_share_receipt(uuid,uuid)'::regprocedure));",label='receipt-wrapper-definition')
+ e.report['receipt_readback_md5']=wrapper_md5.strip()
+ _,value,_=sql_file(e,db,'receipt-service-canonical-success','BEGIN;'+SERVICE+'SET LOCAL ROLE service_role;SELECT '+wrapper+';COMMIT;')
+ receipt=next(json.loads(line) for line in value.splitlines() if line.startswith('{') and 'receipt_version' in line)
+ assert receipt['receipt_version']==4 and receipt['operation_id']==op and receipt['tournament_id']==event
+ assert snapshot(e,db,'receipt-success-unchanged')==before
+ refused('receipt-private-stays-denied',('',private),'permission denied for function fn_ca_tournament_cancellation_receipt')
+ for role in ['anon','authenticated']:
+  refused('receipt-'+role+'-denied',('',wrapper),'permission denied for function fn_ca_tournament_abort_equal_share_receipt',role)
+ refused('receipt-service-claim-required',('',wrapper),'operator_abort_service_required',claims="SELECT set_config('request.jwt.claim.role','authenticated',true);")
+ refused('receipt-foreign-operation',('',wrapper.replace(op,'ac000000-0000-4000-8000-000000000099')),'operator_abort_target_not_owned')
+ unfinished="SET LOCAL session_replication_role=replica;UPDATE smarter_private.tournament_abort_targets SET state='quiesced' WHERE tournament_id='"+event+"';SET LOCAL session_replication_role=origin;"
+ refused('receipt-unfinished-target',(unfinished,wrapper),'equal_share_readback_target_not_settled')
+ inconsistent="SET LOCAL session_replication_role=replica;UPDATE smarter_private.tournament_abort_targets SET receipt=jsonb_set(receipt,'{status}','\"RUNNING\"'::jsonb) WHERE tournament_id='"+event+"';SET LOCAL session_replication_role=origin;"
+ refused('receipt-inconsistent-stored-receipt',(inconsistent,wrapper),'equal_share_terminal_receipt_evidence_changed')
+ credit=next(x for x in receipt['financial']['shares'] if x['prize']>0)
+ missing="SET LOCAL session_replication_role=replica;UPDATE public.wallet_credit_idempotency SET amount=amount+1 WHERE key='"+credit['key']+":prize';SET LOCAL session_replication_role=origin;"
+ refused('receipt-economic-credit-revalidated',(missing,wrapper),'equal_share_prize_credit_missing')
+ _,acl_after,_=e.sql(db,"SELECT jsonb_agg(jsonb_build_object('oid',oid,'acl',proacl,'source',md5(pg_get_functiondef(oid))) ORDER BY oid) FROM pg_proc WHERE oid IN ('public.fn_ca_tournament_cancellation_receipt(uuid,uuid)'::regprocedure,'smarter_private.tournament_equal_share_receipt(uuid,uuid)'::regprocedure);",label='receipt-private-authority-after')
+ assert acl_before==acl_after
+ e.report['receipt_readback']={'passed':True,'cases':10,'private_authority_unchanged':True,'business_rows_unchanged':True}
+ e.report['source_sha256'][str(migration.relative_to(ROOT))]=hashlib.sha256(migration.read_bytes()).hexdigest()
+ print('PASS operation-bound service receipt: private denial, canonical success, foreign/unfinished/inconsistent/credit refusal, roles and unchanged rows/authority',flush=True)
+
 def main():
- p=argparse.ArgumentParser();p.add_argument('--evidence',type=Path,required=True);p.add_argument('--work-root',type=Path,required=True);p.add_argument('--socket-root',type=Path,required=True);p.add_argument('--pg-bin',type=Path,required=True)
+ p=argparse.ArgumentParser();p.add_argument('--receipt-read-only',action='store_true');p.add_argument('--evidence',type=Path,required=True);p.add_argument('--work-root',type=Path,required=True);p.add_argument('--socket-root',type=Path,required=True);p.add_argument('--pg-bin',type=Path,required=True)
  a=p.parse_args();a.evidence.mkdir(parents=True,exist_ok=False);a.work_root.mkdir(parents=True,exist_ok=True);a.socket_root.mkdir(parents=True,exist_ok=True)
  native=module(ROOT/'scripts/ci/test-mtt-unlimited.py','equal_native');e=native.Execution(ROOT,a.evidence,a.pg_bin,a.work_root,600,socket_parent=a.socket_root)
  try:
@@ -66,8 +106,10 @@ def main():
   from equal_share_native_cases import exercise,diamond_cases,capacity_case
   receipt=exercise(e,db,ROOT,event,op,money_hash,'chip',[90,89.99],20)
   verify_mystery(e,db,event,receipt)
-  diamond_cases(e,db,ROOT,diamond)
-  capacity_case(e,db,ROOT)
+  qualify_receipt_readback(e,db,event,op)
+  if not a.receipt_read_only:
+   diamond_cases(e,db,ROOT,diamond)
+   capacity_case(e,db,ROOT)
   _,postimages,_=e.sql(db,"SELECT jsonb_object_agg(p.oid::regprocedure::text,md5(pg_get_functiondef(p.oid))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','smarter_private') AND p.proname IN ('fn_ca_preview_tournament_abort_equal_share','fn_ca_settle_tournament_abort_equal_share','tournament_equal_share_receipt','equal_share_retirement_must_close','fn_refuse_zero_chip_field_elimination','fn_credit_and_log','fn_ca_tournament_cancellation_receipt');",label='equal-share-qualified-postimages')
   e.report['postimages']=json.loads(postimages.strip())
   e.report['source_sha256'].update({str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [MIGRATION,Path(__file__),ROOT/'scripts/ci/equal_share_native_cases.py',ROOT/'tests/fixtures/tournament-fee-lifecycle/full-lifecycle-earning.sql']})
