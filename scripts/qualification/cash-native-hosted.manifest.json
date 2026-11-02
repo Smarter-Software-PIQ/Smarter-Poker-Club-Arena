@@ -1,4 +1,19 @@
 {
+  "originalWebPrivateReadSourceIdentity20261102": {
+    "date": "2026-11-02",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous": {
+      "bytes": 119837,
+      "sha256": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29"
+    },
+    "current": {
+      "bytes": 121735,
+      "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
+    },
+    "reason": "Additive protected original-input transfer assertions; fixed source identity only. Production SQL, financial populations, existing assertions and historical native qualification state unchanged.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "horsePayingWalletNativeInputRouting20261101": {
     "review": "Reviewed the exact additive classifier diff for the Horse paying-wallet native runner and overlay preimage. Both isolated inputs now admit existing accounting and routing tests; no existing lane is narrowed. All 69 routing tests pass, including neighboring-file exclusions. Current source identity only; preserve every financial input, assertion, timeout, original audit and historical qualification state. Hash agreement is not financial execution or production proof.",
     "previousClassifierPin": {
@@ -517,8 +532,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 119837,
-      "sha256": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29"
+      "bytes": 121735,
+      "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
     }
   },
   "nativePgCron": {

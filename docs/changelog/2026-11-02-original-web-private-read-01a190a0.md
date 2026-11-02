@@ -56,3 +56,5 @@ child-binding hashes. Only those five source identities and explanatory audits
 change; no financial SQL, fixture populations, assertions, historical evidence
 or qualification state is restamped. The unrelated Schema Integrity Audit jobs
 and their comments remain byte-identical to the protected base.
+
+The first normal push refused the separate cash-native input manifest before expensive suites: its active test-file size/hash still referred to the base. Updated only that active identity with a source-only audit; all other manifest fields and historical qualification remain unchanged.
