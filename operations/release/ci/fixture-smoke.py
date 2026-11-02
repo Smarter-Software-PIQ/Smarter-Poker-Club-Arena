@@ -13,7 +13,7 @@ import uuid
 import importlib.util
 import time
 
-FILES = ('schema-restore-diagnostics.mjs', 'postgres-extension-captured-acls.mjs', 'cron-captured-table-acls.mjs', 'realtime-captured-publication.mjs', 'managed-bootstrap-functions.mjs', 'managed-bootstrap-functions.sql', 'auth-captured-acls.mjs', 'realtime-captured-acls.mjs', 'dblink-captured-initial-acl.mjs', 'fixture_dblink_acl_baseline.control', 'fixture_dblink_acl_baseline--1.0.sql', 'graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
+FILES = ('schema-restore-owner.mjs', 'schema-restore-owner-proof.mjs', 'schema-restore-diagnostics.mjs', 'postgres-extension-captured-acls.mjs', 'cron-captured-table-acls.mjs', 'realtime-captured-publication.mjs', 'managed-bootstrap-functions.mjs', 'managed-bootstrap-functions.sql', 'auth-captured-acls.mjs', 'realtime-captured-acls.mjs', 'dblink-captured-initial-acl.mjs', 'fixture_dblink_acl_baseline.control', 'fixture_dblink_acl_baseline--1.0.sql', 'graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
          'runtime-files.mjs', 'gateway.mjs', 'auth-fixture.mjs', 'auth-bootstrap-proof.mjs',
          'service-role-boundary.mjs', 'realtime-control-plane.mjs', 'realtime-legacy-relations.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
          'seed-fixture.mjs', 'native-smoke.mjs', 'observation-bridge.mjs', 'build-image.sh', 'smoke-image.sh')
@@ -60,8 +60,8 @@ NATIVE_STAGES = frozenset((
         'postgresql', 'postgresql-auth-legacy-ledger', 'postgresql-native-cron-install', 'postgresql-safeupdate-configure',
         'genuine-auth-migrations', 'genuine-realtime-migrations', 'realtime-captured-relation-configuration',
         'managed-postgres-event-trigger-boundary', 'post-service-catalog-preimage', 'full-role-alignment',
-        'current-application-role-extension', 'genuine-service-schema-preimage', 'cleanup')),
-    'fixture-preflight-application-schema', 'fixture-preflight-full-schema-preflight',
+        'current-application-role-extension', 'schema-restore-owner-qualification', 'genuine-service-schema-preimage', 'cleanup')),
+    'fixture-preflight-schema-restore-plan', 'fixture-preflight-application-schema', 'fixture-preflight-full-schema-preflight',
     *( 'fixture-preflight-schema-preflight-' + step for step in (
         'catalogue-inputs', 'catalogue-restore-map', 'catalogue-snapshot', 'role-snapshot',
         'catalogue-parity', 'auth-platform-helpers', 'cron-catalogue', 'auth-write-denial',

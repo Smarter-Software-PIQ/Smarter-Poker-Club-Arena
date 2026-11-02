@@ -921,10 +921,38 @@ their existing private error boundary. Its fixed seventeen source phases
 distinguish restore mapping, catalogue and role reads, parity, Auth, canonical
 signup, PostgREST and empty game-state checks without exporting compared rows.
 
-Application restore still uses ordinary postgres and ON_ERROR_STOP. PSQL
+Application restore keeps ON_ERROR_STOP and preserves ordinary application postgres. PSQL
 SQLSTATE-only verbosity allows an owned error adapter to retain only a bounded
 SQLSTATE, schema line and child exit code; raw SQL, paths, stderr and messages
 remain private. The independent decoder accepts this exact closed record only
 at the application-schema preflight stage. No restore assertion, role, catalogue
 comparison or readiness requirement is relaxed. This reporting repair does not
 claim to identify or fix capture22's underlying preflight failure.
+
+### Isolated multi-owner schema restoration
+
+The full captured schema contains GraphQL and Storage objects whose owners
+ordinary postgres cannot assume. A fixed original-Admin child now restores in
+one transaction through a defaultless NOLOGIN creator, without promoting the
+application role or changing its memberships, configuration or managed session.
+Both ends assert the private database, Unix connection, PostgreSQL17 and original
+Admin identity. Any error rolls back the role and all restored DDL. The creator
+must have no remaining ownership, ACL, membership or default-privilege dependency
+before its ordinary restrictive drop. Creator defaults cannot add extra ACLs.
+
+Each original dump object and stream-setting byte remains intact and in order.
+Only postgres-owned event-trigger blocks use the pinned genuine Supautils path:
+the fixed planner loads that library, selects the ordinary postgres context for
+those blocks and returns to the private creator. This is necessary because plain
+PostgreSQL cannot transfer an event trigger to a non-superuser, while the managed
+provider has an explicit creation path for that owner. The original source and
+the applied-plan hashes are retained privately. No object is omitted, ownership
+rewritten or catalogue comparison relaxed.
+
+The existing schema-preimage qualification additionally runs the actual two
+managed event-trigger owner paths and mixed ordinary ownership in a rollback-only
+transaction. Before/after semantic catalogues, settings, memberships and defaults
+must match; probe objects and the temporary role must be absent. Background
+storage estimates and freeze horizons are excluded from this logical metadata
+comparison. Full restored-catalogue/role parity and connected cases remain
+separate mandatory proof.

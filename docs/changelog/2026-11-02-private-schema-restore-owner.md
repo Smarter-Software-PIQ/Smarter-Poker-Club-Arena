@@ -1,0 +1,7 @@
+# Private schema restore owner
+
+Ordinary application postgres cannot assign captured GraphQL or Storage objects to reserved owners. The private restore wrapper uses the existing fresh initdb administrator connection, with its session preload disabled only for that child. Within one psql transaction it creates a defaultless NOLOGIN creator, restores the unmodified schema payload and removes that creator only after every ownership, ACL, membership and default-ACL dependency is absent. Application role attributes, settings and memberships must remain unchanged. Missing transaction boundaries, unknown preimages and residue fail and roll back; no ownership repair or DROP OWNED fallback is used.
+
+The fixed wrapper is only an ownership primitive. Standard PostgreSQL additionally refuses assigning an event trigger to non-superuser postgres. Those exact captured event-trigger blocks need the separately qualified genuine Supautils route, preserving their original bytes. The ordinary wrapper alone does not solve that managed event-trigger case.
+
+Five focused tests and a private PostgreSQL17.11 representative dump verify reserved-owner restoration without creator-default ACL bleed, raw object ACL equality, atomic rollback, residue/context/duplicate refusals and temporary-role cleanup. The plain event-trigger ownership counterexample and immutable PostgreSQL/Supautils source are retained. Genuine Linux managed-event execution and full-schema/product acceptance remain separate checks.

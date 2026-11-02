@@ -2,6 +2,8 @@ import { configureFixtureRealtimeCapturedRelations, assertFixtureRealtimeCapture
 import { REALTIME_CONTROL_DATABASE, realtimeControlConnection, REALTIME_SEED_EXPRESSION, createRealtimeControlDatabase, assertRealtimeControlIdentity, assertRealtimeControlIsolation } from './realtime-control-plane.mjs';
 import { configureFixtureSafeupdate } from './safeupdate-provider.mjs';
 import { schemaRestoreFailure } from './schema-restore-diagnostics.mjs';
+import { schemaRestorePsqlArguments, schemaRestoreOwnerEnvironment } from './schema-restore-owner.mjs';
+import { qualifySchemaRestoreOwner } from './schema-restore-owner-proof.mjs';
 import { captureFixtureServicePreimage } from './service-preimage.mjs';
 import { alignFixtureRoles } from './role-alignment.mjs';
 import {
@@ -845,6 +847,11 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
           databaseOwner: supervisor.databaseOwner,
         });
         await assertRealtimeControlIsolation(db, pg.Client, supervisor.databaseOwner);
+        stage = 'schema-restore-owner-qualification';
+        assert.deepEqual(await qualifySchemaRestoreOwner({ supervisor, db }), {
+          scope: 'native-schema-restore-owner', success: true, temporary_role_absent: true,
+          application_role_unchanged: true, catalogue_unchanged: true, genuine_managed_event_triggers: true,
+        });
         stage = 'genuine-service-schema-preimage';
         await supervisor.command(`${pgBin}/pg_dump`, [
           '--no-password',
@@ -910,23 +917,24 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
     // Application DDL is restored verbatim. The reviewed schema composer
     // must reconcile service-managed objects with the pinned real migrations.
     // Missing/duplicate objects fail here; no migration history is fabricated.
+    stage = 'schema-restore-plan';
+    const { renderSchemaRestorePlan } = await import(
+      '/opt/qualification/controls/operations/release/native/schema-restore-plan.mjs'
+    );
+    const originalSchema = await readFile(schemaRoot + '/schema.sql', 'utf8');
+    const restorePlan = renderSchemaRestorePlan(originalSchema);
+    // Preserve the exact extracted source separately; the input ZIP never changes.
+    // Only fixed role contexts surround unchanged original object bytes.
+    await writeFile(schemaRoot + '/source-schema.sql', originalSchema, { flag: 'wx', mode: 0o400 });
+    await chmod(schemaRoot + '/schema.sql', 0o600);
+    await writeFile(schemaRoot + '/schema.sql', restorePlan.sql, { flag: 'w', mode: 0o600 });
+    await chmod(schemaRoot + '/schema.sql', 0o400);
+    await writeFile(schemaRoot + '/schema-restore-plan.json', JSON.stringify(restorePlan.receipt), {
+      flag: 'wx', mode: 0o400,
+    });
     stage = 'application-schema';
     try {
-      await supervisor.command(`${pgBin}/psql`, [
-        '-X',
-        '-v',
-        'ON_ERROR_STOP=1',
-        '-v',
-        'VERBOSITY=sqlstate',
-        '-h',
-        '/run/postgresql',
-        '-U',
-        'postgres',
-        '-d',
-        database,
-        '-f',
-        schemaRoot + '/schema.sql',
-      ]);
+      await supervisor.command(`${pgBin}/psql`, schemaRestorePsqlArguments, schemaRestoreOwnerEnvironment);
     } catch (error) {
       throw schemaRestoreFailure(error);
     }
