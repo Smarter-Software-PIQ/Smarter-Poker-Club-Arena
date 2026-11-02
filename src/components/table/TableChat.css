@@ -193,9 +193,11 @@
   /* Phase 4 (2026-08-22): 99 for the same reason as .table-chat above — the
      open raise panel (z-100) must cover this button, not sit under it. */
   z-index: 99;
-  /* Owner October 20: match the Lobby footprint through one shared token. */
-  width: var(--sp-game-tool-size, 40px);
-  height: var(--sp-game-tool-size, 40px);
+  /* Dan 2026-11-01: the HUD tiles are hamburger-sized (--sp-tabbar-control),
+     and the chat bubble stays one size with them (Dan 2026-08-28: the corner
+     widgets are one size). Supersedes the October 20 Lobby-footprint match. */
+  width: var(--sp-tabbar-control, 52px);
+  height: var(--sp-tabbar-control, 52px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -226,8 +228,8 @@
 
 /* Custom chat icon image — fills the button */
 .chat-collapsed__icon-img {
-  width: var(--sp-game-tool-size, 40px);
-  height: var(--sp-game-tool-size, 40px);
+  width: var(--sp-tabbar-control, 52px);
+  height: var(--sp-tabbar-control, 52px);
   object-fit: contain;
   border-radius: 10px;
   display: block;
@@ -806,10 +808,12 @@
 }
 
 @media (max-width: 480px) {
+  /* Dan 2026-11-01: the tab-bar control never shrinks below 480px, so the
+     chat bubble holds the hamburger size on phones too. */
   .chat-collapsed,
   .chat-collapsed__icon-img {
-    width: var(--sp-game-tool-size, 34px);
-    height: var(--sp-game-tool-size, 34px);
+    width: var(--sp-tabbar-control, 52px);
+    height: var(--sp-tabbar-control, 52px);
     border-radius: 8px;
   }
 }

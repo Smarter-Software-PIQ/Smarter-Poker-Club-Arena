@@ -279,7 +279,8 @@ export default function CreateTournamentModal({
   // Auto-enable add-on for rebuy/reentry formats
   const [addOnAvailable, setAddOnAvailable] = useState(isRebuy || isReentry);
   const [addOnCost, setAddOnCost] = useState('');
-  const [addOnChips, setAddOnChips] = useState('');
+  /* `addOnChips` state removed (Dan 2026-11-01): the add-on always pays the
+     starting stack, so there is nothing to configure. */
 
   // ── Bounty Config ──
   const [bountyAmount, setBountyAmount] = useState('5');
@@ -450,7 +451,7 @@ export default function CreateTournamentModal({
     startingStack: parseInt(startingChips),
     rebuyChips: isRebuy || isReentry ? parseInt(rebuyChips) || parseInt(startingChips) : undefined,
     rebuyLevels: isRebuy || isReentry ? parseInt(lateRegLevels) || 8 : undefined,
-    addOnChips: addOnAvailable ? parseInt(addOnChips) || parseInt(startingChips) : undefined,
+    addOnChips: addOnAvailable ? parseInt(startingChips) : undefined, /* Dan 2026-11-01: an add-on pays the starting stack, exactly */
     addOnLevels: addOnAvailable ? 1 : undefined,
   });
   const isFreeBuy = freeBuyTerms.freeBuy === true;
@@ -672,13 +673,13 @@ export default function CreateTournamentModal({
     /* FREE BUY (Dan 2026-09-04). The first entry is free and the rebuys and
        add-ons are paid, so it is NOT a freeroll - a freeroll never charges.
        Selecting it fills in the house standard so an owner does not have to
-       remember five numbers: 3,000 start, 10,000 add-on chips, and an add-on
-       window that opens at sit-down instead of only at the break. */
+       remember the numbers: 3,000 start and an add-on window that opens at
+       sit-down instead of only at the break. The add-on pays the starting
+       stack, exactly (Dan 2026-11-01), so it is no longer set here. */
     if (rules === 'free_buy') {
       setBuyIn('0');
       setStartingChips('3000');
       setAddOnAvailable(true);
-      setAddOnChips('10000');
       setAddOnCost('1');
       setRebuyCost('1');
       setRebuyChips('3000');
@@ -905,7 +906,7 @@ export default function CreateTournamentModal({
           isRebuy || isReentry ? parseInt(rebuyChips) || parseInt(startingChips) : undefined,
         rebuyCost: isRebuy || isReentry ? Math.round(Number(rebuyCost)) || parsedBuyIn : undefined,
         addOnAvailable,
-        addOnChips: addOnAvailable ? parseInt(addOnChips) || parseInt(startingChips) : undefined,
+        addOnChips: addOnAvailable ? parseInt(startingChips) : undefined, /* Dan 2026-11-01: an add-on pays the starting stack, exactly */
         addOnCost: addOnAvailable ? Math.round(Number(addOnCost)) || parsedBuyIn : undefined,
         // Exactly one 60-second add-on period begins when rebuys close.
         // `addonBreakMinutes` carries the duration; addonLevels remains one
@@ -2061,16 +2062,16 @@ export default function CreateTournamentModal({
                     </div>
                     <div className={styles.col}>
                       <div className={styles.formGroup}>
-                        <label htmlFor="tournament-addon-chips">Add-On Chips</label>
-                        <input
-                          id="tournament-addon-chips"
-                          type="number"
-                          className={styles.input}
-                          value={addOnChips}
-                          onChange={(e) => setAddOnChips(digitsOnly(e.target.value))}
-                          placeholder={startingChips}
-                        />
-                        <span className={styles.helperText}>Blank = Starting Stack</span>
+                        <span className={styles.sectionLabel}>Add-On Chips</span>
+                        {/* Dan 2026-11-01: "THE ADD ON SHOULD BE THE SAME
+                            AMOUNT OF CHIPS THAT YOU START WITH IN THE
+                            TOURNAMENT, NEVER LESS" and it "CAN NEVER EXCEED"
+                            it. Not configurable: the add-on pays the starting
+                            stack, exactly. */}
+                        <div className={styles.readOnlyRule}>Same As The Starting Stack</div>
+                        <span className={styles.helperText}>
+                          An Add-On Always Pays Exactly The Starting Stack
+                        </span>
                       </div>
                     </div>
                     <div className={styles.col}>

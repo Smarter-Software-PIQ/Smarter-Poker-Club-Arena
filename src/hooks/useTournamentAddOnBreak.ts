@@ -51,7 +51,12 @@ export function useTournamentAddOnBreak(tournamentId: string | null | undefined)
         const start = Date.parse(String(row?.addon_period_started_at ?? ''));
         const end = Date.parse(String(row?.addon_period_ends_at ?? ''));
         const cost = Number(row?.addon_cost || row?.buy_in_amount);
-        const chips = Number(row?.addon_chips || row?.starting_chips);
+        /* AN ADD-ON PAYS THE STARTING STACK, EXACTLY (Dan 2026-11-01): "THE
+           ADD ON SHOULD BE THE SAME AMOUNT OF CHIPS THAT YOU START WITH IN THE
+           TOURNAMENT, NEVER LESS" and it "CAN NEVER EXCEED" it. The starting
+           stack is the authority; addon_chips is only a fallback for a legacy
+           row with no starting stack. */
+        const chips = Number(row?.starting_chips || row?.addon_chips);
         const entryClosed = tournamentAddOnEntryBoundaryPassed(row, serverNow());
         const awaitingLastHand =
           entryClosed &&
