@@ -56,6 +56,7 @@ import {
   NativeDatabaseOwner,
   nativeFailureDiagnostic,
   financialActorDescriptor,
+  recordCatalogueParityFailure,
 } from './runtime-files.mjs';
 
 const exec = promisify(execFile);
@@ -951,6 +952,7 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
         api: fixtureAuth({ serviceKey: secrets.serviceKey, jwtSecret: secrets.jwtSecret }),
         template,
         applicationOwner,
+        recordParityFailure: recordCatalogueParityFailure,
         onStage(next) {
           assert.ok(SCHEMA_PREFLIGHT_STAGES.includes(next));
           stage = 'schema-preflight-' + next;

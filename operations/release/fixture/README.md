@@ -987,3 +987,14 @@ captured-size atomic workload; it changes no production setting, restore transac
 permission or memory/process limit. Capture25's closed53200 receipt alone does
 not identify its inner resource cause. Full captured-schema restore/parity and
 the fifteen connected cases remain mandatory.
+
+### Closed catalogue-parity mismatch attribution
+
+Full-schema preflight retains the exact catalogue encoding, complete text and
+digest comparison, role graph, settings and default-privilege assertions. A
+parity refusal additionally carries a bounded source-owned diagnostic identifying
+the failed comparison and differing catalogue categories/field positions. Object
+identities are hashed; literal names, definitions, grants and compared values
+remain private. The existing independent native decoder rejects unknown or
+malformed diagnostic fields. This does not admit a mismatched schema or change
+readiness, cleanup, Auth checks or the fifteen required connected cases.

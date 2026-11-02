@@ -1,3 +1,4 @@
+import { recordCatalogueParityFailure } from '../fixture/runtime-files.mjs';
 // A fixed, no-game admission preflight. It cannot start an engine or issue a
 // product certificate. Candidate readiness stays false until all real facts pass.
 import assert from 'node:assert/strict';
@@ -35,21 +36,38 @@ export function assertPreflightParity({
   expectedRoles,
   observedRoles,
   template,
+  recordParityFailure = recordCatalogueParityFailure,
 }) {
-  assert.equal(template.source_contract.current_database_contract_ready, false);
-  assert.deepEqual(template.source_contract.exclusions, ['native-preflight-pending']);
-  assert.equal(expected.encoding, 'postgres-jsonb-text-sha256/v1');
-  assert.equal(observed.encoding, expected.encoding);
-  assert.equal(observed.catalogue_digest, expected.catalogue_digest);
-  // Full exact PG encoding is compared too. No managed schema, extra role,
-  // default/effective ACL or object is silently discarded from either side.
-  assert.equal(observed.catalogue_text, expected.catalogue_text);
-  assert.equal(expectedRoles.scope, 'password-free-role-catalogue');
-  assert.equal(expectedRoles.contains_passwords_or_user_rows, false);
-  assert.deepEqual(normalized(observedRoles), normalized(expectedRoles));
+  let gate = 'template-ready';
+  try {
+    gate = 'template-ready';
+    assert.equal(template.source_contract.current_database_contract_ready, false);
+    gate = 'template-exclusions';
+    assert.deepEqual(template.source_contract.exclusions, ['native-preflight-pending']);
+    gate = 'expected-encoding';
+    assert.equal(expected.encoding, 'postgres-jsonb-text-sha256/v1');
+    gate = 'observed-encoding';
+    assert.equal(observed.encoding, expected.encoding);
+    gate = 'catalogue-digest';
+    assert.equal(observed.catalogue_digest, expected.catalogue_digest);
+    // Full exact PG encoding is compared too. No managed schema, extra role,
+    // default/effective ACL or object is silently discarded from either side.
+    gate = 'catalogue-text';
+    assert.equal(observed.catalogue_text, expected.catalogue_text);
+    gate = 'role-scope';
+    assert.equal(expectedRoles.scope, 'password-free-role-catalogue');
+    gate = 'role-safety';
+    assert.equal(expectedRoles.contains_passwords_or_user_rows, false);
+    gate = 'role-catalogue';
+    assert.deepEqual(normalized(observedRoles), normalized(expectedRoles));
+  } catch (error) {
+    try { recordParityFailure(error, gate, {expected, observed, expectedRoles, observedRoles}); }
+    catch { /* Diagnostic failure never replaces the original assertion. */ }
+    throw error;
+  }
 }
 
-export async function preflightSchema({ db, supervisor, env, api, template, applicationOwner, onStage = () => {} }) {
+export async function preflightSchema({ db, supervisor, env, api, template, applicationOwner, recordParityFailure, onStage = () => {} }) {
   onStage('catalogue-inputs');
   const expected = JSON.parse(await readFile('/inputs/production-catalogue.json', 'utf8'));
   const expectedRoles = JSON.parse(await readFile('/inputs/role-catalogue.json', 'utf8'));
@@ -65,7 +83,7 @@ export async function preflightSchema({ db, supervisor, env, api, template, appl
   onStage('role-snapshot');
   const observedRoles = await captureRoleCatalogue(db);
   onStage('catalogue-parity');
-  assertPreflightParity({ expected: restoredExpected, observed, expectedRoles, observedRoles, template });
+  assertPreflightParity({ expected: restoredExpected, observed, expectedRoles, observedRoles, template, recordParityFailure });
   onStage('auth-platform-helpers');
   await assertFixtureAuthPlatformHelpers(db);
   onStage('cron-catalogue');
