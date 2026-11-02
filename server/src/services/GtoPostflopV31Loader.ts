@@ -29,6 +29,7 @@ import {
   replaceGtoPostflopV31Async,
   replaceGtoPostflopV31Evaluation,
   gtoPostflopV31Count,
+  gtoPostflopV31Dataset,
   gtoPostflopV31EvaluationCount,
   type GtoV31RuntimeRow,
   type GtoV31SourceSeal,
@@ -43,6 +44,52 @@ const MAX_RETRY_MS = 5 * 60_000;
 const PAGE = 500;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 let activeLoadGeneration = 0;
+const SHA = /^[0-9a-f]{40}$/;
+
+/**
+ * SERVING BINDING GATE (live decision workers only). A promoted dataset was
+ * evaluated on one engine decision closure; only an engine commit that the
+ * qualification operation proved closure-identical and recorded in
+ * gto_v31_serving_bindings may serve it. Any other build - a later release, a
+ * rollback, a missing GIT_COMMIT_SHA - serves the empty store (the existing
+ * V30/heuristic fallback) and reports the refusal. Offline evaluators never
+ * arm the gate: their incumbent must be the database's active dataset.
+ */
+let servingGate: { commit: string | null } | null = null;
+export function requireGtoV31ServingBinding(engineCommit: string | undefined): void {
+  const commit = engineCommit?.trim().toLowerCase() ?? '';
+  servingGate = { commit: SHA.test(commit) && commit !== '0'.repeat(40) ? commit : null };
+}
+/** Test seam only. */
+export function _resetGtoV31ServingBinding(): void {
+  servingGate = null;
+}
+interface ServingAdmission {
+  active: { dataset_id: string; dataset_checksum: string } | null;
+  admitted: boolean;
+}
+async function servingAdmission(commit: string | null): Promise<ServingAdmission> {
+  if (commit === null) return { active: { dataset_id: '', dataset_checksum: '' }, admitted: false };
+  const { data, error } = await supabase.rpc('fn_gto_v31_serving_admission', {
+    p_engine_commit: commit,
+  });
+  if (error) throw new Error(error.message);
+  const v = data as any;
+  if (
+    !v ||
+    typeof v !== 'object' ||
+    typeof v.admitted !== 'boolean' ||
+    !(
+      v.active === null ||
+      (typeof v.active === 'object' &&
+        UUID.test(v.active.dataset_id ?? '') &&
+        /^[0-9a-f]{64}$/.test(v.active.dataset_checksum ?? ''))
+    ) ||
+    (v.active === null && v.admitted)
+  )
+    throw new Error('v31_serving_admission_invalid');
+  return { active: v.active, admitted: v.admitted };
+}
 
 // A missing/malformed RPC body is not an authoritative empty dataset. Keep
 // full policy validation in the real store; these checks bind transport shape
@@ -74,6 +121,33 @@ function readV31CellPage(data: unknown, expectedDatasetId?: string): GtoV31Runti
 async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number }> {
   const generation = ++activeLoadGeneration;
   try {
+    const gate = servingGate;
+    let admittedId: string | null = null;
+    if (gate) {
+      const admission = await servingAdmission(gate.commit);
+      if (admission.active && !admission.admitted) {
+        // Fail closed: never serve a dataset this build was not proven against.
+        if (generation !== activeLoadGeneration) throw new Error('v31_active_load_superseded');
+        const cleared = await replaceGtoPostflopV31Async(
+          [],
+          () => generation === activeLoadGeneration
+        );
+        console.warn(
+          `[GtoPostflopV31Loader] V31_SERVING_BINDING_REFUSED: active dataset ${admission.active.dataset_id || 'unknown'} is not bound to engine ${gate.commit ?? 'unknown'}; serving the empty store`
+        );
+        reportError(new Error('v31_serving_binding_refused'), 'GtoPostflopV31Loader.gate');
+        return { ok: true, count: cleared };
+      }
+      admittedId = admission.active?.dataset_id ?? null;
+      // A different dataset is never kept as a "last known-good" fallback:
+      // drop it before fetching, so a failed load leaves the empty store and
+      // two datasets can never be served side by side.
+      const held = gtoPostflopV31Dataset();
+      if (held && held.id !== admittedId) {
+        if (generation !== activeLoadGeneration) throw new Error('v31_active_load_superseded');
+        await replaceGtoPostflopV31Async([], () => generation === activeLoadGeneration);
+      }
+    }
     const rows: GtoV31RuntimeRow[] = [];
     for (let offset = 0; ; ) {
       const { data, error } = await supabase.rpc('fn_gto_v31_active_cells', {
@@ -100,6 +174,25 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
     // An older periodic read must not overwrite a newer explicit refresh,
     // including when its old authoritative-empty response arrives last.
     if (generation !== activeLoadGeneration) throw new Error('v31_active_load_superseded');
+    if (gate) {
+      if (rows.some((row) => (row as { dataset_id?: unknown }).dataset_id !== admittedId))
+        throw new Error('v31_serving_admission_dataset_changed');
+      // Re-read the binding after the collection: a revocation that landed
+      // while pages were read wins, and the store is emptied instead.
+      const recheck = await servingAdmission(gate.commit);
+      if (
+        (recheck.active?.dataset_id ?? null) !== admittedId ||
+        (admittedId !== null && !recheck.admitted)
+      ) {
+        if (generation !== activeLoadGeneration) throw new Error('v31_active_load_superseded');
+        const cleared = await replaceGtoPostflopV31Async(
+          [],
+          () => generation === activeLoadGeneration
+        );
+        reportError(new Error('v31_serving_binding_refused'), 'GtoPostflopV31Loader.gate');
+        return { ok: true, count: cleared };
+      }
+    }
     const applied = await replaceGtoPostflopV31Async(
       rows,
       () => generation === activeLoadGeneration

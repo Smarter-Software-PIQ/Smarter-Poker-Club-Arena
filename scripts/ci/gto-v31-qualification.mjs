@@ -193,16 +193,27 @@ export function maintenanceRefusal(nowMs, budgetMs = PROMOTION_BUDGET_MS) {
   }
 }
 
+/** The host's revert (revoke + clear) budget, on top of PROMOTION_BUDGET_MS. */
+export const REVERT_BUDGET_MS = 7 * 60_000;
+/**
+ * `serving`: what live workers can serve after the outcome.
+ *   empty  - no worker serves the dataset (unbound or revoked and proven empty)
+ *   loaded - all eight proven on the same promoted dataset
+ *   converging - binding revoked but empty not proven: restarts/refreshes go empty
+ *   unknown - inspect
+ */
 export const OUTCOMES = Object.freeze({
-  0: { outcome: 'promoted-loaded-ready', changed: true, rerun: false },
-  64: { outcome: 'refused-arguments', changed: false, rerun: false },
-  65: { outcome: 'refused-serving-identity', changed: false, rerun: true },
-  66: { outcome: 'promotion-refused', changed: false, rerun: false },
-  67: { outcome: 'promotion-outcome-unknown', changed: null, rerun: true },
-  68: { outcome: 'promoted-load-incomplete', changed: true, rerun: true },
-  69: { outcome: 'promoted-loaded-readiness-unproved', changed: true, rerun: true },
-  70: { outcome: 'serving-identity-changed', changed: null, rerun: true },
-  75: { outcome: 'refused-lock-or-boundary', changed: false, rerun: true },
+  0: { outcome: 'promoted-loaded-ready', changed: true, rerun: false, serving: 'loaded' },
+  64: { outcome: 'refused-arguments', changed: false, rerun: false, serving: 'unchanged' },
+  65: { outcome: 'refused-serving-identity', changed: false, rerun: true, serving: 'unchanged' },
+  66: { outcome: 'promotion-refused', changed: false, rerun: false, serving: 'unchanged' },
+  67: { outcome: 'promotion-outcome-unknown', changed: null, rerun: true, serving: 'empty' },
+  68: { outcome: 'rolled-back-empty', changed: true, rerun: true, serving: 'empty' },
+  69: { outcome: 'promoted-loaded-readiness-unproved', changed: true, rerun: true, serving: 'loaded' },
+  70: { outcome: 'promoted-unbound', changed: true, rerun: true, serving: 'empty' },
+  71: { outcome: 'in-container-step-not-terminated', changed: null, rerun: false, serving: 'unknown' },
+  72: { outcome: 'rollback-incomplete', changed: true, rerun: true, serving: 'converging' },
+  75: { outcome: 'refused-lock-or-boundary', changed: false, rerun: true, serving: 'unchanged' },
 });
 
 /** Parse the host transcript; the printed outcome must agree with the exit code. */
@@ -210,7 +221,7 @@ export function hostTranscript(stdout, exitCode) {
   const stages = {};
   let printed = null;
   for (const line of String(stdout).split('\n')) {
-    let m = /^V31_ATOMIC_STAGE (promote|load|status|readiness) (.*)$/.exec(line);
+    let m = /^V31_ATOMIC_STAGE (promote|bind|load|status|readiness|terminate|revert|revoke|clear) (.*)$/.exec(line);
     if (m) {
       let value = null;
       try { value = m[2] ? JSON.parse(m[2]) : null; } catch { value = null; }
@@ -223,7 +234,7 @@ export function hostTranscript(stdout, exitCode) {
   const known = OUTCOMES[exitCode];
   const consistent = known && printed !== null && (printed === known.outcome ||
     (exitCode === 75 && printed.startsWith('refused-')) || (exitCode === 65 && printed === 'refused-serving-identity'));
-  if (!consistent) return { outcome: 'host-outcome-unknown', changed: null, rerun: true, stages, printed, exitCode };
+  if (!consistent) return { outcome: 'host-outcome-unknown', changed: null, rerun: true, serving: 'unknown', stages, printed, exitCode };
   return { ...known, printed, stages, exitCode };
 }
 
@@ -250,12 +261,33 @@ export function storeReceiptValid(v, p, operation, now = Date.now()) {
   return true;
 }
 
-export function promotionRequest({ datasetId, checksum, engineSha, servingSha, requestId, cellCount, afterUtc }) {
+export function promotionRequest({ datasetId, checksum, engineSha, servingSha, requestId, cellCount, afterUtc,
+  closureDigest, boundBy }) {
   if (!UUID.test(datasetId ?? '') || !HEX.test(checksum ?? '') || !fullSha(engineSha) || !fullSha(servingSha) ||
       !UUID.test(requestId ?? '') || !Number.isSafeInteger(cellCount) || cellCount < 1 || cellCount > 10000 ||
-      typeof afterUtc !== 'string' || new Date(afterUtc).toISOString() !== afterUtc)
+      typeof afterUtc !== 'string' || new Date(afterUtc).toISOString() !== afterUtc ||
+      !HEX.test(closureDigest ?? '') || closureDigest === '0'.repeat(64) ||
+      typeof boundBy !== 'string' || !/^[A-Za-z0-9:._/@-]{1,200}$/.test(boundBy))
     throw new Error('An exact promotion request is required');
-  return { datasetId, checksum, engineSha, servingSha, requestId, cellCount, afterUtc };
+  return { datasetId, checksum, engineSha, servingSha, requestId, cellCount, afterUtc, closureDigest, boundBy };
+}
+
+/**
+ * A serving engine that cannot refuse an unbound dataset must never be asked
+ * to load one: the binding (and the revert that clears workers through it)
+ * only protects engines whose live workers arm the serving gate.
+ */
+export const SERVING_GATE = Object.freeze({
+  'server/src/services/GtoPostflopV31Loader.ts': 'export function requireGtoV31ServingBinding(',
+  'server/src/engine/horseDecision/workerRuntime.ts': 'requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);',
+  'server/src/scripts/reloadPublic215Stores.ts': 'export function validateClearReceipt(',
+});
+export function servingGateCommit(repo, sha) {
+  if (!fullSha(sha)) return false;
+  return Object.entries(SERVING_GATE).every(([path, marker]) => {
+    const result = spawnSync('git', ['-C', repo, 'show', `${sha}:${path}`], { encoding: 'utf8', timeout: 20000, maxBuffer: 1 << 26 });
+    return result.status === 0 && result.stdout.includes(marker);
+  });
 }
 
 export function readinessRequest(p) {
@@ -268,7 +300,7 @@ const b64 = (s) => Buffer.from(s).toString('base64');
 export function remoteCommand(p) {
   p = promotionRequest(p);
   const host = readFileSync(join(HERE, 'v31-atomic-promotion-host.sh'), 'utf8');
-  const args = [p.datasetId, p.checksum, p.engineSha, p.servingSha, p.requestId,
+  const args = [p.datasetId, p.checksum, p.engineSha, p.servingSha, p.requestId, p.closureDigest, p.boundBy,
     b64(JSON.stringify(readinessRequest(p))),
     b64(readFileSync(join(HERE, 'v31-atomic-promotion-container.mjs'), 'utf8')),
     b64(readFileSync(join(HERE, 'inspect-v31-worker-readiness.mjs'), 'utf8'))];
@@ -281,18 +313,20 @@ export function promotionVerdict(p, transcript, healthAfter, now = Date.now()) {
   delete verdict.stages;
   if (transcript.exitCode !== 0) return verdict;
   const promote = transcript.stages.promote?.at(-1);
+  const bind = transcript.stages.bind?.at(-1);
   const load = transcript.stages.load?.at(-1);
   const status = transcript.stages.status?.at(-1);
   const ready = transcript.stages.readiness?.at(-1);
   const live = healthAfter?.liveHorseDecision;
   const store = live?.solverStores;
   if (!['promoted', 'already-promoted'].includes(promote?.result) || promote.engineCommit !== p.engineSha ||
+      !['bound', 'already-bound'].includes(bind?.result) || bind.servingCommit !== p.servingSha ||
       !storeReceiptValid(load, p, 'reload', now) || !storeReceiptValid(status, p, 'status', now) ||
       !readinessReceiptMatches(ready, readinessRequest(p)) ||
       healthAfter?.status !== 'ok' || healthAfter.releaseSha !== p.servingSha || live?.phase !== 'ready' ||
       live.workerCount !== WORKERS || store?.postflopV31 !== p.cellCount ||
       store.postflopV31Dataset?.id !== p.datasetId || store.postflopV31Dataset?.checksum !== p.checksum)
-    return { ...verdict, outcome: 'promoted-loaded-readiness-unproved', changed: true, rerun: true };
+    return { ...verdict, outcome: 'promoted-loaded-readiness-unproved', changed: true, rerun: true, serving: 'unknown' };
   return { ...verdict, promotion: promote.result };
 }
 
@@ -442,12 +476,15 @@ async function runPromotion(selected, directory) {
       differences: compatibility.differences };
     if (!compatibility.compatible)
       throw new Error('The serving engine is not closure-compatible with the evaluated epoch; evaluate a new audited epoch first');
+    if (!servingGateCommit(control, serving.releaseSha))
+      throw new Error('The serving engine lacks the V31 serving-binding gate; nothing changed');
     const refusal = maintenanceRefusal(Date.now(), PROMOTION_BUDGET_MS + 60_000);
     if (refusal) throw new Error(`Refused near a maintenance boundary (${refusal}); nothing changed`);
     const cellCount = Number(dataset.runtime_cells);
     const p = promotionRequest({ datasetId: selected.dataset, checksum: dataset.dataset_checksum,
       engineSha: plan.epoch.engine_commit, servingSha: serving.releaseSha, requestId: randomUUID(), cellCount,
-      afterUtc: new Date().toISOString() });
+      afterUtc: new Date().toISOString(), closureDigest: compatibility.serving.digest,
+      boundBy: provider().replace(/[^A-Za-z0-9:._/@-]/g, '-').slice(0, 200) });
     receipt.request = p;
     const keys = process.env.V31_SSH_DIR;
     if (!keys || !/^[A-Za-z0-9.-]+$/.test(process.env.HETZNER_HOST ?? '')) throw new Error('Configured SSH metadata unavailable');
@@ -455,15 +492,16 @@ async function runPromotion(selected, directory) {
       '-o', 'StrictHostKeyChecking=yes', '-o', `UserKnownHostsFile=${join(keys, 'known_hosts')}`,
       '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=10',
       '-o', 'ServerAliveCountMax=3', `root@${process.env.HETZNER_HOST}`, remoteCommand(p)],
-      { encoding: 'utf8', timeout: PROMOTION_BUDGET_MS + 120_000, maxBuffer: 8 << 20 });
+      { encoding: 'utf8', timeout: PROMOTION_BUDGET_MS + REVERT_BUDGET_MS + 120_000, maxBuffer: 8 << 20 });
     const transcript = hostTranscript(ssh.stdout ?? '', ssh.status);
     let healthAfter = null;
     try { healthAfter = await health(); } catch { healthAfter = null; }
     const verdict = promotionVerdict(p, transcript, healthAfter);
     Object.assign(receipt, { outcome: verdict.outcome, changed: verdict.changed, rerunnable: verdict.rerun,
+      servingAfter: verdict.serving,
       hostExit: ssh.status, hostOutcome: transcript.printed, stages: transcript.stages, healthAfter });
     if (verdict.outcome !== 'promoted-loaded-ready')
-      throw new Error(`Atomic promotion ended ${verdict.outcome}; ${verdict.rerun ? 're-run promote (a recorded promotion is never repeated)' : 'inspect before any new operation'}`);
+      throw new Error(`Atomic promotion ended ${verdict.outcome}; ${verdict.rerun ? 're-run promote (a recorded promotion is never repeated; it re-binds and reloads)' : 'inspect before any new operation'}`);
   } catch (error) {
     failure = error;
     receipt.error = error.message;

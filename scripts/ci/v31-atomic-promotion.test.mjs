@@ -1,46 +1,69 @@
-// The engine-locked activation, exercised end to end through the real host
-// script (and the exact command remoteCommand() sends) with a scripted fake
-// docker/flock/date, plus the in-container promotion against a fake database.
+// The V31 activation, exercised end to end through the real host script (and
+// the exact command remoteCommand() sends) with a scripted fake docker whose
+// "in-container" processes really run, record their PID and outlive a killed
+// docker client exactly like docker exec does, plus the in-container modes
+// against a fake database.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hostTranscript, promotionVerdict, remoteCommand, readinessRequest } from './gto-v31-qualification.mjs';
-import { promoteOnce } from './v31-atomic-promotion-container.mjs';
+import { hostTranscript, promotionVerdict, remoteCommand, readinessRequest, OUTCOMES } from './gto-v31-qualification.mjs';
+import { promoteOnce, bindOnce, revokeOnce } from './v31-atomic-promotion-container.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = join(HERE, 'v31-atomic-promotion-host.sh');
 const DATASET = '187815b1-3701-46c8-8514-93db3cdb6d07';
 const CHECKSUM = 'afad6a663fffe4566e2b82966ebd5cd673cfbd55852af6ac4d3ab738008ec422';
+const DIGEST = 'd'.repeat(64);
 const ENGINE = 'a'.repeat(40), SERVING = 'b'.repeat(40), OTHER = 'c'.repeat(40);
 const REQUEST = '2687c795-6014-4543-85fd-460f418da6c3';
+const BY = 'github-actions:Smarter-Software-PIQ/Smarter-Poker-Club-Arena:run-1-1:dan';
 const SAFE = Date.UTC(2026, 10, 2, 15, 20, 0) / 1000; // 15:20Z = 09:20 Chicago
 
+// docker exec [-i] CONTAINER sh -c SCRIPT PIDFILE CMD...: the "container" is
+// this host. The child is started in the background so killing the docker
+// client (what `timeout` does) leaves it running, as a real docker exec does.
 const FAKE_DOCKER = `#!/usr/bin/env bash
 S=$FAKE_STATE
 echo "$*" >> "$S/calls"
 if [ "$1 $2" = "container inspect" ]; then cat "$S/identity"; exit 0; fi
-if [ "$1" = exec ]; then
-  if [ "$2" = -i ]; then
-    cat > /dev/null
-    if [ "$#" -eq 10 ]; then
-      [ -f "$S/promote_hang" ] && exec /bin/sleep 30
-      cat "$S/promote_out"; rc=$(cat "$S/promote_rc")
-      [ -f "$S/swap_after_promote" ] && cp "$S/swap_after_promote" "$S/identity"
-      exit "$rc"
-    fi
-    n=$(cat "$S/ready_n" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/ready_n"
-    rc=$(sed -n "\${n}p" "$S/ready_rcs"); [ -n "$rc" ] || rc=$(tail -n 1 "$S/ready_rcs")
-    echo "{\\"stage\\":\\"readiness\\",\\"attempt\\":$n}"; exit "$rc"
-  fi
-  op=$5
-  [ -f "$S/\${op}_hang" ] && exec /bin/sleep 30
-  echo "{\\"operation\\":\\"$op\\"}"; exit "$(cat "$S/\${op}_rc")"
+[ "$1" = exec ] || exit 99
+shift
+[ "$1" = -i ] && shift
+shift
+[ "$1" = sh ] && [ "$2" = -c ] || exit 98
+script=$3; shift 3
+case "$script" in 'p=$(cat'*) [ -f "$S/kill_fails" ] && exit 1 ;; esac
+pidfile="$S/$(basename "$1")"; shift
+exec 3<&0
+# The child's output goes through a file, not this client's pipe: killing the
+# client must not keep the caller's pipe open (a real docker exec client does not).
+out="$S/out.$$"
+sh -c "$script" "$pidfile" "$@" <&3 > "$out" 2>/dev/null & child=$!
+wait "$child"; rc=$?
+cat "$out"; rm -f "$out"
+exit "$rc"
+`;
+// The engine's node, by step: modes promote/bind/revoke, the readiness inspector, the reload CLI.
+const FAKE_NODE = `#!/usr/bin/env bash
+S=$FAKE_STATE
+if [ "$1" = --input-type=module ]; then
+  cat > /dev/null
+  mode=$3
+  case "$mode" in promote|bind|revoke) ;; *) mode=readiness ;; esac
+else
+  mode=$2
 fi
-exit 99
+echo "$mode" >> "$S/steps"
+if [ -f "$S/\${mode}_hang" ]; then echo $$ > "$S/hung_pid"; exec /bin/sleep 30; fi
+[ -f "$S/swap_after_\${mode}" ] && cp "$S/swap_after_\${mode}" "$S/identity"
+n=$(cat "$S/\${mode}_n" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/\${mode}_n"
+rc=$(sed -n "\${n}p" "$S/\${mode}_rcs" 2>/dev/null); [ -n "$rc" ] || rc=$(tail -n 1 "$S/\${mode}_rcs" 2>/dev/null); [ -n "$rc" ] || rc=0
+if [ -f "$S/\${mode}_out" ]; then cat "$S/\${mode}_out"; else echo "{\\"stage\\":\\"$mode\\",\\"n\\":$n}"; fi
+exit "$rc"
 `;
 // Only where GNU timeout is absent (macOS): same contract, kill on expiry, exit 124.
 const FAKE_TIMEOUT = `#!/usr/bin/env bash
@@ -54,6 +77,7 @@ if kill -0 "$killer" 2>/dev/null; then kill "$killer" 2>/dev/null; else rc=124; 
 exit "$rc"
 `;
 const HAS_TIMEOUT = spawnSync('bash', ['-c', 'command -v timeout'], { encoding: 'utf8' }).status === 0;
+const REAL_FLOCK = ['/usr/bin/flock', '/bin/flock'].find((path) => existsSync(path));
 const FAKE_FLOCK = '#!/usr/bin/env bash\nexit "${FAKE_FLOCK_RC:-0}"\n';
 const FAKE_DATE = `#!/usr/bin/env bash
 for a in "$@"; do
@@ -66,65 +90,66 @@ function world(overrides = {}) {
   const root = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'v31-atomic-'));
   const bin = join(root, 'bin'), state = join(root, 'state');
   for (const dir of [bin, state]) spawnSync('mkdir', ['-p', dir]);
-  for (const [name, body] of [['docker', FAKE_DOCKER], ['flock', FAKE_FLOCK], ['date', FAKE_DATE], ['sleep', '#!/bin/sh\nexit 0\n'],
-    ...(HAS_TIMEOUT ? [] : [['timeout', FAKE_TIMEOUT]])]) {
+  for (const [name, body] of [['docker', FAKE_DOCKER], ['node', FAKE_NODE], ['flock', FAKE_FLOCK], ['date', FAKE_DATE],
+    ['sleep', '#!/bin/sh\nexit 0\n'], ...(HAS_TIMEOUT ? [] : [['timeout', FAKE_TIMEOUT]])]) {
     writeFileSync(join(bin, name), body); chmodSync(join(bin, name), 0o755);
   }
   const s = {
     identity: `cid|img|2026-11-02T14:00:00Z|running|${SERVING}`,
     promote_out: JSON.stringify({ stage: 'promote', result: 'promoted', engineCommit: ENGINE }),
-    promote_rc: '0', reload_rc: '0', status_rc: '0', ready_rcs: '0', ...overrides.state,
+    ...overrides.state,
   };
   for (const [k, v] of Object.entries(s)) if (v !== null) writeFileSync(join(state, k), `${v}\n`);
-  const lock = join(root, 'engine-up.lock');
-  if (overrides.lock !== false) writeFileSync(lock, '');
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_STATE: state, V31_ENGINE_LOCK: lock,
-    V31_READINESS_PAUSE: '0', ...(overrides.budget ? { V31_BUDGET_SECONDS: String(overrides.budget) } : {}), FAKE_EPOCH: String(overrides.epoch ?? SAFE), FAKE_CHICAGO: overrides.chicago ?? '0920',
-    FAKE_FLOCK_RC: overrides.flock ?? '0' };
-  return { root, state, env, calls: () => (existsSync(join(state, 'calls')) ? readFileSync(join(state, 'calls'), 'utf8').trim().split('\n') : []) };
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_STATE: state,
+    V31_ACTIVATION_LOCK: join(root, 'v31-activation.lock'), V31_READINESS_PAUSE: '0',
+    ...(overrides.budget ? { V31_BUDGET_SECONDS: String(overrides.budget) } : {}),
+    FAKE_EPOCH: String(overrides.epoch ?? SAFE), FAKE_CHICAGO: overrides.chicago ?? '0920', FAKE_FLOCK_RC: overrides.flock ?? '0' };
+  const read = (name) => (existsSync(join(state, name)) ? readFileSync(join(state, name), 'utf8').trim().split('\n') : []);
+  return { root, state, env, steps: () => read('steps'), calls: () => read('calls'),
+    cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-const ARGS = [DATASET, CHECKSUM, ENGINE, SERVING, REQUEST, Buffer.from('{}').toString('base64'),
-  Buffer.from('promote').toString('base64'), Buffer.from('ready').toString('base64')];
+const ARGS = [DATASET, CHECKSUM, ENGINE, SERVING, REQUEST, DIGEST, BY, Buffer.from('{}').toString('base64'),
+  Buffer.from('container').toString('base64'), Buffer.from('ready').toString('base64')];
 function host(w, args = ARGS) {
   const r = spawnSync('bash', [HOST, ...args], { env: w.env, encoding: 'utf8' });
   return { code: r.status, out: r.stdout, t: hostTranscript(r.stdout, r.status) };
 }
-const kinds = (calls) => calls.map((c) => c.startsWith('container inspect') ? 'inspect'
-  : c.includes('reloadPublic215Stores.js reload') ? 'reload' : c.includes('reloadPublic215Stores.js status') ? 'status'
-  : c.split(' ').length === 10 ? 'promote' : 'readiness');
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
-test('success promotes, loads all workers, re-reads them and proves readiness under one lock', () => {
+test('success promotes, binds the serving commit, loads all workers, re-reads them and proves readiness', () => {
   const w = world();
   try {
     const r = host(w);
     assert.equal(r.code, 0, r.out);
     assert.equal(r.t.outcome, 'promoted-loaded-ready');
-    assert.deepEqual(kinds(w.calls()), ['inspect', 'promote', 'inspect', 'reload', 'inspect', 'status', 'readiness', 'inspect']);
+    assert.deepEqual(w.steps(), ['promote', 'bind', 'reload', 'status', 'readiness']);
     assert.equal(r.t.stages.promote[0].result, 'promoted');
-  } finally { rmSync(w.root, { recursive: true, force: true }); }
+  } finally { w.cleanup(); }
 });
 
 test('the exact remote command quotes and delivers every argument to the host script', () => {
   const w = world();
   try {
     const p = { datasetId: DATASET, checksum: CHECKSUM, engineSha: ENGINE, servingSha: SERVING, requestId: REQUEST,
-      cellCount: 107, afterUtc: '2026-11-02T15:20:00.000Z' };
+      cellCount: 107, afterUtc: '2026-11-02T15:20:00.000Z', closureDigest: DIGEST, boundBy: BY };
     const r = spawnSync('bash', ['-c', remoteCommand(p)], { env: w.env, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr + r.stdout);
-    const call = w.calls().find((c) => c.includes('reloadPublic215Stores.js reload'));
-    assert.equal(call, `exec club-arena-engine node dist/scripts/reloadPublic215Stores.js reload ${REQUEST} ${DATASET} ${CHECKSUM}`);
-    const ready = w.calls().find((c) => c.startsWith('exec -i club-arena-engine node --input-type=module - ') && c.split(' ').length === 7);
+    const reload = w.calls().find((c) => c.includes('reloadPublic215Stores.js reload'));
+    assert.ok(reload.endsWith(`node dist/scripts/reloadPublic215Stores.js reload ${REQUEST} ${DATASET} ${CHECKSUM}`), reload);
+    const bind = w.calls().find((c) => c.includes(' - bind '));
+    assert.ok(bind.endsWith(`node --input-type=module - bind ${DATASET} ${ENGINE} ${SERVING} ${DIGEST} ${BY}`), bind);
+    const ready = w.calls().find((c) => /node --input-type=module - [A-Za-z0-9+/=]{20,}$/.test(c));
     const sent = JSON.parse(Buffer.from(ready.split(' ').at(-1), 'base64').toString('utf8'));
     assert.deepEqual(sent, readinessRequest(p));
-    assert.throws(() => remoteCommand({ ...p, servingSha: `${SERVING}'; reboot; '` }));
-  } finally { rmSync(w.root, { recursive: true, force: true }); }
+    for (const bad of [{ servingSha: `${SERVING}'; reboot; '` }, { boundBy: "x'; reboot; '" }, { closureDigest: '0'.repeat(64) }])
+      assert.throws(() => remoteCommand({ ...p, ...bad }));
+  } finally { w.cleanup(); }
 });
 
-test('nothing runs without the lock, outside the window or on another image', () => {
+test('nothing runs on a busy activation, near a boundary or on another image', () => {
   for (const [label, overrides, outcome, code] of [
-    ['busy', { flock: '1' }, 'refused-lock-busy', 75],
-    ['missing', { lock: false }, 'refused-lock-missing', 75],
+    ['activation busy', { flock: '1' }, 'refused-lock-busy', 75],
     ['minute 05', { epoch: SAFE - 15 * 60 }, 'refused-maintenance-boundary', 75],
     ['minute 41', { epoch: SAFE + 21 * 60 }, 'refused-maintenance-boundary', 75],
     ['minute 52', { epoch: SAFE + 32 * 60 }, 'refused-maintenance-boundary', 75],
@@ -139,80 +164,148 @@ test('nothing runs without the lock, outside the window or on another image', ()
       assert.equal(r.code, code, label);
       assert.equal(r.t.printed, outcome, label);
       assert.equal(r.t.changed, false, label);
-      assert.ok(!kinds(w.calls()).some((k) => k !== 'inspect'), `${label}: no exec`);
-    } finally { rmSync(w.root, { recursive: true, force: true }); }
+      assert.deepEqual(w.steps(), [], `${label}: no in-container step`);
+    } finally { w.cleanup(); }
   }
   for (const [label, overrides] of [['minute 10', { epoch: SAFE - 10 * 60 }], ['minute 40', { epoch: SAFE + 20 * 60 + 59 }],
     ['chicago 03:40', { chicago: '0340' }], ['chicago 04:07', { chicago: '0407' }]]) {
     const w = world(overrides);
-    try { assert.equal(host(w).code, 0, label); } finally { rmSync(w.root, { recursive: true, force: true }); }
+    try { assert.equal(host(w).code, 0, label); } finally { w.cleanup(); }
   }
   const w = world();
   try {
     assert.equal(host(w, ARGS.slice(1)).code, 64);
     assert.equal(host(w, [DATASET, CHECKSUM, ENGINE, 'b'.repeat(39), ...ARGS.slice(4)]).code, 64);
-    assert.equal(host(w, [...ARGS.slice(0, 7), 'not base64!']).code, 64);
-  } finally { rmSync(w.root, { recursive: true, force: true }); }
+    assert.equal(host(w, [...ARGS.slice(0, 6), 'bad by;', ...ARGS.slice(7)]).code, 64);
+    assert.equal(host(w, [...ARGS.slice(0, 9), 'not base64!']).code, 64);
+  } finally { w.cleanup(); }
 });
 
-test('a serving version change mid-promotion stops before any load', () => {
-  const w = world({ state: { swap_after_promote: `cid2|img2|t2|running|${OTHER}` } });
+test('the activation never takes the engine mutation lock, so crash and release recovery never wait on it', () => {
+  const lines = readFileSync(HOST, 'utf8').split('\n').filter((line) => !line.trim().startsWith('#'));
+  assert.ok(!lines.some((line) => line.includes('club-arena-engine-up.lock')), 'no executable line names the engine lock');
+  assert.ok(lines.some((line) => line.includes('/var/lock/club-arena-v31-activation.lock')));
+});
+
+test('a held activation leaves the engine lock free for a 5 s recovery wait (real flock)', { skip: !REAL_FLOCK && 'util-linux flock is not installed here' }, async () => {
+  const w = world({ state: { reload_hang: '1' }, budget: 6 });
+  const engineLock = join(w.root, 'engine-up.lock');
+  writeFileSync(engineLock, '');
+  // The activation runs with the REAL flock (its own lock), hung inside the load.
+  const env = { ...w.env, PATH: w.env.PATH.replace(`${join(w.root, 'bin')}:`, `${join(w.root, 'realbin')}:${join(w.root, 'bin')}:`) };
+  spawnSync('mkdir', ['-p', join(w.root, 'realbin')]);
+  writeFileSync(join(w.root, 'realbin', 'flock'), `#!/bin/sh\nexec ${REAL_FLOCK} "$@"\n`);
+  chmodSync(join(w.root, 'realbin', 'flock'), 0o755);
   try {
-    const r = host(w);
-    assert.equal(r.code, 70);
-    assert.equal(r.t.outcome, 'serving-identity-changed');
-    assert.equal(r.t.rerun, true);
-    assert.ok(!kinds(w.calls()).includes('reload'));
-  } finally { rmSync(w.root, { recursive: true, force: true }); }
+    const activation = spawn('bash', [HOST, ...ARGS], { env, stdio: 'ignore' });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const started = Date.now();
+    const recovery = spawnSync(REAL_FLOCK, ['-w', '5', engineLock, 'true']);
+    assert.equal(recovery.status, 0, 'engine-release-recover.sh style 5 s wait must acquire the engine lock');
+    assert.ok(Date.now() - started < 2000);
+    await new Promise((resolve) => activation.on('exit', resolve));
+  } finally { w.cleanup(); }
 });
 
-test('a refused or unknown promotion never loads', () => {
-  for (const [rc, outcome, code] of [['10', 'promotion-refused', 66], ['20', 'promotion-outcome-unknown', 67]]) {
-    const w = world({ state: { promote_rc: rc } });
+test('a refused or unknown promotion never binds or loads; a refused binding never loads', () => {
+  for (const [state, code, outcome, steps] of [
+    [{ promote_rcs: '10' }, 66, 'promotion-refused', ['promote']],
+    [{ promote_rcs: '20' }, 67, 'promotion-outcome-unknown', ['promote']],
+    [{ bind_rcs: '10' }, 70, 'promoted-unbound', ['promote', 'bind']],
+    [{ swap_after_promote: `cid2|img|t2|running|${OTHER}` }, 70, 'promoted-unbound', ['promote']],
+  ]) {
+    const w = world({ state });
     try {
       const r = host(w);
-      assert.equal(r.code, code);
+      assert.equal(r.code, code, outcome);
       assert.equal(r.t.outcome, outcome);
-      assert.ok(!kinds(w.calls()).includes('reload'));
-    } finally { rmSync(w.root, { recursive: true, force: true }); }
+      assert.deepEqual(w.steps(), steps, outcome);
+      assert.equal(OUTCOMES[code].serving, code === 66 ? 'unchanged' : 'empty');
+    } finally { w.cleanup(); }
   }
 });
 
-test('a partial worker load is explicit and re-runnable without re-promoting', () => {
-  const w = world({ state: { reload_rc: '1' } });
+test('a partial worker load revokes the binding and proves all eight workers empty: zero mixed workers', () => {
+  for (const [label, state] of [['load fails', { reload_rcs: '1' }], ['status unconfirmed', { status_rcs: '1' }],
+    ['bind outcome unknown', { bind_rcs: '20' }], ['image replaced mid-load', { swap_after_reload: `cid2|img|t2|running|${OTHER}` }]]) {
+    const w = world({ state });
+    try {
+      const r = host(w);
+      assert.equal(r.code, 68, `${label}: ${r.out}`);
+      assert.equal(r.t.outcome, 'rolled-back-empty');
+      const steps = w.steps();
+      assert.deepEqual(steps.slice(-2), ['revoke', 'clear'], label);
+      assert.ok(!steps.includes('readiness'), label);
+      assert.equal(OUTCOMES[68].serving, 'empty');
+    } finally { w.cleanup(); }
+  }
+  // A worker still busy with an older load is not proof: clear again.
+  const busy = world({ state: { reload_rcs: '1', clear_rcs: '1\n0' } });
   try {
-    const r = host(w);
-    assert.equal(r.code, 68);
-    assert.deepEqual({ outcome: r.t.outcome, changed: r.t.changed, rerun: r.t.rerun },
-      { outcome: 'promoted-load-incomplete', changed: true, rerun: true });
-    assert.ok(!kinds(w.calls()).includes('readiness'));
-  } finally { rmSync(w.root, { recursive: true, force: true }); }
-  // The re-run finds the epoch already promoted and only loads.
-  const again = world({ state: { promote_out: JSON.stringify({ stage: 'promote', result: 'already-promoted', engineCommit: ENGINE }) } });
-  try {
-    const r = host(again);
-    assert.equal(r.code, 0);
-    assert.equal(r.t.stages.promote[0].result, 'already-promoted');
-  } finally { rmSync(again.root, { recursive: true, force: true }); }
+    assert.equal(host(busy).code, 68);
+    assert.deepEqual(busy.steps().filter((s) => s === 'clear').length, 2);
+  } finally { busy.cleanup(); }
+  for (const [label, state] of [['clear never proven', { reload_rcs: '1', clear_rcs: '1' }],
+    ['revoke unconfirmed', { reload_rcs: '1', revoke_rcs: '20' }]]) {
+    const w = world({ state });
+    try {
+      const r = host(w);
+      assert.equal(r.code, 72, label);
+      assert.equal(r.t.outcome, 'rollback-incomplete');
+      assert.equal(OUTCOMES[72].serving, 'converging');
+      if (label === 'revoke unconfirmed') assert.ok(!w.steps().includes('clear'), 'never clear before the binding is revoked');
+    } finally { w.cleanup(); }
+  }
 });
 
-test('readiness failure is explicit; incomplete readiness is retried within the bound', () => {
+test('readiness failure with all eight proven loaded keeps one consistent model; retries stay bounded', () => {
   for (const [rcs, code, attempts] of [['3', 69, 1], ['2\n2\n0', 0, 3], ['2', 69, 6]]) {
-    const w = world({ state: { ready_rcs: rcs } });
+    const w = world({ state: { readiness_rcs: rcs } });
     try {
       const r = host(w);
       assert.equal(r.code, code, rcs);
-      assert.equal(kinds(w.calls()).filter((k) => k === 'readiness').length, attempts, rcs);
+      assert.equal(w.steps().filter((k) => k === 'readiness').length, attempts, rcs);
+      assert.ok(!w.steps().includes('revoke'), rcs);
       if (code) assert.equal(r.t.outcome, 'promoted-loaded-readiness-unproved');
-    } finally { rmSync(w.root, { recursive: true, force: true }); }
+    } finally { w.cleanup(); }
   }
-  const w = world({ state: { status_rc: '1' } });
-  try { assert.equal(host(w).code, 69); } finally { rmSync(w.root, { recursive: true, force: true }); }
+});
+
+test('a hung in-container step is killed inside the container and proven gone before anything else runs', () => {
+  for (const [hang, code, after] of [['promote_hang', 67, []], ['reload_hang', 68, ['revoke', 'clear']],
+    ['readiness_hang', 69, []]]) {
+    const w = world({ state: { [hang]: '1' }, budget: 4 });
+    try {
+      const started = Date.now();
+      const r = host(w);
+      assert.ok(Date.now() - started < 20000, hang);
+      assert.equal(r.code, code, `${hang}: ${r.out}`);
+      assert.ok(r.t.stages.terminate?.length >= 1, `${hang}: termination recorded`);
+      const pid = Number(readFileSync(join(w.state, 'hung_pid'), 'utf8'));
+      assert.ok(Number.isInteger(pid) && pid > 1);
+      assert.equal(alive(pid), false, `${hang}: the in-container process ${pid} must be gone`);
+      const steps = w.steps(), at = steps.indexOf(hang.replace('_hang', ''));
+      assert.deepEqual(steps.slice(at + 1).filter((s) => s !== 'readiness'), after, hang);
+    } finally { w.cleanup(); }
+  }
+  // A step that cannot be proven killed stops the run with an explicit outcome.
+  const w = world({ state: { reload_hang: '1', kill_fails: '1' }, budget: 4 });
+  try {
+    const r = host(w);
+    assert.equal(r.code, 71);
+    assert.equal(r.t.outcome, 'in-container-step-not-terminated');
+    assert.ok(!w.steps().includes('revoke'));
+    try { process.kill(Number(readFileSync(join(w.state, 'hung_pid'), 'utf8')), 'SIGKILL'); } catch {}
+  } finally { w.cleanup(); }
+  // Every docker exec is bounded and runs under a recorded PID.
+  const lines = readFileSync(HOST, 'utf8').split('\n').filter((line) => !line.trim().startsWith('#') && /\bdocker (?:exec|container)/.test(line));
+  for (const line of lines) assert.match(line, /(?:bounded (?:\d+|"\$cap")|timeout --signal=TERM --kill-after=2 20) docker /, line);
+  assert.equal(lines.filter((line) => line.includes("'echo $$ > \"$0\"; exec \"$@\"'")).length, 2);
 });
 
 test('a successful host exit still needs eight valid receipts and the loaded health', () => {
   const p = { datasetId: DATASET, checksum: CHECKSUM, engineSha: ENGINE, servingSha: SERVING, requestId: REQUEST,
-    cellCount: 107, afterUtc: '2026-11-02T15:20:00.000Z' };
+    cellCount: 107, afterUtc: '2026-11-02T15:20:00.000Z', closureDigest: DIGEST, boundBy: BY };
   const now = Date.parse('2026-11-02T15:24:00.000Z');
   const ack = (worker, operation) => ({ worker, type: 'V31_STORE_CONTROL_ACK', operation, requestId: REQUEST, ok: true,
     count: 107, dataset: { id: DATASET, checksum: CHECKSUM }, error: null });
@@ -226,13 +319,15 @@ test('a successful host exit still needs eight valid receipts and the loaded hea
       acceptedHandSha256: 'f'.repeat(64), actionOrdinal: 3 })) };
   const health = { status: 'ok', releaseSha: SERVING, liveHorseDecision: { phase: 'ready', workerCount: 8,
     solverStores: { postflopV31: 107, postflopV31Dataset: { id: DATASET, checksum: CHECKSUM } } } };
-  const transcript = (load, h = health) => ({ outcome: 'promoted-loaded-ready', changed: true, rerun: false, exitCode: 0,
-    stages: { promote: [{ result: 'promoted', engineCommit: ENGINE }], load: [load], status: [store('status')], readiness: [ready] } });
+  const transcript = (load, bind = { result: 'bound', servingCommit: SERVING }) => ({ outcome: 'promoted-loaded-ready', changed: true, rerun: false, exitCode: 0,
+    stages: { promote: [{ result: 'promoted', engineCommit: ENGINE }], bind: [bind], load: [load], status: [store('status')], readiness: [ready] } });
   assert.equal(promotionVerdict(p, transcript(store('reload')), health, now).outcome, 'promoted-loaded-ready');
   for (const [label, t, h] of [['seven workers', transcript(store('reload', 7)), health],
     ['old dataset in health', transcript(store('reload')), { ...health, liveHorseDecision: { ...health.liveHorseDecision,
       solverStores: { postflopV31: 0, postflopV31Dataset: null } } }],
-    ['other serving', transcript(store('reload')), { ...health, releaseSha: OTHER }]]) {
+    ['other serving', transcript(store('reload')), { ...health, releaseSha: OTHER }],
+    ['bound another commit', transcript(store('reload'), { result: 'bound', servingCommit: OTHER }), health],
+    ['never bound', transcript(store('reload'), null), health]]) {
     const v = promotionVerdict(p, t, h, now);
     assert.equal(v.outcome, 'promoted-loaded-readiness-unproved', label);
     assert.equal(v.rerun, true, label);
@@ -292,28 +387,33 @@ test('the container refuses before any change, and reports unknown outcomes as u
   }
 });
 
-test('a hung step is killed at the deadline and reported explicitly, never holding the lock past the budget', () => {
-  for (const [hang, code, outcome, absent] of [['promote_hang', 67, 'promotion-outcome-unknown', 'reload'],
-    ['reload_hang', 68, 'promoted-load-incomplete', 'readiness']]) {
-    const w = world({ state: { [hang]: '1' }, budget: 4 });
-    try {
-      const started = Date.now();
-      const r = host(w);
-      const elapsed = Date.now() - started;
-      assert.equal(r.code, code, hang);
-      assert.equal(r.t.outcome, outcome, hang);
-      assert.ok(elapsed < 15000, `${hang} took ${elapsed} ms`);
-      assert.ok(!kinds(w.calls()).includes(absent), hang);
-    } finally { rmSync(w.root, { recursive: true, force: true }); }
-  }
-  // The budget can only shrink: a larger override is ignored.
-  const host_sh = readFileSync(HOST, 'utf8');
-  assert.match(host_sh, /BUDGET_SECONDS=480\n/);
-  assert.match(host_sh, /\(\( V31_BUDGET_SECONDS < BUDGET_SECONDS \)\)/);
-  for (const step of ['bounded 60 docker exec -i', 'bounded 170 docker exec', 'bounded 60 docker exec "$CONTAINER" node dist/scripts/reloadPublic215Stores.js status',
-    'bounded 45 docker exec -i', 'bounded 20 docker container inspect'])
-    assert.ok(host_sh.includes(step), step);
-  const calls = host_sh.split('\n').filter((line) => !line.trim().startsWith('#') && /\bdocker (?:exec|container)/.test(line));
-  assert.equal(calls.length, 5);
-  for (const line of calls) assert.match(line, /bounded \d+ docker /, line);
+
+test('the container binds only the serving commit it runs as, and proves the binding by an admission read', async () => {
+  const calls = [];
+  const db = (bind, admission) => ({ calls, rpc: async (name, args) => {
+    calls.push([name, args]);
+    if (name === 'fn_gto_v31_bind_serving') { if (bind instanceof Error) throw bind; return bind; }
+    return admission;
+  } });
+  const ok = { data: { active: { dataset_id: DATASET }, admitted: true }, error: null };
+  const argv = [DATASET, ENGINE, SERVING, DIGEST, BY];
+  assert.deepEqual(await bindOnce(argv, env, db({ data: { bound: true }, error: null }, ok)), [0, { result: 'bound', servingCommit: SERVING }]);
+  assert.equal((await bindOnce(argv, env, db({ data: { bound: false }, error: null }, ok)))[1].result, 'already-bound');
+  for (const [label, a, e, d, code] of [
+    ['other image', argv, { GIT_COMMIT_SHA: OTHER }, db({ data: {}, error: null }, ok), 10],
+    ['bad digest', [DATASET, ENGINE, SERVING, 'x', BY], env, db({ data: {}, error: null }, ok), 10],
+    ['gate refused', argv, env, db({ data: null, error: { code: 'P0001', message: 'no' } }, ok), 10],
+    ['transport', argv, env, db(new Error('reset'), ok), 20],
+    ['not admitted after bind', argv, env, db({ data: { bound: true }, error: null }, { data: { active: { dataset_id: DATASET }, admitted: false }, error: null }), 20],
+  ]) assert.equal((await bindOnce(a, e, d))[0], code, label);
+});
+
+test('the container revokes and proves the serving commit is no longer admitted', async () => {
+  const db = (revoke, admitted) => ({ rpc: async (name) => name === 'fn_gto_v31_revoke_serving' ? revoke
+    : { data: { active: { dataset_id: DATASET }, admitted }, error: null } });
+  assert.deepEqual(await revokeOnce([DATASET, SERVING, BY], env, db({ data: true, error: null }, false)), [0, { result: 'revoked' }]);
+  assert.deepEqual(await revokeOnce([DATASET, SERVING, BY], env, db({ data: false, error: null }, false)), [0, { result: 'not-bound' }]);
+  assert.equal((await revokeOnce([DATASET, SERVING, BY], env, db({ data: true, error: null }, true)))[0], 20);
+  assert.equal((await revokeOnce([DATASET, SERVING, BY], env, db({ data: null, error: { code: '57014' } }, false)))[0], 20);
+  assert.equal((await revokeOnce([DATASET, 'x', BY], env, db({ data: true, error: null }, false)))[0], 10);
 });
