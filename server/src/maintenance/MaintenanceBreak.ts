@@ -77,6 +77,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { completeReconnectFreeze, completeTableReconnectFreeze } from './reconnectFreeze.js';
 import { setLastHandSettlementWindow, setMaintenanceFrozen } from './freezeState.js';
+import { scheduleAtExactEpochMs } from './deadlineFloorTimer.js';
 import {
   assertMaintenanceThawRelease,
   MaintenanceThawError,
@@ -1006,34 +1007,43 @@ export class MaintenanceBreak {
     );
 
     const generation = this.lifecycleGeneration;
-    this.announceTimer = this.setTimer(() => {
-      this.announceTimer = null;
-      this.scheduledAnnouncementAt = 0;
-      if (!this.lifecycleIsCurrent(generation)) return;
-      this.launchLifecycleJob(
-        (async () => {
-          try {
-            const actualAnnouncementAt = this.now();
-            const intendedStartMinute = Math.floor(
-              (scheduledAnnouncementAt + MaintenanceBreak.LAST_HAND_LEAD_MS) / 60_000
-            );
-            if (
-              Math.floor((actualAnnouncementAt + MaintenanceBreak.LAST_HAND_LEAD_MS) / 60_000) !==
-              intendedStartMinute
-            )
-              throw new Error('scheduled_maintenance_announcement_expired');
-            await this.announceAt(actualAnnouncementAt);
-          } finally {
-            if (this.lifecycleIsCurrent(generation)) {
-              // A storage failure cancels this break, but it must not cancel
-              // every future hour. Re-arm from the wall clock on both paths.
-              this.scheduleNextAnnouncement();
+    scheduleAtExactEpochMs(
+      scheduledAnnouncementAt,
+      this.now,
+      this.setTimer,
+      (handle) => {
+        this.announceTimer = handle;
+        if (handle === null) this.scheduledAnnouncementAt = 0;
+      },
+      () => {
+        this.launchLifecycleJob(
+          (async () => {
+            try {
+              const actualAnnouncementAt = this.now();
+              const intendedStartMinute = Math.floor(
+                (scheduledAnnouncementAt + MaintenanceBreak.LAST_HAND_LEAD_MS) / 60_000
+              );
+              if (
+                Math.floor((actualAnnouncementAt + MaintenanceBreak.LAST_HAND_LEAD_MS) / 60_000) !==
+                intendedStartMinute
+              )
+                throw new Error('scheduled_maintenance_announcement_expired');
+              await this.announceAt(actualAnnouncementAt);
+            } finally {
+              if (this.lifecycleIsCurrent(generation)) {
+                // A storage failure cancels this break, but it must not cancel
+                // every future hour. Re-arm from the wall clock on both paths.
+                this.scheduleNextAnnouncement();
+              }
             }
-          }
-        })(),
-        'announcement failed'
-      );
-    }, msUntil);
+          })(),
+          'announcement failed'
+        );
+      },
+      () =>
+        this.lifecycleIsCurrent(generation) &&
+        this.scheduledAnnouncementAt === scheduledAnnouncementAt
+    );
   }
 
   /**
@@ -1240,27 +1250,23 @@ export class MaintenanceBreak {
        from announcedAt, so arm only the time still left until that same
        absolute :55 boundary. */
     const countdownAt = this.announcedAt + MaintenanceBreak.LAST_HAND_LEAD_MS;
-    const startScheduledCountdown = () => {
-      if (
-        !this.lifecycleIsCurrent(generation) ||
-        this.phase !== 'last_hand' ||
-        this.announcedAt + MaintenanceBreak.LAST_HAND_LEAD_MS !== countdownAt
-      )
-        return;
-      this.countdownTimer = null;
-      // Timers may fire before the absolute wall-clock boundary. That is not
-      // the explicit early/manual entry supported by beginCountdown: keep the
-      // durable promise and re-arm only its remaining notice.
-      const remaining = countdownAt - this.now();
-      if (remaining > 0) {
-        this.countdownTimer = this.setTimer(startScheduledCountdown, remaining);
-        return;
-      }
-      this.launchLifecycleJob(this.beginCountdown(), 'countdown failed to start');
-    };
-    this.countdownTimer = this.setTimer(
-      startScheduledCountdown,
-      Math.max(0, countdownAt - this.now())
+    // Timers may fire before the absolute wall-clock boundary. That is not
+    // the explicit early/manual entry supported by beginCountdown: keep the
+    // durable promise and re-arm only its remaining notice.
+    scheduleAtExactEpochMs(
+      countdownAt,
+      this.now,
+      this.setTimer,
+      (handle) => {
+        this.countdownTimer = handle;
+      },
+      () => {
+        this.launchLifecycleJob(this.beginCountdown(), 'countdown failed to start');
+      },
+      () =>
+        this.lifecycleIsCurrent(generation) &&
+        this.phase === 'last_hand' &&
+        this.announcedAt + MaintenanceBreak.LAST_HAND_LEAD_MS === countdownAt
     );
   }
 
@@ -1478,13 +1484,20 @@ export class MaintenanceBreak {
     if (this.endTimer) this.clearTimer(this.endTimer);
     const preparationLead =
       this.deps.thaw && !this.releaseBoundaryOnly ? MaintenanceBreak.THAW_PREPARATION_LEAD_MS : 0;
-    const remaining = Math.max(0, this.breakEndsAt - preparationLead - this.now());
+    const targetEpochMs = this.breakEndsAt - preparationLead;
     const generation = this.lifecycleGeneration;
-    this.endTimer = this.setTimer(() => {
-      this.endTimer = null;
-      if (!this.lifecycleIsCurrent(generation)) return;
-      this.launchLifecycleJob(this.end(), 'resume failed');
-    }, remaining);
+    scheduleAtExactEpochMs(
+      targetEpochMs,
+      this.now,
+      this.setTimer,
+      (handle) => {
+        this.endTimer = handle;
+      },
+      () => {
+        this.launchLifecycleJob(this.end(), 'resume failed');
+      },
+      () => this.lifecycleIsCurrent(generation)
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2225,19 +2238,23 @@ export class MaintenanceBreak {
     if (this.unparkedAtLastUncertifiedBreak.size === 0) return;
     const generation = this.lifecycleGeneration;
     const breakStartedAt = this.breakStartedAt;
-    const delay = Math.max(
-      0,
-      breakStartedAt + MaintenanceBreak.SECOND_BREAK_REPORT_AFTER_MS - this.now()
+    const targetEpochMs = breakStartedAt + MaintenanceBreak.SECOND_BREAK_REPORT_AFTER_MS;
+    scheduleAtExactEpochMs(
+      targetEpochMs,
+      this.now,
+      this.setTimer,
+      (handle) => {
+        this.secondBreakTimer = handle;
+      },
+      () => {
+        try {
+          this.reportSecondBreakStragglers();
+        } catch (error) {
+          console.error('[MaintenanceBreak] second-break report failed', error);
+        }
+      },
+      () => this.lifecycleIsCurrent(generation) && this.breakStartedAt === breakStartedAt
     );
-    this.secondBreakTimer = this.setTimer(() => {
-      this.secondBreakTimer = null;
-      if (!this.lifecycleIsCurrent(generation) || this.breakStartedAt !== breakStartedAt) return;
-      try {
-        this.reportSecondBreakStragglers();
-      } catch (error) {
-        console.error('[MaintenanceBreak] second-break report failed', error);
-      }
-    }, delay);
   }
 
   private f06UnresolvedSince: Map<string, number> = new Map();
