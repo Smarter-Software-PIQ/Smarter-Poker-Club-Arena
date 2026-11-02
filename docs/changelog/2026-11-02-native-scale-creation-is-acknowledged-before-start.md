@@ -13,3 +13,7 @@ Cleanup and interrupted-operation recovery use that ID plus the exact image and 
 The lost-acknowledgement regression failed against the original controller and passed after the correction. The focused controller suite covers durable creation before start, unknown/malformed creation, persistence failure, shared time budgets, immutable identity/image/label mismatch, ID absence filtering, dual-channel output bounds, signals, crash recovery and the one-fresh-measurement ceiling. Existing Engine Build Resource Containment invokes this suite for the changed paths.
 
 Files were reread after editing. Local and hosted results, protected revision, provider installation and live registration evidence belong in the owning task checkpoint; source tests alone do not establish release or automatic Horse registration.
+
+## Required accounting qualification dependency
+
+Required CI reproduced the existing same-week incident fixture crossing the Los Angeles accounting-week boundary during Monday’s first ten minutes. Incorporated the exact three fixture/derived-pin files from published source commit `319740d930f7f6300647071b9236b7085200f391` without editing the production guard or original fixtures. Both incident and reporting drivers clamp their synthetic incident timestamp to the accounting-week start; native boundary assertions cover midnight, ten minutes and both DST offsets. This is a source correction to the demonstrated qualification blocker, with no production SQL or financial mutation.
