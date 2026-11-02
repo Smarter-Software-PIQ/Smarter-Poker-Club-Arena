@@ -19,6 +19,9 @@ const MEMORY_GAUGES = [
   'poker_engine_process_rss_bytes',
   'poker_engine_heap_used_bytes',
   'poker_engine_heap_total_bytes',
+  'poker_engine_heap_limit_bytes',
+  'poker_engine_memory_constraint_bytes',
+  'poker_engine_available_memory_bytes',
   'poker_engine_external_bytes',
   'poker_engine_array_buffers_bytes',
   'poker_engine_native_main_arena_bytes',
@@ -32,6 +35,10 @@ describe('sampleProcessMemory', () => {
   it('reads the V8 numbers from the live process', () => {
     const s = sampleProcessMemory();
     expect(s.rssBytes).toBeGreaterThan(0);
+    expect(s.heapLimitBytes).toBeGreaterThan(s.heapUsedBytes);
+    expect(s.hostTotalBytes).toBeGreaterThan(0);
+    expect(s.availableBytes).toBeGreaterThanOrEqual(-1);
+    expect(s.constrainedBytes === -1 || s.constrainedBytes > 0).toBe(true);
     expect(s.heapTotalBytes).toBeGreaterThan(0);
     expect(s.heapUsedBytes).toBeGreaterThan(0);
     expect(s.heapUsedBytes).toBeLessThanOrEqual(s.heapTotalBytes);
@@ -83,6 +90,10 @@ describe('processMemoryHealth', () => {
       nativeMainArenaBytes: -1,
       rssAnonBytes: -1,
       threads: -1,
+      heapLimitBytes: 4_000_000_000,
+      hostTotalBytes: 64_000_000_000,
+      constrainedBytes: -1,
+      availableBytes: 0,
       sampledAt: 0,
     };
     expect(processMemoryHealth(sample)).toEqual({
@@ -90,6 +101,11 @@ describe('processMemoryHealth', () => {
       heapUsedMb: 651,
       heapTotalMb: 900,
       externalMb: 40,
+      heapLimitMb: 4000,
+      hostTotalMb: 64000,
+      constrainedMb: null,
+      availableMb: 0,
+      nodeVersion: process.version,
       nativeMainArenaMb: null,
       rssAnonMb: null,
       threads: null,
@@ -106,6 +122,10 @@ describe('processMemoryHealth', () => {
       nativeMainArenaBytes: 501_000_000,
       rssAnonBytes: 1_900_000_000,
       threads: 41,
+      heapLimitBytes: 4_000_000_000,
+      hostTotalBytes: 64_000_000_000,
+      constrainedBytes: -1,
+      availableBytes: 0,
       sampledAt: 0,
     };
     const h = processMemoryHealth(sample);
@@ -148,6 +168,9 @@ describe('the always-on registry carries the memory gauges', () => {
     const s = sampleProcessMemory();
     expect(rss).toBe(s.rssBytes);
     expect(heapUsed).toBe(s.heapUsedBytes);
+    expect(value('poker_engine_heap_limit_bytes')).toBe(s.heapLimitBytes);
+    expect(value('poker_engine_memory_constraint_bytes')).toBe(s.constrainedBytes);
+    expect(value('poker_engine_available_memory_bytes')).toBe(s.availableBytes);
     expect(value('poker_engine_threads')).toBe(s.threads);
     expect(value('poker_engine_native_main_arena_bytes')).toBe(s.nativeMainArenaBytes);
   });

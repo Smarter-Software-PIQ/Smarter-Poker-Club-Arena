@@ -11,6 +11,11 @@ import { availableParallelism } from 'node:os';
 import type { Card } from '../../types.js';
 import type { EquityOptions, InsuranceEquityComponents } from './equityWorker.js';
 import { hashSeed } from './SeededRandom.js';
+import {
+  isolateMemoryIsValid,
+  type IsolateMemorySample,
+} from '../../observability/isolateMemory.js';
+import { snapshotEquityCards, snapshotEquityOptions } from './equityRequestBounds.js';
 
 /**
  * ── A QUEUE WAIT IS NOT A STUCK WORKER, AND A SPENT POOL IS NOT A DEAD ONE (2026-09-11) ──
@@ -64,6 +69,17 @@ import { hashSeed } from './SeededRandom.js';
  *   replacement worker must author READY within readyTimeoutMs or it is
  *   retired too, so a hung boot cannot hold a recovery hostage either.
  */
+// The retained catch-up incident had 1,927 hands in two minutes. Keep a
+// finite 2,048-request ceiling, with an independent 8 MiB payload ceiling;
+// the existing caller deadline still rejects work that cannot finish in time.
+const DEFAULT_MAX_QUEUED_JOBS = 2_048;
+const DEFAULT_MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+const MAX_PAYLOAD_BYTES = 16 * 1024;
+
+function boundedPositiveInteger(value: number | undefined, fallback: number): number {
+  return Number.isSafeInteger(value) && value! > 0 ? Math.min(value!, fallback) : fallback;
+}
+
 const DEFAULT_JOB_TIMEOUT_MS = 2_500;
 const DEFAULT_HARD_JOB_TIMEOUT_MS = 15_000;
 const DEFAULT_READY_TIMEOUT_MS = 10_000;
@@ -93,6 +109,14 @@ export interface EquityWorkerPoolStatus {
   readyWorkers: number;
   busyWorkers: number;
   queueDepth: number;
+  /** Retiring isolates still count against the memory/capacity budget. */
+  retiringWorkers: number;
+  queuedBytes: number;
+  maxQueuedJobs: number;
+  maxQueuedBytes: number;
+  admissionRejections: number;
+  /** Existing READY/result samples only; null means unknown, not zero. */
+  workerMemory: Array<IsolateMemorySample | null>;
   oldestQueuedAgeMs: number;
   lastCompletionAgeMs: number | null;
   lastError: string | null;
@@ -117,6 +141,13 @@ export class EquityWorkerUnavailableError extends Error {
   constructor(message = 'Equity worker pool is unavailable') {
     super(message);
     this.name = 'EquityWorkerUnavailableError';
+  }
+}
+
+export class EquityWorkerOverloadedError extends EquityWorkerUnavailableError {
+  constructor() {
+    super('Equity worker queue capacity exhausted');
+    this.name = 'EquityWorkerOverloadedError';
   }
 }
 
@@ -177,6 +208,7 @@ interface Job<T = any> {
   id: number;
   payload: EquityPayload | InsurancePayload;
   enqueuedAt: number;
+  payloadBytes: number;
   resolve: (value: T) => void;
   reject: (error: Error) => void;
   validate: (message: Record<string, unknown>) => T;
@@ -190,6 +222,7 @@ interface Job<T = any> {
 }
 
 interface WorkerSlot {
+  memory?: IsolateMemorySample;
   worker: WorkerLike;
   ready: boolean;
   down: boolean;
@@ -200,6 +233,8 @@ interface WorkerSlot {
 
 export interface EquityWorkerPoolOptions {
   size?: number;
+  maxQueuedJobs?: number;
+  maxQueuedBytes?: number;
   disabled?: boolean;
   workerFactory?: () => WorkerLike;
   readyTimeoutMs?: number;
@@ -225,9 +260,14 @@ export class EquityWorkerPool {
   private respawnBudget: number;
   private phase: EquityWorkerPoolPhase = 'idle';
   private readonly slots = new Set<WorkerSlot>();
+  private readonly retiring = new Map<WorkerSlot, Promise<void>>();
   private readonly idle: WorkerSlot[] = [];
   private readonly queue: Job[] = [];
   private nextId = 1;
+  private queuedBytes = 0;
+  private admissionRejections = 0;
+  private readonly maxQueuedJobs: number;
+  private readonly maxQueuedBytes: number;
   private pendingRespawns = 0;
   private hasReachedReady = false;
   private lastCompletedAt: number | null = null;
@@ -257,10 +297,15 @@ export class EquityWorkerPool {
     const normalizedRequested =
       Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : workerCapacity;
     this.size = Math.max(1, Math.min(workerCapacity, normalizedRequested));
+    this.maxQueuedJobs = boundedPositiveInteger(options.maxQueuedJobs, DEFAULT_MAX_QUEUED_JOBS);
+    this.maxQueuedBytes = boundedPositiveInteger(options.maxQueuedBytes, DEFAULT_MAX_QUEUED_BYTES);
     this.disabled = options.disabled === true || process.env.EQUITY_WORKERS === 'off';
     const sourceExtension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
     const workerUrl = new URL(`./equityWorker${sourceExtension}`, import.meta.url);
-    this.workerFactory = options.workerFactory ?? (() => new Worker(workerUrl));
+    let nextMemoryIndex = 0;
+    this.workerFactory =
+      options.workerFactory ??
+      (() => new Worker(workerUrl, { workerData: { equityMemoryIndex: nextMemoryIndex++ } }));
     this.readyTimeoutMs = Math.max(1, options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS);
     this.jobTimeoutMs = Math.max(1, options.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS);
     this.hardJobTimeoutMs = Math.max(
@@ -294,6 +339,8 @@ export class EquityWorkerPool {
       this.hasReachedReady &&
       readyWorkers > 0 &&
       (this.phase === 'ready' || this.phase === 'degraded');
+    let oldestQueuedAt = now;
+    for (const job of this.queue) oldestQueuedAt = Math.min(oldestQueuedAt, job.enqueuedAt);
     return {
       phase: this.phase,
       routingReady,
@@ -303,10 +350,13 @@ export class EquityWorkerPool {
       readyWorkers,
       busyWorkers,
       queueDepth: this.queue.length,
-      oldestQueuedAgeMs:
-        this.queue.length === 0
-          ? 0
-          : Math.max(0, now - Math.min(...this.queue.map((job) => job.enqueuedAt))),
+      retiringWorkers: this.retiring.size,
+      queuedBytes: this.queuedBytes,
+      maxQueuedJobs: this.maxQueuedJobs,
+      maxQueuedBytes: this.maxQueuedBytes,
+      admissionRejections: this.admissionRejections,
+      workerMemory: [...this.slots].map((slot) => slot.memory ?? null),
+      oldestQueuedAgeMs: Math.max(0, now - oldestQueuedAt),
       lastCompletionAgeMs:
         this.lastCompletedAt === null ? null : Math.max(0, now - this.lastCompletedAt),
       lastError: this.lastError,
@@ -319,7 +369,11 @@ export class EquityWorkerPool {
   }
 
   isAvailable(): boolean {
-    return this.status().acceptingWork;
+    return (
+      this.hasReachedReady &&
+      this.readyWorkerCount() > 0 &&
+      (this.phase === 'ready' || this.phase === 'degraded')
+    );
   }
 
   /** Start all configured workers and wait for worker-authored READY messages. */
@@ -363,6 +417,22 @@ export class EquityWorkerPool {
     opts: EquityOptions = {},
     seed?: number
   ): Promise<number[]> {
+    try {
+      const snapshot = snapshotEquityCards(hands, board, deadCards);
+      hands = snapshot.hands;
+      board = snapshot.board;
+      deadCards = snapshot.deadCards;
+      opts = snapshotEquityOptions(opts, hands.length);
+      if (
+        !Number.isSafeInteger(iters) ||
+        iters < 0 ||
+        (seed !== undefined && !Number.isFinite(seed))
+      )
+        throw new Error('Invalid equity computation input');
+    } catch (error) {
+      return Promise.reject(new EquityWorkerUnavailableError(this.errorMessage(error)));
+    }
+    const expectedPlayers = hands.length;
     const useSeed = seed ?? this.deriveSeed(hands, board, deadCards, iters);
     return this.enqueue<number[]>(
       { type: 'EQUITY', hands, board, deadCards, iters, opts, seed: useSeed },
@@ -370,7 +440,7 @@ export class EquityWorkerPool {
         if (
           message.type !== 'EQUITY_RESULT' ||
           !Array.isArray(message.equities) ||
-          message.equities.length !== hands.length ||
+          message.equities.length !== expectedPlayers ||
           message.equities.some(
             (value) =>
               typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1
@@ -389,13 +459,23 @@ export class EquityWorkerPool {
     variant: string,
     shortDeck = false
   ): Promise<InsuranceEquityComponents[]> {
+    try {
+      const snapshot = snapshotEquityCards(hands, board);
+      hands = snapshot.hands;
+      board = snapshot.board;
+      if (typeof variant !== 'string' || variant.length > 64 || typeof shortDeck !== 'boolean')
+        throw new Error('Invalid insurance computation input');
+    } catch (error) {
+      return Promise.reject(new EquityWorkerUnavailableError(this.errorMessage(error)));
+    }
+    const expectedPlayers = hands.length;
     return this.enqueue<InsuranceEquityComponents[]>(
       { type: 'INSURANCE_ALL', hands, board, variant, shortDeck },
       (message) => {
         if (
           message.type !== 'INSURANCE_RESULT' ||
           !Array.isArray(message.components) ||
-          message.components.length !== hands.length ||
+          message.components.length !== expectedPlayers ||
           message.components.some((value) => {
             if (typeof value !== 'object' || value === null) return true;
             const component = value as Record<string, unknown>;
@@ -430,14 +510,35 @@ export class EquityWorkerPool {
     payload: EquityPayload | InsurancePayload,
     validate: (message: Record<string, unknown>) => T
   ): Promise<T> {
-    if (!this.status().acceptingWork) {
+    if (!this.isAvailable()) {
       return Promise.reject(new EquityWorkerUnavailableError());
+    }
+    const payloadBytes = Buffer.byteLength(JSON.stringify(payload));
+    if (payloadBytes > MAX_PAYLOAD_BYTES || payloadBytes > this.maxQueuedBytes) {
+      this.admissionRejections++;
+      return Promise.reject(new EquityWorkerOverloadedError());
+    }
+    const fits = () =>
+      this.queue.length < this.maxQueuedJobs &&
+      this.queuedBytes + payloadBytes <= this.maxQueuedBytes;
+    // Insurance can replace waiting cosmetics, never another insurance request
+    // or an active operation. The rejection uses the existing fail-closed path.
+    while (!fits() && payload.type === 'INSURANCE_ALL') {
+      const cosmetic = this.queue.findIndex((job) => job.payload.type === 'EQUITY');
+      if (cosmetic < 0) break;
+      this.admissionRejections++;
+      this.rejectJob(this.removeQueuedJob(cosmetic), new EquityWorkerOverloadedError());
+    }
+    if (!fits()) {
+      this.admissionRejections++;
+      return Promise.reject(new EquityWorkerOverloadedError());
     }
     return new Promise<T>((resolve, reject) => {
       const job: Job<T> = {
         id: this.nextId++,
         payload,
         enqueuedAt: Date.now(),
+        payloadBytes,
         resolve,
         reject,
         validate,
@@ -457,8 +558,15 @@ export class EquityWorkerPool {
       } else {
         this.queue.push(job as Job);
       }
+      this.queuedBytes += payloadBytes;
       this.pump();
     });
+  }
+
+  private removeQueuedJob(index: number): Job {
+    const [job] = this.queue.splice(index, 1);
+    this.queuedBytes -= job.payloadBytes;
+    return job;
   }
 
   private spawnWorker(): void {
@@ -475,7 +583,9 @@ export class EquityWorkerPool {
     this.slots.add(slot);
     worker.on('message', (message) => this.onMessage(slot, message));
     worker.on('error', (error) => this.onWorkerDown(slot, error));
-    worker.on('exit', (code) => this.onWorkerDown(slot, new Error(`Equity worker exited ${code}`)));
+    worker.on('exit', (code) =>
+      this.onWorkerDown(slot, new Error(`Equity worker exited ${code}`), true)
+    );
     worker.unref?.();
     // ready() bounds the first boot and fails the engine's start if it hangs.
     // A replacement (respawn or recovery) has no such caller, so it carries
@@ -509,6 +619,7 @@ export class EquityWorkerPool {
         this.retireWorker(slot, new Error('Equity worker sent READY while a job was active'));
         return;
       }
+      if (isolateMemoryIsValid(message.memory)) slot.memory = message.memory;
       if (slot.readyTimer) clearTimeout(slot.readyTimer);
       slot.readyTimer = undefined;
       if (!slot.ready) {
@@ -525,6 +636,7 @@ export class EquityWorkerPool {
       this.retireWorker(slot, new Error('Equity worker response did not match its active job'));
       return;
     }
+    if (isolateMemoryIsValid(message.memory)) slot.memory = message.memory;
     slot.job = undefined;
     if (message.type === 'ERROR') {
       this.lastError = String(message.error ?? 'Worker error');
@@ -555,7 +667,7 @@ export class EquityWorkerPool {
     const queueIndex = this.queue.indexOf(job);
     const stillQueued = queueIndex >= 0;
     if (stillQueued) {
-      this.queue.splice(queueIndex, 1);
+      this.removeQueuedJob(queueIndex);
       this.queueExpirations += 1;
     }
     this.rejectJob(
@@ -600,7 +712,7 @@ export class EquityWorkerPool {
       }
       const slot = this.idle.pop()!;
       if (slot.down || !slot.ready || slot.job) continue;
-      const job = this.queue.shift()!;
+      const job = this.removeQueuedJob(0);
       slot.job = job;
       job.hardTimer = setTimeout(() => this.onHardDeadline(slot, job), this.hardJobTimeoutMs);
       job.hardTimer.unref?.();
@@ -613,7 +725,7 @@ export class EquityWorkerPool {
     }
   }
 
-  private retireWorker(slot: WorkerSlot, reason: unknown): void {
+  private retireWorker(slot: WorkerSlot, reason: unknown, exited = false): void {
     if (slot.down) return;
     slot.down = true;
     if (slot.readyTimer) clearTimeout(slot.readyTimer);
@@ -627,17 +739,43 @@ export class EquityWorkerPool {
       slot.job = undefined;
     }
     if (this.phase !== 'starting') this.phase = 'degraded';
-    void slot.worker.terminate().catch(() => {});
-    this.scheduleRespawn();
+    if (exited) {
+      // The worker-authored exit event already proves execution has stopped.
+      this.scheduleRespawn();
+      return;
+    }
+    this.beginTermination(slot);
   }
 
-  private onWorkerDown(slot: WorkerSlot, reason: unknown): void {
-    this.retireWorker(slot, reason);
+  private beginTermination(slot: WorkerSlot): Promise<void> {
+    const existing = this.retiring.get(slot);
+    if (existing) return existing;
+    // terminate() is asynchronous. Removing a slot is not proof that its
+    // isolate released memory; replacement capacity belongs to its completion.
+    const termination = Promise.resolve()
+      .then(() => slot.worker.terminate())
+      .then(() => {});
+    this.retiring.set(slot, termination);
+    void termination.then(
+      () => {
+        this.retiring.delete(slot);
+        this.scheduleRespawn();
+      },
+      (error) => {
+        // Keep failed custody: a later shutdown cannot claim it succeeded.
+        this.lastError = `Equity worker termination failed: ${this.errorMessage(error)}`;
+      }
+    );
+    return termination;
+  }
+
+  private onWorkerDown(slot: WorkerSlot, reason: unknown, exited = false): void {
+    this.retireWorker(slot, reason, exited);
   }
 
   private scheduleRespawn(): void {
     if (this.phase === 'stopping' || this.phase === 'stopped') return;
-    if (this.slots.size + this.pendingRespawns >= this.size) return;
+    if (this.slots.size + this.retiring.size + this.pendingRespawns >= this.size) return;
     if (this.respawnBudget <= 0) {
       if (this.hasReachedReady && this.slots.size === 0 && this.pendingRespawns === 0) {
         this.phase = 'failed';
@@ -646,7 +784,7 @@ export class EquityWorkerPool {
         const error = new EquityWorkerUnavailableError(
           'Equity worker pool spent its respawn budget and is cooling down'
         );
-        for (const job of this.queue.splice(0)) this.rejectJob(job, error);
+        while (this.queue.length) this.rejectJob(this.removeQueuedJob(0), error);
       }
       // Until 2026-09-11 this was the end of the pool: 'failed' with nothing
       // left that would ever spawn a worker. Now it is a cooldown.
@@ -684,7 +822,7 @@ export class EquityWorkerPool {
     // completion puts the cooldown back to its base.
     this.recoveryCooldownMs = Math.min(this.maxRecoveryCooldownMs, this.recoveryCooldownMs * 2);
     this.respawnBudget = this.maxRespawnBudget;
-    const missing = this.size - this.slots.size - this.pendingRespawns;
+    const missing = this.size - this.slots.size - this.retiring.size - this.pendingRespawns;
     for (let i = 0; i < missing; i++) this.spawnWorker();
   }
 
@@ -774,14 +912,14 @@ export class EquityWorkerPool {
     const aborted = new EquityWorkerPoolAbortedError();
     this.rejectReadiness?.(aborted);
     this.clearReadinessWaiters();
-    for (const job of this.queue.splice(0)) this.rejectJob(job, aborted);
-    const terminations: Promise<number>[] = [];
+    while (this.queue.length) this.rejectJob(this.removeQueuedJob(0), aborted);
+    const terminations: Promise<unknown>[] = [...this.retiring.values()];
     for (const slot of this.slots) {
       slot.down = true;
       if (slot.readyTimer) clearTimeout(slot.readyTimer);
       slot.readyTimer = undefined;
       if (slot.job) this.rejectJob(slot.job, aborted);
-      terminations.push(slot.worker.terminate().catch(() => 0));
+      terminations.push(this.beginTermination(slot));
     }
     this.slots.clear();
     this.idle.length = 0;
@@ -813,6 +951,12 @@ export function equityWorkerPoolStatus(): EquityWorkerPoolStatus {
       readyWorkers: 0,
       busyWorkers: 0,
       queueDepth: 0,
+      retiringWorkers: 0,
+      queuedBytes: 0,
+      maxQueuedJobs: DEFAULT_MAX_QUEUED_JOBS,
+      maxQueuedBytes: DEFAULT_MAX_QUEUED_BYTES,
+      admissionRejections: 0,
+      workerMemory: [],
       oldestQueuedAgeMs: 0,
       lastCompletionAgeMs: null,
       lastError: null,
@@ -828,6 +972,6 @@ export function equityWorkerPoolStatus(): EquityWorkerPoolStatus {
 export async function stopEquityWorkerPool(): Promise<void> {
   if (!pool) return;
   const current = pool;
-  pool = null;
   await current.shutdown();
+  if (pool === current) pool = null;
 }
