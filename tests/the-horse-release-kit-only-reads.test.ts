@@ -59,6 +59,7 @@ describe('horse release verification kit', () => {
       'v77_seat_jam',
       'v78_no_committing_bluff_raise',
       'v79_top_pair_weak_kicker',
+      'v80_top_pair_strong_kicker',
       'v62_river_bettor_polarity',
     ])
       expect(r.out).toContain(`'${f}'`);

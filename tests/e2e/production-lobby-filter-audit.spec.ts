@@ -2853,21 +2853,21 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await h.choose('ALL');
   await assertCashControlsAndHeaders(page, 'all');
   await expect(page.locator('tr[data-kind="cash"] .lt-seats__tables')).toHaveCount(0);
-  const fire = page
-    .locator('tr[data-kind="cash"][data-lightning-format="true"] [data-lobby-symbol="fire"]')
+  const bolt = page
+    .locator('tr[data-kind="cash"][data-lightning-format="true"] [data-lobby-symbol="lightning"]')
     .first();
-  await expect(fire).toBeVisible();
-  await fire.scrollIntoViewIfNeeded();
-  await fire.locator('[data-atlas-width]').evaluate(async (element) => {
+  await expect(bolt).toBeVisible();
+  await bolt.scrollIntoViewIfNeeded();
+  await bolt.evaluate(async (element) => {
     const url = getComputedStyle(element).backgroundImage.match(/^url\(["']?(.*?)["']?\)$/)?.[1];
-    if (!url || !url.includes('rocket.webp'))
-      throw new Error('The actual rocket flame artwork is missing');
+    if (!url || !url.includes('/lightning.png'))
+      throw new Error('The Lightning bolt artwork is missing');
     const art = new Image();
     art.src = url;
     await art.decode();
   });
-  await testInfo.attach('cash-lightning-fire-phone.png', {
-    body: await fire.screenshot(),
+  await testInfo.attach('cash-lightning-bolt-phone.png', {
+    body: await bolt.screenshot(),
     contentType: 'image/png',
   });
   const cashPlayers = await page

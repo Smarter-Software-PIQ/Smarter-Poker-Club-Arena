@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { readFile } from 'node:fs/promises';
 import { collectPlayerUIWire } from './tournament-player-ui-wire.mjs';
 import {
+  validatePlayerUIIngress,
   verifyPreActionUI,
   verifyPaidRebuyReturn,
   verifyFinishReport,
@@ -14,6 +16,59 @@ import {
   tournamentObservationBinding,
 } from '../../native/tournament-player-observations.mjs';
 const id = (n) => `90000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+function playerUIIngress(runtimeImage = 'sha256:' + 'a'.repeat(64)) {
+  return {
+    version: 1, scope: 'isolated-tournament-player-ui',
+    source_contract: {version:1,source_sha:'b'.repeat(40),current_database_contract_ready:true,exclusions:[]},
+    control_sha: 'c'.repeat(40), schema_catalogue_digest: 'd'.repeat(64),
+    runtime_image: runtimeImage, engine_sha: 'e'.repeat(40), web_sha: 'f'.repeat(40),
+    cohorts: ['MTT','SPIN','SNG'].map((format, index) => ({
+      format, tournament_id:id(30+index), club_id:id(20), anon_key:'synthetic-public-key',
+      ...(format==='MTT'?{rebuy_cost:20,rebuy_chips:10000}:{}),
+      users: [1,2,3].map(n => {
+        const userId=id(100+index*10+n);
+        const claims={sub:userId,role:'authenticated',exp:Math.floor(Date.now()/1000)+3600};
+        return {id:userId,session:{user:{id:userId},access_token:'synthetic.'+Buffer.from(JSON.stringify(claims)).toString('base64url')+'.synthetic'}};
+      }),
+    })),
+  };
+}
+test('actual connected tournament ingress accepts its exact immutable local runtime image ID', () => {
+  const value=playerUIIngress();
+  assert.equal(validatePlayerUIIngress(value),value);
+});
+test('tournament ingress preserves registry digests and rejects tags, partial IDs and whitespace', () => {
+  for (const image of ['ghcr.io/example/fixture@sha256:'+'a'.repeat(64),
+    'registry.example:5000/example/fixture:qualified@sha256:'+'0'.repeat(64)])
+    assert.equal(validatePlayerUIIngress(playerUIIngress(image)).runtime_image,image);
+  for (const image of [undefined,null,42,'', 'fixture:latest','sha256:'+ 'a'.repeat(63),
+    'sha256:'+'a'.repeat(65),'sha256:'+'A'.repeat(64),'sha512:'+'a'.repeat(64),
+    'sha256:'+'g'.repeat(64),' '+ 'sha256:'+'a'.repeat(64),
+    'sha256:'+'a'.repeat(64)+' ', 'sha256:'+'a'.repeat(64)+'\n',
+    'sha256:'+'a'.repeat(64)+'\r\n','fixture@sha256:'+'a'.repeat(63),
+    'fixture@sha256:'+'a'.repeat(64)+'\n','fixture@sha256:'+'a'.repeat(64)+'/extra']) {
+    const value=playerUIIngress();value.runtime_image=image;
+    assert.throws(()=>validatePlayerUIIngress(value));
+  }
+  for(const change of [x=>{x.source_contract.current_database_contract_ready=false;},
+    x=>{x.source_contract.exclusions=['public'];}, x=>{x.control_sha='tag';},
+    x=>{x.schema_catalogue_digest='wrong';},x=>{x.engine_sha='tag';},x=>{x.web_sha='tag';},
+    x=>{x.cohorts.pop();},x=>{x.cohorts[1].tournament_id=x.cohorts[0].tournament_id;},
+    x=>{x.cohorts[0].users[0].session.user.id=id(999);},x=>{x.cohorts[0].rebuy_cost=0;}]) {
+    const value=playerUIIngress();change(value);assert.throws(()=>validatePlayerUIIngress(value));
+  }
+});
+test('existing connected and admitted callers retain exact runtime-image argument and result binding', async () => {
+  const suite=await readFile(new URL('../../native/tournament-player-ui-suite.mjs',import.meta.url),'utf8');
+  const connected=await readFile(new URL('../../native/observe-connected-ui.py',import.meta.url),'utf8');
+  const owner=await readFile(new URL('../../native/qualify-components.py',import.meta.url),'utf8');
+  assert.ok(suite.includes('runtime_image: runtimeImage,'));
+  assert.ok(suite.includes('runtimeImage: process.argv[3],'));
+  assert.ok(connected.includes('controls=repo, runtime_image=runtime_image,'));
+  assert.ok(owner.includes('str(index), runtime_image], timeout='));
+  assert.ok(owner.includes("result.get('runtime_image') == runtime_image"));
+  assert.ok(owner.includes("require(re.fullmatch(r'[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}', runtime_image))"));
+});
 function preaction(choice = 'call_amount') {
   return {
     choice,

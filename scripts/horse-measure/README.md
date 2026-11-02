@@ -72,6 +72,13 @@ with its window; none is a profitability claim.
 - V78, 07:20-13:20 UTC: 168 committing non-all-in turn/river raises, 0
   raise-then-fold, 5 called off a re-shove. Cash average net: river +24.70bb,
   turn +22.49bb.
+- V80 evidence (cell A, top pair with a T+ kicker, decision EV of the call):
+  2026-11-01 13:20 to 11-02 13:20 UTC T -42.72 (n 105), J -48.92 (n 99),
+  Q -36.36 (n 67), K -21.43 (n 48, straddles), A -27.14 (n 32, straddles);
+  2026-10-31 13:20 to 11-01 13:20 UTC T-Q -48.49 [-59.77, -37.22] (n 286),
+  K-A -34.80 [-54.66, -14.95] (n 98). After V80 these calls should become
+  rare in cell A (`sql v79`, kicker strong_T+ rows) and
+  `v80_top_pair_strong_kicker` should fire.
 - V79 cells, 11:20-13:20 UTC: cell A weak kicker n 14, +11.16bb, CI
   [-23.97, 46.29] (straddles 0); cell A strong kicker n 20, -54.20bb (below
   0); cell B weak kicker n 9, -19.36bb (straddles 0). A 6-hour run gives A weak
@@ -81,7 +88,7 @@ with its window; none is a profitability claim.
 
 1. Confirm `releaseSha` on `/health` contains the candidate, the release
    receipt is SEALED and the thaw is complete; take START from that moment.
-2. `sql activation START_DAY`: the control must be non-zero; every V74-V79
+2. `sql activation START_DAY`: the control must be non-zero; every V74-V80
    receipt should be non-zero within hours (V62 stays 0: it is opt-in).
 3. Re-run ladder, seat-jams, v78 and v79 on windows that start after START and
    compare with the block above (like with like, report n with every number).
