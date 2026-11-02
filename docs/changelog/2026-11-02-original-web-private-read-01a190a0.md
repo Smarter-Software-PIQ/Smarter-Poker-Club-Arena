@@ -58,3 +58,5 @@ or qualification state is restamped. The unrelated Schema Integrity Audit jobs
 and their comments remain byte-identical to the protected base.
 
 The first normal push refused the separate cash-native input manifest before expensive suites: its active test-file size/hash still referred to the base. Updated only that active identity with a source-only audit; all other manifest fields and historical qualification remain unchanged.
+
+Protected main subsequently landed the same statistics fixture-date repair in PR9226. This branch preserves that exact protected postimage and removes its superseded, unpublished clock-fix note. No production statistics, assertion or financial input is changed by the input-admission repair. Focused qualification of the resulting fixture remains separate from the earlier local clock variant.
