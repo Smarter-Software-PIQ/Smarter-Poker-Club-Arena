@@ -65,6 +65,11 @@
       "reason": "public-read"
     },
     {
+      "fn": "fn_get_tournament_start_hold_status()",
+      "reason": "public-read",
+      "note": "Returns only the public tournament start hold status (blocked boolean, reason, requested_at, and Midway Union MTT server-update popup banner copy). No user, club, wallet or financial data; read-only."
+    },
+    {
       "fn": "fn_global_leaderboard_period(p_metric text, p_period text, p_limit integer, p_offset integer)",
       "reason": "public-read"
     },

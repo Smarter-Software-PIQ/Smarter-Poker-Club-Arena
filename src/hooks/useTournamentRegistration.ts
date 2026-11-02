@@ -17,6 +17,10 @@ import {
   tournamentSeatNavigationOptions,
 } from '../utils/tournamentEntryNavigation';
 import { withTournamentRegistrationReadBoundary } from '../services/TournamentRegistrationReadBoundary';
+import {
+  MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE,
+  readTournamentStartHoldStatus,
+} from './useTournamentStartHold';
 
 /**
  * How hard we look for the seat the server was meant to give us.
@@ -116,6 +120,16 @@ export function useTournamentRegistration() {
          time. The ref flips synchronously, before anything is awaited. */
       if (registeringRef.current) return;
       registeringRef.current = true;
+
+      const isLateReg = t.is_late_registration ?? isLateStatus(t.status);
+      if (!isLateReg) {
+        const holdStatus = await readTournamentStartHoldStatus();
+        if (holdStatus.blocked) {
+          toast.warning(holdStatus.popupMessage ?? MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE);
+          registeringRef.current = false;
+          return;
+        }
+      }
 
       /* THE UNIT THIS ENTRY IS PRICED IN (2026-09-21), read off the
          tournament's own arena and started BESIDE the ticket lookup below, so

@@ -184,6 +184,8 @@ const REGISTER_REASON_TEXT: Record<string, string> = {
   // The four-table cap, surfaced as a rule rather than a raw trigger message.
   table_limit_reached: 'You are already in four games. Leave one to join another.',
   platform_frozen: PLATFORM_FROZEN_MESSAGE,
+  operator_floor_parked:
+    "MIDWAY UNION MTT'S ARE ON A SERVER UPDATE, THEY WILL BE BACK ONLINE AND RUNNING AT 6PM CST. ALL GAMES ARE FROZE UNTIL THE FINAL SERVER UPDATE IS COMPLETED.",
   ticket_not_found: 'That Tournament Ticket no longer exists.',
   ticket_not_owned: 'That Tournament Ticket does not belong to you.',
   ticket_is_wallet_only: 'That ticket can only be redeemed for wallet chips.',
