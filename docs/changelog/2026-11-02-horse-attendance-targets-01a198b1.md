@@ -57,3 +57,15 @@ natural runtime evidence remain required. No production registration, financial
 probe, repair loop, runtime patch, existing-record rewrite or extra release
 operation was used. Phase 1's pending release/live-registration acceptance is
 tracked separately; beginning Phase 2 does not mark Phase 1 complete.
+
+## Hosted installer blocker
+
+The required accounting and Daily Missions installers repeatedly failed before
+tests on TLS EOF downloading the signing key from the PostgreSQL website. The
+package repository serves the identical key (both SHA-256
+`0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76`).
+Those two installers now fetch from that repository directly. HTTPS, curl
+failure propagation, Signed-By, signed package validation, PostgreSQL version,
+tests and deadlines are preserved. Regression contracts cover both installers;
+actual hosted execution remains required. Other standalone workflows that
+passed their bounded infrastructure retry retain their source.

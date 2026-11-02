@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274871,
-      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+      "bytes": 275034,
+      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
     },
     "scripts/ci/satellite_qualifier_fixture.py": {
       "bytes": 18466,
@@ -2646,6 +2646,21 @@
     },
     "reason": "Reviewed exact constructor diff: default private PostgreSQL sockets to the supplied owned work parent instead of hard-coded /tmp; preserve explicit socket-parent override. Financial SQL, formulas, assertions, deadlines and historical receipts unchanged.",
     "validation": "35 runner regressions passed. Separate extended MTT activation fixture passed four native groups and 14 stock isolation races. This metadata change does not recertify historical cash17, retained18 or fifteen-percent execution receipts. Exact-head required checks remain mandatory.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "pgdgRepositoryKeySourceAudit20261102": {
+    "reason": "Reviewed exact installer-only workflow diff: fetch the byte-identical PGDG signing key from apt.postgresql.org instead of the repeatedly failing website TLS endpoint. Preserve HTTPS/curl failure propagation/Signed-By, every package version, test, assertion, deadline, runner, financial input and historical receipt.",
+    "previousCiPin": {
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+    },
+    "currentCiPin": {
+      "bytes": 275034,
+      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
+    },
+    "keySha256": "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76",
+    "validation": "Both official endpoints returned identical key bytes; eight local installer/mirror regressions pass. Exact-head hosted native execution remains required. Source identity only, not historical financial or live recertification.",
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   }
