@@ -2119,7 +2119,7 @@
       "name": "receipt_bound_owner_bounty_correction_admission",
       "file": "supabase/migrations/20261102052012_receipt_bound_owner_bounty_correction_admission.sql",
       "md5": "078820dfdffb273133502d1f6ca285bf",
-      "appliedToProductionAt": "2026-11-02T05:21:00Z",
+      "appliedToProductionAt": "2026-11-02T05:20:12Z",
       "recoveredOn": "2026-11-02",
       "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9292",
