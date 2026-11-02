@@ -1,3 +1,4 @@
+import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
 import { HorsePlanReadCapture } from '../HorsePlanReadReceipt.js';
 import { HorseRangeConsumptionCapture } from '../HorseRangeConsumptionReceipt.js';
 import { horseHistoryReadProvenanceIsValid } from './ownPublicHistoryProvenance.js';
@@ -703,7 +704,7 @@ export class HorseDecisionWorkerRuntime {
   >();
   /** A new worker runtime is a new epoch; receipts name the epoch they came from. */
   readonly planEpoch = randomUUID();
-  private static readonly MAX_ISSUED_PLAN_BATCHES = 128;
+  private static readonly MAX_ISSUED_PLAN_BATCHES = HORSE_REQUEST_MAX_PLANS;
   private static readonly ISSUED_PLAN_BATCH_TTL_MS = 60_000;
 
   private issuePlanBatch(

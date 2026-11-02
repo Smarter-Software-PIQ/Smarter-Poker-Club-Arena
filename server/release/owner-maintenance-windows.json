@@ -775,6 +775,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "f209a473b8b55039af90620424d10ad6a1250d0d5ec33fa04140bc5f9209d399"
       }
+    },
+    {
+      "id": "2026-11-02-engine-reliability-phase2-55",
+      "ownerOrder": "Dan, in Codex chat 01a19cbc-70a2-7d83-9eec-ba652f88cb6a, explicitly authorized Phase 2 of 9 of the engine reliability programme and wrote: \"AND YOU ARE AUTHORIZED TO USE AS MANY ENGINE RESETS AS NEEDED THROUGHOUT THIS ENTIRE PROCESS TO FINISH THIS, ALL ENGINE RESETS MUST BE DONE AT THE :55 BREAK ONLY THOUGH.\" This task-selected six-hour window implements that later instruction for the reviewed memory ownership and capacity release. Announcement is only at Chicago minute 53 and activation only at the :55 break. It supersedes fresh Phase1 on-the-hour selection for this bound window, never an already-owned operation or its unknown outcome. Preserve full custody, 120-second notice, 285-second cutover/proof/rollback reserve, drain, durable freeze, original ownership, sealed certificate and v3 thaw. No migration, force restart, second publisher, watcher or recurring repair is authorized. The exact new floor witness grants one activation and expires without renewal; a fresh expired request cannot fall back to another reset time. All previous owner entries remain unchanged.",
+      "contains": "351ae67c10a9d6a5f3fb3e467b9416dc7b026d46",
+      "notBefore": "2026-11-02T18:00:00Z",
+      "notAfter": "2026-11-03T00:00:00Z",
+      "announceAtChicagoMinutes": [53],
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "f2244f3af18663009d74b1047f147abd8f70cfede679a067e13b59333e0694a1"
+      }
     }
   ],
   "databaseWindows": [

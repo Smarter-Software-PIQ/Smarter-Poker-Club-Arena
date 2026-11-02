@@ -15,7 +15,8 @@
  * (isMainThread === true) the handler is skipped, so importing it for the sync
  * fallback has no side effects.
  */
-import { parentPort, isMainThread } from 'node:worker_threads';
+import { parentPort, isMainThread, workerData } from 'node:worker_threads';
+import { sampleIsolateMemory } from '../../observability/isolateMemory.js';
 import type { Card } from '../../types.js';
 import {
   evaluateHand,
@@ -425,7 +426,8 @@ export function computeEquity(
 // ── worker_threads entrypoint (skipped on the main thread) ──────────────────────
 if (!isMainThread && parentPort) {
   const port = parentPort;
-  port.postMessage({ type: 'READY' });
+  const memory = () => sampleIsolateMemory(workerData?.equityMemoryIndex ?? 0);
+  port.postMessage({ type: 'READY', memory: memory() });
   port.on('message', (msg: any) => {
     try {
       if (msg?.type === 'INSURANCE_ALL') {
@@ -435,7 +437,7 @@ if (!isMainThread && parentPort) {
           msg.variant,
           msg.shortDeck ?? false
         );
-        port.postMessage({ type: 'INSURANCE_RESULT', id: msg.id, components });
+        port.postMessage({ type: 'INSURANCE_RESULT', id: msg.id, components, memory: memory() });
       } else if (msg?.type === 'EQUITY') {
         const equities = computeEquity(
           msg.hands,
@@ -445,12 +447,17 @@ if (!isMainThread && parentPort) {
           msg.opts ?? {},
           msg.seed
         );
-        port.postMessage({ type: 'EQUITY_RESULT', id: msg.id, equities });
+        port.postMessage({ type: 'EQUITY_RESULT', id: msg.id, equities, memory: memory() });
       } else {
         throw new Error(`Unsupported equity worker operation: ${String(msg?.type)}`);
       }
     } catch (e: any) {
-      port.postMessage({ type: 'ERROR', id: msg?.id, error: String(e?.message ?? e) });
+      port.postMessage({
+        type: 'ERROR',
+        id: msg?.id,
+        error: String(e?.message ?? e),
+        memory: memory(),
+      });
     }
   });
 }

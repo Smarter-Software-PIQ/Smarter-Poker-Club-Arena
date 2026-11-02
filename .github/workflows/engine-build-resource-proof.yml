@@ -10,6 +10,8 @@ on:
       - server/package-lock.json
       - server/src/**
       - server/scripts/build-engine-image.sh
+      - server/scripts/qualify-equity-memory.mjs
+      - server/scripts/qualify-equity-memory.test.mjs
       - server/scripts/engine-image-archive.py
       - server/scripts/native/**
       - server/scripts/legacy-census-scale-*
@@ -79,6 +81,13 @@ jobs:
           npm run build -- --project tsconfig.runtime.json
       - name: Real bounded image build and neighboring process survival
         run: python3 tests/operations/engine-build-resource-proof.py
+      - name: Exercise real calculator workers and retain Linux memory samples
+        working-directory: server
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          node --test scripts/qualify-equity-memory.test.mjs
+          node scripts/qualify-equity-memory.mjs 1200 > ../work/engine-build-resource-proof/equity-memory-linux.json
       - name: Preserve exact build, fault and cleanup evidence
         if: always()
         uses: actions/upload-artifact@v4

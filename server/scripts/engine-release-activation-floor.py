@@ -81,6 +81,7 @@ def policy(repo, target, control):
     preparation, activation, expiry = times
     local = activation.astimezone(ZoneInfo(doc['timeZone']))
     owner_id = None
+    supersedes_phase1 = False
     publication = activation
     if owner_mode:
         value = doc['clientPublicationAt']
@@ -99,6 +100,10 @@ def policy(repo, target, control):
         if windows.get('version') != 1 or len(matches) != 1:
             raise ValueError('exact owner window unavailable')
         window = matches[0]
+        if 'supersedesPhase1Schedule' in window:
+            if window['supersedesPhase1Schedule'] is not True or window.get('announceAtChicagoMinutes') != [53]:
+                raise ValueError('later owner schedule must explicitly bind the 53-minute announcement')
+            supersedes_phase1 = True
         if (window.get('notBefore') != doc['activationAt'] or window.get('notAfter') != doc['expiresAt']
                 or not isinstance(window.get('ownerOrder'), str) or len(window['ownerOrder'].strip()) < 10
                 or not re.fullmatch(r'[0-9a-f]{40}', window.get('contains', ''))
@@ -131,7 +136,8 @@ def policy(repo, target, control):
         raise ValueError('control runtime entry is not gated')
     if recovery.index('engine-release-activation-floor.py" disposition') > recovery.index('exec 9>"$ENGINE_LOCK"'):
         raise ValueError('control recovery does not classify entry before runtime writes')
-    return {'schema': doc['schema'], 'ownerWindowId': owner_id, 'targetSha': target, 'controlSha': control,
+    return {**({'supersedesPhase1Schedule': True} if supersedes_phase1 else {}),
+            'schema': doc['schema'], 'ownerWindowId': owner_id, 'targetSha': target, 'controlSha': control,
             'manifestSha256': hashlib.sha256(raw).hexdigest(), 'clientPublicationEpoch': int(publication.timestamp()),
             'preparationEpoch': int(preparation.timestamp()),
             'activationEpoch': int(activation.timestamp()), 'expiresEpoch': int(expiry.timestamp())}
@@ -345,11 +351,25 @@ def main():
             print('announced' if prior.get('phase') == 'announcement' else 'entered')
             return
     record = policy(args.repo, args.target, args.control)
+    # A release explicitly restricted to :55 cannot become an on-the-hour or
+    # degraded-engine release merely because its bounded order expired. This
+    # applies only to that reviewed opt-in; legacy floor expiry is unchanged.
+    # Existing runtime entries returned above keep their original recovery.
+    if (prior is None and args.mode != 'publish' and record is not None
+            and record.get('supersedesPhase1Schedule') is True
+            and int(time.time()) >= record['expiresEpoch']):
+        raise ValueError('explicit later owner window expired; no alternate reset authorized')
     if (args.mode not in ('checkpoint-no-action', 'reservation') and prior is None) or (prior is not None and prior['schema'] == PHASE1_CAPABILITY):
         selected = phase1_policy(args.repo, args.target, args.control)
         if prior is not None and selected is None:
             raise ValueError('owned Phase1 scheduling capability disappeared')
-        if selected is not None:
+        # A later explicit owner order may select its bounded :55 window for
+        # fresh work. Already-owned routine entries retain their exact policy;
+        # a new order never retargets an announcement or an unknown outcome.
+        later_owner = (prior is None and record is not None
+                       and record.get('supersedesPhase1Schedule') is True
+                       and int(time.time()) < record['expiresEpoch'])
+        if selected is not None and not later_owner:
             record = selected
     if args.mode not in ('checkpoint-no-action', 'reservation') and prior is None:
         # In-flight owner reads (a reservation, a checkpoint no-action, or an

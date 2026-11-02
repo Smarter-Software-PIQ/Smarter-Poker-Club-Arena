@@ -187,6 +187,10 @@ class ScriptedEquityWorker {
     }
   }
 
+  fail(error = new Error('worker failed')): void {
+    this.emit('error', error);
+  }
+
   exit(code = 1): void {
     this.emit('exit', code);
   }
@@ -633,5 +637,233 @@ describe('a spent equity pool recovers on its own (2026-09-11)', () => {
       await pool.shutdown();
       expect(vi.getTimerCount()).toBe(0);
     }
+  });
+});
+
+describe('retired equity workers retain capacity until termination completes', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each([-3_600_000, 3_600_000])(
+    'keeps the retirement deadline monotonic across a %i ms wall-clock change',
+    async (offset) => {
+      vi.useFakeTimers({
+        toFake: [
+          'Date',
+          'performance',
+          'setTimeout',
+          'clearTimeout',
+          'setInterval',
+          'clearInterval',
+        ],
+      });
+      let finish!: (code: number) => void;
+      const termination = new Promise<number>((resolve) => {
+        finish = resolve;
+      });
+      const worker = new ScriptedEquityWorker();
+      worker.terminate = () => termination;
+      const factory = vi.fn(() => worker);
+      const bounded = new EquityWorkerPool({ size: 1, readyTimeoutMs: 20, workerFactory: factory });
+      const ready = bounded.ready();
+      worker.ready();
+      await ready;
+      worker.fail();
+      try {
+        vi.setSystemTime(Date.now() + offset);
+        expect(bounded.status().routingReady).toBe(true);
+        await vi.advanceTimersByTimeAsync(21);
+        expect(bounded.status()).toMatchObject({ retiringWorkers: 1, routingReady: false });
+        expect(factory).toHaveBeenCalledTimes(1);
+      } finally {
+        finish(1);
+        await bounded.shutdown();
+      }
+    }
+  );
+
+  it('does not create a replacement while a retired worker still owns memory', async () => {
+    vi.useFakeTimers({
+      toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+    });
+    let finishTermination!: (code: number) => void;
+    const termination = new Promise<number>((resolve) => {
+      finishTermination = resolve;
+    });
+    const workers: ScriptedEquityWorker[] = [];
+    const bounded = new EquityWorkerPool({
+      size: 1,
+      workerFactory: () => {
+        const worker = new ScriptedEquityWorker();
+        if (workers.length === 0) worker.terminate = () => termination;
+        workers.push(worker);
+        return worker;
+      },
+    });
+    const ready = bounded.ready();
+    workers[0].ready();
+    await ready;
+    workers[0].fail();
+    try {
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(workers).toHaveLength(1);
+      expect(bounded.status()).toMatchObject({
+        retiringWorkers: 1,
+        workerMemory: [null],
+        routingReady: true,
+        recoveryInFlight: true,
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(bounded.status()).toMatchObject({ retiringWorkers: 1, routingReady: false });
+      expect(workers).toHaveLength(1);
+      finishTermination(1);
+      await vi.advanceTimersByTimeAsync(250);
+      expect(workers).toHaveLength(2);
+      workers[1].ready();
+      expect(bounded.status().readyWorkers).toBe(1);
+    } finally {
+      finishTermination(1);
+      await bounded.shutdown();
+    }
+  });
+});
+
+describe('equity shutdown joins all owned worker terminations', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('joins an already retiring worker and never respawns after shutdown', async () => {
+    vi.useFakeTimers();
+    const worker = new ScriptedEquityWorker();
+    let finish!: (code: number) => void;
+    worker.terminate = vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const factory = vi.fn(() => worker);
+    const bounded = new EquityWorkerPool({ size: 1, workerFactory: factory });
+    const ready = bounded.ready();
+    worker.ready();
+    await ready;
+    worker.fail();
+    let stopped = false;
+    const stop = bounded.shutdown().then(() => {
+      stopped = true;
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(stopped).toBe(false);
+    expect(bounded.status().retiringWorkers).toBe(1);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    finish(1);
+    await stop;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(bounded.status()).toMatchObject({ phase: 'stopped', retiringWorkers: 0 });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cannot certify a failed termination as stopped on a repeated shutdown', async () => {
+    const worker = new ScriptedEquityWorker();
+    worker.terminate = vi.fn(async () => {
+      throw new Error('termination outcome unknown');
+    });
+    const bounded = new EquityWorkerPool({ size: 1, workerFactory: () => worker });
+    const ready = bounded.ready();
+    worker.ready();
+    await ready;
+    await expect(bounded.shutdown()).rejects.toThrow('termination outcome unknown');
+    await expect(bounded.shutdown()).rejects.toThrow('termination outcome unknown');
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(bounded.status()).toMatchObject({ phase: 'stopping', retiringWorkers: 1 });
+  });
+});
+
+describe('equity queue memory admission', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('bounds a burst before allocating more queued timers and releases capacity on expiry', async () => {
+    vi.useFakeTimers();
+    const { pool, workers } = scriptedPool({ maxQueuedJobs: 2, jobTimeoutMs: 100 });
+    const ready = pool.ready();
+    workers[0].ready();
+    await ready;
+    const jobs = Array.from({ length: 100 }, (_, seed) =>
+      outcome(pool.estimateEquity(HANDS, [], [], 100, {}, seed))
+    );
+    try {
+      expect(pool.status().queueDepth).toBe(2);
+      expect(vi.getTimerCount()).toBe(4); // active soft+hard, two queued soft
+      await vi.advanceTimersByTimeAsync(100);
+      expect(pool.status()).toMatchObject({ queueDepth: 0, queuedBytes: 0 });
+      workers[0].answer();
+      const next = pool.estimateEquity(HANDS, []);
+      workers[0].answer();
+      await next;
+      expect((await Promise.all(jobs)).filter((job) => !job.ok)).toHaveLength(100);
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  it('admits insurance by shedding queued cosmetic work, never active work', async () => {
+    const { pool, workers } = scriptedPool({ maxQueuedJobs: 1 });
+    const ready = pool.ready();
+    workers[0].ready();
+    await ready;
+    const active = outcome(pool.estimateEquity(HANDS, []));
+    const cosmetic = outcome(pool.estimateEquity(HANDS, []));
+    const insurance = pool.estimateInsurance(HANDS, [], 'nlh');
+    try {
+      expect((await cosmetic).ok).toBe(false);
+      expect(workers[0].sent).toHaveLength(1);
+      workers[0].answer();
+      await active;
+      expect(workers[0].sent[1].type).toBe('INSURANCE_ALL');
+      workers[0].answer();
+      await insurance;
+      expect(workers[0].terminateCalls).toBe(0);
+      expect(pool.status()).toMatchObject({ queueDepth: 0, queuedBytes: 0 });
+    } finally {
+      await pool.shutdown();
+    }
+  });
+});
+
+describe('equity queue byte accounting', () => {
+  it('enforces bytes independently of count and returns bytes on dispatch and shutdown', async () => {
+    const { pool, workers } = scriptedPool({ maxQueuedJobs: 100, maxQueuedBytes: 600 });
+    const ready = pool.ready();
+    workers[0].ready();
+    await ready;
+    const active = outcome(pool.estimateEquity(HANDS, [], [], 100, {}, 1));
+    const waiting = Array.from({ length: 10 }, () =>
+      outcome(pool.estimateEquity(HANDS, [], [], 100, {}, 1))
+    );
+    const status = pool.status();
+    expect(status.queueDepth).toBeGreaterThan(0);
+    expect(status.queueDepth).toBeLessThan(10);
+    expect(status.queuedBytes).toBeGreaterThan(0);
+    expect(status.queuedBytes).toBeLessThanOrEqual(600);
+    workers[0].answer();
+    await active;
+    expect(pool.status().queuedBytes).toBeLessThan(status.queuedBytes);
+    await pool.shutdown();
+    await Promise.all(waiting);
+    expect(pool.status()).toMatchObject({ queuedBytes: 0, queueDepth: 0 });
+  });
+
+  it('never displaces admitted insurance when only insurance occupies the queue', async () => {
+    const { pool, workers } = scriptedPool({ maxQueuedJobs: 1 });
+    const ready = pool.ready();
+    workers[0].ready();
+    await ready;
+    const active = outcome(pool.estimateInsurance(HANDS, [], 'nlh'));
+    const first = pool.estimateInsurance(HANDS, [], 'nlh');
+    await expect(pool.estimateInsurance(HANDS, [], 'nlh')).rejects.toThrow('capacity exhausted');
+    workers[0].answer();
+    await active;
+    workers[0].answer();
+    await first;
+    await pool.shutdown();
   });
 });

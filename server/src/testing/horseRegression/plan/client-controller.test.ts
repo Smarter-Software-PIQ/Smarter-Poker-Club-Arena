@@ -88,7 +88,10 @@ function dealtFlop() {
       )
     ).toBe(true);
   }
-  const state = hc.getState();
+  // The production Turns adapter projects public state; its wire snapshot
+  // never contains HandController's private Deck instance. Keep the real
+  // controller and accepted actions, with that same transport boundary.
+  const { deck: _privateDeck, ...state } = hc.getState();
   expect(state.stage).toBe('flop');
   expect(state.currentPlayerSeat).toBe(1);
   const player = state.players.find((p) => p.seat === 1)!,
@@ -184,6 +187,14 @@ describe('actual local client/worker and controller acceptance composition', () 
         planDisposition: 'already_applied_volatile',
       });
       expect(transport.harness.applied()).toBe(1);
+      expect(transport.sent.filter((m) => m.type === 'COMMIT_DECISION_EFFECTS')).toHaveLength(1);
+      await expect(
+        client.commitDecisionEffects(fast, {
+          ...acceptanceOf(fast),
+          amount: acceptanceOf(fast).amount + 1,
+        })
+      ).rejects.toThrow();
+      expect(transport.sent.filter((m) => m.type === 'COMMIT_DECISION_EFFECTS')).toHaveLength(1);
     } finally {
       await client.stop();
       await transport.harness.close();
