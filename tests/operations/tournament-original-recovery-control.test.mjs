@@ -726,7 +726,7 @@ function equalFixture({
         }),
       };
     }
-    if (url.endsWith('/fn_ca_tournament_cancellation_receipt')) {
+    if (url.endsWith('/fn_ca_tournament_abort_equal_share_receipt')) {
       if (failure === 'canonical')
         return { ok: false, json: async () => ({ message: privateCanary }) };
       return { ok: true, json: async () => receipt() };
@@ -1064,5 +1064,27 @@ test('equal preview cannot run against an already committed settlement', async (
   const f = equalFixture({ initial: 'settled' });
   assert.equal((await f.run('equal_preview')).outcome, 'unknown');
   assert.equal(previewCalls(f).length, 0);
+  assert.equal(equalWrites(f).length, 0);
+});
+
+test('equal canonical service read binds both operation and tournament without a private RPC grant', async () => {
+  const f = equalFixture({ initial: 'settled' });
+  const result = await f.run('equal_read');
+  assert.equal(result.outcome, 'equal_share_readback');
+  assert.equal(result.canonicalBefore.receipt.receipt_version, 4);
+  const reads = f.calls.filter(({ url }) =>
+    url.endsWith('/fn_ca_tournament_abort_equal_share_receipt')
+  );
+  assert.ok(reads.length > 0);
+  for (const { options } of reads) {
+    const args = JSON.parse(options.body);
+    assert.deepEqual(Object.keys(args).sort(), ['p_operation_id', 'p_tournament_id']);
+    assert.equal(args.p_operation_id, newEqual.operationId);
+    assert.equal(args.p_tournament_id, newEqual.tournamentId);
+  }
+  assert.equal(
+    f.calls.some(({ url }) => url.endsWith('/fn_ca_tournament_cancellation_receipt')),
+    false
+  );
   assert.equal(equalWrites(f).length, 0);
 });

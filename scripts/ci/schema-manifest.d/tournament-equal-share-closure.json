@@ -5,6 +5,7 @@
     "fn_ca_settle_tournament_abort_equal_share",
     "fn_ca_preview_tournament_abort_equal_share",
     "smarter_private.tournament_equal_share_receipt",
-    "smarter_private.equal_share_retirement_must_close"
+    "smarter_private.equal_share_retirement_must_close",
+    "fn_ca_tournament_abort_equal_share_receipt"
   ]
 }
