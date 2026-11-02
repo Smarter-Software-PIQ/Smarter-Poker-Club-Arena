@@ -65,6 +65,14 @@ BEGIN
   -- addon_chips that disagrees is overwritten at write time, so the money
   -- core's COALESCE(NULLIF(addon_chips,0), starting_chips) can only ever pay
   -- the starting stack.
+  -- Players keep the contract they registered under: trg_tournaments_managed_
+  -- lifecycle_guard runs BEFORE this trigger (name order) and approves a
+  -- no-op UPDATE, so without this check a SET that merely lists one of these
+  -- columns could rewrite a registered event's add-on behind the guard.
+  IF TG_OP = 'UPDATE' AND EXISTS (
+       SELECT 1 FROM public.tournament_players tp WHERE tp.tournament_id = NEW.id) THEN
+    RETURN NEW;
+  END IF;
   IF COALESCE(NEW.add_on_available, false)
      AND COALESCE(NEW.starting_chips, 0) > 0
      AND NEW.addon_chips IS DISTINCT FROM NEW.starting_chips THEN

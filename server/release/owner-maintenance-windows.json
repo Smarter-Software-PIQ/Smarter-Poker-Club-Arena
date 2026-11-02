@@ -749,6 +749,19 @@
         "path": "server/release/activation-floor.json",
         "sha256": "64936086ecbc482946350374924c29cfec2b721dbce6f4683cc4ac786b9f4acd"
       }
+    },
+    {
+      "id": "2026-11-02-fresh-engine-window-after-seal-unbrick",
+      "ownerOrder": "Dan, directly in the horse-brain release chat (session_01TLQer5MsnBV3C2BbiX9QLd), America/Chicago. On 2026-11-01 at 07:29 he ordered verbatim: \"FIX ANY AND ALL BLOCKERS NOW AND FINISH THIS UP, PUSH AND PUBLISH EVERYTHING\". On 2026-11-01 at 18:56, told the live verification would wait for the 04:00 daily window, he wrote verbatim: \"no, do it now, not at 5:30\". At 19:38 he wrote verbatim: \"Please pick up where you left off, complete the task in full and do not claim success until you have verified that everything is 100% accomplished for this task.\" This NEW owner-ordered window re-arms the fresh-engine gate of 2026-11-01-fresh-engine-crash-boundary (#9180, #9172), whose 18:40Z-00:40Z window expired while every receiver was refused by a dead routine-cycle owner (41349091113-1); that deadlock is fixed by #9244 (cbdd648caf), which this window requires the release to contain. At 04:00Z on 2026-11-02 receiver 41379310363 reached the hourly cycle with readyForRestart true, then the legacy census of the 2.9 GB eed06fe5 heap timed out at 59s and the checkpoint refused (no retry). The window grants its reason only in the first 240 seconds after eed06fe5 starts (withinSecondsOfEngineStart), when the heap is inside the census allowance. It is agent-selected under those orders, adds no migration, and widens nothing the certificate admits: the 120s notice, hand-boundary drain, durable freeze, strict certificate, census re-read before the one-shot intent, the one-window-per-hour seal, rollback and v3 thaw are unchanged, as are the 300s, 285s, 245s, 135s and 40s budgets. ONE actual activation; no scheduler, watcher, second publisher or retry loop. Diamond remains closed. It ends at 09:25Z, before the 2026-11-02 daily preparation, and expires without renewal. All previous entries remain unchanged.",
+      "contains": "cbdd648cafdd719c9f420b02aeda14ae5e732abd",
+      "notBefore": "2026-11-02T04:15:00Z",
+      "notAfter": "2026-11-02T09:25:00Z",
+      "withinSecondsOfEngineStart": 240,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "7b4c7ee419d8c21d0e8cfb6d5eb71e2e7017ad6d2d5b06269a15ddc00c80e565"
+      }
     }
   ],
   "databaseWindows": [

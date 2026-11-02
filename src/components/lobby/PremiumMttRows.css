@@ -324,15 +324,7 @@
   font-size: clamp(10px, 2.6cqw, 16px);
   line-height: 1;
 }
-.has-premium-chassis tbody tr[data-id] > td.lt-col-players,
-.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(3) {
-  font-size: clamp(12px, 3.4cqw, 24px);
-}
-.has-premium-chassis tbody tr[data-id] > td.lt-col-players::before,
-.compact-lobby.has-premium-chassis tbody tr[data-id] > td:nth-child(3)::before {
-  margin-bottom: 0.2cqw;
-  font-size: clamp(10px, 2.5cqw, 16px);
-}
+/* Count and Buy-In share the label, value and spacing rules above. */
 .has-premium-chassis .lt-fav {
   width: 44px;
   height: 44px;

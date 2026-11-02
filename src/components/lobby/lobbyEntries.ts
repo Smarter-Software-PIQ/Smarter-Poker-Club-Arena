@@ -250,6 +250,9 @@ export interface LobbyEntry {
   buyInValue: number;
   guaranteeLabel: string | null;
   guaranteeValue: number;
+  /** Initial registrations plus rebuys; independent of remaining players. */
+  entryCount?: number | null;
+  entryCountStale?: boolean;
   players: number;
   capacity: number;
   /**

@@ -1,3 +1,4 @@
+import { withReducedTournamentGuarantee } from './TournamentGuaranteePolicy.js';
 import { satelliteEntryValue } from './satelliteEntryValue.js';
 import {
   isUnlimitedMtt,
@@ -1333,7 +1334,11 @@ export class ScheduledTournamentService {
     // opened at the money and splits its entry 50/50 (mysteryBountyTerms.ts).
     // The row is in chips here; the Diamond door scales it to whole Diamonds.
     const row = built
-      ? withMysteryBountyTerms(withBountyRebuyUntilRegistrationCloses(withLockedLevelClock(built)))
+      ? withReducedTournamentGuarantee(
+          withMysteryBountyTerms(
+            withBountyRebuyUntilRegistrationCloses(withLockedLevelClock(built))
+          )
+        )
       : built;
     if (!row) {
       // A satellite whose target event does not exist yet is not a missed
@@ -2367,12 +2372,30 @@ export class ScheduledTournamentService {
    * starts with the configured prefix. Union schedules search the union's
    * events; club schedules search the club's.
    */
+  /** Schedule identity survives changed GTD labels and prevents a reduced 5K
+   * event being confused with the separate original 2.5K event. */
+  private async satelliteTargetScheduleIds(
+    schedule: TournamentScheduleRow,
+    name: string
+  ): Promise<string[] | null> {
+    let query = supabase.from('tournament_schedules').select('id').eq('name', name);
+    query = schedule.union_id
+      ? query.eq('union_id', schedule.union_id)
+      : query.eq('club_id', schedule.club_id);
+    const { data, error } = await query;
+    if (error) return null;
+    return (data ?? []).map((row: { id: string }) => row.id);
+  }
+
   private async resolveSatelliteTarget(
     schedule: TournamentScheduleRow,
     namePrefix: string,
     targetId?: string,
     feederStartTime?: Date
   ): Promise<{ id: string; entryValue: number; nativeEntryValue: number } | null> {
+    const targetSchedules =
+      !targetId && namePrefix ? await this.satelliteTargetScheduleIds(schedule, namePrefix) : [];
+    if (targetSchedules === null) return null;
     let query = supabase
       .from('tournaments')
       .select(
@@ -2387,7 +2410,9 @@ export class ScheduledTournamentService {
       .limit(1);
     query = targetId
       ? query.eq('id', targetId)
-      : query.ilike('name', `${namePrefix.replace(/[%_]/g, '')}%`);
+      : targetSchedules.length
+        ? query.in('schedule_id', targetSchedules)
+        : query.ilike('name', `${namePrefix.replace(/[%_]/g, '')}%`);
     query = schedule.union_id
       ? query.eq('union_id', schedule.union_id)
       : query.eq('club_id', schedule.club_id);
@@ -2427,14 +2452,18 @@ export class ScheduledTournamentService {
     namePrefix: string,
     feederStartTime: Date
   ): Promise<{ id: string; name: string; start_time: string } | null> {
+    const targetSchedules = await this.satelliteTargetScheduleIds(schedule, namePrefix);
+    if (targetSchedules === null) return null;
     let query = supabase
       .from('tournaments')
       .select('id, name, start_time')
       .in('status', ['CANCELLED', 'CANCELED'])
       .gt('start_time', new Date(Math.max(Date.now(), feederStartTime.getTime())).toISOString())
-      .ilike('name', `${namePrefix.replace(/[%_]/g, '')}%`)
       .order('start_time', { ascending: true })
       .limit(1);
+    query = targetSchedules.length
+      ? query.in('schedule_id', targetSchedules)
+      : query.ilike('name', `${namePrefix.replace(/[%_]/g, '')}%`);
     query = schedule.union_id
       ? query.eq('union_id', schedule.union_id)
       : query.eq('club_id', schedule.club_id);

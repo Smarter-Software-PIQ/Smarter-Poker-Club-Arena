@@ -181,6 +181,12 @@ GRANT engine_lease_heartbeat TO postgres WITH ADMIN TRUE, INHERIT FALSE, SET FAL
 GRANT engine_lightning_fold TO postgres WITH ADMIN TRUE, INHERIT FALSE, SET FALSE GRANTED BY supabase_admin;
 GRANT supabase_read_only_user TO cli_login_supabase_read_only_user WITH ADMIN FALSE, INHERIT FALSE, SET TRUE GRANTED BY supabase_admin;
 ALTER ROLE cli_login_postgres VALID UNTIL '2026-10-15 01:06:31.108686+00';
+SET LOCAL ROLE pg_database_owner;
+GRANT USAGE ON SCHEMA public TO ca_ledger_refusal_recorder, engine_lease_heartbeat;
+RESET ROLE;
+SET LOCAL ROLE postgres;
+GRANT USAGE ON SCHEMA smarter_private TO engine_lightning_fold;
+RESET ROLE;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE MAINTAIN, REFERENCES, TRIGGER ON TABLES FROM anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT SELECT, INSERT ON TABLES TO postgres WITH GRANT OPTION;
 COMMIT;`;
@@ -217,6 +223,19 @@ export function extendedRolePreimage(base) {
   const cli = expected.roles.find((role) => role.name === 'cli_login_postgres');
   assert.equal(cli.valid_until, '2026-09-07 04:55:14.200464+00');
   cli.valid_until = '2026-10-15 01:06:31.108686+00';
+  for (const [schema, owner, grants] of [
+    ['public', 'pg_database_owner', ['ca_ledger_refusal_recorder', 'engine_lease_heartbeat']],
+    ['smarter_private', 'postgres', ['engine_lightning_fold']],
+  ]) {
+    const row = expected.schemas.find((item) => item.name === schema);
+    assert.equal(row.owner, owner);
+    assert.ok(Array.isArray(row.acl));
+    for (const role of grants) {
+      assert.ok(!row.acl.some((entry) => entry.startsWith(role + '=')));
+      row.acl.push(`${role}=U/${owner}`);
+    }
+    row.acl.sort();
+  }
   const publicTables = expected.default_acl.find(
     (row) => row.creator === 'postgres' && row.schema === 'public' && row.type === 'r'
   );
@@ -395,6 +414,263 @@ END $owner$;
 REASSIGN OWNED BY fixture_postgres_extension_owner TO postgres;
 DROP ROLE fixture_postgres_extension_owner;`;
 
+// Exact read-only production catalogue witness: 41 dblink1.2 members; only the
+// two connect_u signatures are owner-only. This is retained object privilege
+// history, not a policy for future extension functions or default privileges.
+export const legacyDblinkMemberInventory = Object.freeze([
+  [
+    "dblink",
+    "25",
+    false
+  ],
+  [
+    "dblink",
+    "25 16",
+    false
+  ],
+  [
+    "dblink",
+    "25 25",
+    false
+  ],
+  [
+    "dblink",
+    "25 25 16",
+    false
+  ],
+  [
+    "dblink_build_sql_delete",
+    "25 22 23 1009",
+    false
+  ],
+  [
+    "dblink_build_sql_insert",
+    "25 22 23 1009 1009",
+    false
+  ],
+  [
+    "dblink_build_sql_update",
+    "25 22 23 1009 1009",
+    false
+  ],
+  [
+    "dblink_cancel_query",
+    "25",
+    false
+  ],
+  [
+    "dblink_close",
+    "25",
+    false
+  ],
+  [
+    "dblink_close",
+    "25 16",
+    false
+  ],
+  [
+    "dblink_close",
+    "25 25",
+    false
+  ],
+  [
+    "dblink_close",
+    "25 25 16",
+    false
+  ],
+  [
+    "dblink_connect",
+    "25",
+    false
+  ],
+  [
+    "dblink_connect",
+    "25 25",
+    false
+  ],
+  [
+    "dblink_connect_u",
+    "25",
+    true
+  ],
+  [
+    "dblink_connect_u",
+    "25 25",
+    true
+  ],
+  [
+    "dblink_current_query",
+    "",
+    false
+  ],
+  [
+    "dblink_disconnect",
+    "",
+    false
+  ],
+  [
+    "dblink_disconnect",
+    "25",
+    false
+  ],
+  [
+    "dblink_error_message",
+    "25",
+    false
+  ],
+  [
+    "dblink_exec",
+    "25",
+    false
+  ],
+  [
+    "dblink_exec",
+    "25 16",
+    false
+  ],
+  [
+    "dblink_exec",
+    "25 25",
+    false
+  ],
+  [
+    "dblink_exec",
+    "25 25 16",
+    false
+  ],
+  [
+    "dblink_fdw_validator",
+    "1009 26",
+    false
+  ],
+  [
+    "dblink_fetch",
+    "25 23",
+    false
+  ],
+  [
+    "dblink_fetch",
+    "25 23 16",
+    false
+  ],
+  [
+    "dblink_fetch",
+    "25 25 23",
+    false
+  ],
+  [
+    "dblink_fetch",
+    "25 25 23 16",
+    false
+  ],
+  [
+    "dblink_get_connections",
+    "",
+    false
+  ],
+  [
+    "dblink_get_notify",
+    "",
+    false
+  ],
+  [
+    "dblink_get_notify",
+    "25",
+    false
+  ],
+  [
+    "dblink_get_pkey",
+    "25",
+    false
+  ],
+  [
+    "dblink_get_result",
+    "25",
+    false
+  ],
+  [
+    "dblink_get_result",
+    "25 16",
+    false
+  ],
+  [
+    "dblink_is_busy",
+    "25",
+    false
+  ],
+  [
+    "dblink_open",
+    "25 25",
+    false
+  ],
+  [
+    "dblink_open",
+    "25 25 16",
+    false
+  ],
+  [
+    "dblink_open",
+    "25 25 25",
+    false
+  ],
+  [
+    "dblink_open",
+    "25 25 25 16",
+    false
+  ],
+  [
+    "dblink_send_query",
+    "25 25",
+    false
+  ]
+].map((row) => Object.freeze(row)));
+const legacyDblinkAclBefore = '{=X/supabase_admin,supabase_admin=X/supabase_admin,postgres=X*/supabase_admin}';
+const legacyDblinkAclAfter = '{=X/supabase_admin,supabase_admin=X/supabase_admin,postgres=X/supabase_admin,anon=X/supabase_admin,authenticated=X/supabase_admin,service_role=X/supabase_admin}';
+const legacyDblinkContext = `current_database()='club_arena_qualification'
+  AND inet_server_addr() IS NULL AND current_user='supabase_admin' AND session_user='supabase_admin'
+  AND current_setting('server_version_num')::integer BETWEEN 170000 AND 179999
+  AND current_setting('search_path')='pg_catalog'
+  AND EXISTS(SELECT FROM pg_roles WHERE oid=10 AND rolname=current_user AND rolsuper)
+  AND EXISTS(SELECT FROM pg_roles WHERE rolname='postgres' AND NOT rolsuper)
+  AND EXISTS(SELECT FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace
+    WHERE e.extname='dblink' AND e.extversion='1.2' AND n.nspname='extensions'
+      AND e.extowner=10 AND (SELECT count(*) FROM pg_depend d WHERE d.refclassid='pg_extension'::regclass
+        AND d.refobjid=e.oid AND d.classid='pg_proc'::regclass AND d.deptype='e')=41)`;
+
+const legacyDblinkMembers = `WITH expected(name,args,owner_only) AS (VALUES ${legacyDblinkMemberInventory.map(
+  ([name,args,ownerOnly]) => `('${name}','${args}',${ownerOnly})`).join(',')})
+  SELECT p.oid,p.proowner,p.proacl,expected.owner_only FROM pg_extension e
+  JOIN pg_depend d ON d.refclassid='pg_extension'::regclass AND d.refobjid=e.oid
+    AND d.classid='pg_proc'::regclass AND d.deptype='e'
+  JOIN pg_proc p ON p.oid=d.objid JOIN pg_namespace n ON n.oid=p.pronamespace
+  JOIN expected ON expected.name=p.proname AND expected.args=p.proargtypes::text
+  WHERE e.extname='dblink' AND n.nspname='extensions'`;
+const legacyDblinkPostimage = `(SELECT count(*)=41 AND bool_and((proowner=10
+  AND proacl::text=CASE WHEN owner_only THEN '{supabase_admin=X/supabase_admin}'
+    ELSE '${legacyDblinkAclAfter}' END) IS TRUE) FROM (${legacyDblinkMembers}) p)`;
+export const legacyDblinkAclObservationSql = `SELECT (${legacyDblinkContext})
+  AND ${legacyDblinkPostimage} AS legacy_dblink_exact`;
+export const legacyDblinkAclInstallSql = `DO $legacy_dblink$
+DECLARE member record;
+BEGIN
+  IF (${legacyDblinkContext}) IS DISTINCT FROM TRUE OR (SELECT count(*)=41
+    AND bool_and((proowner=10 AND proacl::text=CASE WHEN owner_only
+      THEN '{supabase_admin=X/supabase_admin,postgres=X*/supabase_admin}'
+      ELSE '${legacyDblinkAclBefore}' END) IS TRUE)
+    FROM (${legacyDblinkMembers}) p) IS DISTINCT FROM TRUE
+  THEN RAISE EXCEPTION 'FIXTURE_LEGACY_DBLINK_PREIMAGE_REQUIRED'; END IF;
+  FOR member IN ${legacyDblinkMembers} LOOP
+    IF member.owner_only THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM postgres RESTRICT',member.oid::regprocedure);
+    ELSE
+      EXECUTE format('REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION %s FROM postgres RESTRICT',member.oid::regprocedure);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon,authenticated,service_role',member.oid::regprocedure);
+    END IF;
+  END LOOP;
+  IF ${legacyDblinkPostimage} IS DISTINCT FROM TRUE
+  THEN RAISE EXCEPTION 'FIXTURE_LEGACY_DBLINK_POSTIMAGE_REQUIRED'; END IF;
+END $legacy_dblink$;`;
+
 export async function installCurrentApplicationExtensions({
   applicationClient,
   Client,
@@ -465,12 +741,29 @@ export async function installCurrentApplicationExtensions({
             `CREATE EXTENSION "${item.name}" WITH SCHEMA "${item.schema}" VERSION '${item.version}'`
           );
         }
+        if (owner === 'supabase_admin') await client.query(legacyDblinkAclInstallSql);
         if (owner === 'postgres') await client.query(postgresExtensionOwnerEndSql);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => {});
         throw error;
       }
+    }
+    const legacyObserver = databaseOwner.own(new Client({
+      host: '/run/postgresql', user: 'supabase_admin', database: 'club_arena_qualification',
+      connectionTimeoutMillis: 5000, query_timeout: 8000, statement_timeout: 8000,
+      options: '-c search_path=pg_catalog',
+    }));
+    try {
+      await legacyObserver.connect();
+      assert.ok(Number.isInteger(legacyObserver.processID) && legacyObserver.processID > 0);
+      assert.notEqual(legacyObserver.processID, bootstrap.processID);
+      assert.ok(!ownerBootstrap || legacyObserver.processID !== ownerBootstrap.processID);
+      assert.deepEqual((await legacyObserver.query(legacyDblinkAclObservationSql)).rows,
+        [{legacy_dblink_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_LEGACY_DBLINK_POSTIMAGE'}));
+    } finally {
+      await databaseOwner.end(legacyObserver);
     }
     assert.deepEqual((await bootstrap.query(query)).rows, currentApplicationExtensions,
       new assert.AssertionError({message: 'FIXTURE_ASSERT_EXTENSION_POSTIMAGE'}));

@@ -4,6 +4,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import LobbyTable from '../../src/components/lobby/LobbyTable';
 import { tournamentEntry, type LobbyTournamentRow } from '../../src/components/lobby/lobbyEntries';
+vi.mock('../../src/hooks/useMttLobbyEntryCounts', () => ({
+  useMttLobbyEntryCounts: (rows: unknown[]) => rows,
+}));
 vi.mock('../../src/services/tableWarmup', () => ({
   warmTable: vi.fn(),
   observeLobbyTableWarmups: () => () => {},
@@ -11,23 +14,26 @@ vi.mock('../../src/services/tableWarmup', () => ({
 vi.mock('../../src/hooks/useSpinTierAvailability', () => ({ useSpinTierAvailability: () => null }));
 afterEach(cleanup);
 function board(guarantee: number) {
-  const entry = tournamentEntry(
-    {
-      id: 'full-width',
-      name: 'Nightly 10K (NLH)',
-      format_contract: 'mtt-v1',
-      game_type: 'NLH',
-      variant: 'freezeout',
-      status: 'REGISTERING',
-      start_time: new Date(Date.now() + 600000).toISOString(),
-      buy_in_amount: 35,
-      buy_in_fee: 0,
-      guaranteed_prize: guarantee,
-      current_players: 12,
-      max_players: 100,
-    } as LobbyTournamentRow,
-    'mtt'
-  );
+  const entry = {
+    ...tournamentEntry(
+      {
+        id: 'full-width',
+        name: 'Nightly 10K (NLH)',
+        format_contract: 'mtt-v1',
+        game_type: 'NLH',
+        variant: 'freezeout',
+        status: 'REGISTERING',
+        start_time: new Date(Date.now() + 600000).toISOString(),
+        buy_in_amount: 35,
+        buy_in_fee: 0,
+        guaranteed_prize: guarantee,
+        current_players: 12,
+        max_players: 100,
+      } as LobbyTournamentRow,
+      'mtt'
+    ),
+    entryCount: 12,
+  };
   const onSelect = vi.fn();
   const writers = { onJoinTable: vi.fn(), onRegister: vi.fn(), onWaitlistToggle: vi.fn() };
   render(

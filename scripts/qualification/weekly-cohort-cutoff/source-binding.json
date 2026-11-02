@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274351,
-      "sha256": "996e00b3e805d9214c6546b207c6a642e906bd32db52e8796feedeb6043b2ae9"
+      "bytes": 274616,
+      "sha256": "f4ec36959376d050de14f675b6818ffc5afe17d1d59ed13d8d1d44aed93156ee"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -2355,5 +2355,16 @@
     },
     "historicalEvidenceRestamped": false,
     "execution_performed": false
+  },
+  "mttLobbyEntriesNativeEnforcement20261102": {
+    "reason": "Add one real PG17 MTT lobby entry aggregate/ACL/RLS/bounds check to required accounting shard 4. Existing steps, matrices, assertions, deadlines, financial fixtures and release safeguards are unchanged. Reviewed exact seven-line workflow addition. Current source identity only; no historical financial/native/live certificate restamp.",
+    "previousCiPin": {
+      "bytes": 274351,
+      "sha256": "996e00b3e805d9214c6546b207c6a642e906bd32db52e8796feedeb6043b2ae9"
+    },
+    "currentCiPin": {
+      "bytes": 274616,
+      "sha256": "f4ec36959376d050de14f675b6818ffc5afe17d1d59ed13d8d1d44aed93156ee"
+    }
   }
 }

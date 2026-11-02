@@ -94,7 +94,8 @@ const managedObject = (item) => MANAGED_SCHEMAS.includes(item.schema) ||
 export function dumpObjects(sql) {
   assert.equal(typeof sql, 'string');
   assert.ok(Buffer.byteLength(sql) > 0 && Buffer.byteLength(sql) <= 128 * 1024 * 1024);
-  const starts = [];
+  const starts = [], streamSettings = [];
+  let statementOpen = false;
   let quote = null, quoteEscapes = false, dollar = null, block = 0, line = false, footerAt = sql.length;
   for (let i = 0; i < sql.length; i++) {
     if (line) { if (sql[i] === '\n') line = false; continue; }
@@ -109,24 +110,52 @@ export function dumpObjects(sql) {
       else if (quoteEscapes && sql[i] === '\\') i++;
       continue;
     }
+    // pg_dump emits these archive stream settings BEFORE the next TOC header.
+    // They are not part of the preceding object's definition. Recognize only
+    // complete independent statements, never text inside a routine or comment.
+    if (!statementOpen && (i === 0 || sql[i - 1] === '\n') && sql.startsWith('SET default_', i)) {
+      const setting = /^SET (default_tablespace|default_table_access_method) = (?:''|"(?:[^"\r\n]|"")*"|[a-z_][a-z_0-9]*);\r?\n\r?\n/.exec(sql.slice(i));
+      if (setting) {
+        streamSettings.push({ start: i, end: i + setting[0].length, kind: setting[1] });
+        i += setting[0].length - 1;
+        continue;
+      }
+    }
     if ((i === 0 || sql[i - 1] === '\n') && sql.startsWith('-- Name: ', i)) starts.push(i);
     if ((i === 0 || sql[i - 1] === '\n') && sql.startsWith('-- PostgreSQL database dump complete', i)) footerAt = Math.min(footerAt, i);
     if (sql.startsWith('--', i)) { line = true; i++; }
     else if (sql.startsWith('/*', i)) { block = 1; i++; }
     else if (sql[i] === "'" || sql[i] === '"') {
+      statementOpen = true;
       quote = sql[i];
       quoteEscapes = quote === "'" && i > 0 && /[eE]/.test(sql[i - 1]) &&
         (i === 1 || !/[A-Za-z_0-9$]/.test(sql[i - 2]));
     }
     else if (sql[i] === '$') {
+      statementOpen = true;
       const match = /^\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$/.exec(sql.slice(i));
       if (match) { dollar = match[0]; i += dollar.length - 1; }
     }
+    else if (sql[i] === ';') statementOpen = false;
+    else if (!/\s/.test(sql[i])) statementOpen = true;
   }
   if (quote || dollar || block || starts.length === 0) refused('DUMP_BOUNDARIES');
+  let streamIndex = 0;
   const objects = starts.map((start, index) => {
     const end = starts[index + 1] ?? footerAt;
-    const text = sql.slice(start, end);
+    while (streamIndex < streamSettings.length && streamSettings[streamIndex].end <= start) streamIndex++;
+    const settings = [];
+    while (streamIndex < streamSettings.length && streamSettings[streamIndex].start < end)
+      settings.push(streamSettings[streamIndex++]);
+    const parts = [];
+    let position = start;
+    for (const setting of settings) {
+      parts.push({ stream: false, text: sql.slice(position, setting.start) });
+      parts.push({ stream: true, kind: setting.kind, text: sql.slice(setting.start, setting.end) });
+      position = setting.end;
+    }
+    parts.push({ stream: false, text: sql.slice(position, end) });
+    const text = parts.filter((part) => !part.stream).map((part) => part.text).join('');
     const header = /^-- Name: ([^\n]+); Type: ([A-Z ]+); Schema: ([a-z_][a-z_0-9]*|-); Owner: ([a-z_][a-z_0-9]*|-)\r?\n/.exec(text);
     if (!header) refused('DUMP_HEADER');
     const [, name, type, schema, owner] = header;
@@ -135,7 +164,7 @@ export function dumpObjects(sql) {
     // Default privileges belong to their creator role. pg_dump uses the same
     // display name for different creators in one schema; they are not one ACL.
     const key = JSON.stringify(type === 'DEFAULT ACL' ? [type, schema, name, owner] : [type, schema, name]);
-    return { key, type, schema, name, owner, start, end, text, sha256: schemaHash(text) };
+    return { key, type, schema, name, owner, start, end, text, parts, sha256: schemaHash(text) };
   });
   if (new Set(objects.map((item) => item.key)).size !== objects.length) refused('DUMP_DUPLICATE_KEY');
   return { prefix: sql.slice(0, starts[0]), footer: sql.slice(footerAt), objects };
@@ -183,9 +212,10 @@ export function composeSchema(capture, serviceDump) {
       const expected = native.get(item.key);
       if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256)
         refused(!expected ? 'MANAGED_OBJECT_MISSING' : expected.owner !== item.owner ? 'MANAGED_OWNER_DIFFERENT' : 'MANAGED_BLOCK_DIFFERENT');
+      sql += item.parts.filter((part) => part.stream).map((part) => part.text).join('');
       removed.push({ key: item.key, sha256: item.sha256 });
     } else {
-      sql += item.text;
+      sql += item.parts.map((part) => part.text).join('');
       retained.push({ key: item.key, sha256: item.sha256 });
       if (applicationHook) applicationHooks.push(applicationHook);
     }

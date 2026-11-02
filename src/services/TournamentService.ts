@@ -2511,13 +2511,13 @@ class TournamentService {
     );
     /* AN ADD-ON PAYS THE STARTING STACK, EXACTLY (Dan 2026-11-01): "THE ADD
        ON SHOULD BE THE SAME AMOUNT OF CHIPS THAT YOU START WITH IN THE
-       TOURNAMENT, NEVER LESS" and it "CAN NEVER EXCEED" it. Rebuys keep their
-       configured amount; the add-on quote reads starting_chips first so the
-       number shown is the number the money core pays. */
+       TOURNAMENT, NEVER LESS" and it "CAN NEVER EXCEED" it. Every creator
+       writes addon_chips = starting_chips; the quote reads addon_chips first
+       because that is exactly what the money core pays. */
     const chips = Number(
       (kind === 'rebuy'
         ? tournament.rebuy_chips || tournament.starting_chips
-        : tournament.starting_chips || tournament.addon_chips) || 0
+        : tournament.addon_chips || tournament.starting_chips) || 0
     );
     // Dan 2026-08-21 (binding): the 10% is taken OUT of the advertised price,
     // for entries and rebuys alike. The player pays the number on the button;
@@ -2687,8 +2687,9 @@ class TournamentService {
         );
         if (!tournament) throw new Error('Tournament not found');
 
-        // Dan 2026-11-01: an add-on pays the starting stack, exactly.
-        const addonChips = Number(tournament.starting_chips || tournament.addon_chips || 0);
+        // What the money core pays: addon_chips (the starting stack on every event
+        // created or corrected since Dan's 2026-11-01 ruling).
+        const addonChips = Number(tournament.addon_chips || tournament.starting_chips || 0);
         // Whole chips only (Dan 2026-08-20) - no decimal add-on prices.
         const addonCost = Math.max(
           0,
