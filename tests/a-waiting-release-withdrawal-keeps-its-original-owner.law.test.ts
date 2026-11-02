@@ -32,12 +32,12 @@ it(
             PYTHONDONTWRITEBYTECODE: '1',
           },
           encoding: 'utf8',
-          // Loaded macOS needs fixture transport headroom; native deadlines stay exact.
+          // Local Mac transport needs headroom; hosted Linux retains its limit.
           timeout: process.platform === 'darwin' ? 120000 : 60000,
         }
       );
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(result.stderr).toContain('Ran 59 tests');
+      expect(result.stderr).toContain('Ran 63 tests');
       expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
       const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
         env: cleanEnv,

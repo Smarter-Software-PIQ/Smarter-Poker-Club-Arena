@@ -189,7 +189,7 @@ describe('every stakes order keeps one price together in canonical variant order
     expect(within(game).queryByRole('button')).toBeNull();
     fireEvent.click(game);
     expect(ids()).toEqual(before);
-    expect(before).toEqual(['plo-1', 'plo5-1', 'plo-2', 'plo-4', 'plo5-4']);
+    expect(before).toEqual(['plo-4', 'plo5-4', 'plo-2', 'plo-1', 'plo5-1']);
   });
 });
 

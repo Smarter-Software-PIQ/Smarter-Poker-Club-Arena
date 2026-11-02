@@ -89,9 +89,9 @@ export type LobbyCategory =
 function defaultSortFor(category: string): { key: string; dir: SortDir } | null {
   if (category === 'SPIN' || category === 'SNG' || category === 'SATELLITE')
     return { key: 'players', dir: 'desc' };
-  /* Dan 2026-09-03: "STAKES SHOULD ALWAYS BE ORGANIZED LOW TO HIGH." */
+  /* Owner 2026-11-02: cash stakes default from highest to smallest. */
   if (category === 'HOLDEM' || category === 'OMAHA' || category === 'LIMIT')
-    return { key: 'stakes', dir: 'asc' };
+    return { key: 'stakes', dir: 'desc' };
   return null;
 }
 
@@ -2100,10 +2100,11 @@ export default function LobbyTable({
        sort was there for), and evaluates the predicate exactly once per row.
        The identical array reference is returned when nothing needs to sink, so
        the memo below still sees no change. */
-      /* A chosen heading, or the page's chosen Sort By order on a board with
-         no heading sort, decides the whole list; the pin decorates only the
-         default order. */
-      const orderObeyed = sortChosen || (sort == null && orderChosen);
+      /* Cash always obeys its numeric order, including the default stakes
+         order. A featured low-stakes game must not jump above higher stakes.
+         Tournament pins retain their existing default behavior. */
+      const orderObeyed =
+        sortChosen || (sort == null && orderChosen) || rows.some((row) => row.kind === 'cash');
       const pinned: LobbyEntry[] = [];
       const open: LobbyEntry[] = [];
       /* Dan 2026-09-03: "EMPTY TABLES SHOULD ALWAYS APPEAR AT THE BOTTOM." A

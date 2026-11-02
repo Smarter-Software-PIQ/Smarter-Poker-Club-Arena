@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/rabbit-hunt-kept-runout-either-order",
+  "_comment": "20261102181258: a saved run-out written after its reveal receipt still keeps the bought cards.",
+  "functions": ["fn_rabbit_hunt_keep_runouts_for_offer"]
+}

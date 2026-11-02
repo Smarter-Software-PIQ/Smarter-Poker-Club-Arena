@@ -186,6 +186,7 @@ import {
   type FilterGameType,
 } from '../components/lobby/advancedFilterSpec';
 import { cashBoardComparator } from '../components/lobby/cashBoardOrder';
+import { cashBoardVisible } from '../components/lobby/cashBoardVisibility';
 import { orderForHeading } from '../components/lobby/lobbySortBridge';
 import { IconShareLink, IconSort } from '../components/icons/LobbyIcons';
 import { CLUB_HOME_CACHE_PREFIX } from '../utils/clearUserCaches';
@@ -1001,7 +1002,9 @@ function ClubHomePageContent({
   const linkedGameTypeRef = useRef<GameType | undefined>(undefined);
   const onInitialGameTypeConsumedRef = useRef(onInitialGameTypeConsumed);
   onInitialGameTypeConsumedRef.current = onInitialGameTypeConsumed;
-  const [sortKey, setSortKey] = useState<SortKey>('recommended');
+  const [sortKey, setSortKey] = useState<SortKey>('stakes_high');
+  // Empty games require an explicit choice on this lobby visit, on every cash tab.
+  const [showEmptyTables, setShowEmptyTables] = useState(false);
   const [allStatusFilter, setAllStatusFilter] = usePlayerPreference<AllStatusFilter>(
     'ClubHomePage:allStatusFilter',
     'ALL',
@@ -3694,6 +3697,7 @@ function ClubHomePageContent({
     const advValue = advType ? advFilters[advType] : undefined;
 
     const rows = tables.filter((table) => {
+      if (!cashBoardVisible(table as unknown as LobbyTableRow, showEmptyTables)) return false;
       if (gameType !== 'ALL' && cashKind(table) !== gameType) return false;
 
       if (gameType === 'ALL' && allStatusFilter !== 'ALL') {
@@ -3751,7 +3755,16 @@ function ClubHomePageContent({
     return rows.sort(
       cashBoardComparator(sortKey, gameType, (row) => displayedPlayers.get(row as TableData) || 0)
     );
-  }, [boardTables, gameType, showsCash, sortKey, advFilters, allStatusFilter, linkedGameId]);
+  }, [
+    boardTables,
+    gameType,
+    showsCash,
+    sortKey,
+    advFilters,
+    allStatusFilter,
+    linkedGameId,
+    showEmptyTables,
+  ]);
 
   /**
    * Is the lobby showing less than everything, and why.
@@ -3790,6 +3803,7 @@ function ClubHomePageContent({
        visit, which reads as the button not having worked. */
     selectFavoritesOnly(false);
     selectGameType(gameSection === 'tournaments' ? 'MTT' : 'ALL');
+    setShowEmptyTables(false);
     setAllStatusFilter('ALL');
     if (narrowing.fSpec) {
       const next: FilterStore = {
@@ -5410,6 +5424,20 @@ function ClubHomePageContent({
     isOwner &&
     launchTasks.every((task) => task.complete || task.skipped);
 
+  const showEmptyTablesButton = showsCash ? (
+    <button
+      type="button"
+      className={`quickprefs__chip ${showEmptyTables ? 'is-on' : ''}`}
+      aria-pressed={showEmptyTables}
+      onClick={() => {
+        haptic.selection();
+        setShowEmptyTables((shown) => !shown);
+      }}
+    >
+      <LobbyFilterLabel>Show Empty Tables</LobbyFilterLabel>
+    </button>
+  ) : null;
+
   const filterAndSortButton = (
     <button
       className={`game-bar__filter-btn ${(() => {
@@ -5784,6 +5812,7 @@ function ClubHomePageContent({
                                 <LobbyFilterLabel>{status.label}</LobbyFilterLabel>
                               </button>
                             ))}
+                            {showEmptyTablesButton}
                             {filterAndSortButton}
                           </div>
                         </div>
@@ -5852,6 +5881,7 @@ function ClubHomePageContent({
                                     </button>
                                   );
                                 })}
+                                {showEmptyTablesButton}
                                 {filterAndSortButton}
                               </div>
                             </div>
@@ -6096,10 +6126,26 @@ function ClubHomePageContent({
                 const totalHere = totalGameCount;
                 const { filtered } = narrowing;
                 const narrowed = narrowing.any;
+                const emptyCashHidden =
+                  showsCash &&
+                  !showEmptyTables &&
+                  boardTables.some(
+                    (table) =>
+                      (gameType === 'ALL' || cashKind(table) === gameType) &&
+                      cashBoardVisible(table as unknown as LobbyTableRow, true) &&
+                      !cashBoardVisible(table as unknown as LobbyTableRow)
+                  );
 
                 return (
                   <div className="empty-tables">
-                    {totalHere === 0 ? (
+                    {emptyCashHidden ? (
+                      <>
+                        <p>No Active Tables Match This View</p>
+                        <p className="empty-hint">
+                          Empty Tables Are Hidden. Select Show Empty Tables To Include Them.
+                        </p>
+                      </>
+                    ) : totalHere === 0 ? (
                       <>
                         <p>{showTournaments ? 'No Tournaments Yet' : 'No Tables Yet'}</p>
                         <p className="empty-hint">
