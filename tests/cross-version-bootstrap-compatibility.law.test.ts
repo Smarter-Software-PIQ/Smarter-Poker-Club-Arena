@@ -130,6 +130,20 @@ describe('cross-version bootstrap compatibility contract (Phase 2)', () => {
     expect(res.status, res.stderr || res.stdout).toBe(0);
     expect(res.stderr).toContain(`Ran ${cases.length} tests`);
     expect(res.stderr).toContain('OK');
+    // 4. Single-pass cohort pre-image validator unit suite (tests/operations/verify-cohort-preimage.test.py)
+    const preimageRes = spawnSync(
+      'python3',
+      ['-B', resolve(ROOT, 'tests/operations/verify-cohort-preimage.test.py')],
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 15_000,
+      }
+    );
+    expect(preimageRes.error).toBeUndefined();
+    expect(preimageRes.status, preimageRes.stderr || preimageRes.stdout).toBe(0);
+    expect(preimageRes.stderr).toContain('Ran 5 tests');
+    expect(preimageRes.stderr).toContain('OK');
   });
 
   it('verifies the promise migration SHA-256 matches the immutable historical record', () => {
