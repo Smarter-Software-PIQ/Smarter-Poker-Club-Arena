@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any, NoReturn
 
 SCHEMA = 'existing-release-recovery-observation/v2'
 STATE_ROOT = Path('/var/lib/club-arena')
@@ -465,7 +466,23 @@ SECOND_CANCELLED_PHASE1_THAW = {'announcedAtMs':1793620685533,'freezeStartedAtMs
  'releasedThroughMs':1793621105532,'ownershipToken':'c677673f-f968-4a21-a795-c1bcb175f6d9',
  'generation':1,'thawRecordedAtMs':1793621026339}
 
+CURRENT26_CANCELLED_RUN = '41469215622-1'
+CURRENT26_CANCELLED_SHA = 'fffcb62ea1f114322da964f9e580f8be3b3e3383'
+CURRENT26_CANCELLED_TARGET = '26aaaa3f350ca063caed717b5fcbbcf34b5ae702'
+CURRENT26_CANCELLED_SOURCES = {'engine-release-database-proof.py': 'd5b59033d68b071419a2b06aa34dc95cdc20d6ec2bed950fbeddd1035c113456', 'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4', 'engine-release-seal.py': '990d562162089464377994decf576892ab9b23d8defca0a18389992842745fff', 'engine-release-transaction.sh': '0a78bdb9e5b3ba761ea1daf4bbec55c42b2ee654a98d71a5850a46ef313a5abe', 'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83', 'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e'}
+CURRENT26_CANCELLED_WINDOW = {'announcedAt':1793635085893,'startsAt':1793635205893,'endsAt':1793635505893,'verified':True}
+CURRENT26_CANCELLED_THAW = {'announcedAtMs':1793635085893,'freezeStartedAtMs':1793635205893,
+ 'releasedThroughMs':1793635505893,'ownershipToken':'a993695f-4a6a-4cb3-99af-b88765f21c99',
+ 'generation':1,'thawRecordedAtMs':1793635427493}
+
+
+def cancelled_phase1_target(owner):
+    return CURRENT26_CANCELLED_TARGET if owner == CURRENT26_CANCELLED_RUN else cancelled_phase1_profile(owner)[1]
+
 def cancelled_phase1_profile(owner):
+    if owner == CURRENT26_CANCELLED_RUN:
+        return (CURRENT26_CANCELLED_RUN, CURRENT26_CANCELLED_SHA, CURRENT26_CANCELLED_SOURCES,
+                CURRENT26_CANCELLED_WINDOW, CURRENT26_CANCELLED_THAW)
     if owner == SECOND_CANCELLED_PHASE1_RUN:
         return (SECOND_CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SOURCES,
                 SECOND_CANCELLED_PHASE1_WINDOW, SECOND_CANCELLED_PHASE1_THAW)
@@ -495,7 +512,7 @@ def cancelled_phase1_cycle(cycle):
     owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
     routine_require(cycle == {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
         'policyDigest': NINEF_POLICY_DIGEST, 'startsAt': owner_window['startsAt']//3600000*3600, 'endsAt': owner_window['startsAt']//3600000*3600+300,
-        'runId': owner_run, 'sha': owner_sha, 'controlSha': owner_sha,
+        'runId': owner_run, 'sha': cancelled_phase1_target(owner_run), 'controlSha': owner_sha,
         'status': 'reserved', 'window': owner_window})
 
 
@@ -508,7 +525,7 @@ def cancelled_announcement_resolution(resolution, cycle, result, result_fd, answ
         and resolution['verifiedByRunId'] != owner_run
         and SHA.fullmatch(str(resolution['verifiedByControlSha']))
         and SHA.fullmatch(str(resolution['verifiedByTargetSha']))
-        and owner_sha not in (resolution['verifiedByControlSha'], resolution['verifiedByTargetSha'])
+        and not ({owner_sha, cancelled_phase1_target(owner_run)} & {resolution['verifiedByControlSha'], resolution['verifiedByTargetSha']})
         and INVOCATION.fullmatch(str(resolution['invocationId']))
         and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > owner_window['endsAt'])
     proof = resolution['proof']
@@ -667,7 +684,7 @@ def routine_remote(request, root_fd):
                                                      (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
                                                      (k == DAILY_REFUSAL_RUN and v.get('result') == 'unentered-daily-cycle-proved') or
                                                      (k == PREATTACH_RUN and v.get('result') == 'preattach-refusal-proved') or
-                                                     (k in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} and v.get('result') == 'cancelled-announcement-proved'))
+                                                     (k in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} and v.get('result') == 'cancelled-announcement-proved'))
                             for k, v in resolutions.items()))
         if resolutions:
             routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
@@ -784,7 +801,7 @@ def validate_routine_reply(value, request):
             'noAnnouncementRecorded', 'databaseIdleRecorded'} and
             type(resolution['present']) is bool and type(row['unresolvedOwner']) is bool and
             row['unresolvedOwner'] is (not resolution['present']))
-        if resolution['present'] and row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
+        if resolution['present'] and row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
             owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(row['runId'])
             cycle = {k: row[k] for k in ('runId','sha','controlSha','policyId','policyDigest','kind','status','startsAt','endsAt','window')}
             cancelled_phase1_cycle(cycle)
@@ -857,7 +874,7 @@ def validate_routine_reply(value, request):
                             row['failurePresent'] == (result['cycleFailureMatches'] is not None))
         else:
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
-        if resolution['present'] and row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
+        if resolution['present'] and row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
             routine_require(result['present'] is False and row['failurePresent'] is False)
         elif resolution['present'] and row['runId'] == PREATTACH_RUN:
             preattach_reply(row, resolution)
@@ -1296,8 +1313,10 @@ def validate_original_announcement(value, request):
     fields = {'schema','readOnly','mode','runKey','releaseSha','controlSha','status','reason',
               'announcementAtMs','announcementObservedAtMs','originalInvocationSha256','bindingSha256',
               'causes','exit','unclassifiedMessageSha256','limitation'}
+    v2=isinstance(value,dict) and value.get('schema')=='original-announcement-cause/v2'
+    if v2:fields|={'unclassifiedRefusals','transactionExitCause'}
     if (selection(request) != ORIGINAL_ANNOUNCEMENT_REQUEST or not isinstance(value,dict) or set(value)!=fields
-        or value['schema']!='original-announcement-cause/v1' or value['readOnly'] is not True
+        or value['schema'] not in {'original-announcement-cause/v1','original-announcement-cause/v2'} or value['readOnly'] is not True
         or any(value.get(k)!=v for k,v in request.items())
         or value['controlSha']!=ORIGINAL_ANNOUNCEMENT_CONTROL
         or value['status'] not in {'observed','unknown'} or value['reason'] not in ORIGINAL_CAUSE_REASONS
@@ -1333,10 +1352,23 @@ def validate_original_announcement(value, request):
         raise ValueError('Original announcement exit refused')
     if value['status']=='observed':
         if (value['reason']!='cause_observed' or value['bindingSha256'] is None or at is None
-                or len(value['causes'])!=1 or value['unclassifiedMessageSha256'] is not None):
+                or not 1<=len(value['causes'])<=(16 if v2 else 1) or (not v2 and value['unclassifiedMessageSha256'] is not None)):
             raise ValueError('Original announcement positive export refused')
     elif value['reason']=='cause_observed' or value['causes'] or exit_value is not None:
         raise ValueError('Original announcement unknown export refused')
+    if v2:
+        unknown=value['unclassifiedRefusals']
+        if value['transactionExitCause']!='UNKNOWN' or not isinstance(unknown,list) or len(unknown)+len(value['causes'])>16:
+            raise ValueError('Original refusal sequence authority refused')
+        for row in unknown:
+            if (not isinstance(row,dict) or set(row)!={'observedAtMs','messageSha256'}
+                    or type(row['observedAtMs']) is not int or not ORIGINAL_ANNOUNCEMENT_STAMP<=row['observedAtMs']<=ORIGINAL_ANNOUNCEMENT_STAMP+420000
+                    or not re.fullmatch('[0-9a-f]{64}',str(row['messageSha256']))):
+                raise ValueError('Unclassified refusal export refused')
+        if any(rows!=sorted(rows,key=lambda row:row['observedAtMs']) for rows in (value['causes'],unknown)):
+            raise ValueError('Original refusal chronology refused')
+        if value['unclassifiedMessageSha256']!=(unknown[0]['messageSha256'] if len(unknown)==1 else None):
+            raise ValueError('Legacy unknown digest refused')
     return value
 
 
@@ -1363,11 +1395,11 @@ def original_announcement_evidence(request, root_fd, control_fd):
     """Two finite original-invocation reads; no listener, state or release action."""
     if selection(request)!=ORIGINAL_ANNOUNCEMENT_REQUEST: raise ValueError('Original announcement selection refused')
     until=time.monotonic()+5
-    answer={'schema':'original-announcement-cause/v1','readOnly':True,**request,
+    answer={'schema':'original-announcement-cause/v2','readOnly':True,**request,
         'controlSha':ORIGINAL_ANNOUNCEMENT_CONTROL,'status':'unknown','reason':'binding_unproved',
         'announcementAtMs':ORIGINAL_ANNOUNCEMENT_STAMP,'announcementObservedAtMs':None,
         'originalInvocationSha256':None,'bindingSha256':None,'causes':[],'exit':None,'unclassifiedMessageSha256':None,
-        'limitation':ORIGINAL_CAUSE_LIMITATION}
+        'limitation':ORIGINAL_CAUSE_LIMITATION,'unclassifiedRefusals':[],'transactionExitCause':'UNKNOWN'}
     def remaining():
         if time.monotonic()>=until: raise TimeoutError('original_deadline')
     def exact_bytes(fd,name,limit,private):
@@ -1461,24 +1493,28 @@ def original_announcement_evidence(request, root_fd, control_fd):
             else:
                 for row,_ in causes:
                     if row['_SYSTEMD_INVOCATION_ID']!=invocation:raise ValueError('original_identity')
-                # A <17-row reply proves the 17-row tail did not truncate this
-                # filtered interval. Only then choose the chronological first.
-                first_at=min(at for _,at in causes)
-                first=[row for row,at in causes if at==first_at]
-                if len(first)!=1:
-                    answer['reason']='unclassified_original_refusal'
-                else:
-                    message=first[0]['MESSAGE'];digest=hashlib.sha256(message.encode()).hexdigest()
+                # Export every complete filtered refusal in chronological order.
+                # A handled seal probe is an observed refusal, never proof that
+                # its calling transaction exited. No journal literal grants that.
+                exits=[]
+                for row,at in sorted(causes,key=lambda pair:pair[1]):
+                    message=row['MESSAGE'];digest=hashlib.sha256(message.encode()).hexdigest()
                     mapped=literals.get(message)
                     if mapped is None:
-                        answer.update(reason='unclassified_original_refusal',unclassifiedMessageSha256=digest)
+                        answer['unclassifiedRefusals'].append({'observedAtMs':at,'messageSha256':digest})
                     else:
-                        answer.update(status='observed',reason='cause_observed',causes=[{**mapped,
-                            'observedAtMs':first_at,'messageSha256':digest}])
-                        row=first[0]
-                        if 'EXIT_CODE' in row or 'EXIT_STATUS' in row:
-                            if row.get('EXIT_CODE') not in {'exited','killed','dumped'} or not isinstance(row.get('EXIT_STATUS'),str) or not re.fullmatch('[0-9]{1,3}',row['EXIT_STATUS']) or not 0<=int(row['EXIT_STATUS'])<=255:raise ValueError('original_identity')
-                            answer['exit']={'code':row['EXIT_CODE'],'status':int(row['EXIT_STATUS']),'observedAtMs':first_at}
+                        answer['causes'].append({**mapped,'observedAtMs':at,'messageSha256':digest})
+                    if 'EXIT_CODE' in row or 'EXIT_STATUS' in row:
+                        if row.get('EXIT_CODE') not in {'exited','killed','dumped'} or not isinstance(row.get('EXIT_STATUS'),str) or not re.fullmatch('[0-9]{1,3}',row['EXIT_STATUS']) or not 0<=int(row['EXIT_STATUS'])<=255:raise ValueError('original_identity')
+                        exits.append({'code':row['EXIT_CODE'],'status':int(row['EXIT_STATUS']),'observedAtMs':at})
+                if answer['causes']:
+                    answer.update(status='observed',reason='cause_observed')
+                else:answer['reason']='unclassified_original_refusal'
+                unknown=answer['unclassifiedRefusals']
+                answer['unclassifiedMessageSha256']=unknown[0]['messageSha256'] if len(unknown)==1 else None
+                # Preserve the legacy scalar only when it is unambiguous; it
+                # does not establish which refusal caused transaction exit.
+                if len(exits)==1 and answer['causes']:answer['exit']=exits[0]
         if snapshot()!=before:raise ValueError('original_changed')
         remaining()
     except (OSError,ValueError,TypeError,KeyError,UnicodeError,subprocess.SubprocessError) as error:
@@ -1486,9 +1522,11 @@ def original_announcement_evidence(request, root_fd, control_fd):
                 'original_journal':'journal_unavailable','original_changed':'binding_changed',
                 'Recovery witness output refused':'journal_bound'}.get(str(error),'binding_changed' if answer['bindingSha256'] else 'binding_unproved')
         if isinstance(error,(TimeoutError,subprocess.TimeoutExpired)):reason='deadline_exhausted'
-        answer.update(status='unknown',reason=reason,causes=[],exit=None)
+        answer.update(status='unknown',reason=reason,causes=[],exit=None,unclassifiedRefusals=[],unclassifiedMessageSha256=None)
     finally:
         for fd in opened:os.close(fd)
+    if len(json.dumps(answer).encode())>8192:
+        answer.update(status='unknown',reason='journal_bound',causes=[],exit=None,unclassifiedRefusals=[],unclassifiedMessageSha256=None)
     return validate_original_announcement(answer,request)
 
 
@@ -1499,7 +1537,225 @@ def original_announcement_remote(request, root_fd):
     finally:os.close(fd)
 
 
+RETAINED_REFUSAL_GENERATIONS = Path('/usr/local/lib/club-arena/engine-control-generations')
+RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'}
+RETAINED_REFUSAL_SCHEMA = 'retained-first-refusal-observation/v1'
+
+def diagnostic_read(path: Path, *, private: bool = True) -> bytes:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & (0o077 if private else 0o022) or info.st_size > 1048576):
+            raise ValueError("unsafe diagnostic input")
+        data = os.read(fd, 1048577)
+        after = os.fstat(fd)
+        stamp = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if len(data) != info.st_size or stamp(info) != stamp(after):
+            raise ValueError("diagnostic input changed")
+        return data
+    finally:
+        os.close(fd)
+
+
+def diagnostic_json(data: bytes) -> Any:
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate diagnostic JSON key")
+            value[key] = item
+        return value
+    def nonfinite(value: str) -> NoReturn:
+        raise ValueError("nonfinite diagnostic JSON")
+    return json.loads(data, object_pairs_hook=unique, parse_constant=nonfinite)
+
+
+def diagnostic_shell_state(raw: dict[str, Any]) -> dict[str, Any]:
+    bounds = {"checkpointRequired": 1, "drainedCutover": 1, "prepared": 1,
+              "mutationStarted": 1, "lockHeld": 1, "checkpointBudgetSeconds": 300,
+              "checkpointWorkMs": 300000, "certificateExitStatus": 255,
+              "breakEndEpoch": 9999999999}
+    if set(raw) != set(bounds) | {"checkpointProfile", "predecessorSha"}:
+        raise ValueError("invalid diagnostic shell state fields")
+    result = {}
+    for key, bound in bounds.items():
+        value = raw[key]
+        if value == "UNKNOWN":
+            result[key] = value
+        elif (type(value) is int or isinstance(value, str) and value.isdecimal()) and 0 <= int(value) <= bound:
+            result[key] = int(value)
+        else:
+            raise ValueError("invalid bounded diagnostic shell state")
+    if raw["checkpointProfile"] not in ("UNKNOWN", "legacy-40s-v1", "eed-80s-v1"):
+        raise ValueError("invalid checkpoint profile")
+    if raw["predecessorSha"] != "UNKNOWN" and not SHA.fullmatch(str(raw["predecessorSha"])):
+        raise ValueError("invalid diagnostic predecessor")
+    return {**result, "checkpointProfile": raw["checkpointProfile"], "predecessorSha": raw["predecessorSha"]}
+
+
+def diagnostic_validate(existing: Any, value: dict[str, Any]) -> dict[str, Any]:
+    if (not isinstance(existing, dict) or set(existing) != set(value)
+            or existing.get("schema") != value["schema"]
+            or existing.get("diagnosticOnly") is not True
+            or existing.get("binding") != value["binding"]):
+        raise ValueError("conflicting or unreadable original diagnostic")
+    if (not re.fullmatch(r"[0-9a-f]{32}", str(existing.get("invocationId", "")))
+            or not isinstance(existing.get("observedAt"), str)):
+        raise ValueError("invalid existing diagnostic envelope")
+    if datetime.datetime.fromisoformat(existing["observedAt"]).utcoffset() is None or datetime.datetime.fromisoformat(existing["observedAt"]).utcoffset().total_seconds() != 0:
+        raise ValueError("diagnostic timestamp has no zone")
+    if value["schema"] == "engine-release-first-refusal/v1":
+        if (existing.get("origin") not in ("die", "err", "exit")
+                or type(existing.get("exitCode")) is not int or not 1 <= existing["exitCode"] <= 255
+                or existing.get("signal") != "UNKNOWN"
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}|UNKNOWN", str(existing.get("stage", "")))
+                or type(existing.get("sourceLine")) is not int
+                or existing["sourceLine"] < 0
+                or (existing["sourceLine"] == 0 and existing.get("sourceLineSha256") is not None)
+                or (existing["sourceLine"] > 0 and not re.fullmatch(r"[0-9a-f]{64}", str(existing.get("sourceLineSha256", ""))))
+                or existing.get("command") != "SOURCE_LINE_ONLY_NOT_ARGV"
+                or not isinstance(existing.get("knownStateDigests"), dict)
+                or set(existing["knownStateDigests"]) != {"seal", "checkpointIntent", "breakDeadline", "awaitingCertificate"}
+                or any(v is not None and v != "UNKNOWN" and not re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in existing["knownStateDigests"].values())
+                or existing.get("checkpointPath") != value["checkpointPath"]
+                or not isinstance(existing.get("shellState"), dict)
+                or not isinstance(existing.get("predecessor"), dict)
+                or not isinstance(existing.get("certificate"), dict)):
+            raise ValueError("invalid original diagnostic schema")
+        shell_state = diagnostic_shell_state(existing["shellState"])
+        source = diagnostic_read(Path(value["binding"]["generation"]) / "engine-release-transaction.sh", private=False)
+        source_lines = source.splitlines()
+        line = existing["sourceLine"]
+        if (hashlib.sha256(source).hexdigest() != value["binding"]["transactionSha256"]
+                or line > len(source_lines)
+                or line > 0 and existing["sourceLineSha256"] != hashlib.sha256(source_lines[line - 1]).hexdigest()
+                or existing["shellState"] != shell_state):
+            raise ValueError("retained refusal source or state mismatch")
+        if (existing["predecessor"] != {"selectedSha": shell_state["predecessorSha"], "sealSha256": existing["knownStateDigests"]["seal"]}
+                or existing["certificate"] != {"exitStatus": shell_state["certificateExitStatus"], "breakEndEpoch": shell_state["breakEndEpoch"],
+                   "deadlineSha256": existing["knownStateDigests"]["breakDeadline"], "awaitingMarkerSha256": existing["knownStateDigests"]["awaitingCertificate"]}):
+            raise ValueError("invalid original diagnostic schema")
+    elif (existing.get("terminalObservation") != value["terminalObservation"]
+          or existing.get("invocationId") != value["invocationId"]):
+        raise ValueError("invalid attempt diagnostic schema")
+    return existing
+
+
+def retained_refusal_remote(request, root_fd):
+    deadline = time.monotonic() + 5
+    def check():
+        if time.monotonic() >= deadline:
+            raise ValueError('retained diagnostic deadline')
+    identity = lambda x: (x.st_dev,x.st_ino,x.st_size,x.st_mtime_ns,x.st_ctime_ns,x.st_uid,x.st_mode)
+    generation = RETAINED_REFUSAL_GENERATIONS / request['controlSha']
+    parent_fd = os.open(RETAINED_REFUSAL_GENERATIONS,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    parent_stat = os.fstat(parent_fd)
+    if parent_stat.st_uid != os.geteuid() or parent_stat.st_mode&0o022:
+        os.close(parent_fd);raise ValueError('retained generation parent custody')
+    source_fd = os.open(request['controlSha'],os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent_fd)
+    source_directory_stat = os.fstat(source_fd)
+    directory_fd = os.open('engine-release-diagnostics',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=root_fd)
+    try:
+        directory = os.fstat(directory_fd)
+        if source_directory_stat.st_uid != os.geteuid() or source_directory_stat.st_mode&0o022:
+            raise ValueError('retained generation custody')
+        if directory.st_uid != os.geteuid() or stat.S_IMODE(directory.st_mode) != 0o700:
+            raise ValueError('retained diagnostic private directory')
+        sources = {}
+        source_stats = {}
+        for name, expected in RETAINED_REFUSAL_SOURCES.items():
+            check()
+            fd = os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=source_fd)
+            try:
+                before = os.fstat(fd)
+                if not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid() or before.st_mode&0o022 or before.st_size>1048576:
+                    raise ValueError('retained diagnostic source metadata')
+                raw = os.read(fd,1048577)
+                if len(raw)!=before.st_size or identity(before)!=identity(os.fstat(fd)) or hashlib.sha256(raw).hexdigest()!=expected:
+                    raise ValueError('retained diagnostic source changed')
+                sources[name]=raw;source_stats[name]=identity(before)
+            finally:os.close(fd)
+        receipt_bytes=0
+        def read(name,schema):
+            nonlocal receipt_bytes
+            check()
+            value,raw=read_json(directory_fd,name,private=True,with_bytes=True,limit=8192)
+            receipt_bytes+=len(raw)
+            if receipt_bytes>8192:raise ValueError('retained combined receipt bound')
+            expected_binding={'runId':request['runKey'],'targetSha':request['releaseSha'],'controlSha':request['controlSha'],
+                'generation':str(generation),'transactionSha256':RETAINED_REFUSAL_SOURCES['engine-release-transaction.sh'],
+                'producerSha256':RETAINED_REFUSAL_SOURCES['engine-release-seal.py']}
+            binding=value.get('binding')
+            if not isinstance(binding,dict) or set(binding)!=set(expected_binding)|{'requestSha256','pinSha256'} or any(binding.get(k)!=v for k,v in expected_binding.items()) or any(not re.fullmatch('[0-9a-f]{64}',str(binding[k])) for k in ('requestSha256','pinSha256')):
+                raise ValueError('retained diagnostic binding')
+            if schema=='engine-release-first-refusal/v1':
+                fields={'schema','diagnosticOnly','binding','invocationId','observedAt','origin','stage','exitCode','signal','sourceLine','sourceLineSha256','command','knownStateDigests','checkpointPath','shellState','predecessor','certificate'}
+                if value.get('checkpointPath')!=str(STATE_ROOT/'engine-release-requests'/(request['runKey']+'.legacy-checkpoint-intent')):
+                    raise ValueError('retained diagnostic checkpoint binding')
+            else:fields={'schema','diagnosticOnly','binding','invocationId','observedAt','terminalObservation'}
+            if set(value)!=fields:raise ValueError('retained diagnostic fields')
+            expected={**value,'schema':schema,'diagnosticOnly':True,'binding':expected_binding|{k:binding[k] for k in ('requestSha256','pinSha256')}}
+            if schema=='engine-release-attempt/v1':expected['terminalObservation']='UNKNOWN_UNTIL_FIRST_REFUSAL_OR_CANONICAL_RESULT'
+            diagnostic_validate(value,expected)
+            return value,hashlib.sha256(raw).hexdigest()
+        try:first,first_digest=read(request['runKey']+'.first-refusal.json','engine-release-first-refusal/v1')
+        except FileNotFoundError:first,first_digest=None,None
+        attempts=[]
+        if first:
+            attempt,digest=read(request['runKey']+'.attempt-'+first['invocationId']+'.json','engine-release-attempt/v1')
+            if attempt['invocationId']!=first['invocationId'] or attempt['binding']!=first['binding']:
+                raise ValueError('retained original attempt binding')
+            attempts=[(attempt,digest)]
+        for name in RETAINED_REFUSAL_SOURCES:
+            check()
+            if identity(os.stat(name,dir_fd=source_fd,follow_symlinks=False))!=source_stats[name]:raise ValueError('retained source bookend changed')
+        if identity(os.fstat(directory_fd))!=identity(directory):raise ValueError('retained directory changed')
+        if (identity(os.fstat(parent_fd))!=identity(parent_stat) or identity(os.fstat(source_fd))!=identity(source_directory_stat)
+                or identity(os.stat(request['controlSha'],dir_fd=parent_fd,follow_symlinks=False))!=identity(source_directory_stat)):
+            raise ValueError('retained generation directory changed')
+        answer={'schema':RETAINED_REFUSAL_SCHEMA,'readOnly':True,**request,'diagnosticOnly':True,
+            'observation':'first_refusal_observed' if first else 'unknown_no_first_refusal',
+            'refusalObservedAtMs':int(datetime.datetime.fromisoformat(first['observedAt']).timestamp()*1000) if first else None,
+            'firstRefusalSha256':first_digest,'attemptCount':len(attempts),'attemptDigests':[digest for _,digest in attempts],
+            'bindingSha256':routine_digest(first['binding']) if first else None,
+            'invocationSha256':hashlib.sha256(first['invocationId'].encode()).hexdigest() if first else None,
+            'origin':first['origin'] if first else None,'stage':first['stage'] if first else None,
+            'exitCode':first['exitCode'] if first else None,'signal':'UNKNOWN',
+            'sourceLine':first['sourceLine'] if first else None,'sourceLineSha256':first['sourceLineSha256'] if first else None,
+            'shellState':first['shellState'] if first else None,'knownStateDigests':first['knownStateDigests'] if first else None,
+            'predecessor':first['predecessor'] if first else None,'certificate':first['certificate'] if first else None,
+            'absenceMeans':'UNKNOWN; diagnostic evidence never supplies release authority'}
+        check()
+        if len(json.dumps(answer).encode())>8192:raise ValueError('retained diagnostic export bound')
+        return validate_retained_refusal(answer,request)
+    finally:
+        os.close(directory_fd);os.close(source_fd);os.close(parent_fd)
+
+
+def validate_retained_refusal(value,request):
+    fields={'schema','readOnly','mode','runKey','releaseSha','controlSha','diagnosticOnly','observation','refusalObservedAtMs','firstRefusalSha256','attemptCount','attemptDigests','bindingSha256','invocationSha256','origin','stage','exitCode','signal','sourceLine','sourceLineSha256','shellState','knownStateDigests','predecessor','certificate','absenceMeans'}
+    if not isinstance(value,dict) or set(value)!=fields or value['schema']!=RETAINED_REFUSAL_SCHEMA or value['readOnly'] is not True or value['diagnosticOnly'] is not True or any(value[k]!=v for k,v in request.items()) or value['signal']!='UNKNOWN' or value['absenceMeans']!='UNKNOWN; diagnostic evidence never supplies release authority':raise ValueError('retained diagnostic export')
+    if type(value['attemptCount']) is not int or not 0<=value['attemptCount']<=1 or not isinstance(value['attemptDigests'],list) or len(value['attemptDigests'])!=value['attemptCount'] or any(not re.fullmatch('[0-9a-f]{64}',str(x)) for x in value['attemptDigests']):raise ValueError('retained attempt export')
+    if value['observation']=='unknown_no_first_refusal':
+        if any(value[k] is not None for k in ('refusalObservedAtMs','firstRefusalSha256','bindingSha256','invocationSha256','origin','stage','exitCode','sourceLine','sourceLineSha256','shellState','knownStateDigests','predecessor','certificate')):raise ValueError('retained unknown export')
+    elif value['observation']=='first_refusal_observed':
+        timestamp(value['refusalObservedAtMs'])
+        if value['attemptCount']<1 or any(not re.fullmatch('[0-9a-f]{64}',str(value[k])) for k in ('firstRefusalSha256','bindingSha256','invocationSha256')) or value['origin'] not in ('die','err','exit') or type(value['exitCode']) is not int or not 1<=value['exitCode']<=255 or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,127}|UNKNOWN',str(value['stage'])) or type(value['sourceLine']) is not int or not 0<=value['sourceLine']<=100000:raise ValueError('retained observed export')
+        if value['sourceLine']==0 and value['sourceLineSha256'] is not None or value['sourceLine']>0 and not re.fullmatch('[0-9a-f]{64}',str(value['sourceLineSha256'])):raise ValueError('retained source export')
+        if diagnostic_shell_state(value['shellState'])!=value['shellState']:raise ValueError('retained state export')
+        digests=value['knownStateDigests']
+        if not isinstance(digests,dict) or set(digests)!={'seal','checkpointIntent','breakDeadline','awaitingCertificate'} or any(x is not None and x!='UNKNOWN' and not re.fullmatch('[0-9a-f]{64}',str(x)) for x in digests.values()):raise ValueError('retained digest export')
+        if value['predecessor']!={'selectedSha':value['shellState']['predecessorSha'],'sealSha256':digests['seal']} or value['certificate']!={'exitStatus':value['shellState']['certificateExitStatus'],'breakEndEpoch':value['shellState']['breakEndEpoch'],'deadlineSha256':digests['breakDeadline'],'awaitingMarkerSha256':digests['awaitingCertificate']}:raise ValueError('retained trace export')
+    else:raise ValueError('retained observation export')
+    return value
+
+
 def selection(value):
+    if isinstance(value,dict) and value.get('mode')=='retained_first_refusal':
+        if set(value)!={'mode','runKey','releaseSha','controlSha'} or not isinstance(value['runKey'],str) or not RUN.fullmatch(value['runKey']) or any(not isinstance(value[k],str) or not SHA.fullmatch(value[k]) for k in ('releaseSha','controlSha')):
+            raise ValueError('Exact retained diagnostic binding required')
+        return dict(value)
     if isinstance(value,dict) and value.get("mode")=="original_announcement_cause":
         if value!=ORIGINAL_ANNOUNCEMENT_REQUEST:raise ValueError("Exact original announcement required")
         return dict(value)
@@ -4231,6 +4487,8 @@ def remote(request):
     # All production paths are fixed. No environment/caller path override.
     root_fd = os.open(STATE_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
+        if request.get('mode') == 'retained_first_refusal':
+            return retained_refusal_remote(request, root_fd)
         if request.get('mode') == 'failed_routine_custody':
             if os.geteuid() != 0: raise ValueError('Root read custody required')
             return failed_custody_remote(request, root_fd)
@@ -4267,6 +4525,8 @@ def remote(request):
 
 
 def validate_reply(value, request):
+    if request.get("mode")=="retained_first_refusal":
+        return validate_retained_refusal(value,request)
     if request.get("mode")=="original_announcement_cause":
         return validate_original_announcement(value,request)
     if request.get('mode') == 'failed_routine_custody':
@@ -4373,7 +4633,7 @@ def main():
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
         reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
-        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody', 'original_announcement_cause'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records'} else 4096):
+        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records','original_announcement_cause','retained_first_refusal'} else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:
             try:

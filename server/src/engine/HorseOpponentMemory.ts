@@ -147,6 +147,70 @@ export function blendOpponentMemory(
   return out;
 }
 
+export const OPPONENT_MEMORY_DONOR_HALF_LIFE_HANDS = 120;
+
+/**
+ * Computes the non-negative hand-clock staleness (`handsSinceDonorUpdate`) of a
+ * donor profile (`donorObservedHands` at `currentDonorHandClock`).
+ *
+ * Importantly, donor staleness must NEVER be computed as
+ * `exact.observed_hands - donor.observed_hands`: a player who played 80 hands
+ * at 6-max (`donor.observed_hands = 80`) and then sat down at 9-max (`exact.observed_hands = 2`)
+ * would produce `-78` under that naive difference. Instead, the hand clock
+ * compares the monotonic hand counter at which the donor bucket was last
+ * observed against the current monotonic hand counter for that player/context,
+ * clamping negative or non-finite deltas to `0`.
+ */
+export function computeDonorHandClockStaleness(
+  donorLastObservedHandClock: number,
+  currentHandClock: number
+): number {
+  if (
+    !Number.isFinite(donorLastObservedHandClock) ||
+    !Number.isFinite(currentHandClock) ||
+    donorLastObservedHandClock < 0 ||
+    currentHandClock <= donorLastObservedHandClock
+  ) {
+    return 0;
+  }
+  return currentHandClock - donorLastObservedHandClock;
+}
+
+/**
+ * Staleness-weighted donor blend (`v2` — Item 12): decays the cross-table-size
+ * donor weight exponentially as `handsSinceDonorUpdate` grows (half-life =
+ * `OPPONENT_MEMORY_DONOR_HALF_LIFE_HANDS`) and linearly tapers the donor weight
+ * to 0 as `exact.hands` approaches `OPPONENT_MEMORY_THIN_HANDS`, avoiding a
+ * discontinuous step jump at 12 exact hands.
+ */
+export function blendOpponentMemoryWithExpiry(
+  exact: ExploitCounters | undefined,
+  donors: ReadonlyArray<ExploitCounters | undefined>,
+  handsSinceDonorUpdate = 0
+): ExploitCounters | undefined {
+  if (exact && exact.hands >= OPPONENT_MEMORY_THIN_HANDS) return exact;
+  let best: ExploitCounters | undefined;
+  for (const row of donors) if (row && row.hands > (best?.hands ?? 0)) best = row;
+  if (!best) return exact;
+  const exactHands = Math.max(0, exact?.hands ?? 0);
+  const thinTaper = Math.max(
+    0,
+    (OPPONENT_MEMORY_THIN_HANDS - exactHands) / OPPONENT_MEMORY_THIN_HANDS
+  );
+  const safeHandsSinceDonor =
+    Number.isFinite(handsSinceDonorUpdate) && handsSinceDonorUpdate > 0 ? handsSinceDonorUpdate : 0;
+  const stalenessFactor =
+    safeHandsSinceDonor > 0
+      ? Math.pow(0.5, safeHandsSinceDonor / OPPONENT_MEMORY_DONOR_HALF_LIFE_HANDS)
+      : 1;
+  const effectiveWeight = OPPONENT_MEMORY_DONOR_WEIGHT * thinTaper * stalenessFactor;
+  if (effectiveWeight <= 1e-6) return exact;
+  const out = {} as ExploitCounters;
+  for (const f of EXPLOIT_COUNTER_FIELDS)
+    out[f] = (exact?.[f] ?? 0) + effectiveWeight * (best[f] ?? 0);
+  return out;
+}
+
 /** Separate bounded donor batch: never another game, mode or heads-up read. */
 export function validOpponentDonorProfiles(
   rows: unknown,

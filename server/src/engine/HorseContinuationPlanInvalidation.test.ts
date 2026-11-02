@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyOpponentContinuationBranch,
+  computeContinuationContenderFingerprint,
   evaluateExplicitContinuationPlanV2,
+  evaluateMultiStreetBarrelContinuation,
   type ContinuationResponseBranch,
   type ContinuationResponseRule,
   type ContinuationTurnObservation,
@@ -275,5 +277,65 @@ describe('HorseContinuationPlanInvalidation — Items 21 & 23 qualification', ()
     );
     expect(expired.valid).toBe(false);
     expect(expired.invalidationReasons).toContain('plan_expired');
+  });
+
+  it('computes multi-street contender/stack-exposure fingerprints and evaluates winning-branch causality (Item 23)', () => {
+    const planned = computeContinuationContenderFingerprint(['horse-042', 'villain-1'], 240, 80, 2);
+    expect(planned.activeContenderCount).toBe(2);
+    expect(planned.effectiveSpr).toBeCloseTo(3.0, 6);
+
+    // 1. Good card on unchanged heads-up contenders continues with 'improved_on_good_card'
+    const goodEval = evaluateMultiStreetBarrelContinuation({
+      plannedFingerprint: planned,
+      currentFingerprint: computeContinuationContenderFingerprint(
+        ['horse-042', 'villain-1'],
+        190,
+        80,
+        2
+      ),
+      cardKey: '5h',
+      goodCards: ['5h', '6h'],
+      scareCards: ['Ah', '2h'],
+      facingBetChips: 0,
+    });
+    expect(goodEval.canContinuePlan).toBe(true);
+    expect(goodEval.selectedCardClass).toBe('good');
+    expect(goodEval.winningBranchReason).toBe('improved_on_good_card');
+
+    // 2. Third player staying in aborts with 'aborted_multiway_contender_shift'
+    const multiwayEval = evaluateMultiStreetBarrelContinuation({
+      plannedFingerprint: planned,
+      currentFingerprint: computeContinuationContenderFingerprint(
+        ['horse-042', 'villain-1', 'villain-2'],
+        190,
+        80,
+        2
+      ),
+      cardKey: '5h',
+      goodCards: ['5h', '6h'],
+      scareCards: ['Ah', '2h'],
+      facingBetChips: 0,
+    });
+    expect(multiwayEval.canContinuePlan).toBe(false);
+    expect(multiwayEval.winningBranchReason).toBe('aborted_multiway_contender_shift');
+    expect(multiwayEval.invalidationReasons).toContain('player_count_changed');
+
+    // 3. Scare card under facing bet aborts with 'aborted_scare_under_pressure'
+    const scareUnderBet = evaluateMultiStreetBarrelContinuation({
+      plannedFingerprint: planned,
+      currentFingerprint: computeContinuationContenderFingerprint(
+        ['horse-042', 'villain-1'],
+        190,
+        80,
+        2
+      ),
+      cardKey: 'Ah',
+      goodCards: ['5h', '6h'],
+      scareCards: ['Ah', '2h'],
+      facingBetChips: 60,
+    });
+    expect(scareUnderBet.canContinuePlan).toBe(false);
+    expect(scareUnderBet.winningBranchReason).toBe('aborted_scare_under_pressure');
+    expect(scareUnderBet.invalidationReasons).toContain('runout_invalidated');
   });
 });

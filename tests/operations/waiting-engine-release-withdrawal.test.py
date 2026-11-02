@@ -263,9 +263,83 @@ class Withdrawal(unittest.TestCase):
 
 class AnnouncedCancellation(unittest.TestCase):
     def phase1_request(self):
-        return {'runKey': module.PHASE1_RUN, 'releaseSha': module.PHASE1_CONTROL,
+        return {'runKey': module.PHASE1_RUN, 'releaseSha': module.PHASE1_TARGET,
             'controlSha': module.PHASE1_CONTROL, 'desiredSha': module.PHASE1_DESIRED,
             'instanceId': '1-2ced3e43', 'mode': 'cancel_expired_announcement'}
+
+    def test_exact26_distinct_target_control_and_deadline(self):
+        with patch.dict(module.__dict__, clear=False):
+            module.select_current26_profile()
+            request = self.phase1_request() | {'releaseSha': module.CURRENT26_TARGET}
+            profile = module.cancellation_profile(request)
+            self.assertNotEqual(profile['target'], profile['control'])
+            self.assertEqual(profile['deadline'], '1793644848')
+            self.assertEqual(profile['hashes'], module.CURRENT26_HASHES)
+            for key, value in [('releaseSha', module.CURRENT26_CONTROL), ('controlSha', module.CURRENT26_TARGET),
+                               ('desiredSha', module.CURRENT26_TARGET), ('runKey', '41469215622-2')]:
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    module.cancellation_profile(request | {key: value})
+    def test_exact26_observation_retains_unknown_without_mutation(self):
+        with patch.dict(module.__dict__, clear=False):
+            request = {'runKey': module.CURRENT26_RUN, 'releaseSha': module.CURRENT26_TARGET,
+                       'controlSha': module.CURRENT26_CONTROL, 'desiredSha': module.PHASE1_DESIRED,
+                       'instanceId': '1-b22cba29', 'mode': 'observe_expired_announcement'}
+            with patch.object(os, 'getuid', return_value=0), patch.object(module, 'own_wants_edge'), \
+                 patch.object(module, 'health_pair'), patch.object(module, 'container_identity', return_value={'id': 'known'}), \
+                 patch.object(module, 'collect_cancellation_admission', side_effect=ValueError('UNKNOWN process')) as collect, \
+                 patch.object(module, 'cancellation_directory', side_effect=AssertionError('mutation')), \
+                 patch.object(module.os, 'open', side_effect=AssertionError('lock')):
+                answer = module.remote(request)
+                self.assertEqual(answer['result'], 'unproved')
+                self.assertTrue(answer['readOnly']); self.assertFalse(answer['retryAllowed'])
+                self.assertNotIn('UNKNOWN process', json.dumps(answer))
+                self.assertEqual(collect.call_args.kwargs, {'read_only': True})
+            # Actual immutable blobs, rather than a fixture hash stub, establish
+            # the profile's complete six-file source identity.
+            for name, digest in module.CURRENT26_HASHES.items():
+                raw = subprocess.check_output(['git', 'show', module.CURRENT26_CONTROL + ':server/scripts/' + name], cwd=ROOT, timeout=30)
+                self.assertEqual(module.digest(raw), digest)
+
+    def test_exact26_guarded_empty_withdrawal_interruption_and_unknown(self):
+        with patch.dict(module.__dict__, clear=False):
+            module.select_current26_profile()
+            # Reuse the real filesystem/lock/immutable-record harness and its
+            # interruption, changed-invocation and lost-ack cases for this exact
+            # distinct controller. Original cause is not a fabricated failure.
+            self.test_phase1_mask_only_empty_retry_retires_once_without_signalling()
+            self.test_phase1_live_invocation_refuses_before_mask_or_stop()
+            self.test_phase1_unproved_empty_admission_cannot_create_masks_or_issue_stop()
+
+    def test_canonical_only_large_history_bound_and_private_stability(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder:
+            path = Path(folder) / 'canonical'
+            actual = module.os.fstat
+            def root_owned(fd):
+                row = actual(fd)
+                return SimpleNamespace(**{k: (0 if k == 'st_uid' else getattr(row, k)) for k in
+                    ('st_dev','st_ino','st_mode','st_uid','st_size','st_mtime_ns','st_ctime_ns')})
+            with patch.object(module.os, 'fstat', side_effect=root_owned):
+                path.write_text('x' * 65537); path.chmod(0o600)
+                self.assertEqual(len(module.canonical_seal_bytes(path)), 65537)
+                with self.assertRaises(ValueError): module.regular(path, 0o600)
+                with path.open('wb') as out: out.truncate(16 * 1024 * 1024 + 1)
+                with self.assertRaises(ValueError): module.canonical_seal_bytes(path)
+                path.write_text('small'); path.chmod(0o644)
+                with self.assertRaises(ValueError): module.canonical_seal_bytes(path)
+                path.chmod(0o600)
+                link = Path(folder) / 'link'; link.symlink_to(path)
+                with self.assertRaises(OSError): module.canonical_seal_bytes(link)
+                fd = os.open(path, os.O_RDONLY)
+                try: before = root_owned(fd)
+                finally: os.close(fd)
+                with patch.object(module.os, 'fstat', side_effect=[before, SimpleNamespace(**(vars(before) | {'st_mtime_ns': before.st_mtime_ns + 1}))]):
+                    with self.assertRaises(ValueError): module.canonical_seal_bytes(path)
+
+    def test_exact26_actual_pinned_floor_and_distinct_cycle(self):
+        with patch.dict(module.__dict__, clear=False):
+            module.select_current26_profile()
+            self.test_phase1_actual_pinned_v3_floor_bootstrap_and_no_bytecode()
 
     def test_second_early_timer_profile_and_actual_original_controller(self):
         # A separate module namespace models one remote helper process. Old
@@ -290,10 +364,10 @@ class AnnouncedCancellation(unittest.TestCase):
                 (generation / name).write_bytes(raw)
             (generation / 'engine-release-lightning-hold.py').write_text("def own_record(path,key): return {'phase':'released'}\n")
             reqroot = state / 'engine-release-requests'; reqroot.mkdir()
-            raw = '\n'.join([module.PHASE1_CONTROL, 'url', 'actor', str(generation), module.PHASE1_CONTROL, module.MARKERLESS_ORIGINALS[module.PHASE1_RUN]]) + '\n'
+            raw = '\n'.join([module.PHASE1_TARGET, 'url', 'actor', str(generation), module.PHASE1_CONTROL, module.MARKERLESS_ORIGINALS[module.PHASE1_RUN]]) + '\n'
             for suffix in ('request', 'intent'): (reqroot / (key + '.' + suffix)).write_text(raw)
             entry = {'schema': 'engine-release-activation-floor/v3-phase1', 'runId': key,
-                'targetSha': module.PHASE1_CONTROL, 'controlSha': module.PHASE1_CONTROL,
+                'targetSha': module.PHASE1_TARGET, 'controlSha': module.PHASE1_CONTROL,
                 'manifestSha256': module.PHASE1_POLICY, 'phase': 'announcement'}
             (reqroot / (key + '.activation-entry')).write_text(json.dumps(entry))
             (reqroot / (key + '.activation-entry')).chmod(0o600)
@@ -301,14 +375,14 @@ class AnnouncedCancellation(unittest.TestCase):
             window = {'announcedAt': module.PHASE1_STAMP, 'startsAt': module.PHASE1_STAMP + 120000,
                 'endsAt': module.PHASE1_STAMP + 420000, 'verified': True}
             cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f', 'policyDigest': module.PHASE1_POLICY,
-                'startsAt': (module.PHASE1_STAMP+120000)//3600000*3600, 'endsAt': (module.PHASE1_STAMP+120000)//3600000*3600+300, 'runId': key, 'sha': module.PHASE1_CONTROL,
+                'startsAt': (module.PHASE1_STAMP+120000)//3600000*3600, 'endsAt': (module.PHASE1_STAMP+120000)//3600000*3600+300, 'runId': key, 'sha': module.PHASE1_TARGET,
                 'controlSha': module.PHASE1_CONTROL, 'status': 'reserved', 'window': window}
             seal = {'schema': 1, 'generation': 312, 'highWaterSha': module.PHASE1_DESIRED,
                 'desired': {'sha': module.PHASE1_DESIRED, 'imageId': 'sha256:' + 'a' * 64},
                 'pending': None, 'finalization': None, 'committedRuns': {}, 'routineMaintenanceCycles': {str(cycle['startsAt']): cycle}}
             (state / 'engine-release-seal.json').write_text(json.dumps(seal))
             reservation = state / ('engine-recovery-window-' + key + '.json')
-            reservation.write_text(json.dumps({'runId': key, 'sha': module.PHASE1_CONTROL, 'announcedAt': module.PHASE1_STAMP, 'cause': 'urgent'}))
+            reservation.write_text(json.dumps({'runId': key, 'sha': module.PHASE1_TARGET, 'announcedAt': module.PHASE1_STAMP, 'cause': 'urgent'}))
             reservation.chmod(0o600)
             pins = state / 'engine-release-generation-pins'; pins.mkdir()
             (pins / (key + '.generation')).write_text(str(generation) + '\n' + module.PHASE1_CONTROL + '\n')
@@ -326,6 +400,8 @@ class AnnouncedCancellation(unittest.TestCase):
                     'server/scripts/engine-release-transaction.sh',
                     'server/scripts/engine-release-recover.sh'):
                 subprocess.check_output(['git', 'show', module.PHASE1_CONTROL + ':' + source_path], cwd=ROOT, timeout=30)
+                if module.PHASE1_TARGET != module.PHASE1_CONTROL:
+                    subprocess.check_output(['git', 'show', module.PHASE1_TARGET + ':' + source_path], cwd=ROOT, timeout=30)
             proof_repo = Path(folder) / 'proof.git'
             subprocess.run(['git', 'init', '--bare', '-q', str(proof_repo)], check=True)
             objects = subprocess.check_output(['git', 'rev-parse', '--path-format=absolute', '--git-path', 'objects'], cwd=ROOT, text=True).strip()
@@ -339,10 +415,18 @@ class AnnouncedCancellation(unittest.TestCase):
                 # policy bytes and isolated canonical files. No production IO.
                 selected = [str(proof_repo) if arg == '/opt/club-arena' else arg for arg in args]
                 env = dict(os.environ); env.pop('PYTHONDONTWRITEBYTECODE', None)
-                return subprocess.check_output(selected, env=env, timeout=timeout, text=True).strip()
+                # This fixture proves immutable historical policy semantics on
+                # macOS, whose measured Git startup is0.15–0.43s across about20
+                # source reads. Loaded pre-push exceeded5s despite identical
+                # inputs. Linux still executes the actual production5s bound;
+                # no production command, assertion or release budget changes.
+                fixture_timeout = 15 if (sys.platform == 'darwin' and args[3] == 'reservation'
+                    and module.PHASE1_RUN in {'41400905104-1', '41432783729-1'}) else timeout
+                return subprocess.check_output(selected, env=env, timeout=fixture_timeout, text=True).strip()
             for name, value in [('ROOT', state), ('PARENT', parent)]:
                 patches.enter_context(patch.object(module, name, value))
             patches.enter_context(patch.object(module, 'regular', side_effect=lambda p, mode=None: Path(p).read_text()))
+            patches.enter_context(patch.object(module, 'canonical_seal_bytes', side_effect=lambda p: Path(p).read_text()))
             patches.enter_context(patch.object(module, 'source_hash', side_effect=lambda p: module.WRAPPER_HASH if p.name == 'engine-release-unit-wrapper-v1.sh' else module.PHASE1_HASHES[p.name]))
             patches.enter_context(patch.object(module, 'command', side_effect=command))
             patches.enter_context(patch.object(module, 'own_thaw', return_value={'complete': True}))
@@ -350,9 +434,31 @@ class AnnouncedCancellation(unittest.TestCase):
             patches.enter_context(patch.object(module.time, 'time', return_value=(module.PHASE1_END+100000)/1000))
             answer = module.announcement_evidence(request, read_only=True)
             self.assertEqual(answer['entryHash'], module.digest((reqroot / (key + '.activation-entry')).read_bytes()))
-            self.assertEqual(len(calls), 2)
-            self.assertIn('--request-root', calls[1])
+            self.assertEqual(len(calls), 1 if key == module.CURRENT26_RUN else 2)
+            self.assertIn('--request-root', calls[0])
             self.assertFalse((generation / '__pycache__').exists())
+            if key == module.CURRENT26_RUN:
+                for field in ('stamp', 'window', 'target', 'control'):
+                    original_seal = (state / 'engine-release-seal.json').read_text()
+                    original_reservation = reservation.read_text()
+                    if field == 'stamp':
+                        changed = json.loads(original_reservation); changed['announcedAt'] += 1
+                        reservation.write_text(json.dumps(changed))
+                    else:
+                        changed = json.loads(original_seal)
+                        selected = changed['routineMaintenanceCycles'][str(cycle['startsAt'])]
+                        if field == 'window': selected['window']['endsAt'] += 1
+                        elif field == 'target': selected['sha'] = module.PHASE1_CONTROL
+                        else: selected['controlSha'] = module.PHASE1_TARGET
+                        (state / 'engine-release-seal.json').write_text(json.dumps(changed))
+                    with self.subTest(field=field), self.assertRaises((ValueError, SystemExit)):
+                        module.announcement_evidence(request, read_only=True)
+                    (state / 'engine-release-seal.json').write_text(original_seal)
+                    reservation.write_text(original_reservation)
+                for suffix in ('request', 'intent'):
+                    (reqroot / (key + '.' + suffix)).write_text(raw.replace('1793644848', '1793644849'))
+                with self.assertRaises(ValueError): module.announcement_evidence(request, read_only=True)
+                for suffix in ('request', 'intent'): (reqroot / (key + '.' + suffix)).write_text(raw)
             for field, value in [('manifestSha256', 'a' * 64), ('schema', 'engine-release-activation-floor/v2-owner-window')]:
                 (reqroot / (key + '.activation-entry')).write_text(json.dumps(entry | {field: value}))
                 with self.assertRaises((ValueError, subprocess.CalledProcessError)):
@@ -372,7 +478,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 'releasedHoldHash': reqroot / (key + '.lightning-hold.json.released')}
             for name, path in retained.items(): path.write_text(name)
             thaw = {'announcedAtMs': module.PHASE1_STAMP, 'freezeStartedAtMs': module.PHASE1_START,
-                'releasedThroughMs': module.PHASE1_END, 'ownershipToken': module.PHASE1_TOKEN, 'generation': 1, 'thawRecordedAtMs': 1793603023814}
+                'releasedThroughMs': module.PHASE1_END, 'ownershipToken': module.PHASE1_TOKEN, 'generation': 1, 'thawRecordedAtMs': module.PHASE1_START + 221400}
             evidence = {name: module.digest(path.read_bytes()) for name, path in retained.items()} | {'thaw': thaw}
             intent = {'schema': module.EMPTY_CANCEL_SCHEMA, 'request': request, 'container': container,
                 'admission': 'positive-empty-auto-restart', 'originalProcess': None, 'originalChild': None,
@@ -564,7 +670,7 @@ class AnnouncedCancellation(unittest.TestCase):
         for race in [False,True]:
             with self.subTest(race=race), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
                 request,control,state,entry,reservation,units=self.harness(folder,patches,self.phase1_request())
-                patches.enter_context(patch.object(module,'own_thaw',return_value={'released':True, 'thawRecordedAtMs':1793603023814}))
+                patches.enter_context(patch.object(module,'own_thaw',return_value={'released':True, 'thawRecordedAtMs':module.PHASE1_START + 221400}))
                 patches.enter_context(patch.object(module,'phase1_seal_evidence'))
                 patches.enter_context(patch.object(module,'phase1_cancellation_proof'))
                 evidence=module.announcement_evidence(request);marker='engine-release-requests/'+request['runKey']+'.awaiting-certificate'
@@ -722,7 +828,7 @@ class AnnouncedCancellation(unittest.TestCase):
                     def forbidden(*args,**kwargs): raise AssertionError('Read-only seal tried to create or lock')
                     loaded.SealLock=forbidden;loaded.ensure_dirs=forbidden
             before={str(path.relative_to(root)):path.read_bytes() for path in root.rglob('*') if path.is_file()}
-            with patch.object(module,'ROOT',root), patch.object(module,'regular',side_effect=lambda path,mode=None:Path(path).read_text()), \
+            with patch.object(module,'ROOT',root), patch.object(module,'canonical_seal_bytes',side_effect=lambda path:Path(path).read_text()), \
                  patch.object(importlib.machinery.SourceFileLoader,'exec_module',execute):
                 value=module.observe_seal_state(generation)
             self.assertEqual(value['desired']['sha'],'c'*40)
@@ -798,7 +904,7 @@ class AnnouncedCancellation(unittest.TestCase):
         reservation = state / ('engine-recovery-window-' + key + '.json'); reservation.write_text('original')
         released = state / 'engine-release-requests' / (key + '.lightning-hold.json.released'); released.write_text('released')
         evidence = {'releasedHoldHash': module.digest(released.read_bytes()), 'originals': originals, 'entryHash': module.digest(entry.read_bytes()),
-                    'reservationHash': module.digest(reservation.read_bytes()), 'thaw': {'released': True, **({'thawRecordedAtMs': 1793603023814} if key == module.PHASE1_RUN else {})}}
+                    'reservationHash': module.digest(reservation.read_bytes()), 'thaw': {'released': True, **({'thawRecordedAtMs': module.PHASE1_START + 221400} if key == module.PHASE1_RUN else {})}}
         control = {'stopped': False, 'stopCount': 0, 'unknownStop': False, 'cgroupEmpty': True,
                    'evidenceFails': False, 'commands': [], 'container': {'id': 'a' * 64, 'image': 'sha256:' + 'b' * 64, 'startedAt': '2026-11-02T07:21:51.848Z' if key == module.PHASE1_RUN else 'original'}}
         def command(args, timeout=5):

@@ -2396,6 +2396,17 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // sequence, taken at most a few seconds earlier and only for a hand that is
       // about to be dealt; a number held for longer than that is discarded and a
       // fresh one taken here, so the ascending-by-deal-order property holds.
+      // PRE-PERMIT PAUSE & HAND-FOR-HAND GATE (2026-11-02): if a pause or
+      // hand-for-hand release block arrived while resolveUnstartedF06Permit(),
+      // acquireSeatBoundary(), or readDiamondCashRakeSchedule() was awaited
+      // above, abort before allocating a hand number or reserving an
+      // f06_hand_permits row. This prevents `never_started` permit churn on
+      // tables paused at the hand boundary while preserving the post-allocation
+      // `discardPreparedHandForPause()` guard immediately below.
+      if (this.isNextHandPaused() || this.isHandForHandReleaseBlocked()) {
+        this.discardPreparedHandForPause();
+        return;
+      }
       this.handCount = this.takePreparedHandNumber() ?? (await this.allocateGlobalHandNumber());
       await this.reserveF06Hand(this.handCount);
       if (this.discardPreparedHandForPause()) return;

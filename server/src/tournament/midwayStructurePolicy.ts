@@ -2,6 +2,7 @@ import type { GeneratedBlindLevel } from './blindLadder.js';
 import { maxSeatsFor } from '../engine/VariantRules.js';
 import { mttLateRegistrationMinutes, mttSpeedColumns } from './mttStructurePolicy.js';
 import { FREE_BUY_LATE_REG_MINUTES, lockedLevelMinutes } from './lockedLevelClock.js';
+import { withMidwayFreeBuyPolicy } from './midwayFreeBuyPolicy.js';
 
 export const MIDWAY_UNION_ID = 'fade0000-0000-0000-0000-000000000001';
 export const MIDWAY_STRUCTURE_VERSION = 'midway-25-25-v1';
@@ -100,7 +101,7 @@ export function withMidwayStructure<T extends Record<string, unknown>>(
   ) {
     throw new Error('Midway fixed bounty must be positive and funded by the net entry');
   }
-  return {
+  return withMidwayFreeBuyPolicy({
     ...row,
     ...(fixedBounty
       ? {
@@ -149,5 +150,5 @@ export function withMidwayStructure<T extends Record<string, unknown>>(
     // BE AT THE SAME TIME AS THE :55 BREAK, THEN ITS 5 MINUTES, THEY ARE NOT THE
     // SAME BREAK". The :55 break is its own pause authority; this is the add-on's.
     addon_break_minutes: addon ? 1 : row.addon_break_minutes,
-  };
+  });
 }

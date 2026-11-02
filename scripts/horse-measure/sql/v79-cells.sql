@@ -96,6 +96,9 @@ lab as (
      case when pf>=0.6 and top<=11 and eff_bb>60 then 'N3.pf>=0.6_JhighOrLower' end,
      case when pf>=0.6 and top>=12 and eff_bb<=60 then 'N4.pf>=0.6_eff<=60bb' end
   ], null)) l(label)
+  -- A row with no readable EV (null net or a short seat array) would count in n
+  -- but not in the sum, pulling the mean toward 0: drop it from every aggregate.
+  where f.ev_bb is not null
 ),
 hc as (select label, kc, hand_id, count(*) n_h, sum(ev_bb) s_h from lab group by 1,2,3)
 select label||'|'||kc||'|'||sum(n_h)||'|'||count(*)||'|'||round(sum(s_h),3)||'|'||round(sum(s_h*s_h),2)||'|'||round(sum(s_h*n_h),3)||'|'||sum(n_h*n_h)

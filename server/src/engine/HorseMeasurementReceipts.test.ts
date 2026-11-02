@@ -11,6 +11,7 @@ import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HAND_CLASSES } from './HorseGtoOpeningRanges.js';
 import { BB, holeFor, stateFor, type Vs3Ctx } from './HorseVs3BetDefence.test-support.js';
+import { completePreflopCommitment } from './HorseContinuation.js';
 
 const CASH6: Vs3Ctx = {
   seats: 6,
@@ -137,5 +138,31 @@ describe('Phase 1 receipts: V74 open size and V76 retired 4-bet bluff', () => {
         }
       }
     }
+  });
+
+  it('completing an open to a jam keeps the band receipt and the same action', () => {
+    // 100 chips behind, 2 to call at a 2 bet: an open to 99 leaves 1, which is
+    // within the call, so the commitment step turns it into a jam.
+    const ctx = {
+      isFixedLimit: false,
+      isPotLimit: false,
+      currentBet: 2,
+      toCall: 2,
+      stack: 100,
+      pot: 3,
+    } as never;
+    const tagged = completePreflopCommitment(
+      { a: 'raiseTo', to: 99, receipt: 'v74_nlh_open_size' },
+      ctx
+    );
+    const plain = completePreflopCommitment({ a: 'raiseTo', to: 99 }, ctx);
+    expect(plain).toEqual({ a: 'jam' });
+    expect(tagged).toEqual({ a: 'jam', receipt: 'v74_nlh_open_size' });
+    // A raise that leaves real chips behind is unchanged, tag included.
+    const deep = completePreflopCommitment(
+      { a: 'raiseTo', to: 6, receipt: 'v74_nlh_open_size' },
+      ctx
+    );
+    expect(deep).toEqual({ a: 'raiseTo', to: 6, receipt: 'v74_nlh_open_size' });
   });
 });

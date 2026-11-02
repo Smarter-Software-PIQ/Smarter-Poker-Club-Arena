@@ -27,15 +27,50 @@
 .claimAllButton,
 .buyFreezeBtn,
 .confirmButton,
+.missionActionButton,
+.rerollButton,
+.cancelButton,
+.retryButton,
 .alertButton,
+.alertSecondaryButton,
 .celebrateButton {
   background:
     linear-gradient(180deg, rgba(44, 53, 55, 0.98), rgba(8, 12, 11, 0.98) 54%, #030504),
     var(--mission-gunmetal);
   box-shadow:
+    var(--mission-bevel),
     inset 0 1px rgba(255, 255, 255, 0.16),
     inset 0 -2px rgba(0, 0, 0, 0.85),
     0 8px 20px rgba(0, 0, 0, 0.28);
+}
+
+.missionActionButton {
+  border-color: rgba(85, 232, 255, 0.44);
+  background:
+    linear-gradient(180deg, rgba(25, 45, 50, 0.98), rgba(8, 14, 15, 0.98) 56%, #030504),
+    var(--mission-gunmetal);
+}
+
+.rerollButton {
+  border-color: rgba(214, 173, 82, 0.42);
+  background:
+    linear-gradient(180deg, rgba(42, 37, 25, 0.96), rgba(9, 11, 10, 0.98) 56%, #030504),
+    var(--mission-gunmetal);
+}
+
+.cancelButton,
+.alertSecondaryButton {
+  border-color: rgba(184, 196, 201, 0.36);
+  background:
+    linear-gradient(180deg, rgba(32, 39, 41, 0.96), rgba(7, 10, 10, 0.98) 56%, #030504),
+    var(--mission-gunmetal);
+}
+
+.retryButton {
+  border-color: rgba(85, 232, 255, 0.56);
+  background:
+    linear-gradient(180deg, rgba(22, 48, 54, 0.98), rgba(7, 14, 16, 0.98) 56%, #030504),
+    var(--mission-gunmetal);
 }
 
 .backButton:not(:disabled):active,
@@ -44,6 +79,7 @@
 .claimAllButton:not(:disabled):active,
 .buyFreezeBtn:not(:disabled):active,
 .confirmButton:not(:disabled):active,
+.cancelButton:not(:disabled):active,
 .missionActionButton:not(:disabled):active,
 .rerollButton:not(:disabled):active,
 .retryButton:not(:disabled):active,
@@ -51,4 +87,8 @@
 .alertSecondaryButton:not(:disabled):active,
 .celebrateButton:not(:disabled):active {
   transform: translateY(1px);
+  box-shadow:
+    var(--mission-cavity),
+    inset 0 2px 6px rgba(0, 0, 0, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
