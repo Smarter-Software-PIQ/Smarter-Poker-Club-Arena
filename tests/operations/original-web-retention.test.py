@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 import zipfile
+import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('retention', ROOT / 'operations/release/native/original-web-retention.py')
@@ -176,15 +177,15 @@ class Tests(unittest.TestCase):
 
     def test_workflow_and_original_tuple_source_wiring(self):
         source = (ROOT / 'operations/release/native/observe-connected-ui.py').read_text()
-        self.assertIn("retention.download(archive, web_run, web_id)", source)
+        self.assertIn("retention.download_staged(archive, web_run, web_id)", source)
         self.assertIn("native.validate_web(archive, web, template['supabase_host'])", source)
         self.assertIn("'build_run_id': web_run", source)
         self.assertIn("'original-web-retention.json'", source.replace('operations/release/native/', ''))
         generic = (ROOT / 'operations/release/native/qualify-components.py').read_text()
         self.assertIn("not info['expired']", generic)
         workflow = (ROOT / '.github/workflows/component-fixture-native-smoke.yml').read_text()
-        self.assertLess(workflow.index('original-web-retention.py --admit'), workflow.index('actions/setup-node@'))
-        admission = workflow.split('      - name: Admit the fixed unpublished original-input carrier read-only\n', 1)[1].split('      - ', 1)[0]
+        self.assertLess(workflow.index('original-web-retention.py --admit-staged'), workflow.index('actions/setup-node@'))
+        admission = workflow.split('      - name: Admit the fixed original ZIP before private capture or native build\n', 1)[1].split('      - ', 1)[0]
         self.assertEqual([line.strip() for line in admission.splitlines() if line.strip().startswith('if:')],
                          ['if: inputs.connected_ui_observations'])
         self.assertIn('  contents: read\n  actions: read', workflow)
@@ -195,6 +196,106 @@ class Tests(unittest.TestCase):
         caller = (ROOT / '.github/workflows/schema-manifest-refresh.yml').read_text()
         self.assertIn("web_artifact_run_id: '41244053719'", caller)
         self.assertIn("web_artifact_id: '13059295561'", caller)
+        producer = caller.split('  retain-original-web:\n', 1)[1].split('  isolated-connected-ui:', 1)[0]
+        self.assertIn('contents: write', producer)
+        self.assertIn('actions: read', producer)
+        self.assertIn('persist-credentials: false', producer)
+        self.assertIn('original-web-retention.py --stage', producer)
+        self.assertNotIn('DATABASE_URL', producer)
+        self.assertNotIn('npm ', producer)
+        self.assertNotIn('fixture-smoke.py', producer)
+        self.assertNotIn('uses: ./.github/workflows/', producer)
+        self.assertEqual(producer.count('GH_TOKEN:'), 1)
+        self.assertIn('needs: retain-original-web', caller)
+        self.assertIn('retained_web_artifact_id: ${{ needs.retain-original-web.outputs.artifact_id }}', caller)
+        self.assertIn('artifact-ids: ${{ inputs.retained_web_artifact_id }}', workflow)
+        self.assertNotIn('github-token:', workflow)
+        self.assertNotIn('contents: write', workflow)
+        self.assertNotIn('run-id:', workflow)
+        self.assertNotIn('GH_TOKEN', admission)
+
+
+
+    def test_current_run_transfer_is_context_bound_and_rehashes_original(self):
+        payload = b'exact retained bytes'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / m.STAGED_NAME
+            path.mkdir(mode=0o700)
+            context = {'repository': m.REPO, 'repository_id': m.PINS['repository_id'],
+                       'source_sha': 'a' * 40, 'run_id': '123', 'run_attempt': '1'}
+            env = {'RUNNER_TEMP': directory, 'GITHUB_REPOSITORY': m.REPO,
+                   'GITHUB_REPOSITORY_ID': str(m.PINS['repository_id']), 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+                   'GITHUB_REF': 'refs/heads/main', 'GITHUB_WORKFLOW_REF': m.REPO + '/.github/workflows/schema-manifest-refresh.yml@refs/heads/main',
+                   'GITHUB_SHA': 'a' * 40, 'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_JOB': 'retain-original-web'}
+            _, run, evidence = m.admit(Fake())
+            original = m.historical_metadata()
+            def copied(output, *args):
+                Path(output).write_bytes(payload)
+                Path(output).chmod(0o600)
+                return original, run, evidence
+            with patch.dict(os.environ, env), patch.object(m, 'download', side_effect=copied):
+                m.stage()
+            self.assertEqual({p.name for p in path.iterdir()}, {'artifact.zip', 'receipt.json'})
+            # The production pin is never changed; this small fixture isolates
+            # the same bounded byte-hash transport primitive and trust context.
+            with patch.dict(os.environ, env), patch.dict(m.PINS, {'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()}), \
+                 patch.object(m, 'historical_metadata', return_value=original):
+                receipt_path = path / 'receipt.json'
+                receipt = json.loads(receipt_path.read_text())
+                receipt['retention'].update(bytes=m.PINS['bytes'], sha256=m.PINS['sha256'])
+                receipt_path.write_text(json.dumps(receipt))
+                for member in path.iterdir(): member.chmod(0o644)
+                m.protect_staged()
+                self.assertTrue(all(member.stat().st_mode & 0o777 == 0o600 for member in path.iterdir()))
+                info, observed_run, proof = m.admit_staged()
+                self.assertEqual(info, original); self.assertEqual(observed_run, m.run_projection(run))
+                self.assertEqual(proof['current_run_transfer'], context)
+                output = Path(directory) / 'copy.zip'
+                m.download_staged(output, '41244053719', '13059295561')
+                self.assertEqual(output.read_bytes(), payload)
+                with self.assertRaises(FileExistsError): m.download_staged(output, '41244053719', '13059295561')
+                self.assertEqual(output.read_bytes(), payload)
+                output.unlink()
+                stream = m.stream_exact
+                def changed_after_copy(*args):
+                    stream(*args)
+                    (path / 'artifact.zip').chmod(0o644)
+                with patch.object(m, 'stream_exact', side_effect=changed_after_copy), self.assertRaises(m.RetentionError):
+                    m.download_staged(output, '41244053719', '13059295561')
+                self.assertFalse(output.exists())
+                (path / 'artifact.zip').chmod(0o600)
+
+                for key, value in [('GITHUB_RUN_ID', '124'), ('GITHUB_RUN_ATTEMPT', '2'),
+                                   ('GITHUB_SHA', 'b' * 40), ('GITHUB_REF', 'refs/heads/other'),
+                                   ('GITHUB_REPOSITORY_ID', '42'), ('GITHUB_EVENT_NAME', 'pull_request')]:
+                    with patch.dict(os.environ, {key: value}), self.assertRaises(m.RetentionError):
+                        m.admit_staged()
+                for key, value in [('context', context | {'run_id': '124'}),
+                                   ('original_metadata', {}), ('original_run', run | {'event': 'workflow_dispatch'}),
+                                   ('retention', evidence | {'draft': False}), ('extra', 'private')]:
+                    receipt_path.write_text(json.dumps(receipt | {key: value}))
+                    with self.assertRaises(m.RetentionError): m.admit_staged()
+                receipt_path.write_text(json.dumps(receipt))
+                (path / 'artifact.zip').write_bytes(payload[:-1] + b'X')
+                with self.assertRaisesRegex(m.RetentionError, 'DIGEST'): m.admit_staged()
+                (path / 'artifact.zip').unlink(); (path / 'artifact.zip').symlink_to('/not-followed')
+                with self.assertRaises((m.RetentionError, OSError)): m.admit_staged()
+                with self.assertRaises((m.RetentionError, OSError)): m.protect_staged()
+
+    def test_closed_api_diagnostics_name_fixed_route_and_http_status(self):
+        with patch.dict(os.environ, {'GH_TOKEN': 'test-only-not-a-secret'}):
+            transport = m.Transport()
+        class Refused:
+            def __init__(self, code): self.code = code
+            def open(self, request, timeout):
+                raise urllib.error.HTTPError(request.full_url, self.code, 'private raw error', {}, None)
+        for status in (401, 403, 404, 500):
+            transport.opener = Refused(status)
+            with self.assertRaisesRegex(m.RetentionError, 'ORIGINAL_WEB_RETENTION_DRAFT_RELEASE_HTTP_' + str(status)):
+                transport.open(m.PREFIX + '/releases/430874424')
+        transport.opener = Refused(404)
+        with self.assertRaisesRegex(m.RetentionError, '^ORIGINAL_WEB_RETENTION_API_404$'):
+            transport.open(m.PREFIX + '/actions/artifacts/13059295561')
 
 
 if __name__ == '__main__':

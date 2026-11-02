@@ -2867,6 +2867,12 @@ function LiveTablePage({
       const cardHoldPrevHand = prev.handNumber ?? 0;
       const cardHoldSameHand =
         cardHoldNextHand <= 0 || cardHoldPrevHand <= 0 || cardHoldNextHand === cardHoldPrevHand;
+      // Public opponent reveals never inherit Hero's unknown-hand recovery.
+      // They belong to one positively identified hand only.
+      const cardHoldOpponentSameHand =
+        Number.isSafeInteger(cardHoldNextHand) &&
+        cardHoldNextHand > 0 &&
+        cardHoldNextHand === cardHoldPrevHand;
       const nextPlayers: (SeatPlayer | null)[] = rosterPlayers.map((p, i) => {
         if (!p) return null;
         if (!lightningObserver && leftSeatPendingRef.current && p.id === userId) return null;
@@ -2967,7 +2973,7 @@ function LiveTablePage({
            blanked off the felt mid-announcement, timing-dependently. Within
            the same hand, a revealed opponent hand stays revealed; the next
            hand's boundary reset clears it like everything else. */
-        if (cardHoldSameHand && (!sp.holeCards || sp.holeCards.length === 0)) {
+        if (cardHoldOpponentSameHand && (!sp.holeCards || sp.holeCards.length === 0)) {
           const prevPlayer = prev.players[i];
           if (
             prevPlayer &&
@@ -14104,8 +14110,11 @@ function LiveTablePage({
 
           // TAKE THE BUTTON DOWN WHEN THE OFFER DIES.
           //
-          // The engine expires an offer after 90s and refuses a late reveal with
-          // "That Hand Is Too Old To Rabbit Hunt". It has always SENT expires_at
+          // The FELT offer's beat ends at expires_at; since 2026-11-01 the
+          // engine no longer refuses a late reveal by age (the replayer can
+          // buy any persisted previous hand), but the tile still comes down
+          // on time — the HUD slot is for the impulse window, and the
+          // Previous Hand card is the way back in. The engine has always SENT expires_at
           // for exactly this — and the client ignored it, so the button sat
           // there after the offer was dead and the only thing left to click was
           // a refusal. Offering something that cannot be bought is worse than
@@ -18958,7 +18967,9 @@ function LiveTablePage({
                 ? unfolded
                 : { ...unfolded, holeCards: [], showCards: false };
             }
-            return unfolded;
+            // Never relabel the previous hand's public opponent cards as
+            // belonging to the new deal when handNumber advances below.
+            return { ...unfolded, holeCards: [], showCards: false };
           });
           return {
             ...prev,
@@ -24098,7 +24109,13 @@ function LiveTablePage({
     handSettling,
     handInProgress: tableState.isHandInProgress,
     rabbitAvailable: isRabbitAvailable && rabbitViewIsCurrent,
-    rabbitEnabled: v8Settings.rabbit_hunt_button,
+    // AUTO RUN RABBIT HUNT (Dan 2026-11-01): auto IS the player asking for
+    // the runout, so it keeps the slot live even when the manual button is
+    // hidden — the tile mounts, presses itself, and the cards land on the
+    // board exactly as a tap would put them there. VIP ONLY, like the stored
+    // switch itself: the effective value is (auto_rabbit_hunt AND VIP), so a
+    // lapsed membership stops the automatic spending the moment it lapses.
+    rabbitEnabled: v8Settings.rabbit_hunt_button || (v8Settings.auto_rabbit_hunt && viewerIsVip),
   });
 
   /**
@@ -27307,6 +27324,7 @@ function LiveTablePage({
                 userId={userId === 'guest' ? null : userId}
                 onReveal={handleRabbitReveal}
                 registerHotkey={registerRabbitHotkey}
+                autoRun={v8Settings.auto_rabbit_hunt && viewerIsVip}
               />
             )}
             <PreviousHandCard
@@ -30484,6 +30502,7 @@ function LiveTablePage({
            shows the offer for ~2.5s; a player who missed it can buy the same
            reveal here, through the same charging call. */
         onRabbitHunt={handleRabbitReveal}
+        rabbitIsVIP={viewerIsVip}
         onRabbitHuntReceipt={handleRabbitReceipt}
         rabbitUserId={userId === 'guest' ? null : userId}
         /* Take the hand you are LOOKING AT. This was `onReplay={() => {...}}`

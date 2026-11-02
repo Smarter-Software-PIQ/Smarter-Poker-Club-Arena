@@ -1,16 +1,19 @@
 /**
- * RABBIT HUNT FROM THE HAND REPLAYER (P5, 2026-09-05)
+ * RABBIT HUNT FROM THE HAND REPLAYER (P5 2026-09-05; widened 2026-11-01)
  *
- * The felt shows the offer for 2250-2650ms. The engine holds it for NINETY
- * SECONDS. Everything between those two numbers was time a player could not
- * use, and the 2026-09-05 competitive research found exactly one room closing
- * that gap - ClubWPT Gold, which lets you rabbit hunt from the replayer. This
- * is ours.
+ * The felt shows the offer for 2250-2650ms. The first cut of this surface
+ * mirrored the engine's 90-second window, because that was all the engine
+ * would sell. Dan 2026-11-01 widened the feature itself: "if you are looking
+ * at a PREVIOUS HAND you can RABBIT HUNT, or run out the board's cards that
+ * would have been there." The engine persists every captured runout to the
+ * RLS-sealed rabbit_hunt_offers table and serves replayed hands from there,
+ * so the replayer's bound is now that table's own 1-day retention.
  *
  * The rules stay where they were: the ENGINE decides whether a hand can be
- * bought (offer, TTL, table toggle, board length, dealt-in, already-paid).
- * The client decides only whether to OFFER the button, so the replayer does
- * not show a dead control on hands that are plainly past selling.
+ * bought (runout on record, table toggle, board length, dealt-in,
+ * already-paid). The client decides only whether to OFFER the button, so the
+ * replayer does not show a dead control on hands that are plainly past
+ * selling.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
@@ -20,7 +23,7 @@ import React from 'react';
 
 import {
   replayRabbitOffer,
-  RABBIT_HUNT_OFFER_TTL_MS,
+  RABBIT_HUNT_REPLAY_RETENTION_MS,
 } from '../../src/components/table/replayRabbitOffer';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '../../', p), 'utf8');
@@ -36,7 +39,7 @@ describe('which replayed hands are still worth offering', () => {
     const o = replayRabbitOffer({ ...base, boards: [board(3)] }, now);
     expect(o.show).toBe(true);
     expect(o.cardsUnseen, 'the turn and the river').toBe(2);
-    expect(o.msLeft).toBe(RABBIT_HUNT_OFFER_TTL_MS - 5_000);
+    expect(o.msLeft).toBe(RABBIT_HUNT_REPLAY_RETENTION_MS - 5_000);
   });
 
   it('a preflop fold has all five unseen', () => {
@@ -65,15 +68,15 @@ describe('which replayed hands are still worth offering', () => {
     );
   });
 
-  it('past the engine window it is not offered, and the button is not dangled', () => {
-    const late = base.timestamp + RABBIT_HUNT_OFFER_TTL_MS + 1;
+  it('past the retention it is not offered, and the button is not dangled', () => {
+    const late = base.timestamp + RABBIT_HUNT_REPLAY_RETENTION_MS + 1;
     const o = replayRabbitOffer({ ...base, boards: [board(3)] }, late);
     expect(o.show).toBe(false);
     expect(o.msLeft).toBe(0);
   });
 
   it('the last second still counts', () => {
-    const edge = base.timestamp + RABBIT_HUNT_OFFER_TTL_MS - 1;
+    const edge = base.timestamp + RABBIT_HUNT_REPLAY_RETENTION_MS - 1;
     expect(replayRabbitOffer({ ...base, boards: [board(4)] }, edge).show).toBe(true);
   });
 
@@ -83,18 +86,33 @@ describe('which replayed hands are still worth offering', () => {
   });
 });
 
-describe('the client copy of the TTL matches the engine', () => {
-  it('is the same ninety seconds the engine enforces', () => {
+describe('the client copy of the retention matches the server', () => {
+  it('is the one day the offers table is pruned at', () => {
+    // The engine's bound is the rabbit_hunt_offers 1-day prune
+    // (sp_prune_rabbit_hunt_offers, created in 20260823141355 and scheduled
+    // alongside the 2026-11-01 widening). Pin the client constant to the
+    // migration's own interval so the two cannot drift in silence.
+    const migration = read(
+      'supabase/migrations/20260823141355_rabbit_hunt_server_enforced_economy.sql'
+    );
+    expect(migration, 'the prune interval must still be findable').toMatch(/interval '1 day'/);
+    expect(RABBIT_HUNT_REPLAY_RETENTION_MS).toBe(86_400_000);
+  });
+
+  it('the engine serves a replayed hand from the sealed offers table', () => {
     const engine = read('server/src/engine/ServerTableEngineSettlement.ts');
-    const m = engine.match(/RABBIT_HUNT_OFFER_TTL_MS\s*=\s*([0-9_]+)/);
-    expect(m, 'the engine constant must still be findable').toBeTruthy();
-    expect(Number(m![1].replace(/_/g, ''))).toBe(RABBIT_HUNT_OFFER_TTL_MS);
+    // A hand the in-memory map no longer holds is read back from the
+    // RLS-sealed rabbit_hunt_offers row the capture path wrote - that is
+    // what makes a PREVIOUS hand purchasable at all (Dan 2026-11-01). The
+    // 90-second age refusal is gone on purpose.
+    expect(engine).toContain('loadPersistedRabbitOffer');
+    expect(engine).toContain("from('rabbit_hunt_offers')");
+    expect(engine).not.toContain("error: 'That Hand Is Too Old To Rabbit Hunt'");
   });
 
   it('the engine still refuses what the client declines to offer', () => {
     const engine = read('server/src/engine/ServerTableEngineSettlement.ts');
     // The client hiding a button is cosmetic; these are the real gates.
-    expect(engine).toContain('That Hand Is Too Old To Rabbit Hunt');
     expect(engine).toContain('The Board Already Ran Out');
     expect(engine).toContain('You Were Not Dealt Into That Hand');
     expect(engine, 'a second tap re-shows free, it does not re-bill').toContain(

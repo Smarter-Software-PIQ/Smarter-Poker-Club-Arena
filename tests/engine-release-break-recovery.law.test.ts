@@ -1,5 +1,13 @@
 import { enteredFloorFixture, portableFloorReader } from './helpers/engineActivationFloorFixture';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -315,7 +323,9 @@ printf '%s\n%s' '{"running":true,"releaseSha":"${desiredSha}","liveness":"ok","i
           'a'.repeat(40),
           'https://example.invalid/run/77',
           'must remain on uncertain abort',
-          control,
+          // pwd -P in the recover script resolves macOS /var -> /private/var,
+          // so the request must carry the physical path.
+          realpathSync(control),
           'b'.repeat(40),
           String(Math.floor(Date.now() / 1000) + 1200),
           '',

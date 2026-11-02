@@ -23,15 +23,27 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// The RPC is the only thing revealRabbitHunt reaches outside itself.
+// The RPC, the metadata insert, and - since the previous-hand widening of
+// 2026-11-01 - the sealed-offer lookup are everything revealRabbitHunt
+// reaches outside itself. `selectRow` answers the lookup per table name, so a
+// test can put a persisted runout (or a durable receipt) behind the engine.
 const rpc = vi.fn();
 const revealInsert = vi.fn();
+const selectRow = vi.fn();
 vi.mock('../services/supabase.js', () => ({
   supabase: {
     rpc: (...args: unknown[]) => rpc(...args),
-    from: (table: string) => ({
-      insert: (payload: unknown) => revealInsert(table, payload),
-    }),
+    from: (table: string) => {
+      const chain = {
+        eq: () => chain,
+        maybeSingle: () => Promise.resolve(selectRow(table)),
+      };
+      return {
+        insert: (payload: unknown) => revealInsert(table, payload),
+        upsert: (payload: unknown) => revealInsert(table, payload),
+        select: () => chain,
+      };
+    },
   },
   loadTable: vi.fn(),
   updateTableStatus: vi.fn(),
@@ -101,6 +113,11 @@ beforeEach(() => {
   rpc.mockReset();
   revealInsert.mockReset();
   revealInsert.mockResolvedValue({ error: null });
+  selectRow.mockReset();
+  // Default: nothing persisted - the DB fallback finds no runout and no
+  // receipt - and the caller is a plain member (the felt window needs no
+  // VIP check at all, which 'the felt window is open to everyone' proves).
+  selectRow.mockReturnValue({ data: null, error: null });
   rpc.mockResolvedValue({
     data: { success: true, source: 'vip_monthly', vip_remaining: 99, diamonds_spent: 0 },
     error: null,
@@ -342,22 +359,130 @@ describe('paying twice for one reveal is impossible', () => {
   });
 });
 
-describe('an offer goes stale', () => {
-  it('an old hand is refused rather than sold', async () => {
+describe('a previous hand is purchasable, by a VIP (Dan 2026-11-01)', () => {
+  const PERSISTED_ROW = {
+    data: {
+      cards: [
+        { rank: '9', suit: 'hearts' },
+        { rank: '2', suit: 'clubs' },
+      ],
+      board_len: 3,
+      eligible_user_ids: [HERO],
+      created_at: new Date().toISOString(),
+    },
+    error: null,
+  };
+  const VIP_PROFILE = { data: { is_vip: true, vip_tier: null, vip_expires_at: null }, error: null };
+  const PLAIN_PROFILE = {
+    data: { is_vip: false, vip_tier: null, vip_expires_at: null },
+    error: null,
+  };
+  /** Answer the three tables a previous-hand purchase can read. */
+  const behindTheEngine = (rows: Record<string, unknown>) =>
+    selectRow.mockImplementation((table: string) => rows[table] ?? { data: null, error: null });
+
+  it('an aged in-memory offer still sells to a VIP - retention is the prune, not a clock', async () => {
+    // The 90-second refusal ("That Hand Is Too Old To Rabbit Hunt") is gone
+    // on purpose: the replayer buys previous hands, and the bound is the
+    // rabbit_hunt_offers 1-day prune. Past the felt window it is the
+    // previous-hand feature, so it asks for the VIP card first.
+    behindTheEngine({ profiles: VIP_PROFILE });
     const { engine, reveal } = makeEngine();
     (engine.rabbitHuntOffers as Map<number, { offeredAt: number }>).get(HAND)!.offeredAt =
       Date.now() - 10 * 60 * 1000;
     const r = await reveal();
+    expect(r.success).toBe(true);
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('the felt window is open to everyone, with no VIP lookup at all', async () => {
+    // The newest offer inside its 90-second beat is the original 2026-08-25
+    // felt purchase. A plain member buys it exactly as before, and the
+    // engine does not even read profiles to decide.
+    const { reveal } = makeEngine();
+    const r = await reveal();
+    expect(r.success).toBe(true);
+    expect(selectRow).not.toHaveBeenCalledWith('profiles');
+  });
+
+  it('a plain member is refused a previous hand BEFORE any charge', async () => {
+    behindTheEngine({ profiles: PLAIN_PROFILE, rabbit_hunt_offers: PERSISTED_ROW });
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    const r = await reveal(HERO, HAND);
     expect(r.success).toBe(false);
-    expect(r.error).toMatch(/too old/i);
+    expect(r.error).toMatch(/vip/i);
+    expect(r.cards).toBeUndefined();
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('a fresh offer is not', async () => {
-    const { engine, reveal } = makeEngine();
-    (engine.rabbitHuntOffers as Map<number, { offeredAt: number }>).get(HAND)!.offeredAt =
-      Date.now() - 1000;
-    expect((await reveal()).success).toBe(true);
+  it('an expired membership is a plain member, and a profiles fault fails closed', async () => {
+    behindTheEngine({
+      profiles: {
+        data: {
+          is_vip: true,
+          vip_tier: null,
+          vip_expires_at: new Date(Date.now() - 1000).toISOString(),
+        },
+        error: null,
+      },
+      rabbit_hunt_offers: PERSISTED_ROW,
+    });
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    expect((await reveal(HERO, HAND)).success).toBe(false);
+    behindTheEngine({
+      profiles: { data: null, error: new Error('db down') },
+      rabbit_hunt_offers: PERSISTED_ROW,
+    });
+    const { reveal: reveal2 } = makeEngine({ rabbitHuntOffers: new Map() });
+    const r2 = await reveal2(HERO, HAND);
+    expect(r2.success).toBe(false);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('a hand the map no longer holds is read back from the sealed offers table', async () => {
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    behindTheEngine({ rabbit_hunt_offers: PERSISTED_ROW, profiles: VIP_PROFILE });
+    const r = await reveal(HERO, HAND);
+    expect(r.success).toBe(true);
+    // A flop fold: the persisted turn and river, not a guess at five.
+    expect(r.cards).toHaveLength(2);
+    expect(r.board_length).toBe(3);
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('the dealt-in gate holds on the DB path exactly as in memory', async () => {
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    behindTheEngine({ rabbit_hunt_offers: PERSISTED_ROW, profiles: VIP_PROFILE });
+    const r = await reveal(VILLAIN, HAND);
+    expect(r.success).toBe(false);
+    expect(r.error).toMatch(/not dealt into/i);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('a durable receipt re-shows the bought reveal free, even to a lapsed member', async () => {
+    // The free re-open sits BEFORE the VIP gate: a reveal the player already
+    // paid for is theirs, whatever their membership is today.
+    behindTheEngine({
+      rabbit_hunt_offers: PERSISTED_ROW,
+      rabbit_hunt_reveals: { data: { hand_number: HAND }, error: null },
+      profiles: PLAIN_PROFILE,
+    });
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    const r = await reveal(HERO, HAND);
+    expect(r.success).toBe(true);
+    expect(r.source).toBe('already_revealed');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('a lookup fault answers unavailable - never a throw, never a charge', async () => {
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    selectRow.mockImplementation(() => {
+      throw new Error('postgrest down');
+    });
+    const r = await reveal(HERO, HAND);
+    expect(r.success).toBe(false);
+    expect(r.error).toMatch(/no longer available/i);
+    expect(rpc).not.toHaveBeenCalled();
   });
 });
 

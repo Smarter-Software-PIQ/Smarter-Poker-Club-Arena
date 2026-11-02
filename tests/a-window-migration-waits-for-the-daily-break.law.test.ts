@@ -592,3 +592,90 @@ describe('one explicit database-only certified maintenance operation', () => {
     );
   });
 });
+
+it('bounds the November2 join-only continuation to the same two SQL files and unchanged reserves', () => {
+  const doc = JSON.parse(read('server/release/owner-maintenance-windows.json'));
+  const id = '2026-11-02-attention14-two-migration-continuation';
+  const entries = doc.databaseWindows.filter((w: { id: string }) => w.id === id);
+  expect(entries).toHaveLength(1);
+  expect(doc.windows.some((w: { id: string }) => w.id === id)).toBe(false);
+  const w = entries[0];
+  expect(w.contains).toBe('4e9c32285477176df8e4afcef4e743d5fe961047');
+  expect(w.notBefore).toBe('2026-11-02T02:10:00Z');
+  expect(w.notAfter).toBe('2026-11-02T05:10:00Z');
+  expect(Date.parse(w.notAfter) - Date.parse(w.notBefore)).toBe(10800000);
+  const previous = doc.databaseWindows.find(
+    (x: { id: string }) => x.id === '2026-11-01-attention14-two-migration-continuation'
+  );
+  expect(Date.parse(previous.notAfter) - Date.parse(w.notBefore)).toBe(900000);
+  const files = [
+    [
+      '20261101004247_started_tournament_abort_supports_equal_share_settlement.sql',
+      'd42ad78995ffb0c626636e10c41b9b350119995e20c7ef71c4578ac99bfca1aa',
+    ],
+    [
+      '20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql',
+      '3a292905ddf7daffc696f5cb836255a220060ba0631a126872ad30ecb7908a29',
+    ],
+  ];
+  expect(w.migrations).toEqual(files.map(([file]) => file));
+  for (const [file, sha] of files) {
+    expect(
+      createHash('sha256')
+        .update(read('supabase/migrations/' + file))
+        .digest('hex')
+    ).toBe(sha);
+    expect(validateWindowMigration(file, read('supabase/migrations/' + file))).toBe(true);
+    expect(validateOwnerMigrationWindow(w, file, Date.parse(w.notBefore))).toBe(w);
+    expect(validateOwnerMigrationWindow(w, file, Date.parse(w.notAfter) - 1)).toBe(w);
+    expect(() => validateOwnerMigrationWindow(w, file, Date.parse(w.notBefore) - 1)).toThrow();
+    expect(() => validateOwnerMigrationWindow(w, file, Date.parse(w.notAfter))).toThrow();
+  }
+  expect(() =>
+    validateOwnerMigrationWindow(
+      w,
+      '20261101174851_equal_share_retirement_preserves_preactivation_mystery_bount.sql',
+      Date.parse(w.notBefore)
+    )
+  ).toThrow();
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import assert from 'node:assert/strict';
+    import {ownerWindowPredicate} from './scripts/ci/owner-window-migration.mjs';
+    import {windowTransactionSQL,START_RESERVE_SECONDS,COMMIT_RESERVE_SECONDS,TRANSACTION_BUDGET_SECONDS,WINDOW_LOCK_TIMEOUT_MS,WINDOW_STATEMENT_TIMEOUT_MS} from './scripts/ci/maintenance-window-migrations.mjs';
+    const w=JSON.parse(process.argv[1]);Date.now=()=>Date.parse(w.notBefore);
+    assert.deepEqual([START_RESERVE_SECONDS,COMMIT_RESERVE_SECONDS,TRANSACTION_BUDGET_SECONDS,WINDOW_LOCK_TIMEOUT_MS,WINDOW_STATEMENT_TIMEOUT_MS],[150,100,8,1000,5000]);
+    for(const reserve of [150,100]){
+      const sql=ownerWindowPredicate(reserve,w);
+      for(const term of ['public.fn_platform_frozen()',"b.phase = 'counting_down'","b.reason = 'Deployment Recovery'",'b.ownership_token IS NOT NULL',"interval '5 minutes'",'make_interval(secs => '+reserve+')',w.notBefore,w.notAfter])assert.ok(sql.includes(term),term);
+    }
+    const tx=windowTransactionSQL(w.migrations[0],'BEGIN; SELECT 1; COMMIT;',w);
+    for(const term of ["lock_timeout = '1000ms'","statement_timeout = '5000ms'",'make_interval(secs => 8)','make_interval(secs => 150)','make_interval(secs => 100)'])assert.ok(tx.includes(term),term);
+    Date.now=()=>Date.parse(w.notAfter);assert.throws(()=>ownerWindowPredicate(150,w));
+  `,
+      JSON.stringify(w),
+    ],
+    { encoding: 'utf8', timeout: 10000 }
+  );
+  expect(child.status, child.stdout + child.stderr).toBe(0);
+  for (const term of [
+    'request_database_break=false',
+    '285-second',
+    '150-second',
+    '100-second',
+    '1s lock_timeout',
+    '5s statement_timeout',
+    '8s transaction budget',
+    'first-refusal stop',
+    'v3 thaw',
+    'without automatic renewal',
+  ])
+    expect(w.ownerOrder).toContain(term);
+  expect(read('server/scripts/engine-release-seal.py')).not.toContain(id);
+  expect(read('server/scripts/engine-release-transaction.sh')).not.toContain(id);
+  expect(read('.github/workflows/stage-engine-release.yml')).not.toContain(id);
+});

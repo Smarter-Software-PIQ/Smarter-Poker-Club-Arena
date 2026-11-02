@@ -126,9 +126,25 @@ export function TournamentRankingHost() {
     let cancelled = false;
     const controller = new AbortController();
     (async () => {
-      /* Six bounded looks, with 1.5s between empty replies. The row is being written as we ask, so this is a
-         short wait on an in-flight commit, not a poll for something absent. */
-      for (let attempt = 0; attempt < 6 && !cancelled; attempt++) {
+      /* SETTLEMENT CAN LAG THE FELT BY MINUTES (Burls, Sunday 200 Deep Stack,
+         2026-11-01). The bust path tears the table page down before the
+         engine's elimination commit - the one write that stamps position AND
+         prize - and in that event the commit landed 5s to 213s after the bust
+         (median 51s across the paid places). Six looks over 9s gave up more
+         than three minutes before the row existed, and the card sat on screen
+         reading "Finished, Total Payout 0" the whole time. So: six quick looks
+         for the common in-flight commit, then a patient look every 5s for up
+         to six minutes - past the worst lag yet measured, with headroom. The
+         card prints Pending until this lands (see TournamentRankingCard), so
+         it never claims a 0 it cannot know. */
+      const BACKFILL_BUDGET_MS = 360_000;
+      const backfillStartedAt = Date.now();
+      let backfillErrorReported = false;
+      for (
+        let attempt = 0;
+        !cancelled && Date.now() - backfillStartedAt < BACKFILL_BUDGET_MS;
+        attempt++
+      ) {
         try {
           /* `readLocalSession()` rather than the auth round trip — a house rule
              the pre-push hook enforces, and the better call here anyway: this
@@ -144,7 +160,7 @@ export function TournamentRankingHost() {
             (signal) =>
               supabase
                 .from('tournament_players')
-                .select('position, prize, elimination_sequence')
+                .select('position, prize, bounty_winnings, elimination_sequence')
                 .eq('tournament_id', tournamentId)
                 .eq('user_id', uid)
                 .abortSignal(signal)
@@ -178,6 +194,9 @@ export function TournamentRankingHost() {
                          claiming the 0 it was published with if the row says
                          otherwise. Only ever raises a zero. */
                       prize: prev.tournament.prize || Number(data?.prize) || 0,
+                      /* Bounties ride the same commit and the same rule. */
+                      bountyWinnings:
+                        prev.tournament.bountyWinnings || Number(data?.bounty_winnings) || 0,
                     },
                   }
                 : prev
@@ -186,12 +205,17 @@ export function TournamentRankingHost() {
           }
         } catch (err) {
           if (cancelled) return;
-          reportError(err, 'TournamentRankingHost.finish_place_backfill_failed', {
-            tournamentId,
-          });
-          return;
+          /* A transient read error must not end the wait - the whole point of
+             this loop is outlasting a slow settlement. Report the first,
+             keep looking. */
+          if (!backfillErrorReported) {
+            backfillErrorReported = true;
+            reportError(err, 'TournamentRankingHost.finish_place_backfill_failed', {
+              tournamentId,
+            });
+          }
         }
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, attempt < 6 ? 1500 : 5000));
       }
     })();
     return () => {

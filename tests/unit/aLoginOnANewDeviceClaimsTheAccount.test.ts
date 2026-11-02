@@ -12,7 +12,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const rpcMock = vi.hoisted(() => vi.fn());
+const rejectionMock = vi.hoisted(() => vi.fn());
 const authListeners = vi.hoisted(() => [] as Array<(e: string, s: unknown) => void>);
+
+vi.mock('../../src/lib/sessionRevoked', () => ({
+  handleEngineAuthRejection: (...args: unknown[]) => rejectionMock(...args),
+  ANOTHER_DEVICE_SOURCE: 'account:another_device_login',
+}));
 
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
@@ -28,6 +34,7 @@ vi.mock('../../src/lib/supabase', () => ({
 
 import {
   CLAIMED_LOGIN_STORAGE_KEY,
+  RESUME_SESSION_GONE_SOURCE,
   __resetActiveLoginForTests,
   claimActiveLogin,
   sessionIdOf,
@@ -50,11 +57,13 @@ function tokenWith(sessionId: string): string {
 async function settle(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
-  await Promise.resolve();
+  // A dynamic import (the sessionRevoked bounce) resolves on a macrotask.
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 beforeEach(() => {
   rpcMock.mockReset();
+  rejectionMock.mockReset();
   rpcMock.mockResolvedValue({ data: { ok: true, kicked: 0 }, error: null });
   authListeners.length = 0;
   localStorage.clear();
@@ -144,5 +153,70 @@ describe('startSingleActiveLogin', () => {
     emit('SIGNED_IN', { access_token: tokenWith(SID_B) });
     await settle();
     expect(rpcMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('every boot re-verifies the session it already claimed', () => {
+  it('a healthy resumed session verifies once per boot and stays put', async () => {
+    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A); // claimed on an earlier boot
+    rpcMock.mockResolvedValue({ data: { ok: true, kicked: 0, same: true }, error: null });
+    await claimActiveLogin(tokenWith(SID_A), true);
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rejectionMock).not.toHaveBeenCalled();
+    // Verified for this boot: a second INITIAL_SESSION asks nothing again.
+    await claimActiveLogin(tokenWith(SID_A), true);
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a session another login killed while this device slept bounces with the device words', async () => {
+    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A);
+    rpcMock.mockResolvedValue({
+      data: { ok: false, why: 'session_gone', superseded: true },
+      error: null,
+    });
+    await claimActiveLogin(tokenWith(SID_A), true);
+    await settle();
+    expect(rejectionMock).toHaveBeenCalledTimes(1);
+    expect(rejectionMock).toHaveBeenCalledWith('account:another_device_login', true);
+    // Once bounced, nothing claims or verifies this session again.
+    await claimActiveLogin(tokenWith(SID_A), true);
+    await claimActiveLogin(tokenWith(SID_A));
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a session that died any other way bounces with the plain sign-out words', async () => {
+    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A);
+    rpcMock.mockResolvedValue({
+      data: { ok: false, why: 'session_gone', superseded: false },
+      error: null,
+    });
+    await claimActiveLogin(tokenWith(SID_A), true);
+    await settle();
+    expect(rejectionMock).toHaveBeenCalledWith(RESUME_SESSION_GONE_SOURCE, true);
+  });
+
+  it('a network failure verifies nothing and signs nobody out', async () => {
+    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A);
+    rpcMock.mockRejectedValueOnce(new Error('offline'));
+    await claimActiveLogin(tokenWith(SID_A), true);
+    await settle();
+    expect(rejectionMock).not.toHaveBeenCalled();
+    // Not marked verified: the next event retries the check.
+    rpcMock.mockResolvedValue({ data: { ok: true, same: true }, error: null });
+    await claimActiveLogin(tokenWith(SID_A), true);
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('INITIAL_SESSION carries the boot re-check; SIGNED_IN alone does not re-ask', async () => {
+    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A);
+    rpcMock.mockResolvedValue({ data: { ok: true, same: true }, error: null });
+    startSingleActiveLogin();
+    const emit = authListeners[0];
+    emit('SIGNED_IN', { access_token: tokenWith(SID_A) }); // already claimed: silent
+    await settle();
+    expect(rpcMock).not.toHaveBeenCalled();
+    emit('INITIAL_SESSION', { access_token: tokenWith(SID_A) }); // boot: verify
+    await settle();
+    expect(rpcMock).toHaveBeenCalledTimes(1);
   });
 });

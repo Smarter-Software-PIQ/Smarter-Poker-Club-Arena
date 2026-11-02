@@ -6,8 +6,10 @@ expired Actions artifact is currently available. Its exact bytes are carried by
 one unpublished draft asset. Generic Actions artifact admission stays unchanged.
 """
 import hashlib
+import contextlib
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import sys
@@ -63,9 +65,14 @@ class Transport:
                 return self.signed(location)
             code = error.code
             error.close()
-            if code == 404:
+            if code == 404 and route == PREFIX + '/actions/artifacts/13059295561':
                 raise RetentionError('ORIGINAL_WEB_RETENTION_API_404') from None
-            raise RetentionError('ORIGINAL_WEB_RETENTION_API_REFUSED') from None
+            label = {PREFIX: 'REPOSITORY', PREFIX + '/actions/runs/41244053719': 'ORIGINAL_RUN',
+                     PREFIX + '/actions/artifacts/13059295561': 'ORIGINAL_ARTIFACT',
+                     PREFIX + '/releases/430874424': 'DRAFT_RELEASE',
+                     PREFIX + '/releases/assets/699597073': 'DRAFT_ASSET'}[route]
+            status = str(code) if type(code) is int and 100 <= code <= 599 else 'UNKNOWN'
+            raise RetentionError('ORIGINAL_WEB_RETENTION_' + label + '_HTTP_' + status) from None
         except (OSError, ValueError):
             raise RetentionError('ORIGINAL_WEB_RETENTION_TRANSPORT_FAILED') from None
 
@@ -220,11 +227,169 @@ def download(output, original_run, original_artifact, transport=None):
     return info, run, before
 
 
+STAGED_NAME = 'original-web-retention'
+STAGED_RECEIPT = 'receipt.json'
+
+
+def staged_context():
+    require(os.environ.get('GITHUB_REPOSITORY') == REPO and
+            os.environ.get('GITHUB_REPOSITORY_ID') == str(PINS['repository_id']) and
+            os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch' and
+            os.environ.get('GITHUB_REF') == 'refs/heads/main' and
+            os.environ.get('GITHUB_WORKFLOW_REF') == REPO + '/.github/workflows/schema-manifest-refresh.yml@refs/heads/main',
+            'ORIGINAL_WEB_RETENTION_PROTECTED_CONTEXT_REQUIRED')
+    sha, run, attempt = (os.environ.get(key, '') for key in ('GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'))
+    require(re.fullmatch('[0-9a-f]{40}', sha) and re.fullmatch('[1-9][0-9]*', run) and
+            re.fullmatch('[1-9][0-9]*', attempt), 'ORIGINAL_WEB_RETENTION_PROTECTED_CONTEXT_REQUIRED')
+    return {'repository': REPO, 'repository_id': PINS['repository_id'],
+            'source_sha': sha, 'run_id': run, 'run_attempt': attempt}
+
+
+def staged_directory():
+    root = Path(os.environ['RUNNER_TEMP'])
+    require(root.is_absolute() and root.is_dir() and not root.is_symlink())
+    directory = root / STAGED_NAME
+    require(directory.is_dir() and not directory.is_symlink() and
+            directory.stat().st_uid == os.getuid() and stat.S_IMODE(directory.stat().st_mode) == 0o700)
+    return directory
+
+
+@contextlib.contextmanager
+def staged_file(name, limit):
+    require(name in {'artifact.zip', STAGED_RECEIPT})
+    directory = staged_directory()
+    parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fd = None
+    try:
+        owner = os.fstat(parent)
+        require(owner.st_uid == os.getuid() and stat.S_IMODE(owner.st_mode) == 0o700)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        before = os.fstat(fd)
+        require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and before.st_nlink == 1 and
+                stat.S_IMODE(before.st_mode) == 0o600 and before.st_size <= limit)
+        with os.fdopen(fd, 'rb') as source:
+            fd = None
+            yield source
+            after = os.fstat(source.fileno())
+            identity = lambda row: (row.st_dev, row.st_ino, row.st_mode, row.st_uid, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
+            require(identity(before) == identity(after))
+    finally:
+        if fd is not None: os.close(fd)
+        os.close(parent)
+
+
+def protect_staged():
+    # Actions artifact transport normalizes file permissions. Adopt only the
+    # two owned regular files through no-follow FDs, before strict validation.
+    staged_context()
+    directory = staged_directory()
+    require({path.name for path in directory.iterdir()} == {'artifact.zip', STAGED_RECEIPT})
+    parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        owner = os.fstat(parent)
+        require(owner.st_uid == os.getuid() and stat.S_IMODE(owner.st_mode) == 0o700)
+        for name in ('artifact.zip', STAGED_RECEIPT):
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            try:
+                value = os.fstat(fd)
+                require(stat.S_ISREG(value.st_mode) and value.st_uid == os.getuid() and value.st_nlink == 1 and
+                        stat.S_IMODE(value.st_mode) in {0o600, 0o644})
+                os.fchmod(fd, 0o600)
+            finally: os.close(fd)
+    finally: os.close(parent)
+
+
+def run_projection(run):
+    expected = {'id': PINS['original_run_id'], 'head_sha': PINS['original_source_sha'],
+                'repository': {'id': PINS['repository_id']}, 'head_repository': {'id': PINS['repository_id']},
+                'event': 'push', 'head_branch': 'main', 'status': 'completed', 'conclusion': 'success',
+                'path': '.github/workflows/publish-club-arena.yml'}
+    require(all(type(run.get(key)) is type(value) and
+                (run[key].get('id') == value['id'] if isinstance(value, dict) else run[key] == value)
+                for key, value in expected.items()))
+    return expected
+
+
+def stage():
+    context = staged_context()
+    require(os.environ.get('GITHUB_JOB') == 'retain-original-web')
+    directory = staged_directory()
+    require(not list(directory.iterdir()))
+    info, run, evidence = download(directory / 'artifact.zip', str(PINS['original_run_id']), str(PINS['original_artifact_id']))
+    receipt = {'version': 1, 'context': context, 'original_metadata': info,
+               'original_run': run_projection(run), 'retention': evidence}
+    path = directory / STAGED_RECEIPT
+    with path.open('x') as output:
+        os.chmod(path, 0o600)
+        json.dump(receipt, output, sort_keys=True, separators=(',', ':'))
+        output.write('\n')
+
+
+def admit_staged():
+    context = staged_context()
+    directory = staged_directory()
+    require({path.name for path in directory.iterdir()} == {'artifact.zip', STAGED_RECEIPT})
+    with staged_file(STAGED_RECEIPT, 32768) as source:
+        raw = source.read(32769)
+    require(len(raw) <= 32768)
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            require(key not in value)
+            value[key] = item
+        return value
+    receipt = json.loads(raw, object_pairs_hook=unique)
+    require(isinstance(receipt, dict) and set(receipt) == {'version', 'context', 'original_metadata', 'original_run', 'retention'} and
+            type(receipt['version']) is int and receipt['version'] == 1 and receipt['context'] == context)
+    info = historical_metadata()
+    require(receipt['original_metadata'] == info and receipt['original_run'] == run_projection(receipt['original_run']))
+    evidence = receipt['retention']
+    require(isinstance(evidence, dict) and evidence == {
+        'version': 1, 'basis': 'sealed-historical-pre-expiry-metadata-original-api-404',
+        'original_artifact_id': PINS['original_artifact_id'], 'original_run_id': PINS['original_run_id'],
+        'release_id': PINS['release_id'], 'asset_id': PINS['asset_id'], 'draft': True,
+        'sha256': PINS['sha256'], 'bytes': PINS['bytes'],
+        'historical_metadata_sha256': PINS['historical_metadata_sha256']})
+    checksum = hashlib.sha256()
+    started = time.monotonic()
+    with staged_file('artifact.zip', PINS['bytes']) as source:
+        size = 0
+        while data := source.read(1024 * 1024):
+            require(time.monotonic() - started < READ_SECONDS, 'ORIGINAL_WEB_RETENTION_DEADLINE')
+            size += len(data)
+            require(size <= PINS['bytes'])
+            checksum.update(data)
+    require(size == PINS['bytes'] and checksum.hexdigest() == PINS['sha256'], 'ORIGINAL_WEB_RETENTION_DIGEST')
+    return info, receipt['original_run'], {**evidence, 'current_run_transfer': context}
+
+
+def download_staged(output, original_run, original_artifact):
+    require(original_run == str(PINS['original_run_id']) and original_artifact == str(PINS['original_artifact_id']))
+    info, run, evidence = admit_staged()
+    created = None
+    try:
+        with staged_file('artifact.zip', PINS['bytes']) as source:
+            stream_exact(source, output, PINS['bytes'], PINS['sha256'])
+            value = Path(output).lstat()
+            created = (value.st_dev, value.st_ino)
+    except BaseException:
+        if created is not None:
+            value = Path(output).lstat()
+            if (value.st_dev, value.st_ino) == created: Path(output).unlink()
+        raise
+    return info, run, evidence
+
+
 def main():
-    require(sys.argv[1:] == ['--admit'])
-    # Caller job context owns eligibility. This fixed reader has no writes,
-    # mutation APIs, configurable route, downloads, or permission escalation.
-    admit()
+    if sys.argv[1:] == ['--admit']:
+        admit()
+    elif sys.argv[1:] == ['--stage']:
+        stage()
+    elif sys.argv[1:] == ['--admit-staged']:
+        protect_staged()
+        admit_staged()
+    else:
+        require(False)
     print('ORIGINAL_WEB_RETENTION_READ_ONLY_ADMISSION_PASS')
 
 
