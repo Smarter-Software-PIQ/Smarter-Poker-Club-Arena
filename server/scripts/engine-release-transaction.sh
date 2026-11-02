@@ -2625,6 +2625,14 @@ legacy_entry_read timeout --signal=TERM --kill-after=1s 60s \
   "$RELEASE_SEAL" resolve-failed-routine --engine-lock-fd 9 --run-id "$RUN_ID" \
   --sha "$SHA" --control-sha "$CONTROL_SHA" --invocation-id "$INVOCATION_ID" >/dev/null \
   || die 'a prior failed routine custody resolution refused or is unknown'
+# Any other expired failed routine owner is released only by a positive,
+# twice-observed proof that its run left nothing behind (failure record,
+# restored desired runtime, no request/intent/pin/lease, no live or enabled
+# native unit). Unproved owners stay authoritative for the check below.
+legacy_entry_read timeout --signal=TERM --kill-after=1s 60s \
+  "$RELEASE_SEAL" resolve-terminal-routine-failures --engine-lock-fd 9 --run-id "$RUN_ID" \
+  --invocation-id "$INVOCATION_ID" >/dev/null \
+  || die 'a terminal routine failure proof refused or is unknown'
 # Pure durable ownership read precedes any desired-runtime restoration. New
 # source policy/cycle admission still follows canonical committed-run replay.
 legacy_entry_read timeout --signal=TERM --kill-after=1s 15s \

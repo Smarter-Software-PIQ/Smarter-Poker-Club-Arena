@@ -443,6 +443,8 @@ printf 'NOOP\n'
         start=source.index("acquire_engine_lock 'duplicate certification'")
         self.assertLess(source.index('resolve-failed-routine',start),source.index('check-routine-owner',start))
         self.assertIn('--engine-lock-fd 9',source[start:source.index('check-routine-owner',start)])
+        self.assertLess(source.index('resolve-failed-routine',start),source.index('resolve-terminal-routine-failures',start))
+        self.assertLess(source.index('resolve-terminal-routine-failures',start),source.index('check-routine-owner',start))
         self.assertEqual(seal.FAILED_ROUTINE_SOURCES['engine-release-transaction.sh'],
             '3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39')
         def native(command,deadline,limit=32768):
