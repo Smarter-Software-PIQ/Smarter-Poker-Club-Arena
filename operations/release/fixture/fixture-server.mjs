@@ -1,3 +1,4 @@
+import { configureFixtureRealtimeCapturedRelations, assertFixtureRealtimeCapturedRelations } from './realtime-legacy-relations.mjs';
 import { REALTIME_CONTROL_DATABASE, realtimeControlConnection, REALTIME_SEED_EXPRESSION, createRealtimeControlDatabase, assertRealtimeControlIdentity, assertRealtimeControlIsolation } from './realtime-control-plane.mjs';
 import { configureFixtureSafeupdate } from './safeupdate-provider.mjs';
 import { captureFixtureServicePreimage } from './service-preimage.mjs';
@@ -29,6 +30,7 @@ import {
 import { assertCanonicalSignup, assertAttributionChipSeed } from './auth-bootstrap-proof.mjs';
 import {
   serviceRoleBootstrapSql,
+  prepareFixtureAuthLegacyMigrationLedger,
   assertNativeServiceRoleBoundary,
   createFixtureApplicationOwner,
   assertApplicationOwnerBoundary,
@@ -79,7 +81,7 @@ const environment = Object.freeze({
 });
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Pinned Realtime v2.134.10 uses the Elixir 1.19.5 release template, rendered
+// Pinned Realtime v2.134.11 uses the Elixir 1.19.5 release template, rendered
 // with release name realtime and its default -mode option. The whole-file
 // preimages bind this fixture-only adaptation; an upstream change stops build.
 export function privateRealtimeLauncher(launcher, releaseEnvironment) {
@@ -116,7 +118,7 @@ export function privateRealtimeLauncher(launcher, releaseEnvironment) {
 export async function adaptRealtimeLauncher() {
   assert.equal(process.getuid(), 0);
   const launcher = '/app/bin/realtime';
-  const releaseEnvironment = '/app/releases/2.134.10/env.sh';
+  const releaseEnvironment = '/app/releases/2.134.11/env.sh';
   for (const file of [launcher, releaseEnvironment]) {
     const details = await lstat(file);
     assert.ok(details.isFile() && !details.isSymbolicLink());
@@ -151,7 +153,7 @@ export function loopbackRealtimeConfiguration(source) {
 
 export async function adaptRealtimeConfiguration() {
   assert.equal(process.getuid(), 0);
-  const file = '/app/releases/2.134.10/runtime.exs';
+  const file = '/app/releases/2.134.11/runtime.exs';
   const details = await lstat(file);
   assert.ok(details.isFile() && !details.isSymbolicLink());
   const adapted = loopbackRealtimeConfiguration(await readFile(file, 'utf8'));
@@ -461,8 +463,8 @@ export async function realtimeMigrated(db, control) {
   await assertRealtimeControlIdentity(control);
   try {
     const result = await db.query(`SELECT
-      (SELECT count(*)=82 AND min(version)=20211116024918 AND max(version)=20260714120000
-        AND md5(string_agg(version::text, ',' ORDER BY version))='5c633bad1193b061e2d200e5a18c9c53'
+      (SELECT count(*)=83 AND min(version)=20211116024918 AND max(version)=20260827120000
+        AND md5(string_agg(version::text, ',' ORDER BY version))='262da2efb4aa494a7d90cf451fc9cce5'
         FROM realtime.schema_migrations) AND
       EXISTS(SELECT 1 FROM pg_attribute a JOIN pg_attrdef d
         ON d.adrelid=a.attrelid AND d.adnum=a.attnum
@@ -470,7 +472,7 @@ export async function realtimeMigrated(db, control) {
           AND a.atttypid='boolean'::regtype AND a.attnotnull AND pg_get_expr(d.adbin,d.adrelid)='false') AND
       to_regnamespace('_realtime') IS NULL AS complete`);
     const tenant = await control.query(`SELECT EXISTS(SELECT 1 FROM _realtime.tenants
-      WHERE external_id='realtime-dev' AND migrations_ran=82) AS complete`);
+      WHERE external_id='realtime-dev' AND migrations_ran=83) AS complete`);
     return result.rows[0]?.complete === true && tenant.rows[0]?.complete === true;
   } catch (error) {
     // A service still creating its catalog may not be ready. Authorization
@@ -513,6 +515,7 @@ async function checkPackage() {
     'auth-bootstrap-proof.mjs',
     'service-role-boundary.mjs',
     'realtime-control-plane.mjs',
+    'realtime-legacy-relations.mjs',
     'actors.mjs',
     'tournament-admission.mjs',
     'financial-route-phase.mjs',
@@ -731,6 +734,8 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
     );
     await db.connect();
     await db.query(serviceRoleBootstrapSql(secrets.databasePassword));
+    stage = 'postgresql-auth-legacy-ledger';
+    await prepareFixtureAuthLegacyMigrationLedger(db);
     stage = 'postgresql-native-cron-install';
     await installFixtureCron(db);
     stage = 'postgresql-safeupdate-configure';
@@ -772,9 +777,18 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
       await realtimeControl.connect();
       await supervisor.until(() => realtimeMigrated(realtimeBootstrap, realtimeControl));
       await assertRealtimeControlIsolation(realtimeBootstrap, pg.Client, supervisor.databaseOwner);
+      stage = 'realtime-captured-relation-configuration';
+      await configureFixtureRealtimeCapturedRelations(realtimeBootstrap);
     } finally {
       try { await supervisor.databaseOwner.end(realtimeControl); }
       finally { await supervisor.databaseOwner.end(realtimeBootstrap); }
+    }
+    const realtimeRelationObserver = supervisor.databaseOwner.own(new pg.Client({ ...connection, user: 'supabase_admin', database }));
+    try {
+      await realtimeRelationObserver.connect();
+      await assertFixtureRealtimeCapturedRelations(realtimeRelationObserver);
+    } finally {
+      await supervisor.databaseOwner.end(realtimeRelationObserver);
     }
     const applyRoleAlignment = async () => {
       stage = 'full-role-alignment';

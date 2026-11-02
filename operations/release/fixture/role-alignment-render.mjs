@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 // This literal is source authority. The adjacent JSON is an audit record only.
-const templateSha256 = 'bf0e2fa88fc4f19dbfc84fdd7e8485cafb40e5dcd77557a88bdda4bda70fb862';
+const templateSha256 = '1bd81744fe0b6c17c0bda62f1a46b7953c25fc7b00524fc3b509238c0d8f6c41';
+// Re-emits the captured ACL entry order inside the existing fully guarded transaction.
+// This source fragment also generates the matching checked-in installer span.
+export const realtimeSchemaAclOrderSql = `REVOKE ALL ON SCHEMA "realtime" FROM "supabase_realtime_admin", "postgres", "anon", "authenticated", "service_role" RESTRICT;
+GRANT USAGE ON SCHEMA "realtime" TO "postgres" WITH GRANT OPTION;
+GRANT USAGE ON SCHEMA "realtime" TO "anon", "authenticated", "service_role";
+GRANT USAGE, CREATE ON SCHEMA "realtime" TO "supabase_realtime_admin";`;
 const heldBindings = new WeakMap();
 const identitySql = `SELECT pg_backend_pid() AS pid, current_database() AS database,
   session_user AS session_role, current_user AS current_role,
@@ -68,6 +74,8 @@ export function renderFixtureRoleAlignmentSql(template, { password, clientBindin
   assert.equal(createHash('sha256').update(template).digest('hex'), templateSha256);
   assert.ok(typeof password === 'string' && /^[0-9a-f]{64}$/.test(password));
   const held = checkedBinding(clientBinding);
+  assert.equal(template.split(realtimeSchemaAclOrderSql).length - 1, 1,
+    'FIXTURE_REALTIME_ACL_SOURCE_REQUIRED');
   assert.equal(template.split('@FIXTURE_RANDOM_64_HEX_PASSWORD@').length - 1, 8);
   assert.equal(template.split('@OWNED_IDLE_APPLICATION_PID@').length - 1, 4);
   assert.equal(template.split('@OWNED_APP_START_MICROS@').length - 1, 4);

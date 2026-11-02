@@ -43,7 +43,7 @@ RECORDS = [dict(scope='native-service-smoke', observer='passed', browser='chromi
                                       rollback='schema-trigger-role-absent',
                                       production_binary_version_parity=False,
                                       complete_application_acl_parity=False),
-                postgrest='14.5', realtime='2.134.10', change='observed', retries=0,
+                postgrest='14.5', realtime='2.134.11', change='observed', retries=0,
                 realtime_listener='127.0.0.1:4000', realtime_gateway='authenticated-change-observed',
                 realtime_rls='two-users-causal-isolation',
                 observation_bridge='native-synthetic-protocol'),

@@ -10,7 +10,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund && npm cache clean --force
 
 # Keep the genuine Realtime Erlang release and its matching Debian libc together.
-FROM supabase/realtime:v2.134.10@sha256:c1d078d929608f3eb4d441e30317bbdccc1bfcc1169efa3d1a26d4252417cc76 AS postgres-runtime
+FROM supabase/realtime:v2.134.11@sha256:12780404637ec3cf0d9c2f6b44a94bfe1ca076f186a5bb1130fa84ea2d774bbb AS postgres-runtime
 USER root
 ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/usr/lib/postgresql/17/bin:/opt/qualification/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
@@ -84,7 +84,7 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
 
 WORKDIR /opt/qualification
 # These are trusted, reviewed runtime files, never supplied by a candidate archive.
-COPY fixture-server.mjs runtime-files.mjs gateway.mjs auth-fixture.mjs auth-bootstrap-proof.mjs service-role-boundary.mjs realtime-control-plane.mjs actors.mjs tournament-admission.mjs financial-route-phase.mjs seed-fixture.mjs native-smoke.mjs observation-bridge.mjs cron-provider.mjs safeupdate-provider.mjs service-preimage.mjs role-alignment.mjs current-application-roles.mjs role-alignment-render.mjs role-alignment-installer.sql role-alignment-native.json role-alignment-aligned.json role-alignment-graph.sql role-alignment-membership.sql /opt/qualification/runtime/
+COPY fixture-server.mjs runtime-files.mjs gateway.mjs auth-fixture.mjs auth-bootstrap-proof.mjs service-role-boundary.mjs realtime-control-plane.mjs realtime-legacy-relations.mjs actors.mjs tournament-admission.mjs financial-route-phase.mjs seed-fixture.mjs native-smoke.mjs observation-bridge.mjs cron-provider.mjs safeupdate-provider.mjs service-preimage.mjs role-alignment.mjs current-application-roles.mjs role-alignment-render.mjs role-alignment-installer.sql role-alignment-native.json role-alignment-aligned.json role-alignment-graph.sql role-alignment-membership.sql /opt/qualification/runtime/
 RUN node --input-type=module -e "import {adaptRealtimeLauncher,adaptRealtimeConfiguration} from '/opt/qualification/runtime/fixture-server.mjs'; await adaptRealtimeLauncher(); await adaptRealtimeConfiguration();" \
     && printf '#!/bin/sh\nexec /usr/local/bin/node /opt/qualification/runtime/fixture-server.mjs "$@"\n' > /usr/local/bin/fixture-server \
     && chmod 0555 /usr/local/bin/fixture-server \

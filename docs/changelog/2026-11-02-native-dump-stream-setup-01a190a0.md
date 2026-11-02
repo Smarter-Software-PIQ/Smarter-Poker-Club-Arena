@@ -1,0 +1,7 @@
+# Preserve native dump stream setup independently of object identity
+
+PostgreSQL 17.11 emits default tablespace and table access-method statements before the next table's TOC header. The previous parser attributed their 73 bytes to whichever function sorted last. Adding a later application function therefore changed a genuine service function's apparent block hash despite identical function definitions.
+
+The parser recognizes only complete independent archive setup statements outside SQL strings, dollar bodies and comments. It keeps their exact bytes as ordered stream parts, excludes those parts from object-definition identity, and emits every original setup part in its original order even when an exact native object is removed. All object key, owner and remaining definition bytes still compare exactly. Unknown SET statements remain definition text. No SQL or whitespace is normalized or discarded.
+
+A disposable PostgreSQL 17.11 cluster reproduced the raw 524-byte versus 451-byte function blocks before and after adding a later-sorted application function. Both corrected identities are exactly 451 bytes with SHA256 75f8bf5ef9d04616f4b564c1a3caf9f65267e2380ff8d29c3870c008f4495995. Its server was stopped and its owned data/socket directory removed. The existing focused suite passes 42 cases without skips, including stream ordering, exact reconstruction, preservation through managed removal, lexical boundaries and changed-definition refusal. This repairs the stream-attribution defect only; it is not complete schema, production or connected UI acceptance.
