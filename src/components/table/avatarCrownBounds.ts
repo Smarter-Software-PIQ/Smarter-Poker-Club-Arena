@@ -265,18 +265,14 @@ export function restingAvatarTop(image: HTMLImageElement, scale: number): number
   return element === seat ? seat.getBoundingClientRect().top + y * scale : paintedAvatarTop(image);
 }
 
-// Existing static focus rules enlarge the character at two independent levels.
-// Keep these measurements bound to SeatSlot.css and TablePage.css in the unit
-// contract; temporary winner/gesture transforms do not define permanent size.
-const ACTING_FOCUS_SCALE = 1.04;
-const avatarFocusScale = (image: HTMLElement) =>
-  image.closest('.seat')?.classList.contains('seat--active') ? ACTING_FOCUS_SCALE : 1;
-const seatFocusScale = (image: HTMLElement) =>
-  image.closest('.seat-wrapper--spot') ? ACTING_FOCUS_SCALE : 1;
+// Table character positions and sizes stay fixed through turn/winner states.
+// Keep this shared projection contract explicit: only the static bust transform
+// and opponent normalization scale contribute to permanent artwork geometry.
+const avatarFocusScale = (_image: HTMLElement) => 1;
+const seatFocusScale = (_image: HTMLElement) => 1;
 
-/** Existing static focus gain, excluding permanent opponent normalization. */
-export function permanentAvatarFocusScale(image: HTMLElement): number {
-  return avatarFocusScale(image) * seatFocusScale(image);
+export function permanentAvatarFocusScale(_image: HTMLElement): number {
+  return 1;
 }
 
 /** Permanent image rectangle for wager ownership, excluding compositor gestures. */
