@@ -2867,6 +2867,12 @@ function LiveTablePage({
       const cardHoldPrevHand = prev.handNumber ?? 0;
       const cardHoldSameHand =
         cardHoldNextHand <= 0 || cardHoldPrevHand <= 0 || cardHoldNextHand === cardHoldPrevHand;
+      // Public opponent reveals never inherit Hero's unknown-hand recovery.
+      // They belong to one positively identified hand only.
+      const cardHoldOpponentSameHand =
+        Number.isSafeInteger(cardHoldNextHand) &&
+        cardHoldNextHand > 0 &&
+        cardHoldNextHand === cardHoldPrevHand;
       const nextPlayers: (SeatPlayer | null)[] = rosterPlayers.map((p, i) => {
         if (!p) return null;
         if (!lightningObserver && leftSeatPendingRef.current && p.id === userId) return null;
@@ -2967,7 +2973,7 @@ function LiveTablePage({
            blanked off the felt mid-announcement, timing-dependently. Within
            the same hand, a revealed opponent hand stays revealed; the next
            hand's boundary reset clears it like everything else. */
-        if (cardHoldSameHand && (!sp.holeCards || sp.holeCards.length === 0)) {
+        if (cardHoldOpponentSameHand && (!sp.holeCards || sp.holeCards.length === 0)) {
           const prevPlayer = prev.players[i];
           if (
             prevPlayer &&
@@ -18958,7 +18964,9 @@ function LiveTablePage({
                 ? unfolded
                 : { ...unfolded, holeCards: [], showCards: false };
             }
-            return unfolded;
+            // Never relabel the previous hand's public opponent cards as
+            // belonging to the new deal when handNumber advances below.
+            return { ...unfolded, holeCards: [], showCards: false };
           });
           return {
             ...prev,
