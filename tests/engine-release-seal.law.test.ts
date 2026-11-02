@@ -3133,7 +3133,11 @@ sys.exit(int(os.environ.get('FAKE_GIT_ARCHIVE_FAILURE', '0')))
           B_SHA,
           'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/880',
           'release-test',
-          generation,
+          // The recover script compares against its own `pwd -P`: on macOS
+          // the temp dir is /var/folders -> /private/var/folders, so the
+          // request must carry the PHYSICAL path or the generation check
+          // refuses on exactly the host the pre-push hook runs on.
+          realpathSync(generation),
           C_SHA,
           String(Math.floor(Date.now() / 1000) - 1),
           '',
@@ -3141,7 +3145,7 @@ sys.exit(int(os.environ.get('FAKE_GIT_ARCHIVE_FAILURE', '0')))
         { mode: 0o600 }
       );
       writeFileSync(intentPath, readFileSync(requestPath), { mode: 0o600 });
-      writeFileSync(pinPath, `${generation}\n${C_SHA}\n`, { mode: 0o600 });
+      writeFileSync(pinPath, `${realpathSync(generation)}\n${C_SHA}\n`, { mode: 0o600 });
 
       writeFileSync(join(bin, 'id'), '#!/usr/bin/env bash\n[ "$1" = -u ] && echo 0\n');
       writeFileSync(join(bin, 'flock'), '#!/usr/bin/env bash\nexit 0\n');
