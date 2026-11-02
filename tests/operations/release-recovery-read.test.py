@@ -3369,12 +3369,46 @@ class OriginalAnnouncementCauseTests(unittest.TestCase):
                 rows=[later,f] if case=='ordered' else [f]*17 if case=='truncated' else [{**f,'MESSAGE':'[engine-release-transaction] FATAL: unrecognised private text'}]
                 result=self.read(root,control,sources,[[a],rows])
                 if case=='ordered':
-                    self.assertEqual(result['status'],'observed');self.assertEqual(len(result['causes']),1)
+                    self.assertEqual(result['status'],'observed');self.assertEqual(len(result['causes']),2)
                     self.assertEqual(result['causes'][0]['sourceLine'],1);self.assertEqual(result['causes'][0]['refusalCode'],'transaction_die_line_1')
                     self.assertEqual(result['causes'][0]['observedAtMs'],R.ORIGINAL_ANNOUNCEMENT_STAMP+120010)
                 else:
                     self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'journal_truncated' if case=='truncated' else 'unclassified_original_refusal')
                     self.assertEqual(result['causes'],[])
+
+    def test_all_known_and_unclassified_refusals_are_retained_without_exit_causality(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder)
+            stamp=R.ORIGINAL_ANNOUNCEMENT_STAMP
+            probe={**f,'MESSAGE':'[engine-release-seal] FATAL: private control diagnostic'}
+            unknown={**f,'MESSAGE':'shell PRIVATE unclassified error','__REALTIME_TIMESTAMP':str((stamp+120020)*1000)}
+            later={**f,'__REALTIME_TIMESTAMP':str((stamp+120030)*1000)}
+            result=self.read(root,control,sources,[[a],[later,unknown,probe]])
+            self.assertEqual([r['category'] for r in result['causes']],['control_fatal','transaction_fatal'])
+            self.assertEqual(len(result['unclassifiedRefusals']),1)
+            self.assertEqual(result['transactionExitCause'],'UNKNOWN')
+            self.assertNotIn('PRIVATE',json.dumps(result))
+            self.assertEqual(result['schema'],'original-announcement-cause/v2')
+            self.assertLessEqual(len(json.dumps(result).encode()),8192)
+
+    def test_complete_sixteen_refusals_and_equal_timestamps_are_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder)
+            result=self.read(root,control,sources,[[a],[f]*16])
+            self.assertEqual(len(result['causes']),16)
+            self.assertEqual(result['transactionExitCause'],'UNKNOWN')
+            with self.assertRaises(ValueError):R.validate_original_announcement({**result,'transactionExitCause':'seal_die_line_1'},R.ORIGINAL_ANNOUNCEMENT_REQUEST)
+
+    def test_legacy_v1_positive_remains_valid_and_v2_order_is_checked(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder)
+            result=self.read(root,control,sources,[[a],[f]])
+            legacy={k:v for k,v in result.items() if k not in {'unclassifiedRefusals','transactionExitCause'}}
+            legacy['schema']='original-announcement-cause/v1'
+            R.validate_original_announcement(legacy,R.ORIGINAL_ANNOUNCEMENT_REQUEST)
+            later={**f,'__REALTIME_TIMESTAMP':str((R.ORIGINAL_ANNOUNCEMENT_STAMP+120020)*1000)}
+            result=self.read(root,control,sources,[[a],[f,later]])
+            with self.assertRaises(ValueError):R.validate_original_announcement({**result,'causes':list(reversed(result['causes']))},R.ORIGINAL_ANNOUNCEMENT_REQUEST)
 
     def test_missing_and_ambiguous_original_are_unknown(self):
         for ambiguous in [False,True]:
