@@ -56,16 +56,72 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
       await expect(cash).toHaveAttribute('aria-expanded', 'false');
       await expect(tournaments).toHaveAttribute('aria-expanded', 'false');
       await expect(page.getByRole('tablist')).toHaveCount(0);
-      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(async () => {
+        const faces = await document.fonts.load('800 20px "Roboto Condensed"');
+        await document.fonts.ready;
+        if (!faces.length || !faces.every((face) => face.status === 'loaded'))
+          throw new Error('The approved font must load before measuring the compact frames');
+      });
       for (const button of [cash, tournaments]) {
         const rect = await button.boundingBox();
-        expect(rect!.height).toBeGreaterThanOrEqual(60);
+        expect(rect!.height).toBeGreaterThanOrEqual(44);
         expect(rect!.width).toBeGreaterThanOrEqual(140);
-        expect(Math.abs(rect!.width - rect!.height)).toBeLessThan(1);
-        const text = await button
-          .locator('.lobby-game-sections__well > span')
-          .evaluate((el) => ({ width: el.clientWidth, scroll: el.scrollWidth }));
-        expect(text.scroll).toBeLessThanOrEqual(text.width + 1);
+        expect(rect!.width / rect!.height).toBeCloseTo(2.4, 2);
+        const paint = await button.evaluate((el) => {
+          const box = el.getBoundingClientRect();
+          const art = getComputedStyle(el, '::before');
+          const scaleY = parseFloat(art.height) / 724;
+          const scaleLeft = parseFloat(art.borderLeftWidth) / 330;
+          const scaleRight = parseFloat(art.borderRightWidth) / 330;
+          return {
+            source: art.borderImageSource,
+            slice: art.borderImageSlice,
+            scaleY,
+            scaleLeft,
+            scaleRight,
+            left: parseFloat(art.left) + 49 * scaleLeft,
+            right: parseFloat(art.left) + parseFloat(art.width) - 49 * scaleRight,
+            top: parseFloat(art.top) + 98 * scaleY,
+            bottom: parseFloat(art.top) + 602 * scaleY,
+            width: box.width,
+            height: box.height,
+          };
+        });
+        expect(paint.source).toContain('chrome-arena-controls-v1/filter-plate.png');
+        expect(paint.slice).toBe('0 330 fill');
+        expect(paint.scaleLeft).toBeCloseTo(paint.scaleY, 3);
+        expect(paint.scaleRight).toBeCloseTo(paint.scaleY, 3);
+        expect(Math.abs(paint.left)).toBeLessThanOrEqual(1);
+        expect(Math.abs(paint.top)).toBeLessThanOrEqual(1);
+        expect(Math.abs(paint.right - paint.width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(paint.bottom - paint.height)).toBeLessThanOrEqual(1);
+        await expect
+          .poll(
+            () =>
+              button.evaluate((el) => {
+                const box = el.getBoundingClientRect();
+                const text = el.querySelector('.lobby-game-sections__well > span')!;
+                const range = document.createRange();
+                range.selectNodeContents(text);
+                const ink = range.getBoundingClientRect();
+                return (
+                  ink.width > 0 &&
+                  ink.height > 0 &&
+                  ink.left >= box.left + box.width * 0.185 - 1 &&
+                  ink.right <= box.right - box.width * 0.185 + 1 &&
+                  ink.top >= box.top + box.height * 0.22 - 1 &&
+                  ink.bottom <= box.top + box.height * 0.78 + 1 &&
+                  Math.abs((ink.left + ink.right - box.left - box.right) / 2) <= 1 &&
+                  Math.abs((ink.top + ink.bottom - box.top - box.bottom) / 2) <= 1
+                );
+              }),
+            { message: 'Full labels must fit and center inside the native compact glass' }
+          )
+          .toBe(true);
+        await testInfo.attach(`family-frame-${width}-${await button.textContent()}.json`, {
+          body: JSON.stringify(paint),
+          contentType: 'application/json',
+        });
       }
       const cashBox = await cash.boundingBox();
       const tournamentBox = await tournaments.boundingBox();
@@ -76,6 +132,7 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
       expect(Math.abs(title!.x + title!.width / 2 - heading!.x - heading!.width / 2)).toBeLessThan(
         1
       );
+      await page.screenshot({ path: testInfo.outputPath(`compact-family-frames-${width}px.png`) });
       if (width === 393) await page.screenshot({ path: testInfo.outputPath('closed.png') });
       await cash.click();
       await expect(page.getByRole('tab')).toHaveText(['ALL', 'NLH', 'PLO', 'LIMIT']);

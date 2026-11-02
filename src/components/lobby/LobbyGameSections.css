@@ -15,15 +15,38 @@
   position: relative;
   container-type: inline-size;
   width: 100%;
-  aspect-ratio: 1;
-  min-height: 64px;
+  aspect-ratio: 2.4 / 1;
+  min-height: 44px;
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: url('/assets/club-buttons/club-utility-shell.png') center / contain no-repeat;
+  background: none;
+  overflow: hidden;
   box-shadow: none;
   color: #e4e7ec;
   cursor: pointer;
+}
+
+/* Native 2172x724 blank plate: visible alpha x49..2123/y98..602.
+   Preserve complete 330px endcaps at uniform H/504 scale. Only the blank
+   centre and its straight chrome beams change horizontal length. The
+   pseudo's cqw resolve against the button, whose aspect is exactly 2.4:1. */
+.lobby-game-sections__button::before {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+  top: -8.101852cqw;
+  left: -4.050926cqw;
+  width: calc(100% + 8.101852cqw);
+  height: 59.854497cqw;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 0 27.281746cqw;
+  border-image-source: url('/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png');
+  border-image-slice: 0 330 fill;
+  border-image-width: 1;
+  border-image-repeat: stretch;
 }
 
 .lobby-game-sections__button[aria-expanded='true'] {
@@ -33,10 +56,9 @@
 
 .lobby-game-sections__well {
   position: absolute;
-  /* Native 1105x1133 utility shell stays contained in the square hit area.
-     Its blank glass spans x194..910/y193..915, clear of the chrome rim. */
+  /* The retargeted native glass is centred inside the complete compact frame. */
   inset: auto 18.5%;
-  top: 48.9%;
+  top: 50%;
   transform: translateY(-50%);
   display: grid;
   place-items: center;
@@ -69,7 +91,7 @@
 
 @media (max-width: 900px) {
   .lobby-game-sections {
-    gap: 8px;
+    gap: 6px;
     padding: 0 0 6px;
   }
 }

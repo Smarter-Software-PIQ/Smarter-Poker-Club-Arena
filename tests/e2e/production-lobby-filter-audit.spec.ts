@@ -866,7 +866,29 @@ async function assertLobbyControlsInsidePaint(page: Page) {
   expect(families).toHaveLength(2);
   expect(Math.abs(families[0].top - families[1].top)).toBeLessThan(1);
   expect(families[1].left).toBeGreaterThan(families[0].left + families[0].width);
-  for (const family of families) expect(Math.abs(family.width - family.height)).toBeLessThan(1);
+  for (const family of families) expect(family.width / family.height).toBeCloseTo(2.4, 2);
+  if (await page.evaluate(() => innerWidth === 393)) {
+    const reference = await page
+      .locator('.lobby-top__main > .lobby-top__identity, .lobby-top__main > .lobby-bbj')
+      .evaluateAll((cards) =>
+        cards.map((card) => {
+          const box = card.getBoundingClientRect();
+          return { width: box.width, height: box.height };
+        })
+      );
+    expect(
+      reference,
+      'The actual club identity and jackpot form the owner reference pair'
+    ).toHaveLength(2);
+    for (let index = 0; index < 2; index++) {
+      expect(Math.abs(families[index].width - reference[index].width)).toBeLessThanOrEqual(1);
+      expect(Math.abs(families[index].height - reference[index].height)).toBeLessThanOrEqual(1);
+    }
+    await test.info().attach('native-family-reference-pair.json', {
+      body: JSON.stringify({ families, reference }),
+      contentType: 'application/json',
+    });
+  }
   await expect
     .poll(
       () =>
@@ -876,19 +898,19 @@ async function assertLobbyControlsInsidePaint(page: Page) {
           )
           .evaluateAll((buttons) =>
             buttons.flatMap((button) => {
-              const square = button.classList.contains('lobby-game-sections__button');
+              const family = button.classList.contains('lobby-game-sections__button');
               const box = button.getBoundingClientRect();
-              const ratio = square ? 1105 / 1133 : 3;
+              const ratio = family ? 2.4 : 3;
               const width = Math.min(box.width, box.height * ratio);
               const height = width / ratio;
               const left = box.left + (box.width - width) / 2;
               const top = box.top + (box.height - height) / 2;
-              const face = square
+              const face = family
                 ? {
-                    left: left + (width * 194) / 1105,
-                    right: left + (width * 910) / 1105,
-                    top: top + (height * 193) / 1133,
-                    bottom: top + (height * 915) / 1133,
+                    left: box.left + box.width * 0.185,
+                    right: box.right - box.width * 0.185,
+                    top: box.top + box.height * 0.22,
+                    bottom: box.top + box.height * 0.78,
                   }
                 : {
                     left: left + width * 0.12,
@@ -897,7 +919,7 @@ async function assertLobbyControlsInsidePaint(page: Page) {
                     bottom: top + height * 0.76,
                   };
               const label = button.querySelector(
-                square ? '.lobby-game-sections__well > span' : '.lobby-filter-label__text'
+                family ? '.lobby-game-sections__well > span' : '.lobby-filter-label__text'
               );
               if (!label) return [{ text: button.textContent, missingLabel: true }];
               const range = document.createRange();
@@ -909,13 +931,36 @@ async function assertLobbyControlsInsidePaint(page: Page) {
                   rect.top < face.top - 1 ||
                   rect.bottom > face.bottom + 1
               );
-              const wrongFrame =
-                !square &&
-                !getComputedStyle(button).backgroundImage.includes(
-                  'chrome-arena-controls-v1/filter-plate.png'
-                );
-              return outside || wrongFrame
-                ? [{ text: label.textContent, face, outside, wrongFrame }]
+              const art = getComputedStyle(button, '::before');
+              const wrongFrame = family
+                ? !art.borderImageSource.includes('chrome-arena-controls-v1/filter-plate.png') ||
+                  art.borderImageSlice !== '0 330 fill'
+                : !getComputedStyle(button).backgroundImage.includes(
+                    'chrome-arena-controls-v1/filter-plate.png'
+                  );
+              const scaleY = parseFloat(art.height) / 724;
+              const scaleLeft = parseFloat(art.borderLeftWidth) / 330;
+              const scaleRight = parseFloat(art.borderRightWidth) / 330;
+              const wrongPaintBounds =
+                family &&
+                (![
+                  scaleY,
+                  scaleLeft,
+                  scaleRight,
+                  parseFloat(art.left),
+                  parseFloat(art.top),
+                  parseFloat(art.width),
+                ].every(Number.isFinite) ||
+                  Math.abs(scaleY - scaleLeft) > 0.001 ||
+                  Math.abs(scaleY - scaleRight) > 0.001 ||
+                  Math.abs(parseFloat(art.left) + 49 * scaleLeft) > 1 ||
+                  Math.abs(
+                    parseFloat(art.left) + parseFloat(art.width) - 49 * scaleRight - box.width
+                  ) > 1 ||
+                  Math.abs(parseFloat(art.top) + 98 * scaleY) > 1 ||
+                  Math.abs(parseFloat(art.top) + 602 * scaleY - box.height) > 1);
+              return outside || wrongFrame || wrongPaintBounds
+                ? [{ text: label.textContent, face, outside, wrongFrame, wrongPaintBounds }]
                 : [];
             })
           ),
@@ -1993,6 +2038,7 @@ async function assertCashControlsAndHeaders(page: Page, label: string) {
     await page.setViewportSize(viewport);
     await page.locator('.lobby-controls__heading').scrollIntoViewIfNeeded({ timeout: 10_000 });
     await expect(rail).toBeHidden();
+    await assertLobbyControlsInsidePaint(page);
     await expect(primary).toHaveCount(1);
     await expect(primary).toBeInViewport();
     await expect.poll(inViewportDoors).toBe(1);
