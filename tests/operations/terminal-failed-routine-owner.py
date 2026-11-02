@@ -44,6 +44,9 @@ GONE = {'LoadState': 'not-found', 'ActiveState': 'inactive', 'SubState': 'dead',
 
 class TerminalFailedRoutineOwner(unittest.TestCase):
     def setUp(self):
+        # After the captured recovery, before the deliberately unsettled 10-hour case.
+        clock = patch.object(seal.time, "time", return_value=1793622600)  # 2026-11-02 12:30 UTC
+        clock.start(); self.addCleanup(clock.stop)
         scratch = os.environ.get('TMPDIR')
         if sys.platform == 'darwin' and not scratch:
             scratch = '/Volumes/SmarterWork/agent-work'
