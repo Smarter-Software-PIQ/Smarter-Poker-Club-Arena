@@ -14,8 +14,8 @@
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "supabase/migrations/20260918122532_five_original_spin_standings_retain_their_recorded_cash_outc.sql": "9f6e0b02abea54394d317c6d20f8e47ae10edefc9ba6c12f6542c23daf4540c4",
-    ".prettierignore": "07ecc5925d551fde38704413665ef6cb9c68015c2772b577c01bfefec9c95331",
-    "tests/unit/fixtureNativeCi.test.ts": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c",
+    ".prettierignore": "235ee2868de8a5151295cc68084d408bbd5e07d259f30f7da1b20d5d71b4d85f",
+    "tests/unit/fixtureNativeCi.test.ts": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536"
   },
   "restamp_audit": [
@@ -137,6 +137,20 @@
       "to": "07ecc5925d551fde38704413665ef6cb9c68015c2772b577c01bfefec9c95331",
       "on": "2026-10-13",
       "why": "Preserve exact captured maintenance guard and typed-authority SQL for the source-bound scoped thaw installer qualification. No financial fixture, source, assertion, or qualification state changes."
+    },
+    {
+      "file": ".prettierignore",
+      "from": "07ecc5925d551fde38704413665ef6cb9c68015c2772b577c01bfefec9c95331",
+      "to": "235ee2868de8a5151295cc68084d408bbd5e07d259f30f7da1b20d5d71b4d85f",
+      "on": "2026-11-01",
+      "why": "Preserve the exact byte-sealed historical original-web provider receipt during normal formatting; one new capture-file exception only. All prior exclusions are unchanged. No financial source, assertion, status or certificate changes."
+    },
+    {
+      "file": "tests/unit/fixtureNativeCi.test.ts",
+      "from": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c",
+      "to": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29",
+      "on": "2026-11-01",
+      "why": "Add exact existing native workflow enforcement of the five Realtime control-database regressions: one invocation, no continue-on-error, original ordinary qualification condition. All prior assertions are unchanged. No financial source, fixture, status or certificate changes."
     }
   ],
   "union_doors_candidate_20260925": "Restamped for 20260925145748. scripts/dev/test-full-weekly-accounting-activation.sh now applies that migration in the existing pnl-evidence hooks chain, immediately after 20260921023420 and before hooks-regression.sql, and hooks-regression.sql gains assertions for what it changes: the square-up refuses a recorded ECO that does not equal round(-eco_rate*eco_base,2) (the old comparison had become the record against itself and could never fire), keeping both existing refusals; and the closed union send door credits the one owner it resolves from clubs.owner_id instead of every role=owner row, carries the house authorization check, an idempotency key and one club-declaring chip_ledger leg, and records its audit row against wallet='chip_balance' rather than the 'main' that union_wallet_transactions_wallet_check has never permitted. No fixture body owned by these bindings changed and no role gains a key. Diff read before restamping.",

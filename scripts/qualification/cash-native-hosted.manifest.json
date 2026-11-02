@@ -517,8 +517,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 119330,
-      "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
+      "bytes": 119837,
+      "sha256": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29"
     }
   },
   "nativePgCron": {
@@ -6472,6 +6472,20 @@
     "current": {
       "bytes": 273568,
       "sha256": "50c652f40f358616b2305301a654f4c5659688235963efb5f7a04226c2da297e"
+    },
+    "historicalEvidenceRestamped": false,
+    "execution_performed": false
+  },
+  "realtimeControlNativeRegression20261101": {
+    "reason": "Add only exact native workflow enforcement of the Realtime control-database regressions: one invocation, original ordinary qualification condition, no continue-on-error. Existing cash inputs, assertions, authorities and all historical qualification verdicts are unchanged. Active source identity only, not financial or production certification.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous": {
+      "bytes": 119330,
+      "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
+    },
+    "current": {
+      "bytes": 119837,
+      "sha256": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29"
     },
     "historicalEvidenceRestamped": false,
     "execution_performed": false

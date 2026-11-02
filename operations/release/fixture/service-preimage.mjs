@@ -76,7 +76,9 @@ BEGIN
        AND NOT rolsuper AND rolcanlogin AND rolcreaterole AND rolcreatedb)
      OR to_regclass('auth.schema_migrations') IS NULL
      OR to_regclass('realtime.schema_migrations') IS NULL
-     OR to_regclass('_realtime.tenants') IS NULL THEN
+     OR to_regnamespace('_realtime') IS NOT NULL
+     OR NOT EXISTS(SELECT 1 FROM pg_database WHERE datname='club_arena_realtime_control'
+       AND datdba=10 AND NOT has_database_privilege('postgres',oid,'CONNECT')) THEN
     RAISE EXCEPTION 'OWNED_POST_SERVICE_FIXTURE_PREIMAGE_REQUIRED';
   END IF;
 END;

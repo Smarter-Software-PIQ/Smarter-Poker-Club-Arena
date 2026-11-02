@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 // This literal is source authority. The adjacent JSON is an audit record only.
-const templateSha256 = '75de4863de9a9276e701526389a6fbe0a033589d60844b71dd42eb44fbdf31db';
+const templateSha256 = 'bf0e2fa88fc4f19dbfc84fdd7e8485cafb40e5dcd77557a88bdda4bda70fb862';
 const heldBindings = new WeakMap();
 const identitySql = `SELECT pg_backend_pid() AS pid, current_database() AS database,
   session_user AS session_role, current_user AS current_role,
