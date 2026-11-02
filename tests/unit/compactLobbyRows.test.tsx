@@ -54,6 +54,14 @@ function mount() {
 }
 
 describe('compact lobby selection is a pre-commit detail step', () => {
+  it('shows only the cash player number under Players, without table counts or capacity', () => {
+    const { list } = mount();
+    const players = list.querySelector('tbody td[data-label="Players"]')!;
+    expect(players.textContent).toBe('3');
+    expect(players.querySelector('.lt-seats__num')?.textContent).toBe('3');
+    expect(players.querySelector('.lt-seats__tables')).toBeNull();
+    expect(players.querySelector('.lt-seats__bar')).toBeNull();
+  });
   it('labels satellite entry prices as buy-ins on both boards', () => {
     render(
       <MemoryRouter>

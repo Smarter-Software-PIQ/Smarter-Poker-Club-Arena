@@ -2762,6 +2762,40 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   // ALL is a cash-family sort-only sheet, so every displayed choice is meaningful.
   await h.choose('ALL');
   await assertCashControlsAndHeaders(page, 'all');
+  await expect(page.locator('tr[data-kind="cash"] .lt-seats__tables')).toHaveCount(0);
+  const cashPlayers = await page
+    .locator('tr[data-kind="cash"] td[data-label="Players"]')
+    .evaluateAll((cells) =>
+      cells.map((cell) => {
+        const number = cell.querySelector('.lt-seats__num');
+        const box = cell.getBoundingClientRect();
+        const value = number?.getBoundingClientRect();
+        return {
+          text: cell.textContent?.trim(),
+          label: getComputedStyle(cell, '::before').content,
+          centered: !!value && Math.abs((value.left + value.right - box.left - box.right) / 2) <= 1,
+          numberOnly: !!number && cell.textContent?.trim() === number.textContent?.trim(),
+        };
+      })
+    );
+  expect(cashPlayers.length).toBeGreaterThan(0);
+  expect(
+    cashPlayers.filter(
+      (cell) =>
+        !cell.centered ||
+        !cell.numberOnly ||
+        cell.label !== '"Players"' ||
+        !/^[0-9,]+$/.test(cell.text || '')
+    )
+  ).toEqual([]);
+  await testInfo.attach('cash-player-count-phone.png', {
+    body: await h.rows.first().screenshot(),
+    contentType: 'image/png',
+  });
+  await testInfo.attach('cash-player-count-phone.json', {
+    body: Buffer.from(JSON.stringify(cashPlayers)),
+    contentType: 'application/json',
+  });
   const allBaseline = await h.ids();
   expect(allBaseline.length).toBeGreaterThan(0);
   const quick = page.locator('.lobby-refinements');
