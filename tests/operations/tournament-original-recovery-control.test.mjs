@@ -917,6 +917,34 @@ test('equal actions outside both reviewed cohorts are rejected before network', 
   assert.equal(f.calls.length, 0);
 });
 
+test('newly reviewed satellite uses its stable closure identity and refuses historical actions', async () => {
+  const member = {
+    tournamentId: '2b654457-f2ef-42c8-b72a-1c8dbc8885d5',
+    operationId: 'a61c7dc5-3ea6-5285-85d6-17ecb797fea4',
+  };
+  const intent = originalControlIntent({
+    ...input,
+    action: 'equal_read',
+    tournamentId: member.tournamentId,
+  });
+  assert.equal(intent.operationId, member.operationId);
+  const f = equalFixture({ member, initial: 'stop_requested' });
+  assert.equal((await f.run('equal_request')).outcome, 'equal_share_already_requested');
+  assert.equal(equalWrites(f).length, 0);
+  for (const action of [
+    'prepare',
+    'read',
+    'abort_request',
+    'abort_read',
+    'abort_ack',
+    'abort_settle',
+  ]) {
+    const legacy = equalFixture({ member });
+    await assert.rejects(legacy.run(action));
+    assert.equal(legacy.calls.length, 0);
+  }
+});
+
 test('additional frozen events use separate operations and the full existing closure path', async () => {
   const manifest = JSON.parse(
     (await import('node:fs')).readFileSync(
@@ -927,8 +955,8 @@ test('additional frozen events use separate operations and the full existing clo
       'utf8'
     )
   );
-  assert.equal(manifest.members.length, 24);
-  assert.equal(new Set(manifest.members.map((m) => m.operationId)).size, 24);
+  assert.equal(manifest.members.length, 25);
+  assert.equal(new Set(manifest.members.map((m) => m.operationId)).size, 25);
   for (const member of manifest.members) {
     assert.equal(
       equalManifest.members.some((m) => m.tournamentId === member.tournamentId),
