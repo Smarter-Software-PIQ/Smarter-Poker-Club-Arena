@@ -1,6 +1,6 @@
 .root {
   --mission-size: 2rem;
-  --mission-signal: var(--card-tier-color, #55e8ff);
+  --mission-signal: var(--card-tier-color, var(--realism-cyan, #55e8ff));
 
   position: relative;
   isolation: isolate;
@@ -28,11 +28,11 @@
 }
 
 .root[data-state='complete'] {
-  --mission-signal: #8bf3ca;
+  --mission-signal: var(--realism-green, #8bf3ca);
 }
 
 .root[data-state='claimed'] {
-  --mission-signal: #82989b;
+  --mission-signal: var(--realism-chrome, #82989b);
 
   opacity: 0.68;
   filter: grayscale(0.35) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.7));

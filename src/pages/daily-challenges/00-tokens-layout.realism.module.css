@@ -14,6 +14,22 @@
   --mission-blue-deep: #087d91;
   --mission-gold: var(--realism-gold, #ffc93c);
   --mission-gold-deep: #ffa500;
+  --mission-green: var(--realism-green, #3fb950);
+  --mission-bevel: var(
+    --realism-bevel,
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.85)
+  );
+  --mission-cavity: var(
+    --realism-cavity,
+    inset 0 2px 6px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 1px rgba(184, 196, 201, 0.14)
+  );
+  --mission-lift: var(
+    --realism-lift,
+    0 14px 36px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(0, 0, 0, 0.9)
+  );
 }
 
 .container {

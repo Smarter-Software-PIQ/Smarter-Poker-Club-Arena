@@ -52,6 +52,10 @@ describe('Daily Challenges Smarter Casino Realism surface', () => {
       '--realism-chrome',
       '--realism-cyan',
       '--realism-gold',
+      '--realism-green',
+      '--realism-bevel',
+      '--realism-cavity',
+      '--realism-lift',
     ]) {
       expect(css).toContain(token);
     }
@@ -60,6 +64,11 @@ describe('Daily Challenges Smarter Casino Realism surface', () => {
 
   it('gives every control physical press, focus, disabled, and reduced-motion states', () => {
     expect(css).toContain('.backButton:not(:disabled):active');
+    expect(css).toContain('.cancelButton:not(:disabled):active');
+    expect(css).toContain('.missionActionButton:not(:disabled):active');
+    expect(css).toContain('.rerollButton:not(:disabled):active');
+    expect(css).toContain('.retryButton:not(:disabled):active');
+    expect(css).toContain('.alertSecondaryButton:not(:disabled):active');
     expect(css).toContain('transform: translateY(1px)');
     expect(css).toContain(':focus-visible');
     expect(css).toContain('.buyFreezeBtn:disabled');
@@ -229,10 +238,17 @@ describe('Daily Challenges Smarter Casino Realism surface', () => {
   it('renders both purchase and reward dialogs as complete casino settlement surfaces', () => {
     expect(freezeDialog).toContain('Streak Protection Desk');
     expect(freezeDialog).toContain('Balance After Purchase');
+    expect(freezeDialog).toContain('data-casino-realism="smarter-casino-realism"');
     expect(rewardDialog).toContain('Reward Settled');
     expect(rewardDialog).toContain('Added To Your Club Arena Diamond Balance');
+    expect(rewardDialog).toContain('data-casino-realism="smarter-casino-realism"');
+    expect(surface).toContain('data-casino-realism="smarter-casino-realism"');
+    expect(routeFallback).toContain('data-casino-realism="smarter-casino-realism"');
     expect(css).toContain('.freezePurchaseLedger');
     expect(css).toContain('.celebrateArtwork');
     expect(css).toContain('.freezeVaultArtwork');
+    expect(css).toContain('.rerollConfirm');
+    expect(css).toContain('var(--mission-cavity)');
+    expect(css).toContain('var(--mission-bevel)');
   });
 });

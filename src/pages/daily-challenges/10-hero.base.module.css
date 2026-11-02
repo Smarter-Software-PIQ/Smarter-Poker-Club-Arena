@@ -137,7 +137,7 @@
   border: 1px solid rgba(189, 204, 214, 0.38);
   background: rgba(4, 7, 9, 0.86);
   text-align: right;
-  backdrop-filter: blur(7px);
+  backdrop-filter: none;
 }
 
 .heroSeal span {

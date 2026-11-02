@@ -54,6 +54,7 @@ export function DailyChallengesAuthLoading() {
       <div
         className={styles.page}
         data-arena-surface="missions"
+        data-casino-realism="smarter-casino-realism"
         data-mission-cycle={tier}
         data-daily-missions-auth-loading=""
         role="region"
@@ -96,6 +97,7 @@ export function DailyChallengesCrashFallback({
       <div
         className={styles.page}
         data-arena-surface="missions"
+        data-casino-realism="smarter-casino-realism"
         data-mission-cycle={tier}
         data-daily-missions-crash-fallback=""
       >

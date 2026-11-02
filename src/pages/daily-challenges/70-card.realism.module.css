@@ -91,8 +91,10 @@
   flex-direction: row;
   align-items: center;
   gap: 9px;
-  padding: 8px 0 8px 14px;
-  border-left-color: rgba(214, 173, 82, 0.22);
+  padding: 8px 12px 8px 14px;
+  border-left-color: rgba(214, 173, 82, 0.28);
+  background: linear-gradient(90deg, rgba(3, 5, 4, 0.82), rgba(11, 16, 15, 0.56));
+  box-shadow: var(--mission-cavity);
 }
 
 .rewardGem {
@@ -129,5 +131,6 @@
 
 .claimedBadge {
   border-color: rgba(214, 173, 82, 0.38);
-  background: rgba(214, 173, 82, 0.04);
+  background: linear-gradient(180deg, rgba(214, 173, 82, 0.08), rgba(3, 5, 4, 0.86));
+  box-shadow: var(--mission-cavity);
 }
