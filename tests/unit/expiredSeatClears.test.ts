@@ -195,6 +195,7 @@ describe('confirmed seat removal clears every local seat claim', () => {
       leftSeatPendingRef: { current: true },
       userId: 'hero',
       cardHoldSameHand: false,
+      cardHoldOpponentSameHand: false,
     });
     expect(map({ id: 'hero', isHero: true, stack: 19.9 }, 7)).toBeNull();
     const other = { id: 'other', stack: 10 };
@@ -206,6 +207,7 @@ describe('confirmed seat removal clears every local seat claim', () => {
       leftSeatPendingRef: { current: false },
       userId: 'hero',
       cardHoldSameHand: false,
+      cardHoldOpponentSameHand: false,
       prev: { players: [] },
     });
     const hero = { id: 'hero', isHero: true, stack };
