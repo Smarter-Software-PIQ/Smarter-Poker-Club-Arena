@@ -1809,6 +1809,17 @@
       "tagged_at",
       "active"
     ],
+    "ca_certification_vip_grants": [
+      "id",
+      "user_id",
+      "op_id",
+      "granted_at",
+      "expires_at",
+      "operator",
+      "reason",
+      "ended_at",
+      "end_reason"
+    ],
     "ca_check_sweep_exemptions": [
       "proname",
       "reason",
