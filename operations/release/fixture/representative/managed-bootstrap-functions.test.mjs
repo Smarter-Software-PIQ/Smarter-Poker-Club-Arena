@@ -68,7 +68,7 @@ test('managed bootstrap module and reviewed SQL are bound to build and receipt i
   const docker=readFileSync(new URL('../Dockerfile',import.meta.url),'utf8');
   const builder=readFileSync(new URL('../build-image.sh',import.meta.url),'utf8');
   const receipt=readFileSync(new URL('../../ci/fixture-smoke.py',import.meta.url),'utf8');
-  for(const name of ['managed-bootstrap-functions.mjs','managed-bootstrap-functions.sql','postgres-extension-captured-acls.mjs','cron-captured-table-acls.mjs','realtime-captured-publication.mjs']){
+  for(const name of ['managed-bootstrap-functions.mjs','managed-bootstrap-functions.sql','postgres-extension-captured-acls.mjs','cron-captured-table-acls.mjs','realtime-captured-publication.mjs','schema-restore-diagnostics.mjs','schema-restore-owner.mjs','schema-restore-owner-proof.mjs']){
     assert.ok(docker.includes(name),name);
     assert.ok(builder.includes(name),name);
     assert.ok(receipt.includes("'"+name+"'"),name);

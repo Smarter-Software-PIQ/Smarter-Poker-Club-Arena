@@ -223,5 +223,66 @@ class NativeDiagnosticsTests(unittest.TestCase):
             self.assertEqual(m.native_failures(json.dumps({**row, 'native_line': invalid})), [])
 
 
+    def test_exact_preflight_startup_and_callback_stages_only(self):
+        common = ('arguments', 'package', 'directories', 'cookie', 'postgres-socket', 'archives',
+                  'postgresql', 'postgresql-auth-legacy-ledger', 'postgresql-native-cron-install',
+                  'postgresql-safeupdate-configure', 'genuine-auth-migrations', 'genuine-realtime-migrations',
+                  'realtime-captured-relation-configuration', 'managed-postgres-event-trigger-boundary',
+                  'post-service-catalog-preimage', 'full-role-alignment', 'current-application-role-extension',
+                  'genuine-service-schema-preimage', 'cleanup')
+        callback = ('catalogue-inputs', 'catalogue-restore-map', 'catalogue-snapshot', 'role-snapshot',
+                    'catalogue-parity', 'auth-platform-helpers', 'cron-catalogue', 'auth-write-denial',
+                    'auth-start', 'auth-ready', 'auth-users', 'auth-mfa', 'canonical-signup',
+                    'postgrest-start', 'postgrest-own-profile', 'empty-game-state', 'healthy')
+        for stage in (['fixture-preflight-'+x for x in common] +
+                      ['fixture-preflight-schema-preflight-'+x for x in callback] +
+                      ['fixture-preflight-application-schema', 'fixture-preflight-full-schema-preflight']):
+            row=dict(status='failed',stage=stage,error='Error')
+            self.assertEqual(m.native_failures(json.dumps(row)),[dict(stage=stage,category='Error')])
+            self.assertEqual(m.native_failures(json.dumps({**row,'stage':stage+'-PRIVATE'})),[])
+        stage='fixture-preflight-current-application-role-extension'
+        sql=dict(status='failed',stage=stage,error='error',sqlstate='P0001',sql_guard_site='POSTGRES_EXTENSION_ACL_PREIMAGE')
+        self.assertEqual(m.native_failures(json.dumps(sql)),[dict(stage=stage,category='error',sqlstate='P0001',sql_guard_site='POSTGRES_EXTENSION_ACL_PREIMAGE')])
+        assertion=dict(status='failed',stage=stage,error='AssertionError',assertion_site='MANAGED_BOOTSTRAP_FUNCTIONS_POSTIMAGE')
+        self.assertEqual(m.native_failures(json.dumps(assertion)),[dict(stage=stage,category='AssertionError',assertion_site='MANAGED_BOOTSTRAP_FUNCTIONS_POSTIMAGE')])
+
+    def test_schema_restore_closed_fields_refuse_wrong_stage_types_and_mixed_diagnostics(self):
+        row=dict(status='failed',stage='fixture-preflight-application-schema',error='SchemaRestoreError',
+                 restore_sqlstate='42501',restore_line=12345,restore_exit_code=3)
+        self.assertEqual(m.native_failures(json.dumps(row)),[dict(stage=row['stage'],category='SchemaRestoreError',
+                         restore_sqlstate='42501',restore_line=12345,restore_exit_code=3)])
+        for edit in [dict(stage='fixture-preimage-application-schema'),dict(stage='fixture-preflight-full-schema-preflight'),
+                     dict(error='Error'),dict(restore_sqlstate='PRIVATE'),dict(restore_sqlstate='00000'),dict(restore_sqlstate=True),
+                     dict(restore_line=True),dict(restore_line=0),dict(restore_line=134217729),dict(restore_line='2'),
+                     dict(restore_exit_code=True),dict(restore_exit_code=0),dict(restore_exit_code=256),
+                     dict(assertion_site='ROLE_PREIMAGE'),dict(sql_guard_site='AUTH_ACL_PREIMAGE'),
+                     dict(sqlstate='42501'),dict(message='PRIVATE'),dict(detail='PRIVATE'),dict(native_line=3)]:
+            self.assertEqual(m.native_failures(json.dumps({**row,**edit})),[])
+        for key in ['restore_sqlstate','restore_line','restore_exit_code']:
+            incomplete=dict(row);del incomplete[key]
+            self.assertEqual(m.native_failures(json.dumps(incomplete)),[])
+        first=dict(status='failed',stage='fixture-preflight-schema-preflight-catalogue-inputs',error='Error')
+        result=m.native_failures(json.dumps(first)+'\n'+json.dumps(row))
+        self.assertEqual(result[0],dict(stage=first['stage'],category='Error'))
+
+
+    def test_owned_restore_error_real_node_producer_to_independent_decoder(self):
+        runtime=(ROOT/'operations/release/fixture/runtime-files.mjs').as_uri()
+        restore=(ROOT/'operations/release/fixture/schema-restore-diagnostics.mjs').as_uri()
+        script=('import {nativeFailureDiagnostic} from '+json.dumps(runtime)+';'
+                'import {schemaRestoreFailure} from '+json.dumps(restore)+';'
+                'const e=Object.assign(new Error("PRIVATE"),{code:3,stdout:"PRIVATE SQL",'
+                'stderr:"psql:/run/club-arena-qualification/private/schema/schema.sql:12345: ERROR:  42501\\n"});'
+                'const owned=schemaRestoreFailure(e);'
+                'console.log(JSON.stringify(nativeFailureDiagnostic("fixture-preflight-application-schema",owned)));'
+                'console.log(JSON.stringify(nativeFailureDiagnostic("fixture-preflight-application-schema",{...owned})));')
+        result=subprocess.run(['node','--input-type=module','-e',script],capture_output=True,text=True,check=True)
+        records=m.native_failures(result.stdout)
+        self.assertEqual(records[0],dict(stage='fixture-preflight-application-schema',category='SchemaRestoreError',
+                         restore_sqlstate='42501',restore_line=12345,restore_exit_code=3))
+        self.assertEqual(records[1],dict(stage='fixture-preflight-application-schema',category='Error'))
+        self.assertNotIn('PRIVATE',result.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

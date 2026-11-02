@@ -1,3 +1,4 @@
+import { schemaRestoreFailureDiagnostic } from './schema-restore-diagnostics.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -157,7 +158,10 @@ export function nativeFailureDiagnostic(stage, error) {
     'error',
   ]);
   const record = { status: 'failed', stage, error: names.has(error?.name) ? error.name : 'Error' };
-  if (stage === 'fixture-preimage-current-application-role-extension' &&
+  const restore = stage === 'fixture-preflight-application-schema' ? schemaRestoreFailureDiagnostic(error) : null;
+  if (restore) return {status:'failed',stage,error:'SchemaRestoreError',
+    restore_sqlstate:restore.sqlstate,restore_line:restore.line,restore_exit_code:restore.exit_code};
+  if (new Set(['fixture-preimage-current-application-role-extension', 'fixture-preflight-current-application-role-extension']).has(stage) &&
       error?.name === 'AssertionError' && error?.code === 'ERR_ASSERTION' &&
       typeof error.message === 'string' && currentApplicationAssertionSites.has(error.message))
     record.assertion_site = currentApplicationAssertionSites.get(error.message);
@@ -262,7 +266,7 @@ export function nativeFailureDiagnostic(stage, error) {
     /^[0-9A-Z]{5}$/.test(error.code)
   ) {
     record.sqlstate = error.code;
-    if (stage === 'fixture-preimage-current-application-role-extension' && error.code === 'P0001' &&
+    if (new Set(['fixture-preimage-current-application-role-extension', 'fixture-preflight-current-application-role-extension']).has(stage) && error.code === 'P0001' &&
         typeof error.message === 'string' && currentApplicationSqlGuardSites.has(error.message))
       record.sql_guard_site = currentApplicationSqlGuardSites.get(error.message);
     // These source-location digests let the controller match the pinned

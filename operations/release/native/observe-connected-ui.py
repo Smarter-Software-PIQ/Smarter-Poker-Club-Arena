@@ -523,6 +523,7 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
         'operations/release/fixture/current-application-roles.mjs',
         'operations/release/fixture/schema-catalogue-restore-map.mjs',
         'operations/release/native/schema-preflight.mjs',
+        'operations/release/native/schema-restore-plan.mjs',
         'operations/release/native/component-semantic-observations.mjs',
         'operations/release/native/qualify-components.py',
         'operations/release/native/original-web-retention.py',
