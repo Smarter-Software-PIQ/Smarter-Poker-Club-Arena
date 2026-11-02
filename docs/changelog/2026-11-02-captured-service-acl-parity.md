@@ -13,3 +13,9 @@ capture18 and covers rollback and permission/drift refusal. The five additional
 runtime/configuration inputs are part of the Docker and source-receipt closure.
 Hosted native qualification, protected integration, publication and the fifteen
 connected acceptance cases are still required before claiming completion.
+
+The first hosted candidate refused with PostgreSQL P0001 before schema export.
+The sanitized diagnostic now recognizes only the thirteen exact source-owned
+SQL guard tokens at that owning stage. Its independent decoder rejects unknown,
+mixed or mismatched labels; raw messages and query context remain private.
+This attribution is not a passing qualification or a substitute for the root fix.

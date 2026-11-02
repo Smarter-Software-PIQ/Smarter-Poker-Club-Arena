@@ -333,3 +333,35 @@ test('current application assertion sites expose only exact source-owned tokens'
   assert.deepEqual(nativeFailureDiagnostic(stage,{name:'error',code:'3F000',message:'PRIVATE',assertion_site:'ROLE_PREIMAGE'}),
     {status:'failed',stage,error:'error',sqlstate:'3F000'});
 });
+
+test('only exact owned P0001 guard messages expose closed SQL guard sites', () => {
+  const stage = 'fixture-preimage-current-application-role-extension';
+  const guards = [
+    ['FIXTURE_AUTH_CAPTURED_ACL_PREIMAGE_REQUIRED','AUTH_ACL_PREIMAGE'],
+    ['FIXTURE_AUTH_CAPTURED_ACL_POSTIMAGE_REQUIRED','AUTH_ACL_POSTIMAGE'],
+    ['FIXTURE_REALTIME_ACL_CONTEXT_REQUIRED','REALTIME_ACL_CONTEXT'],
+    ['FIXTURE_REALTIME_ACL_PREIMAGE_REQUIRED','REALTIME_ACL_PREIMAGE'],
+    ['FIXTURE_REALTIME_ACL_POSTIMAGE_REQUIRED','REALTIME_ACL_POSTIMAGE'],
+    ['FIXTURE_DBLINK_INITIAL_ACL_PREIMAGE_REQUIRED','DBLINK_INITIAL_ACL_PREIMAGE'],
+    ['FIXTURE_DBLINK_INITIAL_ACL_EMPTY_HELPER_REQUIRED','DBLINK_INITIAL_ACL_EMPTY_HELPER'],
+    ['FIXTURE_DBLINK_INITIAL_ACL_POSTIMAGE_REQUIRED','DBLINK_INITIAL_ACL_POSTIMAGE'],
+    ['FIXTURE_GRAPHQL_ACL_PREIMAGE_REQUIRED','GRAPHQL_ACL_PREIMAGE'],
+    ['FIXTURE_GRAPHQL_ACL_EMPTY_HELPER_REQUIRED','GRAPHQL_ACL_EMPTY_HELPER'],
+    ['FIXTURE_GRAPHQL_ACL_POSTIMAGE_REQUIRED','GRAPHQL_ACL_POSTIMAGE'],
+    ['FIXTURE_LEGACY_DBLINK_PREIMAGE_REQUIRED','LEGACY_DBLINK_PREIMAGE'],
+    ['FIXTURE_LEGACY_DBLINK_POSTIMAGE_REQUIRED','LEGACY_DBLINK_POSTIMAGE'],
+  ];
+  for (const [message, site] of guards) {
+    const error = {name:'error', code:'P0001', message, detail:'PRIVATE DETAIL', context:'PRIVATE CONTEXT',
+      sql_guard_site:'PRIVATE TAMPER', assertion_site:'PRIVATE TAMPER'};
+    assert.deepEqual(nativeFailureDiagnostic(stage,error),
+      {status:'failed',stage,error:'error',sqlstate:'P0001',sql_guard_site:site});
+    for (const edit of [{message:message+'\nPRIVATE'}, {message:'prefix '+message}, {message:[message]},
+      {message:'PRIVATE'}, {name:'Error'}, {code:'42501'}, {code:['P0001']}]) {
+      const result = nativeFailureDiagnostic(stage,{...error,...edit});
+      assert.equal(result.sql_guard_site,undefined);
+      assert.ok(!JSON.stringify(result).includes('PRIVATE'));
+    }
+    assert.equal(nativeFailureDiagnostic('fixture-preimage-cleanup',error).sql_guard_site,undefined);
+  }
+});
