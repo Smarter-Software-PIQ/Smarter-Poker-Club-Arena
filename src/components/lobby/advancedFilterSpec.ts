@@ -449,6 +449,8 @@ const CASH_STATUSES = [
   { key: 'empty', label: 'Empty' },
   { key: 'open', label: 'Seats Available' },
 ];
+// Cash empties have a separate explicit opt-in, shared across all cash filters.
+const ACTIVE_CASH_STATUSES = CASH_STATUSES.filter((status) => status.key !== 'empty');
 
 /**
  * ── THE GAMES ROW OF EVERY TOURNAMENT TAB IS DERIVED, NOT TYPED ──────────────
@@ -531,7 +533,7 @@ export const FILTER_SPECS: Record<Exclude<FilterGameType, 'ALL'>, GameFilterSpec
     ],
     styles: CASH_STYLES,
     range: BLIND_RANGE,
-    statuses: CASH_STATUSES,
+    statuses: ACTIVE_CASH_STATUSES,
     seats: { min: 2, max: 9 },
     seatsLabel: 'Table Size',
     features: CASH_FEATURES,
@@ -559,7 +561,7 @@ export const FILTER_SPECS: Record<Exclude<FilterGameType, 'ALL'>, GameFilterSpec
     ],
     styles: CASH_STYLES,
     range: BLIND_RANGE,
-    statuses: CASH_STATUSES,
+    statuses: ACTIVE_CASH_STATUSES,
     seats: { min: 2, max: 9 },
     seatsLabel: 'Table Size',
     features: OMAHA_FEATURES,
@@ -577,7 +579,7 @@ export const FILTER_SPECS: Record<Exclude<FilterGameType, 'ALL'>, GameFilterSpec
     ],
     styles: CASH_STYLES,
     range: BLIND_RANGE,
-    statuses: CASH_STATUSES,
+    statuses: ACTIVE_CASH_STATUSES,
     seats: { min: 2, max: 9 },
     seatsLabel: 'Table Size',
     features: LIMIT_FEATURES,

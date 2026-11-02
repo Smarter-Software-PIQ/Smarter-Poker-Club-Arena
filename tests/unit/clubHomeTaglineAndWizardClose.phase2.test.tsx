@@ -379,7 +379,7 @@ describe('Find Your Game starts with two separate sections', () => {
       within(screen.getByLabelText('Game Status'))
         .getAllByRole('button')
         .map((t) => t.textContent)
-    ).toEqual(['All', 'Running', 'Sort']);
+    ).toEqual(['All', 'Running', 'Show Empty Tables', 'Sort']);
     expect(document.querySelector('.lt-row[data-id="cash-a"]')).not.toBeNull();
     expect(
       document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000201"]')
@@ -757,3 +757,71 @@ it.each([false, true])(
     expect(h.register).not.toHaveBeenCalled();
   }
 );
+
+it('cash empty-table opt-in is explicit, shared across filters and reset on a fresh visit', async () => {
+  h.setupReads = [DONE];
+  const cash = (
+    id: string,
+    game_variant: string,
+    players: number,
+    big_blind: number,
+    status = 'running'
+  ) => ({
+    id,
+    club_id: 'club-a',
+    name: id,
+    game_variant,
+    status,
+    max_players: 6,
+    current_players: players,
+    small_blind: big_blind / 2,
+    big_blind,
+    min_buy_in: 40,
+    max_buy_in: 200,
+  });
+  h.tables = [
+    cash('low', 'nlh', 2, 1),
+    cash('empty-nlh', 'nlh', 0, 20),
+    cash('high', 'plo4', 3, 10),
+    cash('empty-plo', 'plo4', 0, 5),
+    cash('closed', 'plo4', 6, 100, 'closed'),
+  ];
+  await mountLobby();
+  fireEvent.click(screen.getByRole('button', { name: 'Cash Games', exact: true }));
+  await flush();
+  const present = (id: string) => document.querySelector(`.lt-row[data-id="${id}"]`) !== null;
+  const toggle = () => screen.getByRole('button', { name: 'Show Empty Tables', exact: true });
+  expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+  expect(present('low')).toBe(true);
+  expect(present('high')).toBe(true);
+  expect(present('empty-nlh')).toBe(false);
+  expect(present('empty-plo')).toBe(false);
+  fireEvent.click(toggle());
+  await flush();
+  expect(present('empty-nlh')).toBe(true);
+  expect(present('empty-plo')).toBe(true);
+  expect(present('closed')).toBe(false);
+  fireEvent.click(screen.getByRole('tab', { name: 'PLO', exact: true }));
+  await flush();
+  expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+  expect(present('empty-plo')).toBe(true);
+  fireEvent.click(toggle());
+  await flush();
+  fireEvent.click(screen.getByRole('button', { name: 'Seats Available', exact: true }));
+  await flush();
+  expect(present('high')).toBe(true);
+  expect(present('empty-plo')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'All', exact: true }));
+  await flush();
+  expect(present('empty-plo')).toBe(false);
+  fireEvent.click(toggle());
+  await flush();
+  expect(present('empty-plo')).toBe(true);
+  cleanup();
+  h.setupReads = [DONE];
+  await mountLobby();
+  expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+  expect(present('empty-nlh')).toBe(false);
+  expect(present('empty-plo')).toBe(false);
+  expect(h.register).not.toHaveBeenCalled();
+});

@@ -5,48 +5,53 @@ import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { parse } from 'yaml';
 
-it('qualifies exact waiting attempt admission and its original terminal signal boundary', () => {
-  const sentinel = mkdtempSync(join(tmpdir(), 'withdrawal-git-owner-'));
-  const cleanEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))
-  );
-  try {
-    const initialized = spawnSync('git', ['init', '--bare', '--template=', '-q', sentinel], {
-      env: cleanEnv,
-      encoding: 'utf8',
-      timeout: 10000,
-    });
-    expect(initialized.status, initialized.stderr).toBe(0);
-    const originalHead = readFileSync(join(sentinel, 'HEAD'), 'utf8');
-    const result = spawnSync(
-      'python3',
-      ['-B', 'tests/operations/waiting-engine-release-withdrawal.test.py'],
-      {
-        cwd: resolve(import.meta.dirname, '..'),
-        env: {
-          ...process.env,
-          GIT_DIR: sentinel,
-          GIT_WORK_TREE: sentinel,
-          PYTHONDONTWRITEBYTECODE: '1',
-        },
-        encoding: 'utf8',
-        timeout: 60000,
-      }
+it(
+  'qualifies exact waiting attempt admission and its original terminal signal boundary',
+  () => {
+    const sentinel = mkdtempSync(join(tmpdir(), 'withdrawal-git-owner-'));
+    const cleanEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))
     );
-    expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toContain('Ran 59 tests');
-    expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
-    const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
-      env: cleanEnv,
-      encoding: 'utf8',
-      timeout: 10000,
-    });
-    expect(refs.status, refs.stderr).toBe(0);
-    expect(refs.stdout).toBe('');
-  } finally {
-    rmSync(sentinel, { recursive: true, force: true });
-  }
-}, 75000);
+    try {
+      const initialized = spawnSync('git', ['init', '--bare', '--template=', '-q', sentinel], {
+        env: cleanEnv,
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      expect(initialized.status, initialized.stderr).toBe(0);
+      const originalHead = readFileSync(join(sentinel, 'HEAD'), 'utf8');
+      const result = spawnSync(
+        'python3',
+        ['-B', 'tests/operations/waiting-engine-release-withdrawal.test.py'],
+        {
+          cwd: resolve(import.meta.dirname, '..'),
+          env: {
+            ...process.env,
+            GIT_DIR: sentinel,
+            GIT_WORK_TREE: sentinel,
+            PYTHONDONTWRITEBYTECODE: '1',
+          },
+          encoding: 'utf8',
+          // Local Mac transport needs headroom; hosted Linux retains its limit.
+          timeout: process.platform === 'darwin' ? 120000 : 60000,
+        }
+      );
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(result.stderr).toContain('Ran 63 tests');
+      expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
+      const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
+        env: cleanEnv,
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      expect(refs.status, refs.stderr).toBe(0);
+      expect(refs.stdout).toBe('');
+    } finally {
+      rmSync(sentinel, { recursive: true, force: true });
+    }
+  },
+  process.platform === 'darwin' ? 135000 : 75000
+);
 
 it('keeps the revoked off-cycle owner order closed', () => {
   const windows = JSON.parse(

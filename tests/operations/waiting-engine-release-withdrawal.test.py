@@ -275,6 +275,101 @@ class AnnouncedCancellation(unittest.TestCase):
             'controlSha': module.PHASE1_CONTROL, 'desiredSha': module.PHASE1_DESIRED,
             'instanceId': '1-2ced3e43', 'mode': 'cancel_expired_announcement'}
 
+    def test_exact26_successor_requires_positive_kernel_incarnation(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder:
+            proc = Path(folder); pid = 12345; row = proc / str(pid); row.mkdir()
+            (row / 'ns').mkdir(); (row / 'ns/pid').symlink_to('pid:[987654]')
+            (proc / 'stat').write_text('btime 1793638800\n')
+            fields = ['S', '1'] + ['0'] * 17 + ['390000']
+            (row / 'stat').write_text(str(pid) + ' (node) ' + ' '.join(fields))
+            (row / 'status').write_text('Name:\tnode\nNSpid:\t12345\t1\n')
+            group = '/system.slice/docker-' + 'a' * 64 + '.scope'
+            (row / 'cgroup').write_text('0::' + group + '\n')
+            receipt_ms = 1793641918674
+            with patch.object(module, 'PROC', proc), patch.object(module.os, 'sysconf', return_value=100), \
+                 patch.object(module.time, 'time', return_value=1793643300):
+                witness = module.current26_kernel_identity(pid, 'a' * 64, receipt_ms)
+                self.assertEqual(witness['pid'], pid)
+                self.assertEqual(witness['startTicks'], 390000)
+                for field, bad in [('stat', str(pid) + ' (node) ' + ' '.join(fields[:19] + ['1'])),
+                                   ('stat', str(pid) + ' (node) ' + ' '.join(['Z'] + fields[1:])),
+                                   ('status', 'NSpid:\t12345\t2\n'), ('status', 'NSpid:\t999\t1\n'),
+                                   ('cgroup', '0::/system.slice/docker-' + 'b' * 64 + '.scope\n')]:
+                    path = row / field; before = path.read_text(); path.write_text(bad)
+                    with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                        module.current26_kernel_identity(pid, 'a' * 64, receipt_ms)
+                    path.write_text(before)
+                (row / 'ns/pid').unlink(); (row / 'ns/pid').symlink_to('unknown')
+                with self.assertRaises(ValueError): module.current26_kernel_identity(pid, 'a' * 64, receipt_ms)
+
+    def test_exact26_successor_runtime_binds_native_and_both_health_endpoints(self):
+        class Response:
+            def __init__(self, url, value): self.url, self.value = url, value
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def geturl(self): return self.url
+            def read(self, maximum): return json.dumps(self.value).encode()
+        request = {'runKey': module.CURRENT26_RUN, 'releaseSha': module.CURRENT26_TARGET,
+                   'controlSha': module.CURRENT26_CONTROL, 'desiredSha': module.PHASE1_DESIRED,
+                   'instanceId': '1-43c66515', 'mode': 'cancel_expired_announcement'}
+        image = 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+        old = {'id': 'a' * 64, 'image': image, 'startedAt': '2026-11-02T17:45:06Z'}
+        receipt = {'container': old, 'observedAt': '2026-11-02T17:51:58.674442+00:00'}
+        live = old | {'startedAt': '2026-11-02T18:05:00Z'}
+        native = live | {'pid': 12345, 'status': 'running', 'running': True}
+        health = {'instanceId': '1-17a6d6ef', 'releaseSha': request['desiredSha'],
+                  'running': True, 'liveness': 'ok', 'maintenance': {'active': False, 'phase': 'idle'}}
+        seen = []
+        def response(url, timeout):
+            seen.append(url.split('?',1)[0]); return Response(url, health)
+        with patch.object(module, 'container_identity', return_value=live), \
+             patch.object(module, 'command', return_value=json.dumps(native)), \
+             patch.object(module, 'current26_kernel_identity', return_value={'pid': 12345, 'startTicks': 390000}) as kernel, \
+             patch.object(module.urllib.request, 'urlopen', side_effect=response), \
+             patch.object(module.time, 'time', return_value=1793643300):
+            witness = module.current26_cancelled_runtime(request, receipt)
+            self.assertEqual(witness['request']['instanceId'], '1-17a6d6ef')
+            self.assertEqual(witness['container'], live)
+            self.assertEqual(request['instanceId'], '1-43c66515')
+            self.assertEqual(receipt['container'], old)
+            self.assertEqual(seen, ['http://127.0.0.1:8080/health', 'http://127.0.0.1:8080/health', 'https://engine.smarter.poker/health'])
+            self.assertEqual(kernel.call_count, 2)
+            for changed in [native | {'pid': 0}, native | {'pid': True}, native | {'running': False},
+                            native | {'id': 'b' * 64}, native | {'image': 'sha256:' + 'b' * 64}]:
+                with patch.object(module, 'command', return_value=json.dumps(changed)), self.assertRaises(ValueError):
+                    module.current26_cancelled_runtime(request, receipt)
+            with patch.object(module, 'command', side_effect=[json.dumps(native), json.dumps(native | {'pid': 45678})]), self.assertRaises(ValueError):
+                module.current26_cancelled_runtime(request, receipt)
+            for changed in [live | {'id': 'b' * 64}, live | {'image': 'sha256:' + 'b' * 64},
+                            live | {'startedAt': '2026-11-02T17:50:00Z'}]:
+                with patch.object(module, 'container_identity', return_value=changed), self.assertRaises(ValueError):
+                    module.current26_cancelled_runtime(request, receipt)
+            with patch.object(module, 'current26_kernel_identity', side_effect=[{'pid': 12345}, {'pid': 45678}]), self.assertRaises(ValueError):
+                module.current26_cancelled_runtime(request, receipt)
+            for changed in [health | {'instanceId': request['instanceId']}, health | {'releaseSha': module.CURRENT26_TARGET},
+                            health | {'maintenance': {'active': True, 'phase': 'counting_down'}}]:
+                with patch.object(module.urllib.request, 'urlopen', side_effect=lambda url,timeout:Response(url,changed)), self.assertRaises(ValueError):
+                    module.current26_cancelled_runtime(request, receipt)
+            calls = iter([health, health, health | {'instanceId': '1-deadbeef'}])
+            with patch.object(module.urllib.request, 'urlopen', side_effect=lambda url,timeout:Response(url,next(calls))), self.assertRaises(ValueError):
+                module.current26_cancelled_runtime(request, receipt)
+
+    def test_exact26_proof_projects_current_runtime_preserving_historical_receipts(self):
+        with patch.dict(module.__dict__, clear=False):
+            module.select_current26_profile()
+            current = {'container': {'id': 'a' * 64, 'image': 'sha256:' + 'b' * 64,
+                       'startedAt': '2026-11-02T18:05:00Z'},
+                       'request': self.phase1_request() | {'instanceId': '1-17a6d6ef'},
+                       'process': {'pid': 12345, 'startTicks': 390000}}
+            self.test_phase1_final_proof_requires_immutable_receipts_quiescence_and_no_custody(current)
+
+    def test_historical_final_proofs_do_not_use_successor_capability(self):
+        for second in (False, True):
+            with self.subTest(second=second), patch.dict(module.__dict__, clear=False):
+                if second: module.select_second_phase1_profile()
+                with patch.object(module, 'current26_cancelled_runtime', side_effect=AssertionError('historical profile broadened')):
+                    self.test_phase1_final_proof_requires_immutable_receipts_quiescence_and_no_custody()
+
     def test_exact26_distinct_target_control_and_deadline(self):
         with patch.dict(module.__dict__, clear=False):
             module.select_current26_profile()
@@ -473,7 +568,7 @@ class AnnouncedCancellation(unittest.TestCase):
                     module.announcement_evidence(request, read_only=True)
                 (reqroot / (key + '.activation-entry')).write_text(json.dumps(entry))
 
-    def test_phase1_final_proof_requires_immutable_receipts_quiescence_and_no_custody(self):
+    def test_phase1_final_proof_requires_immutable_receipts_quiescence_and_no_custody(self, runtime=None):
         with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
             root = Path(folder); directory = root / 'engine-release-cancellations'; directory.mkdir()
             reqroot = root / 'engine-release-requests'; reqroot.mkdir()
@@ -510,36 +605,28 @@ class AnnouncedCancellation(unittest.TestCase):
             quiet = patches.enter_context(patch.object(module, 'quiet_units'))
             patches.enter_context(patch.object(module, 'container_identity', return_value=container))
             patches.enter_context(patch.object(module, 'health_pair'))
-            patches.enter_context(patch.object(module, 'serving_instance', return_value=request['instanceId']))
             patches.enter_context(patch.object(module, 'own_thaw', return_value=thaw))
             patches.enter_context(patch.object(module, 'phase1_seal_evidence', return_value={'original': True}))
+            if runtime is not None:
+                patches.enter_context(patch.object(module, 'current26_cancelled_runtime', return_value=runtime))
             proof = module.phase1_cancellation_proof()
-            self.assertEqual((proof['container'], proof['instanceId']), (container, request['instanceId']))
             self.assertEqual(proof['recordHashes'], {name: module.digest(raw.encode()) for name, raw in records.items()})
             self.assertEqual(quiet.call_count, 2)
+            if runtime is not None:
+                self.assertEqual(proof['container'], runtime['container'])
+                self.assertEqual(proof['instanceId'], runtime['request']['instanceId'])
+                self.assertEqual(json.loads(records['receipt'])['request']['instanceId'], request['instanceId'])
+                with patch.object(module, 'current26_cancelled_runtime', side_effect=[runtime, runtime | {'process': {'pid': 99999}}]):
+                    with self.assertRaises(ValueError): module.phase1_cancellation_proof()
             for suffix in ('request', 'intent', 'break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json'):
                 path = reqroot / (key + '.' + suffix); path.write_text('retained')
                 with self.subTest(suffix=suffix), self.assertRaises(ValueError): module.phase1_cancellation_proof()
                 path.unlink()
             with patch.object(module, 'quiet_units', side_effect=ValueError('successor process')):
                 with self.assertRaises(ValueError): module.phase1_cancellation_proof()
-            # eed06fe5 restarts on its own after the cancellation (41469215622-1: cancelled on
-            # 1-43c66515, restarted 18:05:11Z). A later birth of the same desired image proves,
-            # bound to the serving container and instance at proof time, as the seal admits.
-            reborn = container | {'startedAt': '2026-11-02T07:30:00Z'}
-            with patch.object(module, 'container_identity', return_value=reborn), \
-                 patch.object(module, 'serving_instance', return_value='1-17a6d6ef'):
-                later = module.phase1_cancellation_proof()
-            self.assertEqual((later['container'], later['instanceId']), (reborn, '1-17a6d6ef'))
-            # Another image is not the sealed desired runtime.
-            with patch.object(module, 'container_identity', return_value=reborn | {'image': 'sha256:' + 'c' * 64}):
-                with self.assertRaises(ValueError): module.phase1_cancellation_proof()
-            # A birth inside the announced window is never admitted.
-            with patch.object(module, 'container_identity', return_value=container | {'startedAt': '2026-11-02T07:02:00Z'}):
-                with self.assertRaises(ValueError): module.phase1_cancellation_proof()
-            # A malformed serving instance refuses.
-            with patch.object(module, 'serving_instance', side_effect=ValueError('Exact waiting release admission refused')):
-                with self.assertRaises(ValueError): module.phase1_cancellation_proof()
+            if runtime is None:
+                with patch.object(module, 'container_identity', return_value=container | {'startedAt': '2026-11-02T07:30:00Z'}):
+                    with self.assertRaises(ValueError): module.phase1_cancellation_proof()
             receipt['stopDisposition'] = 'requested'
             (directory / (key + '.receipt.json')).write_text(json.dumps(receipt))
             with self.assertRaises(ValueError): module.phase1_cancellation_proof()

@@ -366,15 +366,13 @@ export function saveViewPrefs(
  * otherwise the tab's own default.
  *
  * Dan 2026-10-31: Spins, Sit N Go's and Satellites open by current Players,
- * highest first. MTT keeps Recommended, as do cash variants. These defaults
- * are read only when a player has not saved an explicit sort for this tab.
+ * highest first. MTT keeps Recommended. Owner 2026-11-02: cash defaults to
+ * stakes high to low. Defaults apply when no explicit sort was saved.
  */
 export function defaultSortForTab(tab: LobbyTabKey): LobbySortKey {
   if (tab === 'SPIN' || tab === 'SNG' || tab === 'SATELLITE') return 'players';
-  if (tab === 'MTT' || tab === 'HOLDEM' || tab === 'OMAHA' || tab === 'LIMIT' || tab === 'MIXED') {
-    return 'recommended';
-  }
-  return 'recommended';
+  if (tab === 'MTT') return 'recommended';
+  return 'stakes_high';
 }
 
 function validSortForTab(tab: LobbyTabKey, saved: LobbySortKey): LobbySortKey {
