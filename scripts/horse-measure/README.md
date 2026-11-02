@@ -14,11 +14,11 @@ The server-side TypeScript equivalent of some of this is
 ## Tools
 
 | file                                   | what it measures                                                                                                                                                                                                                                                     | usage                                                               |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------- | --- | ------------------------------------------------------------------------------------------------------------------- |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `horse-v63-v69-measure.py`             | postflop decision classes V63-V69 change (one-pair river/turn calls, bet-raised one pair, high-card turn calls), from `horse_hand_reviews` (the >= 20bb pots only) plus V61/V63 counters and `noteFire` receipts                                                     | header docstring; `sql cash                                         | mtt SINCE UNTIL`, `fn-sql`, `telemetry-sql`, `render` |
 | `horse-rfi-live.py`                    | raise-first-in frequency, limp %, open-shove %, average open size by table size x position x effective-stack bucket, horses vs humans, plus 13x13 grids (via `ca_hand_facts`)                                                                                        | header docstring; `plan SINCE UNTIL --out DIR` then `render`        |
 | `preflop-raise-ladder.sql`             | horse open-size histogram, opener's answer to a 3-bet (fold/call/4-bet), 4-bettor's answer to a 5-bet                                                                                                                                                                | paste into `execute_sql`; edit the window                           |
-| `horse-release-verify.py`, `sql/*.sql` | the V74-V79 release verification: which upgrade receipts fire (with the `decide_nlh` liveness control), the preflop ladder, seat-aware jams (V77), committing turn/river raises and call-offs (V78), the V79 top-pair call cells with hand-clustered decision-EV CIs | `sql activation START_DAY`, `sql ladder                             | seat-jams                                             | v78 | v79 START END`, `slices`, `combine-v79 FILES`, `check`; guarded by `tests/the-horse-release-kit-only-reads.test.ts` |
+| `horse-release-verify.py`, `sql/*.sql` | the V74-V79 release verification: which upgrade receipts fire (with the `decide_nlh` liveness control), the preflop ladder, seat-aware jams (V77), committing turn/river raises and call-offs (V78), the V79 top-pair call cells with hand-clustered decision-EV CIs | `sql activation START_DAY`, `sql ladder                             | seat-jams                                             | v78 | v79 START END`, `slices START END HOURS`, `combine-v79 FILES`, `check`, `check-file FILE`(timestamps need an explicit offset); guarded by`tests/the-horse-release-kit-only-reads.test.ts` |
 | `leak_pipeline.py`, `leak_feat.sql`    | the 2026-10-31 weekly leak report pipeline (largest losing decision classes)                                                                                                                                                                                         | see `docs/horse-measure/2026-10-31/horse-leak-report-2026-10-31.md` |
 
 ## Baselines (the "before" side; engine `eed06fe5`, no V61+ features)
@@ -72,6 +72,13 @@ with its window; none is a profitability claim.
 - V78, 07:20-13:20 UTC: 168 committing non-all-in turn/river raises, 0
   raise-then-fold, 5 called off a re-shove. Cash average net: river +24.70bb,
   turn +22.49bb.
+- V80 evidence (cell A, top pair with a T+ kicker, decision EV of the call):
+  2026-11-01 13:20 to 11-02 13:20 UTC T -42.72 (n 105), J -48.92 (n 99),
+  Q -36.36 (n 67), K -21.43 (n 48, straddles), A -27.14 (n 32, straddles);
+  2026-10-31 13:20 to 11-01 13:20 UTC T-Q -48.49 [-59.77, -37.22] (n 286),
+  K-A -34.80 [-54.66, -14.95] (n 98). After V80 these calls should become
+  rare in cell A (`sql v79`, kicker strong_T+ rows) and
+  `v80_top_pair_strong_kicker` should fire.
 - V79 cells, 11:20-13:20 UTC: cell A weak kicker n 14, +11.16bb, CI
   [-23.97, 46.29] (straddles 0); cell A strong kicker n 20, -54.20bb (below
   0); cell B weak kicker n 9, -19.36bb (straddles 0). A 6-hour run gives A weak
@@ -81,7 +88,7 @@ with its window; none is a profitability claim.
 
 1. Confirm `releaseSha` on `/health` contains the candidate, the release
    receipt is SEALED and the thaw is complete; take START from that moment.
-2. `sql activation START_DAY`: the control must be non-zero; every V74-V79
+2. `sql activation START_DAY`: the control must be non-zero; every V74-V80
    receipt should be non-zero within hours (V62 stays 0: it is opt-in).
 3. Re-run ladder, seat-jams, v78 and v79 on windows that start after START and
    compare with the block above (like with like, report n with every number).

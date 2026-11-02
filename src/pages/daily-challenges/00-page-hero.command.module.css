@@ -7,8 +7,13 @@
   --mission-cycle-glow: rgba(85, 232, 255, 0.22);
 }
 
+.page[data-mission-cycle='daily'] {
+  --mission-cycle-color: var(--realism-cyan, #55e8ff);
+  --mission-cycle-glow: color-mix(in srgb, var(--mission-cycle-color) 22%, transparent);
+}
+
 .page[data-mission-cycle='weekly'] {
-  --mission-cycle-color: #c8d5da;
+  --mission-cycle-color: var(--realism-chrome, #c8d5da);
   --mission-cycle-glow: rgba(200, 213, 218, 0.2);
 }
 
@@ -20,4 +25,32 @@
 .hero > .bevelFrame {
   --bevel-frame-color: color-mix(in srgb, var(--mission-cycle-color) 66%, var(--mission-chrome));
   filter: drop-shadow(0 0 7px var(--mission-cycle-glow));
+}
+
+.page[data-mission-cycle='daily'] .hero,
+.page[data-mission-cycle='weekly'] .hero,
+.page[data-mission-cycle='monthly'] .hero,
+.page[data-mission-cycle='daily'] .missionBoard,
+.page[data-mission-cycle='weekly'] .missionBoard,
+.page[data-mission-cycle='monthly'] .missionBoard {
+  border-color: color-mix(in srgb, var(--mission-cycle-color) 42%, rgba(184, 196, 201, 0.28));
+}
+
+.page[data-mission-cycle='daily'] .boardHeader,
+.page[data-mission-cycle='weekly'] .boardHeader,
+.page[data-mission-cycle='monthly'] .boardHeader {
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--mission-cycle-color) 32%,
+    rgba(184, 196, 201, 0.18)
+  );
+}
+
+.page[data-mission-cycle='daily'] .resetReadout,
+.page[data-mission-cycle='weekly'] .resetReadout,
+.page[data-mission-cycle='monthly'] .resetReadout {
+  border-color: color-mix(in srgb, var(--mission-cycle-color) 44%, rgba(184, 196, 201, 0.24));
+  box-shadow:
+    var(--mission-cavity),
+    0 0 18px color-mix(in srgb, var(--mission-cycle-color) 14%, transparent);
 }

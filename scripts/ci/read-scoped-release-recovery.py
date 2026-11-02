@@ -1313,8 +1313,10 @@ def validate_original_announcement(value, request):
     fields = {'schema','readOnly','mode','runKey','releaseSha','controlSha','status','reason',
               'announcementAtMs','announcementObservedAtMs','originalInvocationSha256','bindingSha256',
               'causes','exit','unclassifiedMessageSha256','limitation'}
+    v2=isinstance(value,dict) and value.get('schema')=='original-announcement-cause/v2'
+    if v2:fields|={'unclassifiedRefusals','transactionExitCause'}
     if (selection(request) != ORIGINAL_ANNOUNCEMENT_REQUEST or not isinstance(value,dict) or set(value)!=fields
-        or value['schema']!='original-announcement-cause/v1' or value['readOnly'] is not True
+        or value['schema'] not in {'original-announcement-cause/v1','original-announcement-cause/v2'} or value['readOnly'] is not True
         or any(value.get(k)!=v for k,v in request.items())
         or value['controlSha']!=ORIGINAL_ANNOUNCEMENT_CONTROL
         or value['status'] not in {'observed','unknown'} or value['reason'] not in ORIGINAL_CAUSE_REASONS
@@ -1350,10 +1352,23 @@ def validate_original_announcement(value, request):
         raise ValueError('Original announcement exit refused')
     if value['status']=='observed':
         if (value['reason']!='cause_observed' or value['bindingSha256'] is None or at is None
-                or len(value['causes'])!=1 or value['unclassifiedMessageSha256'] is not None):
+                or not 1<=len(value['causes'])<=(16 if v2 else 1) or (not v2 and value['unclassifiedMessageSha256'] is not None)):
             raise ValueError('Original announcement positive export refused')
     elif value['reason']=='cause_observed' or value['causes'] or exit_value is not None:
         raise ValueError('Original announcement unknown export refused')
+    if v2:
+        unknown=value['unclassifiedRefusals']
+        if value['transactionExitCause']!='UNKNOWN' or not isinstance(unknown,list) or len(unknown)+len(value['causes'])>16:
+            raise ValueError('Original refusal sequence authority refused')
+        for row in unknown:
+            if (not isinstance(row,dict) or set(row)!={'observedAtMs','messageSha256'}
+                    or type(row['observedAtMs']) is not int or not ORIGINAL_ANNOUNCEMENT_STAMP<=row['observedAtMs']<=ORIGINAL_ANNOUNCEMENT_STAMP+420000
+                    or not re.fullmatch('[0-9a-f]{64}',str(row['messageSha256']))):
+                raise ValueError('Unclassified refusal export refused')
+        if any(rows!=sorted(rows,key=lambda row:row['observedAtMs']) for rows in (value['causes'],unknown)):
+            raise ValueError('Original refusal chronology refused')
+        if value['unclassifiedMessageSha256']!=(unknown[0]['messageSha256'] if len(unknown)==1 else None):
+            raise ValueError('Legacy unknown digest refused')
     return value
 
 
@@ -1380,11 +1395,11 @@ def original_announcement_evidence(request, root_fd, control_fd):
     """Two finite original-invocation reads; no listener, state or release action."""
     if selection(request)!=ORIGINAL_ANNOUNCEMENT_REQUEST: raise ValueError('Original announcement selection refused')
     until=time.monotonic()+5
-    answer={'schema':'original-announcement-cause/v1','readOnly':True,**request,
+    answer={'schema':'original-announcement-cause/v2','readOnly':True,**request,
         'controlSha':ORIGINAL_ANNOUNCEMENT_CONTROL,'status':'unknown','reason':'binding_unproved',
         'announcementAtMs':ORIGINAL_ANNOUNCEMENT_STAMP,'announcementObservedAtMs':None,
         'originalInvocationSha256':None,'bindingSha256':None,'causes':[],'exit':None,'unclassifiedMessageSha256':None,
-        'limitation':ORIGINAL_CAUSE_LIMITATION}
+        'limitation':ORIGINAL_CAUSE_LIMITATION,'unclassifiedRefusals':[],'transactionExitCause':'UNKNOWN'}
     def remaining():
         if time.monotonic()>=until: raise TimeoutError('original_deadline')
     def exact_bytes(fd,name,limit,private):
@@ -1478,24 +1493,28 @@ def original_announcement_evidence(request, root_fd, control_fd):
             else:
                 for row,_ in causes:
                     if row['_SYSTEMD_INVOCATION_ID']!=invocation:raise ValueError('original_identity')
-                # A <17-row reply proves the 17-row tail did not truncate this
-                # filtered interval. Only then choose the chronological first.
-                first_at=min(at for _,at in causes)
-                first=[row for row,at in causes if at==first_at]
-                if len(first)!=1:
-                    answer['reason']='unclassified_original_refusal'
-                else:
-                    message=first[0]['MESSAGE'];digest=hashlib.sha256(message.encode()).hexdigest()
+                # Export every complete filtered refusal in chronological order.
+                # A handled seal probe is an observed refusal, never proof that
+                # its calling transaction exited. No journal literal grants that.
+                exits=[]
+                for row,at in sorted(causes,key=lambda pair:pair[1]):
+                    message=row['MESSAGE'];digest=hashlib.sha256(message.encode()).hexdigest()
                     mapped=literals.get(message)
                     if mapped is None:
-                        answer.update(reason='unclassified_original_refusal',unclassifiedMessageSha256=digest)
+                        answer['unclassifiedRefusals'].append({'observedAtMs':at,'messageSha256':digest})
                     else:
-                        answer.update(status='observed',reason='cause_observed',causes=[{**mapped,
-                            'observedAtMs':first_at,'messageSha256':digest}])
-                        row=first[0]
-                        if 'EXIT_CODE' in row or 'EXIT_STATUS' in row:
-                            if row.get('EXIT_CODE') not in {'exited','killed','dumped'} or not isinstance(row.get('EXIT_STATUS'),str) or not re.fullmatch('[0-9]{1,3}',row['EXIT_STATUS']) or not 0<=int(row['EXIT_STATUS'])<=255:raise ValueError('original_identity')
-                            answer['exit']={'code':row['EXIT_CODE'],'status':int(row['EXIT_STATUS']),'observedAtMs':first_at}
+                        answer['causes'].append({**mapped,'observedAtMs':at,'messageSha256':digest})
+                    if 'EXIT_CODE' in row or 'EXIT_STATUS' in row:
+                        if row.get('EXIT_CODE') not in {'exited','killed','dumped'} or not isinstance(row.get('EXIT_STATUS'),str) or not re.fullmatch('[0-9]{1,3}',row['EXIT_STATUS']) or not 0<=int(row['EXIT_STATUS'])<=255:raise ValueError('original_identity')
+                        exits.append({'code':row['EXIT_CODE'],'status':int(row['EXIT_STATUS']),'observedAtMs':at})
+                if answer['causes']:
+                    answer.update(status='observed',reason='cause_observed')
+                else:answer['reason']='unclassified_original_refusal'
+                unknown=answer['unclassifiedRefusals']
+                answer['unclassifiedMessageSha256']=unknown[0]['messageSha256'] if len(unknown)==1 else None
+                # Preserve the legacy scalar only when it is unambiguous; it
+                # does not establish which refusal caused transaction exit.
+                if len(exits)==1 and answer['causes']:answer['exit']=exits[0]
         if snapshot()!=before:raise ValueError('original_changed')
         remaining()
     except (OSError,ValueError,TypeError,KeyError,UnicodeError,subprocess.SubprocessError) as error:
@@ -1503,9 +1522,11 @@ def original_announcement_evidence(request, root_fd, control_fd):
                 'original_journal':'journal_unavailable','original_changed':'binding_changed',
                 'Recovery witness output refused':'journal_bound'}.get(str(error),'binding_changed' if answer['bindingSha256'] else 'binding_unproved')
         if isinstance(error,(TimeoutError,subprocess.TimeoutExpired)):reason='deadline_exhausted'
-        answer.update(status='unknown',reason=reason,causes=[],exit=None)
+        answer.update(status='unknown',reason=reason,causes=[],exit=None,unclassifiedRefusals=[],unclassifiedMessageSha256=None)
     finally:
         for fd in opened:os.close(fd)
+    if len(json.dumps(answer).encode())>8192:
+        answer.update(status='unknown',reason='journal_bound',causes=[],exit=None,unclassifiedRefusals=[],unclassifiedMessageSha256=None)
     return validate_original_announcement(answer,request)
 
 
@@ -4612,7 +4633,7 @@ def main():
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
         reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
-        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody', 'original_announcement_cause'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records','retained_first_refusal'} else 4096):
+        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records','original_announcement_cause','retained_first_refusal'} else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:
             try:

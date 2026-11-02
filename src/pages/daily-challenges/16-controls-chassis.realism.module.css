@@ -72,9 +72,19 @@
 .buyFreezeBtn,
 .confirmButton,
 .missionActionButton,
+.retryButton,
 .alertButton,
 .celebrateButton {
   --control-frame-color: color-mix(in srgb, var(--mission-blue) 76%, var(--mission-chrome));
+}
+
+.rerollButton {
+  --control-frame-color: color-mix(in srgb, var(--mission-gold) 72%, var(--mission-chrome));
+}
+
+.cancelButton,
+.alertSecondaryButton {
+  --control-frame-color: color-mix(in srgb, var(--mission-chrome) 78%, #5b6970);
 }
 
 .heroActions .playButton {

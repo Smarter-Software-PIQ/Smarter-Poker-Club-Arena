@@ -121,7 +121,7 @@ async function canonicalSchemaCatalogue(db, includePayload) {
       FROM acl_objects o
     ) SELECT jsonb_build_object('access',
       (SELECT coalesce(jsonb_agg(jsonb_build_array(kind,schema_name,object_name,owner_name,grants)
-        ORDER BY kind,schema_name,object_name),'[]'::jsonb) FROM normalized_acl),
+        ORDER BY kind COLLATE "C",schema_name COLLATE "C",object_name COLLATE "C"),'[]'::jsonb) FROM normalized_acl),
     'roles',(SELECT coalesce(jsonb_agg(jsonb_build_array(rolname,rolsuper,rolinherit,rolcreaterole,
       rolcreatedb,rolcanlogin,rolreplication,rolbypassrls) ORDER BY rolname),'[]'::jsonb) FROM pg_roles),
     'memberships',(SELECT coalesce(jsonb_agg(jsonb_build_array(pg_get_userbyid(roleid),

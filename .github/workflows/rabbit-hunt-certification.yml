@@ -1,0 +1,48 @@
+name: Rabbit Hunt Certification
+
+# Daily live certification of VIP previous-hand rabbit hunting (#9233, #9314)
+# on the supported certification route only: reserved accounts, a certification
+# club's own opening grant, the audited self-expiring certification VIP, and
+# guarded cleanup that always runs. While the serving engine does not carry the
+# feature, the run ends UNKNOWN and creates nothing.
+
+on:
+  schedule:
+    # 16:37 UTC = 10:37 Chicago / 09:37 Pacific: outside 06:00-09:00 Pacific and
+    # outside the :50-:05 maintenance/migration freeze.
+    - cron: '37 16 * * *'
+  workflow_dispatch:
+
+concurrency:
+  # The run creates reserved fixtures and its own cleanup retires them; a later
+  # run queues behind it and never cancels cleanup.
+  group: rabbit-hunt-certification
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        timeout-minutes: 5
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
+      - name: Certify Previous-Hand Rabbit Hunt On The Serving Engine
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+        run: node scripts/ci/certify-rabbit-hunt.mjs
