@@ -13,7 +13,7 @@ test('the reported bounty event shows charged terms and its actual house overlay
     'Entry: 26 Prize Pool + 10 Bounty + 4 Rake.',
     { timeout: 30_000 }
   );
-  await page.getByRole('button', { name: 'Rewards', exact: true }).click();
+  await page.getByRole('tab', { name: 'Rewards', exact: true }).click();
   await expect(page.locator('.rw-pool__value')).toHaveText('5,950');
   await expect(page.getByText('2,530 Overlay', { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('3,420 Of 5,000', { exact: true })).toBeVisible();
