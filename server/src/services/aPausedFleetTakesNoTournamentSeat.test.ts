@@ -134,9 +134,9 @@ describe('a paused fleet takes no new seat in a tournament either', () => {
     expect(rpcMock.mock.calls.filter((c) => c[0] === 'fn_seat_horse_in_seat_first_game')).toEqual(
       []
     );
-    expect(rpcMock.mock.calls.filter((c) => c[0] === 'fn_register_horse_for_tournament')).toEqual(
-      []
-    );
+    expect(
+      rpcMock.mock.calls.filter((c) => String(c[0]).startsWith('fn_register_horse_for_tournament'))
+    ).toEqual([]);
     // Said once for the row, not every backoff.
     expect(reportErrorMock.mock.calls.filter((c) => c[1] === REFUSAL)).toHaveLength(1);
   });

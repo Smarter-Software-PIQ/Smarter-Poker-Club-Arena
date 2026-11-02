@@ -1,5 +1,8 @@
 import { createV31WorkerControl } from './v31ReloadControl.js';
-import { loadGtoPostflopV31Once } from '../../services/GtoPostflopV31Loader.js';
+import {
+  loadGtoPostflopV31Once,
+  requireGtoV31ServingBinding,
+} from '../../services/GtoPostflopV31Loader.js';
 import { gtoPostflopV31Count, gtoPostflopV31Dataset } from '../GtoPostflopV31.js';
 import { sampleIsolateMemory } from '../../observability/isolateMemory.js';
 /** Worker-thread entry point for the live HorseLogic decision lane. */
@@ -48,6 +51,10 @@ export function completedHandOwnership(
 }
 
 if (!isMainThread && parentPort) {
+  // Arm the V31 serving gate before anything else: an explicit V31 store
+  // control message can arrive before runtime.start() reaches its own V31
+  // step, and no load on a live worker may ever run ungated.
+  requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);
   const shard = shardFromWorkerData(workerData);
   // The journal writer thread is created FIRST. A thread inherits the
   // priority of the thread that creates it, and the next call lowers this

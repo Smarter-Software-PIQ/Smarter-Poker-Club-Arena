@@ -165,6 +165,31 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    const keySetup = normalized.jobs.accounting_postgres.steps.find(
+      (step: { name?: string }) =>
+        step.name === 'Install PostgreSQL 17 tools without a default database service'
+    );
+    const currentKeyBlock = [
+      '# Fetch the identical signing key from the package repository itself.',
+      '# The website host repeatedly terminated TLS before native tests ran.',
+      'sudo curl --fail --silent --show-error --location \\',
+      '  --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \\',
+      '  https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc',
+    ].join('\n');
+    expect(keySetup.run.split(currentKeyBlock)).toHaveLength(2);
+    // Normalize only the exact separately enforced key-host correction. Every
+    // previous command, trust control and workflow fingerprint remains pinned.
+    keySetup.run = keySetup.run.replace(
+      currentKeyBlock,
+      currentKeyBlock
+        .split('\n')
+        .slice(2)
+        .join('\n')
+        .replace(
+          'https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc',
+          'https://www.postgresql.org/media/keys/ACCC4CF8.asc'
+        )
+    );
     const bountyStep = {
       name: 'Tournament guarantees include funded bounties',
       if: 'matrix.shard == 1',

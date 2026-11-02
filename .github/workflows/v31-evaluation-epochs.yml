@@ -1,6 +1,6 @@
 name: V31 evaluation epochs bind the engine commit
 
-# Native proof of migration 20261102151428 against a throwaway PostgreSQL 17
+# Native proofs of migrations 20261102151428 and 20261102180625 against a throwaway PostgreSQL 17
 # cluster (never production): scripts/ci/test-v31-evaluation-epochs.py, with
 # its mutation checks. No timer (CLAUDE.md 10.85): pull_request only, scoped to
 # the paths it proves.
@@ -10,6 +10,8 @@ on:
     paths:
       - supabase/migrations/20261102151428_v31_evaluation_epochs_bind_the_engine_commit.sql
       - scripts/ci/test-v31-evaluation-epochs.py
+      - supabase/migrations/20261102180625_v31_serving_bindings_admit_only_verified_engines.sql
+      - scripts/ci/test-v31-serving-bindings.py
       - scripts/ci/fixtures/v31-evaluation-epochs/**
       - .github/workflows/v31-evaluation-epochs.yml
 
@@ -51,4 +53,6 @@ jobs:
       - name: Native proof and mutation checks
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
-        run: python3 scripts/ci/test-v31-evaluation-epochs.py --mutations
+        run: |
+          python3 scripts/ci/test-v31-evaluation-epochs.py --mutations
+          python3 scripts/ci/test-v31-serving-bindings.py --mutations

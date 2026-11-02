@@ -28,6 +28,7 @@ on:
       - server/scripts/engine-release-transaction.sh
       - server/scripts/engine-release-seal.py
       - tests/operations/engine-hourly-maintenance.py
+      - tests/operations/countdown-capture-epoch.py
       - tests/operations/failed-routine-custody-systemd-fixture.py
       - server/scripts/qualification/retained-original-checkpoint/**
       - server/scripts/retained-original-checkpoint-guard.mjs
@@ -68,6 +69,7 @@ jobs:
           python3 tests/operations/legacy-census-scale-preflight.test.py
           node --check server/scripts/legacy-census-scale-fixture.mjs
           python3 -B tests/operations/engine-hourly-maintenance.py
+          python3 -B tests/operations/countdown-capture-epoch.py
       - name: Qualify real unloaded systemd and cgroup custody without a production operation
         run: |
           mkdir -p work/engine-build-resource-proof

@@ -94,6 +94,75 @@ def signal_child(driver_path, output, pg):
 
 
 class RunnerDatabaseCleanupTest(unittest.TestCase):
+    def test_default_socket_stays_inside_the_explicit_owned_work_parent(self):
+        driver = load_runner()
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            execution = driver.Execution(ROOT, parent, Path('not-executed'), parent, 60)
+            self.assertEqual(execution.scratch.parent, parent)
+            self.assertEqual(execution.socket.parent, parent)
+            self.assertNotEqual(execution.scratch, execution.socket)
+
+    def test_long_work_parent_uses_short_configured_private_socket_root(self):
+        driver = load_runner()
+        with tempfile.TemporaryDirectory(prefix="s") as directory:
+            parent = Path(directory)
+            work = parent / ("long-" + "x" * 80)
+            work.mkdir()
+            with mock.patch.dict(os.environ, {"TMPDIR": str(parent), "RUNNER_TEMP": ""}):
+                execution = driver.Execution(ROOT, parent, Path('not-executed'), work, 60)
+            self.assertEqual(execution.scratch.parent, work)
+            self.assertEqual(execution.socket.parent, parent)
+            self.assertLessEqual(len(os.fsencode(str(execution.socket / '.s.PGSQL.55496'))), 103)
+
+    def test_long_tmpdir_continues_to_short_configured_runner_temp(self):
+        driver = load_runner()
+        with tempfile.TemporaryDirectory(prefix="s") as directory:
+            parent = Path(directory)
+            work = parent / ("long-" + "x" * 80)
+            work.mkdir()
+            with mock.patch.dict(os.environ, {"TMPDIR": str(work), "RUNNER_TEMP": str(parent)}):
+                execution = driver.Execution(ROOT, parent, Path('not-executed'), work, 60)
+            self.assertEqual(execution.socket.parent, parent)
+            self.assertEqual(execution.scratch.parent, work)
+
+    def test_explicit_short_socket_root_is_authoritative(self):
+        driver = load_runner()
+        with tempfile.TemporaryDirectory(prefix="s") as directory:
+            parent = Path(directory)
+            work = parent / ("long-" + "x" * 80)
+            work.mkdir()
+            execution = driver.Execution(ROOT, parent, Path('not-executed'), work, 60,
+                                         socket_parent=parent)
+            self.assertEqual(execution.socket.parent, parent)
+            self.assertEqual(execution.scratch.parent, work)
+
+    def test_explicit_overlong_socket_root_refuses_without_fallback_or_leaks(self):
+        driver = load_runner()
+        with tempfile.TemporaryDirectory(prefix="s") as directory:
+            parent = Path(directory)
+            explicit = parent / ("long-" + "x" * 80)
+            explicit.mkdir()
+            with mock.patch.dict(os.environ, {"TMPDIR": str(parent), "RUNNER_TEMP": str(parent)}):
+                with self.assertRaisesRegex(ValueError, 'socket path exceeds'):
+                    driver.Execution(ROOT, parent, Path('not-executed'), parent, 60,
+                                     socket_parent=explicit)
+            self.assertEqual(list(explicit.iterdir()), [])
+            self.assertEqual(set(parent.iterdir()), {explicit})
+
+    def test_no_short_configured_root_refuses_and_preserves_foreign_files(self):
+        driver = load_runner()
+        with tempfile.TemporaryDirectory(prefix="s") as directory:
+            work = Path(directory) / ("long-" + "x" * 80)
+            work.mkdir()
+            sentinel = work / 'keep'
+            sentinel.write_text('unrelated fixture state')
+            with mock.patch.dict(os.environ, {"TMPDIR": "", "RUNNER_TEMP": ""}):
+                with self.assertRaisesRegex(ValueError, 'socket path exceeds'):
+                    driver.Execution(ROOT, work, Path('not-executed'), work, 60)
+            self.assertEqual(list(work.iterdir()), [sentinel])
+            self.assertEqual(sentinel.read_text(), 'unrelated fixture state')
+
     def setUp(self):
         self.driver = load_runner()
         self.execution = object.__new__(self.driver.Execution)

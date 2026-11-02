@@ -96,15 +96,45 @@ def stock_isolationtester(pg):
     raise RuntimeError("PostgreSQL 17 stock isolationtester is missing; no install or fallback")
 
 
+def private_socket_directory(work_parent, socket_parent, port):
+    """Use an owned socket that fits the kernel ABI, independently of data depth."""
+    explicit = socket_parent is not None
+    parents = [socket_parent] if explicit else [work_parent]
+    if not explicit:
+        parents += [os.environ.get(name) for name in ("TMPDIR", "RUNNER_TEMP")
+                    if os.environ.get(name)]
+    darwin = os.uname().sysname == "Darwin"
+    limit = 103 if darwin else 107
+    seen = set()
+    for index, parent in enumerate(parents):
+        parent = Path(parent).resolve() if parent is not None else Path(tempfile.gettempdir())
+        if str(parent) in seen:
+            continue
+        seen.add(str(parent))
+        # A short-path fallback must never put Mac work on its internal drive.
+        if index and darwin and not parent.is_relative_to("/Volumes/SmarterWork/agent-work"):
+            continue
+        directory = Path(tempfile.mkdtemp(prefix="r46mtt-sock-", dir=parent))
+        if len(os.fsencode(str(directory / (".s.PGSQL." + str(port))))) <= limit:
+            return directory
+        directory.rmdir()  # Only this newly allocated empty private directory.
+    raise ValueError("PostgreSQL socket path exceeds the kernel limit; provide a short "
+                     "socket_parent or configured private TMPDIR/RUNNER_TEMP")
+
+
 class Execution:
-    def __init__(self, root, output, pg, work_parent, deadline, socket_parent="/tmp"):
+    def __init__(self, root, output, pg, work_parent, deadline, socket_parent=None):
         self.root, self.output, self.pg = root, output, pg
         self.env = clean_environment()
         self.expires = time.monotonic() + deadline
-        self.scratch = Path(tempfile.mkdtemp(prefix="r46-mtt-", dir=work_parent))
-        self.socket = Path(tempfile.mkdtemp(prefix="r46mtt-sock-", dir=socket_parent))
-        self.cluster = self.scratch / "data"
         self.port = "55496"  # Private socket directory; TCP is disabled.
+        self.scratch = Path(tempfile.mkdtemp(prefix="r46-mtt-", dir=work_parent))
+        try:
+            self.socket = private_socket_directory(work_parent, socket_parent, self.port)
+        except BaseException:
+            self.scratch.rmdir()  # Construction has not started a database.
+            raise
+        self.cluster = self.scratch / "data"
         self.index = 0
         self.stopped = False
         self.start_attempted = False

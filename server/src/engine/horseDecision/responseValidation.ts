@@ -869,7 +869,9 @@ function policyGraphIsValid(
     // paired-board fold (HorsePloPairedBoardFold) and the no-limit hold'em
     // dominated-hand fold to a big 3-bet (HorseHoldemPremiumAggression). A
     // fold is the one action that can never put a chip in, and it is
-    // admitted only in those games.
+    // admitted only in those games. V81 (2026-11-02, HorseOmahaBigBetCalls)
+    // folds PLO4/PLO5 big-bet calls in the same node and relies on this
+    // same admission.
     const variant = String(expectedVariant ?? '').toLowerCase();
     const pairedBoardFold =
       transition.after.action === 'fold' &&
