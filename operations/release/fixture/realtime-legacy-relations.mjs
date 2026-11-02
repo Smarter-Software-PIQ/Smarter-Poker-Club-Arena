@@ -17,7 +17,8 @@ const snapshotSql = `SELECT c.relname AS name,c.relkind AS kind,
     LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
     WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped) AS columns
   FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-  WHERE n.nspname='realtime' AND (c.relname IN ('messages','schema_migrations')
+  WHERE n.nspname='realtime' AND c.relkind IN ('r','p')
+    AND (c.relname IN ('messages','schema_migrations')
     OR c.relname LIKE 'messages\\_%' ESCAPE '\\' AND c.relispartition)
   ORDER BY c.relname`;
 const messageColumns = [

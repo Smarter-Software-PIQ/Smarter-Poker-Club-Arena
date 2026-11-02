@@ -235,3 +235,11 @@ test('old synthetic NOT NULL/no-default ledger preimage is refused before DDL', 
   assert.ok(!db.calls.some((s) => s.startsWith('ALTER TABLE')));
   assert.equal(db.calls.at(-1), 'ROLLBACK');
 });
+
+test('relation catalogue excludes attached child indexes while retaining all seven tables', async () => {
+  const db = fake();
+  await configureFixtureRealtimeCapturedRelations(db);
+  const snapshots = db.calls.filter((s) => s.startsWith('SELECT c.relname'));
+  assert.equal(snapshots.length, 2);
+  for (const sql of snapshots) assert.match(sql, /c\.relkind IN \('r','p'\)/);
+});
