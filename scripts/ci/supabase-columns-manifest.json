@@ -14172,7 +14172,8 @@
       "hand_number",
       "cards",
       "board_len",
-      "created_at"
+      "created_at",
+      "eligible_user_ids"
     ],
     "rabbit_hunt_reveals": [
       "user_id",
@@ -22020,6 +22021,7 @@
       "card_back",
       "settings_touched",
       "rabbit_hunt_button",
+      "auto_rabbit_hunt",
       "all_in_squeeze"
     ],
     "user_table_studio_preferences": [
