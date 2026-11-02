@@ -7,8 +7,14 @@ writers guaranteed 5,000 for places and added the bounty pool again.
 The database start, finalization, excess-return and settlement guards now use
 the same place floor: max(0, guarantee minus funded bounties). Existing escrow,
 bank ownership, journal atomicity, idempotency and finalized-contract guards stay
-in force. Finalized event 6b72abc3 retains its committed 5,950 award; no player
-award is reduced or recovered. Its actual retained house overlay is 2,530.
+in force. The owner separately directed an exact-event correction for 6b72abc3
+before any place awards were paid. The maintained operation script locks and
+asserts the original event, escrow, close receipt and bank; returns 950 excess
+overlay through the journal and escrow rails; and changes place prizes to 4,050.
+It preserves 950 bounties and 380 rake, refuses prepared or paid awards, and requires
+the combined-guarantee source to be installed first. No trigger is disabled by
+this change. The full live transaction passed a self-aborting rollback probe;
+installation, committed correction and readback remain separate delivery steps.
 
 Rewards reads aggregate escrow funding instead of treating the overlaid pool as
 entry contributions. Fixed-bounty entry descriptions derive from charged terms,

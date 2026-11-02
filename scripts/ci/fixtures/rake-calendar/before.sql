@@ -16,6 +16,11 @@ SELECT '73000000-0000-0000-0000-000000000002','73000000-0000-0000-0000-000000000
 DO $$ DECLARE b record; j jsonb; BEGIN
  SELECT * INTO b FROM ca_stats_calendar_bounds(7,'America/Chicago');
  j:=ca_player_rake_stats('73000000-0000-0000-0000-000000000002',7,'chips');
- IF (j->>'hands')::int=2 THEN RAISE EXCEPTION 'Rolling regression did not reproduce'; END IF;
+ -- During the fall DST overlap both readers can count two DIFFERENT hands.
+ -- Calendar bounds select rake 2+3=5; the rolling reader still includes the
+ -- excluded upper-bound hand (rake 4), so compare the population's value too.
+ IF (j->>'hands')::int=2 AND (j->>'rake_paid')::numeric=5 THEN
+   RAISE EXCEPTION 'Rolling regression did not reproduce';
+ END IF;
  RAISE NOTICE 'REPRODUCED rolling/calendar rake mismatch: %',j;
 END $$;
