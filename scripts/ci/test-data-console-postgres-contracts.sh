@@ -123,6 +123,11 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   bash "$repo/scripts/ci/test-platform-admin-check.sh"
+# A VIP purchase paid with admin-minted test funding is voided once, audited,
+# with no refund and no ledger rewrite.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  bash "$repo/scripts/ci/test-test-funded-vip-void.sh"
 
 # Player Hub reads the entire persisted tournament or cash sitting.
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
