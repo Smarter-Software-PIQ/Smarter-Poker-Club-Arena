@@ -492,7 +492,7 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
             web_id = os.environ['FIXTURE_WEB_ARTIFACT_ID']
             require(re.fullmatch('[1-9][0-9]*', web_run) and re.fullmatch('[1-9][0-9]*', web_id))
             archive = temp / 'original-web.zip'
-            info, run, report['web_input_retention'] = retention.download(archive, web_run, web_id)
+            info, run, report['web_input_retention'] = retention.download_staged(archive, web_run, web_id)
             engine_sha = os.environ['FIXTURE_ENGINE_SOURCE_SHA']
             web_sha = published_web_source(run, info, engine_sha)
             web = {'source_sha': web_sha, 'artifact_id': web_id, 'build_run_id': web_run,
