@@ -13,7 +13,7 @@ import uuid
 import importlib.util
 import time
 
-FILES = ('graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
+FILES = ('auth-captured-acls.mjs', 'realtime-captured-acls.mjs', 'dblink-captured-initial-acl.mjs', 'fixture_dblink_acl_baseline.control', 'fixture_dblink_acl_baseline--1.0.sql', 'graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
          'runtime-files.mjs', 'gateway.mjs', 'auth-fixture.mjs', 'auth-bootstrap-proof.mjs',
          'service-role-boundary.mjs', 'realtime-control-plane.mjs', 'realtime-legacy-relations.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
          'seed-fixture.mjs', 'native-smoke.mjs', 'observation-bridge.mjs', 'build-image.sh', 'smoke-image.sh')
@@ -75,6 +75,21 @@ CURRENT_APPLICATION_ASSERTION_SITES = frozenset((
     'EXTENSION_POSTIMAGE',
     'EXTENSION_NAMESPACE_POSTIMAGE',
 ))
+CURRENT_APPLICATION_SQL_GUARD_SITES = frozenset((
+    'AUTH_ACL_PREIMAGE',
+    'AUTH_ACL_POSTIMAGE',
+    'REALTIME_ACL_CONTEXT',
+    'REALTIME_ACL_PREIMAGE',
+    'REALTIME_ACL_POSTIMAGE',
+    'DBLINK_INITIAL_ACL_PREIMAGE',
+    'DBLINK_INITIAL_ACL_EMPTY_HELPER',
+    'DBLINK_INITIAL_ACL_POSTIMAGE',
+    'GRAPHQL_ACL_PREIMAGE',
+    'GRAPHQL_ACL_EMPTY_HELPER',
+    'GRAPHQL_ACL_POSTIMAGE',
+    'LEGACY_DBLINK_PREIMAGE',
+    'LEGACY_DBLINK_POSTIMAGE',
+))
 NATIVE_ERROR_NAMES = frozenset(('Error', 'AssertionError', 'TypeError', 'RangeError',
                                 'SyntaxError', 'TimeoutError', 'AggregateError', 'error'))
 NATIVE_PG_ROUTINES = frozenset((
@@ -102,6 +117,13 @@ def native_failures(output):
         if has_assertion_site and (row.get('stage') != 'fixture-preimage-current-application-role-extension'
                 or row.get('error') != 'AssertionError' or not isinstance(assertion_site, str)
                 or assertion_site not in CURRENT_APPLICATION_ASSERTION_SITES):
+            continue
+        has_sql_guard_site = 'sql_guard_site' in row
+        sql_guard_site = row.pop('sql_guard_site', None)
+        if has_sql_guard_site and (has_assertion_site
+                or row.get('stage') != 'fixture-preimage-current-application-role-extension'
+                or row.get('error') != 'error' or row.get('sqlstate') != 'P0001'
+                or not isinstance(sql_guard_site, str) or sql_guard_site not in CURRENT_APPLICATION_SQL_GUARD_SITES):
             continue
         has_native_line = 'native_line' in row
         native_line = row.pop('native_line', None)
@@ -200,6 +222,8 @@ def native_failures(output):
             continue
         if has_assertion_site:
             record['assertion_site'] = assertion_site
+        if has_sql_guard_site:
+            record['sql_guard_site'] = sql_guard_site
         if native_line is not None:
             record['native_line'] = native_line
         record.update(auth)

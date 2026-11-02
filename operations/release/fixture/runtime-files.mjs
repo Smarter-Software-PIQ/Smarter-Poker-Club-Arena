@@ -110,6 +110,23 @@ const currentApplicationAssertionSites = new Map([
   ['FIXTURE_ASSERT_EXTENSION_NAMESPACE_POSTIMAGE', 'EXTENSION_NAMESPACE_POSTIMAGE'],
 ]);
 
+// Exact source-owned SQL RAISE tokens only; arbitrary PostgreSQL messages stay private.
+const currentApplicationSqlGuardSites = new Map([
+  ['FIXTURE_AUTH_CAPTURED_ACL_PREIMAGE_REQUIRED', 'AUTH_ACL_PREIMAGE'],
+  ['FIXTURE_AUTH_CAPTURED_ACL_POSTIMAGE_REQUIRED', 'AUTH_ACL_POSTIMAGE'],
+  ['FIXTURE_REALTIME_ACL_CONTEXT_REQUIRED', 'REALTIME_ACL_CONTEXT'],
+  ['FIXTURE_REALTIME_ACL_PREIMAGE_REQUIRED', 'REALTIME_ACL_PREIMAGE'],
+  ['FIXTURE_REALTIME_ACL_POSTIMAGE_REQUIRED', 'REALTIME_ACL_POSTIMAGE'],
+  ['FIXTURE_DBLINK_INITIAL_ACL_PREIMAGE_REQUIRED', 'DBLINK_INITIAL_ACL_PREIMAGE'],
+  ['FIXTURE_DBLINK_INITIAL_ACL_EMPTY_HELPER_REQUIRED', 'DBLINK_INITIAL_ACL_EMPTY_HELPER'],
+  ['FIXTURE_DBLINK_INITIAL_ACL_POSTIMAGE_REQUIRED', 'DBLINK_INITIAL_ACL_POSTIMAGE'],
+  ['FIXTURE_GRAPHQL_ACL_PREIMAGE_REQUIRED', 'GRAPHQL_ACL_PREIMAGE'],
+  ['FIXTURE_GRAPHQL_ACL_EMPTY_HELPER_REQUIRED', 'GRAPHQL_ACL_EMPTY_HELPER'],
+  ['FIXTURE_GRAPHQL_ACL_POSTIMAGE_REQUIRED', 'GRAPHQL_ACL_POSTIMAGE'],
+  ['FIXTURE_LEGACY_DBLINK_PREIMAGE_REQUIRED', 'LEGACY_DBLINK_PREIMAGE'],
+  ['FIXTURE_LEGACY_DBLINK_POSTIMAGE_REQUIRED', 'LEGACY_DBLINK_POSTIMAGE'],
+]);
+
 // Native smoke diagnostics must not serialize database messages, queries, or
 // service output: bootstrap queries contain fixture-only credentials.
 export function nativeFailureDiagnostic(stage, error) {
@@ -229,6 +246,9 @@ export function nativeFailureDiagnostic(stage, error) {
     /^[0-9A-Z]{5}$/.test(error.code)
   ) {
     record.sqlstate = error.code;
+    if (stage === 'fixture-preimage-current-application-role-extension' && error.code === 'P0001' &&
+        typeof error.message === 'string' && currentApplicationSqlGuardSites.has(error.message))
+      record.sql_guard_site = currentApplicationSqlGuardSites.get(error.message);
     // These source-location digests let the controller match the pinned
     // PostgreSQL source offline without serializing arbitrary driver strings.
     for (const field of ['routine', 'file']) {

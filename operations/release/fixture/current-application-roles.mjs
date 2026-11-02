@@ -6,6 +6,9 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { captureFixtureServicePreimage } from './service-preimage.mjs';
 import { graphqlLegacyAclInstallSql, graphqlLegacyAclObservationSql } from './graphql-legacy-acl.mjs';
+import { authCapturedAclInstallSql, authCapturedAclObservationSql } from './auth-captured-acls.mjs';
+import { realtimeCapturedAclInstallSql, realtimeCapturedAclObservationSql } from './realtime-captured-acls.mjs';
+import { dblinkCapturedInitialAclInstallSql, dblinkCapturedInitialAclObservationSql } from './dblink-captured-initial-acl.mjs';
 
 export const currentRoleGraphWitness =
   'sha256:3a2743a41de40149f61ac411400e0009b9e2f55ae9497117041f8e71156ac679';
@@ -728,6 +731,8 @@ export async function installCurrentApplicationExtensions({
       try {
         if (owner === 'supabase_admin') {
           await client.query(graphqlLegacyAclInstallSql);
+          await client.query(authCapturedAclInstallSql);
+          await client.query(realtimeCapturedAclInstallSql);
           await client.query(currentApplicationExtensionNamespaceSql);
         }
         else await client.query(postgresExtensionOwnerBeginSql);
@@ -744,7 +749,10 @@ export async function installCurrentApplicationExtensions({
             `CREATE EXTENSION "${item.name}" WITH SCHEMA "${item.schema}" VERSION '${item.version}'`
           );
         }
-        if (owner === 'supabase_admin') await client.query(legacyDblinkAclInstallSql);
+        if (owner === 'supabase_admin') {
+          await client.query(dblinkCapturedInitialAclInstallSql);
+          await client.query(legacyDblinkAclInstallSql);
+        }
         if (owner === 'postgres') await client.query(postgresExtensionOwnerEndSql);
         await client.query('COMMIT');
       } catch (error) {
@@ -765,6 +773,15 @@ export async function installCurrentApplicationExtensions({
       assert.deepEqual((await legacyObserver.query(graphqlLegacyAclObservationSql)).rows,
         [{graphql_legacy_acl_exact: true}],
         new assert.AssertionError({message: 'FIXTURE_ASSERT_GRAPHQL_LEGACY_ACL_POSTIMAGE'}));
+      assert.deepEqual((await legacyObserver.query(authCapturedAclObservationSql)).rows,
+        [{auth_captured_acl_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_AUTH_CAPTURED_ACL_POSTIMAGE'}));
+      assert.deepEqual((await legacyObserver.query(realtimeCapturedAclObservationSql)).rows,
+        [{realtime_captured_acl_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_REALTIME_CAPTURED_ACL_POSTIMAGE'}));
+      assert.deepEqual((await legacyObserver.query(dblinkCapturedInitialAclObservationSql)).rows,
+        [{dblink_captured_initial_acl_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_DBLINK_CAPTURED_INITIAL_ACL_POSTIMAGE'}));
       assert.deepEqual((await legacyObserver.query(legacyDblinkAclObservationSql)).rows,
         [{legacy_dblink_exact: true}],
         new assert.AssertionError({message: 'FIXTURE_ASSERT_LEGACY_DBLINK_POSTIMAGE'}));

@@ -13,6 +13,39 @@ spec.loader.exec_module(m)
 
 
 class NativeDiagnosticsTests(unittest.TestCase):
+    def test_closed_sql_guards_require_exact_stage_error_state_and_no_assertion(self):
+        stage = 'fixture-preimage-current-application-role-extension'
+        expected = {'AUTH_ACL_PREIMAGE', 'AUTH_ACL_POSTIMAGE', 'REALTIME_ACL_CONTEXT',
+                    'REALTIME_ACL_PREIMAGE', 'REALTIME_ACL_POSTIMAGE', 'DBLINK_INITIAL_ACL_PREIMAGE',
+                    'DBLINK_INITIAL_ACL_EMPTY_HELPER', 'DBLINK_INITIAL_ACL_POSTIMAGE',
+                    'GRAPHQL_ACL_PREIMAGE', 'GRAPHQL_ACL_EMPTY_HELPER', 'GRAPHQL_ACL_POSTIMAGE',
+                    'LEGACY_DBLINK_PREIMAGE', 'LEGACY_DBLINK_POSTIMAGE'}
+        self.assertEqual(m.CURRENT_APPLICATION_SQL_GUARD_SITES, expected)
+        for site in expected:
+            row = dict(status='failed', stage=stage, error='error', sqlstate='P0001', sql_guard_site=site)
+            self.assertEqual(m.native_failures(json.dumps(row)),
+                [dict(stage=stage, category='error', sqlstate='P0001', sql_guard_site=site)])
+            for edit in [dict(sql_guard_site='PRIVATE'), dict(sql_guard_site=True),
+                         dict(sql_guard_site=None), dict(sql_guard_site=[site]),
+                         dict(stage='fixture-preimage-cleanup'), dict(error='Error'),
+                         dict(error='AssertionError'), dict(sqlstate='42501'), dict(sqlstate=['P0001']),
+                         dict(assertion_site='ROLE_PREIMAGE'), dict(assertion_site=None),
+                         dict(message='PRIVATE'), dict(detail='PRIVATE'), dict(context='PRIVATE')]:
+                self.assertEqual(m.native_failures(json.dumps({**row, **edit})), [])
+            without_state = dict(row); del without_state['sqlstate']
+            self.assertEqual(m.native_failures(json.dumps(without_state)), [])
+        self.assertEqual(m.native_failures(json.dumps(dict(status='failed',stage=stage,error='error',sqlstate='P0001'))),
+            [dict(stage=stage,category='error',sqlstate='P0001')])
+        module = (ROOT/'operations/release/fixture/runtime-files.mjs').as_uri()
+        script = ('import {nativeFailureDiagnostic} from '+json.dumps(module)+';'
+                  'const e={name:"error",code:"P0001",message:"FIXTURE_AUTH_CAPTURED_ACL_PREIMAGE_REQUIRED",'
+                  'detail:"PRIVATE",context:"PRIVATE",sql_guard_site:"PRIVATE"};'
+                  'console.log(JSON.stringify(nativeFailureDiagnostic('+json.dumps(stage)+',e)));')
+        result = subprocess.run(['node','--input-type=module','-e',script],capture_output=True,text=True,check=True)
+        self.assertEqual(m.native_failures(result.stdout),
+            [dict(stage=stage,category='error',sqlstate='P0001',sql_guard_site='AUTH_ACL_PREIMAGE')])
+        self.assertNotIn('PRIVATE',result.stdout)
+
     def test_current_application_assertion_sites_are_closed_and_keep_first_failure(self):
         stage = 'fixture-preimage-current-application-role-extension'
         for site in m.CURRENT_APPLICATION_ASSERTION_SITES:
