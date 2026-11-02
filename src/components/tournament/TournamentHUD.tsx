@@ -710,6 +710,10 @@ class HudFeed {
       this.fieldDirty = true;
       return;
     }
+    if (this.fieldTimer) {
+      clearTimeout(this.fieldTimer);
+      this.fieldTimer = null;
+    }
     if (this.fieldInFlight) {
       this.fieldPending = true;
       return;
@@ -806,8 +810,31 @@ class HudFeed {
   }
 }
 
-export function TournamentHUD({
+interface TournamentHUDInnerProps extends TournamentHUDProps {
+  userId: string | undefined;
+}
+
+function areTournamentHudPropsEqual(
+  prev: TournamentHUDInnerProps,
+  next: TournamentHUDInnerProps
+): boolean {
+  return (
+    prev.tournamentId === next.tournamentId &&
+    prev.userId === next.userId &&
+    prev.playersRemaining === next.playersRemaining &&
+    prev.averageStack === next.averageStack &&
+    prev.spinPrizePool === next.spinPrizePool &&
+    (prev.hidden ?? false) === (next.hidden ?? false) &&
+    (prev.collapsed ?? false) === (next.collapsed ?? false) &&
+    (prev.closed ?? false) === (next.closed ?? false) &&
+    Boolean(prev.onToggleCollapsed) === Boolean(next.onToggleCollapsed) &&
+    Boolean(prev.onClose) === Boolean(next.onClose)
+  );
+}
+
+const TournamentHUDInner = memo(function TournamentHUDInner({
   tournamentId,
+  userId,
   playersRemaining,
   averageStack,
   spinPrizePool,
@@ -816,9 +843,7 @@ export function TournamentHUD({
   closed = false,
   onToggleCollapsed,
   onClose,
-}: TournamentHUDProps) {
-  const { user } = useAuthUser();
-  const userId = user?.id;
+}: TournamentHUDInnerProps) {
   // Rank always needs the full field, even when a caller supplies Left / Avg.
   const readsField = true;
   const scopeKey = scopeKeyOf(tournamentId, userId);
@@ -1211,6 +1236,11 @@ export function TournamentHUD({
       )}
     </div>
   );
+}, areTournamentHudPropsEqual);
+
+export function TournamentHUD(props: TournamentHUDProps) {
+  const { user } = useAuthUser();
+  return <TournamentHUDInner {...props} userId={user?.id} />;
 }
 
 export default TournamentHUD;
