@@ -1,7 +1,7 @@
 /** Owner November 1: small regular prestart groups; random arrivals continue through late entry. */
 import {
   mttPlannedField,
-  mttPrizeShare,
+  mttGuaranteeEntryAmount,
   mttLevelWindowMs,
   mttArrivalTarget,
 } from './mttHorseArrivalPlan.js';
@@ -433,6 +433,7 @@ interface LateRegRow {
   rebuy_levels: number | null;
   late_reg_mins: number | null;
   buy_in_amount: number | string | null;
+  buy_in_fee?: number | string | null;
   bounty_amount?: number | string | null;
   guaranteed_prize?: number | string | null;
   blind_structure?: unknown;
@@ -485,7 +486,7 @@ export async function lateRegisterHorsesOnce(
     const { data: rows, error } = await supabase
       .from('tournaments')
       .select(
-        'id, name, status, format_contract, started_at, current_level, late_reg_levels, rebuy_levels, late_reg_mins, buy_in_amount, bounty_amount, guaranteed_prize, blind_structure, max_players, prize_pool_finalized'
+        'id, name, status, format_contract, started_at, current_level, late_reg_levels, rebuy_levels, late_reg_mins, buy_in_amount, buy_in_fee, bounty_amount, guaranteed_prize, blind_structure, max_players, prize_pool_finalized'
       )
       .eq('status', 'RUNNING')
       .eq('prize_pool_finalized', false)
@@ -536,7 +537,11 @@ export async function lateRegisterHorsesOnce(
         lateRegLevels: Number(t.late_reg_levels ?? t.rebuy_levels ?? 0) || 0,
         currentLevel: Number(t.current_level) || 0,
         entriesAtStart: total - late,
-        plannedField: mttPlannedField(Number(t.guaranteed_prize) || 0, mttPrizeShare(t), t.id),
+        plannedField: mttPlannedField(
+          Number(t.guaranteed_prize) || 0,
+          mttGuaranteeEntryAmount(t),
+          t.id
+        ),
         levelWindowMs: mttLevelWindowMs(
           t.blind_structure,
           Number(t.late_reg_levels ?? t.rebuy_levels ?? 0)
