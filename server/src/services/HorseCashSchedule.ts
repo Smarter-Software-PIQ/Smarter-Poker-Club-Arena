@@ -25,19 +25,17 @@ export function horseCashGameAllowed(
     .toLowerCase();
   if (variant.includes('pineapple') || ['short_deck', 'shortdeck', '6+', 'plo8'].includes(variant))
     return false;
-  if (variant.startsWith('plo')) {
-    const sb = Number(table.small_blind);
-    const bb = Number(table.big_blind);
-    // Both admission and the rotator read the actual table blinds.
-    return (
-      Number.isFinite(bb) &&
-      bb > 0 &&
-      bb <= 1 &&
-      table.small_blind != null &&
-      Number.isFinite(sb) &&
-      sb >= 0 &&
-      sb <= 0.5
-    );
-  }
-  return true;
+  const sb = Number(table.small_blind);
+  const bb = Number(table.big_blind);
+  // Owner November 2: every horse cash variant has the same actual-blind ceiling.
+  // Callers apply this only to horse admission/departure, never human access.
+  return (
+    Number.isFinite(bb) &&
+    bb > 0 &&
+    bb <= 1 &&
+    table.small_blind != null &&
+    Number.isFinite(sb) &&
+    sb >= 0 &&
+    sb <= 0.5
+  );
 }

@@ -4865,6 +4865,65 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * Releases transient per-hand arrays/maps ONLY when a table session is
+   * terminally closed (`terminalTeardownComplete === true`, `tableFSM === 'closed'`,
+   * process ownership released, no retained/unretained hand continuation, no
+   * snapshot flush/timer pending, and no unretired stopped time-bank custody).
+   *
+   * Temporarily stopped engines (stopped for engine release drain, F06 hand
+   * recovery, time-bank custody handoff, or quarantine) NEVER call this during
+   * `performStop()`, preserving `captureContinuationEngine()`,
+   * `retainedPublicHandState`, `retainedPreparedOriginalController`,
+   * `stoppedTimeBankCustody`, and `parkedTimeBanks`.
+   */
+  public releaseClosedTableHandMemory(): boolean {
+    if (
+      !this.terminal ||
+      !this.terminalTeardownDrained ||
+      !this.terminalTeardownComplete ||
+      this.tableFSM.state !== 'closed' ||
+      !this.hasReleasedProcessOwnership() ||
+      this.handController !== null ||
+      this.isOriginalInputPending() ||
+      (this.handContinuation?.isUnretained() ?? false) ||
+      this.retainedPublicHandState !== null ||
+      this.retainedPreparedOriginalController !== null ||
+      this.hasUnresolvedF06Preparation() ||
+      this.hasClaimedTournamentMoveBoundary() ||
+      this.snapshotTimer !== null ||
+      this.snapshotFlushPromise !== null ||
+      this.hasSettlementInFlight() ||
+      this.postHandTasksPromise !== null ||
+      this.hasUnretiredStoppedTimeBankCustody() ||
+      this.timeBankAccountingUnconfirmed ||
+      this.timeBankAccountingPending.size > 0 ||
+      this.presenceSavePending > 0
+    ) {
+      return false;
+    }
+    this.currentHandHoleCards.clear();
+    this.currentHandDealtStacks.clear();
+    this.currentHandSeatGenerations.clear();
+    this.currentHandContributions.clear();
+    this.currentHandReturnedUncalled.clear();
+    this.currentHandCashoutRedirects.clear();
+    this.currentHandActions.length = 0;
+    this.currentHandWinners.length = 0;
+    this.currentHandWinnersByBoard.length = 0;
+    this.currentHandPerPotAwards.length = 0;
+    this.currentHandPots.length = 0;
+    this.currentHandCommunityCards.length = 0;
+    this.currentHandCommunityCards2.length = 0;
+    this.currentHandCommunityCards3.length = 0;
+    this.currentHandRitExtraBoards.length = 0;
+    this.currentHandShowdownResults.length = 0;
+    this.currentHandInsuranceSettlements.length = 0;
+    this.currentHandTimerLog.length = 0;
+    this.currentHandNotificationLog.length = 0;
+    return true;
+  }
+
+  /**
    * FIX 147 + Phase 1.2 PR-G-real: heartbeat check loop, scheduled through
    * DeadlineScheduler instead of setInterval. The callback re-arms itself
    * for the next tick so a single process-global tick loop drives every
@@ -8360,7 +8419,10 @@ export abstract class ServerTableEngineBase {
   /** Only the existing confirmed-terminal table cleanup caller may end a
    * table session. An unknown debit remains held even when the game ended. */
   retireStoppedTimeBanksForClosedSession(): boolean {
-    if (!this.hasUnretiredStoppedTimeBankCustody()) return true;
+    if (!this.hasUnretiredStoppedTimeBankCustody()) {
+      this.releaseClosedTableHandMemory();
+      return true;
+    }
     if (
       !this.terminalTeardownComplete ||
       !this.stoppedTimeBankCustody ||
@@ -8370,6 +8432,7 @@ export abstract class ServerTableEngineBase {
     )
       return false;
     this.stoppedTimeBankCustodyTransferred = true;
+    this.releaseClosedTableHandMemory();
     return true;
   }
 

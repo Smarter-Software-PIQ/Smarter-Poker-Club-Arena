@@ -1,6 +1,6 @@
 .root {
   --control-size: 2rem;
-  --control-signal: #72eeff;
+  --control-signal: var(--realism-cyan, #72eeff);
   --control-signal-soft: rgba(80, 223, 241, 0.2);
   --control-cut: #f02849;
 
@@ -88,12 +88,12 @@
 }
 
 .root[data-state='success'] {
-  --control-signal: #79f5c4;
+  --control-signal: var(--realism-green, #79f5c4);
   --control-signal-soft: rgba(71, 225, 166, 0.28);
 }
 
 .root[data-state='attention'] {
-  --control-signal: #ffd700;
+  --control-signal: var(--realism-gold, #ffd700);
   --control-signal-soft: rgb(255 215 0 / 28%);
 }
 

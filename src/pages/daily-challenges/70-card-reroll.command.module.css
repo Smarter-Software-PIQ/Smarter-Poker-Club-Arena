@@ -1,14 +1,26 @@
 .rerollConfirm {
+  position: relative;
   display: grid;
   width: min(100%, 430px);
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--mission-gold) 48%, rgba(184, 196, 201, 0.32));
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.04), transparent 28%),
+    linear-gradient(180deg, rgba(23, 28, 31, 0.96), rgba(3, 5, 4, 0.98)), var(--mission-black);
+  box-shadow:
+    var(--mission-cavity),
+    var(--mission-bevel),
+    0 12px 28px rgba(0, 0, 0, 0.52);
 }
 
 .rerollConfirm > .rerollPrompt {
   max-width: none;
   padding-right: 6px;
+  color: var(--mission-white);
   line-height: 1.35;
   text-align: left;
 }

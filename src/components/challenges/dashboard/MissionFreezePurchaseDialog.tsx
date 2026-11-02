@@ -28,6 +28,7 @@ export function MissionFreezePurchaseDialog({
       <div
         ref={dialogRef}
         className={`${styles.celebrateCard} ${styles.freezeDialogCard}`}
+        data-casino-realism="smarter-casino-realism"
         data-dialog-card="fixed-frame"
         onClick={(event) => event.stopPropagation()}
       >

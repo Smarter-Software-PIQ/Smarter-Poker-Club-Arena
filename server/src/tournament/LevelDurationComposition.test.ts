@@ -134,6 +134,37 @@ describe('the actual manager resolves raw level duration before applying acceler
       expect(state.levelDurationMs(state.resolveBlindLevel(structure, index))).toBe(300000);
     }
   });
+
+  it('caches the overflow step ratio across repeated overflow level lookups and invalidates when structure changes', () => {
+    const state = manager(false, true, false);
+    const structureA = [
+      { level: 1, smallBlind: 25, bigBlind: 50, ante: 0, durationMinutes: 5 },
+      { level: 2, smallBlind: 50, bigBlind: 100, ante: 0, durationMinutes: 5 },
+      { level: 3, smallBlind: 75, bigBlind: 150, ante: 0, durationMinutes: 5 },
+    ];
+    let mapCalls = 0;
+    const origMap = structureA.map.bind(structureA);
+    vi.spyOn(structureA, 'map').mockImplementation((...args: any[]) => {
+      mapCalls++;
+      return origMap(...(args as [any]));
+    });
+
+    const over3 = state.resolveBlindLevel(structureA, 3);
+    const over4 = state.resolveBlindLevel(structureA, 4);
+    const over5 = state.resolveBlindLevel(structureA, 5);
+    expect(mapCalls).toBe(1);
+    expect(over4.bigBlind).toBeGreaterThan(over3.bigBlind);
+    expect(over5.bigBlind).toBeGreaterThan(over4.bigBlind);
+
+    // Passing a new structure array invalidates the cached overflow step ratio
+    const structureB = [
+      { level: 1, smallBlind: 50, bigBlind: 100, ante: 0, durationMinutes: 5 },
+      { level: 2, smallBlind: 80, bigBlind: 160, ante: 0, durationMinutes: 5 },
+    ];
+    const overB = state.resolveBlindLevel(structureB, 2);
+    expect((state as any)._cachedOverflowStepRatio.structure).toBe(structureB);
+    expect(overB.bigBlind).toBeGreaterThan(160);
+  });
 });
 
 describe('level publication carries the duration the actual manager timer uses', () => {

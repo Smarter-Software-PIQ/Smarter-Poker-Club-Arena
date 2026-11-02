@@ -4,7 +4,7 @@
 # The root-owned systemd unit keeps this transaction alive if SSH or its
 # GitHub runner disappears. It owns prepare, cutover, all three compatibility
 # witnesses, the fsynced release seal, and deterministic recovery.
-set -euo pipefail
+set -Eeuo pipefail
 
 CONTROL_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 RELEASE_SEAL="$CONTROL_DIR/engine-release-seal.py"
@@ -202,7 +202,46 @@ select_legacy_checkpoint_budget() {
     || die 'legacy checkpoint allocation no longer preserves strict entry and rollback'
 }
 
+
+# Persist first observation before any cleanup; never serialize BASH_COMMAND,
+# argv, environment or stderr. Diagnostic failure cannot replace original rc.
+DIAGNOSTIC_READY=0
+DIAGNOSTIC_BUSY=0
+diagnostic_refusal() {
+  [ "$DIAGNOSTIC_READY" = 1 ] && [ "$DIAGNOSTIC_BUSY" = 0 ] || return 0
+  DIAGNOSTIC_BUSY=1
+  timeout --signal=TERM --kill-after=1s 2s "$RELEASE_SEAL" diagnostic-first-refusal \
+    --run-id "$RUN_ID" --sha "$SHA" --control-sha "$CONTROL_SHA" \
+    --invocation-id "$INVOCATION_ID" --generation "$CONTROL_DIR" \
+    --request "$REQUEST_FILE" --pin "$DIAGNOSTIC_PIN_FILE" --run-url "$RUN_URL" \
+    --origin "$1" --exit-code "$2" --source-line "$3" --stage "$4" \
+    --checkpoint-required "${LEGACY_CHECKPOINT_REQUIRED-UNKNOWN}" \
+    --drained-cutover "${DRAINED_PREDECESSOR_CUTOVER-UNKNOWN}" \
+    --checkpoint-profile "${LEGACY_CHECKPOINT_PROFILE-UNKNOWN}" \
+    --checkpoint-budget-seconds "${LEGACY_CHECKPOINT_BUDGET_SECONDS-UNKNOWN}" \
+    --checkpoint-work-ms "${LEGACY_CHECKPOINT_WORK_MS-UNKNOWN}" \
+    --prepared "${PREPARED-UNKNOWN}" --mutation-started "${MUTATION_STARTED-UNKNOWN}" \
+    --lock-held "${LOCK_HELD-UNKNOWN}" --predecessor-sha "${CHECKPOINT_PREDECESSOR_SHA-UNKNOWN}" \
+    --certificate-exit-status "${CERTIFICATE_RC-UNKNOWN}" --break-end-epoch "${BREAK_END_EPOCH-UNKNOWN}" \
+    || echo '[engine-release-diagnostic] UNKNOWN: original refusal not durably confirmed' >&2
+  DIAGNOSTIC_BUSY=0
+  return 0
+}
+diagnostic_err() {
+  # Expected set+e probes are not transaction refusals. A failed substitution
+  # with errexit cleared is captured by its exiting parent assignment instead.
+  case "$1" in *e*) diagnostic_refusal err "$2" "$3" "$4" ;; esac
+  return 0
+}
+diagnostic_exit_fallback() {
+  local rc=$?
+  trap - EXIT ERR
+  if [ "$rc" -ne 0 ]; then diagnostic_refusal exit "$rc" 0 UNKNOWN; fi
+  exit "$rc"
+}
+
 die() {
+  diagnostic_refusal die 1 "${BASH_LINENO[0]:-0}" "${FUNCNAME[1]:-UNKNOWN}"
   echo "[engine-release-transaction] FATAL: $*" >&2
   exit 1
 }
@@ -390,6 +429,16 @@ fi
 CERTIFICATE_DEADLINE=$((MUTATION_DEADLINE_EPOCH - CERTIFICATE_RESERVE_SECONDS))
 INVOCATION_ID="${INVOCATION_ID:-}"
 [[ "$INVOCATION_ID" =~ ^[0-9a-f]{32}$ ]] || die 'systemd invocation identity is missing or invalid'
+DIAGNOSTIC_PIN_FILE="${ENGINE_RELEASE_PIN_ROOT:-/var/lib/club-arena/engine-release-generation-pins}/$RUN_ID.generation"
+DIAGNOSTIC_READY=1
+trap 'diagnostic_err "$-" "$?" "$LINENO" "${FUNCNAME[0]:-UNKNOWN}"' ERR
+trap diagnostic_exit_fallback EXIT
+# Missing later observation (including SIGKILL) remains UNKNOWN, never success.
+timeout --signal=TERM --kill-after=1s 2s "$RELEASE_SEAL" diagnostic-attempt-begin \
+  --run-id "$RUN_ID" --sha "$SHA" --control-sha "$CONTROL_SHA" \
+  --invocation-id "$INVOCATION_ID" --generation "$CONTROL_DIR" \
+  --request "$REQUEST_FILE" --pin "$DIAGNOSTIC_PIN_FILE" --run-url "$RUN_URL" \
+  || echo '[engine-release-diagnostic] UNKNOWN: attempt begin not durably confirmed' >&2
 IMAGE_REF="$IMAGE_REPO:$SHA"
 LEASE_FILE="$LEASE_ROOT/$RUN_ID.lease"
 BREAK_DEADLINE_FILE="$REQUEST_ROOT/$RUN_ID.break-deadline"
@@ -697,8 +746,9 @@ raise SystemExit(0 if d.get("running") is True and isinstance(m, dict) and m.get
 
 recover_on_exit() {
   local rc=$? recovery_deadline recovery_remaining non_break_deadline exit_started
-  trap - EXIT HUP INT TERM
+  trap - EXIT ERR HUP INT TERM
   set +e
+  if [ "$rc" -ne 0 ]; then diagnostic_refusal exit "$rc" 0 UNKNOWN; fi
   exit_started="$(date +%s)"
   # A run that is leaving no longer waits at the certificate; an older target
   # must not keep standing aside for it while systemd schedules a retry.

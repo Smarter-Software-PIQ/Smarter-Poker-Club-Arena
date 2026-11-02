@@ -84,7 +84,7 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
 
 WORKDIR /opt/qualification
 # These are trusted, reviewed runtime files, never supplied by a candidate archive.
-COPY schema-restore-owner.mjs schema-restore-owner-proof.mjs schema-restore-diagnostics.mjs postgres-extension-captured-acls.mjs cron-captured-table-acls.mjs realtime-captured-publication.mjs managed-bootstrap-functions.mjs managed-bootstrap-functions.sql auth-captured-acls.mjs realtime-captured-acls.mjs dblink-captured-initial-acl.mjs graphql-legacy-acl.mjs fixture-server.mjs runtime-files.mjs gateway.mjs auth-fixture.mjs auth-bootstrap-proof.mjs service-role-boundary.mjs realtime-control-plane.mjs realtime-legacy-relations.mjs actors.mjs tournament-admission.mjs financial-route-phase.mjs seed-fixture.mjs native-smoke.mjs observation-bridge.mjs cron-provider.mjs safeupdate-provider.mjs service-preimage.mjs role-alignment.mjs current-application-roles.mjs role-alignment-render.mjs role-alignment-installer.sql role-alignment-native.json role-alignment-aligned.json role-alignment-graph.sql role-alignment-membership.sql /opt/qualification/runtime/
+COPY schema-restore-owner.mjs schema-restore-owner-proof.mjs schema-restore-diagnostics.mjs postgres-extension-captured-acls.mjs cron-captured-table-acls.mjs cron-captured-sequence-acls.mjs schema-expression-proof.mjs realtime-captured-publication.mjs managed-bootstrap-functions.mjs managed-bootstrap-functions.sql auth-captured-acls.mjs realtime-captured-acls.mjs dblink-captured-initial-acl.mjs graphql-legacy-acl.mjs fixture-server.mjs runtime-files.mjs gateway.mjs auth-fixture.mjs auth-bootstrap-proof.mjs service-role-boundary.mjs realtime-control-plane.mjs realtime-legacy-relations.mjs actors.mjs tournament-admission.mjs financial-route-phase.mjs seed-fixture.mjs native-smoke.mjs observation-bridge.mjs cron-provider.mjs safeupdate-provider.mjs service-preimage.mjs role-alignment.mjs current-application-roles.mjs role-alignment-render.mjs role-alignment-installer.sql role-alignment-native.json role-alignment-aligned.json role-alignment-graph.sql role-alignment-membership.sql /opt/qualification/runtime/
 RUN node --input-type=module -e "import {adaptRealtimeLauncher,adaptRealtimeConfiguration} from '/opt/qualification/runtime/fixture-server.mjs'; await adaptRealtimeLauncher(); await adaptRealtimeConfiguration();" \
     && printf '#!/bin/sh\nexec /usr/local/bin/node /opt/qualification/runtime/fixture-server.mjs "$@"\n' > /usr/local/bin/fixture-server \
     && chmod 0555 /usr/local/bin/fixture-server \
@@ -248,6 +248,7 @@ RUN node --input-type=module -e ' \
       fs.writeFileSync("/tmp/provider-install/opt/qualification/provenance/genuine-providers.json",JSON.stringify(result)+"\n");'
 
 FROM postgres-runtime
+COPY fixture_cron_sequence_acl_baseline.control fixture_cron_sequence_acl_baseline--1.0.sql /usr/share/postgresql/17/extension/
 COPY fixture_graphql_acl_baseline.control fixture_graphql_acl_baseline--1.0.sql /usr/share/postgresql/17/extension/
 COPY fixture_dblink_acl_baseline.control fixture_dblink_acl_baseline--1.0.sql /usr/share/postgresql/17/extension/
 COPY --from=safeupdate-builder --chmod=0555 /tmp/safeupdate/safeupdate.so /usr/lib/postgresql/17/lib/safeupdate.so

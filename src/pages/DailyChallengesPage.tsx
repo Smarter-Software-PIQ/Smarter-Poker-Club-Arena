@@ -252,6 +252,7 @@ export default function DailyChallengesPage() {
         className={styles.page}
         id="daily-missions"
         data-arena-surface="missions"
+        data-casino-realism="smarter-casino-realism"
         data-mission-cycle={activeTier}
         aria-busy={isRefreshing}
         aria-hidden={reward || confirmingFreeze ? true : undefined}

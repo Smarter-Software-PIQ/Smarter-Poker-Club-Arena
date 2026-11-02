@@ -11,6 +11,7 @@ export function MissionLoadingState({ tier }: { tier: Tier }) {
     <StandardContentLayout className={styles.container}>
       <div
         className={styles.page}
+        data-casino-realism="smarter-casino-realism"
         data-mission-cycle={tier}
         role="region"
         aria-busy="true"

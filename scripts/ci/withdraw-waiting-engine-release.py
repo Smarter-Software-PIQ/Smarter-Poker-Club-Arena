@@ -77,6 +77,33 @@ def regular(path, mode=None):
         os.close(fd)
 
 
+
+def canonical_seal_bytes(path):
+    # Aggregate history only: individual receipts retain regular()'s64KiB cap.
+    # Fixed capacity, not a universal bound on the producer's growing history.
+    limit = 16 * 1024 * 1024
+    deadline = time.monotonic() + 5
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        before = os.fstat(fd)
+        require(stat.S_ISREG(before.st_mode) and before.st_uid == 0
+                and stat.S_IMODE(before.st_mode) == 0o600 and before.st_size <= limit)
+        chunks, total = [], 0
+        while True:
+            require(time.monotonic() < deadline)
+            chunk = os.read(fd, min(65536, limit + 1 - total))
+            if not chunk: break
+            chunks.append(chunk); total += len(chunk)
+            require(total <= limit)
+        after = os.fstat(fd)
+        signature = lambda row: (row.st_dev, row.st_ino, row.st_mode, row.st_uid,
+                                row.st_size, row.st_mtime_ns, row.st_ctime_ns)
+        require(signature(before) == signature(after) and total == before.st_size
+                and time.monotonic() < deadline)
+        return b''.join(chunks).decode()
+    finally:
+        os.close(fd)
+
 def properties(unit):
     raw = command(['systemctl', 'show', unit, '-p', 'MainPID', '-p', 'InvocationID',
                    '-p', 'ActiveState', '-p', 'Result', '-p', 'ExecMainStatus'])
@@ -193,6 +220,7 @@ E9_WRAPPER_HASH = 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491d
 E9_MANIFEST_HASH = '24cc5dbdfd46117934fd82d832da146c1373f7676ef6b4447455be9c599ad4a7'
 PHASE1_RUN = '41400905104-1'
 PHASE1_CONTROL = '197c2b733698b9eb62a90f7c91b42b263a028ef1'
+PHASE1_TARGET = PHASE1_CONTROL
 PHASE1_DESIRED = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 PHASE1_STAMP = 1793602682415
 PHASE1_START = 1793602802414
@@ -217,9 +245,10 @@ SECOND_PHASE1_CONTROL = '6d178de0dbb1bdb2d74fb9b478a11768619a0a93'
 SECOND_PHASE1_HASHES = {'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6', 'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4', 'engine-release-seal.py': '0811a7631975ba6a52f682324cb0fd43bb3240e7cb40b261d44490a386cd5d70', 'engine-release-transaction.sh': '2b19a4f63063275eb63d9d7d071b8caf57d8389b7d294f39402c8171cd963652', 'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83', 'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e'}
 
 def select_second_phase1_profile():
-    global PHASE1_RUN, PHASE1_CONTROL, PHASE1_STAMP, PHASE1_START, PHASE1_END, PHASE1_TOKEN, PHASE1_HASHES
+    global PHASE1_RUN, PHASE1_CONTROL, PHASE1_TARGET, PHASE1_STAMP, PHASE1_START, PHASE1_END, PHASE1_TOKEN, PHASE1_HASHES
     PHASE1_RUN = SECOND_PHASE1_RUN
     PHASE1_CONTROL = SECOND_PHASE1_CONTROL
+    PHASE1_TARGET = SECOND_PHASE1_CONTROL
     PHASE1_STAMP = 1793620685533
     PHASE1_START = 1793620805532
     PHASE1_END = 1793621105532
@@ -228,11 +257,36 @@ def select_second_phase1_profile():
     MARKERLESS_ORIGINALS[PHASE1_RUN] = '1793629489'
 
 
+# Exact announced original; component and immutable controller are distinct.
+# Original refusal remains UNKNOWN; only positive custody predicates below
+# establish withdrawal, never age or a guessed causal explanation.
+CURRENT26_RUN = '41469215622-1'
+CURRENT26_TARGET = '26aaaa3f350ca063caed717b5fcbbcf34b5ae702'
+CURRENT26_CONTROL = 'fffcb62ea1f114322da964f9e580f8be3b3e3383'
+CURRENT26_HASHES = {
+    'engine-release-database-proof.py': 'd5b59033d68b071419a2b06aa34dc95cdc20d6ec2bed950fbeddd1035c113456',
+    'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4',
+    'engine-release-seal.py': '990d562162089464377994decf576892ab9b23d8defca0a18389992842745fff',
+    'engine-release-transaction.sh': '0a78bdb9e5b3ba761ea1daf4bbec55c42b2ee654a98d71a5850a46ef313a5abe',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e',
+}
+
+
+def select_current26_profile():
+    global PHASE1_RUN, PHASE1_CONTROL, PHASE1_TARGET, PHASE1_STAMP, PHASE1_START, PHASE1_END, PHASE1_TOKEN, PHASE1_HASHES
+    PHASE1_RUN, PHASE1_CONTROL, PHASE1_TARGET = CURRENT26_RUN, CURRENT26_CONTROL, CURRENT26_TARGET
+    PHASE1_STAMP, PHASE1_START, PHASE1_END = 1793635085893, 1793635205893, 1793635505893
+    PHASE1_TOKEN = 'a993695f-4a6a-4cb3-99af-b88765f21c99'
+    PHASE1_HASHES = CURRENT26_HASHES
+    MARKERLESS_ORIGINALS[PHASE1_RUN] = '1793644848'
+
+
 def cancellation_profile(request):
     if request['runKey'] == PHASE1_RUN:
-        require(request['controlSha'] == request['releaseSha'] == PHASE1_CONTROL
+        require(request['controlSha'] == PHASE1_CONTROL and request['releaseSha'] == PHASE1_TARGET
                 and request['desiredSha'] == PHASE1_DESIRED)
-        return {'control': PHASE1_CONTROL, 'target': PHASE1_CONTROL, 'hashes': PHASE1_HASHES,
+        return {'control': PHASE1_CONTROL, 'target': PHASE1_TARGET, 'hashes': PHASE1_HASHES,
                 'wrapper': WRAPPER_HASH, 'manifest': PHASE1_POLICY,
                 'deadline': MARKERLESS_ORIGINALS[PHASE1_RUN]}
     if request['runKey'] == E9_RUN:
@@ -589,7 +643,7 @@ def own_thaw(stamp, control=CANCEL_CONTROL):
 def observe_seal_state(generation):
     """Reuse pinned validation without SealLock, directory creation or writes."""
     path = ROOT / 'engine-release-seal.json'
-    before = regular(path, 0o600)
+    before = canonical_seal_bytes(path)
     spec = importlib.util.spec_from_file_location('qualified_withdrawal_seal_observer', generation / 'engine-release-seal.py')
     helper = importlib.util.module_from_spec(spec)
     original_bytecode = sys.dont_write_bytecode
@@ -602,7 +656,7 @@ def observe_seal_state(generation):
             except SystemExit: raise ValueError('Pinned seal read refused') from None
     finally:
         sys.dont_write_bytecode = original_bytecode
-    require(regular(path, 0o600) == before)
+    require(canonical_seal_bytes(path) == before)
     return value
 
 
@@ -615,7 +669,7 @@ def phase1_seal_evidence(generation):
     cycle = state.get('routineMaintenanceCycles', {}).get(str(cycle_start))
     expected = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
                 'policyDigest': PHASE1_POLICY, 'startsAt': cycle_start, 'endsAt': cycle_start + 300,
-                'runId': PHASE1_RUN, 'sha': PHASE1_CONTROL, 'controlSha': PHASE1_CONTROL,
+                'runId': PHASE1_RUN, 'sha': PHASE1_TARGET, 'controlSha': PHASE1_CONTROL,
                 'status': 'reserved', 'window': {'announcedAt': PHASE1_STAMP,
                     'startsAt': PHASE1_STAMP + 120000, 'endsAt': PHASE1_STAMP + 420000, 'verified': True}}
     require(cycle == expected)
@@ -644,6 +698,8 @@ def announcement_evidence(request, after_stop=False, read_only=False):
     require(len(lines) == 6 and lines[0] == request['releaseSha'] and lines[3:5] == [str(generation), control])
     if key == E9_RUN:
         require(lines[5] == profile['deadline'] and time.time() > int(profile['deadline']))
+    if key == CURRENT26_RUN:
+        require(lines[5] == profile['deadline'])
     if marker_missing and not after_stop:
         # The pinned transaction removes this advisory marker on entry/exit.
         # Only this expired original's positive announced disposition replaces it.
@@ -660,17 +716,25 @@ def announcement_evidence(request, after_stop=False, read_only=False):
             and entry['schema'] == ('engine-release-activation-floor/v3-phase1' if key == PHASE1_RUN
                                     else 'engine-release-activation-floor/v2-owner-window') and entry['runId'] == key
             and entry['targetSha'] == target and entry['controlSha'] == control and entry['phase'] == 'announcement')
+    require(entry['manifestSha256'] == profile['manifest'])
     reservation_raw = regular(ROOT / ('engine-recovery-window-' + key + '.json'), 0o600)
     reservation = json.loads(reservation_raw)
     require(set(reservation) == {'runId', 'sha', 'announcedAt', 'cause'} and reservation['runId'] == key
             and reservation['sha'] == target and reservation['cause'] == 'urgent')
     stamp = reservation['announcedAt']
     require(type(stamp) is int and stamp + 420000 < time.time() * 1000)
-    # Existing immutable floor verifier binds announcement to the qualified manifest/window.
-    require(command(['python3', '-B', str(generation / 'engine-release-activation-floor.py'), 'reservation', '--repo', '/opt/club-arena',
-                     '--target', target, '--control', control, '--deadline', lines[5],
-                     '--run-id', key, '--request-root', str(reqroot), '--state-root', str(ROOT)]) == str(stamp))
-    require(entry['manifestSha256'] == profile['manifest'])
+    if key == CURRENT26_RUN:
+        # Expired custody, not fresh publication: the immutable fffcb CLI first
+        # revalidates an obsolete v2 publication floor before its Phase1 branch.
+        # These are its actual reservation witnesses, checked directly against
+        # the exact original canonical cycle, without rewriting that cycle.
+        require(stamp == 1793635085893)
+        phase1_seal_evidence(generation)
+    else:
+        # Historical profiles retain their exact original qualification route.
+        require(command(['python3', '-B', str(generation / 'engine-release-activation-floor.py'), 'reservation', '--repo', '/opt/club-arena',
+                         '--target', target, '--control', control, '--deadline', lines[5],
+                         '--run-id', key, '--request-root', str(reqroot), '--state-root', str(ROOT)]) == str(stamp))
     for suffix in ['break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json']:
         require(not os.path.lexists(reqroot / (key + '.' + suffix)))
     released_path = reqroot / (key + '.lightning-hold.json.released')
@@ -1109,6 +1173,7 @@ def observe_cancellation(request):
 
 def remote(request):
     if request['runKey'] == SECOND_PHASE1_RUN: select_second_phase1_profile()
+    if request['runKey'] == CURRENT26_RUN: select_current26_profile()
     if request.get('mode') == 'observe_expired_announcement': return observe_cancellation(request)
     if request.get('mode') == 'cancel_expired_announcement':
         return cancel_announced(request)
@@ -1176,6 +1241,10 @@ def remote(request):
 
 
 def main():
+    if sys.argv[1:] == ['--phase1-cancellation-proof', CURRENT26_RUN]:
+        select_current26_profile()
+        print(json.dumps(phase1_cancellation_proof(), sort_keys=True))
+        return
     if sys.argv[1:] == ['--phase1-cancellation-proof', SECOND_PHASE1_RUN]:
         select_second_phase1_profile()
         print(json.dumps(phase1_cancellation_proof(), sort_keys=True))

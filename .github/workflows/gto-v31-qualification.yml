@@ -2,13 +2,26 @@ name: Explicit V31 Offline Qualification
 run-name: V31 qualification ${{ inputs.operation || 'admission contracts' }} ${{ inputs.dataset }}
 
 # One owner-dispatched operation. Never scheduled, never an engine publisher.
+# evaluate: run the evaluator at the dataset's audited epoch pin (an epoch for a
+#   new engine commit opens only with an explicit reason).
+# promote: one engine-locked host operation: promote the evaluated epoch, load
+#   all eight workers, prove readiness. Re-run after a partial outcome resumes
+#   without re-promoting.
 on:
   pull_request:
     paths:
       - .github/workflows/gto-v31-qualification.yml
       - scripts/ci/gto-v31-qualification.mjs
       - scripts/ci/gto-v31-qualification.test.mjs
+      - scripts/ci/v31-decision-closure.mjs
+      - scripts/ci/v31-decision-closure.test.mjs
+      - scripts/ci/v31-atomic-promotion-host.sh
+      - scripts/ci/v31-atomic-promotion-container.mjs
+      - scripts/ci/v31-atomic-promotion.test.mjs
+      - scripts/ci/inspect-v31-worker-readiness.mjs
       - server/scripts/*evaluation-worker*.mjs
+      - server/src/scripts/gtoV31Evaluate.ts
+      - server/src/benchmark/GtoV31EvaluationConfig.ts
       - server/scripts/gto-v31-evaluate-worker.mjs
       - server/scripts/build-public-hist215-native.mjs
       - server/native/**
@@ -19,11 +32,16 @@ on:
         required: true
         type: string
       operation:
-        description: Evaluate first; promote only after reviewing all eight receipts
+        description: Evaluate first; promote only after reviewing all eight receipts of the epoch
         required: true
         default: evaluate
         type: choice
         options: [evaluate, promote]
+      reason:
+        description: Audited reason (20-500 chars), required only to open a new epoch for a different engine commit
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -39,13 +57,15 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pinned protected-main commit the real-closure test reads
+        run: git fetch --no-tags --depth=1 origin ee9fd8eded24d2f832cbe9de865e2d8932fa648f
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test scripts/ci/gto-v31-qualification.test.mjs
+      - run: node --test scripts/ci/gto-v31-qualification.test.mjs scripts/ci/v31-decision-closure.test.mjs scripts/ci/v31-atomic-promotion.test.mjs
   qualify:
     needs: contract
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'evaluate' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
@@ -53,12 +73,16 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: control
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Resolve the healthy serving source
+      - name: Select or open the audited evaluation epoch
         id: context
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node control/scripts/ci/gto-v31-qualification.mjs resolve
       - uses: actions/checkout@v4
         with:
@@ -72,7 +96,7 @@ jobs:
       - name: Build the receiving-platform exact public-state kernel
         working-directory: runtime/server
         run: node scripts/build-public-hist215-native.mjs
-      - name: Run the existing source-pinned evaluator once
+      - name: Run the existing evaluator once at the epoch pin
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -85,3 +109,48 @@ jobs:
           path: ${{ runner.temp }}/gto-v31-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
           if-no-files-found: warn
           retention-days: 7
+  promote:
+    needs: contract
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'promote' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Promote, load eight workers and prove readiness under the engine lock
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          HOST_KEY: ${{ secrets.HETZNER_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$HETZNER_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [ -n "$SSH_KEY" ] && [ -n "$HOST_KEY" ]
+          V31_SSH_DIR="$RUNNER_TEMP/v31-promote-ssh-$GITHUB_RUN_ID"
+          install -d -m 0700 "$V31_SSH_DIR"
+          trap 'rm -rf "$V31_SSH_DIR"' EXIT
+          printf '%s\n' "$SSH_KEY" > "$V31_SSH_DIR/key"
+          printf '%s\n' "$HOST_KEY" > "$V31_SSH_DIR/known_hosts"
+          chmod 0600 "$V31_SSH_DIR/key" "$V31_SSH_DIR/known_hosts"
+          ssh-keygen -y -f "$V31_SSH_DIR/key" >/dev/null
+          ssh-keygen -l -f "$V31_SSH_DIR/known_hosts" >/dev/null
+          export V31_SSH_DIR
+          node control/scripts/ci/gto-v31-qualification.mjs promote
+      - name: Retain metadata-only promotion receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gto-v31-promotion-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gto-v31-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
+          if-no-files-found: warn
+          retention-days: 30

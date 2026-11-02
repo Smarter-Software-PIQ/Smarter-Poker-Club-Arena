@@ -63,7 +63,7 @@ describe('one tournament identity icon beside each headline', () => {
     expect(tournamentFormatIcon(event('Satellite Mystery Bounty Freezeout', []))).toBe('standard');
     expect(tournamentFormatIcon(event('Cash', ['bounty'], 'cash'))).toBeNull();
   });
-  it('puts exactly one accessible SVG identity in both headlines for every tournament kind', () => {
+  it('puts exactly one accessible identity in both headlines for every tournament kind', () => {
     const entries = [
       event('Satellite', ['satellite']),
       event('Free', ['freeroll']),
@@ -73,6 +73,9 @@ describe('one tournament identity icon beside each headline', () => {
       event('Turbo', ['turbo']),
       event('Deep', ['deepstack']),
       event('Rebuy', ['rebuy']),
+      event('Rebuy And Add On', ['rebuy', 'addon']),
+      event('Add On Only', ['addon']),
+      event('Reentry Only', ['reentry']),
       event('Spin', [], 'spin'),
       event('SNG', [], 'sng'),
     ];
@@ -97,8 +100,24 @@ describe('one tournament identity icon beside each headline', () => {
         expect(icons).toHaveLength(1);
         expect(icons[0].closest('.compact-lobby__title, .lt-name__line1')).not.toBeNull();
         expect(icons[0].getAttribute('data-tournament-icon')).toBe(tournamentFormatIcon(entry));
-        expect(icons[0].querySelector('svg')).not.toBeNull();
+        if (tournamentFormatIcon(entry) === 'rebuy') {
+          expect(icons[0].querySelector('img')?.getAttribute('src')).toContain(
+            'rebuy-addon-raised-chip-v1.png'
+          );
+        } else {
+          expect(icons[0].querySelector('svg')).not.toBeNull();
+        }
+        if (['turbo', 'hyper'].includes(tournamentFormatIcon(entry) ?? '')) {
+          expect(icons[0].hasAttribute('data-lobby-symbol')).toBe(false);
+          expect(icons[0].querySelector('[data-lobby-art]')).toBeNull();
+        }
         expect(icons[0].getAttribute('aria-label')).toMatch(/Tournament/);
+        if (entry.name === 'Rebuy And Add On') {
+          expect(icons[0].textContent).toBe('REBUY & ADD ON');
+        }
+        if (entry.name === 'Rebuy') expect(icons[0].textContent).toBe('REBUY');
+        if (entry.name === 'Add On Only') expect(icons[0].textContent).toBe('ADD ON');
+        if (entry.name === 'Reentry Only') expect(icons[0].textContent).toBe('RE-ENTRY');
         expect(within(row as HTMLElement).queryByText('Top Event')).toBeNull();
       }
     }

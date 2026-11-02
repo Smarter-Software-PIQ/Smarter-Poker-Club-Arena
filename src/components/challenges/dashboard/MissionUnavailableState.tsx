@@ -20,7 +20,11 @@ export function MissionUnavailableState({
   const presentation = TIER_PRESENTATION[tier];
   return (
     <StandardContentLayout className={styles.container}>
-      <div className={styles.page} data-mission-cycle={tier}>
+      <div
+        className={styles.page}
+        data-casino-realism="smarter-casino-realism"
+        data-mission-cycle={tier}
+      >
         <h1 className={styles.srOnly}>{presentation.title}</h1>
         <section className={styles.emptyState} role="alert">
           <span className={styles.bevelFrame} aria-hidden="true" />
