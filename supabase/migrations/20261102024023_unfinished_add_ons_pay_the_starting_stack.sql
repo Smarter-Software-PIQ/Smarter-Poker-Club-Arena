@@ -24,6 +24,8 @@
 -- conservation arithmetic reads them and a settled record is never rewritten
 -- (CLAUDE.md 10.9). A short lock_timeout refuses cleanly instead of queueing
 -- behind a live row; apply once, never in a retry loop.
+--
+-- @live-proof: NOT EXISTS (SELECT 1 FROM public.tournaments t WHERE t.add_on_available IS TRUE AND t.ended_at IS NULL AND COALESCE(t.starting_chips,0)>0 AND t.addon_chips IS DISTINCT FROM t.starting_chips)
 
 BEGIN;
 
