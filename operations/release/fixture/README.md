@@ -331,7 +331,7 @@ enter the failure receipt. The one-loopback-listener requirement stays enforced.
    the upstream seed logs some tenant failures, so validate the tenant, health,
    real authenticated subscription, and actual database change.
 
-After genuine Realtime migrations pass their exact 83-version readback, both paths apply the captured deployment relation configuration in the private database: nullable migration-ledger inserted_at and UTC wall-clock message defaults. Exact native preimages, owners, partition bounds and empty messages are required; unrelated metadata and migration history are preserved, then a separate connection verifies the result. This is captured deployment configuration; its upstream override provenance is unestablished. Full-schema comparison remains mandatory.
+After genuine Realtime migrations pass their exact 83-version readback, both paths apply the captured deployment relation configuration in the private database: removal of the migration-ledger inserted_at default while preserving nullability, and UTC wall-clock message defaults. Exact native preimages, owners, partition bounds and empty messages are required; unrelated metadata and migration history are preserved, then a separate connection verifies the result. This is captured deployment configuration; its upstream override provenance is unestablished. Full-schema comparison remains mandatory.
 
 The root-owned runtime and schema provenance remain authoritative for complete
 fixture bootstrapping. This package's tiny native SQL table checks protocols and

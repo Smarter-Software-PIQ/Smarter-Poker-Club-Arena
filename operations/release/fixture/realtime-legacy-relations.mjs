@@ -54,10 +54,10 @@ const ledgerColumns = [
     name: 'inserted_at',
     type: 'timestamp',
     mod: 0,
-    notnull: true,
+    notnull: false,
     identity: '',
     generated: '',
-    default: null,
+    default: 'now()',
   },
 ];
 const utcDefault = "timezone('utc'::text, clock_timestamp())";
@@ -81,7 +81,7 @@ function validate(rows, configured) {
     ledger.columns,
     ledgerColumns.map((c) => ({
       ...c,
-      notnull: c.name === 'inserted_at' ? !configured : c.notnull,
+      default: c.name === 'inserted_at' && configured ? null : c.default,
     })),
     'FIXTURE_REALTIME_LEDGER_COLUMNS_REQUIRED'
   );
@@ -163,9 +163,10 @@ function invariant(rows) {
     ...r,
     columns: r.columns.map((c) => ({
       ...c,
-      notnull: r.name === 'schema_migrations' && c.name === 'inserted_at' ? false : c.notnull,
+      notnull: c.notnull,
       default:
-        r.name !== 'schema_migrations' && ['inserted_at', 'updated_at'].includes(c.name)
+        (r.name === 'schema_migrations' && c.name === 'inserted_at') ||
+        (r.name !== 'schema_migrations' && ['inserted_at', 'updated_at'].includes(c.name))
           ? null
           : c.default,
     })),
@@ -197,7 +198,7 @@ export async function configureFixtureRealtimeCapturedRelations(db) {
       [{ empty_messages: true }],
       'FIXTURE_REALTIME_EMPTY_MESSAGES_REQUIRED'
     );
-    await db.query('ALTER TABLE realtime.schema_migrations ALTER COLUMN inserted_at DROP NOT NULL');
+    await db.query('ALTER TABLE realtime.schema_migrations ALTER COLUMN inserted_at DROP DEFAULT');
     await db.query('SET LOCAL ROLE supabase_realtime_admin');
     for (const r of before.filter((r) => r.name !== 'schema_migrations')) {
       // Only validated fixed parent or ISO-date child identifiers reach DDL.

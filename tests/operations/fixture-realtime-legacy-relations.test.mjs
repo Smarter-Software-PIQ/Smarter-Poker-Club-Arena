@@ -81,8 +81,8 @@ function baseline() {
           name: 'inserted_at',
           type: 'timestamp',
           mod: 0,
-          notnull: true,
-          default: null,
+          notnull: false,
+          default: 'now()',
           identity: '',
           generated: '',
         },
@@ -105,7 +105,7 @@ function fake({
   const after = structuredClone(before);
   for (const r of after)
     for (const c of r.columns) {
-      if (r.name === 'schema_migrations' && c.name === 'inserted_at') c.notnull = false;
+      if (r.name === 'schema_migrations' && c.name === 'inserted_at') c.default = null;
       else if (r.name !== 'schema_migrations' && ['inserted_at', 'updated_at'].includes(c.name))
         c.default = "timezone('utc'::text, clock_timestamp())";
     }
@@ -154,7 +154,7 @@ for (const [name, opts] of [
     assert.equal(db.calls.at(-1), 'ROLLBACK');
     assert.ok(!db.calls.some((s) => s.startsWith('ALTER TABLE')));
   });
-test('only captured nullable ledger and actual UTC wall-clock defaults are configured', async () => {
+test('only captured ledger default and actual UTC wall-clock defaults are configured', async () => {
   const db = fake();
   await configureFixtureRealtimeCapturedRelations(db);
   assert.equal(db.calls.filter((s) => s.startsWith('ALTER TABLE ONLY')).length, 6);
@@ -184,23 +184,54 @@ test('readback independently refuses unconfigured preimages without mutations', 
   assert.ok(db.calls.every((s) => s.startsWith('SELECT')));
 });
 
-
 test('both native service paths configure only after genuine migration readback with a separate observer', async () => {
-  for (const name of ['fixture-server.mjs','native-smoke.mjs']) {
-    const source = await readFile(new URL('../../operations/release/fixture/' + name, import.meta.url),'utf8');
+  for (const name of ['fixture-server.mjs', 'native-smoke.mjs']) {
+    const source = await readFile(
+      new URL('../../operations/release/fixture/' + name, import.meta.url),
+      'utf8'
+    );
     const ready = source.indexOf('() => realtimeMigrated(realtimeBootstrap');
-    const configure = source.indexOf('await configureFixtureRealtimeCapturedRelations(realtimeBootstrap)');
+    const configure = source.indexOf(
+      'await configureFixtureRealtimeCapturedRelations(realtimeBootstrap)'
+    );
     const close = source.indexOf('end(realtimeBootstrap)', configure);
-    const observer = source.indexOf('await assertFixtureRealtimeCapturedRelations(realtimeRelationObserver)');
+    const observer = source.indexOf(
+      'await assertFixtureRealtimeCapturedRelations(realtimeRelationObserver)'
+    );
     assert.ok(ready > 0 && configure > ready && close > configure && observer > close);
     assert.match(source, /realtimeRelationObserver = .*\.own\(new pg.Client/);
   }
-  for (const name of ['Dockerfile','build-image.sh']) {
-    const source = await readFile(new URL('../../operations/release/fixture/' + name, import.meta.url),'utf8');
+  for (const name of ['Dockerfile', 'build-image.sh']) {
+    const source = await readFile(
+      new URL('../../operations/release/fixture/' + name, import.meta.url),
+      'utf8'
+    );
     assert.ok(source.includes('realtime-legacy-relations.mjs'));
   }
-  const runner = await readFile(new URL('../../operations/release/ci/fixture-smoke.py',import.meta.url),'utf8');
+  const runner = await readFile(
+    new URL('../../operations/release/ci/fixture-smoke.py', import.meta.url),
+    'utf8'
+  );
   assert.ok(runner.includes("'realtime-legacy-relations.mjs'"));
-  const workflow = await readFile(new URL('../../.github/workflows/component-fixture-native-smoke.yml',import.meta.url),'utf8');
+  const workflow = await readFile(
+    new URL('../../.github/workflows/component-fixture-native-smoke.yml', import.meta.url),
+    'utf8'
+  );
   assert.ok(workflow.includes('tests/operations/fixture-realtime-legacy-relations.test.mjs'));
+});
+
+test('old synthetic NOT NULL/no-default ledger preimage is refused before DDL', async () => {
+  const db = fake({
+    changeBefore: (rows) => {
+      const c = rows.find((r) => r.name === 'schema_migrations').columns[1];
+      c.notnull = true;
+      c.default = null;
+    },
+  });
+  await assert.rejects(
+    configureFixtureRealtimeCapturedRelations(db),
+    /FIXTURE_REALTIME_LEDGER_COLUMNS_REQUIRED/
+  );
+  assert.ok(!db.calls.some((s) => s.startsWith('ALTER TABLE')));
+  assert.equal(db.calls.at(-1), 'ROLLBACK');
 });
