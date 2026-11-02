@@ -758,18 +758,17 @@ export class EquityWorkerPool {
       .then(() => {});
     this.retiring.set(slot, termination);
     this.retirementRoutingUntil.set(slot, Date.now() + this.readyTimeoutMs);
-    void termination.then(
-      () => {
+    void termination
+      .then(() => {
         this.retiring.delete(slot);
         this.retirementRoutingUntil.delete(slot);
         this.scheduleRespawn();
-      },
-      (error) => {
+      })
+      .catch((error) => {
         // Keep failed custody: a later shutdown cannot claim it succeeded.
         this.retirementRoutingUntil.delete(slot);
         this.lastError = `Equity worker termination failed: ${this.errorMessage(error)}`;
-      }
-    );
+      });
     return termination;
   }
 
