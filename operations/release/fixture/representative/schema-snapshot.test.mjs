@@ -83,6 +83,21 @@ test('database configuration cannot select another project, transaction pool or 
     assert.throws(() => databaseConfiguration(value), /CAPTURE_REFUSED/);
 });
 
+test('catalogue driver headroom preserves five-second server and fixed capture budgets',()=>{
+ const config=databaseConfiguration(fixtureURL);
+ assert.equal(config.query_timeout,10000);
+ assert.equal(config.statement_timeout,5000);
+ assert.equal(config.query_timeout-config.statement_timeout,5000);
+ assert.ok(config.query_timeout>config.statement_timeout);
+ assert.equal(config.connectionTimeoutMillis,5000);
+ assert.equal(config.options,'-c default_transaction_read_only=on -c lock_timeout=1000 -c idle_in_transaction_session_timeout=45000');
+ assert.equal(config.application_name,'isolated-schema-readonly-capture');
+ assert.equal(config.ssl.rejectUnauthorized,true);
+ assert.equal(remainingDumpBudget(45000,0),40000);
+ assert.equal(remainingDumpBudget(45000,39999),1);
+ assert.throws(()=>remainingDumpBudget(45000,40000),/CAPTURE_REFUSED/);
+});
+
 test('SQL object boundaries ignore fake headers in dollar bodies, escaped strings and comments', () => {
   const sql = prefix + ordinary + footer;
   const parsed = dumpObjects(sql);

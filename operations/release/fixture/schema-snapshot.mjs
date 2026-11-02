@@ -16,9 +16,13 @@ const requireCapture = (value) => { if (!value) throw new Error('ISOLATED_SCHEMA
 const MAX_SCHEMA_BYTES = 128 * 1024 * 1024;
 const MAX_METADATA_BYTES = 32 * 1024 * 1024;
 const DEADLINE_MS = 45000;
-// Reserve the existing five-second Node query budget for snapshot closure and
-// private output finalization. The enclosing 45-second deadline stays fixed.
+// Reserve five seconds for snapshot closure and private output finalization.
+// The enclosing 45-second deadline stays fixed.
 const FINALIZE_RESERVE_MS = 5000;
+const STATEMENT_TIMEOUT_MS = 5000;
+// Let the server finish or cancel first, then allow the existing closure/transport
+// reserve for its response. This changes no server or absolute capture budget.
+const CATALOGUE_QUERY_TIMEOUT_MS = STATEMENT_TIMEOUT_MS + FINALIZE_RESERVE_MS;
 export function remainingDumpBudget(deadlineAt, now) {
   const remaining = deadlineAt - now - FINALIZE_RESERVE_MS;
   requireCapture(Number.isSafeInteger(deadlineAt) && Number.isSafeInteger(now) &&
@@ -363,7 +367,7 @@ export function databaseConfiguration(value) {
     requireCapture(key === 'sslmode' && ['require', 'verify-full'].includes(setting));
   return { host: url.hostname, port: 5432, database: 'postgres', user, password,
     ssl: { rejectUnauthorized: true, ca: providerCA() }, connectionTimeoutMillis: 5000,
-    query_timeout: 5000, statement_timeout: 5000,
+    query_timeout: CATALOGUE_QUERY_TIMEOUT_MS, statement_timeout: STATEMENT_TIMEOUT_MS,
     application_name: 'isolated-schema-readonly-capture',
     options: '-c default_transaction_read_only=on -c lock_timeout=1000 -c idle_in_transaction_session_timeout=45000' };
 }
