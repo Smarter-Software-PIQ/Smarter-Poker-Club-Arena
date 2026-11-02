@@ -42,7 +42,12 @@ const countdownStart = transaction.indexOf('legacy_checkpoint_countdown() {');
 const countdownEnd = transaction.indexOf('\npersist_break_deadline()', countdownStart);
 const countdown = transaction.slice(countdownStart, countdownEnd);
 
-function probe(patch: Record<string, unknown> = {}, httpStatus = 200) {
+function probe(
+  patch: Record<string, unknown> = {},
+  httpStatus = 200,
+  phase1 = false,
+  bindingStatus = 0
+) {
   const maintenance = {
     reason: 'Deployment Recovery',
     active: true,
@@ -64,8 +69,15 @@ INFLIGHT_HANDS=true
 ${entryRead}
 MIN_BREAK_REMAINING_MS=285000
 curl() { printf '%s\\n%s' "$CHECKPOINT_TEST_BODY" "$CHECKPOINT_TEST_HTTP"; }
+bind_phase1_window() {
+  [ "$CHECKPOINT_BINDING_STATUS" = 0 ] || return 1
+  PHASE1_WINDOW_END="$CHECKPOINT_WINDOW_END"
+  PHASE1_WINDOW_START=$((PHASE1_WINDOW_END - 300000))
+  export PHASE1_WINDOW_START PHASE1_WINDOW_END
+}
 ${countdown}
-legacy_checkpoint_countdown
+result="$(legacy_checkpoint_countdown)" || exit $?
+printf '%s\\n' "$result"
 `,
     ],
     {
@@ -75,12 +87,33 @@ legacy_checkpoint_countdown
         ...process.env,
         CHECKPOINT_TEST_BODY: JSON.stringify({ running: true, weeklyPayout: null, maintenance }),
         CHECKPOINT_TEST_HTTP: String(httpStatus),
+        PHASE1_CYCLE_START: phase1 ? String(Math.floor(Date.now() / 1000)) : '0',
+        PHASE1_WINDOW_START: '0',
+        PHASE1_WINDOW_END: '0',
+        CHECKPOINT_BINDING_STATUS: String(bindingStatus),
+        CHECKPOINT_WINDOW_END: String(maintenance.breakEndsAt),
       },
     }
   );
 }
 
 describe('the exact legacy checkpoint enters the existing release transaction', () => {
+  it('admits an exact Phase1 window without inherited values from a prior subshell', () => {
+    const result = probe({}, 200, true);
+    expect(result.status, result.stderr).toBe(0);
+    expect(Number(result.stdout)).toBeGreaterThan(Date.now() / 1000);
+  });
+
+  it('refuses a Phase1 window whose authoritative binding fails', () => {
+    expect(probe({}, 200, true, 1).status).not.toBe(0);
+  });
+
+  it('still refuses insufficient reserve after binding a Phase1 window', () => {
+    expect(
+      probe({ remainingMs: 284_999, breakEndsAt: Date.now() + 284_999 }, 200, true).status
+    ).not.toBe(0);
+  });
+
   it.each([
     [4000, 75],
     [-1, 75],

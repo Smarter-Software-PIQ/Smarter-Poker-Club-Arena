@@ -64,6 +64,21 @@ with tempfile.TemporaryDirectory(prefix='fb-',dir=BASE) as folder:
  try:
   run([PG/'pg_ctl','-D',data,'-l',root/'log','-w','start'])
   run(q,(FIX/'original-bootstrap.sql').read_text())
+  # This fixture needs an incident in the capture's accounting week. Ten
+  # minutes ago belongs to the previous week just after Monday midnight.
+  incident_at="GREATEST(public.fn_union_week_start(now()),now()-interval '10 minutes')"
+  run(q,"""DO $$ DECLARE at_time timestamptz; detected timestamptz; BEGIN
+   FOREACH at_time IN ARRAY ARRAY['2026-11-02 08:00:00+00'::timestamptz,
+    '2026-11-02 08:01:00+00','2026-11-02 08:09:59+00',
+    '2026-11-02 08:10:00+00','2026-03-09 07:01:00+00'] LOOP
+    detected:=GREATEST(public.fn_union_week_start(at_time),at_time-interval '10 minutes');
+    IF public.fn_union_week_start(detected) IS DISTINCT FROM public.fn_union_week_start(at_time)
+       OR detected>at_time THEN RAISE EXCEPTION 'INCIDENT_FIXTURE_WEEK_CHANGED'; END IF;
+   END LOOP;
+   IF public.fn_union_week_start('2026-11-02 08:01:00+00'::timestamptz-interval '10 minutes')
+      IS NOT DISTINCT FROM public.fn_union_week_start('2026-11-02 08:01:00+00'::timestamptz)
+      THEN RAISE EXCEPTION 'OLD_INCIDENT_FIXTURE_BOUNDARY_NOT_REPRODUCED'; END IF;
+  END $$;""")
   # First seed fixture identities/state, then install triggers before action.
   actor='20000000-0000-0000-0000-000000000001';horse='10000000-0000-0000-0000-000000000001';human='10000000-0000-0000-0000-000000000002'
   horses=[horse]+[str(__import__('uuid').UUID(hashlib.md5(('horse-fixture:'+str(i)).encode()).hexdigest())) for i in range(583 if args.production_roster else 16 if args.prefix_roster else 8)]
@@ -113,7 +128,7 @@ with tempfile.TemporaryDirectory(prefix='fb-',dir=BASE) as folder:
    ('d6180536-0d0c-4024-bd3d-ddeb3d5c7e66','financial_alerts:union_accounting_scheduler',{'scope_kind':'union','scope_id':scope[3],'result':{'error':'weekly_scope_statement_budget_exhausted'},'alert_id':'20b37a4b-8d9b-4207-8d5c-af8ee169a484'})]
   for new_id,new_source,new_metadata in new_incidents:
    metadata_literal=json.dumps(new_metadata).replace("'","''")
-   run(q,f"INSERT INTO ca_drift_incidents(id,detected_at,deadline_at,classification,severity,layer,status,source,dedupe_key,ledger_balanced,metadata) VALUES('{new_id}',now()-interval '10 minutes',now()+interval '1 hour','unknown','warning','unknown','open','{new_source}','{new_id}',NULL,'{metadata_literal}');")
+   run(q,f"INSERT INTO ca_drift_incidents(id,detected_at,deadline_at,classification,severity,layer,status,source,dedupe_key,ledger_balanced,metadata) VALUES('{new_id}',{incident_at},now()+interval '1 hour','unknown','warning','unknown','open','{new_source}','{new_id}',NULL,'{metadata_literal}');")
    mirrors=[('drift_incident:'+new_source,dict(new_metadata,incident_id=new_id))]
    if 'alert_id' in new_metadata:mirrors.insert(0,(new_source.removeprefix('financial_alerts:'),new_metadata))
    for source_index,(mirror_source,mirror_context) in enumerate(mirrors):

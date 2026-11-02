@@ -191,10 +191,32 @@ E9_HASHES = {
 }
 E9_WRAPPER_HASH = 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c'
 E9_MANIFEST_HASH = '24cc5dbdfd46117934fd82d832da146c1373f7676ef6b4447455be9c599ad4a7'
-MARKERLESS_ORIGINALS = {'41177442979-1': '1793440868', E9_RUN: '1793528863'}
+PHASE1_RUN = '41400905104-1'
+PHASE1_CONTROL = '197c2b733698b9eb62a90f7c91b42b263a028ef1'
+PHASE1_DESIRED = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+PHASE1_STAMP = 1793602682415
+PHASE1_START = 1793602802414
+PHASE1_END = 1793603102414
+PHASE1_TOKEN = 'b7fd9bbf-95c0-4ff2-af3c-55c7ec4cd01f'
+PHASE1_POLICY = '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578'
+PHASE1_HASHES = {
+    'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6',
+    'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4',
+    'engine-release-seal.py': '1c21d9e35b1bf76c72df58bab7adc8c09ce2d2bd8d98d5680f8a0c934386e2bb',
+    'engine-release-transaction.sh': 'c4fd7e47f65c76d60b1af2bd4d09893038516c57d335e181f0346dd58faae418',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e',
+}
+MARKERLESS_ORIGINALS = {'41177442979-1': '1793440868', E9_RUN: '1793528863', PHASE1_RUN: '1793613481'}
 
 
 def cancellation_profile(request):
+    if request['runKey'] == PHASE1_RUN:
+        require(request['controlSha'] == request['releaseSha'] == PHASE1_CONTROL
+                and request['desiredSha'] == PHASE1_DESIRED)
+        return {'control': PHASE1_CONTROL, 'target': PHASE1_CONTROL, 'hashes': PHASE1_HASHES,
+                'wrapper': WRAPPER_HASH, 'manifest': PHASE1_POLICY,
+                'deadline': MARKERLESS_ORIGINALS[PHASE1_RUN]}
     if request['runKey'] == E9_RUN:
         require(request['controlSha'] == E9_CONTROL and request['releaseSha'] == E9_TARGET)
         return {'control': E9_CONTROL, 'target': E9_TARGET, 'hashes': E9_HASHES,
@@ -480,13 +502,20 @@ def time_ms(value):
     return round(parsed.timestamp() * 1000)
 
 
-def prove_thaw(rows, active, stamp, now):
+def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL):
     require(isinstance(rows, list) and len(rows) == 1 and active == [])
     row = rows[0]
+    starts, ends = stamp + 120000, stamp + 420000
+    if control == PHASE1_CONTROL:
+        # Historical recovery only, never an activation tolerance. This exact
+        # predecessor's scheduled callback fired one millisecond early.
+        require(stamp == PHASE1_STAMP and row.get('ownership_token') == PHASE1_TOKEN
+                and row.get('release_generation') == 1)
+        starts, ends = PHASE1_START, PHASE1_END
     require(row.get('contract_version') == 3 and time_ms(row.get('announced_at')) == stamp
-            and time_ms(row.get('freeze_started_at')) == stamp + 120000)
+            and time_ms(row.get('freeze_started_at')) == starts)
     target = time_ms(row.get('release_target_at'))
-    require(target == stamp + 420000 and target < now and stamp + 120000 <= time_ms(row.get('thawed_at')) <= now
+    require(target == ends and target < now and starts <= time_ms(row.get('thawed_at')) <= now
             and re.fullmatch(r'[0-9a-fA-F-]{36}', row.get('ownership_token', '')) is not None
             and type(row.get('release_generation')) is int and row['release_generation'] > 0)
     shifted = row.get('shifted')
@@ -495,18 +524,19 @@ def prove_thaw(rows, active, stamp, now):
     require(isinstance(targets, dict) and set(targets) == THAW_STEPS
             and all(type(targets[key]) is int and targets[key] >= 0 and type(shifted[key]) is int
                     and shifted[key] == targets[key] for key in THAW_STEPS))
-    require(abs(float(row['frozen_seconds']) * 1000 - (target - stamp - 120000)) <= 2)
-    return {'announcedAtMs': stamp, 'freezeStartedAtMs': stamp + 120000,
+    require(abs(float(row['frozen_seconds']) * 1000 - (target - starts)) <= 2)
+    return {'announcedAtMs': stamp, 'freezeStartedAtMs': starts,
             'releasedThroughMs': target, 'ownershipToken': row['ownership_token'],
-            'generation': row['release_generation']}
+            'generation': row['release_generation'],
+            **({'thawRecordedAtMs': time_ms(row['thawed_at'])} if control == PHASE1_CONTROL else {})}
 
 
 def own_thaw(stamp, control=CANCEL_CONTROL):
     # The fixed canonical store is used only inside this protected host helper.
     # Only bounded GETs, no RPC or production write, and redirects are refused.
-    require(control in {CANCEL_CONTROL, E9_CONTROL})
+    require(control in {CANCEL_CONTROL, E9_CONTROL, PHASE1_CONTROL})
     helper = PARENT / 'engine-control-generations' / control / 'engine-release-database-proof.py'
-    hashes = E9_HASHES if control == E9_CONTROL else CANCEL_HASHES
+    hashes = {CANCEL_CONTROL: CANCEL_HASHES, E9_CONTROL: E9_HASHES, PHASE1_CONTROL: PHASE1_HASHES}[control]
     require(source_hash(helper) == hashes[helper.name])
     spec = importlib.util.spec_from_file_location('qualified_withdrawal_database_reader', helper)
     reader = importlib.util.module_from_spec(spec)
@@ -535,7 +565,7 @@ def own_thaw(stamp, control=CANCEL_CONTROL):
     rows = get('engine_maintenance_thaws', {'select': 'contract_version,announced_at,freeze_started_at,release_target_at,thawed_at,ownership_token,release_generation,shifted,frozen_seconds',
                                           'announced_at': 'eq.' + stamp_iso, 'limit': '2'})
     active = get('engine_maintenance_break', {'select': 'id', 'id': 'eq.true', 'limit': '2'})
-    return prove_thaw(rows, active, stamp, round(time.time() * 1000))
+    return prove_thaw(rows, active, stamp, round(time.time() * 1000), control)
 
 
 def observe_seal_state(generation):
@@ -556,6 +586,21 @@ def observe_seal_state(generation):
         sys.dont_write_bytecode = original_bytecode
     require(regular(path, 0o600) == before)
     return value
+
+
+def phase1_seal_evidence(generation):
+    state = observe_seal_state(generation)
+    require(state.get('pending') is None and state.get('finalization') is None
+            and PHASE1_RUN not in state.get('committedRuns', {})
+            and state['desired']['sha'] == PHASE1_DESIRED)
+    cycle = state.get('routineMaintenanceCycles', {}).get('1793602800')
+    expected = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+                'policyDigest': PHASE1_POLICY, 'startsAt': 1793602800, 'endsAt': 1793603100,
+                'runId': PHASE1_RUN, 'sha': PHASE1_CONTROL, 'controlSha': PHASE1_CONTROL,
+                'status': 'reserved', 'window': {'announcedAt': PHASE1_STAMP,
+                    'startsAt': PHASE1_STAMP + 120000, 'endsAt': PHASE1_STAMP + 420000, 'verified': True}}
+    require(cycle == expected)
+    return cycle
 
 
 def announcement_evidence(request, after_stop=False, read_only=False):
@@ -584,15 +629,17 @@ def announcement_evidence(request, after_stop=False, read_only=False):
         # The pinned transaction removes this advisory marker on entry/exit.
         # Only this expired original's positive announced disposition replaces it.
         require(profile['deadline'] is not None and lines[5] == profile['deadline']
-                and time.time() > int(profile['deadline']))
-        require(command(['python3', str(generation / 'engine-release-activation-floor.py'),
+                and (time.time() * 1000 > PHASE1_STAMP + 420000 if key == PHASE1_RUN
+                     else time.time() > int(profile['deadline'])))
+        require(command(['python3', '-B', str(generation / 'engine-release-activation-floor.py'),
                          'disposition', '--repo', '/opt/club-arena', '--target', target,
                          '--control', control, '--deadline', lines[5],
                          '--request-root', str(reqroot), '--run-id', key]) == 'announced')
     entry_raw = regular(reqroot / (key + '.activation-entry'), 0o600)
     entry = json.loads(entry_raw)
     require(set(entry) == {'schema', 'runId', 'targetSha', 'controlSha', 'manifestSha256', 'phase'}
-            and entry['schema'] == 'engine-release-activation-floor/v2-owner-window' and entry['runId'] == key
+            and entry['schema'] == ('engine-release-activation-floor/v3-phase1' if key == PHASE1_RUN
+                                    else 'engine-release-activation-floor/v2-owner-window') and entry['runId'] == key
             and entry['targetSha'] == target and entry['controlSha'] == control and entry['phase'] == 'announcement')
     reservation_raw = regular(ROOT / ('engine-recovery-window-' + key + '.json'), 0o600)
     reservation = json.loads(reservation_raw)
@@ -601,9 +648,9 @@ def announcement_evidence(request, after_stop=False, read_only=False):
     stamp = reservation['announcedAt']
     require(type(stamp) is int and stamp + 420000 < time.time() * 1000)
     # Existing immutable floor verifier binds announcement to the qualified manifest/window.
-    require(command([str(generation / 'engine-release-activation-floor.py'), 'reservation', '--repo', '/opt/club-arena',
+    require(command(['python3', '-B', str(generation / 'engine-release-activation-floor.py'), 'reservation', '--repo', '/opt/club-arena',
                      '--target', target, '--control', control, '--deadline', lines[5],
-                     '--run-id', key, '--state-root', str(ROOT)]) == str(stamp))
+                     '--run-id', key, '--request-root', str(reqroot), '--state-root', str(ROOT)]) == str(stamp))
     require(entry['manifestSha256'] == profile['manifest'])
     for suffix in ['break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json']:
         require(not os.path.lexists(reqroot / (key + '.' + suffix)))
@@ -620,6 +667,8 @@ def announcement_evidence(request, after_stop=False, read_only=False):
     released = helper.own_record(released_path, key)
     require(released is not None and released['phase'] == 'released')
     seal = generation / 'engine-release-seal.py'
+    if key == PHASE1_RUN:
+        phase1_seal_evidence(generation)
     if read_only:
         state = observe_seal_state(generation)
         require(not isinstance(state.get('pending'), dict) and state['desired']['sha'] == request['desiredSha'])
@@ -678,16 +727,27 @@ def cancellation_child_class(argv, key, evidence):
     return 'unproven'
 
 
+def phase1_runtime_birth(request, container, thaw):
+    if request['runKey'] != PHASE1_RUN:
+        return
+    birth = time_ms(container['startedAt'])
+    recorded = thaw['thawRecordedAtMs']
+    require(type(recorded) is int and PHASE1_START <= recorded < time.time() * 1000)
+    require(0 < birth < time.time() * 1000 and
+            (birth < PHASE1_STAMP or birth > max(PHASE1_STAMP + 420000, recorded)))
+
+
 def collect_cancellation_admission(request, units, container, read_only=False):
     evidence_read = lambda: announcement_evidence(request, read_only=True) if read_only else announcement_evidence(request)
     key = request['runKey']
     evidence = evidence_read()
+    phase1_runtime_birth(request, container, evidence['thaw'])
     stop_contract = loaded_stop_contract(units[0], key)
     state = unit_snapshot(units[0])
     require(state['ActiveState'] in {'active', 'activating'} and INVOCATION_PATTERN(state['InvocationID']))
     # This additional original is admitted only while positively process-empty.
     # A live or racing invocation cannot become new signal authority.
-    if key == E9_RUN:
+    if key in {E9_RUN, PHASE1_RUN}:
         require(state['MainPID'] == '0')
     if state['MainPID'] == '0':
         empty_retry_admission(units[0], state, key, evidence)
@@ -744,6 +804,7 @@ def cancel_announced(request):
             receipt = json.loads(regular(receipt_path, 0o600)); validate_cancellation_reply(receipt, request)
             require(masked(units)); quiet_units(units, receipt['originalControlGroup'], receipt['schema'] == EMPTY_CANCEL_SCHEMA, receipt.get('unitCgroups'))
             require(container_identity(request) == receipt['container']); health_pair(request)
+            if key == PHASE1_RUN: phase1_cancellation_proof()
             return receipt
         for unit in units: own_wants_edge(unit)
         health_pair(request); container = container_identity(request)
@@ -891,6 +952,9 @@ def cancel_announced(request):
         require(all(not os.path.lexists(ROOT / relative) for relative in allowed))
         require(masked(units)); quiet_units(units, original_group, empty_admission, bindings)
         require(container_identity(request) == container); health_pair(request)
+        if key == PHASE1_RUN:
+            require(own_thaw(PHASE1_STAMP, PHASE1_CONTROL) == intent['evidence']['thaw'])
+            phase1_seal_evidence(PARENT / 'engine-control-generations' / PHASE1_CONTROL)
         receipt = {'schema': schema, 'request': request, 'result': 'cancelled-expired-announcement',
                    'servingInstanceUnchanged': True, 'originalTerminalEdgesRetired': True, 'quiescent': True,
                    'container': container, 'originalControlGroup': original_group,
@@ -906,11 +970,70 @@ def INVOCATION_PATTERN(value):
     return isinstance(value, str) and re.fullmatch(r'[0-9a-f]{32}', value) is not None
 
 
+def phase1_cancellation_proof():
+    """Read-only final evidence consumed by the owning sealed transaction.
+
+    This does not cancel, mask, unlink, write a seal or manufacture a failure.
+    The explicit withdrawal must already have reached its immutable receipt.
+    """
+    require(os.getuid() == 0)
+    generation = PARENT / 'engine-control-generations' / PHASE1_CONTROL
+    for name, expected in PHASE1_HASHES.items(): require(source_hash(generation / name) == expected)
+    require(source_hash(PARENT / 'engine-release-unit-wrapper-v1.sh') == WRAPPER_HASH)
+    directory = ROOT / 'engine-release-cancellations'
+    records = {name: regular(directory / (PHASE1_RUN + '.' + name + '.json'), 0o600)
+               for name in ('receipt', 'intent', 'quiescent', 'stop-issued')}
+    receipt, intent, quiet, issued = (json.loads(records[name]) for name in ('receipt', 'intent', 'quiescent', 'stop-issued'))
+    request = selection(receipt['request'])
+    require(request['runKey'] == PHASE1_RUN and request.get('mode') == 'cancel_expired_announcement')
+    cancellation_profile(request)
+    validate_cancellation_reply(receipt, request)
+    require(receipt['schema'] == intent['schema'] == quiet['schema'] == issued['schema'] == EMPTY_CANCEL_SCHEMA
+            and intent['request'] == request and intent['container'] == receipt['container']
+            and intent['admission'] == 'positive-empty-auto-restart'
+            and intent['originalProcess'] is None and intent['originalChild'] is None
+            and issued['stopDisposition'] == receipt['stopDisposition'] == 'not-needed-already-quiescent'
+            and issued['intentHash'] == digest(records['intent'].encode())
+            and quiet['actualUnitStates'] == receipt['actualUnitStates']
+            and intent['unitCgroups'] == receipt['unitCgroups'])
+    evidence = intent['evidence']
+    reqroot = ROOT / 'engine-release-requests'
+    retained = {'entryHash': reqroot / (PHASE1_RUN + '.activation-entry'),
+                'reservationHash': ROOT / ('engine-recovery-window-' + PHASE1_RUN + '.json'),
+                'releasedHoldHash': reqroot / (PHASE1_RUN + '.lightning-hold.json.released')}
+    for name, path in retained.items(): require(digest(regular(path, 0o600).encode()) == evidence[name])
+    for directory_name, suffixes in (
+            ('engine-release-requests', ('request', 'intent', 'awaiting-certificate', 'break-deadline',
+                'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'main-inspector-retirement-receipt',
+                'lightning-hold.json', 'drill')),
+            ('engine-intake-requests', ('request', 'intent')),
+            ('engine-release-generation-pins', ('generation',)), ('engine-image-leases', ('lease',)),
+            ('engine-release-results', ('json',))):
+        for suffix in suffixes: require(not os.path.lexists(ROOT / directory_name / (PHASE1_RUN + '.' + suffix)))
+    units = cancel_units(PHASE1_RUN)
+    require(masked(units))
+    for unit in units:
+        require(not os.path.lexists(own_wants_edge(unit)))
+    quiet_units(units, receipt['originalControlGroup'], True, receipt['unitCgroups'])
+    require(container_identity(request) == receipt['container']); health_pair(request)
+    thaw = own_thaw(PHASE1_STAMP, PHASE1_CONTROL)
+    require(thaw == evidence['thaw'])
+    phase1_runtime_birth(request, receipt['container'], thaw)
+    cycle = phase1_seal_evidence(generation)
+    quiet_units(units, receipt['originalControlGroup'], True, receipt['unitCgroups'])
+    require(container_identity(request) == receipt['container'])
+    for name, raw in records.items(): require(regular(directory / (PHASE1_RUN + '.' + name + '.json'), 0o600) == raw)
+    return {'schema': 'cancelled-routine-announcement-proof/v1', 'originalCycle': cycle,
+            'recordHashes': {name: digest(raw.encode()) for name, raw in records.items()},
+            'retainedHashes': {name: evidence[name] for name in retained}, 'sourceHashes': PHASE1_HASHES,
+            'thaw': thaw, 'container': receipt['container'], 'instanceId': request['instanceId']}
+
+
 
 DIAGNOSTIC_SCHEMA = 'withdrawal-predicate-observation/v1'
 DIAGNOSTIC_STAGES = {'selection', 'health_pair', 'container_identity', 'announcement_evidence', 'source_hash',
     'regular', 'observe_seal_state', 'own_thaw', 'prove_thaw', 'loaded_stop_contract', 'unit_snapshot', 'empty_retry_admission',
-    'configured_service_cgroup', 'prove_unit_empty', 'prove_unloaded_unit_empty', 'manager_unit_absent',
+    'phase1_runtime_birth', 'configured_service_cgroup', 'prove_unit_empty', 'prove_unloaded_unit_empty', 'manager_unit_absent',
     'own_wants_edge', 'collect_cancellation_admission', 'cancel_announced', 'cancellation_directory', 'process',
     'quiet_units', 'masked', 'remote', 'main'}
 DIAGNOSTIC_CODES = {'predicate_refused', 'read_unavailable', 'command_unproved', 'deadline', 'unknown'}
@@ -1033,6 +1156,9 @@ def remote(request):
 
 
 def main():
+    if sys.argv[1:] == ['--phase1-cancellation-proof']:
+        print(json.dumps(phase1_cancellation_proof(), sort_keys=True))
+        return
     if len(sys.argv) == 3 and sys.argv[1] == '--remote':
         request = selection(json.loads(base64.b64decode(sys.argv[2], validate=True)))
         try: answer = remote(request)
