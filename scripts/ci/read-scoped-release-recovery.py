@@ -1618,7 +1618,7 @@ def original_announcement_remote(request, root_fd):
 
 
 RETAINED_REFUSAL_GENERATIONS = Path('/usr/local/lib/club-arena/engine-control-generations')
-RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '2e554293f754a6ccfe25d3837eb3126300cfe3b02813fd8b853cf6ee24bd4a3d'}
+RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}
 # Earlier exact producer pairs whose generations may still hold retained receipts.
 RETAINED_REFUSAL_PRIOR_SOURCES = ({'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'},)
 RETAINED_REFUSAL_SCHEMA = 'retained-first-refusal-observation/v1'
