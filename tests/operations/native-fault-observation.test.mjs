@@ -48,7 +48,7 @@ test('only current-boot PID1 terminal journal event can preserve invocation evid
 });
 test('workflow preserves Inspector defaults and only closed manual native modes',()=>{
  const text=readFileSync(new URL('../../.github/workflows/profile-engine-main-thread.yml',import.meta.url),'utf8');
- assert.match(text,/default: inspector/);assert.match(text,/options: \[inspector, native_fault, native_receipt\]/);
+ assert.match(text,/default: inspector/);assert.match(text,/options:\s*\[\s*inspector,\s*native_fault,\s*native_receipt,\s*native_prerequisites,\s*native_perf_install,\s*native_perf_receipt,?\s*\]/);
  assert.match(text,/inputs.mode == 'inspector'/);assert.match(text,/75s ssh/);
  assert.match(text,/220s ssh/);assert.match(text,/native-observation:[\s\S]*timeout-minutes: 5/);
  assert.match(text,/existing_operation_read_receipt|Unknown acknowledgement/);
@@ -102,7 +102,7 @@ test('receipt artifact contains only strictly validated closed fields',()=>{
  const workflow=readFileSync(new URL('../../.github/workflows/profile-engine-main-thread.yml',import.meta.url),'utf8');
  assert.match(workflow,/- run: node --test[^\n]+\n\s+env:\n\s+TMPDIR: \$\{\{ runner.temp \}\}/);
  assert.doesNotMatch(workflow,/verify:\n\s+runs-on:[^\n]+\n\s+timeout-minutes: 3\n\s+env:/);
- assert.match(workflow,/path: \|\n\s+\$\{\{ runner.temp \}\}\/native-admission.json\n\s+\$\{\{ runner.temp \}\}\/native-fault-receipt.json/);
+ assert.match(workflow,/path: \|\n\s+\$\{\{ runner.temp \}\}\/native-prerequisites.json\n\s+\$\{\{ runner.temp \}\}\/native-admission.json\n\s+\$\{\{ runner.temp \}\}\/native-fault-receipt.json/);
  assert.doesNotMatch(workflow,/path:[^\n]*\.private/);
 });
 test('closed SSH classifier preserves original failure with malformed refusal codes',()=>{
@@ -121,4 +121,32 @@ for values,version in cases:
  except RuntimeError:rows.append('refused')
 print(json.dumps(rows))`);
  assert.deepEqual(rows,[...Array(3).fill('accepted'),...Array(9).fill('refused')]);
+});
+
+test('fixed prerequisite metadata distinguishes missing, untrusted and nonexecutable tools without execution',()=>{
+ const result=python(`import tempfile,pathlib\nrows=[m.prerequisite_tool('/usr/bin/true'),m.prerequisite_tool('/etc/hosts')]\nwith tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as folder:\n p=pathlib.Path(folder)/'tool';p.write_bytes(b'not executable code');p.chmod(0o777)\n rows.extend([m.prerequisite_tool(str(p)),m.prerequisite_tool(str(p/'absent'))])\nprint(json.dumps(rows))`);
+ assert.deepEqual(result,[{available:true,reason:'available'},{available:false,reason:'not-executable'},{available:false,reason:'untrusted'},{available:false,reason:'unknown'}]);
+});
+test('read-only prerequisite function binds original engine and never calls admission or creates state',()=>{
+ const result=python(`from unittest.mock import patch\nbase={'sha':'a'*40,'pid':123,'tasks':{'123':'9'}}\nm.target_identity=lambda expected:base\nm.same_target=lambda original:original==base\nm.prerequisite_tool=lambda path:{'available':False,'reason':'missing'}\nm.prerequisite_os=lambda:{'id':'ubuntu','versionId':'24.04','kernelRelease':'6.8.0-90-generic'}\nwith patch.object(m.os,'geteuid',return_value=0),patch.object(m.sys,'platform','linux'),patch.object(m.os,'open',side_effect=AssertionError('write/open refused')),patch.object(m,'admit',side_effect=AssertionError('admit refused')),patch.object(m,'trusted_directory',side_effect=AssertionError('state refused')):\n value=m.native_prerequisites('a'*40,'b'*64)\n print(json.dumps(m.prerequisites_outcome(json.dumps(value).encode(),'a'*40,'b'*64,0)))`);
+ assert.equal(result.validPrerequisites,true);assert.equal(result.readOnly,true);assert.equal(result.tools.perf.reason,'missing');assert.equal(JSON.stringify(result).includes('123'),false);
+});
+test('prerequisite artifact parser refuses duplicates extras wrong identity unsafe platform and incoherent tools',()=>{
+ const result=python(`import copy\nbase={'schema':'native-prerequisites/v1','engineSHA':'a'*40,'sourceSHA256':'b'*64,'originalIdentitySHA256':'c'*64,'readOnly':True,'tools':{k:{'available':True,'reason':'available'} for k in m.PREREQUISITE_TOOLS},'os':{'id':'ubuntu','versionId':'24.04','kernelRelease':'6.8.0-90-generic'}}\nrows=[m.prerequisites_outcome(json.dumps(base).encode(),'a'*40,'b'*64,0)]\nfor key,value in [('engineSHA','d'*40),('sourceSHA256','d'*64),('readOnly',False),('PRIVATE','secret'),('os',{'id':'PRIVATE','versionId':'PRIVATE','kernelRelease':'PRIVATE'})]:\n bad={**base,key:value};rows.append(m.prerequisites_outcome(json.dumps(bad).encode(),'a'*40,'b'*64,0))\nfor bad in [{'available':True,'reason':'missing'},{'available':1,'reason':'available'},{'available':False,'reason':'/private/path'},{'available':False,'reason':'missing','private':'SECRET'}]:\n value=copy.deepcopy(base);value['tools']['perf']=bad;rows.append(m.prerequisites_outcome(json.dumps(value).encode(),'a'*40,'b'*64,0))\nraw=json.dumps(base).encode();duplicate=b'{"readOnly":true,'+raw[1:]\nrows.extend(m.prerequisites_outcome(value,'a'*40,'b'*64,status) for value,status in [(duplicate,0),(raw,1),(raw,False),(raw,'PRIVATE'),(b'x'*16385,0)])\nprint(json.dumps(rows))`);
+ assert.equal(result[0].validPrerequisites,true);assert.ok(result.slice(1).every(r=>r.validPrerequisites===false));assert.doesNotMatch(JSON.stringify(result),/PRIVATE|SECRET|\/private/);
+});
+test('prerequisite manual carrier is memory-only source-qualified and exits before any admission or receipt',()=>{
+ const text=readFileSync(new URL('../../.github/workflows/profile-engine-main-thread.yml',import.meta.url),'utf8');
+ const section=text.split('if [ "$NATIVE_MODE" = native_prerequisites ]; then\n')[1].split('          if [ "$NATIVE_MODE" = native_fault ]; then')[0];
+ assert.match(section,/hashlib\.sha256\(raw\)\.hexdigest\(\)==digest/);assert.match(section,/native_prerequisites/);assert.match(section,/'-I','-B'/);assert.match(section,/prerequisites_outcome/);assert.match(section,/exit 0\n          fi/);
+ for(const forbidden of ['mkdir','admit(',"'admit'",'REMOTE_RECEIPT','systemd-run','os.open'])assert.equal(section.includes(forbidden),false,forbidden);
+ const artifact=text.slice(text.indexOf('      - name: Retain closed native observation receipt only'));
+ assert.match(artifact,/native-prerequisites\.json/);assert.doesNotMatch(artifact,/\.private/);
+});
+test('actual in-memory bootstrap refuses changed or oversized source before execution',()=>{
+ const workflow=readFileSync(new URL('../../.github/workflows/profile-engine-main-thread.yml',import.meta.url),'utf8');
+ const bootstrap=workflow.split('if [ "$NATIVE_MODE" = native_prerequisites ]; then\n')[1].split("bootstrap=r'''")[1].split("'''")[0].replace(/^ {10}/gm,'');
+ const rows=python(`import subprocess,hashlib\nbootstrap=${JSON.stringify(bootstrap)}\nraw=b"def native_prerequisites(sha,digest):\\n return {'engineSHA':sha,'sourceSHA256':digest,'readOnly':True}\\n"\ndigest=hashlib.sha256(raw).hexdigest()\nrows=[]\nfor payload,pin in [(raw,digest),(raw,b'c'.decode()*64),(raw+b'\\n',digest),(b'x'*131073,hashlib.sha256(b'x'*131073).hexdigest())]:\n result=subprocess.run(['python3','-I','-B','-c',bootstrap,'a'*40,pin],input=payload,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=3)\n rows.append({'exit':result.returncode,'value':json.loads(result.stdout)})\nprint(json.dumps(rows))`);
+ assert.equal(rows[0].exit,0);assert.equal(rows[0].value.readOnly,true);
+ for(const row of rows.slice(1)){assert.equal(row.exit,1);assert.equal(row.value.validPrerequisites,false);assert.equal(Object.hasOwn(row.value,'engineSHA'),false);}
 });

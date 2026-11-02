@@ -437,7 +437,19 @@ export default function TournamentRankingCard({
         : 'Cash Award:'
     : 'Total Payout:';
   const payoutCents = Math.round((Number(payoutAmount) || 0) * 100);
-  const counting = useCountUp(payoutCents);
+  /* SETTLEMENT PENDING (Burls, 2026-11-01). A bust card can render before the
+     engine's elimination commit has priced the place - the host backfills for
+     up to six minutes - and until it lands the card knows NOTHING: not the
+     place, not the prize. A 0 in that state is a claim, and the wrong claim
+     for every paid finisher. No place and no figure means the figure is not
+     yet known, so the card says Pending, never 0. A real out-of-the-money 0
+     always arrives WITH a place (the same commit writes both), so it still
+     prints as the number it is. */
+  const settlementPending = !qualification && place == null && payoutCents <= 0;
+  const payoutDisplay = settlementPending
+    ? 'Pending'
+    : `${moneyAtUnit(payoutAmount, unitCents)}${moneySuffixAtUnit(unitCents)}`;
+  const counting = useCountUp(settlementPending ? 0 : payoutCents);
 
   /* THE SHARE IMAGE IS PAINTED BEFORE THE TAP (2026-10-05). iOS Safari only
      opens the share sheet inside the tap's own activation, and painting
@@ -477,7 +489,7 @@ export default function TournamentRankingCard({
               : { trophy: false, text: place != null ? String(place) : '-' },
           tier: shareTier(place, Boolean(qualification)),
           payoutLabel: payoutLabel.replace(/:$/, ''),
-          payoutValue: `${moneyAtUnit(payoutAmount, unitCents)}${moneySuffixAtUnit(unitCents)}`,
+          payoutValue: payoutDisplay,
           username: shareName,
         })
       )
@@ -501,6 +513,7 @@ export default function TournamentRankingCard({
     subtitleText,
     payoutLabel,
     payoutAmount,
+    payoutDisplay,
     unitCents,
     shareName,
   ]);
@@ -739,11 +752,11 @@ export default function TournamentRankingCard({
                   counting != null ? 'trc2__reward-final is-counting' : 'trc2__reward-final'
                 }
               >
-                {moneyAtUnit(payoutAmount, unitCents)}
                 {/* The headline figure is otherwise a bare number, and a bare
                     number in the Diamond Arena does not say what was won. Adds
-                    nothing at a chip event. */}
-                {moneySuffixAtUnit(unitCents)}
+                    nothing at a chip event. While settlement is pending the
+                    figure is the word Pending - see settlementPending above. */}
+                {payoutDisplay}
               </span>
               {counting != null && (
                 /* Printed by the stylesheet from data-count, not as a text

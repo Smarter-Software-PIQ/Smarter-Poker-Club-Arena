@@ -201,6 +201,9 @@ describe('tournaments: the entry is charged to a wallet that can pay', () => {
     expect(body('fn_player_spendable_balance')).toMatch(
       /COALESCE\(\s*public\.fn_ca_entry_paying_club\(p_user_id, p_tournament_id\),/
     );
+    expect(body('fn_player_spendable_balance')).toMatch(
+      /COALESCE\(\s*public\.fn_ca_entry_paying_club\(p_user_id, v_table_tournament_id\),/
+    );
     expect(src('src/services/WalletService.ts')).toMatch(
       /p_tournament_id: opts\?\.tournamentId \?\? null/
     );
@@ -208,6 +211,16 @@ describe('tournaments: the entry is charged to a wallet that can pay', () => {
       /tournamentId \? \{ clubId, tournamentId \} : \{ clubId \}/
     );
     expect(src('src/hooks/useTournamentRegistration.ts')).toMatch(/tournamentId: t\.id,/);
+  });
+
+  it('late-registration seat reuse never stamps a departed occupant club over tournament_players.club_id', () => {
+    const fn = body('fn_seat_club_for_user_membership_unchecked');
+    const tpLookup = fn.indexOf('FROM public.tournament_players tp');
+    const preferredCheck = fn.indexOf('IF p_preferred_club IS NOT NULL');
+    expect(tpLookup).toBeGreaterThan(-1);
+    expect(preferredCheck).toBeGreaterThan(tpLookup);
+    const lateReg = body('fn_seat_late_registrant_before_maintenance_gate');
+    expect(lateReg).toMatch(/club_id\s*=\s*COALESCE\(v_tp_club, v_club\)/);
   });
 });
 
@@ -236,13 +249,13 @@ describe('no chair is held for a player who cannot pay for it', () => {
   it('the lobby says how many chips the game needs', async () => {
     const { joinGameRefusalText } = await import('../src/services/cashGameLobby');
     expect(joinGameRefusalText(new Error('INSUFFICIENT_CHIPS:200.00'))).toBe(
-      'Not Enough Chips. You Need At Least 200 Chips To Join This Game.'
+      'Not Enough Chips In Your Active Club Wallet. You Need At Least 200 Chips To Join This Game. Chips In Other Clubs Are Separate.'
     );
     expect(joinGameRefusalText(new Error('INSUFFICIENT_CHIPS:46.07'))).toBe(
-      'Not Enough Chips. You Need At Least 46.07 Chips To Join This Game.'
+      'Not Enough Chips In Your Active Club Wallet. You Need At Least 46.07 Chips To Join This Game. Chips In Other Clubs Are Separate.'
     );
     expect(joinGameRefusalText(new Error('INSUFFICIENT_CHIPS'))).toBe(
-      'Not Enough Chips To Join This Game.'
+      'Not Enough Chips In Your Active Club Wallet To Join This Game. Chips In Other Clubs Are Separate.'
     );
   });
 });

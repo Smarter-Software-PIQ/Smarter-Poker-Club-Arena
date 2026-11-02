@@ -1291,7 +1291,20 @@ export const SeatSlot = memo(
       resized.observe(seat);
       measure();
       // The art mounts after the seat and swaps on a skin change.
-      const changed = new MutationObserver(schedule);
+      // Ignore countdown/stack text ticks inside `.seat__info` and card flips
+      // inside `.seat__cards`: `measure()` only reads avatar art and `:scope > .seat__action`.
+      const isIrrelevantMutation = (node: Node | null) =>
+        node instanceof Node &&
+        Boolean(
+          (node instanceof Element ? node : node.parentElement)?.closest(
+            '.seat__info, .seat__cards, .seat__bet-chips'
+          )
+        );
+      const changed = new MutationObserver((records) => {
+        if (records.some((record) => !isIrrelevantMutation(record.target))) {
+          schedule();
+        }
+      });
       changed.observe(seat, { childList: true, subtree: true, characterData: true });
       seat.addEventListener('load', schedule, true);
       seat.addEventListener('opponentavatarresize', schedule);
@@ -3032,7 +3045,7 @@ export const SeatSlot = memo(
             cleared. Otherwise the chip stack slides in on fresh bets/raises. */}
         <div className="seat__wager-group">
           {showAllInPuck && (
-            <div className="seat__bet-chips">
+            <div key="all-in-puck" className="seat__bet-chips" data-wager-kind="all-in">
               {/* Its own felt slot keeps the marker in front of this player
                 even when a six-card hand leaves a narrow gap for the chips. */}
               <div className="seat__allin-puck" role="status" aria-label={`${player.name}: All In`}>
@@ -3042,7 +3055,7 @@ export const SeatSlot = memo(
             </div>
           )}
           {lastBetAmount && lastBetAmount > 0 ? (
-            <div className="seat__bet-chips">
+            <div key="contribution" className="seat__bet-chips" data-wager-kind="chips">
               <ChipPhysics
                 amount={lastBetAmount}
                 formatAmount={wagerFmt}

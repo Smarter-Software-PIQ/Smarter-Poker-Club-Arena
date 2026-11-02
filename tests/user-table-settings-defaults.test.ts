@@ -58,6 +58,11 @@ const DB_COLUMN_DEFAULTS = {
   // The switch HIDES an offer the player already had, so a row that predates
   // the column has to behave exactly as it did the day before.
   rabbit_hunt_button: true,
+  // 2026-11-01: OFF, NOT NULL DEFAULT false (auto_rabbit_hunt migration).
+  // Auto Run Rabbit Hunt presses the PAID reveal on every early-ended hand,
+  // so it must be opted into — a default that spends diamonds is not a
+  // default, it is a charge nobody agreed to.
+  auto_rabbit_hunt: false,
   // 2026-09-05: ON, NOT NULL DEFAULT true
   // (20260905195426_user_table_settings_gain_the_all_in_squeeze_toggle).
   // The VIP all-in squeeze is "turned on by default" (Dan); for a non-VIP the

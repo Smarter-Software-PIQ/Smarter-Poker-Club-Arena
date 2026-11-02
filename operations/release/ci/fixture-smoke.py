@@ -15,12 +15,13 @@ import time
 
 FILES = ('Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
          'runtime-files.mjs', 'gateway.mjs', 'auth-fixture.mjs', 'auth-bootstrap-proof.mjs',
-         'service-role-boundary.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
+         'service-role-boundary.mjs', 'realtime-control-plane.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
          'seed-fixture.mjs', 'native-smoke.mjs', 'observation-bridge.mjs', 'build-image.sh', 'smoke-image.sh')
 PREFIX = 'operations/release/fixture/'
 CONTROL_FILES = tuple('operations/release/native/' + name for name in (
     'component-observation-protocol.mjs', 'component-observation-client.mjs',
-    'component-semantic-observations.mjs', 'tournament-player-observations.mjs'))
+    'component-semantic-observations.mjs', 'tournament-player-observations.mjs',
+    'original-web-retention.py', 'original-web-retention.json', 'original-web-artifact-api.json'))
 NATIVE_STAGES = frozenset((
     'fixture-service-preimage',
     'managed-postgres-event-trigger-boundary', 'postgresql-native-cron-install', 'postgresql-native-cron-metadata',
@@ -336,7 +337,7 @@ def role_alignment_record(output):
     result = records[0]
     expected = {
         'scope': 'native-full-role-installer', 'status': 'passed', 'stage': 'complete',
-        'template_sha256': '75de4863de9a9276e701526389a6fbe0a033589d60844b71dd42eb44fbdf31db',
+        'template_sha256': 'bf0e2fa88fc4f19dbfc84fdd7e8485cafb40e5dcd77557a88bdda4bda70fb862',
         'install_submitted': True, 'commit_acknowledged': True, 'catalog_outcome': 'committed',
         'rollback_acknowledged': False, 'separate_read_only_observers': 4,
         'graph_assertion': True, 'membership_assertion': True,

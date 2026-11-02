@@ -12,7 +12,9 @@ type Alpha = {
 type Box = { left: number; top: number; width: number; height: number };
 export type OpponentAvatarState = {
   key: string;
+  locked?: boolean;
   shifts: WeakMap<HTMLElement, [number, number]>;
+  resolved?: Map<string, Alpha | null>;
   lowerLaneKey?: string;
   captionKey?: string;
   captionPreimages?: WeakMap<HTMLElement, { value: string; priority: string }>;
@@ -109,6 +111,7 @@ export function opponentShiftTransaction(
   }
 }
 const metadata = new Map<string, Promise<Alpha | null>>();
+const resolvedMetadata = new Map<string, Alpha | null>();
 const box = (element: Element): Box => {
   // Position badges share the character's gesture wrapper. Their permanent
   // footprint, rather than a breathing/winner frame, owns the lower lane.
@@ -828,9 +831,15 @@ function alpha(image: HTMLImageElement): Promise<Alpha | null> {
         }
       : null;
   };
+  const recordResolved = (result: Alpha | null) => {
+    if (resolvedMetadata.size >= 256)
+      resolvedMetadata.delete(resolvedMetadata.keys().next().value!);
+    resolvedMetadata.set(source, result);
+    return result;
+  };
   const pending = new Promise<Alpha | null>((resolve) => {
     try {
-      resolve(read(image));
+      resolve(recordResolved(read(image)));
       return;
     } catch {
       /* Read the same public bytes with CORS, without changing the shown image. */
@@ -841,7 +850,7 @@ function alpha(image: HTMLImageElement): Promise<Alpha | null> {
       clearTimeout(timer);
       probe.onload = null;
       probe.onerror = null;
-      resolve(result);
+      resolve(recordResolved(result));
     };
     probe.crossOrigin = 'anonymous';
     probe.onload = () => {
@@ -875,11 +884,26 @@ export function opponentPaintSpansTouch(
   );
 }
 
-function subject(image: HTMLImageElement, a: Alpha, rendered: boolean, override?: Box): Box {
+function subject(
+  image: HTMLImageElement,
+  a: Alpha,
+  rendered: boolean,
+  override?: Box,
+  includeFocus = true
+): Box {
   const style = getComputedStyle(image);
+  // offsetWidth/Height round fractional proportional slots to whole pixels.
+  // Normalize to the actual unchanged reference, not that rounded surrogate.
+  const layoutPixels = (value: string, fallback: number) =>
+    value.endsWith('px') && Number.isFinite(parseFloat(value)) ? parseFloat(value) : fallback;
   const rect = rendered
     ? (override ?? box(image))
-    : { left: 0, top: 0, width: image.offsetWidth, height: image.offsetHeight };
+    : {
+        left: 0,
+        top: 0,
+        width: layoutPixels(style.width, image.offsetWidth),
+        height: layoutPixels(style.height, image.offsetHeight),
+      };
   const fit =
     style.objectFit === 'contain'
       ? Math.min(rect.width / image.naturalWidth, rect.height / image.naturalHeight)
@@ -901,7 +925,7 @@ function subject(image: HTMLImageElement, a: Alpha, rendered: boolean, override?
   if (!rendered) {
     const transform =
       (style.transform === 'none' ? 1 : new DOMMatrix(style.transform).d) *
-      permanentAvatarFocusScale(image);
+      (includeFocus ? permanentAvatarFocusScale(image) : 1);
     top = rect.height + (top - rect.height) * transform;
     bottom = rect.height + (bottom - rect.height) * transform;
   }
@@ -916,11 +940,30 @@ export function createOpponentAvatarLayout(
 ) {
   let active = true;
   const observedAnimations = new WeakSet<Animation>();
-  const resolved = new Map<string, Alpha | null>();
+  const resolved = (state.resolved ??= new Map<string, Alpha | null>());
   const pending = new Set<string>();
   const source = (image: HTMLImageElement) => image.currentSrc || image.src;
   let spacingReady = false;
   const images = () => Array.from(scaler.querySelectorAll<HTMLImageElement>('.seat__avatar-img'));
+  // Spectating changes no player's identity. The occupied bottom chair is only
+  // the visual reference, and keeps its existing art and rail position.
+  const anchorImage = () =>
+    images().find((image) => image.closest('.seat--hero')) ??
+    images().find((image) => image.closest('.seat-wrapper--hero'));
+  const anchorSeat = () => anchorImage()?.closest<HTMLElement>('.seat');
+  const movableSeats = (includeEmpty = false) => {
+    const anchor = anchorSeat();
+    return Array.from(scaler.querySelectorAll<HTMLElement>('.seat')).filter(
+      (seat) => seat !== anchor && (includeEmpty || !seat.classList.contains('seat--empty'))
+    );
+  };
+  const anchorFacts = () =>
+    Array.from(
+      anchorSeat()?.querySelectorAll(
+        '.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card'
+      ) ?? []
+    );
+
   const paintedParts = (image: HTMLImageElement, permanent = true): Box[] => {
     const own = resolved.get(source(image));
     if (!own) return [];
@@ -971,9 +1014,9 @@ export function createOpponentAvatarLayout(
   };
   // Snapshot DOM geometry once for each finite wager-placement trial. The
   // returned narrow-phase query only reads decoded runs and numeric boxes.
-  const preparePaintedTouch = (image: HTMLImageElement, permanent = true) => {
+  const preparePaintedTouch = (image: HTMLImageElement, permanent = true, restBox?: Box) => {
     const ratio = tableRenderScale(scaler);
-    const fallback = permanent ? restingAvatarBox(image, ratio) : box(image);
+    const fallback = permanent ? (restBox ?? restingAvatarBox(image, ratio)) : box(image);
     const origin = permanent ? idleOrigin(image) : null;
     const conservative = origin ? opponentIdleEnvelope([fallback], origin, ratio)[0] : fallback;
     const refuse = (target: Box, gap = 0) => overlap(conservative, target, gap);
@@ -998,14 +1041,10 @@ export function createOpponentAvatarLayout(
   };
   const lowerLaneLimits = (rounding = 0): { top: number; bottom: number } | null => {
     const board = page.querySelector('.community-area');
-    const hero = images().find((image) => image.closest('.seat--hero'));
+    const hero = anchorImage();
     const heroParts = [
       ...(hero ? paintedParts(hero) : []),
-      ...Array.from(
-        page.querySelectorAll(
-          '.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card'
-        )
-      )
+      ...anchorFacts()
         .map(box)
         .filter((part) => part.width > 0 && part.height > 0),
     ];
@@ -1016,10 +1055,8 @@ export function createOpponentAvatarLayout(
     return bottom > top ? { top, bottom } : null;
   };
   const captions = () =>
-    Array.from(
-      scaler.querySelectorAll<HTMLElement>(
-        '.seat:not(.seat--hero) > .seat__info,.seat:not(.seat--hero) > .seat__action'
-      )
+    movableSeats().flatMap((seat) =>
+      Array.from(seat.querySelectorAll<HTMLElement>(':scope > .seat__info,:scope > .seat__action'))
     );
   const fullRingShowdown = () => {
     const rows = Array.from(
@@ -1037,17 +1074,17 @@ export function createOpponentAvatarLayout(
     page.clientWidth <= 340 &&
     (Boolean(scaler.querySelector('.seat__allin-puck')) || fullRingShowdown()) &&
     Boolean(scaler.querySelector('.seat__cards--revealed > :nth-child(5)'));
-  const prepare = (handKey = 'current') => {
+  const prepare = (_handKey = 'current') => {
     syncOpponentCaptionBoundary(
       state,
       captions(),
-      `${handKey}:${window.innerWidth}:${window.innerHeight}:${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${images().map(source).join('|')}`
+      `${window.innerHeight > window.innerWidth ? 'portrait' : 'landscape'}:${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${images().map(source).join('|')}`
     );
     spacingReady = false;
     const all = images().filter((image) => image.complete && image.naturalWidth > 0);
-    const hero = all.find((image) => image.closest('.seat--hero'));
-    if (!hero) {
+    if (!all.length) {
       state.key = '';
+      state.locked = false;
       state.shifts = new WeakMap();
       state.lowerLaneKey = undefined;
       scaler.querySelectorAll<HTMLElement>('.seat,.seat__avatar').forEach((element) => {
@@ -1055,31 +1092,63 @@ export function createOpponentAvatarLayout(
         for (const name of ['--sp-opponent-art-scale', '--sp-opponent-x', '--sp-opponent-y'])
           element.style.removeProperty(name);
       });
-      scaler
-        .querySelectorAll<HTMLElement>('.seat:not(.seat--hero) > .seat__action')
+      captions()
+        .filter((caption) => caption.matches('.seat__action'))
         .forEach((action) => action.style.removeProperty('translate'));
       return false;
     }
-    for (const image of all)
-      if (image.complete && image.naturalWidth && !pending.has(source(image))) {
-        const url = source(image);
+    for (const image of all) {
+      const url = source(image);
+      if (!resolved.has(url) && !pending.has(url)) {
         pending.add(url);
-        void alpha(image).then((value) => {
-          // Decoded bytes belong to the URL, not the DOM node that began
-          // the read. A roster/profile render can replace that node while a
-          // current portrait still needs the same pending metadata.
-          if (active) {
-            resolved.set(url, value);
-            schedule();
-          }
-        });
+        if (resolvedMetadata.has(url)) {
+          // Already decoded on this session: populate on the existing microtask
+          // boundary so initial mount still reserves card/wager slots before
+          // metadata rebasing, while avoiding any second canvas decode.
+          const cachedValue = resolvedMetadata.get(url)!;
+          void Promise.resolve(cachedValue).then((value) => {
+            if (active) {
+              resolved.set(url, value);
+              schedule();
+            }
+          });
+        } else if (image.complete && image.naturalWidth) {
+          void alpha(image).then((value) => {
+            // Decoded bytes belong to the URL, not the DOM node that began
+            // the read. A roster/profile render can replace that node while a
+            // current portrait still needs the same pending metadata.
+            if (active) {
+              resolved.set(url, value);
+              schedule();
+            }
+          });
+        }
       }
+    }
     if (all.some((image) => !resolved.has(source(image)))) return false;
+    const anchor = anchorImage();
+    if (anchor && !all.includes(anchor)) return false;
+    // An empty bottom chair supplies no display reference. Match the largest
+    // native decoded subject without turning that side chair into a Hero.
+    const hero =
+      anchor ??
+      all.reduce<HTMLImageElement | undefined>((largest, image) => {
+        const own = resolved.get(source(image));
+        if (!own) return largest;
+        const previous = largest && resolved.get(source(largest));
+        return !largest ||
+          !previous ||
+          subject(image, own, false, undefined, false).height >
+            subject(largest, previous, false, undefined, false).height
+          ? image
+          : largest;
+      }, undefined);
+    if (!hero) return false;
     const heroAlpha = resolved.get(source(hero));
     if (!heroAlpha) return false; // Preserve existing visible artwork if its public metadata is unavailable.
     const target = subject(hero, heroAlpha, false).height;
+    const baseTarget = subject(hero, heroAlpha, false, undefined, false).height;
     const scales: string[] = [];
-    let changed = false;
     for (const image of all) {
       const avatar = image.closest<HTMLElement>('.seat__avatar')!;
       const seat = image.closest<HTMLElement>('.seat')!;
@@ -1093,12 +1162,14 @@ export function createOpponentAvatarLayout(
       const value = factor.toFixed(6);
       if (avatar.style.getPropertyValue('--sp-opponent-art-scale') !== value) {
         avatar.style.setProperty('--sp-opponent-art-scale', value);
-        changed = true;
         seat.dispatchEvent(new Event('opponentavatarresize'));
       }
-      scales.push(`${seat.dataset.playerId}:${image.currentSrc || image.src}:${value}`);
+      const baseValue = (baseTarget / subject(image, own, false, undefined, false).height).toFixed(
+        6
+      );
+      scales.push(`${seat.dataset.playerId}:${image.currentSrc || image.src}:${baseValue}`);
     }
-    if (state.lowerLaneKey) {
+    if (state.lowerLaneKey && !state.locked) {
       const limits = lowerLaneLimits();
       const signature = limits ? `${limits.top}:${limits.bottom}` : '';
       if (signature !== state.lowerLaneKey) {
@@ -1106,12 +1177,8 @@ export function createOpponentAvatarLayout(
           scaler.querySelectorAll<HTMLElement>('.seat[data-opponent-lane="lower"]')
         );
         const heroParts = [
-          ...paintedParts(hero),
-          ...Array.from(
-            page.querySelectorAll(
-              '.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card'
-            )
-          )
+          ...(anchor ? paintedParts(anchor) : []),
+          ...anchorFacts()
             .map(box)
             .filter((part) => part.width > 0 && part.height > 0),
         ];
@@ -1137,15 +1204,23 @@ export function createOpponentAvatarLayout(
         state.lowerLaneKey = stillClear && lowerSeats.length ? signature : undefined;
       }
     }
-    const key = `${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${target.toFixed(2)}:${scales.join('|')}`;
-    if (state.key !== key) {
-      changed = true;
+    const key = `${scaler.clientWidth}:${scaler.clientHeight}:${page.clientWidth}:${page.clientHeight}:${hero.closest<HTMLElement>('.seat')?.dataset.playerId}:${source(hero)}:${anchor ? 'anchor' : 'native'}:${baseTarget.toFixed(2)}:${scales.join('|')}`;
+    const replacedChair =
+      state.locked &&
+      all.some((image) => {
+        const seat = image.closest<HTMLElement>('.seat')!;
+        return seat !== anchorSeat() && !state.shifts.has(seat);
+      });
+    let ringChanged = false;
+    if (state.key !== key || replacedChair) {
+      ringChanged = true;
       state.key = key;
+      state.locked = false;
       state.shifts = new WeakMap();
       state.lowerLaneKey = undefined;
       state.idleReservedKey = undefined;
-      scaler
-        .querySelectorAll<HTMLElement>('.seat:not(.seat--hero) > .seat__action')
+      captions()
+        .filter((caption) => caption.matches('.seat__action'))
         .forEach((action) => action.style.removeProperty('translate'));
       scaler.querySelectorAll<HTMLElement>('.seat').forEach((seat) => {
         delete seat.dataset.opponentLane;
@@ -1155,13 +1230,13 @@ export function createOpponentAvatarLayout(
     }
     // SeatSlot measures caption clearance on the existing animation frame.
     // Allocate once that permanent artwork rise has reached its caption.
-    spacingReady = !changed;
-    if (changed) schedule();
-    return changed;
+    spacingReady = !ringChanged;
+    if (ringChanged) schedule();
+    return ringChanged;
   };
   const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
     const old = state.shifts.get(seat);
-    if (!old || !Number.isFinite(deltaY) || seat.classList.contains('seat--hero')) return false;
+    if (state.locked || !old || !Number.isFinite(deltaY) || seat === anchorSeat()) return false;
     const ratio = tableRenderScale(scaler);
     const parts = (owner: HTMLElement): Box[] => {
       const image = owner.querySelector<HTMLImageElement>('.seat__avatar-img');
@@ -1184,16 +1259,15 @@ export function createOpponentAvatarLayout(
     const top = header ? box(header).top + box(header).height + 0.5 : pageBox.top + 0.5;
     const fixed = Array.from(
       page.querySelectorAll(
-        '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card,.action-panel-wrapper,.tournament-hud'
+        '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.action-panel-wrapper,.tournament-hud'
       )
     )
+      .concat(anchorFacts())
       .map(box)
       .filter((r) => r.width > 0 && r.height > 0);
-    const hero = images().find((image) => image.closest('.seat--hero'));
+    const hero = anchorImage();
     if (hero && resolved.get(source(hero))) fixed.push(...paintedParts(hero));
-    const seats = Array.from(
-      scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
-    );
+    const seats = movableSeats();
     if (seats.some((other) => !state.shifts.has(other))) return false;
     const board = page.querySelector('.community-area');
     const lowerLane = lowerLaneLimits();
@@ -1251,7 +1325,7 @@ export function createOpponentAvatarLayout(
     });
   };
   const captionRaiseBounds = (seat: HTMLElement) => {
-    if (!compactAllIn() || seat.classList.contains('seat--hero')) return null;
+    if (state.locked || !compactAllIn() || seat === anchorSeat()) return null;
     const info = seat.querySelector<HTMLElement>(':scope > .seat__info');
     const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
     const parts = image ? paintedParts(image) : [];
@@ -1272,15 +1346,14 @@ export function createOpponentAvatarLayout(
     wagerTop: number,
     accept: () => boolean
   ): boolean => {
+    if (state.locked) return false;
     const limits = captionRaiseBounds(seat);
     // wagerTop is the future wager's top edge, not the requested INFO top.
     // A caller staging a pod movement subtracts that movement from wagerTop.
     if (!limits || !Number.isFinite(wagerTop)) return false;
     const raise = Math.max(0, limits.info.top + limits.info.height + 2 - wagerTop);
     if (raise <= 0.0001 || raise > limits.maxRaise + 0.0001) return false;
-    const seats = Array.from(
-      scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
-    );
+    const seats = movableSeats();
     const info = seat.querySelector<HTMLElement>(':scope > .seat__info')!;
     const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
     const ratio = tableRenderScale(scaler);
@@ -1335,9 +1408,10 @@ export function createOpponentAvatarLayout(
       };
       const fixed = Array.from(
         page.querySelectorAll(
-          '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.action-panel-wrapper,.tournament-hud,.dealer-button,.seat__cards--revealed .seat__card,.seat--hero .seat__cards .seat__card'
+          '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.action-panel-wrapper,.tournament-hud,.dealer-button,.seat__cards--revealed .seat__card'
         )
       )
+        .concat(anchorFacts().filter((fact) => fact.matches('.seat__card')))
         .filter(visible)
         .map(box)
         .filter((r) => r.width > 0 && r.height > 0);
@@ -1382,9 +1456,7 @@ export function createOpponentAvatarLayout(
   };
   const reservePeerIdle = () => {
     if (!compactAllIn() || !state.key || state.idleReservedKey === state.key) return false;
-    const seats = Array.from(
-      scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
-    );
+    const seats = movableSeats();
     if (seats.some((seat) => !state.shifts.has(seat))) return false;
     state.idleReservedKey = state.key;
     let changed = false;
@@ -1426,13 +1498,11 @@ export function createOpponentAvatarLayout(
     return changed;
   };
   const space = () => {
-    if (!state.key || !spacingReady) return false;
+    if (!state.key || !spacingReady || state.locked) return false;
     // An arriving caption/character has no resting rectangle yet. Let its
     // existing animationend event request the first allocation; infinite
     // breathing remains visible and never delays the permanent layout.
-    const entering = Array.from(
-      scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero)')
-    ).some((seat) => {
+    const entering = movableSeats(true).some((seat) => {
       if (state.shifts.has(seat)) return false;
       const animations = [
         ...seat.getAnimations(),
@@ -1462,6 +1532,23 @@ export function createOpponentAvatarLayout(
     }
     let changed = false;
     const ratio = tableRenderScale(scaler);
+    // Fit the observer reference only during the original allocation, after
+    // SeatSlot's caption clearance has settled. Include the current offset so
+    // another initial pass cannot undo or compound an already applied fit.
+    const referenceSeat = anchorSeat();
+    const footer = page.querySelector('.spectator-footer-bar');
+    if (referenceSeat && !referenceSeat.classList.contains('seat--hero') && footer) {
+      const panel = referenceSeat.querySelector(':scope > .seat__info');
+      if (panel) {
+        const panelBox = box(panel);
+        const intrusion = panelBox.top + panelBox.height + 3 - box(footer).top;
+        if (intrusion > 0) {
+          const current = parseFloat(referenceSeat.style.getPropertyValue('--sp-opponent-y')) || 0;
+          referenceSeat.style.setProperty('--sp-opponent-y', `${current - intrusion / ratio}px`);
+          changed = true;
+        }
+      }
+    }
     const pageBox = box(page);
     const header = page
       .closest('.multi-table-page')
@@ -1475,16 +1562,15 @@ export function createOpponentAvatarLayout(
     };
     const fixed = Array.from(
       page.querySelectorAll(
-        '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.seat--hero .seat__info,.seat--hero .seat__action,.seat--hero .seat__bounty,.seat--hero .seat__position-badge,.seat--hero .seat__cards .seat__card,.action-panel-wrapper,.tournament-hud'
+        '.community-area,.bbj-widget,.bbj-mini-plate,.mtp-lobby-btn,.chat-collapsed,.action-panel-wrapper,.tournament-hud'
       )
     )
+      .concat(anchorFacts())
       .map(box)
       .filter((r) => r.width > 0 && r.height > 0);
-    const heroImage = images().find((image) => image.closest('.seat--hero'));
+    const heroImage = anchorImage();
     if (heroImage && resolved.get(source(heroImage))) fixed.push(...paintedParts(heroImage));
-    const seats = Array.from(
-      scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--hero):not(.seat--empty)')
-    );
+    const seats = movableSeats();
     const parts = (seat: HTMLElement) => {
       const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
       const own = image && resolved.get(source(image));
@@ -1667,11 +1753,23 @@ export function createOpponentAvatarLayout(
   return {
     prepare,
     space,
+    lock: () => {
+      const seats = movableSeats();
+      if (spacingReady && state.key && seats.every((seat) => state.shifts.has(seat)))
+        state.locked = true;
+    },
     ready: () => spacingReady && Boolean(state.key),
+    // Locked chairs reject every spacing proposal; do not construct those
+    // transactions again when only cards, bets or the street changed.
+    canMove: () => spacingReady && Boolean(state.key) && !state.locked,
     awaitingMetadata: () =>
       images().some(
-        (image) => image.complete && image.naturalWidth > 0 && !resolved.has(source(image))
+        (image) => !image.complete || (image.naturalWidth > 0 && !resolved.has(source(image)))
       ),
+    // The original metadata rebase reserves one caption-measurement frame.
+    // Marker candidates must use the completed chair geometry, not that
+    // temporary normalized-but-unpositioned frame.
+    awaitingInitialLayout: () => Boolean(state.key) && !spacingReady,
     // A zero-candidate wager may need its own opponent to leave a little
     // room on the felt. This belongs to the original allocation transaction:
     // no timer, retry event, or independent layout pass is scheduled here.
@@ -1682,11 +1780,17 @@ export function createOpponentAvatarLayout(
     paintedTouches: (image: HTMLImageElement, target: Box, gap = 0, permanent = true): boolean =>
       preparePaintedTouch(image, permanent)(target, gap),
     paintedParts,
-    paintedBox: (image: HTMLImageElement, permanent = false) => {
+    anchorCards: () => anchorFacts().filter((fact) => fact.matches('.seat__card')),
+    paintedBox: (image: HTMLImageElement, permanent = false, restBox?: Box) => {
       const own = resolved.get(source(image));
       const ratio = tableRenderScale(scaler);
       return own
-        ? subject(image, own, true, permanent ? restingAvatarBox(image, ratio) : undefined)
+        ? subject(
+            image,
+            own,
+            true,
+            permanent ? (restBox ?? restingAvatarBox(image, ratio)) : undefined
+          )
         : null;
     },
     paintedObstacles: () =>

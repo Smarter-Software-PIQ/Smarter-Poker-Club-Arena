@@ -83,3 +83,24 @@ describe('an unfaced wager is a bet, never a raise', () => {
     expect(onAction.mock.calls[0][0]).toBe('raise');
   });
 });
+
+it('POT displays and submits exactly 7,205 at tournament blinds 300/600', () => {
+  const onAction = vi.fn();
+  render(
+    <ActionPanel
+      {...unopened}
+      pot={7205}
+      bigBlind={600}
+      smallBlind={300}
+      minRaise={600}
+      maxRaise={64751}
+      isTournament
+      onAction={onAction}
+    />
+  );
+  openPanel();
+  fireEvent.click(screen.getByRole('button', { name: /^POT - Bet 7,205$/i }));
+  const confirm = screen.getByRole('button', { name: /^Bet 7,205$/i });
+  fireEvent.click(confirm);
+  expect(onAction).toHaveBeenCalledWith('raise', 7205);
+});

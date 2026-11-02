@@ -649,6 +649,7 @@ def cmd_restoration_needed(args: argparse.Namespace) -> None:
 def cmd_check_routine_owner(args: argparse.Namespace) -> None:
     with SealLock():
         state = load_state()
+        retire_abandoned_routine_cycles(state, int(time.time()))
         owners = [c for c in routine_cycles(state).values() if c['status'] not in ('sealed',)]
         if any(c['runId'] != args.run_id for c in owners):
             die('foreign pending or unknown routine cycle owner remains authoritative')
@@ -691,6 +692,8 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
                 die('original routine cycle expired unresolved; no later cycle is authorized')
             audit_once('routine_cycle_reserved', state, f'routine_cycle:{c["startsAt"]}', cycle=c)
             print(json.dumps(c, sort_keys=True)); return
+        retire_abandoned_routine_cycles(state, now)
+        cycles = routine_cycles(state)
         if state.get('pending') or state.get('finalization') or any(c['status'] not in ('sealed',) for c in cycles.values()):
             die('prior pending or unknown routine owner remains authoritative')
         p = current_cycle_policy(args.repo, args.sha, args.control_sha)
@@ -727,9 +730,93 @@ def finish_routine_failure(state: dict[str, Any], run_id: str, result: dict[str,
         if c['status'] != 'reserved' or c['sha'] != result['sha'] or c['controlSha'] != result['controlSha']:
             die('failure does not match the routine cycle owner')
         # Desired restoration is not proof of native cleanup/custody. Preserve
-        # this global owner even after the provider has a terminal failure.
+        # this global owner even after the provider has a terminal failure;
+        # retire_abandoned_routine_cycles later retires it under the full
+        # custody proofs once its window has expired.
         c['failure'] = result
         write_state(state)
+
+
+def routine_owner_units(run_id: str) -> tuple[str, ...]:
+    return (
+        f'club-arena-engine-intake-v1@{run_id}.service',
+        f'club-arena-engine-intake-v1@{run_id}.path',
+        f'club-arena-engine-release-v1@{run_id}.service',
+    )
+
+
+def retire_abandoned_routine_cycles(state: dict[str, Any], now: int) -> int:
+    """Retire routine cycles whose owner reached a durable terminal failure
+    and whose window has expired, under the full custody proofs.
+
+    2026-11-02: a receiver that recorded a terminal failure while owning a
+    routine cycle kept that cycle in 'reserved' forever (its GitHub run can
+    never replay), and check-routine-owner then refused every later receiver
+    with 'foreign pending or unknown routine cycle owner remains
+    authoritative' - run 41349091113-1 bricked the whole hourly lane this
+    way for over two hours. The preserved owner exists because desired
+    restoration alone is not proof of native cleanup/custody
+    (finish_routine_failure); these are the proofs that ARE:
+      - the cycle is 'reserved' and carries its recorded failure;
+      - the canonical durable terminal result for that exact run says
+        'failed' with the cycle's exact sha and controlSha (load_failure
+        validates every field);
+      - the cycle's window has expired (announced window end, or
+        startsAt+360s when no announcement was ever bound), so no provider
+        can still be inside it;
+      - no transaction is live (no pending, no finalization);
+      - none of the dead owner's native units remain enabled - the same
+        assertion the transaction's own remote cleanup makes. A systemctl
+        that cannot answer fails CLOSED.
+    Retirement moves the cycle into retiredRoutineCycles with the proofs and
+    appends one routine_cycle_retired audit receipt. Returns the number of
+    cycles retired; the caller already holds the seal lock.
+    """
+    if state.get('pending') or state.get('finalization'):
+        return 0
+    cycles = routine_cycles(state)
+    retired_count = 0
+    for key in sorted(cycles):
+        c = cycles[key]
+        if c['status'] != 'reserved' or not isinstance(c.get('failure'), dict):
+            continue
+        window = routine_window(c)
+        ends_at = window['endsAt'] if window else (c['startsAt'] + 360) * 1000
+        if now * 1000 < ends_at:
+            continue
+        failure = load_failure(c['runId'])
+        if failure['sha'] != c['sha'] or failure['controlSha'] != c['controlSha']:
+            die('abandoned routine cycle failure does not match its owner')
+        for unit in routine_owner_units(c['runId']):
+            try:
+                enabled = subprocess.run(
+                    ['systemctl', 'is-enabled', unit],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                ).returncode == 0
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                die(f'abandoned routine cycle native unit state is unprovable: {exc}')
+            if enabled:
+                die('abandoned routine cycle owner still has an enabled native unit')
+        retired = {**c, 'retiredAt': now, 'retiredBy': 'expired-terminal-failure'}
+        history = state.get('retiredRoutineCycles')
+        if not isinstance(history, dict):
+            history = {}
+        history[key] = retired
+        state['retiredRoutineCycles'] = history
+        del cycles[key]
+        state['routineMaintenanceCycles'] = cycles
+        state['updatedAt'] = now
+        write_state(state)
+        audit_once(
+            'routine_cycle_retired',
+            state,
+            f'routine_cycle_retired:{key}:{retired["runId"]}',
+            cycle=retired,
+        )
+        retired_count += 1
+    return retired_count
 
 
 def cmd_prepare(args: argparse.Namespace) -> None:
@@ -1040,6 +1127,18 @@ def database_container_identity() -> dict[str, Any]:
     return json.loads(run(["docker", "container", "inspect", "--format", template, "club-arena-engine"]))
 
 
+# One fixed owner-authorized operation, not generic multi-file admission.
+ATTENTION14_DATABASE_PAIR_ID = "2026-11-01-attention14-two-sql-database-operation"
+ATTENTION14_DATABASE_PAIR_ANCHOR = "4e9c32285477176df8e4afcef4e743d5fe961047"
+ATTENTION14_DATABASE_PAIR_BOUNDS = ("2026-11-01T23:25:00Z", "2026-11-02T02:25:00Z")
+ATTENTION14_DATABASE_PAIR = (
+    ("20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
+     "d42ad78995ffb0c626636e10c41b9b350119995e20c7ef71c4578ac99bfca1aa"),
+    ("20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql",
+     "3a292905ddf7daffc696f5cb836255a220060ba0631a126872ad30ecb7908a29"),
+)
+
+
 def reserve_database_window(request: dict[str, Any], repo: str) -> dict[str, Any]:
     """One reviewed DB operation, sharing the release seal's rolling-hour ledger.
 
@@ -1081,15 +1180,32 @@ def reserve_database_window(request: dict[str, Any], repo: str) -> dict[str, Any
             die("database window has no owner order")
         git_is_ancestor(repo, valid_sha(window.get("contains", "")), control, "database window anchor is absent")
         files = window.get("migrations")
-        if not isinstance(files, list) or len(files) != 1 or not re.fullmatch(r"[0-9]{14}_[a-z0-9_]+\.sql", files[0]):
-            die("database operation must name exactly one migration")
-        sql_bytes = subprocess.run(["git", "-C", repo, "show", control + ":supabase/migrations/" + files[0]],
-                                   check=True, capture_output=True, timeout=30).stdout
-        sql = sql_bytes.decode()
-        if "-- @install-window: daily-maintenance" not in sql.splitlines():
-            die("database operation migration is not a maintenance file")
-        binding = {**request, "type": "database-maintenance/v1", "imageId": state["desired"]["imageId"], "migration": files[0],
-                   "migrationSHA256": hashlib.sha256(sql_bytes).hexdigest()}
+        if window["id"] == ATTENTION14_DATABASE_PAIR_ID:
+            if (window.get("contains") != ATTENTION14_DATABASE_PAIR_ANCHOR
+                    or (window.get("notBefore"), window.get("notAfter")) != ATTENTION14_DATABASE_PAIR_BOUNDS
+                    or files != [f for f, _ in ATTENTION14_DATABASE_PAIR]):
+                die("database pair differs from its exact reviewed authority")
+            migrations = []
+            for file, expected_hash in ATTENTION14_DATABASE_PAIR:
+                sql_bytes = subprocess.run(["git", "-C", repo, "show", control + ":supabase/migrations/" + file],
+                                           check=True, capture_output=True, timeout=30).stdout
+                actual_hash = hashlib.sha256(sql_bytes).hexdigest()
+                if (actual_hash != expected_hash
+                        or "-- @install-window: daily-maintenance" not in sql_bytes.decode().splitlines()):
+                    die("database pair SQL differs from its exact qualified bytes")
+                migrations.append({"migration": file, "migrationSHA256": actual_hash})
+            binding = {**request, "type": "database-maintenance-pair/v1",
+                       "imageId": state["desired"]["imageId"], "migrations": migrations}
+        else:
+            if not isinstance(files, list) or len(files) != 1 or not re.fullmatch(r"[0-9]{14}_[a-z0-9_]+\.sql", files[0]):
+                die("database operation must name exactly one migration")
+            sql_bytes = subprocess.run(["git", "-C", repo, "show", control + ":supabase/migrations/" + files[0]],
+                                       check=True, capture_output=True, timeout=30).stdout
+            sql = sql_bytes.decode()
+            if "-- @install-window: daily-maintenance" not in sql.splitlines():
+                die("database operation migration is not a maintenance file")
+            binding = {**request, "type": "database-maintenance/v1", "imageId": state["desired"]["imageId"], "migration": files[0],
+                       "migrationSHA256": hashlib.sha256(sql_bytes).hexdigest()}
         path = STATE_DIR / (RECOVERY_WINDOW_PREFIX + request["runId"] + ".json")
         if path.exists():
             receipt = json.loads(path.read_text())

@@ -24,8 +24,8 @@
 #      yet and is therefore invisible to 1 and 2
 #
 # A same-second collision with an agent on ANOTHER machine is still possible,
-# so the fallback name carries four random digits rather than incrementing:
-# two agents that both lose the first draw do not then both take :01.
+# so the fallback draws a valid UTC second in the next hour rather than
+# incrementing: two agents that lose the first draw do not both take :01.
 #
 # USAGE
 #   bash scripts/reserve-migration-version.sh the_union_branch_belongs_to_prod
@@ -66,10 +66,15 @@ mkdir -p "$mig_dir"
 # A lock so two agents on THIS machine cannot draw in the same instant. The
 # directory form is atomic on every filesystem; flock is not on macOS.
 lock="${TMPDIR:-/tmp}/club-arena-migration-version.lock"
+migration_lock_owned=0
 for _ in $(seq 1 50); do
-  if mkdir "$lock" 2>/dev/null; then break; fi
+  if mkdir "$lock" 2>/dev/null; then migration_lock_owned=1; break; fi
   sleep 0.2
 done
+if [ "$migration_lock_owned" != "1" ]; then
+  echo "could not acquire migration reservation lock; nothing was reserved." >&2
+  exit 1
+fi
 # shellcheck disable=SC2064
 trap "rmdir '$lock' 2>/dev/null || true" EXIT
 
@@ -136,8 +141,10 @@ is_taken() { grep -qx "$1" <<< "$taken"; }
 
 version="$(date -u +%Y%m%d%H%M%S)"
 if is_taken "$version"; then
+  migration_epoch=$(date -u +%s)
   for _ in $(seq 1 40); do
-    candidate="$(date -u +%Y%m%d%H%M)$(printf '%04d' $(( RANDOM % 10000 )))"
+    migration_offset=$(( RANDOM % 3600 + 1 ))
+    candidate="$(node -e 'const d=new Date((Number(process.argv[1])+Number(process.argv[2]))*1000); process.stdout.write(d.toISOString().replace(/\D/g, "").slice(0,14));' "$migration_epoch" "$migration_offset")"
     if ! is_taken "$candidate"; then version="$candidate"; break; fi
   done
   if is_taken "$version"; then

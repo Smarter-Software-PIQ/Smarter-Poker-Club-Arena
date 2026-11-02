@@ -2405,7 +2405,8 @@ export abstract class TournamentManagerBase {
   private successorHandoffIssued = false;
 
   private requestSuccessorDrain(): boolean {
-    if (!this.isRunning() || this.successorDrainRequested) return false;
+    if (!this.isRunning()) return false;
+    const alreadyRequested = this.successorDrainRequested;
     this.successorDrainRequested = true;
     for (const table of this.tableEngines.values()) {
       if (table.isRunning())
@@ -2414,7 +2415,7 @@ export abstract class TournamentManagerBase {
     this.completeSuccessorDrain();
     // Acceptance reserves the caller's existing bounded handoff allowance.
     // The last park edge completes it; repeated requests spend no allowance.
-    return true;
+    return !alreadyRequested;
   }
 
   private completeSuccessorDrain(): boolean {
@@ -2464,7 +2465,8 @@ export abstract class TournamentManagerBase {
     )
       return false;
     // Not awaited: the manager's stop drains this very recovery job.
-    return this.requestSuccessorDrain();
+    this.requestSuccessorDrain();
+    return this.successorDrainRequested;
   }
 
   private async performManagedTableEngineRecovery(
@@ -2490,12 +2492,14 @@ export abstract class TournamentManagerBase {
       });
     }
     if (!this.lifecycleIsCurrent(lifecycle) || this.tableEngines.get(tableId) !== engine) return;
+    if (this.successorDrainRequested && this.completeSuccessorDrain()) return;
     // A retained unknown BEGIN belongs to this failed original. Resolve it
     // through its existing custody owner now, rather than waiting for this
     // table's turn in the ordinary balance pass. Retirement may remove or
     // continue the table, so the same exact-owner check follows the await.
     await this.recoverStoppedOriginalAdmission(tableId, engine);
     if (!this.lifecycleIsCurrent(lifecycle) || this.tableEngines.get(tableId) !== engine) return;
+    if (this.successorDrainRequested && this.completeSuccessorDrain()) return;
     if (!(await this.resolveTournamentSeatMoveQuarantine(tableId, engine))) {
       if (!this.lifecycleIsCurrent(lifecycle) || this.tableEngines.get(tableId) !== engine) return;
       if (this.handUnprovedOriginalToSuccessorGeneration(engine)) return;
@@ -2504,6 +2508,7 @@ export abstract class TournamentManagerBase {
       return;
     }
     if (!this.lifecycleIsCurrent(lifecycle) || this.tableEngines.get(tableId) !== engine) return;
+    if (this.successorDrainRequested && this.completeSuccessorDrain()) return;
 
     /* A REPEAT DEATH WAITS ITS TURN (2026-10-17). A runtime death on a table
        that has been healthy is replaced at once, below. A death on a table
@@ -5940,7 +5945,7 @@ export abstract class TournamentManagerBase {
       // Before the clock migration, the booked-draw trigger still projects
       // legacy seconds. Compare the same playable clock projection, keeping
       // every other blind key, payout and reveal field exact.
-      return { ...row, blind_structure: playableSpinBlinds(blinds) };
+      return { ...row, blind_structure: playableSpinBlinds(blinds, Number(row.buy_in_amount)) };
     } catch {
       return row;
     }
@@ -7417,7 +7422,10 @@ export abstract class TournamentManagerBase {
         // it never changes the booked receipt or its manifest/hash.
         // The board-owned stack was already funded and is independently
         // checked below against both the roster and every occupied seat.
-        const spinBlinds = playableSpinBlinds(fundedSpin.blinds);
+        const spinBlinds = playableSpinBlinds(
+          fundedSpin.blinds,
+          Number(this.tournamentCache?.buy_in_amount)
+        );
 
         // The atomic database authority already owns and stamped
         // prize_pool, spin_multiplier and spin_locked_tiers. This follow-up is
@@ -10951,10 +10959,17 @@ export abstract class TournamentManagerBase {
     const baseMs = this.rawLevelDurationMs(levelData);
     // ACCELERATED MTT (2026-08-22 parity): once late registration has closed,
     // an accelerated tournament halves every remaining level - ceil(min/2).
-    if (this.tournamentCache?.accelerated_mtt === true && this.isLateRegClosed()) {
-      return acceleratedLevelMs(baseMs);
-    }
-    return baseMs;
+    const playableMs =
+      this.tournamentCache?.accelerated_mtt === true && this.isLateRegClosed()
+        ? acceleratedLevelMs(baseMs)
+        : baseMs;
+    // Owner November 1: every playable level above a 25 buy-in is 7-10
+    // minutes. Apply this LAST, including acceleration and Spin overflow.
+    // Breaks retain their separate clock; a running level is never restarted.
+    const buyIn = Number(this.tournamentCache?.buy_in_amount);
+    return Number.isFinite(buyIn) && buyIn > 25 && levelData?.isBreak !== true
+      ? Math.min(10 * 60_000, Math.max(7 * 60_000, playableMs))
+      : playableMs;
   }
 
   /**

@@ -118,6 +118,9 @@ test('catalog capture uses one read-only snapshot, actual idle PID and rollback'
   const { serialized, proof } = await captureFixtureServicePreimage(db, 4321);
   assert.equal(db.calls[0].sql, 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   assert.deepEqual(db.calls[2].values, [4321]);
+  assert.match(db.calls[1].sql, /to_regnamespace\('_realtime'\) IS NOT NULL/);
+  assert.match(db.calls[1].sql, /club_arena_realtime_control/);
+  assert.match(db.calls[1].sql, /NOT has_database_privilege\('postgres',oid,'CONNECT'\)/);
   assert.match(db.calls[2].sql, /IS NOT TRUE/);
   assert.equal(db.calls.at(-1).sql, 'ROLLBACK');
   assert.equal(proof.catalog_sha256, createHash('sha256').update(serialized).digest('hex'));

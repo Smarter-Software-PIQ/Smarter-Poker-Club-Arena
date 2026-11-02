@@ -958,7 +958,7 @@ it('binds a distinct qualified next-break carrier and preserves Diamond operator
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('e75b0fef0c6c9faee9e3eb0fde99bba5872b2d5002a5de125044982fd1a8d144');
+  ).toBe('7daa4b6a215dd520cb5fe10c73006eb3ce6257d5024c6a603aabc90b7930d7c8');
   const entry = doc.windows[60];
   expect(entry.contains).toBe('280303d1e569344c837780b0605f95c5b00e687b');
   expect(entry.notBefore).toBe('2026-10-31T03:53:00Z');
@@ -1026,7 +1026,7 @@ it('binds the bounded-census correction without extending or retrying its failed
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('e75b0fef0c6c9faee9e3eb0fde99bba5872b2d5002a5de125044982fd1a8d144');
+  ).toBe('7daa4b6a215dd520cb5fe10c73006eb3ce6257d5024c6a603aabc90b7930d7c8');
   const entry = doc.windows[61];
   expect(entry.contains).toBe('976850bec328ac8b80d47603f18fcba81e05534f');
   expect(entry.notBefore).toBe('2026-10-31T05:04:00Z');
@@ -1169,7 +1169,7 @@ it('binds the independent Horse input correction to one new qualified tournament
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('e75b0fef0c6c9faee9e3eb0fde99bba5872b2d5002a5de125044982fd1a8d144');
+  ).toBe('7daa4b6a215dd520cb5fe10c73006eb3ce6257d5024c6a603aabc90b7930d7c8');
   const entry = doc.windows[63];
   expect(entry.contains).toBe('2f9ca8db67acdcdeb02e0da8c261570d2d87e2e9');
   expect(entry.notBefore).toBe('2026-10-31T05:10:00Z');
@@ -1266,7 +1266,7 @@ it('binds the manually resumed MTT continuation without renewing any historical 
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '5f5c479a7357f320c4b4083054fcb604802196d77f2893652b117dda34853966'
+    'fb0a91665a1c13e7d9731dafb8032f43b293225c9a964acdda346b64cf0074ff'
   );
   for (const boundary of [
     'NEW manual continuation',
@@ -1329,7 +1329,7 @@ it('binds the noon manual continuation while preserving the expired unpushed car
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '3e778c3543310dbeb01441784df1a3788087f356568936370816ccc1c658e2fe'
+    '65ce46617f3ae8b95d2d3618bc39cf716e050100f4376d555a24037087e32d29'
   );
   for (const boundary of [
     'NEW manual continuation',
@@ -1397,7 +1397,7 @@ it('binds the owner-ordered next :55 Horse V63-V69 activation without renewing a
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '56bd4785ab03b6c3cee6e5e0bcb4f3e653566be244e9e7acf4abd1ebddd61dd9'
+    '718bae60e6e135b3d61b5da3df020710525aba55e303ced0e1fd6803c6760a93'
   );
   for (const boundary of [
     'YOU CAN DEPLOY AT THE NEXT :55 BREAK, YOU DO NOT HAVE TO WAIT UNTIL 4AM GET THAT DONE NOW',
@@ -1466,7 +1466,7 @@ it('binds the owner-ordered drained :55 activation of Horse V63-V70 without rene
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '006b74d680c3a1c05ca7dbc9ae7b984bd92a1a90144dcbd3f7da81dbfd2b9d99'
+    'e73c2045a5bef6ff8022aa586159e4af90e7d6bb928d08f75dbe27aae3eb45de'
   );
   for (const boundary of [
     'YOU CAN DEPLOY AT THE NEXT :55 BREAK, YOU DO NOT HAVE TO WAIT UNTIL 4AM GET THAT DONE NOW',
@@ -1541,7 +1541,7 @@ it('binds the owner-ordered drained engine crash-loop activation that falls back
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '713754acce469fc96926070cdf1f06f32fe5e2278b618d3fe7ba82e80ad7ac8a'
+    '6bfd7c132fcb30c5a3ed9e6c389edf35187380fb487af07a013225a6dd8df905'
   );
   for (const boundary of [
     'FINISH UP ANY AND ALL REMAINING WORK',
@@ -1633,7 +1633,7 @@ it('binds the owner-ordered window that unblocks the engine door and installs it
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '79ee6d0b765c80817319b7898680f4198d11a6dcc7e7db7a02e203287fb165bf'
+    'ff4783ae6bd55b055b64e7e7e599886eef8e2da3126b54aea8d1e624b3206073'
   );
   for (const boundary of [
     'FIX ANY AND ALL BLOCKERS NOW AND FINISH THIS UP, PUSH AND PUBLISH EVERYTHING',
@@ -1705,7 +1705,7 @@ it('binds the owner-ordered fresh-engine crash-boundary window without renewing 
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '8cdb85ae8b78758cf86b9df0860a53690feee6a4749bab7bc0af9ac418a40785'
+    '0d9468aed299316868ce17b89c8f4fc74f7af31d6cfd9a6b0cd8aebb7729bdc8'
   );
   for (const boundary of [
     'YOU DECIDE WHATS BEST, AND HOW TO RESOLVE THE ISSUES.',
@@ -1731,4 +1731,58 @@ it('binds the owner-ordered fresh-engine crash-boundary window without renewing 
     'migration/payment replay',
   ])
     expect(entry.ownerOrder).toContain(boundary);
+});
+
+it('appends only the Attention14 database carrier and preserves every protected authorization byte', () => {
+  const currentRaw = readFileSync(
+    join(root, 'server/release/owner-maintenance-windows.json'),
+    'utf8'
+  );
+  // The separate pair test below proves this exact later tail alone is new.
+  const pairStart = currentRaw.indexOf(
+    ',\n    {\n      "id": "2026-11-01-attention14-two-sql-database-operation"'
+  );
+  expect(pairStart).toBeGreaterThan(0);
+  const raw = currentRaw.slice(0, pairStart) + currentRaw.slice(currentRaw.lastIndexOf('\n  ]'));
+  const id = '2026-11-01-attention14-two-migration-continuation';
+  const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
+  const end = raw.lastIndexOf('\n  ]');
+  expect(start).toBeGreaterThan(0);
+  expect(end).toBeGreaterThan(start);
+  const restored = raw.slice(0, start) + raw.slice(end);
+  expect(createHash('sha256').update(restored).digest('hex')).toBe(
+    '14fc32dedf345be9b7b28a0b5f8ba88108a8ba1d2c08e748f1ee90a83bb6a410'
+  );
+  const before = JSON.parse(restored),
+    after = JSON.parse(raw);
+  expect(after.windows).toEqual(before.windows);
+  expect(after.databaseWindows.slice(0, -1)).toEqual(before.databaseWindows);
+  expect(after.databaseWindows.at(-1).id).toBe(id);
+  expect(after.databaseWindows.at(-1).ownerOrder).toContain(
+    'Resolve the engine census blocker, install all three migrations, and finish settlement. Use the swarm and keep the consolidation chat read-only. Do not stop at another status report or claim success until all 14 are verified complete.'
+  );
+});
+
+it('adds only the exact bounded Attention14 database pair after the protected false-only carrier', () => {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const id = '2026-11-01-attention14-two-sql-database-operation';
+  const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
+  expect(start).toBeGreaterThan(0);
+  const restored = raw.slice(0, start) + raw.slice(raw.lastIndexOf('\n  ]'));
+  expect(createHash('sha256').update(restored).digest('hex')).toBe(
+    '4882c14e6f131d9d6d1a8dea7fd3c99e190082d5c15b0d3939b75ccac832c4ac'
+  );
+  const before = JSON.parse(restored),
+    after = JSON.parse(raw);
+  expect(after.windows).toEqual(before.windows);
+  expect(after.databaseWindows.slice(0, -1)).toEqual(before.databaseWindows);
+  const entry = after.databaseWindows.at(-1);
+  expect(entry.id).toBe(id);
+  expect(entry.contains).toBe('4e9c32285477176df8e4afcef4e743d5fe961047');
+  expect(entry.notBefore).toBe('2026-11-01T23:25:00Z');
+  expect(entry.notAfter).toBe('2026-11-02T02:25:00Z');
+  expect(entry.migrations).toEqual([
+    '20261101004247_started_tournament_abort_supports_equal_share_settlement.sql',
+    '20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql',
+  ]);
 });

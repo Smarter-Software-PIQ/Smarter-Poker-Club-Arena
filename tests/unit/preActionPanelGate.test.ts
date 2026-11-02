@@ -209,10 +209,13 @@ describe('THE BAR DOES NOT BLINK BETWEEN ACTORS (Dan 2026-09-07)', () => {
     ).toBeNull();
     // the page pulse
     expect(PAGE).toMatch(/\$\{heroPromptedToAct \? ' table-page--hero-turn' : ''\}/);
-    // the control strip (time bank button + ticking numeral)
-    expect(PAGE).toMatch(
-      /\{heroPromptedToAct && \(\s*\n\s*<div className="control-strip control-strip--transparent">/
-    );
+    // The retired strip must never mount, including the first render of a turn.
+    expect(PAGE).not.toContain('className="control-strip');
+    expect(PAGE).not.toContain('<ActionClockSeconds');
+    expect(PAGE).not.toContain('timebankIconPage');
+    // Updated bank balance and server-clock presentation remain connected.
+    expect(PAGE).toContain('<TimebankCounter');
+    expect(PAGE).toContain('actionClock={actionClock}');
     // the clock warning
     expect(PAGE).toMatch(/const isHeroOnTheClock =[\s\S]{0,400}!suppressPanelForPreAction;/);
     // the bottom-bar reserve

@@ -16,9 +16,14 @@ on:
       - server/scripts/prewarm-engine-image.sh
       - server/scripts/install-engine-supervisor.sh
       - server/scripts/legacy-engine-checkpoint.mjs
+      - server/scripts/legacy-engine-checkpoint.sh
+      - server/scripts/legacy-engine-checkpoint-guard.mjs
       - tests/operations/legacy-census-scale-preflight.test.py
       - tests/operations/legacy-census-native.mjs
       - tests/operations/legacy-census-source.test.mjs
+      - tests/operations/eed-checkpoint-budget.test.py
+      - tests/operations/eed-checkpoint-helper-budget.test.mjs
+      - server/scripts/engine-release-transaction.sh
       - server/scripts/qualification/retained-original-checkpoint/**
       - server/scripts/retained-original-checkpoint-guard.mjs
       - tests/operations/engine-image-archive.test.py
@@ -53,6 +58,8 @@ jobs:
           python3 tests/operations/engine-image-archive.test.py
           python3 tests/operations/engine-build-resource-proof.test.py
           node --test tests/operations/legacy-census-source.test.mjs
+          python3 -B tests/operations/eed-checkpoint-budget.test.py
+          node --test tests/operations/eed-checkpoint-helper-budget.test.mjs
           python3 tests/operations/legacy-census-scale-preflight.test.py
           node --check server/scripts/legacy-census-scale-fixture.mjs
       - name: Produce the reference runtime with the full TypeScript check

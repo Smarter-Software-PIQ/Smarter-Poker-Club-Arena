@@ -81,6 +81,7 @@ test('the published table explains controlled seat moves without moving a player
   let realIncomingFrames = 0;
   let subjectTableId: string | null = null;
   let snapshotTemplate: Record<string, any> | null = null;
+  let tableClient: WebSocketRoute | null = null;
   let latestSequence = 0;
   let syntheticPhase = false;
   const refusedSynthetic = { http: 0, websocket: 0 };
@@ -147,8 +148,10 @@ test('the published table explains controlled seat moves without moving a player
             if (frame.tableId === subjectTableId) {
               if (typeof frame.seq === 'number')
                 latestSequence = Math.max(latestSequence, frame.seq);
-              if (frame.type === 'SNAPSHOT' && Array.isArray(frame.state?.players))
+              if (frame.type === 'SNAPSHOT' && Array.isArray(frame.state?.players)) {
                 snapshotTemplate = frame;
+                tableClient = client;
+              }
             }
           } catch {
             /* genuine non-JSON bytes are still forwarded unchanged */
@@ -338,9 +341,9 @@ test('the published table explains controlled seat moves without moving a player
       };
       // Absent EVENT seq is the existing legacy contract: it cannot advance or
       // corrupt the real server's monotonic event epoch. Nothing is sent upstream.
-      clients
-        .at(-1)!
-        .send(JSON.stringify({ type: 'EVENT', tableId: source.id, ts: Date.now(), payload }));
+      tableClient!.send(
+        JSON.stringify({ type: 'EVENT', tableId: source.id, ts: Date.now(), payload })
+      );
     };
     const mainText = `${alias} Was Moved To The Main Game`;
     const otherText = `${alias} Was Moved To ${other.name.trim()}`;
@@ -400,6 +403,95 @@ test('the published table explains controlled seat moves without moving a player
       `SEAT_MOVE_NOTICE_PROOF ${JSON.stringify({ ...evidence, refusedParticipationAttempts: writes })}`
     );
 
+    // Reopen the served client with an explicit player watch. Only the watched
+    // assignment read is controlled locally; no tournament or seat is created.
+    await context.route('**/rest/v1/tournament_players?**', async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        route.request().method() === 'GET' &&
+        url.searchParams.get('select') === 'table_id,status' &&
+        url.searchParams.get('tournament_id') === `eq.${fixtureUserId}` &&
+        url.searchParams.get('user_id') === `eq.${actorId}`
+      ) {
+        await route.fulfill({ json: { table_id: source.id, status: 'playing' } });
+        return;
+      }
+      await route.fallback();
+    });
+    const watchQuery = new URLSearchParams({
+      followTournament: fixtureUserId,
+      followPlayer: actorId!,
+      followName: alias,
+    });
+    snapshotTemplate = null;
+    tableClient = null;
+    await page.goto(`table/${source.id}?${watchQuery}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: 'Stop Following', exact: true })).toBeVisible();
+    await expect(page.locator('.table-surface')).toBeVisible();
+    await expect.poll(() => snapshotTemplate !== null).toBe(true);
+    const watchedRoute = page.url();
+    // The cash roster may have changed during the cold load. Use its current
+    // rendered actor for the parser control and subsequent hero diagnostic.
+    const currentActor = page.locator('.seat[data-player-id]').first();
+    await expect(currentActor).toBeVisible();
+    const diagnosticActorId = await currentActor.getAttribute('data-player-id');
+    const diagnosticAlias = (await currentActor.locator('.seat__name').innerText()).trim();
+    expect(diagnosticActorId).toMatch(UUID);
+    expect(diagnosticActorId).not.toBe(fixtureUserId);
+    // Block every write and upstream frame before delivering a synthetic own
+    // seat move. It reaches the actual published parser and navigation hook.
+    syntheticPhase = true;
+    tableClient!.send(
+      JSON.stringify({
+        type: 'EVENT',
+        tableId: source.id,
+        ts: Date.now(),
+        payload: {
+          type: 'seat_moved',
+          table_id: source.id,
+          user_id: diagnosticActorId,
+          to_table_id: main.id,
+          reason: 'must_move',
+          timestamp: Date.now(),
+        },
+      })
+    );
+    await expect(toastMessage(`${diagnosticAlias} Was Moved To The Main Game`)).toBeVisible();
+    tableClient!.send(
+      JSON.stringify({
+        type: 'EVENT',
+        tableId: source.id,
+        ts: Date.now(),
+        payload: {
+          type: 'seat_moved',
+          table_id: source.id,
+          user_id: fixtureUserId,
+          to_table_id: other.id,
+          reason: 'table_balance',
+          timestamp: Date.now(),
+        },
+      })
+    );
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    );
+    await expect(page).toHaveURL(watchedRoute);
+    await expect(page.getByRole('button', { name: 'Stop Following', exact: true })).toBeVisible();
+    await expect(page.locator('.disconnect-toast--moved')).toHaveCount(0);
+    await expect(
+      page.locator('.toast__message').filter({ hasText: /You've Been Moved/i })
+    ).toHaveCount(0);
+    evidence.playerWatch = {
+      assignmentSource: 'browser-controlled-read-only',
+      ownMoveSource: 'browser-controlled-event',
+      routeAndSelectedPlayerPreserved: true,
+      personalMoveMessageAbsent: true,
+      naturalTournamentMoveObserved: false,
+    };
+
     // A synthetic reserved-account identity tests the deployed diagnostic,
     // not an authoritative seat, natural gameplay or a financial receipt.
     await expect.poll(() => snapshotTemplate !== null).toBe(true);
@@ -413,7 +505,7 @@ test('the published table explains controlled seat moves without moving a player
     ).not.toBe(true);
     const input = structuredClone(template);
     const index = input.state.players.findIndex(
-      (player: { user_id?: string }) => player.user_id === actorId
+      (player: { user_id?: string }) => player.user_id === diagnosticActorId
     );
     expect(index).toBeGreaterThanOrEqual(0);
     const seat = input.state.players[index].seat;
@@ -423,7 +515,7 @@ test('the published table explains controlled seat moves without moving a player
     input.seq = latestSequence + 1;
     // The guard is armed before any synthetic bytes reach the real parser.
     syntheticPhase = true;
-    clients.at(-1)!.send(JSON.stringify(input));
+    tableClient!.send(JSON.stringify(input));
     await expect(page.locator(`.seat--hero[data-player-id="${fixtureUserId}"]`)).toHaveCount(1);
     await expect(page.locator('.table-page')).toHaveAttribute('data-hero', 'true');
     // Observe actual committed rendering, not a queued React state update.

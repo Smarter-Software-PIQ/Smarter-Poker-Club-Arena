@@ -248,9 +248,8 @@ describe('computeRaisePresets - item 9: NX is the exact multiple', () => {
     }
   });
 
-  it('snaps the derived POT sizing to the table chip grid, not to 1', () => {
-    // 1.5K/3K: the chip grid is the small blind, so POT lands on a multiple
-    // of 1500 rather than on some neighbouring whole number.
+  it('preserves an exact pot size already on the slider grid', () => {
+    // This pot happens to land on a blind multiple; exact sizing preserves it.
     const p = computeRaisePresets({
       isPreflop: false,
       bigBlind: 3000,
@@ -486,5 +485,44 @@ describe('computeRaisePresets - rule 4b: PLO always offers RAISE POT', () => {
     expect(p.map((x) => x.label)).toEqual(['2.5X', '3X', '3.5X', '4X', 'POT']);
     // Exactly N x the bet faced (10), then the pot-sized raise.
     expect(p.map((x) => x.value)).toEqual([25, 30, 35, 40, 60]);
+  });
+});
+
+describe('POT preserves the actual pot instead of the slider blind grid', () => {
+  const input = {
+    isPreflop: false,
+    bigBlind: 600,
+    smallestChip: 300,
+    currentBet: 0,
+    callAmount: 0,
+    pot: 7205,
+    minRaise: 600,
+    maxRaise: 64751,
+  };
+
+  it('bets 7,205 in the reported 300/600 NLH tournament, not 7,500', () => {
+    expect(computeRaisePresets(input).find((p) => p.label === 'POT')!.value).toBe(7205);
+  });
+
+  it('preserves exact raise-to sizing when facing a bet', () => {
+    const p = computeRaisePresets({
+      ...input,
+      currentBet: 1300,
+      callAmount: 1000,
+      minRaise: 2600,
+    }).find((p) => p.label === 'POT')!;
+    expect(p.value).toBe(9505); // 1,300 + 7,205 + 1,000
+  });
+
+  it('caps at the actual stack, including an amount between slider steps', () => {
+    const p = computeRaisePresets({ ...input, maxRaise: 7105 }).find((p) => p.label === 'POT')!;
+    expect(p.value).toBe(7105);
+    expect(p.cappedByMax).toBe(true);
+  });
+
+  it('respects a legal minimum above the pot', () => {
+    expect(
+      computeRaisePresets({ ...input, minRaise: 7305 }).find((p) => p.label === 'POT')!.value
+    ).toBe(7305);
   });
 });

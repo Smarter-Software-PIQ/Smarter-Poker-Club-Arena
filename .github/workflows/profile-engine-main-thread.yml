@@ -4,6 +4,14 @@ on:
     paths:
       - 'scripts/ci/profile-engine-main-thread.mjs'
       - 'scripts/ci/native-fault-observation.py'
+      - 'scripts/ci/native-perf-install.py'
+      - 'scripts/ci/native-perf-install-controller.py'
+      - 'scripts/ci/native-perf-install-stage.py'
+      - 'scripts/ci/native-perf-install-provider.py'
+      - 'scripts/ci/native-perf-install-profile.json'
+      - 'tests/operations/native-perf-install.test.py'
+      - 'tests/operations/native-perf-install-controller.test.py'
+      - 'tests/operations/native-perf-install-provider.test.py'
       - 'tests/operations/native-fault-observation.test.mjs'
       - 'tests/operations/engine-main-profile.test.mjs'
       - 'tests/fixtures/engine-native-fault/**'
@@ -11,12 +19,20 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Existing Inspector sample or one bounded native observation/receipt
+        description: Existing samples, bounded observation, or explicit missing-perf repair
         type: choice
         default: inspector
-        options: [inspector, native_fault, native_receipt]
+        options:
+          [
+            inspector,
+            native_fault,
+            native_receipt,
+            native_prerequisites,
+            native_perf_install,
+            native_perf_receipt,
+          ]
       native_operation:
-        description: Existing numeric operation only for read-only native_receipt
+        description: Existing numeric operation only for read-only native_receipt or native_perf_receipt
         required: false
         type: string
       expected_engine_sha:
@@ -40,6 +56,43 @@ jobs:
       - run: node --test tests/operations/engine-main-profile.test.mjs tests/operations/native-fault-observation.test.mjs
         env:
           TMPDIR: ${{ runner.temp }}
+      - run: python3 -B tests/operations/native-perf-install.test.py && python3 -B tests/operations/native-perf-install-controller.test.py && python3 -B tests/operations/native-perf-install-provider.test.py
+  native-perf-packages:
+    name: Actual isolated Ubuntu24 perf package qualification
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    # Phase caps:240s preparation +480s installer/cleanup +245s archive/cleanup
+    # +90s readbacks, then checkout/native-method/artifact reserve.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Qualify signed exact tools packages without service restart
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-perf-packages"
+          sudo env TMPDIR="$RUNNER_TEMP/native-perf-packages" python3 -B tests/fixtures/engine-native-fault/qualify_perf_packages.py \
+            --output artifacts/native-perf-packages/qualification.json
+      - name: Prove the exact Ubuntu perf control and native unwind behavior
+        run: |
+          set -euo pipefail
+          PERF_PATH=/usr/lib/linux-tools-6.8.0-147/perf
+          test -x "$PERF_PATH"
+          mountpoint -q /sys/kernel/tracing || sudo mount -t tracefs tracefs /sys/kernel/tracing
+          sudo env TMPDIR="$RUNNER_TEMP/native-perf-packages" python3 tests/fixtures/engine-native-fault/qualify.py \
+            --perf "$PERF_PATH" --output artifacts/native-perf-packages/native-qualification.json
+      - name: Retain closed package qualification only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolated-native-perf-packages-${{ github.run_id }}
+          path: |
+            artifacts/native-perf-packages/qualification.json
+            artifacts/native-perf-packages/native-qualification.json
+            artifacts/native-perf-packages/installer-qualification.json
+            artifacts/native-perf-packages/missing-archive-qualification.json
+            artifacts/native-perf-packages/public-debs/*.deb
+          if-no-files-found: error
+          retention-days: 7
   native-feasibility:
     name: Actual isolated Node PID1 native GPF feasibility
     if: github.event_name == 'pull_request'
@@ -131,7 +184,7 @@ jobs:
           retention-days: 7
   native-observation:
     needs: verify
-    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'native_fault' || inputs.mode == 'native_receipt') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'native_fault' || inputs.mode == 'native_receipt' || inputs.mode == 'native_prerequisites') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -155,7 +208,7 @@ jobs:
           [[ "$EXPECTED_ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Expected SHA refused'; exit 1; }
           [[ "$HETZNER_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo '::error::Configured host refused'; exit 1; }
           [ -n "$SSH_KEY" ] && [ -n "$HOST_KEY" ] || { echo '::error::Configured SSH metadata unavailable'; exit 1; }
-          if [ "$NATIVE_MODE" = native_fault ]; then
+          if [ "$NATIVE_MODE" = native_fault ] || [ "$NATIVE_MODE" = native_prerequisites ]; then
             [ -z "$REQUESTED_OPERATION" ] || { echo '::error::New capture must use its own run identity'; exit 1; }
             OPERATION="$GITHUB_RUN_ID"
           else
@@ -171,6 +224,44 @@ jobs:
           ssh-keygen -y -f "$SSH_DIR/key" >/dev/null
           ssh-keygen -l -f "$SSH_DIR/known_hosts" >/dev/null
           SSH_ARGS=(-i "$SSH_DIR/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSH_DIR/known_hosts" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=2)
+          if [ "$NATIVE_MODE" = native_prerequisites ]; then
+            SOURCE_SHA=$(sha256sum scripts/ci/native-fault-observation.py | cut -d ' ' -f 1)
+            REMOTE_READ=$(python3 - "$EXPECTED_ENGINE_SHA" "$SOURCE_SHA" <<'PY'
+          import shlex,sys
+          bootstrap=r'''
+          import hashlib,json,re,sys
+          try:
+              sha,digest=sys.argv[1:]
+              assert re.fullmatch(r'[0-9a-f]{40}',sha) and re.fullmatch(r'[0-9a-f]{64}',digest)
+              raw=sys.stdin.buffer.read(131073)
+              assert 0<len(raw)<=131072 and hashlib.sha256(raw).hexdigest()==digest
+              namespace={'__name__':'qualified_native_prerequisite','__file__':'<qualified-native-prerequisite-source>'}
+              exec(compile(raw,'<qualified-native-prerequisite-source>','exec'),namespace)
+              print(json.dumps(namespace['native_prerequisites'](sha,digest),separators=(',',':')))
+          except Exception:
+              print('{"schema":"native-prerequisites-readback/v1","validPrerequisites":false,"reason":"prerequisites_unproven"}')
+              sys.exit(1)
+          '''
+          print(shlex.join(['/usr/bin/timeout','--signal=TERM','--kill-after=2s','25s','/usr/bin/python3','-I','-B','-c',bootstrap,*sys.argv[1:]]))
+          PY
+            )
+            set +e
+            timeout --signal=TERM --kill-after=5s 40s ssh "${SSH_ARGS[@]}" "root@$HETZNER_HOST" "$REMOTE_READ" < scripts/ci/native-fault-observation.py > "$RUNNER_TEMP/native-prerequisites.private"
+            READ_STATUS=$?
+            set -e
+            python3 -B - "$EXPECTED_ENGINE_SHA" "$SOURCE_SHA" "$READ_STATUS" "$RUNNER_TEMP" <<'PY'
+          import importlib.util,json,pathlib,sys
+          spec=importlib.util.spec_from_file_location('native_controller','scripts/ci/native-fault-observation.py')
+          helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+          sha,digest,status,folder=sys.argv[1:];root=pathlib.Path(folder)
+          with (root/'native-prerequisites.private').open('rb') as stream:raw=stream.read(16385)
+          value=helper.prerequisites_outcome(raw,sha,digest,int(status))
+          (root/'native-prerequisites.json').write_text(json.dumps(value,separators=(',',':')))
+          assert value.get('validPrerequisites') is True, 'Native prerequisite read remains unproven'
+          print(json.dumps(value,separators=(',',':')))
+          PY
+            exit 0
+          fi
           if [ "$NATIVE_MODE" = native_fault ]; then
             SOURCE_SHA=$(sha256sum scripts/ci/native-fault-observation.py | cut -d ' ' -f 1)
             REMOTE_COMMAND=$(python3 - "$OPERATION" "$EXPECTED_ENGINE_SHA" "$SOURCE_SHA" <<'PY'
@@ -252,7 +343,63 @@ jobs:
         with:
           name: native-fault-observation-${{ github.run_id }}
           path: |
+            ${{ runner.temp }}/native-prerequisites.json
             ${{ runner.temp }}/native-admission.json
             ${{ runner.temp }}/native-fault-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  native-perf-install:
+    needs: verify
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'native_perf_install' || inputs.mode == 'native_perf_receipt') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    env:
+      EXPECTED_ENGINE_SHA: ${{ inputs.expected_engine_sha }}
+      NATIVE_MODE: ${{ inputs.mode }}
+      REQUESTED_OPERATION: ${{ inputs.native_operation }}
+      HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: One explicit reviewed perf installation or same-operation read
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          HOST_KEY: ${{ secrets.HETZNER_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$EXPECTED_ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Expected SHA refused'; exit 1; }
+          [[ "$HETZNER_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo '::error::Configured host refused'; exit 1; }
+          [ -n "$SSH_KEY" ] && [ -n "$HOST_KEY" ] || { echo '::error::Configured SSH metadata unavailable'; exit 1; }
+          if [ "$NATIVE_MODE" = native_perf_install ]; then
+            [ -z "$REQUESTED_OPERATION" ] || { echo '::error::Installation must retain its own run identity'; exit 1; }
+            OPERATION="$GITHUB_RUN_ID"
+            MODE=install
+          else
+            OPERATION="$REQUESTED_OPERATION"
+            MODE=receipt
+          fi
+          [[ "$OPERATION" =~ ^[1-9][0-9]{0,19}$ ]] || { echo '::error::Operation identity refused'; exit 1; }
+          SSH_DIR="$RUNNER_TEMP/native-perf-ssh-$GITHUB_RUN_ID"
+          install -d -m 0700 "$SSH_DIR"
+          trap 'rm -rf "$SSH_DIR"' EXIT
+          printf '%s\n' "$SSH_KEY" > "$SSH_DIR/key"
+          printf '%s\n' "$HOST_KEY" > "$SSH_DIR/known_hosts"
+          chmod 0600 "$SSH_DIR/key" "$SSH_DIR/known_hosts"
+          ssh-keygen -y -f "$SSH_DIR/key" >/dev/null
+          ssh-keygen -l -f "$SSH_DIR/known_hosts" >/dev/null
+          TMPDIR="$RUNNER_TEMP" python3 -B scripts/ci/native-perf-install-provider.py "$MODE" \
+            --operation "$OPERATION" --expected-engine-sha "$EXPECTED_ENGINE_SHA" \
+            --host "$HETZNER_HOST" --ssh-directory "$SSH_DIR" \
+            --output "$RUNNER_TEMP/native-perf-install.json"
+      - name: Retain closed same-operation installation receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-perf-install-${{ github.run_id }}
+          path: ${{ runner.temp }}/native-perf-install.json
           if-no-files-found: error
           retention-days: 7

@@ -84,12 +84,14 @@ describe('the exact legacy checkpoint enters the existing release transaction', 
   it.each([
     [4000, 75],
     [-1, 75],
-    [41000, 1],
+    [81000, 1],
     [15000, 0],
   ])('bounds the absolute entry deadline offset %s before intent', (offset, status) => {
     // This case judges an offset at one instant. A second Node startup under
-    // load consumed >1s and turned the deliberately invalid 41s input into
-    // an allowed remaining 40s. Keep the clock and deadline on the same instant.
+    // load consumed >1s and turned the deliberately invalid81s input into
+    // an allowed remaining80s. This preidentity gate is the maximum EED
+    // allocation; the later sealed predecessor selection still bounds older
+    // profiles to40s (covered by the real helper-budget fixture). Keep the clock and deadline on the same instant.
     const now = Date.now();
     const block = checkpointShell.slice(
       checkpointShell.indexOf('RUN_ID="$1"'),
@@ -198,6 +200,8 @@ timeout() { printf '%s\\n' "$*"; return "$PREREQUISITE_STATUS"; }
 curl() { printf '%s' "$PREREQUISITE_HEALTH"; }
 CONTROL_DIR=/immutable-reviewed-control
 LEGACY_SHA=${predecessor8825}
+CHECKPOINT_ALLOCATION_MS=40000
+CHECKPOINT_POST_RESERVE_MS=245000
 REQUEST_ROOT="$PREREQUISITE_ROOT"
 RUN_ID=35405450271-1
 date() { if [ "$1" = +%s%3N ]; then printf '%s\\n' "$CHECKPOINT_TEST_NOW_MS"; else command date "$@"; fi; }
@@ -490,10 +494,12 @@ fi
     expect((150 + 135 + 0 - 40) * 1000).toBe(245_000);
     // Initial admission remains 285000. The physical helper debits only time
     // spent inside that same entry and retains the 245000 guard reserve.
-    expect(checkpointShell).toContain('reserve=245000+remaining_entry');
+    expect(checkpointShell).toContain('reserve=int(sys.argv[5])+remaining_entry');
     expect(245_000 + 40_000).toBe(285_000);
     expect(checkpointShell).toContain('m.get("remainingMs",0)>=reserve');
-    expect(checkpointShell).toContain('the 245000ms legacy reserve');
+    expect(checkpointShell).toContain('CHECKPOINT_POST_RESERVE_MS=245000');
+    expect(checkpointShell).toContain('CHECKPOINT_POST_RESERVE_MS=205000');
+    expect(checkpointShell).toContain('CHECKPOINT_ALLOCATION_MS=80000');
     // 25 of those 40 seconds are exactly the publisher's bounded work and
     // cleanup; the other 15 are the entry allowance.
     expect(transaction).toContain('LEGACY_CHECKPOINT_WORK_MS=25000');

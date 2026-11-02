@@ -30,6 +30,7 @@ import { tournamentBlinds, tournamentLevel } from './tournamentFigures';
 import { compactChips } from '../../utils/format';
 import {
   cashTitleLines,
+  isLightningCashRow,
   cashStyleNote,
   formatClock,
   lateRegEndMs,
@@ -59,6 +60,7 @@ export type { LobbyRowContext } from './lobbyCardContext';
 import { featuredNow, startsOnDay } from '../../lib/featuredOnItsDay';
 import { prioritizeTournamentFavorites } from './tournamentFavoriteOrder';
 import { variantRank, UNLISTED_VARIANT_RANK } from './variantRank';
+import { lobbyLedAttributes } from './lobbyLedSchema';
 import { headingForOrder } from './lobbySortBridge';
 import './LobbyTable.css';
 import './LobbySortBar.css';
@@ -310,15 +312,6 @@ export function tournamentSignals(entry: LobbyEntry): TournamentSignal[] {
   if (keys.has('satellite')) out.push('satellite');
   if (entry.guaranteeValue >= HOT_GUARANTEE_THRESHOLD) out.push('hot-gtd');
   return out;
-}
-
-/** Format identity, independent of whether its live pool is currently joinable. */
-function isLightningCashRow(entry: LobbyEntry): boolean {
-  return (
-    entry.kind === 'cash' &&
-    !entry.game?.noLightning &&
-    cashTemplateKey(entry.game?.template ?? '') === 'madness'
-  );
 }
 
 /** The live clock line: "Starts In 4:31" or "Late Reg Ends In 12:03". */
@@ -875,6 +868,7 @@ function TournamentHeadingRow({
     <tr
       className={`lt-tournament-header ${tournamentRowClasses(entry)}${entry.featured ? ' is-featured' : ''}`}
       data-game-heading={entry.id}
+      {...lobbyLedAttributes(entry)}
       data-cash-format={
         entry.kind === 'cash' && entry.game?.template
           ? cashTemplateKey(entry.game.template)
@@ -934,16 +928,23 @@ function TournamentHeadingRow({
   );
 }
 
+function CashStyleLine({ text, title = text }: { text: string; title?: string }) {
+  const fitRef = useFitText<HTMLSpanElement>(text, 1, 0.5);
+  return (
+    <span ref={fitRef} title={title}>
+      {text}
+    </span>
+  );
+}
+
 function CashStyleCopy({ entry }: { entry: LobbyEntry }) {
   const subtitle = cashTitleLines(entry).subtitle;
   const note = cashStyleNote(entry);
   return (
     <span className="premium-cash-style">
-      {subtitle && <span>{subtitle}</span>}
+      {subtitle && <CashStyleLine text={subtitle} />}
       {note?.split(/,\s*/).map((part, index) => (
-        <span key={index} title={part}>
-          {part.replace(/\bMinimum\b/g, 'Min')}
-        </span>
+        <CashStyleLine key={index} text={part.replace(/\bMinimum\b/g, 'Min')} title={part} />
       ))}
     </span>
   );
@@ -1667,6 +1668,7 @@ const LobbyRow = memo(function LobbyRow({
         data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
         className={`lt-row lt-row--${entry.status} ${tournamentRowClasses(entry)}${entry.featured ? ' is-featured' : ''}${selected ? ' is-selected' : ''}${cursor ? ' is-cursor' : ''}${mine ? ' is-mine' : ''}`}
         data-kind={entry.kind}
+        {...lobbyLedAttributes(entry)}
         data-lightning-format={isLightningCashRow(entry) ? 'true' : undefined}
         data-lightning={entry.kind === 'cash' && entry.game?.lightning ? 'on' : undefined}
         data-cash-format={
@@ -1935,7 +1937,7 @@ export default function LobbyTable({
   }, [liveEntries]);
   const columns = useMemo(() => columnsFor(category), [category]);
   const desktopHeadingRef = useRef<HTMLTableSectionElement>(null);
-  const [visibleColumnCount, setVisibleColumnCount] = useState(columns.length);
+  const [visibleColumnCount, setVisibleColumnCount] = useState(4);
   const [lastVisibleColumnIndex, setLastVisibleColumnIndex] = useState(columns.length - 1);
   useLayoutEffect(() => {
     const measure = () => {
@@ -1945,8 +1947,12 @@ export default function LobbyTable({
             .map((cell, index) => ({ cell, index }))
             .filter(({ cell }) => getComputedStyle(cell).display !== 'none')
         : [];
-      setVisibleColumnCount(visible.length || columns.length);
-      setLastVisibleColumnIndex(visible[visible.length - 1]?.index ?? columns.length - 1);
+      setVisibleColumnCount(visible.length || 4);
+      // Header fields no longer share the metadata cells' numeric indexes.
+      // Resolve the last field by its key so Status still closes the card.
+      const last = visible[visible.length - 1]?.cell.dataset.columnKey;
+      const bodyIndex = columns.findIndex((column) => column.key === last);
+      setLastVisibleColumnIndex(bodyIndex >= 0 ? bodyIndex : columns.length - 1);
     };
     measure();
     window.addEventListener('resize', measure);
@@ -2289,6 +2295,19 @@ export default function LobbyTable({
     [sorted, selectedId, keyboardFocusId, onActivate]
   );
 
+  // Both painted schedules have the same four complete header fields.
+  // The favorite control lives in each card, not in an empty header column.
+  const browseColumns = [
+    COL_NAME,
+    category === 'ALL'
+      ? COL_COST
+      : ['MTT', 'SPIN', 'SNG', 'SATELLITE'].includes(category)
+        ? COL_BUYIN
+        : COL_STAKES,
+    COL_PLAYERS,
+    COL_STATUS,
+  ];
+
   const hasTournamentHeadings = sorted.length > 0;
   const warmLayoutKey = sorted.map((entry) => `${entry.kind}:${entry.id}`).join(',');
   useEffect(() => {
@@ -2328,16 +2347,7 @@ export default function LobbyTable({
         >
           <thead role="rowgroup">
             <tr role="row">
-              {[
-                COL_NAME,
-                category === 'ALL'
-                  ? COL_COST
-                  : ['MTT', 'SPIN', 'SNG', 'SATELLITE'].includes(category)
-                    ? COL_BUYIN
-                    : COL_STAKES,
-                COL_PLAYERS,
-                COL_STATUS,
-              ].map((col) => (
+              {browseColumns.map((col) => (
                 <th
                   role="columnheader"
                   key={col.key}
@@ -2392,6 +2402,7 @@ export default function LobbyTable({
                 <tr
                   role="row"
                   data-testid="lobby-game-row"
+                  {...lobbyLedAttributes(entry)}
                   data-id={entry.id}
                   data-start-time={entry.startTime ?? undefined}
                   data-host-pinned={
@@ -2534,11 +2545,12 @@ export default function LobbyTable({
               back, so on every phone the grid contained no rows and the
               aria-selected state below was attached to nothing. */}
             <tr role="row">
-              {columns.map((col) => {
+              {browseColumns.map((col) => {
                 const active = sort?.key === col.key;
                 return (
                   <th
                     key={col.key}
+                    data-column-key={col.key}
                     className={`${col.className || ''}${col.sortable ? ' is-sortable' : ''}${active ? ' is-sorted' : ''}`}
                     /* A sortable column that is not the active sort announces
                      "none", which is what tells a screen reader it CAN be
@@ -2556,7 +2568,7 @@ export default function LobbyTable({
                     /* Sorting was mouse-only: a click handler on a <th> with
                      no role, no tab stop and no key handler, so keyboard and
                      screen-reader users could not sort the lobby at all. */
-                    role={col.sortable ? 'columnheader' : undefined}
+                    role="columnheader"
                     tabIndex={col.sortable ? 0 : undefined}
                     onClick={() => handleHeaderClick(col)}
                     onKeyDown={(e) => {

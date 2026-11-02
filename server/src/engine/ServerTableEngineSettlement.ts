@@ -109,11 +109,13 @@ const cents = (n: number): number => {
 };
 
 /**
- * How long a finished hand stays purchasable. A rabbit hunt is an impulse, and
- * the only other bound is "the map holds the last two hands" — which stops
- * bounding anything the moment a table stops dealing (an idle cash table, a
- * tournament on break, the last two players standing up), leaving an offer from
- * hours ago still buyable.
+ * How long the FELT TILE's offer stays up. Since 2026-11-01 this no longer
+ * bounds purchasability at all — revealRabbitHunt serves any hand whose
+ * persisted runout still exists (`rabbit_hunt_offers`, pruned after a day),
+ * which is what lets the hand replayer buy a previous hand. This constant
+ * only stamps `expires_at` on the room broadcast, so the tile on the felt
+ * comes down after its impulse beat instead of squatting on the HUD slot;
+ * the replayer is the way back in after that.
  */
 const RABBIT_HUNT_OFFER_TTL_MS = 90_000;
 
@@ -190,19 +192,42 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     uses_remaining?: number | null;
   }> {
     const hand = handNumber ?? this.handCount;
-    const offer = this.rabbitHuntOffers.get(hand);
+    // PREVIOUS HANDS ARE PURCHASABLE (Dan 2026-11-01): "if you are looking at
+    // a 'previous hand' you can 'rabbit hunt' or run out the board's cards
+    // that would have been there." The in-memory map still serves the felt
+    // tile's impulse window, but it holds only the last two hands and dies
+    // with the engine instance — so every captured runout is ALSO persisted
+    // to the RLS-sealed `rabbit_hunt_offers` table (no policies; the cards
+    // leave the server only through this method, after payment). A hand the
+    // map no longer holds is looked up there, which is what lets the hand
+    // replayer buy a run-out long after the felt window closed. The 90-second
+    // refusal ("That Hand Is Too Old To Rabbit Hunt") is gone on purpose:
+    // retention is now the table's own 1-day prune
+    // (sp_prune_rabbit_hunt_offers), not a clock in this method. Every other
+    // gate — table toggle, board length, dealt-in, payment, free re-open —
+    // is below and unchanged.
+    const memoryOffer = this.rabbitHuntOffers.get(hand);
+    const offer = memoryOffer ?? (await this.loadPersistedRabbitOffer(hand, userId));
 
     if (!offer) {
       return { success: false, error: 'Rabbit Hunt Is No Longer Available For That Hand' };
     }
-    // A rabbit hunt is an impulse, not a standing option. The only other bound
-    // is "the map holds the last two hands", which stops bounding anything the
-    // moment a table stops dealing — an idle cash table, a tournament on break,
-    // the last two players standing up — and an offer from hours ago stays
-    // purchasable. offeredAt was captured for exactly this and was never read.
-    if (Date.now() - offer.offeredAt > RABBIT_HUNT_OFFER_TTL_MS) {
-      return { success: false, error: 'That Hand Is Too Old To Rabbit Hunt' };
+    // THE FELT WINDOW vs A PREVIOUS HAND (Dan 2026-11-01: "both of these
+    // features are VIP only"). The felt tile's own impulse purchase - the
+    // NEWEST offer, inside its 90-second beat - stays open to every player,
+    // exactly as it has been since 2026-08-25. Anything else is the
+    // previous-hand feature: an older hand, an aged offer, or a hand only the
+    // persisted table still holds - and that is sold to VIPs only. The gate
+    // itself sits below, after the free re-open, so a reveal the player
+    // already OWNS re-shows free whatever their membership is today.
+    let newestOfferedHand = -Infinity;
+    for (const offeredHand of this.rabbitHuntOffers.keys()) {
+      if (offeredHand > newestOfferedHand) newestOfferedHand = offeredHand;
     }
+    const feltWindowPurchase =
+      !!memoryOffer &&
+      hand === newestOfferedHand &&
+      Date.now() - memoryOffer.offeredAt <= RABBIT_HUNT_OFFER_TTL_MS;
     if ((this.tableInfo as { allow_rabbit_hunt?: boolean })?.allow_rabbit_hunt === false) {
       return { success: false, error: 'Rabbit Hunt Is Disabled At This Table' };
     }
@@ -223,6 +248,12 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // response or a double tap must never bill twice for one reveal.
     if (offer.revealed.has(userId)) {
       return { success: true, cards, board_length: offer.boardLength, source: 'already_revealed' };
+    }
+    if (!feltWindowPurchase && !(await this.callerHasActiveVip(userId))) {
+      // VIP-only, checked BEFORE any charge like every other free gate. The
+      // profiles read fails CLOSED: on a lookup fault a previous hand is
+      // refused rather than sold, and the felt window is never affected.
+      return { success: false, error: 'Rabbit Hunting A Previous Hand Is A VIP Feature' };
     }
     if (this.rabbitHuntInFlight.has(userId)) {
       // Keep concurrent taps from duplicating work while the first RPC runs.
@@ -287,10 +318,12 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // second request slip between those states and call the billing RPC again.
     offer.revealed.add(userId);
 
-    // `rabbit_hunt_reveals` is the metadata-only production ledger that was
-    // created for this path and never wired. Do not use the obsolete
-    // `rabbit_hunt_offers` table: it has a `cards` column, and persisting the
-    // unseen runout would recreate the private-card leak this endpoint removed.
+    // `rabbit_hunt_reveals` is the metadata-only production ledger for this
+    // path; it never carries cards. (`rabbit_hunt_offers` DOES carry the cards
+    // — deliberately, since 2026-11-01, for the previous-hand replayer — but
+    // that table is RLS-on with NO policies, written and read only by the
+    // engine, so persisting the runout is not the 2026-08-25 broadcast leak:
+    // nothing in it reaches a client except through this method, paid.)
     // Payment has already committed its durable receipt in the consumption
     // RPC. This metadata write is not a payment gate: even a stalled insert
     // must not hold back cards the player has bought. Start it immediately,
@@ -441,6 +474,92 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     } catch (e) {
       reportError(e, 'ServerTableEngine.bbj_drill_claim_threw', { tableId: this.tableId });
       return null;
+    }
+  }
+
+  /**
+   * The DB half of the previous-hand rabbit hunt (Dan 2026-11-01). The
+   * in-memory offers map holds only the last two hands and does not survive an
+   * engine replacement, so a replayed hand is looked up in
+   * `rabbit_hunt_offers` — the RLS-sealed table the capture path writes in
+   * the same breath as the map. Nothing about WHO may buy changes: the row
+   * carries the dealt-in set, and the caller's durable receipt in
+   * `rabbit_hunt_reveals` marks a reveal they already paid for, so a re-open
+   * stays free across engine instances exactly as it is in memory.
+   *
+   * Returns null when no runout was recorded (a multi-board hand, a pruned
+   * row, a hand that never happened) — the caller then answers with the same
+   * "no longer available" it always has. A lookup FAULT also returns null
+   * rather than throwing: the player sees "unavailable", never a 500.
+   */
+  protected async loadPersistedRabbitOffer(
+    hand: number,
+    userId: string
+  ): Promise<{
+    cards: import('../types.js').Card[];
+    boardLength: number;
+    eligible: Set<string>;
+    revealed: Set<string>;
+    offeredAt: number;
+  } | null> {
+    try {
+      const { data, error } = await supabase
+        .from('rabbit_hunt_offers')
+        .select('cards, board_len, eligible_user_ids, created_at')
+        .eq('table_id', this.tableId)
+        .eq('hand_number', hand)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data || !Array.isArray(data.cards) || data.cards.length === 0) return null;
+      const revealed = new Set<string>();
+      // A durable receipt means this player already bought this reveal — the
+      // re-open must stay free across engine instances, not only in memory.
+      const { data: receipt, error: receiptError } = await supabase
+        .from('rabbit_hunt_reveals')
+        .select('hand_number')
+        .eq('user_id', userId)
+        .eq('table_id', this.tableId)
+        .eq('hand_number', hand)
+        .maybeSingle();
+      if (receiptError) throw receiptError;
+      if (receipt) revealed.add(userId);
+      return {
+        cards: data.cards as import('../types.js').Card[],
+        boardLength: Number(data.board_len ?? 0),
+        eligible: new Set(
+          (Array.isArray(data.eligible_user_ids) ? data.eligible_user_ids : []).map(String)
+        ),
+        revealed,
+        offeredAt: new Date(data.created_at ?? Date.now()).getTime(),
+      };
+    } catch (err) {
+      reportError(err, 'ServerTableEngine.rabbit_hunt_offer_lookup_error');
+      return null;
+    }
+  }
+
+  /**
+   * Is the caller a VIP right now? The same test the billing RPCs apply
+   * (20260909203940: COALESCE(is_vip,false) AND (lifetime OR unexpired)),
+   * read from profiles, because the previous-hand rabbit hunt is VIP-only
+   * (Dan 2026-11-01) and the refusal must land BEFORE any charge. Fails
+   * CLOSED: a lookup fault answers "not a VIP", which refuses a previous
+   * hand rather than selling one that should not have been sold.
+   */
+  protected async callerHasActiveVip(userId: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('is_vip, vip_tier, vip_expires_at')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data || data.is_vip !== true) return false;
+      if (data.vip_tier === 'lifetime') return true;
+      return data.vip_expires_at == null || new Date(data.vip_expires_at).getTime() > Date.now();
+    } catch (err) {
+      reportError(err, 'ServerTableEngine.rabbit_hunt_vip_check_error');
+      return false;
     }
   }
 
@@ -636,6 +755,40 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
           const oldest = this.rabbitHuntOffers.keys().next().value;
           if (oldest === undefined) break;
           this.rabbitHuntOffers.delete(oldest);
+        }
+        // Persist the runout beside the in-memory offer (Dan 2026-11-01): the
+        // map serves the felt's impulse window; this row is what lets the hand
+        // REPLAYER rabbit hunt a previous hand after that window closes — and
+        // after an engine replacement. `rabbit_hunt_offers` is RLS-on with NO
+        // policies, so the cards are readable by nobody through PostgREST;
+        // they still leave the server only through revealRabbitHunt(), one
+        // paid caller at a time. This is NOT the 2026-08-25 broadcast leak —
+        // nothing here reaches a client. Fire-and-forget off the settlement
+        // path: a stalled insert must never hold up the next hand, and a
+        // failed one costs only the replayer offer, never the felt one.
+        const persistedHand = this.handCount;
+        const persisted = this.rabbitHuntOffers.get(persistedHand);
+        // Only a hand that ended BEFORE the river has anything to sell: a full
+        // board leaves nothing unseen (revealRabbitHunt refuses it anyway), so
+        // writing it would be a row per showdown platform-wide for nothing.
+        if (persisted && persisted.cards.length > 0 && persisted.boardLength < 5) {
+          void (async () => {
+            try {
+              const { error: offerPersistError } = await supabase.from('rabbit_hunt_offers').upsert(
+                {
+                  table_id: this.tableId,
+                  hand_number: persistedHand,
+                  cards: persisted.cards,
+                  board_len: persisted.boardLength,
+                  eligible_user_ids: Array.from(persisted.eligible),
+                },
+                { onConflict: 'table_id,hand_number' }
+              );
+              if (offerPersistError) throw offerPersistError;
+            } catch (err) {
+              reportError(err, 'ServerTableEngine.rabbit_hunt_offer_persist_error');
+            }
+          })();
         }
       } catch (err) {
         // Never silent. A throw here means no offer, no event, and a rabbit hunt
@@ -3005,6 +3158,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
          absent count as "read to find out". */
       let resolvedAddOnCount: number | undefined;
       const finishObligationsTiming = stageTiming.start('post_commit_obligations', 'barrier');
+      const phaseBeforeObligations = this.loopPhase;
       this.setLoopPhase('settlement_post_commit_obligations');
       /* THE DRAIN DOES NOT NEED THE LEASE; THE REFLECTION BELOW STILL DOES
        * (2026-09-12).
@@ -3115,6 +3269,15 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         }
       }
       finishObligationsTiming(obligationsApplied ? 'returned' : 'handoff');
+      if (this.loopPhase === 'settlement_post_commit_obligations') {
+        this.setLoopPhase(
+          this.handForHandResolve !== null
+            ? 'parked_for_pause'
+            : phaseBeforeObligations === 'settlement_post_commit_obligations'
+              ? 'post_hand_hold'
+              : phaseBeforeObligations
+        );
+      }
       postCommitStateCanReflect = this.lifecycleCanMutate();
 
       if (!obligationsApplied) {

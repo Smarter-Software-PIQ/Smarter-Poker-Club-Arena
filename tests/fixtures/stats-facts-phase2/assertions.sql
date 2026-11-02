@@ -30,7 +30,9 @@ CREATE FUNCTION public.fixture_stats(p_hand uuid,p_net numeric) RETURNS jsonb LA
 SELECT jsonb_build_object('version',1,'facts',jsonb_build_array(jsonb_build_object(
  'hand_id',p_hand,'user_id','40000000-0000-4000-8000-000000000001',
  'club_id','10000000-0000-4000-8000-000000000001','table_id','20000000-0000-4000-8000-000000000001',
- 'tournament_id',NULL,'played_at','2026-10-03T12:00:00Z','game_variant','nlh','big_blind',2,
+-- played_at is relative (two days back at noon): the hardcoded 2026-10-03 aged
+-- out of the 30-day stats window on 2026-11-02 and broke shard 2 for every PR.
+ 'tournament_id',NULL,'played_at',to_char(current_date-2,'YYYY-MM-DD')||'T12:00:00Z','game_variant','nlh','big_blind',2,
  'seat',1,'position','BTN','players_dealt',2,
  'opponent_ids',jsonb_build_array('40000000-0000-4000-8000-000000000002'),
  'hole_cards',jsonb_build_array(jsonb_build_object('rank','A','suit','spades'),jsonb_build_object('rank','K','suit','spades')),

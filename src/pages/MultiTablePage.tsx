@@ -1417,8 +1417,17 @@ export default function MultiTablePage() {
   const announcedMovesRef = useRef<Set<string>>(new Set());
   const announceTournamentMove = useCallback(
     (fromId: string, destinationId: string, knownName?: string) => {
+      const isVisibleMove = () => {
+        const active = tablesRef.current[activeIndexRef.current];
+        return !active?.followPlayer && (active?.id === fromId || active?.id === destinationId);
+      };
+      // A background chair move must not speak over the table being watched.
+      if (!isVisibleMove()) return;
       if (!claimMoveAnnouncement(announcedMovesRef.current, fromId, destinationId)) return;
-      const say = (name: string) => toast.info(`You've Been Moved To ${name}`, 6000);
+      const say = (name: string) => {
+        // The destination-name read can finish after the user changes tabs.
+        if (isVisibleMove()) toast.info(`You've Been Moved To ${name}`, 6000);
+      };
       if (knownName) {
         say(knownName);
         return;
@@ -1503,7 +1512,7 @@ export default function MultiTablePage() {
                   )
                 : [];
               // An observer of the same event is not the chair being moved.
-              const oldTab = sameEventTabs.find((t) => t.seated === true) ?? sameEventTabs[0];
+              const oldTab = sameEventTabs.find((t) => t.seated === true && !t.followPlayer);
               if (!newRow || !oldTab) {
                 // Not a recognisable balancer move - let the rebuild sort it out.
                 requestSeatResync();
@@ -3575,6 +3584,10 @@ export default function MultiTablePage() {
   const updateTableInfo = useCallback(
     (tableId: string, updates: Partial<TableInstance>) => {
       const before = tablesRef.current.find((tab) => tab.id === tableId);
+      // Only onFollowMove may repoint a player-watch tab. Hero seat events and
+      // generic game recovery cannot replace its selected player or location.
+      if (before?.followPlayer && updates.movedToTableId && updates.movedToTableId !== tableId)
+        return;
       if (
         before &&
         ((updates.holeCards && updates.holeCards !== before.holeCards) ||

@@ -65,6 +65,7 @@ export const FAVORITE_COMPONENT_PATHS = [
     'src/components/lobby/LobbyTable.tsx',
     'src/components/lobby/tournamentFavoriteOrder.ts',
     'src/components/lobby/PremiumMttRows.css',
+    'src/components/lobby/lobbyLedSchema.ts',
     ...[
       'card',
       'card-featured',

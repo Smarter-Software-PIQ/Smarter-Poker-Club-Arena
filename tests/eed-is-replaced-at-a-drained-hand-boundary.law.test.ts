@@ -34,10 +34,11 @@ describe('eed06fe5 is replaced at a drained hand boundary', () => {
     expect(result.stderr).toContain('Ran 33 tests');
   }, 70_000);
 
-  it('keeps the measured census rule beside its measurement', () => {
+  it('keeps the conservative census estimate within the exact EED allocation', () => {
     expect(transaction).toContain('LEGACY_CENSUS_MS_PER_HEAP_MB=12\n');
-    expect(transaction).toContain('LEGACY_CENSUS_ALLOWANCE_MS=30300\n');
-    expect(transaction).toContain('run 41233374402');
+    expect(transaction).toContain('LEGACY_CENSUS_ALLOWANCE_MS=59000\n');
+    expect(transaction).toContain("LEGACY_CHECKPOINT_PROFILE='eed-80s-v1'");
+    expect(80_000 - 15_000 - 5_000 - 1_000).toBe(59_000);
   });
 
   it('decides the census before the wait loop, where no notice can yet exist', () => {

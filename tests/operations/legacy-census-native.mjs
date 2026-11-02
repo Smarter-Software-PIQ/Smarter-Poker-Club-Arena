@@ -53,7 +53,40 @@ const modules = {gameServer:{GameServer:types[0]},engine:{ServerTableEngine:type
  manager:{TournamentManager:types[2]},lightningWorker:{LightningClusterWorker:types[3]},lightningHost:{LightningHandHost:types[4]}};
 try {
   if (!connected) for (const top of tops) Object.setPrototypeOf(top, marker);
-  if (scenario === 'scan-deadline') {
+  if (scenario === 'eed-profile') {
+    // Same concrete five classes and detached owner, with the exact opt-in.
+    result = addon.collect(marker, Date.now()+58000, process.availableMemory(), 'eed-80s-v1');
+    for (const value of [...owned, detached()]) assert.ok(result.includes(value));
+    assert.equal(result.includes(proxy), false);
+    assert.equal(result.includes(throughProxy), false);
+    assert.equal(result.includes(foreign), false);
+    assert.ok(addon.diagnostics().queryStartedAtMs > 0);
+  } else if (scenario === 'profile-refusal') {
+    const untouched = () => {
+      assert.equal(addon.diagnostics().queryStartedAtMs, 0);
+      assert.equal(addon.diagnostics().predicateVisits, 0);
+      assert.equal(addon.diagnostics().arrayAllocated, false);
+    };
+    for (const profile of [undefined, null, true, 80, {}, 'eed-80s-v1 ', ' eed-80s-v1', 'other']) {
+      assert.throws(() => addon.collect(marker, Date.now()+58000, process.availableMemory(), profile), /arguments/);
+      untouched();
+    }
+    assert.throws(() => addon.collect(marker, Date.now()+58000, process.availableMemory(), 'eed-80s-v1', 1), /arguments/);
+    untouched();
+    assert.throws(() => addon.collect(marker, Date.now()+58000, process.availableMemory()), /deadline/);
+    untouched();
+    assert.throws(() => addon.collect(marker, Date.now()+60000, process.availableMemory(), 'eed-80s-v1'), /deadline/);
+    untouched();
+    assert.throws(() => addon.collect(marker, Date.now()-1, process.availableMemory(), 'eed-80s-v1'), /deadline/);
+    untouched();
+    assert.throws(() => addon.collect(marker, Date.now()+58000, 1, 'eed-80s-v1'), /memory headroom/);
+    untouched();
+    // Actual heap statistics make this positive remainder insufficient, with
+    // no GC. Require the heap-fit refusal, not a coincidental expired clock.
+    const shortBudget = Math.max(10, Math.floor((getHeapStatistics().used_heap_size / 1e6 + 1) * 6));
+    assert.throws(() => addon.collect(marker, Date.now()+shortBudget, process.availableMemory(), 'eed-80s-v1'), /EED heap time admission/);
+    untouched();
+  } else if (scenario === 'scan-deadline') {
     // Calibrate actual native predicate span in this isolated process, then
     // expire midway through that real span. No mocked clock or production hook.
     addon.collect(marker,Date.now()+30000,process.availableMemory());

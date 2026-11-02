@@ -5,9 +5,118 @@ import {
   installNaturalBoardReveal,
   naturalBoardRevealEvidence,
   naturalBoardRevealIntervalsEvidence,
+  naturalBoardWireDiagnostics,
   type RevealReceipt,
 } from '../e2e/support/naturalBoardReveal';
 import type { EngineFrame } from '../e2e/support/liveTableRealtime';
+
+const diagnosticWire = (count: number, hand = 42): EngineFrame => ({
+  at: 1000,
+  direction: 'received',
+  socketId: 1,
+  message: {
+    tableId: 'public-table',
+    type: 'EVENT',
+    payload: {
+      type: 'community_cards_dealt',
+      table_id: 'public-table',
+      hand_number: hand,
+      board: Array(count).fill('PRIVATE_TEST_VALUE'),
+      board2: [],
+      board3: [],
+      user_id: 'DO_NOT_EXPORT_USER',
+      hole_cards: ['DO_NOT_EXPORT_HOLE'],
+    },
+  },
+});
+
+it('explains missing DOM receipts with public natural street counts without promoting acceptance', () => {
+  const frames = [
+    diagnosticWire(3),
+    diagnosticWire(4),
+    diagnosticWire(5),
+    diagnosticWire(4, 43),
+    diagnosticWire(5, 44),
+  ];
+  const result = naturalBoardRevealEvidence([], frames, 'public-table');
+  expect(result.verdict).toBe('unknown');
+  expect(result.receipts).toEqual([]);
+  expect(result.wireDiagnostics).toMatchObject({
+    naturalSingleBoardEvents: 5,
+    naturalStreetCounts: { '3': 1, '4': 2, '5': 2 },
+    naturalHandChanges: 2,
+    handsWithTurnAndRiverEvents: 1,
+    handsWithAllThreeStreetLengths: 1,
+  });
+  const exported = JSON.stringify(result.wireDiagnostics);
+  for (const privateValue of [
+    'public-table',
+    'PRIVATE_TEST_VALUE',
+    'DO_NOT_EXPORT_USER',
+    'DO_NOT_EXPORT_HOLE',
+  ])
+    expect(exported).not.toContain(privateValue);
+});
+
+it('keeps snapshot and replay counts separate from strict natural single-board street evidence', () => {
+  const replay = diagnosticWire(4);
+  replay.message.replayed = true;
+  const payloadReplay = diagnosticWire(5);
+  (payloadReplay.message.payload as Record<string, unknown>).replayed = true;
+  const malformed = diagnosticWire(3);
+  delete (malformed.message.payload as Record<string, unknown>).board2;
+  const multi = diagnosticWire(4);
+  (multi.message.payload as Record<string, unknown>).board2 = ['PUBLIC'];
+  const invalid = diagnosticWire(3);
+  (invalid.message.payload as Record<string, unknown>).hand_number = true;
+  const foreign = diagnosticWire(5);
+  foreign.message.tableId = 'foreign';
+  const sent = { ...diagnosticWire(3), direction: 'sent' as const };
+  const frames = [
+    replay,
+    payloadReplay,
+    malformed,
+    multi,
+    invalid,
+    foreign,
+    sent,
+    { ...diagnosticWire(0), message: { tableId: 'public-table', type: 'SNAPSHOT' } },
+    { ...diagnosticWire(0), message: { tableId: 'public-table', type: 'SUBSCRIBED' } },
+  ];
+  expect(naturalBoardWireDiagnostics(frames, 'public-table')).toMatchObject({
+    receivedTableFrames: 7,
+    snapshots: 1,
+    subscribed: 1,
+    replayedFrames: 2,
+    boardEvents: 5,
+    malformedBoardEvents: 1,
+    multipleBoardEvents: 1,
+    invalidHandEvents: 1,
+    naturalSingleBoardEvents: 0,
+    handsWithTurnAndRiverEvents: 0,
+    handsWithAllThreeStreetLengths: 0,
+  });
+});
+
+it('bounds public wire counting and hand grouping explicitly', () => {
+  const snapshot = { ...diagnosticWire(0), message: { tableId: 'public-table', type: 'SNAPSHOT' } };
+  expect(naturalBoardWireDiagnostics(Array(8193).fill(snapshot), 'public-table')).toMatchObject({
+    truncated: true,
+    inspectedFrames: 8192,
+    receivedTableFrames: 8192,
+    snapshots: 8192,
+  });
+  const frames = Array.from({ length: 129 }, (_, index) => [
+    diagnosticWire(4, index + 1),
+    diagnosticWire(5, index + 1),
+  ]).flat();
+  expect(naturalBoardWireDiagnostics(frames, 'public-table')).toMatchObject({
+    truncated: false,
+    handLimitReached: true,
+    naturalSingleBoardEvents: 258,
+    handsWithTurnAndRiverEvents: 128,
+  });
+});
 
 it('retains natural reveal receipts even when the production case passes', () => {
   const workflow = parse(readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8'));

@@ -1,3 +1,4 @@
+import { REALTIME_CONTROL_DATABASE, realtimeControlConnection, REALTIME_SEED_EXPRESSION, createRealtimeControlDatabase, assertRealtimeControlIsolation } from './realtime-control-plane.mjs';
 import {
   configureFixtureSafeupdate,
   safeupdateProbeSetupSql,
@@ -346,6 +347,7 @@ async function services() {
   await assertBootstrapPostgresConfiguration(admin);
   await createFixtureApplicationOwner(admin);
   await admin.query(`CREATE DATABASE ${database} OWNER postgres`);
+  await createRealtimeControlDatabase(admin, pg.Client, databaseOwner);
   await admin.query('REVOKE CONNECT ON DATABASE postgres, template1 FROM PUBLIC');
   await databaseOwner.end(admin);
   const bootstrap = databaseOwner.own(
@@ -602,7 +604,7 @@ async function services() {
       DB_PORT: '5432',
       DB_USER: 'supabase_admin',
       DB_PASSWORD: password,
-      DB_NAME: database,
+      DB_NAME: REALTIME_CONTROL_DATABASE,
       DB_SSL: 'false',
       DB_IP_VERSION: 'ipv4',
       REALTIME_IP_VERSION: 'ipv4',
@@ -627,7 +629,7 @@ async function services() {
     stage = 'realtime-seed-command';
     const realtimeSeed = await command(
       '/app/bin/realtime',
-      ['eval', 'Realtime.Release.seeds(Realtime.Repo)'],
+      ['eval', REALTIME_SEED_EXPRESSION],
       realtimeEnv
     );
     realtimeBootstrapOutput += '\n' + realtimeSeed.stdout + '\n' + realtimeSeed.stderr;
@@ -635,22 +637,27 @@ async function services() {
     // the fixture's exact installed-set check before opening subscriptions.
     stage = 'realtime-tenant-migration-ledger';
     const realtimeBootstrap = databaseOwner.own(
-      new pg.Client({ host: '/run/postgresql', user: 'supabase_admin', database })
+      new pg.Client({ host: '/run/postgresql', user: 'supabase_admin', database,
+        connectionTimeoutMillis:5000,query_timeout:5000,statement_timeout:5000 })
     );
+    const realtimeControl = databaseOwner.own(new pg.Client(realtimeControlConnection));
     try {
       await realtimeBootstrap.connect();
-      await eventually(() => realtimeMigrated(realtimeBootstrap));
+      await realtimeControl.connect();
+      await eventually(() => realtimeMigrated(realtimeBootstrap,realtimeControl));
+      await assertRealtimeControlIsolation(realtimeBootstrap,pg.Client,databaseOwner);
       stage = 'realtime-tenant-row';
       assert.equal(
         (
-          await realtimeBootstrap.query(
+          await realtimeControl.query(
             "SELECT count(*)::int AS n FROM _realtime.tenants WHERE external_id='realtime-dev'"
           )
         ).rows[0].n,
         1
       );
     } finally {
-      await databaseOwner.end(realtimeBootstrap);
+      try { await databaseOwner.end(realtimeControl); }
+      finally { await databaseOwner.end(realtimeBootstrap); }
     }
     stage = 'realtime-server-start';
     await start('realtime', '/app/bin/server', [], realtimeEnv);

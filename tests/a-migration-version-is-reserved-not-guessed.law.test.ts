@@ -46,6 +46,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { resolve } from 'node:path';
+import { namingProblems } from '../scripts/ci/check-new-migration-version-collisions.mjs';
 
 const ROOT = resolve(__dirname, '..');
 const SCRIPT = resolve(ROOT, 'scripts/reserve-migration-version.sh');
@@ -77,11 +78,11 @@ const probeEnv = {
   RESERVE_MIGRATION_DIR: PROBE_DIR,
 };
 
-function reserve(slug: string): string {
+function reserve(slug: string, env: NodeJS.ProcessEnv = probeEnv): string {
   const out = execFileSync('bash', [SCRIPT, slug], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: probeEnv,
+    env,
   }).trim();
   created.push(resolve(ROOT, out));
   return out;
@@ -176,6 +177,7 @@ describe('a migration version is reserved, not guessed', () => {
       const path = reserve('a_second_agent_wants_the_same_second');
       const taken = new Set(squatted.map((f) => versionOf(f)));
       expect(taken.has(versionOf(path))).toBe(false);
+      expect(namingProblems(path)).toEqual([]);
     } finally {
       for (const f of squatted) rmSync(f, { force: true });
     }
@@ -185,5 +187,21 @@ describe('a migration version is reserved, not guessed', () => {
     const a = reserve('the_first_agent_reserves_a_name');
     const b = reserve('the_second_agent_reserves_a_name');
     expect(versionOf(a)).not.toEqual(versionOf(b));
+    expect(namingProblems(a)).toEqual([]);
+    expect(namingProblems(b)).toEqual([]);
+  });
+
+  it('cannot reserve or remove a lock held by another caller', { timeout: 30_000 }, () => {
+    const tmp = resolve(MIG_DIR, 'foreign-lock-fixture');
+    const lock = resolve(tmp, 'club-arena-migration-version.lock');
+    mkdirSync(lock, { recursive: true });
+    try {
+      expect(() =>
+        reserve('a_request_behind_an_owned_lock', { ...probeEnv, TMPDIR: tmp })
+      ).toThrow();
+      expect(() => statSync(lock)).not.toThrow();
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

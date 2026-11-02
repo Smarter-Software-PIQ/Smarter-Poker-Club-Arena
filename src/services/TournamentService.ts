@@ -2099,6 +2099,11 @@ class TournamentService {
    * shorter than the one being played, the exact cross-clock subtraction
    * that module was written to remove from the turn ring.
    */
+  private parsedBlindStructureCache = new WeakMap<
+    Tournament,
+    { raw: string; blinds: BlindLevel[] }
+  >();
+
   getCurrentLevelState(
     tournament: Tournament,
     nowMs: number = Date.now()
@@ -2114,14 +2119,20 @@ class TournamentService {
     if (Array.isArray(raw) && raw.length > 0) {
       blinds = raw as BlindLevel[];
     } else if (typeof raw === 'string' && raw.length > 0) {
-      try {
-        const parsed = JSON.parse(raw);
-        blinds =
-          Array.isArray(parsed) && parsed.length > 0
-            ? parsed
-            : [{ level: 1, smallBlind: 25, bigBlind: 50, ante: 0, durationMinutes: 15 }];
-      } catch {
-        blinds = [{ level: 1, smallBlind: 25, bigBlind: 50, ante: 0, durationMinutes: 15 }];
+      const cached = this.parsedBlindStructureCache.get(tournament);
+      if (cached && cached.raw === raw) {
+        blinds = cached.blinds;
+      } else {
+        try {
+          const parsed = JSON.parse(raw);
+          blinds =
+            Array.isArray(parsed) && parsed.length > 0
+              ? parsed
+              : [{ level: 1, smallBlind: 25, bigBlind: 50, ante: 0, durationMinutes: 15 }];
+        } catch {
+          blinds = [{ level: 1, smallBlind: 25, bigBlind: 50, ante: 0, durationMinutes: 15 }];
+        }
+        this.parsedBlindStructureCache.set(tournament, { raw, blinds });
       }
     } else {
       blinds = [{ level: 1, smallBlind: 25, bigBlind: 50, ante: 0, durationMinutes: 15 }];

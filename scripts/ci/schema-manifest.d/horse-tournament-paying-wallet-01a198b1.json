@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/horse-registration-01a198b1",
+  "_comment": "Qualified declaration from migration 20261101200640_horse_tournament_bankroll_uses_paying_wallet.sql. Pending protected-main installation; not a live-schema observation.",
+  "functions": ["fn_ca_horse_tournament_bankrolls"]
+}

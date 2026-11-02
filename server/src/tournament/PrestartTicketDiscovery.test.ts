@@ -22,7 +22,7 @@ function harness(ticketRows: unknown[] = [{ id: 'ticket', source_tournament_id: 
     variant: 'freezeout',
     max_players: 200,
     min_players: 4,
-    current_players: 24,
+    current_players: 48,
     start_time: new Date(Date.now() + 600000).toISOString(),
     prize_pool_finalized: false,
     guaranteed_prize: 0,

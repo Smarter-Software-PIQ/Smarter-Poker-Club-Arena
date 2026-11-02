@@ -375,7 +375,13 @@ describe('the setting (R4, R5)', () => {
     expect(meta).toBeTruthy();
     expect(meta!.vip).toBe(true);
     expect(meta!.quick, 'the hub quick list has no VIP gate in front of it').toBeFalsy();
-    expect(TABLE_SETTINGS_META.filter((m) => m.vip).map((m) => m.key)).toEqual(['all_in_squeeze']);
+    // auto_rabbit_hunt joined the VIP-gated roster on 2026-11-01 ("both of
+    // these features are VIP only"); it rides the same effective-value and
+    // upsell machinery this file pins for all_in_squeeze.
+    expect(TABLE_SETTINGS_META.filter((m) => m.vip).map((m) => m.key)).toEqual([
+      'auto_rabbit_hunt',
+      'all_in_squeeze',
+    ]);
   });
   it('crosses devices: it is on the relay allowlist', () => {
     const sync = read('src/services/PostgresSyncHooks.ts');
