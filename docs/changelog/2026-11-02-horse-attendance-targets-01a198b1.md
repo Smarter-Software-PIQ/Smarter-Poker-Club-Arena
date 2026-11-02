@@ -106,3 +106,15 @@ completed refusals penalizing individual Horses and consuming the remaining
 offer queue. The caller now ends that pass normally on those authoritative
 refusals. Unit and native regressions retain zero new charges and the existing
 paid replay exemption. This introduces no new hold or closure.
+
+## Private Git qualification inside push hooks
+
+The full pre-push run reproduced two private-object assertions failing while
+all other 389 root files passed. Git exports repository-local environment
+variables to hooks; `git -C` alone does not override `GIT_DIR`, so private
+object writes were redirected to the source repository. The fixture now clears
+Git's enumerated local variables for every private repository command and the
+actual timed floor helper. The wrapper always supplies the source `GIT_DIR`
+to retain this regression outside push hooks. Exact object/ancestry checks and
+all deadlines remain unchanged. Both original profiles pass under that inherited
+environment; full wrapper and normal push checks remain required.

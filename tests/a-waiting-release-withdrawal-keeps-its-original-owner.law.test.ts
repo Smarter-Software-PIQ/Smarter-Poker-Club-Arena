@@ -5,12 +5,19 @@ import { expect, it } from 'vitest';
 import { parse } from 'yaml';
 
 it('qualifies exact waiting attempt admission and its original terminal signal boundary', () => {
+  const root = resolve(import.meta.dirname, '..');
+  const repository = spawnSync('git', ['rev-parse', '--absolute-git-dir'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  expect(repository.status, repository.stderr).toBe(0);
   const result = spawnSync(
     'python3',
     ['-B', 'tests/operations/waiting-engine-release-withdrawal.test.py'],
     {
       cwd: resolve(import.meta.dirname, '..'),
-      env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+      // Exercise the real push-hook environment even in an isolated test run.
+      env: { ...process.env, GIT_DIR: repository.stdout.trim(), PYTHONDONTWRITEBYTECODE: '1' },
       encoding: 'utf8',
       timeout: 60000,
     }

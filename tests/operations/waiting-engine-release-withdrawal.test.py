@@ -327,7 +327,16 @@ class AnnouncedCancellation(unittest.TestCase):
                 'server/scripts/engine-release-seal.py',
             ]
             proof_repo = Path(folder) / 'proof.git'
-            subprocess.run(['git', 'init', '--bare', '-q', str(proof_repo)], check=True)
+            # Git exports repository-local variables to push hooks. A -C path
+            # does not override GIT_DIR: clear Git's own enumerated local
+            # environment before accessing the independent proof repository.
+            private_env = dict(os.environ)
+            local_names = subprocess.check_output(['git', 'rev-parse',
+                '--local-env-vars'], cwd=ROOT, text=True, timeout=5).splitlines()
+            for name in local_names:
+                private_env.pop(name, None)
+            subprocess.run(['git', 'init', '--bare', '-q', str(proof_repo)],
+                env=private_env, check=True)
             # Copy real reachable commits only, not the unrelated historical
             # file corpus. The helper still proves the actual policy ancestor.
             revisions = list(dict.fromkeys([request['releaseSha'], request['controlSha']]))
@@ -339,10 +348,10 @@ class AnnouncedCancellation(unittest.TestCase):
                     input=graph, stdout=output, check=True, timeout=60)
             with graph_pack.open('rb') as source:
                 subprocess.run(['git', '-C', str(proof_repo), 'index-pack', '--stdin'],
-                    stdin=source, stdout=subprocess.PIPE, check=True, timeout=30)
+                    stdin=source, stdout=subprocess.PIPE, env=private_env, check=True, timeout=30)
             graph_pack.unlink()
             copied_graph = subprocess.check_output(['git', '-C', str(proof_repo),
-                'rev-list', *revisions], timeout=30)
+                'rev-list', *revisions], env=private_env, timeout=30)
             self.assertEqual(set(copied_graph.splitlines()), set(graph.splitlines()))
             specs = []
             for revision in revisions:
@@ -372,12 +381,12 @@ class AnnouncedCancellation(unittest.TestCase):
             for oid, kind, data in sorted(records, key=lambda row: row[1] != 'blob'):
                 copied = subprocess.check_output(['git', '-C', str(proof_repo),
                     'hash-object', '-t', kind, '-w', '--stdin'], input=data,
-                    timeout=30).decode().strip()
+                    env=private_env, timeout=30).decode().strip()
                 self.assertEqual(copied, oid)
                 local_object = proof_repo / 'objects' / oid[:2] / oid[2:]
                 self.assertTrue(local_object.is_file() and not local_object.is_symlink())
             self.assertFalse((proof_repo / 'objects/info/alternates').exists())
-            subprocess.run(['git', '-C', str(proof_repo), 'update-ref', 'refs/remotes/origin/main', module.PHASE1_CONTROL], check=True)
+            subprocess.run(['git', '-C', str(proof_repo), 'update-ref', 'refs/remotes/origin/main', module.PHASE1_CONTROL], env=private_env, check=True)
             calls = []
             def command(args, timeout=5):
                 calls.append(args)
@@ -385,7 +394,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 # Real pinned floor CLI and imported seal, against exact original
                 # policy bytes and isolated canonical files. No production IO.
                 selected = [str(proof_repo) if arg == '/opt/club-arena' else arg for arg in args]
-                env = dict(os.environ); env.pop('PYTHONDONTWRITEBYTECODE', None)
+                env = dict(private_env); env.pop('PYTHONDONTWRITEBYTECODE', None)
                 return subprocess.check_output(selected, env=env, timeout=timeout, text=True).strip()
             for name, value in [('ROOT', state), ('PARENT', parent)]:
                 patches.enter_context(patch.object(module, name, value))
