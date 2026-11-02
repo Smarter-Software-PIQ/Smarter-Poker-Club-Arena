@@ -245,6 +245,8 @@ def routine_failure_resolution(value, cycle, result, result_fd):
         return daily_refusal_resolution(value, cycle, result, result_fd, answer)
     if isinstance(value, dict) and value.get('result') == 'unentered-cycle-proved':
         return unentered_cycle_resolution(value, cycle, result, result_fd, answer)
+    if isinstance(value, dict) and value.get('result') == 'preguard-checkpoint-refusal-proved':
+        return preguard_checkpoint_resolution(value, cycle, result, result_fd, answer)
     if isinstance(value, dict) and value.get('result') == 'cancelled-announcement-proved':
         return cancelled_announcement_resolution(value, cycle, result, result_fd, answer)
     if isinstance(value, dict) and value.get('result') == 'terminal-failure-proved':
@@ -487,6 +489,65 @@ def unentered_cycle_resolution(value, cycle, result, result_fd, answer):
         verifiedByRunId=value['verifiedByRunId'], controlSha=value['verifiedByControlSha'], targetSha=value['verifiedByTargetSha'],
         invocationSha256=hashlib.sha256(value['invocationId'].encode()).hexdigest(), observedAt=value['observedAt'],
         cycleMatches=True, failureMatches=True, receiptMatches=True, noAnnouncementRecorded=True, databaseIdleRecorded=True)
+    return answer, (name, metadata, raw)
+
+
+# Mirrors engine-release-seal.py validate_generic_preguard_checkpoint_resolution:
+# an expired generic hourly owner that bound a window and refused in the legacy
+# checkpoint before guardCall with inspectorClosed:true.
+def validate_preguard_checkpoint_resolution(value, cycle):
+    f = cycle.get('failure') if isinstance(cycle, dict) else None
+    w = cycle.get('window') if isinstance(cycle, dict) else None
+    routine_require(isinstance(cycle, dict) and set(cycle) == {'controlSha', 'endsAt', 'failure', 'kind',
+        'policyDigest', 'policyId', 'runId', 'sha', 'startsAt', 'status', 'window'}
+        and RUN.fullmatch(str(cycle['runId'])) and SHA.fullmatch(str(cycle['sha'])) and SHA.fullmatch(str(cycle['controlSha']))
+        and cycle['kind'] == 'hourly-reset' and cycle['policyId'] == 'phase1-hourly-01a1944f'
+        and cycle['policyDigest'] == NINEF_POLICY_DIGEST and cycle['status'] == 'reserved'
+        and type(cycle['startsAt']) is int and type(cycle['endsAt']) is int and cycle['startsAt'] > 0
+        and cycle['startsAt'] % 3600 == 0 and cycle['endsAt'] == cycle['startsAt'] + 300
+        and isinstance(w, dict) and set(w) == {'announcedAt', 'startsAt', 'endsAt', 'verified'}
+        and w['verified'] is True and all(type(w[k]) is int for k in ('announcedAt', 'startsAt', 'endsAt'))
+        and w['announcedAt'] > 0 and w['startsAt'] == w['announcedAt'] + 120000 and w['endsAt'] == w['announcedAt'] + 420000
+        and cycle['startsAt'] == w['startsAt'] // 3600000 * 3600
+        and isinstance(f, dict) and f.get('result') == 'failed' and f.get('runId') == cycle['runId']
+        and f.get('sha') == cycle['sha'] and f.get('controlSha') == cycle['controlSha'])
+    routine_require(isinstance(value, dict) and set(value) == {'originalCycle', 'proof', 'verifiedByRunId', 'observedAt',
+        'result', 'verifiedByControlSha', 'verifiedByTargetSha', 'invocationId', 'schema'}
+        and value['schema'] == 1 and value['result'] == 'preguard-checkpoint-refusal-proved' and value['originalCycle'] == cycle
+        and RUN.fullmatch(str(value['verifiedByRunId'])) and value['verifiedByRunId'] != cycle['runId']
+        and all(SHA.fullmatch(str(value[k])) for k in ('verifiedByControlSha', 'verifiedByTargetSha'))
+        and not {cycle['sha'], cycle['controlSha']} & {value['verifiedByControlSha'], value['verifiedByTargetSha']}
+        and INVOCATION.fullmatch(str(value['invocationId']))
+        and type(value['observedAt']) is int and value['observedAt'] * 1000 > w['endsAt'] + 60000)
+    proof = value['proof']
+    routine_require(isinstance(proof, dict) and set(proof) == {'failureDigest', 'checkpointIntentDigest',
+        'checkpointRefusalDigest', 'nativeDigest', 'runtime', 'database'}
+        and proof['failureDigest'] == routine_digest(f)
+        and all(re.fullmatch('[0-9a-f]{64}', str(proof[k]))
+                for k in ('checkpointIntentDigest', 'checkpointRefusalDigest', 'nativeDigest')))
+    runtime = proof['runtime']
+    routine_require(isinstance(runtime, dict) and set(runtime) == {'containerId', 'startedAt', 'instanceId'}
+        and re.fullmatch('[0-9a-f]{64}', str(runtime['containerId']))
+        and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}', str(runtime['instanceId'])) and isinstance(runtime['startedAt'], str))
+    birth = datetime.datetime.fromisoformat(runtime['startedAt'].replace('Z', '+00:00'))
+    routine_require(birth.tzinfo is not None and 0 < birth.timestamp() < value['observedAt'])
+    window_ms = {'announcedAt': w['announcedAt'], 'startsAt': w['startsAt'], 'endsAt': w['endsAt']}
+    routine_require(proof['database'] == {'schema': 'terminal-owned-thaw/v1',
+        'sha': f.get('recoveredDesiredSha'), 'instanceId': runtime['instanceId'],
+        'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window_ms})
+
+
+def preguard_checkpoint_resolution(value, cycle, result, result_fd, answer):
+    validate_preguard_checkpoint_resolution(value, cycle)
+    routine_require(result == cycle['failure'])
+    name = cycle['runId'] + '.' + value['verifiedByRunId'] + '.' + value['invocationId'] + '.terminal-resolution.json'
+    metadata = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
+    receipt, raw = read_json(result_fd, name, private=True, with_bytes=True)
+    routine_require(receipt == value)
+    answer.update(present=True, sha256=routine_digest(value), receiptSha256=hashlib.sha256(raw).hexdigest(),
+        verifiedByRunId=value['verifiedByRunId'], controlSha=value['verifiedByControlSha'], targetSha=value['verifiedByTargetSha'],
+        invocationSha256=hashlib.sha256(value['invocationId'].encode()).hexdigest(), observedAt=value['observedAt'],
+        cycleMatches=True, failureMatches=True, receiptMatches=True, databaseIdleRecorded=True)
     return answer, (name, metadata, raw)
 
 
@@ -803,7 +864,7 @@ def routine_remote(request, root_fd):
                                                      (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
                                                      (k == DAILY_REFUSAL_RUN and v.get('result') == 'unentered-daily-cycle-proved') or
                                                      (k == PREATTACH_RUN and v.get('result') == 'preattach-refusal-proved') or
-                                                     (RUN.fullmatch(str(k)) and k not in {NINEF_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} and v.get('result') in {'cancelled-announcement-proved', 'unentered-cycle-proved'}))
+                                                     (RUN.fullmatch(str(k)) and k not in {NINEF_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} and v.get('result') in {'cancelled-announcement-proved', 'unentered-cycle-proved', 'preguard-checkpoint-refusal-proved'}))
                             for k, v in resolutions.items()))
         if resolutions:
             routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
@@ -1669,9 +1730,9 @@ def original_announcement_remote(request, root_fd):
 
 
 RETAINED_REFUSAL_GENERATIONS = Path('/usr/local/lib/club-arena/engine-control-generations')
-RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': 'f0b2eccc5d959775c6e7a31f343e34784b19dd226403f077f69a6ce7742b0dca', 'engine-release-transaction.sh': 'ea68ac095c770b6b68bc1497b671aa2a07d6758a8600cbbe6cfd6b2afdcf68d8'}
+RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': '6d9486c9a2878d35a34b6e85486f0de98c316eef7fe435e7c6b187762654722a', 'engine-release-transaction.sh': 'ea68ac095c770b6b68bc1497b671aa2a07d6758a8600cbbe6cfd6b2afdcf68d8'}
 # Earlier exact producer pairs whose generations may still hold retained receipts.
-RETAINED_REFUSAL_PRIOR_SOURCES = ({'engine-release-seal.py': 'f0b2eccc5d959775c6e7a31f343e34784b19dd226403f077f69a6ce7742b0dca', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '2e554293f754a6ccfe25d3837eb3126300cfe3b02813fd8b853cf6ee24bd4a3d'}, {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'},)
+RETAINED_REFUSAL_PRIOR_SOURCES = ({'engine-release-seal.py': '6d9486c9a2878d35a34b6e85486f0de98c316eef7fe435e7c6b187762654722a', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': 'f0b2eccc5d959775c6e7a31f343e34784b19dd226403f077f69a6ce7742b0dca', 'engine-release-transaction.sh': 'ea68ac095c770b6b68bc1497b671aa2a07d6758a8600cbbe6cfd6b2afdcf68d8'}, {'engine-release-seal.py': 'f0b2eccc5d959775c6e7a31f343e34784b19dd226403f077f69a6ce7742b0dca', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '2e554293f754a6ccfe25d3837eb3126300cfe3b02813fd8b853cf6ee24bd4a3d'}, {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'},)
 RETAINED_REFUSAL_SCHEMA = 'retained-first-refusal-observation/v1'
 
 

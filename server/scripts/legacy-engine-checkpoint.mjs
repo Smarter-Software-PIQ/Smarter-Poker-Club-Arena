@@ -1057,7 +1057,10 @@ export async function runLegacyEngineCheckpoint({
       );
       censusMemory = legacyCensusMemoryAdmission(memory?.value);
       if (nativeArtifact && censusMemory) {
-        censusMemory = legacyNativeCensusMemoryAdmission(memory.value, nativeArtifact.prototypeCacheBytes);
+        censusMemory = legacyNativeCensusMemoryAdmission(
+          memory.value,
+          custodyIntent.nativeCensus.prototypeCacheBytes
+        );
       }
       if (!censusMemory?.ok) throw refused('native census memory headroom refused');
       operation = 'broadPrototype';
