@@ -14167,6 +14167,22 @@
       "user_agent",
       "scanned_at"
     ],
+    "rabbit_hunt_charge_corrections": [
+      "id",
+      "user_id",
+      "table_id",
+      "hand_number",
+      "request_id",
+      "receipt_source",
+      "correction",
+      "credit_id",
+      "usage_month",
+      "value_before",
+      "value_after",
+      "operator",
+      "reason",
+      "created_at"
+    ],
     "rabbit_hunt_offers": [
       "table_id",
       "hand_number",

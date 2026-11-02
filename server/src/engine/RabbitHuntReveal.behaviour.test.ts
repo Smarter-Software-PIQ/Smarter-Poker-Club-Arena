@@ -30,12 +30,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const rpc = vi.fn();
 const revealInsert = vi.fn();
 const selectRow = vi.fn();
+const lastGt: Array<{ table: string; column: string; value: string }> = [];
 vi.mock('../services/supabase.js', () => ({
   supabase: {
     rpc: (...args: unknown[]) => rpc(...args),
     from: (table: string) => {
       const chain = {
         eq: () => chain,
+        gt: (column: string, value: string) => {
+          lastGt.push({ table, column, value });
+          return chain;
+        },
         maybeSingle: () => Promise.resolve(selectRow(table)),
       };
       return {
@@ -450,12 +455,77 @@ describe('a previous hand is purchasable, by a VIP (Dan 2026-11-01)', () => {
     expect(rpc).toHaveBeenCalledTimes(1);
   });
 
-  it('the dealt-in gate holds on the DB path exactly as in memory', async () => {
+  it('the dealt-in gate holds on the DB path, and says nothing about the hand', async () => {
+    // A saved run-out the caller was not dealt into answers exactly like a
+    // hand with nothing saved: no "not dealt in", so the engine cannot be
+    // used to learn how another player's hand ended.
     const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
     behindTheEngine({ rabbit_hunt_offers: PERSISTED_ROW, profiles: VIP_PROFILE });
     const r = await reveal(VILLAIN, HAND);
+    const { reveal: revealMissing } = makeEngine({ rabbitHuntOffers: new Map() });
+    behindTheEngine({ profiles: VIP_PROFILE });
+    const missing = await revealMissing(VILLAIN, HAND);
+    expect(r).toEqual(missing);
     expect(r.success).toBe(false);
-    expect(r.error).toMatch(/not dealt into/i);
+    expect(r.error).toMatch(/no longer available/i);
+    expect(r.cards).toBeUndefined();
+    expect(rpc).not.toHaveBeenCalled();
+    expect(selectRow).not.toHaveBeenCalledWith('rabbit_hunt_reveals');
+  });
+
+  it('the one-day limit is enforced by the purchase path, not only by the prune', async () => {
+    // A saved run-out one minute past its day is refused even though the
+    // prune has not deleted it yet - and the read itself asks only for rows
+    // inside the day.
+    lastGt.length = 0;
+    behindTheEngine({
+      rabbit_hunt_offers: {
+        ...PERSISTED_ROW,
+        data: {
+          ...PERSISTED_ROW.data,
+          created_at: new Date(Date.now() - 86_400_000 - 60_000).toISOString(),
+        },
+      },
+      rabbit_hunt_reveals: { data: { hand_number: HAND }, error: null },
+      profiles: VIP_PROFILE,
+    });
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    const r = await reveal(HERO, HAND);
+    expect(r.success).toBe(false);
+    expect(r.error).toMatch(/no longer available/i);
+    expect(r.cards).toBeUndefined();
+    expect(rpc).not.toHaveBeenCalled();
+    const bound = lastGt.find((g) => g.table === 'rabbit_hunt_offers');
+    expect(bound?.column).toBe('created_at');
+    expect(Math.abs(Date.parse(bound!.value) - (Date.now() - 86_400_000))).toBeLessThan(5_000);
+
+    // Inside the day, the same bought reveal re-opens free.
+    behindTheEngine({
+      rabbit_hunt_offers: {
+        ...PERSISTED_ROW,
+        data: {
+          ...PERSISTED_ROW.data,
+          created_at: new Date(Date.now() - 86_400_000 + 60_000).toISOString(),
+        },
+      },
+      rabbit_hunt_reveals: { data: { hand_number: HAND }, error: null },
+      profiles: PLAIN_PROFILE,
+    });
+    const { reveal: inside } = makeEngine({ rabbitHuntOffers: new Map() });
+    const ok = await inside(HERO, HAND);
+    expect(ok.success).toBe(true);
+    expect(ok.source).toBe('already_revealed');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('a saved row with no readable timestamp is refused, not treated as fresh', async () => {
+    behindTheEngine({
+      rabbit_hunt_offers: { ...PERSISTED_ROW, data: { ...PERSISTED_ROW.data, created_at: null } },
+      profiles: VIP_PROFILE,
+    });
+    const { reveal } = makeEngine({ rabbitHuntOffers: new Map() });
+    const r = await reveal(HERO, HAND);
+    expect(r.success).toBe(false);
     expect(rpc).not.toHaveBeenCalled();
   });
 
