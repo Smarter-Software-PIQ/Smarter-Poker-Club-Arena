@@ -216,29 +216,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ─── THE LOBBY BUTTON, IN THE CORNER THE BOX USED TO HOLD ──────────────────
-   "IN THE UPPER RIGHT HAND CORNER WHERE '36 LEFT' IS SHOULD BE THE LOBBY
-    BUTTON THAT OPENS UP TO THE TOURNAMENT LOBBY PAGE."
-
-   Dan's own LOBBY artwork (assets/lobby-button.webp, the plate he supplied on
-   2026-09-07 for the must-move lobby). One image and no chrome: the frame, the
-   bevel and the word are inside the picture. 44px is the tap floor. */
-.tournament-lobby-corner-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--sp-game-tool-size, 40px);
-  height: var(--sp-game-tool-size, 40px);
-  min-width: var(--sp-game-tool-size, 40px);
-  min-height: var(--sp-game-tool-size, 40px);
-  padding: 0;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
+/* THE FELT-CORNER LOBBY BUTTON IS GONE (Dan 2026-11-01): "THE LOBBY BUTTON IS
+   100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER IN THE ACTION BAR AT THE TOP,
+   NOT RANDOMLY INSIDE THE POKER TABLE PAGE." The LOBBY plate renders in
+   MultiTablePage's tab-bar strip as `.mtp-lobby-btn` (hamburger-sized) for
+   tournaments and must-move cash alike; `.tournament-lobby-corner-btn` and its
+   rules went with the felt button. */
 
 /* The toggle line is a real <button>; it must look exactly like the plain line. */
 .tournament-dock__line--toggle {
@@ -253,18 +236,9 @@
   cursor: pointer;
 }
 
-.tournament-dock__line--toggle:focus-visible,
-.tournament-lobby-corner-btn:focus-visible {
+.tournament-dock__line--toggle:focus-visible {
   outline: 2px solid #4fc3f7;
   outline-offset: 2px;
-}
-
-.tournament-lobby-corner-btn__img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-  pointer-events: none;
 }
 
 .tournament-dock__sublabel {

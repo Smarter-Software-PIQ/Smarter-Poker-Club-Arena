@@ -11,6 +11,9 @@ const fixture = vi.hoisted(() => ({
   handSelect: '',
   filters: [] as Array<[string, unknown]>,
 }));
+vi.mock('../../src/hooks/useVIP', () => ({
+  useVIPStatus: () => ({ isVIP: false, isLoading: false }),
+}));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: (table: string) => {

@@ -16,7 +16,7 @@ spec.loader.exec_module(provider)
 
 
 class ProviderBoundaries(unittest.TestCase):
-    def invoke(self, mode, effects, fixture_profile=False):
+    def invoke(self, mode, effects, fixture_profile=False, failed_install=False, terminal=True, diagnostic_good=False):
         with tempfile.TemporaryDirectory(prefix='perf-provider-boundary-') as folder:
             output = Path(folder) / 'receipt.json'
             profile = json.loads(provider.PROFILE.read_text())
@@ -35,6 +35,9 @@ class ProviderBoundaries(unittest.TestCase):
                 'managerTerminalEvidence': 'loaded_manager_state',
                 'identityControllerSHA256': '020c6c74be9e6942feadb2b9b3eca80db41f8af1515deaa48f9b8ba5d6d76a72',
                 'retryAllowed': False, 'nativeCauseProven': False}
+            if failed_install:
+                value.update(installationVerified=False, productionInstallationQualified=False, wrapperKernelDispatchQualified=False, reason='apt_failed_unknown_partial_state')
+            value['terminal'] = terminal
             commands = []
             def command(args, **kwargs):
                 commands.append((args, kwargs))
@@ -42,6 +45,16 @@ class ProviderBoundaries(unittest.TestCase):
                     if isinstance(effects, Exception):
                         raise effects
                     return effects, b''
+                if mode == 'receipt' and len(commands) == 2 and diagnostic_good:
+                    diagnostic = {'schema': 'native-perf-terminal-diagnostics/v1', 'readOnly': True,
+                        'diagnosticReadVerified': True, **{key: value[key] for key in (
+                            'operation', 'sourceSHA256', 'profileSHA256', 'profilePurpose', 'engineSHA', 'originalIdentitySHA256')},
+                        'identityControllerSHA256': value['identityControllerSHA256'],
+                        'planSourceSHA256': '739f7ea64f41d7aa0ba421362ba200ed6fcc767a9d227351011cb5de951155ac',
+                        'phase': 'refused', 'commandFailure': None, 'aptAttemptRecorded': False,
+                        'originalRecordsUnchanged': True, 'packages': {'verified': False, 'rows': [], 'dpkgAuditClean': None},
+                        'retryAllowed': False, 'nativeCauseProven': False}
+                    return 0, json.dumps(diagnostic).encode()
                 return 0, json.dumps(value).encode()
             argv = ['provider', mode, '--operation', '123', '--expected-engine-sha', 'a' * 40,
                 '--host', 'configured.invalid', '--ssh-directory', folder, '--output', str(output)]
@@ -51,6 +64,10 @@ class ProviderBoundaries(unittest.TestCase):
                 if fixture_profile:
                     with self.assertRaises(SystemExit):
                         provider.main()
+                elif failed_install:
+                    with self.assertRaises(SystemExit) as stopped:
+                        provider.main()
+                    self.assertEqual(stopped.exception.code, 1)
                 else:
                     provider.main()
                 return json.loads(output.read_text()), commands, bundle.call_count
@@ -71,9 +88,38 @@ class ProviderBoundaries(unittest.TestCase):
         result, commands, bundles = self.invoke('receipt', None)
         self.assertTrue(result['installationVerified'])
         self.assertEqual(bundles, 0)
-        self.assertEqual(len(commands), 1)
+        self.assertEqual(len(commands), 2)
         self.assertIn('receipt --operation 123 --wait', commands[0][0][-1])
+        self.assertEqual(shlex.split(commands[1][0][-1]), ['/usr/bin/python3', '-I', '-B', '-', '123'])
+        self.assertIn(b'Read one original terminal installation', commands[1][1]['input'])
+        self.assertFalse(result['diagnosticReadVerified'])
         self.assertNotIn('input', commands[0][1])
+
+    def test_failed_installation_keeps_failed_exit_when_diagnostic_is_unknown(self):
+        result, commands, bundles = self.invoke('receipt', None, failed_install=True)
+        self.assertTrue(result['validReceipt'])
+        self.assertFalse(result['installationVerified'])
+        self.assertFalse(result['retryAllowed'])
+        self.assertFalse(result['diagnosticReadVerified'])
+        self.assertEqual(result['reason'], 'apt_failed_unknown_partial_state')
+        self.assertEqual(bundles, 0)
+        self.assertEqual(len(commands), 2)
+
+    def test_diagnostic_success_never_promotes_failed_installation_or_retry(self):
+        result, commands, bundles = self.invoke('receipt', None, failed_install=True, diagnostic_good=True)
+        self.assertTrue(result['diagnosticReadVerified'])
+        self.assertEqual(result['terminalDiagnostics']['phase'], 'refused')
+        self.assertFalse(result['installationVerified'])
+        self.assertFalse(result['retryAllowed'])
+        self.assertEqual(result['reason'], 'apt_failed_unknown_partial_state')
+        self.assertEqual(bundles, 0)
+        self.assertEqual(len(commands), 2)
+
+    def test_nonterminal_receipt_never_executes_adapter(self):
+        result, commands, bundles = self.invoke('receipt', None, failed_install=True, terminal=False)
+        self.assertFalse(result['diagnosticReadVerified'])
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(bundles, 0)
 
     def test_isolated_profile_cannot_reach_production_transport(self):
         result, commands, bundles = self.invoke('install', 0, fixture_profile=True)

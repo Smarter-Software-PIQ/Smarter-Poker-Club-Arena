@@ -57,9 +57,14 @@
      them through var() fallbacks so neither component breaks if it is ever
      mounted outside the HUD. */
   --sp-hud-tile-bg: rgba(10, 12, 18, 0.72);
-  /* Owner October 20: square gameplay tools match the Lobby footprint. */
+  /* Dan 2026-11-01: "THE TOURNAMENT LOBBY AND PREVIOUS HAND, TIME BANK, AND
+     RABBIT HUNT BUTTONS ALL SHOULD BE THE SAME SIZE AS THE HAMBURGER MENU
+     BUTTON IN THE UPPER LEFT HAND CORNER." The hamburger is
+     `--sp-tabbar-control` (TableTabBar.css, 52px at every width), so the HUD
+     tiles read that token instead of the 40px Lobby footprint, at every
+     breakpoint. This supersedes the October 20 Lobby-footprint match. */
   --sp-hud-tile-radius: 10px;
-  --sp-hud-tile-size: var(--sp-game-tool-size, 40px);
+  --sp-hud-tile-size: var(--sp-tabbar-control, 52px);
   --sp-hud-tile-fg: rgba(255, 255, 255, 0.86);
   position: fixed;
   inset: 0;
@@ -304,7 +309,12 @@
 }
 
 @media (max-width: 480px) {
-  .table-hud,
+  /* Dan 2026-11-01: the HUD tiles stay hamburger-sized on phones too - the
+     tab-bar control itself never shrinks below 480px, so neither do these. */
+  .table-hud {
+    --sp-hud-tile-size: var(--sp-tabbar-control, 52px);
+    --sp-hud-tile-radius: 8px;
+  }
   .hud-seat-change-dock {
     --sp-hud-tile-size: var(--sp-game-tool-size, 34px);
     --sp-hud-tile-radius: 8px;

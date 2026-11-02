@@ -16,6 +16,7 @@ sealed desired image without a token.
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import json
@@ -23,6 +24,9 @@ import os
 from pathlib import Path
 import re
 import secrets
+import selectors
+import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -46,6 +50,23 @@ RESULT_DIR = Path(
     os.environ.get("ENGINE_RELEASE_RESULT_DIR", str(STATE_DIR / "engine-release-results"))
 )
 LOCK_FILE = Path(os.environ.get("ENGINE_RELEASE_LOCK_FILE", "/var/lock/club-arena-engine-release.lock"))
+
+# One historical permanent refusal, not a generic expired-owner escape hatch.
+FAILED_ROUTINE_RUN = '41349091113-1'
+FAILED_ROUTINE_SHA = '3e3c6d4752cd587fad0db521ebd262f1b485514c'
+FAILED_ROUTINE_START = 1793570400
+FAILED_ROUTINE_COMPLETED = 1793569102
+FAILED_ROUTINE_DIGEST = '4871c8d6386ea8e91ef00b0601708cb46254ef6117129af9a5a1ed239fff844f'
+FAILED_ROUTINE_DESIRED = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+FAILED_ROUTINE_IMAGE = 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+FAILED_ROUTINE_LITERAL = '[engine-release-transaction] FATAL: Phase1 requires the full retained-owner checkpoint; an age-only drained boundary is not qualified'
+FAILED_ROUTINE_SOURCES = {
+    'engine-release-transaction.sh': '3b3c60aef43e521d886a6de04b0e9022e66fc66d6af5822f2b56af0a11214c39',
+    'install-engine-supervisor.sh': 'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'install-engine-intake.sh': '5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+    'engine-release-unit-wrapper.sh': 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+}
 
 
 def die(message: str) -> NoReturn:
@@ -594,6 +615,12 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
 
 
 def routine_cycles(state: dict[str, Any]) -> dict[str, Any]:
+    # A removed owner is not evidence of resolved custody. An earlier writer
+    # may have recorded the expiry-only retirement shape; never accept that
+    # history as authority or reconstruct an original owner by guessing.
+    retired = state.get('retiredRoutineCycles', {})
+    if not isinstance(retired, dict) or retired:
+        die('unverified retiredRoutineCycles history requires original custody reconciliation')
     cycles = state.get('routineMaintenanceCycles', {})
     if not isinstance(cycles, dict):
         die('routine cycle history is unreadable')
@@ -620,6 +647,13 @@ def routine_cycles(state: dict[str, Any]) -> dict[str, Any]:
             if (any(result.get(k) != actual.get(k) for k in immutable) or
                     state['committedRuns'][c['runId']].get('imageId') != actual['imageId']):
                 die('routine cycle receipt differs from its canonical completion')
+    resolutions = state.get('routineFailureResolutions', {})
+    if not isinstance(resolutions, dict) or set(resolutions) - {FAILED_ROUTINE_RUN}:
+        die('routine failure resolution history is invalid')
+    for owner, resolution in resolutions.items():
+        original = [c for c in cycles.values() if c['runId'] == owner]
+        failed_routine_require(len(original) == 1)
+        validate_failed_routine_resolution(resolution, original[0])
     return cycles
 
 
@@ -646,11 +680,23 @@ def cmd_restoration_needed(args: argparse.Namespace) -> None:
     print('true')
 
 
+def routine_owner_unresolved(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    if cycle['status'] == 'sealed':
+        return False
+    resolutions = state.get('routineFailureResolutions', {})
+    if not isinstance(resolutions, dict) or set(resolutions) - {FAILED_ROUTINE_RUN}:
+        die('routine failure resolution history is invalid')
+    resolution = resolutions.get(cycle['runId'])
+    if resolution is None:
+        return True
+    validate_failed_routine_resolution(resolution, cycle)
+    return False
+
+
 def cmd_check_routine_owner(args: argparse.Namespace) -> None:
     with SealLock():
         state = load_state()
-        retire_abandoned_routine_cycles(state, int(time.time()))
-        owners = [c for c in routine_cycles(state).values() if c['status'] not in ('sealed',)]
+        owners = [c for c in routine_cycles(state).values() if routine_owner_unresolved(state, c)]
         if any(c['runId'] != args.run_id for c in owners):
             die('foreign pending or unknown routine cycle owner remains authoritative')
         print('owned' if owners else 'none')
@@ -673,6 +719,8 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
     with SealLock():
         state = load_state()
         cycles = routine_cycles(state)
+        if state.get('routineFailureResolutions') and args.sha == FAILED_ROUTINE_SHA:
+            die('resolved failed source may not acquire another routine cycle')
         # A replay belongs to its original cycle, never whichever hour is next.
         own = [c for c in cycles.values() if c['runId'] == run_id]
         if len(own) > 1:
@@ -692,9 +740,7 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
                 die('original routine cycle expired unresolved; no later cycle is authorized')
             audit_once('routine_cycle_reserved', state, f'routine_cycle:{c["startsAt"]}', cycle=c)
             print(json.dumps(c, sort_keys=True)); return
-        retire_abandoned_routine_cycles(state, now)
-        cycles = routine_cycles(state)
-        if state.get('pending') or state.get('finalization') or any(c['status'] not in ('sealed',) for c in cycles.values()):
+        if state.get('pending') or state.get('finalization') or any(routine_owner_unresolved(state, c) for c in cycles.values()):
             die('prior pending or unknown routine owner remains authoritative')
         p = current_cycle_policy(args.repo, args.sha, args.control_sha)
         kind = 'hourly-reset'
@@ -729,94 +775,12 @@ def finish_routine_failure(state: dict[str, Any], run_id: str, result: dict[str,
     if c is not None:
         if c['status'] != 'reserved' or c['sha'] != result['sha'] or c['controlSha'] != result['controlSha']:
             die('failure does not match the routine cycle owner')
+        if state.get('routineFailureResolutions', {}).get(run_id) is not None and c.get('failure') != result:
+            die('resolved routine failure history cannot be replaced')
         # Desired restoration is not proof of native cleanup/custody. Preserve
-        # this global owner even after the provider has a terminal failure;
-        # retire_abandoned_routine_cycles later retires it under the full
-        # custody proofs once its window has expired.
+        # this global owner even after the provider has a terminal failure.
         c['failure'] = result
         write_state(state)
-
-
-def routine_owner_units(run_id: str) -> tuple[str, ...]:
-    return (
-        f'club-arena-engine-intake-v1@{run_id}.service',
-        f'club-arena-engine-intake-v1@{run_id}.path',
-        f'club-arena-engine-release-v1@{run_id}.service',
-    )
-
-
-def retire_abandoned_routine_cycles(state: dict[str, Any], now: int) -> int:
-    """Retire routine cycles whose owner reached a durable terminal failure
-    and whose window has expired, under the full custody proofs.
-
-    2026-11-02: a receiver that recorded a terminal failure while owning a
-    routine cycle kept that cycle in 'reserved' forever (its GitHub run can
-    never replay), and check-routine-owner then refused every later receiver
-    with 'foreign pending or unknown routine cycle owner remains
-    authoritative' - run 41349091113-1 bricked the whole hourly lane this
-    way for over two hours. The preserved owner exists because desired
-    restoration alone is not proof of native cleanup/custody
-    (finish_routine_failure); these are the proofs that ARE:
-      - the cycle is 'reserved' and carries its recorded failure;
-      - the canonical durable terminal result for that exact run says
-        'failed' with the cycle's exact sha and controlSha (load_failure
-        validates every field);
-      - the cycle's window has expired (announced window end, or
-        startsAt+360s when no announcement was ever bound), so no provider
-        can still be inside it;
-      - no transaction is live (no pending, no finalization);
-      - none of the dead owner's native units remain enabled - the same
-        assertion the transaction's own remote cleanup makes. A systemctl
-        that cannot answer fails CLOSED.
-    Retirement moves the cycle into retiredRoutineCycles with the proofs and
-    appends one routine_cycle_retired audit receipt. Returns the number of
-    cycles retired; the caller already holds the seal lock.
-    """
-    if state.get('pending') or state.get('finalization'):
-        return 0
-    cycles = routine_cycles(state)
-    retired_count = 0
-    for key in sorted(cycles):
-        c = cycles[key]
-        if c['status'] != 'reserved' or not isinstance(c.get('failure'), dict):
-            continue
-        window = routine_window(c)
-        ends_at = window['endsAt'] if window else (c['startsAt'] + 360) * 1000
-        if now * 1000 < ends_at:
-            continue
-        failure = load_failure(c['runId'])
-        if failure['sha'] != c['sha'] or failure['controlSha'] != c['controlSha']:
-            die('abandoned routine cycle failure does not match its owner')
-        for unit in routine_owner_units(c['runId']):
-            try:
-                enabled = subprocess.run(
-                    ['systemctl', 'is-enabled', unit],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                ).returncode == 0
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                die(f'abandoned routine cycle native unit state is unprovable: {exc}')
-            if enabled:
-                die('abandoned routine cycle owner still has an enabled native unit')
-        retired = {**c, 'retiredAt': now, 'retiredBy': 'expired-terminal-failure'}
-        history = state.get('retiredRoutineCycles')
-        if not isinstance(history, dict):
-            history = {}
-        history[key] = retired
-        state['retiredRoutineCycles'] = history
-        del cycles[key]
-        state['routineMaintenanceCycles'] = cycles
-        state['updatedAt'] = now
-        write_state(state)
-        audit_once(
-            'routine_cycle_retired',
-            state,
-            f'routine_cycle_retired:{key}:{retired["runId"]}',
-            cycle=retired,
-        )
-        retired_count += 1
-    return retired_count
 
 
 def cmd_prepare(args: argparse.Namespace) -> None:
@@ -828,6 +792,8 @@ def cmd_prepare(args: argparse.Namespace) -> None:
 
     with SealLock():
         state = load_state()
+        if state.get('routineFailureResolutions') and target_sha == FAILED_ROUTINE_SHA:
+            die('resolved failed source cannot be prepared by a later run')
         if meta["runId"] in state.get("orphanFinalizationResolutions", {}):
             die("retired orphan owner cannot prepare another cutover")
         if result_path(meta["runId"]).exists():
@@ -1651,6 +1617,454 @@ def prove_orphan_finalization(args: argparse.Namespace, state: dict[str, Any]) -
             "observedAt": int(time.time()), "result": "already-released"}
 
 
+def failed_routine_require(value: bool) -> None:
+    if not value:
+        die('exact failed routine custody is unproved; original owner retained')
+
+
+def failed_routine_digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def failed_routine_bytes(path: Path, limit: int = 65536) -> bytes:
+    """No symlink, writable-parent, device, unbounded or changing file input."""
+    failed_routine_require(path.is_absolute())
+    try:
+        file_info = path.lstat()
+        for parent in (path, *path.parents):
+            info = parent.lstat()
+            failed_routine_require(not stat.S_ISLNK(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            before = os.fstat(fd)
+            failed_routine_require(stat.S_ISREG(before.st_mode) and before.st_uid == 0 and
+                not before.st_mode & 0o022 and before.st_size <= limit and
+                (file_info.st_dev, file_info.st_ino) == (before.st_dev, before.st_ino))
+            with os.fdopen(fd, 'rb', closefd=False) as stream:
+                raw = stream.read(limit + 1)
+            after = os.fstat(fd)
+            failed_routine_require(len(raw) <= limit and len(raw) == before.st_size and
+                (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
+                (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns))
+            return raw
+        finally:
+            os.close(fd)
+    except OSError:
+        die('exact failed routine owned file is unreadable')
+
+
+def failed_routine_json(path: Path) -> Any:
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value = {}
+        for key, item in pairs:
+            failed_routine_require(key not in value)
+            value[key] = item
+        return value
+    try:
+        return json.loads(failed_routine_bytes(path), object_pairs_hook=unique)
+    except (ValueError, UnicodeError):
+        die('exact failed routine owned JSON is invalid')
+
+
+def failed_routine_cycle(cycle: dict[str, Any]) -> None:
+    failed_routine_require(cycle.get('runId') == FAILED_ROUTINE_RUN and
+        cycle.get('sha') == cycle.get('controlSha') == FAILED_ROUTINE_SHA and
+        cycle.get('status') == 'reserved' and cycle.get('startsAt') == FAILED_ROUTINE_START and
+        cycle.get('endsAt') == FAILED_ROUTINE_START + 300 and cycle.get('window') is None and
+        cycle.get('policyId') == SCHEDULE_POLICY_ID and
+        cycle.get('policyDigest') == '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578' and
+        cycle.get('kind') == 'hourly-reset' and failed_routine_digest(cycle.get('failure')) == FAILED_ROUTINE_DIGEST)
+
+
+def validate_failed_routine_resolution(resolution: dict[str, Any], cycle: dict[str, Any]) -> None:
+    failed_routine_cycle(cycle)
+    failed_routine_require(isinstance(resolution, dict) and set(resolution) == {
+        'schema', 'result', 'originalCycle', 'failureDigest', 'verifiedByRunId', 'controlSha',
+        'targetSha', 'invocationId', 'observedAt', 'proof'} and resolution['schema'] == 1 and
+        resolution['result'] == 'failed-custody-resolved' and resolution['originalCycle'] == cycle and
+        resolution['failureDigest'] == FAILED_ROUTINE_DIGEST and
+        RUN_ID_RE.fullmatch(str(resolution['verifiedByRunId'])) is not None and
+        resolution['verifiedByRunId'] != FAILED_ROUTINE_RUN and
+        SHA_RE.fullmatch(str(resolution['controlSha'])) is not None and
+        SHA_RE.fullmatch(str(resolution['targetSha'])) is not None and
+        resolution['targetSha'] != FAILED_ROUTINE_SHA and
+        INVOCATION_ID_RE.fullmatch(str(resolution['invocationId'])) is not None and
+        type(resolution['observedAt']) is int and resolution['observedAt'] > FAILED_ROUTINE_COMPLETED and
+        isinstance(resolution['proof'], dict) and resolution['proof'].get('noAnnouncement') is True and
+        resolution['proof'].get('databaseIdle') is True)
+    path = RESULT_DIR / (FAILED_ROUTINE_RUN + '.' + resolution['verifiedByRunId'] + '.' +
+                         resolution['invocationId'] + '.custody-resolution.json')
+    failed_routine_require(failed_routine_json(path) == resolution)
+
+
+class FailedRoutineProcessLookup(Exception):
+    """Bounded failed lookup, never an empty-process certificate."""
+    def __init__(self, status: int, stdout: bytes, stderr: bytes):
+        super().__init__('Native process lookup failed')
+        self.status, self.stdout, self.stderr = status, stdout, stderr
+
+
+def failed_routine_command(command: list[str], deadline: float, limit: int = 32768) -> str:
+    deadline = min(deadline, time.monotonic() + 5)
+    failed_routine_require(deadline > time.monotonic())
+    child = None
+    chunks = {False: bytearray(), True: bytearray()}
+    try:
+        child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'LC_ALL': 'C', 'LANG': 'C'})
+        with selectors.DefaultSelector() as selector:
+            selector.register(child.stdout, selectors.EVENT_READ, False)
+            selector.register(child.stderr, selectors.EVENT_READ, True)
+            while selector.get_map():
+                left = deadline - time.monotonic()
+                failed_routine_require(left > 0)
+                for key, _ in selector.select(min(left, 1)):
+                    bound = 8192 if key.data else limit
+                    part = os.read(key.fileobj.fileno(), min(4096, bound + 1 - len(chunks[key.data])))
+                    if not part:
+                        selector.unregister(key.fileobj)
+                    else:
+                        chunks[key.data].extend(part)
+                        failed_routine_require(len(chunks[key.data]) <= bound)
+        status = child.wait(timeout=max(.001, deadline - time.monotonic()))
+        failed_routine_require(time.monotonic() < deadline)
+        manager = ['busctl', '--system', '--timeout=1s', 'call', 'org.freedesktop.systemd1',
+                   '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager']
+        if status > 0 and len(command) == 10 and command[:7] == manager and command[7:9] in (
+                ['GetUnit', 's'], ['GetUnitProcesses', 's']):
+            raise FailedRoutineProcessLookup(status, bytes(chunks[False]), bytes(chunks[True]))
+        failed_routine_require(status == 0)
+        return bytes(chunks[False]).decode('utf8').strip()
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        die('exact failed routine native proof failed or timed out')
+    finally:
+        if child is not None:
+            if child.poll() is None:
+                child.kill()  # Only this owned proof reader, never the serving engine.
+            child.wait(timeout=1)
+            child.stdout.close()
+            child.stderr.close()
+
+
+def failed_routine_source_proof() -> dict[str, str]:
+    parent = Path('/usr/local/lib/club-arena')
+    generation = parent / 'engine-control-generations' / FAILED_ROUTINE_SHA
+    originals = {name: failed_routine_bytes(generation / name, 512 * 1024) for name in FAILED_ROUTINE_SOURCES}
+    failed_routine_require(all(hashlib.sha256(raw).hexdigest() == FAILED_ROUTINE_SOURCES[name]
+                               for name, raw in originals.items()))
+    failed_routine_require(failed_routine_bytes(parent / 'engine-release-unit-wrapper-v1.sh') ==
+                           originals['engine-release-unit-wrapper.sh'])
+    for source, marker, template in (
+        ('install-engine-supervisor.sh', 'cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n', 'club-arena-engine-release-v1@.service'),
+        ('install-engine-intake.sh', 'cat > "$UNIT_STAGE" <<\'UNIT\'\n', 'club-arena-engine-intake-v1@.service'),
+        ('install-engine-intake.sh', 'cat > "$PATH_STAGE" <<\'UNIT\'\n', 'club-arena-engine-intake-v1@.path')):
+        content = originals[source].decode().split(marker, 1)[1].split('\nUNIT\n', 1)[0] + '\n'
+        if source == 'install-engine-supervisor.sh':
+            content = content.replace('$UNIT_WRAPPER_V1', '/usr/local/lib/club-arena/engine-release-unit-wrapper-v1.sh').replace('\\$', '$')
+        failed_routine_require(failed_routine_bytes(Path('/etc/systemd/system') / template) == content.encode())
+    return dict(FAILED_ROUTINE_SOURCES)
+
+
+def failed_routine_unit_snapshot(unit: str, deadline: float) -> dict[str, str]:
+    # The production caller below selects only its three original fixed units.
+    # A unique isolated systemd fixture uses this same read-only algorithm.
+    failed_routine_require(re.fullmatch(r'[A-Za-z0-9-]+@[1-9][0-9]*(?:-[1-9][0-9]*)?\.(?:service|path)', unit) is not None and len(unit) <= 255)
+    prefix, extension = unit.split('@', 1)[0], unit.rsplit('.', 1)[1]
+    properties = ['LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'Job', 'FragmentPath', 'DropInPaths']
+    if extension == 'service':
+        properties += ['MainPID', 'ControlPID', 'ControlGroup', 'Slice']
+    raw = failed_routine_command(['systemctl', 'show', unit, '--no-pager', '--all',
+                                 '--property=' + ','.join(properties)], deadline)
+    pairs = [line.split('=', 1) for line in raw.splitlines()]
+    failed_routine_require(all(len(row) == 2 for row in pairs) and len(pairs) == len(properties))
+    value = dict(pairs)
+    failed_routine_require(set(value) == set(properties) and value['LoadState'] in {'loaded', 'not-found'} and
+        value['ActiveState'] in {'inactive', 'failed'} and value['SubState'] in {'dead', 'failed'} and
+        value['UnitFileState'] in {'', 'disabled', 'static'} and value['Job'] in {'', '0'} and
+        value['DropInPaths'] == '' and value['FragmentPath'] == f'/etc/systemd/system/{prefix}@.{extension}')
+    if extension == 'service':
+        expected_slice = 'system-' + prefix.replace('-', r'\x2d') + '.slice'
+        expected_group = '/system.slice/' + expected_slice + '/' + unit
+        failed_routine_require(value['MainPID'] == value['ControlPID'] == '0' and
+            value['Slice'] == expected_slice and value['ControlGroup'] in {'', expected_group})
+    return value
+
+
+def failed_routine_service_group(unit: str, before: dict[str, str], deadline: float) -> str:
+    failed_routine_require(unit.endswith('.service') and re.fullmatch(r'[A-Za-z0-9-]+', unit.split('@', 1)[0]) is not None)
+    # Default template Slice is independently obtained from the native unit;
+    # no caller-supplied or guessed cgroup filesystem path is followed.
+    expected_slice = 'system-' + unit.split('@', 1)[0].replace('-', r'\x2d') + '.slice'
+    failed_routine_require(before['Slice'] == expected_slice)
+    root = failed_routine_command(['systemctl', 'show', '--all', '-p', 'ControlGroup', '--', '-.slice'], deadline, 256)
+    failed_routine_require(root == 'ControlGroup=/')
+    group = '/system.slice/' + expected_slice + '/' + unit
+    failed_routine_require(before['ControlGroup'] in {'', group})
+    return group
+
+
+def failed_routine_cgroup_empty(group: str, deadline: float) -> str:
+    """Read actual cgroup-v2 evidence via no-follow directory descriptors."""
+    failed_routine_require(group.startswith('/system.slice/') and len(group.split('/')) == 4 and
+        all(part not in {'.', '..', ''} for part in group.split('/')[1:]))
+    descriptors = []
+    try:
+        current = os.open('/sys/fs/cgroup', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        descriptors.append(current)
+        for part in group.split('/')[1:]:
+            failed_routine_require(time.monotonic() < deadline)
+            info = os.fstat(current)
+            failed_routine_require(info.st_uid == 0 and stat.S_ISDIR(info.st_mode) and not info.st_mode & 0o022)
+            try:
+                current = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
+            except FileNotFoundError as error:
+                failed_routine_require(error.errno == errno.ENOENT)
+                return 'absent'
+            descriptors.append(current)
+        info = os.fstat(current)
+        failed_routine_require(info.st_uid == 0 and stat.S_ISDIR(info.st_mode) and not info.st_mode & 0o022)
+        fd = os.open('cgroup.events', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=current)
+        descriptors.append(fd)
+        info = os.fstat(fd)
+        failed_routine_require(info.st_uid == 0 and stat.S_ISREG(info.st_mode))
+        raw = os.read(fd, 1025)
+        failed_routine_require(len(raw) <= 1024 and time.monotonic() < deadline)
+        rows = [line.split() for line in raw.decode('ascii').splitlines()]
+        failed_routine_require(all(len(row) == 2 and row[0] in {'populated', 'frozen'} and row[1] in {'0', '1'} for row in rows))
+        value = dict(rows)
+        failed_routine_require(len(value) == len(rows) and value.get('populated') == '0')
+        return 'populated-zero'
+    except (OSError, UnicodeError):
+        die('exact failed routine cgroup evidence is unreadable; original owner retained')
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+def failed_routine_manager_absent(unit: str, deadline: float) -> None:
+    raw = failed_routine_command(['busctl', '--system', '--timeout=1s', 'call', 'org.freedesktop.systemd1',
+        '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
+        'ListUnitsByPatterns', 'asas', '0', '1', unit], deadline, 4096)
+    failed_routine_require(raw.split() == ['a(ssssssouso)', '0'])
+
+
+def failed_routine_service_empty(unit: str, before: dict[str, str], deadline: float) -> str:
+    failed_routine_require(unit.endswith('.service') and before['MainPID'] == before['ControlPID'] == '0')
+    try:
+        resolved = shlex.split(failed_routine_command(['busctl', '--system', '--timeout=1s', 'call',
+            'org.freedesktop.systemd1', '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
+            'GetUnit', 's', unit], deadline, 4096))
+        failed_routine_require(len(resolved) == 2 and resolved[0] == 'o' and
+            re.fullmatch(r'/org/freedesktop/systemd1/unit/[A-Za-z0-9_]+', resolved[1]) is not None)
+        identity = ['busctl', '--system', '--timeout=1s', 'get-property', 'org.freedesktop.systemd1',
+                    resolved[1], 'org.freedesktop.systemd1.Unit', 'Id']
+        failed_routine_require(shlex.split(failed_routine_command(identity, deadline, 4096)) == ['s', unit])
+        processes = failed_routine_command(['busctl', '--system', '--timeout=1s', 'call',
+            'org.freedesktop.systemd1', '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
+            'GetUnitProcesses', 's', unit], deadline, 4096)
+        failed_routine_require(processes.split() == ['a(sus)', '0'])
+        failed_routine_require(shlex.split(failed_routine_command(identity, deadline, 4096)) == ['s', unit])
+        failed_routine_require(failed_routine_unit_snapshot(unit, deadline) == before)
+        return 'loaded-manager-empty'
+    except FailedRoutineProcessLookup as error:
+        # A known NoSuchUnit diagnostic merely selects an independent proof.
+        # Permission errors, failed parsing, bounded-read failures and every
+        # other refusal remain unknown. The error itself never proves empty.
+        failed_routine_require(error.status > 0 and error.stdout == b'' and
+            error.stderr.strip() == ('Call failed: Unit ' + unit + ' not loaded.').encode('ascii'))
+        group = failed_routine_service_group(unit, before, deadline)
+        failed_routine_manager_absent(unit, deadline)
+        failed_routine_cgroup_empty(group, deadline)
+        failed_routine_manager_absent(unit, deadline)
+        failed_routine_require(failed_routine_unit_snapshot(unit, deadline) == before)
+        return 'unloaded-manager-cgroup-empty'
+
+
+def failed_routine_native_proof(deadline: float) -> dict[str, Any]:
+    units = {}
+    for prefix, extension in (('release', 'service'), ('intake', 'service'), ('intake', 'path')):
+        unit = f'club-arena-engine-{prefix}-v1@{FAILED_ROUTINE_RUN}.{extension}'
+        value = failed_routine_unit_snapshot(unit, deadline)
+        if extension == 'service':
+            failed_routine_service_empty(unit, value, deadline)
+        require_absent(Path('/etc/systemd/system/multi-user.target.wants') / unit)
+        require_absent(Path('/etc/systemd/system/paths.target.wants') / unit)
+        units[unit] = value
+    roots = (
+        (STATE_DIR / 'engine-release-requests', ('request', 'intent', 'activation-entry',
+         'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'main-inspector-retirement-receipt',
+         'lightning-hold.json', 'lightning-hold.json.released', 'break-deadline', 'awaiting-certificate')),
+        (STATE_DIR / 'engine-intake-requests', ('request', 'intent')),
+        (STATE_DIR / 'engine-release-generation-pins', ('generation',)),
+        (STATE_DIR / 'engine-image-leases', ('lease',)))
+    for root, suffixes in roots:
+        for suffix in suffixes:
+            require_absent(root / (FAILED_ROUTINE_RUN + '.' + suffix))
+    require_absent(STATE_DIR / ('engine-recovery-window-' + FAILED_ROUTINE_RUN + '.json'))
+    return units
+
+
+def failed_routine_history(failure: dict[str, Any], deadline: float) -> dict[str, Any]:
+    failed_routine_require(failed_routine_digest(failure) == FAILED_ROUTINE_DIGEST and
+                           failure['completedAt'] == FAILED_ROUTINE_COMPLETED)
+    unit = f'club-arena-engine-release-v1@{FAILED_ROUTINE_RUN}.service'
+    raw = failed_routine_command(['journalctl', '--unit=' + unit,
+        '_SYSTEMD_INVOCATION_ID=' + failure['invocationId'], '--no-pager', '--output=json',
+        '--output-fields=MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP',
+        '--lines=2', '--grep=^' + re.escape(FAILED_ROUTINE_LITERAL) + '$'], deadline, 8192)
+    try:
+        def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            value = {}
+            for key, item in pairs:
+                failed_routine_require(key not in value)
+                value[key] = item
+            return value
+        rows = [json.loads(line, object_pairs_hook=unique) for line in raw.splitlines() if line.strip()]
+        failed_routine_require(len(rows) == 1)
+        row = rows[0]
+        allowed = {'MESSAGE', '_SYSTEMD_UNIT', '_SYSTEMD_INVOCATION_ID', '__REALTIME_TIMESTAMP',
+                   '__CURSOR', '__MONOTONIC_TIMESTAMP', '_BOOT_ID', '__SEQNUM', '__SEQNUM_ID'}
+        failed_routine_require(isinstance(row, dict) and set(row) <= allowed and
+            all(isinstance(value, str) for value in row.values()) and row.get('MESSAGE') == FAILED_ROUTINE_LITERAL and
+            row.get('_SYSTEMD_UNIT') == unit and row.get('_SYSTEMD_INVOCATION_ID') == failure['invocationId'] and
+            re.fullmatch('[1-9][0-9]{14,15}', str(row.get('__REALTIME_TIMESTAMP', ''))) is not None)
+        stamp = int(row['__REALTIME_TIMESTAMP'])
+        failed_routine_require(946684800000000 <= stamp <= FAILED_ROUTINE_COMPLETED * 1000000 + 999999 and
+                              stamp < (FAILED_ROUTINE_START - 120) * 1000000)
+    except (ValueError, TypeError, KeyError):
+        die('exact failed routine native refusal is unreadable')
+    # The journal's JSON key order is serialization, not a changed native fact.
+    # Preserve every validated metadata field in the canonical recheck digest.
+    return {'journalDigest': failed_routine_digest(row), 'atMicros': stamp}
+
+
+def failed_routine_current(args: argparse.Namespace, deadline: float) -> dict[str, Any]:
+    control = Path(__file__).resolve().parent
+    request_root = STATE_DIR / 'engine-release-requests'
+    request = failed_routine_bytes(request_root / (args.run_id + '.request')).decode().splitlines()
+    failed_routine_require(len(request) == 6 and request[0] == args.sha and
+        request[1] == 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/' + args.run_id.split('-')[0] and
+        bool(request[2]) and request[3] == str(control) and request[4] == args.control_sha and
+        request[5].isdigit() and int(request[5]) > int(time.time()))
+    failed_routine_require(failed_routine_bytes(request_root / (args.run_id + '.intent')).decode().splitlines() == request and
+        failed_routine_bytes(STATE_DIR / 'engine-release-generation-pins' / (args.run_id + '.generation')).decode().splitlines() == [str(control), args.control_sha] and
+        failed_routine_bytes(control / 'control-sha').decode().splitlines() == [args.control_sha])
+    current = native_unit(f'club-arena-engine-release-v1@{args.run_id}.service')
+    failed_routine_require(current['LoadState'] == 'loaded' and current['ActiveState'] == 'activating' and
+        current['SubState'] == 'start' and current['MainPID'].isdigit() and int(current['MainPID']) > 0 and
+        current['InvocationID'] == args.invocation_id == os.environ.get('INVOCATION_ID'))
+    groups = [line.split(':', 2)[2] for line in Path('/proc/self/cgroup').read_text().splitlines()]
+    failed_routine_require(bool(current['ControlGroup']) and current['ControlGroup'] in groups)
+    failed_routine_command([str(control / 'main-inspector-retirement.py'), '--entry-state', args.run_id], deadline)
+    return {'requestDigest': failed_routine_digest(request), 'unit': current}
+
+
+def failed_routine_runtime(deadline: float) -> dict[str, Any]:
+    container = os.environ.get('CONTAINER', 'club-arena-engine')
+    value = docker_json('container', container)
+    image, source, _ = image_identity(FAILED_ROUTINE_IMAGE, require_label=False)
+    failed_routine_require(image == FAILED_ROUTINE_IMAGE and source == FAILED_ROUTINE_DESIRED and
+        value.get('Image') == image and value.get('State', {}).get('Status') == 'running' and
+        CONTAINER_ID_RE.fullmatch(str(value.get('Id', ''))) is not None)
+    healths = []
+    for url in ('http://127.0.0.1:8080/health', os.environ.get('ENGINE_URL', 'https://engine.smarter.poker').rstrip('/') + '/health'):
+        try:
+            h = json.loads(failed_routine_command(['curl', '--fail', '--silent', '--show-error', '--max-time', '3',
+                                                url + '?nocache=' + str(time.time_ns())], deadline))
+            m = h['maintenance']
+            failed_routine_require(h.get('releaseSha') == source and h.get('running') is True and
+                h.get('liveness') == 'ok' and INSTANCE_ID_RE.fullmatch(str(h.get('instanceId', ''))) is not None and
+                m.get('phase') == 'idle' and m.get('active') is False and m.get('durableConfirmed') is False)
+            healths.append(h['instanceId'])
+        except (ValueError, TypeError, KeyError):
+            die('exact failed routine serving maintenance state is unreadable')
+    failed_routine_require(healths[0] == healths[1])
+    # Observe ECONNREFUSED only. Never attach, evaluate, close or signal Inspector.
+    failed_routine_command(['docker', 'exec', container, 'sh', '-c',
+        'case "${NODE_OPTIONS-}" in *--inspect*|*--debug*) exit 1 ;; esac; exec env -u NODE_OPTIONS -u NODE_PATH node --no-inspect "$@"',
+        'custody-readiness', '-e', 'const s=require("node:net").createConnection({host:"127.0.0.1",port:9229});s.once("connect",()=>{s.destroy();process.exit(1)});s.once("error",e=>{s.destroy();process.exit(e.code==="ECONNREFUSED"?0:2)});s.setTimeout(1000,()=>{s.destroy();process.exit(2)});'], deadline)
+    return {'containerId': value['Id'], 'startedAt': value['State']['StartedAt'], 'instanceId': healths[0]}
+
+
+def failed_routine_database(runtime: dict[str, Any], deadline: float) -> None:
+    control = Path(__file__).resolve().parent
+    raw = failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
+        os.environ.get('ENV_FILE', os.environ.get('REPO_DIR', '/opt/club-arena') + '/server/.env'),
+        '--sha', FAILED_ROUTINE_DESIRED, '--instance-id', runtime['instanceId'], '--failed-routine-idle',
+        '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'], deadline)
+    try:
+        proof = json.loads(raw)
+    except ValueError:
+        die('exact failed routine database idle witness is invalid')
+    failed_routine_require(proof == {'schema': 'failed-routine-database-idle/v1', 'sha': FAILED_ROUTINE_DESIRED,
+        'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True})
+
+
+def cmd_resolve_failed_routine(args: argparse.Namespace) -> None:
+    """A bounded existing-transaction custody disposition; no runtime/DB mutation."""
+    failed_routine_require(RUN_ID_RE.fullmatch(args.run_id) is not None and args.run_id != FAILED_ROUTINE_RUN and
+        SHA_RE.fullmatch(args.sha) is not None and args.sha != FAILED_ROUTINE_SHA and
+        SHA_RE.fullmatch(args.control_sha) is not None and INVOCATION_ID_RE.fullmatch(args.invocation_id) is not None)
+    require_engine_lock(args.engine_lock_fd)
+    deadline = time.monotonic() + 45
+    with SealLock():
+        state = load_state()
+        cycles = routine_cycles(state)
+        owners = [c for c in cycles.values() if routine_owner_unresolved(state, c)]
+        if not owners or all(c['runId'] == args.run_id for c in owners):
+            print('not-needed'); return
+        if len(owners) != 1 or owners[0]['runId'] != FAILED_ROUTINE_RUN:
+            # No authority over another owner. The immediately following
+            # ordinary global-owner check retains its original refusal.
+            print('not-needed'); return
+        failed_routine_require(os.geteuid() == 0 and len(owners) == 1 and owners[0]['runId'] == FAILED_ROUTINE_RUN and
+            state.get('pending') is None and state.get('finalization') is None and
+            FAILED_ROUTINE_RUN not in state['committedRuns'] and
+            state['desired']['sha'] == FAILED_ROUTINE_DESIRED and state['desired']['imageId'] == FAILED_ROUTINE_IMAGE)
+        cycle = owners[0]
+        failed_routine_cycle(cycle)
+        failure = failed_routine_json(result_path(FAILED_ROUTINE_RUN))
+        failed_routine_require(load_failure(FAILED_ROUTINE_RUN) == failure == cycle['failure'])
+        current = failed_routine_current(args, deadline)
+        sources = failed_routine_source_proof()
+        historical = failed_routine_history(failure, deadline)
+        units = failed_routine_native_proof(deadline)
+        runtime = failed_routine_runtime(deadline)
+        failed_routine_database(runtime, deadline)
+        # Every authority is observed again under both locks immediately before
+        # the receipt/audit/CAS. Missing paths alone never establish old no-entry.
+        failed_routine_require(failed_routine_current(args, deadline) == current and
+            failed_routine_source_proof() == sources and failed_routine_native_proof(deadline) == units and
+            failed_routine_history(failure, deadline) == historical and
+            failed_routine_json(result_path(FAILED_ROUTINE_RUN)) == failure and
+            failed_routine_runtime(deadline) == runtime and load_state() == state)
+        failed_routine_database(runtime, deadline)
+        resolution = {'schema': 1, 'result': 'failed-custody-resolved', 'originalCycle': cycle,
+            'failureDigest': FAILED_ROUTINE_DIGEST, 'verifiedByRunId': args.run_id, 'targetSha': args.sha,
+            'controlSha': args.control_sha, 'invocationId': args.invocation_id, 'observedAt': int(time.time()),
+            'proof': {'noAnnouncement': True, 'databaseIdle': True, 'sources': sources,
+                      'historicalRefusal': historical, 'nativeUnits': units, 'runtime': runtime, 'current': current}}
+        path = RESULT_DIR / (FAILED_ROUTINE_RUN + '.' + args.run_id + '.' + args.invocation_id + '.custody-resolution.json')
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            write_json_atomic(path, resolution)
+        else:
+            original = failed_routine_json(path)
+            failed_routine_require({k: v for k, v in original.items() if k != 'observedAt'} ==
+                                   {k: v for k, v in resolution.items() if k != 'observedAt'})
+            resolution = original
+        validate_failed_routine_resolution(resolution, cycle)
+        audit_once('routine_failure_custody_resolved', state,
+                   'routine_failure_custody_resolved:' + FAILED_ROUTINE_RUN + ':' + args.run_id + ':' + args.invocation_id,
+                   resolution=resolution)
+        failed_routine_require(load_state() == state and time.monotonic() < deadline)
+        state.setdefault('routineFailureResolutions', {})[FAILED_ROUTINE_RUN] = resolution
+        state['updatedAt'] = int(time.time())
+        write_state(state)
+        print('failed-custody-resolved')
+
+
 def cmd_record_result(args: argparse.Namespace) -> None:
     run_id = str(args.run_id)
     if not RUN_ID_RE.fullmatch(run_id):
@@ -2029,6 +2443,13 @@ def parser() -> argparse.ArgumentParser:
     owner = commands.add_parser('check-routine-owner')
     owner.add_argument('--run-id', required=True)
     owner.set_defaults(handler=cmd_check_routine_owner)
+    resolve_failed = commands.add_parser('resolve-failed-routine')
+    resolve_failed.add_argument('--engine-lock-fd', type=int, required=True)
+    resolve_failed.add_argument('--run-id', required=True)
+    resolve_failed.add_argument('--sha', required=True)
+    resolve_failed.add_argument('--control-sha', required=True)
+    resolve_failed.add_argument('--invocation-id', required=True)
+    resolve_failed.set_defaults(handler=cmd_resolve_failed_routine)
     current = commands.add_parser('current-cycle-policy')
     current.add_argument('--repo', required=True)
     current.add_argument('--sha', required=True)

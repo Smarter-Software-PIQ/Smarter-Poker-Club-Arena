@@ -180,7 +180,7 @@ beforeEach(() => {
     let result = table === 'clubs' ? deferred() : null;
     if (result) h.clubReads.push(result);
     const q: any = {};
-    for (const method of ['select', 'eq', 'is', 'not', 'or', 'order', 'limit', 'in', 'lte'])
+    for (const method of ['select', 'eq', 'is', 'not', 'or', 'order', 'limit', 'in', 'lte', 'gt'])
       q[method] = () => q;
     q.select = (columns: string) => {
       if (h.deferOccupancy && table === 'tables' && columns.startsWith('id, current_players')) {
@@ -207,7 +207,13 @@ beforeEach(() => {
       return Promise.resolve({ data: null, error: null });
     };
     q.then = (resolve: any, reject: any) =>
-      (result?.promise ?? Promise.resolve({ data: [], error: null })).then(resolve, reject);
+      (result?.promise ?? Promise.resolve({ data: [], error: null }))
+        .then((value: any) =>
+          table === 'tournaments'
+            ? { ...value, count: Array.isArray(value.data) ? value.data.length : null }
+            : value
+        )
+        .then(resolve, reject);
     return q;
   });
 });
@@ -442,7 +448,7 @@ describe('the mounted lobby recovers occupancy snapshots', () => {
 const UNION_CACHE_KEY = 'ca_union_of_club-a';
 const QUERY_FAILURE = { code: '57014', message: 'statement timeout' };
 const tournamentFixture = (
-  id = 'known-tournament',
+  id = '00000000-0000-4000-8000-000000000001',
   name = 'Known Tournament',
   unionId: string | null = null
 ): TournamentFixture => ({
@@ -483,7 +489,11 @@ async function mountWarmTournaments({
     union_id: clubUnionId,
     is_union: isUnion,
   };
-  const row = tournamentFixture('known-tournament', 'Known Tournament', unionId);
+  const row = tournamentFixture(
+    '00000000-0000-4000-8000-000000000001',
+    'Known Tournament',
+    unionId
+  );
   const view = mount();
   await flush();
   await act(async () => h.clubReads[0].resolve({ data: club, error: null }));
@@ -492,7 +502,9 @@ async function mountWarmTournaments({
   fireEvent.click(screen.getByRole('button', { name: 'Tournaments', exact: true }));
   await flush();
   expect(
-    document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]').length
+    document.querySelectorAll(
+      '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+    ).length
   ).toBeGreaterThan(0);
   return { view, club, row };
 }
@@ -551,7 +563,9 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
     }
     await finishTournamentReload(club, { data: [], error: null });
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]')
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+      )
     ).toHaveLength(0);
   });
 
@@ -562,7 +576,9 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
     const { club } = await mountWarmTournaments();
     await finishTournamentReload(club, result);
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]').length
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+      ).length
     ).toBeGreaterThan(0);
   });
 
@@ -572,12 +588,16 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
     h.unionLookup = { data: null, error: QUERY_FAILURE };
     await finishTournamentReload(club, { data: [], error: null });
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]').length
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+      ).length
     ).toBeGreaterThan(0);
     h.unionLookup = { data: { union_id: 'union-a' }, error: null };
     await finishTournamentReload(club, { data: [], error: null });
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]')
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+      )
     ).toHaveLength(0);
   });
 
@@ -587,7 +607,9 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
     h.unionLookup = { data: null, error: QUERY_FAILURE };
     await finishTournamentReload(club, { data: [], error: null });
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]').length
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+      ).length
     ).toBeGreaterThan(0);
   });
 
@@ -595,7 +617,9 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
     const { club } = await mountWarmTournaments({ isUnion: true });
     await finishTournamentReload(club, { data: [], error: null });
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]').length
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+      ).length
     ).toBeGreaterThan(0);
   });
 
@@ -620,8 +644,9 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
       await finishTournamentReload(club, { data: [], error: null });
       expect(cacheRead).toHaveBeenCalledWith(UNION_CACHE_KEY);
       expect(
-        document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]')
-          .length
+        document.querySelectorAll(
+          '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+        ).length
       ).toBeGreaterThan(0);
     } finally {
       vi.unstubAllGlobals();
@@ -634,16 +659,20 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
     const onTournamentChange = h.channels[0].on.mock.calls.find(
       ([_event, config]: any[]) => config.table === 'tournaments'
     )[2];
-    const inserted = tournamentFixture('new-tournament', 'New Tournament');
+    const inserted = tournamentFixture('00000000-0000-4000-8000-000000000002', 'New Tournament');
     await act(async () => {
       onTournamentChange({ eventType: 'INSERT', new: inserted });
       read.resolve({ data: [], error: null });
     });
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]').length
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+      ).length
     ).toBe(0);
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="new-tournament"]').length
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000002"]'
+      ).length
     ).toBeGreaterThan(0);
     expect(h.clubReads).toHaveLength(2);
     expect(h.tournamentReads).toHaveLength(2);
@@ -661,11 +690,15 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
         onTournamentChange({ eventType: 'UPDATE', new: { ...row, status } });
       });
       expect(
-        document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]')
+        document.querySelectorAll(
+          '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+        )
       ).toHaveLength(0);
       await act(async () => read.resolve({ data: [row], error: null }));
       expect(
-        document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]')
+        document.querySelectorAll(
+          '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+        )
       ).toHaveLength(0);
       expect(h.clubReads).toHaveLength(2);
       expect(h.tournamentReads).toHaveLength(2);
@@ -686,7 +719,9 @@ describe('the mounted lobby reconciles warm tournament inventory', () => {
       read.resolve({ data: [], error: null });
     });
     expect(
-      document.querySelectorAll('[data-testid="lobby-game-row"][data-id="known-tournament"]')
+      document.querySelectorAll(
+        '[data-testid="lobby-game-row"][data-id="00000000-0000-4000-8000-000000000001"]'
+      )
     ).toHaveLength(0);
     expect(h.clubReads).toHaveLength(2);
     expect(h.tournamentReads).toHaveLength(2);

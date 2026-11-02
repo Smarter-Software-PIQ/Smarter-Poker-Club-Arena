@@ -50,3 +50,13 @@
     var(--ca-global-header-height, var(--ca-in-tab-header-height, 0px)) + var(--mtt-ticker-h, 0px)
   );
 }
+
+@media (min-width: 901px) {
+  /* The desktop catalogue has its own scrollport. Replace the full pinned
+     selector deck only after that real catalogue scrolls; Browse restores it. */
+  .club-lobby-machine[data-compact-lobby-controls='true']
+    > .club-lobby-command-top
+    > .club-lobby-command-top__controls {
+    display: none;
+  }
+}

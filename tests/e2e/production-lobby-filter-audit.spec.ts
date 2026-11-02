@@ -10,7 +10,11 @@ import {
 import { readLobbyPreferenceOwner } from './support/lobbyPreferenceProof';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
 import { diamondEntryRead, settleDiamondSpinsOffer } from './support/diamondInvitationOffer';
-import { tournamentBoardScope, type ObservedLobbyScope } from './support/lobbySourceCensus';
+import {
+  tournamentBoardScope,
+  TournamentCensusPages,
+  type ObservedLobbyScope,
+} from './support/lobbySourceCensus';
 
 // The catalogue supplies control names only. Expected membership below is an
 // independent calculation over actual responses, never the product matcher.
@@ -39,7 +43,7 @@ test.use({
   ...devices['iPhone 13'],
   viewport: { width: 393, height: 852 },
   timezoneId: 'America/Chicago',
-  trace: 'retain-on-failure',
+  trace: 'off',
   actionTimeout: 10_000,
 });
 test.describe.configure({ mode: 'default', timeout: 180_000 });
@@ -170,11 +174,41 @@ async function clickControl(locator: Locator, options?: Parameters<Locator['clic
           };
         })
       );
+      action.beforeElapsedMs = Date.now() - started;
       action.phase = 'native-scroll';
       persistProgress(page);
       // Scroll the real overflow owner before Playwright's actionability check.
       // Retain the ordinary visible, stable, enabled and hit-target checks.
-      await locator.scrollIntoViewIfNeeded({ timeout: 10_000 });
+      const fullyVisible = await locator.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        if (
+          box.width <= 0 ||
+          box.height <= 0 ||
+          box.top < 0 ||
+          box.left < 0 ||
+          box.bottom > innerHeight ||
+          box.right > innerWidth
+        )
+          return false;
+        for (let owner = element.parentElement; owner; owner = owner.parentElement) {
+          const css = getComputedStyle(owner);
+          const clip = owner.getBoundingClientRect();
+          if (
+            /(auto|scroll|hidden|clip)/.test(css.overflowY) &&
+            (box.top < clip.top || box.bottom > clip.bottom)
+          )
+            return false;
+          if (
+            /(auto|scroll|hidden|clip)/.test(css.overflowX) &&
+            (box.left < clip.left || box.right > clip.right)
+          )
+            return false;
+        }
+        return true;
+      });
+      action.scrollRequired = !fullyVisible;
+      if (!fullyVisible) await locator.scrollIntoViewIfNeeded({ timeout: 10_000 });
+      action.scrollElapsedMs = Date.now() - started;
       action.phase = 'click';
       persistProgress(page);
       const closesSheet =
@@ -1246,6 +1280,13 @@ async function setup(page: Page) {
   const rawRows = new Map<string, Row>();
   diagnosticRows.set(page, rawRows);
   let observedScope: ObservedLobbyScope | undefined;
+  const censusPages = new TournamentCensusPages();
+  let completedMainCensuses = 0;
+  let realtimeRevision = 0;
+  const realtimeRows = new Map<string, Map<string, { revision: number; value: unknown }>>();
+  const requestRevisions = new WeakMap<import('@playwright/test').Request, number>();
+  const censusRevisions = new Map<string, number>();
+  page.on('request', (request) => requestRevisions.set(request, realtimeRevision));
   const scopeWitnesses: unknown[] = [];
   diagnosticScopes.set(page, scopeWitnesses);
   const reads: Promise<void>[] = [];
@@ -1306,13 +1347,18 @@ async function setup(page: Page) {
               'status' in data ||
               'game_variant' in data ||
               'game_type' in data)
-          )
+          ) {
+            const fields = realtimeRows.get(data.id as string) ?? new Map();
+            const revision = ++realtimeRevision;
+            for (const [key, value] of Object.entries(data)) fields.set(key, { revision, value });
+            realtimeRows.set(data.id as string, fields);
             accept(
               [data],
               observedScope && completeTournamentMembership(data)
                 ? independentlyInScope(data, observedScope)
                 : undefined
             );
+          }
           for (const field of ['payload', 'data', 'record', 'new', 'records'])
             if (data[field] !== undefined) visit(data[field]);
         };
@@ -1399,7 +1445,7 @@ async function setup(page: Page) {
           source: 'tournament-query-provenance',
           observedAt: Date.now(),
           query: Object.fromEntries(
-            ['select', 'status', 'start_time', 'order', 'limit', 'club_id', 'or']
+            ['select', 'status', 'start_time', 'order', 'limit', 'club_id', 'or', 'id']
               .filter((key) => url.searchParams.has(key))
               .map((key) => [key, url.searchParams.get(key)])
           ),
@@ -1433,8 +1479,32 @@ async function setup(page: Page) {
             (url.pathname.endsWith('/tournaments') ? Boolean(tournamentScope) : queryScope) ||
             homeScope;
           if (Array.isArray(body) && tournamentScope) {
-            for (const value of body) {
-              const row = object(value);
+            // A partial page cannot certify a census or overwrite newer realtime fields.
+            const chainUrl = new URL(url);
+            chainUrl.searchParams.delete('id');
+            chainUrl.searchParams.sort();
+            const chainKey = chainUrl.toString();
+            if (!url.searchParams.has('id'))
+              censusRevisions.set(chainKey, requestRevisions.get(response.request()) ?? 0);
+            const count = Number(response.headers()['content-range']?.match(/\/(\d+)$/)?.[1]);
+            const complete = censusPages.complete(url, body, count);
+            if (!complete) return;
+            completedMainCensuses++;
+            scopeWitnesses.push({
+              source: 'completed-main-census',
+              observedAt: Date.now(),
+              rows: complete.length,
+              terminalCursor: url.searchParams.get('id'),
+              scope: tournamentScope,
+            });
+            const revisionAtRead = censusRevisions.get(chainKey);
+            if (revisionAtRead === undefined)
+              throw new Error('Missing first census request revision');
+            censusRevisions.delete(chainKey);
+            for (const value of complete) {
+              const row = { ...object(value) };
+              for (const [key, change] of realtimeRows.get(String(row.id)) ?? [])
+                if (change.revision > revisionAtRead) row[key] = change.value;
               accept(
                 [row],
                 completeTournamentMembership(row) && independentlyInScope(row, tournamentScope)
@@ -1582,9 +1652,14 @@ async function setup(page: Page) {
     await expect(sheet).toBeVisible();
     return sheet;
   };
-  actionTimelines.get(page)?.push({ control: 'setup', elapsedMs: Date.now() - setupStarted });
+  const deviceScaleFactor = await page.evaluate(() => devicePixelRatio);
+  actionTimelines
+    .get(page)
+    ?.push({ control: 'setup', elapsedMs: Date.now() - setupStarted, deviceScaleFactor });
   return {
     rawRows,
+    deviceScaleFactor,
+    hasCompleteCensus: () => completedMainCensuses > 0,
     reads,
     observerErrors,
     lifecycleWitnesses,
@@ -1604,470 +1679,480 @@ async function setup(page: Page) {
   };
 }
 
-for (const type of TYPES) {
-  test(`every ${type} lobby filter matches live rows and persists`, async ({ page }, testInfo) => {
-    const h = await test.step('Authenticated Lobby Setup', () => setup(page));
-    const spec = FILTER_SPECS[type];
-    const cash = CASH.has(type);
-    await h.choose(type);
-    let sheet = await h.open();
-    await clickControl(sheet.getByRole('button', { name: /^Reset / }));
-    if (type === 'MTT')
-      await clickControl(sheet.getByRole('button', { name: 'Include Satellites', exact: true }));
-    await expect.poll(async () => Boolean(await h.state(type))).toBe(true);
-    await Promise.all(h.reads);
-    await expect
-      .poll(async () => (await h.ids()).length, {
-        message: `${type} needs a real live baseline cohort`,
-      })
-      .toBeGreaterThan(0);
-    const baseline = await h.ids();
-    const unrestricted = await h.state(type);
-    expect(unrestricted.statuses).toEqual([]);
-    expect(unrestricted.mustHave).toEqual([]);
-    expect(unrestricted.hide).toEqual([]);
-    expect(unrestricted.format).toEqual([]);
-    expect(unrestricted.styles).toEqual([]);
-    expect(unrestricted.selectedRanges).toEqual([]);
-    expect([unrestricted.rangeMin, unrestricted.rangeMax]).toEqual([
-      spec.range.min,
-      spec.range.max,
-    ]);
-    expect([unrestricted.seatMin, unrestricted.seatMax]).toEqual([
-      spec.seats?.min ?? 3,
-      spec.seats?.max ?? 3,
-    ]);
-    expect(unrestricted.games).toEqual(type === 'MTT' ? spec.games!.map((item) => item.key) : []);
-    expect(
-      baseline.every((id) => h.rawRows.has(id)),
-      'Every baseline row must have an actual source response'
-    ).toBe(true);
-    if (!cash) {
+test.describe('functional filter matrix', () => {
+  // Native layout proof stays Retina in the separate shared case below.
+  test.use({ deviceScaleFactor: 1 });
+  for (const type of TYPES) {
+    test(`every ${type} lobby filter matches live rows and persists`, async ({
+      page,
+    }, testInfo) => {
+      const h = await test.step('Authenticated Lobby Setup', () => setup(page));
+      const spec = FILTER_SPECS[type];
+      const cash = CASH.has(type);
+      await h.choose(type);
+      let sheet = await h.open();
+      await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+      if (type === 'MTT')
+        await clickControl(sheet.getByRole('button', { name: 'Include Satellites', exact: true }));
+      await expect.poll(async () => Boolean(await h.state(type))).toBe(true);
+      await Promise.all(h.reads);
       await expect
-        .poll(() => baseline.every((id) => belongsToObservedFamily(h.rawRows.get(id)!, type)), {
-          message:
-            'The baseline must independently belong to the scoped source census and selected family',
+        .poll(async () => (await h.ids()).length, {
+          message: `${type} needs a real live baseline cohort`,
         })
-        .toBe(true);
-    }
-    const evidence: unknown[] = [];
-    await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
-    await Promise.all(h.reads);
-    if (cash) await assertCashControlsAndHeaders(page, type.toLowerCase());
-    const ledReadings = await assertExteriorLeds(page, h.rawRows, spec, cash);
-    evidence.push({ control: 'raw-source-exterior-led-palette', ledReadings });
-    await h.rows.first().scrollIntoViewIfNeeded({ timeout: 10_000 });
-    await testInfo.attach(`lobby-led-${type.toLowerCase()}-phone.png`, {
-      body: await page.screenshot(),
-      contentType: 'image/png',
-    });
-    await testInfo.attach(`lobby-led-${type.toLowerCase()}-phone.json`, {
-      body: Buffer.from(JSON.stringify(ledReadings)),
-      contentType: 'application/json',
-    });
-    sheet = await h.open();
-    const currentCohort = () =>
-      cash
-        ? baseline
-        : [...h.rawRows.values()]
-            .filter((row) => belongsToObservedFamily(row, type))
-            .map((row) => row.id);
-    const check = async (control: string) => {
-      const value = await h.state(type);
-      expect(value, `${control}: saved account-scoped state`).toBeTruthy();
-      let matched: { expected: string[]; actual: string[] } | undefined;
-      const started = Date.now();
-      let refreshed = false;
-      let mismatchSamples = 0;
-      const membership: Record<string, unknown> = { kind: 'membership', control, started, value };
-      actionTimelines.get(page)?.push(membership);
-      persistProgress(page);
-      await test.step(`${type}/${control}`, async () => {
-        try {
-          await expect
-            .poll(
-              async () => {
-                let actual = sorted(await h.ids());
-                let expected = sorted(
-                  currentCohort().filter((id) =>
-                    independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
-                  )
-                );
-                if (
-                  !cash &&
-                  !refreshed &&
-                  JSON.stringify(actual) !== JSON.stringify(expected) &&
-                  ++mismatchSamples >= 2
-                ) {
-                  refreshed = true;
-                  const disputed = [
-                    ...new Set([
-                      ...actual.filter((id) => !expected.includes(id)),
-                      ...expected.filter((id) => !actual.includes(id)),
-                    ]),
-                  ];
-                  await h.refreshLifecycle(disputed);
-                  actual = sorted(await h.ids());
-                  expected = sorted(
+        .toBeGreaterThan(0);
+      const baseline = await h.ids();
+      const unrestricted = await h.state(type);
+      expect(unrestricted.statuses).toEqual([]);
+      expect(unrestricted.mustHave).toEqual([]);
+      expect(unrestricted.hide).toEqual([]);
+      expect(unrestricted.format).toEqual([]);
+      expect(unrestricted.styles).toEqual([]);
+      expect(unrestricted.selectedRanges).toEqual([]);
+      expect([unrestricted.rangeMin, unrestricted.rangeMax]).toEqual([
+        spec.range.min,
+        spec.range.max,
+      ]);
+      expect([unrestricted.seatMin, unrestricted.seatMax]).toEqual([
+        spec.seats?.min ?? 3,
+        spec.seats?.max ?? 3,
+      ]);
+      expect(unrestricted.games).toEqual(type === 'MTT' ? spec.games!.map((item) => item.key) : []);
+      expect(
+        baseline.every((id) => h.rawRows.has(id)),
+        'Every baseline row must have an actual source response'
+      ).toBe(true);
+      if (!cash) {
+        await expect
+          .poll(h.hasCompleteCensus, {
+            message: 'A terminal contiguous main-query page chain must certify the complete census',
+            timeout: 10_000,
+          })
+          .toBe(true);
+        await expect
+          .poll(() => baseline.every((id) => belongsToObservedFamily(h.rawRows.get(id)!, type)), {
+            message:
+              'The baseline must independently belong to the scoped source census and selected family',
+          })
+          .toBe(true);
+      }
+      const evidence: unknown[] = [];
+      await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
+      await Promise.all(h.reads);
+      const ledReadings = await assertExteriorLeds(page, h.rawRows, spec, cash);
+      evidence.push({ control: 'raw-source-exterior-led-palette', ledReadings });
+      await h.rows.first().scrollIntoViewIfNeeded({ timeout: 10_000 });
+      await testInfo.attach(`lobby-led-${type.toLowerCase()}-phone.png`, {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+      await testInfo.attach(`lobby-led-${type.toLowerCase()}-phone.json`, {
+        body: Buffer.from(JSON.stringify(ledReadings)),
+        contentType: 'application/json',
+      });
+      sheet = await h.open();
+      const currentCohort = () =>
+        cash
+          ? baseline
+          : [...h.rawRows.values()]
+              .filter((row) => belongsToObservedFamily(row, type))
+              .map((row) => row.id);
+      const check = async (control: string) => {
+        const value = await h.state(type);
+        expect(value, `${control}: saved account-scoped state`).toBeTruthy();
+        let matched: { expected: string[]; actual: string[] } | undefined;
+        const started = Date.now();
+        let refreshed = false;
+        let mismatchSamples = 0;
+        const membership: Record<string, unknown> = { kind: 'membership', control, started, value };
+        actionTimelines.get(page)?.push(membership);
+        persistProgress(page);
+        await test.step(`${type}/${control}`, async () => {
+          try {
+            await expect
+              .poll(
+                async () => {
+                  let actual = sorted(await h.ids());
+                  let expected = sorted(
                     currentCohort().filter((id) =>
                       independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
                     )
                   );
+                  if (
+                    !cash &&
+                    !refreshed &&
+                    JSON.stringify(actual) !== JSON.stringify(expected) &&
+                    ++mismatchSamples >= 2
+                  ) {
+                    refreshed = true;
+                    const disputed = [
+                      ...new Set([
+                        ...actual.filter((id) => !expected.includes(id)),
+                        ...expected.filter((id) => !actual.includes(id)),
+                      ]),
+                    ];
+                    await h.refreshLifecycle(disputed);
+                    actual = sorted(await h.ids());
+                    expected = sorted(
+                      currentCohort().filter((id) =>
+                        independentMatch(h.rawRows.get(id)!, value, spec, cash, h.rawRows)
+                      )
+                    );
+                  }
+                  matched = { actual, expected };
+                  membership.latest = matched;
+                  persistProgress(page);
+                  return JSON.stringify(actual) === JSON.stringify(expected)
+                    ? []
+                    : [{ actual, expected }];
+                },
+                {
+                  message: `${type}: ${control} must produce exactly the independently matched live rows`,
                 }
-                matched = { actual, expected };
-                membership.latest = matched;
-                persistProgress(page);
-                return JSON.stringify(actual) === JSON.stringify(expected)
-                  ? []
-                  : [{ actual, expected }];
-              },
-              {
-                message: `${type}: ${control} must produce exactly the independently matched live rows`,
-              }
-            )
-            .toEqual([]);
-        } finally {
-          membership.elapsedMs = Date.now() - started;
-          persistProgress(page);
-          evidence.push({ control, elapsedMs: Date.now() - started, value, ...matched });
-        }
-      });
-    };
-    const section = (title: string) =>
-      sheet
-        .locator('details')
-        .filter({ has: page.getByRole('heading', { name: title, exact: true }) });
-    const toggleEvery = async (
-      title: string,
-      items: { key: string; label: string }[],
-      field: keyof GameFilterValue
-    ) => {
-      const area = section(title);
-      for (const item of items) {
-        const button = area.getByRole('button', { name: item.label, exact: true });
-        await expect(button).toBeVisible();
-        const before = (await button.getAttribute('aria-pressed')) === 'true';
-        for (const on of [!before, before]) {
-          await clickControl(button);
-          await expect(button).toHaveAttribute('aria-pressed', String(on));
-          // The off branch requires actual absence, not another button's colour.
-          expect(((await h.state(type))[field] as string[]).includes(item.key)).toBe(on);
-          await check(`${title}/${item.key}/${on}`);
-        }
-      }
-    };
-    const union = async (
-      title: string,
-      items: { key: string; label: string }[],
-      field: 'games' | 'format' | 'styles' | 'statuses'
-    ) => {
-      if (items.length < 2) return;
-      const original = (await h.state(type))[field] || [];
-      const area = section(title);
-      for (const [index, item] of items.entries()) {
-        const button = area.getByRole('button', { name: item.label, exact: true });
-        if (((await button.getAttribute('aria-pressed')) === 'true') !== index < 2)
-          await clickControl(button);
-      }
-      await check(`${field}/two-choice-union`);
-      for (const item of items) {
-        const button = area.getByRole('button', { name: item.label, exact: true });
-        if (
-          ((await button.getAttribute('aria-pressed')) === 'true') !==
-          original.includes(item.key)
-        )
-          await clickControl(button);
-      }
-      await check(`${field}/union-restored`);
-    };
-    try {
-      await check('baseline');
-      await assertRegistrationInkInsideFrame(page);
-      const availability = await h.rows.evaluateAll((elements) =>
-        elements
-          .filter(
-            (element) =>
-              element.getAttribute('data-status') === 'open' ||
-              (['spin', 'sng'].includes(element.getAttribute('data-kind') || '') &&
-                element.getAttribute('data-status') === 'registering')
-          )
-          .map((element) => element.querySelector('.lt-status')?.textContent?.trim())
-      );
-      for (const label of availability) expect(label).toBe('Seats Available');
-      evidence.push({ control: 'registration-labels', availability });
-      if (type === 'MTT') {
-        const include = sheet.getByRole('button', { name: 'Include Satellites', exact: true });
-        await clickControl(include);
-        await expect(include).toHaveAttribute('aria-pressed', 'false');
-        await check('satellites/excluded');
-        await clickControl(include);
-        await expect(include).toHaveAttribute('aria-pressed', 'true');
-        await check('satellites/included');
-      }
-      if (spec.games) await toggleEvery('Games', spec.games, 'games');
-      if (spec.format) await toggleEvery('Format', spec.format, 'format');
-      if (spec.styles) await toggleEvery('Game Style', spec.styles, 'styles');
-      if (spec.games) await union('Games', spec.games, 'games');
-      if (spec.format) await union('Format', spec.format, 'format');
-      if (spec.styles) await union('Game Style', spec.styles, 'styles');
-      const priceArea = sheet
-        .locator('details')
-        .filter({ has: page.getByRole('heading', { name: new RegExp(`^${spec.range.label} ·`) }) });
-      for (const preset of spec.range.presets) {
-        const button = priceArea.getByRole('button', { name: preset.label, exact: true });
-        await clickControl(button);
-        await expect(button).toHaveAttribute('aria-pressed', 'true');
-        await check(`price/${preset.key}/on`);
-        await clickControl(button);
-        await expect(button).toHaveAttribute('aria-pressed', 'false');
-        await check(`price/${preset.key}/off`);
-      }
-      // Nonadjacent presets are a union; moving a thumb clears that union.
-      await clickControl(
-        priceArea.getByRole('button', { name: spec.range.presets[0].label, exact: true })
-      );
-      await clickControl(
-        priceArea.getByRole('button', { name: spec.range.presets[3].label, exact: true })
-      );
-      await check('price/nonadjacent-union');
-      const min = sheet.getByRole('slider', { name: `Minimum ${spec.range.label}`, exact: true });
-      const max = sheet.getByRole('slider', { name: `Maximum ${spec.range.label}`, exact: true });
-      await min.press('Home');
-      await min.press('ArrowRight');
-      const step = spec.range.min > 0 && spec.range.min < 1 ? 0.01 : 1;
-      expect((await h.state(type)).rangeMin).toBeCloseTo(spec.range.min + step, 6);
-      expect((await h.state(type)).selectedRanges).toEqual([]);
-      await check('price/minimum-keyboard');
-      await max.press('Home');
-      expect((await h.state(type)).rangeMax).toBeCloseTo(spec.range.min + step * 2, 6);
-      await check('price/maximum-clamped-keyboard');
-      await min.press('Home');
-      await max.press('End');
-      await check('price/restored');
-      const seatsArea = sheet
-        .locator('details')
-        .filter({ has: page.getByRole('heading', { name: /^Table Size/ }) });
-      await toggleEvery(
-        (await seatsArea.getByRole('heading').textContent())!,
-        spec.statuses,
-        'statuses'
-      );
-      await union((await seatsArea.getByRole('heading').textContent())!, spec.statuses, 'statuses');
-      if (spec.seats) {
-        const minimum = sheet.getByRole('slider', { name: 'Minimum Seats', exact: true });
-        const maximum = sheet.getByRole('slider', { name: 'Maximum Seats', exact: true });
-        await minimum.press('Home');
-        await minimum.press('ArrowRight');
-        expect((await h.state(type)).seatMin).toBe(spec.seats.min + 1);
-        await check('seats/minimum-keyboard');
-        await maximum.press('Home');
-        expect((await h.state(type)).seatMax).toBe(spec.seats.min + 2);
-        await check('seats/maximum-clamped-keyboard');
-        await minimum.press('Home');
-        await maximum.press('End');
-        await check('seats/restored');
-      } else await expect(sheet.getByRole('slider', { name: /Seats$/ })).toHaveCount(0);
-      for (const name of ['Required Features', 'Exclude Features']) {
-        const area = section(name);
-        if (await area.count()) await clickControl(area.locator('summary'));
-      }
-      const shown = spec.features.filter((item) => !item.capability);
-      const gated = spec.features.filter((item) => item.capability);
-      for (const item of gated)
-        if (
-          await section('Required Features')
-            .getByRole('button', { name: item.label, exact: true })
-            .count()
-        )
-          shown.push(item);
-      for (const item of shown) {
-        const required = section('Required Features').getByRole('button', {
-          name: item.label,
-          exact: true,
+              )
+              .toEqual([]);
+          } finally {
+            membership.elapsedMs = Date.now() - started;
+            persistProgress(page);
+            evidence.push({ control, elapsedMs: Date.now() - started, value, ...matched });
+          }
         });
-        const excluded = section('Exclude Features').getByRole('button', {
-          name: item.label,
-          exact: true,
-        });
-        const prior = await h.state(type);
-        await clickControl(required);
-        await expect(required).toHaveAttribute('aria-pressed', 'true');
-        await expect(excluded).toHaveAttribute('aria-pressed', 'false');
-        await check(`required/${item.key}`);
-        await clickControl(excluded);
-        await expect(excluded).toHaveAttribute('aria-pressed', 'true');
-        await expect(required).toHaveAttribute('aria-pressed', 'false');
-        await check(`excluded/${item.key}/mutual-exclusion`);
-        await clickControl(excluded);
-        await expect(excluded).toHaveAttribute('aria-pressed', 'false');
-        await check(`excluded/${item.key}/off`);
-        expect((await h.state(type)).mustHave).toEqual(
-          prior.mustHave.filter((key) => key !== item.key)
-        );
-      }
-      evidence.push({
-        control: 'capability-gated-catalogue',
-        shownFeatures: shown.map((item) => item.key),
-        unavailableControls: gated.filter((item) => !shown.includes(item)).map((item) => item.key),
-      });
-      if (shown.length >= 2) {
-        for (const item of shown.slice(0, 2))
-          await clickControl(
-            section('Required Features').getByRole('button', { name: item.label, exact: true })
-          );
-        await check('features/required-intersection');
-        for (const item of shown.slice(0, 2))
-          await clickControl(
-            section('Exclude Features').getByRole('button', { name: item.label, exact: true })
-          );
-        await check('features/excluded-union');
-        for (const item of shown.slice(0, 2))
-          await clickControl(
-            section('Exclude Features').getByRole('button', { name: item.label, exact: true })
-          );
-        await check('features/restored');
-      }
-      // Every accordion is independently operable; closing it cannot reset filters.
-      for (const details of await sheet.locator('details').all()) {
-        const value = await h.state(type);
-        const summary = details.locator('summary');
-        await clickControl(summary);
-        await expect(details).not.toHaveAttribute('open');
-        expect(await h.state(type)).toEqual(value);
-        await clickControl(summary);
-        await expect(details).toHaveAttribute('open', '');
-      }
-      for (const [key, label] of SORTS.filter(
-        ([key]) => !(cash || type === 'SPIN' || type === 'SNG') || key !== 'starting_soon'
-      )) {
-        const button = section('Sort The Board').getByRole('button', { name: label, exact: true });
-        await clickControl(button);
-        await expect(button).toHaveAttribute('aria-pressed', 'true');
-        await expect.poll(async () => (await h.view()).sortByTab?.[type]).toBe(key);
-        await check(`sort/${key}`);
-        await assertSort(page, type, key, h.rawRows);
-      }
-      // The original quick controls and sheet must write the very same statuses.
-      await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
-      const quick = page.locator('.lobby-refinements');
-      for (const item of spec.statuses) {
-        const button = quick.getByRole('button', { name: item.label, exact: true });
-        await clickControl(button);
-        await expect(button).toHaveAttribute('aria-pressed', 'true');
-        await check(`quick/${item.key}/on`);
-        await clickControl(button);
-        await expect(button).toHaveAttribute('aria-pressed', 'false');
-        await check(`quick/${item.key}/off`);
-      }
-      const all = quick.getByRole('button', { name: 'All', exact: true });
-      await clickControl(quick.getByRole('button', { name: spec.statuses[0].label, exact: true }));
-      await clickControl(all);
-      await expect(all).toHaveAttribute('aria-pressed', 'true');
-      expect((await h.state(type)).statuses).toEqual([]);
-      await check('quick/all');
-      const headings = page.locator('.compact-lobby:visible thead');
-      await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
-      for (const [pattern, key] of [
-        [cash ? /^Stakes/ : /^Buy-In/, 'price'],
-        [
-          type === 'MTT' ? /^Entries/ : type === 'SATELLITE' ? /^Registered/ : /^Players/,
-          'players',
-        ],
-        [/^Status/, 'status'],
-      ] as const) {
-        const button = headings.getByRole('button', { name: pattern });
-        for (let click = 0; click < 2; click++) {
-          await clickControl(button);
-          const direction = await button.locator('..').getAttribute('aria-sort');
-          expect(['ascending', 'descending']).toContain(direction);
-          await assertSort(
-            page,
-            type,
-            key === 'price'
-              ? direction === 'ascending'
-                ? 'stakes_low'
-                : 'stakes_high'
-              : key === 'players'
-                ? direction === 'ascending'
-                  ? 'players_asc'
-                  : 'players'
-                : direction === 'ascending'
-                  ? 'status_asc'
-                  : 'status_desc',
-            h.rawRows
-          );
-          await expect(page.getByRole('menu')).toHaveCount(0);
+      };
+      const section = (title: string) =>
+        sheet
+          .locator('details')
+          .filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+      const toggleEvery = async (
+        title: string,
+        items: { key: string; label: string }[],
+        field: keyof GameFilterValue
+      ) => {
+        const area = section(title);
+        for (const item of items) {
+          const button = area.getByRole('button', { name: item.label, exact: true });
+          await expect(button).toBeVisible();
+          const before = (await button.getAttribute('aria-pressed')) === 'true';
+          for (const on of [!before, before]) {
+            await clickControl(button);
+            await expect(button).toHaveAttribute('aria-pressed', String(on));
+            // The off branch requires actual absence, not another button's colour.
+            expect(((await h.state(type))[field] as string[]).includes(item.key)).toBe(on);
+            await check(`${title}/${item.key}/${on}`);
+          }
         }
-      }
-      // A combined choice survives closing, an actual acknowledged remote write
-      // and a completely new document. No environment-storage injection is used.
-      sheet = await h.open();
-      await clickControl(sheet.getByRole('button', { name: /^Reset / }));
-      const combined = sheet.getByRole('button', { name: 'Small', exact: true });
-      await clickControl(combined);
-      if (spec.games) {
-        const games = section('Games');
-        for (const [index, item] of spec.games.entries()) {
-          const button = games.getByRole('button', { name: item.label, exact: true });
-          if (((await button.getAttribute('aria-pressed')) === 'true') !== (index === 0))
+      };
+      const union = async (
+        title: string,
+        items: { key: string; label: string }[],
+        field: 'games' | 'format' | 'styles' | 'statuses'
+      ) => {
+        if (items.length < 2) return;
+        const original = (await h.state(type))[field] || [];
+        const area = section(title);
+        for (const [index, item] of items.entries()) {
+          const button = area.getByRole('button', { name: item.label, exact: true });
+          if (((await button.getAttribute('aria-pressed')) === 'true') !== index < 2)
             await clickControl(button);
         }
-        expect((await h.state(type)).games).toEqual([spec.games[0].key]);
-      }
-      await check('combined-game-and-price');
-      const saved = await h.state(type);
-      await clickControl(sheet.getByRole('button', { name: /^Apply .*Filters$/ }));
-      await expect(sheet).toBeHidden();
-      await expect
-        .poll(
-          () =>
-            h.saves.some(
-              (save) =>
-                save.user_id === h.owner &&
-                save.club_id === CLUB_ID &&
-                JSON.stringify(object(save.filters)[type]) === JSON.stringify(saved)
-            ),
-          { timeout: 15000 }
-        )
-        .toBe(true);
-      const readback = page.waitForResponse(
-        (response) =>
-          response.ok() &&
-          response.request().method() === 'GET' &&
-          new URL(response.url()).pathname.endsWith('/user_lobby_filters') &&
-          new URL(response.url()).searchParams.get('user_id') === `eq.${h.owner}` &&
-          new URL(response.url()).searchParams.get('club_id') === `eq.${CLUB_ID}` &&
-          new URL(response.url()).searchParams.get('select')?.split(',').includes('filters') ===
-            true
-      );
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      const remote = await (await readback).json();
-      expect(object(Array.isArray(remote) ? remote[0] : remote).filters).toBeTruthy();
-      expect(object(object(Array.isArray(remote) ? remote[0] : remote).filters)[type]).toEqual(
-        saved
-      );
-      await prepareCashLobbyActions(page);
-      await h.choose(type);
-      sheet = await h.open();
-      expect(await h.state(type)).toEqual(saved);
-      await check('combined-game-and-price-after-reload');
-      await expect(sheet.getByRole('button', { name: 'Small', exact: true })).toHaveAttribute(
-        'aria-pressed',
-        'true'
-      );
-      // Reset affects this tab only, and the close button saves that reset.
-      const otherTabs = await page.evaluate(
-        ({ cache, type }) =>
-          Object.fromEntries(
-            Object.entries(JSON.parse(localStorage.getItem(cache) || '{}')).filter(
-              ([key]) => key !== type
+        await check(`${field}/two-choice-union`);
+        for (const item of items) {
+          const button = area.getByRole('button', { name: item.label, exact: true });
+          if (
+            ((await button.getAttribute('aria-pressed')) === 'true') !==
+            original.includes(item.key)
+          )
+            await clickControl(button);
+        }
+        await check(`${field}/union-restored`);
+      };
+      try {
+        await check('baseline');
+        await assertRegistrationInkInsideFrame(page);
+        const availability = await h.rows.evaluateAll((elements) =>
+          elements
+            .filter(
+              (element) =>
+                element.getAttribute('data-status') === 'open' ||
+                (['spin', 'sng'].includes(element.getAttribute('data-kind') || '') &&
+                  element.getAttribute('data-status') === 'registering')
             )
-          ),
-        { cache: h.cache, type }
-      );
-      await clickControl(sheet.getByRole('button', { name: /^Reset / }));
-      expect(
-        await page.evaluate(
+            .map((element) => element.querySelector('.lt-status')?.textContent?.trim())
+        );
+        for (const label of availability) expect(label).toBe('Seats Available');
+        evidence.push({ control: 'registration-labels', availability });
+        if (type === 'MTT') {
+          const include = sheet.getByRole('button', { name: 'Include Satellites', exact: true });
+          await clickControl(include);
+          await expect(include).toHaveAttribute('aria-pressed', 'false');
+          await check('satellites/excluded');
+          await clickControl(include);
+          await expect(include).toHaveAttribute('aria-pressed', 'true');
+          await check('satellites/included');
+        }
+        if (spec.games) await toggleEvery('Games', spec.games, 'games');
+        if (spec.format) await toggleEvery('Format', spec.format, 'format');
+        if (spec.styles) await toggleEvery('Game Style', spec.styles, 'styles');
+        if (spec.games) await union('Games', spec.games, 'games');
+        if (spec.format) await union('Format', spec.format, 'format');
+        if (spec.styles) await union('Game Style', spec.styles, 'styles');
+        const priceArea = sheet.locator('details').filter({
+          has: page.getByRole('heading', { name: new RegExp(`^${spec.range.label} ·`) }),
+        });
+        for (const preset of spec.range.presets) {
+          const button = priceArea.getByRole('button', { name: preset.label, exact: true });
+          await clickControl(button);
+          await expect(button).toHaveAttribute('aria-pressed', 'true');
+          await check(`price/${preset.key}/on`);
+          await clickControl(button);
+          await expect(button).toHaveAttribute('aria-pressed', 'false');
+          await check(`price/${preset.key}/off`);
+        }
+        // Nonadjacent presets are a union; moving a thumb clears that union.
+        await clickControl(
+          priceArea.getByRole('button', { name: spec.range.presets[0].label, exact: true })
+        );
+        await clickControl(
+          priceArea.getByRole('button', { name: spec.range.presets[3].label, exact: true })
+        );
+        await check('price/nonadjacent-union');
+        const min = sheet.getByRole('slider', { name: `Minimum ${spec.range.label}`, exact: true });
+        const max = sheet.getByRole('slider', { name: `Maximum ${spec.range.label}`, exact: true });
+        await min.press('Home');
+        await min.press('ArrowRight');
+        const step = spec.range.min > 0 && spec.range.min < 1 ? 0.01 : 1;
+        expect((await h.state(type)).rangeMin).toBeCloseTo(spec.range.min + step, 6);
+        expect((await h.state(type)).selectedRanges).toEqual([]);
+        await check('price/minimum-keyboard');
+        await max.press('Home');
+        expect((await h.state(type)).rangeMax).toBeCloseTo(spec.range.min + step * 2, 6);
+        await check('price/maximum-clamped-keyboard');
+        await min.press('Home');
+        await max.press('End');
+        await check('price/restored');
+        const seatsArea = sheet
+          .locator('details')
+          .filter({ has: page.getByRole('heading', { name: /^Table Size/ }) });
+        await toggleEvery(
+          (await seatsArea.getByRole('heading').textContent())!,
+          spec.statuses,
+          'statuses'
+        );
+        await union(
+          (await seatsArea.getByRole('heading').textContent())!,
+          spec.statuses,
+          'statuses'
+        );
+        if (spec.seats) {
+          const minimum = sheet.getByRole('slider', { name: 'Minimum Seats', exact: true });
+          const maximum = sheet.getByRole('slider', { name: 'Maximum Seats', exact: true });
+          await minimum.press('Home');
+          await minimum.press('ArrowRight');
+          expect((await h.state(type)).seatMin).toBe(spec.seats.min + 1);
+          await check('seats/minimum-keyboard');
+          await maximum.press('Home');
+          expect((await h.state(type)).seatMax).toBe(spec.seats.min + 2);
+          await check('seats/maximum-clamped-keyboard');
+          await minimum.press('Home');
+          await maximum.press('End');
+          await check('seats/restored');
+        } else await expect(sheet.getByRole('slider', { name: /Seats$/ })).toHaveCount(0);
+        for (const name of ['Required Features', 'Exclude Features']) {
+          const area = section(name);
+          if (await area.count()) await clickControl(area.locator('summary'));
+        }
+        const shown = spec.features.filter((item) => !item.capability);
+        const gated = spec.features.filter((item) => item.capability);
+        for (const item of gated)
+          if (
+            await section('Required Features')
+              .getByRole('button', { name: item.label, exact: true })
+              .count()
+          )
+            shown.push(item);
+        for (const item of shown) {
+          const required = section('Required Features').getByRole('button', {
+            name: item.label,
+            exact: true,
+          });
+          const excluded = section('Exclude Features').getByRole('button', {
+            name: item.label,
+            exact: true,
+          });
+          const prior = await h.state(type);
+          await clickControl(required);
+          await expect(required).toHaveAttribute('aria-pressed', 'true');
+          await expect(excluded).toHaveAttribute('aria-pressed', 'false');
+          await check(`required/${item.key}`);
+          await clickControl(excluded);
+          await expect(excluded).toHaveAttribute('aria-pressed', 'true');
+          await expect(required).toHaveAttribute('aria-pressed', 'false');
+          await check(`excluded/${item.key}/mutual-exclusion`);
+          await clickControl(excluded);
+          await expect(excluded).toHaveAttribute('aria-pressed', 'false');
+          await check(`excluded/${item.key}/off`);
+          expect((await h.state(type)).mustHave).toEqual(
+            prior.mustHave.filter((key) => key !== item.key)
+          );
+        }
+        evidence.push({
+          control: 'capability-gated-catalogue',
+          shownFeatures: shown.map((item) => item.key),
+          unavailableControls: gated
+            .filter((item) => !shown.includes(item))
+            .map((item) => item.key),
+        });
+        if (shown.length >= 2) {
+          for (const item of shown.slice(0, 2))
+            await clickControl(
+              section('Required Features').getByRole('button', { name: item.label, exact: true })
+            );
+          await check('features/required-intersection');
+          for (const item of shown.slice(0, 2))
+            await clickControl(
+              section('Exclude Features').getByRole('button', { name: item.label, exact: true })
+            );
+          await check('features/excluded-union');
+          for (const item of shown.slice(0, 2))
+            await clickControl(
+              section('Exclude Features').getByRole('button', { name: item.label, exact: true })
+            );
+          await check('features/restored');
+        }
+        // Every accordion is independently operable; closing it cannot reset filters.
+        for (const details of await sheet.locator('details').all()) {
+          const value = await h.state(type);
+          const summary = details.locator('summary');
+          await clickControl(summary);
+          await expect(details).not.toHaveAttribute('open');
+          expect(await h.state(type)).toEqual(value);
+          await clickControl(summary);
+          await expect(details).toHaveAttribute('open', '');
+        }
+        for (const [key, label] of SORTS.filter(
+          ([key]) => !(cash || type === 'SPIN' || type === 'SNG') || key !== 'starting_soon'
+        )) {
+          const button = section('Sort The Board').getByRole('button', {
+            name: label,
+            exact: true,
+          });
+          await clickControl(button);
+          await expect(button).toHaveAttribute('aria-pressed', 'true');
+          await expect.poll(async () => (await h.view()).sortByTab?.[type]).toBe(key);
+          await check(`sort/${key}`);
+          await assertSort(page, type, key, h.rawRows);
+        }
+        // The original quick controls and sheet must write the very same statuses.
+        await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
+        const quick = page.locator('.lobby-refinements');
+        for (const item of spec.statuses) {
+          const button = quick.getByRole('button', { name: item.label, exact: true });
+          await clickControl(button);
+          await expect(button).toHaveAttribute('aria-pressed', 'true');
+          await check(`quick/${item.key}/on`);
+          await clickControl(button);
+          await expect(button).toHaveAttribute('aria-pressed', 'false');
+          await check(`quick/${item.key}/off`);
+        }
+        const all = quick.getByRole('button', { name: 'All', exact: true });
+        await clickControl(
+          quick.getByRole('button', { name: spec.statuses[0].label, exact: true })
+        );
+        await clickControl(all);
+        await expect(all).toHaveAttribute('aria-pressed', 'true');
+        expect((await h.state(type)).statuses).toEqual([]);
+        await check('quick/all');
+        const headings = page.locator('.compact-lobby:visible thead');
+        await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
+        for (const [pattern, key] of [
+          [cash ? /^Stakes/ : /^Buy-In/, 'price'],
+          [
+            type === 'MTT' ? /^Entries/ : type === 'SATELLITE' ? /^Registered/ : /^Players/,
+            'players',
+          ],
+          [/^Status/, 'status'],
+        ] as const) {
+          const button = headings.getByRole('button', { name: pattern });
+          for (let click = 0; click < 2; click++) {
+            await clickControl(button);
+            const direction = await button.locator('..').getAttribute('aria-sort');
+            expect(['ascending', 'descending']).toContain(direction);
+            await assertSort(
+              page,
+              type,
+              key === 'price'
+                ? direction === 'ascending'
+                  ? 'stakes_low'
+                  : 'stakes_high'
+                : key === 'players'
+                  ? direction === 'ascending'
+                    ? 'players_asc'
+                    : 'players'
+                  : direction === 'ascending'
+                    ? 'status_asc'
+                    : 'status_desc',
+              h.rawRows
+            );
+            await expect(page.getByRole('menu')).toHaveCount(0);
+          }
+        }
+        // A combined choice survives closing, an actual acknowledged remote write
+        // and a completely new document. No environment-storage injection is used.
+        sheet = await h.open();
+        await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+        const combined = sheet.getByRole('button', { name: 'Small', exact: true });
+        await clickControl(combined);
+        if (spec.games) {
+          const games = section('Games');
+          for (const [index, item] of spec.games.entries()) {
+            const button = games.getByRole('button', { name: item.label, exact: true });
+            if (((await button.getAttribute('aria-pressed')) === 'true') !== (index === 0))
+              await clickControl(button);
+          }
+          expect((await h.state(type)).games).toEqual([spec.games[0].key]);
+        }
+        await check('combined-game-and-price');
+        const saved = await h.state(type);
+        await clickControl(sheet.getByRole('button', { name: /^Apply .*Filters$/ }));
+        await expect(sheet).toBeHidden();
+        await expect
+          .poll(
+            () =>
+              h.saves.some(
+                (save) =>
+                  save.user_id === h.owner &&
+                  save.club_id === CLUB_ID &&
+                  JSON.stringify(object(save.filters)[type]) === JSON.stringify(saved)
+              ),
+            { timeout: 15000 }
+          )
+          .toBe(true);
+        const readback = page.waitForResponse(
+          (response) =>
+            response.ok() &&
+            response.request().method() === 'GET' &&
+            new URL(response.url()).pathname.endsWith('/user_lobby_filters') &&
+            new URL(response.url()).searchParams.get('user_id') === `eq.${h.owner}` &&
+            new URL(response.url()).searchParams.get('club_id') === `eq.${CLUB_ID}` &&
+            new URL(response.url()).searchParams.get('select')?.split(',').includes('filters') ===
+              true
+        );
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        const remote = await (await readback).json();
+        expect(object(Array.isArray(remote) ? remote[0] : remote).filters).toBeTruthy();
+        expect(object(object(Array.isArray(remote) ? remote[0] : remote).filters)[type]).toEqual(
+          saved
+        );
+        await prepareCashLobbyActions(page);
+        await h.choose(type);
+        sheet = await h.open();
+        expect(await h.state(type)).toEqual(saved);
+        await check('combined-game-and-price-after-reload');
+        await expect(sheet.getByRole('button', { name: 'Small', exact: true })).toHaveAttribute(
+          'aria-pressed',
+          'true'
+        );
+        // Reset affects this tab only, and the close button saves that reset.
+        const otherTabs = await page.evaluate(
           ({ cache, type }) =>
             Object.fromEntries(
               Object.entries(JSON.parse(localStorage.getItem(cache) || '{}')).filter(
@@ -2075,28 +2160,41 @@ for (const type of TYPES) {
               )
             ),
           { cache: h.cache, type }
-        )
-      ).toEqual(otherTabs);
-      await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
-      expect(h.participation).toEqual([]);
-    } finally {
-      await testInfo.attach(`filter-audit-${type}.json`, {
-        body: Buffer.from(
-          JSON.stringify({
-            type,
-            baseline,
-            controls: evidence,
-            lifecycleWitnesses: h.lifecycleWitnesses,
-            observerErrors: h.observerErrors,
-            actions: actionTimelines.get(page),
-            participation: h.participation,
-          })
-        ),
-        contentType: 'application/json',
-      });
-    }
-  });
-}
+        );
+        await clickControl(sheet.getByRole('button', { name: /^Reset / }));
+        expect(
+          await page.evaluate(
+            ({ cache, type }) =>
+              Object.fromEntries(
+                Object.entries(JSON.parse(localStorage.getItem(cache) || '{}')).filter(
+                  ([key]) => key !== type
+                )
+              ),
+            { cache: h.cache, type }
+          )
+        ).toEqual(otherTabs);
+        await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
+        expect(h.participation).toEqual([]);
+      } finally {
+        await testInfo.attach(`filter-audit-${type}.json`, {
+          body: Buffer.from(
+            JSON.stringify({
+              type,
+              deviceScaleFactor: h.deviceScaleFactor,
+              baseline,
+              controls: evidence,
+              lifecycleWitnesses: h.lifecycleWitnesses,
+              observerErrors: h.observerErrors,
+              actions: actionTimelines.get(page),
+              participation: h.participation,
+            })
+          ),
+          contentType: 'application/json',
+        });
+      }
+    });
+  }
+});
 
 async function assertCashControlsAndHeaders(page: Page, label: string) {
   const rail = page.locator('.lobby-sticky-filters');

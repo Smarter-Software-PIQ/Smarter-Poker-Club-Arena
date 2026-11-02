@@ -136,7 +136,7 @@ describe('the two shapes cannot disagree', () => {
 describe('the lobby holds no seventh copy of the rule', () => {
   it('both fetches and both realtime rules go through the module', () => {
     expect(code).toMatch(/applyClubScope\(tableQuery/);
-    expect(code).toMatch(/applyClubScope\(clubTournamentQuery/);
+    expect(code).toMatch(/applyClubScope\(query/);
     expect((code.match(/inClubScope\(row, rtScope\)/g) ?? []).length).toBe(2);
   });
 

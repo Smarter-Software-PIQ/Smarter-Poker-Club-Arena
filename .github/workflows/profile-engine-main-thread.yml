@@ -8,10 +8,12 @@ on:
       - 'scripts/ci/native-perf-install-controller.py'
       - 'scripts/ci/native-perf-install-stage.py'
       - 'scripts/ci/native-perf-install-provider.py'
+      - 'scripts/ci/native-perf-terminal-diagnostics.py'
       - 'scripts/ci/native-perf-install-profile.json'
       - 'tests/operations/native-perf-install.test.py'
       - 'tests/operations/native-perf-install-controller.test.py'
       - 'tests/operations/native-perf-install-provider.test.py'
+      - 'tests/operations/native-perf-terminal-diagnostics.test.py'
       - 'tests/operations/native-fault-observation.test.mjs'
       - 'tests/operations/engine-main-profile.test.mjs'
       - 'tests/fixtures/engine-native-fault/**'
@@ -56,7 +58,7 @@ jobs:
       - run: node --test tests/operations/engine-main-profile.test.mjs tests/operations/native-fault-observation.test.mjs
         env:
           TMPDIR: ${{ runner.temp }}
-      - run: python3 -B tests/operations/native-perf-install.test.py && python3 -B tests/operations/native-perf-install-controller.test.py && python3 -B tests/operations/native-perf-install-provider.test.py
+      - run: python3 -B tests/operations/native-perf-install.test.py && python3 -B tests/operations/native-perf-install-controller.test.py && python3 -B tests/operations/native-perf-install-provider.test.py && python3 -B tests/operations/native-perf-terminal-diagnostics.test.py
   native-perf-packages:
     name: Actual isolated Ubuntu24 perf package qualification
     if: github.event_name == 'pull_request'

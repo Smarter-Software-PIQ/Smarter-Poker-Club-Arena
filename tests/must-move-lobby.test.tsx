@@ -308,13 +308,21 @@ describe('the box in the corner', () => {
     /* The button exists and asks THIS table for its lobby over the bus - the
        strip cannot reach the felt's own state. */
     expect(page).toMatch(/className="mtp-lobby-btn"/);
+    /* Dan 2026-11-01: the SAME plate serves tournaments, so the emit branches
+       by the active tab's kind - must-move lobby for a cluster table, the
+       tournament lobby for a tournament tab. */
+    expect(page).toMatch(
+      /masterBus\.emit\('OPEN_TOURNAMENT_LOBBY', \{ tableId: activeTableId \}\)/
+    );
     expect(page).toMatch(/masterBus\.emit\('OPEN_MUST_MOVE_LOBBY', \{ tableId: activeTableId \}\)/);
-    /* Only a table that belongs to a must-move game has a lobby to open - and
-       never in TILE view (2026-09-06): the lobby is a child of the `.table-page`
-       root, which tile view scales to 0.5 and makes `pointer-events: none`, so
-       a button in this un-scaled strip opened a half-size modal inside one tile
+    /* A cluster table or a tournament tab has a lobby to open - and never in
+       TILE view (2026-09-06): the lobby is a child of the `.table-page` root,
+       which tile view scales to 0.5 and makes `pointer-events: none`, so a
+       button in this un-scaled strip opened a half-size modal inside one tile
        that could not be scrolled, clicked or closed. */
-    expect(page).toMatch(/\{activeClusterId && !isTileView && \(\s*<button/);
+    expect(page).toMatch(
+      /\{\(activeClusterId \|\| activeIsTournament\) && !isTileView && \(\s*<button/
+    );
 
     /* ── IT IS DAN'S ARTWORK NOW, NOT THE WORD (2026-09-07, item 2) ────────
        "I'VE ALSO DESIGNED THE LOBBY BUTTON, REPLACE THE GENERIC ONE WITH THE

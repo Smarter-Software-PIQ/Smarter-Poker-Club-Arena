@@ -133,7 +133,7 @@ CONTROL_CORE = {'engine-supervisor.sh','engine-up.sh','engine-release-protocol-v
 
 ROUTINE_REQUEST = {'mode': 'canonical_routine_owner', 'runKey': '41353218793-1',
                    'releaseSha': 'b4453ab6e58bced3a99d90dfe8312d7b70183c65'}
-ROUTINE_SCHEMA = 'canonical-routine-owner-observation/v1'
+ROUTINE_SCHEMA = 'canonical-routine-owner-observation/v2'
 ROUTINE_LIMITATION = 'observation-only-cleanup-and-retry-authority-unknown'
 
 
@@ -162,7 +162,7 @@ def routine_cycle_metadata(key, cycle):
     """Nonexecuting equivalent of the canonical cycle/window identity guards.
 
     This deliberately does not certify historical sealed result/native cleanup.
-    Only unresolved owner projections are returned to the existing audit mode.
+    Nonsealed cycles remain visible, including a separately recorded failed-custody disposition.
     """
     routine_require(isinstance(key, str) and re.fullmatch(r'[1-9][0-9]*', key) and
                     int(key) % 3600 == 0 and isinstance(cycle, dict))
@@ -206,6 +206,60 @@ def routine_result(value, cycle):
             'completedAt': value['completedAt']}
 
 
+
+def routine_failure_resolution(value, cycle, result, result_fd):
+    """Observe one saved disposition, never qualify cleanup or authorize retry.
+
+    The immutable private witness is selected only from canonical validated
+    verifier identity. An absent disposition leaves custody unresolved; an
+    unreadable or contradictory recorded disposition refuses the observation.
+    """
+    answer = {'present': False, 'sha256': None, 'receiptSha256': None,
+              'verifiedByRunId': None, 'controlSha': None, 'targetSha': None,
+              'invocationSha256': None, 'observedAt': None, 'cycleMatches': None,
+              'failureMatches': None, 'receiptMatches': None,
+              'noAnnouncementRecorded': None, 'databaseIdleRecorded': None}
+    if value is None:
+        return answer, None
+    routine_require(cycle['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and
+                    cycle['sha'] == cycle['controlSha'] == FAILED_CUSTODY_CONTROL and
+                    cycle['status'] == 'reserved' and cycle['startsAt'] == 1793570400 and
+                    cycle['endsAt'] == 1793570700 and cycle.get('window') is None and
+                    cycle['policyDigest'] == '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578' and
+                    cycle['kind'] == 'hourly-reset' and
+                    isinstance(cycle.get('failure'), dict) and
+                    routine_digest(cycle['failure']) == FAILED_CUSTODY_FAILURE and
+                    result == cycle['failure'])
+    routine_require(isinstance(value, dict) and set(value) == {
+        'schema', 'result', 'originalCycle', 'failureDigest', 'verifiedByRunId', 'controlSha',
+        'targetSha', 'invocationId', 'observedAt', 'proof'} and type(value['schema']) is int and
+        value['schema'] == 1 and value['result'] == 'failed-custody-resolved' and
+        value['originalCycle'] == cycle and value['failureDigest'] == FAILED_CUSTODY_FAILURE and
+        isinstance(value['verifiedByRunId'], str) and RUN.fullmatch(value['verifiedByRunId']) and
+        value['verifiedByRunId'] != FAILED_CUSTODY_REQUEST['runKey'] and
+        isinstance(value['controlSha'], str) and SHA.fullmatch(value['controlSha']) and
+        isinstance(value['targetSha'], str) and SHA.fullmatch(value['targetSha']) and
+        value['targetSha'] != FAILED_CUSTODY_CONTROL and
+        isinstance(value['invocationId'], str) and INVOCATION.fullmatch(value['invocationId']) and
+        type(value['observedAt']) is int and 1793569102 < value['observedAt'] < 4102444800)
+    proof = value['proof']
+    routine_require(isinstance(proof, dict) and proof.get('noAnnouncement') is True and
+                    proof.get('databaseIdle') is True)
+    # The shared private reader retains its original64KiB limit/no-follow,
+    # exact0600 ownership, duplicate-JSON and stable-file requirements.
+    name = (FAILED_CUSTODY_REQUEST['runKey'] + '.' + value['verifiedByRunId'] + '.' +
+            value['invocationId'] + '.custody-resolution.json')
+    metadata = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
+    receipt, raw = read_json(result_fd, name, private=True, with_bytes=True)
+    routine_require(receipt == value)
+    answer.update(present=True, sha256=routine_digest(value), receiptSha256=hashlib.sha256(raw).hexdigest(),
+                  verifiedByRunId=value['verifiedByRunId'], controlSha=value['controlSha'],
+                  targetSha=value['targetSha'], invocationSha256=hashlib.sha256(value['invocationId'].encode()).hexdigest(),
+                  observedAt=value['observedAt'], cycleMatches=True, failureMatches=True, receiptMatches=True,
+                  noAnnouncementRecorded=True, databaseIdleRecorded=True)
+    return answer, (name, metadata, raw)
+
+
 def routine_remote(request, root_fd):
     """Read only fixed canonical files with existing private stable-file reader.
 
@@ -227,7 +281,15 @@ def routine_remote(request, root_fd):
     routine_require(isinstance(desired, dict) and isinstance(desired.get('sha'), str) and SHA.fullmatch(desired['sha']) and
                     isinstance(desired.get('imageId'), str) and re.fullmatch(r'sha256:[0-9a-f]{64}', desired['imageId']))
     cycles, committed = state.get('routineMaintenanceCycles'), state.get('committedRuns')
-    routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict))
+    resolutions = state.get('routineFailureResolutions', {})
+    routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict) and
+                    isinstance(resolutions, dict) and not set(resolutions) - {FAILED_CUSTODY_REQUEST['runKey']} and
+                    all(isinstance(v, dict) for v in resolutions.values()))
+    if resolutions:
+        routine_require(sum(c.get('runId') == FAILED_CUSTODY_REQUEST['runKey']
+                            for c in cycles.values() if isinstance(c, dict)) == 1 and
+                        all(c.get('status') == 'reserved' for c in cycles.values()
+                            if isinstance(c, dict) and c.get('runId') in resolutions))
     owners = []
     for key, cycle in sorted(cycles.items()):
         row = routine_cycle_metadata(key, cycle)
@@ -254,6 +316,11 @@ def routine_remote(request, root_fd):
                        result=routine_result(result, cycle),
                        committed=routine_owner(None if cycle['runId'] not in committed else
                                                {'runId': cycle['runId'], **committed[cycle['runId']]}))
+            resolution, observation = routine_failure_resolution(resolutions.get(cycle['runId']), cycle, result, result_fd)
+            if resolution['present']:
+                routine_require(cycle['runId'] not in committed)
+            row.update(failureResolution=resolution, unresolvedOwner=not resolution['present'])
+            if observation is not None: observed.append(observation)
             observed.append((result_name, result_stat, result_raw))
         # Verify every observed/absent file and original canonical bytes again.
         for result_name, result_stat, result_raw in observed:
@@ -304,12 +371,38 @@ def validate_routine_reply(value, request):
             routine_require(all(owner[k] is None for k in ('sha256', 'runId', 'sha', 'imageId')))
     seen = set()
     for row in value['owners']:
-        routine_require(isinstance(row, dict) and set(row) == {'runId', 'sha', 'controlSha', 'policyId', 'policyDigest', 'kind', 'status', 'startsAt', 'endsAt', 'window', 'failurePresent', 'failureSha256', 'result', 'committed'})
+        routine_require(isinstance(row, dict) and set(row) == {'runId', 'sha', 'controlSha', 'policyId', 'policyDigest', 'kind', 'status', 'startsAt', 'endsAt', 'window', 'failurePresent', 'failureSha256', 'result', 'committed', 'failureResolution', 'unresolvedOwner'})
         routine_cycle_metadata(str(row['startsAt']), row)
         routine_require(row['status'] in {'reserved', 'committed'} and row['runId'] not in seen and
                         type(row['failurePresent']) is bool and hash_or_none(row['failureSha256']) and
                         row['failurePresent'] == (row['failureSha256'] is not None))
         seen.add(row['runId'])
+        resolution = row['failureResolution']
+        routine_require(isinstance(resolution, dict) and set(resolution) == {
+            'present', 'sha256', 'receiptSha256', 'verifiedByRunId', 'controlSha', 'targetSha',
+            'invocationSha256', 'observedAt', 'cycleMatches', 'failureMatches', 'receiptMatches',
+            'noAnnouncementRecorded', 'databaseIdleRecorded'} and
+            type(resolution['present']) is bool and type(row['unresolvedOwner']) is bool and
+            row['unresolvedOwner'] is (not resolution['present']))
+        if resolution['present']:
+            routine_require(row['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and
+                row['sha'] == row['controlSha'] == FAILED_CUSTODY_CONTROL and row['status'] == 'reserved' and
+                row['startsAt'] == 1793570400 and row['endsAt'] == 1793570700 and row['window'] is None and
+                row['policyDigest'] == '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578' and
+                row['kind'] == 'hourly-reset' and row['failureSha256'] == FAILED_CUSTODY_FAILURE and
+                row['committed']['present'] is False and
+                all(isinstance(resolution[k], str) and re.fullmatch('[0-9a-f]{64}', resolution[k])
+                    for k in ('sha256', 'receiptSha256', 'invocationSha256')) and
+                isinstance(resolution['verifiedByRunId'], str) and RUN.fullmatch(resolution['verifiedByRunId']) and
+                resolution['verifiedByRunId'] != FAILED_CUSTODY_REQUEST['runKey'] and
+                all(isinstance(resolution[k], str) and SHA.fullmatch(resolution[k]) for k in ('controlSha', 'targetSha')) and
+                resolution['targetSha'] != FAILED_CUSTODY_CONTROL and
+                type(resolution['observedAt']) is int and 1793569102 < resolution['observedAt'] < 4102444800 and
+                all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches',
+                    'noAnnouncementRecorded', 'databaseIdleRecorded')))
+        else:
+            routine_require(all(resolution[k] is None for k in resolution
+                                if k != 'present'))
         result = row['result']
         routine_require(isinstance(result, dict) and set(result) == {'present', 'sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt'} and type(result['present']) is bool)
         if result['present']:
@@ -321,6 +414,10 @@ def validate_routine_reply(value, request):
                             row['failurePresent'] == (result['cycleFailureMatches'] is not None))
         else:
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
+        if resolution['present']:
+            routine_require(result['present'] is True and result['sha256'] == FAILED_CUSTODY_FAILURE and
+                            result['outcome'] == 'failed' and result['identityMatches'] is True and
+                            result['cycleFailureMatches'] is True and result['completedAt'] == 1793569102)
     return value
 
 

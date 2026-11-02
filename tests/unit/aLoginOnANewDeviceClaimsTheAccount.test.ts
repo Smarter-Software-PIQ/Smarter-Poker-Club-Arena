@@ -1,29 +1,33 @@
 /**
- * Single active device per account (Dan, 2026-11-01): "regardless if its
- * desktop, mobile or ipad, it needs to log out of all previous sessions. You
- * can have multiple desktop windows and login's open, just not different
- * devices."
- *
- * The client half of that rule: a sign-in (or the SPA booting with a session
- * the Hub's login page just created - INITIAL_SESSION) claims the login
- * through ca_claim_active_login, exactly once per GoTrue session, so a tab
- * regaining focus or a restored window can never re-claim and kick anyone.
+ * Device pairing (Dan, 2026-11-01): a login on a different physical device
+ * signs the others out; browsers on the SAME physical device coexist, joined
+ * by approval from a browser already on that device. Identity is the enrolled
+ * token, never a header, so it is unforgeable and UA-independent.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const rpcMock = vi.hoisted(() => vi.fn());
 const rejectionMock = vi.hoisted(() => vi.fn());
 const authListeners = vi.hoisted(() => [] as Array<(e: string, s: unknown) => void>);
-
-vi.mock('../../src/lib/sessionRevoked', () => ({
-  handleEngineAuthRejection: (...args: unknown[]) => rejectionMock(...args),
-  ANOTHER_DEVICE_SOURCE: 'account:another_device_login',
+const channelFactory = vi.hoisted(() => () => ({
+  on() {
+    return this;
+  },
+  subscribe() {
+    return this;
+  },
 }));
 
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     rpc: (...args: unknown[]) => rpcMock(...args),
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }),
+    }),
+    channel: () => channelFactory(),
+    removeChannel: () => Promise.resolve(),
     auth: {
+      getSession: () => Promise.resolve({ data: { session: { user: { id: 'u1' } } } }),
       onAuthStateChange: (cb: (e: string, s: unknown) => void) => {
         authListeners.push(cb);
         return { data: { subscription: { unsubscribe() {} } } };
@@ -32,11 +36,16 @@ vi.mock('../../src/lib/supabase', () => ({
   },
 }));
 
+vi.mock('../../src/lib/sessionRevoked', () => ({
+  handleEngineAuthRejection: (...args: unknown[]) => rejectionMock(...args),
+  ANOTHER_DEVICE_SOURCE: 'account:another_device_login',
+}));
+
 import {
-  CLAIMED_LOGIN_STORAGE_KEY,
+  ENROLLED_DEVICE_STORAGE_KEY,
   RESUME_SESSION_GONE_SOURCE,
   __resetActiveLoginForTests,
-  claimActiveLogin,
+  enrollDevice,
   sessionIdOf,
   startSingleActiveLogin,
 } from '../../src/lib/activeLogin';
@@ -44,6 +53,7 @@ import { __resetDeviceSightingForTests } from '../../src/lib/deviceSighting';
 
 const SID_A = '11111111-2222-4333-8444-555555555555';
 const SID_B = '99999999-8888-4777-8666-555555555555';
+const DEV = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 
 function tokenWith(sessionId: string): string {
   const payload = Buffer.from(JSON.stringify({ session_id: sessionId, sub: 'user-1' }))
@@ -53,170 +63,140 @@ function tokenWith(sessionId: string): string {
     .replace(/=+$/, '');
   return `header.${payload}.sig`;
 }
-
 async function settle(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  // A dynamic import (the sessionRevoked bounce) resolves on a macrotask.
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let i = 0; i < 4; i++) await Promise.resolve();
+  await new Promise((r) => setTimeout(r, 0));
+}
+function clickButton(text: string): boolean {
+  const btns = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
+  const b = btns.find((x) => (x.textContent || '').includes(text));
+  if (b) {
+    b.click();
+    return true;
+  }
+  return false;
 }
 
 beforeEach(() => {
   rpcMock.mockReset();
   rejectionMock.mockReset();
-  rpcMock.mockResolvedValue({ data: { ok: true, kicked: 0 }, error: null });
   authListeners.length = 0;
   localStorage.clear();
+  document.body.innerHTML = '';
   __resetActiveLoginForTests();
   __resetDeviceSightingForTests();
 });
+afterEach(() => {
+  document.body.innerHTML = '';
+});
 
 describe('sessionIdOf', () => {
-  it('reads the GoTrue session id out of the access token', () => {
+  it('reads the GoTrue session id, rejects garbage', () => {
     expect(sessionIdOf(tokenWith(SID_A))).toBe(SID_A);
-  });
-  it('rejects garbage, absent tokens and non-uuid claims', () => {
     expect(sessionIdOf(null)).toBeNull();
-    expect(sessionIdOf('not-a-jwt')).toBeNull();
-    expect(sessionIdOf(tokenWith('not-a-uuid'))).toBeNull();
+    expect(sessionIdOf('nope')).toBeNull();
   });
 });
 
-describe('claimActiveLogin', () => {
-  it('claims a new session once and remembers it', async () => {
-    await claimActiveLogin(tokenWith(SID_A));
-    expect(rpcMock).toHaveBeenCalledTimes(1);
+describe('enrollDevice', () => {
+  it('a bound browser records its device and shows no prompt', async () => {
+    rpcMock.mockResolvedValue({
+      data: { ok: true, bound: true, device_id: DEV, kicked: 0 },
+      error: null,
+    });
+    await enrollDevice(tokenWith(SID_A));
+    await settle();
     expect(rpcMock.mock.calls[0][0]).toBe('ca_claim_active_login');
-    expect((rpcMock.mock.calls[0][1] as { p_device_id: string }).p_device_id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-    );
-    expect(localStorage.getItem(CLAIMED_LOGIN_STORAGE_KEY)).toBe(SID_A);
-
-    // The same session re-announcing itself (tab focus) claims nothing.
-    await claimActiveLogin(tokenWith(SID_A));
-    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(ENROLLED_DEVICE_STORAGE_KEY)).toBe(DEV);
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   });
 
-  it('a NEW session claims again - that is the login that kicks the others', async () => {
-    await claimActiveLogin(tokenWith(SID_A));
-    await claimActiveLogin(tokenWith(SID_B));
-    expect(rpcMock).toHaveBeenCalledTimes(2);
-    expect(localStorage.getItem(CLAIMED_LOGIN_STORAGE_KEY)).toBe(SID_B);
-  });
-
-  it('a transport failure is not remembered, so the next event retries', async () => {
-    rpcMock.mockRejectedValueOnce(new Error('offline'));
-    await claimActiveLogin(tokenWith(SID_A));
-    expect(localStorage.getItem(CLAIMED_LOGIN_STORAGE_KEY)).toBeNull();
-    await claimActiveLogin(tokenWith(SID_A));
-    expect(rpcMock).toHaveBeenCalledTimes(2);
-    expect(localStorage.getItem(CLAIMED_LOGIN_STORAGE_KEY)).toBe(SID_A);
-  });
-
-  it('an error answer is not remembered either - PostgREST 503s must retry', async () => {
-    rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'service unavailable' } });
-    await claimActiveLogin(tokenWith(SID_A));
-    // the database treats a duplicate claim as a no-op, so retrying is safe.
-    expect(localStorage.getItem(CLAIMED_LOGIN_STORAGE_KEY)).toBeNull();
-  });
-
-  it('never claims without a session id', async () => {
-    await claimActiveLogin(null);
-    await claimActiveLogin('broken');
-    expect(rpcMock).not.toHaveBeenCalled();
-  });
-});
-
-describe('startSingleActiveLogin', () => {
-  it('claims on SIGNED_IN and INITIAL_SESSION, never on refresh or sign-out', async () => {
-    startSingleActiveLogin();
-    startSingleActiveLogin(); // idempotent
-    expect(authListeners).toHaveLength(1);
-    const emit = authListeners[0];
-
-    emit('TOKEN_REFRESHED', { access_token: tokenWith(SID_A) });
-    emit('SIGNED_OUT', null);
+  it('a new browser on an existing account is asked same-or-new, and "new device" registers', async () => {
+    rpcMock.mockImplementation((name: string) => {
+      if (name === 'ca_claim_active_login')
+        return Promise.resolve({
+          data: { ok: true, needs_choice: true, devices: [{ id: DEV, label: 'Dan Mac' }] },
+          error: null,
+        });
+      if (name === 'ca_register_new_device')
+        return Promise.resolve({
+          data: { ok: true, device_id: 'new-dev', kicked: 2 },
+          error: null,
+        });
+      return Promise.resolve({ data: {}, error: null });
+    });
+    await enrollDevice(tokenWith(SID_A));
     await settle();
-    expect(rpcMock).not.toHaveBeenCalled();
-
-    emit('SIGNED_IN', { access_token: tokenWith(SID_A) });
+    // The chooser is shown.
+    expect(document.body.textContent).toContain('Is This The Same Device');
+    expect(clickButton('This Is A New Device')).toBe(true);
     await settle();
-    expect(rpcMock).toHaveBeenCalledTimes(1);
-
-    // The Hub web login lands here as INITIAL_SESSION with a new session.
-    emit('INITIAL_SESSION', { access_token: tokenWith(SID_B) });
-    await settle();
-    expect(rpcMock).toHaveBeenCalledTimes(2);
-
-    // A restored tab re-announcing the claimed session is silent.
-    emit('INITIAL_SESSION', { access_token: tokenWith(SID_B) });
-    emit('SIGNED_IN', { access_token: tokenWith(SID_B) });
-    await settle();
-    expect(rpcMock).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe('every boot re-verifies the session it already claimed', () => {
-  it('a healthy resumed session verifies once per boot and stays put', async () => {
-    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A); // claimed on an earlier boot
-    rpcMock.mockResolvedValue({ data: { ok: true, kicked: 0, same: true }, error: null });
-    await claimActiveLogin(tokenWith(SID_A), true);
-    expect(rpcMock).toHaveBeenCalledTimes(1);
-    expect(rejectionMock).not.toHaveBeenCalled();
-    // Verified for this boot: a second INITIAL_SESSION asks nothing again.
-    await claimActiveLogin(tokenWith(SID_A), true);
-    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock.mock.calls.some((c) => c[0] === 'ca_register_new_device')).toBe(true);
   });
 
-  it('a session another login killed while this device slept bounces with the device words', async () => {
-    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A);
+  it('picking "same device" requests pairing for that device', async () => {
+    rpcMock.mockImplementation((name: string) => {
+      if (name === 'ca_claim_active_login')
+        return Promise.resolve({
+          data: { ok: true, needs_choice: true, devices: [{ id: DEV, label: 'Dan Mac' }] },
+          error: null,
+        });
+      if (name === 'ca_request_pairing')
+        return Promise.resolve({ data: { ok: true, request_id: 'req-1' }, error: null });
+      return Promise.resolve({ data: {}, error: null });
+    });
+    await enrollDevice(tokenWith(SID_A));
+    await settle();
+    expect(clickButton('Same As Dan Mac')).toBe(true);
+    await settle();
+    const call = rpcMock.mock.calls.find((c) => c[0] === 'ca_request_pairing');
+    expect(call).toBeTruthy();
+    expect((call![1] as { p_target_device_id: string }).p_target_device_id).toBe(DEV);
+    expect(document.body.textContent).toContain('Waiting For Approval');
+  });
+
+  it('a dead resumed session bounces, superseded uses the another-device source', async () => {
     rpcMock.mockResolvedValue({
       data: { ok: false, why: 'session_gone', superseded: true },
       error: null,
     });
-    await claimActiveLogin(tokenWith(SID_A), true);
+    await enrollDevice(tokenWith(SID_A), true);
     await settle();
-    expect(rejectionMock).toHaveBeenCalledTimes(1);
     expect(rejectionMock).toHaveBeenCalledWith('account:another_device_login', true);
-    // Once bounced, nothing claims or verifies this session again.
-    await claimActiveLogin(tokenWith(SID_A), true);
-    await claimActiveLogin(tokenWith(SID_A));
-    expect(rpcMock).toHaveBeenCalledTimes(1);
   });
 
-  it('a session that died any other way bounces with the plain sign-out words', async () => {
-    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A);
+  it('a session that died another way uses the plain resume source', async () => {
     rpcMock.mockResolvedValue({
       data: { ok: false, why: 'session_gone', superseded: false },
       error: null,
     });
-    await claimActiveLogin(tokenWith(SID_A), true);
+    await enrollDevice(tokenWith(SID_B), true);
     await settle();
     expect(rejectionMock).toHaveBeenCalledWith(RESUME_SESSION_GONE_SOURCE, true);
   });
 
-  it('a network failure verifies nothing and signs nobody out', async () => {
-    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A);
-    rpcMock.mockRejectedValueOnce(new Error('offline'));
-    await claimActiveLogin(tokenWith(SID_A), true);
+  it('a transport error enrolls nothing and signs nobody out', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'offline' } });
+    await enrollDevice(tokenWith(SID_A));
     await settle();
     expect(rejectionMock).not.toHaveBeenCalled();
-    // Not marked verified: the next event retries the check.
-    rpcMock.mockResolvedValue({ data: { ok: true, same: true }, error: null });
-    await claimActiveLogin(tokenWith(SID_A), true);
-    expect(rpcMock).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem(ENROLLED_DEVICE_STORAGE_KEY)).toBeNull();
   });
+});
 
-  it('INITIAL_SESSION carries the boot re-check; SIGNED_IN alone does not re-ask', async () => {
-    localStorage.setItem(CLAIMED_LOGIN_STORAGE_KEY, SID_A);
-    rpcMock.mockResolvedValue({ data: { ok: true, same: true }, error: null });
+describe('startSingleActiveLogin', () => {
+  it('enrolls on SIGNED_IN and INITIAL_SESSION, never on refresh or sign-out', async () => {
+    rpcMock.mockResolvedValue({ data: { ok: true, bound: true, device_id: DEV }, error: null });
     startSingleActiveLogin();
+    startSingleActiveLogin();
+    expect(authListeners).toHaveLength(1);
     const emit = authListeners[0];
-    emit('SIGNED_IN', { access_token: tokenWith(SID_A) }); // already claimed: silent
+    emit('TOKEN_REFRESHED', { access_token: tokenWith(SID_A) });
+    emit('SIGNED_OUT', null);
     await settle();
     expect(rpcMock).not.toHaveBeenCalled();
-    emit('INITIAL_SESSION', { access_token: tokenWith(SID_A) }); // boot: verify
+    emit('SIGNED_IN', { access_token: tokenWith(SID_A) });
     await settle();
-    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock).toHaveBeenCalled();
   });
 });

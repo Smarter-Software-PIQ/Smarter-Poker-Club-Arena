@@ -71,7 +71,7 @@ describe('the client asks for the union too, on both queries', () => {
     // by club and one by union. That asymmetry against the single-query table
     // path is exactly what let the union branch go missing from the
     // tournament side, so the shape is now identical for both.
-    expect(clubHome).toMatch(/applyClubScope\(clubTournamentQuery/);
+    expect(clubHome).toMatch(/applyClubScope\(query/);
     expect(clubHome).toMatch(/applyClubScope\(tableQuery/);
   });
 
