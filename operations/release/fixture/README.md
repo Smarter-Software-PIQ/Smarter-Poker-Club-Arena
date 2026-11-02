@@ -956,3 +956,21 @@ must match; probe objects and the temporary role must be absent. Background
 storage estimates and freeze horizons are excluded from this logical metadata
 comparison. Full restored-catalogue/role parity and connected cases remain
 separate mandatory proof.
+
+### Bounded native type-name reads
+
+Capture24 passed catalogue capture but exhausted the fixed native dump deadline.
+Its closed diagnostics recorded105 individual type-name requests totaling8.278302
+seconds. The pinned reader now gathers at most128 distinct type OIDs from the
+current selected function or aggregate and later selected signatures, including
+the current requested OID. It sends the original per-OID format_type queries in
+one drained request and populates only PostgreSQL's existing TypeInfo name cache.
+Stock rendering order, zero-OID options and unknown-OID fallbacks remain intact.
+
+Each result is validated and cleared immediately under the remaining shared
+128-result/128MiB allowance; this adds no fourth retained-result cache. The
+source-bound v5 capability requires the new helper hash,129 native type-name
+fixtures, complete stock SQL equality, compiled request-count regression and
+mixed-cache bounds. Existing function, sequence, view, diagnostic and cleanup
+requirements remain mandatory. This source change does not establish a completed
+production capture, full-schema restore, connected UI pass or live behavior.
