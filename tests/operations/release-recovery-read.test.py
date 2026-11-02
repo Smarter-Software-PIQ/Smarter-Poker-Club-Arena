@@ -17,6 +17,27 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def pinned_source_bytes(name):
+    """Bytes of a retained diagnostic source exactly as the reader pins them.
+
+    A retained refusal is read from the generation that wrote it, so the pin
+    names historical bytes. The current file is used when it still matches;
+    otherwise the pinned revision is recovered from this checkout's history.
+    """
+    want = R.RETAINED_REFUSAL_SOURCES[name]
+    rel = f'server/scripts/{name}'
+    current = (ROOT / rel).read_bytes()
+    if hashlib.sha256(current).hexdigest() == want:
+        return current
+    revisions = subprocess.run(['git', '-C', str(ROOT), 'log', '--format=%H', '--', rel],
+                               check=True, capture_output=True, text=True).stdout.split()
+    for revision in revisions:
+        shown = subprocess.run(['git', '-C', str(ROOT), 'show', f'{revision}:{rel}'], capture_output=True)
+        if shown.returncode == 0 and hashlib.sha256(shown.stdout).hexdigest() == want:
+            return shown.stdout
+    raise AssertionError(f'pinned bytes for {name} are not in this checkout history')
 SPEC = importlib.util.spec_from_file_location('reader', ROOT / 'scripts/ci/read-scoped-release-recovery.py')
 R = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(R)
@@ -44,7 +65,7 @@ class RetainedFirstRefusalTests(unittest.TestCase):
         self.generation=self.generations/self.control
         self.generation.mkdir(parents=True,mode=0o700)
         for name in R.RETAINED_REFUSAL_SOURCES:
-            (self.generation/name).write_bytes((ROOT/'server/scripts'/name).read_bytes())
+            (self.generation/name).write_bytes(pinned_source_bytes(name))
         self.requests=self.root/'engine-release-requests';self.requests.mkdir(mode=0o700)
         self.pins=self.root/'engine-release-generation-pins';self.pins.mkdir(mode=0o700)
         self.request={'mode':'retained_first_refusal','runKey':'123-1','releaseSha':'a'*40,'controlSha':self.control}
