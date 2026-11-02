@@ -3079,6 +3079,15 @@ function LiveTablePage({
          clears it in revert(). The time bound is the last resort, and a turn
          still withheld when it passes is delivered by the release timer. */
       const snapHand = mapped.handNumber > 0 ? mapped.handNumber : prev.handNumber;
+      const freshTurnClock =
+        sameHand ||
+        (prev.handNumber ?? 0) <= 0 ||
+        (mapped.actionTimerStartTime !== undefined &&
+          mapped.actionTimerStartTime > 0 &&
+          mapped.actionTimerStartTime !== prev.actionTimerStartTime &&
+          (mapped.actionTimerDeadline === undefined || mapped.actionTimerDeadline > serverNow()));
+      const nextActionTimerDeadline = freshTurnClock ? mapped.actionTimerDeadline : undefined;
+      const nextActionTimerStartTime = freshTurnClock ? mapped.actionTimerStartTime : undefined;
       const fenceVerdict = judgeSnapshotAgainstFence(
         heroActedFenceRef.current,
         {
@@ -3202,7 +3211,9 @@ function LiveTablePage({
           prev.currentPlayerSeat === nextCurrentSeat &&
           prev.boardStage === nextStage &&
           prev.currentBet === mapped.currentBet &&
-          mapped.isTimeBankActive
+          (mapped.isTimeBankActive ||
+            (mapped.actionTimerStartTime !== undefined &&
+              mapped.actionTimerStartTime === prev.actionTimerStartTime))
             ? prev.actionContext
             : undefined),
         players: nextPlayers,
@@ -3231,12 +3242,12 @@ function LiveTablePage({
             .map((seat) => prev.players[seat - 1]?.name)
             .filter((n): n is string => typeof n === 'string'),
         })) as SidePot[],
-        actionTimerDeadline: mapped.actionTimerDeadline,
+        actionTimerDeadline: nextActionTimerDeadline,
         discardDeadline: mapped.discardDeadline ?? null,
         discardDurationMs: mapped.discardDurationMs ?? 0,
-        actionTimerStartTime: mapped.actionTimerStartTime,
+        actionTimerStartTime: nextActionTimerStartTime,
         actionTimerPlayerId: mapped.actionTimerPlayerId,
-        isTimeBankActive: mapped.isTimeBankActive,
+        isTimeBankActive: freshTurnClock ? mapped.isTimeBankActive : false,
         isHandInProgress:
           mapped.boardStage !== 'waiting' &&
           (mapped.handNumber > 0 || mapped.players.some((p) => p !== null)),
@@ -7536,22 +7547,63 @@ function LiveTablePage({
     ) {
       return;
     }
-    let attempts = 0;
-    const maxAttempts = 6;
+    let cancelled = false;
+    let httpInFlight = false;
+    const applyLiveTurnState = (raw: Record<string, unknown> | null) => {
+      if (cancelled || !raw || typeof raw !== 'object' || !userId) return;
+      const mapped = mapEngineSnapshot(
+        raw as unknown as Parameters<typeof mapEngineSnapshot>[0],
+        userId,
+        tableStateRef.current.maxPlayers
+      );
+      if (!mapped.actionContext || mapped.handNumber <= 0 || mapped.currentPlayerSeat <= 0) {
+        return;
+      }
+      setTableState((prev) => {
+        if (
+          prev.handNumber !== mapped.handNumber ||
+          prev.currentPlayerSeat !== mapped.currentPlayerSeat ||
+          prev.boardStage !== mapped.boardStage
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          actionContext: mapped.actionContext,
+          actionTimerDeadline: mapped.actionTimerDeadline ?? prev.actionTimerDeadline,
+          actionTimerStartTime: mapped.actionTimerStartTime ?? prev.actionTimerStartTime,
+          actionTimerPlayerId: mapped.actionTimerPlayerId ?? prev.actionTimerPlayerId,
+          currentBet: mapped.currentBet,
+          minRaise: mapped.minRaise,
+          lastRaise: mapped.lastRaise,
+          bettingStructure: mapped.bettingStructure ?? prev.bettingStructure,
+          fixedBetSize: mapped.fixedBetSize ?? prev.fixedBetSize,
+          fixedRaiseSize: mapped.fixedRaiseSize ?? prev.fixedRaiseSize,
+          potLimitPot: mapped.potLimitPot ?? prev.potLimitPot,
+          wagersCapped: mapped.wagersCapped ?? prev.wagersCapped,
+        };
+      });
+    };
     const requestMissingDecision = () => {
-      if (attempts >= maxAttempts) return;
-      attempts += 1;
+      if (cancelled) return;
       requestEngineSnapshot();
+      if (tableId && userId && !httpInFlight) {
+        httpInFlight = true;
+        void GameServerAPI.getTableState(tableId)
+          .then((live) => {
+            applyLiveTurnState(live);
+          })
+          .finally(() => {
+            httpInFlight = false;
+          });
+      }
     };
     const initialTimer = window.setTimeout(requestMissingDecision, 120);
     const retryInterval = window.setInterval(() => {
-      if (attempts >= maxAttempts) {
-        window.clearInterval(retryInterval);
-        return;
-      }
       requestMissingDecision();
     }, 350);
     return () => {
+      cancelled = true;
       window.clearTimeout(initialTimer);
       window.clearInterval(retryInterval);
     };
@@ -7560,6 +7612,8 @@ function LiveTablePage({
     heroDecisionReady,
     lightningRoom,
     engineWsStatus,
+    tableId,
+    userId,
     tableState.handNumber,
     tableState.boardStage,
     tableState.currentPlayerSeat,
@@ -18994,6 +19048,11 @@ function LiveTablePage({
             communityCards3: [],
             boardStage: 'preflop',
             engineStage: 'preflop',
+            actionContext: undefined,
+            actionTimerDeadline: undefined,
+            actionTimerStartTime: undefined,
+            actionTimerPlayerId: undefined,
+            isTimeBankActive: false,
           };
         });
         // Flush any private hole_cards USER_EVENT frame that arrived ahead of
@@ -19206,6 +19265,8 @@ function LiveTablePage({
         const newSeat = (evt.data as any).seat as number;
         if (typeof newSeat === 'number' && newSeat > 0) {
           const actionContext = (evt.data as { action_context?: string }).action_context;
+          const deadlineMs = Number((evt.data as { deadline_ms?: unknown }).deadline_ms);
+          const timestampMs = Number((evt.data as { timestamp?: unknown }).timestamp);
           setTableState((prev) => {
             /* THE SAME FENCE THE SNAPSHOT USES (2026-09-09). `heroActedFence`
                exists so a frame generated BEFORE the engine saw the hero's
@@ -19236,7 +19297,25 @@ function LiveTablePage({
             );
             heroActedFenceRef.current = verdict.fence;
             if (!verdict.accept) return prev;
-            return { ...prev, currentPlayerSeat: newSeat, actionContext };
+            const resolvedActionContext =
+              typeof actionContext === 'string' && actionContext.length > 0
+                ? actionContext
+                : prev.currentPlayerSeat === newSeat
+                  ? prev.actionContext
+                  : undefined;
+            return {
+              ...prev,
+              currentPlayerSeat: newSeat,
+              actionContext: resolvedActionContext,
+              actionTimerDeadline:
+                Number.isFinite(deadlineMs) && deadlineMs > 0
+                  ? deadlineMs
+                  : prev.actionTimerDeadline,
+              actionTimerStartTime:
+                Number.isFinite(timestampMs) && timestampMs > 0
+                  ? timestampMs
+                  : prev.actionTimerStartTime,
+            };
           });
           // Bible V8 §5.4: medium haptic when it's hero's turn
           const heroSeat = resolveHeroSeat();
@@ -24555,7 +24634,12 @@ function LiveTablePage({
         (timeBankUnlimited || (timeBanksRemaining ?? 0) > 0)
       ) {
         const request = captureTimeBankRequest();
-        if (!request.mayDispatch) return;
+        if (
+          !request.mayDispatch ||
+          (!lightningRoomRef.current && !tableStateRef.current.actionContext)
+        ) {
+          return;
+        }
         if (!lightningRoomRef.current) setTimeBankActive(true);
         // 2026-08-20: this was a `.catch(...)` that could NEVER run.
         // GameServerAPI.activateTimeBank does not throw: every failure

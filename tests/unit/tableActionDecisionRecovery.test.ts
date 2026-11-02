@@ -184,7 +184,44 @@ describe('authoritative decision readiness', () => {
   it('preserves already-retained actionContext across mid-turn TIME_BANK_ACTIVATED snapshots and requests bounded RESYNC when a turn arrives with withheld action_context', () => {
     expect(page).toContain('prev.currentBet === mapped.currentBet &&');
     expect(page).toContain('mapped.isTimeBankActive');
+    expect(page).toContain('mapped.actionTimerStartTime === prev.actionTimerStartTime');
     expect(page).toContain('const requestMissingDecision = () => {');
     expect(page).toContain('requestEngineSnapshot();');
+    expect(page).toContain('GameServerAPI.getTableState(tableId)');
+  });
+
+  it('clears the previous hand turn clock on HAND_STARTED and blocks stale previous-hand deadlines from auto-spending UTG time bank before UTG decision is ready', () => {
+    const handStarted = page.slice(
+      page.indexOf("case 'HAND_STARTED': {"),
+      page.indexOf("case 'BOMB_POT_TRIGGERED': {")
+    );
+    expect(handStarted).toContain('actionContext: undefined,');
+    expect(handStarted).toContain('actionTimerDeadline: undefined,');
+    expect(handStarted).toContain('actionTimerStartTime: undefined,');
+    expect(handStarted).toContain('isTimeBankActive: false,');
+
+    expect(page).toContain('const freshTurnClock =');
+    expect(page).toContain('mapped.actionTimerStartTime !== prev.actionTimerStartTime');
+    expect(page).toContain('actionTimerDeadline: nextActionTimerDeadline,');
+    expect(page).toContain('actionTimerStartTime: nextActionTimerStartTime,');
+
+    const timerBlock = page.slice(
+      page.indexOf('const { clock: actionClock'),
+      page.indexOf('const { clock: actionClock') + 1900
+    );
+    expect(timerBlock).toContain(
+      '(!lightningRoomRef.current && !tableStateRef.current.actionContext)'
+    );
+  });
+
+  it('preserves same-seat actionContext and adopts deadline_ms when TURN_CHANGE arrives without a decision token', () => {
+    const turnChange = page.slice(
+      page.indexOf("case 'TURN_CHANGE': {"),
+      page.indexOf("case 'TIMER_COUNTDOWN': {")
+    );
+    expect(turnChange).toContain('const resolvedActionContext =');
+    expect(turnChange).toContain('prev.currentPlayerSeat === newSeat');
+    expect(turnChange).toContain('actionContext: resolvedActionContext,');
+    expect(turnChange).toContain('Number.isFinite(deadlineMs) && deadlineMs > 0');
   });
 });
