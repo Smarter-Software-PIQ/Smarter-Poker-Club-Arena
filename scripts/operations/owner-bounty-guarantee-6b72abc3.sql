@@ -3,7 +3,7 @@
 -- Keeps the 5000 combined guarantee, 950 bounties and 380 rake unchanged.
 -- Reuses the existing reversal journal, escrow primitive and original bank.
 -- Preserves every paid place; refuses pending obligations or terminal preparation.
--- Install the receipt-bound guard migration and normalized display client first.
+-- Install the receipt-bound guard migration first. Client publication follows the emergency financial correction.
 -- Requires combined-guarantee source installed before use. Never changes triggers.
 BEGIN;
 SET LOCAL lock_timeout='1s';
@@ -20,7 +20,7 @@ DECLARE
  new_ladder jsonb; new_structure jsonb; after_row jsonb; derived jsonb;
  roster jsonb; r record;
 BEGIN
- IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20261102043648') THEN
+ IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20261102051957') THEN
    RAISE EXCEPTION 'combined guarantee source must be installed before correction';
  END IF;
  PERFORM public.fn_ca_lock_settlement_lane_for_tournament(t);

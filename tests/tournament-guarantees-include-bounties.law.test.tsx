@@ -155,7 +155,7 @@ describe('The guarantee includes bounties, never rake', () => {
   });
   it('patches funding and settlement guards together and is exercised in required CI', () => {
     const sql = readFileSync(
-      'supabase/migrations/20261102043648_tournament_guarantees_include_funded_bounties.sql',
+      'supabase/migrations/20261102051957_tournament_guarantees_include_funded_bounties.sql',
       'utf8'
     );
     for (const name of [

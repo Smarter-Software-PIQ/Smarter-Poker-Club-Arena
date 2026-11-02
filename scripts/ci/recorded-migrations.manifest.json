@@ -2101,6 +2101,30 @@
       "issue": "Applied directly through the Supabase MCP on 2026-10-31 during the owner-directed platform-health programme (owner: 'YOU HAVE PERMISSION AND FULL ACCESS TO THE SUPABASE. STOP ASKING ME AND GET IT DONE') while false 'Tables Have Stopped Dealing' owner pages, an unbounded maintenance blind spot and mis-classified Production Alerts were live; this byte-exact recording is the committed next step required by PUBLISHING.md.",
       "refusedBy": [],
       "liveVerdict": "supabase_migrations.schema_migrations holds version 20261031203954 with md5(array_to_string(statements, chr(10))) 6a668f1d52c466b0cb2d6b47146a0b35, equal to public.fn_ca_migration_text('20261031203954') and to this file (1943 bytes). Already installed; nothing is replayed."
+    },
+    {
+      "version": "20261102051957",
+      "name": "tournament_guarantees_include_funded_bounties",
+      "file": "supabase/migrations/20261102051957_tournament_guarantees_include_funded_bounties.sql",
+      "md5": "5a0096b3b5cbc15ea3c0f4487dd46c69",
+      "appliedToProductionAt": "2026-11-02T05:19:57Z",
+      "recoveredOn": "2026-11-02",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9292",
+      "refusedBy": [],
+      "liveVerdict": "Active incorrect live tournament payouts required emergency source installation under PUBLISHING.md. Exact migration history recovered; no player financial records changed by this source migration. Public aggregate RPC enforces private-event membership and excludes player identities."
+    },
+    {
+      "version": "20261102052012",
+      "name": "receipt_bound_owner_bounty_correction_admission",
+      "file": "supabase/migrations/20261102052012_receipt_bound_owner_bounty_correction_admission.sql",
+      "md5": "078820dfdffb273133502d1f6ca285bf",
+      "appliedToProductionAt": "2026-11-02T05:21:00Z",
+      "recoveredOn": "2026-11-02",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9292",
+      "refusedBy": [],
+      "liveVerdict": "Active incorrect tournament payouts: exact-event receipt-bound guard admission installed through documented emergency exception. Existing trigger enabled states and other guard behavior preserved; no financial operation executed by migration."
     }
   ]
 }

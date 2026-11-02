@@ -2,7 +2,7 @@
 CREATE ROLE postgres SUPERUSER;
 CREATE SCHEMA supabase_migrations;
 CREATE TABLE supabase_migrations.schema_migrations(version text);
-INSERT INTO supabase_migrations.schema_migrations VALUES('20261102043648');
+INSERT INTO supabase_migrations.schema_migrations VALUES('20261102051957');
 ALTER FUNCTION public.trg_freeze_finalized_tournament_prize_pool() OWNER TO postgres;
 CREATE TABLE public.tournament_entry_close_receipts(tournament_id uuid,final_prize_pool numeric,payout_structure_snapshot jsonb,reprice_completed_at timestamptz,updated_at timestamptz);
 CREATE TABLE public.tournament_satellite_settlement_batches(tournament_id uuid);
