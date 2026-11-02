@@ -134,7 +134,7 @@ with tempfile.TemporaryDirectory(prefix='fb-',dir=BASE) as folder:
    ('d6180536-0d0c-4024-bd3d-ddeb3d5c7e66','financial_alerts:union_accounting_scheduler',{'scope_kind':'union','scope_id':scope[3],'result':{'error':'weekly_scope_statement_budget_exhausted'},'alert_id':'20b37a4b-8d9b-4207-8d5c-af8ee169a484'})]
   for new_id,new_source,new_metadata in new_incidents:
    metadata_literal=json.dumps(new_metadata).replace("'","''")
-   run(q,f"INSERT INTO ca_drift_incidents(id,detected_at,deadline_at,classification,severity,layer,status,source,dedupe_key,ledger_balanced,metadata) VALUES('{new_id}',now()-interval '10 minutes',now()+interval '1 hour','unknown','warning','unknown','open','{new_source}','{new_id}',NULL,'{metadata_literal}');")
+   run(q,f"INSERT INTO ca_drift_incidents(id,detected_at,deadline_at,classification,severity,layer,status,source,dedupe_key,ledger_balanced,metadata) VALUES('{new_id}',GREATEST(public.fn_union_week_start(now()),now()-interval '10 minutes'),now()+interval '1 hour','unknown','warning','unknown','open','{new_source}','{new_id}',NULL,'{metadata_literal}');")
    mirrors=[('drift_incident:'+new_source,dict(new_metadata,incident_id=new_id))]
    if 'alert_id' in new_metadata:mirrors.insert(0,(new_source.removeprefix('financial_alerts:'),new_metadata))
    for source_index,(mirror_source,mirror_context) in enumerate(mirrors):
