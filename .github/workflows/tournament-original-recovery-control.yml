@@ -20,7 +20,7 @@ on:
           ]
         required: true
       tournament_id:
-        description: Fixed reviewed170 for equal-share; historical abort settlement remains other69 only
+        description: Exact reviewed170 or Nov1 frozen24 for equal-share; historical abort settlement remains other69 only
         type: string
         required: true
       nonce:

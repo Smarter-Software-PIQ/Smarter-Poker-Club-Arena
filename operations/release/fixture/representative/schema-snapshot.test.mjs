@@ -6,7 +6,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress, catalogueFailureKind, catalogueDiagnostics, safeCatalogueDiagnostic, captureRoleCatalogue } from '../schema-snapshot.mjs';
-import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite, schemaCompositionMismatchWitness } from '../schema-compose.mjs';
+import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite, schemaCompositionMismatchWitness, schemaCompositionMissingWitness } from '../schema-compose.mjs';
 import { schemaCatalogue, schemaCataloguePayload } from '../../native/component-semantic-observations.mjs';
 import { APPLICATION_TRIGGER_WITNESSES } from '../schema-application-hooks.mjs';
 
@@ -779,4 +779,111 @@ test('mismatch witness caps rows, preserves native ordinal and uses closed unkno
   }
   assert.equal(schemaCompositionFailureSite(ownerError), 'NATIVE_OWNER_DIFFERENT');
   assert.equal(schemaCompositionMismatchWitness(ownerError), null);
+});
+
+
+// PostgreSQL 17.11 pg_backup_archiver emits this 73-byte stream transition
+// before the first table header, after whichever function sorts last. The
+// source-owning qualification also captures both arrangements with real pg_dump.
+const archiveTableSetup = `SET default_tablespace = '';
+
+SET default_table_access_method = "heap";
+
+`;
+test('pg_dump table setup is an ordered stream transition, never preceding function identity', () => {
+  assert.equal(Buffer.byteLength(archiveTableSetup), 73);
+  const table = object('native_table', 'auth', 'CREATE TABLE auth.native_table(id integer);', 'TABLE');
+  const native = prefix + managed + archiveTableSetup + table + footer;
+  const captured = prefix + managed + ordinary + archiveTableSetup + table + footer;
+  const a = dumpObjects(native), b = dumpObjects(captured);
+  assert.deepEqual(a.objects.map((o) => [o.key, o.owner, o.sha256]),
+    b.objects.filter((o) => o.name !== 'application()').map((o) => [o.key, o.owner, o.sha256]));
+  assert.equal(a.objects.at(-2).parts.filter((part) => part.stream).map((part) => part.text).join(''), archiveTableSetup);
+  assert.equal(b.objects.at(-2).parts.filter((part) => part.stream).map((part) => part.text).join(''), archiveTableSetup);
+  assert.equal(a.prefix + a.objects.flatMap((o) => o.parts).map((part) => part.text).join('') + a.footer, native);
+  const result = composeSchema(captured, native);
+  assert.equal(result.sql, prefix + ordinary + archiveTableSetup + footer);
+  assert.ok(!result.sql.includes('CREATE TABLE auth.native_table'));
+  assert.equal(result.sql.split(archiveTableSetup).length, 2);
+  const changed = captured.replace('CREATE TABLE auth.native_table(id integer)', 'CREATE TABLE auth.native_table(id bigint)');
+  assert.throws(() => composeSchema(changed, native), /SCHEMA_COMPOSITION_PREIMAGE_REQUIRED/);
+});
+
+test('archive setup bytes survive removal and remain lexical inside strings and comments', () => {
+  const named = `SET default_tablespace = "private""space";
+
+SET default_table_access_method = heap;
+
+`;
+  const table = object('native_table', 'auth', 'CREATE TABLE auth.native_table(id integer);', 'TABLE');
+  assert.equal(composeSchema(prefix + managed + named + table + footer,
+    prefix + managed + table + footer).sql, prefix + named + footer);
+  for (const body of [`SELECT $body$
+${archiveTableSetup}$body$;`,
+      `SELECT '${archiveTableSetup}';`, `/*
+${archiveTableSetup}*/
+SELECT 1;`,
+      `-- SET default_tablespace = '';
+SELECT 1;`]) {
+    const sql = object('guarded()', 'auth', body);
+    const parsed = dumpObjects(sql).objects[0];
+    assert.equal(parsed.text, sql);
+    assert.ok(parsed.parts.every((part) => !part.stream));
+    assert.throws(() => composeSchema(prefix + managed + sql + footer,
+      prefix + managed + sql.replace('default_tablespace', 'default_table_access_method') + footer),
+      /SCHEMA_COMPOSITION_PREIMAGE_REQUIRED/);
+  }
+  // An unrecognized SET is definition text, not an ignored setting.
+  const extra = "SET application_name = 'not a stream transition';\n\n";
+  assert.equal(dumpObjects(managed + extra).objects.at(-1).text.endsWith(extra), true);
+});
+
+
+test('missing native object witness identifies only actual absent keys and preserves exact refusal', () => {
+  const secret = object('private_missing_name()', 'auth', "SELECT 'private_body';", 'FUNCTION', 'private_owner');
+  let error;
+  assert.throws(() => composeSchema(prefix + managed + footer, prefix + managed + secret + footer), caught => {
+    error = caught;
+    return caught.message === 'SCHEMA_COMPOSITION_PREIMAGE_REQUIRED';
+  });
+  assert.equal(schemaCompositionFailureSite(error), 'NATIVE_OBJECT_MISSING');
+  assert.equal(schemaCompositionMismatchWitness(error), null);
+  const native = dumpObjects(prefix + managed + secret + footer).objects.at(-1);
+  const witness = schemaCompositionMissingWitness(error);
+  assert.deepEqual(witness, { version: 1, total: 1, truncated: false, rows: [{
+    native_ordinal: 7, key_sha256: schemaHash(native.key), object_type: 'FUNCTION', schema: 'auth',
+  }] });
+  for (const value of ['private_missing_name', 'private_body', 'private_owner', 'SELECT', native.key, 'captured_', 'owner_match'])
+    assert.equal(JSON.stringify(witness).includes(value), false);
+  witness.rows[0].schema = 'mutated';
+  assert.equal(schemaCompositionMissingWitness(error).rows[0].schema, 'auth');
+  for (const hostile of [new Error(error.message), Object.assign(new Error(), { missing: witness }),
+    new Proxy(error, { get() { throw Error('must not inspect'); } }), new (class extends Error {})()])
+    assert.equal(schemaCompositionMissingWitness(hostile), null);
+  error.extra = 'tampered';
+  assert.equal(schemaCompositionMissingWitness(error), null);
+  delete error.extra;
+  Object.defineProperty(error, 'message', { get() { throw Error('must not inspect getter'); } });
+  assert.equal(schemaCompositionMissingWitness(error), null);
+  assert.doesNotThrow(() => composeSchema(prefix + managed + footer, prefix + managed + footer));
+});
+
+test('missing witness is bounded, native-ordered and excludes present differing objects', () => {
+  const blocks = Array.from({ length: 18 }, (_, i) => object('private_' + i, 'private_schema', 'SELECT 1;', 'PRIVATE TYPE', 'private_owner'));
+  let error;
+  try { composeSchema(blocks[0], blocks[0] + blocks.slice(1).join('')); } catch (caught) { error = caught; }
+  const witness = schemaCompositionMissingWitness(error);
+  assert.equal(witness.total, 17);
+  assert.equal(witness.truncated, true);
+  assert.equal(witness.rows.length, 16);
+  assert.equal(witness.rows[0].native_ordinal, 1);
+  assert.equal(witness.rows.at(-1).native_ordinal, 16);
+  assert.ok(witness.rows.every(row => row.object_type === 'OTHER' && row.schema === 'OTHER'));
+  assert.ok(Buffer.byteLength(JSON.stringify(witness)) < 16384);
+  assert.equal(JSON.stringify(witness).includes('private'), false);
+  let mismatch;
+  try { composeSchema(blocks[0], blocks[0].replace('SELECT 1;', 'SELECT 2;') + blocks[1]); } catch (caught) { mismatch = caught; }
+  assert.equal(schemaCompositionFailureSite(mismatch), 'NATIVE_BLOCK_DIFFERENT');
+  assert.equal(schemaCompositionMissingWitness(mismatch), null);
+  assert.equal(schemaCompositionMismatchWitness(mismatch).total, 1);
 });

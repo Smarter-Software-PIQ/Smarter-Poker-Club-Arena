@@ -1,3 +1,4 @@
+import { configureFixtureRealtimeCapturedRelations, assertFixtureRealtimeCapturedRelations } from './realtime-legacy-relations.mjs';
 import { REALTIME_CONTROL_DATABASE, realtimeControlConnection, REALTIME_SEED_EXPRESSION, createRealtimeControlDatabase, assertRealtimeControlIsolation } from './realtime-control-plane.mjs';
 import {
   configureFixtureSafeupdate,
@@ -29,6 +30,7 @@ import {
 } from './auth-fixture.mjs';
 import {
   serviceRoleBootstrapSql,
+  prepareFixtureAuthLegacyMigrationLedger,
   assertNativeServiceRoleBoundary,
   createFixtureApplicationOwner,
   managedPostgresArguments,
@@ -356,6 +358,8 @@ async function services() {
   await bootstrap.connect();
   stage = 'postgresql-bootstrap-roles';
   await bootstrap.query(serviceRoleBootstrapSql(password));
+  stage = 'postgresql-auth-legacy-ledger';
+  await prepareFixtureAuthLegacyMigrationLedger(bootstrap);
   stage = 'postgresql-native-cron-install';
   await installFixtureCron(bootstrap);
   stage = 'postgresql-safeupdate-configure';
@@ -646,6 +650,8 @@ async function services() {
       await realtimeControl.connect();
       await eventually(() => realtimeMigrated(realtimeBootstrap,realtimeControl));
       await assertRealtimeControlIsolation(realtimeBootstrap,pg.Client,databaseOwner);
+      stage = 'realtime-captured-relation-configuration';
+      await configureFixtureRealtimeCapturedRelations(realtimeBootstrap);
       stage = 'realtime-tenant-row';
       assert.equal(
         (
@@ -658,6 +664,13 @@ async function services() {
     } finally {
       try { await databaseOwner.end(realtimeControl); }
       finally { await databaseOwner.end(realtimeBootstrap); }
+    }
+    const realtimeRelationObserver = databaseOwner.own(new pg.Client({ host: '/run/postgresql', user: 'supabase_admin', database }));
+    try {
+      await realtimeRelationObserver.connect();
+      await assertFixtureRealtimeCapturedRelations(realtimeRelationObserver);
+    } finally {
+      await databaseOwner.end(realtimeRelationObserver);
     }
     stage = 'realtime-server-start';
     await start('realtime', '/app/bin/server', [], realtimeEnv);
@@ -1009,7 +1022,7 @@ async function services() {
         service_roles: { ...serviceRoles, auth_claim_helpers: 'service-owned-and-http-verified' },
         managed_postgres: managedPostgres,
         postgrest: '14.5',
-        realtime: '2.134.10',
+        realtime: '2.134.11',
         realtime_listener: '127.0.0.1:4000',
         realtime_gateway: 'authenticated-change-observed',
         realtime_rls: 'two-users-causal-isolation',

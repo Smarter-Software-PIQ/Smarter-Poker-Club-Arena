@@ -28,11 +28,12 @@ assert.deepEqual(cgroup, { memoryMax: String(36 * 1024 ** 3), swapMax: '0',
 const binary = new URL('./legacy-census.node', import.meta.url);
 const manifest = JSON.parse(fs.readFileSync(new URL('./legacy-census.node.json', import.meta.url)));
 assert.equal(manifest.binarySHA256, sha(fs.readFileSync(binary)));
-assert.equal(manifest.sourceSHA256, '7840d64c30a0c179b50380d9dad9c9bb51027a690d50dc32422856ea56662506');
+assert.equal(manifest.sourceSHA256, '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1');
 for (const [key, value] of Object.entries({ node: process.version, v8: process.versions.v8,
   modules: process.versions.modules, platform: process.platform, arch: process.arch,
   pointerCompression: process.config.variables.v8_enable_pointer_compression })) assert.equal(manifest[key], value);
 const addon = createRequire(import.meta.url)(binary.pathname);
+assert.equal(manifest.prototypeCacheBytes,1048576);assert.equal(addon.prototypeCacheBytes,1048576);
 const types = [class A {}, class B {}, class C {}, class D {}, class E {}];
 const owners = types.map(C => new C());
 const detached = (() => { const value = new types[2](); return () => value; })();
@@ -53,9 +54,9 @@ const before = { used: heap.used_heap_size, available: heap.total_available_size
   heapLimit: heap.heap_size_limit, process: process.availableMemory(), rss: process.memoryUsage().rss, cgroupPeak: Number(read('memory.peak')) };
 assert.ok(before.used >= 3_913_011_648, 'representative used-heap floor not reached');
 assert.ok(before.available <= 322_107_592, 'representative additional-heap ceiling not reached');
-assert.ok(before.available >= 32 * MiB + addon.managedOutputBytes, 'bounded managed output must fit');
+assert.ok(before.available >= 32 * MiB + addon.managedOutputBytes + addon.prototypeCacheBytes, 'bounded managed output must fit');
 assert.ok(before.used + 32 * MiB > before.available, 'original full-heap admission must refuse');
-assert.ok(before.process >= before.used * 8 + 32 * MiB, 'unchanged actual 8x process reserve must pass');
+assert.ok(before.process >= before.used * 8 + 32 * MiB + addon.prototypeCacheBytes, 'unchanged actual 8x process reserve must pass');
 const allocationMs = performance.now() - started;
 const originals = types.map(C => Object.getPrototypeOf(C.prototype));
 const queryStarted = performance.now();
@@ -77,5 +78,5 @@ console.log(JSON.stringify({ schema:'legacy-native-scale-fixture/v1', ok:true,
   fixtureMs:performance.now()-started, matched:result.length, attempt, cgroup,
   cgroupPeak:Number(read('memory.peak')), maxRSSKiB:process.resourceUsage().maxRSS,
   prototypeRestored:true, fixtureSHA256:expectedFixture, binarySHA256:manifest.binarySHA256,
-  sourceSHA256:manifest.sourceSHA256, node:process.version, v8:process.versions.v8,
+  sourceSHA256:manifest.sourceSHA256, prototypeCacheBytes:addon.prototypeCacheBytes, node:process.version, v8:process.versions.v8,
   arch:process.arch, platform:process.platform }));

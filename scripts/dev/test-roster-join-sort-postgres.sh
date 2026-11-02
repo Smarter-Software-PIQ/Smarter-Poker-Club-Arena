@@ -24,3 +24,13 @@ if ! grep -q 'Player name search regression' "$work/search-before.log"; then cat
 if "${psql[@]}" -f "$search_migration" > "$work/search-replay.log" 2>&1; then echo 'Search migration replay unexpectedly accepted'; exit 1; fi
 if ! grep -q 'Roster name search source preimage changed' "$work/search-replay.log"; then cat "$work/search-replay.log"; exit 1; fi
 echo 'ROSTER_JOIN_SORT PASS: regression, both directions, equal/null dates, three pages, search, scope, malformed/mismatched cursors, export and replay refusal'
+
+# Rakeback enriches only authorized visible rows, preserving the same cursor walk.
+"${psql[@]}" -f "$fixture/rakeback-setup.sql"
+if "${psql[@]}" -f "$fixture/rakeback-assertions.sql" > "$work/rakeback-before.log" 2>&1; then echo 'Rakeback regression unexpectedly passed before repair'; exit 1; fi
+if ! grep -q 'Rakeback missing from directory' "$work/rakeback-before.log"; then cat "$work/rakeback-before.log"; exit 1; fi
+rakeback_migration="$repo/supabase/migrations/20261102035836_player_management_effective_rakeback.sql"
+"${psql[@]}" -f "$rakeback_migration" -f "$fixture/rakeback-assertions.sql" -c "UPDATE roster_fixture SET can_view_financials=true" -f "$fixture/assertions.sql" -f "$fixture/search-assertions.sql"
+if "${psql[@]}" -f "$rakeback_migration" > "$work/rakeback-replay.log" 2>&1; then echo 'Rakeback migration replay unexpectedly accepted'; exit 1; fi
+if ! grep -q 'Roster rakeback source preimage changed' "$work/rakeback-replay.log"; then cat "$work/rakeback-replay.log"; exit 1; fi
+echo 'ROSTER_RAKEBACK PASS: effective terms, explicit zero, fractional rate, private-row redaction, management club, all pages, unchanged ordering and replay refusal'

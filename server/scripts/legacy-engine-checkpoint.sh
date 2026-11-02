@@ -59,6 +59,7 @@ if not (m.get('schema')=='legacy-native-census-build/v1' and m.get('node')=='v22
     and m.get('pointerCompression')==0 and m.get('sourceSHA256')==pins[0]
     and m.get('binarySHA256')==binary_hash and re.fullmatch('[0-9a-f]{64}',m.get('headersSHA256',''))
     and m.get('maxMatches')==22096 and m.get('managedOutputBytes')==772608
+    and m.get('prototypeCacheBytes')==1048576
     and m.get('qualification')=='unqualified-build-only'):
     raise SystemExit('native build provenance mismatch')
 # Build provenance is deliberately not a qualification claim. Protected required
@@ -66,7 +67,7 @@ if not (m.get('schema')=='legacy-native-census-build/v1' and m.get('node')=='v22
 print(json.dumps({'schema':'legacy-native-census-artifact/v1','path':'/app/.legacy-census-checkpoint-'+run+'/legacy-census.node',
  'manifestPath':'/app/.legacy-census-checkpoint-'+run+'/legacy-census.node.json',
  'binarySHA256':binary_hash,'manifestSHA256':manifest_hash,'sourceSHA256':pins[0],
- 'candidateSHA':sha,'candidateImageId':image,'candidateSourceTree':tree},separators=(',',':')))
+ 'candidateSHA':sha,'candidateImageId':image,'candidateSourceTree':tree,'prototypeCacheBytes':1048576},separators=(',',':')))
 PYVERIFY
 }
 verify_native_candidate() {
