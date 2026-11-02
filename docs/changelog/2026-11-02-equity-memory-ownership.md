@@ -4,7 +4,7 @@ An equity worker error previously removed the worker from capacity accounting be
 
 The request queue now has independent count and serialized-payload byte ceilings. Requests retain bounded copies of calculator fields, rather than arbitrary caller-owned graphs. Insurance can displace queued cosmetic requests, but never active computations or admitted insurance. Existing caller deadlines and fail-closed hand continuation remain intact. Queue bytes are released on dispatch, expiry, rejection and shutdown.
 
-The existing health response and metrics expose actual main-isolate heap limits and available/constrained memory. Existing equity READY/result messages carry worker-authored isolate samples. Unknown measurements remain unknown. These observations neither traverse heaps nor trigger collection, repairs or restarts.
+The existing health response and metrics expose actual main-isolate heap limits and available/constrained memory. Existing equity READY/result messages carry worker-authored isolate samples. Unknown measurements remain unknown. A backward wall-clock correction invalidates the cached sample instead of preserving a future-dated observation until the clock catches up. These observations neither traverse heaps nor trigger collection, repairs or restarts.
 
 Regression coverage includes deferred/failed termination, singleton shutdown ownership, queue count and byte pressure, insurance priority, sparse/oversized inputs, detached request data, and a real bundled worker with independently known outcomes. `node server/scripts/qualify-equity-memory.mjs 120` runs a finite isolated mixed calculator qualification and reports samples; it is not whole-engine or production capacity certification.
 

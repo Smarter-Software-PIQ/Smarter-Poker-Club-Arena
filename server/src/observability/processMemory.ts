@@ -98,7 +98,7 @@ const CACHE_MS = 5_000;
  */
 export function sampleProcessMemory(now: () => number = Date.now): ProcessMemorySample {
   const at = now();
-  if (last && at - last.sampledAt < CACHE_MS) return last;
+  if (last && at >= last.sampledAt && at - last.sampledAt < CACHE_MS) return last;
   const mu = process.memoryUsage();
   const status = readProcStatus();
   last = {

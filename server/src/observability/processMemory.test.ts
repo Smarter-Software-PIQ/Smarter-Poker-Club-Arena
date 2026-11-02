@@ -72,6 +72,15 @@ describe('sampleProcessMemory', () => {
     expect(second.sampledAt).toBe(t);
   });
 
+  it('refreshes after a backward wall-clock correction instead of retaining a future sample', () => {
+    const first = sampleProcessMemory(() => 3_600_000);
+    const corrected = sampleProcessMemory(() => 1_000);
+    expect(corrected).not.toBe(first);
+    expect(corrected.sampledAt).toBe(1_000);
+    expect(sampleProcessMemory(() => 5_999)).toBe(corrected);
+    expect(sampleProcessMemory(() => 6_000)).not.toBe(corrected);
+  });
+
   it('the test seam forgets the cached sample', () => {
     const first = sampleProcessMemory(() => 5);
     resetProcessMemorySampleForTests();
