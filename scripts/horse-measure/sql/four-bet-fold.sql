@@ -5,6 +5,10 @@
 -- nlh tournament 25 of 777; every pot-limit Omaha, short-deck and limit
 -- variant 2 of 1,000+ combined. Rules 4/4a/4b should take nlh to near zero
 -- (HorseFourBetThenFoldRealHands.law.test.ts replays the 83 real hands).
+-- The flags are a proxy (four_bet is computed by the stats builder): in the
+-- 04:00-16:00 window every one of the 83 flagged hands parsed from its own
+-- actions as a horse raise followed by a horse fold. A timeout or disconnect
+-- fold would also count; treat a single-digit change as noise.
 -- Windowed [:START, :END), keep <= ~12 hours per call. Read-only (one SELECT).
 select f.game_variant, case when f.tournament_id is null then 'cash' else 'tour' end fmt,
   count(*) four_bets,

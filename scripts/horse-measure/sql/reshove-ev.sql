@@ -1,11 +1,14 @@
 -- Horse release verification: TOURNAMENT RESHOVES over exactly one open
 -- (no callers), 15-30bb effective, by the opener's seat, table size and depth.
--- EV is the all-in-adjusted net (ca_hand_facts.ev_net) in bb, which is the
--- jam's value against folding for a non-blind seat (fold = 0); ICM is not
--- modelled. Measured 2026-11-01 16:00 to 11-02 16:00 UTC (old engine): every
--- cell with n >= 5 was at or above zero, including over UTG openers 9-handed
--- (+2.5bb, n 73) and 4-6 handed (+2.5bb, n 24 at 15-20bb), so the Phase 6
--- reshove node was left unchanged. Watch these cells after V77.
+-- The horse's own blind seats are excluded: folding there is not free, so the
+-- all-in-adjusted net (ca_hand_facts.ev_net, bb) is the jam's value against
+-- folding only from a non-blind seat; antes are sunk in both branches, which
+-- understates the jam by the ante (conservative). ICM is not modelled. A
+-- reshove recorded as a 'raise' to the whole stack is not counted.
+-- Measured 2026-11-01 16:00 to 11-02 16:00 UTC (old engine): every cell with
+-- n >= 5 above zero, including over UTG openers 9-handed (+2.1bb, n 49) and
+-- 4-6 handed (+3.2bb, n 13, 15-20bb), so the Phase 6 reshove node was left
+-- unchanged. Watch these cells after V77.
 -- Windowed [:START, :END), keep <= ~1 day per call. Read-only (one SELECT).
 with f as (
   select f.hand_id, f.user_id::text uid, f.net, f.big_blind bb, f.effective_stack_bb_at_deal eff,
@@ -14,6 +17,7 @@ with f as (
   where f.played_at >= :START::timestamptz and f.played_at < :END::timestamptz and f.game_variant = 'nlh'
     and f.tournament_id is not null and f.was_all_in and f.all_in_street = 'preflop'
     and f.effective_stack_bb_at_deal > 15 and f.effective_stack_bb_at_deal <= 30
+    and f.position not in ('SB', 'BB')
     and exists (select 1 from public.profiles p where p.id = f.user_id and p.is_horse)
 ),
 a as (

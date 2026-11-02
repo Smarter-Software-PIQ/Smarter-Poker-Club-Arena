@@ -90,13 +90,20 @@ with its window; none is a profitability claim.
     limit games 2 of 1,000+ combined, so no non-hold'em rule was needed. In
     the 83 nlh hands 82 5-bets came from the 3-bettor and 70 were all in;
     folded hands were QQ, AK, JJ, TT, 99, AQ, AJs and KK.
-    `HorseFourBetThenFoldRealHands.law.test.ts` replays all 83 through
-    today's brain: no style 4-bets and then folds (rules 4, 4a and 4b close
-    every path); with rule 4 off the replay reproduces the leak.
-  - Tournament reshoves over one open at 15-30bb (`sql reshove`), 24 hours
-    to 16:00 UTC: all-in-adjusted EV at or above zero in every cell with
-    n >= 5, including over UTG openers 9-handed (+2.5bb, n 73) and 4-6 handed
-    (+2.5bb, n 24 at 15-20bb). The Phase 6 reshove node was left unchanged.
+    `HorseFourBetThenFoldRealHands.law.test.ts` replays all 83 EXACTLY (each
+    hand's recorded table snapshot at the real 4-bet and at the real fold)
+    through today's brain. The replay found one remaining path, closed in the
+    Phase 3 audit: QQ in the big blind ~198bb deep, a ~189bb opener and a
+    ~123bb cold 3-bettor; rule 4a priced the 4-bet only against the 3-bettor
+    and the deeper opener jammed. Rule 4a now prices every opponent who
+    already put chips in voluntarily. After the fix no hand and no style
+    4-bets and then folds; with the premium-aggression module off the replay
+    reproduces the leak.
+  - Tournament reshoves over one open at 15-30bb from a non-blind seat
+    (`sql reshove`), 24 hours to 16:00 UTC: all-in-adjusted EV above zero
+    in every cell with n >= 5, including over UTG openers 9-handed (+2.1bb,
+    n 49) and 4-6 handed (+3.2bb, n 13, 15-20bb). The Phase 6 reshove node
+    was left unchanged.
 
 - Phase 4 Omaha (V81), old engine, 47,806 PLO4/PLO5 horse turn/river calls
   of a bet the horse did not start (`sql omaha-calls` in 4-hour slices, then

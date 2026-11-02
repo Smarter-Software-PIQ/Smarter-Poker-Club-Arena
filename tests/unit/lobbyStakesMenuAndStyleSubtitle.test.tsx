@@ -305,23 +305,23 @@ describe('Stakes headings directly adjust the same board without popups', () => 
       Array.from(document.querySelectorAll('.compact-lobby tbody tr[data-id]')).map((el) =>
         el.getAttribute('data-id')
       );
-    expect(rows()).toEqual(['a', 'b']);
-    fireEvent.click(chip);
     expect(rows()).toEqual(['b', 'a']);
+    fireEvent.click(chip);
+    expect(rows()).toEqual(['a', 'b']);
     expect(menu()).toBeNull();
     expect(chip).not.toHaveAttribute('aria-haspopup');
     expect(onStylesChange).not.toHaveBeenCalled();
     fireEvent.click(chip);
-    expect(rows()).toEqual(['a', 'b']);
+    expect(rows()).toEqual(['b', 'a']);
   });
   it('supports desktop pointer and keyboard sorting with no popup', () => {
     renderLobby();
     const head = document.querySelector('.lobby-table-wrap thead') as HTMLElement;
     const stakes = within(head).getByRole('columnheader', { name: /stakes/i });
     fireEvent.click(stakes);
-    expect(stakes).toHaveAttribute('aria-sort', 'descending');
-    fireEvent.keyDown(stakes, { key: 'Enter' });
     expect(stakes).toHaveAttribute('aria-sort', 'ascending');
+    fireEvent.keyDown(stakes, { key: 'Enter' });
+    expect(stakes).toHaveAttribute('aria-sort', 'descending');
     expect(document.querySelector('.lt-stakes-menu')).toBeNull();
   });
 });

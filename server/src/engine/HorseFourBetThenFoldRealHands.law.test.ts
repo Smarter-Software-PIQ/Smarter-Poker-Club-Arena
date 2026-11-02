@@ -1,249 +1,266 @@
 /**
- * Phase 3 (2026-11-02): the 83 real no-limit hold'em 4-bet-then-fold hands the
- * live (pre-rule-4) engine played between 2026-11-02 04:00 and 16:00 UTC
- * (ca_hand_facts four_bet, never saw the flop, not all in, lost chips; 58
- * cash of 441 4-bets, 25 tournament of 777; pot-limit Omaha, short deck and
- * limit 4-bet-then-fold: 2 of 1,000+), replayed through TODAY's brain at their
- * cards, effective depth and format. Every 5-bet in the sample came from the
- * 3-bettor (82 of 83; one cold 5-bet) and 70 of 83 were all in, so the replay
- * spot is the heads-up 3-bet / 4-bet / jam ladder.
+ * Phase 3 (2026-11-02): EXACT replay of the 83 real no-limit hold'em hands in
+ * which a horse 4-bet preflop and then folded to the re-raise, played by the
+ * live (pre-rule-4) engine between 2026-11-02 04:00 and 16:00 UTC. Selected
+ * from ca_hand_facts (four_bet, never saw the flop, not all in, lost chips),
+ * then each hand's own recorded actions were parsed: the fixture holds, for
+ * every hand, the public table snapshot the engine recorded at the horse's
+ * real 4-bet and at its real fold (seats, stacks, street bets, pot, antes,
+ * dealer, legal actions, raise bounds, tournament stage), the action history
+ * up to each node and the horse's hole cards. Seats and players are
+ * anonymised to seat numbers. 58 cash, 25 tournament; 82 of the 83 re-raises
+ * came from the 3-bettor and 70 were all in.
  *
- * The law: no real shape still produces a non-all-in 4-bet followed by a fold
- * to the jam. Rule 4a (flat deep QQ/AK instead of 4-betting), rule 4 (no
- * 4-bet bluff) and rule 4b (a re-raised 4-bettor continues at the price) close
- * every path; a shape that would fold to the jam no longer 4-bets.
+ * Today's brain is run at both real nodes for every style over 10 seeds,
+ * with the opponent-memory module off (mind: false) so the replay is
+ * deterministic; the live brain also consults opponent reads, which can only
+ * be judged after release.
+ *
+ * The law: for no hand and no style does today's brain both make a
+ * non-all-in raise at the real 4-bet node AND fold at the real 5-bet node.
+ * Also pinned: the module that makes the difference is the premium-aggression
+ * module (rules 1, 2, 4, 4a, 4b; HorseHoldemPremiumAggression): with it off,
+ * the same replay reproduces the leak, so the law is not vacuous; and rule 4b
+ * (a re-raised 4-bettor continues at the price) is reached at the real 5-bet
+ * nodes, so the closure is not only "never 4-bet".
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import type { Card, SeatPlayer } from '../types.js';
+import FIXTURE from './HorseFourBetThenFoldRealHands.fixture.json';
 
-const suits: Record<string, Card['suit']> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
-const cards = (s: string): Card[] =>
-  s ? s.split(' ').map((c) => ({ rank: c[0] as Card['rank'], suit: suits[c[1]] })) : [];
-const SEEDS = [1, 7, 42, 99, 2026];
+interface Node {
+  pot: number;
+  ante: number | null;
+  anteType: string | null;
+  /** [seat, behind, street bet, hand total, dead ante, -, status 0 live / 1 folded / 2 all in] */
+  seats: number[][];
+  toCall: number;
+  currentBet: number;
+  minRaiseTo: number | null;
+  maxRaiseTo: number | null;
+  legalActions: string[];
+  dealerSeat: number;
+  chipUnit: 0.01 | 1;
+  bigBlind: number;
+  smallBlind: number;
+  mode: 'cash' | 'tournament';
+  tournamentStage?: Record<string, unknown>;
+}
+interface RealHand {
+  handId: string;
+  fmt: 'cash' | 'tour';
+  heroSeat: number;
+  hole: Card[];
+  raiseOrd: number;
+  foldOrd: number;
+  actions: Array<{
+    ord: number;
+    seat: number;
+    action: string;
+    amount: number;
+    isFullRaise: boolean;
+    dead: boolean;
+  }>;
+  node4: Node;
+  node5: Node;
+}
+const HANDS = FIXTURE as unknown as RealHand[];
+const SEEDS = [1, 7, 42, 99, 2026, 3, 11, 17, 23, 31];
 const STYLES = ['tag', 'lag', 'balanced', 'tricky', 'grinder'] as const;
 
-function seat(
-  n: number,
-  stack: number,
-  bet: number,
-  over: Partial<SeatPlayer> & { hole?: string } = {}
-): SeatPlayer {
-  return {
-    seat: n,
-    user_id: `p${n}`,
-    username: `p${n}`,
-    stack,
-    bet,
-    totalInvested: bet,
-    is_folded: false,
-    is_all_in: false,
-    is_sitting_out: false,
-    cards: cards(over.hole ?? ''),
-    ...over,
-  } as SeatPlayer;
-}
-
-function priceSpot(o: {
-  hole: string;
-  depthBB: number;
-  mode: 'cash' | 'tournament';
-  fiveBet?: boolean;
-  villainDepthBB?: number;
-}) {
-  const bb = o.mode === 'cash' ? 2 : 100;
-  const unit = (v: number) => (o.mode === 'cash' ? Math.round(v * 100) / 100 : Math.round(v));
-  const heroTotal = o.depthBB * bb;
-  const villainTotal = (o.villainDepthBB ?? o.depthBB) * bb;
-  const open = unit(2.5 * bb);
-  const three = unit(9 * bb);
-  const four = unit(2.3 * three);
-  const history = [
-    { stage: 'preflop', seat: 2, userId: 'p2', action: 'sb', amount: bb / 2 },
-    { stage: 'preflop', seat: 3, userId: 'p3', action: 'bb', amount: bb },
-    { stage: 'preflop', seat: 5, userId: 'p5', action: 'raise', amount: open, isFullRaise: true },
-    { stage: 'preflop', seat: 6, userId: 'p6', action: 'raise', amount: three, isFullRaise: true },
-    { stage: 'preflop', seat: 2, userId: 'p2', action: 'fold', amount: 0 },
-    { stage: 'preflop', seat: 3, userId: 'p3', action: 'fold', amount: 0 },
-  ];
-  const heroBet = o.fiveBet ? four : open;
-  const villainBet = o.fiveBet ? villainTotal : three;
-  if (o.fiveBet) {
-    history.push(
-      { stage: 'preflop', seat: 5, userId: 'p5', action: 'raise', amount: four, isFullRaise: true },
-      {
-        stage: 'preflop',
-        seat: 6,
-        userId: 'p6',
-        action: 'all_in',
-        amount: villainTotal,
-        isFullRaise: true,
-      }
-    );
-  }
-  const hero = seat(5, heroTotal - heroBet, heroBet, { hole: o.hole });
+/** The game state the engine saw at `node`, with history strictly before `ord`. */
+function stateAt(h: RealHand, node: Node, ord: number) {
+  const players = node.seats.map(
+    ([seat, behind, bet, total, , , status]) =>
+      ({
+        seat,
+        user_id: `p${seat}`,
+        username: `p${seat}`,
+        stack: behind,
+        bet,
+        totalInvested: total,
+        cards: seat === h.heroSeat ? h.hole : [],
+        is_folded: status === 1,
+        is_all_in: status === 2,
+        is_sitting_out: false,
+        is_horse: true,
+      }) as SeatPlayer
+  );
+  const hero = players.find((p) => p.seat === h.heroSeat)!;
+  const ts = node.tournamentStage;
   const gs = {
-    players: [
-      seat(2, 500 * bb, bb / 2, { is_folded: true }),
-      seat(3, 500 * bb, bb, { is_folded: true }),
-      hero,
-      seat(6, villainTotal - villainBet, villainBet, { is_all_in: !!o.fiveBet }),
-    ],
+    players,
     communityCards: [],
-    pot: bb * 1.5 + heroBet + villainBet,
-    currentBet: villainBet,
+    pot: node.pot,
+    currentBet: node.currentBet,
+    toCall: node.toCall,
+    minRaiseTo: node.minRaiseTo,
+    maxRaiseTo: node.maxRaiseTo,
+    legalActions: node.legalActions,
     stage: 'preflop',
     gameVariant: 'nlh',
-    gameMode: o.mode,
-    bigBlind: bb,
-    dealerSeat: 5,
-    toCall: villainBet - heroBet,
-    legalActions: o.fiveBet ? ['fold', 'call', 'all_in'] : ['fold', 'call', 'raise', 'all_in'],
-    minRaiseTo: o.fiveBet ? null : three * 2 - open,
-    maxRaiseTo: heroTotal,
+    gameMode: node.mode,
     bettingStructure: 'no_limit',
-    actionHistory: history,
+    bigBlind: node.bigBlind,
+    smallBlind: node.smallBlind,
+    ante: node.ante ?? 0,
+    bigBlindAnte: node.anteType === 'big_blind',
+    dealerSeat: node.dealerSeat,
+    chipUnit: node.chipUnit,
+    heroSeat: h.heroSeat,
+    currentPlayerSeat: h.heroSeat,
+    actionHistory: h.actions
+      .filter((a) => a.ord < ord)
+      .map((a) => ({
+        stage: 'preflop',
+        seat: a.seat,
+        userId: `p${a.seat}`,
+        action: a.action,
+        amount: a.amount,
+        isFullRaise: a.isFullRaise,
+        ...(a.dead ? { dead: true } : {}),
+      })),
+    ...(node.mode === 'tournament' && ts
+      ? {
+          tournament: {
+            ...ts,
+            currentBigBlind: node.bigBlind,
+            currentSmallBlind: node.smallBlind,
+            currentAnte: node.ante ?? 0,
+            anteType: node.anteType ?? undefined,
+            playersAtTable: node.seats.length,
+          },
+        }
+      : {}),
   } as unknown as HorseGameStateV2;
   return { hero, gs };
 }
 
-/** [format, hole, effective bb at the deal] for each real hand, deepest first. */
-const REAL: Array<['cash' | 'tour', string, number]> = [
-  ['cash', 'Qs Qh', 447],
-  ['cash', '9s 9h', 433],
-  ['cash', 'Ac Kd', 430],
-  ['cash', 'Js Jh', 418],
-  ['cash', 'Ac Kd', 389],
-  ['cash', 'Ac Kd', 383],
-  ['cash', 'Ac Kd', 359],
-  ['cash', 'Ac Kc', 354],
-  ['cash', 'Qs Qh', 341],
-  ['cash', 'Ts Th', 336],
-  ['cash', 'Ac Kd', 329],
-  ['cash', 'Ac Kd', 323],
-  ['cash', 'Ac Kc', 314],
-  ['cash', 'Ac Kd', 310],
-  ['cash', 'Ac Kd', 300],
-  ['cash', 'Ac Kd', 298],
-  ['cash', 'Qs Qh', 295],
-  ['cash', 'Ac Kc', 267],
-  ['cash', 'Ac Kd', 266],
-  ['cash', 'Qs Qh', 252],
-  ['cash', 'Js Jh', 249],
-  ['cash', 'Ac Kd', 239],
-  ['cash', 'Ac Kc', 238],
-  ['cash', 'Ac Jc', 227],
-  ['cash', 'Ac Kd', 227],
-  ['cash', '9s 9h', 221],
-  ['cash', 'Ac Kd', 219],
-  ['cash', 'Ac Kd', 217],
-  ['cash', 'Ac Kc', 217],
-  ['cash', 'Qs Qh', 212],
-  ['cash', 'Ac Kc', 208],
-  ['cash', 'Ac Kc', 207],
-  ['cash', 'Ac Kd', 203],
-  ['cash', 'Qs Qh', 202],
-  ['cash', 'Js Jh', 202],
-  ['cash', 'Qs Qh', 199],
-  ['cash', 'Ac Kd', 198],
-  ['cash', 'Qs Qh', 197],
-  ['cash', 'Ac Kd', 197],
-  ['cash', 'Ac Kd', 193],
-  ['cash', 'Ac Kd', 192],
-  ['cash', 'Ac Kd', 190],
-  ['cash', 'Ac Kd', 188],
-  ['cash', 'Ac Kd', 188],
-  ['cash', 'Qs Qh', 183],
-  ['cash', 'Ac Kd', 180],
-  ['cash', 'Qs Qh', 179],
-  ['cash', 'Ac Kd', 179],
-  ['cash', 'Ac Kd', 168],
-  ['cash', 'Ac Kc', 166],
-  ['cash', 'Ac Kd', 159],
-  ['cash', 'Qs Qh', 158],
-  ['cash', 'Ac Qc', 140],
-  ['cash', 'Ac Kd', 140],
-  ['cash', 'Ac Kd', 135],
-  ['cash', 'Ac Kd', 111],
-  ['cash', 'Ac Kd', 95],
-  ['cash', 'Ac Kd', 85],
-  ['tour', 'Ac Kc', 135],
-  ['tour', 'Ks Kh', 129],
-  ['tour', 'Ac Kd', 128],
-  ['tour', 'Ks Kh', 111],
-  ['tour', 'Qs Qh', 110],
-  ['tour', 'Ac Kd', 107],
-  ['tour', 'Ts Th', 102],
-  ['tour', '9s 9h', 102],
-  ['tour', 'Qs Qh', 89],
-  ['tour', 'Js Jh', 89],
-  ['tour', 'Qs Qh', 89],
-  ['tour', 'Ac Kd', 80],
-  ['tour', 'Ac Qd', 77],
-  ['tour', 'Qs Qh', 72],
-  ['tour', 'Ac Kd', 70],
-  ['tour', 'Ac Kd', 63],
-  ['tour', 'Qs Qh', 62],
-  ['tour', 'Ac Kd', 47],
-  ['tour', 'Qs Qh', 46],
-  ['tour', 'Ts Th', 45],
-  ['tour', 'Ac Kd', 43],
-  ['tour', 'Ac Jc', 42],
-  ['tour', 'Qs Qh', 42],
-  ['tour', 'Qs Qh', 40],
-  ['tour', 'Ac Kd', 26],
-];
-
-function decide(
-  s: { hero: SeatPlayer; gs: HorseGameStateV2 },
+function act(
+  s: ReturnType<typeof stateAt>,
   seed: number,
   style: (typeof STYLES)[number],
-  opts: Record<string, unknown> = {}
+  opts: Record<string, unknown>
 ) {
   seedFastRandom(seed);
   HorseMind.reset();
   return HorseLogic.decide(s.hero, s.gs, style, {}, { mind: false, ...opts } as never);
 }
 
-function fourBetThenFoldPaths(opts: Record<string, unknown> = {}): string[] {
+function replay(opts: Record<string, unknown> = {}) {
   const paths: string[] = [];
-  const seen = new Set<string>();
-  for (const [fmt, hole, depthBB] of REAL) {
-    const key = `${fmt}|${hole}|${depthBB}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const mode = fmt === 'cash' ? 'cash' : 'tournament';
+  let continued = 0;
+  let fourBetNow = 0;
+  for (const h of HANDS) {
+    const at4 = stateAt(h, h.node4, h.raiseOrd);
+    const at5 = stateAt(h, h.node5, h.foldOrd);
     for (const style of STYLES) {
-      const fourBets = SEEDS.filter(
-        (seed) => decide(priceSpot({ hole, depthBB, mode }), seed, style, opts).action === 'raise'
-      ).length;
-      if (fourBets === 0) continue;
-      const folds = SEEDS.filter(
-        (seed) =>
-          decide(priceSpot({ hole, depthBB, mode, fiveBet: true }), seed, style, opts).action ===
-          'fold'
-      ).length;
-      if (folds > 0) paths.push(`${key} ${style}: 4-bets ${fourBets}/5, folds the jam ${folds}/5`);
+      const raises = SEEDS.filter((seed) => {
+        const d = act(at4, seed, style, opts);
+        return d.action === 'raise';
+      }).length;
+      const answers = SEEDS.map((seed) => act(at5, seed, style, opts).action);
+      const folds = answers.filter((a) => a === 'fold').length;
+      continued += answers.length - folds;
+      fourBetNow += raises;
+      if (raises > 0 && folds > 0)
+        paths.push(
+          `${h.fmt} ${h.handId} ${h.hole.map((c) => c.rank + c.suit[0]).join('')} ${style}: raises ${raises}/10 at the 4-bet node, folds ${folds}/10 to the re-raise`
+        );
     }
   }
-  return paths;
+  return { paths, continued, fourBetNow };
 }
 
-describe("Phase 3: the real 4-bet-then-fold hands are closed in today's brain", () => {
+describe("Phase 3: the 83 real 4-bet-then-fold hands, replayed exactly through today's brain", () => {
   afterEach(() => HorseMind.reset());
 
-  it('carries all 83 recorded hands', () => {
-    expect(REAL).toHaveLength(83);
-    expect(REAL.filter((r) => r[0] === 'cash')).toHaveLength(58);
+  it('the fixture is the recorded sample: 83 hands, 58 cash, both real nodes present', () => {
+    expect(HANDS).toHaveLength(83);
+    expect(HANDS.filter((h) => h.fmt === 'cash')).toHaveLength(58);
+    for (const h of HANDS) {
+      expect(h.raiseOrd).toBeLessThan(h.foldOrd);
+      expect(h.node4.seats.some((s) => s[0] === h.heroSeat)).toBe(true);
+      expect(h.node5.toCall).toBeGreaterThan(0);
+      expect(h.node5.legalActions).toContain('fold');
+      // The recorded history really is: hero raised at raiseOrd and folded at foldOrd.
+      expect(h.actions.find((a) => a.ord === h.raiseOrd)?.action).toBe('raise');
+      expect(h.actions.find((a) => a.ord === h.foldOrd)?.action).toBe('fold');
+    }
   });
 
-  it('no real shape 4-bets (not all in) and then folds to the jam, for the same horse style', () => {
-    expect(fourBetThenFoldPaths()).toEqual([]);
+  it('no hand and no style both raises (not all in) at the real 4-bet node and folds at the real 5-bet node', () => {
+    expect(replay().paths).toEqual([]);
   });
 
-  it('control: with rule 4 off the same replay reproduces the leak (the law is not vacuous)', () => {
-    expect(fourBetThenFoldPaths({ holdemPremiumAggression: false }).length).toBeGreaterThan(0);
+  it("rule 4b is reached: at the real 5-bet nodes today's brain continues in some hands", () => {
+    expect(replay().continued).toBeGreaterThan(0);
+  });
+
+  it('control: with the premium-aggression module (rules 1, 2, 4, 4a, 4b) off, the replay reproduces the leak', () => {
+    expect(replay({ holdemPremiumAggression: false }).paths.length).toBeGreaterThan(0);
+  });
+
+  describe('rule 4a prices every voluntary opponent who can still jam (the opener path)', () => {
+    const real = HANDS.find((h) => h.handId.startsWith('d4ec1ccd'))!;
+    const raisesAt = (node: Node) => {
+      const st = stateAt(real, node, real.raiseOrd);
+      return STYLES.flatMap((style) => SEEDS.map((seed) => act(st, seed, style, {}).action)).filter(
+        (a) => a === 'raise'
+      ).length;
+    };
+    const withSeat = (seat: number, edit: (row: number[]) => number[]): Node => ({
+      ...real.node4,
+      seats: real.node4.seats.map((row) => (row[0] === seat ? edit([...row]) : row)),
+    });
+
+    it('the recorded hand: QQ in the big blind, a ~189bb opener and a ~123bb 3-bettor; a style that still 4-bets calls the jam, the others flat', () => {
+      expect(real.hole.map((c) => c.rank).join('')).toBe('QQ');
+      const at4 = stateAt(real, real.node4, real.raiseOrd);
+      const at5 = stateAt(real, real.node5, real.foldOrd);
+      let flatted = 0;
+      for (const style of STYLES) {
+        const raises = SEEDS.filter((seed) => act(at4, seed, style, {}).action === 'raise').length;
+        if (raises === 0) flatted++;
+        else
+          expect(
+            SEEDS.filter((seed) => act(at5, seed, style, {}).action === 'fold').length,
+            style
+          ).toBe(0);
+      }
+      expect(flatted).toBeGreaterThan(0);
+      // Pricing the opener's deeper stack is what removed those 4-bets.
+      const shortOpener = withSeat(4, (r) => [r[0], 57.62, r[2], r[3], r[4], r[5], r[6]]);
+      expect(raisesAt(real.node4)).toBeLessThan(raisesAt(shortOpener));
+    });
+
+    it('with the opener as short as the 3-bettor (both covered by the 4-bet price), QQ 4-bets again', () => {
+      // Opener seat 4: 93.45 behind + 1.07 in becomes 57.62 behind + 1.07 in.
+      expect(
+        raisesAt(withSeat(4, (r) => [r[0], 57.62, r[2], r[3], r[4], r[5], r[6]]))
+      ).toBeGreaterThan(0);
+    });
+
+    it('a deep player who has not acted is not priced: the short-opener answer is unchanged by one', () => {
+      const shortOpener = withSeat(4, (r) => [r[0], 57.62, r[2], r[3], r[4], r[5], r[6]]);
+      // Seat 3 folded in the real hand; make it a live 400bb player yet to act.
+      const deepBehind: Node = {
+        ...shortOpener,
+        seats: shortOpener.seats.map((r) => (r[0] === 3 ? [3, 200, 0, 0, 0, 0, 0] : r)),
+      };
+      const real3 = {
+        ...real,
+        actions: real.actions.filter((a) => !(a.seat === 3 && a.action === 'fold')),
+      };
+      const st = (node: Node) => stateAt(real3, node, real.raiseOrd);
+      const count = (node: Node) =>
+        STYLES.flatMap((style) =>
+          SEEDS.map((seed) => act(st(node), seed, style, {}).action)
+        ).filter((a) => a === 'raise').length;
+      expect(count(deepBehind)).toBe(count(shortOpener));
+    });
   });
 });
