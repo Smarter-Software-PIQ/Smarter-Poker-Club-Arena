@@ -13,7 +13,10 @@
  * is now the account's active one" through `ca_claim_active_login`, sending
  * the same per-install id the multi-account detector reads (deviceSighting).
  * The database does the enforcement: a claim from a NEW GoTrue session
- * deletes every other auth session for the account and raises the existing
+ * deletes every other auth session for the account - EXCEPT sessions whose
+ * claims came from the same device address and platform, which the database
+ * reads from the request itself, so every browser and window on one computer
+ * stays signed in together (Dan, 2026-11-01) - and raises the existing
  * ca_player_session_revocations event, so the engine closes the kicked
  * device's table sockets and the kicked client bounces to sign-in through
  * sessionRevoked.ts - the exact machinery the operator force logout uses.
