@@ -358,24 +358,23 @@ describe('lobby replies belong to the current game and opening', () => {
     expect(screen.queryByText('Seat Change')).toBeNull();
   });
 
-  it('does not navigate from a corner join after a game switch', async () => {
-    const joinReply = deferredRpc();
+  it('the corner never joins the game itself (the chair-open pill is retired)', async () => {
+    /* Dan 2026-11-01: "REMOVE THE BLUE PILL SHAPED 'CHAIR OPEN IN THE GAME
+       TAKE A SEAT'. SHOULDN'T BE THERE FROM THE CASH GAME OBSERVER VIEW."
+       The corner's waitlist control is a readout that opens the lobby; it
+       never calls fn_cash_game_join and never moves the viewer. */
     const waiting = lobby({ seated: false, waitlist: { on_list: true, waiting: 1, position: 1 } });
-    mocks.rpc.mockImplementation((name: string) =>
-      name === 'fn_cash_game_join'
-        ? joinReply.promise
-        : Promise.resolve({ data: waiting, error: null })
-    );
+    mocks.rpc.mockResolvedValue({ data: waiting, error: null });
     const props = { onGoToTable: vi.fn(), onOpenLobby: vi.fn(), onSeatChange: vi.fn() };
-    const { rerender } = render(<CashClusterHUD gameId={GAME} {...props} />);
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'A Chair Is Open In This Game - Take It' })
-    );
-    rerender(<CashClusterHUD gameId="g-2" {...props} />);
-    await act(async () =>
-      joinReply.resolve({ data: { ok: true, action: 'seat', table_id: MAIN2 }, error: null })
-    );
+    render(<CashClusterHUD gameId={GAME} {...props} />);
+    const pill = await screen.findByText('Waitlist: #1 Of 1');
+    expect(
+      screen.queryByRole('button', { name: 'A Chair Is Open In This Game - Take It' })
+    ).toBeNull();
+    fireEvent.click(pill);
+    expect(props.onOpenLobby).toHaveBeenCalled();
     expect(props.onGoToTable).not.toHaveBeenCalled();
+    expect(mocks.rpc.mock.calls.filter(([name]) => name === 'fn_cash_game_join')).toHaveLength(0);
   });
 
   it('does not let an old failure erase a newer successful read', async () => {
@@ -725,10 +724,13 @@ describe('every caller state the read can return', () => {
     expect(screen.queryByText('Your Seat')).toBeNull();
     unmount();
 
-    /* The corner: chairs are open in the cluster (Main 2 and the feeder), so
-       the offer is the chair, in the game and not "here". */
+    /* The corner: chairs ARE open in the cluster (Main 2 and the feeder) and
+       the pill still reads the place on the list - the lit "Chair Open In
+       This Game: Take A Seat" offer is removed from the observer view for
+       good (Dan 2026-11-01). */
     render(<CashClusterHUD gameId={GAME} onOpenLobby={vi.fn()} onSeatChange={vi.fn()} />);
-    await screen.findByText('Chair Open In This Game: Take A Seat');
+    await screen.findByText('Waitlist: #2 Of 3');
+    expect(screen.queryByText('Chair Open In This Game: Take A Seat')).toBeNull();
   });
 
   it('not seated, on the waitlist, nothing open: the corner reads the place on the list', async () => {

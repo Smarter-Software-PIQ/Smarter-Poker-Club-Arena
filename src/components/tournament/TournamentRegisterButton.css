@@ -1,6 +1,13 @@
 /* Dan October18: the registration control wears rendered chrome and blue glass.
-   The page remains the approved industry-standard tournament layout. */
-.details-header__actions .tournament-register-button.tournament-register-button {
+   The page remains the approved industry-standard tournament layout.
+
+   Dan 2026-11-01: "MAKE THE REGISTER BUTTONS MORE VISIBLE ON THE LATE
+   REGISTER ON THE BOTTOM TO BE MORE LIKE THE LATE REG AT THE TOP." The
+   footer's register controls wear this same painted plate, so every rule
+   below is scoped to BOTH placements; the footer then sizes its plate to
+   fill the row beside Share (it keeps the art's 3:1 face). */
+.details-header__actions .tournament-register-button.tournament-register-button,
+.details-footer .tournament-register-button.tournament-register-button {
   position: relative;
   flex: 0 1 144px;
   width: 144px;
@@ -21,7 +28,8 @@
   touch-action: manipulation;
 }
 
-.details-header__actions .tournament-register-button.late-reg {
+.details-header__actions .tournament-register-button.late-reg,
+.details-footer .tournament-register-button.late-reg {
   flex-basis: 168px;
   width: 168px;
   min-height: 56px;
@@ -67,16 +75,29 @@
   line-height: 1.05;
 }
 
-.details-header__actions .tournament-register-button:focus-visible {
+.details-header__actions .tournament-register-button:focus-visible,
+.details-footer .tournament-register-button:focus-visible {
   outline: 2px solid #6fdcff;
   outline-offset: 2px;
 }
 
-.details-header__actions .tournament-register-button:active:not(:disabled) {
+.details-header__actions .tournament-register-button:active:not(:disabled),
+.details-footer .tournament-register-button:active:not(:disabled) {
   filter: brightness(1.12);
 }
 
-.details-header__actions .tournament-register-button:disabled {
+.details-header__actions .tournament-register-button:disabled,
+.details-footer .tournament-register-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* The footer plate is the row's main action: it takes the width Share
+   leaves, keeps the painted face's proportion, and so reads at least as
+   large as the header's plate instead of the flat outline bar it replaced. */
+.details-footer .tournament-register-button.tournament-register-button {
+  flex: 1 1 168px;
+  width: auto;
+  max-width: 280px;
+  min-height: 56px;
 }

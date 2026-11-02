@@ -4332,7 +4332,39 @@ function ClubHomePageContent({
         kind: entry.kind,
         duration_ms: Math.max(0, Date.now() - browseJourney.current.start),
       });
-      // Every row opens its game card before an explicit participation action.
+      /* ── A TOURNAMENT ROW GOES STRAIGHT TO ITS LOBBY (Dan 2026-11-01) ──
+         "WHEN YOU CLICK ON A TOURNAMENT THATS 'RUNNING' IT SHOULD TAKE YOU
+          DIRECTLY TO THE LOBBY. OR REALLY ANY TOURNAMENT, IT SHOULD NOT TAKE
+          YOU TO THIS PAGE FIRST."
+
+         The pre-commit game card stays for CASH rows only (the seat + buy-in
+         review). Every tournament row skips it: an MTT or multi-seat SNG
+         opens its own lobby screen, and a Spin or heads-up SNG opens its
+         live TABLE, because "there is 'no lobby' for a spin, you just start
+         on a table" (Dan 2026-08-20) - spinQuickJoin is seat-first and
+         charges nothing until a seat is tapped. */
+      if (entry.kind !== 'cash') {
+        if (
+          entry.kind === 'spin' ||
+          (entry.kind === 'sng' && entry.capacity > 0 && entry.capacity <= 2)
+        ) {
+          void spinQuickJoin(
+            { id: entry.id, name: entry.name, buy_in_amount: Number(entry.buyInValue ?? 0) },
+            entry.kind === 'sng' ? 'sng' : 'spin'
+          );
+        } else {
+          openTournamentLobby(entry.id);
+        }
+        /* The lobby screen and the live table both end on the felt: keep the
+           chunk and the tournament's live table warming exactly as before. */
+        preloadRoute(`/table/${entry.id}`);
+        void tableService
+          .resolveTournamentLiveTable(entry.id)
+          .then((tableId) => warmTable(tableId))
+          .catch(() => undefined); // best-effort preparation; entry reports failures
+        return;
+      }
+      // Every CASH row opens its game card before an explicit participation action.
       setSelectedId(entry.id);
       setPanelOpen(true);
       // Perf pass 2026-08-24: opening the game lobby panel is the strongest
@@ -4341,26 +4373,13 @@ function ClubHomePageContent({
       // stalling on a network fetch. No-op when idle preload already ran.
       preloadRoute(`/table/${entry.id}`);
       /* And start LOADING THE TABLE ITSELF (Dan 2026-09-03: "the table should
-         already be loading in the background as soon as it's clicked"). For a
-         cash game the panel's id IS the table id, so the roster read and the
-         engine SUBSCRIBE go out now, while the player reads the buy-in sheet -
-         so the felt mounts with players and avatars already on it. Spin / SNG
-         ids name tournaments: resolve their actual live table while the panel
-         is open. The entry tap still re-elects it because games can recycle. */
-      if (entry.kind === 'cash') warmTable(entry.id);
-      else if (
-        entry.kind === 'spin' ||
-        entry.kind === 'sng' ||
-        entry.status === 'running' ||
-        entry.status === 'late_reg'
-      ) {
-        void tableService
-          .resolveTournamentLiveTable(entry.id)
-          .then((tableId) => warmTable(tableId))
-          .catch(() => undefined); // best-effort preparation; entry reports failures
-      }
+         already be loading in the background as soon as it's clicked"): the
+         panel's id IS the table id, so the roster read and the engine
+         SUBSCRIBE go out now, while the player reads the buy-in sheet - so
+         the felt mounts with players and avatars already on it. */
+      warmTable(entry.id);
     },
-    [openTournamentLobby]
+    [openTournamentLobby, spinQuickJoin]
   );
 
   /**
@@ -4790,12 +4809,14 @@ function ClubHomePageContent({
   useEffect(() => {
     const id = pendingGameRef.current;
     if (!urlSyncEnabled || !id) return;
-    if (lobbyEntries.some((e) => e.id === id)) {
+    const linked = lobbyEntries.find((e) => e.id === id);
+    if (linked) {
       pendingGameRef.current = null;
-      browseJourney.current.selected = true;
-      cardOpenRef.current = true;
-      setSelectedId(id);
-      setPanelOpen(true);
+      /* ONE DOOR FOR EVERY ROW (Dan 2026-11-01): a linked TOURNAMENT opens
+         its own lobby screen exactly as a tap on its row now does; only a
+         cash game opens the pre-commit card. openEntry owns that routing
+         (and sets the browse/card flags this block used to set by hand). */
+      openEntry(linked);
       return;
     }
     /* The game's own tab, from the same rules the board filters by: cashKind
@@ -4837,6 +4858,7 @@ function ClubHomePageContent({
     gameSection,
     gameListsLoaded,
     viewPrefs,
+    openEntry,
   ]);
 
   /* The link's filter exemption lasts while it is pending and while its own

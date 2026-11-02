@@ -3,23 +3,23 @@
  *  CLICKING A TOURNAMENT ROW OPENS THE TOURNAMENT LOBBY
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Dan, 2026-08-25:
+ * Dan, 2026-11-01 (reinstating and widening his 2026-08-25 ruling):
  *
- *   "FIRST, WHEN YOU CLICK ANY OF THE MTT FIELDS IN THE DISPLAY INSIDE OF ALL
- *    OR MTT, IT SHOULD OPEN TO THE TOURNAMENT LOBBY."
+ *   "WHEN YOU CLICK ON A TOURNAMENT THATS 'RUNNING' IT SHOULD TAKE YOU
+ *    DIRECTLY TO THE LOBBY. OR REALLY ANY TOURNAMENT, IT SHOULD NOT TAKE YOU
+ *    TO THIS PAGE FIRST."
  *
- * Before this, `openEntry` routed to `/tournaments/<id>` only when the MTT had
- * already started — running, late_reg or completed. A REGISTERING or
- * STARTING SOON tournament opened the GameLobbyPanel drawer instead, so the
- * same row led to two different screens depending on a clock the player cannot
- * see. Every MTT row now goes to the tournament's own lobby, at every status,
- * on both the ALL tab and the MTT tab.
+ * "This page" is the GameLobbyPanel drawer. For a while every row opened it
+ * before anything else; Dan retired that for tournaments. `openEntry` now
+ * routes by KIND, never by status:
  *
- * Two things this must NOT do, and both are pinned below:
- *
- *  - CASH ROWS ARE UNCHANGED. The drawer is where a cash buy-in is chosen; it
- *    is not a tournament detour. Spin and SNG rows are seat-first and keep it
- *    too. Only `kind === 'mtt'` routes.
+ *  - CASH rows keep the drawer — it is where a cash buy-in is chosen.
+ *  - MTTs and multi-seat SNGs go straight to the tournament's own lobby
+ *    screen through the one openTournamentLobby helper, at every status.
+ *  - Spins and heads-up SNGs open their live TABLE (spinQuickJoin), because
+ *    "there is 'no lobby' for a spin, you just start on a table"
+ *    (Dan 2026-08-20). spinQuickJoin resolves and navigates; the seat is
+ *    bought on the felt by the tap that picks it.
  *  - IT STILL SPENDS NOTHING. Selecting a row never joins, registers or buys
  *    in (tests/e2e/club-lobby.spec.ts is the live guard). A tournament lobby
  *    is a read-only screen: TournamentDetails registers only from its sign-up
@@ -42,16 +42,23 @@ const src = readFileSync(path.resolve(__dirname, '../..', 'src/pages/ClubHomePag
 const openEntryBody = (() => {
   const start = src.indexOf('const openEntry = useCallback(');
   expect(start, 'openEntry has moved or been renamed').toBeGreaterThan(-1);
-  const end = src.indexOf('preloadRoute(`/table/${entry.id}`);', start);
-  expect(end, 'openEntry no longer ends by preloading the table route').toBeGreaterThan(start);
+  const end = src.indexOf('[openTournamentLobby, spinQuickJoin]', start);
+  expect(end, 'openEntry no longer closes on its routing dependencies').toBeGreaterThan(start);
   return src.slice(start, end);
 })();
 
-describe('every game row opens its card before participation', () => {
-  it('opens the shared detail panel without navigating or committing', () => {
-    expect(openEntryBody).toContain('setSelectedId(entry.id);');
-    expect(openEntryBody).toContain('setPanelOpen(true);');
-    expect(openEntryBody).not.toContain('openTournamentLobby(entry.id);');
+describe('a tournament row goes straight to its lobby (Dan 2026-11-01)', () => {
+  it('routes every non-cash row away from the pre-commit drawer', () => {
+    expect(openEntryBody).toContain("if (entry.kind !== 'cash') {");
+    expect(openEntryBody).toContain('openTournamentLobby(entry.id);');
+  });
+
+  it('a spin or heads-up SNG opens its live table instead, spending nothing', () => {
+    // Whitespace-normalised: Prettier wraps the three-arm condition.
+    expect(openEntryBody.replace(/\s+/g, ' ')).toContain(
+      "entry.kind === 'spin' || (entry.kind === 'sng' && entry.capacity > 0 && entry.capacity <= 2)"
+    );
+    expect(openEntryBody).toContain('spinQuickJoin(');
   });
 
   it('never reads a status to decide', () => {
@@ -62,19 +69,23 @@ describe('every game row opens its card before participation', () => {
       ).toBe(false);
     }
   });
+
+  it('the ?game= link opens through the same door, not a second hand-rolled panel open', () => {
+    const linkBlock = src.slice(
+      src.indexOf('// Reopen the game a ?game=<id> URL points at.'),
+      src.indexOf('linkedCardWasOpenRef')
+    );
+    expect(linkBlock).toContain('openEntry(linked);');
+    expect(linkBlock).not.toContain('setPanelOpen(true);');
+  });
 });
 
 describe('a cash row still opens the game lobby panel', () => {
-  it('falls through to the panel for everything that is not an MTT', () => {
-    const afterGuard = openEntryBody;
-    expect(afterGuard).toContain('setSelectedId(entry.id);');
-    expect(afterGuard).toContain('setPanelOpen(true);');
-  });
-
-  it('does not route spin or sng rows away from the panel', () => {
-    expect(/kind === 'cash'/.test(openEntryBody)).toBe(false);
-    expect(/kind === 'spin'/.test(openEntryBody)).toBe(false);
-    expect(/kind === 'sng'/.test(openEntryBody)).toBe(false);
+  it('falls through to the panel for cash alone', () => {
+    const cashTail = openEntryBody.slice(openEntryBody.indexOf("if (entry.kind !== 'cash') {"));
+    expect(cashTail).toContain('setSelectedId(entry.id);');
+    expect(cashTail).toContain('setPanelOpen(true);');
+    expect(cashTail.indexOf('return;')).toBeLessThan(cashTail.indexOf('setSelectedId(entry.id);'));
   });
 });
 
