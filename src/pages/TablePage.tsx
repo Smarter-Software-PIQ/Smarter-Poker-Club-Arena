@@ -15630,7 +15630,10 @@ function LiveTablePage({
                 publishSessionSummary({
                   handStatsTarget: tableId ? { tableId, userId, asOf: Date.now() } : undefined,
                   // Initial result recovery has no surviving play-session counters.
-                  resultOnly: loadedFinishedReportReady || loadedTournamentStatus === 'COMPLETED',
+                  resultOnly:
+                    loadedFinishedReportReady ||
+                    loadedTournamentStatus === 'COMPLETED' ||
+                    loadedTournamentStatus === 'CANCELLED',
                   arenaAsset: tableState.arenaAsset,
                   duration: Math.floor((Date.now() - sessionStartRef.current) / 1000),
                   handsPlayed: handsPlayedRef.current,

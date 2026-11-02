@@ -1,6 +1,99 @@
 import { readFileSync } from 'node:fs';
-import { describe, it, expect } from 'vitest';
-import { canRestoreFinishedTournamentReport } from '../../src/services/tournamentResult';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  canRestoreFinishedTournamentReport,
+  fetchTournamentResult,
+} from '../../src/services/tournamentResult';
+const resultRead = vi.hoisted(() => ({
+  entry: { status: 'eliminated', position: null } as Record<string, unknown>,
+  status: 'CANCELLED',
+  qualification: vi.fn(),
+}));
+vi.mock('../../src/services/satelliteQualifierResult', () => ({
+  readMySatelliteQualifierResult: resultRead.qualification,
+}));
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: {
+    from: (table: string) => {
+      let head = false;
+      const response = () => ({
+        data: head
+          ? null
+          : table === 'tournaments'
+            ? { status: resultRead.status, name: 'Satellite', is_mystery_bounty: false }
+            : resultRead.entry,
+        count: head ? 6 : null,
+        error: null,
+      });
+      const query: any = {
+        select: (_columns: string, options?: { head?: boolean }) => {
+          head = !!options?.head;
+          return query;
+        },
+        eq: () => query,
+        maybeSingle: async () => response(),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve(response()).then(resolve),
+      };
+      return query;
+    },
+  },
+}));
+beforeEach(() => {
+  resultRead.entry = { status: 'eliminated', position: null };
+  resultRead.status = 'CANCELLED';
+  resultRead.qualification.mockReset().mockResolvedValue(null);
+});
+
+describe('cancelled tournament result reader preserves canonical satellite evidence', () => {
+  it('asks for qualification after cancellation changes winner status to eliminated', async () => {
+    resultRead.qualification.mockResolvedValue({
+      qualified: true,
+      targetId: 'target',
+      amount: 100,
+      deliveryKind: 'ticket',
+    });
+    const result = await fetchTournamentResult('satellite', 'hero');
+    expect(resultRead.qualification).toHaveBeenCalledWith('satellite', 'hero');
+    expect(result.satelliteQualification).toEqual({
+      targetId: 'target',
+      amount: 100,
+      deliveryKind: 'ticket',
+    });
+    expect(result.entryStatus).toBe('eliminated');
+    expect(result.finishPlace).toBeNull();
+  });
+  it('keeps cancellation unranked when the canonical reader confirms no qualification receipt', async () => {
+    const result = await fetchTournamentResult('satellite', 'hero');
+    expect(resultRead.qualification).toHaveBeenCalledOnce();
+    expect(result.tournamentStatus).toBe('CANCELLED');
+    expect(result.satelliteQualification).toBeUndefined();
+  });
+  it('treats a refused or unreadable receipt as unknown rather than losing an earned award', async () => {
+    resultRead.qualification.mockRejectedValue(new Error('satellite qualifier receipt unproven'));
+    const result = await fetchTournamentResult('satellite', 'hero');
+    expect(result.tournamentStatus).toBeUndefined();
+    expect(result.entryStatus).toBeUndefined();
+  });
+  it.each([
+    { status: 'RUNNING', entry: { status: 'eliminated', position: null } },
+    { status: 'CANCELLED', entry: { status: 'eliminated', position: 3 } },
+  ])(
+    'does not broaden qualification reads for ordinary live busts or earned ranks',
+    async ({ status, entry }) => {
+      resultRead.status = status;
+      resultRead.entry = entry;
+      await fetchTournamentResult('satellite', 'hero');
+      expect(resultRead.qualification).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps the existing completed null-rank winner qualification read', async () => {
+    resultRead.status = 'COMPLETED';
+    resultRead.entry = { status: 'winner', position: null };
+    await fetchTournamentResult('satellite', 'hero');
+    expect(resultRead.qualification).toHaveBeenCalledOnce();
+  });
+});
+
 it('initial completion recovery marks the report as result-only at its producer', () => {
   const page = readFileSync('src/pages/TablePage.tsx', 'utf8');
   const exit = page.slice(
@@ -8,7 +101,7 @@ it('initial completion recovery marks the report as result-only at its producer'
     page.indexOf('let durableCompletionLookupInFlight')
   );
   expect(exit).toMatch(
-    /resultOnly:\s*loadedFinishedReportReady\s*\|\|\s*loadedTournamentStatus === 'COMPLETED'/
+    /resultOnly:\s*loadedFinishedReportReady\s*\|\|\s*loadedTournamentStatus === 'COMPLETED'\s*\|\|\s*loadedTournamentStatus === 'CANCELLED'/
   );
 });
 

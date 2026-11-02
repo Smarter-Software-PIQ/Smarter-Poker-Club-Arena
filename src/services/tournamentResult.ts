@@ -103,7 +103,7 @@ export async function fetchTournamentResult(
     }
 
     const qualification =
-      entry?.status === 'winner' && entry.position === null
+      entry?.position === null && (entry.status === 'winner' || tourney?.status === 'CANCELLED')
         ? await readMySatelliteQualifierResult(tournamentId, userId)
         : null;
     return {
