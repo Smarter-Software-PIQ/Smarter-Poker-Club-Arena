@@ -221,6 +221,9 @@ GRANT CREATE ON SCHEMA "storage" TO "supabase_storage_admin" WITH GRANT OPTION;
 GRANT USAGE ON SCHEMA "storage" TO "dashboard_user";
 GRANT CREATE ON SCHEMA "storage" TO "dashboard_user";
 -- twenty-one-missing-default-acl-entries
+-- Realtime91 grants these options natively; the fixed legacy33 intermediate
+-- contract removes them before current-application alignment restores them.
+ALTER DEFAULT PRIVILEGES FOR ROLE "supabase_admin" IN SCHEMA "realtime" REVOKE GRANT OPTION FOR SELECT, INSERT ON TABLES FROM "postgres" RESTRICT;
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT SELECT, UPDATE, USAGE ON SEQUENCES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT SELECT, UPDATE, USAGE ON SEQUENCES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT SELECT, UPDATE, USAGE ON SEQUENCES TO "postgres";

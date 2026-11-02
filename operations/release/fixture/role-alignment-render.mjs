@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 // This literal is source authority. The adjacent JSON is an audit record only.
-const templateSha256 = 'b279f72f4c8631bd3954b5e6659d4ee1012b5d586d344df0d19eaee7de7b679f';
+const templateSha256 = '7d42d4f8d32d515bda18cd40c8c6357965a6a00869c8a922e38b9def3eee1706';
 // Re-emits the captured ACL entry order inside the existing fully guarded transaction.
 // This source fragment also generates the matching checked-in installer span.
 export const realtimeSchemaAclOrderSql = `REVOKE ALL ON SCHEMA "realtime" FROM "supabase_realtime_admin", "postgres", "anon", "authenticated", "service_role" RESTRICT;

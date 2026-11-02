@@ -13,6 +13,10 @@ adaptations. The application preimage, native service validator and control
 tenant readback require 91 real migrations. No migration rows or replacement
 service functions are inserted. Native role qualification uses the new exact
 schema/default ACL preimage; its final aligned target is unchanged.
+The exact legacy intermediate role contract requires the two native table
+grant options to be removed explicitly inside that installer transaction.
+Current-application alignment then restores the captured grant options. Updating
+the preimage alone does not perform that transition; the installer now does.
 
 Fresh Realtime creates five daily message partitions, while mature 72-hour
 retention keeps seven. The guarded captured-configuration transaction adds only

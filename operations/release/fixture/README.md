@@ -884,4 +884,10 @@ preimage quiescence; schema export still selects every application schema.
 
 Capture20 proved that the current application has 91 genuine Realtime tenant migrations through 20261009120000, not the older 83-migration fixture generation. The pinned official v2.144.0 image and public snapshot match all 91 versions and the three newer authorize, list_changes_sync and settled_changes function definitions. The fifteen existing function dump blocks remain unchanged. The pre-alignment native role witness now reflects that generation's schema and default grant options; the aligned role target remains unchanged.
 
+The fixed intermediate role installer explicitly removes the two native table
+grant options to reach its unchanged legacy role contract. The subsequent
+current-application transaction restores those exact captured grant options.
+Both boundaries retain complete catalogue checks; changing the expected
+preimage alone cannot substitute for this actual transition.
+
 Eleven source-bound application policies on realtime.messages are restored with application SQL, separately from native service objects. Their complete quoted pg_dump blocks and maintained migration provenance must match exactly. Unknown policies, altered predicates or privileges, extra statements and an application policy appearing in native service output refuse composition. This changes ownership classification only; native managed objects still require exact bidirectional comparison, and full schema restore/catalogue parity and all fifteen connected cases remain required.

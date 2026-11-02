@@ -365,7 +365,7 @@ def role_alignment_record(output):
     result = records[0]
     expected = {
         'scope': 'native-full-role-installer', 'status': 'passed', 'stage': 'complete',
-        'template_sha256': 'b279f72f4c8631bd3954b5e6659d4ee1012b5d586d344df0d19eaee7de7b679f',
+        'template_sha256': '7d42d4f8d32d515bda18cd40c8c6357965a6a00869c8a922e38b9def3eee1706',
         'install_submitted': True, 'commit_acknowledged': True, 'catalog_outcome': 'committed',
         'rollback_acknowledged': False, 'separate_read_only_observers': 4,
         'graph_assertion': True, 'membership_assertion': True,
