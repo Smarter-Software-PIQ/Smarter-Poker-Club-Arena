@@ -78,6 +78,18 @@ describe('a revoked activation proves every worker empty', () => {
       expect(() => validateClearReceipt(r, id)).toThrow();
     }
   });
+  it('the worker thread arms the serving gate before it can receive any store control message', () => {
+    const worker = readFileSync(
+      new URL('../engine/horseDecision/worker.ts', import.meta.url),
+      'utf8'
+    );
+    const start = worker.indexOf('if (!isMainThread && parentPort) {');
+    const gate = worker.indexOf('requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);', start);
+    expect(start).toBeGreaterThan(0);
+    expect(gate).toBeGreaterThan(start);
+    for (const later of ['createV31WorkerControl({', "port.on('message'", 'void runtime.start();'])
+      expect(worker.indexOf(later, start)).toBeGreaterThan(gate);
+  });
   it('live decision workers arm the serving gate before their first V31 load', () => {
     const runtime = readFileSync(
       new URL('../engine/horseDecision/workerRuntime.ts', import.meta.url),

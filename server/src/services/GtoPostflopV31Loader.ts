@@ -120,11 +120,20 @@ function readV31CellPage(data: unknown, expectedDatasetId?: string): GtoV31Runti
 
 async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number }> {
   const generation = ++activeLoadGeneration;
+  const gate = servingGate;
+  let admissionUnreadable = false;
+  const admit = async (commit: string | null) => {
+    try {
+      return await servingAdmission(commit);
+    } catch (error) {
+      admissionUnreadable = true;
+      throw error;
+    }
+  };
   try {
-    const gate = servingGate;
     let admittedId: string | null = null;
     if (gate) {
-      const admission = await servingAdmission(gate.commit);
+      const admission = await admit(gate.commit);
       if (admission.active && !admission.admitted) {
         // Fail closed: never serve a dataset this build was not proven against.
         if (generation !== activeLoadGeneration) throw new Error('v31_active_load_superseded');
@@ -179,7 +188,7 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
         throw new Error('v31_serving_admission_dataset_changed');
       // Re-read the binding after the collection: a revocation that landed
       // while pages were read wins, and the store is emptied instead.
-      const recheck = await servingAdmission(gate.commit);
+      const recheck = await admit(gate.commit);
       if (
         (recheck.active?.dataset_id ?? null) !== admittedId ||
         (admittedId !== null && !recheck.admitted)
@@ -202,6 +211,20 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
     );
     return { ok: true, count: applied };
   } catch (err) {
+    // Fail closed: a live worker that cannot read its serving binding does
+    // not keep serving a dataset it can no longer prove it may serve.
+    if (
+      gate &&
+      admissionUnreadable &&
+      gtoPostflopV31Dataset() &&
+      generation === activeLoadGeneration
+    ) {
+      try {
+        await replaceGtoPostflopV31Async([], () => generation === activeLoadGeneration);
+      } catch {
+        /* superseded by a newer attempt, which owns the store */
+      }
+    }
     reportError(err, 'GtoPostflopV31Loader.load');
     console.warn(
       `[GtoPostflopV31Loader] certified V31 load FAILED - the brain keeps the last sealed snapshot or falls back (${gtoPostflopV31Count()} cached)`

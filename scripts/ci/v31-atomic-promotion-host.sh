@@ -34,12 +34,13 @@
 #   64 refused-arguments                      (nothing changed)
 #   65 refused-serving-identity               (nothing changed)
 #   66 promotion-refused                      (nothing changed)
-#   67 promotion-outcome-unknown              (never bound: no worker serves it; re-run)
+#   67 promotion-outcome-unknown              (never bound; all 8 workers proven empty; re-run)
 #   68 rolled-back-empty                      (promoted; binding revoked; all 8 workers proven empty; re-run binds again)
 #   69 promoted-loaded-readiness-unproved     (all 8 workers proven on the same dataset; re-run)
-#   70 promoted-unbound       (promoted, not bound: every live worker serves the empty store; re-run)
-#   71 in-container-step-not-terminated       (inspect before any new operation)
-#   72 rollback-incomplete                    (binding revocation or empty proof unconfirmed; re-run)
+#   70 promoted-unbound                       (promoted, never bound; all 8 workers proven empty; re-run)
+#   71 in-container-step-not-terminated       (inspect before any new operation; the runner revokes)
+#   72 rollback-incomplete                    (empty proof or revocation unconfirmed; the runner revokes; workers converge empty; re-run)
+#   73 promotion-outcome-unknown-uncleared    (promotion unknown and workers not proven empty; re-run)
 #   75 refused-lock-or-boundary               (nothing changed)
 set -uo pipefail
 # A dropped SSH session must still reach a recorded outcome; the absolute
@@ -49,11 +50,9 @@ LOCK=${V31_ACTIVATION_LOCK:-/var/lock/club-arena-v31-activation.lock}
 CONTAINER=club-arena-engine
 BUDGET_MINUTES=9
 BUDGET_SECONDS=480
-REVERT_SECONDS=420
 # A caller may only SHRINK the budgets (the tests use this for hung steps).
 if [[ ${V31_BUDGET_SECONDS:-} =~ ^[0-9]+$ ]] && (( V31_BUDGET_SECONDS < BUDGET_SECONDS )); then
   BUDGET_SECONDS=$V31_BUDGET_SECONDS
-  REVERT_SECONDS=$V31_BUDGET_SECONDS
 fi
 READINESS_ATTEMPTS=6
 READINESS_PAUSE=${V31_READINESS_PAUSE:-20}
@@ -90,7 +89,12 @@ if (( minute < 10 || minute > 49 - BUDGET_MINUTES )); then outcome refused-maint
 chicago=$(TZ=America/Chicago date +%H%M) || outcome refused-clock 75
 chicago=$((10#$chicago))
 if (( chicago >= 350 - BUDGET_MINUTES && chicago <= 406 )); then outcome refused-daily-maintenance 75; fi
+# The whole run, revert included, stays inside the window the start refusal
+# leaves before the :50 boundary; a revert that cannot fit reports 72 and the
+# runner revokes the binding through its own service-role path.
+window_end=$(( now - now % 3600 + 49 * 60 + 30 ))
 deadline=$(( now + BUDGET_SECONDS ))
+(( deadline < window_end )) || deadline=$window_end
 remaining() { local t; t=$(date -u +%s) || t=$deadline; echo $(( deadline - t )); }
 # bounded <cap-seconds> command...: runs within min(cap, time left before the deadline).
 bounded() {
@@ -117,6 +121,9 @@ terminate_step() {
     "$1" </dev/null >/dev/null 2>&1
 }
 step_no=0
+# In the container: run the step, record ITS PID (not the shell's), and remove
+# the record when the step ends, so no PID file outlives its process.
+WRAP='exec 3<&0; "$@" <&3 & p=$!; echo "$p" > "$0"; wait "$p"; rc=$?; rm -f "$0"; exit "$rc"'
 # incontainer <cap> <stdin-base64 or ''> <command...>: sets STEP_OUT, returns the step's exit code.
 incontainer() {
   local cap=$1 input=$2 pidfile rc
@@ -124,9 +131,9 @@ incontainer() {
   step_no=$((step_no + 1))
   pidfile="/tmp/v31-activation-$request-$step_no.pid"
   if [ -n "$input" ]; then
-    STEP_OUT=$(printf '%s' "$input" | base64 -d | bounded "$cap" docker exec -i "$CONTAINER" sh -c 'echo $$ > "$0"; exec "$@"' "$pidfile" "$@")
+    STEP_OUT=$(printf '%s' "$input" | base64 -d | bounded "$cap" docker exec -i "$CONTAINER" sh -c "$WRAP" "$pidfile" "$@")
   else
-    STEP_OUT=$(bounded "$cap" docker exec "$CONTAINER" sh -c 'echo $$ > "$0"; exec "$@"' "$pidfile" "$@" </dev/null)
+    STEP_OUT=$(bounded "$cap" docker exec "$CONTAINER" sh -c "$WRAP" "$pidfile" "$@" </dev/null)
   fi
   rc=$?
   if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
@@ -137,27 +144,44 @@ incontainer() {
 }
 fresh_uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr 'A-F' 'a-f'; }
 
-# Revoke the binding (the database guarantee), then prove all eight workers empty.
+# Prove all eight workers empty: one reload of the active dataset, which the
+# serving gate of every unbound worker turns into the empty store.
+clear_all() {
+  local attempt=1 id code
+  while (( attempt <= CLEAR_ATTEMPTS )); do
+    id=$(fresh_uuid)
+    [[ $id =~ $uuid ]] || return 1
+    incontainer 170 '' node dist/scripts/reloadPublic215Stores.js clear "$id" "$dataset" "$checksum"
+    code=$?
+    stage clear "$(last_json "$STEP_OUT")"
+    [ "$code" -eq 0 ] && return 0
+    (( $(remaining) > READINESS_PAUSE + 5 )) || return 1
+    attempt=$((attempt + 1))
+    sleep "$READINESS_PAUSE"
+  done
+  return 1
+}
+
+# Revoke the binding (the database guarantee), then prove all eight workers
+# empty, never past the window (the deadline is not extended).
 revert() {
   stage revert "{\"why\":\"$1\"}"
-  deadline=$(( $(date -u +%s) + REVERT_SECONDS ))
-  local attempt=1 id
+  deadline=$window_end
   incontainer 45 "$container_js" node --input-type=module - revoke "$dataset" "$serving" "$bound_by"
   local code=$?
   stage revoke "$(last_json "$STEP_OUT")"
   [ "$code" -eq 0 ] || outcome rollback-incomplete 72
-  while (( attempt <= CLEAR_ATTEMPTS )); do
-    id=$(fresh_uuid)
-    [[ $id =~ $uuid ]] || outcome rollback-incomplete 72
-    incontainer 170 '' node dist/scripts/reloadPublic215Stores.js clear "$id" "$dataset" "$checksum"
-    code=$?
-    stage clear "$(last_json "$STEP_OUT")"
-    [ "$code" -eq 0 ] && outcome rolled-back-empty 68
-    (( $(remaining) > READINESS_PAUSE + 5 )) || break
-    attempt=$((attempt + 1))
-    sleep "$READINESS_PAUSE"
-  done
+  clear_all && outcome rolled-back-empty 68
   outcome rollback-incomplete 72
+}
+
+# Promoted (or possibly promoted) but never bound: the newly active dataset is
+# unbound, so a clear empties every worker, including any still holding the
+# dataset the promotion retired.
+settle_unbound() {
+  deadline=$window_end
+  clear_all && outcome "$1" "$2"
+  outcome "$3" "$4"
 }
 
 # 1. Promotion of exactly the evaluated epoch (or proof it already happened).
@@ -168,9 +192,9 @@ stage promote "$(last_json "$STEP_OUT")"
 case "$code" in
   0) ;;
   10) outcome promotion-refused 66 ;;
-  *) outcome promotion-outcome-unknown 67 ;;
+  *) settle_unbound promotion-outcome-unknown 67 promotion-outcome-unknown-uncleared 73 ;;
 esac
-unchanged || outcome promoted-unbound 70
+unchanged || settle_unbound promoted-unbound 70 rollback-incomplete 72
 
 # 2. Bind exactly this serving commit and its proven closure digest.
 incontainer 60 "$container_js" node --input-type=module - bind "$dataset" "$engine" "$serving" "$digest" "$bound_by"
@@ -178,7 +202,7 @@ code=$?
 stage bind "$(last_json "$STEP_OUT")"
 case "$code" in
   0) ;;
-  10) outcome promoted-unbound 70 ;;
+  10) settle_unbound promoted-unbound 70 rollback-incomplete 72 ;;
   *) revert bind-outcome-unknown ;;
 esac
 unchanged || revert serving-identity-changed

@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -124,6 +124,7 @@ test('success promotes, binds the serving commit, loads all workers, re-reads th
     assert.equal(r.code, 0, r.out);
     assert.equal(r.t.outcome, 'promoted-loaded-ready');
     assert.deepEqual(w.steps(), ['promote', 'bind', 'reload', 'status', 'readiness']);
+    assert.deepEqual(readdirSync(w.state).filter((f) => f.endsWith('.pid')), [], 'no PID file outlives its step');
     assert.equal(r.t.stages.promote[0].result, 'promoted');
   } finally { w.cleanup(); }
 });
@@ -200,6 +201,9 @@ test('a held activation leaves the engine lock free for a 5 s recovery wait (rea
     const activation = spawn('bash', [HOST, ...ARGS], { env, stdio: 'ignore' });
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const started = Date.now();
+    // The activation really holds its own lock while it runs...
+    assert.equal(spawnSync(REAL_FLOCK, ['-n', w.env.V31_ACTIVATION_LOCK, 'true']).status, 1, 'activation lock must be held');
+    // ...and the engine lock stays free for a release recovery.
     const recovery = spawnSync(REAL_FLOCK, ['-w', '5', engineLock, 'true']);
     assert.equal(recovery.status, 0, 'engine-release-recover.sh style 5 s wait must acquire the engine lock');
     assert.ok(Date.now() - started < 2000);
@@ -207,12 +211,14 @@ test('a held activation leaves the engine lock free for a 5 s recovery wait (rea
   } finally { w.cleanup(); }
 });
 
-test('a refused or unknown promotion never binds or loads; a refused binding never loads', () => {
+test('a refused or unknown promotion never binds or loads; an unbound promotion proves every worker empty', () => {
   for (const [state, code, outcome, steps] of [
     [{ promote_rcs: '10' }, 66, 'promotion-refused', ['promote']],
-    [{ promote_rcs: '20' }, 67, 'promotion-outcome-unknown', ['promote']],
-    [{ bind_rcs: '10' }, 70, 'promoted-unbound', ['promote', 'bind']],
-    [{ swap_after_promote: `cid2|img|t2|running|${OTHER}` }, 70, 'promoted-unbound', ['promote']],
+    [{ promote_rcs: '20' }, 67, 'promotion-outcome-unknown', ['promote', 'clear']],
+    [{ bind_rcs: '10' }, 70, 'promoted-unbound', ['promote', 'bind', 'clear']],
+    [{ swap_after_promote: `cid2|img|t2|running|${OTHER}` }, 70, 'promoted-unbound', ['promote', 'clear']],
+    [{ promote_rcs: '20', clear_rcs: '1' }, 73, 'promotion-outcome-unknown-uncleared', ['promote', 'clear', 'clear', 'clear']],
+    [{ bind_rcs: '10', clear_rcs: '1' }, 72, 'rollback-incomplete', ['promote', 'bind', 'clear', 'clear', 'clear']],
   ]) {
     const w = world({ state });
     try {
@@ -220,7 +226,7 @@ test('a refused or unknown promotion never binds or loads; a refused binding nev
       assert.equal(r.code, code, outcome);
       assert.equal(r.t.outcome, outcome);
       assert.deepEqual(w.steps(), steps, outcome);
-      assert.equal(OUTCOMES[code].serving, code === 66 ? 'unchanged' : 'empty');
+      assert.equal(OUTCOMES[code].serving, { 66: 'unchanged', 72: 'converging', 73: 'unknown' }[code] ?? 'empty');
     } finally { w.cleanup(); }
   }
 });
@@ -272,7 +278,7 @@ test('readiness failure with all eight proven loaded keeps one consistent model;
 });
 
 test('a hung in-container step is killed inside the container and proven gone before anything else runs', () => {
-  for (const [hang, code, after] of [['promote_hang', 67, []], ['reload_hang', 68, ['revoke', 'clear']],
+  for (const [hang, code, after] of [['promote_hang', 67, ['clear']], ['reload_hang', 68, ['revoke', 'clear']],
     ['readiness_hang', 69, []]]) {
     const w = world({ state: { [hang]: '1' }, budget: 4 });
     try {
@@ -300,7 +306,12 @@ test('a hung in-container step is killed inside the container and proven gone be
   // Every docker exec is bounded and runs under a recorded PID.
   const lines = readFileSync(HOST, 'utf8').split('\n').filter((line) => !line.trim().startsWith('#') && /\bdocker (?:exec|container)/.test(line));
   for (const line of lines) assert.match(line, /(?:bounded (?:\d+|"\$cap")|timeout --signal=TERM --kill-after=2 20) docker /, line);
-  assert.equal(lines.filter((line) => line.includes("'echo $$ > \"$0\"; exec \"$@\"'")).length, 2);
+  assert.equal(lines.filter((line) => line.includes('sh -c "$WRAP" "$pidfile"')).length, 2);
+  // The revert never extends the deadline past the window the start refusal leaves.
+  const hostSource = readFileSync(HOST, 'utf8');
+  assert.match(hostSource, /window_end=\$\(\( now - now % 3600 \+ 49 \* 60 \+ 30 \)\)/);
+  assert.equal((hostSource.match(/^\s*deadline=/gm) ?? []).length, 3);
+  for (const line of hostSource.match(/^\s*deadline=.*$/gm)) assert.match(line, /deadline=(?:\$\(\( now \+ BUDGET_SECONDS \)\)|\$window_end)/, line);
 });
 
 test('a successful host exit still needs eight valid receipts and the loaded health', () => {

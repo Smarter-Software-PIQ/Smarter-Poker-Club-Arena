@@ -115,16 +115,33 @@ describe('V31 serving binding gate', () => {
     await expect(loadGtoPostflopV31Once()).resolves.toEqual({ ok: true, count: 0 });
     expect(gtoPostflopV31Count()).toBe(0);
   });
-  it('an unreadable or malformed admission is an outage, not a refusal: the same dataset is kept', async () => {
-    for (const reply of [
-      { data: null, error: { message: 'down' } },
-      { data: { active: null, admitted: true }, error: null },
-      { data: { active: { dataset_id: 'x', dataset_checksum: 'y' }, admitted: true }, error: null },
-    ]) {
+  it.each([
+    { data: null, error: { message: 'down' } },
+    { data: { active: null, admitted: true }, error: null },
+    { data: { active: { dataset_id: 'x', dataset_checksum: 'y' }, admitted: true }, error: null },
+  ])(
+    'an unreadable or malformed admission fails closed: the held dataset is dropped (%j)',
+    async (reply) => {
       transport.rpc.mockResolvedValueOnce(reply);
       await expect(loadGtoPostflopV31Once()).resolves.toEqual({ ok: false, count: 0 });
-      expect(gtoPostflopV31Dataset()).toMatchObject({ id: A.dataset_id });
+      expect(gtoPostflopV31Dataset()).toBeNull();
+      expect(gtoPostflopV31Count()).toBe(0);
     }
+  );
+  it('an admission re-read that fails after the pages are collected also fails closed', async () => {
+    transport.rpc
+      .mockResolvedValueOnce(admission(A, true))
+      .mockResolvedValueOnce({ data: [structuredClone(CELL)], error: null })
+      .mockRejectedValueOnce(new Error('connection reset'));
+    await expect(loadGtoPostflopV31Once()).resolves.toEqual({ ok: false, count: 0 });
+    expect(gtoPostflopV31Dataset()).toBeNull();
+  });
+  it('a page failure on the admitted dataset keeps that admitted dataset (the binding was just proven)', async () => {
+    transport.rpc
+      .mockResolvedValueOnce(admission(A, true))
+      .mockResolvedValueOnce({ data: null, error: { message: 'statement timeout' } });
+    await expect(loadGtoPostflopV31Once()).resolves.toEqual({ ok: false, count: 0 });
+    expect(gtoPostflopV31Dataset()).toMatchObject({ id: A.dataset_id });
   });
   it('offline evaluators that never arm the gate keep reading the database active dataset', async () => {
     _resetGtoV31ServingBinding();

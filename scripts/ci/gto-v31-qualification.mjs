@@ -213,6 +213,7 @@ export const OUTCOMES = Object.freeze({
   70: { outcome: 'promoted-unbound', changed: true, rerun: true, serving: 'empty' },
   71: { outcome: 'in-container-step-not-terminated', changed: null, rerun: false, serving: 'unknown' },
   72: { outcome: 'rollback-incomplete', changed: true, rerun: true, serving: 'converging' },
+  73: { outcome: 'promotion-outcome-unknown-uncleared', changed: null, rerun: true, serving: 'unknown' },
   75: { outcome: 'refused-lock-or-boundary', changed: false, rerun: true, serving: 'unchanged' },
 });
 
@@ -280,6 +281,7 @@ export function promotionRequest({ datasetId, checksum, engineSha, servingSha, r
 export const SERVING_GATE = Object.freeze({
   'server/src/services/GtoPostflopV31Loader.ts': 'export function requireGtoV31ServingBinding(',
   'server/src/engine/horseDecision/workerRuntime.ts': 'requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);',
+  'server/src/engine/horseDecision/worker.ts': 'requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);',
   'server/src/scripts/reloadPublic215Stores.ts': 'export function validateClearReceipt(',
 });
 export function servingGateCommit(repo, sha) {
@@ -305,6 +307,11 @@ export function remoteCommand(p) {
     b64(readFileSync(join(HERE, 'v31-atomic-promotion-container.mjs'), 'utf8')),
     b64(readFileSync(join(HERE, 'inspect-v31-worker-readiness.mjs'), 'utf8'))];
   return `bash -c ${quote(host)} v31-atomic-promotion ${args.map(quote).join(' ')}`;
+}
+
+/** Outcomes after which the binding may still be open: the runner revokes it itself. */
+export function runnerRevokes(outcome) {
+  return ['rollback-incomplete', 'in-container-step-not-terminated', 'host-outcome-unknown'].includes(outcome);
 }
 
 /** The single verdict of one host operation, given its transcript and the fresh health read after it. */
@@ -497,6 +504,17 @@ async function runPromotion(selected, directory) {
     let healthAfter = null;
     try { healthAfter = await health(); } catch { healthAfter = null; }
     const verdict = promotionVerdict(p, transcript, healthAfter);
+    if (runnerRevokes(verdict.outcome)) {
+      // The host could not prove the binding revoked (or its outcome is unknown):
+      // revoke it through the runner's own service-role path. Idempotent.
+      try {
+        receipt.runnerRevoke = await rpc('fn_gto_v31_revoke_serving', { p_dataset_id: p.datasetId,
+          p_serving_commit: p.servingSha, p_revoked_by: p.boundBy,
+          p_reason: `Activation ended ${verdict.outcome}; the runner revoked the serving binding` });
+      } catch (error) {
+        receipt.runnerRevoke = { error: error.message };
+      }
+    }
     Object.assign(receipt, { outcome: verdict.outcome, changed: verdict.changed, rerunnable: verdict.rerun,
       servingAfter: verdict.serving,
       hostExit: ssh.status, hostOutcome: transcript.printed, stages: transcript.stages, healthAfter });

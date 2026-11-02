@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { invocation, servingIdentity, pinOwner, epochReceipts, selectEpoch as select, promotionPlan, maintenanceRefusal,
   evaluatorArguments, hostTranscript, OUTCOMES, promotionRequest, PROMOTION_BUDGET_MS, EPOCH_PROTOCOL, epochProtocolPresent,
-  epochAwareCommit, SERVING_GATE, servingGateCommit } from './gto-v31-qualification.mjs';
+  epochAwareCommit, SERVING_GATE, servingGateCommit, runnerRevokes } from './gto-v31-qualification.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -142,6 +142,13 @@ test('host outcomes are explicit, and a disagreeing transcript is never a succes
     assert.ok(['loaded', 'empty', 'unchanged', 'converging', 'unknown'].includes(known.serving), code);
   assert.equal(OUTCOMES[72].outcome, 'rollback-incomplete');
   assert.equal(OUTCOMES[71].rerun, false);
+  assert.equal(OUTCOMES[67].serving, 'empty');
+  assert.equal(OUTCOMES[70].serving, 'empty');
+  assert.equal(OUTCOMES[73].serving, 'unknown');
+  for (const outcome of ['rollback-incomplete', 'in-container-step-not-terminated', 'host-outcome-unknown'])
+    assert.equal(runnerRevokes(outcome), true, outcome);
+  for (const outcome of ['promoted-loaded-ready', 'rolled-back-empty', 'promoted-loaded-readiness-unproved', 'promoted-unbound'])
+    assert.equal(runnerRevokes(outcome), false, outcome);
 });
 
 test('promotion requests and evaluator arguments carry no override or interpolation', () => {
