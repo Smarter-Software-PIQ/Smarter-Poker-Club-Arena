@@ -181,7 +181,9 @@ describe('the player may hide the button, and only the button', () => {
   it('gates the HUD slot', () => {
     const TABLE_PAGE = stripComments(read('src/pages/TablePage.tsx'));
     expect(TABLE_PAGE).toMatch(
-      /tableHudControl\(\{\s*heroPromptedToAct,\s*handSettling,\s*handInProgress: tableState\.isHandInProgress,\s*rabbitAvailable: isRabbitAvailable && rabbitViewIsCurrent,\s*rabbitEnabled: v8Settings\.rabbit_hunt_button,?\s*\}\)/
+      // AUTO RUN RABBIT HUNT (2026-11-01): auto IS the player asking for the
+      // runout, so it keeps the slot live even with the manual button hidden.
+      /tableHudControl\(\{\s*heroPromptedToAct,\s*handSettling,\s*handInProgress: tableState\.isHandInProgress,\s*rabbitAvailable: isRabbitAvailable && rabbitViewIsCurrent,\s*rabbitEnabled: v8Settings\.rabbit_hunt_button \|\| \(v8Settings\.auto_rabbit_hunt && viewerIsVip\),?\s*\}\)/
     );
     const completed = {
       heroPromptedToAct: false,
