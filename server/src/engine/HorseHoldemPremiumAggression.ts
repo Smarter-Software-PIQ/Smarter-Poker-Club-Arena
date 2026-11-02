@@ -378,12 +378,13 @@ export function fourBetCommits(
   i: HoldemPremiumInput,
   h: HoleShape,
   read: PreflopRead,
-  raiseTo: number
+  raiseTo: number,
+  /** Price the jam from this seat instead of the last raiser. */
+  jammerSeat: number | null = read.lastRaiserSeat
 ): { commits: boolean; required: number; equity: number } {
   const heroTotal = finite(i.hero.stack) + finite(i.hero.bet);
   const live = i.players.filter((p) => p.seat !== i.hero.seat && !p.is_folded);
-  const raiser =
-    read.lastRaiserSeat === null ? undefined : live.find((p) => p.seat === read.lastRaiserSeat);
+  const raiser = jammerSeat === null ? undefined : live.find((p) => p.seat === jammerSeat);
   const villainTotal = raiser
     ? finite(raiser.stack) + finite(raiser.bet)
     : Math.max(0, ...live.map((p) => finite(p.stack) + finite(p.bet)));
@@ -393,12 +394,52 @@ export function fourBetCommits(
     0,
     finite(i.pot) - finite(i.hero.bet) - (raiser ? finite(raiser.bet) : finite(i.currentBet))
   );
-  const maniac = read.lastRaiserSeat !== null && i.raiserIsManiac?.(read.lastRaiserSeat) === true;
+  const maniac = jammerSeat !== null && i.raiserIsManiac?.(jammerSeat) === true;
   const equity = fiveBetJamEquity(h) + (maniac ? MANIAC_FIVE_BET_EQUITY_BONUS : 0);
   if (stackS <= 0 || f >= stackS - 0.005) return { commits: true, required: 0, equity };
   const required =
     (stackS - f) / (dead + 2 * stackS) + (i.tournament ? TOURNAMENT_FIVE_BET_CALL_MARGIN : 0);
   return { commits: equity >= required, required, equity };
+}
+
+/**
+ * Rule 4a, Phase 3 (2026-11-02): a 4-bet must be able to call a jam from
+ * EVERY opponent who can still make one, not only from the last raiser. The
+ * exact replay of the 83 real 4-bet-then-fold hands found the one path the
+ * last-raiser price missed: cash, QQ in the big blind ~198bb deep, a ~189bb
+ * opener, a ~123bb cold 3-bettor; the 4-bet was priced against the 3-bettor's
+ * 123bb, then the deeper OPENER jammed and the 4-bet folded. The last raiser
+ * and every live opponent who already put chips in voluntarily and is not all
+ * in are priced on their own stacks, capped at the hero's; the 4-bet stands
+ * only if it commits against all of them. Rule 4b still prices the jam that
+ * actually came.
+ */
+export function fourBetCommitsAgainstEveryJammer(
+  i: HoldemPremiumInput,
+  h: HoleShape,
+  read: PreflopRead,
+  raiseTo: number
+): boolean {
+  // Opponents who already put chips in voluntarily this street (the opener,
+  // the 3-bettor, callers): in the real sample every re-raise of a horse 4-bet
+  // came from one of them (79 from the 3-bettor, 3 from the opener) and only
+  // 1 of 83 from a player still to act, so players who have not acted are not
+  // priced (that would flat premiums on evidence the sample does not hold).
+  const voluntary = new Set<number>();
+  for (const a of i.actionHistory ?? [])
+    if (
+      String(a.stage) === 'preflop' &&
+      (a.action === 'raise' || a.action === 'call' || a.action === 'bet' || a.action === 'all_in')
+    )
+      voluntary.add(a.seat);
+  const seats = new Set<number>();
+  if (read.lastRaiserSeat !== null) seats.add(read.lastRaiserSeat);
+  for (const p of i.players)
+    if (p.seat !== i.hero.seat && !p.is_folded && !p.is_all_in && voluntary.has(p.seat))
+      seats.add(p.seat);
+  if (seats.size === 0) return fourBetCommits(i, h, read, raiseTo).commits;
+  for (const seat of seats) if (!fourBetCommits(i, h, read, raiseTo, seat).commits) return false;
+  return true;
 }
 
 /**
@@ -549,7 +590,7 @@ function preflopVerdict(
     const to = Number.isFinite(decision.amount)
       ? (decision.amount as number)
       : FOUR_BET_MULTIPLE * read.level + read.callersSinceLastRaise * read.level;
-    if (!fourBetCommits(i, h, read, to).commits) {
+    if (!fourBetCommitsAgainstEveryJammer(i, h, read, to)) {
       return {
         rule: 'premium_flat_deep_three_bet',
         decision: keepThink(decision, { action: 'call' }),
@@ -583,7 +624,7 @@ function premiumRaise(
   } else if (read.raises === 2) {
     to = FOUR_BET_MULTIPLE * read.level + read.callersSinceLastRaise * read.level;
     // Rule 4: QQ/AK too deep to call the jam this 4-bet invites flat instead.
-    if (read.heroRaiseLevel < 3 && !fourBetCommits(i, h, read, to).commits) return null;
+    if (read.heroRaiseLevel < 3 && !fourBetCommitsAgainstEveryJammer(i, h, read, to)) return null;
   } else {
     to = Number.POSITIVE_INFINITY; // AA/KK over a 4-bet: get it in
   }

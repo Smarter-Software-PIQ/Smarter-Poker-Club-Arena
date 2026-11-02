@@ -1,4 +1,5 @@
 import { readCashAddonReceipt, readDiamondAddonReceipt } from './cashAddonReceipt.js';
+import { horseCashGameAllowed } from '../services/HorseCashSchedule.js';
 import { recordHorsePlo5Departure } from '../services/HorsePlo5DepartureEvidence.js';
 import { requestLightningTopUp, type LightningTopUpReceipt } from '../lightning/LightningTopUp.js';
 import { readCommittedSeatStacks } from './committedSeatStackRead.js';
@@ -1832,6 +1833,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             // its actual roster/session to be available before cashing it out.
             if (
               !opts.forced &&
+              horseCashGameAllowed(this.tableInfo ?? {}, Date.now()) &&
               this.tableInfo?.game_variant === 'plo5' &&
               Number(this.tableInfo.small_blind) === 2 &&
               Number(this.tableInfo.big_blind) === 5
@@ -1972,6 +1974,9 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           return { success: true, immediate: true, tournament: true };
         }
 
+        // Owner November 2: a forbidden cash game must release its Horses;
+        // the older profit preference cannot keep them playing banned stakes.
+        // Normal occupancy, settlement and atomic cashout checks still apply.
         // Owner 2026-10-29: a Horse in 2/5 PLO5 does not voluntarily
         // rack up below 3.5 buy-ins of PROFIT. This shared door covers the
         // rotator, Stable Hand yields and tournament-driven departures alike.
@@ -1980,6 +1985,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         if (
           !opts.forced &&
           player.is_horse === true &&
+          horseCashGameAllowed(this.tableInfo ?? {}, Date.now()) &&
           this.tableInfo?.game_variant === 'plo5' &&
           Number(this.tableInfo.small_blind) === 2 &&
           Number(this.tableInfo.big_blind) === 5

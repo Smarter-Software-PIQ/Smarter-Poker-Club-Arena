@@ -937,15 +937,12 @@ raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.
     promise_args=(--promise-floor-proof "$proof")
   fi
   if [ "$LOCK_HELD" != 1 ]; then acquire_engine_lock 'routine window binding'; took=1; fi
-  # STDOUT BELONGS TO THE CALLER'S CAPTURE (2026-11-02). This function runs
-  # inside `$(maintenance_certificate ...)` and `$(legacy_checkpoint_countdown
-  # ...)`, whose stdout is the break remainder / break-end epoch. When the
-  # target is behind protected main, source_target_is_current prints
-  # ENGINE_RELEASE_SUPERSEDED_BY=<sha> to stdout, so the captured "epoch" became
-  # that line plus the epoch and `set -u` arithmetic died at the cutover second
-  # (run 41469215622-1, 16:00:13Z: "<sha>: unbound variable", leaving an
-  # announcement-only owner). Its proof and refusal are unchanged; only the
-  # informational line goes to stderr here.
+  # This runs inside command substitutions (legacy_checkpoint_countdown and
+  # maintenance_certificate return their value on stdout). A forward target
+  # behind main prints ENGINE_RELEASE_SUPERSEDED_BY on stdout; captured, it
+  # became part of the break-end epoch and killed the owner at its own
+  # window ("unbound variable" / "integer expression expected") after the
+  # announcement, wedging every later release. Keep stdout clean here.
   source_target_is_current >&2
   bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID" "${promise_args[@]}")" || rc=$?
   if [ "$took" = 1 ]; then release_engine_lock; fi
