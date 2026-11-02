@@ -667,7 +667,13 @@ import {
 import { PreviousHandCard } from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
 import { reportClientWarning, reportError } from '../utils/errorReporter';
-import { submitTableDecision, tableDecisionIsReady } from '../lib/tableActionDecision';
+import {
+  resolveSnapshotActionContext,
+  resolveTurnChangeActionContext,
+  startMissingDecisionPoller,
+  submitTableDecision,
+  tableDecisionIsReady,
+} from '../lib/tableActionDecision';
 import { safeErrorMessage, shouldSurfaceError } from '../utils/safeErrorMessage';
 import { serverNow } from '../utils/serverClock';
 import { visibleTimeBankAllowance } from '../utils/timeBankAllowanceView';
@@ -3208,19 +3214,42 @@ function LiveTablePage({
         // stats + the deal animation never re-fired. Carry it through.
         handNumber: mapped.handNumber > 0 ? mapped.handNumber : prev.handNumber,
         handBlinds: mapped.handBlinds,
-        actionContext:
-          mapped.actionContext ??
-          (sameHand &&
-          prev.actionContext &&
-          nextCurrentSeat > 0 &&
-          prev.currentPlayerSeat === nextCurrentSeat &&
-          prev.boardStage === nextStage &&
-          prev.currentBet === mapped.currentBet &&
-          (mapped.isTimeBankActive ||
-            (mapped.actionTimerStartTime !== undefined &&
-              mapped.actionTimerStartTime === prev.actionTimerStartTime))
-            ? prev.actionContext
-            : undefined),
+        actionContext: resolveSnapshotActionContext({
+          incomingActionContext: mapped.actionContext,
+          previousActionContext: prev.actionContext,
+          answeredDecision: heroActedFenceRef.current?.decision,
+          sameHand,
+          nextCurrentSeat,
+          previousCurrentSeat: prev.currentPlayerSeat,
+          nextStage,
+          previousStage: prev.boardStage,
+          nextCurrentBet: mapped.currentBet,
+          previousCurrentBet: prev.currentBet,
+          nextMinRaise: mapped.minRaise,
+          previousMinRaise: prev.minRaise,
+          nextLastRaise: mapped.lastRaise,
+          previousLastRaise: prev.lastRaise,
+          nextWagersCapped: mapped.wagersCapped,
+          previousWagersCapped: prev.wagersCapped,
+          nextBettingStructure: mapped.bettingStructure,
+          previousBettingStructure: prev.bettingStructure,
+          nextFixedBetSize: mapped.fixedBetSize,
+          previousFixedBetSize: prev.fixedBetSize,
+          nextFixedRaiseSize: mapped.fixedRaiseSize,
+          previousFixedRaiseSize: prev.fixedRaiseSize,
+          nextPotLimitPot: mapped.potLimitPot,
+          previousPotLimitPot: prev.potLimitPot,
+          nextActorBet: nextCurrentSeat > 0 ? nextBets[nextCurrentSeat - 1] : undefined,
+          previousActorBet:
+            nextCurrentSeat > 0 ? prev.lastBetAmounts?.[nextCurrentSeat - 1] : undefined,
+          nextActorStatus:
+            nextCurrentSeat > 0 ? nextPlayers[nextCurrentSeat - 1]?.status : undefined,
+          previousActorStatus:
+            nextCurrentSeat > 0 ? prev.players[nextCurrentSeat - 1]?.status : undefined,
+          isTimeBankActive: Boolean(mapped.isTimeBankActive),
+          nextTurnStartTimeMs: mapped.actionTimerStartTime,
+          previousTurnStartTimeMs: prev.actionTimerStartTime,
+        }),
         players: nextPlayers,
         positions: mapped.positions as PositionBadge[],
         lastActions: nextLastActions,
@@ -7563,9 +7592,17 @@ function LiveTablePage({
       return;
     }
     let cancelled = false;
-    let httpInFlight = false;
+    const requestedTableId = tableId;
     const applyLiveTurnState = (raw: Record<string, unknown> | null) => {
-      if (cancelled || !raw || typeof raw !== 'object' || !userId) return;
+      if (cancelled || !raw || typeof raw !== 'object' || !userId || !requestedTableId) return;
+      const rawTableId = (raw as { table_id?: unknown }).table_id;
+      if (
+        typeof rawTableId === 'string' &&
+        rawTableId.length > 0 &&
+        rawTableId !== requestedTableId
+      ) {
+        return;
+      }
       const mapped = mapEngineSnapshot(
         raw as unknown as Parameters<typeof mapEngineSnapshot>[0],
         userId,
@@ -7575,11 +7612,29 @@ function LiveTablePage({
         return;
       }
       setTableState((prev) => {
+        if (prev.tableId && prev.tableId !== requestedTableId) {
+          return prev;
+        }
         if (
           prev.handNumber !== mapped.handNumber ||
           prev.currentPlayerSeat !== mapped.currentPlayerSeat ||
           prev.boardStage !== mapped.boardStage
         ) {
+          return prev;
+        }
+        const fenceVerdict = judgeSnapshotAgainstFence(
+          heroActedFenceRef.current,
+          {
+            hand: mapped.handNumber,
+            actorSeat: mapped.currentPlayerSeat,
+            decision: mapped.actionContext,
+            clock: mapped.actionTimerStartTime,
+            actorFolded: mapped.players[mapped.currentPlayerSeat - 1]?.status === 'folded',
+          },
+          Date.now()
+        );
+        heroActedFenceRef.current = fenceVerdict.fence;
+        if (fenceVerdict.currentPlayerSeat <= 0) {
           return prev;
         }
         return {
@@ -7599,28 +7654,21 @@ function LiveTablePage({
         };
       });
     };
-    const requestMissingDecision = () => {
-      if (cancelled) return;
-      requestEngineSnapshot();
-      if (tableId && userId && !httpInFlight) {
-        httpInFlight = true;
-        void GameServerAPI.getTableState(tableId)
-          .then((live) => {
-            applyLiveTurnState(live);
-          })
-          .finally(() => {
-            httpInFlight = false;
-          });
-      }
-    };
-    const initialTimer = window.setTimeout(requestMissingDecision, 120);
-    const retryInterval = window.setInterval(() => {
-      requestMissingDecision();
-    }, 350);
+    const stopPoller = startMissingDecisionPoller({
+      requestSnapshot: () => {
+        if (!cancelled) requestEngineSnapshot();
+      },
+      fetchTableState:
+        requestedTableId && userId
+          ? () => GameServerAPI.getTableState(requestedTableId)
+          : undefined,
+      onTableState: (live) => {
+        applyLiveTurnState(live);
+      },
+    });
     return () => {
       cancelled = true;
-      window.clearTimeout(initialTimer);
-      window.clearInterval(retryInterval);
+      stopPoller();
     };
   }, [
     isHeroTurnContext,
@@ -19355,6 +19403,7 @@ function LiveTablePage({
         const newSeat = (evt.data as any).seat as number;
         if (typeof newSeat === 'number' && newSeat > 0) {
           const actionContext = (evt.data as { action_context?: string }).action_context;
+          const eventHandNumber = Number((evt.data as { hand_number?: unknown }).hand_number);
           const deadlineMs = Number((evt.data as { deadline_ms?: unknown }).deadline_ms);
           const timestampMs = Number((evt.data as { timestamp?: unknown }).timestamp);
           setTableState((prev) => {
@@ -19387,12 +19436,18 @@ function LiveTablePage({
             );
             heroActedFenceRef.current = verdict.fence;
             if (!verdict.accept) return prev;
-            const resolvedActionContext =
-              typeof actionContext === 'string' && actionContext.length > 0
-                ? actionContext
-                : prev.currentPlayerSeat === newSeat
-                  ? prev.actionContext
-                  : undefined;
+            const resolvedActionContext = resolveTurnChangeActionContext({
+              incomingActionContext: actionContext,
+              previousActionContext: prev.actionContext,
+              answeredDecision: heroActedFenceRef.current?.decision,
+              isHandInProgress: prev.isHandInProgress,
+              newSeat,
+              previousCurrentSeat: prev.currentPlayerSeat,
+              eventHandNumber,
+              previousHandNumber: prev.handNumber,
+              eventTimestampMs: timestampMs,
+              previousTurnStartTimeMs: prev.actionTimerStartTime,
+            });
             return {
               ...prev,
               currentPlayerSeat: newSeat,
