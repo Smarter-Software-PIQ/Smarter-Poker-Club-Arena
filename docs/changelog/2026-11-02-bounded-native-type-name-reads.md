@@ -14,3 +14,8 @@ The maintained native qualification and v5 capability bind the helper, actual
 stock SQL parity, request-count regression and mixed-cache boundaries. Hosted
 qualification, a changed protected capture, full-schema restore and all fifteen
 connected cases remain required; this note is not evidence that they passed.
+
+The excluded cohort retains the existing zero-function enum while excluding all
+type-name consumers. It must produce genuine object/query diagnostic frames,
+preserve exact stock SQL, issue zero type-name requests and contain no excluded
+type or function. Empty diagnostic streams remain refused.

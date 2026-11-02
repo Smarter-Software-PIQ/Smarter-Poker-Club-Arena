@@ -768,10 +768,11 @@ COMMENT ON VIEW "diagnostic Other"."View With Space" IS 'private view batch fixt
                 if schema == 'diagnostic_function_first':
                     require(filtered_stock.index(b'CREATE FUNCTION ' + prefix + b'"aa_free"') < before)
         # Exactly129 selected enum-argument routines need2 stock-SQL name
-        # batches. Excluding their schema leaves no selected name consumer.
+        # batches. Excluding their schema retains the existing empty enum:
+        # zero name consumers must still produce genuine object/query frames.
         for context, type_args, requests in [
             ('TYPE_NAME_MANY', args + ['--schema=diagnostic_type_names'], 2),
-            ('TYPE_NAME_EXCLUDED', args + ['--schema=diagnostic_type_names', '--exclude-schema=diagnostic_type_names'], 0),
+            ('TYPE_NAME_EXCLUDED', args + ['--schema=diagnostic_type_names', '--schema=diagnostic_empty', '--exclude-schema=diagnostic_type_names'], 0),
         ]:
             QUALIFICATION_PHASE = context + '_STOCK'
             type_stock = command([str(stock_executable), *type_args], cwd=work, env=dump_env, timeout=45)
@@ -779,6 +780,10 @@ COMMENT ON VIEW "diagnostic Other"."View With Space" IS 'private view batch fixt
                                        context=context, expected_type_requests=requests)
             QUALIFICATION_PHASE = context + '_PARITY'
             require(normalize_sql(type_stock) == normalize_sql(typed))
+            if context == 'TYPE_NAME_EXCLUDED':
+                require(b'CREATE TYPE "diagnostic_empty"."zero_function_enum"' in type_stock and
+                        b'CREATE FUNCTION "diagnostic_type_names".' not in type_stock and
+                        b'CREATE TYPE "diagnostic_type_names".' not in type_stock)
         # Exclusion leaves only the materialized view; excluded normal views
         # must not enter the request/cache even though the remaining view refers to one.
         excluded_args = args + ['--schema=diagnostic_view_many', '--exclude-table=diagnostic_view_many.v_*']
