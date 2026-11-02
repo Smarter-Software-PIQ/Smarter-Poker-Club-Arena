@@ -2273,10 +2273,11 @@ export class ScheduledTournamentService {
           ? buyInAmount + buyInFee
           : wholeChips(cfg.addOnCost ?? cfg.addonCost) || split.total
         : null,
-      addon_chips: addOn
-        ? clampInt(cfg.addOnChips ?? cfg.addonChips, 1, 100_000_000, 0) ||
-          clampInt(cfg.startingStack, 1, 100_000_000, 10000)
-        : null,
+      /* AN ADD-ON PAYS THE STARTING STACK, EXACTLY (Dan 2026-11-01): "THE ADD
+         ON SHOULD BE THE SAME AMOUNT OF CHIPS THAT YOU START WITH IN THE
+         TOURNAMENT, NEVER LESS" and it "CAN NEVER EXCEED" it. A template's
+         configured add-on chips no longer apply. */
+      addon_chips: addOn ? clampInt(cfg.startingStack, 1, 100_000_000, 10000) : null,
       addon_levels: addOn ? clampInt(cfg.addOnLevels ?? cfg.addonLevels, 1, 100, 1) : null,
       satellite_target_id: satelliteTargetId,
       satellite_seats: satelliteSeats,

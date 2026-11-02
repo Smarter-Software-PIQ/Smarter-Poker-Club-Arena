@@ -5,8 +5,9 @@ import { applicationTriggerWitness } from './schema-application-hooks.mjs';
 export const schemaHash = (value) => createHash('sha256').update(value).digest('hex');
 export const MANAGED_SCHEMAS = Object.freeze(['auth', 'realtime', '_realtime', 'cron', 'extensions']);
 const failureSites = new WeakMap();
-const markFailure = (error, site) => {
-  failureSites.set(error, { site, descriptors: Object.getOwnPropertyDescriptors(error) });
+const markFailure = (error, site, witness = null) => {
+  if (!failureSites.has(error))
+    failureSites.set(error, { site, witness, descriptors: Object.getOwnPropertyDescriptors(error) });
   return error;
 };
 export function schemaCompositionFailureSite(error) {
@@ -29,9 +30,60 @@ export function schemaCompositionFailureSite(error) {
     return 'UNKNOWN';
   return known.site;
 }
-const refused = (site) => {
-  throw markFailure(new Error('SCHEMA_COMPOSITION_PREIMAGE_REQUIRED'), site);
+export function schemaCompositionMismatchWitness(error) {
+  if (schemaCompositionFailureSite(error) !== 'NATIVE_BLOCK_DIFFERENT') return null;
+  const witness = failureSites.get(error).witness;
+  return witness ? structuredClone(witness) : null;
+}
+const refused = (site, witness = null) => {
+  throw markFailure(new Error('SCHEMA_COMPOSITION_PREIMAGE_REQUIRED'), site, witness);
 };
+const witnessTypes = new Set([
+  'SCHEMA',
+  'FUNCTION',
+  'TABLE',
+  'VIEW',
+  'TYPE',
+  'SEQUENCE',
+  'ACL',
+  'DEFAULT ACL',
+  'COMMENT',
+  'EXTENSION',
+  'INDEX',
+  'CONSTRAINT',
+  'TRIGGER',
+  'POLICY',
+]);
+const witnessSchemas = new Set([...MANAGED_SCHEMAS, 'public', '-']);
+// Only hashes, closed tags and bounded byte positions leave the private inputs.
+// These observations never participate in the exact composition decision.
+function mismatchWitness(service, source) {
+  const rows = [];
+  let total = 0;
+  for (const [ordinal, item] of service.objects.entries()) {
+    const captured = source.get(item.key);
+    if (!captured || captured.owner !== item.owner || captured.sha256 === item.sha256) continue;
+    total++;
+    if (rows.length === 16) continue;
+    const a = Buffer.from(captured.text),
+      b = Buffer.from(item.text);
+    let offset = 0;
+    while (offset < Math.min(a.length, b.length) && a[offset] === b[offset]) offset++;
+    rows.push({
+      native_ordinal: ordinal,
+      key_sha256: schemaHash(item.key),
+      object_type: witnessTypes.has(item.type) ? item.type : 'OTHER',
+      schema: witnessSchemas.has(item.schema) ? item.schema : 'OTHER',
+      owner_match: true,
+      captured_sha256: captured.sha256,
+      native_sha256: item.sha256,
+      captured_bytes: a.length,
+      native_bytes: b.length,
+      first_difference: offset,
+    });
+  }
+  return { version: 1, total, truncated: total > rows.length, rows };
+}
 const managedObject = (item) => MANAGED_SCHEMAS.includes(item.schema) ||
   (item.type === 'SCHEMA' && [...MANAGED_SCHEMAS, 'public'].includes(item.name)) ||
   (item.type === 'ACL' && [...MANAGED_SCHEMAS, 'public'].some((name) => item.name === `SCHEMA ${name}`)) ||
@@ -112,7 +164,8 @@ export function composeSchema(capture, serviceDump) {
   for (const item of service.objects) {
     const expected = source.get(item.key);
     if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256)
-      refused(!expected ? 'NATIVE_OBJECT_MISSING' : expected.owner !== item.owner ? 'NATIVE_OWNER_DIFFERENT' : 'NATIVE_BLOCK_DIFFERENT');
+      refused(!expected ? 'NATIVE_OBJECT_MISSING' : expected.owner !== item.owner ? 'NATIVE_OWNER_DIFFERENT' : 'NATIVE_BLOCK_DIFFERENT',
+        expected && expected.owner === item.owner ? mismatchWitness(service, source) : null);
   }
   const removed = [], retained = [], applicationHooks = [];
   let sql = original.prefix;

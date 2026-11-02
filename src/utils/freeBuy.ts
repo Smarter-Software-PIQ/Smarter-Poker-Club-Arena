@@ -117,7 +117,9 @@ export function freeBuyConfig(input: FreeBuyInput): Partial<FreeBuyConfig> {
     rebuyCost: FREE_BUY_REBUY_COST,
     addOnCost: FREE_BUY_ADDON_COST,
     rebuyChips: whole(input.rebuyChips) || stack,
-    addOnChips: whole(input.addOnChips) || stack,
+    /* Dan 2026-11-01: an add-on pays the starting stack, exactly - never a
+       configured override, never less, never more. */
+    addOnChips: stack,
     rebuyLevels: whole(input.rebuyLevels) || FREE_BUY_REBUY_LEVELS,
     addOnLevels: whole(input.addOnLevels) || FREE_BUY_ADDON_LEVELS,
   };

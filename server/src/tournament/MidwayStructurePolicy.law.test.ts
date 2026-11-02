@@ -73,15 +73,18 @@ describe('Midway standard structures through the actual scheduled creator', () =
         expect(row.late_reg_levels).toBe(12);
         expect(row.rebuy_cost).toBe(1);
         expect(row.addon_cost).toBe(1);
-        expect(row.addon_chips).toBe(10000);
+        // Dan 2026-11-01: an add-on pays the starting stack, exactly.
+        expect(row.addon_chips).toBe(row.starting_chips);
       } else {
         expect(row.starting_chips % 5000).toBe(0);
         if (row.late_reg_levels > 0)
           expect(
             row.starting_chips / levels[row.late_reg_levels - 1].bigBlind
           ).toBeGreaterThanOrEqual(20);
-        if (row.add_on_available)
-          expect(row.addon_chips).toBeGreaterThanOrEqual(row.starting_chips * 2);
+        // Dan 2026-11-01: "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF CHIPS
+        // THAT THE TOURANMENT STARTED WITH ... NEVER LESS!" This replaces the
+        // former 2x-stack floor.
+        if (row.add_on_available) expect(row.addon_chips).toBe(row.starting_chips);
         if (config.buyIn != null && !smallBounty) {
           if (row.satellite_target_id) {
             expect(100 / row.buy_in_amount).toBeGreaterThanOrEqual(5);
@@ -191,7 +194,8 @@ describe('Midway standard structures through the actual scheduled creator', () =
       rebuy_cost: 20,
       add_on_available: true,
       addon_cost: 20,
-      addon_chips: 10000,
+      // Dan 2026-11-01: an add-on pays the starting stack, exactly.
+      addon_chips: 5000,
       addon_break_minutes: 1,
     });
     for (const authored of [

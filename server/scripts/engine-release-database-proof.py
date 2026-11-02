@@ -385,16 +385,36 @@ def read_leader(
     )
 
 
+def verify_failed_routine_idle(base_url: str, service_key: str, instance_id: str, max_age: int) -> None:
+    """Two finite GET reads. A missing response is never an empty freeze row."""
+    version, leader, age = read_leader(base_url, service_key, 1.5)
+    if version != 'eed06fe5' or leader != instance_id or not -30 <= age <= max_age:
+        raise ValueError('failed routine leader identity is unproved')
+    query = urlencode({'select': 'id', 'limit': '1'})
+    request = Request(f'{base_url}/rest/v1/engine_maintenance_break?{query}',
+        headers={'apikey': service_key, 'authorization': f'Bearer {service_key}',
+                 'accept': 'application/json', 'cache-control': 'no-cache, no-store'}, method='GET')
+    opener = build_opener(HTTPSHandler(context=ssl.create_default_context()), RefuseRedirects())
+    with opener.open(request, timeout=1.5) as response:
+        raw = response.read(4097)
+    if len(raw) > 4096 or json.loads(raw) != []:
+        raise ValueError('failed routine database retains a maintenance owner')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--instance-id")
     parser.add_argument("--mixed-custody-contract", action="store_true")
+    parser.add_argument("--failed-routine-idle", action="store_true")
     parser.add_argument("--timeout-seconds", type=int, default=240)
     parser.add_argument("--poll-seconds", type=int, default=10)
     parser.add_argument("--max-heartbeat-age-seconds", type=int, default=60)
     args = parser.parse_args()
+
+    if args.failed_routine_idle and (args.mixed_custody_contract or args.sha != 'eed06fe51dea622069c661a6213d5b031ff3a9e3'):
+        die('failed routine idle witness is limited to its sealed predecessor')
 
     target_sha = str(args.sha).lower()
     if not SHA_RE.fullmatch(target_sha):
@@ -420,6 +440,15 @@ def main() -> None:
         die("SUPABASE_URL is not the pinned Club Arena project origin")
     if not service_key:
         die("SUPABASE_SERVICE_ROLE_KEY is absent from the fixed engine environment")
+
+    if args.failed_routine_idle:
+        try:
+            verify_failed_routine_idle(base_url, service_key, instance_id, args.max_heartbeat_age_seconds)
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+            die(f'failed routine database idle witness unconfirmed ({type(exc).__name__})')
+        print(json.dumps({'schema': 'failed-routine-database-idle/v1', 'sha': target_sha,
+                          'instanceId': instance_id, 'databaseIdle': True, 'freshLeader': True}, sort_keys=True))
+        return
 
     if args.mixed_custody_contract:
         try:

@@ -2770,6 +2770,9 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
             after = {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
                      for p in root.rglob('*') if p.is_file()}
             self.assertEqual(before, after)
+            self.assertTrue(answer['owners'][0]['unresolvedOwner'])
+            self.assertFalse(answer['owners'][0]['failureResolution']['present'])
+            self.assertNotIn('retryAllowed', answer['owners'][0]['failureResolution'])
             for target, key, value in [(answer, 'retryAllowed', True),
                     (answer['owners'][0], 'status', 'cleared'),
                     (answer['owners'][0]['result'], 'identityMatches', 'true')]:
@@ -2778,6 +2781,52 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
                 elif target is answer['owners'][0]: bad['owners'][0][key] = value
                 else: bad['owners'][0]['result'][key] = value
                 with self.assertRaises(ValueError): R.validate_reply(bad, R.ROUTINE_REQUEST)
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); state, cycle, result, resolution, path, digest = self.resolution_fixture(root)
+            before = {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
+                      for p in root.rglob('*') if p.is_file()}
+            with patch.object(R, 'FAILED_CUSTODY_FAILURE', digest):
+                answer = self.read(root)
+                row = answer['owners'][0]
+                self.assertFalse(row['unresolvedOwner']); self.assertEqual(row['status'], 'reserved')
+                self.assertTrue(row['failureResolution']['present'])
+                self.assertTrue(row['failureResolution']['receiptMatches'])
+                self.assertNotIn('retryAllowed', row['failureResolution'])
+                self.assertEqual(row['failureResolution']['sha256'], R.routine_digest(resolution))
+                self.assertEqual(row['failureResolution']['receiptSha256'], hashlib.sha256(path.read_bytes()).hexdigest())
+                self.assertEqual(R.validate_reply(answer, R.ROUTINE_REQUEST), answer)
+                for key, value in [('unresolvedOwner', True), ('failureResolution', {})]:
+                    bad = copy.deepcopy(answer); bad['owners'][0][key] = value
+                    with self.assertRaises(ValueError): R.validate_reply(bad, R.ROUTINE_REQUEST)
+                for key, value in [('retryAllowed', True), ('observedAt', True),
+                                   ('receiptMatches', False), ('invocationSha256', 'bad')]:
+                    bad = copy.deepcopy(answer); bad['owners'][0]['failureResolution'][key] = value
+                    with self.assertRaises(ValueError): R.validate_reply(bad, R.ROUTINE_REQUEST)
+            self.assertNotIn('NEVER-EXPORT', json.dumps(answer))
+            self.assertNotIn(resolution['invocationId'], json.dumps(answer))
+            self.assertEqual(before, {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
+                                     for p in root.rglob('*') if p.is_file()})
+
+    def resolution_fixture(self, root):
+        state, cycle, result = self.fixture(root)
+        cycle['policyDigest'] = '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578'
+        result['completedAt'] = 1793569102
+        cycle['failure'] = copy.deepcopy(result)
+        digest = R.routine_digest(result)
+        value = {'schema': 1, 'result': 'failed-custody-resolved', 'originalCycle': copy.deepcopy(cycle),
+                 'failureDigest': digest, 'verifiedByRunId': '41365000000-1',
+                 'controlSha': 'c' * 40, 'targetSha': 'd' * 40, 'invocationId': 'e' * 32,
+                 'observedAt': 1793575000,
+                 'proof': {'noAnnouncement': True, 'databaseIdle': True,
+                           'private_proof': 'NEVER-EXPORT-PRIVATE-PROOF-PID-PATH'}}
+        state['routineFailureResolutions'] = {cycle['runId']: value}
+        self.write(root / 'engine-release-seal.json', state)
+        self.write(root / 'engine-release-results' / (cycle['runId'] + '.json'), result)
+        path = root / 'engine-release-results' / (cycle['runId'] + '.' + value['verifiedByRunId'] + '.' +
+                                                 value['invocationId'] + '.custody-resolution.json')
+        self.write(path, value)
+        return state, cycle, result, value, path, digest
 
     def test_missing_and_mismatched_original_result_remain_visible_unknown_or_false(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -2809,6 +2858,35 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
             path.unlink(); path.symlink_to('/does-not-exist')
             with self.assertRaises(OSError): self.read(root)
 
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); state, cycle, result, resolution, receipt, digest = self.resolution_fixture(root)
+            seal = root / 'engine-release-seal.json'
+            with patch.object(R, 'FAILED_CUSTODY_FAILURE', digest):
+                for key, value in [('schema', True), ('verifiedByRunId', '../escape'),
+                                   ('invocationId', '../escape'), ('failureDigest', '0' * 64),
+                                   ('originalCycle', {}), ('observedAt', True),
+                                   ('targetSha', R.FAILED_CUSTODY_CONTROL), ('proof', {'noAnnouncement': True})]:
+                    bad = copy.deepcopy(state); bad['routineFailureResolutions'][cycle['runId']][key] = value
+                    self.write(seal, bad)
+                    with self.subTest(resolution_field=key), self.assertRaises(ValueError): self.read(root)
+                for value in [None, [], {cycle['runId']: None}, {'123-1': resolution}]:
+                    bad = copy.deepcopy(state); bad['routineFailureResolutions'] = value; self.write(seal, bad)
+                    with self.assertRaises(ValueError): self.read(root)
+                bad = copy.deepcopy(state); bad['routineMaintenanceCycles'][str(cycle['startsAt'])]['status'] = 'sealed'
+                self.write(seal, bad)
+                with self.assertRaises(ValueError): self.read(root)
+                self.write(seal, state)
+                self.write(receipt, {})
+                with self.assertRaises(ValueError): self.read(root)
+                self.write(receipt, resolution); receipt.chmod(0o644)
+                with self.assertRaises(ValueError): self.read(root)
+                receipt.chmod(0o600); receipt.write_bytes(b'x' * (R.MAX_BYTES + 1))
+                with self.assertRaises(ValueError): self.read(root)
+                receipt.unlink()
+                with self.assertRaises(FileNotFoundError): self.read(root)
+                receipt.symlink_to('/does-not-exist')
+                with self.assertRaises(OSError): self.read(root)
+
     def test_racing_canonical_file_and_new_result_are_refused(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); state, cycle, result = self.fixture(root)
@@ -2834,6 +2912,20 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
                 return original_stat(name, *args, **kwargs)
             with patch.object(R.os, 'stat', side_effect=appearing):
                 with self.assertRaises(ValueError): self.read(root)
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); state, cycle, result, resolution, receipt, digest = self.resolution_fixture(root)
+            original = R.read_json; changed = False
+            def changed_receipt(fd, name, **kwargs):
+                nonlocal changed
+                value = original(fd, name, **kwargs)
+                if name == receipt.name and not changed:
+                    changed = True
+                    self.write(receipt, resolution | {'observedAt': resolution['observedAt'] + 1})
+                return value
+            with patch.object(R, 'FAILED_CUSTODY_FAILURE', digest), patch.object(R, 'read_json', side_effect=changed_receipt):
+                with self.assertRaises(ValueError): self.read(root)
+
 
 
 class FailedRoutineCustodyTests(unittest.TestCase):

@@ -183,7 +183,7 @@ export interface EnginePublishedState {
 // ─── Output: the fields we patch into TableState. Keeping this type open-ended
 // (Partial<unknown>-shape) avoids importing the 20-field TableState type here.
 export interface MappedTableStatePatch {
-  handBlinds: HandBlinds | null;
+  handBlinds: HandBlinds | null | undefined;
   pot: number;
   communityCards: Array<{ rank: string; suit: string }>;
   /** DOUBLE-BOARD BOMB POT 2026-08-20: second board (empty unless active). */

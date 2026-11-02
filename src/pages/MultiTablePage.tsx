@@ -2071,6 +2071,15 @@ export default function MultiTablePage() {
      only for one - reported by TablePage as `clusterId` because this row is
      drawn out here, where the felt's own state is not reachable. */
   const activeClusterId = tables[activeIndex]?.clusterId || '';
+  /* THE SAME CORNER SERVES TOURNAMENTS (Dan 2026-11-01): "THE LOBBY BUTTON IS
+     100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER IN THE ACTION BAR AT THE
+     TOP, NOT RANDOMLY INSIDE THE POKER TABLE PAGE." A tournament tab shows
+     the identical hamburger-sized LOBBY plate where the must-move LOBBY sits,
+     and it opens that table's TournamentLobbyModal via OPEN_TOURNAMENT_LOBBY. */
+  const activeIsTournament =
+    !!tables[activeIndex] &&
+    isTableTab(tables[activeIndex]) &&
+    tabIsTournament(tables[activeIndex]);
 
   // 2026-08-15 multi-table fix: the tab countdown ticks off the server
   // deadline. One 1s clock runs only while some table has a live turn.
@@ -5243,7 +5252,9 @@ export default function MultiTablePage() {
         {tables.length >= 1 && (
           <div
             className={`multi-table-page__tab-bar-wrapper${
-              activeClusterId && !isTileView ? ' multi-table-page__tab-bar-wrapper--with-lobby' : ''
+              (activeClusterId || activeIsTournament) && !isTileView
+                ? ' multi-table-page__tab-bar-wrapper--with-lobby'
+                : ''
             }`}
           >
             <TableTabBar
@@ -5374,13 +5385,28 @@ export default function MultiTablePage() {
                 No border, no background, no text: the plate, the bevel and the
                 word LOBBY are all inside the image. Sizing tracks the
                 hamburger in MultiTablePage.css. */}
-            {activeClusterId && !isTileView && (
+            {/* THE SAME PLATE OPENS THE TOURNAMENT LOBBY (Dan 2026-11-01):
+                "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN THE RIGHT
+                CORNER IN THE ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE THE
+                POKER TABLE PAGE." On a tournament tab the identical
+                hamburger-sized LOBBY square opens that table's
+                TournamentLobbyModal; on a must-move cash tab it keeps opening
+                the Must Move Lobby. One corner, one plate, one size. */}
+            {(activeClusterId || activeIsTournament) && !isTileView && (
               <button
                 type="button"
                 className="mtp-lobby-btn"
-                onClick={() => masterBus.emit('OPEN_MUST_MOVE_LOBBY', { tableId: activeTableId })}
-                aria-label="Open Must Move Lobby"
-                title="Must Move Lobby"
+                onClick={() =>
+                  /* Two literal emits, not one computed name: the dead-bus
+                     scanner (noDeadBusSubscriptions) reads emit('EVENT'
+                     literals, and an event it cannot see is an event it
+                     reports as dead. */
+                  activeIsTournament
+                    ? masterBus.emit('OPEN_TOURNAMENT_LOBBY', { tableId: activeTableId })
+                    : masterBus.emit('OPEN_MUST_MOVE_LOBBY', { tableId: activeTableId })
+                }
+                aria-label={activeIsTournament ? 'Open Tournament Lobby' : 'Open Must Move Lobby'}
+                title={activeIsTournament ? 'Tournament Lobby' : 'Must Move Lobby'}
               >
                 <img className="mtp-lobby-btn__img" src={lobbyButtonArt} alt="" draggable={false} />
               </button>

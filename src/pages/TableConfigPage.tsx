@@ -1912,16 +1912,16 @@ export default function TableConfigPage({
                   </>
                 )}
 
-                {/* Add-on Options */}
-                <Slider
+                {/* Add-on Options. Dan 2026-11-01: "THE ADD ON SHOULD BE THE
+                    SAME AMOUNT OF CHIPS THAT YOU START WITH IN THE TOURNAMENT,
+                    NEVER LESS" and it "CAN NEVER EXCEED" it - so the old 0-3x
+                    multiplier slider is an on/off switch now, and the chips
+                    are always the starting stack. */}
+                <Toggle
                   label="Add-On"
-                  value={config.addOnMultiplier}
-                  onChange={(v) => updateConfig('addOnMultiplier', v)}
-                  min={0}
-                  max={3}
-                  step={0.5}
-                  suffix="x"
-                  tooltip="Add-On Chips As A Multiple Of The Starting Stack. 0 = No Add-On."
+                  value={config.addOnMultiplier > 0}
+                  onChange={(v) => updateConfig('addOnMultiplier', v ? 1 : 0)}
+                  tooltip="An Add-On Always Pays Exactly The Starting Stack."
                 />
                 {config.addOnMultiplier > 0 && (
                   <>

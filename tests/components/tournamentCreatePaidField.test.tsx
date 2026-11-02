@@ -319,7 +319,8 @@ describe('club profile selection preserves operator terms', () => {
     chooseProfile('deep');
     const after = tournamentService.buildRpcConfig(await submitDraft(container, 2));
     for (const key of Object.keys(before).filter(
-      (key) => !['blindStructure', 'startingStack', 'rebuyChips', 'startTime'].includes(key)
+      (key) =>
+        !['blindStructure', 'startingStack', 'rebuyChips', 'addOnChips', 'startTime'].includes(key)
     )) {
       expect(after[key], key).toEqual(before[key]);
     }
@@ -329,7 +330,8 @@ describe('club profile selection preserves operator terms', () => {
       rebuyCost: 1,
       // Existing freeBuyConfig binds omitted rebuy chips to the chosen stack.
       rebuyChips: 6000,
-      addOnChips: 10000,
+      // Dan 2026-11-01: an add-on pays the starting stack, exactly.
+      addOnChips: 6000,
       addOnCost: 1,
       freeBuy: true,
     });
@@ -547,8 +549,10 @@ describe('creator controls describe the committed purchase and mystery contracts
     expect(purchaseField('Rebuy / Re-Entry Chips')).toBeDisabled();
     expect(purchaseField('Add-On Cost')).toHaveValue(1);
     expect(purchaseField('Add-On Cost')).toBeDisabled();
-    expect(purchaseField('Add-On Chips')).not.toBeDisabled();
-    fireEvent.change(purchaseField('Add-On Chips'), { target: { value: '12000' } });
+    // Dan 2026-11-01: the add-on pays the starting stack, exactly, so the
+    // chips input is gone - the card states the rule instead.
+    expect(screen.queryByLabelText('Add-On Chips')).toBeNull();
+    expect(screen.getByText('Same As The Starting Stack')).toBeVisible();
     expect(screen.getByText('From Seating Until The Add-On Window Closes')).toBeVisible();
     expect(screen.queryByText('One 60-Second Period When The Rebuy Period Closes')).toBeNull();
     const raw = await submitDraft(container);
@@ -564,7 +568,8 @@ describe('creator controls describe the committed purchase and mystery contracts
       rebuyLevels: 4,
       addOnAvailable: true,
       addOnCost: 1,
-      addOnChips: 12000,
+      // Dan 2026-11-01: an add-on pays the starting stack, exactly.
+      addOnChips: 6000,
       addOnFromStart: true,
     });
   });
