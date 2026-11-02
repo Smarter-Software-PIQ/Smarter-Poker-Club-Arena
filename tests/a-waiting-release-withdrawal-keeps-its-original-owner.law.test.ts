@@ -37,7 +37,7 @@ it(
         }
       );
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(result.stderr).toContain('Ran 63 tests');
+      expect(result.stderr).toContain('Ran 64 tests');
       expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
       const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
         env: cleanEnv,
