@@ -922,7 +922,7 @@ export class LiveHorseDecisionWorkerClient {
     if (!horsePlanAcceptanceIsValid(acceptance, result.planBinding))
       return Promise.reject(new Error('Horse plan commit lacks its exact acceptance'));
     const owner = this.planOwners.get(result);
-    if (!owner || owner.state === 'retired' || result.planIssueDisposition !== 'issued')
+    if (!owner || owner.state !== 'available' || result.planIssueDisposition !== 'issued')
       return Promise.reject(new Error('Horse plan commit has no available client ownership'));
     // Effect acceptance rechecks authority for a selected Phase 8 candidate.
     // Effects issued beside a withdrawn selection retire instead of applying.

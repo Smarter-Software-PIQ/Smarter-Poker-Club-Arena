@@ -1622,6 +1622,32 @@ describe('LiveHorseDecisionWorkerClient', () => {
     }
   });
 
+  it('admits one effect commit per issued plan even while the first answer is pending', async () => {
+    const worker = new FakeWorker();
+    const client = new LiveHorseDecisionWorkerClient({ workerFactory: () => worker });
+    try {
+      worker.emitMessage(ready);
+      const owned = await transportOnlyCommitFixture(client, worker);
+      const commit = client.commitDecisionEffects(owned, acceptanceOf(owned));
+      const repeated = client.commitDecisionEffects(owned, acceptanceOf(owned));
+      // Inspect admission without waiting for either worker reply. Observe
+      // both promises before deliberately failing this isolated fixture.
+      const replies = Promise.allSettled([commit, repeated]);
+      const posted = worker.sent.filter((m: any) => m.type === 'COMMIT_DECISION_EFFECTS');
+      worker.emitError(new Error('fixture teardown'));
+      const outcomes = await replies;
+      expect(posted).toHaveLength(1);
+      expect(outcomes[1]).toMatchObject({
+        status: 'rejected',
+        reason: expect.objectContaining({
+          message: 'Horse plan commit has no available client ownership',
+        }),
+      });
+    } finally {
+      await client.stop();
+    }
+  });
+
   it('keeps an expired commit unknown and retires only after its late exact ACK, without replay', async () => {
     vi.useFakeTimers();
     const worker = new FakeWorker();
