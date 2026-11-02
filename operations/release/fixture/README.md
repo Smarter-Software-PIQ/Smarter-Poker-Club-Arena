@@ -974,3 +974,16 @@ fixtures, complete stock SQL equality, compiled request-count regression and
 mixed-cache bounds. Existing function, sequence, view, diagnostic and cleanup
 requirements remain mandatory. This source change does not establish a completed
 production capture, full-schema restore, connected UI pass or live behavior.
+
+### Private atomic restore lock capacity
+
+The shared private PostgreSQL startup arguments reserve512 locks per transaction
+and both entrypoints assert that actual setting before creating the application
+role. A genuine PostgreSQL17.11 single-transaction workload at the default64
+refused with53200 in LockAcquireExtended after6,181 table and2,205 function
+ownership operations;512 completed the same6,181-table/5,453-function workload.
+Both native runs rolled back without role drift. This supplies capacity for that
+captured-size atomic workload; it changes no production setting, restore transaction,
+permission or memory/process limit. Capture25's closed53200 receipt alone does
+not identify its inner resource cause. Full captured-schema restore/parity and
+the fifteen connected cases remain mandatory.

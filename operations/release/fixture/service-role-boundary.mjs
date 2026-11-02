@@ -20,6 +20,11 @@ export async function createFixtureApplicationOwner(db) {
 // These are server configuration, not application grants. Supautils intercepts
 // the supported managed operations without making postgres a superuser.
 export const managedPostgresArguments = Object.freeze([
+  // One atomic full-schema restore retains thousands of ownership/object locks.
+  // Native PG17 at64 fails the captured-size workload with53200;512 passes it.
+  // This configures only the disposable fixture, never the production server.
+  '-c',
+  'max_locks_per_transaction=512',
   '-c',
   'session_preload_libraries=supautils',
   '-c',
@@ -48,6 +53,7 @@ export async function assertBootstrapPostgresConfiguration(db) {
     AND current_setting('data_directory')='/var/lib/postgresql/data'
     AND current_setting('wal_level')='logical'
     AND current_setting('output_plugin_libraries')='pgoutput,wal2json'
+    AND current_setting('max_locks_per_transaction')='512'
     AND current_setting('session_preload_libraries')='supautils'
     AND current_setting('supautils.superuser')='supabase_admin'
     AND current_setting('supautils.privileged_extensions_superuser')='supabase_admin'
