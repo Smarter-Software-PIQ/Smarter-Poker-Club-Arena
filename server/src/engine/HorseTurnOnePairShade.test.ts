@@ -292,8 +292,10 @@ describe('V65: the heuristic call line (no barrel read) folds a shaded second pa
 
   it('top pair, weak kicker, facing a pot-sized turn barrel out of position calls less with V65 on', () => {
     const s = turn('nlh', 'As4d', 'AhKdTs2c', 36, 'cash', 'turn', true);
-    const off = decideMany(s, { v65TurnOnePairShade: false });
-    const on = decideMany(s, {});
+    // Top pair with a weak kicker: V79 (kicker shade) is held off in BOTH
+    // arms so this measures V65 alone; V79 is pinned in its own law test.
+    const off = decideMany(s, { v65TurnOnePairShade: false, v79TopPairWeakKicker: false });
+    const on = decideMany(s, { v79TopPairWeakKicker: false });
     expect(off.fired).toBe(0);
     expect(on.fired).toBe(20);
     expect(off.acts['call'] ?? 0).toBe(20);
@@ -303,8 +305,10 @@ describe('V65: the heuristic call line (no barrel read) folds a shaded second pa
 
   it('top pair facing a 1.5x-pot turn barrel folds most of the time with V65 on and never with it off', () => {
     const s = turn('nlh', 'As5d', 'AhKd9s2c', 54);
-    const off = decideMany(s, { v65TurnOnePairShade: false });
-    const on = decideMany(s, {});
+    // Top pair with a weak kicker: V79 (kicker shade) is held off in BOTH
+    // arms so this measures V65 alone; V79 is pinned in its own law test.
+    const off = decideMany(s, { v65TurnOnePairShade: false, v79TopPairWeakKicker: false });
+    const on = decideMany(s, { v79TopPairWeakKicker: false });
     expect(off.acts['call'] ?? 0).toBe(20);
     expect(on.acts['fold'] ?? 0).toBeGreaterThanOrEqual(10);
     expect(on.acts['call'] ?? 0).toBeLessThan(off.acts['call'] ?? 0);

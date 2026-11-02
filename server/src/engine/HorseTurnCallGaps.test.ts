@@ -135,7 +135,11 @@ function decideMany(s: ReturnType<typeof turn>, opts: Record<string, unknown>, s
   }
   return { acts, seen };
 }
-const OFF = { v69TurnCallGaps: false };
+// Several fixtures here are top pair with a weak kicker (As4d on AhKdTs2c):
+// V79 (the kicker cap, pinned in HorseTopPairWeakKicker.law.test.ts) is held
+// off in BOTH arms so every case keeps measuring V69 alone.
+const OFF = { v69TurnCallGaps: false, v79TopPairWeakKicker: false };
+const ON = { v79TopPairWeakKicker: false };
 
 /** A V32 solver cell for the turn board: every hand class bets big. */
 function loadTurnCells(board: string) {
@@ -199,7 +203,7 @@ describe('V69 decisions on the turn', () => {
   it('(1) one pair facing a pot-sized bet with a short stack behind calls less on than off', () => {
     const s = turn('nlh', 'As4d', 'AhKdTs2c', 36, { villainBehind: 60 });
     const off = decideMany(s, OFF);
-    const on = decideMany(s, {});
+    const on = decideMany(s, ON);
     expect(off.seen[RECEIPT] ?? 0).toBe(0);
     expect(on.seen[RECEIPT]).toBe(20);
     expect(off.acts['call'] ?? 0).toBe(16);
@@ -209,7 +213,7 @@ describe('V69 decisions on the turn', () => {
   it('(1) the same one pair with deep stacks is unchanged', () => {
     const s = turn('nlh', 'As4d', 'AhKdTs2c', 36);
     const off = decideMany(s, OFF);
-    const on = decideMany(s, {});
+    const on = decideMany(s, ON);
     expect(on.seen[RECEIPT] ?? 0).toBe(0);
     expect(on.acts).toEqual(off.acts);
   });
@@ -217,7 +221,7 @@ describe('V69 decisions on the turn', () => {
   it('(2) one pair on a board-only four-flush is now shaded like V65', () => {
     const s = turn('nlh', 'Ks5d', 'KhQh9h2h', 36);
     const off = decideMany(s, OFF);
-    const on = decideMany(s, {});
+    const on = decideMany(s, ON);
     expect(off.seen[V65] ?? 0).toBe(0);
     expect(on.seen[V65]).toBe(20);
     expect(on.seen[RECEIPT]).toBe(20);
@@ -228,7 +232,7 @@ describe('V69 decisions on the turn', () => {
   it('(2) a real hole-card flush draw with one pair is still exempt', () => {
     const s = turn('nlh', 'Ks5h', 'Kd9h3h7h', 36);
     const off = decideMany(s, OFF);
-    const on = decideMany(s, {});
+    const on = decideMany(s, ON);
     expect(on.seen[V65] ?? 0).toBe(0);
     expect(on.seen[RECEIPT] ?? 0).toBe(0);
     expect(on.acts).toEqual(off.acts);
@@ -238,7 +242,7 @@ describe('V69 decisions on the turn', () => {
     loadTurnCells('Kh9h3s7c');
     const s = turn('nlh', 'Ah5h', 'Kh9h3s7c', 45, { villainBehind: 60 });
     const off = decideMany(s, { ...OFF, v32FacingDefense: true });
-    const on = decideMany(s, { v32FacingDefense: true });
+    const on = decideMany(s, { ...ON, v32FacingDefense: true });
     expect(off.seen[PASS]).toBe(20);
     expect(off.acts['call'] ?? 0).toBe(20);
     expect(on.seen[PASS] ?? 0).toBe(0);
@@ -250,7 +254,7 @@ describe('V69 decisions on the turn', () => {
     loadTurnCells('Kh9h3s7c');
     const s = turn('nlh', 'Ah5h', 'Kh9h3s7c', 45);
     const off = decideMany(s, { ...OFF, v32FacingDefense: true });
-    const on = decideMany(s, { v32FacingDefense: true });
+    const on = decideMany(s, { ...ON, v32FacingDefense: true });
     expect(on.seen[PASS]).toBe(20);
     expect(on.seen[RECEIPT] ?? 0).toBe(0);
     expect(on.acts).toEqual(off.acts);
@@ -266,7 +270,7 @@ describe('V69 decisions on the turn', () => {
       turn('plo4', 'Ks5dJc8c', 'KhQh9h2h', 36),
     ]) {
       const off = decideMany(s, OFF);
-      const on = decideMany(s, {});
+      const on = decideMany(s, ON);
       expect(on.seen[RECEIPT] ?? 0).toBe(0);
       expect(on.acts).toEqual(off.acts);
     }
