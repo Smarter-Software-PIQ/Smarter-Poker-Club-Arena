@@ -851,6 +851,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V79'
   ),
   flag(
+    'v80TopPairStrongKicker',
+    "2026-11-02 (Phase 2 of the Burls/Dan top-pair program) the V79 0.25 equity cap is extended to hold'em top pair with a T-or-better kicker not pairing the board, in V79 cell A ONLY (turn/river wager >= 0.9 pot, board top Q+, > 60bb effective, not a heads-up table, not a bounty/PKO/mystery-bounty event), where the decision EV of the horses' own calls (net + chips already in, bb; chops at their fractional return; later streets included; hand_history + ca_hand_facts, old engine eed06fe5, CIs clustered by hand) was below zero on two independent days: T-Q kicker -46.02bb [-54.03, -38.01] n 557 pooled (each day and each of T, J, Q below zero alone), K-A kicker -29.82bb [-45.42, -14.22] n 178 pooled (day 2 below zero alone, day 1 straddled); turn calls followed by more river chips -53.12bb and last-commitment turn calls -24.45bb, both below zero; cell B (0.6-0.9 pot) with a T+ kicker is NOT admitted (turn calls straddle, one day only); a measured over-bluffer keeps today; limits: only the horses' calls are observed, ICM not modelled, the price ignores players to act behind; explicit off arm keeps today",
+    'V80'
+  ),
+  flag(
     'v78NoCommittingBluffRaise',
     '2026-11-02 (Dan: "I GET RANDOMLY RAISED ON THE TURN AND THEN THE HORSE JUST CALLS OFF AN ENTIRE STACK WITH A10"; hand 6a30e154: A-T, 8-6-9-3, check-raised a 15 bet to 67 with 84 effective, then called the jam) a hold\'em postflop semi-bluff or check-raise bluff raise (the generic semi-bluff branch, which needs no real draw, and the V8 scare-card check-raise) that legalized is NOT all-in yet puts 40% or more of hero\'s remaining stack in is not made: a stack that small cannot fold to the re-shove, so the never-raise-to-fold rule turns it into a forced call-off; the hand falls through to the priced call / fold verdict and its barrel plan is withdrawn; all-in sizings, smaller raises and every value raise (two pair+, the value branch) untouched; every random roll consumed in its original order; explicit off arm keeps today',
     'V78'
@@ -2207,6 +2212,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorsePreflop (V76)',
     "Hold'em facing one 3-bet: the V7 4-bet-bluff band rolled and was retired; the hand took the call / fold read instead",
     'V76',
+    'decide_nlh'
+  ),
+  receipt(
+    'v80_top_pair_strong_kicker',
+    'HorseLogic (V80)',
+    "Hold'em top pair with a T-or-better kicker facing a 0.9-pot+ turn/river wager deep (V79 cell A): equity capped",
+    'V80',
     'decide_nlh'
   ),
   receipt(
