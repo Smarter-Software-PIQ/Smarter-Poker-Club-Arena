@@ -11,5 +11,6 @@
       "owner_chat_id",
       "requested_at"
     ]
-  }
+  },
+  "functions": ["smarter_private.owner_tournament_deletion_manifest_is_immutable"]
 }
