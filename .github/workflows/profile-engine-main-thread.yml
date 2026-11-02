@@ -72,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/native-perf-packages"
-          sudo env TMPDIR="$RUNNER_TEMP/native-perf-packages" python3 -B tests/fixtures/engine-native-fault/qualify_perf_packages.py \
+          sudo env TMPDIR="$RUNNER_TEMP/native-perf-packages" GITHUB_RUN_ID="$GITHUB_RUN_ID" python3 -B tests/fixtures/engine-native-fault/qualify_perf_packages.py \
             --output artifacts/native-perf-packages/qualification.json
       - name: Prove the exact Ubuntu perf control and native unwind behavior
         run: |

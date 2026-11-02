@@ -104,11 +104,25 @@ def qualify_status_shapes(adapter, planner, folder):
     mixed, malformed = adapter.status_result(child.stdout + (names[2] + '\tunknown ok not-installed\t\n').encode(), names, planner.DEBIAN_VERSION)
     if not malformed or not all(row['verified'] for row in mixed[:2]) or mixed[2]['verified']:
         raise RuntimeError('fixture_status_shape_unproven')
+    # Qualify the exact supported dpkg evidence without changing host dpkg.
+    qualification = load(ROOT / 'tests/fixtures/engine-native-fault/qualify_perf_packages.py', 'status_shape_qualification')
+    absent_name = planner.TARGETS[0]
+    if absent_name in names:
+        raise RuntimeError('fixture_status_shape_unproven')
+    absent = subprocess.run(['/usr/bin/dpkg-query', '--admindir=' + str(administrative), '--show',
+        '--showformat=${Status}\t${Version}', absent_name], stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, timeout=3, env={**os.environ, 'LC_ALL': 'C'})
+    uninstalled = subprocess.run(['/usr/bin/dpkg-query', '--admindir=' + str(administrative), '--show',
+        '--showformat=${Status}\t${Version}', names[2]], stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, timeout=3, env={**os.environ, 'LC_ALL': 'C'})
+    if len(absent.stdout) > 4096 or len(absent.stderr) > 4096 or len(uninstalled.stdout) > 4096 or len(uninstalled.stderr) > 4096 or not qualification.explicit_uninstalled(absent_name, absent.returncode, absent.stdout, absent.stderr) or uninstalled.returncode != 0 or uninstalled.stdout != b'unknown ok not-installed\t' or uninstalled.stderr != b'':
+        raise RuntimeError('fixture_status_shape_unproven')
     if {path.name: path.read_bytes() for path in administrative.iterdir()} != before:
         raise RuntimeError('fixture_status_query_wrote_state')
     return {'realDpkgStatusRowsVerified': True, 'malformedRowIsolationVerified': True,
         'notInstalledVersionAccepted': False, 'notInstalledUnknownReason': rows[2]['reason'],
-        'administrativeDataUnchanged': True}
+        'administrativeDataUnchanged': True, 'exactNoMatchStderrQualified': True,
+        'explicitNotInstalledEmptyVersionQualified': True}
 
 
 def wait(callback, seconds):
