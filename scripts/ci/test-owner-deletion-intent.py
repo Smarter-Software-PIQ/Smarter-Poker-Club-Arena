@@ -52,14 +52,27 @@ CREATE FUNCTION fn_ca_tournament_cancellation_receipt(uuid) RETURNS jsonb LANGUA
  for label,tid,origin in [('same-id',target,'NULL'),('cloned-id','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',"'"+target+"'")]:
   code,_,err=e.sql(db,f"INSERT INTO tournaments VALUES('{tid}',now(),'REGISTERING',0,{origin});",label='restart-'+label,check=False)
   if not code or 'owner_deleted_tournament_cannot_restart' not in err:raise RuntimeError('target restart allowed: '+err)
+ original=ROOT/'scripts/ci/fixtures/tournament-abort/original-refund-before-owner-deletion.sql'
+ original_guard=ROOT/'supabase/migrations/20261102155242_owner_retirement_refuses_superseded_original_refund.sql'
+ e.sql(db,original.read_text(),label='exact-production-original-refund-before-change')
+ def original_refused(tid,expected):
+  code,_,err=e.sql(db,f"SELECT fn_ca_settle_tournament_abort('{op}','{tid}','native');",label=expected,check=False)
+  if not code or expected not in err:raise RuntimeError('wrong original refund refusal: '+err)
+ original_refused(target,'NATIVE_NEXT_FINANCIAL_GATE')
+ e.sql(db,original_guard.read_text(),label='exact-original-refund-supersession')
+ original_refused(target,'owner_retirement_supersedes_original_refund')
+ original_refused(other,'NATIVE_NEXT_FINANCIAL_GATE')
+ proof=next(line.removeprefix('-- @live-proof: ') for line in original_guard.read_text().splitlines() if line.startswith('-- @live-proof: '))
+ if e.sql(db,'SELECT '+proof+';',label='original-refund-exact-postimage')[1].strip()!='t':raise RuntimeError('original-refund postimage mismatch')
  e.sql(db,f"UPDATE smarter_private.tournament_abort_targets SET state='settled',receipt='{{\"mode\":\"started_operator_equal_share\"}}' WHERE tournament_id='{target}';",label='prior-committed-receipt-scene')
  if 'existing_receipt' not in e.sql(db,f"SELECT fn_ca_settle_tournament_abort_equal_share('{op}','{target}','native');",label='prior-committed-receipt-preserved')[1]:raise RuntimeError('existing receipt lost')
+ if 'existing_receipt' not in e.sql(db,f"SELECT fn_ca_settle_tournament_abort('{op}','{target}','native');",label='prior-original-refund-receipt-preserved')[1]:raise RuntimeError('existing original receipt lost')
  e.sql(db,"""DO $$ BEGIN
  IF (SELECT count(*) FROM smarter_private.owner_tournament_deletion_intents)<>140 THEN RAISE EXCEPTION 'scope changed';END IF;
  IF EXISTS(SELECT 1 FROM smarter_private.owner_tournament_deletion_intents WHERE original_started_at>='2026-11-02T06:00Z') THEN RAISE EXCEPTION 'today included';END IF;
  IF has_table_privilege('service_role','smarter_private.owner_tournament_deletion_intents','UPDATE') OR has_table_privilege('authenticated','smarter_private.owner_tournament_deletion_intents','SELECT') THEN RAISE EXCEPTION 'intent authority exposed';END IF;
  END $$;""",label='scope-and-authority')
- e.report.update(status='passed',scope=__doc__,source_sha256={str(x.relative_to(ROOT)):n.sha(x) for x in (source,restart,migration,manifest,Path(__file__))})
+ e.report.update(status='passed',scope=__doc__,source_sha256={str(x.relative_to(ROOT)):n.sha(x) for x in (source,restart,migration,manifest,original,original_guard,Path(__file__))})
 except BaseException as err:e.report['failure']=repr(err)
 finally:
  e.close();(a.evidence/'result.json').write_text(json.dumps(e.report,indent=2));print(json.dumps({k:e.report.get(k) for k in ('status','failure','cleanup')}))
