@@ -30,7 +30,17 @@ console.log('PASS immutable EED client accepts original raw identity and complet
 // Execute both actual pause owners with the SQL-qualified receipt values.
 // The store adapter models token rotation; PostgreSQL above separately proves
 // that same rotation across committed installments and all clock targets.
-const { execFileSync } = await import('node:child_process');
+const captured = JSON.parse(readFileSync(new URL('./old-eed-modules.json', import.meta.url), 'utf8'));
+const hashes = {
+  MaintenanceBreak: 'eeb5342d32ea50d5c230dbe955382fa5eee823a1a90c9e5ebb9ab2f227e345c1',
+  maintenanceSchedule: '4ff8b207c8c198fc2b475108fe2561a7c03d05506efac1d6673279bb059c06f6',
+  maintenanceThawV3: 'ea315cc4a88057382fcb56ccd2ed83b6a3e1ee4371b54a639336c938c403acf9',
+  reconnectFreeze: '3d7adc086968b678e6add4abdea9ca1693056ebbea6e3a258262db9b69f034d6',
+  freezeState: 'a4f9065c9059bdf965c6e453ecb1996f849b75e318679ec72c76c6cb147125d0',
+};
+for (const [name, hash] of Object.entries(hashes)) {
+  assert.equal(createHash('sha256').update(captured[name]).digest('hex'), hash);
+}
 const { mkdirSync, writeFileSync } = await import('node:fs');
 const { dirname, join, resolve } = await import('node:path');
 const { pathToFileURL } = await import('node:url');
@@ -41,7 +51,7 @@ for (const revision of ['eed06fe51dea622069c661a6213d5b031ff3a9e3', 'candidate']
   writeFileSync(join(folder, 'package.json'), '{"type":"module"}');
   for (const name of ['MaintenanceBreak', 'maintenanceSchedule', 'maintenanceThawV3', 'reconnectFreeze', 'freezeState']) {
     const path = `server/src/maintenance/${name}.ts`;
-    const source = revision === 'candidate' ? readFileSync(resolve(path), 'utf8') : execFileSync('git', ['show', `${revision}:${path}`], { encoding: 'utf8' });
+    const source = revision === 'candidate' ? readFileSync(resolve(path), 'utf8') : captured[name];
     if (revision !== 'candidate' && name === 'MaintenanceBreak') {
       assert.equal(createHash('sha256').update(source).digest('hex'), 'eeb5342d32ea50d5c230dbe955382fa5eee823a1a90c9e5ebb9ab2f227e345c1');
     }
