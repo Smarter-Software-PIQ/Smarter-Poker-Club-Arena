@@ -138,12 +138,11 @@ describe('every scheduled name builds the event the timer used to make', () => {
     expect(row).toEqual(withMidwayStructure({ ...board, schedule_id: sched.id }));
     expect(row.free_buy).toBe(true);
     expect(row.buy_in_amount).toBe(0);
-    // Dan 2026-10-16: "DOUBLE ALL THE OTHER CURRENT GUARANTEES".
-    // Owner October 20: evening 8:30 PM Free Buy is 500.
-    expect(row.guaranteed_prize).toBe(500);
+    // Owner November 2: Midway promo funds one bounty per entrant.
+    expect(row.guaranteed_prize).toBe(0);
     // Dan 2026-10-16: "ALL REBUY ADD ON'S FOR MIDWAY UNION ARE 1 CHIP".
     expect(row.rebuy_cost).toBe(1);
-    expect(row.addon_cost).toBe(1);
+    expect(row.addon_cost).toBeNull();
     expect(row.starting_chips).toBe(3000);
   });
 
@@ -704,7 +703,12 @@ describe('daily Free Buy guarantees in both live schedule creators', () => {
       const start = new Date(Date.UTC(2026, 9, 25 + day, hour + 5, 30));
       const row = fixedBoardRow(schedule, { fixedBoard: schedule.name }, start);
       expect(row).not.toBeNull();
-      expect(row!.guaranteed_prize).toBe(guarantee);
+      expect(row!.guaranteed_prize).toBe(schedule.club_id === MIDWAY ? 0 : guarantee);
+      if (schedule.club_id === MIDWAY) {
+        expect(row!.bounty_amount).toBe(1);
+        expect(row!.is_pko).toBe(true);
+        expect(row!.add_on_available).toBe(false);
+      }
       expect(row!.buy_in_amount).toBe(0);
       expect(row!.buy_in_fee).toBe(0);
       expect(row!.starting_chips).toBe(3000);
