@@ -1,3 +1,4 @@
+-- @live-proof: (SELECT count(*)=140 FROM smarter_private.owner_tournament_deletion_intents) AND md5(pg_get_functiondef('public.fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)'::regprocedure))='1975b4c245da7c434772e862cfa57513' AND NOT has_table_privilege('service_role','smarter_private.owner_tournament_deletion_intents','UPDATE')
 -- Explicit owner instruction, chat01a19ccc, November2: delete old started
 -- events; remaining chips to Midway Union Main Bank, Diamonds to KingFish.
 -- Equal-share disposition is revoked for these exact140 identities. Empty
