@@ -116,14 +116,42 @@ COMMANDS = frozenset(('apt_simulation', 'apt_install', 'package_metadata', 'pack
     'package_audit', 'perf_version', 'unit_submit', 'unit_query', 'unit_journal', 'unproven'))
 COMMAND_CATEGORIES = frozenset(('unsupported_file', 'permission', 'archive_missing',
     'dependency_conflict', 'authentication', 'lock_busy', 'unknown'))
+ERROR_WORDS = frozenset(('e error warning command line option options not understood in combination with other '
+    'the a an to of for and or is are was were be been cannot could unable failed fail open read write '
+    'file files directory directories archive archives package packages version versions source sources '
+    'list lists cache partial missing exist exists no such permission denied lock acquire get fetch download '
+    'install installation upgrade remove reinstall reinstalled find locate candidate available unavailable '
+    'unsupported given on internal invalid malformed conflicting values set signed unsigned authenticated '
+    'authentication dependencies dependency unmet broken held selected requested needs requires has have '
+    'this that it but all some must can only please correct problems normal rootless sandbox '
+    '--no-download --no-upgrade --no-remove --no-install-recommends --simulate').split())
+
+
+def command_error_words(stdout, stderr):
+    # Render only a fixed public CLI vocabulary. Never retain raw text, quoted
+    # values, paths, URLs, credentials, package identities or arbitrary tokens.
+    raw = (stderr[:65536] + b'\n' + stdout[:65536]).decode('ascii', errors='replace').lower()
+    lines = [line for line in raw.splitlines() if re.match(r'^\s*(?:e:|error:)', line)]
+    raw = '\n'.join(lines) if lines else raw[-2048:]
+    raw = re.sub(r"'[^']*'|\"[^\"]*\"|\S*://\S+|/\S+|\S*=\S*", '_', raw)
+    words = []
+    for token in re.findall(r'--[a-z-]+|[a-z]+', raw):
+        value = token if token in ERROR_WORDS else '_'
+        if value != '_' or not words or words[-1] != '_':
+            words.append(value)
+        if len(words) == 96:
+            break
+    return words
 
 
 def command_failure_outcome(value):
-    if not isinstance(value, dict) or set(value) != {'command', 'exitCode', 'categories', 'boundExceeded'}:
+    if not isinstance(value, dict) or set(value) != {'command', 'exitCode', 'categories', 'boundExceeded', 'errorWords'}:
         return None
     if not isinstance(value['command'], str) or value['command'] not in COMMANDS or type(value['exitCode']) is not int or not -255 <= value['exitCode'] <= 255 or type(value['boundExceeded']) is not bool:
         return None
     if not isinstance(value['categories'], list) or not 1 <= len(value['categories']) <= len(COMMAND_CATEGORIES) or any(not isinstance(item, str) or item not in COMMAND_CATEGORIES for item in value['categories']):
+        return None
+    if not isinstance(value['errorWords'], list) or len(value['errorWords']) > 96 or any(not isinstance(item, str) or item not in ERROR_WORDS | {'_'} for item in value['errorWords']):
         return None
     return value
 
@@ -144,7 +172,8 @@ class CommandFailure(RuntimeError):
             'lock_busy': (b'could not get lock', b'unable to acquire')}
         self.public = {'command': label, 'exitCode': result.returncode,
             'categories': sorted(key for key, needles in markers.items() if any(token in raw for token in needles)) or ['unknown'],
-            'boundExceeded': len(result.stdout) > 65536 or len(result.stderr) > 65536}
+            'boundExceeded': len(result.stdout) > 65536 or len(result.stderr) > 65536,
+            'errorWords': command_error_words(result.stdout, result.stderr)}
 
 
 def run(args, timeout=10, accepted=(0,)):

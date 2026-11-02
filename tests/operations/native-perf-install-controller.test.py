@@ -17,10 +17,16 @@ class CommandDiagnostics(unittest.TestCase):
                 helper.run(['/usr/bin/apt-get', '--simulate', 'install', '/PRIVATE/SECRET.deb'])
         value = caught.exception.public
         self.assertEqual(value, {'command': 'apt_simulation', 'exitCode': 100,
-            'categories': ['unsupported_file'], 'boundExceeded': False})
+            'categories': ['unsupported_file'], 'boundExceeded': False,
+            'errorWords': ['unsupported', 'file', 'given', 'on', '_']})
         self.assertNotIn('PRIVATE', json.dumps(value))
+        words = helper.command_error_words(b'E: Archives directory /PRIVATE/SECRET is missing',
+            b'E: Failed to fetch https://USER:TOKEN@PRIVATE/SECRET \"PASSWORD\"')
+        self.assertNotIn('PRIVATE', json.dumps(words).upper())
+        self.assertNotIn('TOKEN', json.dumps(words).upper())
+        self.assertLessEqual(len(words), 96)
         self.assertEqual(helper.command_failure_outcome(value), value)
-        for key, bad in [('command', 'PRIVATE'), ('command', []), ('categories', ['PRIVATE']), ('categories', [{}]), ('exitCode', True)]:
+        for key, bad in [('command', 'PRIVATE'), ('command', []), ('categories', ['PRIVATE']), ('categories', [{}]), ('exitCode', True), ('errorWords', ['PRIVATE'])]:
             self.assertIsNone(helper.command_failure_outcome({**value, key: bad}))
 
 
