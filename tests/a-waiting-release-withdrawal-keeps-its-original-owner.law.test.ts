@@ -4,20 +4,26 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { parse } from 'yaml';
 
-it('qualifies exact waiting attempt admission and its original terminal signal boundary', () => {
-  const result = spawnSync(
-    'python3',
-    ['-B', 'tests/operations/waiting-engine-release-withdrawal.test.py'],
-    {
-      cwd: resolve(import.meta.dirname, '..'),
-      env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
-      encoding: 'utf8',
-      timeout: 60000,
-    }
-  );
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stderr).toContain('Ran 59 tests');
-}, 75000);
+it(
+  'qualifies exact waiting attempt admission and its original terminal signal boundary',
+  () => {
+    const result = spawnSync(
+      'python3',
+      ['-B', 'tests/operations/waiting-engine-release-withdrawal.test.py'],
+      {
+        cwd: resolve(import.meta.dirname, '..'),
+        env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+        encoding: 'utf8',
+        // Loaded macOS exhausted the outer fixture budget after 42 cases.
+        // Preserve every native deadline and the hosted Linux qualification limit.
+        timeout: process.platform === 'darwin' ? 120000 : 60000,
+      }
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain('Ran 59 tests');
+  },
+  process.platform === 'darwin' ? 135000 : 75000
+);
 
 it('keeps the revoked off-cycle owner order closed', () => {
   const windows = JSON.parse(
