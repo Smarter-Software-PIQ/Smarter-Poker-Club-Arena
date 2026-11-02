@@ -1739,7 +1739,10 @@ it('binds the owner-ordered fresh-engine crash-boundary window without renewing 
  * by their own test, so they are removed here and every protected byte the
  * database tests hash is still compared exactly.
  */
-const LATER_ENGINE_WINDOWS = ['2026-11-02-fresh-engine-window-after-seal-unbrick'];
+const LATER_ENGINE_WINDOWS = [
+  '2026-11-02-fresh-engine-window-after-seal-unbrick',
+  '2026-11-02-phase1-plo-horse-hourly-55-cutover',
+];
 function windowsBeforeLaterEngineWindows(
   raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8')
 ): string {
@@ -1924,6 +1927,76 @@ it('binds the owner-ordered fresh-engine window re-armed after the seal unbrick 
     'first 240 seconds after eed06fe5 starts',
     'agent-selected',
     'cbdd648caf',
+    'Diamond remains closed',
+    'ONE actual activation',
+    '120s',
+    '300s',
+    '285s',
+    '245s',
+    '135s',
+    '40s',
+  ])
+    expect(entry.ownerOrder).toContain(boundary);
+});
+
+it('binds the owner-ordered Phase 1 hourly :55 cutover window without renewing any historical window', () => {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const doc = JSON.parse(raw);
+  const id = '2026-11-02-phase1-plo-horse-hourly-55-cutover';
+  const entry = doc.windows.find((w: { id: string }) => w.id === id);
+  expect(doc.windows.filter((w: { id: string }) => w.id === id)).toHaveLength(1);
+  expect(doc.windows[74]).toEqual(entry);
+  // Requires the stranded-cycle resolution (#9312), which contains #9244, #9231, #9287 and #9288.
+  expect(entry.contains).toBe('e64c2a68a211040b645efac90cef44206fc8b4a1');
+  // The owner order allows the :55 break only: minute 53 notice, minute 55 activation.
+  expect(entry.announceAtChicagoMinutes).toEqual([53]);
+  expect(entry.withinSecondsOfEngineStart).toBeUndefined();
+  expect(entry.migrations).toEqual([]);
+  expect(entry.notBefore).toBe('2026-11-02T11:00:00Z');
+  expect(entry.notAfter).toBe('2026-11-02T17:00:00Z');
+  expect(Date.parse(entry.notAfter) - Date.parse(entry.notBefore)).toBeLessThanOrEqual(21_600_000);
+  // Starts after the previous fresh-engine window expired and ends before the 2026-11-03 daily window.
+  expect(Date.parse(entry.notBefore)).toBeGreaterThan(Date.parse('2026-11-02T09:25:00Z'));
+  expect(Date.parse(entry.notAfter)).toBeLessThan(Date.parse('2026-11-03T09:30:00Z'));
+  const expectedFloor = Buffer.from(
+    JSON.stringify(
+      {
+        schema: 'engine-release-activation-floor/v2-owner-window',
+        preparationAt: entry.notBefore,
+        activationAt: entry.notBefore,
+        expiresAt: entry.notAfter,
+        timeZone: 'America/Chicago',
+        ownerWindowId: id,
+        clientPublicationAt: entry.notBefore,
+      },
+      null,
+      2
+    ) + '\n'
+  );
+  expect(entry.releaseWitness).toEqual({
+    path: 'server/release/activation-floor.json',
+    sha256: createHash('sha256').update(expectedFloor).digest('hex'),
+  });
+  const selected = readFileSync(join(root, 'server/release/activation-floor.json'));
+  if (JSON.parse(selected.toString()).ownerWindowId === id) expect(selected).toEqual(expectedFloor);
+  const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
+  const end = raw.indexOf('\n  ],\n  "databaseWindows":', start);
+  expect(start).toBeGreaterThan(0);
+  // Every byte outside this entry is exactly the file #9282 left.
+  expect(
+    createHash('sha256')
+      .update(raw.slice(0, start) + raw.slice(end))
+      .digest('hex')
+  ).toBe('e1f6c9de4e3cab23c28c184617a428cfc305372172435365e0da600d1463c1cb');
+  for (const boundary of [
+    'GET THESE DONE NOW',
+    'BUT ONLY AT THE :55 BREAK',
+    'complete the task in full',
+    'NEW owner-ordered window',
+    'minute 53',
+    'minute 55',
+    'agent-selected',
+    'e64c2a68',
     'Diamond remains closed',
     'ONE actual activation',
     '120s',
