@@ -594,6 +594,12 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
 
 
 def routine_cycles(state: dict[str, Any]) -> dict[str, Any]:
+    # A removed owner is not evidence of resolved custody. An earlier writer
+    # may have recorded the expiry-only retirement shape; never accept that
+    # history as authority or reconstruct an original owner by guessing.
+    retired = state.get('retiredRoutineCycles', {})
+    if not isinstance(retired, dict) or retired:
+        die('unverified retiredRoutineCycles history requires original custody reconciliation')
     cycles = state.get('routineMaintenanceCycles', {})
     if not isinstance(cycles, dict):
         die('routine cycle history is unreadable')
@@ -649,7 +655,6 @@ def cmd_restoration_needed(args: argparse.Namespace) -> None:
 def cmd_check_routine_owner(args: argparse.Namespace) -> None:
     with SealLock():
         state = load_state()
-        retire_abandoned_routine_cycles(state, int(time.time()))
         owners = [c for c in routine_cycles(state).values() if c['status'] not in ('sealed',)]
         if any(c['runId'] != args.run_id for c in owners):
             die('foreign pending or unknown routine cycle owner remains authoritative')
@@ -692,8 +697,6 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
                 die('original routine cycle expired unresolved; no later cycle is authorized')
             audit_once('routine_cycle_reserved', state, f'routine_cycle:{c["startsAt"]}', cycle=c)
             print(json.dumps(c, sort_keys=True)); return
-        retire_abandoned_routine_cycles(state, now)
-        cycles = routine_cycles(state)
         if state.get('pending') or state.get('finalization') or any(c['status'] not in ('sealed',) for c in cycles.values()):
             die('prior pending or unknown routine owner remains authoritative')
         p = current_cycle_policy(args.repo, args.sha, args.control_sha)
@@ -730,93 +733,9 @@ def finish_routine_failure(state: dict[str, Any], run_id: str, result: dict[str,
         if c['status'] != 'reserved' or c['sha'] != result['sha'] or c['controlSha'] != result['controlSha']:
             die('failure does not match the routine cycle owner')
         # Desired restoration is not proof of native cleanup/custody. Preserve
-        # this global owner even after the provider has a terminal failure;
-        # retire_abandoned_routine_cycles later retires it under the full
-        # custody proofs once its window has expired.
+        # this global owner even after the provider has a terminal failure.
         c['failure'] = result
         write_state(state)
-
-
-def routine_owner_units(run_id: str) -> tuple[str, ...]:
-    return (
-        f'club-arena-engine-intake-v1@{run_id}.service',
-        f'club-arena-engine-intake-v1@{run_id}.path',
-        f'club-arena-engine-release-v1@{run_id}.service',
-    )
-
-
-def retire_abandoned_routine_cycles(state: dict[str, Any], now: int) -> int:
-    """Retire routine cycles whose owner reached a durable terminal failure
-    and whose window has expired, under the full custody proofs.
-
-    2026-11-02: a receiver that recorded a terminal failure while owning a
-    routine cycle kept that cycle in 'reserved' forever (its GitHub run can
-    never replay), and check-routine-owner then refused every later receiver
-    with 'foreign pending or unknown routine cycle owner remains
-    authoritative' - run 41349091113-1 bricked the whole hourly lane this
-    way for over two hours. The preserved owner exists because desired
-    restoration alone is not proof of native cleanup/custody
-    (finish_routine_failure); these are the proofs that ARE:
-      - the cycle is 'reserved' and carries its recorded failure;
-      - the canonical durable terminal result for that exact run says
-        'failed' with the cycle's exact sha and controlSha (load_failure
-        validates every field);
-      - the cycle's window has expired (announced window end, or
-        startsAt+360s when no announcement was ever bound), so no provider
-        can still be inside it;
-      - no transaction is live (no pending, no finalization);
-      - none of the dead owner's native units remain enabled - the same
-        assertion the transaction's own remote cleanup makes. A systemctl
-        that cannot answer fails CLOSED.
-    Retirement moves the cycle into retiredRoutineCycles with the proofs and
-    appends one routine_cycle_retired audit receipt. Returns the number of
-    cycles retired; the caller already holds the seal lock.
-    """
-    if state.get('pending') or state.get('finalization'):
-        return 0
-    cycles = routine_cycles(state)
-    retired_count = 0
-    for key in sorted(cycles):
-        c = cycles[key]
-        if c['status'] != 'reserved' or not isinstance(c.get('failure'), dict):
-            continue
-        window = routine_window(c)
-        ends_at = window['endsAt'] if window else (c['startsAt'] + 360) * 1000
-        if now * 1000 < ends_at:
-            continue
-        failure = load_failure(c['runId'])
-        if failure['sha'] != c['sha'] or failure['controlSha'] != c['controlSha']:
-            die('abandoned routine cycle failure does not match its owner')
-        for unit in routine_owner_units(c['runId']):
-            try:
-                enabled = subprocess.run(
-                    ['systemctl', 'is-enabled', unit],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                ).returncode == 0
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                die(f'abandoned routine cycle native unit state is unprovable: {exc}')
-            if enabled:
-                die('abandoned routine cycle owner still has an enabled native unit')
-        retired = {**c, 'retiredAt': now, 'retiredBy': 'expired-terminal-failure'}
-        history = state.get('retiredRoutineCycles')
-        if not isinstance(history, dict):
-            history = {}
-        history[key] = retired
-        state['retiredRoutineCycles'] = history
-        del cycles[key]
-        state['routineMaintenanceCycles'] = cycles
-        state['updatedAt'] = now
-        write_state(state)
-        audit_once(
-            'routine_cycle_retired',
-            state,
-            f'routine_cycle_retired:{key}:{retired["runId"]}',
-            cycle=retired,
-        )
-        retired_count += 1
-    return retired_count
 
 
 def cmd_prepare(args: argparse.Namespace) -> None:
