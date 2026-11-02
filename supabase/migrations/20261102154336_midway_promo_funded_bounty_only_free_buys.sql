@@ -3166,6 +3166,18 @@ $function$
 ;
 
 -- Preserve the inspected original execution boundaries explicitly.
+REVOKE ALL ON FUNCTION public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_register_horse_for_tournament_before_maintenance_gate(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_process_tournament_chip_purchase_money_v1(uuid,uuid,text,numeric,numeric,integer,text) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_unregister_tournament_player_exact(uuid,uuid,uuid,text,uuid) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.atomic_cancel_tournament(uuid,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.atomic_cancel_tournament(uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_freerolls_are_free_buy() FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_freerolls_are_free_buy() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_guard_managed_game_lifecycle() FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_guard_managed_game_lifecycle() TO service_role;
+REVOKE ALL ON FUNCTION public.trg_freeze_registered_tournament_settlement_contract() FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.trg_freeze_registered_tournament_settlement_contract() TO service_role;
 REVOKE ALL ON FUNCTION public.fn_ca_tournament_charge_split(uuid,text,numeric) FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.fn_ca_tournament_escrow_chips(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_tournament_escrow_chips(uuid) TO service_role;
