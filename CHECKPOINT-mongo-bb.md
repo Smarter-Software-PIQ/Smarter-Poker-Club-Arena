@@ -48,3 +48,9 @@ Canonical full policy2.9 read2026-11-02T02:52:12.021Z, same manifest/four file h
 Existing source from8827 supplies dealt snapshots; identified gap: rejected hand identity omits field, wrongly permits legacy metadata fallback. Modern invalid/unavailable active hand data must be explicit null. Acceptance includes actual level refresh, all serializers, recovery/reconnect, next-hand rollover, protected checks/merge, certified engine activation/sealed receipt and real serving behavior.
 
 Engine regression before:5failed/34passed. After:42engine tests (including projection equivalence) and11client tests passed. Server TypeScript passed. Private root/server dependencies installed in own SSD worktree. Exact engine deployment and live proof pending.
+
+## Follow-up: shared preference write order, November 2
+
+Owned worktree /Volumes/SmarterWork/agent-work/shared-capacity/bb-write-order-01a19a02/ca, branch fix/bb-cross-control-write-order-20261102, base6e551df68131d3dd9c1148bac82b976456f19b1a. Parent owns engine recovery; this follow-up only fixes cross-control preference persistence ordering. Canonical policy2.9 full reader2026-11-02T13:33:35.609Z, manifest and four hashes unchanged above. Root policy, full CLAUDE/playbook/PUBLISHING/deploy paths, storage guide and existing checkpoint read; no nested src/tests instructions. SSD verified.
+
+Reproduction: deferred A1 save, A2 gesture then B1 gesture currently register globally as A1,B1,A2 because A2 waits on its hook-local predecessor before joining the shared queue. Latest optimistic value conceals the stale durable value after reload. Exact hook tests cover BB and alias with persisted-row/remount assertions. No production writes or engine actions.
