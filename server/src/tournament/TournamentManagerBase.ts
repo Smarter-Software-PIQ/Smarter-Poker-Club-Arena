@@ -11206,7 +11206,8 @@ export abstract class TournamentManagerBase {
     if (!Number.isFinite(entrants) || entrants < 1) return null;
 
     const rebuyChips = Number(this.tournamentCache?.rebuy_chips) || start;
-    const addonChips = Number(this.tournamentCache?.addon_chips) || start;
+    // Dan 2026-11-01: an add-on pays the starting stack, exactly.
+    const addonChips = start;
     const rebuys = Number(this.rebuysGrantedForChipCap) || 0;
     const addons = Number(this.addonsGrantedForChipCap) || 0;
 
@@ -12332,7 +12333,8 @@ export abstract class TournamentManagerBase {
       await this.broadcast('ADDON_PERIOD_START', {
         message: 'The Add-On Period Has Begun',
         addOnCost: this.tournamentCache.addon_cost || this.tournamentCache.buy_in_amount || 0,
-        addOnChips: this.tournamentCache.addon_chips || this.tournamentCache.starting_chips || 0,
+        // Dan 2026-11-01: an add-on pays the starting stack, exactly.
+        addOnChips: this.tournamentCache.starting_chips || this.tournamentCache.addon_chips || 0,
         addOnFee: 0,
         durationSeconds: Math.max(0, Math.ceil((endMs - Date.now()) / 1000)),
         endsAt: new Date(endMs).toISOString(),
@@ -12886,8 +12888,9 @@ export abstract class TournamentManagerBase {
 
       const addonCost =
         this.tournamentCache?.addon_cost || this.tournamentCache?.buy_in_amount || 0;
+      // Dan 2026-11-01: an add-on pays the starting stack, exactly.
       const addonChips =
-        this.tournamentCache?.addon_chips || this.tournamentCache?.starting_chips || 0;
+        this.tournamentCache?.starting_chips || this.tournamentCache?.addon_chips || 0;
       const rebuyLevelCap =
         this.tournamentCache?.late_reg_levels ?? this.tournamentCache?.rebuy_levels ?? 8;
       const durationSeconds = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
@@ -13246,8 +13249,9 @@ export abstract class TournamentManagerBase {
       if (rebroadcastAfterThaw) {
         const addOnCost =
           this.tournamentCache?.addon_cost || this.tournamentCache?.buy_in_amount || 0;
+        // Dan 2026-11-01: an add-on pays the starting stack, exactly.
         const addOnChips =
-          this.tournamentCache?.addon_chips || this.tournamentCache?.starting_chips || 0;
+          this.tournamentCache?.starting_chips || this.tournamentCache?.addon_chips || 0;
         const delivered = await this.broadcast('ADDON_PERIOD_START', {
           message: 'The Add-On Period Has Resumed',
           addOnCost,

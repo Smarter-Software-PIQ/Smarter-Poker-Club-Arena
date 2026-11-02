@@ -1534,7 +1534,9 @@ function tournamentPurchaseQuote(row: TournamentRowLite): TournamentPurchaseQuot
     configuredAddOn !== null && configuredAddOn > 0 ? configuredAddOn : buyIn
   );
   const configuredRecoveryChips = finite(row.rebuy_chips);
-  const configuredAddOnChips = finite(row.addon_chips);
+  /* Dan 2026-11-01: an add-on pays the starting stack, exactly; the
+     configured column is only a fallback for a legacy row with no stack. */
+  const configuredAddOnChips = finite(row.starting_chips) ?? finite(row.addon_chips);
   const recoveryChips = Math.round(
     configuredRecoveryChips !== null && configuredRecoveryChips > 0
       ? configuredRecoveryChips

@@ -344,9 +344,9 @@ COMPOSITION_PHASES = frozenset({'import', 'input-read', 'compose', 'sql-write', 
 COMPOSITION_COMMAND = """
 import {readFile,writeFile} from 'node:fs/promises';
 const [modulePath,a,b,c,d,diagnostic]=process.argv.slice(1);
-let phase='import', classify=()=> 'UNKNOWN';
+let phase='import', classify=()=> 'UNKNOWN', witness=()=>null;
 try {
-  const module=await import(modulePath); classify=module.schemaCompositionFailureSite;
+  const module=await import(modulePath); classify=module.schemaCompositionFailureSite; witness=module.schemaCompositionMismatchWitness;
   phase='input-read'; const capture=await readFile(a,'utf8'), service=await readFile(b,'utf8');
   phase='compose'; const r=module.composeSchema(capture,service);
   phase='sql-write'; await writeFile(c,r.sql,{flag:'wx',mode:0o600});
@@ -354,10 +354,44 @@ try {
 } catch(error) {
   const site=phase==='compose' ? classify(error) : 'UNKNOWN';
   const value={version:1,scope:'exact-service-composition-failure',phase,site};
+  const mismatch=phase==='compose' ? witness(error) : null;
+  if(mismatch!==null) value.mismatch=mismatch;
   try { await writeFile(diagnostic,JSON.stringify(value),{flag:'wx',mode:0o600}); } catch {}
   process.exitCode=1;
 }
 """
+
+
+def validate_composition_mismatch(value):
+    require(isinstance(value, dict) and set(value) == {'version', 'total', 'truncated', 'rows'} and
+            type(value['version']) is int and value['version'] == 1 and
+            type(value['total']) is int and 1 <= value['total'] <= 4194304 and
+            type(value['truncated']) is bool and isinstance(value['rows'], list) and
+            len(value['rows']) == min(value['total'], 16) and
+            value['truncated'] == (value['total'] > 16))
+    kinds = {'SCHEMA', 'FUNCTION', 'TABLE', 'VIEW', 'TYPE', 'SEQUENCE', 'ACL', 'DEFAULT ACL',
+             'COMMENT', 'EXTENSION', 'INDEX', 'CONSTRAINT', 'TRIGGER', 'POLICY', 'OTHER'}
+    schemas = {'auth', 'realtime', '_realtime', 'cron', 'extensions', 'public', '-', 'OTHER'}
+    previous = -1
+    keys = set()
+    for row in value['rows']:
+        require(isinstance(row, dict) and set(row) == {'native_ordinal', 'key_sha256', 'object_type',
+                'schema', 'owner_match', 'captured_sha256', 'native_sha256', 'captured_bytes',
+                'native_bytes', 'first_difference'})
+        require(type(row['native_ordinal']) is int and previous < row['native_ordinal'] <= 4194304 and
+                isinstance(row['object_type'], str) and row['object_type'] in kinds and
+                isinstance(row['schema'], str) and row['schema'] in schemas and row['owner_match'] is True)
+        for key in ('key_sha256', 'captured_sha256', 'native_sha256'):
+            require(isinstance(row[key], str) and re.fullmatch('[0-9a-f]{64}', row[key]))
+        require(row['key_sha256'] not in keys and row['captured_sha256'] != row['native_sha256'])
+        for key in ('captured_bytes', 'native_bytes'):
+            require(type(row[key]) is int and 1 <= row[key] <= 134217728)
+        require(type(row['first_difference']) is int and
+                0 <= row['first_difference'] <= min(row['captured_bytes'], row['native_bytes']) and
+                (row['first_difference'] < min(row['captured_bytes'], row['native_bytes']) or
+                 row['captured_bytes'] != row['native_bytes']))
+        previous = row['native_ordinal']
+        keys.add(row['key_sha256'])
 
 
 def composition_failure(path):
@@ -367,8 +401,8 @@ def composition_failure(path):
         try:
             before = os.fstat(fd)
             require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and
-                    before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == 0o600 and 0 < before.st_size <= 512)
-            raw = os.read(fd, 513)
+                    before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == 0o600 and 0 < before.st_size <= 16384)
+            raw = os.read(fd, 16385)
             after = os.fstat(fd)
             require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
                     (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) and len(raw) == before.st_size)
@@ -381,13 +415,16 @@ def composition_failure(path):
                 result[key] = value
             return result
         value = json.loads(raw, object_pairs_hook=unique)
-        require(isinstance(value, dict) and set(value) == set(unknown) and type(value['version']) is int and
+        require(isinstance(value, dict) and set(value) in (set(unknown), set(unknown) | {'mismatch'}) and type(value['version']) is int and
                 value['version'] == 1 and value['scope'] == unknown['scope'] and
                 isinstance(value['phase'], str) and value['phase'] in COMPOSITION_PHASES and
                 isinstance(value['site'], str) and value['site'] in COMPOSITION_SITES and
                 (value['phase'] == 'compose' or value['site'] == 'UNKNOWN'))
+        if 'mismatch' in value:
+            require(value['phase'] == 'compose' and value['site'] == 'NATIVE_BLOCK_DIFFERENT')
+            validate_composition_mismatch(value['mismatch'])
         return value
-    except (OSError, ValueError, TypeError, RuntimeError):
+    except (OSError, ValueError, TypeError, RuntimeError, KeyError):
         return unknown
 
 
@@ -492,7 +529,7 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
             web_id = os.environ['FIXTURE_WEB_ARTIFACT_ID']
             require(re.fullmatch('[1-9][0-9]*', web_run) and re.fullmatch('[1-9][0-9]*', web_id))
             archive = temp / 'original-web.zip'
-            info, run, report['web_input_retention'] = retention.download(archive, web_run, web_id)
+            info, run, report['web_input_retention'] = retention.download_staged(archive, web_run, web_id)
             engine_sha = os.environ['FIXTURE_ENGINE_SOURCE_SHA']
             web_sha = published_web_source(run, info, engine_sha)
             web = {'source_sha': web_sha, 'artifact_id': web_id, 'build_run_id': web_run,

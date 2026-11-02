@@ -4318,6 +4318,33 @@ function ClubHomePageContent({
   const openEntry = useCallback(
     (entry: LobbyEntry) => {
       haptic.selection();
+      /* ── A TOURNAMENT ROW IS A DOOR, NOT A CARD (Dan 2026-11-01, binding) ──
+         "WHEN YOU CLICK ON A TOURNAMENT THATS 'RUNNING' IT SHOULD TAKE YOU
+          DIRECTLY TO THE LOBBY. OR REALLY ANY TOURNAMENT, IT SHOULD NOT TAKE
+          YOU TO THIS PAGE FIRST."
+
+         Restores the 2026-08-25 ruling the game-card pass later reversed:
+         every MTT row — and every multi-seat SNG, which shares the same
+         registration lobby — opens /tournaments/:id directly, at every
+         status. The GameLobbyPanel is no longer a stop on the way to an
+         event; it stays reachable from the lobby page itself. Spins and
+         heads-up SNGs are seat-first games with no lobby of their own
+         (Dan 2026-08-20) and keep the card, as do cash rows, where the card
+         is how a buy-in is chosen. Selecting still spends nothing: the
+         tournament lobby registers only from its own buttons. */
+      if (entry.kind === 'mtt' || (entry.kind === 'sng' && entry.capacity > 2)) {
+        browseJourney.current.selected = true;
+        pendingGameRef.current = null;
+        setLinkedGameId((linked) => (linked === entry.id ? linked : null));
+        /* Warm the event's live table on the way, exactly as the card did:
+           the lobby's Watch / Take Seat then resolve from a moving cache. */
+        void tableService
+          .resolveTournamentLiveTable(entry.id)
+          .then((tableId) => warmTable(tableId))
+          .catch(() => undefined);
+        openTournamentLobby(entry.id);
+        return;
+      }
       // Opening a card is browsing intent too. Late saved tabs or filters
       // must not remove that chosen game and close its card. Keep this
       // separate from the preference-write flags: a row tap saves nothing.

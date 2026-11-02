@@ -247,7 +247,8 @@ export function diamondSpawnConfig(
     if (config.addonCost !== undefined) config.addonCost = DIAMOND_FREEROLL_REBUY_DIAMONDS;
   }
   if (addOn) {
-    config.addonChips = Math.floor(num(row.addon_chips));
+    // Dan 2026-11-01: an add-on pays the starting stack, exactly.
+    config.addonChips = Math.floor(num(row.starting_chips)) || Math.floor(num(row.addon_chips));
     if (row.addon_levels != null) config.addonLevels = Math.floor(num(row.addon_levels));
   }
 

@@ -191,8 +191,11 @@ describe('tournaments: the entry is charged to a wallet that can pay', () => {
 
   it("an entry's later money resolves to the club stamped on the entry", () => {
     const fn = body('fn_tournament_club_for_user');
-    const stamped = fn.indexOf('FROM tournament_players tp');
-    const oldest = fn.lastIndexOf('ORDER BY m.joined_at ASC NULLS LAST, m.club_id');
+    const stamped = Math.max(
+      fn.indexOf('FROM public.tournament_players tp'),
+      fn.indexOf('FROM tournament_players tp')
+    );
+    const oldest = fn.lastIndexOf('m.joined_at ASC NULLS LAST');
     expect(stamped).toBeGreaterThan(-1);
     expect(stamped).toBeLessThan(oldest);
   });

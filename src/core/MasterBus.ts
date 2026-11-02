@@ -58,6 +58,11 @@ export type BusEventType =
   // pill row beside the 4-square button, which MultiTablePage owns - so the
   // strip asks the table it is labelling to open its Must Move Lobby.
   | 'OPEN_MUST_MOVE_LOBBY'
+  // Dan 2026-11-01: the TOURNAMENT lobby button lives in the same action bar
+  // slot ("THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER
+  // IN THE ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE THE POKER TABLE PAGE"),
+  // so the strip asks the tournament table it is labelling to open its lobby.
+  | 'OPEN_TOURNAMENT_LOBBY'
   | 'TABLE_CAP_BLOCKED'
   // Dan 2026-10-25: a leave queued behind the hand has been cashed out.
   | 'SEAT_CASHED_OUT'
@@ -445,6 +450,10 @@ export interface BusPayloadMap {
    * never open the lobby of another.
    */
   OPEN_MUST_MOVE_LOBBY: { tableId: string };
+  /** Dan 2026-11-01: the tournament LOBBY button sits in the top action bar's
+   *  right corner (MultiTablePage's strip), so it asks the tournament table it
+   *  is labelling, by id, to open the TournamentLobbyModal it owns. */
+  OPEN_TOURNAMENT_LOBBY: { tableId: string };
   /** Dan 2026-08-21: a seat could not be opened because the player is at
    *  the 4-table cap. TournamentAutoSeat turns this into the large popup. */
   TABLE_CAP_BLOCKED: { tableId: string };
@@ -1429,6 +1438,7 @@ class MasterBusCore {
        button would read as broken. Same reasoning as UI_THEME_CHANGED above:
        an event that IS a user's tap must never be deduplicated by payload. */
     'OPEN_MUST_MOVE_LOBBY',
+    'OPEN_TOURNAMENT_LOBBY',
   ];
 
   // Navigation belongs to the browser tab where the player requested it.
@@ -1438,6 +1448,7 @@ class MasterBusCore {
     'OPEN_HUB_TAB',
     'OPEN_OBSERVE_TABLE',
     'OPEN_MUST_MOVE_LOBBY',
+    'OPEN_TOURNAMENT_LOBBY',
   ]);
 
   // #4b Channel factory registry for auto-recovery

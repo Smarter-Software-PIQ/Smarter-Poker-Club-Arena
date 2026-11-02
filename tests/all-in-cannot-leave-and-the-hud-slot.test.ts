@@ -238,7 +238,8 @@ describe('the bottom-left HUD slot', () => {
  */
 describe('every widget in the bottom-left HUD corner is the same tile', () => {
   it('the size is declared once, on .table-hud, as a token', () => {
-    expect(strip(HUD_CSS)).toMatch(/--sp-hud-tile-size:\s*var\(--sp-game-tool-size, 40px\)/);
+    // Dan 2026-11-01: the tiles are hamburger-sized (--sp-tabbar-control).
+    expect(strip(HUD_CSS)).toMatch(/--sp-hud-tile-size:\s*var\(--sp-tabbar-control, 52px\)/);
     expect(strip(HUD_CSS)).toMatch(new RegExp(`--sp-hud-tile-radius:\\s*${TILE_RADIUS}px`));
   });
 
@@ -248,12 +249,12 @@ describe('every widget in the bottom-left HUD corner is the same tile', () => {
     // the literal. Dan 2026-08-28 asked for the four to be one size; this is
     // what keeps a token change from leaving the chat bubble behind.
     const btn = ruleBody(CHAT_CSS, '.chat-collapsed');
-    expect(btn).toMatch(/width:\s*var\(--sp-game-tool-size, 40px\)/);
-    expect(btn).toMatch(/height:\s*var\(--sp-game-tool-size, 40px\)/);
+    expect(btn).toMatch(/width:\s*var\(--sp-tabbar-control, 52px\)/);
+    expect(btn).toMatch(/height:\s*var\(--sp-tabbar-control, 52px\)/);
     expect(btn).toMatch(new RegExp(`border-radius:\\s*${TILE_RADIUS}px`));
     const img = ruleBody(CHAT_CSS, '.chat-collapsed__icon-img');
-    expect(img).toMatch(/width:\s*var\(--sp-game-tool-size, 40px\)/);
-    expect(img).toMatch(/height:\s*var\(--sp-game-tool-size, 40px\)/);
+    expect(img).toMatch(/width:\s*var\(--sp-tabbar-control, 52px\)/);
+    expect(img).toMatch(/height:\s*var\(--sp-tabbar-control, 52px\)/);
   });
 
   it('no breakpoint re-sizes a tile through a phantom token', () => {

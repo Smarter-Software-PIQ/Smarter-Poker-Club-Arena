@@ -136,7 +136,14 @@ export function withMidwayStructure<T extends Record<string, unknown>>(
     addon_cost: addon ? purchaseCost(row.addon_cost) : null,
     // Free Buy's owner-approved early add-on remains available at sit-down.
     addon_from_start: addon && free ? row.addon_from_start === true : false,
-    addon_chips: addon ? (free ? 10000 : Math.max(Number(row.addon_chips) || 0, stack * 2)) : null,
+    /* AN ADD-ON PAYS THE STARTING STACK, EXACTLY (Dan 2026-11-01, verbatim):
+       "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF CHIPS THAT THE TOURANMENT
+       STARTED WITH, THE ADD ON SHOULD THE SAME AMOUNT OF CHIPS THAT YOU START
+       WITH IN THE TOURNAMENT, NEVER LESS!" This supersedes the former
+       max(configured, 2x stack) floor and the Free Buy's 10,000 - the Sunday
+       Funday's 80,000-chip add-on on this very rule is what he was looking at
+       when he said it. */
+    addon_chips: addon ? stack : null,
     addon_levels: addon ? 1 : null,
     // Dan 2026-10-25: "ADD ON BREAK SHOULD ONLY BE 60 SECONDS, UNLESS IT HAPPENS TO
     // BE AT THE SAME TIME AS THE :55 BREAK, THEN ITS 5 MINUTES, THEY ARE NOT THE

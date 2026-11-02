@@ -233,3 +233,33 @@ describe('useUserTableSettings live mutation ordering', () => {
     expect(result.current.settings.blue_buttons_enabled).toBe(true);
   });
 });
+
+it('every mounted BB control follows the latest user tap, even after its own earlier tap', async () => {
+  const { result } = renderHook(() => ({
+    table: useUserTableSettings('bb-user'),
+    settings: useUserTableSettings('bb-user'),
+  }));
+  await waitFor(() =>
+    expect(result.current.table.loading || result.current.settings.loading).toBe(false)
+  );
+  await act(async () => result.current.table.toggleSetting('show_stack_in_bb'));
+  expect(result.current.settings.settings.show_stack_in_bb).toBe(true);
+  await act(async () => result.current.settings.toggleSetting('show_stack_in_bb'));
+  expect(result.current.table.settings.show_stack_in_bb).toBe(false);
+  await act(async () => result.current.table.toggleSetting('show_stack_in_bb'));
+  expect(result.current.settings.settings.show_stack_in_bb).toBe(true);
+  act(() => {
+    for (const handler of handlers.get('SETTINGS_CHANGED') ?? []) {
+      handler({
+        payload: {
+          userId: 'bb-user',
+          setting: 'show_stack_in_bb',
+          value: false,
+          origin: 'postgres-sync:stale',
+        },
+      });
+    }
+  });
+  expect(result.current.table.settings.show_stack_in_bb).toBe(true);
+  expect(result.current.settings.settings.show_stack_in_bb).toBe(true);
+});
