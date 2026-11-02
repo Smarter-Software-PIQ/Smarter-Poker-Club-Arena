@@ -16,6 +16,7 @@ sealed desired image without a token.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import errno
 import fcntl
 import hashlib
@@ -756,9 +757,8 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
             return None
         if run_id in state.get('committedRuns', {}):
             return None
-        window = routine_window(cycle)
-        ends_at = window['endsAt'] if window else (int(cycle['startsAt']) + 360) * 1000
-        if time.time() * 1000 < ends_at + TERMINAL_OWNER_SETTLE_MS:
+        window = routine_window(cycle, verified=True)
+        if time.time() * 1000 < window['endsAt'] + TERMINAL_OWNER_SETTLE_MS:
             return None
         durable = load_failure(run_id)
         desired = state['desired']
@@ -771,7 +771,9 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
         intake_root = Path(os.environ.get('ENGINE_RELEASE_INTAKE_ROOT', str(STATE_DIR / 'engine-intake-requests')))
         lease_root = Path(os.environ.get('ENGINE_RELEASE_IMAGE_LEASE_ROOT', str(STATE_DIR / 'engine-image-leases')))
         for root, suffixes in ((request_root, ('request', 'intent', 'break-deadline', 'awaiting-certificate',
-                                               'drill', 'lightning-hold.json')),
+                                               'drill', 'lightning-hold.json', 'activation-entry',
+                                               'main-inspector-retirement-intent',
+                                               'main-inspector-retirement-receipt')),
                                (intake_root, ('request', 'intent')),
                                (pin_root, ('generation',)), (lease_root, ('lease',))):
             for suffix in suffixes:
@@ -780,45 +782,49 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
                 except FileNotFoundError:
                     continue
                 return None
+        units = {}
         for prefix, extension in (('release', 'service'), ('intake', 'service'), ('intake', 'path')):
             unit = f'club-arena-engine-{prefix}-v1@{run_id}.{extension}'
-            value = native_unit(unit)
-            if (value['LoadState'] not in {'loaded', 'not-found'}
-                    or value['ActiveState'] not in {'inactive', 'failed'}
-                    or value['SubState'] not in {'dead', 'failed'}
-                    or (extension == 'service' and (value['MainPID'] != '0' or value['ControlPID'] != '0'))
-                    or value['Job'] not in {'', '0'}
-                    or value['UnitFileState'] not in {'', 'disabled', 'static'}):
-                return None
-            if os.path.lexists(Path('/etc/systemd/system/multi-user.target.wants') / unit):
-                return None
+            # Shared bounded reader: inactive/failed, disabled, job-free, PID-free,
+            # exact fragment, no drop-ins; services also prove an empty cgroup.
+            value = failed_routine_unit_snapshot(unit, deadline)
+            if extension == 'service':
+                failed_routine_service_empty(unit, value, deadline)
+            for wants in ('multi-user.target.wants', 'paths.target.wants'):
+                if os.path.lexists(Path('/etc/systemd/system') / wants / unit):
+                    return None
+            units[unit] = value
         container = terminal_inspect_container(deadline)
         live = container['State']
         if (container.get('Image') != desired['imageId'] or live.get('Status') != 'running' or
                 type(live.get('Pid')) is not int or live['Pid'] <= 0 or
                 CONTAINER_ID_RE.fullmatch(str(container.get('Id', ''))) is None):
             return None
-        from datetime import datetime
         live_started = datetime.fromisoformat(str(live['StartedAt']).replace('Z', '+00:00')).timestamp()
-        intent_path = request_root / f'{run_id}.legacy-checkpoint-intent'
-        try:
-            intent_path.lstat()
-        except FileNotFoundError:
-            intent, original = None, 'no-checkpoint-entered'
-        else:
-            intent = failed_routine_json(intent_path)
-            if not (isinstance(intent, dict) and intent.get('runId') == run_id and
-                    intent.get('controlSha') == cycle['controlSha'] and intent.get('source') == desired['sha'] and
-                    type(intent.get('hostPid')) is int and intent['hostPid'] > 0 and
-                    type(intent.get('at')) in (int, float) and isinstance(intent.get('startedAt'), str)):
+        # Native units are re-read here so a unit that changed while Docker
+        # answered cannot pass.
+        for unit, value in units.items():
+            if failed_routine_unit_snapshot(unit, deadline) != value:
                 return None
-            if not (live['StartedAt'] != intent['startedAt'] and live_started > intent['at'] and
-                    live['Pid'] != intent['hostPid']):
-                return None
-            birth = terminal_proc_birth(intent['hostPid'])
-            if birth is not None and birth <= intent['at'] + 1:
-                return None
-            original = 'kernel-enoent' if birth is None else 'pid-reused-after-intent'
+        # The run must have entered the legacy checkpoint inside its own break,
+        # bound to this exact container; that engine process must be gone.
+        intent = failed_routine_json(request_root / f'{run_id}.legacy-checkpoint-intent')
+        if not (isinstance(intent, dict) and intent.get('runId') == run_id and
+                intent.get('controlSha') == cycle['controlSha'] and intent.get('source') == desired['sha'] and
+                intent.get('container') == container['Id'] and intent.get('retryAllowed') is False and
+                INSTANCE_ID_RE.fullmatch(str(intent.get('instance', ''))) is not None and
+                type(intent.get('hostPid')) is int and intent['hostPid'] > 0 and
+                type(intent.get('at')) in (int, float) and isinstance(intent.get('startedAt'), str) and
+                window['startsAt'] / 1000 <= intent['at'] < durable['completedAt']):
+            return None
+        intent_started = datetime.fromisoformat(intent['startedAt'].replace('Z', '+00:00')).timestamp()
+        if not (intent_started < intent['at'] and live['StartedAt'] != intent['startedAt'] and
+                live_started > durable['completedAt'] and live['Pid'] != intent['hostPid']):
+            return None
+        birth = terminal_proc_birth(intent['hostPid'])
+        if birth is not None and birth <= intent['at'] + 1:
+            return None
+        original = 'kernel-enoent' if birth is None else 'pid-reused-after-intent'
         instances = []
         for url in ('http://127.0.0.1:8080/health',
                     os.environ.get('ENGINE_URL', 'https://engine.smarter.poker').rstrip('/') + '/health'):
@@ -830,18 +836,21 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
                     m.get('active') is False and m.get('phase') == 'idle'):
                 return None
             instances.append(h['instanceId'])
-        if instances[0] != instances[1]:
+        if instances[0] != instances[1] or instances[0] == intent['instance']:
             return None
         control = Path(__file__).resolve().parent
+        window_ms = {'announcedAt': window['announcedAt'], 'startsAt': window['startsAt'], 'endsAt': window['endsAt']}
         database = json.loads(failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
             os.environ.get('ENV_FILE', os.environ.get('REPO_DIR', '/opt/club-arena') + '/server/.env'),
-            '--sha', desired['sha'], '--instance-id', instances[0], '--failed-routine-idle',
+            '--sha', desired['sha'], '--instance-id', instances[0], '--terminal-owned-thaw',
+            '--window-announced-ms', str(window_ms['announcedAt']), '--window-starts-ms', str(window_ms['startsAt']),
+            '--window-ends-ms', str(window_ms['endsAt']),
             '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'], deadline))
-        if database != {'schema': 'failed-routine-database-idle/v1', 'sha': desired['sha'],
-                        'instanceId': instances[0], 'databaseIdle': True, 'freshLeader': True}:
+        if database != {'schema': 'terminal-owned-thaw/v1', 'sha': desired['sha'], 'instanceId': instances[0],
+                        'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window_ms}:
             return None
         return {'failureDigest': failed_routine_digest(durable),
-                'checkpointIntentDigest': None if intent is None else failed_routine_digest(intent),
+                'checkpointIntentDigest': failed_routine_digest(intent),
                 'originalProcess': original,
                 'runtime': {'containerId': container['Id'], 'startedAt': live['StartedAt'], 'hostPid': live['Pid'],
                             'instanceId': instances[0]},
@@ -872,10 +881,25 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
                 {'endsAt': (int(cycle['startsAt']) + 360) * 1000})['endsAt'] and
             isinstance(proof, dict) and set(proof) == TERMINAL_PROOF_KEYS and
             proof['failureDigest'] == failed_routine_digest(cycle['failure']) and
-            proof['originalProcess'] in {'no-checkpoint-entered', 'kernel-enoent', 'pid-reused-after-intent'} and
+            proof['originalProcess'] in {'kernel-enoent', 'pid-reused-after-intent'} and
+            isinstance(proof['checkpointIntentDigest'], str) and
+            re.fullmatch('[0-9a-f]{64}', proof['checkpointIntentDigest']) is not None and
             isinstance(proof['runtime'], dict) and isinstance(proof['database'], dict) and
-            proof['database'].get('databaseIdle') is True and proof['database'].get('freshLeader') is True):
+            proof['database'].get('databaseIdle') is True and proof['database'].get('freshLeader') is True and
+            proof['database'].get('ownedV3Thaw') is True):
         die('routine failure resolution history is invalid')
+
+
+def resolved_failed_source(state: dict[str, Any], sha: str) -> bool:
+    """A source whose failed routine owner was resolved can never be replayed."""
+    resolutions = state.get('routineFailureResolutions') or {}
+    if not isinstance(resolutions, dict):
+        die('routine failure resolution history is invalid')
+    if resolutions and sha == FAILED_ROUTINE_SHA:
+        return True
+    return any(isinstance(r, dict) and isinstance(r.get('originalCycle'), dict) and
+               sha in {r['originalCycle'].get('sha'), r['originalCycle'].get('controlSha')}
+               for r in resolutions.values())
 
 
 def terminal_receipt_path(owner: str, verifier: str, invocation: str) -> Path:
@@ -964,7 +988,7 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
     with SealLock():
         state = load_state()
         cycles = routine_cycles(state)
-        if state.get('routineFailureResolutions') and args.sha == FAILED_ROUTINE_SHA:
+        if resolved_failed_source(state, args.sha):
             die('resolved failed source may not acquire another routine cycle')
         # A replay belongs to its original cycle, never whichever hour is next.
         own = [c for c in cycles.values() if c['runId'] == run_id]
@@ -1037,7 +1061,7 @@ def cmd_prepare(args: argparse.Namespace) -> None:
 
     with SealLock():
         state = load_state()
-        if state.get('routineFailureResolutions') and target_sha == FAILED_ROUTINE_SHA:
+        if resolved_failed_source(state, target_sha):
             die('resolved failed source cannot be prepared by a later run')
         if meta["runId"] in state.get("orphanFinalizationResolutions", {}):
             die("retired orphan owner cannot prepare another cutover")
@@ -1378,7 +1402,6 @@ def reserve_database_window(request: dict[str, Any], repo: str) -> dict[str, Any
         if doc.get("version") != 1 or len(matches) != 1:
             die("database window must be uniquely reviewed")
         window = matches[0]
-        from datetime import datetime
         try:
             start = int(datetime.fromisoformat(window["notBefore"].replace("Z", "+00:00")).timestamp() * 1000)
             end = int(datetime.fromisoformat(window["notAfter"].replace("Z", "+00:00")).timestamp() * 1000)

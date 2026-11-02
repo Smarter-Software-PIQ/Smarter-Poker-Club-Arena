@@ -67,18 +67,24 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         self.failure = {'schema': 1, 'runId': DEAD_RUN, 'result': 'failed', 'sha': B_SHA, 'controlSha': B_SHA,
             'invocationId': 'f' * 32, 'transactionExitStatus': 1, 'recoveredDesiredSha': A_SHA,
             'recoveredDesiredImageId': A_IMAGE, 'completedAt': start + 330}
+        announced = start * 1000 + 4929 - 120000
+        self.window = {'announcedAt': announced, 'startsAt': announced + 120000, 'endsAt': announced + 420000,
+                       'verified': True}
         self.cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f', 'policyDigest': 'd' * 64,
             'startsAt': start, 'endsAt': start + 300, 'runId': DEAD_RUN, 'sha': B_SHA, 'controlSha': B_SHA,
-            'status': 'reserved', 'failure': self.failure}
+            'status': 'reserved', 'failure': self.failure, 'window': self.window}
         self.base = {'schema': 1, 'desired': {'sha': A_SHA, 'imageId': A_IMAGE, 'legacyUnlabelled': False},
             'highWaterSha': A_SHA, 'committedRuns': {}, 'pending': None, 'finalization': None, 'generation': 1,
             'updatedAt': start, 'routineMaintenanceCycles': {str(start): self.cycle}}
-        self.intent = {'instance': '1-24d59baf', 'container': CONTAINER, 'startedAt': '2026-11-02T02:58:33Z',
-            'hostPid': 666945, 'source': A_SHA, 'runId': DEAD_RUN, 'controlSha': B_SHA, 'at': start + 19,
+        self.intent = {'instance': '1-24d59baf', 'container': CONTAINER,
+            'startedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(start - 3600)),
+            'hostPid': 666945, 'source': A_SHA, 'runId': DEAD_RUN, 'controlSha': B_SHA, 'at': start + 19.4,
             'retryAllowed': False, 'nativeCensus': {}}
         self.units, self.probes = {}, []
         self.mocks = {}
-        for name, fake in {'native_unit': self.native_unit, 'require_engine_lock': lambda _fd: None,
+        for name, fake in {'failed_routine_unit_snapshot': self.native_unit,
+                           'failed_routine_service_empty': self.service_empty,
+                           'require_engine_lock': lambda _fd: None,
                            'terminal_inspect_container': self.container, 'failed_routine_command': self.command,
                            'terminal_proc_birth': self.birth,
                            # Production reads root-owned 0600 files only; the fixture runs unprivileged.
@@ -93,21 +99,33 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         seal.AUDIT_FILE.write_text('{"event":"original_fixture_receipt"}\n')
         for p in list(self.request_root.iterdir()) + list(seal.RESULT_DIR.glob('*.terminal-resolution.json')):
             p.unlink()
-        self.units.clear(); self.probes.clear()
+        self.units.clear(); self.probes.clear(); self.cgroup_empty = True; self.unit_flip = None
+        self.write_intent()
         self.live = {'Id': CONTAINER, 'Image': A_IMAGE,
                      'State': {'Status': 'running', 'Pid': 758052,
                                'StartedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(self.start + 1600))}}
         self.health = {'releaseSha': A_SHA, 'status': 'ok', 'instanceId': INSTANCE,
                        'maintenance': {'active': False, 'phase': 'idle'}}
         self.public_health = None
-        self.database = {'schema': 'failed-routine-database-idle/v1', 'sha': A_SHA, 'instanceId': INSTANCE,
-                         'databaseIdle': True, 'freshLeader': True}
+        self.database = {'schema': 'terminal-owned-thaw/v1', 'sha': A_SHA, 'instanceId': INSTANCE,
+                         'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True,
+                         'announcedAt': self.window['announcedAt'], 'startsAt': self.window['startsAt'],
+                         'endsAt': self.window['endsAt']}
         self.old_birth = None
         seal.TERMINAL_OWNER_SETTLE_MS = 60_000
 
-    def native_unit(self, unit):
+    def native_unit(self, unit, _deadline=None):
         self.probes.append(unit)
-        return dict(self.units.get(unit, GONE))
+        if unit in self.units:
+            seal.die('fixture unit is not stopped/disabled')
+        if self.unit_flip == unit and self.probes.count(unit) > 1:
+            return {**GONE, 'Job': '9'}
+        return dict(GONE)
+
+    def service_empty(self, unit, _before, _deadline):
+        if not self.cgroup_empty:
+            seal.die('fixture cgroup retains a process')
+        return unit
 
     def container(self, _deadline):
         self.probes.append('docker')
@@ -150,18 +168,18 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         return self.quiet(lambda: seal.cmd_check_routine_owner(Namespace(run_id=run_id)))
 
     def unit(self, prefix, extension, **fields):
-        self.units[f'club-arena-engine-{prefix}-v1@{DEAD_RUN}.{extension}'] = {**GONE, 'LoadState': 'loaded', **fields}
+        self.units[f'club-arena-engine-{prefix}-v1@{DEAD_RUN}.{extension}'] = fields
 
     def write_intent(self, **fields):
         (self.request_root / f'{DEAD_RUN}.legacy-checkpoint-intent').write_text(json.dumps({**self.intent, **fields}))
 
     # cases
     def test_proved_terminal_owner_is_recorded_without_rewriting_history(self):
-        for checkpoint in (False, True):
-            with self.subTest(checkpoint=checkpoint):
+        for old_pid_birth in (None, 'reused'):
+            with self.subTest(old_pid=old_pid_birth):
                 self.reset()
-                if checkpoint:
-                    self.write_intent()
+                if old_pid_birth:
+                    self.old_birth = self.start + 1500
                 before_audit = seal.AUDIT_FILE.read_text()
                 self.refused(self.owner)
                 self.assertEqual(self.resolve(), DEAD_RUN)
@@ -173,7 +191,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                 self.assertEqual(resolution['result'], 'terminal-failure-proved')
                 self.assertEqual(resolution['originalCycle'], self.cycle)
                 self.assertEqual(resolution['proof']['originalProcess'],
-                                 'kernel-enoent' if checkpoint else 'no-checkpoint-entered')
+                                 'pid-reused-after-intent' if old_pid_birth else 'kernel-enoent')
                 receipt = seal.terminal_receipt_path(DEAD_RUN, LIVE_RUN, INVOCATION)
                 self.assertEqual(json.loads(receipt.read_text()), resolution)
                 audit = seal.AUDIT_FILE.read_text()
@@ -185,7 +203,6 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                 self.assertEqual(self.resolve(), 'not-needed')
 
     def test_interrupted_proof_resumes_with_its_original_receipt_bytes(self):
-        self.write_intent()
         proof = seal.terminal_owner_proof(seal.load_state(), self.cycle, time.monotonic() + 45)
         original = {'schema': 1, 'result': 'terminal-failure-proved', 'originalCycle': self.cycle,
                     'verifiedByRunId': LIVE_RUN, 'invocationId': INVOCATION, 'observedAt': self.start + 900,
@@ -194,7 +211,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         self.assertEqual(self.resolve(), DEAD_RUN)
         self.assertEqual(seal.load_state()['routineFailureResolutions'][DEAD_RUN], original)
         # A receipt for this invocation that disagrees with the fresh proof refuses.
-        self.reset(); self.write_intent()
+        self.reset()
         seal.write_json_atomic(seal.terminal_receipt_path(DEAD_RUN, LIVE_RUN, INVOCATION),
                                {**original, 'proof': {**proof, 'originalProcess': 'pid-reused-after-intent'}})
         self.refused(self.resolve)
@@ -212,22 +229,35 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'intent retained': lambda: (self.request_root / f'{DEAD_RUN}.intent').write_text('x'),
             'awaiting certificate retained': lambda: (self.request_root / f'{DEAD_RUN}.awaiting-certificate').write_text('x'),
             'lightning hold unreleased': lambda: (self.request_root / f'{DEAD_RUN}.lightning-hold.json').write_text('{}'),
-            'unit active': lambda: self.unit('release', 'service', ActiveState='active', SubState='running', MainPID='42'),
-            'unit control pid': lambda: self.unit('intake', 'service', ControlPID='7'),
-            'unit queued job': lambda: self.unit('intake', 'path', Job='12'),
-            'unit enabled': lambda: self.unit('release', 'service', UnitFileState='enabled'),
-            'unit masked': lambda: self.unit('intake', 'service', LoadState='masked'),
-            'systemd unknown': lambda: self.mocks['native_unit'].configure_mock(
-                side_effect=lambda _u: seal.die('bus unavailable')),
+            'activation entry retained': lambda: (self.request_root / f'{DEAD_RUN}.activation-entry').write_text('x'),
+            'inspector retirement intent retained': lambda: (self.request_root /
+                f'{DEAD_RUN}.main-inspector-retirement-intent').write_text('x'),
+            'release unit not stopped': lambda: self.unit('release', 'service', ActiveState='active'),
+            'intake path enabled': lambda: self.unit('intake', 'path', UnitFileState='enabled'),
+            'service cgroup not empty': lambda: setattr(self, 'cgroup_empty', False),
+            'unit changed during proof': lambda: setattr(self, 'unit_flip',
+                f'club-arena-engine-release-v1@{DEAD_RUN}.service'),
+            'systemd unknown': lambda: self.mocks['failed_routine_unit_snapshot'].configure_mock(
+                side_effect=lambda _u, _d=None: seal.die('bus unavailable')),
+            'no checkpoint intent': lambda: (self.request_root / f'{DEAD_RUN}.legacy-checkpoint-intent').unlink(),
+            'unannounced window': lambda: seal.write_state({**seal.load_state(), 'routineMaintenanceCycles': {
+                str(self.start): {k: v for k, v in self.cycle.items() if k != 'window'}}}),
+            'unverified window': lambda: seal.write_state({**seal.load_state(), 'routineMaintenanceCycles': {
+                str(self.start): {**self.cycle, 'window': {**self.window, 'verified': False}}}}),
+            'checkpoint in another container': bad_intent(container='e' * 64),
+            'checkpoint retry allowed': bad_intent(retryAllowed=True),
+            'checkpoint before the break': bad_intent(at=self.start - 10),
+            'restart before failure completed': lambda: self.live['State'].update(
+                StartedAt=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(self.start + 100))),
+            'serving instance is the checkpointed one': lambda: (self.health.update(instanceId='1-24d59baf'),
+                self.database.update(instanceId='1-24d59baf')),
             'container other image': lambda: self.live.update(Image=OTHER_IMAGE),
             'container stopped': lambda: self.live['State'].update(Status='exited'),
             'docker unknown': lambda: self.mocks['terminal_inspect_container'].configure_mock(
                 side_effect=lambda _d: seal.die('docker unknown')),
-            'checkpoint process not replaced': lambda: (self.write_intent(),
-                self.live['State'].update(StartedAt='2026-11-02T02:58:33Z')),
-            'checkpoint pid still original': lambda: (self.write_intent(), self.live['State'].update(Pid=666945)),
-            'old pid alive from before intent': lambda: (self.write_intent(),
-                setattr(self, 'old_birth', self.start + 10)),
+            'checkpoint process not replaced': lambda: self.live['State'].update(StartedAt=self.intent['startedAt']),
+            'checkpoint pid still original': lambda: self.live['State'].update(Pid=666945),
+            'old pid alive from before intent': lambda: setattr(self, 'old_birth', self.start + 10),
             'checkpoint for another source': bad_intent(source=B_SHA),
             'checkpoint for another run': bad_intent(runId=LIVE_RUN),
             'checkpoint intent unreadable': lambda: (self.request_root /
@@ -238,6 +268,8 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                 {**self.health, 'instanceId': '1-deadbeef'}),
             'database maintenance owner': lambda: setattr(self, 'database', RuntimeError('owner present')),
             'database other leader': lambda: self.database.update(instanceId='1-deadbeef'),
+            'original thaw unproved': lambda: self.database.update(ownedV3Thaw=False),
+            'thaw for another window': lambda: self.database.update(startsAt=self.window['startsAt'] + 1),
         }
         for name, arrange in cases.items():
             with self.subTest(name):
@@ -250,7 +282,6 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                 self.refused(self.owner)
 
     def test_recovery_observer_reads_only_an_exact_receipted_terminal_record(self):
-        self.write_intent()
         self.assertEqual(self.resolve(), DEAD_RUN)
         resolution = seal.load_state()['routineFailureResolutions'][DEAD_RUN]
         receipt = seal.terminal_receipt_path(DEAD_RUN, LIVE_RUN, INVOCATION)
@@ -272,6 +303,15 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         with self.assertRaises((ValueError, FileNotFoundError)):
             observer.terminal_failure_resolution(resolution, self.cycle, self.failure, fd, blank())
 
+    def test_a_resolved_failed_source_can_never_reserve_or_prepare_again(self):
+        self.assertEqual(self.resolve(), DEAD_RUN)
+        state = seal.load_state()
+        self.assertTrue(seal.resolved_failed_source(state, B_SHA))
+        self.assertFalse(seal.resolved_failed_source(state, A_SHA))
+        self.refused(lambda: seal.cmd_reserve_routine_cycle(Namespace(
+            repo=str(self.root), sha=B_SHA, control_sha=B_SHA, run_id='888000444-1')))
+        self.assertEqual(seal.load_state()['routineMaintenanceCycles'], state['routineMaintenanceCycles'])
+
     def test_recorded_resolution_must_match_its_original_cycle_exactly(self):
         self.assertEqual(self.resolve(), DEAD_RUN)
         good = seal.load_state()
@@ -282,7 +322,8 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'wrong result': lambda r: r.update(result='retired'),
             'before window end': lambda r: r.update(observedAt=self.cycle['startsAt']),
             'database not idle': lambda r: r['proof']['database'].update(databaseIdle=False),
-            'unknown process state': lambda r: r['proof'].update(originalProcess='assumed'),
+            'unknown process state': lambda r: r['proof'].update(originalProcess='no-checkpoint-entered'),
+            'thaw not recorded': lambda r: r['proof']['database'].update(ownedV3Thaw=False),
             'failure digest differs': lambda r: r['proof'].update(failureDigest='0' * 64),
         }.items():
             with self.subTest(name):

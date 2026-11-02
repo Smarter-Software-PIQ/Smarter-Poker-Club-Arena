@@ -421,7 +421,20 @@ def validate_routine_reply(value, request):
             'noAnnouncementRecorded', 'databaseIdleRecorded'} and
             type(resolution['present']) is bool and type(row['unresolvedOwner']) is bool and
             row['unresolvedOwner'] is (not resolution['present']))
-        if resolution['present']:
+        if resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
+            # A recorded terminal-failure proof: reserved failed owner, no commit,
+            # receipted by a different verifier; no pinned 3e fields apply.
+            routine_require(row['status'] == 'reserved' and row['failurePresent'] is True and
+                row['committed']['present'] is False and row['window'] is not None and
+                all(isinstance(resolution[k], str) and re.fullmatch('[0-9a-f]{64}', resolution[k])
+                    for k in ('sha256', 'receiptSha256', 'invocationSha256')) and
+                isinstance(resolution['verifiedByRunId'], str) and RUN.fullmatch(resolution['verifiedByRunId']) and
+                resolution['verifiedByRunId'] != row['runId'] and
+                resolution['controlSha'] is None and resolution['targetSha'] is None and
+                type(resolution['observedAt']) is int and row['startsAt'] < resolution['observedAt'] < 4102444800 and
+                all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches',
+                    'databaseIdleRecorded')) and resolution['noAnnouncementRecorded'] is None)
+        elif resolution['present']:
             routine_require(row['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and
                 row['sha'] == row['controlSha'] == FAILED_CUSTODY_CONTROL and row['status'] == 'reserved' and
                 row['startsAt'] == 1793570400 and row['endsAt'] == 1793570700 and row['window'] is None and
