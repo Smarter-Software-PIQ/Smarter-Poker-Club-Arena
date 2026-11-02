@@ -281,22 +281,23 @@ export const BLIND_STRUCTURES = {
    *  THE FREE BUY LADDER, and why it is not TURBO
    * ═══════════════════════════════════════════════════════════════════════
    *
-   * Dan set the Free Buy at a 3,000 starting stack, a 10,000 add-on, and
-   * "ONE HOUR FOR LATE REG, THEN THE ADD ON PERIOD". Those three numbers
-   * together decide the structure, and TURBO cannot satisfy them. Measured on
-   * the real ladders before this was written:
+   * Dan set the Free Buy at a 3,000 starting stack and "ONE HOUR FOR LATE
+   * REG, THEN THE ADD ON PERIOD". The add-on pays the starting stack exactly
+   * (Dan 2026-11-01, superseding the earlier 10,000-chip add-on). Those
+   * numbers together decide the structure, and TURBO cannot satisfy them.
+   * Measured on the real ladders before this was written:
    *
    *   BLIND_STRUCTURES.TURBO is 24 levels and 57 MINUTES END TO END. At the
-   *   one-hour mark the big blind is 1,500,000 against a 13,000 stack - ZERO
-   *   big blinds. The event would be a forced all-in lottery long before the
-   *   break, and the 10,000-chip add-on Dan specified would be worth nothing
-   *   by the time anybody could take it. Lengthening TURBO's levels does not
-   *   help: at 1.58x a level the blind is 10,000 by minute 60 either way.
+   *   one-hour mark the big blind is 1,500,000 - ZERO big blinds against any
+   *   effective stack. The event would be a forced all-in lottery long before
+   *   the break, and the add-on would be worth nothing by the time anybody
+   *   could take it. Lengthening TURBO's levels does not help: at 1.58x a
+   *   level the blind is 10,000 by minute 60 either way.
    *
    * This ladder is chosen so the hour Dan asked for is still poker:
    *
    *   3,000 chips at a 25 big blind          120 BB to start
-   *   the hour ends inside level 11, bb 400   33 BB with the add-on taken
+   *   the hour ends inside level 12, bb 500   12 BB with the add-on taken
    *   30 levels over 153 minutes              19 levels left after late reg
    *
    * `blindLadder.ts` exists because 38.1% of completed events ended with every

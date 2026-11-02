@@ -6,7 +6,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress, catalogueFailureKind, catalogueDiagnostics, safeCatalogueDiagnostic, captureRoleCatalogue } from '../schema-snapshot.mjs';
-import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite } from '../schema-compose.mjs';
+import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite, schemaCompositionMismatchWitness } from '../schema-compose.mjs';
 import { schemaCatalogue, schemaCataloguePayload } from '../../native/component-semantic-observations.mjs';
 import { APPLICATION_TRIGGER_WITNESSES } from '../schema-application-hooks.mjs';
 
@@ -681,4 +681,102 @@ test('composition diagnostics distinguish fixed parser and managed mismatch site
       false
     );
   }
+});
+
+
+test('native block mismatch witness is bounded, private-safe and never changes exact refusal', () => {
+  const capture = prefix + managed + ordinary + footer;
+  const service =
+    prefix + managed.replace('SELECT NULL::text', "SELECT 'private_body'::text") + footer;
+  let error;
+  assert.throws(
+    () => composeSchema(capture, service),
+    (caught) => {
+      error = caught;
+      return caught.message === 'SCHEMA_COMPOSITION_PREIMAGE_REQUIRED';
+    }
+  );
+  const witness = schemaCompositionMismatchWitness(error);
+  assert.equal(witness.total, 1);
+  assert.equal(witness.truncated, false);
+  const a = dumpObjects(capture).objects[0],
+    b = dumpObjects(service).objects[0];
+  assert.deepEqual(witness.rows[0], {
+    native_ordinal: 0,
+    key_sha256: schemaHash(b.key),
+    object_type: 'FUNCTION',
+    schema: 'auth',
+    owner_match: true,
+    captured_sha256: a.sha256,
+    native_sha256: b.sha256,
+    captured_bytes: Buffer.byteLength(a.text),
+    native_bytes: Buffer.byteLength(b.text),
+    first_difference: Buffer.from(a.text).findIndex((byte, i) => byte !== Buffer.from(b.text)[i]),
+  });
+  for (const secret of ['private_body', 'postgres', 'email()', 'SELECT', a.key])
+    assert.equal(JSON.stringify(witness).includes(secret), false);
+  witness.rows[0].schema = 'private_mutation';
+  assert.equal(schemaCompositionMismatchWitness(error).rows[0].schema, 'auth');
+  for (const hostile of [
+    new Error(error.message),
+    Object.assign(new Error(), { mismatch: witness }),
+    new (class extends Error {})(),
+    new Proxy(error, {
+      get() {
+        throw Error('private');
+      },
+    }),
+    {
+      get mismatch() {
+        throw Error('private');
+      },
+    },
+  ]) {
+    assert.equal(schemaCompositionFailureSite(hostile), 'UNKNOWN');
+    assert.equal(schemaCompositionMismatchWitness(hostile), null);
+  }
+  error.extra = 'private_extra';
+  assert.equal(schemaCompositionFailureSite(error), 'UNKNOWN');
+  assert.equal(schemaCompositionMismatchWitness(error), null);
+  delete error.extra;
+  Object.defineProperty(error, 'message', {
+    get() {
+      throw Error('private getter');
+    },
+  });
+  assert.equal(schemaCompositionMismatchWitness(error), null);
+  assert.equal(schemaCompositionFailureSite(error), 'UNKNOWN');
+  assert.doesNotThrow(() => composeSchema(capture, prefix + managed + footer));
+});
+
+test('mismatch witness caps rows, preserves native ordinal and uses closed unknown tags', () => {
+  const blocks = Array.from({ length: 18 }, (_, i) =>
+    object('private_name_' + i, 'private_schema', 'SELECT 1;', 'PRIVATE TYPE', 'private_owner')
+  );
+  let error;
+  try {
+    composeSchema(blocks.join(''), blocks.map((b) => b.replace('SELECT 1', 'SELECT 2')).join(''));
+  } catch (caught) {
+    error = caught;
+  }
+  assert.equal(schemaCompositionFailureSite(error), 'NATIVE_BLOCK_DIFFERENT');
+  const witness = schemaCompositionMismatchWitness(error);
+  assert.equal(witness.total, 18);
+  assert.equal(witness.rows.length, 16);
+  assert.equal(witness.truncated, true);
+  assert.equal(witness.rows[15].native_ordinal, 15);
+  assert.ok(witness.rows.every((r) => r.schema === 'OTHER' && r.object_type === 'OTHER'));
+  assert.ok(Buffer.byteLength(JSON.stringify(witness)) < 16384);
+  assert.equal(JSON.stringify(witness).includes('private'), false);
+  let ownerError;
+  try {
+    composeSchema(
+      blocks.join(''),
+      blocks.join('').replace('Owner: private_owner', 'Owner: different')
+    );
+  } catch (caught) {
+    ownerError = caught;
+  }
+  assert.equal(schemaCompositionFailureSite(ownerError), 'NATIVE_OWNER_DIFFERENT');
+  assert.equal(schemaCompositionMismatchWitness(ownerError), null);
 });

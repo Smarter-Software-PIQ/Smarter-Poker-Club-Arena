@@ -60,9 +60,15 @@ export interface FreeBuyConfig {
 /** Dan 2026-09-04: "$250 FREE BUY IS $1 REBUY AND $1 ADD ON". The $500
  *  feature's $2 rebuy and add-on are SUPERSEDED (Dan 2026-10-16, verbatim): "ALL
  *  REBUY ADD ON'S FOR MIDWAY UNION ARE 1 CHIP REBUY ADD ON NOT 2". Both tiers
- *  charge 1. Starting stack 3,000; an add-on is 10,000,
- *  so an add-on is worth more than three starting stacks and is close to
- *  compulsory - the participation policy below decides which horses take one. */
+ *  charge 1.
+ *
+ *  THE ADD-ON PAYS THE STARTING STACK, EXACTLY (Dan 2026-11-01, verbatim): "AN
+ *  ADD ON CAN NEVER EXCEED THE AMOUNT OF CHIPS THAT THE TOURANMENT STARTED
+ *  WITH, THE ADD ON SHOULD THE SAME AMOUNT OF CHIPS THAT YOU START WITH IN THE
+ *  TOURNAMENT, NEVER LESS!" This supersedes the earlier 10,000-chip Free Buy
+ *  add-on: both tiers now pay the 3,000 starting stack. At 1 chip it is still
+ *  near-free value, so the participation policy below keeps deciding which
+ *  horses take one. */
 export const FREE_BUY_TIERS: Record<FreeBuyTier, FreeBuyConfig> = {
   standard: {
     tier: 'standard',
@@ -72,7 +78,7 @@ export const FREE_BUY_TIERS: Record<FreeBuyTier, FreeBuyConfig> = {
     rebuyCost: 1,
     rebuyChips: 3000,
     addOnCost: 1,
-    addOnChips: 10000,
+    addOnChips: 3000,
     lateRegMinutes: 60,
     blindStructure: 'FREE_BUY',
     maxPlayers: 300,
@@ -86,7 +92,7 @@ export const FREE_BUY_TIERS: Record<FreeBuyTier, FreeBuyConfig> = {
     rebuyCost: 1,
     rebuyChips: 3000,
     addOnCost: 1,
-    addOnChips: 10000,
+    addOnChips: 3000,
     lateRegMinutes: 60,
     blindStructure: 'FREE_BUY',
     maxPlayers: 500,

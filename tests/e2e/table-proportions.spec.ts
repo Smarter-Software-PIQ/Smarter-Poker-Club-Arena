@@ -2304,9 +2304,10 @@ for (const [width, heightOverride] of occupiedViewports)
           `${width}px ${count}-max ${jackpot} ${revealed ? 'revealed' : 'playing'} ${villainCards} cards ${state} canvas=${JSON.stringify(result.canvas)}}`
         ).toEqual([]);
         for (const tool of result.tools) {
-          // Every phone gameplay tool must have a visible 48px painted target.
-          const expected =
-            tool.selector === '.mtp-lobby-btn' ? (width === 320 ? 44 : 52) : width <= 480 ? 48 : 40;
+          // Dan 2026-11-01: lobby, chat, previous hand, time bank and rabbit
+          // hunt are all the hamburger's size (--sp-tabbar-control: 52px, 44px
+          // on the smallest short phone).
+          const expected = width === 320 ? 44 : 52;
           expect(tool.width, tool.selector).toBeCloseTo(expected, 1);
           expect(tool.height, tool.selector).toBeCloseTo(expected, 1);
         }

@@ -339,7 +339,9 @@ export function freeBuyColumns(
     rebuy_cost: FREE_BUY_REBUY_COST,
     addon_cost: FREE_BUY_ADDON_COST,
     rebuy_chips: chipsOr(subject.rebuyChips),
-    addon_chips: chipsOr(subject.addOnChips),
+    /* Dan 2026-11-01: an add-on pays the starting stack, exactly - never a
+       configured override, never less, never more. */
+    addon_chips: stack,
     rebuy_levels: levelsOr(subject.rebuyLevels, FREE_BUY_REBUY_LEVELS),
     addon_levels: levelsOr(subject.addOnLevels, FREE_BUY_ADDON_LEVELS),
     max_rebuys: maxRebuys > 0 ? maxRebuys : null,

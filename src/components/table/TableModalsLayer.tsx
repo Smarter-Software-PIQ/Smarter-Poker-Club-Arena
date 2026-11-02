@@ -475,6 +475,9 @@ export interface TableModalsLayerProps {
   /** False means unconfirmed; only the service's checked receipt confirms payment. */
   onAddOnAccept: () => Promise<boolean>;
   onAddOnDecline: () => void;
+  /** Opens the confirmed add-on offer modal (the break card's Add On button,
+   *  Dan 2026-11-01). Same path as the table menu's Add-On item. */
+  onOpenAddOn?: () => void;
 
   // Tournament Rebuy
   showRebuyModal: boolean;
@@ -728,6 +731,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     rebuyProcessing,
     onAddOnAccept,
     onAddOnDecline,
+    onOpenAddOn,
     // Rebuy
     showRebuyModal,
     rebuyData,
@@ -1427,6 +1431,13 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
              now shows "Last Hand" until the server starts this tournament's
              countdown. */
           phase={addOnBreakNotice?.phase ?? tournamentBreak.phase ?? 'last_hand'}
+          /* THE CARD WAITS FOR THIS TABLE'S OWN HAND (Dan 2026-11-01): "THE
+             TOURNAMENT BREAK CARD SHOULD NOT POP UP UNTIL THE HAND AT THE
+             CURRENT TABLE IS FINISHED." While this table is still playing the
+             screen renders only the small waiting chip; the full card appears
+             when this table's hand completes and it waits on the field. */
+          heroHandLive={isHandInProgress}
+          onAddOn={onOpenAddOn}
           breakEndsAtMs={
             addOnBreakNotice ? addOnBreakNotice.endsAtMs : (tournamentBreak.breakEndsAtMs ?? null)
           }

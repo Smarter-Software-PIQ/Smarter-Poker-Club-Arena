@@ -308,9 +308,47 @@ class CompositionFailureDiagnostics(unittest.TestCase):
             self.assertEqual(MODULE.composition_failure(path)['site'],'UNKNOWN')
             path.chmod(0o600);link=Path(folder)/'link';link.symlink_to(path)
             self.assertEqual(MODULE.composition_failure(link)['site'],'UNKNOWN')
-            path.write_text('x'*513)
+            path.write_text('x'*16385)
             self.assertEqual(MODULE.composition_failure(path)['site'],'UNKNOWN')
             self.assertEqual(MODULE.composition_failure(Path(folder)/'absent')['site'],'UNKNOWN')
+
+    def test_mismatch_witness_closed_decoder_accepts_bound_and_refuses_hostile_shapes(self):
+        import copy
+        row = {'native_ordinal': 0, 'key_sha256': 'a'*64, 'object_type': 'FUNCTION',
+               'schema': 'auth', 'owner_match': True, 'captured_sha256': 'b'*64,
+               'native_sha256': 'c'*64, 'captured_bytes': 100, 'native_bytes': 101,
+               'first_difference': 90}
+        witness = {'version': 1, 'total': 1, 'truncated': False, 'rows': [row]}
+        valid = {'version': 1, 'scope': 'exact-service-composition-failure', 'phase': 'compose',
+                 'site': 'NATIVE_BLOCK_DIFFERENT', 'mismatch': witness}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'diagnostic.json'
+            def decode(value):
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+                return MODULE.composition_failure(path)
+            self.assertEqual(decode(valid), valid)
+            for field, bad in [('native_ordinal', True), ('native_ordinal', -1),
+                    ('key_sha256', 'private'), ('object_type', 'PRIVATE TYPE'), ('schema', 'private'),
+                    ('owner_match', 1), ('owner_match', False), ('captured_bytes', 0),
+                    ('native_bytes', 134217729), ('first_difference', 102),
+                    ('first_difference', True), ('sql', 'private'), ('captured_sha256', 'c'*64)]:
+                value = copy.deepcopy(valid); value['mismatch']['rows'][0][field] = bad
+                self.assertEqual(decode(value)['site'], 'UNKNOWN', (field,bad))
+            for field, bad in [('total', True), ('total', 0), ('total', 4194305),
+                    ('truncated', True), ('version', 2), ('rows', [row]*17), ('private', 'secret')]:
+                value = copy.deepcopy(valid); value['mismatch'][field] = bad
+                self.assertEqual(decode(value)['site'], 'UNKNOWN', field)
+            value = copy.deepcopy(valid)
+            value['mismatch'].update(total=17, truncated=True, rows=[
+                {**row, 'native_ordinal': i, 'key_sha256': f'{i:064x}'} for i in range(16)])
+            self.assertEqual(decode(value), value)
+            value['mismatch']['rows'][1]['native_ordinal'] = 0
+            self.assertEqual(decode(value)['site'], 'UNKNOWN')
+            for site in ['UNKNOWN', 'NATIVE_OWNER_DIFFERENT']:
+                self.assertEqual(decode({**valid, 'site': site})['site'], 'UNKNOWN')
+            value = copy.deepcopy(valid); value['mismatch']['rows'][0]['captured_bytes'] = 101
+            value['mismatch']['rows'][0]['first_difference'] = 101
+            self.assertEqual(decode(value)['site'], 'UNKNOWN')
 
     def test_actual_node_command_distinguishes_read_failure_and_exact_comparison_without_stderr(self):
         def object_sql(name,schema,body):
@@ -334,6 +372,9 @@ class CompositionFailureDiagnostics(unittest.TestCase):
                     expected='NATIVE_BLOCK_DIFFERENT' if phase=='compose' else 'UNKNOWN'
                     self.assertEqual(report['composition_failure']['phase'],phase)
                     self.assertEqual(report['composition_failure']['site'],expected)
+                    if phase == 'compose':
+                        self.assertEqual(report['composition_failure']['mismatch']['total'], 1)
+                        self.assertEqual(report['composition_failure']['mismatch']['rows'][0]['schema'], 'auth')
                     self.assertNotIn('private_schema_literal',json.dumps(report))
                     self.assertEqual((temp/'composition-failure.json').stat().st_mode & 0o777,0o600)
                     self.assertFalse((temp/'composed.sql').exists())

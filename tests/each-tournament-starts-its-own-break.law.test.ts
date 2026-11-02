@@ -69,7 +69,7 @@ describe('each tournament starts its own break', () => {
     expect(resume).not.toContain('this.tournamentEngines');
   });
 
-  it('the table break clock is told the phase and the real end, and shows Last Hand until then', () => {
+  it('the table break clock is told the phase and the real end, and waits until then', () => {
     expect(MODALS).toMatch(
       /phase=\{addOnBreakNotice\?\.phase \?\? tournamentBreak\.phase \?\? 'last_hand'\}/
     );
@@ -77,7 +77,31 @@ describe('each tournament starts its own break', () => {
       /breakEndsAtMs=\{\s*addOnBreakNotice \? addOnBreakNotice\.endsAtMs : \(tournamentBreak\.breakEndsAtMs \?\? null\)\s*\}/
     );
     expect(SCREEN).toContain('? `Break: ${formatTime(displayTime)}`');
+    /* "Last Hand" belongs to the add-on window alone (Dan 2026-11-01): a plain
+       break's waiting state says Waiting, because the card only shows once
+       this table's own hand is done. */
     expect(SCREEN).toContain("? 'Add-On: Last Hand'");
-    expect(SCREEN).toContain(": 'Break: Last Hand'");
+    expect(SCREEN).toContain(": 'Break: Waiting'");
+  });
+
+  it("the full card never covers this table's own live hand (Dan 2026-11-01)", () => {
+    /* "THE TOURNAMENT BREAK CARD SHOULD NOT POP UP UNTIL THE HAND AT THE
+       CURRENT TABLE IS FINISHED." TableModalsLayer hands the screen this
+       table's live-hand flag, and during the last-hand window with a hand in
+       play the screen renders only the small waiting chip. */
+    expect(MODALS).toContain('heroHandLive={isHandInProgress}');
+    expect(SCREEN).toContain('if (!countingDown && heroHandLive) {');
+    expect(SCREEN).toContain('Will Start When All Tables Finish Their Current Hand');
+  });
+
+  it('the add-on break card carries a working Add On button (Dan 2026-11-01)', () => {
+    /* "WHERE IS THE ACTUAL 'ADD ON BUTTON' ON THE CARD?! THERE IS NO WAY TO
+       ACTUALLY ADD ON." The card's button opens the same confirmed,
+       price-bound offer the table menu's Add-On item opens. */
+    expect(SCREEN).toContain('className="break-screen__addon-btn"');
+    expect(SCREEN).toContain('disabled={!countingDown}');
+    expect(MODALS).toContain('onAddOn={onOpenAddOn}');
+    const PAGE = read('src/pages/TablePage.tsx');
+    expect(PAGE).toContain('onOpenAddOn={() => void handleTournamentAddOn()}');
   });
 });
