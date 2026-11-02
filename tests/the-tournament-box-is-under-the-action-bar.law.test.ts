@@ -127,17 +127,30 @@ describe('it is collapsible, and collapsing it never resizes the felt', () => {
   });
 });
 
-describe('the corner holds the lobby button', () => {
-  it('a Lobby-sized button with the LOBBY plate that opens the tournament lobby', () => {
+describe('the action bar corner holds the lobby button (Dan 2026-11-01)', () => {
+  /* "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER IN THE
+     ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE THE POKER TABLE PAGE." The
+     LOBBY plate renders in MultiTablePage's tab-bar strip, hamburger-sized
+     (`--mtp-lobby-w: var(--sp-tabbar-control)`), for tournaments and must-move
+     cash alike, and never on the felt. */
+  const MTP = strip(read('src/pages/MultiTablePage.tsx'));
+  const MTP_CSS = strip(read('src/pages/MultiTablePage.css'));
+
+  it('a tournament tab shows the hamburger-sized LOBBY plate in the strip and it opens the tournament lobby', () => {
+    expect(MTP).toMatch(/\(activeClusterId \|\| activeIsTournament\) && !isTileView && \(/);
+    expect(MTP).toMatch(/masterBus\.emit\('OPEN_TOURNAMENT_LOBBY', \{ tableId: activeTableId \}\)/);
+    expect(MTP).toMatch(/activeIsTournament \? 'Open Tournament Lobby' : 'Open Must Move Lobby'/);
+    expect(MTP).toMatch(/import lobbyButtonArt from '\.\.\/assets\/lobby-button\.webp';/);
+    const size = rule(MTP_CSS, '.multi-table-page__tab-bar-wrapper,\n.mtp-lobby-btn {');
+    expect(size).toMatch(/--mtp-lobby-w:\s*var\(--sp-tabbar-control\)/);
+  });
+
+  it('the table page answers the strip and keeps no lobby button on the felt', () => {
+    expect(PAGE).toMatch(/useMasterBusSubscription\('OPEN_TOURNAMENT_LOBBY', \(event\) => \{/);
+    expect(PAGE).toMatch(/setShowTournamentLobby\(true\)/);
     const corner = PAGE.slice(PAGE.indexOf('upperRight={'), PAGE.indexOf('bottomLeft={'));
-    expect(corner).toMatch(/className="tournament-lobby-corner-btn"/);
-    expect(corner).toMatch(/setShowTournamentLobby\(true\)/);
-    expect(corner).toMatch(/aria-label="Open Tournament Lobby"/);
-    expect(corner).toMatch(/src=\{lobbyButtonArt\}/);
-    expect(PAGE).toMatch(/import lobbyButtonArt from '\.\.\/assets\/lobby-button\.webp';/);
-    const btn = rule(DOCK_CSS, '.tournament-lobby-corner-btn {');
-    expect(btn).toMatch(/width:\s*var\(--sp-game-tool-size, 40px\)/);
-    expect(btn).toMatch(/height:\s*var\(--sp-game-tool-size, 40px\)/);
+    expect(corner).not.toMatch(/tournament-lobby-corner-btn|lobbyButtonArt/);
+    expect(DOCK_CSS).not.toMatch(/\.tournament-lobby-corner-btn \{/);
   });
 });
 

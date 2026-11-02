@@ -213,7 +213,6 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
  */
 
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
-import lobbyButtonArt from '../assets/lobby-button.webp';
 import { useButtonImage } from '../hooks/useButtonImage';
 
 import { cashBuyInRange, cashBuyInRefusalText, cashBuyInSeatConflictText } from '../lib/cashBuyIn';
@@ -14191,6 +14190,17 @@ function LiveTablePage({
     if (!tableStateRef.current?.clusterId) return;
     setShowMustMoveLobby(true);
   });
+
+  /* THE TOURNAMENT LOBBY BUTTON LIVES IN THE ACTION BAR (Dan 2026-11-01):
+     "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER IN THE
+     ACTION BAR AT THE TOP, NOT RANDOMLY INSIDE THE POKER TABLE PAGE." The
+     strip belongs to MultiTablePage, so the button asks this table, by id, to
+     open the TournamentLobbyModal it owns. */
+  useMasterBusSubscription('OPEN_TOURNAMENT_LOBBY', (event) => {
+    if (event.tableId !== tableId) return;
+    if (!tableStateRef.current?.isTournament) return;
+    setShowTournamentLobby(true);
+  });
   const [standUpNextBB, setStandUpNextBB] = useState(false);
 
   const [sharedHandData, setSharedHandData] = useState<any>(null);
@@ -14789,7 +14799,8 @@ function LiveTablePage({
 
           await presentAddOnOffer({
             addOnCost: tournamentRow?.addon_cost ?? tournamentRow?.buy_in_amount,
-            addOnChips: tournamentRow?.addon_chips ?? tournamentRow?.starting_chips,
+            /* Dan 2026-11-01: an add-on pays the starting stack, exactly. */
+            addOnChips: tournamentRow?.starting_chips ?? tournamentRow?.addon_chips,
             addOnFee: 0,
             endsAt: tournamentRow?.addon_period_ends_at,
             recoveredFromPersistedState: true,
@@ -27119,37 +27130,16 @@ function LiveTablePage({
           )
         }
         upperRight={
-          /* THE CORNER HOLDS THE LOBBY BUTTON, NOT THE INFO BOX (Dan 2026-10-04).
-             "THE TOURNAMENT INFO BOX MUST NEVER BE DISPLAYED OVER THE TOP LIKE
-             IT CURRENTLY IS ... IN THE UPPER RIGHT HAND CORNER WHERE '36 LEFT'
-             IS SHOULD BE THE LOBBY BUTTON THAT OPENS UP TO THE TOURNAMENT
-             LOBBY PAGE."
-
-             From 2026-08-25 to that day the level / blinds / countdown bar
-             (TournamentHUD) sat here, and from 2026-08-30 the bar itself was
-             the lobby button. On a phone it lay across the top seats. The bar
-             is now the dock under the action bar (search `tournament-dock`
-             below), and this corner carries one control: Dan's LOBBY plate. */
+          /* THE LOBBY BUTTON LEFT THE FELT FOR THE ACTION BAR (Dan 2026-11-01,
+             superseding 2026-10-04): "THE LOBBY BUTTON IS 100% ALWAYS SUPPOSED
+             TO BE IN THE RIGHT CORNER IN THE ACTION BAR AT THE TOP, NOT
+             RANDOMLY INSIDE THE POKER TABLE PAGE." The LOBBY plate now renders
+             in MultiTablePage's tab-bar strip (the same `.mtp-lobby-btn` slot
+             the cash must-move LOBBY uses, hamburger-sized) and reaches this
+             page through OPEN_TOURNAMENT_LOBBY. The tournament info box stays
+             off this corner too (Dan 2026-10-04): it is the dock under the
+             action bar (search `tournament-dock` below). */
           <div className="hud-ur-column">
-            {tableState.isTournament && tableState.tournamentId && (
-              <button
-                type="button"
-                className="tournament-lobby-corner-btn"
-                onClick={() => {
-                  soundService.playButtonClick();
-                  setShowTournamentLobby(true);
-                }}
-                aria-label="Open Tournament Lobby"
-                title="Tournament Lobby"
-              >
-                <img
-                  className="tournament-lobby-corner-btn__img"
-                  src={lobbyButtonArt}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-            )}
             {/* THE MUST MOVE BOX (Dan 2026-09-05): "JUST LIKE THE TOURNAMENTS
                 WITH A BOX IN THE RIGHT CORNER TO CLICK TO SEE ALL TABLES, CHIP
                 STACKS, HOW MANY PLAYERS ETC." Every must-move table carries
@@ -31236,6 +31226,9 @@ function LiveTablePage({
           addOnPresentationEpochRef.current += 1;
           setAddOnPeriod((prev) => ({ ...prev, active: false }));
         }}
+        /* The break card's Add On button (Dan 2026-11-01): same confirmed,
+           price-bound offer the table menu's Add-On item opens. */
+        onOpenAddOn={() => void handleTournamentAddOn()}
         // Rebuy
         showRebuyModal={showRebuyModal}
         rebuyData={rebuyData}

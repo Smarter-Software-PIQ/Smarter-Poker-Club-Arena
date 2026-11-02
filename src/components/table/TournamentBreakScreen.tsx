@@ -80,6 +80,26 @@ export interface TournamentBreakScreenProps {
    */
   phase?: 'last_hand' | 'counting_down';
   /**
+   * THE CARD WAITS FOR THIS TABLE'S OWN HAND (Dan 2026-11-01): "THE TOURNAMENT
+   * BREAK CARD SHOULD NOT POP UP UNTIL THE HAND AT THE CURRENT TABLE IS
+   * FINISHED, IT LITERALLY POPPED UP ON MY TABLE WHILE THERE WAS STILL A HAND
+   * IN PROGRESS" and "FIRST CARD SHOULD ONLY APPEAR WHEN THE TABLE HAS
+   * FINISHED ITS HAND AND IS WAITING FOR THE OTHER TABLE TO FINISH ... A
+   * SMALLER POP UP SHOULD APPEAR". True while THIS table still has a hand in
+   * play: during the last-hand window the full card stays down and a small
+   * corner pill says the break (or add-on period) starts when every table
+   * finishes. Once the countdown is running the engine has already parked
+   * every table, so the full card shows regardless.
+   */
+  heroHandLive?: boolean;
+  /**
+   * Opens the add-on purchase offer (the same confirmed, price-bound modal the
+   * persisted window uses). Rendered as the card's Add On button whenever an
+   * add-on notice is up (Dan 2026-11-01: "WHERE IS THE ACTUAL 'ADD ON BUTTON'
+   * ON THE CARD?! THERE IS NO WAY TO ACTUALLY ADD ON").
+   */
+  onAddOn?: () => void;
+  /**
    * Absolute end of the break, epoch ms, once the countdown has actually
    * started. Preferred over breakTimeRemaining when present: an absolute
    * instant survives a backgrounded tab, a slow render and a missed tick,
@@ -139,6 +159,8 @@ export function TournamentBreakScreen({
   tableAnchorRef,
   breakTimeRemaining,
   phase = 'counting_down',
+  heroHandLive = false,
+  onAddOn,
   breakEndsAtMs = null,
   tournamentName,
   tournamentId = null,
@@ -459,6 +481,32 @@ export function TournamentBreakScreen({
   // and pause authority, including a delayed resume.
   if (!isVisible || (countingDown && displayTime <= 0)) return null;
 
+  /* THE FULL CARD NEVER COVERS THIS TABLE'S OWN LIVE HAND (Dan 2026-11-01).
+     While the last-hand window is open and THIS table is still playing, the
+     only presentation is a small corner pill saying the break (or the add-on
+     period) starts when every table finishes its current hand. The full card
+     appears the moment this table's hand completes, while it waits for the
+     rest of the field. */
+  if (!countingDown && heroHandLive) {
+    const tableAnchor = tableAnchorRef?.current;
+    const notice = (
+      <div
+        className={`break-screen__minimized break-screen__minimized--notice${tableAnchor ? ' break-screen__minimized--on-table' : ''}`}
+        role="status"
+      >
+        <span className="break-screen__mini-face">
+          <span className="break-screen__mini-badge">
+            {addOnNotice ? 'Add-On Period' : 'Tournament Break'}
+          </span>
+          <span className="break-screen__mini-state">
+            Will Start When All Tables Finish Their Current Hand
+          </span>
+        </span>
+      </div>
+    );
+    return tableAnchor ? createPortal(notice, tableAnchor) : notice;
+  }
+
   // A real button keeps the clock reachable by keyboard as well as touch.
   if (minimized) {
     const tableAnchor = tableAnchorRef?.current;
@@ -471,11 +519,14 @@ export function TournamentBreakScreen({
       >
         <span className="break-screen__mini-face">
           <span className="break-screen__mini-badge">
+            {/* "Last Hand" belongs to the add-on window alone (Dan 2026-11-01):
+                a plain break's waiting state is this table done, waiting on the
+                rest of the field. */}
             {countingDown
               ? `Break: ${formatTime(displayTime)}`
               : addOnNotice
                 ? 'Add-On: Last Hand'
-                : 'Break: Last Hand'}
+                : 'Break: Waiting'}
           </span>
           <span className="break-screen__mini-state">
             {countingDown ? 'Paused' : 'Finishing Hands'}
@@ -523,21 +574,32 @@ export function TournamentBreakScreen({
           <div className="break-screen__resumption">
             <div className="break-screen__timer-container">
               <span className="break-screen__time-label">
+                {/* "Last Hand" is the ADD-ON's word (Dan 2026-11-01): it names
+                    the one hand left before the add-on period, after re-entry
+                    has closed. A plain break's waiting card shows only once
+                    THIS table's hand is done (heroHandLive gates it above), so
+                    it is waiting on the field, not finishing a hand. */}
                 {addOnNotice
                   ? countingDown
                     ? 'Add-On Closes In'
                     : 'Last Hand Before The Add-On Period'
                   : countingDown
                     ? 'Play Resumes In'
-                    : 'Finishing The Last Hand'}
+                    : 'Waiting For Every Table To Finish'}
               </span>
               <span
                 className={`break-screen__time ${!countingDown ? 'break-screen__time--waiting' : ''}`}
                 role="timer"
-                aria-label={countingDown ? 'Time Until Play Resumes' : 'Last Hand In Play'}
+                aria-label={
+                  countingDown
+                    ? 'Time Until Play Resumes'
+                    : addOnNotice
+                      ? 'Last Hand In Play'
+                      : 'Waiting For Tables To Finish'
+                }
                 style={{ color: getTimerColor() }}
               >
-                {countingDown ? formatTime(displayTime) : 'Last Hand'}
+                {countingDown ? formatTime(displayTime) : addOnNotice ? 'Last Hand' : 'Waiting'}
               </span>
               <svg className="break-screen__progress" viewBox="0 0 200 4" aria-hidden="true">
                 <path className="break-screen__progress-track" d="M0 2 H200" />
@@ -618,6 +680,23 @@ export function TournamentBreakScreen({
                 </span>
               </div>
             </div>
+          )}
+
+          {/* THE ADD ON BUTTON LIVES ON THE CARD (Dan 2026-11-01): "WHERE IS
+              THE ACTUAL 'ADD ON BUTTON' ON THE CARD?! THERE IS NO WAY TO
+              ACTUALLY ADD ON." It opens the same confirmed, price-bound offer
+              modal the persisted window uses; it is enabled only while the
+              60-second period is running, because the purchase window does not
+              exist before every table has parked. */}
+          {addOnNotice && onAddOn && (
+            <button
+              type="button"
+              className="break-screen__addon-btn"
+              onClick={onAddOn}
+              disabled={!countingDown}
+            >
+              {countingDown ? 'Add On Now' : 'Add-On Opens When Every Table Finishes'}
+            </button>
           )}
 
           <div className="break-screen__stats">

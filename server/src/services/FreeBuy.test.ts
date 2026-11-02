@@ -36,7 +36,7 @@ describe('the Free Buy tiers carry the current owner guarantees', () => {
       startingChips: 3000,
       rebuyCost: 1,
       addOnCost: 1,
-      addOnChips: 10000,
+      addOnChips: 3000,
       lateRegMinutes: 60,
       blindStructure: 'FREE_BUY',
     });
@@ -48,7 +48,7 @@ describe('the Free Buy tiers carry the current owner guarantees', () => {
       startingChips: 3000,
       rebuyCost: 1,
       addOnCost: 1,
-      addOnChips: 10000,
+      addOnChips: 3000,
       lateRegMinutes: 60,
       blindStructure: 'FREE_BUY',
     });
@@ -57,8 +57,13 @@ describe('the Free Buy tiers carry the current owner guarantees', () => {
     expect(std.buyIn).toBe(0);
     expect(feat.buyIn).toBe(0);
   });
-  it('an add-on is worth more than three starting stacks', () => {
-    expect(std.addOnChips).toBeGreaterThan(std.startingChips * 3);
+  it('an add-on pays the starting stack, exactly (Dan 2026-11-01)', () => {
+    // "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF CHIPS THAT THE TOURANMENT
+    // STARTED WITH, THE ADD ON SHOULD THE SAME AMOUNT OF CHIPS THAT YOU START
+    // WITH IN THE TOURNAMENT, NEVER LESS!" This supersedes the earlier
+    // 10,000-chip Free Buy add-on.
+    expect(std.addOnChips).toBe(std.startingChips);
+    expect(feat.addOnChips).toBe(feat.startingChips);
   });
 });
 
@@ -532,13 +537,13 @@ describe('the row a Free Buy is created as', () => {
     expect(row.free_buy).toBe(true);
   });
 
-  it('carries the standard tier price and the 10,000 chip add-on', () => {
+  it('carries the standard tier price and the starting-stack add-on (Dan 2026-11-01)', () => {
     const row = rowFor(0, 8);
     expect(row.guaranteed_prize).toBe(250);
     expect(row.starting_chips).toBe(3000);
     expect(row.rebuy_cost).toBe(1);
     expect(row.addon_cost).toBe(1);
-    expect(row.addon_chips).toBe(10000);
+    expect(row.addon_chips).toBe(3000);
   });
 
   it('carries the feature tier guarantee at 20:00, at the same 1 chip rebuy and add-on (Dan 2026-10-16)', () => {
@@ -546,7 +551,7 @@ describe('the row a Free Buy is created as', () => {
     expect(row.guaranteed_prize).toBe(500);
     expect(row.rebuy_cost).toBe(1);
     expect(row.addon_cost).toBe(1);
-    expect(row.addon_chips).toBe(10000);
+    expect(row.addon_chips).toBe(3000);
   });
 
   it('sets free_buy AND a positive rebuy_cost together, or the trigger reprices it to 1.00', () => {
@@ -630,11 +635,13 @@ describe('the field is sized to cover its own guarantee', () => {
 /* ══════════════════════════════════════════════════════════════════════════
    THE LADDER HAS TO SURVIVE THE HOUR DAN ASKED FOR
 
-   Three of his numbers decide this together: 3,000 to start, a 10,000 add-on,
-   and one hour of late registration. Measured against the house TURBO before
-   this was written: 24 levels, 57 MINUTES end to end, and a big blind of
-   1,500,000 at the one-hour mark - zero big blinds against a 13,000 stack, and
-   an add-on worth nothing by the time anyone could take it.
+   Three of his numbers decide this together: 3,000 to start, an add-on that
+   pays the starting stack exactly (Dan 2026-11-01, superseding the earlier
+   10,000), and one hour of late registration. Measured against the house
+   TURBO before this was written: 24 levels, 57 MINUTES end to end, and a big
+   blind of 1,500,000 at the one-hour mark - zero big blinds against any
+   effective stack, and an add-on worth nothing by the time anyone could take
+   it.
    ══════════════════════════════════════════════════════════════════════════ */
 describe('the Free Buy ladder', () => {
   const L = BLIND_STRUCTURES.FREE_BUY as Array<{ bigBlind: number; durationMinutes: number }>;
@@ -646,10 +653,14 @@ describe('the Free Buy ladder', () => {
   });
 
   it('is still poker at the hour, so the add-on is worth taking', () => {
+    // With the add-on pinned to the starting stack (Dan 2026-11-01) the
+    // effective stack at the hour is 6,000: the hour's 500 big blind leaves
+    // 12 BB, a short but real stack, where TURBO's 1,500,000 big blind would
+    // leave a fraction of one.
     const lv = lateRegLevelsForMinutes(L, 60);
     const bb = L[lv - 1].bigBlind;
     const depth = EFFECTIVE / bb;
-    expect(depth).toBeGreaterThanOrEqual(20);
+    expect(depth).toBeGreaterThanOrEqual(12);
   });
 
   it('OUTLASTS late registration - the break is not the end of the structure', () => {
@@ -691,7 +702,7 @@ describe('auditFreeBuyRow', () => {
     starting_chips: 3000,
     rebuy_cost: 1,
     addon_cost: 1,
-    addon_chips: 10000,
+    addon_chips: 3000,
     addon_from_start: true,
     add_on_available: true,
     is_rebuy: true,
@@ -853,7 +864,7 @@ describe('auditFreeBuyBoard', () => {
     starting_chips: 3000,
     rebuy_cost: FREE_BUY_TIERS[slotForChicagoHour(hour)!.tier].rebuyCost,
     addon_cost: FREE_BUY_TIERS[slotForChicagoHour(hour)!.tier].addOnCost,
-    addon_chips: 10000,
+    addon_chips: 3000,
     addon_from_start: true,
     add_on_available: true,
     is_rebuy: true,
