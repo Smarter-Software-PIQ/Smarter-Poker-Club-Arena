@@ -7,3 +7,5 @@ The correction is limited to the existing exact 26 cancellation proof. It retain
 This is recovery of the existing blocked deployment, with no new phase or product work. The original receipt is never rewritten, cancellation is never replayed, and a timestamp alone does not authorize custody release. Publication and live resolver/engine proof remain required.
 
 Validation: focused maintained withdrawal qualification, its required wrapper, normal repository hooks, exact-head protected checks and actual provider/live readback are recorded in the owning Attention14 checkpoint. Source or test success alone is not deployment completion.
+
+The 63-case local Mac wrapper reached its 60-second outer subprocess limit after about 40 cases without a native case error. Its Darwin-only harness envelope is 120 seconds, with 135 seconds for the enclosing test and cleanup. Hosted Linux retains its existing 60/75-second envelopes; every production and native per-operation budget is unchanged. The failed local run and exact before-fix composed refusal are retained alongside the corrected result.
