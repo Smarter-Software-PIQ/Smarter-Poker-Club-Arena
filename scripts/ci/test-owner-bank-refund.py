@@ -14,6 +14,12 @@ n=module(ROOT/'scripts/ci/test-mtt-unlimited.py','bank_native')
 e=n.Execution(ROOT,out,a.pg_bin.resolve(),a.work_root.resolve(),300,socket_parent=a.socket_root.resolve())
 try:
  e.start();db=e.database();install_financial_foundation(e,db,ROOT,out);install_f06_extension(e,db,ROOT)
+ # The older, merged but uninstalled inline house disposition is permanently
+ # refused before any schema or financial statement can execute.
+ old=ROOT/'supabase/migrations/20261102150315_the_fifteen_frozen_diamond_events_close_and_their_diamonds_g.sql'
+ rc,_,err=e.sql(db,old.read_text(),label='superseded-house-disposition',check=False)
+ if rc==0 or 'owner_house_disposition_superseded_use_verified_kingfish_retirement' not in err:raise RuntimeError('superseded house disposition was not refused before writes')
+
  diamond=module(ROOT/'scripts/ci/fixtures/tournament-abort/diamond/diamond_abort_native.py','bank_diamond');diamond.install_diamond_extension(e,db,ROOT)
  bank_catalog=json.loads((ROOT/'scripts/ci/fixtures/tournament-abort/owner-bank-refund-catalog.json').read_text())
  for f in bank_catalog['functions']:
@@ -93,7 +99,7 @@ permutation "a_begin" "b_begin" "a_refund" "b_refund" "a_commit" "b_commit" "b_r
   assert rc!=0 and 'owner_retirement_bank_refund_receipt_is_immutable' in err
  assert snapshot('immutability-unchanged')==committed
  e.report['cases']=['real-entry','rollback','browser-denied','scope','bank-reserve','insufficient-bank','credit-fault-atomic','receipt-fault-atomic','commit-conservation','same-receipt-replay','receipt-immutable','concurrent-same-entitlement']
- e.report['source_sha256']={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__),ROOT/'supabase/migrations/20261102161821_owner_retirement_main_bank_funds_exact_player_refunds.sql',ROOT/'scripts/ci/fixtures/tournament-abort/owner-bank-refund-catalog.json']}
+ e.report['source_sha256']={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__),old,ROOT/'supabase/migrations/20261102161821_owner_retirement_main_bank_funds_exact_player_refunds.sql',ROOT/'scripts/ci/fixtures/tournament-abort/owner-bank-refund-catalog.json']}
  e.report['status']='passed'
 
 except BaseException as err:e.report['failure']=repr(err);print(repr(err),flush=True)
