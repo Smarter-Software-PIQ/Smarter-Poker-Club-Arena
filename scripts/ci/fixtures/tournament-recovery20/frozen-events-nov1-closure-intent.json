@@ -1,11 +1,16 @@
 {
   "schemaVersion": 1,
-  "source": "frozen-events-01a19a5c/live-candidates.json",
-  "sourceSha256": "03fb1ec95d7934e85a1c07cc2d4a8b1ad3720fc7a687adabe051464dc0c6b595",
-  "observedAt": "2026-11-02T03:47:11.192053+00:00",
+  "source": "frozen-events-01a19a5c/one-hour-candidates.json",
+  "sourceSha256": "9e99cfa57096256da15827f2eafdf76a6385402f94c4c12e0964a0038c292f55",
+  "observedAt": "2026-11-02 03:59:53.293472+00",
   "ownerChatId": "01a19a5c-0f6b-7ae1-9dc5-fe2708a568e7",
   "reason": "Owner requested removal of frozen tournaments on November 1; close these reviewed events and equally distribute remaining funds among eligible remaining players, preserving earned payments and history.",
   "members": [
+    {
+      "tournamentId": "0640f029-0372-4ca7-bb46-7cfd248da7b3",
+      "operationId": "28f18e0d-8342-5972-b75d-639450d43e26",
+      "observedLastHandAt": "2026-11-02T01:30:23.860827+00:00"
+    },
     {
       "tournamentId": "0771b01a-b8ea-434b-bf2e-f7d4651d445e",
       "operationId": "05ad5e1e-deaf-5d53-ae7a-737e50f5cf3c",
@@ -27,6 +32,16 @@
       "observedLastHandAt": "2026-11-01T15:28:25.840143+00:00"
     },
     {
+      "tournamentId": "354624e9-5f96-4baf-afe8-294c701f7b5e",
+      "operationId": "aad2cc6b-7fe5-5d3e-93de-60a82c67c50a",
+      "observedLastHandAt": "2026-11-02T01:31:06.019425+00:00"
+    },
+    {
+      "tournamentId": "41392bff-72d7-46bb-b4ae-8f393d000810",
+      "operationId": "523de700-540d-5f44-b68c-1191f23c214a",
+      "observedLastHandAt": "2026-11-02T00:02:35.104659+00:00"
+    },
+    {
       "tournamentId": "525a9726-68f5-4deb-8071-d62a9c6d9480",
       "operationId": "cbb21fc2-2cd2-5ab8-9fca-06992d958af8",
       "observedLastHandAt": "2026-11-01T15:27:46.192303+00:00"
@@ -35,6 +50,11 @@
       "tournamentId": "54ca613b-0bd2-4492-8610-b1281dbaa822",
       "operationId": "b8719110-10fe-552f-91dc-f5429711a8c1",
       "observedLastHandAt": "2026-11-01T16:49:38.146453+00:00"
+    },
+    {
+      "tournamentId": "5c05942e-3eac-4f3b-90e5-1f25942a36ba",
+      "operationId": "290309a1-46db-5b0c-b2cf-b945708c5410",
+      "observedLastHandAt": "2026-11-01T22:33:33.299303+00:00"
     },
     {
       "tournamentId": "65cb94c0-752a-43b4-981d-098294d044f9",
@@ -80,6 +100,11 @@
       "tournamentId": "d58470df-498c-42d0-b5d4-9d7cb5b7828a",
       "operationId": "b7194d26-6005-5b1b-bab0-8ea363436310",
       "observedLastHandAt": "2026-11-01T21:04:14.85944+00:00"
+    },
+    {
+      "tournamentId": "de73adfa-bce1-4ac4-8eb6-aa8bc65631af",
+      "operationId": "449d2c00-b316-5fe3-bcb0-f4448fe873b2",
+      "observedLastHandAt": "2026-11-02T02:57:37.721557+00:00"
     },
     {
       "tournamentId": "e408f603-5364-44b0-80aa-5dd6a917e47a",

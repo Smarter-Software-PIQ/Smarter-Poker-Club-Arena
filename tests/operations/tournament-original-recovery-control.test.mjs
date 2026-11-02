@@ -927,8 +927,8 @@ test('additional frozen events use separate operations and the full existing clo
       'utf8'
     )
   );
-  assert.equal(manifest.members.length, 19);
-  assert.equal(new Set(manifest.members.map((m) => m.operationId)).size, 19);
+  assert.equal(manifest.members.length, 24);
+  assert.equal(new Set(manifest.members.map((m) => m.operationId)).size, 24);
   for (const member of manifest.members) {
     assert.equal(
       equalManifest.members.some((m) => m.tournamentId === member.tournamentId),
