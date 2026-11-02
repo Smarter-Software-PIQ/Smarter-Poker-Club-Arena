@@ -14808,8 +14808,9 @@ function LiveTablePage({
 
           await presentAddOnOffer({
             addOnCost: tournamentRow?.addon_cost ?? tournamentRow?.buy_in_amount,
-            /* Dan 2026-11-01: an add-on pays the starting stack, exactly. */
-            addOnChips: tournamentRow?.starting_chips ?? tournamentRow?.addon_chips,
+            /* What the money core pays: addon_chips (the starting stack on every
+               event created or corrected since Dan's 2026-11-01 ruling). */
+            addOnChips: tournamentRow?.addon_chips ?? tournamentRow?.starting_chips,
             addOnFee: 0,
             endsAt: tournamentRow?.addon_period_ends_at,
             recoveredFromPersistedState: true,
