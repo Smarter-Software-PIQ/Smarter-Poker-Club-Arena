@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 import re
 import signal
+import selectors
+import time
 import stat
 import subprocess
 import sys
@@ -75,29 +77,50 @@ def load_original(folder):
     return helper, native, planner
 
 
-def package_rows(status, policy, names, version_pattern):
-    """Only the fixed public names and closed Debian versions leave this reader."""
-    rows = {name: {'package': name, 'status': 'absent', 'installedVersion': None,
-        'candidateVersion': None} for name in names}
+PACKAGE_SCHEMA = 'native-perf-package-readback/v2'
+QUERY_STAGES = {
+    'tool_metadata': frozenset(('tool_missing', 'tool_untrusted', 'tool_not_executable', 'tool_unknown')),
+    'command': frozenset(('command_nonzero', 'command_bound', 'command_timeout', 'command_unavailable')),
+    'parse': frozenset(('status_empty', 'status_incomplete', 'status_malformed', 'policy_empty', 'policy_incomplete', 'policy_malformed')),
+    'complete': frozenset(('verified',)),
+}
+QUERY_COMMANDS = {'status': 'package_status', 'policy': 'unproven', 'audit': 'package_audit'}
+
+
+def empty_query(kind, names):
+    rows = [] if kind == 'audit' else [dict(package=name, verified=False,
+        **({'status': 'unknown', 'installedVersion': None} if kind == 'status' else {'candidateVersion': None})) for name in names]
+    return {'verified': False, 'stage': 'tool_metadata', 'reason': 'tool_unknown',
+        'commandFailure': None, 'rows': rows, 'auditClean': None}
+
+
+def status_rows(raw, names, version_pattern):
+    rows = empty_query('status', names)['rows']
+    indexed = {row['package']: row for row in rows}
     seen = set()
-    for line in status.decode('ascii').splitlines():
+    for line in raw.decode('ascii').splitlines():
         parts = line.split('\t')
         if len(parts) != 3:
             refuse()
         name, state, version = parts
         name = name.removesuffix(':amd64')
-        if name not in rows or name in seen or not version_pattern.fullmatch(version):
+        if name not in indexed or name in seen or not version_pattern.fullmatch(version) or not re.fullmatch(r'(?:unknown|install|hold|deinstall|purge) (?:ok|reinstreq) (?:not-installed|config-files|half-installed|unpacked|half-configured|triggers-awaited|triggers-pending|installed)', state):
             refuse()
         seen.add(name)
-        rows[name].update(status='installed' if state == 'install ok installed' else 'other', installedVersion=version)
-    current = None
-    candidates, headings = set(), set()
-    for line in policy.decode('ascii').splitlines():
+        indexed[name].update(verified=True, status='installed' if state == 'install ok installed' else 'other', installedVersion=version)
+    return rows
+
+
+def policy_rows(raw, names, version_pattern):
+    rows = empty_query('policy', names)['rows']
+    indexed = {row['package']: row for row in rows}
+    current, headings, candidates = None, set(), set()
+    for line in raw.decode('ascii').splitlines():
         if line and not line[0].isspace():
             if not line.endswith(':'):
                 refuse()
             current = line[:-1].removesuffix(':amd64')
-            if current not in rows or current in headings:
+            if current not in indexed or current in headings:
                 refuse()
             headings.add(current)
         elif line.startswith('  Candidate: '):
@@ -105,28 +128,165 @@ def package_rows(status, policy, names, version_pattern):
             if current is None or current in candidates or value != '(none)' and not version_pattern.fullmatch(value):
                 refuse()
             candidates.add(current)
-            rows[current]['candidateVersion'] = None if value == '(none)' else value
-    if headings != set(names) or candidates != set(names):
-        refuse()
-    return [rows[name] for name in names]
+            indexed[current].update(verified=True, candidateVersion=None if value == '(none)' else value)
+    return rows
+
+
+def run_read(args):
+    """Three fixed read commands only; bounded private pipes, no host files."""
+    child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env={**os.environ, 'LC_ALL': 'C'})
+    buffers = {'stdout': bytearray(), 'stderr': bytearray()}
+    deadline = time.monotonic() + 2.75  # Remaining250ms is own-reader teardown.
+    selector = selectors.DefaultSelector()
+    try:
+        selector.register(child.stdout, selectors.EVENT_READ, 'stdout')
+        selector.register(child.stderr, selectors.EVENT_READ, 'stderr')
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired('fixed_package_read', 3)
+            for key, _ in selector.select(remaining):
+                chunk = os.read(key.fileobj.fileno(), min(8192, 65537 - len(buffers[key.data])))
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                else:
+                    buffers[key.data].extend(chunk)
+                    if len(buffers[key.data]) > 65536:
+                        child.kill(); child.wait(timeout=.25)
+                        return subprocess.CompletedProcess(args, child.returncode, bytes(buffers['stdout']), bytes(buffers['stderr']))
+        child.wait(timeout=max(.001, deadline - time.monotonic()))
+        return subprocess.CompletedProcess(args, child.returncode, bytes(buffers['stdout']), bytes(buffers['stderr']))
+    finally:
+        selector.close()
+        if child.poll() is None:
+            child.kill(); child.wait(timeout=.25)  # Only this read-only child.
+        child.stdout.close(); child.stderr.close()
+
+
+def package_query(helper, native, planner, kind, names, args):
+    value = empty_query(kind, names)
+    tool = native.prerequisite_tool(args[0])
+    if tool != {'available': True, 'reason': 'available'}:
+        reason = tool.get('reason') if isinstance(tool, dict) else 'unknown'
+        value['reason'] = 'tool_' + {'missing': 'missing', 'untrusted': 'untrusted', 'not-executable': 'not_executable'}.get(reason, 'unknown')
+        return value
+    value.update(stage='command', reason='command_unavailable')
+    try:
+        result = run_read(args)
+    except subprocess.TimeoutExpired:
+        value['reason'] = 'command_timeout'
+        return value
+    except (OSError, subprocess.SubprocessError):
+        return value
+    bound = len(result.stdout) > 65536 or len(result.stderr) > 65536
+    if result.returncode != 0 or bound:
+        value.update(reason='command_bound' if bound else 'command_nonzero',
+            commandFailure=helper.command_failure_outcome(helper.CommandFailure(args, result).public))
+        # dpkg-query exit1 may contain some successfully queried fixed names.
+        # Missing names remain explicit UNKNOWN, never inferred absent.
+        if kind != 'status' or result.returncode != 1 or bound:
+            return value
+    if kind == 'audit':
+        value.update(verified=True, stage='complete', reason='verified', auditClean=not bool(result.stdout))
+        return value
+    try:
+        parsed = status_rows(result.stdout, names, planner.DEBIAN_VERSION) if kind == 'status' else policy_rows(result.stdout, names, planner.DEBIAN_VERSION)
+    except (ValueError, UnicodeError, TypeError):
+        value.update(stage='parse', reason=kind + '_malformed')
+        return value
+    value['rows'] = parsed
+    if value['commandFailure'] is not None:
+        return value
+    complete = all(row['verified'] for row in parsed)
+    value.update(verified=complete, stage='complete' if complete else 'parse',
+        reason='verified' if complete else kind + ('_empty' if not result.stdout.strip() else '_incomplete'))
+    return value
+
+
+def package_report(queries, names):
+    complete = all(query['verified'] for query in queries.values())
+    rows = []
+    if complete:
+        rows = [{'package': name, 'status': status['status'], 'installedVersion': status['installedVersion'],
+            'candidateVersion': policy['candidateVersion']} for name, status, policy in zip(names, queries['status']['rows'], queries['policy']['rows'])]
+    return {'schema': PACKAGE_SCHEMA, 'verified': complete, 'rows': rows,
+        'dpkgAuditClean': queries['audit']['auditClean'] if complete else None, 'queries': queries}
 
 
 def packages(helper, native, planner):
     names = sorted(set(planner.TARGETS) | planner.DEPENDENCIES)
-    if any(native.prerequisite_tool(path) != {'available': True, 'reason': 'available'}
-            for path in ('/usr/bin/dpkg-query', '/usr/bin/apt-cache', '/usr/bin/dpkg')):
-        return {'verified': False, 'rows': [], 'dpkgAuditClean': None}
-    try:
-        # No apt-get/update, cache write, online query, package action or raw log.
-        status = helper.run(['/usr/bin/dpkg-query', '--show', '--showformat=${binary:Package}\t${Status}\t${Version}\n', *names], timeout=3, accepted=(0, 1))
-        # apt.conf(5): empty cache names disable on-disk generation.
-        policy = helper.run(['/usr/bin/apt-cache', '-o', 'Dir::Cache::pkgcache=',
-            '-o', 'Dir::Cache::srcpkgcache=', 'policy', *names], timeout=3)
-        audit = helper.run(['/usr/bin/dpkg', '--audit'], timeout=3)
-        return {'verified': True, 'rows': package_rows(status, policy, names, planner.DEBIAN_VERSION),
-            'dpkgAuditClean': not bool(audit)}
-    except Exception:
-        return {'verified': False, 'rows': [], 'dpkgAuditClean': None}
+    # Independent fixed reads preserve positive evidence when another query fails.
+    commands = {
+        'status': ['/usr/bin/dpkg-query', '--show', '--showformat=${binary:Package}\t${Status}\t${Version}\n', *names],
+        'policy': ['/usr/bin/apt-cache', '-o', 'Dir::Cache::pkgcache=', '-o', 'Dir::Cache::srcpkgcache=', 'policy', *names],
+        'audit': ['/usr/bin/dpkg', '--audit'],
+    }
+    return package_report({kind: package_query(helper, native, planner, kind, names, args)
+        for kind, args in commands.items()}, names)
+
+
+def valid_package_report(value, planner, helper):
+    names = sorted(set(planner.TARGETS) | planner.DEPENDENCIES)
+    if not isinstance(value, dict) or set(value) != {'schema', 'verified', 'rows', 'dpkgAuditClean', 'queries'} or value['schema'] != PACKAGE_SCHEMA or type(value['verified']) is not bool or not isinstance(value['queries'], dict) or set(value['queries']) != set(QUERY_COMMANDS):
+        return False
+    for kind, query in value['queries'].items():
+        if not isinstance(query, dict) or set(query) != {'verified', 'stage', 'reason', 'commandFailure', 'rows', 'auditClean'} or type(query['verified']) is not bool or not isinstance(query['stage'], str) or not isinstance(query['reason'], str) or query['stage'] not in QUERY_STAGES or query['reason'] not in QUERY_STAGES[query['stage']] or query['verified'] != (query['stage'] == 'complete') or not isinstance(query['rows'], list):
+            return False
+        failure = query['commandFailure']
+        if failure is not None and (helper.command_failure_outcome(failure) is None or failure['command'] != QUERY_COMMANDS[kind] or query['stage'] not in ('command', 'parse')):
+            return False
+        if query['stage'] == 'command' and (query['reason'] in ('command_nonzero', 'command_bound')) != (failure is not None):
+            return False
+        if failure is not None:
+            if query['reason'] == 'command_nonzero' and (failure['exitCode'] == 0 or failure['boundExceeded']):
+                return False
+            if query['reason'] == 'command_bound' and not failure['boundExceeded']:
+                return False
+            if query['stage'] == 'parse' and (kind != 'status' or failure['exitCode'] != 1 or failure['boundExceeded']):
+                return False
+        if query['stage'] == 'parse' and (kind == 'audit' or not query['reason'].startswith(kind + '_')):
+            return False
+        if kind == 'audit':
+            if query['rows'] != []:
+                return False
+            if query['verified']:
+                if type(query['auditClean']) is not bool:
+                    return False
+            elif query['auditClean'] is not None:
+                return False
+            continue
+        if query['auditClean'] is not None or len(query['rows']) != len(names):
+            return False
+        for row, name in zip(query['rows'], names):
+            expected = {'package', 'verified', 'status', 'installedVersion'} if kind == 'status' else {'package', 'verified', 'candidateVersion'}
+            if not isinstance(row, dict) or set(row) != expected or row['package'] != name or type(row['verified']) is not bool:
+                return False
+            version = row['installedVersion'] if kind == 'status' else row['candidateVersion']
+            if version is not None and (not isinstance(version, str) or not planner.DEBIAN_VERSION.fullmatch(version)):
+                return False
+            if kind == 'status':
+                if row['verified'] and (row['status'] not in ('installed', 'other') or version is None):
+                    return False
+                if not row['verified'] and (row['status'] != 'unknown' or version is not None):
+                    return False
+            if kind == 'policy' and not row['verified'] and version is not None:
+                return False
+        if query['verified'] and not all(row['verified'] for row in query['rows']):
+            return False
+        # Only a successfully parsed partial status/policy output can carry
+        # positive rows in an incomplete query. Metadata/timeouts/truncation
+        # and malformed output cannot manufacture installed/candidate facts.
+        partial = query['stage'] == 'parse' and query['reason'] == kind + '_incomplete'
+        partial = partial or (kind == 'status' and query['stage'] in ('command', 'parse') and failure is not None and failure['exitCode'] == 1 and not failure['boundExceeded'] and query['reason'] not in ('status_empty', 'status_malformed'))
+        if not query['verified'] and not partial and any(row['verified'] for row in query['rows']):
+            return False
+    if value['verified']:
+        if type(value['dpkgAuditClean']) is not bool:
+            return False
+    elif value['dpkgAuditClean'] is not None:
+        return False
+    return value == package_report(value['queries'], names)
 
 
 def read_terminal(op):
@@ -193,17 +353,7 @@ def diagnostic_outcome(raw, receipt, transport_exit, planner, helper):
             return None
         if value['commandFailure'] is not None and helper.command_failure_outcome(value['commandFailure']) is None:
             return None
-        packages = value['packages']
-        if not isinstance(packages, dict) or set(packages) != {'verified', 'rows', 'dpkgAuditClean'} or type(packages['verified']) is not bool:
-            return None
-        names = sorted(set(planner.TARGETS) | planner.DEPENDENCIES)
-        if packages['verified']:
-            if type(packages['dpkgAuditClean']) is not bool or not isinstance(packages['rows'], list) or len(packages['rows']) != len(names):
-                return None
-            for row, name in zip(packages['rows'], names):
-                if not isinstance(row, dict) or set(row) != {'package', 'status', 'installedVersion', 'candidateVersion'} or row['package'] != name or row['status'] not in ('installed', 'absent', 'other') or (row['status'] == 'absent') != (row['installedVersion'] is None) or any(v is not None and (not isinstance(v, str) or not planner.DEBIAN_VERSION.fullmatch(v)) for v in (row['installedVersion'], row['candidateVersion'])):
-                    return None
-        elif packages != {'verified': False, 'rows': [], 'dpkgAuditClean': None}:
+        if not valid_package_report(value['packages'], planner, helper):
             return None
         return value
     except (ValueError, TypeError, KeyError, RuntimeError):
