@@ -1,5 +1,5 @@
 -- Owner November 1: halve future guarantees from midnight Chicago, except 200/25k.
--- Exact pre-change IDs/amounts captured 2026-11-02 02:20 UTC prevent repeated
+-- Exact pre-change IDs/amounts captured 2026-11-02 02:20-02:31 UTC prevent repeated
 -- halving and avoid changing newly spawned instances already reduced by engine.
 -- Already entered, locked, finalized and in-progress events retain commitments.
 -- No wallet, payout, entry price, schedule time or horse tournament change.
