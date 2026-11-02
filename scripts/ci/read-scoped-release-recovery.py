@@ -1538,7 +1538,10 @@ def original_announcement_remote(request, root_fd):
 
 
 RETAINED_REFUSAL_GENERATIONS = Path('/usr/local/lib/club-arena/engine-control-generations')
-RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'}
+RETAINED_REFUSAL_PREVIOUS_SOURCES = {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'}
+RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': '5ee65d37ba3b331cbbe6d4d088e0a04c0b15310152c168b2ed7321bbf91e4657'}
+# Closed reviewed generations; never accept arbitrary source or lose old receipts.
+RETAINED_REFUSAL_SOURCE_PROFILES = (RETAINED_REFUSAL_PREVIOUS_SOURCES, RETAINED_REFUSAL_SOURCES)
 RETAINED_REFUSAL_SCHEMA = 'retained-first-refusal-observation/v1'
 
 def diagnostic_read(path: Path, *, private: bool = True) -> bytes:
@@ -1664,7 +1667,7 @@ def retained_refusal_remote(request, root_fd):
             raise ValueError('retained diagnostic private directory')
         sources = {}
         source_stats = {}
-        for name, expected in RETAINED_REFUSAL_SOURCES.items():
+        for name in RETAINED_REFUSAL_SOURCES:
             check()
             fd = os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=source_fd)
             try:
@@ -1672,10 +1675,13 @@ def retained_refusal_remote(request, root_fd):
                 if not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid() or before.st_mode&0o022 or before.st_size>1048576:
                     raise ValueError('retained diagnostic source metadata')
                 raw = os.read(fd,1048577)
-                if len(raw)!=before.st_size or identity(before)!=identity(os.fstat(fd)) or hashlib.sha256(raw).hexdigest()!=expected:
+                if len(raw)!=before.st_size or identity(before)!=identity(os.fstat(fd)):
                     raise ValueError('retained diagnostic source changed')
                 sources[name]=raw;source_stats[name]=identity(before)
             finally:os.close(fd)
+        source_digests = {name: hashlib.sha256(raw).hexdigest() for name, raw in sources.items()}
+        if source_digests not in RETAINED_REFUSAL_SOURCE_PROFILES:
+            raise ValueError('retained diagnostic source changed')
         receipt_bytes=0
         def read(name,schema):
             nonlocal receipt_bytes
@@ -1684,8 +1690,8 @@ def retained_refusal_remote(request, root_fd):
             receipt_bytes+=len(raw)
             if receipt_bytes>8192:raise ValueError('retained combined receipt bound')
             expected_binding={'runId':request['runKey'],'targetSha':request['releaseSha'],'controlSha':request['controlSha'],
-                'generation':str(generation),'transactionSha256':RETAINED_REFUSAL_SOURCES['engine-release-transaction.sh'],
-                'producerSha256':RETAINED_REFUSAL_SOURCES['engine-release-seal.py']}
+                'generation':str(generation),'transactionSha256':source_digests['engine-release-transaction.sh'],
+                'producerSha256':source_digests['engine-release-seal.py']}
             binding=value.get('binding')
             if not isinstance(binding,dict) or set(binding)!=set(expected_binding)|{'requestSha256','pinSha256'} or any(binding.get(k)!=v for k,v in expected_binding.items()) or any(not re.fullmatch('[0-9a-f]{64}',str(binding[k])) for k in ('requestSha256','pinSha256')):
                 raise ValueError('retained diagnostic binding')
