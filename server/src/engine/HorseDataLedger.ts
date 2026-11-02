@@ -846,6 +846,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V75'
   ),
   flag(
+    'v78NoCommittingBluffRaise',
+    '2026-11-02 (Dan: "I GET RANDOMLY RAISED ON THE TURN AND THEN THE HORSE JUST CALLS OFF AN ENTIRE STACK WITH A10"; hand 6a30e154: A-T, 8-6-9-3, check-raised a 15 bet to 67 with 84 effective, then called the jam) a hold\'em postflop semi-bluff or check-raise bluff raise (the generic semi-bluff branch, which needs no real draw, and the V8 scare-card check-raise) that legalized is NOT all-in yet puts 40% or more of hero\'s remaining stack in is not made: a stack that small cannot fold to the re-shove, so the never-raise-to-fold rule turns it into a forced call-off; the hand falls through to the priced call / fold verdict and its barrel plan is withdrawn; all-in sizings, smaller raises and every value raise (two pair+, the value branch) untouched; every random roll consumed in its original order; explicit off arm keeps today',
+    'V78'
+  ),
+  flag(
     'v76RetireFourBetBluffBand',
     '2026-11-01 (Dan 2026-10-31 rule 4: "HORSES KEEP MAKING THESE WEIRD 4 BETS ANYTIME I 3 BET, THEN FOLD 100% OF THE TIME TO A FIVE BET ... STOP 4 BETTING POTS IF THEY ARE FOLDING") the V7 4-bet-bluff band is retired at the source: the hold\'em brain never generates a sized 4-bet meant to fold; the band\'s hands (blocker-heavy, just under the value bar) take the call-or-fold read directly - the V73/V75 priced width where it applies - instead of being 4-bet and converted to a call by the final layer (rule 4a, receipt holdem_no_four_bet_bluff), which stays in force as the fail-safe for every other path; value 4-bets, sizes, the 5-bet branch and Omaha unchanged; explicit off arm restores the band for the historical corpora only',
     'V76'
@@ -2178,6 +2183,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V73',
     'decide_nlh',
     0.002
+  ),
+  receipt(
+    'v78_no_committing_bluff_raise',
+    'HorseLogic (V78)',
+    "Hold'em semi-bluff / check-raise bluff withheld: legalized it committed 40%+ of the stack without being all-in",
+    'V78',
+    'decide_nlh'
   ),
   receipt(
     'v75_squeeze_defence',
