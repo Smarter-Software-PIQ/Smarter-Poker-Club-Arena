@@ -1060,3 +1060,11 @@ reference or the exact local Docker image ID supplied by its native controller.
 Mutable tags and malformed or whitespace-bearing IDs remain refused. The outer
 controller still binds the returned runtime identity exactly, and the separately
 admitted registry route retains its existing registry-digest requirement.
+
+The complete catalogue explicitly orders ACCESS identities with PostgreSQL's
+bytewise C collation. The managed database uses ICU en-US while isolated initdb
+uses C; an uncollated computed kind expression otherwise orders identical ACL
+rows differently. Every complete row, grant, owner, strict text/digest comparison
+and original-before-observed restore mapping remains intact. Cross-locale native
+qualification and the source-bound query regression cover this representation
+boundary; a source fix is not a full-schema or fifteen-case acceptance result.
