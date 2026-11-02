@@ -43,7 +43,7 @@ def main():
         def entry(label,horse='horse',status='registered'):
             return f"INSERT INTO tournament_players VALUES(gen_random_uuid(),'{uid(label)}','{uid(horse)}','{status}');"
         def reset(horse='horse',n=4):
-            run(f"TRUNCATE tournament_players,table_seats,purchases,tickets,ticket_redemptions; INSERT INTO profiles VALUES('{uid(horse)}',true) ON CONFLICT DO NOTHING;"+''.join(entry('old'+str(i),horse) for i in range(n)))
+            run(f"TRUNCATE tournament_players,table_seats,purchases,tickets,ticket_redemptions,ca_diamond_arena_owner_closure,ca_operator_floor_hold,ca_launch_operator_scopes; INSERT INTO profiles VALUES('{uid(horse)}',true) ON CONFLICT DO NOTHING;"+''.join(entry('old'+str(i),horse) for i in range(n)))
         try:
             run("""CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role;
 CREATE SCHEMA extensions;
@@ -52,6 +52,7 @@ CREATE TABLE tournaments(id uuid PRIMARY KEY,status text,start_time timestamptz,
 CREATE TABLE tournament_players(id uuid PRIMARY KEY,tournament_id uuid,user_id uuid,status text);
 CREATE TABLE tables(id uuid PRIMARY KEY,tournament_id uuid,status text DEFAULT 'running');
 CREATE TABLE table_seats(id uuid PRIMARY KEY,table_id uuid,user_id uuid,left_at timestamptz);
+CREATE TABLE ca_diamond_arena_owner_closure(club_id uuid PRIMARY KEY,operation_id uuid NOT NULL UNIQUE,closed boolean NOT NULL,reason text NOT NULL,requested_at timestamptz NOT NULL DEFAULT transaction_timestamp());
 CREATE TABLE ca_operator_floor_hold(operation_id uuid,mode text);
 CREATE TABLE ca_launch_operator_scopes(operation_id uuid,club_ids uuid[]);
 CREATE TABLE tournament_launch_receipts(tournament_id uuid);
@@ -85,6 +86,9 @@ CREATE FUNCTION fn_seat_horse_in_seat_first_game_before_terminal_seat_gate(uuid,
  IF NOT EXISTS(SELECT 1 FROM table_seats WHERE user_id=$2 AND table_id=fn_tournament_primary_table($1) AND left_at IS NULL) THEN INSERT INTO table_seats VALUES(gen_random_uuid(),fn_tournament_primary_table($1),$2,NULL);END IF;RETURN r;END$$;
 """)
             run((ROOT/'tests/sql/fixtures/horse-future-purchase-lock.sql').read_text())
+            check('captured acquisition gate matches the installed protected owner closure',
+                  run("SELECT md5(pg_get_functiondef('fn_ca_lock_tournament_seat_acquisition(uuid,uuid,uuid)'::regprocedure))")=='2622a05f060e54b18204205fc08bc7e9')
+            run('REVOKE ALL ON FUNCTION fn_ca_lock_tournament_seat_acquisition(uuid,uuid,uuid) FROM PUBLIC,anon,authenticated,service_role')
             run((ROOT/'tests/sql/fixtures/horse-future-purchase-before.sql').read_text())
             for sig in ['fn_register_horse_for_tournament(uuid,uuid,boolean)','fn_seat_horse_in_seat_first_game(uuid,uuid)']:
                 run(f'REVOKE ALL ON FUNCTION {sig} FROM PUBLIC,anon,authenticated;GRANT EXECUTE ON FUNCTION {sig} TO service_role;')
@@ -186,6 +190,22 @@ CREATE FUNCTION fn_seat_horse_in_seat_first_game_before_terminal_seat_gate(uuid,
                   json.loads(run(target_call('target-a','0'))).get('reason')=='horse_attendance_target_met')
             check('target input preserves maintenance freeze',
                   json.loads(run("SET test.frozen='true';"+target_call('target-a')).splitlines()[-1]).get('reason')=='platform_frozen')
+            run(f"UPDATE tournaments SET club_id='{uid('closed-arena')}' WHERE id='{uid('target')}'")
+            run(f"INSERT INTO ca_diamond_arena_owner_closure(club_id,operation_id,closed,reason) VALUES('{uid('closed-arena')}','{uid('closure-operation')}',true,'isolated owner closure input')")
+            check('target input propagates the installed owner closure',
+                  json.loads(run(target_call('target-a'))).get('reason')=='diamond_arena_closed')
+            check('owner closure cannot create an entry or controlled charge',
+                  run('SELECT (SELECT count(*) FROM tournament_players)||\':\'||(SELECT count(*) FROM purchases)')=='0:0')
+            run(entry('target','target-a'))
+            check('existing paid entry replay survives the owner closure without a new charge',
+                  json.loads(run(target_call('target-a','0'))).get('already_registered') is True and
+                  run('SELECT count(*) FROM purchases')=='0')
+            reset(n=0)
+            run(f"INSERT INTO ca_operator_floor_hold VALUES('{uid('park-operation')}','park'); INSERT INTO ca_launch_operator_scopes VALUES('{uid('park-operation')}',ARRAY['{uid('closed-arena')}']::uuid[])")
+            check('target input retains an existing operator park without a purchase',
+                  json.loads(run(target_call('target-a'))).get('reason')=='operator_floor_parked' and
+                  run('SELECT count(*) FROM purchases')=='0')
+            reset(n=0)
             run(f"UPDATE tournaments SET prize_pool_finalized=true WHERE id='{uid('target')}'")
             check('the existing closed-pool decision remains authoritative',
                   json.loads(run(target_call('target-a'))).get('reason')=='registration_closed')
@@ -255,6 +275,14 @@ CREATE FUNCTION fn_seat_horse_in_seat_first_game_before_terminal_seat_gate(uuid,
                   result.get('reason')=='registration_closed' and
                   run('SELECT (SELECT count(*) FROM tournament_players)||\':\'||(SELECT count(*) FROM purchases)')=='0:0')
             run(f"UPDATE tournaments SET prize_pool_finalized=false WHERE id='{uid('target')}'")
+            run(f"UPDATE tournaments SET status='COMPLETED' WHERE id='{uid('target')}'")
+            check('completed target status propagates the actual gate refusal without a purchase',
+                  json.loads(run(target_call('target-a'))).get('reason')=='tournament_not_seatable' and
+                  run('SELECT count(*) FROM purchases')=='0')
+            run(f"DELETE FROM tournaments WHERE id='{uid('target')}'")
+            check('deleted target propagates the actual gate refusal without a purchase',
+                  json.loads(run(target_call('target-a'))).get('reason')=='tournament_not_found' and
+                  run('SELECT count(*) FROM purchases')=='0')
             # Representative shared-fleet day: 1,000 accounts already holding
             # two legitimate promises compete across eight different targets.
             # The real acquisition lock/cap wrapper remains authoritative;

@@ -7585,6 +7585,10 @@ export class TournamentRecurringService {
             [
               'registration_closed',
               'tournament_full',
+              'tournament_not_found',
+              'tournament_not_seatable',
+              'diamond_arena_closed',
+              'operator_floor_parked',
               'horse_registration_not_open',
               'horse_attendance_target_met',
               'platform_frozen',

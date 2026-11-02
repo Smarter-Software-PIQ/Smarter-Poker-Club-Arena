@@ -188,6 +188,27 @@ describe('MTT attendance targets reach the serialized purchase authority', () =>
     expect(refused).not.toHaveBeenCalled();
   });
 
+  it.each([
+    'diamond_arena_closed',
+    'operator_floor_parked',
+    'tournament_not_seatable',
+    'tournament_not_found',
+  ])('ends the whole admission pass for %s without penalizing a Horse', async (reason) => {
+    const h = harness(10000, 10000, [horse, '00000000-0000-4000-8000-000000000002']);
+    const refused = vi.spyOn(h.svc.horseEntryBackoff, 'refused');
+    const original = h.rpc.getMockImplementation()!;
+    h.rpc.mockImplementation((name: string, args: any) =>
+      name === 'fn_register_horse_for_tournament_to_target'
+        ? (Promise.resolve({ data: { ok: false, reason }, error: null }) as any)
+        : original(name, args)
+    );
+    expect(await h.svc.registerHorses('event', 2, true)).toBe(0);
+    expect(refused).not.toHaveBeenCalled();
+    expect(
+      h.rpc.mock.calls.filter(([name]) => name === 'fn_register_horse_for_tournament_to_target')
+    ).toHaveLength(1);
+  });
+
   it.each([NaN, Infinity, -1, 1.5])(
     'refuses invalid targets before a purchase: %s',
     async (target) => {

@@ -25,7 +25,7 @@ declares the new authority so an engine cannot activate without its prerequisite
 
 ## Regression protection and local qualification
 
-- The existing required accounting chain now runs 57 actual-wrapper/cap-lock
+- The existing required accounting chain now runs 69 actual-wrapper/cap-lock
   checks, including the before/after race, 80 overlapping inputs stopping at
   exactly 31 entries, paid/ticket replay, invalid targets, rollback, permissions
   and a positively observed lock wait where closure wins before admission.
@@ -91,3 +91,18 @@ database before entering that deadline, verifies every copied object ID and
 copies the real reachable commit graph for immutable ancestry, with no shared
 object alternate inside the timed helper. Normal Git fsck stays enabled. No production
 controller, deadline, source identity, policy or admission assertion changes.
+
+## Installed admission authority and event-level refusals
+
+Read-only production inspection found that the captured gate predated the
+installed October 31 Diamond owner-closure guard. The fixture now uses the
+byte-identical gate from that protected migration, verified against production
+at 17:05:25 UTC: definition MD5 `2622a05f060e54b18204205fc08bc7e9`,
+body MD5 `53ee3a9093eaa3388d1e2c70bbdcfe98`. It preserves the existing
+closure, operator park and paid-entry continuation rules. No live gate changes.
+
+Four reproduced caller regressions showed event-wide closure/park/missing/
+completed refusals penalizing individual Horses and consuming the remaining
+offer queue. The caller now ends that pass normally on those authoritative
+refusals. Unit and native regressions retain zero new charges and the existing
+paid replay exemption. This introduces no new hold or closure.
