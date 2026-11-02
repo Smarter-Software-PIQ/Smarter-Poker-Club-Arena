@@ -70,6 +70,35 @@ class NativeLogReader(unittest.TestCase):
             with patch.object(reader.urllib.request, 'build_opener', return_value=Mock(open=Mock(return_value=context))):
                 self.assertEqual(reader.incident_health()['status'], 'unavailable')
 
+    def test_broken_http_framing_is_unavailable_and_ordinary_reads_still_refuse(self):
+        import http.client
+        import http.server
+        import threading
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Transfer-Encoding', 'chunked')
+                self.end_headers()
+                self.wfile.write(b'PRIVATE-invalid-chunk-size\r\n')
+            def log_message(self, *args):
+                pass
+        server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            origin = 'http://127.0.0.1:'+str(server.server_port)
+            with self.assertRaises(http.client.IncompleteRead):
+                reader.health(origin)
+            result = reader.incident_health(origin)
+            self.assertEqual(result['status'], 'unavailable')
+            self.assertIsNone(result['identity'])
+            self.assertEqual(result['failure']['category'], 'io_unavailable')
+            self.assertNotIn('PRIVATE', json.dumps(result))
+        finally:
+            server.shutdown()
+            thread.join(timeout=1)
+            server.server_close()
+
     def test_restart_incident_collects_during_health_outage(self):
         import base64
         import io
@@ -79,7 +108,7 @@ class NativeLogReader(unittest.TestCase):
         encoded = base64.b64encode(json.dumps(request).encode()).decode()
         evidence = {'sources': {'kernel': {'status': 'observed', 'records': []}}}
         with patch.object(sys, 'argv', ['reader', '--remote', encoded]), \
-             patch.object(reader, 'health', side_effect=OSError('PRIVATE health failed')), \
+             patch.object(reader, 'health', side_effect=reader.http.client.BadStatusLine('PRIVATE health failed')), \
              patch.object(reader, 'capture', side_effect=OSError('PRIVATE container unavailable')), \
              patch.object(reader, 'archived_window', return_value=([], {'status': 'unavailable'})), \
              patch.object(reader, 'read_restart_incident', return_value=evidence) as host_read, \

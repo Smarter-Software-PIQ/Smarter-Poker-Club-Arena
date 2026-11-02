@@ -1,0 +1,16 @@
+{
+  "_owner": "fix/old-tournament-diamond-retirement-01a19ccc",
+  "_comment": "Source declaration only, pending protected-main installation and live readback. Exact 140 owner-directed deletions; no transfers or deletion are executed by this migration.",
+  "tables": ["smarter_private.owner_tournament_deletion_intents"],
+  "columns": {
+    "smarter_private.owner_tournament_deletion_intents": [
+      "tournament_id",
+      "original_started_at",
+      "asset",
+      "destination_id",
+      "owner_chat_id",
+      "requested_at"
+    ]
+  },
+  "functions": ["smarter_private.owner_tournament_deletion_manifest_is_immutable"]
+}

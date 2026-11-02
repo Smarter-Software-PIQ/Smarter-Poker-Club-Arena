@@ -11287,13 +11287,61 @@ export abstract class ServerTableEngineBase {
     }
   }
 
-  protected async saveSnapshot(): Promise<void> {
-    if (!this.handController || !this.tableInfo) return;
+  private cachedSnapshotHandConfig: {
+    controller: HandController;
+    handNumber: number;
+    gameVariant: GameVariant;
+    smallBlind: number;
+    bigBlind: number;
+    ante: number | undefined;
+    isTournament: boolean;
+    seatCount: number | null;
+    bbjPercent: number | null | undefined;
+    rakePercent: number | null | undefined;
+    rakeCapBB: number | null | undefined;
+    unionId: string | null | undefined;
+    clubRakeDefaults: {
+      rakePercent: number | null;
+      rakeCapBB: number | null;
+      unionId?: string | null;
+    } | null;
+    diamondRakeSchedule: ReturnType<HandController['getDiamondRakeScheduleSnapshot']>;
+    config: HandConfig;
+  } | null = null;
 
-    const state = this.handController.getState();
+  protected resolveSnapshotHandConfig(): HandConfig {
+    const controller = this.handController!;
+    const info = this.tableInfo!;
+    const gameVariant = this.dealtGameVariant() as GameVariant;
+    const isTournament = this.isTournamentTable();
+    const seatCount = this.tableSeatCount();
+    const bbjPercent = (info as any)?.bbj_percent as number | null | undefined;
+    const rakePercent = info.rake_percent;
+    const rakeCapBB = info.rake_cap_bb;
+    const unionId = info.union_id;
+    const clubRakeDefaults = this.clubRakeDefaults;
+    const diamondRakeSchedule = controller.getDiamondRakeScheduleSnapshot();
 
-    // Serialize state — exclude `deck` (internal Deck instance, not JSON-safe)
-    const { deck, ...serializableState } = state as any;
+    const cached = this.cachedSnapshotHandConfig;
+    if (
+      cached &&
+      cached.controller === controller &&
+      cached.handNumber === this.handCount &&
+      cached.gameVariant === gameVariant &&
+      cached.smallBlind === info.small_blind &&
+      cached.bigBlind === info.big_blind &&
+      cached.ante === info.ante &&
+      cached.isTournament === isTournament &&
+      cached.seatCount === seatCount &&
+      cached.bbjPercent === bbjPercent &&
+      cached.rakePercent === rakePercent &&
+      cached.rakeCapBB === rakeCapBB &&
+      cached.unionId === unionId &&
+      cached.clubRakeDefaults === clubRakeDefaults &&
+      cached.diamondRakeSchedule === diamondRakeSchedule
+    ) {
+      return cached.config;
+    }
 
     const fullRakeConfig = this.getFullRakeAndBBJConfig();
 
@@ -11301,12 +11349,12 @@ export abstract class ServerTableEngineBase {
       tableId: this.tableId,
       handNumber: this.handCount,
       gameVariant: this.dealtGameVariant() as GameVariant,
-      smallBlind: this.tableInfo.small_blind,
-      bigBlind: this.tableInfo.big_blind,
-      ante: this.tableInfo.ante,
+      smallBlind: info.small_blind,
+      bigBlind: info.big_blind,
+      ante: info.ante,
       // RAKE-AUDIT 2026-07-24: same tournament guard + BBJ default-enabled as
       // the primary hand-config site — see buildHandConfig comments there.
-      rakeConfig: this.isTournamentTable()
+      rakeConfig: isTournament
         ? { percent: 0, cap: 0, noFlopNoDrop: true }
         : {
             cashPolicy: { version: 1, scope: this.getRakeOverride()?.scope ?? 'standard' },
@@ -11316,22 +11364,50 @@ export abstract class ServerTableEngineBase {
             // FIX 166: Bible V8 §7.19 — player-count-based rake caps
             // (heads-up = 50% everywhere; 3-handed = 75% on a nine-max table
             // and the full cap on a 6/7/8-max one, Dan 2026-09-14).
-            playerCountCaps: getPlayerCountCaps(fullRakeConfig.rakeCap, this.tableSeatCount()),
+            playerCountCaps: getPlayerCountCaps(fullRakeConfig.rakeCap, seatCount),
           },
       /* The snapshot records how this hand WAS priced, so it carries the
          Diamond schedule the live controller is holding rather than a fresh
          read that could differ from it. Null on every chip hand. */
-      diamondRakeSchedule: this.handController.getDiamondRakeScheduleSnapshot(),
+      diamondRakeSchedule,
       bbjConfig: {
-        enabled:
-          !this.isTournamentTable() &&
-          fullRakeConfig.bbjEnabled &&
-          ((this.tableInfo as any)?.bbj_percent ?? 100) > 0,
+        enabled: !isTournament && fullRakeConfig.bbjEnabled && (bbjPercent ?? 100) > 0,
         feeBB: fullRakeConfig.bbjFeeBB,
         minPotBB: fullRakeConfig.rules.minPotBB,
         minPlayersDealt: fullRakeConfig.rules.minPlayersDealt,
       },
     };
+
+    this.cachedSnapshotHandConfig = {
+      controller,
+      handNumber: this.handCount,
+      gameVariant,
+      smallBlind: info.small_blind,
+      bigBlind: info.big_blind,
+      ante: info.ante,
+      isTournament,
+      seatCount,
+      bbjPercent,
+      rakePercent,
+      rakeCapBB,
+      unionId,
+      clubRakeDefaults,
+      diamondRakeSchedule,
+      config,
+    };
+
+    return config;
+  }
+
+  protected async saveSnapshot(): Promise<void> {
+    if (!this.handController || !this.tableInfo) return;
+
+    const state = this.handController.getState();
+
+    // Serialize state — exclude `deck` (internal Deck instance, not JSON-safe)
+    const { deck, ...serializableState } = state as any;
+
+    const config = this.resolveSnapshotHandConfig();
 
     await saveHandStateSnapshot({
       tableId: this.tableId,

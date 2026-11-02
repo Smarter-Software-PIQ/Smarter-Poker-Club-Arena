@@ -2,6 +2,7 @@
 """One explicit, bounded read of existing engine logs. Never a release route."""
 import base64
 import datetime
+import http.client
 import json
 import math
 import os
@@ -1468,7 +1469,7 @@ def failure_diagnostic(error):
                 or (isinstance(error, RuntimeError) and str(error) == 'Log read timed out')
                 else 'invalid_json' if isinstance(error, json.JSONDecodeError)
                 else 'subprocess_exit' if isinstance(error, subprocess.CalledProcessError)
-                else 'io_unavailable' if isinstance(error, OSError)
+                else 'io_unavailable' if isinstance(error, (OSError, http.client.HTTPException))
                 else 'input_bound' if isinstance(error, RuntimeError) and str(error) in {
                     'Log read exceeded bounded input', 'Log read exceeded bounded physical lines'}
                 else 'identity_mismatch' if isinstance(error, RuntimeError) and str(error) in {
@@ -1503,7 +1504,7 @@ def incident_health(origin='https://engine.smarter.poker'):
     """Health is evidence, not admission, ONLY for explicit restart forensics."""
     try:
         return {'status': 'observed', 'identity': health(origin)}
-    except (OSError, ValueError, RuntimeError) as error:
+    except (OSError, ValueError, RuntimeError, http.client.HTTPException) as error:
         if isinstance(error, urllib.error.HTTPError):
             error.close()
         return {'status': 'unavailable', 'identity': None,

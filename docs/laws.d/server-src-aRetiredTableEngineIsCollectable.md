@@ -1,0 +1,3 @@
+# server/src/aRetiredTableEngineIsCollectable.law.test.ts
+
+A retired table engine is garbage (2026-11-02): engine-01 serving eed06fe5 died 15 times in 72 hours on V8 heap exhaustion while closed Diamond tournament tables were retired about 220 times a minute, because a strong GameServer registry (weeklyPayoutTableListeners, fixed by #8692) kept every retired generation reachable. With the real GameServer and ServerTableEngine and a forced full GC, a generation that was stopped and left the registry through tournament unregister, the failed-start fence, replacement or cash unregister must be collectable; eed06fe5 retains all of them, and any future registry that holds engines strongly fails this law.
