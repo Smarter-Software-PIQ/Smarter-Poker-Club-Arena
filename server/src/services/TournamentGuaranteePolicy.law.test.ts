@@ -23,6 +23,26 @@ describe('November midnight tournament guarantee reduction', () => {
     expect(apply(base)).toEqual({ ...base, name: 'Nightly 5K (NLH)', guaranteed_prize: 5000 });
     expect(base.guaranteed_prize).toBe(10000);
   });
+  it('keeps the exact nightly 35-chip rebuy schedule at 10K', () => {
+    expect(apply({ ...base, schedule_id: '099ac5a4-c866-4acb-917c-31337bf468b1' })).toEqual({
+      ...base,
+      schedule_id: '099ac5a4-c866-4acb-917c-31337bf468b1',
+    });
+    expect(apply({ ...base, schedule_id: 'another-schedule' }).guaranteed_prize).toBe(5000);
+  });
+  it('uses 1.5K for both 1.2K and 1.25K reduced guarantees without touching stacks', () => {
+    for (const original of [2400, 2500]) {
+      const result = apply({ ...base, guaranteed_prize: original, name: `${original} GTD` });
+      expect(result.guaranteed_prize).toBe(1500);
+      expect(result.name).toBe('1500 GTD');
+      expect(result.starting_chips).toBe(20000);
+    }
+    expect(apply({ ...base, guaranteed_prize: 3000 }).guaranteed_prize).toBe(1500);
+    expect(
+      apply({ ...base, guaranteed_prize: 500, schedule_id: '39518fc3-ee0b-4e45-83ae-3619aa9a5c07' })
+        .guaranteed_prize
+    ).toBe(500);
+  });
   it('preserves the 200 entry 25k guarantee, but not other 200 entry amounts', () => {
     expect(
       apply({ ...base, buy_in_amount: 180, buy_in_fee: 20, guaranteed_prize: 25000 })

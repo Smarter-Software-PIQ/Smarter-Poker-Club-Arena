@@ -1,9 +1,9 @@
-# Bounded guarantee cutover
+# Final nightly and small guarantee terms
 
-The old engine created another future event during deployment. Complete the authorized guarantee rollout for the finite set created from November 2 02:31 UTC through installation, using 81 captured schedule IDs and original amounts from 136 observed instances. Each schedule had one original amount, including native Diamond amounts; no template or currency conversion is guessed.
+The owner revised the guarantee instruction before the pending cutover migration merged: keep the nightly 7pm 35-chip rebuy/add-on at 10K; raise both 1,200 and 1,250 to 1,500; leave every other current amount unchanged. The previous uninstalled schedule-wide reduction is replaced, retaining its reserved version. No further reduction of the existing Six-Card 500 event is installed.
 
-The permanent scheduled-tournament source policy remains the owner of future creation. This explicit migration neither adds a trigger nor schedules repairs. Original-amount matching preserves events already halved. Existing commitments, the 200 entry / 25K exception, unknown schedules, changed amounts, earlier creation dates and pre-cutoff starts remain unchanged.
+The exact nightly schedule identity preserves its 10K in the permanent creation policy. Both reduced 1.2K and 1.25K become 1.5K; the existing Six-Card schedule keeps its current 500. Other reduced creation terms and the 200/25K exception remain intact. The migration changes only those future, unentered, unlocked amounts and guarantee labels; entered/finalized commitments and all unrelated rows remain unchanged.
 
-The existing native Accounting qualification executes the exact migration twice, checks every captured schedule plus 12 timing and preservation boundaries, and rechecks the original guarantee and transition proofs. Protected installation and a final live census are still required.
+The maintained native accounting qualification executes installation twice with the actual registered-contract trigger, validates nightly and both small amounts, and compares every unrelated row with its before image. Focused engine regressions cover the future creation policy and preserve all other entry and stack terms.
 
-The shared accounting gate also required the already-qualified rake-calendar fixture correction from 944ffb2. After the fall DST boundary, the legacy rolling reader can return two hands with seven rake chips while the calendar reader correctly returns two hands with five. The before-fix reproducer now compares both values, matching the unchanged independent after-fix assertion. No production reader, migration, clock, or financial assertion is changed.
+The shared rake-calendar before fixture also retains the qualified DST correction: compare both hands and rake so legacy two-hands/seven-rake is correctly distinguished from calendar two-hands/five-rake. No production reader or financial assertion is weakened.
