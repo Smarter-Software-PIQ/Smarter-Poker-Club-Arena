@@ -146,14 +146,32 @@ async function clickControl(locator: Locator, options?: Parameters<Locator['clic
   persistProgress(page);
   await test.step(control, async () => {
     try {
-      action.before = await locator.evaluateAll((elements) =>
+      const geometry = await locator.evaluateAll((elements) =>
         elements.map((element) => {
           const rect = element.getBoundingClientRect();
           const details = element.closest('details');
           const ancestors = [];
+          let fullyVisible =
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.top >= 0 &&
+            rect.left >= 0 &&
+            rect.bottom <= innerHeight &&
+            rect.right <= innerWidth;
           for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            const css = getComputedStyle(parent);
+            const box = parent.getBoundingClientRect();
+            if (
+              /(auto|scroll|hidden|clip)/.test(css.overflowY) &&
+              (rect.top < box.top || rect.bottom > box.bottom)
+            )
+              fullyVisible = false;
+            if (
+              /(auto|scroll|hidden|clip)/.test(css.overflowX) &&
+              (rect.left < box.left || rect.right > box.right)
+            )
+              fullyVisible = false;
             if (parent.scrollHeight > parent.clientHeight) {
-              const box = parent.getBoundingClientRect();
               ancestors.push({
                 className: parent.className,
                 scrollTop: parent.scrollTop,
@@ -164,48 +182,26 @@ async function clickControl(locator: Locator, options?: Parameters<Locator['clic
               });
             }
           }
+          const css = getComputedStyle(element);
           return {
             text: element.textContent?.trim().slice(0, 100),
             rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
             detailsOpen: details?.open,
-            display: getComputedStyle(element).display,
-            visibility: getComputedStyle(element).visibility,
+            display: css.display,
+            visibility: css.visibility,
             ancestors,
+            fullyVisible,
           };
         })
       );
+      action.before = geometry;
       action.beforeElapsedMs = Date.now() - started;
       action.phase = 'native-scroll';
       persistProgress(page);
-      // Scroll the real overflow owner before Playwright's actionability check.
-      // Retain the ordinary visible, stable, enabled and hit-target checks.
-      const fullyVisible = await locator.evaluate((element) => {
-        const box = element.getBoundingClientRect();
-        if (
-          box.width <= 0 ||
-          box.height <= 0 ||
-          box.top < 0 ||
-          box.left < 0 ||
-          box.bottom > innerHeight ||
-          box.right > innerWidth
-        )
-          return false;
-        for (let owner = element.parentElement; owner; owner = owner.parentElement) {
-          const css = getComputedStyle(owner);
-          const clip = owner.getBoundingClientRect();
-          if (
-            /(auto|scroll|hidden|clip)/.test(css.overflowY) &&
-            (box.top < clip.top || box.bottom > clip.bottom)
-          )
-            return false;
-          if (
-            /(auto|scroll|hidden|clip)/.test(css.overflowX) &&
-            (box.left < clip.left || box.right > clip.right)
-          )
-            return false;
-        }
-        return true;
-      });
+      // This same native reading records all clipping ancestors and decides
+      // whether a preliminary scroll is needed. The ordinary click still
+      // enforces uniqueness, visibility, stability, enabled state and hit target.
+      const fullyVisible = geometry.length === 1 && geometry[0].fullyVisible;
       action.scrollRequired = !fullyVisible;
       if (!fullyVisible) await locator.scrollIntoViewIfNeeded({ timeout: 10_000 });
       action.scrollElapsedMs = Date.now() - started;
@@ -1438,8 +1434,11 @@ async function setup(page: Page) {
               'The complete tournament board membership scope changed during this case'
             );
           observedScope = tournamentScope;
+          persistProgress(page);
         }
-        persistProgress(page);
+        // Every ancillary witness remains in memory and is included in the
+        // next action/membership/finally snapshot. Rewriting the entire census
+        // for each satellite target-name response stalls the actual controls.
       }
       observe(
         url.pathname,

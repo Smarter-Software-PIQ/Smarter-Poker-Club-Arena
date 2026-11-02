@@ -1,0 +1,9 @@
+# Preserve An Open Lobby Filter Interaction During Publication
+
+AdvancedFilters now holds the existing shell-adoption lease while its real advanced or Sort-only sheet is mounted. Closing, applying, Escape, backdrop dismissal and unmount release only that sheet's lease. Other active leases remain intact, and normal shell adoption resumes after the sheet closes. No shell-update timers, animation rules or reload eligibility checks changed.
+
+The hosted run 41382267023 lost its SATELLITE document during a Micro interaction. First-party telemetry recorded a reload at 03:31:14.558919Z with page age 65,343ms, immediately before the failed 03:31:14.990Z interaction. That timing and the Loading Content screenshot support shell adoption as the cause; the deleted isolated account's UUID was not retained, so the telemetry row cannot be independently attributed to it. The source path independently allowed adoption during an open sheet. Six mounted lifetime regressions failed against the old implementation and pass with the lease; the five existing control tests remain passing.
+
+The same nine-case live audit retains every control, independent membership assertion, ordinary click actionability check, viewport, native visual DPR and existing budget. It now measures target/ancestor clipping once per click and retains all satellite target-name query witnesses without rewriting the complete growing evidence snapshot for every ancillary response. Actual census responses, action transitions, membership checks and finalization still persist the accumulated evidence. The filter-only runtime catalogue also pins the existing lease and shell-update consumer; older proof modes are unchanged.
+
+The prior live run remains failed, with verified account cleanup and no complete report. These changes require protected delivery and a new complete live certificate before acceptance.
