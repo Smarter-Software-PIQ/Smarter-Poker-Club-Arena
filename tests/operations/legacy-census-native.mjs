@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 assert.equal(process.version, 'v22.23.2');
 assert.equal(process.versions.v8, '12.4.254.21-node.56');
 const addon = require(process.argv[2]);
+assert.equal(addon.prototypeCacheBytes,1048576);
 const scenario = process.argv[3] ?? 'bounded';
 const MiB = 1024 * 1024;
 const memory = () => ({ used: getHeapStatistics().used_heap_size,
@@ -40,7 +41,9 @@ if (scenario === 'near-limit') {
 if (scenario === 'scan-deadline') {
   let chain = Object.prototype;
   for(let i=0;i<200;i++) chain=Object.create(chain);
-  globalThis.deadlineBallast=Array.from({length:200000},()=>Object.create(chain));
+  // 100k owners plus 100k distinct first prototypes preserve the original
+  // roughly 200k-object footprint while retaining a real uncached deep span.
+  globalThis.deadlineBallast=Array.from({length:100000},()=>Object.create(Object.create(chain)));
 }
 if (scenario === 'overflow' || scenario === 'at-cap') {
   globalThis.overflowOwners = Array.from({ length:scenario === 'overflow' ? addon.maxMatches+1 : addon.maxMatches-12 }, () => new types[0]());
@@ -53,7 +56,29 @@ const modules = {gameServer:{GameServer:types[0]},engine:{ServerTableEngine:type
  manager:{TournamentManager:types[2]},lightningWorker:{LightningClusterWorker:types[3]},lightningHost:{LightningHandHost:types[4]}};
 try {
   if (!connected) for (const top of tops) Object.setPrototypeOf(top, marker);
-  if (scenario === 'eed-profile') {
+  if (scenario === 'cache-saturation') {
+    const anchor=Object.create(Object.create(marker));
+    const prototypes=Array.from({length:5000},()=>Object.create(anchor));
+    const extra=prototypes.map(p=>Object.create(p));
+    const namespace=await import('node:fs');
+    globalThis.cacheSaturation={prototypes,extra,namespace};
+    const first=addon.collect(marker,Date.now()+30000,process.availableMemory());
+    for(const value of [...owned,detached(),...prototypes,...extra])assert.ok(first.includes(value));
+    for(const value of [proxy,throughProxy,foreign,namespace])assert.equal(first.includes(value),false);
+    prototypes.forEach(p=>Object.setPrototypeOf(p,null));
+    result=addon.collect(marker,Date.now()+30000,process.availableMemory());
+    for(const value of [...prototypes,...extra])assert.equal(result.includes(value),false);
+    for(const value of [...owned,detached()])assert.ok(result.includes(value));
+  } else if (scenario === 'cache-depth-boundaries') {
+    let chain=marker;
+    for(let i=0;i<256;i++)chain=Object.create(chain);
+    const accepted=Object.create(chain);globalThis.cacheDepthBoundary=accepted;
+    result=addon.collect(marker,Date.now()+30000,process.availableMemory());
+    assert.ok(result.includes(accepted),'marker at exact depth256 must be accepted');
+    globalThis.cacheDepthRefusal=Object.create(accepted);
+    assert.throws(()=>addon.collect(marker,Date.now()+30000,process.availableMemory()),/topology/);
+    assert.equal(addon.diagnostics().arrayAllocated,false);
+  } else if (scenario === 'eed-profile') {
     // Same concrete five classes and detached owner, with the exact opt-in.
     result = addon.collect(marker, Date.now()+58000, process.availableMemory(), 'eed-80s-v1');
     for (const value of [...owned, detached()]) assert.ok(result.includes(value));
@@ -118,13 +143,13 @@ try {
     for (const value of globalThis.overflowOwners) assert.ok(result.includes(value));
   } else if (scenario === 'headroom-refusal') {
     // The same real process under a 48 MiB heap must refuse before collection.
-    assert.ok(before.available < 32*MiB + addon.managedOutputBytes);
+    assert.ok(before.available < 32*MiB + addon.managedOutputBytes + addon.prototypeCacheBytes);
     assert.throws(() => addon.collect(marker, Date.now()+30000, process.availableMemory()), /memory headroom/);
   } else {
     if (scenario === 'near-limit') {
       assert.ok(before.used+32*MiB > before.available, 'old managed guard must refuse');
-      assert.ok(before.available >= 32*MiB+addon.managedOutputBytes, 'derived output must fit');
-      assert.ok(before.process >= before.used*8+32*MiB, 'unchanged real process guard must pass');
+      assert.ok(before.available >= 32*MiB+addon.managedOutputBytes+addon.prototypeCacheBytes, 'derived output and cache must fit');
+      assert.ok(before.process >= before.used*8+32*MiB+addon.prototypeCacheBytes, 'unchanged real process guard plus cache must pass');
     }
     const deadline = Date.now()+30000;
     if (scenario === 'bounded') {
@@ -152,4 +177,4 @@ for (const top of tops) assert.equal(Object.getPrototypeOf(top),Object.prototype
 assert.ok(detached() instanceof types[2]);
 console.log(JSON.stringify({ok:true,scenario,node:process.version,platform:process.platform,arch:process.arch,
   before,after:memory(),matched:result?.length??null,prototypeRestored:true,proxyTraps:traps,
-  managedOutputBytes:addon.managedOutputBytes,maxMatches:addon.maxMatches,attempt:addon.diagnostics()}));
+  managedOutputBytes:addon.managedOutputBytes,prototypeCacheBytes:addon.prototypeCacheBytes,maxMatches:addon.maxMatches,attempt:addon.diagnostics()}));

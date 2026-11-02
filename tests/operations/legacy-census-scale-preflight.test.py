@@ -29,8 +29,8 @@ def valid_result():
             'transport':{'ok':True,'closed':True,'outerMs':19000},
             'count':35000000, 'prototypeRestored':True, 'matched':11, 'node':'v22.23.2',
             'v8':'12.4.254.21-node.56', 'platform':'linux', 'arch':'x64',
-            'sourceSHA256':'7840d64c30a0c179b50380d9dad9c9bb51027a690d50dc32422856ea56662506',
-            'binarySHA256':'b'*64, 'before':{'used':3913011648, 'available':322107592,
+            'sourceSHA256':'4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1',
+            'prototypeCacheBytes':1048576, 'binarySHA256':'b'*64, 'before':{'used':3913011648, 'available':322107592,
             'process':50471874560}, 'queryMs':19000, 'fixtureMs':34000,
             'cgroupPeak':5*1024**3, 'maxRSSKiB':4000000,
             'attempt':{'predicateVisits':35010000, 'arrayAllocated':True, 'deadlineRefused':False},
@@ -98,7 +98,7 @@ class ScaleBoundary(unittest.TestCase):
     def test_actual_measurement_validation_never_treats_smaller_case_as_scale(self):
         value = valid_result()
         m.validate_result(value, 'f'*64)
-        alterations = [('count',34999999), ('queryMs',20001), ('fixtureMs',35001),
+        alterations = [('count',34999999), ('queryMs',20001), ('fixtureMs',35001), ('prototypeCacheBytes',0),
                        ('collectorSHA256','0'*64), ('transport',{'ok':True,'closed':False,'outerMs':1}),
                        ('transport',{'ok':True,'closed':True,'outerMs':30001}), ('prototypeRestored',False), ('node','v26.0.0'), ('matched',10)]
         for key, replacement in alterations:

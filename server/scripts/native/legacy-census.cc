@@ -8,6 +8,7 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#include <array>
 #ifndef LEGACY_CENSUS_SOURCE_SHA256
 #error "Maintained source hash must be supplied by the pinned build"
 #endif
@@ -15,6 +16,11 @@
 namespace legacy_census {
 constexpr size_t kMatches = 4000 + 4000 + 2000 + 4000 + 4000 + 4096;
 constexpr size_t kCleanup = 32 * 1024 * 1024;
+constexpr size_t kPrototypeEntries = 4096;
+constexpr size_t kPrototypeSlots = 8192;
+constexpr size_t kPrototypeProbes = 8;
+// Fixed cache and at most 4096 escaped local handles plus handle-block slack.
+constexpr size_t kPrototypeReserve = 1024 * 1024;
 // Array::New(values,n) allocates one fixed backing store and one JSArray.
 // Four full-width pointers per element + 64 KiB for headers/alignment/result
 // metadata conservatively exceed the pinned V8 allocation (see contract).
@@ -38,12 +44,68 @@ struct Attempt {
   bool overflow = false, deadlineRefused = false, arrayAllocated = false;
 };
 thread_local Attempt lastAttempt;
+// Local pins escape only on insertion. The pinned QueryObjects second pass
+// uses the explicit Collect scope with no per-iteration scope; entries are never
+// read after that call returns. No Global handles or young-global list growth.
+class PrototypeCache final {
+ public:
+  struct Entry { v8::Local<v8::Object> prototype; bool matches = false; };
+  bool Lookup(v8::Local<v8::Object> prototype, int hash,
+              bool* matches, size_t* vacant) const {
+    *vacant = kPrototypeSlots;
+    const size_t start = static_cast<unsigned>(hash) & (kPrototypeSlots - 1);
+    for (size_t probe = 0; probe < kPrototypeProbes; ++probe) {
+      const size_t slot = (start + probe) & (kPrototypeSlots - 1);
+      const auto index = slots_[slot];
+      if (index == 0) { *vacant = slot; return false; }
+      const auto& entry = entries_[index - 1];
+      if (entry.prototype->StrictEquals(prototype)) {
+        *matches = entry.matches; return true;
+      }
+    }
+    return false;
+  }
+  bool CanStore(size_t vacant) const {
+    return vacant != kPrototypeSlots && size_ < kPrototypeEntries;
+  }
+  void Store(v8::Local<v8::Object> prototype, size_t vacant, bool matches) {
+    entries_[size_] = {prototype, matches};
+    slots_[vacant] = static_cast<uint16_t>(++size_);
+  }
+ private:
+  std::array<Entry, kPrototypeEntries> entries_{};
+  std::array<uint16_t, kPrototypeSlots> slots_{};
+  size_t size_ = 0;
+};
+static_assert(sizeof(PrototypeCache) + kPrototypeEntries * 16 + 32768 < kPrototypeReserve,
+              "Fixed cache, one pin per entry, plus handle-block slack");
 class Predicate final : public v8::QueryObjectPredicate {
  public:
   Predicate(v8::Local<v8::Context> context, v8::Local<v8::Object> marker,
             int64_t deadline)
       : context_(context), marker_(marker), deadline_(deadline) {}
   bool Filter(v8::Local<v8::Object> object) override {
+    bool store = false;
+    size_t vacant = kPrototypeSlots;
+    const bool matches = Classify(object, &store, &vacant);
+    if (store && cache_.CanStore(vacant)) {
+      // Classify's ordinary scope has CLOSED. Only a newly completed entry
+      // allocates an escape slot in QueryObjects' enclosing scope. No user
+      // callback or microtask can mutate this ordinary prototype between reads.
+      v8::EscapableHandleScope pin(context_->GetIsolate());
+      const auto prototype = object->GetPrototype().As<v8::Object>();
+      cache_.Store(pin.Escape(prototype), vacant, matches);
+    }
+    if (!matches) return false;
+    if (++lastAttempt.matched > kMatches) {
+      lastAttempt.overflow = true;
+      return false;
+    }
+    return true;
+  }
+  bool failed_ = false;
+ private:
+  bool Classify(v8::Local<v8::Object> object, bool* store, size_t* vacant) {
     // QueryObjects does not scope its second-pass predicate callbacks. Keep
     // context/prototype traversal handles local to this visit. Matches are
     // promoted by V8 after this boolean predicate returns.
@@ -62,28 +124,41 @@ class Predicate final : public v8::QueryObjectPredicate {
     if (!object->GetCreationContext().ToLocal(&creation) || creation != context_)
       return false;
     v8::Local<v8::Value> cursor = object->GetPrototype();
-    for (size_t depth = 0; cursor->IsObject(); ++depth) {
+    if (!cursor->IsObject()) return false;
+    const auto prototype = cursor.As<v8::Object>();
+    // Preserve the original common shallow path without hashing or pinning.
+    // Only a chain deeper than these exact first two iterations uses the cache.
+    for (size_t depth = 0; depth < 2; ++depth) {
+      if (!cursor->IsObject()) return false;
+      if (cursor->IsProxy()) return false;
+      if (cursor == marker_) return true;
+      cursor = cursor.As<v8::Object>()->GetPrototype();
+    }
+    if (!cursor->IsObject()) return false;
+    // Pinned V8 implementation executes identity hashing without GC or script.
+    const int hash = prototype->GetIdentityHash();
+    bool cached;
+    if (cache_.Lookup(prototype, hash, &cached, vacant)) return cached;
+    for (size_t depth = 2; cursor->IsObject(); ++depth) {
       if (cursor->IsProxy()) return false;
       if (cursor == marker_) {
-        if (++lastAttempt.matched > kMatches) {
-          lastAttempt.overflow = true;
-          return false;
-        }
+        *store = true;
         return true;
       }
       if (depth >= 256) { failed_ = true; return false; }
       cursor = cursor.As<v8::Object>()->GetPrototype();
     }
+    *store = true;
     return false;
   }
-  bool failed_ = false;
- private:
+  PrototypeCache cache_;
   v8::Local<v8::Context> context_;
   v8::Local<v8::Object> marker_;
   int64_t deadline_;
 };
 void Collect(const v8::FunctionCallbackInfo<v8::Value>& args) {
   auto* isolate = args.GetIsolate();
+  v8::HandleScope collect_handles(isolate);
   auto context = isolate->GetCurrentContext();
   lastAttempt = Attempt{};
   const bool eed_profile = args.Length() == 4 && args[3]->IsString() &&
@@ -108,9 +183,9 @@ void Collect(const v8::FunctionCallbackInfo<v8::Value>& args) {
   const auto deadline = static_cast<int64_t>(deadline_value);
   v8::HeapStatistics before;
   isolate->GetHeapStatistics(&before);
-  const double process_required = before.used_heap_size() * 8.0 + kCleanup;
+  const double process_required = before.used_heap_size() * 8.0 + kCleanup + kPrototypeReserve;
   if (process_available < process_required ||
-      before.total_available_size() < kCleanup + kManagedOutput) {
+      before.total_available_size() < kCleanup + kManagedOutput + kPrototypeReserve) {
     Refuse(isolate, "native census memory headroom refused"); return;
   }
   // The EED-only extended profile keeps the qualified 12ms/decimal-MB
@@ -143,7 +218,7 @@ void Collect(const v8::FunctionCallbackInfo<v8::Value>& args) {
   }
   v8::HeapStatistics after;
   isolate->GetHeapStatistics(&after);
-  if (after.total_available_size() < kCleanup + kManagedOutput) {
+  if (after.total_available_size() < kCleanup + kManagedOutput + kPrototypeReserve) {
     Refuse(isolate, "native census post-query headroom refused"); return;
   }
   v8::MicrotasksScope microtasks(context, v8::MicrotasksScope::kDoNotRunMicrotasks);
@@ -183,6 +258,9 @@ void Initialize(v8::Local<v8::Object> exports) {
   exports->CreateDataProperty(context,
       v8::String::NewFromUtf8Literal(isolate, "maxMatches"),
       v8::Integer::New(isolate, kMatches)).Check();
+  exports->CreateDataProperty(context,
+      v8::String::NewFromUtf8Literal(isolate, "prototypeCacheBytes"),
+      v8::Integer::New(isolate, kPrototypeReserve)).Check();
   exports->CreateDataProperty(context,
       v8::String::NewFromUtf8Literal(isolate, "managedOutputBytes"),
       v8::Integer::New(isolate, kManagedOutput)).Check();
