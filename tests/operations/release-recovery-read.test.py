@@ -33,6 +33,118 @@ def kernel_evidence(owner='unknown'):
             else {'stage':'snapshot','code':'unproved'})
 
 
+
+class RetainedFirstRefusalTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(prefix='retained-refusal-',dir=os.environ.get('TMPDIR'))
+        self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name)
+        self.control='b'*40
+        self.generations=self.root/'generations'
+        self.generation=self.generations/self.control
+        self.generation.mkdir(parents=True,mode=0o700)
+        for name in R.RETAINED_REFUSAL_SOURCES:
+            (self.generation/name).write_bytes((ROOT/'server/scripts'/name).read_bytes())
+        self.requests=self.root/'engine-release-requests';self.requests.mkdir(mode=0o700)
+        self.pins=self.root/'engine-release-generation-pins';self.pins.mkdir(mode=0o700)
+        self.request={'mode':'retained_first_refusal','runKey':'123-1','releaseSha':'a'*40,'controlSha':self.control}
+        self.request_path=self.requests/'123-1.request';self.pin_path=self.pins/'123-1.generation'
+        url='https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/runs/123'
+        self.request_path.write_text('a'*40+'\n'+url+'\nPRIVATE_ACTOR_DO_NOT_EXPORT\n'+str(self.generation)+'\n'+self.control+'\n1999999999\n')
+        self.pin_path.write_text(str(self.generation)+'\n'+self.control+'\n')
+        self.request_path.chmod(0o600);self.pin_path.chmod(0o600)
+        self.env={**os.environ,'ENGINE_RELEASE_STATE_DIR':str(self.root),'PYTHONDONTWRITEBYTECODE':'1'}
+        self.args=['python3','-B',str(ROOT/'server/scripts/engine-release-seal.py'),'diagnostic-first-refusal',
+            '--run-id','123-1','--sha','a'*40,'--control-sha',self.control,'--invocation-id','c'*32,
+            '--generation',str(self.generation),'--request',str(self.request_path),'--pin',str(self.pin_path),
+            '--run-url',url,'--origin','die','--exit-code','37']
+        for name,value in [('STATE_ROOT',self.root),('RETAINED_REFUSAL_GENERATIONS',self.generations)]:
+            patcher=patch.object(R,name,value);patcher.start();self.addCleanup(patcher.stop)
+        self.record=self.root/'engine-release-diagnostics/123-1.first-refusal.json'
+
+    def produce(self,attempt=False):
+        # Producer CLI/atomic fsync/trap behavior is separately enforced by the
+        # 13-case native wrapper. These independently assembled schema fixtures
+        # exercise the read-only parser without six repeated CLI startups.
+        binding={'runId':'123-1','targetSha':'a'*40,'controlSha':self.control,
+            'generation':str(self.generation),'requestSha256':hashlib.sha256(self.request_path.read_bytes()).hexdigest(),
+            'pinSha256':hashlib.sha256(self.pin_path.read_bytes()).hexdigest(),
+            'transactionSha256':R.RETAINED_REFUSAL_SOURCES['engine-release-transaction.sh'],
+            'producerSha256':R.RETAINED_REFUSAL_SOURCES['engine-release-seal.py']}
+        envelope={'diagnosticOnly':True,'binding':binding,'invocationId':'c'*32,'observedAt':'2026-11-02T16:12:13+00:00'}
+        directory=self.record.parent;directory.mkdir(mode=0o700)
+        original_attempt={**envelope,'schema':'engine-release-attempt/v1',
+            'terminalObservation':'UNKNOWN_UNTIL_FIRST_REFUSAL_OR_CANONICAL_RESULT'}
+        target=directory/('123-1.attempt-'+'c'*32+'.json')
+        target.write_text(json.dumps(original_attempt));target.chmod(0o600)
+        if attempt:return
+        state={k:'UNKNOWN' for k in ('checkpointRequired','drainedCutover','prepared','mutationStarted','lockHeld',
+            'checkpointBudgetSeconds','checkpointWorkMs','checkpointProfile','predecessorSha','certificateExitStatus','breakEndEpoch')}
+        value={**envelope,'schema':'engine-release-first-refusal/v1','origin':'die','stage':'UNKNOWN','exitCode':37,
+            'signal':'UNKNOWN','sourceLine':0,'sourceLineSha256':None,'command':'SOURCE_LINE_ONLY_NOT_ARGV',
+            'knownStateDigests':{k:None for k in ('seal','checkpointIntent','breakDeadline','awaitingCertificate')},
+            'checkpointPath':str(self.request_path.with_suffix('.legacy-checkpoint-intent')),'shellState':state,
+            'predecessor':{'selectedSha':'UNKNOWN','sealSha256':None},
+            'certificate':{'exitStatus':'UNKNOWN','breakEndEpoch':'UNKNOWN','deadlineSha256':None,'awaitingMarkerSha256':None}}
+        self.record.write_text(json.dumps(value));self.record.chmod(0o600)
+
+    def read(self):
+        with patch.object(R.subprocess,'run',side_effect=AssertionError('no command execution')):
+            return R.remote(self.request)
+
+    def test_retained_selector_is_exact(self):
+        self.assertEqual(R.selection(self.request),self.request)
+        for key,value in [('extra','path'),('controlSha','../escape'),('runKey','123'),('releaseSha','BAD')]:
+            wrong={**self.request,key:value}
+            with self.assertRaises(ValueError):R.selection(wrong)
+
+    def test_retained_read_after_cleanup_closed_projection_no_execution(self):
+        self.produce();self.request_path.unlink();self.pin_path.unlink()
+        before=self.record.read_bytes()
+        answer=self.read()
+        self.assertEqual(answer['observation'],'first_refusal_observed')
+        self.assertEqual(answer['exitCode'],37)
+        self.assertEqual(R.validate_reply(answer,self.request),answer)
+        serialized=json.dumps(answer)
+        for forbidden in ['PRIVATE_ACTOR','checkpointPath','generation/','/usr/local/','requestSha256']:
+            self.assertNotIn(forbidden,serialized)
+        self.assertEqual(self.record.read_bytes(),before)
+        self.assertLess(len(serialized.encode()),8192)
+
+    def test_retained_attempt_only_is_unknown_not_terminal(self):
+        self.produce(attempt=True);self.request_path.unlink();self.pin_path.unlink()
+        answer=self.read()
+        self.assertEqual(answer['observation'],'unknown_no_first_refusal')
+        self.assertEqual(answer['attemptCount'],0)
+        self.assertIsNone(answer['exitCode'])
+        self.assertTrue(answer['diagnosticOnly'])
+
+    def test_retained_corrupt_private_symlink_and_source_refuse(self):
+        self.produce();original=self.record.read_bytes()
+        self.record.chmod(0o644)
+        with self.assertRaises(ValueError):self.read()
+        self.record.chmod(0o600);self.record.write_text('{}')
+        with self.assertRaises(ValueError):self.read()
+        self.record.unlink();self.record.symlink_to(self.request_path)
+        with self.assertRaises(OSError):self.read()
+        self.record.unlink();self.record.write_bytes(original);self.record.chmod(0o600)
+        (self.generation/'engine-release-seal.py').write_text('untrusted code must not execute')
+        with self.assertRaises(ValueError):self.read()
+
+    def test_retained_deadline_and_export_tampering_refuse(self):
+        self.produce()
+        with patch.object(R.time,'monotonic',side_effect=[0,6]):
+            with self.assertRaises(ValueError):self.read()
+        answer=self.read()
+        for key,value in [('exitCode',0),('stage','raw secret text'),('extra','/secret'),('signal','SIGKILL')]:
+            with self.assertRaises(ValueError):R.validate_reply({**answer,key:value},self.request)
+
+    def test_retained_exact_original_attempt_is_required(self):
+        self.produce()
+        (self.record.parent/('123-1.attempt-'+'c'*32+'.json')).unlink()
+        with self.assertRaises((ValueError,FileNotFoundError)):self.read()
+
+
 class ServingRoleTests(unittest.TestCase):
     def test_pending_retains_exact_expired_announcement_causes(self):
         unit = {'activeState':'activating','subState':'start','invocationId':'a'*32}
@@ -959,7 +1071,9 @@ class ReaderTests(unittest.TestCase):
         self.assertIn("'_SYSTEMD_INVOCATION_ID=' + invocation", source)
         self.assertIn("'_SYSTEMD_UNIT=club-arena-engine-release-v1@' + request['runKey'] + '.service'", source)
         self.assertIn("'--lines=2'", source)
-        self.assertIn('8193 - len(raw)', source)
+        self.assertIn('byte_limit + 1 - len(raw)', source)
+        self.assertIn('byte_limit=8192', source)
+        self.assertIn('0 <= byte_limit <= 8192', source)
         self.assertNotIn('shell=True', source)
         # This explicit inspector mode admits only immutable Docker reads and
         # its scalar-only helper, not lifecycle operations or a publisher.
@@ -1127,6 +1241,10 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(reply.stdout, b'native witness\n')
         with self.assertRaises(ValueError):
             R.bounded_journal(['python3', '-c', 'print("x" * 9000)'])
+        with self.assertRaises(ValueError):
+            R.bounded_journal(['python3', '-c', 'print("x" * 40)'], byte_limit=32)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            R.bounded_journal(['python3', '-c', 'print("bounded")'], absolute_deadline=R.time.monotonic()-1)
 
     def test_actual_reservation_and_terminal_producer_contracts_stay_bound(self):
         tree = ast.parse((ROOT / 'server/scripts/engine-release-seal.py').read_text())
@@ -3310,6 +3428,112 @@ class FailedRoutineHistoricalTests(unittest.TestCase):
         source = (ROOT / 'scripts/ci/read-scoped-release-recovery.py').read_text()
         self.assertIn('history_inputs == failed_custody_history_inputs(root_fd, control_parent, deadline)', source)
 
+
+
+class OriginalAnnouncementCauseTests(unittest.TestCase):
+    def fixture(self, folder):
+        root = Path(folder); (root/'engine-release-requests').mkdir(); (root/'engine-release-generation-pins').mkdir()
+        control = root/'control'; control.mkdir()
+        request = R.ORIGINAL_ANNOUNCEMENT_REQUEST; run = request['runKey']; sha = request['releaseSha']
+        rows = [sha,'https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/runs/'+run.split('-')[0],
+                'private actor',R.ORIGINAL_ANNOUNCEMENT_GENERATION,R.ORIGINAL_ANNOUNCEMENT_CONTROL,'1793640000']
+        def write(path, value):
+            path.write_text(value); path.chmod(0o600)
+        for suffix in ['request','intent']: write(root/'engine-release-requests'/(run+'.'+suffix),'\n'.join(rows)+'\n')
+        write(root/'engine-release-generation-pins'/(run+'.generation'),rows[3]+'\n'+rows[4]+'\n')
+        write(root/('engine-recovery-window-'+run+'.json'),json.dumps({'runId':run,'sha':sha,'announcedAt':R.ORIGINAL_ANNOUNCEMENT_STAMP,'cause':'urgent'}))
+        write(root/'engine-release-requests'/(run+'.activation-entry'),json.dumps({'schema':'engine-release-activation-floor/v3-phase1','runId':run,'targetSha':sha,'controlSha':rows[4],'manifestSha256':'a'*64,'phase':'announcement'}))
+        write(control/'control-sha',rows[4]+'\n')
+        for name in R.ORIGINAL_ANNOUNCEMENT_SOURCES:
+            value="die 'private SECRET diagnostic'\n" if name=='engine-release-transaction.sh' else "die('private control diagnostic')\n" if name=='engine-release-seal.py' else 'source fixture '+name
+            write(control/name,value)
+        sources={name:hashlib.sha256((control/name).read_bytes()).hexdigest() for name in R.ORIGINAL_ANNOUNCEMENT_SOURCES}
+        unit='club-arena-engine-release-v1@'+run+'.service'; stamp=R.ORIGINAL_ANNOUNCEMENT_STAMP
+        def row(message, invocation='a'*32, at=stamp+10):
+            return {'MESSAGE':message,'_SYSTEMD_INVOCATION_ID':invocation,'_SYSTEMD_UNIT':unit,'__REALTIME_TIMESTAMP':str(at*1000)}
+        announce=row('[engine-release-transaction] fixed recovery announcement '+str(stamp)+': accepted; existing certificate and rollback budget remain required')
+        fatal=row('[engine-release-transaction] FATAL: private SECRET diagnostic',at=stamp+120010)
+        return root,control,sources,announce,fatal
+
+    def read(self, root, control, sources, replies):
+        fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY); cfd=os.open(control,os.O_RDONLY|os.O_DIRECTORY)
+        try:
+            def journal(args, **kwargs):
+                data=replies.pop(0)
+                if callable(data): data=data()
+                return subprocess.CompletedProcess(args,0,stdout=('\n'.join(json.dumps(r) for r in data)).encode())
+            with patch.object(R,'ORIGINAL_ANNOUNCEMENT_SOURCES',sources), patch.object(R,'bounded_journal',side_effect=journal):
+                return R.original_announcement_evidence(R.ORIGINAL_ANNOUNCEMENT_REQUEST,fd,cfd)
+        finally: os.close(fd);os.close(cfd)
+
+    def test_original_invocation_is_distinct_and_private_cause_is_hashed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder); result=self.read(root,control,sources,[[a],[f]])
+            self.assertEqual(result['status'],'observed'); self.assertEqual(result['originalInvocationSha256'],hashlib.sha256(('a'*32).encode()).hexdigest())
+            self.assertEqual(result['causes'][0]['category'],'transaction_fatal'); self.assertNotIn('SECRET',json.dumps(result))
+            R.validate_original_announcement(result,R.ORIGINAL_ANNOUNCEMENT_REQUEST)
+
+    def test_first_cause_is_complete_chronological_and_unknown_literals_do_not_pass(self):
+        for case in ['ordered','truncated','unknown']:
+            with self.subTest(case=case),tempfile.TemporaryDirectory() as folder:
+                root,control,sources,a,f=self.fixture(folder)
+                later={**f,'__REALTIME_TIMESTAMP':str((R.ORIGINAL_ANNOUNCEMENT_STAMP+120020)*1000)}
+                rows=[later,f] if case=='ordered' else [f]*17 if case=='truncated' else [{**f,'MESSAGE':'[engine-release-transaction] FATAL: unrecognised private text'}]
+                result=self.read(root,control,sources,[[a],rows])
+                if case=='ordered':
+                    self.assertEqual(result['status'],'observed');self.assertEqual(len(result['causes']),1)
+                    self.assertEqual(result['causes'][0]['sourceLine'],1);self.assertEqual(result['causes'][0]['refusalCode'],'transaction_die_line_1')
+                    self.assertEqual(result['causes'][0]['observedAtMs'],R.ORIGINAL_ANNOUNCEMENT_STAMP+120010)
+                else:
+                    self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'journal_truncated' if case=='truncated' else 'unclassified_original_refusal')
+                    self.assertEqual(result['causes'],[])
+
+    def test_missing_and_ambiguous_original_are_unknown(self):
+        for ambiguous in [False,True]:
+            with self.subTest(ambiguous=ambiguous), tempfile.TemporaryDirectory() as folder:
+                root,control,sources,a,f=self.fixture(folder); other={**a,'_SYSTEMD_INVOCATION_ID':'b'*32}
+                result=self.read(root,control,sources,[[a,other] if ambiguous else []])
+                self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'ambiguous_announcement' if ambiguous else 'announcement_not_retained')
+
+    def test_wrong_original_journal_owner_and_timestamp_are_unknown(self):
+        for change in [{'_SYSTEMD_UNIT':'foreign.service'},{'__REALTIME_TIMESTAMP':'1'},{'MESSAGE':'private unrelated message'}]:
+            with self.subTest(change=change),tempfile.TemporaryDirectory() as folder:
+                root,control,sources,a,f=self.fixture(folder); result=self.read(root,control,sources,[[{**a,**change}]])
+                self.assertEqual(result['status'],'unknown')
+
+    def test_cause_from_recovery_invocation_is_not_original(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder);result=self.read(root,control,sources,[[a],[{**f,'_SYSTEMD_INVOCATION_ID':'b'*32}]])
+            self.assertEqual(result['status'],'unknown');self.assertEqual(result['causes'],[])
+
+    def test_missing_cause_stays_unknown_even_when_announcement_is_bound(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder);result=self.read(root,control,sources,[[a],[]])
+            self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'cause_not_retained');self.assertIsNotNone(result['originalInvocationSha256'])
+
+    def test_changed_request_and_source_never_qualify(self):
+        for source in [False,True]:
+            with self.subTest(source=source),tempfile.TemporaryDirectory() as folder:
+                root,control,sources,a,f=self.fixture(folder)
+                def mutate():
+                    path=control/next(iter(sources)) if source else root/'engine-release-requests'/(R.ORIGINAL_ANNOUNCEMENT_REQUEST['runKey']+'.request')
+                    path.write_text('changed');return [f]
+                result=self.read(root,control,sources,[[a],mutate]);self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'binding_changed')
+
+    def test_fixed_selector_and_closed_export_refuse_forgery(self):
+        with self.assertRaises(ValueError):R.selection({**R.ORIGINAL_ANNOUNCEMENT_REQUEST,'runKey':'1-1'})
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder);result=self.read(root,control,sources,[[a],[f]])
+            for key,value in [('private','SECRET'),('controlSha','f'*40),('status','sealed')]:
+                with self.subTest(key=key),self.assertRaises(ValueError):R.validate_original_announcement({**result,key:value},R.ORIGINAL_ANNOUNCEMENT_REQUEST)
+
+    def test_journal_size_and_deadline_remain_unknown(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder)
+            with patch.object(R,'time') as clock:
+                clock.monotonic.side_effect=[0,0,6]
+                result=self.read(root,control,sources,[[a],[f]])
+            self.assertEqual(result['status'],'unknown')
 
 if __name__ == "__main__":
     unittest.main()
