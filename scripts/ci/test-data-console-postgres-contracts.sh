@@ -119,6 +119,11 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   bash "$repo/scripts/ci/test-rabbit-hunt-enhancements.sh"
 
+# The platform staff check answers true or false, never NULL (#9390).
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  bash "$repo/scripts/ci/test-platform-admin-check.sh"
+
 # Player Hub reads the entire persisted tournament or cash sitting.
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   RUNNER_TEMP="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
