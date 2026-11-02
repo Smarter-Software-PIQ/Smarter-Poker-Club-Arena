@@ -17,7 +17,7 @@ SET LOCAL statement_timeout='5s';
 DO $pre$BEGIN
 IF md5(pg_get_functiondef('public.fn_refuse_zero_chip_field_elimination()'::regprocedure)) IS DISTINCT FROM '8150bc16b61800e79d5355f1b3507a9a' THEN RAISE EXCEPTION 'owner_retirement_source_preimage_changed:%','public.fn_refuse_zero_chip_field_elimination()';END IF;
 IF md5(pg_get_functiondef('public.fn_settle_tournament_rake(uuid,text)'::regprocedure)) IS DISTINCT FROM '4a3430c676cbe40f049b528123f36d1c' THEN RAISE EXCEPTION 'owner_retirement_source_preimage_changed:%','public.fn_settle_tournament_rake(uuid,text)';END IF;
-IF md5(pg_get_functiondef('public.fn_ca_tournament_escrow_chips(uuid)'::regprocedure)) IS DISTINCT FROM '255a830f5ecb4c6c1e7518fe33c4090c' THEN RAISE EXCEPTION 'owner_retirement_source_preimage_changed:%','public.fn_ca_tournament_escrow_chips(uuid)';END IF;
+IF md5(pg_get_functiondef('public.fn_ca_tournament_escrow_chips(uuid)'::regprocedure)) IS DISTINCT FROM 'fb4c0aadd4ce46e24d63dcad28ce4518' THEN RAISE EXCEPTION 'owner_retirement_source_preimage_changed:%','public.fn_ca_tournament_escrow_chips(uuid)';END IF;
 IF md5(pg_get_functiondef('public.fn_ca_tournament_cancellation_receipt(uuid,uuid)'::regprocedure)) IS DISTINCT FROM 'b6dad088592fcbbf313ddab376478532' THEN RAISE EXCEPTION 'owner_retirement_source_preimage_changed:%','public.fn_ca_tournament_cancellation_receipt(uuid,uuid)';END IF;
 IF md5(pg_get_functiondef('public.fn_poker_diamond_tournament_escrow(uuid)'::regprocedure)) IS DISTINCT FROM '3b4597f68e207fd94ed339a9a7e5421b' THEN RAISE EXCEPTION 'owner_retirement_source_preimage_changed:%','public.fn_poker_diamond_tournament_escrow(uuid)';END IF;
 IF md5(pg_get_functiondef('smarter_private.equal_share_retirement_must_close()'::regprocedure)) IS DISTINCT FROM 'd6711284f022f2ae11664d2ed3c50045' THEN RAISE EXCEPTION 'owner_retirement_source_preimage_changed:%','smarter_private.equal_share_retirement_must_close()';END IF;
@@ -189,6 +189,11 @@ WITH owner_out AS (SELECT coalesce(sum(prize),0) prize,coalesce(sum(bounty),0) b
          (COALESCE(is_bounty,false) OR COALESCE(is_pko,false)
           OR COALESCE(is_mystery_bounty,false)) AS is_b
     FROM public.tournaments WHERE id=p_tournament_id
+), promo AS (
+  SELECT coalesce(sum(CASE WHEN l.category='promo_send' THEN l.amount ELSE -l.amount END),0) AS amount
+  FROM public.chip_ledger l WHERE l.tournament_id=p_tournament_id
+    AND l.metadata->>'kind'='midway_free_buy_promo_head'
+    AND l.category IN ('promo_send','reversal')
 ), w AS (
   SELECT
     COALESCE(sum(amount) FILTER (WHERE type='debit'
@@ -210,7 +215,8 @@ WITH owner_out AS (SELECT coalesce(sum(prize),0) prize,coalesce(sum(bounty),0) b
         GREATEST(0,round(t.bounty_amount,2)),
         round(l.amount,2)-public.fn_ca_recovery_fee_cents(
           round(round(l.amount,2)*100)::bigint,
-          public.fn_ca_tournament_fee_ratio(t.buy_in_amount,t.buy_in_fee),
+          CASE WHEN public.fn_ca_midway_free_buy_pko(p_tournament_id) THEN 0
+          ELSE public.fn_ca_tournament_fee_ratio(t.buy_in_amount,t.buy_in_fee) END,
           public.fn_ca_tournament_unit_cents(p_tournament_id))::numeric/100
       )*100)::bigint,
       public.fn_ca_tournament_unit_cents(p_tournament_id))::numeric/100    END),0),2) AS amount
@@ -305,10 +311,10 @@ WITH owner_out AS (SELECT coalesce(sum(prize),0) prize,coalesce(sum(bounty),0) b
    WHERE tournament_id=p_tournament_id
 ), calc AS (
   SELECT
-    round(w.gross_in+stl.split_moved-stl.split_fee+tk.ticket_in,2) AS gross_in,
+    round(w.gross_in+stl.split_moved-stl.split_fee+tk.ticket_in+promo.amount,2) AS gross_in,
     round(rr.fee_in+owner_out.refund_fee,2) AS fee_in,
     round(rr.fee_in-rr.fee_sat+owner_out.refund_fee,2) AS fee_entries,
-    round(direct_bounty.amount+stl.split_bounty+tk.ticket_bounty,2) AS bounty_in,
+    round(direct_bounty.amount+stl.split_bounty+tk.ticket_bounty+promo.amount,2) AS bounty_in,
     round(CASE WHEN ov.ledger_overlay>0 THEN ov.ledger_overlay
       ELSE tgo.tgo_amount END-ov.returned,2) AS overlay_in,
     round(stl.moved-stl.split_moved-rr.fee_sat+rr.fee_sat_split,2)
@@ -321,7 +327,7 @@ WITH owner_out AS (SELECT coalesce(sum(prize),0) prize,coalesce(sum(bounty),0) b
     round(exact_refunds.prize,2) AS exact_prize,
     round(exact_refunds.bounty,2) AS exact_bounty,
     round(exact_refunds.fee,2) AS exact_fee
-  FROM t,w,direct_bounty,rr,stl,ov,tk,tgo,sat,fo,exact_refunds,owner_out
+  FROM t,w,direct_bounty,rr,stl,ov,tk,tgo,sat,fo,exact_refunds,promo,owner_out
 ), split AS (
   SELECT c.*,round(c.gross_in-c.fee_entries-c.bounty_in,2) AS prize_in,
          round(c.refund_out-c.exact_total,2) AS legacy_refund
