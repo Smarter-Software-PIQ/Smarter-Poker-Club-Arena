@@ -118,6 +118,15 @@ const cents = (n: number): number => {
  * the replayer is the way back in after that.
  */
 const RABBIT_HUNT_OFFER_TTL_MS = 90_000;
+/**
+ * THE ONE-DAY LIMIT IS ENFORCED HERE, NOT ONLY BY THE PRUNE (Dan 2026-11-02:
+ * "Verify the one-day limit is enforced by the purchase/read authority, not
+ * merely the ten-minute cleanup job"). A saved run-out older than this is
+ * never read back for a purchase or a re-open, whether or not
+ * sp_prune_rabbit_hunt_offers has deleted it yet. Matches the client's
+ * RABBIT_HUNT_REPLAY_RETENTION_MS and fn_rabbit_hunt_replay_status.
+ */
+export const RABBIT_HUNT_SAVED_RETENTION_MS = 86_400_000;
 
 /**
  * HOW LONG A PREDECESSOR KEEPS TRYING TO FINISH ITS OWN ENVELOPE (2026-09-12).
@@ -202,8 +211,9 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // map no longer holds is looked up there, which is what lets the hand
     // replayer buy a run-out long after the felt window closed. The 90-second
     // refusal ("That Hand Is Too Old To Rabbit Hunt") is gone on purpose:
-    // retention is now the table's own 1-day prune
-    // (sp_prune_rabbit_hunt_offers), not a clock in this method. Every other
+    // retention is one day from the moment the run-out was saved, enforced
+    // by loadPersistedRabbitOffer (RABBIT_HUNT_SAVED_RETENTION_MS) and backed
+    // by the table's prune (sp_prune_rabbit_hunt_offers). Every other
     // gate — table toggle, board length, dealt-in, payment, free re-open —
     // is below and unchanged.
     const memoryOffer = this.rabbitHuntOffers.get(hand);
@@ -503,14 +513,27 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     offeredAt: number;
   } | null> {
     try {
+      const retainedSince = Date.now() - RABBIT_HUNT_SAVED_RETENTION_MS;
       const { data, error } = await supabase
         .from('rabbit_hunt_offers')
         .select('cards, board_len, eligible_user_ids, created_at')
         .eq('table_id', this.tableId)
         .eq('hand_number', hand)
+        .gt('created_at', new Date(retainedSince).toISOString())
         .maybeSingle();
       if (error) throw error;
       if (!data || !Array.isArray(data.cards) || data.cards.length === 0) return null;
+      // Past one day the run-out is gone, prune or no prune. A row without a
+      // readable timestamp is refused rather than treated as fresh.
+      const savedAt = Date.parse(String(data.created_at ?? ''));
+      if (!Number.isFinite(savedAt) || savedAt <= retainedSince) return null;
+      const eligibleIds = (Array.isArray(data.eligible_user_ids) ? data.eligible_user_ids : []).map(
+        String
+      );
+      // A saved run-out describes nothing to a player who was not dealt in:
+      // they get the same "no longer available" as a hand with nothing saved,
+      // so the engine cannot be used to learn how another table's hand ended.
+      if (!eligibleIds.includes(userId)) return null;
       const revealed = new Set<string>();
       // A durable receipt means this player already bought this reveal — the
       // re-open must stay free across engine instances, not only in memory.
@@ -526,11 +549,9 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       return {
         cards: data.cards as import('../types.js').Card[],
         boardLength: Number(data.board_len ?? 0),
-        eligible: new Set(
-          (Array.isArray(data.eligible_user_ids) ? data.eligible_user_ids : []).map(String)
-        ),
+        eligible: new Set(eligibleIds),
         revealed,
-        offeredAt: new Date(data.created_at ?? Date.now()).getTime(),
+        offeredAt: savedAt,
       };
     } catch (err) {
       reportError(err, 'ServerTableEngine.rabbit_hunt_offer_lookup_error');
