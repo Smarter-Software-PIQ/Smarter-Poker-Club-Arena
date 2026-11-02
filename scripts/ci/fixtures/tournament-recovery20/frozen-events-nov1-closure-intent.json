@@ -32,6 +32,14 @@
       "observedLastHandAt": "2026-11-01T15:28:25.840143+00:00"
     },
     {
+      "tournamentId": "2b654457-f2ef-42c8-b72a-1c8dbc8885d5",
+      "operationId": "a61c7dc5-3ea6-5285-85d6-17ecb797fea4",
+      "observedLastHandAt": "2026-11-02T05:54:01.192396+00:00",
+      "observedAt": "2026-11-02T07:27:52.089668+00:00",
+      "source": "frozen-events-01a19a5c/closure-preflight-new2b-20261102T072754Z.json",
+      "sourceSha256": "c772dacc87054a92c2cc6defe2ec15315a7e958c7386b089dbb16c9cf6e6cbcb"
+    },
+    {
       "tournamentId": "354624e9-5f96-4baf-afe8-294c701f7b5e",
       "operationId": "aad2cc6b-7fe5-5d3e-93de-60a82c67c50a",
       "observedLastHandAt": "2026-11-02T01:31:06.019425+00:00"
