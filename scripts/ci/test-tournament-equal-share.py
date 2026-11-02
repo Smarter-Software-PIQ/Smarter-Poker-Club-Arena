@@ -14,7 +14,7 @@ RETIREMENT=ROOT/'supabase/migrations/20261101174851_equal_share_retirement_prese
 
 def qualify_receipt_readback(e,db,event,op):
  from equal_share_native_cases import snapshot
- migration=ROOT/'supabase/migrations/20261102070619_equal_share_receipt_readback_uses_operation_bound_service_authority.sql'
+ migration=ROOT/'supabase/migrations/20261102070619_equal_share_receipt_readback_uses_owned_service_authority.sql'
  # Reconstruct the confirmed production ACL boundary; the historical monetary
  # fixture ran as its superuser and therefore could not detect this denial.
  sql_file(e,db,'receipt-private-acl-boundary',"REVOKE ALL ON FUNCTION public.fn_ca_tournament_cancellation_receipt(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;")
