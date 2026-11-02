@@ -121,6 +121,23 @@ export const FILTER_FINISH_CASES = [
     project: 'chromium',
   },
 ];
+export const MTT_ENTRIES_ACTION = 'verify-mtt-entries';
+export const MTT_ENTRIES_CASES = [
+  {
+    file: 'production-lobby-filter-audit.spec.ts',
+    title: 'live MTT entries match committed counts and Buy-In typography',
+    project: 'chromium',
+  },
+];
+export const MTT_ENTRIES_COMPONENT_PATHS = [
+  ...new Set([
+    ...COMPONENT_PATHS,
+    'src/components/lobby/LobbyTable.tsx',
+    'src/components/lobby/PremiumMttRows.css',
+    'src/components/lobby/lobbyEntries.ts',
+    'src/hooks/useMttLobbyEntryCounts.ts',
+  ]),
+];
 export const FILTER_CASES = [
   ...['HOLDEM', 'OMAHA', 'LIMIT', 'MTT', 'SPIN', 'SNG', 'SATELLITE'].map((type) => ({
     file: 'production-lobby-filter-audit.spec.ts',
@@ -185,6 +202,7 @@ function selection(action) {
   if (action === FAVORITE_ACTION) return FAVORITE_CASES;
   if (action === FILTER_ACTION) return FILTER_CASES;
   if (action === FILTER_FINISH_ACTION) return FILTER_FINISH_CASES;
+  if (action === MTT_ENTRIES_ACTION) return MTT_ENTRIES_CASES;
   throw new Error('Unknown closed Lobby proof request.');
 }
 function componentPaths(action) {
@@ -192,6 +210,7 @@ function componentPaths(action) {
   if (action === FAVORITE_ACTION) return FAVORITE_COMPONENT_PATHS;
   if (action === FILTER_ACTION) return FILTER_COMPONENT_PATHS;
   if (action === FILTER_FINISH_ACTION) return FILTER_FINISH_COMPONENT_PATHS;
+  if (action === MTT_ENTRIES_ACTION) return MTT_ENTRIES_COMPONENT_PATHS;
   return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
 }
 
@@ -209,6 +228,7 @@ export function admitDispatch(environment, event) {
       FAVORITE_ACTION,
       FILTER_ACTION,
       FILTER_FINISH_ACTION,
+      MTT_ENTRIES_ACTION,
     ].includes(event?.action) ||
     !event.client_payload ||
     Array.isArray(event.client_payload) ||
