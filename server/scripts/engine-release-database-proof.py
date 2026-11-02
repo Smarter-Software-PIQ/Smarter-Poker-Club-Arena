@@ -24,6 +24,7 @@ from typing import NoReturn
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_opener
+from uuid import UUID
 
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -401,6 +402,83 @@ def verify_failed_routine_idle(base_url: str, service_key: str, instance_id: str
         raise ValueError('failed routine database retains a maintenance owner')
 
 
+TERMINAL_THAW_TARGETS = frozenset({
+    'sit_out_at', 'hold_expires_at', 'addon_period_ends_at', 'reversible_until', 'reveal_deadline_at',
+    'rebuy_prompt_until', 'bomb_pot_next_due_at', 'cash_stay_last_tick_at', 'cash_rejoin_expires_at',
+    'level_started_at', 'cluster_break_eligible_since', 'cluster_move_expires_at', 'reconnect_presence',
+    'reconnect_snapshots', 'lightning_drain_deadline_at'})
+
+
+def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instance_id: str, max_age: int,
+                               announced_ms: int, starts_ms: int, ends_ms: int) -> dict:
+    """Read-only: the failed owner's own break ended in one complete v3 thaw,
+    the serving instance is the fresh leader, no maintenance row remains and no
+    later v3 release boundary is authoritative. Never invokes or edits a thaw."""
+    from decimal import Decimal
+    def get(table: str, params: dict, limit_bytes: int):
+        request = Request(f'{base_url}/rest/v1/{table}?{urlencode(params)}',
+            headers={'apikey': service_key, 'authorization': f'Bearer {service_key}',
+                     'accept': 'application/json', 'cache-control': 'no-cache, no-store'}, method='GET')
+        opener = build_opener(HTTPSHandler(context=ssl.create_default_context()), RefuseRedirects())
+        with opener.open(request, timeout=1.5) as response:
+            raw = response.read(limit_bytes + 1)
+        if len(raw) > limit_bytes:
+            raise ValueError('terminal thaw read exceeded its bound')
+        return json.loads(raw, parse_float=Decimal)
+    def millis(value):
+        if not isinstance(value, str):
+            raise ValueError('terminal thaw clock missing')
+        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            raise ValueError('terminal thaw clock has no zone')
+        delta = dt.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        return delta.days * 86400000 + delta.seconds * 1000 + delta.microseconds // 1000
+    version, leader, age = read_leader(base_url, service_key, 1.5)
+    if version != sha[:8] or leader != instance_id or not -30 <= age <= max_age:
+        raise ValueError('terminal owner leader identity is unproved')
+    if get('engine_maintenance_break', {'select': 'id', 'limit': '1'}, 4096) != []:
+        raise ValueError('terminal owner database retains a maintenance owner')
+    starts_iso = datetime.fromtimestamp(starts_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
+    rows = get('engine_maintenance_thaws', {'select': 'freeze_started_at,announced_at,thawed_at,frozen_seconds,'
+               'contract_version,release_target_at,release_generation,ownership_token,thawed_by,shifted',
+               'freeze_started_at': 'eq.' + starts_iso, 'limit': '2'}, 65536)
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError('terminal owner thaw receipt is not unique')
+    row, now_ms = rows[0], int(time.time() * 1000)
+    shifted = row.get('shifted')
+    token = row.get('ownership_token')
+    try:
+        token_ok = isinstance(token, str) and str(UUID(token)).lower() == token.lower()
+    except ValueError:
+        token_ok = False
+    # The v3 thaw ledger shape: every shifted target column with its snapshotted
+    # target count, both non-negative integers and equal, plus the two markers.
+    counts = shifted.get('_target_counts') if isinstance(shifted, dict) else None
+    shape_ok = (isinstance(shifted, dict) and isinstance(counts, dict) and
+                set(shifted) == TERMINAL_THAW_TARGETS | {'complete', '_targets_snapshotted', '_target_counts'} and
+                set(counts) == TERMINAL_THAW_TARGETS and shifted.get('_targets_snapshotted') is True and
+                all(type(shifted[k]) is int and type(counts[k]) is int and shifted[k] >= 0 and counts[k] == shifted[k]
+                    for k in TERMINAL_THAW_TARGETS))
+    if (millis(row.get('announced_at')) != announced_ms or millis(row.get('freeze_started_at')) != starts_ms or
+            millis(row.get('release_target_at')) != ends_ms or row.get('contract_version') != 3 or
+            row.get('release_generation') != 1 or Decimal(str(row.get('frozen_seconds'))) != Decimal(300) or
+            row.get('thawed_by') != sha[:8] or not token_ok or not shape_ok or shifted.get('complete') is not True or
+            not starts_ms <= millis(row.get('thawed_at')) <= now_ms or now_ms <= ends_ms):
+        raise ValueError('terminal owner owned v3 thaw is unproved')
+    future = get('engine_maintenance_thaws', {'select': 'release_target_at', 'contract_version': 'eq.3',
+                 'release_target_at': 'gt.' + datetime.now(timezone.utc).isoformat(), 'limit': '1'}, 4096)
+    if future != []:
+        raise ValueError('a later release boundary remains authoritative')
+    if get('engine_maintenance_break', {'select': 'id', 'limit': '1'}, 4096) != []:
+        raise ValueError('terminal owner database acquired a maintenance owner')
+    version, leader, age = read_leader(base_url, service_key, 1.5)
+    if version != sha[:8] or leader != instance_id or not -30 <= age <= max_age:
+        raise ValueError('terminal owner leader identity changed')
+    return {'schema': 'terminal-owned-thaw/v1', 'sha': sha, 'instanceId': instance_id, 'databaseIdle': True,
+            'freshLeader': True, 'ownedV3Thaw': True, 'announcedAt': announced_ms, 'startsAt': starts_ms,
+            'endsAt': ends_ms}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", required=True)
@@ -408,6 +486,10 @@ def main() -> None:
     parser.add_argument("--instance-id")
     parser.add_argument("--mixed-custody-contract", action="store_true")
     parser.add_argument("--failed-routine-idle", action="store_true")
+    parser.add_argument("--terminal-owned-thaw", action="store_true")
+    parser.add_argument("--window-announced-ms", type=int)
+    parser.add_argument("--window-starts-ms", type=int)
+    parser.add_argument("--window-ends-ms", type=int)
     parser.add_argument("--timeout-seconds", type=int, default=240)
     parser.add_argument("--poll-seconds", type=int, default=10)
     parser.add_argument("--max-heartbeat-age-seconds", type=int, default=60)
@@ -441,6 +523,19 @@ def main() -> None:
     if not service_key:
         die("SUPABASE_SERVICE_ROLE_KEY is absent from the fixed engine environment")
 
+    if args.terminal_owned_thaw:
+        if (args.mixed_custody_contract or args.failed_routine_idle or not instance_id or
+                not all(type(v) is int and v > 0 for v in (args.window_announced_ms, args.window_starts_ms,
+                                                           args.window_ends_ms)) or
+                not args.window_announced_ms < args.window_starts_ms < args.window_ends_ms):
+            die('terminal owned thaw witness arguments are invalid')
+        try:
+            proof = verify_terminal_owned_thaw(base_url, service_key, target_sha, instance_id,
+                args.max_heartbeat_age_seconds, args.window_announced_ms, args.window_starts_ms, args.window_ends_ms)
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, ArithmeticError) as exc:
+            die(f'terminal owned thaw witness unconfirmed ({type(exc).__name__})')
+        print(json.dumps(proof, sort_keys=True))
+        return
     if args.failed_routine_idle:
         try:
             verify_failed_routine_idle(base_url, service_key, instance_id, args.max_heartbeat_age_seconds)

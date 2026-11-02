@@ -3573,6 +3573,7 @@ printf '%s\n' '[engine-release-transaction] FATAL: target is stale; protected ma
 set -euo pipefail
 case "\${1:-}:\${2:-}" in
   resolve-failed-routine:--engine-lock-fd) echo not-needed ;;
+  resolve-terminal-routine-failures:--engine-lock-fd) echo not-needed ;;
   check-routine-owner:--run-id) [ "${foreignRoutineOwner ? 1 : 0}" = 0 ] || exit 1; echo none ;;
   pending-owner:) echo none ;;
   get:desired-sha) echo '${B_SHA}' ;;

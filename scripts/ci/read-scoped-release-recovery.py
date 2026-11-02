@@ -231,6 +231,8 @@ def routine_failure_resolution(value, cycle, result, result_fd):
               'noAnnouncementRecorded': None, 'databaseIdleRecorded': None}
     if value is None:
         return answer, None
+    if isinstance(value, dict) and value.get('result') == 'terminal-failure-proved':
+        return terminal_failure_resolution(value, cycle, result, result_fd, answer)
     routine_require(cycle['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and
                     cycle['sha'] == cycle['controlSha'] == FAILED_CUSTODY_CONTROL and
                     cycle['status'] == 'reserved' and cycle['startsAt'] == 1793570400 and
@@ -270,6 +272,95 @@ def routine_failure_resolution(value, cycle, result, result_fd):
     return answer, (name, metadata, raw)
 
 
+NINEF_RUN = '41379310363-1'
+NINEF_SHA = '9f8219ae08053f72a7ccc0a903f75219e29e042b'
+NINEF_FAILURE = 'eef58f952edf7b0935559e4001e14e59712550988ea80d3079060f132251a4ee'
+NINEF_WINDOW = {'announcedAt': 1793591884929, 'startsAt': 1793592004929, 'endsAt': 1793592304929,
+                'verified': True}
+NINEF_COMPLETED_AT = 1793592315
+NINEF_POLICY_DIGEST = '203626ce907eed185e27fac659cc391b16d6b5814fe446b4c0257207d2ba0578'
+NINEF_SOURCES = {
+    'engine-release-transaction.sh': '40a9a7cb2e72b938e2702cbea3967e1aab018221787a0f51c32231b29304772a',
+    'legacy-engine-checkpoint.sh': '32cc0a07bb7f3b5e51f6625969eee68b66c400e51976a9748f6548a40be54758',
+    'legacy-engine-checkpoint.mjs': 'ff22153dc600c6a29c4f3471e90c4babdb518e1afdf4748bb03e84e5a8b8c316',
+    'engine-release-unit-wrapper.sh': 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'install-engine-supervisor.sh': 'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'install-engine-intake.sh': '5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+}
+
+
+def ninef_row(row):
+    """The exact 9f cycle fields as the observer reports them (row or cycle)."""
+    return (row.get('runId') == NINEF_RUN and row.get('sha') == row.get('controlSha') == NINEF_SHA and
+            row.get('status') == 'reserved' and row.get('startsAt') == 1793592000 and
+            row.get('endsAt') == 1793592300 and row.get('policyDigest') == NINEF_POLICY_DIGEST and
+            row.get('kind') == 'hourly-reset' and row.get('window') == NINEF_WINDOW)
+
+
+def ninef_started_after_failure(value):
+    """A timezone-aware ISO timestamp strictly after the 9f failure completed."""
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        started = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return False
+    return started.tzinfo is not None and started.timestamp() > NINEF_COMPLETED_AT
+
+
+def terminal_failure_resolution(value, cycle, result, result_fd, answer):
+    """Observe the one recorded terminal-failure proof (9f); it authorizes nothing.
+
+    The record must bind the exact original 9f reserved cycle and recorded
+    failure, the original sources, a different current verifier and its
+    immutable private per-invocation receipt."""
+    routine_require(ninef_row(cycle) and isinstance(cycle.get('failure'), dict) and result == cycle['failure'] and
+                    routine_digest(cycle['failure']) == NINEF_FAILURE and
+                    cycle['failure'].get('completedAt') == NINEF_COMPLETED_AT)
+    routine_require(isinstance(value, dict) and set(value) == {
+        'schema', 'result', 'originalCycle', 'verifiedByRunId', 'verifiedByControlSha', 'verifiedByTargetSha',
+        'invocationId', 'observedAt', 'proof'} and
+        type(value['schema']) is int and value['schema'] == 1 and value['originalCycle'] == cycle and
+        isinstance(value['verifiedByRunId'], str) and RUN.fullmatch(value['verifiedByRunId']) and
+        value['verifiedByRunId'] != NINEF_RUN and
+        all(isinstance(value[k], str) and SHA.fullmatch(value[k]) for k in ('verifiedByControlSha', 'verifiedByTargetSha')) and
+        value['verifiedByTargetSha'] != NINEF_SHA and
+        isinstance(value['invocationId'], str) and INVOCATION.fullmatch(value['invocationId']) and
+        type(value['observedAt']) is int and NINEF_WINDOW['endsAt'] // 1000 < value['observedAt'] < 4102444800)
+    proof = value['proof']
+    routine_require(isinstance(proof, dict) and set(proof) == {
+        'failureDigest', 'checkpointIntentDigest', 'checkpointRefusalDigest', 'originalProcess', 'sourceDigests',
+        'runtime', 'database'} and isinstance(proof['database'], dict) and isinstance(proof['runtime'], dict) and
+        proof['failureDigest'] == NINEF_FAILURE and proof['sourceDigests'] == NINEF_SOURCES and
+        all(isinstance(proof[k], str) and re.fullmatch('[0-9a-f]{64}', proof[k])
+            for k in ('checkpointIntentDigest', 'checkpointRefusalDigest')) and
+        proof['originalProcess'] in {'kernel-enoent', 'pid-reused-after-intent'})
+    runtime, database = proof['runtime'], proof['database']
+    routine_require(set(runtime) == {'containerId', 'startedAt', 'hostPid', 'instanceId'} and
+        isinstance(runtime['containerId'], str) and re.fullmatch('[0-9a-f]{64}', runtime['containerId']) and
+        ninef_started_after_failure(runtime['startedAt']) and
+        type(runtime['hostPid']) is int and runtime['hostPid'] > 0 and
+        isinstance(runtime['instanceId'], str) and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}', runtime['instanceId']) and
+        database == {'schema': 'terminal-owned-thaw/v1', 'sha': cycle['failure'].get('recoveredDesiredSha'),
+                     'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True,
+                     'ownedV3Thaw': True, 'announcedAt': NINEF_WINDOW['announcedAt'],
+                     'startsAt': NINEF_WINDOW['startsAt'], 'endsAt': NINEF_WINDOW['endsAt']} and
+        all(type(database[k]) is bool for k in ('databaseIdle', 'freshLeader', 'ownedV3Thaw')) and
+        all(type(database[k]) is int for k in ('announcedAt', 'startsAt', 'endsAt')))
+    name = NINEF_RUN + '.' + value['verifiedByRunId'] + '.' + value['invocationId'] + '.terminal-resolution.json'
+    metadata = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
+    receipt, raw = read_json(result_fd, name, private=True, with_bytes=True)
+    routine_require(receipt == value)
+    answer.update(present=True, sha256=routine_digest(value), receiptSha256=hashlib.sha256(raw).hexdigest(),
+                  verifiedByRunId=value['verifiedByRunId'], controlSha=value['verifiedByControlSha'],
+                  targetSha=value['verifiedByTargetSha'],
+                  invocationSha256=hashlib.sha256(value['invocationId'].encode()).hexdigest(),
+                  observedAt=value['observedAt'], cycleMatches=True, failureMatches=True, receiptMatches=True,
+                  databaseIdleRecorded=True)
+    return answer, (name, metadata, raw)
+
+
 def routine_remote(request, root_fd):
     """Read only fixed canonical files with existing private stable-file reader.
 
@@ -293,11 +384,13 @@ def routine_remote(request, root_fd):
     cycles, committed = state.get('routineMaintenanceCycles'), state.get('committedRuns')
     resolutions = state.get('routineFailureResolutions', {})
     routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict) and
-                    isinstance(resolutions, dict) and not set(resolutions) - {FAILED_CUSTODY_REQUEST['runKey']} and
-                    all(isinstance(v, dict) for v in resolutions.values()))
+                    isinstance(resolutions, dict) and
+                    all(isinstance(v, dict) and (k == FAILED_CUSTODY_REQUEST['runKey'] or
+                                                 (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved'))
+                        for k, v in resolutions.items()))
     if resolutions:
-        routine_require(sum(c.get('runId') == FAILED_CUSTODY_REQUEST['runKey']
-                            for c in cycles.values() if isinstance(c, dict)) == 1 and
+        routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
+                            for owner in resolutions) and
                         all(c.get('status') == 'reserved' for c in cycles.values()
                             if isinstance(c, dict) and c.get('runId') in resolutions))
     owners = []
@@ -394,7 +487,22 @@ def validate_routine_reply(value, request):
             'noAnnouncementRecorded', 'databaseIdleRecorded'} and
             type(resolution['present']) is bool and type(row['unresolvedOwner']) is bool and
             row['unresolvedOwner'] is (not resolution['present']))
-        if resolution['present']:
+        if resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
+            # The recorded 9f terminal-failure proof: the exact reserved failed
+            # cycle, no commit, receipted by a different current verifier.
+            routine_require(ninef_row(row) and row['failurePresent'] is True and
+                row['failureSha256'] == NINEF_FAILURE and row['committed']['present'] is False and
+                all(isinstance(resolution[k], str) and re.fullmatch('[0-9a-f]{64}', resolution[k])
+                    for k in ('sha256', 'receiptSha256', 'invocationSha256')) and
+                isinstance(resolution['verifiedByRunId'], str) and RUN.fullmatch(resolution['verifiedByRunId']) and
+                resolution['verifiedByRunId'] != NINEF_RUN and
+                all(isinstance(resolution[k], str) and SHA.fullmatch(resolution[k]) for k in ('controlSha', 'targetSha')) and
+                resolution['targetSha'] != NINEF_SHA and
+                type(resolution['observedAt']) is int and
+                NINEF_WINDOW['endsAt'] // 1000 < resolution['observedAt'] < 4102444800 and
+                all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches',
+                    'databaseIdleRecorded')) and resolution['noAnnouncementRecorded'] is None)
+        elif resolution['present']:
             routine_require(row['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and
                 row['sha'] == row['controlSha'] == FAILED_CUSTODY_CONTROL and row['status'] == 'reserved' and
                 row['startsAt'] == 1793570400 and row['endsAt'] == 1793570700 and row['window'] is None and
@@ -424,7 +532,12 @@ def validate_routine_reply(value, request):
                             row['failurePresent'] == (result['cycleFailureMatches'] is not None))
         else:
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
-        if resolution['present']:
+        if resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
+            routine_require(row['runId'] == NINEF_RUN and result['present'] is True and
+                            result['sha256'] == NINEF_FAILURE == row['failureSha256'] and
+                            result['outcome'] == 'failed' and result['identityMatches'] is True and
+                            result['cycleFailureMatches'] is True and result['completedAt'] == NINEF_COMPLETED_AT)
+        elif resolution['present']:
             routine_require(result['present'] is True and result['sha256'] == FAILED_CUSTODY_FAILURE and
                             result['outcome'] == 'failed' and result['identityMatches'] is True and
                             result['cycleFailureMatches'] is True and result['completedAt'] == 1793569102)
