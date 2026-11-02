@@ -1052,6 +1052,8 @@ async function assertSort(page: Page, type: Tab | 'ALL', sort: string, raw: Map<
           if (type === 'ALL' && item.kind !== 'cash') return ['Unexpected Non-Cash ALL Row'];
           const row = raw.get(item.id);
           if (!row) return ['Missing Raw Row'];
+          if (item.kind === 'mtt' && row.proof_entry_count == null)
+            return ['Missing Committed Entry Count'];
           let clusterPlayers = row.cluster_id
             ? [...raw.values()]
                 .filter(
@@ -1066,6 +1068,8 @@ async function assertSort(page: Page, type: Tab | 'ALL', sort: string, raw: Map<
                 )
                 .reduce((sum, candidate) => sum + number(candidate.current_players), 0)
             : number(row.current_players);
+          if (item.kind === 'mtt' && ['players', 'players_asc'].includes(effective))
+            clusterPlayers = number(row.proof_entry_count);
           if (
             ['lightning', 'pending_off', 'draining'].includes(text(row.cluster_mode)) &&
             row.proof_pool_players != null &&
@@ -1339,6 +1343,24 @@ async function setup(page: Page) {
     try {
       const url = new URL(response.url());
       if (!response.ok()) return;
+      if (url.pathname.endsWith('/fn_mtt_lobby_entry_counts')) {
+        observe(
+          url.pathname,
+          (async () => {
+            const body = await readBody(response);
+            if (!Array.isArray(body)) throw new Error('Entry aggregate response is not an array');
+            for (const value of body) {
+              const answer = object(value);
+              const id = text(answer.tournament_id);
+              const entries = Number(answer.entries);
+              if (!id || !Number.isSafeInteger(entries) || entries < 0)
+                throw new Error('Entry aggregate response is invalid');
+              rawRows.set(id, { ...rawRows.get(id), id, proof_entry_count: entries });
+            }
+          })()
+        );
+        return;
+      }
       if (/\/(?:fn_cash_game_lobby|fn_lightning_pool_status)$/.test(url.pathname)) {
         const request = object(response.request().postDataJSON());
         const clusterId = text(request.p_game_id || request.p_cluster_id);
@@ -1947,7 +1969,10 @@ for (const type of TYPES) {
       await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
       for (const [pattern, key] of [
         [cash ? /^Stakes/ : /^Buy-In/, 'price'],
-        [/^Players/, 'players'],
+        [
+          type === 'MTT' ? /^Entries/ : type === 'SATELLITE' ? /^Registered/ : /^Players/,
+          'players',
+        ],
         [/^Status/, 'status'],
       ] as const) {
         const button = headings.getByRole('button', { name: pattern });
@@ -2213,7 +2238,9 @@ async function readScheduleHeader(page: Page, cash = false) {
   expect(geometry.row.bottom).toBeLessThanOrEqual(geometry.viewport.height + 1);
   for (const [index, cell] of geometry.cells.entries()) {
     expect(cell.text).toMatch(
-      [/^Game/i, cash ? /^Stakes/i : /^Buy-In/i, /^Players/i, /^Status/i][index]
+      [/^Game/i, cash ? /^Stakes/i : /^Buy-In/i, cash ? /^Players/i : /^Entries/i, /^Status/i][
+        index
+      ]
     );
     expect(cell.left).toBeCloseTo(index ? geometry.cells[index - 1].right : geometry.row.left, 0);
     expect(cell.top).toBeCloseTo(geometry.cells[0].top, 0);
@@ -2527,9 +2554,64 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   );
   for (const clock of clocks) expect(clock.text).toMatch(/^\d+d \d+h$/);
   // Direct heading sorts never reopen the old clipped menu; Game is inert.
+  const readEntryCards = () =>
+    h.rows.evaluateAll((elements) =>
+      elements
+        .filter((row) => row.getAttribute('data-kind') === 'mtt')
+        .map((row) => {
+          const buy = row.querySelector('td[data-label="Buy-In"]')!;
+          const entries = row.querySelector('td[data-label="Entries"]')!;
+          const measure = (cell: Element | null) => {
+            if (!cell) return null;
+            const value = cell.querySelector('.lt-seats__num,.premium-cash-stakes-value');
+            if (!value) return null;
+            const labelStyle = getComputedStyle(cell, '::before');
+            const valueStyle = getComputedStyle(value);
+            const box = value.getBoundingClientRect();
+            return {
+              labelFont: labelStyle.fontSize,
+              labelMargin: labelStyle.marginBottom,
+              valueFont: valueStyle.fontSize,
+              valueTop: box.top,
+              valueHeight: box.height,
+            };
+          };
+          return {
+            id: row.getAttribute('data-id')!,
+            buy: measure(buy),
+            entries: measure(entries),
+            count: entries?.querySelector('.lt-seats__num')?.textContent,
+            freshness: entries?.querySelector('.lt-seats__num')?.getAttribute('title'),
+          };
+        })
+    );
+  await expect
+    .poll(async () => {
+      const cards = await readEntryCards();
+      if (!cards.length) return ['Missing MTT cards'];
+      return cards.flatMap((card) => {
+        if (!card.buy || !card.entries) return [card.id + ': missing columns'];
+        return card.freshness !== 'Entries Including Rebuys' ||
+          h.rawRows.get(card.id)?.proof_entry_count == null ||
+          Number(card.count?.replaceAll(',', '')) !==
+            Number(h.rawRows.get(card.id)?.proof_entry_count) ||
+          card.buy.labelFont !== card.entries.labelFont ||
+          card.buy.labelMargin !== card.entries.labelMargin ||
+          card.buy.valueFont !== card.entries.valueFont ||
+          Math.abs(card.buy.valueTop - card.entries.valueTop) > 0.6 ||
+          Math.abs(card.buy.valueHeight - card.entries.valueHeight) > 0.6
+          ? [card.id + ': entry count or typography differs']
+          : [];
+      });
+    })
+    .toEqual([]);
+  await testInfo.attach('mtt-live-entries-and-typography.json', {
+    body: Buffer.from(JSON.stringify(await readEntryCards())),
+    contentType: 'application/json',
+  });
   const headings = page.locator('.compact-lobby:visible thead');
   await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
-  for (const label of [/^Buy-In/, /^Players/, /^Status/]) {
+  for (const label of [/^Buy-In/, /^Entries/, /^Status/]) {
     const button = headings.getByRole('button', { name: label });
     await clickControl(button);
     const first = await button.locator('..').getAttribute('aria-sort');
