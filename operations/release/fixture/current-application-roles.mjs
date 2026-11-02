@@ -12,6 +12,7 @@ import { dblinkCapturedInitialAclInstallSql, dblinkCapturedInitialAclObservation
 import { installSql as managedBootstrapFunctionsInstallSql, observationSql as managedBootstrapFunctionsObservationSql } from './managed-bootstrap-functions.mjs';
 import { postgresExtensionCapturedAclInstallSql, postgresExtensionCapturedAclObservationSql } from './postgres-extension-captured-acls.mjs';
 import { cronCapturedTableAclInstallSql, cronCapturedTableAclObservationSql } from './cron-captured-table-acls.mjs';
+import { cronCapturedSequenceAclInstallSql, cronCapturedSequenceAclObservationSql } from './cron-captured-sequence-acls.mjs';
 import { realtimeCapturedPublicationInstallSql, realtimeCapturedPublicationObservationSql } from './realtime-captured-publication.mjs';
 
 export const currentRoleGraphWitness =
@@ -769,6 +770,7 @@ export async function installCurrentApplicationExtensions({
       await bootstrap.query(managedBootstrapFunctionsInstallSql);
       await bootstrap.query(postgresExtensionCapturedAclInstallSql);
       await bootstrap.query(cronCapturedTableAclInstallSql);
+      await bootstrap.query(cronCapturedSequenceAclInstallSql);
       await bootstrap.query(realtimeCapturedPublicationInstallSql);
       await bootstrap.query('COMMIT');
     } catch (error) {
@@ -809,6 +811,9 @@ export async function installCurrentApplicationExtensions({
       assert.deepEqual((await legacyObserver.query(cronCapturedTableAclObservationSql)).rows,
         [{cron_captured_table_acl_exact: true}],
         new assert.AssertionError({message: 'FIXTURE_ASSERT_CRON_CAPTURED_TABLE_ACL_POSTIMAGE'}));
+      assert.deepEqual((await legacyObserver.query(cronCapturedSequenceAclObservationSql)).rows,
+        [{cron_captured_sequence_acl_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_CRON_CAPTURED_SEQUENCE_ACL_POSTIMAGE'}));
       assert.deepEqual((await legacyObserver.query(realtimeCapturedPublicationObservationSql)).rows,
         [{realtime_captured_publication_exact: true}],
         new assert.AssertionError({message: 'FIXTURE_ASSERT_REALTIME_CAPTURED_PUBLICATION_POSTIMAGE'}));

@@ -1023,3 +1023,34 @@ changed sections, so access differences cannot hide every constraint, trigger
 and index example. Sampling never changes exact parity, the first error or
 readiness. Native privilege and rollback cases remain separate from the full
 captured-schema comparison and all fifteen connected cases.
+
+### Native expression rendering and captured scheduler sequences
+
+The canonical catalogue asks PostgreSQL to pretty-deparse complete constraints,
+triggers and indexes. PostgreSQL preserves Boolean precedence, operand order,
+casts and literal values while omitting redundant grouping parentheses. No
+application definition is dropped from comparison. The original catalogue digest
+remains separate from the independently prepared expected restore.
+
+Four exact captured public CHECK definitions retain a legacy whole-array
+varchar-to-text cast. Native PostgreSQL17.6 and17.11 parse those same literal
+arrays into per-element casts. The source-only restore map accepts only the
+four complete maintained identities and literal definitions and derives their
+fixed native representation before any restored catalogue is read. Changed
+literals, operators, types or identities cannot borrow that mapping. The closed
+versioned receipt retains counts and digests, never literal definitions. This is
+not a general SQL normalizer or an inferred PostgreSQL minor-version defect.
+
+The genuine pinned pg_cron installer grants PUBLIC SELECT on its two sequences;
+the captured deployment has only owner SELECT, UPDATE and USAGE. The bounded
+private bootstrap aligns those exact grants in ordinary extension context,
+including their initial privilege baseline, then drops the disposable no-member
+helper with RESTRICT. An ordinary out-of-extension revoke leaves initial grants
+behind and changes the stock dump footprint, so it is refused as an equivalent
+configuration. Exact preimages, unrelated metadata, genuine scheduler membership,
+ordinary application privileges and independent post-commit readback remain
+required. No scheduler job starts and no production object is changed.
+
+Native source qualification, strict complete-schema parity, all fifteen isolated
+connected cases and complete cleanup still determine acceptance. These source
+changes alone do not establish any of those results.
