@@ -1812,7 +1812,11 @@ describe('every host mutation path obeys the durable release authority', () => {
     // 2026-10-09: a 512 MiB heap inside a 640 MiB builder stopped fitting the
     // runtime emit and every release build died with heap exhaustion. The emit
     // was measured to complete at a 544 MiB heap and to peak near 830 MiB RSS.
-    const heaps = [...dockerfile.matchAll(/--max-old-space-size=(\d+)/g)].map((m) => Number(m[1]));
+    // Only the compiler RUN line sizes the builder; the runtime NODE_OPTIONS
+    // ceiling (2026-11-02) governs the serving engine, not the build.
+    const heaps = [...dockerfile.matchAll(/^RUN .*--max-old-space-size=(\d+)/gm)].map((m) =>
+      Number(m[1])
+    );
     expect(heaps).toEqual([1024]);
     const limit = Number(/^BUILD_MEMORY_BYTES=(\d+)$/m.exec(imageBuilderSource)?.[1]);
     expect(limit).toBe(2048 * 1024 * 1024);
