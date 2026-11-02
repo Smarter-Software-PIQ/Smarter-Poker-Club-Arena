@@ -1,0 +1,1 @@
+DO $proof$ BEGIN IF EXISTS(SELECT 1 FROM delayed_protected_before b FULL JOIN tournaments t USING(id) WHERE to_jsonb(t) IS DISTINCT FROM to_jsonb(b)) THEN RAISE EXCEPTION 'delayed closure changed protected or unrelated contract'; END IF; END $proof$;

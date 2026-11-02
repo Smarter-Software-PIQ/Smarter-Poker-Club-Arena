@@ -22,7 +22,7 @@ test('actual isolated smoke control staging can import its observation protocol 
     scratch = await mkdtemp(path.join(tmpdir(), 'fixture-observation-controls-'));
   try {
     for (const helper of helpers) {
-      assert.match(helper, /^operations\/release\/native\/[a-z-]+\.mjs$/);
+      assert.match(helper, /^operations\/release\/(?:native\/[a-z-]+|fixture\/schema-catalogue-restore-map)\.mjs$/);
       const destination = path.join(scratch, helper);
       await mkdir(path.dirname(destination), { recursive: true });
       await writeFile(destination, await readFile(path.join(root, helper)), {
@@ -38,8 +38,9 @@ test('actual isolated smoke control staging can import its observation protocol 
       [
         '--input-type=module',
         '-e',
-        "await import(process.argv[1]);console.log('isolated observation controls imported');",
+        "await import(process.argv[1]);const m=await import(process.argv[2]);if(typeof m.buildCatalogueRestorePlan!=='function')throw Error('missing source map');console.log('isolated observation controls imported');",
         url,
+        pathToFileURL(path.join(scratch, 'operations/release/fixture/schema-catalogue-restore-map.mjs')).href,
       ],
       { encoding: 'utf8', cwd: scratch, timeout: 10000 }
     );

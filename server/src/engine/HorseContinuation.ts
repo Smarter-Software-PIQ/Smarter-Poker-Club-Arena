@@ -94,7 +94,9 @@ export function completePreflopCommitment(out: PreflopIntent, ctx: PreflopCtx): 
   return remainder > 0 &&
     remainder <= Math.min(ctx.toCall, ctx.stack) &&
     (!ctx.isPotLimit || allInTo <= potLimitRaiseTo(ctx.pot, ctx.currentBet, ctx.toCall))
-    ? { a: 'jam' }
+    ? out.receipt
+      ? { a: 'jam', receipt: out.receipt }
+      : { a: 'jam' }
     : out;
 }
 export function shouldPriceTerminalFlop(s: {

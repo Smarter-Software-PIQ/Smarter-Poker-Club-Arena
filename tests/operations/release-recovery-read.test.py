@@ -959,7 +959,9 @@ class ReaderTests(unittest.TestCase):
         self.assertIn("'_SYSTEMD_INVOCATION_ID=' + invocation", source)
         self.assertIn("'_SYSTEMD_UNIT=club-arena-engine-release-v1@' + request['runKey'] + '.service'", source)
         self.assertIn("'--lines=2'", source)
-        self.assertIn('8193 - len(raw)', source)
+        self.assertIn('byte_limit + 1 - len(raw)', source)
+        self.assertIn('byte_limit=8192', source)
+        self.assertIn('0 <= byte_limit <= 8192', source)
         self.assertNotIn('shell=True', source)
         # This explicit inspector mode admits only immutable Docker reads and
         # its scalar-only helper, not lifecycle operations or a publisher.
@@ -1127,6 +1129,10 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(reply.stdout, b'native witness\n')
         with self.assertRaises(ValueError):
             R.bounded_journal(['python3', '-c', 'print("x" * 9000)'])
+        with self.assertRaises(ValueError):
+            R.bounded_journal(['python3', '-c', 'print("x" * 40)'], byte_limit=32)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            R.bounded_journal(['python3', '-c', 'print("bounded")'], absolute_deadline=R.time.monotonic()-1)
 
     def test_actual_reservation_and_terminal_producer_contracts_stay_bound(self):
         tree = ast.parse((ROOT / 'server/scripts/engine-release-seal.py').read_text())
@@ -3310,6 +3316,112 @@ class FailedRoutineHistoricalTests(unittest.TestCase):
         source = (ROOT / 'scripts/ci/read-scoped-release-recovery.py').read_text()
         self.assertIn('history_inputs == failed_custody_history_inputs(root_fd, control_parent, deadline)', source)
 
+
+
+class OriginalAnnouncementCauseTests(unittest.TestCase):
+    def fixture(self, folder):
+        root = Path(folder); (root/'engine-release-requests').mkdir(); (root/'engine-release-generation-pins').mkdir()
+        control = root/'control'; control.mkdir()
+        request = R.ORIGINAL_ANNOUNCEMENT_REQUEST; run = request['runKey']; sha = request['releaseSha']
+        rows = [sha,'https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/runs/'+run.split('-')[0],
+                'private actor',R.ORIGINAL_ANNOUNCEMENT_GENERATION,R.ORIGINAL_ANNOUNCEMENT_CONTROL,'1793640000']
+        def write(path, value):
+            path.write_text(value); path.chmod(0o600)
+        for suffix in ['request','intent']: write(root/'engine-release-requests'/(run+'.'+suffix),'\n'.join(rows)+'\n')
+        write(root/'engine-release-generation-pins'/(run+'.generation'),rows[3]+'\n'+rows[4]+'\n')
+        write(root/('engine-recovery-window-'+run+'.json'),json.dumps({'runId':run,'sha':sha,'announcedAt':R.ORIGINAL_ANNOUNCEMENT_STAMP,'cause':'urgent'}))
+        write(root/'engine-release-requests'/(run+'.activation-entry'),json.dumps({'schema':'engine-release-activation-floor/v3-phase1','runId':run,'targetSha':sha,'controlSha':rows[4],'manifestSha256':'a'*64,'phase':'announcement'}))
+        write(control/'control-sha',rows[4]+'\n')
+        for name in R.ORIGINAL_ANNOUNCEMENT_SOURCES:
+            value="die 'private SECRET diagnostic'\n" if name=='engine-release-transaction.sh' else "die('private control diagnostic')\n" if name=='engine-release-seal.py' else 'source fixture '+name
+            write(control/name,value)
+        sources={name:hashlib.sha256((control/name).read_bytes()).hexdigest() for name in R.ORIGINAL_ANNOUNCEMENT_SOURCES}
+        unit='club-arena-engine-release-v1@'+run+'.service'; stamp=R.ORIGINAL_ANNOUNCEMENT_STAMP
+        def row(message, invocation='a'*32, at=stamp+10):
+            return {'MESSAGE':message,'_SYSTEMD_INVOCATION_ID':invocation,'_SYSTEMD_UNIT':unit,'__REALTIME_TIMESTAMP':str(at*1000)}
+        announce=row('[engine-release-transaction] fixed recovery announcement '+str(stamp)+': accepted; existing certificate and rollback budget remain required')
+        fatal=row('[engine-release-transaction] FATAL: private SECRET diagnostic',at=stamp+120010)
+        return root,control,sources,announce,fatal
+
+    def read(self, root, control, sources, replies):
+        fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY); cfd=os.open(control,os.O_RDONLY|os.O_DIRECTORY)
+        try:
+            def journal(args, **kwargs):
+                data=replies.pop(0)
+                if callable(data): data=data()
+                return subprocess.CompletedProcess(args,0,stdout=('\n'.join(json.dumps(r) for r in data)).encode())
+            with patch.object(R,'ORIGINAL_ANNOUNCEMENT_SOURCES',sources), patch.object(R,'bounded_journal',side_effect=journal):
+                return R.original_announcement_evidence(R.ORIGINAL_ANNOUNCEMENT_REQUEST,fd,cfd)
+        finally: os.close(fd);os.close(cfd)
+
+    def test_original_invocation_is_distinct_and_private_cause_is_hashed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder); result=self.read(root,control,sources,[[a],[f]])
+            self.assertEqual(result['status'],'observed'); self.assertEqual(result['originalInvocationSha256'],hashlib.sha256(('a'*32).encode()).hexdigest())
+            self.assertEqual(result['causes'][0]['category'],'transaction_fatal'); self.assertNotIn('SECRET',json.dumps(result))
+            R.validate_original_announcement(result,R.ORIGINAL_ANNOUNCEMENT_REQUEST)
+
+    def test_first_cause_is_complete_chronological_and_unknown_literals_do_not_pass(self):
+        for case in ['ordered','truncated','unknown']:
+            with self.subTest(case=case),tempfile.TemporaryDirectory() as folder:
+                root,control,sources,a,f=self.fixture(folder)
+                later={**f,'__REALTIME_TIMESTAMP':str((R.ORIGINAL_ANNOUNCEMENT_STAMP+120020)*1000)}
+                rows=[later,f] if case=='ordered' else [f]*17 if case=='truncated' else [{**f,'MESSAGE':'[engine-release-transaction] FATAL: unrecognised private text'}]
+                result=self.read(root,control,sources,[[a],rows])
+                if case=='ordered':
+                    self.assertEqual(result['status'],'observed');self.assertEqual(len(result['causes']),1)
+                    self.assertEqual(result['causes'][0]['sourceLine'],1);self.assertEqual(result['causes'][0]['refusalCode'],'transaction_die_line_1')
+                    self.assertEqual(result['causes'][0]['observedAtMs'],R.ORIGINAL_ANNOUNCEMENT_STAMP+120010)
+                else:
+                    self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'journal_truncated' if case=='truncated' else 'unclassified_original_refusal')
+                    self.assertEqual(result['causes'],[])
+
+    def test_missing_and_ambiguous_original_are_unknown(self):
+        for ambiguous in [False,True]:
+            with self.subTest(ambiguous=ambiguous), tempfile.TemporaryDirectory() as folder:
+                root,control,sources,a,f=self.fixture(folder); other={**a,'_SYSTEMD_INVOCATION_ID':'b'*32}
+                result=self.read(root,control,sources,[[a,other] if ambiguous else []])
+                self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'ambiguous_announcement' if ambiguous else 'announcement_not_retained')
+
+    def test_wrong_original_journal_owner_and_timestamp_are_unknown(self):
+        for change in [{'_SYSTEMD_UNIT':'foreign.service'},{'__REALTIME_TIMESTAMP':'1'},{'MESSAGE':'private unrelated message'}]:
+            with self.subTest(change=change),tempfile.TemporaryDirectory() as folder:
+                root,control,sources,a,f=self.fixture(folder); result=self.read(root,control,sources,[[{**a,**change}]])
+                self.assertEqual(result['status'],'unknown')
+
+    def test_cause_from_recovery_invocation_is_not_original(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder);result=self.read(root,control,sources,[[a],[{**f,'_SYSTEMD_INVOCATION_ID':'b'*32}]])
+            self.assertEqual(result['status'],'unknown');self.assertEqual(result['causes'],[])
+
+    def test_missing_cause_stays_unknown_even_when_announcement_is_bound(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder);result=self.read(root,control,sources,[[a],[]])
+            self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'cause_not_retained');self.assertIsNotNone(result['originalInvocationSha256'])
+
+    def test_changed_request_and_source_never_qualify(self):
+        for source in [False,True]:
+            with self.subTest(source=source),tempfile.TemporaryDirectory() as folder:
+                root,control,sources,a,f=self.fixture(folder)
+                def mutate():
+                    path=control/next(iter(sources)) if source else root/'engine-release-requests'/(R.ORIGINAL_ANNOUNCEMENT_REQUEST['runKey']+'.request')
+                    path.write_text('changed');return [f]
+                result=self.read(root,control,sources,[[a],mutate]);self.assertEqual(result['status'],'unknown');self.assertEqual(result['reason'],'binding_changed')
+
+    def test_fixed_selector_and_closed_export_refuse_forgery(self):
+        with self.assertRaises(ValueError):R.selection({**R.ORIGINAL_ANNOUNCEMENT_REQUEST,'runKey':'1-1'})
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder);result=self.read(root,control,sources,[[a],[f]])
+            for key,value in [('private','SECRET'),('controlSha','f'*40),('status','sealed')]:
+                with self.subTest(key=key),self.assertRaises(ValueError):R.validate_original_announcement({**result,key:value},R.ORIGINAL_ANNOUNCEMENT_REQUEST)
+
+    def test_journal_size_and_deadline_remain_unknown(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,control,sources,a,f=self.fixture(folder)
+            with patch.object(R,'time') as clock:
+                clock.monotonic.side_effect=[0,0,6]
+                result=self.read(root,control,sources,[[a],[f]])
+            self.assertEqual(result['status'],'unknown')
 
 if __name__ == "__main__":
     unittest.main()

@@ -148,14 +148,16 @@ async function canonicalSchemaCatalogue(db, includePayload) {
     'policies',(SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY schemaname,tablename,policyname),'[]'::jsonb)
       FROM pg_policies p WHERE schemaname IN ('public','auth')),
     'constraints',(SELECT coalesce(jsonb_agg(jsonb_build_array(n.nspname,c.relname,k.conname,
-      pg_get_constraintdef(k.oid),k.convalidated) ORDER BY n.nspname,c.relname,k.conname),'[]'::jsonb)
+      pg_get_constraintdef(k.oid,true),k.convalidated) ORDER BY n.nspname,c.relname,k.conname),'[]'::jsonb)
       FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname IN ('public','auth')),
     'triggers',(SELECT coalesce(jsonb_agg(jsonb_build_array(n.nspname,c.relname,t.tgname,
-      pg_get_triggerdef(t.oid),t.tgenabled) ORDER BY n.nspname,c.relname,t.tgname),'[]'::jsonb)
+      pg_get_triggerdef(t.oid,true),t.tgenabled) ORDER BY n.nspname,c.relname,t.tgname),'[]'::jsonb)
       FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname IN ('public','auth') AND NOT t.tgisinternal),
-    'indexes',(SELECT coalesce(jsonb_agg(to_jsonb(i) ORDER BY schemaname,tablename,indexname),'[]'::jsonb)
+    'indexes',(SELECT coalesce(jsonb_agg(jsonb_set(to_jsonb(i), '{indexdef}',
+      to_jsonb(pg_get_indexdef((quote_ident(schemaname)||'.'||quote_ident(indexname))::regclass,0,true)))
+      ORDER BY schemaname,tablename,indexname),'[]'::jsonb)
       FROM pg_indexes i WHERE schemaname IN ('public','auth')),
     'rls',(SELECT coalesce(jsonb_agg(jsonb_build_array(n.nspname,c.relname,c.relrowsecurity,c.relforcerowsecurity)
       ORDER BY n.nspname,c.relname),'[]'::jsonb) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

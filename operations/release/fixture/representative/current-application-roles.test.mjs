@@ -172,10 +172,12 @@ test('native extension installer uses actual owning sessions and refuses wrong v
   const { installSql: managedBootstrapInstallSql, observationSql: managedBootstrapObservationSql } = await import('../managed-bootstrap-functions.mjs');
   const { postgresExtensionCapturedAclInstallSql, postgresExtensionCapturedAclObservationSql } = await import('../postgres-extension-captured-acls.mjs');
   const { cronCapturedTableAclInstallSql, cronCapturedTableAclObservationSql } = await import('../cron-captured-table-acls.mjs');
+  const { cronCapturedSequenceAclInstallSql, cronCapturedSequenceAclObservationSql } = await import('../cron-captured-sequence-acls.mjs');
   const { realtimeCapturedPublicationInstallSql, realtimeCapturedPublicationObservationSql } = await import('../realtime-captured-publication.mjs');
   const postFamilies = [
     [postgresExtensionCapturedAclInstallSql, postgresExtensionCapturedAclObservationSql, 'postgres-extension-acl', 'postgres_extension_captured_acls_exact', 'FIXTURE_ASSERT_POSTGRES_EXTENSION_CAPTURED_ACL_POSTIMAGE'],
     [cronCapturedTableAclInstallSql, cronCapturedTableAclObservationSql, 'cron-table-acl', 'cron_captured_table_acl_exact', 'FIXTURE_ASSERT_CRON_CAPTURED_TABLE_ACL_POSTIMAGE'],
+    [cronCapturedSequenceAclInstallSql, cronCapturedSequenceAclObservationSql, 'cron-sequence-acl', 'cron_captured_sequence_acl_exact', 'FIXTURE_ASSERT_CRON_CAPTURED_SEQUENCE_ACL_POSTIMAGE'],
     [realtimeCapturedPublicationInstallSql, realtimeCapturedPublicationObservationSql, 'realtime-publication', 'realtime_captured_publication_exact', 'FIXTURE_ASSERT_REALTIME_CAPTURED_PUBLICATION_POSTIMAGE'],
   ];
   for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl', 'legacy-acl', 'graphql-acl', 'auth-acl', 'realtime-acl', 'dblink-initial-acl', 'managed-bootstrap-postimage', 'managed-bootstrap-install', ...postFamilies.flatMap(([, , family]) => [family, family+'-install'])]) {
@@ -382,10 +384,10 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     assert.equal(managedRollbacks,isInstallFailure ? 1 : 0);
     assert.equal(managedObserverCalls,(['graphql-acl','auth-acl','realtime-acl','dblink-initial-acl','legacy-acl'].includes(drift)||isInstallFailure) ? 0 : 1);
     const failedInstallIndex=postFamilies.findIndex(([, , family])=>drift===family+'-install');
-    assert.deepEqual(postInstalls,drift==='managed-bootstrap-install'?[]:postFamilies.slice(0,failedInstallIndex<0?3:failedInstallIndex+1).map(([, , name])=>name));
+    assert.deepEqual(postInstalls,drift==='managed-bootstrap-install'?[]:postFamilies.slice(0,failedInstallIndex<0?postFamilies.length:failedInstallIndex+1).map(([, , name])=>name));
     const failedObserverIndex=postFamilies.findIndex(([, , family])=>drift===family);
     const observerBlocked=isInstallFailure||['graphql-acl','auth-acl','realtime-acl','dblink-initial-acl','legacy-acl','managed-bootstrap-postimage'].includes(drift);
-    assert.deepEqual(postObservers,observerBlocked?[]:postFamilies.slice(0,failedObserverIndex<0?3:failedObserverIndex+1).map(([, , name])=>name));
+    assert.deepEqual(postObservers,observerBlocked?[]:postFamilies.slice(0,failedObserverIndex<0?postFamilies.length:failedObserverIndex+1).map(([, , name])=>name));
     assert.equal(graphqlInstalls, 1);
     assert.equal(statements.length, 11);
     assert.equal(namespaceCreates, 1);

@@ -2,7 +2,7 @@
 -- to a 3-bet, rule 4 answer to a 5-bet). Same logic as
 -- preflop-raise-ladder.sql, windowed [:START, :END). Raise levels: rb = raises
 -- before the action (open rb=0, 3-bet rb=1, 4-bet rb=2, 5-bet rb=3).
--- Read-only (one SELECT; SET LOCAL only affects this transaction).
+-- Read-only (one SELECT).
 WITH horses AS MATERIALIZED (SELECT id::text uid FROM public.profiles WHERE is_horse),
 base AS MATERIALIZED (
   SELECT h.id, (h.tournament_id IS NULL) cash, h.big_blind bb, h.actions

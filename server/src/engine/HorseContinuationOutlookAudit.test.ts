@@ -245,4 +245,45 @@ describe('Omaha dirty-card outlook reaches the actual continuation chooser', () 
     // wins more. Duplicate-deal strategy qualification remains separate.
     expect(corrected.effects.some((effect) => effect.type === 'outlook')).toBe(true);
   });
+
+  it('routes PLO8 nut-low counterfeit scare cards through HorseMind.outlookOf in HorseLogic.decide (Item 21)', () => {
+    const runPlo8 = (quality: boolean) => {
+      HorseMind.reset();
+      seedFastRandom(4);
+      const f = fixture('plo8');
+      f.hero.cards = ['As', '2s', 'Kh', 'Qd'].map(c);
+      // Flop 3c 4d 8s gives hero the nut low (A-2-3-4-8); turn Ah counterfeits hero's Ace!
+      f.gs.communityCards = ['3c', '4d', '8s', 'Ah'].map(c);
+      const outlook = nextCardOutlook(
+        f.hero.cards,
+        f.gs.communityCards.slice(0, 3),
+        variantInfo('plo8'),
+        quality
+      );
+      HorseMind.notePlan(f.key, 'hero', true);
+      HorseMind.noteOutlook(f.key, 'hero', 'flop', outlook.good, outlook.scare);
+      const spy = vi.spyOn(HorseMind, 'outlookOf');
+      const decision = HorseMind.captureDecisionEffects(() =>
+        HorseLogic.decide(
+          f.hero,
+          f.gs as never,
+          'balanced',
+          {},
+          { telemetry: false, drawOutlookQuality: quality, barrelContinuationOutlook: true }
+        )
+      );
+      expect(spy).toHaveBeenCalledWith(f.key, 'hero', 'flop', 'Ah');
+      return {
+        ...decision,
+        outlook,
+        classifiedAs: HorseMind.outlookOf(f.key, 'hero', 'flop', 'Ah'),
+      };
+    };
+    const legacy = runPlo8(false);
+    const corrected = runPlo8(true);
+    // Under legacy quality=false, Ah (pairing hero's Ace) was classified as 'good'
+    expect(legacy.classifiedAs).toBe('good');
+    // Under corrected quality=true, Ah counterfeits hero's nut low and is classified as 'scare'
+    expect(corrected.classifiedAs).toBe('scare');
+  });
 });

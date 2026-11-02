@@ -288,23 +288,29 @@ def validate_schema_preflight(preflight, capture):
     mapping = preflight.get('catalogue_restore_mapping')
     keys = {'version', 'rule', 'original_digest', 'restored_digest', 'columns_count',
             'public_columns_count', 'changed_rows_count', 'changed_rows_digest',
-            'changed_rows_digest_encoding'}
+            'changed_rows_digest_encoding', 'constraints_count',
+            'constraint_changed_rows_count', 'constraint_changed_rows_digest'}
     require(isinstance(mapping, dict) and set(mapping) == keys,
             'RELEASE_OBSERVATION_RESTORE_MAPPING_REQUIRED')
-    require(type(mapping['version']) is int and mapping['version'] == 1 and mapping['rule'] == 'public-live-column-rank/v1' and
+    require(type(mapping['version']) is int and mapping['version'] == 2 and mapping['rule'] == 'public-live-column-rank-and-exact-varchar-array/v2' and
             mapping['changed_rows_digest_encoding'] == 'utf8-json-stringify-ordered-object-array/v1' and
             mapping['original_digest'] == capture['original_catalogue_digest'] and
             all(isinstance(mapping[key], str) and re.fullmatch('[0-9a-f]{64}', mapping[key])
-                for key in ('original_digest', 'restored_digest', 'changed_rows_digest')) and
+                for key in ('original_digest', 'restored_digest', 'changed_rows_digest', 'constraint_changed_rows_digest')) and
             all(type(mapping[key]) is int and mapping[key] >= 0
-                for key in ('columns_count', 'public_columns_count', 'changed_rows_count')) and
-            mapping['changed_rows_count'] <= mapping['public_columns_count'] <= mapping['columns_count'],
+                for key in ('columns_count', 'public_columns_count', 'changed_rows_count', 'constraints_count',
+                            'constraint_changed_rows_count')) and
+            mapping['changed_rows_count'] <= mapping['public_columns_count'] <= mapping['columns_count'] and
+            mapping['constraint_changed_rows_count'] <= min(4, mapping['constraints_count']),
             'RELEASE_OBSERVATION_RESTORE_MAPPING_REQUIRED')
-    require((mapping['changed_rows_count'] == 0) ==
+    require((mapping['changed_rows_count'] + mapping['constraint_changed_rows_count'] == 0) ==
             (mapping['restored_digest'] == mapping['original_digest']),
             'RELEASE_OBSERVATION_RESTORE_MAPPING_REQUIRED')
     if mapping['changed_rows_count'] == 0:
         require(mapping['changed_rows_digest'] == native.digest(b'[]'),
+                'RELEASE_OBSERVATION_RESTORE_MAPPING_REQUIRED')
+    if mapping['constraint_changed_rows_count'] == 0:
+        require(mapping['constraint_changed_rows_digest'] == native.digest(b'[]'),
                 'RELEASE_OBSERVATION_RESTORE_MAPPING_REQUIRED')
     require(preflight.get('success') is True and preflight.get('product_certificate') is False and
             preflight.get('original_catalogue_digest') == capture['original_catalogue_digest'] and

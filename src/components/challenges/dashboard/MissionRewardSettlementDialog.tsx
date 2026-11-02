@@ -45,6 +45,7 @@ export function MissionRewardSettlementDialog({
       <div
         ref={dialogRef}
         className={styles.celebrateCard}
+        data-casino-realism="smarter-casino-realism"
         data-dialog-card="fixed-frame"
         onClick={(event) => event.stopPropagation()}
       >
