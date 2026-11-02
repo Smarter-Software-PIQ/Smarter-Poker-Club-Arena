@@ -26,16 +26,27 @@ vi.mock('../../src/core/MasterBus', () => ({
 
 const rows: Record<string, unknown>[] = [];
 const writeResults: Array<Promise<{ error: unknown }>> = [];
+const durableRows = new Map<string, Record<string, unknown>>();
 
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
+    rpc: () => Promise.resolve({ error: null }),
     from: () => ({
       select: () => ({
-        eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
+        eq: (_column: string, userId: string) => ({
+          maybeSingle: () =>
+            Promise.resolve({ data: durableRows.get(userId) ?? null, error: null }),
+        }),
       }),
       upsert: (row: Record<string, unknown>) => {
         rows.push(row);
-        return writeResults.shift() ?? Promise.resolve({ error: null });
+        return (writeResults.shift() ?? Promise.resolve({ error: null })).then((result) => {
+          if (!result.error) {
+            const userId = String(row.user_id);
+            durableRows.set(userId, { ...durableRows.get(userId), ...row });
+          }
+          return result;
+        });
       },
     }),
   },
@@ -50,6 +61,7 @@ beforeEach(() => {
   emitted.length = 0;
   rows.length = 0;
   writeResults.length = 0;
+  durableRows.clear();
   localStorage.clear();
 });
 
@@ -263,3 +275,57 @@ it('every mounted BB control follows the latest user tap, even after its own ear
   expect(result.current.table.settings.show_stack_in_bb).toBe(true);
   expect(result.current.settings.settings.show_stack_in_bb).toBe(true);
 });
+
+it.each(['show_stack_in_bb', 'table_alias'] as const)(
+  '%s preserves gesture order across controls behind a deferred save and after remount',
+  async (column) => {
+    const userId = `deferred-${column}`;
+    const hooks = renderHook(() => ({
+      table: useUserTableSettings(userId),
+      settings: useUserTableSettings(userId),
+    }));
+    await waitFor(() =>
+      expect(hooks.result.current.table.loading || hooks.result.current.settings.loading).toBe(
+        false
+      )
+    );
+    let releaseFirst!: (value: { error: null }) => void;
+    writeResults.push(
+      new Promise((resolve) => {
+        releaseFirst = resolve;
+      })
+    );
+    const choose = (control: ReturnType<typeof useUserTableSettings>, alias: string) =>
+      column === 'table_alias' ? control.setAlias(alias) : control.toggleSetting(column);
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    let newest!: Promise<void>;
+    act(() => {
+      first = choose(hooks.result.current.table, 'first');
+    });
+    await waitFor(() => expect(rows.filter((row) => column in row)).toHaveLength(1));
+    act(() => {
+      second = choose(hooks.result.current.table, 'second');
+      newest = choose(hooks.result.current.settings, 'newest');
+    });
+    expect(rows.filter((row) => column in row)).toHaveLength(1);
+    releaseFirst({ error: null });
+    await act(async () => {
+      await Promise.all([first, second, newest]);
+    });
+    const expected = column === 'table_alias' ? 'newest' : true;
+    expect(durableRows.get(userId)?.[column]).toBe(expected);
+    expect(rows.filter((row) => column in row).map((row) => row[column])).toEqual(
+      column === 'table_alias' ? ['first', 'second', 'newest'] : [true, false, true]
+    );
+    expect(localStorage.getItem(`ca_table_setting_intent:${userId}:${column}`)).toBeNull();
+    hooks.unmount();
+    // A fresh mount must hydrate the durable row, with neither cache nor an
+    // unconfirmed intent concealing a stale last write.
+    localStorage.clear();
+    const reloaded = renderHook(() => useUserTableSettings(userId));
+    await waitFor(() => expect(reloaded.result.current.loading).toBe(false));
+    expect(reloaded.result.current.settings[column]).toBe(expected);
+    reloaded.unmount();
+  }
+);

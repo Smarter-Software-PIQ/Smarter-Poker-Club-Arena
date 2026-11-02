@@ -43,6 +43,9 @@ extra=r'''
     # Money admission by this week's measured lost statements, not size (20261031223940).
     measured=next((R/'supabase/migrations').glob('20261031223940_*')).read_text()
     q(measured[measured.index('-- native:begin'):measured.index('-- native:end')])
+    # A whole day of hourly catch-up slots (20261102133257).
+    day=next((R/'supabase/migrations').glob('20261102133257_*')).read_text()
+    q(day[day.index('-- native:begin'):day.index('-- native:end')])
     # The complete original financial owners execute. Only existing external
     # precomputation and mint transport are adapters, explicitly not live proof.
     q("CREATE FUNCTION caw2_u(label text)RETURNS uuid LANGUAGE sql IMMUTABLE AS $$SELECT md5('owned-phase-second-board:'||label)::uuid$$;")
@@ -125,9 +128,9 @@ extra=r'''
      "SELECT caw_assert((SELECT phase='released' FROM weekly_accounting_payout_pauses WHERE attempt_no=1),'refused-released');"+unpaid("caw_u('club')")+unpaid("caw2_u('club')")+
      at('2026-10-12 09:10Z')+stage('weekly_payout_prepared','retry-prepared')+
      "SELECT caw_assert((SELECT jsonb_array_length(scope_plan)=2 FROM weekly_accounting_payout_pauses WHERE attempt_no=2),'retry-owns-both');")
-    owned_case('owned-slots-end-after-eight',owed+"DELETE FROM weekly_accounting_payout_pauses;"+at('2026-10-12 15:50Z')+stage('weekly_payout_prepared','eighth-slot')+
-     "SELECT caw_assert((SELECT attempt_no FROM weekly_accounting_payout_pauses)=8,'eighth');DELETE FROM weekly_accounting_payout_pauses;"+at('2026-10-12 15:58Z')+
-     "SELECT caw_assert(smarter_private.weekly_payout_due() IS NULL,'no-ninth-slot');")
+    owned_case('owned-slots-end-after-twenty-four',owed+"DELETE FROM weekly_accounting_payout_pauses;"+at('2026-10-13 07:50Z')+stage('weekly_payout_prepared','twenty-fourth-slot')+
+     "SELECT caw_assert((SELECT attempt_no FROM weekly_accounting_payout_pauses)=24,'twenty-fourth');DELETE FROM weekly_accounting_payout_pauses;"+at('2026-10-13 07:58Z')+
+     "SELECT caw_assert(smarter_private.weekly_payout_due() IS NULL,'no-twenty-fifth-slot');")
     owned_case('one-unreleased-boundary-per-week',"INSERT INTO weekly_accounting_payout_pauses(period_start,period_end,attempt_no,announced_at,money_starts_at,money_deadline_at,expires_at,scope_plan)"
      "VALUES('2026-10-05 07:00Z','2026-10-12 07:00Z',2,'2026-10-12 09:58Z','2026-10-12 10:00Z','2026-10-12 10:04Z','2026-10-12 10:05Z','[{}]');",'weekly_accounting_payout_pauses_one_unreleased')
     owned_case('a-slot-is-on-its-own-hour',"UPDATE weekly_accounting_payout_pauses SET phase='released';INSERT INTO weekly_accounting_payout_pauses(period_start,period_end,attempt_no,announced_at,money_starts_at,money_deadline_at,expires_at,scope_plan)"
@@ -143,7 +146,7 @@ extra=r'''
      "SELECT caw_assert((smarter_private.weekly_payout_due()->>'success')='true','subset-paid');"+alerted('WeeklyPayoutScopeDeferred','firing','warning')+paid("caw_u('club')"))
     owned_case('a-scope-deferred-at-preparation-reaches-production-alerts',owed+sink+"DELETE FROM weekly_accounting_payout_pauses;SET LOCAL fixture.refuse_club2='on';"+at('2026-10-12 08:52Z')+
      stage('weekly_payout_prepared','final-subset')+alerted('WeeklyPayoutScopeDeferred','firing','warning'))
-    owned_case('a-week-owing-after-its-last-slot-reaches-production-alerts',owed+sink+"DELETE FROM weekly_accounting_payout_pauses;"+at('2026-10-12 15:58Z')+
+    owned_case('a-week-owing-after-its-last-slot-reaches-production-alerts',owed+sink+"DELETE FROM weekly_accounting_payout_pauses;"+at('2026-10-13 07:58Z')+
      "SELECT caw_assert(smarter_private.weekly_payout_due() IS NULL,'no-ninth');"+alerted('WeeklyPayoutUnpaidAfterLastSlot','firing','critical'))
     owned_case('an-alert-failure-never-changes-the-payout-outcome',owed+"CREATE OR REPLACE FUNCTION public.fn_record_operational_alert(text,text,text,text,text,jsonb)RETURNS bigint LANGUAGE plpgsql AS $f$BEGIN RAISE EXCEPTION 'fixture-alert-down';END$f$;"+
      at('2026-10-12 09:01Z')+stage('weekly_payout_financial_refused','refused-without-alert')+"SELECT caw_assert((SELECT phase='released' FROM weekly_accounting_payout_pauses WHERE attempt_no=1),'released-anyway');"+

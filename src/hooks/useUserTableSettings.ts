@@ -388,8 +388,8 @@ export function readCachedSettings(userId: string | null | undefined): UserTable
  * READ and nothing else: concurrent callers for the same user share one
  * in-flight promise, so N mounts cost one query. Every hook instance still
  * keeps its own state, its own MasterBus subscriptions and its own write
- * machinery (`writeTailsRef`, `durableValueRef`, `pendingEchoRef` and the
- * rest), untouched.
+ * machinery (`mutationRevisionRef`, `pendingEchoRef` and the rest).
+ * Persistence is ordered by the shared per-account, per-column queue.
  *
  * That restraint is the point. Sharing the STATE as well would be the bigger
  * win and the bigger risk: this hook's write path is a documented minefield of
@@ -584,7 +584,6 @@ export function useUserTableSettings(userId: string | null | undefined) {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const mutationRevisionRef = useRef(new Map<string, number>());
-  const writeTailsRef = useRef(new Map<string, Promise<void>>());
   /**
    * Keys the user has changed since this hook mounted.
    *
@@ -897,32 +896,26 @@ export function useUserTableSettings(userId: string | null | undefined) {
       }
 
       // Persist in tap order. A slower first request must not finish after the
-      // second and become the durable value.
+      // second and become the durable value. Register synchronously in the
+      // shared queue: waiting on a hook-local tail first lets a newer gesture
+      // from another mounted control overtake this one.
       const intentId = beginTableSettingIntent(
         userId,
         mutationScope.slice(userId.length + 1),
         optimistic[mutationScope.slice(userId.length + 1) as keyof UserTableSettings]
       );
-      const previousTail = writeTailsRef.current.get(mutationScope) ?? Promise.resolve();
-      const task = previousTail.then(() =>
-        orderTableSettingWrite(userId, mutationScope.slice(userId.length + 1), () =>
-          persistSettingColumn(
-            userId,
-            String(key),
-            newValue,
-            () =>
-              activeUserIdRef.current === userId &&
-              mutationRevisionRef.current.get(mutationScope) === revision,
-            intentId
-          )
+      const task = orderTableSettingWrite(userId, mutationScope.slice(userId.length + 1), () =>
+        persistSettingColumn(
+          userId,
+          String(key),
+          newValue,
+          () =>
+            activeUserIdRef.current === userId &&
+            mutationRevisionRef.current.get(mutationScope) === revision,
+          intentId
         )
       );
-      const tail = task.then(() => undefined);
-      writeTailsRef.current.set(mutationScope, tail);
       const outcome = await task;
-      if (writeTailsRef.current.get(mutationScope) === tail) {
-        writeTailsRef.current.delete(mutationScope);
-      }
 
       // A superseded write is not a failure and not a save. The newer tap owns
       // the column and emits its own terminal state; saying anything here would
@@ -993,26 +986,18 @@ export function useUserTableSettings(userId: string | null | undefined) {
         mutationScope.slice(userId.length + 1),
         optimistic[mutationScope.slice(userId.length + 1) as keyof UserTableSettings]
       );
-      const previousTail = writeTailsRef.current.get(mutationScope) ?? Promise.resolve();
-      const task = previousTail.then(() =>
-        orderTableSettingWrite(userId, mutationScope.slice(userId.length + 1), () =>
-          persistSettingColumn(
-            userId,
-            'table_alias',
-            alias,
-            () =>
-              activeUserIdRef.current === userId &&
-              mutationRevisionRef.current.get(mutationScope) === revision,
-            intentId
-          )
+      const task = orderTableSettingWrite(userId, mutationScope.slice(userId.length + 1), () =>
+        persistSettingColumn(
+          userId,
+          'table_alias',
+          alias,
+          () =>
+            activeUserIdRef.current === userId &&
+            mutationRevisionRef.current.get(mutationScope) === revision,
+          intentId
         )
       );
-      const tail = task.then(() => undefined);
-      writeTailsRef.current.set(mutationScope, tail);
       const outcome = await task;
-      if (writeTailsRef.current.get(mutationScope) === tail) {
-        writeTailsRef.current.delete(mutationScope);
-      }
 
       if (outcome.status === 'superseded') return;
 
