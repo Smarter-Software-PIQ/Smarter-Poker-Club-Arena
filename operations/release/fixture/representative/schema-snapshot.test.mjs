@@ -6,7 +6,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { captureContext, databaseConfiguration, captureSchema, dumpSnapshot, CAPTURE_FILES, connectionFailureCode, dumpFailureKind, safeDumpDiagnostic, remainingDumpBudget, verifyNativeSnapshotTransport, dumpProgressStage, createDumpProgress, catalogueFailureKind, catalogueDiagnostics, safeCatalogueDiagnostic, captureRoleCatalogue } from '../schema-snapshot.mjs';
-import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite, schemaCompositionMismatchWitness, schemaCompositionMissingWitness } from '../schema-compose.mjs';
+import { assertSchemaOnly, composeSchema, dumpObjects, schemaHash, schemaCompositionFailureSite, schemaCompositionMismatchWitness, schemaCompositionMissingWitness, schemaCompositionManagedMissingWitness } from '../schema-compose.mjs';
 import { schemaCatalogue, schemaCataloguePayload } from '../../native/component-semantic-observations.mjs';
 import { APPLICATION_TRIGGER_WITNESSES } from '../schema-application-hooks.mjs';
 
@@ -18,10 +18,10 @@ const context = { GITHUB_REPOSITORY_ID: '1132369872',
 const fixtureURL = 'postgres://postgres:synthetic-only@db.kuklfnapbkmacvwxktbh.supabase.co:5432/postgres?sslmode=require';
 const object = (name, schema, body, type = 'FUNCTION', owner = 'postgres') =>
   `-- Name: ${name}; Type: ${type}; Schema: ${schema}; Owner: ${owner}\n--\n\n${body}\n\n`;
-const managed = [...['email()', 'jwt()', 'role()', 'uid()'].map((name) =>
-  object(name, 'auth', `CREATE FUNCTION auth.${name} RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$;`)),
-  ...['schedule(text)', 'unschedule(bigint)', 'alter_job(bigint)'].map((name) =>
-    object(name, 'cron', `CREATE FUNCTION cron.${name} RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$;`))].join('');
+const authManaged = ['email()', 'jwt()', 'role()', 'uid()'].map((name) =>
+  object(name, 'auth', `CREATE FUNCTION auth.${name} RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$;`)).join('');
+const genuineCron = await readFile(new URL('./genuine-cron-schema.fixture.sql', import.meta.url), 'utf8');
+const managed = authManaged + genuineCron;
 const ordinary = object('application()', 'public', `CREATE FUNCTION public.application() RETURNS text LANGUAGE sql AS $body$\n-- Name: impostor(); Type: FUNCTION; Schema: auth; Owner: postgres\nSELECT 'kept';\n$body$;`);
 const prefix = '-- PostgreSQL database dump\n\\restrict safeToken\nSET standard_conforming_strings = on;\n';
 const footer = '-- PostgreSQL database dump complete\n\\unrestrict safeToken\n';
@@ -107,7 +107,7 @@ test('composition preserves application bytes and footer, removes only exact gen
   const result = composeSchema(capture, prefix + managed + footer);
   assert.equal(result.sql, prefix + ordinary + footer);
   assert.equal(result.manifest.retained.length, 1);
-  assert.equal(result.manifest.removed.length, 7);
+  assert.equal(result.manifest.removed.length, 13);
   assert.equal(result.manifest.current_database_contract_ready, false);
   assert.equal(result.manifest.original_sha256, schemaHash(capture));
   assert.throws(() => composeSchema(capture, prefix + managed.replace('SELECT NULL::text','SELECT 1::text') + footer), /PREIMAGE_REQUIRED/);
@@ -851,7 +851,7 @@ test('missing native object witness identifies only actual absent keys and prese
   const native = dumpObjects(prefix + managed + secret + footer).objects.at(-1);
   const witness = schemaCompositionMissingWitness(error);
   assert.deepEqual(witness, { version: 1, total: 1, truncated: false, rows: [{
-    native_ordinal: 7, key_sha256: schemaHash(native.key), object_type: 'FUNCTION', schema: 'auth',
+    native_ordinal: 13, key_sha256: schemaHash(native.key), object_type: 'FUNCTION', schema: 'auth',
   }] });
   for (const value of ['private_missing_name', 'private_body', 'private_owner', 'SELECT', native.key, 'captured_', 'owner_match'])
     assert.equal(JSON.stringify(witness).includes(value), false);
@@ -886,4 +886,96 @@ test('missing witness is bounded, native-ordered and excludes present differing 
   assert.equal(schemaCompositionFailureSite(mismatch), 'NATIVE_BLOCK_DIFFERENT');
   assert.equal(schemaCompositionMissingWitness(mismatch), null);
   assert.equal(schemaCompositionMismatchWitness(mismatch).total, 1);
+});
+
+
+test('captured managed missing witness excludes application hooks and private counterpart invention', () => {
+  const hook = APPLICATION_TRIGGER_WITNESSES[0];
+  const hookSql = object(hook.relation_name+' '+hook.trigger_name, hook.schema_name, hook.definition+';', 'TRIGGER', '-');
+  const absent = object('private_missing_managed()', 'auth', "SELECT 'private_body';");
+  const capture = prefix + managed + hookSql + ordinary + absent + footer;
+  let error;
+  assert.throws(() => composeSchema(capture, prefix+managed+footer), caught => {
+    error = caught; return caught.message === 'SCHEMA_COMPOSITION_PREIMAGE_REQUIRED';
+  });
+  assert.equal(schemaCompositionFailureSite(error), 'MANAGED_OBJECT_MISSING');
+  const index = dumpObjects(capture).objects.findIndex(item => item.name === 'private_missing_managed()');
+  const item = dumpObjects(capture).objects[index];
+  const witness = schemaCompositionManagedMissingWitness(error);
+  assert.deepEqual(witness, {version:1,total:1,truncated:false,rows:[{
+    captured_ordinal:index,key_sha256:schemaHash(item.key),object_type:'FUNCTION',schema:'auth',
+  }]});
+  for (const privateValue of ['private_missing_managed', 'private_body', 'postgres', 'SELECT', item.key, 'native_', 'owner_'])
+    assert.equal(JSON.stringify(witness).includes(privateValue),false);
+  assert.equal(schemaCompositionMissingWitness(error),null);
+  witness.rows[0].schema='mutated';
+  assert.equal(schemaCompositionManagedMissingWitness(error).rows[0].schema,'auth');
+  for (const hostile of [new Error(error.message),Object.assign(new Error(),{managed_missing:witness}),
+    new Proxy(error,{get(){throw Error('private');}})])
+    assert.equal(schemaCompositionManagedMissingWitness(hostile),null);
+  error.extra='tampered';assert.equal(schemaCompositionManagedMissingWitness(error),null);
+  delete error.extra;Object.defineProperty(error,'message',{get(){throw Error('private getter');}});
+  assert.equal(schemaCompositionManagedMissingWitness(error),null);
+});
+
+test('reverse missing witness counts all absent managed keys with bounded captured ordinals', () => {
+  const blocks = Array.from({length:18},(_,i)=>object('private_managed_'+i,'auth','SELECT 1;','PRIVATE TYPE'));
+  const capture=prefix+managed+ordinary+blocks.join('')+footer;
+  let error;try{composeSchema(capture,prefix+managed+footer);}catch(caught){error=caught;}
+  const witness=schemaCompositionManagedMissingWitness(error);
+  assert.equal(witness.total,18);assert.equal(witness.truncated,true);assert.equal(witness.rows.length,16);
+  assert.equal(witness.rows[0].captured_ordinal,14);assert.equal(witness.rows.at(-1).captured_ordinal,29);
+  assert.ok(witness.rows.every(row=>row.object_type==='OTHER' && row.schema==='auth'));
+  assert.ok(Buffer.byteLength(JSON.stringify(witness))<16384);
+});
+
+test('reverse witness never changes the first refusal when a later application hook is invalid', () => {
+  const hook=APPLICATION_TRIGGER_WITNESSES[0];
+  const invalid=object(hook.relation_name+' '+hook.trigger_name,hook.schema_name,
+    hook.definition.replace('AFTER INSERT','BEFORE INSERT')+';','TRIGGER','-');
+  const missing=object('private_missing()', 'auth', 'SELECT 1;');
+  let earlyMissing;try{composeSchema(prefix+managed+missing+invalid+footer,prefix+managed+footer);}catch(e){earlyMissing=e;}
+  assert.equal(schemaCompositionFailureSite(earlyMissing),'MANAGED_OBJECT_MISSING');
+  assert.equal(schemaCompositionManagedMissingWitness(earlyMissing).total,1);
+  let earlyHook;try{composeSchema(prefix+managed+invalid+missing+footer,prefix+managed+footer);}catch(e){earlyHook=e;}
+  assert.equal(schemaCompositionFailureSite(earlyHook),'APPLICATION_HOOK');
+  assert.equal(schemaCompositionManagedMissingWitness(earlyHook),null);
+});
+
+
+test('genuine cron archive footprint is exact extension and API ACLs, not fake function definitions', () => {
+  assert.equal(Buffer.byteLength(genuineCron),2147);
+  assert.equal(schemaHash(genuineCron),'2b874f1c0488af3cc382cea1bd7167cf3d0545cb369708f77c3ca377a048684f');
+  const footprint=dumpObjects(genuineCron).objects;
+  assert.equal(footprint.length,9);
+  assert.equal(footprint.filter(item=>item.type==='FUNCTION').length,0);
+  assert.equal(footprint.filter(item=>item.type==='ACL'&&item.schema==='cron').length,7);
+  assert.deepEqual(footprint.map(item=>item.sha256),[
+    'c23f01aaeb43eb07208d8d618eec3965ecb2ce1858f9d2d3162bf19a5b40f4dd',
+    '37fc4beaff40ff8624476849446ff9f7e93fee0bccb56d212b0d8ab377df34ab',
+    'b251e81b09e6b5b48e18ce63b354004526b1b0628f02ae7b59530531258b7c96',
+    '9a16872c97a3dac419bc69a66a819307b6f7b3747a7b058d951ceea239acc5f7',
+    '747ea67527d6e686ca4ce673d3fbcaa5828984d103528a1c0168fb2ab2a657b0',
+    '758779cda23dfa0b03b19f36b02df8935b7c1ab138707f783aa5037e1a06feee',
+    'd8d9f472d7b3e95c78bff1201355c0e0dcc2fc8c1881dc10d064a93344f56544',
+    'e3d443291be68f3af1b564943fb9243a022a715f138ef4702b88c0eb990c9d07',
+    '93706883f7114d94f1db6f787fabb4f5597e28f76efa9c21545cc55afd7052d4',
+  ]);
+  const result=composeSchema(prefix+managed+ordinary+footer,prefix+managed+footer);
+  assert.equal(result.sql,prefix+ordinary+footer);
+  assert.equal(result.manifest.current_database_contract_ready,false);
+  const legacy=['schedule(text)','unschedule(bigint)','alter_job(bigint)'].map(name=>object(name,'cron','SELECT 1;')).join('');
+  for(const invalid of [legacy,
+    footprint.filter(item=>item.type!=='EXTENSION').map(item=>item.text).join(''),
+    footprint.filter(item=>item.name!=='SCHEMA "cron"').map(item=>item.text).join(''),
+    footprint.slice(0,-1).map(item=>item.text).join(''),
+    genuineCron.replaceAll('"job_cache_invalidate"','"unknown_function"'),
+    genuineCron+legacy,
+    genuineCron.replace('Owner: supabase_admin','Owner: postgres'),
+    genuineCron.replaceAll('pg_cron','different_extension')]) {
+    let error;try{composeSchema(prefix+authManaged+invalid+footer,prefix+authManaged+invalid+footer);}catch(e){error=e;}
+    assert.equal(schemaCompositionFailureSite(error),'CRON_CONTRACT_REQUIRED');
+  }
+  let duplicate;try{composeSchema(prefix+managed+footprint[2].text+footer,prefix+managed+footprint[2].text+footer);}catch(e){duplicate=e;}
+  assert.equal(schemaCompositionFailureSite(duplicate),'DUMP_DUPLICATE_KEY');
 });

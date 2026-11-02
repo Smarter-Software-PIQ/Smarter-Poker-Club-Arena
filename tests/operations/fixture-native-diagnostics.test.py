@@ -19,7 +19,8 @@ class NativeDiagnosticsTests(unittest.TestCase):
                     'REALTIME_ACL_PREIMAGE', 'REALTIME_ACL_POSTIMAGE', 'DBLINK_INITIAL_ACL_PREIMAGE',
                     'DBLINK_INITIAL_ACL_EMPTY_HELPER', 'DBLINK_INITIAL_ACL_POSTIMAGE',
                     'GRAPHQL_ACL_PREIMAGE', 'GRAPHQL_ACL_EMPTY_HELPER', 'GRAPHQL_ACL_POSTIMAGE',
-                    'LEGACY_DBLINK_PREIMAGE', 'LEGACY_DBLINK_POSTIMAGE'}
+                    'LEGACY_DBLINK_PREIMAGE', 'LEGACY_DBLINK_POSTIMAGE', 'MANAGED_BOOTSTRAP_CONTEXT',
+                    'MANAGED_BOOTSTRAP_ABSENCE', 'MANAGED_BOOTSTRAP_POSTIMAGE'}
         self.assertEqual(m.CURRENT_APPLICATION_SQL_GUARD_SITES, expected)
         for site in expected:
             row = dict(status='failed', stage=stage, error='error', sqlstate='P0001', sql_guard_site=site)

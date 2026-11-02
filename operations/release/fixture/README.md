@@ -793,6 +793,33 @@ captured fixture configuration, not a claim about historical production changes
 or upstream service migrations. Genuine Linux providers, strict full-schema
 comparison and the fifteen connected cases remain separate required evidence.
 
+The existing bootstrap Admin connection now installs the six captured managed
+extension bootstrap functions after all thirteen genuine providers, in its own
+bounded transaction. Five unchanged function bodies come from pinned public
+Supabase/Postgres snapshots. The GraphQL placeholder uses the same public body
+plus the independently observed empty inner search path; exact body and complete
+definition hashes verify that explicit configuration. All six outer search
+paths, owners, ACLs, absent initial privileges and nonmembership must match.
+Unknown context, creator defaults or any occupied overload refuses. A fresh
+post-commit observer verifies the result, and full extension, namespace, default
+privilege and event-trigger inventories remain unchanged. This creates no event
+triggers and is not an extension-provider substitute or production migration.
+
+Exact composition additionally requires the real pg_cron dump footprint: one
+extension identity, its schema ACL and exactly seven known API ACL identities.
+Genuine extension-member C functions have no separate FUNCTION definition blocks
+in pg_dump. The obsolete three-definition check rejected a genuine dump even
+when compared with itself; the replacement preserves exact bidirectional raw
+comparison and the mandatory native catalogue/API proof. The checked-in small
+cron test fixture is bound to the actual PG17 dump blocks.
+
+A bounded reverse managed-object witness reports only captured ordinals, hashed
+keys and closed type/schema tags when a captured managed object is absent from
+the native fixture. It counts all proven missing keys, caps output at sixteen,
+excludes source-bound application hooks and preserves the first refusal. It
+never invents a native counterpart or relaxes composition. Full-schema restore,
+catalogue parity and the fifteen connected cases remain mandatory.
+
 Credential-free native smoke now invokes the existing `schema-preimage` command
 in its fresh preimage container. The original pre-alignment catalogue witness
 remains unchanged, but readiness additionally requires the current38-role graph,

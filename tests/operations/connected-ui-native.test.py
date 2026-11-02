@@ -386,12 +386,53 @@ class CompositionFailureDiagnostics(unittest.TestCase):
             value['missing']['rows'][1]['key_sha256'] = value['missing']['rows'][0]['key_sha256']
             self.assertEqual(decode(value)['site'], 'UNKNOWN')
 
+    def test_managed_missing_witness_rejects_wrong_direction_site_and_counterpart_fields(self):
+        import copy
+        row = {'captured_ordinal': 7, 'key_sha256': 'a'*64, 'object_type': 'FUNCTION', 'schema': 'auth'}
+        valid = {'version': 1, 'scope': 'exact-service-composition-failure', 'phase': 'compose',
+                 'site': 'MANAGED_OBJECT_MISSING', 'managed_missing':
+                 {'version': 1, 'total': 1, 'truncated': False, 'rows': [row]}}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'diagnostic.json'
+            def decode(value):
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+                return MODULE.composition_failure(path)
+            self.assertEqual(decode(valid), valid)
+            for field, bad in [('captured_ordinal', True), ('captured_ordinal', -1),
+                    ('captured_ordinal', 4194305), ('key_sha256', 'PRIVATE'),
+                    ('object_type', 'PRIVATE'), ('schema', 'PRIVATE'), ('native_ordinal', 7),
+                    ('native_sha256', 'b'*64), ('captured_sha256', 'c'*64), ('owner', 'PRIVATE'),
+                    ('name', 'PRIVATE'), ('sql', 'PRIVATE')]:
+                value = copy.deepcopy(valid); value['managed_missing']['rows'][0][field] = bad
+                self.assertEqual(decode(value)['site'], 'UNKNOWN', field)
+            for field, bad in [('version', 2), ('total', True), ('total', 0), ('total', 4194305),
+                    ('truncated', True), ('rows', [row]*17), ('PRIVATE', 'PRIVATE')]:
+                value = copy.deepcopy(valid); value['managed_missing'][field] = bad
+                self.assertEqual(decode(value)['site'], 'UNKNOWN', field)
+            for site in ['NATIVE_OBJECT_MISSING','MANAGED_OWNER_DIFFERENT','MANAGED_BLOCK_DIFFERENT','UNKNOWN']:
+                self.assertEqual(decode({**valid, 'site': site})['site'], 'UNKNOWN')
+            self.assertEqual(decode({**valid, 'phase': 'input-read'})['site'], 'UNKNOWN')
+            self.assertEqual(decode({**valid, 'missing': valid['managed_missing']})['site'], 'UNKNOWN')
+            value = copy.deepcopy(valid)
+            value['managed_missing'].update(total=17, truncated=True, rows=[
+                {**row, 'captured_ordinal': i, 'key_sha256': f'{i:064x}'} for i in range(16)])
+            self.assertEqual(decode(value), value)
+            value['managed_missing']['rows'][1]['captured_ordinal'] = 0
+            self.assertEqual(decode(value)['site'], 'UNKNOWN')
+            value['managed_missing']['rows'][1]['captured_ordinal'] = 1
+            value['managed_missing']['rows'][1]['key_sha256'] = value['managed_missing']['rows'][0]['key_sha256']
+            self.assertEqual(decode(value)['site'], 'UNKNOWN')
+            reverse_direction = copy.deepcopy(valid)
+            reverse_direction['site'] = 'NATIVE_OBJECT_MISSING'
+            reverse_direction['missing'] = reverse_direction.pop('managed_missing')
+            self.assertEqual(decode(reverse_direction)['site'], 'UNKNOWN')
+
     def test_actual_node_command_distinguishes_read_failure_and_exact_comparison_without_stderr(self):
         def object_sql(name,schema,body):
             return f'-- Name: {name}; Type: FUNCTION; Schema: {schema}; Owner: postgres\n--\n\n{body}\n\n'
         managed=''.join(object_sql(name,'auth','SELECT NULL::text;') for name in ['email()','jwt()','role()','uid()'])
-        managed+=''.join(object_sql(name,'cron','SELECT NULL::text;') for name in ['schedule(text)','unschedule(bigint)','alter_job(bigint)'])
-        for phase in ['input-read','compose','missing','success']:
+        managed+=(ROOT/'operations/release/fixture/representative/genuine-cron-schema.fixture.sql').read_text()
+        for phase in ['input-read','compose','missing','managed-missing','success']:
             with self.subTest(phase=phase),tempfile.TemporaryDirectory() as folder:
                 root=Path(folder);candidate=root/'candidate';candidate.mkdir();temp=root/'temp';temp.mkdir()
                 if phase!='input-read': (candidate/'schema.sql').write_text(managed)
@@ -399,6 +440,9 @@ class CompositionFailureDiagnostics(unittest.TestCase):
                 if phase == 'missing':
                     with (temp/'service-schema.sql').open('a') as stream:
                         stream.write(object_sql('private_missing()', 'auth', "SELECT 'private_schema_literal';"))
+                if phase == 'managed-missing':
+                    with (candidate/'schema.sql').open('a') as stream:
+                        stream.write(object_sql('private_missing_managed()', 'auth', "SELECT 'private_schema_literal';"))
                 report={'stage':'exact-service-composition'}
                 if phase=='success':
                     with self.assertRaises(RuntimeError):MODULE.compose_private_schema(ROOT,candidate,temp,{'stage':'other'})
@@ -408,16 +452,20 @@ class CompositionFailureDiagnostics(unittest.TestCase):
                     self.assertTrue((temp/'composed.sql').is_file())
                 else:
                     with self.assertRaises(RuntimeError):MODULE.compose_private_schema(ROOT,candidate,temp,report)
-                    expected='NATIVE_BLOCK_DIFFERENT' if phase=='compose' else 'NATIVE_OBJECT_MISSING' if phase=='missing' else 'UNKNOWN'
-                    self.assertEqual(report['composition_failure']['phase'],'compose' if phase=='missing' else phase)
+                    expected='NATIVE_BLOCK_DIFFERENT' if phase=='compose' else 'NATIVE_OBJECT_MISSING' if phase=='missing' else 'MANAGED_OBJECT_MISSING' if phase=='managed-missing' else 'UNKNOWN'
+                    self.assertEqual(report['composition_failure']['phase'],'compose' if phase in ['missing','managed-missing'] else phase)
                     self.assertEqual(report['composition_failure']['site'],expected)
                     if phase == 'compose':
                         self.assertEqual(report['composition_failure']['mismatch']['total'], 1)
                         self.assertEqual(report['composition_failure']['mismatch']['rows'][0]['schema'], 'auth')
                     if phase == 'missing':
                         self.assertEqual(report['composition_failure']['missing']['total'], 1)
-                        self.assertEqual(report['composition_failure']['missing']['rows'][0]['native_ordinal'], 7)
+                        self.assertEqual(report['composition_failure']['missing']['rows'][0]['native_ordinal'], 13)
                         self.assertNotIn('mismatch', report['composition_failure'])
+                    if phase == 'managed-missing':
+                        self.assertEqual(report['composition_failure']['managed_missing']['total'], 1)
+                        self.assertEqual(report['composition_failure']['managed_missing']['rows'][0]['captured_ordinal'], 13)
+                        self.assertNotIn('missing', report['composition_failure'])
                     self.assertNotIn('private_missing',json.dumps(report))
                     self.assertNotIn('private_schema_literal',json.dumps(report))
                     self.assertEqual((temp/'composition-failure.json').stat().st_mode & 0o777,0o600)
