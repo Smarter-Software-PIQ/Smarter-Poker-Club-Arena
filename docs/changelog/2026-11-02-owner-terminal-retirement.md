@@ -11,3 +11,5 @@ Qualification uses captured production definitions and actual isolated PostgreSQ
 Status: source and native qualification in progress. Protected merge, installation, actual refunds and retirement, destination-credit conservation and complete live Diamond closure remain pending. No production completion is claimed.
 
 The connected human-refund test reproduced a fee shortfall: the bank overlay entered prize custody while the exact original refund debited the fee component. Terminal disposition now reserves that exact bank-funded fee component for the existing club fee claim in the same transaction. Both maintained and canonical escrow readers count the explicit immutable reservation. The player still receives the full original charge, and no club liability is sent to Main Bank.
+
+The local authorization guard required explicit privilege declarations for replaced readers. The migration now repeats their captured production ACLs: escrow readers admit service only, and the canonical cancellation reader remains private to its owning definer. A native assertion verifies these exact access boundaries.

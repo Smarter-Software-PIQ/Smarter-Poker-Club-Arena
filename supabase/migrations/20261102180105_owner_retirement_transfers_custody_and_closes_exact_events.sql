@@ -1293,5 +1293,16 @@ BEGIN
 END $function$
 
 ;
+-- Preserve the captured installed privileges explicitly on replaced readers.
+REVOKE ALL ON FUNCTION public.fn_settle_tournament_rake(uuid,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.fn_settle_tournament_rake(uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_refuse_zero_chip_field_elimination() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.fn_refuse_zero_chip_field_elimination() TO service_role;
+REVOKE ALL ON FUNCTION smarter_private.equal_share_retirement_must_close() FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_tournament_escrow_chips(uuid) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.fn_ca_tournament_escrow_chips(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_poker_diamond_tournament_escrow(uuid) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.fn_poker_diamond_tournament_escrow(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_tournament_cancellation_receipt(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
 DO $$BEGIN IF clock_timestamp()-transaction_timestamp()>interval '8 seconds' THEN RAISE EXCEPTION 'owner_retirement_install_budget';END IF;END$$;
 COMMIT;
