@@ -124,6 +124,7 @@ def main():
     inputs += [Path('supabase/migrations/20261031034048_diamond_closure_parks_retained_originals_without_disposing_t.sql'),Path('scripts/ci/build-diamond-complete-park.py')]
     inputs += [Path('supabase/migrations/20261031032915_diamond_arena_owner_boundary_closure_without_refunds.sql'),Path('scripts/ci/build-diamond-owner-closure.py'),Path('scripts/ci/test-diamond-owner-closure.py'),Path('scripts/ci/fixtures/diamond-owner-closure.json')]
     inputs += [Path('supabase/migrations/20261102152030_diamond_closure_disables_and_rejects_future_schedules.sql'),Path('scripts/ci/diamond_closed_schedule_cases.py')]
+    inputs += [Path('supabase/migrations/20261102152756_owner_tournament_deletion_replaces_equal_share_intent.sql'),Path('scripts/ci/test-owner-deletion-intent.py'),Path('scripts/ci/fixtures/tournament-abort/equal-share-before-owner-deletion.sql')]
     inputs += [Path('scripts/ci/test-diamond-history-removal.py'),Path('scripts/operations/remove-diamond-settled-history.sql')]
     source=dict(manifest['source_sha256']);source.update({str(p):sha(ROOT/p) for p in inputs})
     e.report.update(source_sha256=source,installation_refusals=[],races=[],scope='private original continuation on exact production-captured atomic/stack/retention functions and maintained real financial/F06 closure; not live activation')
@@ -183,6 +184,12 @@ def main():
         removal=json.loads((out/'diamond-history-removal/result.json').read_text())
         if removal['status']!='passed':raise RuntimeError('Diamond history removal qualification failed')
         e.report['diamond_history_removal']={'status':'passed','evidence':'diamond-history-removal/result.json'}
+        e.run('owner-deletion-intent',[sys.executable,ROOT/'scripts/ci/test-owner-deletion-intent.py',
+            '--pg-bin',args.pg_bin.resolve(),'--evidence',out/'owner-deletion-intent',
+            '--work-root',work,'--socket-root',args.socket_root],seconds=45)
+        owner_intent=json.loads((out/'owner-deletion-intent/result.json').read_text())
+        if owner_intent['status']!='passed':raise RuntimeError('Owner deletion intent qualification failed')
+        e.report['owner_deletion_intent']={'status':'passed','evidence':'owner-deletion-intent/result.json'}
         if any(sha(ROOT/p)!=digest for p,digest in source.items()):raise RuntimeError('qualification source changed')
         e.report['status']='passed';e.discard(db)
     except BaseException as error:e.report['failure']=repr(error)

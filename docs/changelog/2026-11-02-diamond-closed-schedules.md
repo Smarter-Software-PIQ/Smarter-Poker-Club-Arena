@@ -16,3 +16,16 @@ migration and checks the three rejected write paths, inactive edits, other-club
 preservation and function privileges on isolated PostgreSQL 17. The full local
 closure fixture passed, including existing custody and funding protections.
 Production installation and final tournament settlement remain separate proof.
+
+## Superseded equal-share authority
+
+The owner's later instruction replaces equal-share payouts with deletion of
+140 exact started events, chips to Midway Union Main Bank and Diamonds to
+KingFish. All 73 empty waiting SNG/Spin games are explicitly excluded.
+A private source-owned instruction records the exact identities and destinations;
+the existing equal-share settlement transaction now refuses those identities
+before any financial action. Already committed receipts remain readable.
+The native routing regression executes the captured current function before and
+after the exact migration, proving the refusal and unaffected outside identity.
+It qualifies no fund transfer, deletion, physical drain or financial settlement.
+Those remain unfinished and require their own connected implementation/proof.
