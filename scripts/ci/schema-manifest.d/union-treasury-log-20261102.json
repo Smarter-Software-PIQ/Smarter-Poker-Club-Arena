@@ -1,0 +1,18 @@
+{
+  "_owner": "Union treasury transaction log (Dan 2026-11-02), migration 20261102063939_union_treasury_transaction_logs.",
+  "tables": [
+    "ca_union_treasury_log",
+    "ca_union_treasury_hourly_ins",
+    "ca_union_treasury_hours_done",
+    "ca_union_treasury_log_state"
+  ],
+  "functions": [
+    "fn_union_treasury_is_collection",
+    "fn_union_treasury_legs",
+    "fn_union_treasury_log_copy_rows",
+    "fn_union_treasury_log_close_hour",
+    "fn_union_treasury_log_rebuild_day",
+    "fn_union_treasury_log_tick",
+    "fn_union_treasury_log"
+  ]
+}
