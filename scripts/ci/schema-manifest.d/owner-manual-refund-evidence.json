@@ -1,0 +1,17 @@
+{
+  "_owner": "fix/owner-manual-refund-evidence-01a19ccc",
+  "_comment": "Owner-paid original charges link to existing posted credit journals; no new payment.",
+  "tables": ["smarter_private.owner_retirement_manual_refunds"],
+  "columns": {
+    "smarter_private.owner_retirement_manual_refunds": [
+      "entitlement_id",
+      "tournament_id",
+      "user_id",
+      "credit_ledger_id",
+      "amount",
+      "receipt",
+      "created_at"
+    ]
+  },
+  "functions": ["fn_ca_record_owner_manual_refund", "smarter_private.owner_manual_refund_receipt"]
+}
