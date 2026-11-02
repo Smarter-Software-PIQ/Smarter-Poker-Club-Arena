@@ -216,6 +216,8 @@ describe('useTableStudioCollections', () => {
   });
 
   it('uses local cache for first paint then reconciles the signed-in cloud row', async () => {
+    const hydration = deferred<typeof mocks.cloud>();
+    mocks.readCloud.mockImplementation(() => hydration.promise);
     localStorage.setItem('table-studio-favorites:user-1', JSON.stringify(['table:carbon_red']));
     mocks.cloud = {
       data: {
@@ -227,7 +229,12 @@ describe('useTableStudioCollections', () => {
     };
     render(<Harness />);
 
-    expect(await screen.findByTestId('favorites')).toHaveTextContent('cards:gold');
+    expect(screen.getByTestId('favorites')).toHaveTextContent('table:carbon_red');
+    await act(async () => {
+      hydration.resolve(mocks.cloud);
+      await hydration.promise;
+    });
+    expect(screen.getByTestId('favorites')).toHaveTextContent('cards:gold');
     expect(screen.getByTestId('loadout')).toHaveTextContent('ocean_blue');
     expect(screen.getByTestId('state')).toHaveTextContent('synced');
     expect(JSON.parse(localStorage.getItem('table-studio-favorites:user-1') || '[]')).toEqual([
