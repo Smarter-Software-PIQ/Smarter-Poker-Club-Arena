@@ -16,6 +16,7 @@
 -- credited 950). This changes only what the three detectors read; no money
 -- moves, no money-moving function changes, and every other predicate on the
 -- reversal leg (category, from_type, from_entity_id) is unchanged.
+-- @live-proof: position('owner_bounty_guarantee_correction' in pg_get_functiondef('public.fn_ca_tournament_escrow_chips(uuid)'::regprocedure))>0 AND position('owner_bounty_guarantee_correction' in pg_get_functiondef('public.fn_tournament_conservation_delta(uuid)'::regprocedure))>0 AND position('owner_bounty_guarantee_correction' in pg_get_functiondef('public.fn_tournament_conservation_deltas(timestamp with time zone,timestamp with time zone)'::regprocedure))>0
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '8s';
