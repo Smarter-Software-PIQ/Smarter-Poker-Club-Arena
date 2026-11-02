@@ -1,0 +1,17 @@
+{
+  "_owner": "fix/owner-retirement-control-01a19ccc",
+  "_comment": "Source only until protected migration installation. Four verified owner-directed bank-funded refunds.",
+  "tables": ["smarter_private.owner_retirement_bank_refunds"],
+  "columns": {
+    "smarter_private.owner_retirement_bank_refunds": [
+      "entitlement_id",
+      "tournament_id",
+      "receipt",
+      "created_at"
+    ]
+  },
+  "functions": [
+    "smarter_private.owner_retirement_bank_refund_immutable",
+    "public.fn_ca_owner_retirement_bank_refund"
+  ]
+}

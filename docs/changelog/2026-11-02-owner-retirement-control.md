@@ -22,3 +22,11 @@ idempotent request readback and private-data exclusion. The isolated PostgreSQL 
 functions, including both prior-receipt paths and original-refund supersession.
 Protected delivery is pending. Actual funded transfer and
 terminal retirement remain unfinished; player-owned liabilities must be resolved.
+
+## Main Bank funded original-charge refunds
+
+The owner separately directed refunding the human players from Midway Union Main Bank. Four verified original wallet charges total 8 Chips: Probyourmom 5, Mongo 1, king 1 and MichaelJordan 1. Mikey and Frenzy entered free; no paid entry was inferred. Each refund is pinned to its original immutable charge and club wallet. The transaction debits the verified union chip bank through its enabled journal authority, funds event custody, and calls the existing exact refund writer. Bank funding and the player refund commit together; total event custody remains unchanged. Existing reserve, freeze, parent and cancellation-lane checks remain active. Additional prize or satellite claims are preserved, and this function does not close any event.
+
+A private immutable receipt binds the original charge, bank journal, refund tranche and wallet idempotency key. Replay verifies those witnesses before returning the same receipt. Native qualification uses actual financial components, real request-owned registration, a rollback preview, reserve/insufficiency and authorization refusals, injected journal/receipt failures, conservation, duplicate receipt replay, receipt immutability and two-session contention. The existing nonblocking cancellation lane refuses the competing request; a later replay makes no additional debit.
+
+The captured qualification catalog contains function definitions and coverage metadata only, no credentials or account balances. The existing hand-continuation financial job executes and hashes the new native qualification. Local qualification passed; protected delivery, installation, production rollback preview and all four live credits remain pending. The 140-event terminal retirement and eligible-remainder transfers remain separate unfinished work.
