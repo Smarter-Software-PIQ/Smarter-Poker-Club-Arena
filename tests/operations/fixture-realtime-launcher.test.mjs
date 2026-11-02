@@ -41,11 +41,11 @@ test('only the complete pinned launcher and release environment may be adapted',
 });
 
 async function launcher(root, home, source, command, extraEnv = {}) {
-  const release = path.join(root, 'releases', '2.134.10');
+  const release = path.join(root, 'releases', '2.134.11');
   await mkdir(path.join(root, 'bin'), { recursive: true });
   await mkdir(release, { recursive: true });
   await writeFile(path.join(root, 'bin', 'realtime'), source, { mode: 0o700 });
-  await writeFile(path.join(root, 'releases', 'start_erl.data'), '16.4 2.134.10\n');
+  await writeFile(path.join(root, 'releases', 'start_erl.data'), '16.4 2.134.11\n');
   await writeFile(path.join(root, 'releases', 'COOKIE'), 'unused-packaged-test-cookie\n');
   await writeFile(path.join(release, 'env.sh'), releaseEnvironment);
   await writeFile(path.join(release, 'sys.config'), '[].\n');

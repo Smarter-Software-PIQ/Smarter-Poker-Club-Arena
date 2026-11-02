@@ -108,7 +108,7 @@ authenticated role, finite real expiry and an empty refresh token.
 
 The Dockerfile pins Linux amd64 platform manifests. The current Auth v2.197.0
 manifest was verified through the official Docker Registry API on 2026-10-31;
-the other base manifests retain their 2026-09-11 verification. Other architectures
+Realtime v2.134.11 was verified on 2026-11-02; the other base manifests retain their 2026-09-11 verification. Other architectures
 deliberately fail closed.
 
 | Input             | Version                | Linux amd64 manifest digest                                               |
@@ -116,10 +116,10 @@ deliberately fail closed.
 | Official Node     | 22.23.2, bookworm-slim | `sha256:4d676821dff059fd00d277ee4261ef34ea712317fed0737c03941481b5760c96` |
 | Supabase GoTrue   | v2.197.0               | `sha256:839f529492d116b4e8b7777c953a27c381d34c15a744b1bcefde5eefaa1f9f9f` |
 | PostgREST         | v14.5                  | `sha256:bb289d00570b569525e1e22fb77c49cd17c17ca3f41da9ee2b4351a35027551b` |
-| Supabase Realtime | v2.134.10              | `sha256:c1d078d929608f3eb4d441e30317bbdccc1bfcc1169efa3d1a26d4252417cc76` |
+| Supabase Realtime | v2.134.11              | `sha256:12780404637ec3cf0d9c2f6b44a94bfe1ca076f186a5bb1130fa84ea2d774bbb` |
 
 Realtime's official image supplies its matching Debian trixie runtime and Erlang
-release. The [tagged upstream Dockerfile](https://github.com/supabase/realtime/blob/v2.134.10/Dockerfile)
+release. The [tagged upstream Dockerfile](https://github.com/supabase/realtime/blob/v2.134.11/Dockerfile)
 documents that layout. GoTrue is copied as the upstream static Go binary; the
 [tagged build](https://github.com/supabase/auth/blob/v2.197.0/Dockerfile)
 sets `CGO_ENABLED=0`. The PostgREST amd64 image supplies `/bin/postgrest`, the
@@ -229,14 +229,14 @@ real Realtime migrations does not try to write beneath read-only `/app`.
 The Docker build calls `adaptRealtimeLauncher()` from the trusted runtime
 module. It accepts only the entire pinned Elixir 1.19.5 generated launcher
 (SHA256 `b35710db4fe3c141340dac83d02fbe9d3c8407ff600eb98915f54feb69e227a9`)
-and Realtime v2.134.10 release environment
+and Realtime v2.134.11 release environment
 (`3fbe75e1c0ea82357e01a38af7666f2f54fac8e389c303084a45a48aeb178121`).
 Any mismatch fails the build before modification. Its counted replacements
 remove the cookie environment fallback and all four cookie argument sites;
 an explicit `RELEASE_COOKIE` now fails with a constant error. No compiled
 Erlang application or authentication implementation is replaced.
 
-The pinned [Realtime release environment](https://github.com/supabase/realtime/blob/v2.134.10/rel/env.sh.eex)
+The pinned [Realtime release environment](https://github.com/supabase/realtime/blob/v2.134.11/rel/env.sh.eex)
 forces named distribution. The fixture therefore explicitly uses `name`,
 preserving that actual upstream behavior instead of claiming `none` took effect.
 The [Elixir launcher](https://github.com/elixir-lang/elixir/blob/v1.19.5/lib/mix/lib/mix/tasks/release.init.ex)
@@ -301,14 +301,14 @@ enter the failure receipt. The one-loopback-listener requirement stays enforced.
 
 1. Initialize a new PG17 database `club_arena_qualification`, local roles and
    required extensions. Enable logical WAL and adequate replication slots;
-   preload pg_stat_statements. Create `auth` owned by supabase_auth_admin.
+   preload pg_stat_statements. Create `auth` owned by supabase_admin, with CREATE granted to supabase_auth_admin.
    Set that role's search path to `auth`, matching the
    [upstream Auth role setup](https://github.com/supabase/postgres/blob/develop/migrations/db/init-scripts/00000000000001-auth-schema.sql).
    The pinned GoTrue/Pop migrator uses an unqualified migration-ledger name;
    its template namespace setting does not change the connection search path.
    The native check verifies the actual Auth login targets `auth` and has no
    CREATE permission on `public` before running the unchanged migration command.
-2. With synthetic `GOTRUE_DB_DATABASE_URL` and local auth configuration, run
+2. Prepare the empty varchar(255) Auth migration ledger as supabase_auth_admin, matching the pinned init migration before Pop can create its fresh varchar(14) ledger. No migration versions are inserted. With synthetic `GOTRUE_DB_DATABASE_URL` and local auth configuration, run
    `/usr/local/bin/auth migrate`. This runs the
    [upstream embedded migrations](https://github.com/supabase/auth/blob/v2.197.0/cmd/migrate_cmd.go).
    Apply the reviewed app schema only after those succeed; do not replace the
@@ -323,13 +323,15 @@ enter the failure receipt. The one-loopback-listener requirement stays enforced.
 3. Start `/usr/local/bin/postgrest` with synthetic local DB/JWT configuration.
 4. Run `/app/bin/migrate`, then `/app/bin/realtime eval
 'Realtime.Release.seeds(Realtime.Repo)'`, then `/app/bin/server`. These are
-   [upstream release commands](https://github.com/supabase/realtime/blob/v2.134.10/run.sh),
+   [upstream release commands](https://github.com/supabase/realtime/blob/v2.134.11/run.sh),
    called directly without sudo, the image's upstream launcher, or its cloud
    secret hooks. Set `SELF_HOST_TENANT_NAME=realtime-dev`, matching the gateway's
    fixed `realtime-dev.supabase-realtime` host. Supply only runtime-generated
    DB/JWT/encryption/metrics secrets. Seed exit zero alone is insufficient:
    the upstream seed logs some tenant failures, so validate the tenant, health,
    real authenticated subscription, and actual database change.
+
+After genuine Realtime migrations pass their exact 83-version readback, both paths apply the captured deployment relation configuration in the private database: removal of the migration-ledger inserted_at default while preserving nullability, and UTC wall-clock message defaults. Exact native preimages, owners, partition bounds and empty messages are required; unrelated metadata and migration history are preserved, then a separate connection verifies the result. This is captured deployment configuration; its upstream override provenance is unestablished. Full-schema comparison remains mandatory.
 
 The root-owned runtime and schema provenance remain authoritative for complete
 fixture bootstrapping. This package's tiny native SQL table checks protocols and

@@ -1,0 +1,7 @@
+# Preserve the genuine legacy Auth migration ledger shape
+
+The disposable fixture prepares an empty `auth.schema_migrations` with the varchar(255) primary-key declaration shipped in pinned Auth v2.197.0 `migrations/00_init_auth_schema.up.sql`, before genuine GoTrue migrations. Pop v6.1.1 otherwise creates varchar(14) first. No migration history is stamped or copied; every pinned GoTrue migration and the existing ledger sealing remain required.
+
+`prepareFixtureAuthLegacyMigrationLedger` accepts only the private qualification database through the native initdb owner and local socket, requires the fresh absent ledger and expected Auth role/schema privileges, creates under the actual Auth role, verifies the empty exact shape, and rolls back on failure. Repeat preparation refuses existing state. Exact schema comparison is unchanged.
+
+Focused role-boundary tests: 38 passed, zero skips. Actual disposable PostgreSQL17.11 exercised creation, verified empty varchar(255), and refused repeat preparation. One initial harness setup combined CREATE DATABASE with another statement and was rejected before the helper ran; corrected separate setup statements passed. These local executions used Node26.3.0; ROOT retains pinned Node22 integration checks. This is not genuine GoTrue/Linux, full-schema or product certification; those remain required. ROOT owns wiring before the genuine Auth migrate call in both fixture entrypoints and final integration.

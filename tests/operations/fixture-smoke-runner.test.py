@@ -43,13 +43,13 @@ RECORDS = [dict(scope='native-service-smoke', observer='passed', browser='chromi
                                       rollback='schema-trigger-role-absent',
                                       production_binary_version_parity=False,
                                       complete_application_acl_parity=False),
-                postgrest='14.5', realtime='2.134.10', change='observed', retries=0,
+                postgrest='14.5', realtime='2.134.11', change='observed', retries=0,
                 realtime_listener='127.0.0.1:4000', realtime_gateway='authenticated-change-observed',
                 realtime_rls='two-users-causal-isolation',
                 observation_bridge='native-synthetic-protocol'),
            dict(scope='native-service-smoke', peer='passed', gateway='reachable',
                 realtime_direct='refused', tenant_administration='refused')]
-ROLE_ALIGNMENT = {'scope': 'native-full-role-installer', 'status': 'passed', 'stage': 'complete', 'template_sha256': 'bf0e2fa88fc4f19dbfc84fdd7e8485cafb40e5dcd77557a88bdda4bda70fb862', 'install_submitted': True, 'commit_acknowledged': True, 'catalog_outcome': 'committed', 'rollback_acknowledged': False, 'separate_read_only_observers': 4, 'graph_assertion': True, 'membership_assertion': True, 'actual_login_and_default_acl_tests': False, 'post_alignment_services': False, 'full_schema_ready': False, 'funded_or_production_complete': False, 'installer_backend_absent': True, 'all_driver_clients_closed': True, 'original_catalog_sha256': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'aligned_catalog_sha256': 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'}
+ROLE_ALIGNMENT = {'scope': 'native-full-role-installer', 'status': 'passed', 'stage': 'complete', 'template_sha256': '1bd81744fe0b6c17c0bda62f1a46b7953c25fc7b00524fc3b509238c0d8f6c41', 'install_submitted': True, 'commit_acknowledged': True, 'catalog_outcome': 'committed', 'rollback_acknowledged': False, 'separate_read_only_observers': 4, 'graph_assertion': True, 'membership_assertion': True, 'actual_login_and_default_acl_tests': False, 'post_alignment_services': False, 'full_schema_ready': False, 'funded_or_production_complete': False, 'installer_backend_absent': True, 'all_driver_clients_closed': True, 'original_catalog_sha256': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'aligned_catalog_sha256': 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'}
 SMOKE = '\n'.join(map(json.dumps, RECORDS)) + '\nNative service smoke and container/network cleanup passed (not a product certificate).\n'
 
 
@@ -83,6 +83,15 @@ def preimage_material(catalog=None, raw=None):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_role_receipt_is_bound_to_actual_reviewed_template_bytes(self):
+        actual = hashlib.sha256((ROOT / 'operations/release/fixture/role-alignment-installer.sql').read_bytes()).hexdigest()
+        self.assertEqual(ROLE_ALIGNMENT['template_sha256'], actual)
+        current = dict(ROLE_ALIGNMENT, template_sha256=actual)
+        self.assertEqual(m.role_alignment_record(json.dumps(current)), current)
+        obsolete = dict(current, template_sha256='bf0e2fa88fc4f19dbfc84fdd7e8485cafb40e5dcd77557a88bdda4bda70fb862')
+        with self.assertRaises(RuntimeError):
+            m.role_alignment_record(json.dumps(obsolete))
+
     def test_safeupdate_proof_requires_native_http_and_cleanup(self):
         for transform in [lambda rows: rows[1].pop('safeupdate'),
                           lambda rows: rows[1]['safeupdate'].update(http='configuration-only'),

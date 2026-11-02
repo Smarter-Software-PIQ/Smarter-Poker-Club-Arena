@@ -91,9 +91,10 @@ test('real migration witness requires exact application set and separate control
   const app={query:async sql=>{calls.push(['app',sql]);return {rows:[sql.includes('owned_service_bootstrap')?{owned_service_bootstrap:true}:{complete:true}]};}};
   const control={query:async sql=>{calls.push(['control',sql]);return {rows:[sql.includes('owned_control')?{owned_control:true}:{complete:true}]};}};
   assert.equal(await realtimeMigrated(app,control),true);
-  assert.ok(calls.find(([kind,sql])=>kind==='app'&&sql.includes('count(*)=82')&&sql.includes('5c633bad1193b061e2d200e5a18c9c53')&&sql.includes('skip_broadcast')&&sql.includes("to_regnamespace('_realtime') IS NULL")));
-  assert.ok(calls.find(([kind,sql])=>kind==='control'&&sql.includes('_realtime.tenants')&&sql.includes('migrations_ran=82')));
+  assert.ok(calls.find(([kind,sql])=>kind==='app'&&sql.includes('count(*)=83')&&sql.includes('min(version)=20211116024918')&&sql.includes('max(version)=20260827120000')&&sql.includes('262da2efb4aa494a7d90cf451fc9cce5')&&sql.includes('skip_broadcast')&&sql.includes("to_regnamespace('_realtime') IS NULL")));
+  assert.ok(calls.find(([kind,sql])=>kind==='control'&&sql.includes('_realtime.tenants')&&sql.includes('migrations_ran=83')));
   assert.equal(await realtimeMigrated(app,{query:async sql=>({rows:[sql.includes('owned_control')?{owned_control:true}:{complete:false}]})}),false);
+  assert.equal(await realtimeMigrated({query:async sql=>({rows:[sql.includes('owned_service_bootstrap')?{owned_service_bootstrap:true}:{complete:false}]})},control),false);
   await assert.rejects(realtimeMigrated(app,{query:async()=>({rows:[{owned_control:false}]})}),/CONTROL_IDENTITY_REQUIRED/);
 });
 

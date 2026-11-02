@@ -780,3 +780,60 @@ test('mismatch witness caps rows, preserves native ordinal and uses closed unkno
   assert.equal(schemaCompositionFailureSite(ownerError), 'NATIVE_OWNER_DIFFERENT');
   assert.equal(schemaCompositionMismatchWitness(ownerError), null);
 });
+
+
+// PostgreSQL 17.11 pg_backup_archiver emits this 73-byte stream transition
+// before the first table header, after whichever function sorts last. The
+// source-owning qualification also captures both arrangements with real pg_dump.
+const archiveTableSetup = `SET default_tablespace = '';
+
+SET default_table_access_method = "heap";
+
+`;
+test('pg_dump table setup is an ordered stream transition, never preceding function identity', () => {
+  assert.equal(Buffer.byteLength(archiveTableSetup), 73);
+  const table = object('native_table', 'auth', 'CREATE TABLE auth.native_table(id integer);', 'TABLE');
+  const native = prefix + managed + archiveTableSetup + table + footer;
+  const captured = prefix + managed + ordinary + archiveTableSetup + table + footer;
+  const a = dumpObjects(native), b = dumpObjects(captured);
+  assert.deepEqual(a.objects.map((o) => [o.key, o.owner, o.sha256]),
+    b.objects.filter((o) => o.name !== 'application()').map((o) => [o.key, o.owner, o.sha256]));
+  assert.equal(a.objects.at(-2).parts.filter((part) => part.stream).map((part) => part.text).join(''), archiveTableSetup);
+  assert.equal(b.objects.at(-2).parts.filter((part) => part.stream).map((part) => part.text).join(''), archiveTableSetup);
+  assert.equal(a.prefix + a.objects.flatMap((o) => o.parts).map((part) => part.text).join('') + a.footer, native);
+  const result = composeSchema(captured, native);
+  assert.equal(result.sql, prefix + ordinary + archiveTableSetup + footer);
+  assert.ok(!result.sql.includes('CREATE TABLE auth.native_table'));
+  assert.equal(result.sql.split(archiveTableSetup).length, 2);
+  const changed = captured.replace('CREATE TABLE auth.native_table(id integer)', 'CREATE TABLE auth.native_table(id bigint)');
+  assert.throws(() => composeSchema(changed, native), /SCHEMA_COMPOSITION_PREIMAGE_REQUIRED/);
+});
+
+test('archive setup bytes survive removal and remain lexical inside strings and comments', () => {
+  const named = `SET default_tablespace = "private""space";
+
+SET default_table_access_method = heap;
+
+`;
+  const table = object('native_table', 'auth', 'CREATE TABLE auth.native_table(id integer);', 'TABLE');
+  assert.equal(composeSchema(prefix + managed + named + table + footer,
+    prefix + managed + table + footer).sql, prefix + named + footer);
+  for (const body of [`SELECT $body$
+${archiveTableSetup}$body$;`,
+      `SELECT '${archiveTableSetup}';`, `/*
+${archiveTableSetup}*/
+SELECT 1;`,
+      `-- SET default_tablespace = '';
+SELECT 1;`]) {
+    const sql = object('guarded()', 'auth', body);
+    const parsed = dumpObjects(sql).objects[0];
+    assert.equal(parsed.text, sql);
+    assert.ok(parsed.parts.every((part) => !part.stream));
+    assert.throws(() => composeSchema(prefix + managed + sql + footer,
+      prefix + managed + sql.replace('default_tablespace', 'default_table_access_method') + footer),
+      /SCHEMA_COMPOSITION_PREIMAGE_REQUIRED/);
+  }
+  // An unrecognized SET is definition text, not an ignored setting.
+  const extra = "SET application_name = 'not a stream transition';\n\n";
+  assert.equal(dumpObjects(managed + extra).objects.at(-1).text.endsWith(extra), true);
+});

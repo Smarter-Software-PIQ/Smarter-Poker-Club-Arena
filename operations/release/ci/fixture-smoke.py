@@ -15,7 +15,7 @@ import time
 
 FILES = ('Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
          'runtime-files.mjs', 'gateway.mjs', 'auth-fixture.mjs', 'auth-bootstrap-proof.mjs',
-         'service-role-boundary.mjs', 'realtime-control-plane.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
+         'service-role-boundary.mjs', 'realtime-control-plane.mjs', 'realtime-legacy-relations.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
          'seed-fixture.mjs', 'native-smoke.mjs', 'observation-bridge.mjs', 'build-image.sh', 'smoke-image.sh')
 PREFIX = 'operations/release/fixture/'
 CONTROL_FILES = tuple('operations/release/native/' + name for name in (
@@ -33,7 +33,7 @@ NATIVE_STAGES = frozenset((
     'postgresql-start', 'postgresql-ready', 'postgresql-create-database',
     'postgresql-client-connection', 'postgresql-client-cleanup', 'postgresql-slot-identity',
     'postgresql-wal2json-native-slot', 'postgresql-wal2json-slot-inspection',
-    'postgresql-wal2json-slot-drop', 'postgresql-bootstrap-roles', 'postgresql-bootstrap-schemas',
+    'postgresql-wal2json-slot-drop', 'postgresql-bootstrap-roles', 'postgresql-auth-legacy-ledger', 'postgresql-bootstrap-schemas',
     'postgresql-extension-dblink', 'postgresql-extension-pg-stat-statements',
     'postgresql-extension-pg-trgm', 'postgresql-extension-pgcrypto',
     'postgresql-extension-uuid-ossp', 'postgresql-extension-vector',
@@ -43,7 +43,7 @@ NATIVE_STAGES = frozenset((
     'gotrue-real-mfa-persistence', 'gotrue-disabled-ledger-attribution',
     'postgrest-14-5-authentication-and-rls', 'realtime-genuine-migrations-and-change',
     'postgrest-server-start', 'postgrest-server-ready', 'postgrest-anonymous-rls', 'postgrest-invalid-token',
-    'realtime-migrate-command', 'realtime-seed-command', 'realtime-tenant-row', 'realtime-tenant-migration-ledger',
+    'realtime-captured-relation-configuration', 'realtime-migrate-command', 'realtime-seed-command', 'realtime-tenant-row', 'realtime-tenant-migration-ledger',
     'realtime-server-start', 'realtime-server-ready', 'realtime-cookie-rpc', 'realtime-cookie-proof',
     'realtime-websocket-open', 'realtime-postgres-subscription', 'realtime-causal-change',
     'realtime-two-user-causal-isolation', 'postgrest-two-user-isolation',
@@ -57,8 +57,8 @@ NATIVE_STAGES = frozenset((
         'preimage-ack', 'preimage-shutdown', 'cleanup')),
     *( 'fixture-preimage-' + step for step in (
         'arguments', 'package', 'directories', 'cookie', 'postgres-socket', 'archives',
-        'postgresql', 'postgresql-native-cron-install', 'postgresql-safeupdate-configure',
-        'genuine-auth-migrations', 'genuine-realtime-migrations',
+        'postgresql', 'postgresql-auth-legacy-ledger', 'postgresql-native-cron-install', 'postgresql-safeupdate-configure',
+        'genuine-auth-migrations', 'genuine-realtime-migrations', 'realtime-captured-relation-configuration',
         'managed-postgres-event-trigger-boundary', 'post-service-catalog-preimage', 'full-role-alignment',
         'current-application-role-extension', 'genuine-service-schema-preimage', 'cleanup'))))
 CURRENT_APPLICATION_ASSERTION_SITES = frozenset((
@@ -303,7 +303,7 @@ def smoke_records(output):
                                      'rollback': 'schema-trigger-role-absent',
                                      'production_binary_version_parity': False,
                                      'complete_application_acl_parity': False},
-                'postgrest': '14.5', 'realtime': '2.134.10',
+                'postgrest': '14.5', 'realtime': '2.134.11',
                 'change': 'observed', 'retries': 0,
                 'realtime_listener': '127.0.0.1:4000',
                 'realtime_gateway': 'authenticated-change-observed',
@@ -337,7 +337,7 @@ def role_alignment_record(output):
     result = records[0]
     expected = {
         'scope': 'native-full-role-installer', 'status': 'passed', 'stage': 'complete',
-        'template_sha256': 'bf0e2fa88fc4f19dbfc84fdd7e8485cafb40e5dcd77557a88bdda4bda70fb862',
+        'template_sha256': '1bd81744fe0b6c17c0bda62f1a46b7953c25fc7b00524fc3b509238c0d8f6c41',
         'install_submitted': True, 'commit_acknowledged': True, 'catalog_outcome': 'committed',
         'rollback_acknowledged': False, 'separate_read_only_observers': 4,
         'graph_assertion': True, 'membership_assertion': True,

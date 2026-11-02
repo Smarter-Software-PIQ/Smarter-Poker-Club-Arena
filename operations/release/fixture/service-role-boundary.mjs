@@ -90,8 +90,9 @@ export function serviceRoleBootstrapSql(password) {
     ALTER ROLE supabase_admin PASSWORD '${password}';
     CREATE ROLE dashboard_user NOLOGIN;
     CREATE SCHEMA auth AUTHORIZATION supabase_admin;
+    GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
     GRANT USAGE, CREATE ON SCHEMA auth TO supabase_auth_admin, dashboard_user;
-    GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role, postgres;
+    GRANT USAGE ON SCHEMA auth TO postgres;
     ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth
       GRANT ALL ON TABLES TO postgres, dashboard_user;
     ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth
@@ -100,6 +101,60 @@ export function serviceRoleBootstrapSql(password) {
       GRANT EXECUTE ON FUNCTIONS TO postgres, dashboard_user;
     ALTER ROLE supabase_auth_admin SET search_path TO auth;
     GRANT CREATE ON DATABASE club_arena_qualification TO supabase_auth_admin;`;
+}
+
+// Preserve the genuine legacy shape declared by pinned Auth v2.197.0
+// migrations/00_init_auth_schema.up.sql. Pop v6.1.1 otherwise creates its
+// varchar(14) ledger before that CREATE TABLE IF NOT EXISTS can run.
+// This initializes no migration history: GoTrue still applies every migration.
+export async function prepareFixtureAuthLegacyMigrationLedger(db) {
+  await assertFixtureServiceBootstrap(db);
+  await db.query('BEGIN');
+  try {
+    const fresh = await db.query(`SELECT
+      to_regclass('auth.schema_migrations') IS NULL
+      AND (SELECT nspowner=(SELECT oid FROM pg_roles WHERE rolname='supabase_admin')
+        FROM pg_namespace WHERE nspname='auth')
+      AND EXISTS(SELECT 1 FROM pg_roles WHERE rolname='supabase_auth_admin'
+        AND rolcanlogin AND NOT rolsuper AND NOT rolinherit AND NOT rolbypassrls)
+      AND has_schema_privilege('supabase_auth_admin','auth','CREATE')
+      AS fresh_auth_ledger`);
+    assert.deepEqual(
+      fresh.rows,
+      [{ fresh_auth_ledger: true }],
+      'FIXTURE_FRESH_AUTH_LEDGER_REQUIRED'
+    );
+    await db.query('SET LOCAL ROLE supabase_auth_admin');
+    // Deliberately no IF NOT EXISTS: a competing/preexisting ledger must fail.
+    await db.query(`CREATE TABLE auth.schema_migrations (
+      "version" varchar(255) NOT NULL,
+      CONSTRAINT schema_migrations_pkey PRIMARY KEY ("version")
+    )`);
+    const prepared = await db.query(`SELECT
+      current_database()='club_arena_qualification'
+      AND current_user='supabase_auth_admin' AND session_user='supabase_admin'
+      AND inet_server_addr() IS NULL
+      AND (SELECT relowner=(SELECT oid FROM pg_roles WHERE rolname='supabase_auth_admin')
+        FROM pg_class WHERE oid='auth.schema_migrations'::regclass)
+      AND (SELECT count(*)=1 AND bool_and(attname='version'
+        AND atttypid='varchar'::regtype AND atttypmod=259 AND attnotnull
+        AND NOT atthasdef AND attidentity='' AND attgenerated='')
+        FROM pg_attribute WHERE attrelid='auth.schema_migrations'::regclass
+        AND attnum>0 AND NOT attisdropped)
+      AND (SELECT count(*)=1 AND bool_and(contype='p' AND conkey=ARRAY[1]::smallint[])
+        FROM pg_constraint WHERE conrelid='auth.schema_migrations'::regclass)
+      AND NOT EXISTS(SELECT 1 FROM auth.schema_migrations)
+      AS empty_legacy_auth_ledger`);
+    assert.deepEqual(
+      prepared.rows,
+      [{ empty_legacy_auth_ledger: true }],
+      'FIXTURE_EMPTY_LEGACY_AUTH_LEDGER_REQUIRED'
+    );
+    await db.query('COMMIT');
+  } catch (error) {
+    await db.query('ROLLBACK');
+    throw error;
+  }
 }
 
 // The managed Auth migration ledger is an exception to the captured Auth
