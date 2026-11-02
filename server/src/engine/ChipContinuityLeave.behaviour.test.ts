@@ -1,3 +1,4 @@
+import { HORSE_CASH_POLICY_START_MS } from '../services/HorseCashSchedule.js';
 import { horsePlo5DepartureEvidence } from '../services/HorsePlo5DepartureEvidence.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -686,8 +687,13 @@ describe('2/5 PLO5 Horse profit floor', () => {
       missingRoster?: boolean;
       nullableHuman?: boolean;
       handStartsDuringRead?: boolean;
+      nowMs?: number;
+      refusedCashout?: boolean;
     } = {}
   ) {
+    const now = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(options.nowMs ?? HORSE_CASH_POLICY_START_MS - 1);
     const e = makeEngine();
     Object.assign(e.tableInfo, {
       game_variant: options.variant ?? 'plo5',
@@ -697,7 +703,11 @@ describe('2/5 PLO5 Horse profit floor', () => {
     const id = options.human ? HUMAN : HORSE;
     e.seatedPlayers.find((p: any) => p.user_id === id).stack = stack;
     if (options.missingRoster) e.seatedPlayers = [];
-    if (options.live) e.handController = { getState: () => ({ players: [{ user_id: id }] }) };
+    if (options.live) {
+      e.handController = { getState: () => ({ players: [{ user_id: id, is_all_in: true }] }) };
+      e.foldLeaverNow = vi.fn(() => true);
+      e.sitOutLeaver = vi.fn();
+    }
     const chain: any = {
       select: vi.fn(() => chain),
       eq: vi.fn(() => chain),
@@ -715,7 +725,11 @@ describe('2/5 PLO5 Horse profit floor', () => {
       }),
     };
     const from = vi.spyOn(supabase, 'from').mockReturnValue(chain);
-    cashoutVoluntary.mockResolvedValue({ ok: true, stack });
+    cashoutVoluntary.mockResolvedValue(
+      options.refusedCashout
+        ? { ok: false, code: 'LEAVE_LOCKED', stayRemainingMs: 1000 }
+        : { ok: true, stack }
+    );
     cashout.mockResolvedValue(stack);
     try {
       const result = await e.leaveTable(id, {
@@ -725,6 +739,7 @@ describe('2/5 PLO5 Horse profit floor', () => {
       return { result, chain, fromCalls: [...from.mock.calls] };
     } finally {
       from.mockRestore();
+      now.mockRestore();
     }
   }
   it.each([500, 1000, 1750, 2249.99])('keeps a 500 buy-in seated at stack %s', async (stack) => {
@@ -800,5 +815,41 @@ describe('2/5 PLO5 Horse profit floor', () => {
     expect(chain.eq).toHaveBeenCalledWith('player_id', HORSE);
     expect(chain.eq).toHaveBeenCalledWith('table_id', TABLE);
     expect(chain.is).toHaveBeenCalledWith('closed_at', null);
+  });
+  it.each([HORSE_CASH_POLICY_START_MS, HORSE_CASH_POLICY_START_MS + 86_400_000])(
+    'the stakes prohibition replaces the profit floor at %s',
+    async (nowMs) => {
+      const { result, fromCalls } = await attempt(500, null, { nowMs });
+      expect(result).toMatchObject({ success: true, immediate: true });
+      expect(fromCalls.filter(([table]) => table === 'cash_player_session')).toHaveLength(0);
+      expect(cashoutVoluntary).toHaveBeenCalledWith(HORSE, TABLE, 2, occupancyId);
+      expect(cashout).not.toHaveBeenCalled();
+    }
+  );
+  it('a forbidden reserved Horse can leave without the obsolete profit lookup', async () => {
+    const { result } = await attempt(500, null, {
+      nowMs: HORSE_CASH_POLICY_START_MS,
+      missingRoster: true,
+    });
+    expect(result.success).toBe(true);
+    expect(cashout).toHaveBeenCalled();
+  });
+  it('a forbidden Horse still waits for its all-in hand to settle', async () => {
+    const { result } = await attempt(500, null, {
+      nowMs: HORSE_CASH_POLICY_START_MS,
+      live: true,
+    });
+    expect(result).toMatchObject({ success: true, immediate: false });
+    expect(departure).toHaveBeenCalledWith(HORSE, TABLE, 2, occupancyId, 'voluntary');
+    expect(cashout).not.toHaveBeenCalled();
+    expect(cashoutVoluntary).not.toHaveBeenCalled();
+  });
+  it('the stakes restriction cannot turn a refused cashout into success', async () => {
+    const { result } = await attempt(500, null, {
+      nowMs: HORSE_CASH_POLICY_START_MS,
+      refusedCashout: true,
+    });
+    expect(result).toMatchObject({ success: false, code: 'LEAVE_LOCKED' });
+    expect(cashout).not.toHaveBeenCalled();
   });
 });
