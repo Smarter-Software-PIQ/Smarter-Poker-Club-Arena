@@ -89,10 +89,12 @@ class NativeObservationAuthority(unittest.TestCase):
     def test_original_restore_mapping_binds_every_scene_and_refuses_private_rows_or_forged_target(self):
         from copy import deepcopy
         original, restored = 'a' * 64, 'b' * 64
-        mapping = {'version': 1, 'rule': 'public-live-column-rank/v1',
+        mapping = {'version': 2, 'rule': 'public-live-column-rank-and-exact-varchar-array/v2',
             'original_digest': original, 'restored_digest': restored,
             'columns_count': 50, 'public_columns_count': 40, 'changed_rows_count': 7,
             'changed_rows_digest': 'c' * 64,
+            'constraints_count': 100, 'constraint_changed_rows_count': 4,
+            'constraint_changed_rows_digest': 'd' * 64,
             'changed_rows_digest_encoding': 'utf8-json-stringify-ordered-object-array/v1'}
         proof = {'success': True, 'product_certificate': False,
             'original_catalogue_digest': original, 'catalogue_digest': restored,
@@ -101,11 +103,14 @@ class NativeObservationAuthority(unittest.TestCase):
             'no_game_or_club_created': True, 'current_database_contract_ready': True}
         capture = {'original_catalogue_digest': original}
         self.assertEqual(MODULE.validate_schema_preflight(proof, capture), (restored, mapping))
-        for field, value in [('version', True), ('rule', 'all-schemas/v1'),
+        for field, value in [('version', True), ('version', 1), ('rule', 'all-schemas/v1'),
                 ('original_digest', 'd' * 64), ('restored_digest', 'd' * 64),
                 ('columns_count', -1), ('public_columns_count', 51),
                 ('changed_rows_count', True), ('changed_rows_count', 41),
-                ('changed_rows_digest', 'invalid'), ('changed_rows_digest_encoding', 'other'),
+                ('changed_rows_digest', 'invalid'), ('constraints_count', True), ('constraints_count', 3),
+                ('constraint_changed_rows_count', 5), ('constraint_changed_rows_count', -1),
+                ('constraint_changed_rows_count', True), ('constraint_changed_rows_digest', 'invalid'),
+                ('constraint_changed_rows', [{'definition':'private'}]), ('changed_rows_digest_encoding', 'other'),
                 ('changed_rows', [{'column': 'private'}])]:
             bad = deepcopy(proof); bad['catalogue_restore_mapping'][field] = value
             with self.subTest(field=field, value=value), self.assertRaises(RuntimeError):
@@ -117,10 +122,15 @@ class NativeObservationAuthority(unittest.TestCase):
             bad = deepcopy(proof); bad[field] = value
             with self.subTest(field=field), self.assertRaises(RuntimeError):
                 MODULE.validate_schema_preflight(bad, capture)
+        constraints_only = deepcopy(proof)
+        constraints_only['catalogue_restore_mapping'].update(changed_rows_count=0,
+            changed_rows_digest=MODULE.native.digest(b'[]'))
+        self.assertEqual(MODULE.validate_schema_preflight(constraints_only, capture)[0], restored)
         empty = deepcopy(proof)
         empty.update(catalogue_digest=original)
         empty['catalogue_restore_mapping'].update(restored_digest=original, changed_rows_count=0,
-            changed_rows_digest=MODULE.native.digest(b'[]'))
+            changed_rows_digest=MODULE.native.digest(b'[]'), constraint_changed_rows_count=0,
+            constraint_changed_rows_digest=MODULE.native.digest(b'[]'))
         self.assertEqual(MODULE.validate_schema_preflight(empty, capture)[0], original)
         empty['catalogue_restore_mapping']['changed_rows_digest'] = 'c' * 64
         with self.assertRaises(RuntimeError): MODULE.validate_schema_preflight(empty, capture)

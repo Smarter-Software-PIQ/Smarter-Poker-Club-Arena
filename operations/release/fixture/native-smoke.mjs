@@ -1,3 +1,4 @@
+import { assertNativeSchemaExpressionContract } from './schema-expression-proof.mjs';
 import { configureFixtureRealtimeCapturedRelations, assertFixtureRealtimeCapturedRelations } from './realtime-legacy-relations.mjs';
 import { REALTIME_CONTROL_DATABASE, realtimeControlConnection, REALTIME_SEED_EXPRESSION, createRealtimeControlDatabase, assertRealtimeControlIsolation } from './realtime-control-plane.mjs';
 import {
@@ -973,6 +974,8 @@ async function services() {
     const { schemaCatalogue, schemaCataloguePayload } = await import(
       controlModules + 'component-semantic-observations.mjs'
     );
+    const { buildCatalogueRestorePlan } = await import(controlModules + '../fixture/schema-catalogue-restore-map.mjs');
+    await assertNativeSchemaExpressionContract(db, {schemaCataloguePayload, buildCatalogueRestorePlan});
     // CANONICAL_SEQUENCE_ACL_PROBE_BEGIN: genuine rollback-only native proof.
     // A private namespace avoids application namespace-specific creator ACLs.
     // NULL relacl must use sequence privileges, not the foreign-server fallback.
