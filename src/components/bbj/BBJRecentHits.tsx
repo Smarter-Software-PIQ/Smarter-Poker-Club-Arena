@@ -44,6 +44,7 @@ import { getAvatarWithFallback } from '../../utils/avatarGenerator';
 import { titleCase } from '../../utils/handReplay';
 import { reportError } from '../../utils/errorReporter';
 import './BBJRecentHits.css';
+import { compactChips } from '../../utils/format';
 import { gameTypeLabel, money, stamp } from '../../utils/handFormat';
 
 export interface BBJRecentHitsProps {
@@ -84,7 +85,7 @@ interface Hit {
   payout_id: string;
   awarded_at: string;
   hand_number: number;
-  total_payout: number;
+  total_payout: number | string | null;
   bad_beat_user_id: string | null;
   bad_beat_player_number: string | null;
   bad_beat_avatar_url: string | null;
@@ -555,7 +556,14 @@ export function BBJRecentHits({
           : !!currentUserName &&
             String(hit.bad_beat_name || '').toLowerCase() === currentUserName.toLowerCase();
         const clickable = !!onOpenHand;
-        const amount = hit.bad_beat_amount ?? hit.total_payout;
+        // The event total includes every recipient. Never substitute one player's
+        // share or derive historical totals from today's payout percentages.
+        const amount =
+          hit.total_payout == null || String(hit.total_payout).trim() === ''
+            ? NaN
+            : Number(hit.total_payout);
+        const amountLabel =
+          Number.isFinite(amount) && amount >= 0 ? compactChips(amount) : 'Unavailable';
         const gameType = gameTypeLabel(hit.game_variant);
 
         return (
@@ -566,9 +574,9 @@ export function BBJRecentHits({
             tabIndex={clickable ? 0 : undefined}
             aria-label={
               clickable
-                ? `${hit.bad_beat_name} Won ${money(amount, 0)}` +
+                ? `Total Paid Out ${amountLabel}` +
                   (hit.kind === 'mini' ? ' From The Mini Jackpot' : '') +
-                  ` With ${label}` +
+                  ` For ${hit.bad_beat_name} With ${label}` +
                   (beatByLabel ? `, Beaten By ${hit.hand_winner_name} With ${beatByLabel}` : '') +
                   '. Open The Hand.'
                 : undefined
@@ -610,41 +618,46 @@ export function BBJRecentHits({
                   </span>
                 )}
               </span>
-              <span className="bbj-hits__id">{hit.bad_beat_player_number || ''}</span>
+              <span className="bbj-hits__id">
+                {hit.bad_beat_player_number ? `Player ${hit.bad_beat_player_number}` : ''}
+              </span>
+              <time className="bbj-hits__when" dateTime={hit.awarded_at}>
+                {stamp(hit.awarded_at)}
+              </time>
             </div>
 
             <div className="bbj-hits__hand">
-              {cards.length > 0 && (
-                <div className="bbj-hits__cards" title={label}>
-                  {cards.map((card, i) => (
-                    <CardImage key={`${hit.payout_id}-${i}`} card={card} size="xs" />
-                  ))}
-                </div>
-              )}
-              <span className="bbj-hits__handname">{label}</span>
-
-              {beatBy.length > 0 && (
-                <div className="bbj-hits__beat">
-                  <span className="bbj-hits__beat-label">Lost To</span>
-                  <div className="bbj-hits__cards" title={beatByLabel}>
-                    {beatBy.map((card, i) => (
-                      <CardImage key={`${hit.payout_id}-w-${i}`} card={card} size="xs" />
+              <div className="bbj-hits__made">
+                <span className="bbj-hits__hand-label">Bad Beat Hand</span>
+                {cards.length > 0 && (
+                  <div className="bbj-hits__cards" title={label}>
+                    {cards.map((card, i) => (
+                      <CardImage key={`${hit.payout_id}-${i}`} card={card} size="xs" />
                     ))}
                   </div>
-                  <span className="bbj-hits__beat-name">
-                    {hit.hand_winner_name}
-                    {beatByLabel ? ` - ${beatByLabel}` : ''}
-                  </span>
+                )}
+                <span className="bbj-hits__handname">{label}</span>
+              </div>
+              {(beatBy.length > 0 || beatByLabel) && (
+                <div className="bbj-hits__beat">
+                  <span className="bbj-hits__beat-label">Lost To</span>
+                  {beatBy.length > 0 && (
+                    <div className="bbj-hits__cards" title={beatByLabel}>
+                      {beatBy.map((card, i) => (
+                        <CardImage key={`${hit.payout_id}-w-${i}`} card={card} size="xs" />
+                      ))}
+                    </div>
+                  )}
+                  <span className="bbj-hits__handname">{beatByLabel}</span>
+                  <span className="bbj-hits__beat-name">{hit.hand_winner_name}</span>
                 </div>
               )}
             </div>
 
             <div className="bbj-hits__right">
               {gameType && <span className="bbj-hits__gametype">{gameType}</span>}
-              {/* NEVER A DECIMAL POINT ON A FORWARD-FACING PAGE (#ClubArenaConsole):
-                  the row printed 6,240.00; the label already said 6,240. */}
-              <span className="bbj-hits__amt">+ {money(amount, 0)}</span>
-              <span className="bbj-hits__when">{stamp(hit.awarded_at)}</span>
+              <span className="bbj-hits__total-label">Total Paid Out</span>
+              <span className="bbj-hits__amt">{amountLabel}</span>
             </div>
           </div>
         );
@@ -665,7 +678,7 @@ export function BBJRecentHits({
         </button>
       )}
 
-      {onOpenHand && <p className="bbj-hits__hint">Tap A Winner To See The Hand.</p>}
+      {onOpenHand && <p className="bbj-hits__hint">Tap A Jackpot For Hands And Payouts.</p>}
     </div>
   );
 }
