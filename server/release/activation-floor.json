@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-01T18:40:00Z",
-  "activationAt": "2026-11-01T18:40:00Z",
-  "expiresAt": "2026-11-02T00:40:00Z",
+  "preparationAt": "2026-11-02T04:15:00Z",
+  "activationAt": "2026-11-02T04:15:00Z",
+  "expiresAt": "2026-11-02T09:25:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-01-fresh-engine-crash-boundary",
-  "clientPublicationAt": "2026-11-01T18:40:00Z"
+  "ownerWindowId": "2026-11-02-fresh-engine-window-after-seal-unbrick",
+  "clientPublicationAt": "2026-11-02T04:15:00Z"
 }
