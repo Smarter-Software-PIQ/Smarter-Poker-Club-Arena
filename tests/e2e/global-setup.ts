@@ -39,6 +39,11 @@ import {
   registerDiamondInvitationDismissal,
 } from './support/cashLobbyOverlays';
 import { observeSetupFailure } from './support/setupFailureObservation';
+import {
+  fixtureBrowserDevice,
+  fixtureBrowserStorage,
+  verifyFixtureEnrollment,
+} from './support/fixtureBrowserDevice';
 
 export const STORAGE_STATE = 'tests/e2e/.auth/state.json';
 
@@ -269,7 +274,23 @@ export default async function globalSetup(config: FullConfig) {
   let authenticated = false;
   let observation: ReturnType<typeof observeSetupFailure> | undefined;
   try {
-    const ctx = await browser.newContext();
+    const directSession = await createDirectSession(email, password);
+    const fixtureFile = process.env.E2E_TEST_ACCOUNT_FILE;
+    if (fixtureFile && !directSession) {
+      throw new Error('Disposable fixture device enrollment requires a verified direct session.');
+    }
+    const fixtureDevice =
+      fixtureFile && directSession
+        ? fixtureBrowserDevice(
+            JSON.parse(readFileSync(fixtureFile, 'utf8')),
+            directSession.user,
+            email,
+            baseURL
+          )
+        : undefined;
+    const ctx = await browser.newContext(
+      fixtureDevice ? { storageState: fixtureBrowserStorage(fixtureDevice) } : {}
+    );
     const page = await ctx.newPage();
     observation = observeSetupFailure(
       page,
@@ -285,8 +306,6 @@ export default async function globalSetup(config: FullConfig) {
        exact storage key, so seeding the SDK-issued session exercises the same
        boot path a returning player uses. Local runs without API configuration
        keep the UI-login fallback below. */
-    const directSession = await createDirectSession(email, password);
-
     /* Do NOT hardcode a login path. On production the arena is a base-path app
        inside the World Hub, and the sign-in page belongs to the HUB:
        /hub/club-arena/ bounces to /auth/login?redirect=... at the origin. The
@@ -320,6 +339,7 @@ export default async function globalSetup(config: FullConfig) {
         return;
       }
       authenticated = true;
+      if (fixtureDevice) await verifyFixtureEnrollment(page, fixtureDevice);
       console.log('[global-setup] direct Supabase session accepted by production.');
     }
 
@@ -479,6 +499,7 @@ export default async function globalSetup(config: FullConfig) {
       }
     }
 
+    if (fixtureDevice) await verifyFixtureEnrollment(page, fixtureDevice);
     await ctx.storageState({ path: STORAGE_STATE });
     console.log('[global-setup] authenticated session saved — auth-gated specs will run.');
   } catch (err) {
@@ -492,6 +513,7 @@ export default async function globalSetup(config: FullConfig) {
        own message. Passing it through the fallback below would call signedOut()
        a second time and nest the explanation inside "auth setup failed (...)",
        which is how a clear cause becomes an unreadable one. */
+    if (process.env.E2E_TEST_ACCOUNT_FILE) throw err;
     if (process.env.E2E_REQUIRE_AUTH === '1') {
       throw err;
     }
