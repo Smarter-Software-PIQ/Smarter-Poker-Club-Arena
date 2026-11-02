@@ -24,6 +24,19 @@ describe('the weekly close follows the actual freeze', () => {
       'python3 -B scripts/ci/test-weekly-close-hour-guard-postgres.py'
     );
   });
+  it('executes maintenance admission before the existing owned-pause proof', () => {
+    const runner = readFileSync('scripts/ci/test-weekly-payout-owned-phase-postgres.py', 'utf8');
+    expect(runner).toContain(
+      "subprocess.run([sys.executable,'-B',str(R/'scripts/ci/test-weekly-accounting-maintenance-admission-postgres.py')"
+    );
+    const native = readFileSync(
+      'scripts/ci/test-weekly-accounting-maintenance-admission-postgres.py',
+      'utf8'
+    );
+    expect(native).toContain('BEFORE original tick enters original gate/cascade');
+    expect(native).toContain('AFTER last_hand skips every original gate/cascade');
+    expect(native).toContain('metadata mutation refuse atomically');
+  });
   it('parses a runnable pull request workflow', () => {
     const workflow = parse(readFileSync('.github/workflows/weekly-close-hour-guard.yml', 'utf8'));
     expect(workflow.on.pull_request.paths).toContain('supabase/migrations/**');

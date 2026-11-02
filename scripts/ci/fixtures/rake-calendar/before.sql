@@ -16,6 +16,10 @@ SELECT '73000000-0000-0000-0000-000000000002','73000000-0000-0000-0000-000000000
 DO $$ DECLARE b record; j jsonb; BEGIN
  SELECT * INTO b FROM ca_stats_calendar_bounds(7,'America/Chicago');
  j:=ca_player_rake_stats('73000000-0000-0000-0000-000000000002',7,'chips');
- IF (j->>'hands')::int=2 THEN RAISE EXCEPTION 'Rolling regression did not reproduce'; END IF;
+ -- Different populations can have the same count across the DST boundary;
+ -- the calendar population must match both its two hands and five rake chips.
+ IF (j->>'hands')::int=2 AND (j->>'rake_paid')::numeric=5 THEN
+   RAISE EXCEPTION 'Rolling regression did not reproduce';
+ END IF;
  RAISE NOTICE 'REPRODUCED rolling/calendar rake mismatch: %',j;
 END $$;
