@@ -1,6 +1,8 @@
 -- @live-proof: (SELECT count(*)=140 FROM smarter_private.owner_tournament_deletion_intents) AND md5(pg_get_functiondef('public.fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)'::regprocedure))='1975b4c245da7c434772e862cfa57513' AND NOT has_table_privilege('service_role','smarter_private.owner_tournament_deletion_intents','UPDATE') AND md5(pg_get_functiondef('public.fn_ca_guard_tournament_restart_source()'::regprocedure))='b080d19b8b2027440b67f350e67d8807'
 -- Explicit owner instruction, chat01a19ccc, November2: delete old started
--- events; remaining chips to Midway Union Main Bank, Diamonds to KingFish.
+-- events; eligible remainder only to Midway Union Main Bank / KingFish.
+-- Player-owned funding and outstanding entitlements must be separated first.
+-- This intent authorizes no amount and proves no transfer eligibility.
 -- Equal-share disposition is revoked for these exact140 identities. Empty
 -- waiting SNG/Spin registrations are explicitly excluded. No funds move here.
 -- This durable instruction is a prerequisite for the terminal deletion writer;
@@ -160,6 +162,16 @@ INSERT INTO smarter_private.owner_tournament_deletion_intents(tournament_id,orig
 ('fe9145bb-acc1-4a51-97d1-e473d3c39c6e','2026-10-29T16:15:00+00:00','diamonds','47965354-0e56-43ef-931c-ddaab82af765'),
 ('ff1ec3f2-f2f2-46d6-b30e-e9ef612532b1','2026-10-31T18:45:00+00:00','chips','fade0000-0000-0000-0000-000000000001'),
 ('ff83fd35-a6d9-4111-a4dd-849f574264bc','2026-10-31T01:15:00+00:00','chips','fade0000-0000-0000-0000-000000000001');
+CREATE FUNCTION smarter_private.owner_tournament_deletion_manifest_is_immutable()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $immutable$
+BEGIN
+ RAISE EXCEPTION 'owner_tournament_deletion_manifest_is_immutable' USING ERRCODE='55000';
+END $immutable$;
+REVOKE ALL ON FUNCTION smarter_private.owner_tournament_deletion_manifest_is_immutable() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER owner_deletion_manifest_immutable
+BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON smarter_private.owner_tournament_deletion_intents
+FOR EACH STATEMENT EXECUTE FUNCTION smarter_private.owner_tournament_deletion_manifest_is_immutable();
+
 DO $$BEGIN
  IF md5(pg_get_functiondef('public.fn_ca_settle_tournament_abort_equal_share(uuid,uuid,text)'::regprocedure)) IS DISTINCT FROM 'ef3c8122a5fccc4f90630c1672080240' THEN
  RAISE EXCEPTION 'owner_deletion_equal_share_authority_changed'; END IF;

@@ -38,6 +38,15 @@ CREATE FUNCTION fn_ca_tournament_cancellation_receipt(uuid) RETURNS jsonb LANGUA
   if not code or expected not in err:raise RuntimeError('wrong refusal: '+err)
  refused(target,'NATIVE_NEXT_FINANCIAL_GATE')
  e.sql(db,migration.read_text(),label='exact-owner-instruction-install')
+
+ manifest=ROOT/'scripts/ci/fixtures/tournament-abort/owner-retirement-nov2-manifest.json'
+ expected=json.loads(manifest.read_text())
+ actual=e.sql(db,"SELECT json_agg(tournament_id::text ORDER BY tournament_id) FROM smarter_private.owner_tournament_deletion_intents;",label='exact-manifest-identities')[1]
+ if sorted(x['tournament_id'] for x in expected['targets']) != sorted(json.loads(actual.strip())):raise RuntimeError('exact immutable manifest drift')
+ if set(expected['preserved_outside_diamond_event_ids']) & {x['tournament_id'] for x in expected['targets']}:raise RuntimeError('preserved event targeted')
+ for statement in ("UPDATE smarter_private.owner_tournament_deletion_intents SET destination_id=destination_id", "DELETE FROM smarter_private.owner_tournament_deletion_intents", "TRUNCATE smarter_private.owner_tournament_deletion_intents", "INSERT INTO smarter_private.owner_tournament_deletion_intents SELECT * FROM smarter_private.owner_tournament_deletion_intents LIMIT 1"):
+  code,_,err=e.sql(db,statement,label='immutable-manifest',check=False)
+  if not code or 'owner_tournament_deletion_manifest_is_immutable' not in err:raise RuntimeError('manifest mutable: '+err)
  refused(target,'owner_deletion_supersedes_equal_share')
  refused(other,'NATIVE_NEXT_FINANCIAL_GATE')
  for label,tid,origin in [('same-id',target,'NULL'),('cloned-id','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',"'"+target+"'")]:
@@ -50,7 +59,7 @@ CREATE FUNCTION fn_ca_tournament_cancellation_receipt(uuid) RETURNS jsonb LANGUA
  IF EXISTS(SELECT 1 FROM smarter_private.owner_tournament_deletion_intents WHERE original_started_at>='2026-11-02T06:00Z') THEN RAISE EXCEPTION 'today included';END IF;
  IF has_table_privilege('service_role','smarter_private.owner_tournament_deletion_intents','UPDATE') OR has_table_privilege('authenticated','smarter_private.owner_tournament_deletion_intents','SELECT') THEN RAISE EXCEPTION 'intent authority exposed';END IF;
  END $$;""",label='scope-and-authority')
- e.report.update(status='passed',scope=__doc__,source_sha256={str(x.relative_to(ROOT)):n.sha(x) for x in (source,restart,migration,Path(__file__))})
+ e.report.update(status='passed',scope=__doc__,source_sha256={str(x.relative_to(ROOT)):n.sha(x) for x in (source,restart,migration,manifest,Path(__file__))})
 except BaseException as err:e.report['failure']=repr(err)
 finally:
  e.close();(a.evidence/'result.json').write_text(json.dumps(e.report,indent=2));print(json.dumps({k:e.report.get(k) for k in ('status','failure','cleanup')}))
