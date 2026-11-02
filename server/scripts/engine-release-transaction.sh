@@ -867,6 +867,25 @@ initialise_phase1_cycle() {
   fi
   phase1_custody_admission
   if [ "$prior_cycle" = none ]; then
+    # A later, source-bound owner window selects its own :53 notice / :55
+    # certificate. Keep the full custody gate above and never reserve a second
+    # on-the-hour cycle underneath it. Existing routine owners remain unchanged.
+    if printf '%s' "${ACTIVATION_FLOOR_JSON:-null}" | SHA="$SHA" CONTROL_SHA="$CONTROL_SHA" python3 -c '
+import json,os,sys,time
+r=json.load(sys.stdin)
+valid=(isinstance(r,dict)
+       and r.get("schema")=="engine-release-activation-floor/v2-owner-window"
+       and r.get("supersedesPhase1Schedule") is True
+       and r.get("ownerWindowId")==os.environ.get("ACTIVATION_FLOOR_OWNER_WINDOW")
+       and bool(r.get("ownerWindowId"))
+       and r.get("targetSha")==os.environ.get("SHA")
+       and r.get("controlSha")==os.environ.get("CONTROL_SHA")
+       and type(r.get("expiresEpoch")) is int
+       and r["expiresEpoch"]>int(time.time()))
+sys.exit(0 if valid else 1)
+'; then
+      return 0
+    fi
     local fresh_health cause
     fresh_health="$(legacy_entry_read curl -sS --max-time 5 http://127.0.0.1:8080/health)" || fresh_health='{}'
     cause="$(recovery_window_reason "$fresh_health")"

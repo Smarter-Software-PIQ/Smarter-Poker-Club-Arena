@@ -76,6 +76,114 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
+    def test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries(self):
+        import contextlib
+        import io
+        import sys
+        self.owner_record()
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        windows = json.loads(path.read_text())
+        windows['windows'][0]['supersedesPhase1Schedule'] = True
+        windows['windows'][0]['announceAtChicagoMinutes'] = [53]
+        path.write_text(json.dumps(windows))
+        for name in ('server/scripts/engine-release-seal.py', 'server/src/maintenance/maintenanceSchedulePolicy.json'):
+            target = self.repo / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ROOT / name).read_bytes())
+        self.sha = self.commit()
+        record = floor.policy(str(self.repo), self.sha, self.sha)
+        requests = self.repo / 'requests'; requests.mkdir()
+        now = record['activationEpoch'] + 1800
+        deadline = record['expiresEpoch'] - 1
+        args = ['floor', 'admit', '--repo', str(self.repo), '--target', self.sha,
+                '--control', self.sha, '--deadline', str(deadline),
+                '--request-root', str(requests), '--run-id', '123-1']
+        def admit(at):
+            out = io.StringIO()
+            with patch.object(sys, 'argv', args), patch.object(floor.time, 'time', return_value=at), contextlib.redirect_stdout(out):
+                floor.main()
+            return json.loads(out.getvalue())
+        with self.assertRaisesRegex(ValueError, 'no alternate reset authorized'):
+            admit(record['expiresEpoch'])
+        self.assertFalse((requests / '123-1.activation-entry').exists())
+        selected = admit(now)
+        self.assertEqual(selected['schema'], floor.OWNER_CAPABILITY)
+        self.assertEqual(selected['ownerWindowId'], record['ownerWindowId'])
+        self.assertTrue(selected['supersedesPhase1Schedule'])
+        floor.entry_state(selected, str(requests), '123-1', True, now, deadline, announcement=True)
+        original = (requests / '123-1.activation-entry').read_bytes()
+        self.assertEqual(admit(now)['ownerWindowId'], record['ownerWindowId'])
+        with self.assertRaises(ValueError): admit(record['expiresEpoch'] + 1)
+        self.assertEqual((requests / '123-1.activation-entry').read_bytes(), original)
+        # The presence of a later order must never retarget a pre-existing
+        # canonical routine owner, including announcement-only custody.
+        (requests / '123-1.activation-entry').unlink()
+        prior = floor.phase1_policy(str(self.repo), self.sha, self.sha)
+        floor.entry_state(prior, str(requests), '123-1', True, now, deadline, announcement=True)
+        original = (requests / '123-1.activation-entry').read_bytes()
+        self.assertEqual(admit(now)['schema'], floor.PHASE1_CAPABILITY)
+        self.assertEqual((requests / '123-1.activation-entry').read_bytes(), original)
+        # A flag is reviewed source, not a truthy environment bypass. Only
+        # the explicit :53 announcement / :55 cutover shape is supported.
+        for flag, minutes in [('true', [53]), (1, [53]), (False, [53]), (True, [58]), (True, [53, 58])]:
+            with self.subTest(flag=flag, minutes=minutes):
+                windows['windows'][0]['supersedesPhase1Schedule'] = flag
+                windows['windows'][0]['announceAtChicagoMinutes'] = minutes
+                path.write_text(json.dumps(windows)); self.sha = self.commit()
+                with self.assertRaises(ValueError): floor.policy(str(self.repo), self.sha, self.sha)
+
+    def test_later_owner_transaction_preserves_custody_without_reserving_hourly_cycle(self):
+        source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+        start = source.index('initialise_phase1_cycle() {')
+        function = source[start:source.index('\nphase1_reset_required()', start)]
+        record = {'schema': floor.OWNER_CAPABILITY, 'ownerWindowId': 'fixture',
+                  'supersedesPhase1Schedule': True, 'targetSha': self.sha,
+                  'controlSha': self.sha, 'expiresEpoch': int(time.time()) + 3600}
+        prefix = r'''set -euo pipefail
+LOCK_HELD=1; RUN_ID=123-1; RELEASE_SEAL=fixture-seal
+PHASE1_CYCLE_START=0; PHASE1_CYCLE_END=0
+PHASE1_WINDOW_START=0; PHASE1_WINDOW_END=0
+die() { echo "$*" >&2; exit 77; }
+timeout() { return 0; }
+legacy_entry_read() {
+  case " $* " in
+    *' check-routine-owner '*) echo "$FIXTURE_PRIOR" ;;
+    *' schedule-policy '*) echo '{"phase1Status":"active"}' ;;
+    *' reserve-routine-cycle '*) echo 'reserved-unwanted-hourly' >&2; exit 79 ;;
+    *' curl '*) echo '{}' ;;
+    *) return 0 ;;
+  esac
+}
+newer_release_in_flight() { return "$FIXTURE_FOREIGN"; }
+phase1_custody_admission() { [ "$FIXTURE_CUSTODY" = 1 ] || die custody-unproven; }
+recovery_window_reason() { echo no-emergency; }
+'''
+        def invoke(*, prior='none', foreign=1, custody=1, value=None):
+            env = {**os.environ, 'REPO_DIR': str(self.repo), 'SHA': self.sha,
+                   'CONTROL_SHA': self.sha, 'ACTIVATION_FLOOR_OWNER_WINDOW': 'fixture',
+                   'ACTIVATION_FLOOR_JSON': json.dumps(record if value is None else value),
+                   'FIXTURE_PRIOR': prior, 'FIXTURE_FOREIGN': str(foreign),
+                   'FIXTURE_CUSTODY': str(custody)}
+            script = prefix + 'export -n SHA CONTROL_SHA\n' + function + '\ninitialise_phase1_cycle\n' + (
+                '[ "$PHASE1_POLICY_OWNED" = 1 ]\n'
+                '[ "$PHASE1_CYCLE_START" = 0 ]\necho owner-window-selected\n')
+            return subprocess.run([BASH, '-c', script], env=env, capture_output=True, text=True, timeout=10)
+        result = invoke()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('owner-window-selected', result.stdout)
+        for kwargs in ({'foreign': 0}, {'foreign': 2}, {'custody': 0}):
+            result = invoke(**kwargs)
+            self.assertEqual(result.returncode, 77, result.stderr)
+            self.assertNotIn('owner-window-selected', result.stdout)
+        # Existing routine ownership and ordinary floors retain their old path.
+        for kwargs in ({'prior': 'owned'}, {'value': {**record, 'supersedesPhase1Schedule': False}},
+                       {'value': {**record, 'ownerWindowId': 'different'}},
+                       {'value': {**record, 'targetSha': 'f' * 40}},
+                       {'value': {**record, 'expiresEpoch': 1}}):
+            result = invoke(**kwargs)
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('owner-window-selected', result.stdout)
+
     def test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner(self):
         import contextlib
         import io
