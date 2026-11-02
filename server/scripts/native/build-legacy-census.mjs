@@ -101,6 +101,63 @@ try {
   );
   assert.equal(probe.status, 0, probe.stdout + '\n' + probe.stderr + '\n' + String(probe.error));
   console.error(probe.stdout.trim());
+  // Keep the original 2000-object/32-deep proof above. These additional
+  // temporary builds instrument the actual cache, never the shipped binary.
+  let cacheInstrumented = replaceOne(instrumented,
+    'struct Attempt {',
+    'struct Attempt {\n  uint64_t cachePins=0, positivePins=0, handlesBefore=0, handlesAfter=0;');
+  cacheInstrumented = replaceOne(cacheInstrumented,
+    'entries_[size_] = {prototype, matches};',
+    '++lastAttempt.cachePins; if(matches)++lastAttempt.positivePins; entries_[size_] = {prototype, matches};');
+  cacheInstrumented = replaceOne(cacheInstrumented,
+    'lastAttempt.queryStartedAtMs = Now();',
+    'lastAttempt.handlesBefore = v8::HandleScope::NumberOfHandles(isolate);\n  lastAttempt.queryStartedAtMs = Now();');
+  cacheInstrumented = replaceOne(cacheInstrumented,
+    'lastAttempt.queryEndedAtMs = Now();',
+    'lastAttempt.queryEndedAtMs = Now();\n  lastAttempt.handlesAfter = v8::HandleScope::NumberOfHandles(isolate);');
+  cacheInstrumented = replaceOne(cacheInstrumented,
+    'NUMBER(predicateVisits);',
+    'NUMBER(cachePins); NUMBER(positivePins); NUMBER(handlesBefore); NUMBER(handlesAfter); NUMBER(predicateVisits);');
+  const cacheProbe = `
+    const assert=require('node:assert/strict');
+    const addon=require(process.argv[1]);
+    const collision=process.argv[2]==='collision';
+    const marker={}; const types=[class A{},class B{},class C{},class D{},class E{}];
+    types.forEach(C=>Object.setPrototypeOf(C.prototype,marker));
+    const owners=types.map(C=>new C());
+    const detached=(()=>{const value=new types[2]();return()=>value})();
+    const anchor=Object.create(Object.create(marker));
+    const prototypes=Array.from({length:5000},()=>Object.create(anchor));
+    const extra=prototypes.map(p=>Object.create(p));
+    globalThis.cacheFixture={types,owners,detached,prototypes,extra};
+    const collect=()=>addon.collect(marker,Date.now()+30000,process.availableMemory());
+    const first=collect(); const before=addon.diagnostics();
+    for(const x of [...owners,detached(),...prototypes,...extra])assert.ok(first.includes(x));
+    assert.ok(before.cachePins<=4096);
+    if(collision)assert.ok(before.cachePins<=8);else assert.equal(before.cachePins,4096);
+    assert.ok(before.handlesAfter-before.handlesBefore<=before.predicateVisits+before.cachePins+32);
+    prototypes.forEach(p=>Object.setPrototypeOf(p,null));
+    const second=collect(); const after=addon.diagnostics();
+    for(const x of [...prototypes,...extra])assert.equal(second.includes(x),false);
+    for(const x of [...owners,detached()])assert.ok(second.includes(x));
+    assert.equal(after.handlesBefore,before.handlesBefore,'prior Collect pins survived');
+    assert.ok(after.handlesAfter-after.handlesBefore<=after.predicateVisits+after.cachePins+32);
+    assert.equal(after.positivePins,0,'shallow matching prototypes must not enter cache');
+    console.log(JSON.stringify({schema:'legacy-census-prototype-cache-proof/v1',collision,before,after,complete:true}));
+  `;
+  for (const collision of [false, true]) {
+    const text = collision ? replaceOne(cacheInstrumented,
+      'const int hash = prototype->GetIdentityHash();',
+      'const int hash = (prototype->GetIdentityHash(), 1);') : cacheInstrumented;
+    fs.writeFileSync(probeSource, text);
+    const compiledCache = spawnSync(compiler, probeOptions, {encoding:'utf8',timeout:60000});
+    assert.equal(compiledCache.status,0,compiledCache.stderr || String(compiledCache.error));
+    const qualified = spawnSync(process.execPath,
+      ['--max-old-space-size=128','-e',cacheProbe,probeAddon,collision?'collision':'ordinary'],
+      {encoding:'utf8',timeout:40000,maxBuffer:16384});
+    assert.equal(qualified.status,0,qualified.stdout+'\n'+qualified.stderr+'\n'+String(qualified.error));
+    console.error(qualified.stdout.trim());
+  }
 } finally {
   fs.rmSync(probeDir, { recursive: true, force: true });
 }
@@ -109,7 +166,7 @@ const manifest = { schema:'legacy-native-census-build/v1', node:process.version,
   arch:process.arch, pointerCompression:process.config.variables.v8_enable_pointer_compression,
   sourceSHA256:sha(fs.readFileSync(source)), headersSHA256:sha(JSON.stringify(headers)),
   binarySHA256:sha(fs.readFileSync(args.output)), compiler:version.stdout.trim(),
-  maxMatches:22096, managedOutputBytes:22096*8*4+65536,
+  maxMatches:22096, managedOutputBytes:22096*8*4+65536, prototypeCacheBytes:1048576,
   qualification:'unqualified-build-only' };
 fs.writeFileSync(args.output+'.json', JSON.stringify(manifest,null,2)+'\n');
 console.log(JSON.stringify(manifest));

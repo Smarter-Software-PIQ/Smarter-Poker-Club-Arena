@@ -1,4 +1,4 @@
-export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = '7840d64c30a0c179b50380d9dad9c9bb51027a690d50dc32422856ea56662506';
+export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1';
 // Concatenated after the exact guard by the owning release transaction.
 // Importing this module only exposes the isolated fixture seam.
 import { setTimeout as checkpointDelay } from 'node:timers/promises';
@@ -493,7 +493,8 @@ export function loadLegacyNativeCensus(descriptor) {
   const fields = ['schema','path','manifestPath','binarySHA256','manifestSHA256','sourceSHA256',
     'candidateSHA','candidateImageId','candidateSourceTree'];
   if (!descriptor || typeof descriptor !== 'object' || descriptor.schema !== 'legacy-native-census-artifact/v1' ||
-      Object.keys(descriptor).length !== fields.length ||
+      Object.keys(descriptor).length !== fields.length + 1 ||
+      descriptor.prototypeCacheBytes !== 1048576 ||
       !fields.every(k => typeof descriptor[k] === 'string') ||
       !/^\/app\/\.legacy-census-checkpoint-[1-9][0-9]*(?:-[1-9][0-9]*)?\/legacy-census\.node$/.test(descriptor.path) ||
       descriptor.manifestPath !== descriptor.path+'.json' ||
@@ -525,9 +526,10 @@ export function loadLegacyNativeCensus(descriptor) {
       m.pointerCompression !== process.config.variables.v8_enable_pointer_compression ||
       m.sourceSHA256 !== descriptor.sourceSHA256 || m.binarySHA256 !== descriptor.binarySHA256 ||
       m.maxMatches !== 22096 || m.managedOutputBytes !== 772608 ||
+      m.prototypeCacheBytes !== descriptor.prototypeCacheBytes ||
       sha(read(descriptor.path)) !== descriptor.binarySHA256) fail();
   const addon = process.getBuiltinModule('node:module').createRequire('/app/native/legacy-census-loader.cjs')(descriptor.path);
-  if (typeof addon.collect !== 'function' || addon.sourceSHA256 !== descriptor.sourceSHA256 || addon.maxMatches !== 22096 || addon.managedOutputBytes !== 772608 ||
+  if (typeof addon.collect !== 'function' || addon.sourceSHA256 !== descriptor.sourceSHA256 || addon.maxMatches !== 22096 || addon.managedOutputBytes !== 772608 || addon.prototypeCacheBytes !== descriptor.prototypeCacheBytes ||
       sha(read(descriptor.path)) !== descriptor.binarySHA256) fail();
   return addon;
 }
@@ -567,6 +569,20 @@ export function legacyCensusMemoryAdmission(value) {
       value.availableHeapBytes >= requiredHeapBytes &&
       value.availableProcessBytes >= requiredProcessBytes,
   };
+}
+
+export function legacyNativeCensusMemoryAdmission(value, prototypeCacheBytes) {
+  if (prototypeCacheBytes !== 1048576) return null;
+  const memory = legacyCensusMemoryAdmission(value);
+  if (!memory) return null;
+  memory.prototypeCacheBytes = prototypeCacheBytes;
+  memory.requiredHeapBytes = 32 * 1024 * 1024 + 772608 + prototypeCacheBytes;
+  memory.requiredProcessBytes += prototypeCacheBytes;
+  if (!Number.isSafeInteger(memory.requiredProcessBytes)) return null;
+  memory.ok = memory.availableHeapBytes >= memory.requiredHeapBytes &&
+    memory.availableProcessBytes >= memory.requiredProcessBytes;
+  memory.path = 'abi-pinned-bounded-native';
+  return memory;
 }
 
 export function legacyCensusRoot() {
@@ -618,7 +634,7 @@ export function bindLegacyCensusModules(holderKey, workDeadlineMs, nativeCensus 
   const extended = profile === 'eed-80s-v1';
   if (profile !== null && (!extended ||
       process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
-      nativeCensus?.sourceSHA256 !== '7840d64c30a0c179b50380d9dad9c9bb51027a690d50dc32422856ea56662506'))
+      nativeCensus?.sourceSHA256 !== '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1'))
     throw new Error('native census allocation profile refused');
   if (
     typeof holderKey !== 'string' ||
@@ -1041,10 +1057,7 @@ export async function runLegacyEngineCheckpoint({
       );
       censusMemory = legacyCensusMemoryAdmission(memory?.value);
       if (nativeArtifact && censusMemory) {
-        censusMemory.requiredHeapBytes = 32 * 1024 * 1024 + 772608;
-        censusMemory.ok = censusMemory.availableHeapBytes >= censusMemory.requiredHeapBytes &&
-          censusMemory.availableProcessBytes >= censusMemory.requiredProcessBytes;
-        censusMemory.path = 'abi-pinned-bounded-native';
+        censusMemory = legacyNativeCensusMemoryAdmission(memory.value, nativeArtifact.prototypeCacheBytes);
       }
       if (!censusMemory?.ok) throw refused('native census memory headroom refused');
       operation = 'broadPrototype';

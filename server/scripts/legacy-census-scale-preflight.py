@@ -242,7 +242,8 @@ def validate_result(result, fixture_sha):
             result.get('prototypeRestored') is True and result.get('matched') == 11 and
             result.get('node') == 'v22.23.2' and result.get('v8') == '12.4.254.21-node.56' and
             result.get('platform') == 'linux' and result.get('arch') in ('x64', 'arm64') and
-            result.get('sourceSHA256') == '7840d64c30a0c179b50380d9dad9c9bb51027a690d50dc32422856ea56662506' and
+            result.get('prototypeCacheBytes') == 1048576 and
+            result.get('sourceSHA256') == '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1' and
             re.fullmatch(r'[0-9a-f]{64}', result.get('binarySHA256', '')),
             'scale fixture identity or completeness refused')
     transport = result.get('transport')
@@ -253,8 +254,8 @@ def validate_result(result, fixture_sha):
     require(result.get('collectorSHA256') == digest((ROOT/'legacy-engine-checkpoint.mjs').read_bytes()) and
             result.get('compositionSHA256') == digest((ROOT/'legacy-census-scale-composition.mjs').read_bytes()), 'composed census transport or source binding refused')
     before, attempt = result['before'], result['attempt']
-    require(before['used'] >= 3913011648 and 32 * 1024 ** 2 + 772608 <= before['available'] <= 322107592 and
-            before['process'] >= 8 * before['used'] + 32 * 1024 ** 2 and
+    require(before['used'] >= 3913011648 and 32 * 1024 ** 2 + 772608 + 1048576 <= before['available'] <= 322107592 and
+            before['process'] >= 8 * before['used'] + 32 * 1024 ** 2 + 1048576 and
             0 < result['queryMs'] <= 20000 and 0 < result['fixtureMs'] <= 35000 and
             0 < result['cgroupPeak'] <= CAP and result['maxRSSKiB'] > 0 and
             attempt['predicateVisits'] >= 35000000 and attempt['arrayAllocated'] is True and

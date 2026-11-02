@@ -187,11 +187,57 @@ class ServingRoleTests(unittest.TestCase):
             for error in [PermissionError('private fixture'),ValueError('private fixture')]:
                 with self.subTest(helper=helper,error=type(error)),self.bound(overrides={helper:{'side_effect':error}}):
                     with self.assertRaises(R.ScopedRefusal) as caught:R.serving_role_remote(self.request)
-                    self.assertEqual(caught.exception.phase,'serving_role')
-                    self.assertIn(caught.exception.code,{'binding_unproved','evidence_unavailable'})
+                    self.assertIn(caught.exception.phase,{'serving_role_' + stage for stage in R.SERVING_ROLE_STAGES})
+                    self.assertIn(caught.exception.code,{'binding_unproved','evidence_unavailable','permission_denied'})
                     self.assertNotIn('private fixture',str(caught.exception))
         with self.bound(),patch.object(R.time,'monotonic',side_effect=[100]+[109]*40):
             with self.assertRaises(ValueError):R.serving_role_remote(self.request)
+
+    def test_serving_role_refusal_retains_exact_boundary_through_transport(self):
+        boundaries = [('_serving_boot_id', 'boot', None),
+            ('inspector_identity', 'container', None),
+            ('_kernel_pid_stat', 'process', None),
+            ('pending_tcp_health', 'health', None),
+            ('inspector_command', 'image', None),
+            ('_serving_boot_id', 'recheck_boot', self.boot),
+            ('_kernel_pid_stat', 'recheck_process', '987654'),
+            ('inspector_identity', 'recheck_container', self.identity),
+            ('pending_tcp_health', 'recheck_health', self.health)]
+        errors = [(PermissionError('private host detail'), 'permission_denied'),
+            (ValueError('private runtime detail'), 'evidence_unavailable'),
+            (subprocess.TimeoutExpired(['private command'], 8), 'command_deadline'),
+            (R.ScopedRefusal('inspector_container', 'command_nonzero'), 'command_nonzero'),
+            (ValueError('Inspector read size'), 'command_size'),
+            (ValueError('Inspector read deadline'), 'command_deadline'),
+            (ValueError('Inspector native unavailable'), 'command_nonzero')]
+        for helper, stage, first in boundaries:
+            for error, code in errors:
+                effects = [first, error] if first is not None else error
+                with self.subTest(stage=stage, code=code), self.bound(overrides={helper:{'side_effect':effects}}):
+                    with self.assertRaises(R.ScopedRefusal) as caught:
+                        R.serving_role_remote(self.request)
+                exported = R.refusal(self.request, caught.exception)
+                restored = R.validate_refusal(exported, self.request)
+                self.assertEqual((restored.phase, restored.code), ('serving_role_' + stage, code))
+                self.assertNotIn('private', json.dumps(exported))
+                self.assertEqual(set(exported), {'schema','readOnly','mode','releaseSha','instanceId','phase','code'})
+
+    def test_serving_role_deadline_binding_and_unreviewed_codes_remain_refused(self):
+        with self.bound(), patch.object(R.time, 'monotonic', side_effect=[100] + [109] * 40):
+            with self.assertRaises(R.ScopedRefusal) as caught:
+                R.serving_role_remote(self.request)
+        self.assertEqual((caught.exception.phase, caught.exception.code),
+                         ('serving_role_deadline', 'command_deadline'))
+        with self.bound(overrides={'_serving_boot_id':{'side_effect':[self.boot, 'changed']}}):
+            with self.assertRaises(R.ScopedRefusal) as caught:
+                R.serving_role_remote(self.request)
+        self.assertEqual((caught.exception.phase, caught.exception.code),
+                         ('serving_role_recheck_binding', 'binding_unproved'))
+        exported = R.refusal(self.request, caught.exception)
+        for forged in [dict(exported, phase='serving_role_private_host'),
+                       dict(exported, code='private exception'), dict(exported, retryAllowed=True)]:
+            with self.subTest(forged=forged), self.assertRaises(ValueError):
+                R.validate_refusal(forged, self.request)
 
     def test_serving_role_boot_reader_fixed_private_bounded_metadata_only(self):
         deadline=R.time.monotonic()+8
@@ -2325,6 +2371,11 @@ class NativeCheckpointIntentTests(unittest.TestCase):
     def test_native_and_old_intents_are_exact_and_spoof_refused(self):
         q={'runKey':'41233374402-1','releaseSha':'b1f2a037f70d2361dbe1775f8599a11d9a914124'};value=self.native_intent()
         with patch.object(R,'read_json',return_value=value):self.assertEqual(R.inspector_intent(q,0),value)
+        cache={**value,'nativeCensus':{**value['nativeCensus'],'prototypeCacheBytes':1048576}}
+        with patch.object(R,'read_json',return_value=cache):self.assertEqual(R.inspector_intent(q,0),cache)
+        for invalid in [None,True,1048575,1048577,1048576.0,'1048576']:
+            broken={**value,'nativeCensus':{**value['nativeCensus'],'prototypeCacheBytes':invalid}}
+            with patch.object(R,'read_json',return_value=broken),self.assertRaises(ValueError):R.inspector_intent(q,0)
         old={k:v for k,v in value.items() if k!='nativeCensus'}
         with patch.object(R,'read_json',return_value=old):self.assertEqual(R.inspector_intent(q,0),old)
         for broken in ({**value,'extra':True},{**value,'custody':[]},

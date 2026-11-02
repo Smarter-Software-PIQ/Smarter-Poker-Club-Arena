@@ -142,7 +142,7 @@ class NativeArtifactPackagingTests(unittest.TestCase):
             v8='12.4.254.21-node.56', modules='127', platform='linux', arch='x64',
             pointerCompression=0, sourceSHA256=self.pin, headersSHA256='e'*64,
             binarySHA256=hashlib.sha256(self.binary.read_bytes()).hexdigest(),
-            compiler='fixture only', maxMatches=22096, managedOutputBytes=772608,
+            compiler='fixture only', maxMatches=22096, managedOutputBytes=772608, prototypeCacheBytes=1048576,
             qualification='unqualified-build-only')
 
     def verify(self):
@@ -171,12 +171,13 @@ class NativeArtifactPackagingTests(unittest.TestCase):
         self.assertEqual(descriptor['schema'], 'legacy-native-census-artifact/v1')
         self.assertEqual(descriptor['path'], '/app/.legacy-census-checkpoint-123-1/legacy-census.node')
         self.assertEqual(descriptor['sourceSHA256'], self.pin)
+        self.assertEqual(descriptor['prototypeCacheBytes'],1048576)
         self.assertEqual(descriptor['binarySHA256'], self.manifest['binarySHA256'])
         self.assertEqual(descriptor['candidateSHA'], 'a'*40)
 
     def test_abi_source_hash_and_payload_mismatches_refuse(self):
         for field, bad in [('modules','128'), ('v8','wrong'), ('sourceSHA256','f'*64),
-                           ('binarySHA256','f'*64), ('platform','darwin')]:
+                           ('binarySHA256','f'*64), ('platform','darwin'), ('prototypeCacheBytes',0)]:
             with self.subTest(field=field):
                 old = self.manifest[field]
                 self.manifest[field] = bad
