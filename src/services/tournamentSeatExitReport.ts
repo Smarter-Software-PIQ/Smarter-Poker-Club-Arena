@@ -1,3 +1,4 @@
+import { isUnrankedTournamentCancellation } from './tournamentCancellationExit';
 import { supabase } from '../lib/supabase';
 import { parseTableArenaIdentity } from '../../server/src/domain/ArenaContext';
 import { fetchTournamentResult } from './tournamentResult';
@@ -38,6 +39,12 @@ export async function reportRemovedTournamentSeats(
         fetchTournamentResult(row.tournament_id, userId)
       );
       if (!isCurrent()) return retain;
+      // Administrative cancellation has no invented finish or ranking card.
+      // The caller observed this seat released; a newer live seat wins a race.
+      if (isUnrankedTournamentCancellation(result)) {
+        if (!liveTournamentIds.has(row.tournament_id)) retain.delete(row.id);
+        continue;
+      }
       if (result?.entryStatus === 'playing' || result?.entryStatus === 'registered') {
         // Seat release can commit before elimination. Only a confirmed live
         // seat in this same event proves a move/rebuy; keep the result owner

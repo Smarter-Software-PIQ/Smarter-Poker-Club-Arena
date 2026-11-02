@@ -54,7 +54,7 @@ function harness({ drift = false, occupied = false } = {}) {
   };
 }
 
-test('literal role extension preserves old facts except three exact current catalogue deltas', () => {
+test('literal role extension preserves old facts except exact current catalogue deltas', () => {
   const next = extendedRolePreimage(base);
   assert.equal(next.roles.length, 38);
   assert.equal(next.memberships.length, base.memberships.length + 5);
@@ -84,7 +84,17 @@ test('literal role extension preserves old facts except three exact current cata
       ['postgres', 'SELECT'],
     ]
   );
-  assert.deepEqual(next.schemas, base.schemas);
+  const changedSchemas = next.schemas.filter((row, index) =>
+    JSON.stringify(row) !== JSON.stringify(base.schemas[index]));
+  assert.deepEqual(changedSchemas.map((row) => row.name), ['public', 'smarter_private']);
+  for (const row of changedSchemas) {
+    const old = base.schemas.find((item) => item.name === row.name);
+    assert.equal(row.owner, old.owner);
+    assert.deepEqual(row.acl.filter((grant) => !old.acl.includes(grant)), row.name === 'public'
+      ? ['ca_ledger_refusal_recorder=U/pg_database_owner', 'engine_lease_heartbeat=U/pg_database_owner']
+      : ['engine_lightning_fold=U/postgres']);
+    assert.ok(old.acl.every((grant) => row.acl.includes(grant)));
+  }
   assert.deepEqual(next.extensions, base.extensions);
   assert.deepEqual(
     next.roles.filter(
@@ -152,9 +162,11 @@ test('native extension retains the exact protected role-owner source bindings', 
 
 test('native extension installer uses actual owning sessions and refuses wrong versions', async () => {
   const { installCurrentApplicationExtensions, currentApplicationExtensions, currentApplicationExtensionNamespaceSql, currentApplicationExtensionNamespace,
-    postgresExtensionOwnerBeginSql, postgresExtensionOwnerEndSql } =
+    postgresExtensionOwnerBeginSql, postgresExtensionOwnerEndSql,
+    legacyDblinkAclInstallSql, legacyDblinkAclObservationSql } =
     await import('../current-application-roles.mjs');
-  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl']) {
+  const { graphqlLegacyAclInstallSql, graphqlLegacyAclObservationSql } = await import('../graphql-legacy-acl.mjs');
+  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl', 'legacy-acl', 'graphql-acl']) {
     const installed = structuredClone(
       currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
     );
@@ -163,14 +175,36 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     let namespaceCreates = 0;
     let temporaryOwnerCreates = 0;
     let applicationDdl = 0;
+    let backendPid = 200;
+    let graphqlInstallerPid;
+    let graphqlInstalls = 0;
     class Client {
       constructor(options) {
         this.options = options;
+        this.processID = ++backendPid;
         this.managed = !options?.options?.includes('session_preload_libraries=');
         this.owner = 'supabase_admin';
       }
       async connect() {}
       async query(sql) {
+        if (sql === graphqlLegacyAclInstallSql) {
+          assert.equal(installed.length, 2);
+          assert.equal(this.owner, 'supabase_admin');
+          assert.equal(this.transaction, true);
+          graphqlInstallerPid = this.processID; graphqlInstalls++;
+        }
+        if (sql === graphqlLegacyAclObservationSql) {
+          assert.notEqual(this.processID, graphqlInstallerPid);
+          assert.equal(installed.length, 13);
+          return {rows:[{graphql_legacy_acl_exact: drift !== 'graphql-acl'}]};
+        }
+        if (sql.startsWith('BEGIN;')) this.transaction = true;
+        if (sql === 'COMMIT' || sql === 'ROLLBACK') this.transaction = false;
+        if (sql === legacyDblinkAclInstallSql) {
+          assert.equal(installed.find((item) => item.name === 'dblink')?.owner, 'supabase_admin');
+          assert.ok(sql.includes('REVOKE GRANT OPTION FOR EXECUTE'));
+        }
+        if (sql === legacyDblinkAclObservationSql) return {rows:[{legacy_dblink_exact:drift !== 'legacy-acl'}]};
         if (sql.includes(' AS owned')) return { rows: [{ owned: true }] };
         if (sql.startsWith('SELECT nspname AS name,'))
           return {rows: [{...structuredClone(currentApplicationExtensionNamespace),
@@ -232,18 +266,21 @@ test('native extension installer uses actual owning sessions and refuses wrong v
       },
     };
     if (drift) await assert.rejects(installCurrentApplicationExtensions(args), error => {
+      if (drift === 'legacy-acl') return error.message === 'FIXTURE_ASSERT_LEGACY_DBLINK_POSTIMAGE';
+      if (drift === 'graphql-acl') return error.message === 'FIXTURE_ASSERT_GRAPHQL_LEGACY_ACL_POSTIMAGE';
       assert.deepEqual(nativeFailureDiagnostic('fixture-preimage-current-application-role-extension',error),
         {status:'failed',stage:'fixture-preimage-current-application-role-extension',error:'AssertionError',
          assertion_site:drift==='namespace-acl'?'EXTENSION_NAMESPACE_POSTIMAGE':'EXTENSION_POSTIMAGE'});
       return true;
     });
     else assert.equal((await installCurrentApplicationExtensions(args)).installed, 13);
+    assert.equal(graphqlInstalls, 1);
     assert.equal(statements.length, 11);
     assert.equal(namespaceCreates, 1);
     assert.equal(temporaryOwnerCreates, 1);
     assert.equal(applicationDdl, 0);
-    assert.equal(clients.length, 2);
-    assert.deepEqual(clients.map(client=>client.options.user),['supabase_admin','supabase_admin']);
+    assert.equal(clients.length, 3);
+    assert.deepEqual(clients.map(client=>client.options.user),['supabase_admin','supabase_admin','supabase_admin']);
     assert.deepEqual(
       installed.sort((a, b) => (a.name < b.name ? -1 : 1)),
       currentApplicationExtensions
@@ -251,4 +288,18 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     assert.ok(clients.every((client) => client.closed));
     assert.ok(!statements.some((sql) => sql.includes('pg_net')));
   }
+});
+
+test('legacy dblink source refuses unknown ACL elements and preserves the two privileged signatures', async () => {
+  const {legacyDblinkAclInstallSql, legacyDblinkAclObservationSql} = await import('../current-application-roles.mjs');
+  assert.ok(legacyDblinkAclInstallSql.includes("IS DISTINCT FROM TRUE"));
+  assert.ok(legacyDblinkAclInstallSql.includes("proacl::text=") && legacyDblinkAclInstallSql.includes(") IS TRUE)"));
+  assert.ok(!legacyDblinkAclInstallSql.includes('ON ALL FUNCTIONS') && !legacyDblinkAclInstallSql.includes('CASCADE'));
+  const {legacyDblinkMemberInventory} = await import('../current-application-roles.mjs');
+  assert.equal(legacyDblinkMemberInventory.length, 41);
+  assert.equal(legacyDblinkMemberInventory.filter((row) => row[2]).length, 2);
+  assert.ok(legacyDblinkMemberInventory.filter((row) => row[2]).every((row) => row[0] === 'dblink_connect_u'));
+  assert.ok(legacyDblinkAclInstallSql.includes("THEN '{supabase_admin=X/supabase_admin,postgres=X*/supabase_admin}'"));
+  assert.ok(legacyDblinkAclObservationSql.includes("THEN '{supabase_admin=X/supabase_admin}'"));
+  assert.ok(legacyDblinkAclObservationSql.includes("d.deptype='e')=41"));
 });

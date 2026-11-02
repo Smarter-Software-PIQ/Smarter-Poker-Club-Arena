@@ -72,6 +72,16 @@ REFUSALS = {
 }
 REFUSAL_CODES = set(REFUSALS.values()) | {('remote', 'evidence_refused'), ('inspector', 'intent_unavailable'), ('inspector', 'identity_changed'), ('inspector', 'native_scalar_unavailable')}
 REFUSAL_CODES |= {('serving_role', 'binding_unproved'), ('serving_role', 'evidence_unavailable')}
+# Only fixed stage/code literals cross the existing refusal protocol. The
+# current-serving reader never exports exception text or native output.
+SERVING_ROLE_STAGES = {'boot', 'container', 'process', 'health', 'image',
+    'recheck_boot', 'recheck_process', 'recheck_container', 'recheck_health',
+    'deadline', 'recheck_binding'}
+SERVING_ROLE_CODES = {'binding_unproved', 'evidence_unavailable', 'permission_denied',
+    'command_deadline', 'command_size', 'command_nonzero'}
+REFUSAL_CODES |= {('serving_role_' + stage, code)
+                  for stage in SERVING_ROLE_STAGES for code in SERVING_ROLE_CODES}
+
 
 
 INSPECTOR_COMMAND_STAGES = {'container', 'health', 'image', 'probe', 'history',
@@ -2326,7 +2336,9 @@ def inspector_intent(request, directory):
         native = value['nativeCensus']
         native_fields = {'schema','path','manifestPath','binarySHA256','manifestSHA256','sourceSHA256','candidateSHA','candidateImageId','candidateSourceTree'}
         root = '/app/.legacy-census-checkpoint-' + request['runKey'] + '/legacy-census.node'
-        if (not isinstance(native,dict) or set(native)!=native_fields
+        if (not isinstance(native,dict) or set(native) not in (native_fields,native_fields|{'prototypeCacheBytes'})
+                or ('prototypeCacheBytes' in native and
+                    (type(native['prototypeCacheBytes']) is not int or native['prototypeCacheBytes']!=1048576))
                 or native['schema']!='legacy-native-census-artifact/v1'
                 or native['path']!=root or native['manifestPath']!=root+'.json'
                 or native['candidateSHA']!=request['releaseSha']
@@ -2547,18 +2559,23 @@ def serving_role_remote(request):
     if request.get('mode') != 'current_serving_inspector_role':
         raise ValueError('Exact current serving identity required')
     deadline = time.monotonic() + 8
+    stage = 'boot'
     try:
         boot = _serving_boot_id(deadline)
+        stage = 'container'
         before = inspector_identity(deadline)
+        stage = 'process'
         started = _kernel_pid_stat(before['hostPid'], deadline)
+        stage = 'health'
         health = pending_tcp_health(deadline)
         if health != {'source': request['releaseSha'], 'instance': request['instanceId']}:
-            raise ScopedRefusal('serving_role', 'binding_unproved')
+            raise ScopedRefusal('serving_role_' + stage, 'binding_unproved')
+        stage = 'image'
         label = inspector_command(['docker', 'image', 'inspect', '--format',
             '{{index .Config.Labels "org.opencontainers.image.revision"}}', before['image']],
             deadline, limit=256).decode().strip()
         if label != request['releaseSha']:
-            raise ScopedRefusal('serving_role', 'binding_unproved')
+            raise ScopedRefusal('serving_role_' + stage, 'binding_unproved')
         owner = 'unknown'
         owner_evidence = {'stage': 'snapshot', 'code': 'unavailable'}
         try:
@@ -2571,21 +2588,35 @@ def serving_role_remote(request):
             pass
         # A failed optional projection never removes these mandatory current
         # runtime bindings. No retired release records are read or recreated.
+        stage = 'recheck_boot'
         after_boot = _serving_boot_id(deadline)
+        stage = 'recheck_process'
         after_started = _kernel_pid_stat(before['hostPid'], deadline)
+        stage = 'recheck_container'
         after = inspector_identity(deadline, stage='recheck_container')
+        stage = 'recheck_health'
         after_health = pending_tcp_health(deadline)
+        stage = 'deadline'
         _kernel_deadline(deadline)
+        stage = 'recheck_binding'
         if (boot != after_boot or started != after_started or before != after
                 or health != after_health):
-            raise ScopedRefusal('serving_role', 'binding_unproved')
+            raise ScopedRefusal('serving_role_' + stage, 'binding_unproved')
         return {'schema': SERVING_ROLE_SCHEMA, 'readOnly': True, **request,
                 'inspectorOwner': owner, 'inspectorOwnerEvidence': owner_evidence,
                 'limitation': SERVING_ROLE_LIMITATION}
     except (OSError, ValueError, subprocess.SubprocessError) as error:
-        if isinstance(error, ScopedRefusal) and error.phase == 'serving_role':
+        if isinstance(error, ScopedRefusal) and error.phase == 'serving_role_' + stage:
             raise
-        raise ScopedRefusal('serving_role', 'evidence_unavailable') from None
+        if isinstance(error, PermissionError):
+            code = 'permission_denied'
+        elif isinstance(error, (TimeoutError, subprocess.TimeoutExpired)) or str(error) == 'Kernel owner deadline':
+            code = 'command_deadline'
+        elif isinstance(error, ScopedRefusal) and error.code in {'command_deadline', 'command_size', 'command_nonzero'}:
+            code = error.code
+        else:
+            code = INSPECTOR_COMMAND_ERRORS.get(str(error), 'evidence_unavailable')
+        raise ScopedRefusal('serving_role_' + stage, code) from None
 
 
 def validate_serving_role(value, request):

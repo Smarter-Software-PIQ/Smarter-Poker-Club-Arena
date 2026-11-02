@@ -911,10 +911,55 @@ test('historical abort actions still refuse v4 and do not broaden cohort', async
   assert.equal(equalWrites(f).length, 0);
   await assert.rejects(equalFixture().run('abort_settle'));
 });
-test('equal actions outside reviewed170 are rejected before network', async () => {
+test('equal actions outside both reviewed cohorts are rejected before network', async () => {
   const f = equalFixture();
   await assert.rejects(f.run('equal_request', { tournamentId: input.nonce }));
   assert.equal(f.calls.length, 0);
+});
+
+test('additional frozen events use separate operations and the full existing closure path', async () => {
+  const manifest = JSON.parse(
+    (await import('node:fs')).readFileSync(
+      new URL(
+        '../../scripts/ci/fixtures/tournament-recovery20/frozen-events-nov1-closure-intent.json',
+        import.meta.url
+      ),
+      'utf8'
+    )
+  );
+  assert.equal(manifest.members.length, 24);
+  assert.equal(new Set(manifest.members.map((m) => m.operationId)).size, 24);
+  for (const member of manifest.members) {
+    assert.equal(
+      equalManifest.members.some((m) => m.tournamentId === member.tournamentId),
+      false
+    );
+    const intent = originalControlIntent({
+      ...input,
+      action: 'equal_request',
+      tournamentId: member.tournamentId,
+    });
+    assert.equal(intent.operationId, member.operationId);
+    assert.equal(intent.reason, manifest.reason);
+    const f = equalFixture({ member, initial: 'ownership_unproven' });
+    assert.equal((await f.run('equal_request')).outcome, 'equal_share_requested_readback');
+    const request = equalWrites(f);
+    assert.equal(request.length, 1);
+    assert.equal(JSON.parse(request[0].options.body).p_reason, manifest.reason);
+    assert.equal(
+      (await equalFixture({ member }).run('equal_preview')).outcome,
+      'equal_share_preview_rolled_back'
+    );
+    assert.equal(
+      (await equalFixture({ member }).run('equal_settle')).outcome,
+      'equal_share_settled_readback'
+    );
+    const bad = equalFixture({ member, afterPatch: { current_generation: input.nonce } });
+    assert.equal((await bad.run('equal_read')).outcome, 'unknown');
+    const legacy = equalFixture({ member });
+    await assert.rejects(legacy.run('abort_settle'));
+    assert.equal(legacy.calls.length, 0);
+  }
 });
 
 test('equal settlement requires actual canonical economic receipt validation', async () => {

@@ -370,7 +370,7 @@ for (const width of [320, 360, 375, 393, 430]) {
         <span class="member-main"><span class="member-identity"><span class="member-alias">${m.alias}</span>${
           m.upline ? `<span class="member-upline">Upline: ${m.upline}</span>` : ''
         }</span><span class="member-subline">${m.role ? `<span class="member-role">${m.role}</span>` : ''}<span class="member-number">PlayerID: ${m.id}</span><span class="member-seen">${m.status}</span></span>
-        <span class="member-simple-balance"><strong>5.73</strong><span>Fees Generated</span>${
+        <span class="member-simple-balance"><strong>5.73</strong><span>Fees Generated</span><span>Rakeback 70%</span>${
           m.downline
             ? `<span class="member-simple-balance__downline">Downline ${m.downline}</span>`
             : ''

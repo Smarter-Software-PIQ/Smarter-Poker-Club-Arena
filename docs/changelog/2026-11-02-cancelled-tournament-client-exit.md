@@ -1,0 +1,9 @@
+# Cancelled tournament client exit
+
+Administrative tournament cancellation can release every seat while retaining a truthful null finishing position. The client previously waited for a ranked result and kept the cancelled table open. Engine retirement also uses the existing `engine_restarting` event, which previously only reset the client snapshot.
+
+Removed-seat reconciliation now recognizes committed CANCELLED events without fabricating a finish or prize. Earned ranks and settled satellite qualifications retain their existing result reports. A same-event live-seat witness continues to retain an unranked tab.
+
+TablePage's existing durable terminal reader handles cancellation on cold load, channel recovery and cancellation updates. The existing engine restart event also invokes that reader; a restart alone never closes a table. Signed-in viewers require a readable committed cancellation result and a successful empty live-seat read for this exact table and user. Earned ranks or satellite qualifications use the existing result-report path even on a cold cancelled URL; any pending earned-result timer is preserved. An unreadable result is never treated as an unranked cancellation. Observers need no invented entrant or result row. Unknown reads retain the table. A confirmed cancellation shows a neutral notice and emits scoped session/table close events, preserving other tabs and avoiding all cash-out/refund paths. Delayed result enrichment cannot publish after cancellation or unmount.
+
+Focused regressions cover null-rank cancellation, earned ranks and satellite qualification, live/unknown-seat races, observers, stale asynchronous reads and the maintained event/cold-load wiring. Execution and publication evidence belongs in the owning task checkpoint; source alone is not live verification.

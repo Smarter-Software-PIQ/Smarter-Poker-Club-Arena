@@ -21,6 +21,15 @@ const EQUAL = JSON.parse(
     'utf8'
   )
 );
+const FROZEN_EVENTS = JSON.parse(
+  fs.readFileSync(
+    path.join(
+      ROOT,
+      'scripts/ci/fixtures/tournament-recovery20/frozen-events-nov1-closure-intent.json'
+    ),
+    'utf8'
+  )
+);
 const EQUAL_ACTIONS = ['equal_request', 'equal_read', 'equal_ack', 'equal_preview', 'equal_settle'];
 const ORIGIN = 'https://engine.smarter.poker';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -199,11 +208,15 @@ function publicResult(result) {
 }
 export function originalControlIntent(input) {
   const equal = EQUAL_ACTIONS.includes(input.action);
-  const member = EQUAL.members.find((row) => row.tournamentId === input.tournamentId);
+  const equalCohorts = [EQUAL, FROZEN_EVENTS].filter((cohort) =>
+    cohort.members.some((row) => row.tournamentId === input.tournamentId)
+  );
+  const equalCohort = equalCohorts.length === 1 ? equalCohorts[0] : null;
+  const member = equalCohort?.members.find((row) => row.tournamentId === input.tournamentId);
   const abort = ['abort_request', 'abort_read', 'abort_ack', 'abort_settle'].includes(input.action);
   const nightly = input.tournamentId === NIGHTLY.tournamentId;
   const allowed = equal
-    ? EQUAL.members.map((row) => row.tournamentId)
+    ? (equalCohort?.members ?? []).map((row) => row.tournamentId)
     : abort
       ? [...COHORT.original89, NIGHTLY.tournamentId]
       : COHORT.natural_finish_twenty;
@@ -243,7 +256,7 @@ export function originalControlIntent(input) {
       : nightly
         ? NIGHTLY.operationId
         : COHORT.original_operation_id,
-    ...(equal ? { closureMode: 'equal_share', reason: EQUAL.reason } : {}),
+    ...(equal ? { closureMode: 'equal_share', reason: equalCohort.reason } : {}),
     ...(input.action === 'abort_request' ? { reason: NIGHTLY.reason } : {}),
   };
 }
@@ -642,7 +655,7 @@ async function controlEqualShare(
       const requested = await rpc('fn_ca_request_tournament_abort', {
         p_operation_id: intent.operationId,
         p_tournament_ids: [input.tournamentId],
-        p_reason: EQUAL.reason,
+        p_reason: intent.reason,
       });
       if (
         requested?.ok !== true ||

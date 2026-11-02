@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   renderFixtureRoleAlignmentSql,
+  realtimeSchemaAclOrderSql,
   withHeldFixtureRoleAlignmentClient,
   assertHeldFixtureRoleAlignmentClient,
 } from '../../operations/release/fixture/role-alignment-render.mjs';
@@ -122,4 +123,13 @@ test('refuses oversized input before parsing or interpolation', async () => {
   await withHeldFixtureRoleAlignmentClient(client(), async binding => {
     assert.throws(() => render(binding, 'x'.repeat(256 * 1024 + 1)));
   });
+});
+
+test('the authoritative realtime ACL span preserves exact grantors and captured entry order', () => {
+  assert.equal(template.split(realtimeSchemaAclOrderSql).length - 1, 1);
+  assert.match(realtimeSchemaAclOrderSql, /^REVOKE ALL ON SCHEMA "realtime".* RESTRICT;/);
+  assert.ok(realtimeSchemaAclOrderSql.indexOf('TO "postgres" WITH GRANT OPTION') <
+    realtimeSchemaAclOrderSql.indexOf('TO "anon", "authenticated", "service_role"'));
+  assert.ok(realtimeSchemaAclOrderSql.endsWith('TO "supabase_realtime_admin";'));
+  assert.ok(!realtimeSchemaAclOrderSql.includes('PUBLIC') && !realtimeSchemaAclOrderSql.includes('CASCADE'));
 });

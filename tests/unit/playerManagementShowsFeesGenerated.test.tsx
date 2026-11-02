@@ -53,6 +53,23 @@ function simpleRow(overrides: Record<string, unknown>) {
 }
 
 describe('Player Management shows fees generated', () => {
+  it.each([true, false])(
+    'shows effective rakeback beside the upline in Simple=%s',
+    (simpleMode) => {
+      const row = simpleRow({ effective_rakeback_rate: '0.7000', upline_name: 'Danimal' });
+      const { container } = render({ ...row, props: { ...row.props, simpleMode } });
+      expect(screen.getByText('Danimal', { exact: false })).toBeVisible();
+      expect(container.textContent).toContain('70%');
+      expect(container.textContent).toContain('Rakeback');
+    }
+  );
+  it.each([true, false])('redacts rakeback for a restricted viewer in Simple=%s', (simpleMode) => {
+    const row = simpleRow({ effective_rakeback_rate: 0.7, can_view_financials: false });
+    const { container } = render({ ...row, props: { ...row.props, simpleMode } });
+    expect(container.textContent).not.toContain('Rakeback');
+    expect(container.textContent).not.toContain('70%');
+  });
+
   it('prints the fee figure and never the wallet in Simple mode', () => {
     render(simpleRow({}));
     expect(screen.getByText('Fees This Week')).toBeVisible();
