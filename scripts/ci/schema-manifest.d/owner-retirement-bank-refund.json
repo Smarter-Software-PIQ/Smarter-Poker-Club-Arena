@@ -12,6 +12,6 @@
   },
   "functions": [
     "smarter_private.owner_retirement_bank_refund_immutable",
-    "public.fn_ca_owner_retirement_bank_refund"
+    "fn_ca_owner_retirement_bank_refund"
   ]
 }
