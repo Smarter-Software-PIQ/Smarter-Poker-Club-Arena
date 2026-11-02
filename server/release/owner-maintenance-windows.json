@@ -819,6 +819,17 @@
         "20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
         "20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql"
       ]
+    },
+    {
+      "id": "2026-11-02-attention14-post-census-migrations",
+      "ownerOrder": "Dan directly in Attention14 chat 01a1975a-bf0a-7a53-94ae-b7c53f3fc8ad ordered: \"Resolve the engine census blocker, install all three migrations, and finish settlement. Use the swarm and keep the consolidation chat read-only. Do not stop at another status report or claim success until all 14 are verified complete.\" This NEW fixed six-hour continuation names only the same qualified04247 then05048 files after the actual native census refusal and cron admission blocker; source qualification and protected delivery remain necessary. Use the existing stage-engine-release owner_window_id route with request_database_break=false only to consume an independently owned, confirmed Deployment Recovery freeze. The fixed05:00 through11:00UTC November2 interval overlaps the previous carrier by10minutes; it does not extend, rewrite or reuse previous entries or operations, including failed installer41382358462. It cannot request a break or replace an engine. Read actual history by version and name, original outcomes and current installer ownership before submission; never replay installed SQL. Preserve exact ownership token, actual hand-boundary drain, durable freeze, unchanged285-second engine entry/proof/rollback allocation,150-second installer admission and100-second commit reserve, one transaction and one attempt per file,1s lock_timeout,5s statement_timeout,8s transaction budget, first-refusal stop and verified own-window v3 thaw. No174851 installation, financial payment, balance edit, tournament-start hold, engine window, scheduler, watcher, second publisher or retry loop is authorized. All previous entries and receipts remain unchanged. Fixed expiry ends this authority without automatic renewal.",
+      "contains": "4e9c32285477176df8e4afcef4e743d5fe961047",
+      "notBefore": "2026-11-02T05:00:00Z",
+      "notAfter": "2026-11-02T11:00:00Z",
+      "migrations": [
+        "20261101004247_started_tournament_abort_supports_equal_share_settlement.sql",
+        "20261101005048_operator_closure_records_a_stopped_unsettled_hand_dispositio.sql"
+      ]
     }
   ]
 }

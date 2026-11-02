@@ -11,6 +11,8 @@ P=Path(args.scratch).resolve()
 if sys.platform=='darwin' and not P.is_relative_to('/Volumes/SmarterWork/agent-work'):raise RuntimeError('owned SSD scratch required')
 if os.environ.get('DATABASE_URL'):raise RuntimeError('remote database forbidden')
 P.mkdir(parents=True,exist_ok=True)
+# Qualify cron admission using actual captured maintenance helpers before this protocol.
+subprocess.run([sys.executable,'-B',str(R/'scripts/ci/test-weekly-accounting-maintenance-admission-postgres.py'),'--scratch',str(P)],check=True,timeout=90)
 pg=Path('/opt/homebrew/opt/postgresql@17/bin' if sys.platform=='darwin' else '/usr/lib/postgresql/17/bin')
 W=Path(tempfile.mkdtemp(prefix='weekly-pause-',dir=P));D=W/'data';started=False
 E=dict(os.environ,LC_ALL='C',LANG='C',PGTZ='UTC')
