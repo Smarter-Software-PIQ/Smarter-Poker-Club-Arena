@@ -1,22 +1,22 @@
 /**
  * V79 TOP PAIR, WEAK KICKER (2026-11-02, Burls via Dan: horses "stack off with
- * top pair, no weak kickers"). Measured: 443 calls of a bet the horse did not
- * start with top pair and a 9-or-lower kicker won 10.2% for -28,925bb in three
- * days. The guard may only ever do this:
+ * top pair, no weak kickers"), QUALIFIED CELLS. The cap applies only where the
+ * realised win rate was measured below the price (7 days of reviewed NLH:
+ * 6,117 weak-kicker calls, control 12,621 strong-kicker calls; see
+ * HorseLogic v79InMeasuredCell). It is not a kicker rule:
  *
- *  1. Classify exactly: top pair, the other hole card 9 or lower and not
- *     pairing the board; a strong kicker, a pocket pair, second pair and a
- *     paired top board are not this class.
- *  2. Facing a big river bet it does not start, top pair weak kicker calls
- *     less than before; with the flag off it is exactly today.
- *  3. Top pair with a strong kicker in the same spot is answered exactly as
- *     before.
- *  4. A small wager (under 0.6 pot, not committing) is answered exactly as
- *     before.
- *  5. One policy for every opponent: label flips never change the answer.
+ *  1. Exact classification and exact cells (0.9 pot+ any format; 0.6-0.9 pot
+ *     only on an ace-high board outside tournaments; never at 60bb effective
+ *     or less, never on a J-high-or-lower board, never under 0.6 pot).
+ *  2. In a measured cell (pot-sized river bet, deep, K-high) it calls less;
+ *     the off arm is today.
+ *  3. Outside the cells the answer is exactly today's: a 0.75-pot bet on a
+ *     K-high board, the same in a tournament, a J-high board, a 50bb stack.
+ *  4. A strong kicker and a small wager are answered exactly as before.
+ *  5. Label flips never change the answer.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { HorseLogic, v79TopPairWeakKicker, v79WeakKickerCap } from './HorseLogic.js';
+import { HorseLogic, v79InMeasuredCell, v79TopPairWeakKicker } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
@@ -32,13 +32,20 @@ function cards(text: string): Card[] {
 const VILLAIN = '10000000-0000-4000-8000-000000000079';
 
 /** Villain raised, hero called; flop and turn checked through; villain bets `bet` on the river into 36. */
-function river(hole: string, board: string, bet: number, flip = false) {
+function river(
+  hole: string,
+  board: string,
+  bet: number,
+  flip = false,
+  opt: { heroStack?: number; mode?: string } = {}
+) {
+  const heroStack = opt.heroStack ?? 300;
   const players: SeatPlayer[] = [
     {
       seat: 1,
       user_id: 'hero',
       username: 'h',
-      stack: 300,
+      stack: heroStack,
       bet: 0,
       totalInvested: 18,
       cards: cards(hole),
@@ -82,7 +89,7 @@ function river(hole: string, board: string, bet: number, flip = false) {
       minRaise: Math.max(2, bet),
       stage: 'river',
       gameVariant: 'nlh',
-      gameMode: 'cash',
+      gameMode: opt.mode ?? 'cash',
       bigBlind: 2,
       dealerSeat: 1,
       actionHistory: history,
@@ -131,11 +138,17 @@ describe('V79 top pair weak kicker', () => {
     expect(v79TopPairWeakKicker(cards('9s5d'), cards(BOARD))).toBe(false); // second pair
     expect(v79TopPairWeakKicker(cards('QsQd'), cards(BOARD))).toBe(false); // pocket pair
     expect(v79TopPairWeakKicker(cards('Ks5d'), cards('KhKd3s7c2h'))).toBe(false); // paired top board
-    expect(v79WeakKickerCap(0.6)).toBeCloseTo(0.45, 9);
-    expect(v79WeakKickerCap(0.8)).toBeCloseTo(0.375, 9);
-    expect(v79WeakKickerCap(1)).toBeCloseTo(0.3, 9);
-    expect(v79WeakKickerCap(3)).toBeCloseTo(0.3, 9);
-    expect(v79WeakKickerCap(0.2)).toBeCloseTo(0.45, 9);
+    const cell = (potFrac: number, boardTopRank: number, tournament = false, effectiveBB = 150) =>
+      v79InMeasuredCell({ potFrac, boardTopRank, tournament, effectiveBB });
+    expect(cell(1, 13)).toBe(true); // pot-sized, K-high, cash
+    expect(cell(1, 13, true)).toBe(true); // pot-sized tournament
+    expect(cell(0.9, 12)).toBe(true); // Q-high, 0.9 pot
+    expect(cell(0.75, 14)).toBe(true); // ace-high mid-sized, cash
+    expect(cell(0.75, 14, true)).toBe(false); // tournament under 0.9 pot
+    expect(cell(0.75, 13)).toBe(false); // K-high under 0.9 pot
+    expect(cell(1, 11)).toBe(false); // J-high board
+    expect(cell(1, 13, false, 60)).toBe(false); // 60bb effective
+    expect(cell(0.5, 14)).toBe(false); // under 0.6 pot, commit-only dropped
   });
 
   it('facing a pot-sized river bet it did not start, top pair weak kicker calls less; off is today', () => {
@@ -150,6 +163,19 @@ describe('V79 top pair weak kicker', () => {
       const s = river(hole, BOARD, 36);
       expect(many(s)).toEqual(many(s, OFF));
     }
+  });
+
+  it('outside the measured cells the answer is exactly today', () => {
+    const cases: Array<[string, ReturnType<typeof river>]> = [
+      ['0.75 pot, K-high, cash', river('Ks5d', BOARD, 27)],
+      ['pot-sized, J-high board', river('Js5d', 'Jh9d3s7c2h', 36)],
+      ['pot-sized, 50bb effective', river('Ks5d', BOARD, 36, false, { heroStack: 100 })],
+      [
+        '0.75 pot, ace-high, tournament',
+        river('As5d', 'Ah9d3s7c2h', 27, false, { mode: 'tournament' }),
+      ],
+    ];
+    for (const [label, s] of cases) expect(many(s), label).toEqual(many(s, OFF));
   });
 
   it('a small wager is answered exactly as before', () => {
