@@ -213,6 +213,12 @@ case "\${1:-}:\${2:-}" in
       [ "\${10:-}:\${11:-}" = '--invocation-id:${'2'.repeat(32)}' ] || exit 87
     printf '%s\\n' not-needed
     ;;
+  resolve-terminal-routine-failures:--engine-lock-fd)
+    [ "$#" = 7 ] && [ "\${3:-}" = 9 ] &&
+      [ "\${4:-}:\${5:-}" = '--run-id:${runKey}' ] &&
+      [ "\${6:-}:\${7:-}" = '--invocation-id:${'2'.repeat(32)}' ] || exit 87
+    printf '%s\\n' not-needed
+    ;;
   check-routine-owner:--run-id) printf '%s\\n' none ;;
   get:desired-sha) printf '%s\\n' '${sourceSha}' ;;
   get:high-water-sha)
