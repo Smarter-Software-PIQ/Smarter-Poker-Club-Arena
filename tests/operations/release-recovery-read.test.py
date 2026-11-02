@@ -2991,6 +2991,33 @@ class CanonicalRoutineOwnerTests(unittest.TestCase):
             self.assertNotIn('NEVER-EXPORT', json.dumps(answer))
             self.assertEqual(path.read_bytes(), before)
 
+    def test_nine_original_cycle_rows_remain_observable_without_retiring_history(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); state, cycle, _ = self.fixture(root)
+            cycles = {}
+            for index in range(9):
+                row = copy.deepcopy(cycle)
+                row['runId'] = str(888000000+index)+'-1'
+                row['startsAt'] = cycle['startsAt']+index*3600
+                row['endsAt'] = row['startsAt']+300
+                row.pop('failure',None)
+                row.pop('window',None)
+                cycles[str(row['startsAt'])] = row
+            state['routineMaintenanceCycles'] = cycles
+            path = root/'engine-release-seal.json'; self.write(path,state)
+            before = path.read_bytes()
+            answer = self.read(root)
+            self.assertEqual(len(answer['owners']),9)
+            self.assertEqual(len({r['runId'] for r in answer['owners']}),9)
+            self.assertTrue(all(r['unresolvedOwner'] for r in answer['owners']))
+            self.assertEqual(R.validate_reply(answer,R.ROUTINE_REQUEST),answer)
+            self.assertEqual(path.read_bytes(),before)
+            self.assertLess(len(json.dumps(answer).encode()),32768)
+            # Widening the row count never widens the private single-record
+            # byte limit or the closed reply's unique owner requirement.
+            bad=copy.deepcopy(answer); bad['owners'].append(copy.deepcopy(bad['owners'][0]))
+            with self.assertRaises(ValueError): R.validate_reply(bad,R.ROUTINE_REQUEST)
+
     def test_aggregate_bound_does_not_widen_individual_receipts(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); state, cycle, result = self.fixture(root)

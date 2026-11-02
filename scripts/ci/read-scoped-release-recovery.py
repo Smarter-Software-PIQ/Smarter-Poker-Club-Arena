@@ -27,7 +27,8 @@ MAX_BYTES = 65536
 # A seal is aggregate history, not one receipt: its existing shape admits up to
 # 256 cycles. Bound that document separately by 256 single-record byte budgets.
 # Individual receipts and the exported projection retain their existing bounds.
-ROUTINE_SEAL_MAX_BYTES = 256 * MAX_BYTES
+ROUTINE_MAX_CYCLES = 256
+ROUTINE_SEAL_MAX_BYTES = ROUTINE_MAX_CYCLES * MAX_BYTES
 FAILURE_SCHEMA = 'existing-release-recovery-refusal/v1'
 # Literal, reviewed codes only. Exception text and transport output never cross
 # this protocol, including unknown errors from the selected native reader.
@@ -746,7 +747,7 @@ def routine_remote(request, root_fd):
                         isinstance(desired.get('imageId'), str) and re.fullmatch(r'sha256:[0-9a-f]{64}', desired['imageId']))
         cycles, committed = state.get('routineMaintenanceCycles'), state.get('committedRuns')
         resolutions = state.get('routineFailureResolutions', {})
-        routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict) and
+        routine_require(isinstance(cycles, dict) and len(cycles) <= ROUTINE_MAX_CYCLES and isinstance(committed, dict) and
                         isinstance(resolutions, dict) and
                         all(isinstance(v, dict) and (k == FAILED_CUSTODY_REQUEST['runKey'] or
                                                      (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
@@ -765,7 +766,7 @@ def routine_remote(request, root_fd):
             row = routine_cycle_metadata(key, cycle)
             if cycle['status'] != 'sealed':
                 owners.append((cycle, row))
-        routine_require(len(owners) <= 8 and len({c['runId'] for c, _ in owners}) == len(owners))
+        routine_require(len(owners) <= ROUTINE_MAX_CYCLES and len({c['runId'] for c, _ in owners}) == len(owners))
         stage = 'results'
         result_fd = os.open('engine-release-results', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
         observed = []
@@ -842,7 +843,7 @@ def validate_routine_reply(value, request):
                     type(value['generation']) is int and value['generation'] >= 1 and
                     isinstance(value['desiredSha'], str) and SHA.fullmatch(value['desiredSha']) and
                     isinstance(value['desiredImageId'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', value['desiredImageId']) and
-                    isinstance(value['owners'], list) and len(value['owners']) <= 8)
+                    isinstance(value['owners'], list) and len(value['owners']) <= ROUTINE_MAX_CYCLES)
     def hash_or_none(v):
         return v is None or isinstance(v, str) and re.fullmatch('[0-9a-f]{64}', v)
     for owner in [value['pending'], value['finalization']] + [row.get('committed') for row in value['owners'] if isinstance(row, dict)]:
