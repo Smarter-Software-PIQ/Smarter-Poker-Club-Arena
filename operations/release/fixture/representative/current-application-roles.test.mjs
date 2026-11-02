@@ -170,7 +170,15 @@ test('native extension installer uses actual owning sessions and refuses wrong v
   const { realtimeCapturedAclInstallSql, realtimeCapturedAclObservationSql } = await import('../realtime-captured-acls.mjs');
   const { dblinkCapturedInitialAclInstallSql, dblinkCapturedInitialAclObservationSql } = await import('../dblink-captured-initial-acl.mjs');
   const { installSql: managedBootstrapInstallSql, observationSql: managedBootstrapObservationSql } = await import('../managed-bootstrap-functions.mjs');
-  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl', 'legacy-acl', 'graphql-acl', 'auth-acl', 'realtime-acl', 'dblink-initial-acl', 'managed-bootstrap-postimage', 'managed-bootstrap-install']) {
+  const { postgresExtensionCapturedAclInstallSql, postgresExtensionCapturedAclObservationSql } = await import('../postgres-extension-captured-acls.mjs');
+  const { cronCapturedTableAclInstallSql, cronCapturedTableAclObservationSql } = await import('../cron-captured-table-acls.mjs');
+  const { realtimeCapturedPublicationInstallSql, realtimeCapturedPublicationObservationSql } = await import('../realtime-captured-publication.mjs');
+  const postFamilies = [
+    [postgresExtensionCapturedAclInstallSql, postgresExtensionCapturedAclObservationSql, 'postgres-extension-acl', 'postgres_extension_captured_acls_exact', 'FIXTURE_ASSERT_POSTGRES_EXTENSION_CAPTURED_ACL_POSTIMAGE'],
+    [cronCapturedTableAclInstallSql, cronCapturedTableAclObservationSql, 'cron-table-acl', 'cron_captured_table_acl_exact', 'FIXTURE_ASSERT_CRON_CAPTURED_TABLE_ACL_POSTIMAGE'],
+    [realtimeCapturedPublicationInstallSql, realtimeCapturedPublicationObservationSql, 'realtime-publication', 'realtime_captured_publication_exact', 'FIXTURE_ASSERT_REALTIME_CAPTURED_PUBLICATION_POSTIMAGE'],
+  ];
+  for (const drift of [false, 'extension-version', 'extension-owner', 'namespace-acl', 'legacy-acl', 'graphql-acl', 'auth-acl', 'realtime-acl', 'dblink-initial-acl', 'managed-bootstrap-postimage', 'managed-bootstrap-install', ...postFamilies.flatMap(([, , family]) => [family, family+'-install'])]) {
     const installed = structuredClone(
       currentApplicationExtensions.filter((item) => ['pg_cron', 'plpgsql'].includes(item.name))
     );
@@ -188,6 +196,9 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     let managedCommitted = false;
     let managedRollbacks = 0;
     const managedInstallError = Object.assign(new Error('FIXTURE_MANAGED_BOOTSTRAP_ABSENCE_REQUIRED'), {name:'error',code:'P0001'});
+    const postInstalls = [], postObservers = [];
+    const isInstallFailure = drift === 'managed-bootstrap-install' || postFamilies.some(([, , family]) => drift === family+'-install');
+    const postInstallError = Object.assign(new Error('FIXED_POST_INSTALL_REFUSAL'), {name:'error', code:'P0001'});
     const capturedInstalls = [];
     const capturedInstallerPids = new Set();
     const capturedObservers = [];
@@ -224,6 +235,23 @@ test('native extension installer uses actual owning sessions and refuses wrong v
           assert.ok(!capturedInstallerPids.has(this.processID));
           managedObserverCalls++;
           return {rows:[{managed_bootstrap_functions_exact: drift !== 'managed-bootstrap-postimage'}]};
+        }
+        for (const [index, [install, observation, family, field]] of postFamilies.entries()) {
+          if (sql === install) {
+            assert.equal(installed.length,13); assert.equal(managedInstalls,1);
+            assert.equal(this.processID,graphqlInstallerPid); assert.equal(this.owner,'supabase_admin');
+            assert.equal(this.transaction,true); assert.equal(this.begins,2); assert.equal(commits,2);
+            assert.deepEqual(postInstalls,postFamilies.slice(0,index).map(([, , name])=>name));
+            postInstalls.push(family);
+            if (drift===family+'-install') throw postInstallError;
+          }
+          if (sql === observation) {
+            assert.equal(managedObserverCalls,1); assert.equal(managedCommitted,true); assert.equal(commits,3);
+            assert.equal(this.transaction,undefined); assert.notEqual(this.processID,graphqlInstallerPid);
+            assert.deepEqual(postObservers,postFamilies.slice(0,index).map(([, , name])=>name));
+            postObservers.push(family);
+            return {rows:[{[field]:drift!==family}]};
+          }
         }
         for (const [install, observation, family, field, count] of captured) {
           if (sql === install) {
@@ -328,6 +356,9 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     };
     if (drift) await assert.rejects(installCurrentApplicationExtensions(args), error => {
       if (drift === 'managed-bootstrap-install') return error === managedInstallError;
+      if (postFamilies.some(([, , family])=>drift===family+'-install')) return error===postInstallError;
+      const post = postFamilies.find(([, , family])=>drift===family);
+      if (post) return error.message===post[4];
       if (drift === 'managed-bootstrap-postimage') return error.message === 'FIXTURE_ASSERT_MANAGED_BOOTSTRAP_FUNCTIONS_POSTIMAGE';
       if (drift === 'legacy-acl') return error.message === 'FIXTURE_ASSERT_LEGACY_DBLINK_POSTIMAGE';
       if (drift === 'graphql-acl') return error.message === 'FIXTURE_ASSERT_GRAPHQL_LEGACY_ACL_POSTIMAGE';
@@ -342,21 +373,26 @@ test('native extension installer uses actual owning sessions and refuses wrong v
     else assert.equal((await installCurrentApplicationExtensions(args)).installed, 13);
     assert.deepEqual(capturedInstalls, ['auth-acl', 'realtime-acl', 'dblink-initial-acl']);
     assert.equal(capturedInstallerPids.size, 1);
-    const expectedObservers = ['graphql-acl','managed-bootstrap-install'].includes(drift) ? [] : drift === 'auth-acl' ? ['auth-acl']
+    const expectedObservers = (drift==='graphql-acl'||isInstallFailure) ? [] : drift === 'auth-acl' ? ['auth-acl']
       : drift === 'realtime-acl' ? ['auth-acl', 'realtime-acl']
       : ['auth-acl', 'realtime-acl', 'dblink-initial-acl'];
     assert.deepEqual(capturedObservers, expectedObservers);
     assert.equal(managedInstalls,1);
-    assert.equal(managedCommitted,drift !== 'managed-bootstrap-install');
-    assert.equal(managedRollbacks,drift === 'managed-bootstrap-install' ? 1 : 0);
-    assert.equal(managedObserverCalls,['graphql-acl','auth-acl','realtime-acl','dblink-initial-acl','legacy-acl','managed-bootstrap-install'].includes(drift) ? 0 : 1);
+    assert.equal(managedCommitted,!isInstallFailure);
+    assert.equal(managedRollbacks,isInstallFailure ? 1 : 0);
+    assert.equal(managedObserverCalls,(['graphql-acl','auth-acl','realtime-acl','dblink-initial-acl','legacy-acl'].includes(drift)||isInstallFailure) ? 0 : 1);
+    const failedInstallIndex=postFamilies.findIndex(([, , family])=>drift===family+'-install');
+    assert.deepEqual(postInstalls,drift==='managed-bootstrap-install'?[]:postFamilies.slice(0,failedInstallIndex<0?3:failedInstallIndex+1).map(([, , name])=>name));
+    const failedObserverIndex=postFamilies.findIndex(([, , family])=>drift===family);
+    const observerBlocked=isInstallFailure||['graphql-acl','auth-acl','realtime-acl','dblink-initial-acl','legacy-acl','managed-bootstrap-postimage'].includes(drift);
+    assert.deepEqual(postObservers,observerBlocked?[]:postFamilies.slice(0,failedObserverIndex<0?3:failedObserverIndex+1).map(([, , name])=>name));
     assert.equal(graphqlInstalls, 1);
     assert.equal(statements.length, 11);
     assert.equal(namespaceCreates, 1);
     assert.equal(temporaryOwnerCreates, 1);
     assert.equal(applicationDdl, 0);
-    assert.equal(clients.length, drift === 'managed-bootstrap-install' ? 2 : 3);
-    assert.deepEqual(clients.map(client=>client.options.user),drift === 'managed-bootstrap-install' ? ['supabase_admin','supabase_admin'] : ['supabase_admin','supabase_admin','supabase_admin']);
+    assert.equal(clients.length, isInstallFailure ? 2 : 3);
+    assert.deepEqual(clients.map(client=>client.options.user),isInstallFailure ? ['supabase_admin','supabase_admin'] : ['supabase_admin','supabase_admin','supabase_admin']);
     assert.deepEqual(
       installed.sort((a, b) => (a.name < b.name ? -1 : 1)),
       currentApplicationExtensions

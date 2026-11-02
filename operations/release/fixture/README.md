@@ -891,3 +891,24 @@ Both boundaries retain complete catalogue checks; changing the expected
 preimage alone cannot substitute for this actual transition.
 
 Eleven source-bound application policies on realtime.messages are restored with application SQL, separately from native service objects. Their complete quoted pg_dump blocks and maintained migration provenance must match exactly. Unknown policies, altered predicates or privileges, extra statements and an application policy appearing in native service output refuse composition. This changes ownership classification only; native managed objects still require exact bidirectional comparison, and full schema restore/catalogue parity and all fifteen connected cases remain required.
+
+### Captured provider grants and Realtime publication
+
+Capture21 reported missing retained object privileges and the Realtime messages
+publication member. The existing bounded Admin transaction now applies ordinary
+object grants after all thirteen genuine extensions, then creates the captured
+publication configuration over only realtime.messages. The three maintained
+modules require exact native identities, definitions, initial privileges and
+preimages before changing anything; fresh post-commit observers require their
+exact captured postimages. The PostgreSQL-owned providers retain their genuine
+49 functions and two views; pg_cron retains both native heap tables and its
+original PUBLIC/initial privileges. No provider definitions, extension membership,
+creator defaults or production database objects are changed.
+
+The publication uses all four DML operations, no column list or row filter, and
+no partition-root publishing. No replication worker or slot starts during this
+configuration. Occupied or drifted state refuses and the existing transaction
+rolls back on any failure. Every new runtime module is bound into the same image
+allowlist and source receipts; closed diagnostics retain no SQL or data. Native
+proofs do not substitute for full-schema restore, catalogue comparison or the
+fifteen connected application cases.
