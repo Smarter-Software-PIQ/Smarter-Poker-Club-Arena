@@ -129,9 +129,7 @@ it('limits the cash selection to Club Arena, keeping funded Diamond eligibility 
 });
 
 it('the November owner policy reduces the existing cash cap only at Chicago midnight', () => {
-  const sql = read(
-    '20261102015546_restrict_horse_cash_games_and_reduce_schedule_at_chicago_midnight.sql'
-  );
+  const sql = read('20261102015546_restrict_horse_cash_games_and_cut_schedule_at_midnight.sql');
   expect(sql).toContain('THEN 0.2 ELSE 0.5 END');
   expect(sql).toContain('2026-11-02 00:00:00 America/Chicago');
   expect(sql).toContain('p_tournament_id IS NOT NULL');

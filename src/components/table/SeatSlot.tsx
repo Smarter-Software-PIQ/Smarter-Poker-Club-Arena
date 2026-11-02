@@ -1287,6 +1287,10 @@ export const SeatSlot = memo(
       const schedule = () => {
         if (frame === null) frame = requestAnimationFrame(measure);
       };
+      const measureNow = () => {
+        if (frame !== null) cancelAnimationFrame(frame);
+        measure();
+      };
       const resized = new ResizeObserver(schedule);
       resized.observe(seat);
       measure();
@@ -1308,6 +1312,9 @@ export const SeatSlot = memo(
       changed.observe(seat, { childList: true, subtree: true, characterData: true });
       seat.addEventListener('load', schedule, true);
       seat.addEventListener('opponentavatarresize', schedule);
+      // The table's placement transaction needs current caption bounds before
+      // it reserves a wager. A queued ResizeObserver measurement is too late.
+      seat.addEventListener('seatcaptionmeasure', measureNow);
       artRiseRef.current = {
         seat,
         stop: () => {
@@ -1315,6 +1322,7 @@ export const SeatSlot = memo(
           changed.disconnect();
           seat.removeEventListener('load', schedule, true);
           seat.removeEventListener('opponentavatarresize', schedule);
+          seat.removeEventListener('seatcaptionmeasure', measureNow);
           if (frame !== null) cancelAnimationFrame(frame);
         },
       };

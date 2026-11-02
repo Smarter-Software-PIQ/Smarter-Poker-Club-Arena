@@ -154,7 +154,7 @@ DO $proof$ BEGIN
 END $proof$;
 """
 # November owner update: qualify the exact migration on the same isolated database.
-NOVEMBER = ROOT / "supabase/migrations/20261102015546_restrict_horse_cash_games_and_reduce_schedule_at_chicago_midnight.sql"
+NOVEMBER = ROOT / "supabase/migrations/20261102015546_restrict_horse_cash_games_and_cut_schedule_at_midnight.sql"
 november_sql = NOVEMBER.read_text()
 cluster_before = (ROOT / "scripts/qualification/fixtures/horse-cash-november/cluster-before.sql").read_text()
 november_setup = """
