@@ -1,3 +1,4 @@
+import { useMttLobbyEntryCounts } from '../../hooks/useMttLobbyEntryCounts';
 import { isRecordedSatelliteTournament } from '../../utils/tournamentFilters';
 import { useSatelliteDestination } from './game-cards/useTournamentCardText';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
@@ -1071,16 +1072,35 @@ const COL_VARIANT: ColumnDef = {
    name — "0/3, 1/3, 2/3, 3/3" and "0/2, 1/2, 2/2". There the denominator is
    the whole point, so seatsTakenLabel prints it. */
 function TournamentEnrolled({ entry }: { entry: LobbyEntry }) {
-  return <span className="lt-seats__num">{seatsTakenLabel(entry)}</span>;
+  return (
+    <span
+      className="lt-seats__num"
+      title={
+        entry.kind === 'mtt'
+          ? entry.entryCount == null
+            ? 'Entries Unavailable'
+            : entry.entryCountStale
+              ? 'Last Known Entries'
+              : 'Entries Including Rebuys'
+          : undefined
+      }
+    >
+      {entry.kind === 'mtt'
+        ? entry.entryCount == null
+          ? '...'
+          : entry.entryCount.toLocaleString()
+        : seatsTakenLabel(entry)}
+    </span>
+  );
 }
 
 const COL_PLAYERS: ColumnDef = {
   key: 'players',
   label: 'Players',
-  labelFor: (e) => (e.kind === 'cash' ? 'Players' : 'Registered'),
+  labelFor: (e) => (e.kind === 'cash' ? 'Players' : e.kind === 'mtt' ? 'Entries' : 'Registered'),
   className: 'lt-col-players',
   sortable: true,
-  sortValue: (e) => e.players,
+  sortValue: (e) => (e.kind === 'mtt' ? (e.entryCount ?? -1) : e.players),
   render: (e) => (e.kind === 'cash' ? <SeatsMeter entry={e} /> : <TournamentEnrolled entry={e} />),
 };
 const COL_BUYIN: ColumnDef = {
@@ -1763,7 +1783,7 @@ export function columnsFor(category: LobbyCategory): ColumnDef[] {
            And it is no longer hidden on phones: hideOnMobile meant the MTT tab
            showed no registration count at all on a phone, which is one of the
            two numbers a player is choosing between. */
-        { ...COL_PLAYERS, label: 'Registered' },
+        { ...COL_PLAYERS, label: category === 'MTT' ? 'Entries' : 'Registered' },
         COL_STATUS,
         COL_TSTACK,
         COL_TLEVEL,
@@ -1889,7 +1909,7 @@ interface LobbyTableProps {
 }
 
 export default function LobbyTable({
-  entries: boardEntries,
+  entries: suppliedEntries,
   category,
   selectedId,
   onSelect,
@@ -1903,6 +1923,7 @@ export default function LobbyTable({
   onHeadingSort,
   orderLabel,
 }: LobbyTableProps) {
+  const boardEntries = useMttLobbyEntryCounts(suppliedEntries);
   const boardNow = useSharedSecondTick(boardEntries.some((e) => e.kind === 'mtt'));
   const liveEntries = useMemo(
     () =>
@@ -2304,7 +2325,10 @@ export default function LobbyTable({
       : ['MTT', 'SPIN', 'SNG', 'SATELLITE'].includes(category)
         ? COL_BUYIN
         : COL_STAKES,
-    COL_PLAYERS,
+    {
+      ...COL_PLAYERS,
+      label: category === 'MTT' ? 'Entries' : category === 'SATELLITE' ? 'Registered' : 'Players',
+    },
     COL_STATUS,
   ];
 
@@ -2475,7 +2499,7 @@ export default function LobbyTable({
                   <td role="cell" data-label={entry.kind === 'cash' ? 'Stakes' : 'Buy-In'}>
                     {COL_COST.render(entry, rowCtx)}
                   </td>
-                  <td role="cell" data-label="Players">
+                  <td role="cell" data-label={entry.kind === 'mtt' ? 'Entries' : 'Players'}>
                     {COL_PLAYERS.render(entry, rowCtx)}
                   </td>
                   <td role="cell" data-label="Status">
