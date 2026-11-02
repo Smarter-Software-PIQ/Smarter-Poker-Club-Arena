@@ -694,56 +694,84 @@ def routine_owner_unresolved(state: dict[str, Any], cycle: dict[str, Any]) -> bo
 
 
 TERMINAL_OWNER_SETTLE_MS = 60_000
+TERMINAL_RESOLUTION_KEYS = {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'invocationId',
+                            'observedAt', 'proof'}
+TERMINAL_PROOF_KEYS = {'failureDigest', 'checkpointIntentDigest', 'originalProcess', 'runtime', 'database'}
 
 
-def terminal_failed_owner_proved(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
-    """Read-only proof that an expired failed routine owner has nothing left.
+def terminal_inspect_container(deadline: float) -> dict[str, Any]:
+    raw = failed_routine_command(['docker', 'container', 'inspect', '--format', '{{json .}}',
+        os.environ.get('ENGINE_CONTAINER_NAME', 'club-arena-engine')], deadline, 262144)
+    value = json.loads(raw)
+    failed_routine_require(isinstance(value, dict) and isinstance(value.get('State'), dict))
+    return value
 
-    The cycle, its failure and the audit stay exactly as recorded; nothing is
-    retired or rewritten. The owner stops blocking later cycles only while
-    every one of these is positively observed now:
+
+def terminal_proc_birth(pid: int) -> float | None:
+    """Kernel birth time of a live PID, or None when the PID no longer exists."""
+    try:
+        raw = (Path('/proc') / str(pid) / 'stat').read_bytes()
+    except FileNotFoundError:
+        return None
+    prefix, sep, tail = raw.rpartition(b')')
+    fields = tail.split()
+    failed_routine_require(sep and prefix.startswith(str(pid).encode() + b' (') and len(fields) >= 20 and
+                           fields[19].isdigit())
+    btime = [x.split()[1] for x in Path('/proc/stat').read_text().splitlines() if x.startswith('btime ')]
+    failed_routine_require(len(btime) == 1 and btime[0].isdigit())
+    return int(btime[0]) + int(fields[19]) / os.sysconf('SC_CLK_TCK')
+
+
+def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline: float) -> dict[str, Any] | None:
+    """Positive proof that an expired failed routine owner left nothing behind.
+
+    The cycle, its failure and the audit stay exactly as recorded. Returns the
+    proof only while every one of these is observed now, else None:
       - the cycle is 'reserved' with a recorded failure, its window (or
         startsAt+360s) ended at least a minute ago, and no transaction is
         pending, finalizing or committed for that run;
-      - the canonical durable failure for the run equals the cycle's copy and
-        names the exact sha/controlSha, and the desired runtime it says was
-        recovered is the sealed desired runtime now;
-      - the engine container is running exactly that desired image;
-      - the run's durable request, intent, break deadline, intake request and
-        intent, generation pin and image lease are all absent;
-      - its release service, intake service and intake path are each loaded
-        or not-found, inactive or failed, dead or failed, with no main or
-        control PID, no queued job, not enabled and no wants link.
-    Any error, timeout, missing field or unexpected value is an unproved
-    answer and keeps the owner authoritative.
+      - the canonical durable failure equals the cycle's copy, names the exact
+        sha/controlSha, and the runtime it recovered is the sealed desired one;
+      - the run's request, intent, break deadline, awaiting-certificate, drill,
+        unreleased Lightning hold, intake request/intent, generation pin and
+        image lease are absent;
+      - its release service, intake service and intake path are loaded or
+        not-found, inactive or failed, PID-free, job-free, not enabled and
+        without wants links;
+      - if the run opened a legacy checkpoint, the engine process that intent
+        bound has since been replaced: the container started after the intent,
+        its PID differs, and the old PID is gone or was born after the intent;
+      - the container runs exactly the desired image, and local and public
+        health agree on one instance of the desired source, idle and unfrozen;
+      - the database shows that instance as the fresh leader with no
+        maintenance owner.
+    Any error, timeout or unexpected value is an unproved answer.
     """
     try:
         failure = cycle.get('failure')
         run_id = str(cycle.get('runId', ''))
         if cycle.get('status') != 'reserved' or not isinstance(failure, dict) or not RUN_ID_RE.fullmatch(run_id):
-            return False
+            return None
         if state.get('pending') is not None or state.get('finalization') is not None:
-            return False
+            return None
         if run_id in state.get('committedRuns', {}):
-            return False
+            return None
         window = routine_window(cycle)
         ends_at = window['endsAt'] if window else (int(cycle['startsAt']) + 360) * 1000
         if time.time() * 1000 < ends_at + TERMINAL_OWNER_SETTLE_MS:
-            return False
+            return None
         durable = load_failure(run_id)
         desired = state['desired']
         if (durable != failure or durable['sha'] != cycle['sha'] or durable['controlSha'] != cycle['controlSha']
                 or durable['recoveredDesiredSha'] != desired['sha']
                 or durable['recoveredDesiredImageId'] != desired['imageId']):
-            return False
-        status, running_image = container_identity(os.environ.get('ENGINE_CONTAINER_NAME', 'club-arena-engine'))
-        if status != 'running' or running_image != desired['imageId']:
-            return False
+            return None
         request_root = Path(os.environ.get('ENGINE_RELEASE_REQUEST_ROOT', str(STATE_DIR / 'engine-release-requests')))
         pin_root = Path(os.environ.get('ENGINE_RELEASE_PIN_ROOT', str(STATE_DIR / 'engine-release-generation-pins')))
         intake_root = Path(os.environ.get('ENGINE_RELEASE_INTAKE_ROOT', str(STATE_DIR / 'engine-intake-requests')))
         lease_root = Path(os.environ.get('ENGINE_RELEASE_IMAGE_LEASE_ROOT', str(STATE_DIR / 'engine-image-leases')))
-        for root, suffixes in ((request_root, ('request', 'intent', 'break-deadline')),
+        for root, suffixes in ((request_root, ('request', 'intent', 'break-deadline', 'awaiting-certificate',
+                                               'drill', 'lightning-hold.json')),
                                (intake_root, ('request', 'intent')),
                                (pin_root, ('generation',)), (lease_root, ('lease',))):
             for suffix in suffixes:
@@ -751,7 +779,7 @@ def terminal_failed_owner_proved(state: dict[str, Any], cycle: dict[str, Any]) -
                     (root / f'{run_id}.{suffix}').lstat()
                 except FileNotFoundError:
                     continue
-                return False
+                return None
         for prefix, extension in (('release', 'service'), ('intake', 'service'), ('intake', 'path')):
             unit = f'club-arena-engine-{prefix}-v1@{run_id}.{extension}'
             value = native_unit(unit)
@@ -761,15 +789,69 @@ def terminal_failed_owner_proved(state: dict[str, Any], cycle: dict[str, Any]) -
                     or (extension == 'service' and (value['MainPID'] != '0' or value['ControlPID'] != '0'))
                     or value['Job'] not in {'', '0'}
                     or value['UnitFileState'] not in {'', 'disabled', 'static'}):
-                return False
+                return None
             if os.path.lexists(Path('/etc/systemd/system/multi-user.target.wants') / unit):
-                return False
-        return True
+                return None
+        container = terminal_inspect_container(deadline)
+        live = container['State']
+        if (container.get('Image') != desired['imageId'] or live.get('Status') != 'running' or
+                type(live.get('Pid')) is not int or live['Pid'] <= 0 or
+                CONTAINER_ID_RE.fullmatch(str(container.get('Id', ''))) is None):
+            return None
+        from datetime import datetime
+        live_started = datetime.fromisoformat(str(live['StartedAt']).replace('Z', '+00:00')).timestamp()
+        intent_path = request_root / f'{run_id}.legacy-checkpoint-intent'
+        try:
+            intent_path.lstat()
+        except FileNotFoundError:
+            intent, original = None, 'no-checkpoint-entered'
+        else:
+            intent = failed_routine_json(intent_path)
+            if not (isinstance(intent, dict) and intent.get('runId') == run_id and
+                    intent.get('controlSha') == cycle['controlSha'] and intent.get('source') == desired['sha'] and
+                    type(intent.get('hostPid')) is int and intent['hostPid'] > 0 and
+                    type(intent.get('at')) in (int, float) and isinstance(intent.get('startedAt'), str)):
+                return None
+            if not (live['StartedAt'] != intent['startedAt'] and live_started > intent['at'] and
+                    live['Pid'] != intent['hostPid']):
+                return None
+            birth = terminal_proc_birth(intent['hostPid'])
+            if birth is not None and birth <= intent['at'] + 1:
+                return None
+            original = 'kernel-enoent' if birth is None else 'pid-reused-after-intent'
+        instances = []
+        for url in ('http://127.0.0.1:8080/health',
+                    os.environ.get('ENGINE_URL', 'https://engine.smarter.poker').rstrip('/') + '/health'):
+            h = json.loads(failed_routine_command(['curl', '--fail', '--silent', '--show-error', '--max-time', '3',
+                url + '?terminal-owner=' + str(time.time_ns())], deadline, 1048576))
+            m = h.get('maintenance', {}) if isinstance(h, dict) else {}
+            if not (h.get('releaseSha') == desired['sha'] and h.get('status') == 'ok' and
+                    INSTANCE_ID_RE.fullmatch(str(h.get('instanceId', ''))) is not None and
+                    m.get('active') is False and m.get('phase') == 'idle'):
+                return None
+            instances.append(h['instanceId'])
+        if instances[0] != instances[1]:
+            return None
+        control = Path(__file__).resolve().parent
+        database = json.loads(failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
+            os.environ.get('ENV_FILE', os.environ.get('REPO_DIR', '/opt/club-arena') + '/server/.env'),
+            '--sha', desired['sha'], '--instance-id', instances[0], '--failed-routine-idle',
+            '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'], deadline))
+        if database != {'schema': 'failed-routine-database-idle/v1', 'sha': desired['sha'],
+                        'instanceId': instances[0], 'databaseIdle': True, 'freshLeader': True}:
+            return None
+        return {'failureDigest': failed_routine_digest(durable),
+                'checkpointIntentDigest': None if intent is None else failed_routine_digest(intent),
+                'originalProcess': original,
+                'runtime': {'containerId': container['Id'], 'startedAt': live['StartedAt'], 'hostPid': live['Pid'],
+                            'instanceId': instances[0]},
+                'database': database}
     except (SystemExit, Exception):
-        return False
+        return None
 
 
-TERMINAL_RESOLUTION_KEYS = {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'invocationId', 'observedAt'}
+def terminal_owner_proved(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    return terminal_owner_proof(state, cycle, time.monotonic() + 45) is not None
 
 
 def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, Any]) -> None:
@@ -777,6 +859,7 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner == FAILED_ROUTINE_RUN:
         validate_failed_routine_resolution(resolution, cycle)
         return
+    proof = resolution.get('proof') if isinstance(resolution, dict) else None
     if not (isinstance(resolution, dict) and set(resolution) == TERMINAL_RESOLUTION_KEYS and
             resolution['schema'] == 1 and resolution['result'] == 'terminal-failure-proved' and
             resolution['originalCycle'] == cycle and cycle.get('runId') == owner and
@@ -786,42 +869,72 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
             INVOCATION_ID_RE.fullmatch(str(resolution['invocationId'])) is not None and
             type(resolution['observedAt']) is int and
             resolution['observedAt'] * 1000 >= (routine_window(cycle) or
-                {'endsAt': (int(cycle['startsAt']) + 360) * 1000})['endsAt']):
+                {'endsAt': (int(cycle['startsAt']) + 360) * 1000})['endsAt'] and
+            isinstance(proof, dict) and set(proof) == TERMINAL_PROOF_KEYS and
+            proof['failureDigest'] == failed_routine_digest(cycle['failure']) and
+            proof['originalProcess'] in {'no-checkpoint-entered', 'kernel-enoent', 'pid-reused-after-intent'} and
+            isinstance(proof['runtime'], dict) and isinstance(proof['database'], dict) and
+            proof['database'].get('databaseIdle') is True and proof['database'].get('freshLeader') is True):
         die('routine failure resolution history is invalid')
+
+
+def terminal_receipt_path(owner: str, verifier: str, invocation: str) -> Path:
+    return RESULT_DIR / f'{owner}.{verifier}.{invocation}.terminal-resolution.json'
 
 
 def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     """Inside the existing transaction, under the engine and seal locks, record a
     terminal-failure proof for each expired failed foreign routine owner whose
-    every native/runtime trace is positively gone. The cycle, its failure and
-    the audit history are never rewritten; an unproved owner stays authoritative
-    and the ordinary owner check that follows keeps its refusal."""
+    every native/process/runtime/database trace is positively gone. The cycle,
+    its failure and the audit history are never rewritten; an unproved owner
+    stays authoritative and the ordinary owner check that follows refuses.
+
+    An immutable per-invocation receipt is written before the audit and the
+    state; an interrupted run resumes with exactly those bytes."""
     run_id = str(args.run_id)
-    if not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(str(args.invocation_id)):
+    invocation = str(args.invocation_id)
+    if not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation):
         die('terminal routine failure proof identity is invalid')
     require_engine_lock(args.engine_lock_fd)
+    deadline = time.monotonic() + 45
     with SealLock():
         state = load_state()
         proved = []
         for cycle in routine_cycles(state).values():
-            if cycle['runId'] == run_id or not routine_owner_unresolved(state, cycle):
+            owner = cycle['runId']
+            if owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
-            if not terminal_failed_owner_proved(state, cycle):
+            proof = terminal_owner_proof(state, cycle, deadline)
+            if proof is None:
                 continue
             # Every witness is observed again, against an unchanged seal,
-            # immediately before the receipt and the compare-and-swap.
-            if load_state() != state or not terminal_failed_owner_proved(state, cycle):
+            # immediately before the receipt, audit and compare-and-swap.
+            if load_state() != state or terminal_owner_proof(state, cycle, deadline) != proof:
                 continue
             resolution = {'schema': 1, 'result': 'terminal-failure-proved', 'originalCycle': cycle,
-                'verifiedByRunId': run_id, 'invocationId': str(args.invocation_id), 'observedAt': int(time.time())}
-            validate_routine_resolution(cycle['runId'], resolution, cycle)
+                'verifiedByRunId': run_id, 'invocationId': invocation, 'observedAt': int(time.time()),
+                'proof': proof}
+            receipt = terminal_receipt_path(owner, run_id, invocation)
+            try:
+                receipt.lstat()
+            except FileNotFoundError:
+                write_json_atomic(receipt, resolution)
+            else:
+                original = failed_routine_json(receipt)
+                if {k: v for k, v in original.items() if k != 'observedAt'} != \
+                        {k: v for k, v in resolution.items() if k != 'observedAt'}:
+                    die('terminal routine failure receipt differs from this invocation')
+                resolution = original
+            validate_routine_resolution(owner, resolution, cycle)
             audit_once('routine_terminal_failure_proved', state,
-                       'routine_terminal_failure_proved:' + cycle['runId'], resolution=resolution)
-            state.setdefault('routineFailureResolutions', {})[cycle['runId']] = resolution
-            proved.append(cycle['runId'])
-        if proved:
+                       'routine_terminal_failure_proved:' + owner + ':' + run_id + ':' + invocation,
+                       resolution=resolution)
+            if load_state() != state or time.monotonic() >= deadline:
+                die('terminal routine failure proof lost its seal or deadline before compare-and-swap')
+            state.setdefault('routineFailureResolutions', {})[owner] = resolution
             state['updatedAt'] = int(time.time())
             write_state(state)
+            proved.append(owner)
         print(' '.join(proved) if proved else 'not-needed')
 
 

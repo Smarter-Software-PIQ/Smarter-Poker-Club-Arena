@@ -221,6 +221,8 @@ def routine_failure_resolution(value, cycle, result, result_fd):
               'noAnnouncementRecorded': None, 'databaseIdleRecorded': None}
     if value is None:
         return answer, None
+    if isinstance(value, dict) and value.get('result') == 'terminal-failure-proved':
+        return terminal_failure_resolution(value, cycle, result, result_fd, answer)
     routine_require(cycle['runId'] == FAILED_CUSTODY_REQUEST['runKey'] and
                     cycle['sha'] == cycle['controlSha'] == FAILED_CUSTODY_CONTROL and
                     cycle['status'] == 'reserved' and cycle['startsAt'] == 1793570400 and
@@ -260,6 +262,39 @@ def routine_failure_resolution(value, cycle, result, result_fd):
     return answer, (name, metadata, raw)
 
 
+def terminal_failure_resolution(value, cycle, result, result_fd, answer):
+    """Observe one recorded terminal-failure proof; it authorizes nothing.
+
+    The record must bind its exact original reserved cycle and recorded failure,
+    a different verifier and its immutable private per-invocation receipt."""
+    routine_require(cycle['status'] == 'reserved' and isinstance(cycle.get('failure'), dict) and
+                    result == cycle['failure'])
+    routine_require(isinstance(value, dict) and set(value) == {
+        'schema', 'result', 'originalCycle', 'verifiedByRunId', 'invocationId', 'observedAt', 'proof'} and
+        type(value['schema']) is int and value['schema'] == 1 and value['originalCycle'] == cycle and
+        isinstance(value['verifiedByRunId'], str) and RUN.fullmatch(value['verifiedByRunId']) and
+        value['verifiedByRunId'] != cycle['runId'] and
+        isinstance(value['invocationId'], str) and INVOCATION.fullmatch(value['invocationId']) and
+        type(value['observedAt']) is int and cycle['startsAt'] < value['observedAt'] < 4102444800)
+    proof = value['proof']
+    routine_require(isinstance(proof, dict) and set(proof) == {
+        'failureDigest', 'checkpointIntentDigest', 'originalProcess', 'runtime', 'database'} and
+        proof['failureDigest'] == routine_digest(cycle['failure']) and
+        proof['originalProcess'] in {'no-checkpoint-entered', 'kernel-enoent', 'pid-reused-after-intent'} and
+        isinstance(proof['database'], dict) and proof['database'].get('databaseIdle') is True and
+        proof['database'].get('freshLeader') is True)
+    name = cycle['runId'] + '.' + value['verifiedByRunId'] + '.' + value['invocationId'] + '.terminal-resolution.json'
+    metadata = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
+    receipt, raw = read_json(result_fd, name, private=True, with_bytes=True)
+    routine_require(receipt == value)
+    answer.update(present=True, sha256=routine_digest(value), receiptSha256=hashlib.sha256(raw).hexdigest(),
+                  verifiedByRunId=value['verifiedByRunId'],
+                  invocationSha256=hashlib.sha256(value['invocationId'].encode()).hexdigest(),
+                  observedAt=value['observedAt'], cycleMatches=True, failureMatches=True, receiptMatches=True,
+                  databaseIdleRecorded=True)
+    return answer, (name, metadata, raw)
+
+
 def routine_remote(request, root_fd):
     """Read only fixed canonical files with existing private stable-file reader.
 
@@ -283,11 +318,13 @@ def routine_remote(request, root_fd):
     cycles, committed = state.get('routineMaintenanceCycles'), state.get('committedRuns')
     resolutions = state.get('routineFailureResolutions', {})
     routine_require(isinstance(cycles, dict) and len(cycles) <= 256 and isinstance(committed, dict) and
-                    isinstance(resolutions, dict) and not set(resolutions) - {FAILED_CUSTODY_REQUEST['runKey']} and
-                    all(isinstance(v, dict) for v in resolutions.values()))
+                    isinstance(resolutions, dict) and
+                    all(isinstance(v, dict) and (k == FAILED_CUSTODY_REQUEST['runKey'] or
+                                                 v.get('result') == 'terminal-failure-proved')
+                        for k, v in resolutions.items()))
     if resolutions:
-        routine_require(sum(c.get('runId') == FAILED_CUSTODY_REQUEST['runKey']
-                            for c in cycles.values() if isinstance(c, dict)) == 1 and
+        routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
+                            for owner in resolutions) and
                         all(c.get('status') == 'reserved' for c in cycles.values()
                             if isinstance(c, dict) and c.get('runId') in resolutions))
     owners = []
