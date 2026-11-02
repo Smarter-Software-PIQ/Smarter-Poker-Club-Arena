@@ -5060,6 +5060,8 @@ export class GameServer {
 
       // Step 7: Start synchronized break timer (last hand at :55, then 5 min break)
       this.scheduleSynchronizedBreaks();
+      // A process that starts inside :55-:00 takes this hour's break now.
+      this.catchUpSynchronizedBreakAtBoot();
 
       // Step 7b (Dan 2026-09-01): the maintenance break that carries the
       // engine restart. Announces the last hand at :53 of a restart hour,
@@ -7355,13 +7357,29 @@ export class GameServer {
      */
     const breakEngines: TournamentManager[] = [];
     for (const tm of this.tournamentEngines.values()) {
-      if (tm.isRunning() && tm.takesSynchronizedBreaks()) {
+      // A manager adopted mid-break already runs this hour's break to its own
+      // end; a second one would stack five more minutes on it.
+      if (tm.isRunning() && tm.takesSynchronizedBreaks() && !tm.hasOwnRunningBreak()) {
         breakEngines.push(tm);
       }
     }
 
     if (breakEngines.length === 0) {
-      console.log('[GameServer] Synchronized break: no running tournaments to pause');
+      /**
+       * NO TOURNAMENT YET IS NOT NO BREAK (2026-11-02).
+       *
+       * The engine restarted at 05:54:50 UTC on 2026-11-02. Its :55 timer
+       * fired ten seconds later, before discovery had adopted a single
+       * tournament, logged "no running tournaments to pause" and returned
+       * without opening the window. Every tournament adopted seconds later
+       * passed holdIfBreakIsRunning with nothing to hold it, and the whole
+       * platform dealt straight through that hour's break.
+       *
+       * The window opens anyway, so every tournament adopted inside it is held
+       * by holdIfBreakIsRunning exactly as one that starts mid-break is. With
+       * no tournament to run it, it closes itself at the top of the hour.
+       */
+      this.openEmptySynchronizedBreakWindow();
       return;
     }
 
@@ -7607,6 +7625,62 @@ export class GameServer {
     );
   }
 
+  /**
+   * Open this hour's break window with no tournament in it yet (2026-11-02).
+   * Tournaments adopted while it is open are held by holdIfBreakIsRunning.
+   * It closes itself at the top of the hour unless a held tournament is still
+   * on its break, in which case that tournament's resume closes it.
+   */
+  private openEmptySynchronizedBreakWindow(): void {
+    const now = Date.now();
+    // Epoch hours are UTC hours, the same boundary the :55 cadence uses.
+    const topOfHour = Math.ceil((now + 1) / 3_600_000) * 3_600_000;
+    if (topOfHour - now <= 1000) return;
+    const maintenanceEndsAt = this.maintenanceBreak.endsAt();
+    this.synchronizedBreakGeneration++;
+    const breakGeneration = this.synchronizedBreakGeneration;
+    this.clearTournamentBreakResumeTimers();
+    this.openTournamentBreaks().clear();
+    this.breakCountdownStarted = false;
+    this.breakEndsWithMaintenance = maintenanceEndsAt > 0;
+    this.breakEndsAt =
+      maintenanceEndsAt > 0
+        ? Math.max(maintenanceEndsAt, now)
+        : now + TournamentManager.LAST_HAND_GRACE_MS + GameServer.BREAK_DURATION_MS;
+    console.log(
+      '[GameServer] Synchronized break: no tournament adopted yet - window open until the top of the hour; each one adopted inside it is held'
+    );
+    const timer = setTimeout(() => {
+      if (
+        this.synchronizedBreakGeneration === breakGeneration &&
+        this.openTournamentBreaks().size === 0
+      ) {
+        this.closeSynchronizedBreakWindow();
+      }
+    }, topOfHour - now);
+    if (typeof (timer as any)?.unref === 'function') (timer as any).unref();
+  }
+
+  /**
+   * A PROCESS THAT STARTS INSIDE THE BREAK TAKES THE BREAK (2026-11-02).
+   *
+   * scheduleSynchronizedBreaks arms the NEXT :55. An engine that starts at
+   * :55:01 or later would otherwise skip the current hour's break entirely
+   * and deal through it. Called once at boot: inside :55-:00 it runs this
+   * hour's trigger now; outside it does nothing.
+   */
+  private catchUpSynchronizedBreakAtBoot(): void {
+    const minute = new Date().getUTCMinutes();
+    if (minute < GameServer.BREAK_START_MINUTE) return;
+    console.log(
+      `[GameServer] Started inside the :${GameServer.BREAK_START_MINUTE} break window - taking this hour's break now`
+    );
+    this.launchServerLifecycleJob(
+      this.triggerSynchronizedBreak(),
+      'GameServer.synchronized_break_catch_up_failed'
+    );
+  }
+
   /** Nothing starting from here on is in a break, and must not be held. */
   private closeSynchronizedBreakWindow(): void {
     this.breakEndsAt = 0;
@@ -7663,6 +7737,9 @@ export class GameServer {
   private async holdIfBreakIsRunning(tm: TournamentManager): Promise<void> {
     const remaining = this.remainingBreakMs();
     if (remaining <= 1000) return;
+    // Adopted mid-break: it already holds its tables and resumes itself at the
+    // end recorded on its row. Holding it again would restart its five minutes.
+    if (tm.hasOwnRunningBreak()) return;
     const generation = this.lifecycleGeneration;
     const breakGeneration = this.synchronizedBreakGeneration;
     // Same single gate as triggerSynchronizedBreak — a Spin or Heads-Up that
