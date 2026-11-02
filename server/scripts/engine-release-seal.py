@@ -760,6 +760,7 @@ def routine_owner_unresolved(state: dict[str, Any], cycle: dict[str, Any]) -> bo
 
 
 TERMINAL_OWNER_SETTLE_MS = 60_000
+ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS = 180
 TERMINAL_RESOLUTION_KEYS = {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'verifiedByControlSha',
                             'verifiedByTargetSha', 'invocationId', 'observedAt', 'proof'}
 TERMINAL_PROOF_KEYS = {'failureDigest', 'checkpointIntentDigest', 'checkpointRefusalDigest', 'originalProcess',
@@ -1068,6 +1069,10 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner not in pinned_routine_owners() and isinstance(resolution, dict) \
             and resolution.get('result') == 'cancelled-announcement-proved':
         validate_generic_cancelled_resolution(resolution, cycle)
+        return
+    if owner not in pinned_routine_owners() and isinstance(resolution, dict) \
+            and resolution.get('result') == 'unentered-cycle-proved':
+        validate_generic_unentered_resolution(resolution, cycle)
         return
     if owner != NINEF_RUN:
         die('routine failure resolution history is invalid')
@@ -1464,6 +1469,107 @@ def daily_refusal_proof(state: dict[str,Any], cycle: dict[str,Any], deadline: fl
         return None
 
 
+
+# A GENERIC NEVER-ANNOUNCED FAILED OWNER (2026-11-02). A run that reserved its
+# hourly cycle and failed before any announcement (no bound window, no
+# recovery-window reservation, no checkpoint) owns nothing at runtime, yet its
+# 'reserved' cycle stayed authoritative and refused every later release
+# (41511864834-1). It resolves only by the same positive witnesses as the
+# pinned unentered daily profile: its canonical durable failure, the sealed
+# desired runtime it recovered, native quiescence with every request, intent,
+# checkpoint, retirement, hold, pin, lease and recovery-window trace absent,
+# both health views on one idle unfrozen instance with Inspector closed, and
+# the database idle with a fresh leader. Unproved owners stay authoritative.
+GENERIC_UNENTERED_CYCLE_KEYS = {'controlSha', 'endsAt', 'failure', 'kind', 'policyDigest', 'policyId', 'runId',
+                                'sha', 'startsAt', 'status'}
+GENERIC_UNENTERED_FAILURE_KEYS = {'completedAt', 'controlSha', 'invocationId', 'recoveredDesiredImageId',
+                                  'recoveredDesiredSha', 'result', 'runId', 'schema', 'sha', 'transactionExitStatus'}
+GENERIC_UNENTERED_PROOF_KEYS = {'failureDigest', 'nativeDigest', 'runtime', 'database'}
+
+
+def generic_unentered_shape(cycle: Any) -> bool:
+    f = cycle.get('failure') if isinstance(cycle, dict) else None
+    try:
+        return bool(isinstance(cycle, dict) and set(cycle) == GENERIC_UNENTERED_CYCLE_KEYS
+            and RUN_ID_RE.fullmatch(str(cycle['runId'])) is not None and cycle['runId'] not in pinned_routine_owners()
+            and SHA_RE.fullmatch(str(cycle['sha'])) is not None and SHA_RE.fullmatch(str(cycle['controlSha'])) is not None
+            and cycle['kind'] == 'hourly-reset' and cycle['policyId'] == SCHEDULE_POLICY_ID
+            and cycle['policyDigest'] == NINEF_POLICY_DIGEST and cycle['status'] == 'reserved'
+            and type(cycle['startsAt']) is int and type(cycle['endsAt']) is int
+            and cycle['startsAt'] > 0 and cycle['startsAt'] % 3600 == 0 and cycle['endsAt'] == cycle['startsAt'] + 300
+            and isinstance(f, dict) and set(f) == GENERIC_UNENTERED_FAILURE_KEYS
+            and f['schema'] == 1 and f['result'] == 'failed' and f['runId'] == cycle['runId']
+            and f['sha'] == cycle['sha'] and f['controlSha'] == cycle['controlSha']
+            and type(f['completedAt']) is int and f['completedAt'] > 0
+            and type(f['transactionExitStatus']) is int and f['transactionExitStatus'] != 0
+            and INVOCATION_ID_RE.fullmatch(str(f['invocationId'])) is not None
+            and SHA_RE.fullmatch(str(f['recoveredDesiredSha'])) is not None
+            and re.fullmatch('sha256:[0-9a-f]{64}', str(f['recoveredDesiredImageId'])) is not None)
+    except (KeyError, TypeError):
+        return False
+
+
+def generic_unentered_candidate(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    """Only an expired, never-committed, never-announced failed generic owner."""
+    return (generic_unentered_shape(cycle) and cycle['runId'] not in state['committedRuns']
+            and time.time() * 1000 > cycle['endsAt'] * 1000 + TERMINAL_OWNER_SETTLE_MS)
+
+
+def validate_generic_unentered_resolution(value: Any, cycle: dict[str, Any], verify_receipt: bool = True) -> None:
+    failed_routine_require(generic_unentered_shape(cycle))
+    owner = cycle['runId']
+    failed_routine_require(isinstance(value, dict) and set(value) == TERMINAL_RESOLUTION_KEYS
+        and value['schema'] == 1 and value['result'] == 'unentered-cycle-proved' and value['originalCycle'] == cycle
+        and RUN_ID_RE.fullmatch(str(value['verifiedByRunId'])) is not None and value['verifiedByRunId'] != owner
+        and all(SHA_RE.fullmatch(str(value[k])) is not None for k in ('verifiedByControlSha', 'verifiedByTargetSha'))
+        and not {cycle['sha'], cycle['controlSha']} & {value['verifiedByControlSha'], value['verifiedByTargetSha']}
+        and INVOCATION_ID_RE.fullmatch(str(value['invocationId'])) is not None
+        and type(value['observedAt']) is int
+        and value['observedAt'] * 1000 > cycle['endsAt'] * 1000 + TERMINAL_OWNER_SETTLE_MS)
+    proof = value['proof']
+    failed_routine_require(isinstance(proof, dict) and set(proof) == GENERIC_UNENTERED_PROOF_KEYS
+        and proof['failureDigest'] == failed_routine_digest(cycle['failure'])
+        and re.fullmatch('[0-9a-f]{64}', str(proof['nativeDigest'])) is not None)
+    runtime = proof['runtime']
+    failed_routine_require(isinstance(runtime, dict) and set(runtime) == {'containerId', 'startedAt', 'instanceId'}
+        and CONTAINER_ID_RE.fullmatch(str(runtime['containerId'])) is not None
+        and INSTANCE_ID_RE.fullmatch(str(runtime['instanceId'])) is not None and isinstance(runtime['startedAt'], str))
+    try:
+        birth = datetime.fromisoformat(runtime['startedAt'].replace('Z', '+00:00'))
+    except ValueError:
+        die('exact failed routine custody is unproved')
+    failed_routine_require(birth.tzinfo is not None and 0 < birth.timestamp() < value['observedAt'])
+    failed_routine_require(proof['database'] == {'schema': 'failed-routine-database-idle/v1',
+        'sha': cycle['failure']['recoveredDesiredSha'], 'instanceId': runtime['instanceId'],
+        'databaseIdle': True, 'freshLeader': True})
+    if verify_receipt:
+        failed_routine_require(failed_routine_json(terminal_receipt_path(owner, value['verifiedByRunId'],
+                                                                         value['invocationId'])) == value)
+
+
+def generic_unentered_proof(state: dict[str, Any], cycle: dict[str, Any], deadline: float) -> dict[str, Any] | None:
+    # Never synthesize an announcement or rewrite the cycle; the proof only
+    # observes that the run left nothing behind and the floor is idle.
+    try:
+        failed_routine_require(generic_unentered_candidate(state, cycle))
+        owner = cycle['runId']
+        failure = cycle['failure']
+        desired = state['desired']
+        failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+            and load_failure(owner) == failure
+            and desired['sha'] == failure['recoveredDesiredSha'] == FAILED_ROUTINE_DESIRED
+            and desired['imageId'] == failure['recoveredDesiredImageId'] == FAILED_ROUTINE_IMAGE)
+        native = failed_routine_native_proof(deadline, owner)
+        runtime = failed_routine_runtime(deadline)  # Includes closed Inspector.
+        failed_routine_database(runtime, deadline)
+        return {'failureDigest': failed_routine_digest(failure), 'nativeDigest': failed_routine_digest(native),
+                'runtime': runtime,
+                'database': {'schema': 'failed-routine-database-idle/v1', 'sha': FAILED_ROUTINE_DESIRED,
+                             'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True}}
+    except (SystemExit, Exception):
+        return None
+
+
 # This profile resolves only the original 08e refusal before WebSocket creation.
 # It never retries that operation or claims that its native close succeeded.
 PREATTACH_RUN = '41452708967-1'
@@ -1745,8 +1851,10 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
             generic = owner not in pinned_routine_owners() and generic_cancelled_candidate(state, cycle)
+            unentered = (owner not in pinned_routine_owners() and not generic
+                         and generic_unentered_candidate(state, cycle))
             if (owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN}
-                    and not generic) or owner == run_id or not routine_owner_unresolved(state, cycle):
+                    and not generic and not unentered) or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
             if owner == PREATTACH_RUN:
                 establish_preattach_disposition(args, state, cycle, deadline)
@@ -1764,6 +1872,9 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
                         return generic_cancelled_proof(args, state, cycle, deadline)
                     except (SystemExit, ValueError, KeyError, TypeError):
                         return None
+            if unentered:
+                def prove() -> dict[str, Any] | None:
+                    return generic_unentered_proof(state, cycle, deadline)
             proof = prove()
             if proof is None:
                 continue
@@ -1774,7 +1885,7 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} or generic else 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'unentered-cycle-proved' if unentered else 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} or generic else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
             if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
@@ -1782,6 +1893,11 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if generic:
                 try:
                     validate_generic_cancelled_resolution(resolution, cycle, verify_receipt=False)
+                except SystemExit:
+                    continue  # unproved: the owner stays authoritative
+            if unentered:
+                try:
+                    validate_generic_unentered_resolution(resolution, cycle, verify_receipt=False)
                 except SystemExit:
                     continue  # unproved: the owner stays authoritative
             if owner == DAILY_REFUSAL_RUN:
@@ -1876,6 +1992,14 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
                 print(json.dumps({'status':'daily'})); return
             kind = 'daily-restoration'
         starts = (now // 3600 + 1) * 3600
+        # An hourly cycle can only be announced in its :58 minute
+        # (recovery_window_reason admits [start-120, start-60)). Reserving an
+        # hour whose announcement minute has passed or is about to pass
+        # guarantees an unannounced failed owner that wedges every later
+        # release (41511864834-1 reserved 20:00 at 19:59:21). Such a run owns
+        # the following hour instead; nothing else about admission changes.
+        if starts - now < ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS:
+            starts += 3600
         key = str(starts)
         if key in cycles:
             print(json.dumps(cycles[key], sort_keys=True)); return

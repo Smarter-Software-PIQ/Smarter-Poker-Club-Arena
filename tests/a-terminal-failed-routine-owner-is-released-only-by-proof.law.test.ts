@@ -17,6 +17,6 @@ it('records a terminal failed owner only under complete proof and keeps every un
     timeout: 30000,
   });
   expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stdout + result.stderr).toContain('Ran 44 tests');
+  expect(result.stdout + result.stderr).toContain('Ran 49 tests');
   expect(result.stdout + result.stderr).toContain('OK');
 }, 35000);
