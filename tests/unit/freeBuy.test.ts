@@ -126,7 +126,9 @@ describe('tournamentFromTableConfig: a 0 buy-in MTT is Free Buy whatever the sli
     );
     expect(c.rebuyCost).toBe(1);
     expect(c.addOnCost).toBe(1);
-    expect(c.addOnChips).toBe(10000);
+    // Dan 2026-11-01: an add-on pays the starting stack, exactly - the 2x
+    // multiplier and the custom chip count are both ignored.
+    expect(c.addOnChips).toBe(5000);
     expect(c.maxRebuys).toBe(2);
   });
 
@@ -234,7 +236,9 @@ describe('ScheduledTournamentService.buildInsertRow: the DSS freeroll schedules'
     expect(row.rebuy_cost).toBe(1);
     expect(row.addon_cost).toBe(1);
     expect(row.rebuy_chips).toBe(5000);
-    expect(row.addon_chips).toBe(10000);
+    // Dan 2026-11-01: an add-on pays the starting stack, exactly - the
+    // schedule's configured 10,000 is ignored.
+    expect(row.addon_chips).toBe(5000);
     expect(row.max_rebuys).toBeNull();
   });
 

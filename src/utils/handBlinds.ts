@@ -10,7 +10,10 @@ export function parseHandBlinds(
   raw: unknown,
   tableId: unknown,
   handNumber: unknown
-): HandBlinds | null {
+): HandBlinds | null | undefined {
+  // Absent means a legacy engine, not an invalid modern contract. Keep this
+  // distinction through mapping so an optional server upgrade cannot disable BB.
+  if (raw === undefined) return undefined;
   if (!raw || typeof raw !== 'object') return null;
   const b = raw as Record<string, unknown>;
   if (
@@ -37,7 +40,10 @@ export function parseHandBlinds(
   };
 }
 
-/** Legacy tournament metadata cannot certify the denomination of a dealt hand. */
+/** Prefer the dealt-hand contract; legacy engines retain their metadata display.
+ * null is a rejected modern contract and must not silently downgrade to metadata.
+ * undefined means the optional field is absent (including initial hydration).
+ */
 export function displayBigBlind(
   hand: HandBlinds | null | undefined,
   tableId: string,
@@ -46,5 +52,6 @@ export function displayBigBlind(
   metadataBigBlind: number
 ): number {
   if (hand?.tableId === tableId && hand.handNumber === handNumber) return hand.bigBlind;
-  return tournament ? 0 : metadataBigBlind;
+  if (tournament && hand !== undefined) return 0;
+  return Number.isFinite(metadataBigBlind) && metadataBigBlind > 0 ? metadataBigBlind : 0;
 }

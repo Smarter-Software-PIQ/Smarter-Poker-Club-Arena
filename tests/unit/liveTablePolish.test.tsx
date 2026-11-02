@@ -118,10 +118,8 @@ describe('5. the tournament dock can be read', () => {
     );
   });
 
-  it('the toggle and the LOBBY button show a focus ring', () => {
-    expect(HUD_CSS).toMatch(
-      /\.tournament-dock__line--toggle:focus-visible,\s*\.tournament-lobby-corner-btn:focus-visible \{\s*outline: 2px solid/
-    );
+  it('the toggle shows a focus ring (the LOBBY plate moved to the tab bar, Dan 2026-11-01)', () => {
+    expect(HUD_CSS).toMatch(/\.tournament-dock__line--toggle:focus-visible \{\s*outline: 2px solid/);
   });
 });
 

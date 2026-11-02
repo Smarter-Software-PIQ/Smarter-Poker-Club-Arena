@@ -2618,6 +2618,13 @@ record_floor_runtime_entry() {
 
 # Duplicate certification and interrupted recovery retain their original owner.
 acquire_engine_lock 'duplicate certification'
+# One pinned historical permanent refusal may release its global custody only
+# after fresh source/native/runtime/database proof under this actual lock.
+# Its failed receipt and consumed cycle remain immutable; this does not retry it.
+legacy_entry_read timeout --signal=TERM --kill-after=1s 60s \
+  "$RELEASE_SEAL" resolve-failed-routine --engine-lock-fd 9 --run-id "$RUN_ID" \
+  --sha "$SHA" --control-sha "$CONTROL_SHA" --invocation-id "$INVOCATION_ID" >/dev/null \
+  || die 'a prior failed routine custody resolution refused or is unknown'
 # Pure durable ownership read precedes any desired-runtime restoration. New
 # source policy/cycle admission still follows canonical committed-run replay.
 legacy_entry_read timeout --signal=TERM --kill-after=1s 15s \

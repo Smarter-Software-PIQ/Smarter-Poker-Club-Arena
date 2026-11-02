@@ -212,7 +212,9 @@ describe('Entry Rules and Prize Style are two controls', () => {
 describe('the add-on break length', () => {
   it('is not offered on a paid MTT, and a paid event sends one minute', async () => {
     await openMttTab();
-    expect(screen.getByRole('slider', { name: 'Add-On' })).toBeTruthy();
+    // Dan 2026-11-01: the add-on pays the starting stack exactly, so the
+    // 0-3x chips multiplier slider became an on/off switch.
+    expect(screen.getByRole('switch', { name: 'Add-On' })).toBeTruthy();
     expect(screen.queryByRole('slider', { name: 'Add-On Break Length' })).toBeNull();
     await start();
     expect(created().addOnAvailable).toBe(true);
