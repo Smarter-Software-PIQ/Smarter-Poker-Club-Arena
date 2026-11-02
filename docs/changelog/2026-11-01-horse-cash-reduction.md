@@ -9,3 +9,5 @@ Fleet admission and the existing session rotator share the game predicate. The r
 Native isolated PostgreSQL qualification applies the exact migration against captured predecessor definitions with hash refusal on drift. It exercises the timestamp boundary, stake limits, tournament/human/settlement/move preservation, function grants and all capacity inputs 1 through 32 with both feeder modes. A local-only helper default supplies the future date to exercise the installed trigger before midnight; no production fixture is used. Engine tests cover all 1,440 minutes, UTC/Chicago boundary and connected planner/seeder/rotator wiring.
 
 Delivery is pending protected checks, merge, database installation and verified engine adoption. Scheduled activation and post-midnight observed departures/table-hours are separate acceptance evidence.
+
+Hosted Client shard 7 required an explicit Classic movement-rule preservation assertion in every tick migration. The exact predecessor patch retained that rule; installation now additionally refuses if its call is absent. The 11 Classic law tests and exact native PostgreSQL qualification pass with this assertion.
