@@ -1,6 +1,6 @@
 # Tournament Settlement Display (Burls, Sunday 200 Deep Stack, 2026-11-01)
 
-Status: CLOSED for implementation and financial verification. One item outstanding: an observed production bust (see Outstanding Proof).
+Status: CLOSED for implementation and financial reconciliation. One verification limitation remains open: natural production finish-screen proof (see Outstanding Proof). Simulated evidence below does not prove that case.
 
 ## Incident
 - Tournament `b85c5ce4-5d17-4f1d-9ca7-81c6a225701c` (Sunday 200 Deep Stack, 316 entrants, COMPLETED).
@@ -30,13 +30,15 @@ Reopen path: the report persists in sessionStorage (`club-arena-finish-reports-v
 
 ## Financial Verification (read only, no repayment)
 - Burls: exactly one prize credit, `wallet_transactions` `22175753-fa68-4110-9215-e82303b5997f`, 507.96, "Tournament prize: position 39", 23:38:41Z. `tournament_players`: position 39, prize 507.96, bounty 0. One `tournament_payouts` row.
-- Event payouts: 49 paid players (places 1-48 plus bubble protection for place 49), 49 `tournament_payouts` rows, 49 distinct users.
+- Event payout records: 49 `tournament_payouts` rows, 49 distinct users, made up of two separate kinds:
+  - Place prizes: 48 players, places 1-48, total 61,200.00.
+  - Bubble-protection refund: 1 player (finished 49th), buy-in of 180.00 returned. This is a refund, not a place prize, even though it is recorded as a payout row and `tournament_players.prize`.
 
 ## Notification Reconciliation
-- 49 `tournament_cash` notices = 48 place notices (places 1-48) + 1 `bubble_protection` notice (place 49, 180.00 buy-in returned). The earlier "48 paid finishers" figure was wrong; 48 is the place notices only.
+- 49 `tournament_cash` notices = 48 place-prize notices (`kind=place`, places 1-48, total 61,200.00) + 1 bubble-protection refund notice (`kind=bubble_protection`, 49th, 180.00). The earlier "48 paid finishers" figure counted place prizes only; 49 players received money.
 - 49 distinct recipients, 49 distinct `obligation_id`, 48 distinct places, no duplicate recipient.
 - Every place notice matches its player's `tournament_players` row on user, position and prize. The bubble notice matches on user and amount (180.00); place is null by design for that kind.
-- Display-only text edits: 47 place notices in one bulk update, Burls' separately, and the bubble notice (180.00 -> 180) after it was found still showing decimals. `data.amount` untouched on all 49 (sum 61,380.00, equal to the recorded prizes of the same 49 players). No notice deleted, no wallet entry created.
+- Display-only text edits: 47 place notices in one bulk update, Burls' separately, and the bubble notice (180.00 -> 180) after it was found still showing decimals. `data.amount` untouched on all 49 (61,200.00 place prizes + 180.00 refund = 61,380.00, equal to the recorded amounts of the same 49 players). No notice deleted, no wallet entry created.
 
 Reconciliation query:
 ```sql
@@ -49,4 +51,4 @@ select count(*), count(distinct user_id), count(distinct ob), count(distinct pla
 ```
 
 ## Outstanding Proof
-- Observed production bust showing Pending then the settled total on the live client. No supported tournament test route exists in the repository, and producing one would require paid tournament activity. Capture on the next natural tournament finish by a beta account (KingFish or Danimal).
+- Observed production bust showing Pending then the settled total on the live client. No supported tournament test route exists in the repository, and producing one would require paid tournament activity. Capture only on an authorized natural tournament finish (for example a beta account, KingFish or Danimal); never create paid activity to produce it.
