@@ -517,13 +517,13 @@ export function DiamondTopUpModal({
                         !cardPaymentAvailable ||
                         !user?.id
                       }
-                      aria-label={`Buy ${formatPopupText(pkg.name)}, ${(pkg.diamonds + pkg.bonus).toLocaleString()} Diamonds For ${pkg.priceUsd.toFixed(2)} USD`}
+                      aria-label={`Buy ${formatPopupText(pkg.name)}, ${(pkg.diamonds + pkg.bonus).toLocaleString()} Diamonds For ${pkg.priceUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD`}
                     >
                       {/* DOLLARS, LABELLED AS DOLLARS. */}
                       {redirecting === pkg.id
                         ? 'Opening Checkout'
                         : cardPaymentAvailable
-                          ? `${pkg.priceUsd.toFixed(2)} USD`
+                          ? `${pkg.priceUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD`
                           : 'Checkout Paused'}
                     </button>
                   </div>
