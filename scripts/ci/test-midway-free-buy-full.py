@@ -10,7 +10,22 @@ R=Path(__file__).resolve().parents[2]
 F=R/'scripts/ci/fixtures/midway-free-buy-pko'
 M=R/'supabase/migrations/20261102154336_midway_promo_funded_bounty_only_free_buys.sql'
 O=Path(tempfile.mkdtemp(prefix='mp-evidence-',dir=os.environ.get('TMPDIR')))
-E=module(R/'scripts/ci/test-mtt-unlimited.py','midway_full').Execution(
+class MidwayExecution(module(R/'scripts/ci/test-mtt-unlimited.py','midway_full').Execution):
+ # The required chip-journal gate ships a pinned pg Node client alongside its
+ # embedded server, which deliberately has no psql executable. Use that same
+ # transport, with only this newly owned cluster's connection parameters.
+ def sql(self,database,query=None,*,file=None,label='sql',seconds=90,check=True):
+  node=os.environ.get('PGNODE')
+  if not node:
+   return super().sql(database,query,file=file,label=label,seconds=seconds,check=check)
+  source=Path(file).read_text() if file is not None else query
+  # Node rejects SQL errors directly; only the retained psql error directive
+  # is transport syntax. Every actual SQL statement remains byte-identical.
+  source=source.replace('\\set ON_ERROR_STOP on\n','')
+  self.env.update(PGHOST=str(self.socket),PGHOSTADDR='',PGPORT=self.port,PGUSER='postgres',PGDATABASE=database)
+  return self.run(label,[node,R/'scripts/ci/probes/chip-journal-atomicity/postgres-runtime/registration-query.mjs'],text=json.dumps(source)+'\n',seconds=seconds,check=check)
+
+E=MidwayExecution(
  R,O,Path(os.environ.get('PG_BIN','/opt/homebrew/opt/postgresql@17/bin')),
  Path(os.environ.get('TMPDIR',tempfile.gettempdir())),600,
  socket_parent=Path(os.environ.get('CA_PG_SOCKET_ROOT',os.environ.get('TMPDIR',tempfile.gettempdir()))))

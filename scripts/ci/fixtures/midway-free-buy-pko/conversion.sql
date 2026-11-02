@@ -1,4 +1,4 @@
-\set ON_ERROR_STOP on
+BEGIN;
 INSERT INTO union_wallets(union_id,promo_wallet) VALUES('fade0000-0000-0000-0000-000000000001',1000);
 INSERT INTO tournaments(id,union_id,club_id,tournament_type,free_buy,is_pko,is_bounty,is_mystery_bounty,
  buy_in_amount,buy_in_fee,bounty_amount,guaranteed_prize,status,prize_pool,bounty_pool)
@@ -15,7 +15,7 @@ DO $$BEGIN
   IF SQLERRM='Ordinary registered guarantee change was accepted' THEN RAISE; END IF;
  END;
 END $$;
-\timing on
+COMMIT;
 BEGIN;
 DO $$BEGIN
  IF fn_ca_convert_midway_free_buy('10000000-0000-0000-0000-000000000001')<>412 THEN

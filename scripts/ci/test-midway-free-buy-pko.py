@@ -14,12 +14,15 @@ sock=Path(tempfile.mkdtemp(prefix='s-',dir=os.environ.get('CA_PG_SOCKET_ROOT',os
 port=str(35000+os.getpid()%10000)
 started=False
 
-def run(args,sql=None):
- r=subprocess.run([str(a) for a in args],input=sql,text=True,capture_output=True,timeout=60)
+def run(args,sql=None,env=None):
+ r=subprocess.run([str(a) for a in args],input=sql,text=True,capture_output=True,timeout=60,env=env)
  if r.returncode: raise RuntimeError(r.stderr)
  return r.stdout
 
 def query(db,sql):
+ if os.environ.get('PGNODE'):
+  env=dict(os.environ,PGHOST=str(sock),PGHOSTADDR='',PGPORT=port,PGUSER='postgres',PGDATABASE=db)
+  return run([os.environ['PGNODE'],ROOT/'scripts/ci/probes/chip-journal-atomicity/postgres-runtime/registration-query.mjs'],json.dumps(sql)+'\n',env)
  return run([PG/'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-h',sock,'-p',port,'-U','postgres','-d',db],sql)
 
 source=MIG.read_text()

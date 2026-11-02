@@ -1,4 +1,4 @@
-\set ON_ERROR_STOP on
+BEGIN;
 INSERT INTO union_wallets(union_id,promo_wallet) VALUES('fade0000-0000-0000-0000-000000000001',10);
 INSERT INTO tournaments(id,union_id,club_id,tournament_type,free_buy,is_pko,is_bounty,is_mystery_bounty,
  buy_in_amount,buy_in_fee,bounty_amount,guaranteed_prize,status,prize_pool,bounty_pool)
@@ -44,6 +44,7 @@ DO $$BEGIN
     OR (SELECT bounty_balance FROM tournament_escrow)<>0 THEN RAISE EXCEPTION 'Refusal changed money'; END IF;
 END $$;
 UPDATE union_wallets SET promo_wallet=10;
+COMMIT;
 BEGIN;
 SELECT fn_ca_midway_free_buy_promo_head('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000002',false);
 ROLLBACK;

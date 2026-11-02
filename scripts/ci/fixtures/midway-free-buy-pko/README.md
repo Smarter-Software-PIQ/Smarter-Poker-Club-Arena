@@ -28,3 +28,5 @@ with `--with-heads-up-payout`; that mode runs the new entry cases and both promo
 qualification runners without changing workflow routing or prior cases. Source snapshots were read on November 2, 2026; they carry no
 credentials or production player data. Production installation still requires
 protected merge and the existing Apply Merged Migration workflow.
+
+The required chip-journal gate uses its pinned Node PostgreSQL client when `PGNODE` is supplied; native workstations use `psql`. Both connect only to the newly created private cluster. Fixture opening state commits explicitly before the rollback probes, preserving the same transaction boundaries under either client.
