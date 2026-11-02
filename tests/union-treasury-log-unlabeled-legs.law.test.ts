@@ -11,7 +11,20 @@ const MIG = readFileSync(
   'utf8'
 );
 
+const INDEXED = readFileSync(
+  'supabase/migrations/20261102094736_union_treasury_log_wallet_lookup_uses_its_index.sql',
+  'utf8'
+);
+
 describe('union treasury log reads unlabeled union wallet legs', () => {
+  it('asks the wallet ledger by wallet name so the (union, wallet, created_at) index answers', () => {
+    // Without the wallet the lookup walked millions of rows per leg (104 s, 2026-11-02).
+    expect(INDEXED).toContain('u.wallet = m.w');
+    expect(INDEXED).not.toContain('count(DISTINCT u.wallet)');
+    expect(INDEXED.match(/HAVING count\(\*\) = 1\)/g)?.length).toBe(2);
+    expect(INDEXED).toContain('active := true');
+  });
+
   it('names an unlabeled out by the one wallet the union debited in that transaction', () => {
     expect(MIG).toContain("WHEN l.from_type = 'union_wallet' AND l.from_label IS NULL THEN");
     expect(MIG).toMatch(/u\.direction = 'debit'\s+HAVING count\(DISTINCT u\.wallet\) = 1/);
