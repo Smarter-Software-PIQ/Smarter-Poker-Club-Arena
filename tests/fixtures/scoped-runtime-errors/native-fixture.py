@@ -134,6 +134,86 @@ class NativeLogReader(unittest.TestCase):
                 reader.main()
         capture.assert_not_called()
 
+    def test_capacity_capture_reads_exact_container_ancestors_and_refuses_moved_membership(self):
+        import ast
+        import io
+        # Execute the actual functions sent to the host, with deterministic
+        # proc/cgroup bytes; no duplicate implementation of the collector.
+        tree = ast.parse(reader.CORE_CAPTURE_COMMAND)
+        definitions = ast.Module(body=[node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in ('text', 'limit', 'capacity')], type_ignores=[])
+        namespace = {'os': os, 're': re}
+        exec(compile(definitions, '<actual-host-capacity>', 'exec'), namespace)
+        identity = 'a'*64
+        leaf = '/system.slice/docker-'+identity+'.scope'
+        files = {'/proc/meminfo': 'MemTotal: 67108864 kB\nMemAvailable: 33554432 kB\nSwapFree: 0 kB',
+                 '/proc/123/limits': 'Max open files            1024                 65536                files',
+                 '/proc/123/cgroup': '0::'+leaf,
+                 '/sys/fs/cgroup/cgroup.controllers': 'memory pids cpu'}
+        for path,maximum in ((leaf,'max'),('/system.slice','42949672960'),('','max')):
+            files['/sys/fs/cgroup'+path+'/memory.max'] = maximum
+            files['/sys/fs/cgroup'+path+'/memory.current'] = '12345'
+            files['/sys/fs/cgroup'+path+'/memory.events'] = 'oom 2\noom_kill 1\nhigh 3\nmax 4'
+        def opened(path, mode):
+            self.assertEqual(mode, 'r')
+            self.assertTrue(path.startswith(('/proc/', '/sys/fs/cgroup/')))
+            if path not in files: raise FileNotFoundError(path)
+            return io.StringIO(files[path])
+        with patch('builtins.open', side_effect=opened), patch.object(os,'statvfs',side_effect=OSError):
+            result = reader.capacity_metadata(namespace['capacity'](123,identity,{'Memory':0}))
+        self.assertEqual(result['hostMemTotalBytes'],64*1024**3)
+        self.assertEqual(result['hostMemAvailableBytes'],32*1024**3)
+        self.assertEqual(result['nofileSoft'],1024)
+        self.assertEqual([row['memoryMaxBytes'] for row in result['cgroupV2']],['max',40*1024**3,'max'])
+        self.assertEqual(result['cgroupV2'][0]['oomKill'],1)
+        self.assertIsNone(result['cgroupV2'][0]['pidsMax'])
+        self.assertNotIn(identity,json.dumps(result))
+        for invalid in ('0::/../../PRIVATE', '0::/docker/'+'b'*64, '1:memory:/docker/'+identity):
+            files['/proc/123/cgroup']=invalid
+            with patch('builtins.open',side_effect=opened),patch.object(os,'statvfs',side_effect=OSError):
+                self.assertIsNone(namespace['capacity'](123,identity,{})['cgroupV2'])
+        files['/proc/123/cgroup']='0::'+leaf
+        calls=0
+        def moved(path,mode):
+            nonlocal calls
+            if path=='/proc/123/cgroup':
+                calls+=1
+                if calls==2: return io.StringIO('0::/docker/'+'b'*64)
+            return opened(path,mode)
+        with patch('builtins.open',side_effect=moved),patch.object(os,'statvfs',side_effect=OSError):
+            self.assertIsNone(namespace['capacity'](123,identity,{})['cgroupV2'])
+
+    def test_capacity_reaches_incident_output_through_existing_bounded_container_read(self):
+        def captured(command, seconds):
+            self.assertEqual(seconds,4)
+            if command == ['python3','-c',reader.CORE_CAPTURE_COMMAND]:
+                return json.dumps({'Id':'a'*64,'State':{'Running':True},
+                    'Capacity':{'hostMemTotalBytes':64*1024**3,'PRIVATE':'secret'}})
+            raise OSError('unavailable')
+        with patch.object(reader,'capture',side_effect=captured):
+            result=reader.read_restart_incident({'since':'2026-11-02T00:00:00Z','until':'2026-11-02T00:15:00Z'},b'')
+        row=result['sources']['container']['records'][0]
+        self.assertEqual(row['capacity']['hostMemTotalBytes'],64*1024**3)
+        self.assertIsNone(row['capacity']['hostMemAvailableBytes'])
+        self.assertNotIn('PRIVATE',json.dumps(result))
+
+    def test_capacity_metadata_is_closed_numeric_and_unknown_stays_unknown(self):
+        result = reader.capacity_metadata({'hostMemTotalBytes': 64*1024**3,
+            'hostMemAvailableBytes': 0, 'configuredMemoryBytes': 0,
+            'nofileSoft': 'unlimited', 'PRIVATE': 'credential',
+            'hostSwapFreeBytes': True, 'diskAvailableBytes': -1,
+            'cgroupV2': [{'level': 0, 'memoryMaxBytes': 'max', 'memoryCurrentBytes': 123,
+                          'PRIVATE': 'secret'}]})
+        self.assertEqual(result['hostMemTotalBytes'], 64*1024**3)
+        self.assertEqual(result['hostMemAvailableBytes'], 0)
+        self.assertEqual(result['configuredMemoryBytes'], 0)
+        self.assertIsNone(result['hostSwapFreeBytes'])
+        self.assertIsNone(result['diskAvailableBytes'])
+        self.assertEqual(result['nofileSoft'], 'unlimited')
+        self.assertEqual(result['cgroupV2'][0]['memoryMaxBytes'], 'max')
+        self.assertNotIn('PRIVATE', json.dumps(result))
+        self.assertIsNone(reader.capacity_metadata(None))
+
     def test_original_ten_incident_is_exact_expiring_and_exclusive(self):
         import copy
         now = datetime.datetime(2026, 11, 1, tzinfo=datetime.timezone.utc)
@@ -366,6 +446,7 @@ class NativeLogReader(unittest.TestCase):
             def read(path,mode):
                 values={'/proc/sys/kernel/core_pattern':pattern,'/proc/sys/kernel/core_uses_pid':uses,
                         '/proc/123/limits':'Max core file size        0        unlimited        bytes     \nMax locked memory        1        2        bytes'}
+                values.update({'/proc/meminfo':'', '/proc/123/cgroup':''})
                 self.assertIn(path,values) # A core is never opened.
                 self.assertEqual(mode,'r'); return io.StringIO(values[path])
             def opened_fd(path,flags,**kwargs):
@@ -428,6 +509,8 @@ class NativeLogReader(unittest.TestCase):
             def read(path,mode):
                 self.assertEqual(mode,'r')
                 allowed={'/proc/sys/kernel/core_pattern':pattern,'/proc/sys/kernel/core_uses_pid':'0','/proc/123/limits':''}
+                allowed.update({'/proc/meminfo':'', '/proc/123/cgroup':allowed.get('/proc/123/cgroup','')})
+                if path == '/sys/fs/cgroup/cgroup.controllers': raise FileNotFoundError(path)
                 self.assertIn(path,allowed) # No report or core contents are opened.
                 return io.StringIO(allowed[path])
             def open_dir(path,flags,**kwargs):
@@ -484,6 +567,8 @@ class NativeLogReader(unittest.TestCase):
             def read(path,mode):
                 allowed={'/proc/sys/kernel/core_pattern':'|/usr/share/apport/apport -p %p PRIVATE',
                          '/proc/sys/kernel/core_uses_pid':'0','/proc/123/limits':''}
+                allowed.update({'/proc/meminfo':'', '/proc/123/cgroup':allowed.get('/proc/123/cgroup','')})
+                if path == '/sys/fs/cgroup/cgroup.controllers': raise FileNotFoundError(path)
                 self.assertIn(path,allowed);return io.StringIO(allowed[path])
             def open_fd(path,flags,**kwargs):
                 if path=='/var':raise OSError('artifact metadata unavailable')
@@ -575,6 +660,8 @@ class NativeLogReader(unittest.TestCase):
                 allowed={'/proc/sys/kernel/core_pattern':pattern,
                          '/proc/sys/kernel/core_uses_pid':'0','/proc/123/limits':'','/proc/123/status':'Uid: '+uid+' '+(effective if effective is not None else uid)+' '+(saved if saved is not None else uid)+' '+uid,'/proc/123/cgroup':cgroup,
                          '/proc/sys/kernel/random/boot_id':'PRIVATE' if failure=='boot' else boot}
+                allowed.update({'/proc/meminfo':'', '/proc/123/cgroup':allowed.get('/proc/123/cgroup','')})
+                if path == '/sys/fs/cgroup/cgroup.controllers': raise FileNotFoundError(path)
                 self.assertIn(path,allowed);return io.StringIO(allowed[path])
             def entries(fd):
                 self.assertEqual(paths[fd],'/var/lib/apport/coredump')
