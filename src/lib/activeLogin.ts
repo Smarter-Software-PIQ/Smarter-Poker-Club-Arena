@@ -177,12 +177,12 @@ async function askSameOrNewDevice(sid: string, devices: DeviceRow[]): Promise<vo
   const choice = await promptSameOrNew(devices);
   try {
     if (choice.kind === 'new') {
-      const { data } = await supabase.rpc('ca_register_new_device', {
+      const { data, error } = await supabase.rpc('ca_register_new_device', {
         p_device_id: getDeviceId(),
         p_label: defaultLabel(),
       });
       const a = (data ?? {}) as ClaimAnswer;
-      if (a.ok !== false) {
+      if (!error && a.ok !== false) {
         rememberDevice(a.device_id);
         startApproveListener();
       }
@@ -198,13 +198,13 @@ async function askSameOrNewDevice(sid: string, devices: DeviceRow[]): Promise<vo
 
 /** Ask a browser on the chosen device to approve, and wait for the verdict. */
 async function requestPairingAndWait(deviceId: string, label: string): Promise<void> {
-  const { data } = await supabase.rpc('ca_request_pairing', {
+  const { data, error } = await supabase.rpc('ca_request_pairing', {
     p_device_id: getDeviceId(),
     p_target_device_id: deviceId,
     p_label: defaultLabel(),
   });
   const req = (data ?? {}) as { ok?: boolean; request_id?: string };
-  if (req.ok === false || !req.request_id) {
+  if (error || req.ok === false || !req.request_id) {
     promptNewDeviceFallback();
     return;
   }
@@ -213,12 +213,12 @@ async function requestPairingAndWait(deviceId: string, label: string): Promise<v
   dialog.close();
   if (verdict === 'approved') {
     // Bound now: re-claim to pin this session to the device and coexist.
-    const { data: d2 } = await supabase.rpc('ca_claim_active_login', {
+    const { data: d2, error: e2 } = await supabase.rpc('ca_claim_active_login', {
       p_device_id: getDeviceId(),
       p_label: defaultLabel(),
     });
     const a = (d2 ?? {}) as ClaimAnswer;
-    if (a.bound) {
+    if (!e2 && a.bound) {
       rememberDevice(a.device_id);
       startApproveListener();
     }
@@ -263,14 +263,15 @@ function waitForPairingVerdict(requestId: string): Promise<'approved' | 'denied'
     // Realtime can miss the first event; poll as a backstop.
     const poll = setInterval(async () => {
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('ca_pairing_requests')
           .select('status')
           .eq('id', requestId)
           .maybeSingle();
-        const s = String((data as { status?: string } | null)?.status ?? '');
-        if (s === 'approved') finish('approved');
-        else if (s === 'denied' || s === 'expired') finish('denied');
+        if (error) return;
+        const st = String((data as { status?: string } | null)?.status ?? '');
+        if (st === 'approved') finish('approved');
+        else if (st === 'denied' || st === 'expired') finish('denied');
       } catch {
         /* keep waiting */
       }
