@@ -10,6 +10,9 @@ import { authCapturedAclInstallSql, authCapturedAclObservationSql } from './auth
 import { realtimeCapturedAclInstallSql, realtimeCapturedAclObservationSql } from './realtime-captured-acls.mjs';
 import { dblinkCapturedInitialAclInstallSql, dblinkCapturedInitialAclObservationSql } from './dblink-captured-initial-acl.mjs';
 import { installSql as managedBootstrapFunctionsInstallSql, observationSql as managedBootstrapFunctionsObservationSql } from './managed-bootstrap-functions.mjs';
+import { postgresExtensionCapturedAclInstallSql, postgresExtensionCapturedAclObservationSql } from './postgres-extension-captured-acls.mjs';
+import { cronCapturedTableAclInstallSql, cronCapturedTableAclObservationSql } from './cron-captured-table-acls.mjs';
+import { realtimeCapturedPublicationInstallSql, realtimeCapturedPublicationObservationSql } from './realtime-captured-publication.mjs';
 
 export const currentRoleGraphWitness =
   'sha256:3a2743a41de40149f61ac411400e0009b9e2f55ae9497117041f8e71156ac679';
@@ -764,6 +767,9 @@ export async function installCurrentApplicationExtensions({
     await bootstrap.query("BEGIN; SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='5s';");
     try {
       await bootstrap.query(managedBootstrapFunctionsInstallSql);
+      await bootstrap.query(postgresExtensionCapturedAclInstallSql);
+      await bootstrap.query(cronCapturedTableAclInstallSql);
+      await bootstrap.query(realtimeCapturedPublicationInstallSql);
       await bootstrap.query('COMMIT');
     } catch (error) {
       await bootstrap.query('ROLLBACK').catch(() => {});
@@ -797,6 +803,15 @@ export async function installCurrentApplicationExtensions({
       assert.deepEqual((await legacyObserver.query(managedBootstrapFunctionsObservationSql)).rows,
         [{managed_bootstrap_functions_exact: true}],
         new assert.AssertionError({message: 'FIXTURE_ASSERT_MANAGED_BOOTSTRAP_FUNCTIONS_POSTIMAGE'}));
+      assert.deepEqual((await legacyObserver.query(postgresExtensionCapturedAclObservationSql)).rows,
+        [{postgres_extension_captured_acls_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_POSTGRES_EXTENSION_CAPTURED_ACL_POSTIMAGE'}));
+      assert.deepEqual((await legacyObserver.query(cronCapturedTableAclObservationSql)).rows,
+        [{cron_captured_table_acl_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_CRON_CAPTURED_TABLE_ACL_POSTIMAGE'}));
+      assert.deepEqual((await legacyObserver.query(realtimeCapturedPublicationObservationSql)).rows,
+        [{realtime_captured_publication_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_REALTIME_CAPTURED_PUBLICATION_POSTIMAGE'}));
     } finally {
       await databaseOwner.end(legacyObserver);
     }

@@ -13,7 +13,7 @@ import uuid
 import importlib.util
 import time
 
-FILES = ('managed-bootstrap-functions.mjs', 'managed-bootstrap-functions.sql', 'auth-captured-acls.mjs', 'realtime-captured-acls.mjs', 'dblink-captured-initial-acl.mjs', 'fixture_dblink_acl_baseline.control', 'fixture_dblink_acl_baseline--1.0.sql', 'graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
+FILES = ('postgres-extension-captured-acls.mjs', 'cron-captured-table-acls.mjs', 'realtime-captured-publication.mjs', 'managed-bootstrap-functions.mjs', 'managed-bootstrap-functions.sql', 'auth-captured-acls.mjs', 'realtime-captured-acls.mjs', 'dblink-captured-initial-acl.mjs', 'fixture_dblink_acl_baseline.control', 'fixture_dblink_acl_baseline--1.0.sql', 'graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
          'runtime-files.mjs', 'gateway.mjs', 'auth-fixture.mjs', 'auth-bootstrap-proof.mjs',
          'service-role-boundary.mjs', 'realtime-control-plane.mjs', 'realtime-legacy-relations.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
          'seed-fixture.mjs', 'native-smoke.mjs', 'observation-bridge.mjs', 'build-image.sh', 'smoke-image.sh')
@@ -75,6 +75,9 @@ CURRENT_APPLICATION_ASSERTION_SITES = frozenset((
     'EXTENSION_POSTIMAGE',
     'EXTENSION_NAMESPACE_POSTIMAGE',
     'MANAGED_BOOTSTRAP_FUNCTIONS_POSTIMAGE',
+    'POSTGRES_EXTENSION_CAPTURED_ACL_POSTIMAGE',
+    'CRON_CAPTURED_TABLE_ACL_POSTIMAGE',
+    'REALTIME_CAPTURED_PUBLICATION_POSTIMAGE',
 ))
 CURRENT_APPLICATION_SQL_GUARD_SITES = frozenset((
     'AUTH_ACL_PREIMAGE',
@@ -93,6 +96,15 @@ CURRENT_APPLICATION_SQL_GUARD_SITES = frozenset((
     'MANAGED_BOOTSTRAP_CONTEXT',
     'MANAGED_BOOTSTRAP_ABSENCE',
     'MANAGED_BOOTSTRAP_POSTIMAGE',
+    'POSTGRES_EXTENSION_ACL_CONTEXT',
+    'POSTGRES_EXTENSION_ACL_PREIMAGE',
+    'POSTGRES_EXTENSION_ACL_POSTIMAGE',
+    'CRON_TABLE_ACL_CONTEXT',
+    'CRON_TABLE_ACL_PREIMAGE',
+    'CRON_TABLE_ACL_POSTIMAGE',
+    'REALTIME_PUBLICATION_CONTEXT',
+    'REALTIME_PUBLICATION_PREIMAGE',
+    'REALTIME_PUBLICATION_POSTIMAGE',
 ))
 NATIVE_ERROR_NAMES = frozenset(('Error', 'AssertionError', 'TypeError', 'RangeError',
                                 'SyntaxError', 'TimeoutError', 'AggregateError', 'error'))
