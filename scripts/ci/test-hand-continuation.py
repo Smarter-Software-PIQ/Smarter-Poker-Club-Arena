@@ -123,6 +123,7 @@ def main():
     inputs += [Path('supabase/migrations/20261031031334_retained_hand_permit_readers_allow_settlement_foreign_keys.sql')]
     inputs += [Path('supabase/migrations/20261031034048_diamond_closure_parks_retained_originals_without_disposing_t.sql'),Path('scripts/ci/build-diamond-complete-park.py')]
     inputs += [Path('supabase/migrations/20261031032915_diamond_arena_owner_boundary_closure_without_refunds.sql'),Path('scripts/ci/build-diamond-owner-closure.py'),Path('scripts/ci/test-diamond-owner-closure.py'),Path('scripts/ci/fixtures/diamond-owner-closure.json')]
+    inputs += [Path('supabase/migrations/20261102152030_diamond_closure_disables_and_rejects_future_schedules.sql'),Path('scripts/ci/diamond_closed_schedule_cases.py')]
     inputs += [Path('scripts/ci/test-diamond-history-removal.py'),Path('scripts/operations/remove-diamond-settled-history.sql')]
     source=dict(manifest['source_sha256']);source.update({str(p):sha(ROOT/p) for p in inputs})
     e.report.update(source_sha256=source,installation_refusals=[],races=[],scope='private original continuation on exact production-captured atomic/stack/retention functions and maintained real financial/F06 closure; not live activation')

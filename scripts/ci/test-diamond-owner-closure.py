@@ -115,6 +115,10 @@ ROLLBACK;
    x:=public.fn_f06_begin_hand('20000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002',1,'50000000-0000-0000-0000-000000000001',1,'60000000-0000-0000-0000-000000000001');IF x->>'ok'<>'true' THEN RAISE EXCEPTION 'original_receipt_lost';END IF;
   END$$;""",label='retained-originals-parked-without-disposition')
   if before!=e.sql(db,preserved,label='park-original-state-after')[1]:raise RuntimeError('parking changed originals or money')
+  schedules=module(ROOT/'scripts/ci/diamond_closed_schedule_cases.py','diamond_closed_schedule_cases')
+  schedule_migration=schedules.qualify(e,ROOT,db)
+  for source in [schedule_migration,ROOT/'scripts/ci/diamond_closed_schedule_cases.py']:
+   e.report['source_sha256'][str(source.relative_to(ROOT))]=n.sha(source)
   if any(n.sha(ROOT/x)!=h for x,h in e.report['source_sha256'].items()):raise RuntimeError('qualification source changed')
   e.report.update(status='passed',scope='Exact installed functions, boundary/admission routing and original permit replay. No production writes or financial simulation.')
  except BaseException as err:e.report['failure']=repr(err)
