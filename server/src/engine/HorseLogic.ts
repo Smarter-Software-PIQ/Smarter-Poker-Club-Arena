@@ -2402,10 +2402,11 @@ export interface HorseDecideOpts {
   v78NoCommittingBluffRaise?: boolean;
   /** V79 (2026-11-02, Burls via Dan: horses "stack off with top pair, no
    *  weak kickers"): hold'em top pair with a weak kicker (9 or lower, not
-   *  pairing the board) facing a turn or river wager of 0.6 pot or more, or
-   *  one that commits 40%+ of the stack, has its equity capped at 0.45
-   *  falling to 0.30 at pot-sized wagers (v79WeakKickerCap) before every
-   *  call, jam and raise verdict; a
+   *  pairing the board) is capped at 0.25 ONLY in the cells where its
+   *  realised win rate was measured below the price (v79InMeasuredCell:
+   *  0.9 pot+ any format; 0.6-0.9 pot on an ace-high board outside
+   *  tournaments; never at 60bb effective or less or on J-high-or-lower
+   *  boards); everywhere else it is priced as before; a
    *  measured over-bluffer and an already-priced-in call (pot odds under
    *  25%) keep today. Default on; explicit false keeps today's equity. */
   v79TopPairWeakKicker?: boolean;
@@ -4211,19 +4212,58 @@ export function v79TopPairWeakKicker(hole: Card[], board: Card[]): boolean {
   if (kv > V79_WEAK_KICKER_MAX) return false;
   return !board.some((c) => c.rank === kicker.rank);
 }
-/** The equity CAP (the V20/V21 cap pattern, not a subtraction: the Monte
- *  Carlo read prices top pair against a random range, ~0.9 here, where a
- *  9-or-lower kicker is rarely outkicked; no shade on that read reaches the
- *  price). Against the range that bets big into top pair, every better top
- *  pair outkicks it: this class realised 10.2% calling such bets. The cap
- *  falls from 0.45 at a 0.6-pot wager to 0.30 at pot-sized and above (just
- *  under the 33% a pot-sized bet needs); a call committing 40%+ of the stack
- *  against a smaller wager is capped at 0.45. */
-export const V79_CAP_HIGH = 0.45;
-export const V79_CAP_LOW = 0.3;
-export function v79WeakKickerCap(potFrac: number): number {
-  const t = Math.max(0, Math.min(1, (potFrac - 0.6) / 0.4));
-  return V79_CAP_HIGH - (V79_CAP_HIGH - V79_CAP_LOW) * t;
+/**
+ * V79 QUALIFIED CELLS (2026-11-02). Evidence is the DECISION EV of the call
+ * (net + chips already invested at the node, in bb), not a win rate, so chops
+ * carry their fractional pot return and turn calls include all later betting.
+ * Source: hand_history + ca_hand_facts (every hand kept; no pot-size floor),
+ * hold'em, 2026-10-28 to 2026-11-03, horse turn/river CALLS of a bet the horse
+ * did not start, holding top pair with a 2-9 kicker; 95% CIs clustered by
+ * hand. Mean EV of the call, bb:
+ *   Cell A, wager >= 0.9 pot: -28.30 [-30.61, -25.98], n 2,005 (1,762 hands);
+ *     below zero on the turn and river, in cash, Lightning and tournaments,
+ *     heads-up and multiway.
+ *   Cell B, 0.6-0.9 pot, ace-high board, outside tournaments, heads-up:
+ *     -7.30 [-9.69, -4.90], n 774.
+ * Excluded because the CI straddles zero or the sample cannot speak:
+ *   cell B multiway (-12.26 [-29.56, 5.04], n 48); heads-up TABLES
+ *   (-10.91 [-22.03, 0.20], n 13); 0.6-0.9 pot on K/Q-high boards
+ *   (-1.59 [-4.79, 1.61], n 709); tournaments at 0.6-0.9 pot
+ *   (-0.98 [-5.62, 3.67], n 251); bounty, PKO and mystery-bounty events
+ *   (chip EV omits the bounty: 12 of 54 tournament cell-A spots on Nov 1).
+ * Also left as today, narrower than the evidence allows (both also measured
+ * below zero): J-high-or-lower boards (-8.47, n 766) and 60bb effective or
+ * less (-2.51, n 2,073).
+ * Scope note: top pair with a T+ kicker loses as much or more in the same
+ * cells (cell A -43.00 [-46.42, -39.58], n 2,616); the loss is calling big
+ * bets with one pair, not the kicker alone. That is outside this rule.
+ * Limits: only the horses' own calls are observed (no counterfactual fold
+ * policy is measured); ICM is not modelled; the price ignores players still
+ * to act behind (potOdds = toCall / ((pot + toCall)(1 - rake)), gs.pot
+ * already holding the wager); measured over-bluffers keep today.
+ * In the admitted cells equity is capped at 0.25, below every admitted price,
+ * so the decision there is a fold; outside them, the hand is priced as before.
+ */
+export const V79_CAP = 0.25;
+export const V79_MIN_EFFECTIVE_BB = 60;
+export function v79InMeasuredCell(o: {
+  potFrac: number;
+  boardTopRank: number;
+  tournament: boolean;
+  effectiveBB: number;
+  /** One opponent live at the decision. */
+  headsUp: boolean;
+  /** A heads-up TABLE (two dealt in): no qualifying sample. */
+  headsUpTable: boolean;
+  /** PKO / bounty / mystery-bounty event: chip EV omits the bounty. */
+  bountyEvent: boolean;
+}): boolean {
+  if (o.headsUpTable || o.bountyEvent) return false;
+  if (!(o.effectiveBB > V79_MIN_EFFECTIVE_BB)) return false;
+  if (o.boardTopRank < 12) return false; // J-high or lower: not supported
+  if (o.potFrac >= 0.9) return true;
+  // Cell B: heads-up only (multiway n 48 straddles zero).
+  return o.potFrac >= 0.6 && o.boardTopRank === 14 && !o.tournament && o.headsUp;
 }
 
 export const V68_IMPLIED_MIN_POT_FRAC = 0.7;
@@ -10487,9 +10527,8 @@ export class HorseLogic {
       }
     }
 
-    // ═══ V79 TOP PAIR, WEAK KICKER (2026-11-02) ═══ see v79TopPairWeakKicker.
-    // Applied to eq15 so it reaches every consumer below: the committed
-    // call / jam test, the value raise, and the river and turn verdicts.
+    // ═══ V79 TOP PAIR, WEAK KICKER (2026-11-02, qualified cells) ═══ see
+    // v79InMeasuredCell. Applied to eq15 so it reaches every consumer below.
     if (
       opts.v79TopPairWeakKicker !== false &&
       !vi.isOmaha &&
@@ -10500,17 +10539,36 @@ export class HorseLogic {
       (street === 'turn' || isRiver) &&
       cat === 2 &&
       toCall > 0 &&
-      potOdds >= 0.25 &&
       exploit.callDownMod <= 1 &&
       v79TopPairWeakKicker(player.cards, board)
     ) {
-      const commits79 = stack > 0 && toCall >= 0.4 * stack;
-      if (potFrac >= 0.6 || commits79) {
-        const cap79 = v79WeakKickerCap(potFrac);
-        if (eq15 > cap79) {
-          eq15 = cap79;
-          if (tele15) noteFire('v79_top_pair_weak_kicker');
-        }
+      const bettor79 = gs.players
+        .filter((p) => p.seat !== player.seat && !p.is_folded)
+        .reduce<SeatPlayer | null>((m, p) => (!m || (p.bet ?? 0) > (m.bet ?? 0) ? p : m), null);
+      const effBB79 =
+        Math.min(
+          player.stack + (player.bet ?? 0),
+          bettor79 ? (bettor79.stack ?? 0) + (bettor79.bet ?? 0) : Infinity
+        ) / (gs.bigBlind > 0 ? gs.bigBlind : 1);
+      if (
+        v79InMeasuredCell({
+          potFrac,
+          boardTopRank: Math.max(...board.map((c) => RANK_VALUES[c.rank])),
+          tournament: isTournamentMode(gs),
+          effectiveBB: effBB79,
+          headsUp: oppCount === 1,
+          headsUpTable: dealtHorseTableSize(gs, player.seat) <= 2,
+          bountyEvent:
+            isTournamentMode(gs) &&
+            (gs.tournament?.isPko === true ||
+              gs.tournament?.isBounty === true ||
+              gs.tournament?.isMysteryBounty === true ||
+              (gs.tournament?.bountyFactor ?? 0) > 0),
+        }) &&
+        eq15 > V79_CAP
+      ) {
+        eq15 = V79_CAP;
+        if (tele15) noteFire('v79_top_pair_weak_kicker');
       }
     }
 
@@ -11233,7 +11291,14 @@ export class HorseLogic {
         if (tele15) noteFire('v64_river_raise_needs_two_pair');
       } else {
         const raiseToAmt = currentBet + (pot + toCall) * (1.0 + fastRandom() * 0.3);
-        return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
+        // V78: the river blocker bluff-raise is air; one that commits 40%+
+        // of the stack without jamming cannot fold to the re-shove it
+        // invites (the committed branch then folds air: raise-then-fold).
+        if (this.v78CommitsWithoutJam(raiseToAmt * params.sizingMultiplier, player, gs, vi, opts)) {
+          if (tele15) noteFire('v78_no_committing_bluff_raise');
+        } else {
+          return this.raiseTo(planHandKey, raiseToAmt * params.sizingMultiplier, player, gs, vi);
+        }
       }
     }
 
