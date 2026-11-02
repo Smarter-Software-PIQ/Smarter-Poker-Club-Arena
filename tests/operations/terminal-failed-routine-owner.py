@@ -626,6 +626,30 @@ class CancelledAnnouncementOwner(unittest.TestCase):
                 rows = [json.loads(x) for x in seal.AUDIT_FILE.read_text().splitlines()]
                 self.assertEqual(len(rows), 1)
 
+    def test_post_window_desired_successor_resolves_and_observation_replays(self):
+        self.proof['container']['startedAt'] = '2026-11-02T07:21:51.848Z'
+        self.proof['instanceId'] = '1-7920f8a6'
+        self.assertEqual(self.resolve(), seal.CANCELLED_PHASE1_RUN)
+        root_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            observed = observer.routine_remote(dict(observer.ROUTINE_REQUEST), root_fd)
+            self.assertFalse(observed['owners'][0]['unresolvedOwner'])
+        finally: os.close(root_fd)
+        self.assertEqual(self.resolve(), 'not-needed')
+
+    def test_cancellation_runtime_birth_is_bounded_by_historical_proof(self):
+        self.assertEqual(self.resolve(), seal.CANCELLED_PHASE1_RUN)
+        resolution = seal.load_state()['routineFailureResolutions'][seal.CANCELLED_PHASE1_RUN]
+        for stamp in ('2026-11-02T06:58:02.415Z', '2026-11-02T07:02:00Z',
+                      '2026-11-02T07:05:02.415Z', '2099-01-01T00:00:00Z',
+                      '2026-11-02T07:21:51.848', 'unknown'):
+            with self.subTest(stamp=stamp):
+                bad = copy.deepcopy(resolution)
+                bad['proof']['container']['startedAt'] = stamp
+                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    seal.validate_cancelled_phase1_resolution(bad, self.cycle, verify_receipt=False)
+                self.assertFalse(observer.cancelled_phase1_started_at(stamp, resolution['observedAt']))
+
     def test_changed_window_source_thaw_and_live_transaction_refuse(self):
         for field in ('pending', 'finalization', 'committed', 'window', 'source', 'thaw', 'startedAt', 'proofChanged'):
             with self.subTest(field=field):

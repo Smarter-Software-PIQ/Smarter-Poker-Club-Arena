@@ -378,15 +378,21 @@ CANCELLED_PHASE1_WINDOW = {'announcedAt': 1793602682415, 'startsAt': 17936028024
                           'endsAt': 1793603102415, 'verified': True}
 CANCELLED_PHASE1_THAW = {'announcedAtMs': 1793602682415, 'freezeStartedAtMs': 1793602802414,
                        'releasedThroughMs': 1793603102414,
-                       'ownershipToken': 'b7fd9bbf-95c0-4ff2-af3c-55c7ec4cd01f', 'generation': 1}
+                       'ownershipToken': 'b7fd9bbf-95c0-4ff2-af3c-55c7ec4cd01f', 'generation': 1,
+                       'thawRecordedAtMs': 1793603023814}
 
 
-def cancelled_phase1_started_at(value):
+def cancelled_phase1_started_at(value, observed_at):
     if not isinstance(value, str):
         return False
     try:
         started = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
-        return started.tzinfo is not None and 0 < started.timestamp() * 1000 < CANCELLED_PHASE1_WINDOW['announcedAt']
+        # Cancellation preserves the current runtime throughout its own operation.
+        # It does not require the preannouncement process to have survived.
+        birth = started.timestamp() * 1000
+        return (started.tzinfo is not None and 0 < birth < observed_at * 1000
+            and (birth < CANCELLED_PHASE1_WINDOW['announcedAt']
+                 or birth > max(CANCELLED_PHASE1_WINDOW['endsAt'], CANCELLED_PHASE1_THAW['thawRecordedAtMs'])))
     except ValueError:
         return False
 
@@ -417,7 +423,7 @@ def cancelled_announcement_resolution(resolution, cycle, result, result_fd, answ
         and proof['thaw'] == CANCELLED_PHASE1_THAW and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}', str(proof['instanceId']))
         and isinstance(proof['container'], dict) and set(proof['container']) == {'id', 'startedAt', 'image'}
         and re.fullmatch(r'[0-9a-f]{64}', str(proof['container']['id']))
-        and cancelled_phase1_started_at(proof['container']['startedAt'])
+        and cancelled_phase1_started_at(proof['container']['startedAt'], resolution['observedAt'])
         and proof['container']['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
         and re.fullmatch('[0-9a-f]{64}', str(proof['qualifiedHelperSHA256'])))
     for key, names in (('recordHashes', {'receipt','intent','quiescent','stop-issued'}),

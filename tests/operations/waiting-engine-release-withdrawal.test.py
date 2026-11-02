@@ -342,7 +342,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 'releasedHoldHash': reqroot / (key + '.lightning-hold.json.released')}
             for name, path in retained.items(): path.write_text(name)
             thaw = {'announcedAtMs': module.PHASE1_STAMP, 'freezeStartedAtMs': module.PHASE1_START,
-                'releasedThroughMs': module.PHASE1_END, 'ownershipToken': module.PHASE1_TOKEN, 'generation': 1}
+                'releasedThroughMs': module.PHASE1_END, 'ownershipToken': module.PHASE1_TOKEN, 'generation': 1, 'thawRecordedAtMs': 1793603023814}
             evidence = {name: module.digest(path.read_bytes()) for name, path in retained.items()} | {'thaw': thaw}
             intent = {'schema': module.EMPTY_CANCEL_SCHEMA, 'request': request, 'container': container,
                 'admission': 'positive-empty-auto-restart', 'originalProcess': None, 'originalChild': None,
@@ -403,6 +403,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 '_target_counts': dict.fromkeys(module.THAW_STEPS, 0)}}
         prove = lambda value: module.prove_thaw([value], [], stamp, stamp + 500000, module.PHASE1_CONTROL)
         self.assertEqual(prove(row)['freezeStartedAtMs'], module.PHASE1_START)
+        self.assertEqual(prove(row)['thawRecordedAtMs'], module.PHASE1_END - 1000)
         for change in ({'freeze_started_at': iso(module.PHASE1_START + 1)},
                 {'release_target_at': iso(module.PHASE1_END + 1)}, {'ownership_token': 'a' * 36},
                 {'release_generation': 2}, {'contract_version': 2}, {'shifted': {'complete': True}}):
@@ -533,7 +534,7 @@ class AnnouncedCancellation(unittest.TestCase):
         for race in [False,True]:
             with self.subTest(race=race), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
                 request,control,state,entry,reservation,units=self.harness(folder,patches,self.phase1_request())
-                patches.enter_context(patch.object(module,'own_thaw',return_value={'released':True}))
+                patches.enter_context(patch.object(module,'own_thaw',return_value={'released':True, 'thawRecordedAtMs':1793603023814}))
                 patches.enter_context(patch.object(module,'phase1_seal_evidence'))
                 patches.enter_context(patch.object(module,'phase1_cancellation_proof'))
                 evidence=module.announcement_evidence(request);marker='engine-release-requests/'+request['runKey']+'.awaiting-certificate'
@@ -565,6 +566,18 @@ class AnnouncedCancellation(unittest.TestCase):
             with self.assertRaises(ValueError):module.cancel_announced(request)
             self.assertEqual(control['stopCount'],0)
             self.assertFalse(any((module.SYSTEMD/unit).exists() for unit in units))
+
+    def test_phase1_runtime_birth_refuses_inside_window_or_unknown_before_mask(self):
+        for stamp in ('2026-11-02T06:58:02.415Z', '2026-11-02T07:02:00Z',
+                      '2026-11-02T07:05:02.415Z', '2099-01-01T00:00:00Z',
+                      '2026-11-02T07:21:51.848', 'unknown'):
+            with self.subTest(stamp=stamp), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request,control,state,_,_,units=self.harness(folder,patches,self.phase1_request())
+                control['container']['startedAt'] = stamp
+                with self.assertRaises(ValueError): module.cancel_announced(request)
+                self.assertEqual(control['stopCount'], 0)
+                self.assertFalse(any((module.SYSTEMD/unit).exists() for unit in units))
+                self.assertFalse((state/'engine-release-cancellations'/(request['runKey']+'.intent.json')).exists())
 
     def test_phase1_unproved_empty_admission_cannot_create_masks_or_issue_stop(self):
         with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder,ExitStack() as patches:
@@ -755,9 +768,9 @@ class AnnouncedCancellation(unittest.TestCase):
         reservation = state / ('engine-recovery-window-' + key + '.json'); reservation.write_text('original')
         released = state / 'engine-release-requests' / (key + '.lightning-hold.json.released'); released.write_text('released')
         evidence = {'releasedHoldHash': module.digest(released.read_bytes()), 'originals': originals, 'entryHash': module.digest(entry.read_bytes()),
-                    'reservationHash': module.digest(reservation.read_bytes()), 'thaw': {'released': True}}
+                    'reservationHash': module.digest(reservation.read_bytes()), 'thaw': {'released': True, **({'thawRecordedAtMs': 1793603023814} if key == module.PHASE1_RUN else {})}}
         control = {'stopped': False, 'stopCount': 0, 'unknownStop': False, 'cgroupEmpty': True,
-                   'evidenceFails': False, 'commands': [], 'container': {'id': 'a' * 64, 'image': 'sha256:' + 'b' * 64, 'startedAt': 'original'}}
+                   'evidenceFails': False, 'commands': [], 'container': {'id': 'a' * 64, 'image': 'sha256:' + 'b' * 64, 'startedAt': '2026-11-02T07:21:51.848Z' if key == module.PHASE1_RUN else 'original'}}
         def command(args, timeout=5):
             control['commands'].append(args)
             if args[:3] == ['systemctl', 'stop', '--no-block']:

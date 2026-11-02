@@ -527,7 +527,8 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL):
     require(abs(float(row['frozen_seconds']) * 1000 - (target - starts)) <= 2)
     return {'announcedAtMs': stamp, 'freezeStartedAtMs': starts,
             'releasedThroughMs': target, 'ownershipToken': row['ownership_token'],
-            'generation': row['release_generation']}
+            'generation': row['release_generation'],
+            **({'thawRecordedAtMs': time_ms(row['thawed_at'])} if control == PHASE1_CONTROL else {})}
 
 
 def own_thaw(stamp, control=CANCEL_CONTROL):
@@ -726,10 +727,21 @@ def cancellation_child_class(argv, key, evidence):
     return 'unproven'
 
 
+def phase1_runtime_birth(request, container, thaw):
+    if request['runKey'] != PHASE1_RUN:
+        return
+    birth = time_ms(container['startedAt'])
+    recorded = thaw['thawRecordedAtMs']
+    require(type(recorded) is int and PHASE1_START <= recorded < time.time() * 1000)
+    require(0 < birth < time.time() * 1000 and
+            (birth < PHASE1_STAMP or birth > max(PHASE1_STAMP + 420000, recorded)))
+
+
 def collect_cancellation_admission(request, units, container, read_only=False):
     evidence_read = lambda: announcement_evidence(request, read_only=True) if read_only else announcement_evidence(request)
     key = request['runKey']
     evidence = evidence_read()
+    phase1_runtime_birth(request, container, evidence['thaw'])
     stop_contract = loaded_stop_contract(units[0], key)
     state = unit_snapshot(units[0])
     require(state['ActiveState'] in {'active', 'activating'} and INVOCATION_PATTERN(state['InvocationID']))
@@ -1006,6 +1018,7 @@ def phase1_cancellation_proof():
     require(container_identity(request) == receipt['container']); health_pair(request)
     thaw = own_thaw(PHASE1_STAMP, PHASE1_CONTROL)
     require(thaw == evidence['thaw'])
+    phase1_runtime_birth(request, receipt['container'], thaw)
     cycle = phase1_seal_evidence(generation)
     quiet_units(units, receipt['originalControlGroup'], True, receipt['unitCgroups'])
     require(container_identity(request) == receipt['container'])
@@ -1020,7 +1033,7 @@ def phase1_cancellation_proof():
 DIAGNOSTIC_SCHEMA = 'withdrawal-predicate-observation/v1'
 DIAGNOSTIC_STAGES = {'selection', 'health_pair', 'container_identity', 'announcement_evidence', 'source_hash',
     'regular', 'observe_seal_state', 'own_thaw', 'prove_thaw', 'loaded_stop_contract', 'unit_snapshot', 'empty_retry_admission',
-    'configured_service_cgroup', 'prove_unit_empty', 'prove_unloaded_unit_empty', 'manager_unit_absent',
+    'phase1_runtime_birth', 'configured_service_cgroup', 'prove_unit_empty', 'prove_unloaded_unit_empty', 'manager_unit_absent',
     'own_wants_edge', 'collect_cancellation_admission', 'cancel_announced', 'cancellation_directory', 'process',
     'quiet_units', 'masked', 'remote', 'main'}
 DIAGNOSTIC_CODES = {'predicate_refused', 'read_unavailable', 'command_unproved', 'deadline', 'unknown'}
