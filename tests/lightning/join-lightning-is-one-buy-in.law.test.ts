@@ -123,7 +123,8 @@ describe('Join Lightning is one buy-in: the amount, then an assigned seat', () =
     const r = await buyIntoLightning(args, d);
     expect(r).toEqual({
       kind: 'rejected',
-      message: 'Not Enough Chips. You Need At Least 40 Chips To Join This Game.',
+      message:
+        'Not Enough Chips In Your Active Club Wallet. You Need At Least 40 Chips To Join This Game. Chips In Other Clubs Are Separate.',
     });
     expect(d.reserve).not.toHaveBeenCalled();
   });
