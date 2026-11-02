@@ -1276,7 +1276,233 @@ def validate_failed_custody_reply(v, request):
     return v
 
 
+ORIGINAL_ANNOUNCEMENT_REQUEST = {'mode':'original_announcement_cause',
+    'runKey':'41469215622-1', 'releaseSha':'26aaaa3f350ca063caed717b5fcbbcf34b5ae702'}
+ORIGINAL_ANNOUNCEMENT_CONTROL = 'fffcb62ea1f114322da964f9e580f8be3b3e3383'
+ORIGINAL_ANNOUNCEMENT_GENERATION = '/usr/local/lib/club-arena/engine-control-generations/' + ORIGINAL_ANNOUNCEMENT_CONTROL
+ORIGINAL_ANNOUNCEMENT_STAMP = 1793635085893
+ORIGINAL_ANNOUNCEMENT_SOURCES = {
+    'engine-release-transaction.sh':'0a78bdb9e5b3ba761ea1daf4bbec55c42b2ee654a98d71a5850a46ef313a5abe',
+    'engine-release-seal.py':'990d562162089464377994decf576892ab9b23d8defca0a18389992842745fff',
+    'engine-release-activation-floor.py':'62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e',
+}
+ORIGINAL_CAUSE_LIMITATION = 'observation-only-original-exit-cleanup-and-retry-authority-unknown'
+ORIGINAL_CAUSE_REASONS = {'cause_observed','announcement_not_retained','ambiguous_announcement',
+    'cause_not_retained','journal_unavailable','journal_bound','journal_identity_unproved',
+    'binding_unproved','binding_changed','deadline_exhausted','journal_truncated','unclassified_original_refusal'}
+
+
+def validate_original_announcement(value, request):
+    fields = {'schema','readOnly','mode','runKey','releaseSha','controlSha','status','reason',
+              'announcementAtMs','announcementObservedAtMs','originalInvocationSha256','bindingSha256',
+              'causes','exit','unclassifiedMessageSha256','limitation'}
+    if (selection(request) != ORIGINAL_ANNOUNCEMENT_REQUEST or not isinstance(value,dict) or set(value)!=fields
+        or value['schema']!='original-announcement-cause/v1' or value['readOnly'] is not True
+        or any(value.get(k)!=v for k,v in request.items())
+        or value['controlSha']!=ORIGINAL_ANNOUNCEMENT_CONTROL
+        or value['status'] not in {'observed','unknown'} or value['reason'] not in ORIGINAL_CAUSE_REASONS
+        or value['announcementAtMs']!=ORIGINAL_ANNOUNCEMENT_STAMP
+        or type(value['announcementAtMs']) is not int
+        or value['limitation']!=ORIGINAL_CAUSE_LIMITATION):
+        raise ValueError('Original announcement export refused')
+    for name in ('originalInvocationSha256','bindingSha256','unclassifiedMessageSha256'):
+        if value[name] is not None and (not isinstance(value[name],str) or not re.fullmatch('[0-9a-f]{64}',value[name])):
+            raise ValueError('Original announcement digest refused')
+    at=value['announcementObservedAtMs']
+    if at is not None and (type(at) is not int or not ORIGINAL_ANNOUNCEMENT_STAMP <= at <= ORIGINAL_ANNOUNCEMENT_STAMP+120000):
+        raise ValueError('Original announcement time refused')
+    if (at is None)!=(value['originalInvocationSha256'] is None):
+        raise ValueError('Original announcement identity refused')
+    if not isinstance(value['causes'],list) or len(value['causes'])>16:
+        raise ValueError('Original announcement causes refused')
+    for row in value['causes']:
+        if (not isinstance(row,dict) or set(row)!={'category','observedAtMs','messageSha256','sourceFile','sourceLine','refusalCode'}
+            or row['category'] not in {'transaction_fatal','control_fatal'}
+            or row['sourceFile'] not in {'engine-release-transaction.sh','engine-release-seal.py'}
+            or type(row['sourceLine']) is not int or not 1<=row['sourceLine']<=10000
+            or row['refusalCode']!=('transaction_die_line_' if row['sourceFile']=='engine-release-transaction.sh' else 'seal_die_line_')+str(row['sourceLine'])
+            or type(row['observedAtMs']) is not int
+            or not ORIGINAL_ANNOUNCEMENT_STAMP<=row['observedAtMs']<=ORIGINAL_ANNOUNCEMENT_STAMP+420000
+            or not isinstance(row['messageSha256'],str) or not re.fullmatch('[0-9a-f]{64}',row['messageSha256'])):
+            raise ValueError('Original announcement cause refused')
+    exit_value=value['exit']
+    if exit_value is not None and (not isinstance(exit_value,dict) or set(exit_value)!={'code','status','observedAtMs'}
+        or exit_value['code'] not in {'exited','killed','dumped'} or type(exit_value['status']) is not int
+        or not 0<=exit_value['status']<=255 or type(exit_value['observedAtMs']) is not int
+        or not ORIGINAL_ANNOUNCEMENT_STAMP<=exit_value['observedAtMs']<=ORIGINAL_ANNOUNCEMENT_STAMP+420000):
+        raise ValueError('Original announcement exit refused')
+    if value['status']=='observed':
+        if (value['reason']!='cause_observed' or value['bindingSha256'] is None or at is None
+                or len(value['causes'])!=1 or value['unclassifiedMessageSha256'] is not None):
+            raise ValueError('Original announcement positive export refused')
+    elif value['reason']=='cause_observed' or value['causes'] or exit_value is not None:
+        raise ValueError('Original announcement unknown export refused')
+    return value
+
+
+def original_refusal_literals(records):
+    candidates={}
+    def add(message,name,line,kind):
+        candidates.setdefault(message,[]).append({'category':kind,'sourceFile':name,'sourceLine':line,
+            'refusalCode':('transaction_die_line_' if kind=='transaction_fatal' else 'seal_die_line_')+str(line)})
+    name='engine-release-transaction.sh'
+    for line,text in enumerate(records[name][0].decode('utf8').splitlines(),1):
+        if text.lstrip().startswith('#'):continue
+        for match in re.finditer(r"\bdie\s+(['\"])([^'\"$`\\]+)\1",text):
+            add('[engine-release-transaction] FATAL: '+match.group(2),name,line,'transaction_fatal')
+    name='engine-release-seal.py'
+    for node in ast.walk(ast.parse(records[name][0].decode('utf8'))):
+        if (isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='die'
+            and len(node.args)==1 and isinstance(node.args[0],ast.Constant) and isinstance(node.args[0].value,str)):
+            add('[engine-release-seal] FATAL: '+node.args[0].value,name,node.lineno,'control_fatal')
+    # Repeated identical source literals do not locate a unique source line.
+    return {message:rows[0] for message,rows in candidates.items() if len(rows)==1}
+
+
+def original_announcement_evidence(request, root_fd, control_fd):
+    """Two finite original-invocation reads; no listener, state or release action."""
+    if selection(request)!=ORIGINAL_ANNOUNCEMENT_REQUEST: raise ValueError('Original announcement selection refused')
+    until=time.monotonic()+5
+    answer={'schema':'original-announcement-cause/v1','readOnly':True,**request,
+        'controlSha':ORIGINAL_ANNOUNCEMENT_CONTROL,'status':'unknown','reason':'binding_unproved',
+        'announcementAtMs':ORIGINAL_ANNOUNCEMENT_STAMP,'announcementObservedAtMs':None,
+        'originalInvocationSha256':None,'bindingSha256':None,'causes':[],'exit':None,'unclassifiedMessageSha256':None,
+        'limitation':ORIGINAL_CAUSE_LIMITATION}
+    def remaining():
+        if time.monotonic()>=until: raise TimeoutError('original_deadline')
+    def exact_bytes(fd,name,limit,private):
+        remaining(); opened=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=fd)
+        try:
+            before=os.fstat(opened)
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid!=os.geteuid()
+                or before.st_size>limit or (stat.S_IMODE(before.st_mode)!=0o600 if private else before.st_mode&0o022)):
+                raise ValueError('original_binding')
+            data=os.read(opened,limit+1);after=os.fstat(opened)
+            identity=lambda v:(v.st_dev,v.st_ino,v.st_size,v.st_mtime_ns,v.st_ctime_ns,v.st_uid,v.st_mode)
+            if identity(before)!=identity(after) or len(data)!=before.st_size or len(data)>limit:
+                raise ValueError('original_binding')
+            return data,identity(after)
+        finally:os.close(opened)
+    opened=[]
+    try:
+        for name in ('engine-release-requests','engine-release-generation-pins'):
+            fd=os.open(name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=root_fd);opened.append(fd)
+        request_fd,pin_fd=opened
+        def snapshot():
+            run=request['runKey']; records={}
+            for name in (run+'.request',run+'.intent',run+'.activation-entry'):
+                records[name]=exact_bytes(request_fd,name,65536,True)
+            records['reservation']=exact_bytes(root_fd,'engine-recovery-window-'+run+'.json',65536,True)
+            records['pin']=exact_bytes(pin_fd,run+'.generation',4096,True)
+            records['control']=exact_bytes(control_fd,'control-sha',128,False)
+            for name,digest in ORIGINAL_ANNOUNCEMENT_SOURCES.items():
+                records[name]=exact_bytes(control_fd,name,262144,False)
+                if hashlib.sha256(records[name][0]).hexdigest()!=digest:raise ValueError('original_binding')
+            rows=records[run+'.request'][0].decode().splitlines()
+            pending_metadata(request,rows,records[run+'.intent'][0].decode().splitlines(),None,None)
+            if rows[4]!=ORIGINAL_ANNOUNCEMENT_CONTROL or records['pin'][0].decode().splitlines()!=[ORIGINAL_ANNOUNCEMENT_GENERATION,ORIGINAL_ANNOUNCEMENT_CONTROL] or records['control'][0].decode().strip()!=ORIGINAL_ANNOUNCEMENT_CONTROL:
+                raise ValueError('original_binding')
+            reservation=json.loads(records['reservation'][0],object_pairs_hook=unique_object)
+            if reservation!={'runId':run,'sha':request['releaseSha'],'announcedAt':ORIGINAL_ANNOUNCEMENT_STAMP,'cause':'urgent'} or type(reservation.get('announcedAt')) is not int:
+                raise ValueError('original_binding')
+            entry=json.loads(records[run+'.activation-entry'][0],object_pairs_hook=unique_object)
+            if (set(entry)!={'schema','runId','targetSha','controlSha','manifestSha256','phase'}
+                or entry['schema']!='engine-release-activation-floor/v3-phase1' or entry['runId']!=run
+                or entry['targetSha']!=request['releaseSha'] or entry['controlSha']!=ORIGINAL_ANNOUNCEMENT_CONTROL
+                or entry['phase']!='announcement' or not isinstance(entry['manifestSha256'],str)
+                or not re.fullmatch('[0-9a-f]{64}',entry['manifestSha256'])):raise ValueError('original_binding')
+            return records
+        before=snapshot()
+        literals=original_refusal_literals(before)
+        answer['bindingSha256']=routine_digest({name:hashlib.sha256(value[0]).hexdigest() for name,value in before.items()})
+        unit='club-arena-engine-release-v1@'+request['runKey']+'.service';stamp=ORIGINAL_ANNOUNCEMENT_STAMP
+        fields='MESSAGE,_SYSTEMD_INVOCATION_ID,_SYSTEMD_UNIT,__REALTIME_TIMESTAMP,EXIT_CODE,EXIT_STATUS'
+        common=['journalctl','--no-pager','--output=json','--output-fields='+fields,'_SYSTEMD_UNIT='+unit,
+                '--since=@'+str(stamp//1000),'--until=@'+str((stamp+420000)//1000+1)]
+        used=0
+        def journal(args,rows):
+            nonlocal used
+            remaining();reply=bounded_journal(args,absolute_deadline=until,byte_limit=8192-used)
+            if reply.returncode:raise ValueError('original_journal')
+            raw=reply.stdout;used+=len(raw)
+            if used>8192 or len(raw.splitlines())>rows:raise ValueError('original_bound')
+            output=[]
+            for line in raw.splitlines():
+                row=json.loads(line,object_pairs_hook=unique_object)
+                if (not isinstance(row,dict) or row.get('_SYSTEMD_UNIT')!=unit
+                    or not isinstance(row.get('_SYSTEMD_INVOCATION_ID'),str) or not INVOCATION.fullmatch(row['_SYSTEMD_INVOCATION_ID'])
+                    or not isinstance(row.get('MESSAGE'),str) or len(row['MESSAGE'].encode())>2048
+                    or not isinstance(row.get('__REALTIME_TIMESTAMP'),str) or not re.fullmatch('[0-9]{16}',row['__REALTIME_TIMESTAMP'])):
+                    raise ValueError('original_identity')
+                at=int(row['__REALTIME_TIMESTAMP'])//1000
+                if not stamp<=at<=stamp+420000:raise ValueError('original_identity')
+                output.append((row,at))
+            remaining();return output
+        literal='[engine-release-transaction] fixed recovery announcement '+str(stamp)+': '
+        pattern='^'+re.escape(literal)+'(accepted|active|pending|unknown); existing certificate and rollback budget remain required$'
+        announcements=journal(common+['--lines=3','--grep='+pattern],3)
+        candidates={}
+        for row,at in announcements:
+            if not re.fullmatch(pattern,row['MESSAGE']) or at>stamp+120000:raise ValueError('original_identity')
+            candidates.setdefault(row['_SYSTEMD_INVOCATION_ID'],[]).append(at)
+        if len(announcements)>=3:
+            answer['reason']='journal_truncated'
+        elif len(candidates)!=1:
+            answer['reason']='ambiguous_announcement' if candidates else 'announcement_not_retained'
+        else:
+            invocation=next(iter(candidates));answer['originalInvocationSha256']=hashlib.sha256(invocation.encode()).hexdigest()
+            answer['announcementObservedAtMs']=min(candidates[invocation])
+            causes=journal(common+['_SYSTEMD_INVOCATION_ID='+invocation,'--lines=17',
+                r'--grep=^(\[engine-release-[a-z-]+\] FATAL: |.*: line [0-9]+: |Traceback \(most recent call last\):)'],17)
+            if len(causes)>=17:
+                answer['reason']='journal_truncated'
+            elif not causes:
+                answer['reason']='cause_not_retained'
+            else:
+                for row,_ in causes:
+                    if row['_SYSTEMD_INVOCATION_ID']!=invocation:raise ValueError('original_identity')
+                # A <17-row reply proves the 17-row tail did not truncate this
+                # filtered interval. Only then choose the chronological first.
+                first_at=min(at for _,at in causes)
+                first=[row for row,at in causes if at==first_at]
+                if len(first)!=1:
+                    answer['reason']='unclassified_original_refusal'
+                else:
+                    message=first[0]['MESSAGE'];digest=hashlib.sha256(message.encode()).hexdigest()
+                    mapped=literals.get(message)
+                    if mapped is None:
+                        answer.update(reason='unclassified_original_refusal',unclassifiedMessageSha256=digest)
+                    else:
+                        answer.update(status='observed',reason='cause_observed',causes=[{**mapped,
+                            'observedAtMs':first_at,'messageSha256':digest}])
+                        row=first[0]
+                        if 'EXIT_CODE' in row or 'EXIT_STATUS' in row:
+                            if row.get('EXIT_CODE') not in {'exited','killed','dumped'} or not isinstance(row.get('EXIT_STATUS'),str) or not re.fullmatch('[0-9]{1,3}',row['EXIT_STATUS']) or not 0<=int(row['EXIT_STATUS'])<=255:raise ValueError('original_identity')
+                            answer['exit']={'code':row['EXIT_CODE'],'status':int(row['EXIT_STATUS']),'observedAtMs':first_at}
+        if snapshot()!=before:raise ValueError('original_changed')
+        remaining()
+    except (OSError,ValueError,TypeError,KeyError,UnicodeError,subprocess.SubprocessError) as error:
+        reason={'original_identity':'journal_identity_unproved','original_bound':'journal_bound',
+                'original_journal':'journal_unavailable','original_changed':'binding_changed',
+                'Recovery witness output refused':'journal_bound'}.get(str(error),'binding_changed' if answer['bindingSha256'] else 'binding_unproved')
+        if isinstance(error,(TimeoutError,subprocess.TimeoutExpired)):reason='deadline_exhausted'
+        answer.update(status='unknown',reason=reason,causes=[],exit=None)
+    finally:
+        for fd in opened:os.close(fd)
+    return validate_original_announcement(answer,request)
+
+
+def original_announcement_remote(request, root_fd):
+    if os.geteuid()!=0:raise ValueError('Root read custody required')
+    fd=os.open(ORIGINAL_ANNOUNCEMENT_GENERATION,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:return original_announcement_evidence(request,root_fd,fd)
+    finally:os.close(fd)
+
+
 def selection(value):
+    if isinstance(value,dict) and value.get("mode")=="original_announcement_cause":
+        if value!=ORIGINAL_ANNOUNCEMENT_REQUEST:raise ValueError("Exact original announcement required")
+        return dict(value)
     if isinstance(value, dict) and value.get('mode') == 'failed_routine_custody':
         if value != FAILED_CUSTODY_REQUEST: raise ValueError('Exact failed routine custody required')
         return dict(value)
@@ -1497,11 +1723,16 @@ def reason_from_rows(raw, request, window, result):
 
 
 
-def bounded_journal(args):
+def bounded_journal(args, *, absolute_deadline=None, byte_limit=8192):
     # Finite native read: max 8KiB plus sentinel, five seconds, no raw file.
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     raw = b''
     deadline = time.monotonic() + 5
+    if absolute_deadline is not None:
+        deadline = min(deadline, absolute_deadline)
+    if type(byte_limit) is not int or not 0 <= byte_limit <= 8192:
+        process.kill(); process.wait(timeout=2); process.stdout.close()
+        raise ValueError('Recovery witness output refused')
     try:
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ)
@@ -1509,11 +1740,11 @@ def bounded_journal(args):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or not selector.select(remaining):
                     raise subprocess.TimeoutExpired(args, 5)
-                part = os.read(process.stdout.fileno(), min(4096, 8193 - len(raw)))
+                part = os.read(process.stdout.fileno(), min(4096, byte_limit + 1 - len(raw)))
                 if not part:
                     break
                 raw += part
-                if len(raw) > 8192:
+                if len(raw) > byte_limit:
                     raise ValueError('Recovery witness output refused')
         returncode = process.wait(timeout=max(0.001, deadline - time.monotonic()))
         return subprocess.CompletedProcess(args, returncode, stdout=raw)
@@ -4012,6 +4243,8 @@ def remote(request):
             return retirement_records(request, root_fd)
         if request.get('mode') == 'legacy_checkpoint_inspector':
             return validate_inspector(inspector_remote(request, root_fd), request)
+        if request.get('mode') == 'original_announcement_cause':
+            return original_announcement_remote(request, root_fd)
         if request.get('mode') == 'pending_transaction':
             return pending_remote(request, root_fd)
         result_fd = os.open('engine-release-results', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
@@ -4034,6 +4267,8 @@ def remote(request):
 
 
 def validate_reply(value, request):
+    if request.get("mode")=="original_announcement_cause":
+        return validate_original_announcement(value,request)
     if request.get('mode') == 'failed_routine_custody':
         return validate_failed_custody_reply(value, request)
     if request.get('mode') == 'canonical_routine_owner':
@@ -4138,7 +4373,7 @@ def main():
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
         reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
-        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records'} else 4096):
+        if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody', 'original_announcement_cause'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records'} else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:
             try:

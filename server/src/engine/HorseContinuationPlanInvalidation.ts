@@ -262,3 +262,138 @@ export function evaluateExplicitContinuationPlanV2(
     invalidationReasons: [],
   };
 }
+
+export interface ContinuationContenderFingerprint {
+  readonly activeContenderIds: readonly string[];
+  readonly activeContenderCount: number;
+  readonly effectiveStackBb: number;
+  readonly potBb: number;
+  readonly effectiveSpr: number;
+}
+
+export interface MultiStreetBarrelEvaluation {
+  readonly canContinuePlan: boolean;
+  readonly selectedCardClass: 'good' | 'blank' | 'scare';
+  readonly winningBranchReason:
+    | 'improved_on_good_card'
+    | 'continued_on_blank'
+    | 'checked_scare_card'
+    | 'aborted_multiway_contender_shift'
+    | 'aborted_stack_exposure_shift'
+    | 'aborted_scare_under_pressure';
+  readonly invalidationReasons: readonly ContinuationPlanInvalidationReason[];
+}
+
+/**
+ * Computes a deterministic multi-street contender & stack-exposure fingerprint
+ * so a flop continuation plan can detect when a third player stays in or when
+ * effective stack-to-pot exposure shifts materially on the turn/river.
+ */
+export function computeContinuationContenderFingerprint(
+  contenderIds: readonly string[],
+  effectiveStackChips: number,
+  potChips: number,
+  bigBlindChips: number
+): ContinuationContenderFingerprint {
+  const safeBb = Math.max(1, bigBlindChips);
+  const sortedIds = [
+    ...new Set(contenderIds.filter((id) => typeof id === 'string' && id.length > 0)),
+  ].sort();
+  const safePot = Math.max(1, potChips);
+  const clampedStack = Math.max(0, effectiveStackChips);
+  return {
+    activeContenderIds: sortedIds,
+    activeContenderCount: sortedIds.length,
+    effectiveStackBb: clampedStack / safeBb,
+    potBb: safePot / safeBb,
+    effectiveSpr: clampedStack / safePot,
+  };
+}
+
+/**
+ * Evaluates a multi-street barrel continuation across street transitions,
+ * combining `NextCardOutlook` classification (`good`, `blank`, `scare`) with
+ * contender-set and effective-SPR invalidation guards and returning an explicit
+ * `winningBranchReason` for decision telemetry.
+ */
+export function evaluateMultiStreetBarrelContinuation(params: {
+  readonly plannedFingerprint: ContinuationContenderFingerprint;
+  readonly currentFingerprint: ContinuationContenderFingerprint;
+  readonly cardKey: string;
+  readonly goodCards: readonly string[];
+  readonly scareCards: readonly string[];
+  readonly facingBetChips: number;
+  readonly maxSprDeviationRatio?: number;
+}): MultiStreetBarrelEvaluation {
+  const reasons: ContinuationPlanInvalidationReason[] = [];
+  const maxSprDev = params.maxSprDeviationRatio ?? 0.65;
+
+  const selectedCardClass: 'good' | 'blank' | 'scare' = params.goodCards.includes(params.cardKey)
+    ? 'good'
+    : params.scareCards.includes(params.cardKey)
+      ? 'scare'
+      : 'blank';
+
+  // Contender count increase or new unexpected contender invalidates a heads-up barrel plan
+  const unexpectedContender = params.currentFingerprint.activeContenderIds.some(
+    (id) => !params.plannedFingerprint.activeContenderIds.includes(id)
+  );
+  if (
+    params.currentFingerprint.activeContenderCount >
+      params.plannedFingerprint.activeContenderCount ||
+    unexpectedContender ||
+    params.currentFingerprint.activeContenderCount < 2
+  ) {
+    reasons.push('player_count_changed');
+  }
+
+  const sprDelta =
+    params.plannedFingerprint.effectiveSpr > 0
+      ? Math.abs(params.currentFingerprint.effectiveSpr - params.plannedFingerprint.effectiveSpr) /
+        params.plannedFingerprint.effectiveSpr
+      : 0;
+  if (maxSprDev > 0 && sprDelta > maxSprDev + 1e-6) {
+    reasons.push('stack_exposure_changed');
+  }
+
+  if (selectedCardClass === 'scare' && params.facingBetChips > 0) {
+    reasons.push('runout_invalidated');
+  }
+
+  if (reasons.includes('player_count_changed')) {
+    return {
+      canContinuePlan: false,
+      selectedCardClass,
+      winningBranchReason: 'aborted_multiway_contender_shift',
+      invalidationReasons: reasons,
+    };
+  }
+  if (reasons.includes('stack_exposure_changed')) {
+    return {
+      canContinuePlan: false,
+      selectedCardClass,
+      winningBranchReason: 'aborted_stack_exposure_shift',
+      invalidationReasons: reasons,
+    };
+  }
+  if (reasons.includes('runout_invalidated')) {
+    return {
+      canContinuePlan: false,
+      selectedCardClass,
+      winningBranchReason: 'aborted_scare_under_pressure',
+      invalidationReasons: reasons,
+    };
+  }
+
+  return {
+    canContinuePlan: selectedCardClass !== 'scare',
+    selectedCardClass,
+    winningBranchReason:
+      selectedCardClass === 'good'
+        ? 'improved_on_good_card'
+        : selectedCardClass === 'blank'
+          ? 'continued_on_blank'
+          : 'checked_scare_card',
+    invalidationReasons: [],
+  };
+}

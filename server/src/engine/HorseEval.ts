@@ -563,6 +563,31 @@ export function nextCardOutlook(
   for (const c of board) rankN.set(c.rank, (rankN.get(c.rank) || 0) + 1);
   const CAT_STRAIGHT = 5;
   const CAT_FLUSH = vi.isShortDeck ? 7 : 6;
+  const heroLowRanks = new Set<number>();
+  if (quality && vi.isOmaha && vi.isHiLo) {
+    for (const c of hole) {
+      const lr = LOW_RANK(RANK_VALUES[c.rank]);
+      if (lr <= 8) heroLowRanks.add(lr);
+    }
+  }
+  const heroCanMakeLow = heroLowRanks.size >= 2;
+  const boardLowPossibleBefore =
+    quality && vi.isOmaha && vi.isHiLo ? boardNutLowPartial(board) < Infinity : false;
+  const heroHasNutLowBefore =
+    heroCanMakeLow &&
+    (() => {
+      const heroLow = scoreOmahaLowPartial(hole, board);
+      return heroLow < Infinity && heroLow === boardNutLowPartial(board);
+    })();
+  const heroHasNutLowAfter = (b: Card[]): boolean => {
+    if (!heroCanMakeLow) return false;
+    const heroLow = scoreOmahaLowPartial(hole, b);
+    return heroLow < Infinity && heroLow === boardNutLowPartial(b);
+  };
+  const heroLowDrawCounterfeitedOnComplete = (b: Card[]): boolean => {
+    if (!heroCanMakeLow || boardLowPossibleBefore) return false;
+    return boardNutLowPartial(b) < Infinity && scoreOmahaLowPartial(hole, b) === Infinity;
+  };
   const next: Card[] = board.slice();
   for (const c of base) {
     const k = cardKey(c);
@@ -589,8 +614,31 @@ export function nextCardOutlook(
     const sharedPair =
       holdem && after <= 3 && !hole.some((h) => h.rank === c.rank) && (rankN.get(c.rank) || 0) > 0;
     if (after > out.madeNow && !sharedPair) {
+      if (
+        quality &&
+        vi.isOmaha &&
+        vi.isHiLo &&
+        ((heroHasNutLowBefore && !heroHasNutLowAfter(next)) ||
+          heroLowDrawCounterfeitedOnComplete(next))
+      ) {
+        out.scare.push(k);
+        continue;
+      }
       out.good.push(k);
       continue;
+    }
+    if (quality && vi.isOmaha && vi.isHiLo && heroCanMakeLow) {
+      if (
+        (heroHasNutLowBefore && !heroHasNutLowAfter(next)) ||
+        heroLowDrawCounterfeitedOnComplete(next)
+      ) {
+        out.scare.push(k);
+        continue;
+      }
+      if (!heroHasNutLowBefore && heroHasNutLowAfter(next)) {
+        out.good.push(k);
+        continue;
+      }
     }
     // a third (or fourth) of a suit hero holds none of, when hero has no flush
     if (suitAfter >= 3 && !holdsSuit && out.madeNow < CAT_FLUSH) {
@@ -703,6 +751,81 @@ export function scoreOmahaLow(hole: Card[], board: Card[]): number {
       }
       if (v < best) best = v;
     }
+  }
+  return best;
+}
+
+/**
+ * Omaha 8-or-better low on a 3–5 card partial board (2 hole + 3 board, five
+ * distinct ranks <= 8). Smaller = better low; Infinity when no low qualifies.
+ */
+export function scoreOmahaLowPartial(hole: Card[], board: Card[]): number {
+  const triples = TRIPLES_BY_LEN[board.length];
+  if (!triples) return Infinity;
+  const pairs = PAIR_COMBOS[hole.length] || PAIR_COMBOS[4];
+  let best = Infinity;
+  for (const [a, b] of pairs) {
+    const h1 = LOW_RANK(RANK_VALUES[hole[a].rank]);
+    const h2 = LOW_RANK(RANK_VALUES[hole[b].rank]);
+    if (h1 > 8 || h2 > 8 || h1 === h2) continue;
+    for (const [x, y, z] of triples) {
+      const b1 = LOW_RANK(RANK_VALUES[board[x].rank]);
+      const b2 = LOW_RANK(RANK_VALUES[board[y].rank]);
+      const b3 = LOW_RANK(RANK_VALUES[board[z].rank]);
+      if (b1 > 8 || b2 > 8 || b3 > 8) continue;
+      const mask = (1 << h1) | (1 << h2) | (1 << b1) | (1 << b2) | (1 << b3);
+      let bits = mask;
+      let cnt = 0;
+      while (bits) {
+        bits &= bits - 1;
+        cnt++;
+      }
+      if (cnt !== 5) continue;
+      let v = 0;
+      for (let r = 8; r >= 1; r--) {
+        if (mask & (1 << r)) v = v * 16 + r;
+      }
+      if (v < best) best = v;
+    }
+  }
+  return best;
+}
+
+/**
+ * Best possible 8-or-better low achievable by ANY two hole cards on a 3–5 card
+ * board (smaller = better; Infinity if fewer than 3 distinct low ranks on board).
+ */
+export function boardNutLowPartial(board: Card[]): number {
+  const triples = TRIPLES_BY_LEN[board.length];
+  if (!triples) return Infinity;
+  let best = Infinity;
+  for (const [x, y, z] of triples) {
+    const b1 = LOW_RANK(RANK_VALUES[board[x].rank]);
+    const b2 = LOW_RANK(RANK_VALUES[board[y].rank]);
+    const b3 = LOW_RANK(RANK_VALUES[board[z].rank]);
+    if (b1 > 8 || b2 > 8 || b3 > 8) continue;
+    const bMask = (1 << b1) | (1 << b2) | (1 << b3);
+    let bBits = bMask;
+    let bCnt = 0;
+    while (bBits) {
+      bBits &= bBits - 1;
+      bCnt++;
+    }
+    if (bCnt !== 3) continue;
+    let mask = bMask;
+    let added = 0;
+    for (let r = 1; r <= 8 && added < 2; r++) {
+      if ((mask & (1 << r)) === 0) {
+        mask |= 1 << r;
+        added++;
+      }
+    }
+    if (added < 2) continue;
+    let v = 0;
+    for (let r = 8; r >= 1; r--) {
+      if (mask & (1 << r)) v = v * 16 + r;
+    }
+    if (v < best) best = v;
   }
   return best;
 }
