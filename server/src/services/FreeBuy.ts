@@ -22,6 +22,7 @@ import {
   mttPayoutDepthPercent,
 } from '../tournament/mttStructurePolicy.js';
 import { MIDWAY_FREE_BUY_GUARANTEES } from '../tournament/midwayStructurePolicy.js';
+import { withMidwayFreeBuyPolicy } from '../tournament/midwayFreeBuyPolicy.js';
 
 /* ------------------------------------------------------------------ */
 /* The two tiers                                                       */
@@ -664,7 +665,7 @@ export function freeBuyTournamentRow(opts: {
   lateRegLevels: number;
 }): Record<string, unknown> {
   const cfg = freeBuyConfigForSlot(opts.due.slot);
-  return {
+  return withMidwayFreeBuyPolicy({
     club_id: opts.host.clubId,
     union_id: opts.host.unionId,
     name: freeBuyBoardName(opts.due.slot),
@@ -716,7 +717,7 @@ export function freeBuyTournamentRow(opts: {
     addon_cost: cfg.addOnCost,
     addon_chips: cfg.addOnChips,
     addon_levels: 1,
-  };
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -729,6 +730,8 @@ export function freeBuyTournamentRow(opts: {
  * that is not what the code built.
  */
 export interface FreeBuyRowUnderAudit {
+  is_pko?: unknown;
+  bounty_amount?: unknown;
   blind_structure?: unknown;
   name?: unknown;
   club_id?: unknown;
@@ -822,6 +825,9 @@ export function auditFreeBuyRow(
       ...cfg,
       guarantee: MIDWAY_FREE_BUY_GUARANTEES[String(row.name)] ?? cfg.guarantee,
     };
+  const bountyOnly =
+    (row.union_id === MIDWAY_UNION_ID || row.club_id === MIDWAY_UNION_ID) && row.is_pko === true;
+  if (bountyOnly) cfg = { ...cfg, guarantee: 0 };
   const say = (ok: boolean, msg: string) => {
     if (!ok) problems.push(msg);
   };
@@ -842,17 +848,25 @@ export function auditFreeBuyRow(
     num(row.rebuy_cost) === cfg.rebuyCost,
     `rebuy ${row.rebuy_cost}, the ${slot.tier} tier is ${cfg.rebuyCost}`
   );
-  say(
-    num(row.addon_cost) === cfg.addOnCost,
-    `add-on ${row.addon_cost}, the ${slot.tier} tier is ${cfg.addOnCost}`
-  );
-  say(
-    num(row.addon_chips) === cfg.addOnChips,
-    `the add-on pays ${row.addon_chips} chips, not ${cfg.addOnChips}`
-  );
+  if (bountyOnly) {
+    say(num(row.bounty_amount) === 1, 'initial bounty is not one chip');
+    say(
+      row.add_on_available === false && row.addon_from_start === false,
+      'bounty-only Free Buy allows add-ons'
+    );
+  } else {
+    say(
+      num(row.addon_cost) === cfg.addOnCost,
+      `add-on ${row.addon_cost}, the ${slot.tier} tier is ${cfg.addOnCost}`
+    );
+    say(
+      num(row.addon_chips) === cfg.addOnChips,
+      `the add-on pays ${row.addon_chips} chips, not ${cfg.addOnChips}`
+    );
 
-  say(row.addon_from_start === true, 'the add-on does not open at sit-down');
-  say(row.add_on_available === true, 'the add-on is switched off');
+    say(row.addon_from_start === true, 'the add-on does not open at sit-down');
+    say(row.add_on_available === true, 'the add-on is switched off');
+  }
   say(row.is_rebuy === true, 'rebuys are switched off');
   /* A NOT NULL zero reads as "Rebuy limit reached (0 of 0)" and denies every
      rebuy on the event. */

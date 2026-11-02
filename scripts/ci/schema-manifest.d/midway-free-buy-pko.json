@@ -1,0 +1,10 @@
+{
+  "_owner": "codex/midway-free-buy-pko-20261102",
+  "_comment": "Midway promo-funded bounty-only Free Buy predicate, private funding and constrained pre-start conversion.",
+  "functions": [
+    "fn_ca_midway_free_buy_pko",
+    "fn_ca_midway_free_buy_promo_head",
+    "fn_ca_midway_free_buy_conversion_transition",
+    "fn_ca_convert_midway_free_buy"
+  ]
+}

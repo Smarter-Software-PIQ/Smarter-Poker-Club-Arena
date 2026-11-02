@@ -217,7 +217,10 @@ with (root/'results.log').open('w') as log:
         run([str(pg/'pg_ctl'),'-D',str(cluster),'-o',f'-k {sock} -p {port} -c listen_addresses= -c max_wal_size=64MB -c min_wal_size=32MB','-w','start'])
         started=True
 
-        if '--accounting-horse-only' in sys.argv:
+        if '--midway-free-buy-pko' in sys.argv:
+            from midway_free_buy_pko_cases import verify
+            verify(q,fresh,overlap,call,check)
+        elif '--accounting-horse-only' in sys.argv:
             from tournament_accounting_provenance_cases import verify_horse
             verify_horse(q,fresh,check)
         elif '--accounting-acl-only' in sys.argv:
@@ -315,6 +318,8 @@ with (root/'results.log').open('w') as log:
                 verify_horse(q,fresh,check)
                 verify_acl(q,fresh,check)
                 funded_heads_up()
+                from midway_free_buy_pko_cases import verify as verify_midway
+                verify_midway(q,fresh,overlap,call,check)
             else:
                 from tournament_heads_up_funding_cases import verify
                 verify(q,fresh,overlap,call,check)
@@ -338,3 +343,8 @@ elif '--heads-up-ladder-only' in sys.argv:
     result['funded_ladder'] = evidence()
 (root/'results.json').write_text(json.dumps(result,indent=2)+'\n')
 print(str(len(passed))+' groups passed; evidence: '+str(root/'results.json'))
+
+# Promo-funded entry is part of the existing required financial transaction gate.
+if "--with-heads-up-payout" in sys.argv:
+    env=dict(os.environ,PG_BIN=str(pg))
+    subprocess.run([sys.executable,"-B",str(repo/"scripts/ci/test-midway-free-buy-pko.py")],env=env,check=True)

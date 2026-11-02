@@ -537,21 +537,21 @@ describe('the row a Free Buy is created as', () => {
     expect(row.free_buy).toBe(true);
   });
 
-  it('carries the standard tier price and the starting-stack add-on (Dan 2026-11-01)', () => {
+  it('funds the standard Midway head with no fixed guarantee or add-on', () => {
     const row = rowFor(0, 8);
-    expect(row.guaranteed_prize).toBe(250);
+    expect(row.guaranteed_prize).toBe(0);
     expect(row.starting_chips).toBe(3000);
     expect(row.rebuy_cost).toBe(1);
-    expect(row.addon_cost).toBe(1);
-    expect(row.addon_chips).toBe(3000);
+    expect(row.addon_cost).toBeNull();
+    expect(row.addon_chips).toBeNull();
   });
 
-  it('carries the feature tier guarantee at 20:00, at the same 1 chip rebuy and add-on (Dan 2026-10-16)', () => {
+  it('uses the same bounty-only rules for the feature slot', () => {
     const row = rowFor(0, 20);
-    expect(row.guaranteed_prize).toBe(500);
+    expect(row.guaranteed_prize).toBe(0);
     expect(row.rebuy_cost).toBe(1);
-    expect(row.addon_cost).toBe(1);
-    expect(row.addon_chips).toBe(3000);
+    expect(row.addon_cost).toBeNull();
+    expect(row.addon_chips).toBeNull();
   });
 
   it('sets free_buy AND a positive rebuy_cost together, or the trigger reprices it to 1.00', () => {
@@ -562,10 +562,10 @@ describe('the row a Free Buy is created as', () => {
     expect(Number(row.rebuy_cost)).toBeGreaterThan(0);
   });
 
-  it('opens the add-on at sit-down', () => {
+  it('disables add-ons throughout the event', () => {
     const row = rowFor(0, 8);
-    expect(row.add_on_available).toBe(true);
-    expect(row.addon_from_start).toBe(true);
+    expect(row.add_on_available).toBe(false);
+    expect(row.addon_from_start).toBe(false);
   });
 
   it('rebuys close exactly when late registration does', () => {
@@ -607,10 +607,11 @@ describe('the row a Free Buy is created as', () => {
     expect(rowFor(0, 8).club_id).not.toBe(rowFor(1, 8).club_id);
   });
 
-  it('carries no bounty', () => {
+  it('carries a one-chip progressive bounty', () => {
     const row = rowFor(0, 8);
-    expect(row.is_bounty).toBe(false);
-    expect(row.is_pko).toBe(false);
+    expect(row.is_bounty).toBe(true);
+    expect(row.bounty_amount).toBe(1);
+    expect(row.is_pko).toBe(true);
     expect(row.is_mystery_bounty).toBe(false);
   });
 });
