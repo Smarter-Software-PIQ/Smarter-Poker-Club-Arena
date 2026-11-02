@@ -388,7 +388,7 @@ describe('durable Marketplace purchase identities', () => {
         'vip-diamonds',
         'monthly'
       );
-      const terms = JSON.stringify({ plan: 'monthly', priceDiamonds: 1999 });
+      const terms = JSON.stringify({ plan: 'monthly', priceDiamonds: 2000 });
       const first = readOrCreateMarketplacePurchaseIntent(scope, terms);
 
       expect(first.resumed).toBe(false);
@@ -608,7 +608,7 @@ describe('wallet response verification', () => {
     expect(
       verifiedWalletInfo(
         {
-          diamonds: 1999,
+          diamonds: 2000,
           isVip: true,
           vipTier: 'monthly',
           vipExpiresAt: '2026-10-15T12:00:00Z',
@@ -619,7 +619,7 @@ describe('wallet response verification', () => {
     expect(
       verifiedWalletInfo(
         {
-          diamonds: 49900,
+          diamonds: 50000,
           isVip: false,
           vipTier: 'yearly',
           vipExpiresAt: '2026-09-14T12:00:00+00:00',
@@ -694,7 +694,7 @@ describe('VIP Diamond purchase receipt verification', () => {
   const now = Date.parse('2026-09-15T12:00:00Z');
   const accountId = 'fade0000-0000-4000-8000-000000000001';
   const requestId = 'fade0000-0000-4000-8000-000000000002';
-  const expectedMonthly = { accountId, requestId, plan: 'monthly' as const, cost: 1999 };
+  const expectedMonthly = { accountId, requestId, plan: 'monthly' as const, cost: 2000 };
   const monthlyReceipt = {
     success: true,
     accountId,
@@ -704,7 +704,7 @@ describe('VIP Diamond purchase receipt verification', () => {
     isVip: true,
     plan: 'monthly',
     tier: 'monthly',
-    cost: 1999,
+    cost: 2000,
     daysAdded: 30,
     expiresAt: '2026-10-15T12:00:00Z',
     newBalance: 8001,
@@ -749,12 +749,12 @@ describe('VIP Diamond purchase receipt verification', () => {
           ...monthlyReceipt,
           plan: 'lifetime',
           tier: 'lifetime',
-          cost: 49900,
+          cost: 50000,
           daysAdded: null,
           expiresAt: null,
           newBalance: 0,
         },
-        { accountId, requestId, plan: 'lifetime', cost: 49900 },
+        { accountId, requestId, plan: 'lifetime', cost: 50000 },
         now
       )
     ).not.toBeNull();
@@ -776,10 +776,10 @@ describe('VIP Diamond purchase receipt verification', () => {
           ...monthlyReceipt,
           plan: 'yearly',
           tier: 'monthly',
-          cost: 19999,
+          cost: 20000,
           daysAdded: 365,
         },
-        { accountId, requestId, plan: 'yearly', cost: 19999 },
+        { accountId, requestId, plan: 'yearly', cost: 20000 },
         now
       )
     ).toBeNull();
@@ -955,8 +955,8 @@ describe('Card checkout response and request retirement verification', () => {
         diamondCheckoutReady: true,
         name: 'Monthly VIP',
         period: 'Per Month',
-        priceUsd: 19.99,
-        priceDiamonds: 1999,
+        priceUsd: 20,
+        priceDiamonds: 2000,
         features: ['Everything Included'],
       })
     ).toEqual({
@@ -967,8 +967,8 @@ describe('Card checkout response and request retirement verification', () => {
       plan: 'monthly',
       interval: 'month',
       quantity: 1,
-      unitCents: 1999,
-      totalCents: 1999,
+      unitCents: 2000,
+      totalCents: 2000,
     });
   });
 
@@ -1222,8 +1222,8 @@ describe('live Marketplace catalog verification', () => {
       expect(catalog.diamondPackages).toHaveLength(8);
       expect(catalog.vipPlans.find((plan) => plan.planKey === 'lifetime')).toMatchObject({
         id: 'vip-lifetime',
-        priceUsd: 499,
-        priceDiamonds: 49900,
+        priceUsd: 500,
+        priceDiamonds: 50000,
         cardCheckoutReady: true,
       });
     } finally {

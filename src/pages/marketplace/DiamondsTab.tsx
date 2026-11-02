@@ -269,7 +269,7 @@ export default function DiamondsTab({
               className={`${styles.card} ${pkg.popular ? styles.cardPopular : ''} ${disabled ? styles.cardDisabled : ''}`}
               onClick={() => handleBuy(pkg)}
               disabled={disabled}
-              aria-label={`Buy ${totalDiamonds.toLocaleString()} Diamonds For ${pkg.priceUsd.toFixed(2)} USD`}
+              aria-label={`Buy ${totalDiamonds.toLocaleString()} Diamonds For ${pkg.priceUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD`}
               aria-busy={isRedirecting}
             >
               {pkg.popular && <span className={styles.popularBadge}>Popular</span>}
@@ -288,7 +288,8 @@ export default function DiamondsTab({
                   <span className={styles.pkgLabel}>Diamonds</span>
                   <span className={styles.pkgAmount}>{totalDiamonds.toLocaleString()}</span>
                   <span className={styles.pkgSub}>
-                    {formatPopupText(pkg.name)} - {pkg.priceUsd.toFixed(2)} USD
+                    {formatPopupText(pkg.name)} -{' '}
+                    {pkg.priceUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD
                   </span>
                 </div>
               </div>
