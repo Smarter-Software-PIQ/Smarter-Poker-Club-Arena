@@ -146,6 +146,113 @@ const currentApplicationSqlGuardSites = new Map([
 
 // Native smoke diagnostics must not serialize database messages, queries, or
 // service output: bootstrap queries contain fixture-only credentials.
+// Private catalogue values remain only in this process. Only authenticated,
+// closed, bounded fingerprints can reach the public native failure receipt.
+const parityFailures = new WeakMap();
+const parityGates = new Set(['template-ready', 'template-exclusions', 'expected-encoding',
+  'observed-encoding', 'catalogue-digest', 'catalogue-text', 'role-scope', 'role-safety', 'role-catalogue']);
+const paritySections = [
+  ['access', 3], ['roles', 1], ['memberships', 3], ['functions', 3], ['columns', 3],
+  ['policies', ['schemaname','tablename','policyname']], ['constraints', 3], ['triggers', 3],
+  ['indexes', ['schemaname','tablename','indexname']], ['rls', 2],
+  ['roles', ['name']], ['memberships', ['role','member','grantor']],
+  ['role_settings', ['role','database','key']], ['default_acl', ['creator','schema','type']],
+];
+const parityArrayLengths = [5,8,6,4,12,null,5,5,null,4];
+const parityObjectKeys = {
+  5: ['schemaname','tablename','policyname','permissive','roles','cmd','qual','with_check'].sort(),
+  8: ['schemaname','tablename','indexname','tablespace','indexdef'].sort(),
+  10: ['name','superuser','inherit','create_role','create_db','login','replication','bypass_rls','connection_limit','valid_until','configuration'].sort(),
+  11: ['role','member','grantor','admin','inherit','set'].sort(),
+  12: ['role','database','key','value','value_md5'].sort(),
+  13: ['creator','schema','type','acl'].sort(),
+};
+const stableParity = value => Array.isArray(value) ? value.map(stableParity)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stableParity(value[key])])) : value;
+const parityJSON = value => JSON.stringify(stableParity(value));
+const parityHash = value => createHash('sha256').update(parityJSON(value)).digest('hex');
+function parityDetails(expected, observed, roleMode) {
+  if (!roleMode) {
+    for (const value of [expected, observed]) {
+      assert.equal(typeof value, 'string');
+      assert.ok(Buffer.byteLength(value) <= 33554432);
+    }
+    expected = JSON.parse(expected); observed = JSON.parse(observed);
+  } else {
+    assert.ok(Buffer.byteLength(JSON.stringify(expected)) <= 33554432);
+    assert.ok(Buffer.byteLength(JSON.stringify(observed)) <= 33554432);
+  }
+  for (const value of [expected, observed]) {
+    assert.ok(value && typeof value === 'object' && !Array.isArray(value));
+    assert.deepEqual(Object.keys(value).sort(), roleMode
+      ? ['version','scope','roles','memberships','role_settings','default_acl','contains_passwords_or_user_rows'].sort()
+      : paritySections.slice(0,10).map(row => row[0]).sort());
+  }
+  const sections = [], samples = [];
+  let changes = 0;
+  for (let index = roleMode ? 10 : 0; index < (roleMode ? 14 : 10); index++) {
+    const [name, identity] = paritySections[index];
+    const left = expected[name] ?? [], right = observed[name] ?? [];
+    assert.ok(Array.isArray(left) && Array.isArray(right) && left.length <= 100000 && right.length <= 100000);
+    const keyed = rows => {
+      const map = new Map();
+      for (const row of rows) {
+        assert.ok(row && typeof row === 'object');
+        assert.equal(Array.isArray(row), typeof identity === 'number');
+        if (Array.isArray(row)) assert.equal(row.length, parityArrayLengths[index]);
+        else assert.deepEqual(Object.keys(row).sort(), parityObjectKeys[index]);
+        const key = typeof identity === 'number' ? row.slice(0, identity) : identity.map(key => row[key]);
+        assert.ok(key.every(value => typeof value === 'string'));
+        const hash = parityHash(key);
+        assert.ok(!map.has(hash)); map.set(hash, row);
+      }
+      return map;
+    };
+    const a = keyed(left), b = keyed(right);
+    let count = 0;
+    for (const hash of [...new Set([...a.keys(), ...b.keys()])].sort()) {
+      const av = a.get(hash), bv = b.get(hash);
+      if (parityJSON(av) === parityJSON(bv)) continue;
+      count++; changes++;
+      if (samples.length === 8) continue;
+      let fields = [];
+      if (av && bv) {
+        const keys = Array.isArray(av) ? Array.from({length: Math.max(av.length,bv.length)}, (_,i) => i)
+          : parityObjectKeys[index];
+        assert.ok(keys.length <= 32);
+        fields = keys.flatMap((key,ordinal) => parityJSON(av[key]) === parityJSON(bv[key]) ? [] : [ordinal]);
+      }
+      samples.push([index, hash, av ? bv ? 0 : 1 : 2, fields]);
+    }
+    if (!count && parityJSON(left) !== parityJSON(right)) {
+      count = 1; changes++;
+      if (samples.length < 8) samples.push([index, parityHash('ordered-row-identities'), 3, []]);
+    }
+    if (count) sections.push([index, left.length, right.length, count]);
+  }
+  return {sections, samples, truncated: changes > samples.length || changes === 0};
+}
+export function recordCatalogueParityFailure(error, gate, inputs) {
+  // This is called only by the assertion owner, never from child-output data.
+  if (!(error instanceof Error) || error.name !== 'AssertionError' || !parityGates.has(gate)) return error;
+  let detail = {sections: [], samples: [], truncated: false};
+  try {
+    if (gate === 'catalogue-digest' || gate === 'catalogue-text')
+      detail = parityDetails(inputs.expected.catalogue_text, inputs.observed.catalogue_text, false);
+    else if (gate === 'role-catalogue') detail = parityDetails(inputs.expectedRoles, inputs.observedRoles, true);
+  } catch { detail = {sections: [], samples: [], truncated: true}; }
+  let witness = {version: 1, gate, ...detail};
+  // Keep the complete emitted record below the independent reader's 2048-byte cap.
+  const envelope = value => ({status:'failed',stage:'fixture-preflight-schema-preflight-catalogue-parity',error:'AssertionError',parity:value});
+  if (Buffer.byteLength(JSON.stringify(envelope(witness))) > 2048)
+    witness = {version:1,gate,sections:[],samples:[],truncated:true};
+  parityFailures.set(error, JSON.stringify(witness));
+  return error;
+}
+export function catalogueParityFailureDiagnostic(error) {
+  const owned = parityFailures.get(error);
+  return owned ? JSON.parse(owned) : null;
+}
 export function nativeFailureDiagnostic(stage, error) {
   const names = new Set([
     'Error',
@@ -158,6 +265,8 @@ export function nativeFailureDiagnostic(stage, error) {
     'error',
   ]);
   const record = { status: 'failed', stage, error: names.has(error?.name) ? error.name : 'Error' };
+  const parity = stage === 'fixture-preflight-schema-preflight-catalogue-parity' ? catalogueParityFailureDiagnostic(error) : null;
+  if (parity) return {status:'failed',stage,error:'AssertionError',parity};
   const restore = stage === 'fixture-preflight-application-schema' ? schemaRestoreFailureDiagnostic(error) : null;
   if (restore) return {status:'failed',stage,error:'SchemaRestoreError',
     restore_sqlstate:restore.sqlstate,restore_line:restore.line,restore_exit_code:restore.exit_code};

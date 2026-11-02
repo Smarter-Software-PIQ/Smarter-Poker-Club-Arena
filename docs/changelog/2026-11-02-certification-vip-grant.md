@@ -1,0 +1,6 @@
+# Certification Accounts Can Hold A Short, Audited Test VIP
+
+- **Why.** VIP-only behavior (rabbit hunting a previous hand) could not be certified live. The supported certification route can create reserved accounts and fund chips from a certification club's own opening grant, but it had no way to give a reserved account VIP without minting diamonds or a real payment. Dan approved a test VIP grant on 2026-11-02.
+- **What.** `fn_ca_certification_vip_grant` (service role only) gives a reserved post-deploy certification account (`ca-customization-cert-postdeploy-%@example.invalid`, a fixture, role user, not admin, not a horse, not deleted) VIP for 1 to 180 minutes. It never overrides a real entitlement: lifetime, current VIP and active subscriptions are refused. It moves no diamonds and no money. It writes the same profile fields the engine and `fn_consume_rabbit_hunt_v2` read, so it lapses by itself. `fn_ca_certification_vip_end` ends it early during cleanup and withdraws only that grant's own entitlement.
+- **Audit.** Every grant and end is recorded in `ca_certification_vip_grants`. Rows are never deleted, grant facts are never rewritten, and an end is recorded once.
+- **Tests.** `scripts/ci/test-certification-vip-grant.sh` (native PostgreSQL 17, in the Data Console native suite).

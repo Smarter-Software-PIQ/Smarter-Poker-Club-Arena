@@ -24,6 +24,8 @@ def run(args, **kwargs):
 assert re.search(r'PostgreSQL\) 17\.', run([pg_bin/'initdb', '--version']))
 patches = list(MIGRATIONS.glob('*_stall_progress_requires_a_recorded_hand.sql'))
 assert len(patches) == 1, patches
+sustained = list(MIGRATIONS.glob('*_stall_recovery_needs_sustained_dealing.sql'))
+assert len(sustained) == 1, sustained
 
 with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPDIR')) as scratch:
     scratch = Path(scratch)
@@ -120,6 +122,63 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
             assert 'expected exactly one' in error.stderr, error.stderr
         assert sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;") == before
         results.append('after: duplicate migration refuses atomically')
+        # A single completed hand is progress, but cannot certify continued dealing.
+        # Exercise the same maintained ingest entry point, not a mirrored predicate.
+        sql(sustained[0].read_text())
+        for case, times in [
+            ('one hand only', ['2026-11-01T13:10:30Z']),
+            ('two stale hands', ['2026-11-01T13:10:01Z', '2026-11-01T13:10:02Z']),
+            ('second hand outside episode', ['2026-11-01T13:09:59Z', '2026-11-01T13:10:50Z']),
+        ]:
+            seed()
+            for index, at in enumerate(times):
+                sql(f"INSERT INTO hand_history VALUES('33333333-3333-4333-8333-{index+1:012d}','{table}','{at}');")
+            # Existing detection threshold is 60 seconds; exercise a later observation
+            # so the stale pair is outside that same bounded liveness window.
+            observation = '2026-11-01T13:12:00Z' if case == 'two stale hands' else now
+            sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+metrics+"$metrics$, '"+observation+"',60000);")
+            assert state()['status'] == 'firing' and state()['watch_count'] == 1, (case,state())
+            results.append('sustained: '+case+' preserves original episode')
+        seed()
+        sql(f"INSERT INTO hand_history VALUES('{hand}','{table}','2026-11-01T13:10:20Z'),('44444444-4444-4444-8444-444444444444','{table}','2026-11-01T13:10:50Z');")
+        ingest(); actual = state()
+        assert actual['status'] == 'resolved' and actual['watch_count'] == 0, actual
+        assert actual['payload']['progress_hand_id'] == '44444444-4444-4444-8444-444444444444', actual
+        assert actual['payload']['previous_progress_hand_id'] == hand, actual
+        assert actual['payload']['root_cause_verified'] is False, actual
+        assert actual['payload']['resolution'] == 'recorded dealing resumed; root cause unverified', actual
+        results.append('sustained: two exact episode hands retain both witnesses, never certify root cause')
+        sql("UPDATE smarter_private.ca_table_stall_watch_state SET last_uptime_s=NULL;")
+        ingest()
+        assert state() == actual, 'duplicate observation replaced sustained witness'
+        results.append('sustained: duplicate observation retains original recovery receipt')
+        seed()
+        sql(f"INSERT INTO hand_history VALUES('{hand}','{table}','2026-11-01T13:10:50Z'),('44444444-4444-4444-8444-444444444444','{foreign}','2026-11-01T13:10:40Z');")
+        ingest()
+        assert state()['status'] == 'firing', state()
+        results.append('sustained: another table cannot supply the second witness')
+        # The intended wait is explanatory evidence, never proof a firing table resumed.
+        sql('''CREATE FUNCTION public.fn_ca_table_stall_facts(uuid,uuid[],timestamptz)
+          RETURNS jsonb LANGUAGE sql AS $$ SELECT '{"people_waiting":true}'::jsonb $$;
+        CREATE FUNCTION public.fn_ca_table_stall_decide(jsonb,bigint,timestamptz,boolean,boolean)
+          RETURNS text LANGUAGE sql AS $$ SELECT 'tournament_break'::text $$;''')
+        seed()
+        waiting_metrics = metrics + f'poker_table_ms_since_progress{{table_id="{table}",paused="1"}} 600000\n'
+        sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+waiting_metrics+"$metrics$, '"+now+"',60000);")
+        actual = state()
+        assert actual['status'] == 'firing' and actual['watch_count'] == 1, actual
+        assert actual['payload']['intended_wait_reason'] == 'tournament_break', actual
+        assert actual['payload']['root_cause_verified'] is False, actual
+        assert sql('SELECT alert_id FROM smarter_private.ca_table_stall_watch;') == '1'
+        results.append('sustained: intended wait preserves firing status, identity and watch')
+        before = sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;")
+        try:
+            sql(sustained[0].read_text())
+            raise AssertionError('unexpected sustained migration replay')
+        except subprocess.CalledProcessError as error:
+            assert 'missing original' in error.stderr, error.stderr
+        assert sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;") == before
+        results.append('sustained: replay refuses atomically without changing installed source')
         print(json.dumps({'status':'passed','checks':results,'postgres':run([pg_bin/'postgres','--version']).strip()}))
     finally:
         if started:
