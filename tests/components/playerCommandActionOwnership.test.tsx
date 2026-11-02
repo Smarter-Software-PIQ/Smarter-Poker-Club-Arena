@@ -1128,8 +1128,12 @@ it('keeps a verified member visible when its separate viewer-role read fails clo
 it('cannot restore a downline that settles after financial access is withdrawn', async () => {
   const downline = deferred<Array<{ user_id: string; alias: string }>>();
   state.getDownline.mockReturnValueOnce(downline.promise);
-  render(<MemberManagementPage />);
+  // Paint is not subscription readiness: settle the effect-owned callback first.
+  await act(async () => {
+    render(<MemberManagementPage />);
+  });
   await screen.findByText('River Shark');
+  expect(state.recordChannel).toBeTruthy();
   const authority = deferred<typeof memberDetail>();
   const readsBeforeWithdrawal = state.getMemberDetail.mock.calls.length;
   state.getMemberDetail.mockReturnValueOnce(authority.promise);
@@ -1140,7 +1144,7 @@ it('cannot restore a downline that settles after financial access is withdrawn',
     downline: null,
     capabilities: { ...memberDetail.capabilities, can_view_financials: false },
   };
-  await act(async () => state.recordChannel?.onPayload({}));
+  await act(async () => state.recordChannel!.onPayload({}));
   await waitFor(() =>
     expect(state.getMemberDetail.mock.calls.length).toBeGreaterThan(readsBeforeWithdrawal)
   );

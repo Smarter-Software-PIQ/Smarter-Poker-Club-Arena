@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { applicationTriggerWitness } from './schema-application-hooks.mjs';
+import { applicationPolicyWitness } from './schema-application-policies.mjs';
 
 export const schemaHash = (value) => createHash('sha256').update(value).digest('hex');
 export const MANAGED_SCHEMAS = Object.freeze(['auth', 'realtime', '_realtime', 'cron', 'extensions']);
@@ -124,10 +125,10 @@ function managedMissingWitness(original, native) {
   let total = 0;
   for (const [ordinal, item] of original.objects.entries()) {
     if (native.has(item.key) || !managedObject(item)) continue;
-    let applicationHook;
-    try { applicationHook = applicationTriggerWitness(item); }
+    let applicationHook, applicationPolicy;
+    try { applicationHook = applicationTriggerWitness(item); applicationPolicy = applicationPolicyWitness(item); }
     catch { continue; }
-    if (applicationHook) continue;
+    if (applicationHook || applicationPolicy) continue;
     total++;
     if (rows.length === 16) continue;
     rows.push({
@@ -269,18 +270,21 @@ export function composeSchema(capture, serviceDump) {
       refused(!expected ? 'NATIVE_OBJECT_MISSING' : expected.owner !== item.owner ? 'NATIVE_OWNER_DIFFERENT' : 'NATIVE_BLOCK_DIFFERENT',
         !expected ? missingWitness(service, source) : expected.owner === item.owner ? mismatchWitness(service, source) : null);
   }
-  const removed = [], retained = [], applicationHooks = [];
+  const removed = [], retained = [], applicationHooks = [], applicationPolicies = [];
   let sql = original.prefix;
   for (const item of original.objects) {
-    let applicationHook;
-    try { applicationHook = applicationTriggerWitness(item); }
+    let applicationHook, applicationPolicy;
+    try { applicationHook = applicationTriggerWitness(item); applicationPolicy = applicationPolicyWitness(item); }
     catch (error) {
       if (error instanceof Error && error.message === 'SCHEMA_APPLICATION_TRIGGER_REFUSED')
         throw markFailure(error, 'APPLICATION_HOOK');
+      if (error instanceof Error && error.message === 'SCHEMA_APPLICATION_POLICY_REFUSED')
+        throw markFailure(error, 'APPLICATION_POLICY');
       throw error;
     }
     if (applicationHook && native.has(item.key)) refused('APPLICATION_HOOK_IN_NATIVE');
-    const managed = !applicationHook && (managedObject(item) || native.has(item.key));
+    if (applicationPolicy && native.has(item.key)) refused('APPLICATION_POLICY_IN_NATIVE');
+    const managed = !applicationHook && !applicationPolicy && (managedObject(item) || native.has(item.key));
     if (managed) {
       const expected = native.get(item.key);
       if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256)
@@ -292,6 +296,7 @@ export function composeSchema(capture, serviceDump) {
       sql += item.parts.map((part) => part.text).join('');
       retained.push({ key: item.key, sha256: item.sha256 });
       if (applicationHook) applicationHooks.push(applicationHook);
+      if (applicationPolicy) applicationPolicies.push(applicationPolicy);
     }
   }
   // A whole managed namespace may never disappear because of an empty or
@@ -303,7 +308,7 @@ export function composeSchema(capture, serviceDump) {
     sql: sql + original.footer,
     manifest: { version: 1, scope: 'exact-native-service-schema-composition',
       original_sha256: schemaHash(capture), native_preimage_sha256: schemaHash(serviceDump),
-      composed_sha256: schemaHash(sql + original.footer), removed, retained, application_hooks: applicationHooks,
+      composed_sha256: schemaHash(sql + original.footer), removed, retained, application_hooks: applicationHooks, application_policies: applicationPolicies,
       current_database_contract_ready: false, reason: 'native-restore-and-catalogue-parity-not-yet-observed' },
   };
 }

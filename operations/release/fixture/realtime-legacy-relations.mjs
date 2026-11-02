@@ -62,8 +62,22 @@ const ledgerColumns = [
   },
 ];
 const utcDefault = "timezone('utc'::text, clock_timestamp())";
-function validate(rows, configured) {
-  assert.equal(rows.length, 7, 'FIXTURE_REALTIME_RELATION_SET_REQUIRED');
+// UTC calendar days match pinned Realtime's Date.utc_today() creation and
+// 72-hour retention cutoff. No local/DST offset or wall-clock duration is used.
+export function fixtureRealtimePartitionDays(utcDay, retained) {
+  assert.match(utcDay, /^\d{4}-\d{2}-\d{2}$/, 'FIXTURE_REALTIME_UTC_DAY_REQUIRED');
+  const day = new Date(`${utcDay}T00:00:00Z`);
+  assert.equal(day.toISOString().slice(0, 10), utcDay, 'FIXTURE_REALTIME_UTC_DAY_REQUIRED');
+  return Array.from({ length: retained ? 7 : 5 }, (_, i) => {
+    const value = new Date(day);
+    value.setUTCDate(value.getUTCDate() + i - (retained ? 3 : 1));
+    return value.toISOString().slice(0, 10);
+  });
+}
+const capturedAcl = (parent) =>
+  `{supabase_realtime_admin=arwdDxtm/supabase_realtime_admin,postgres=a*r*wdDxtm/supabase_realtime_admin,dashboard_user=arwdDxtm/supabase_realtime_admin${parent ? ',anon=arw/supabase_realtime_admin,authenticated=arw/supabase_realtime_admin,service_role=arw/supabase_realtime_admin' : ''}}`;
+function validate(rows, configured, utcDay, retained = configured) {
+  assert.equal(rows.length, retained ? 9 : 7, 'FIXTURE_REALTIME_RELATION_SET_REQUIRED');
   const ledger = rows.find((r) => r.name === 'schema_migrations');
   assert.ok(
     ledger &&
@@ -92,15 +106,15 @@ function validate(rows, configured) {
       r.owner === 'supabase_realtime_admin' &&
         !r.force_rls &&
         r.replica === 'd' &&
-        r.options === null,
+        r.options === null &&
+        r.acl === capturedAcl(r.name === 'messages'),
       'FIXTURE_REALTIME_MESSAGE_OWNER_REQUIRED'
     );
     assert.deepEqual(
       r.columns,
       messageColumns.map((c) => ({
         ...c,
-        default:
-          configured && ['updated_at', 'inserted_at'].includes(c.name) ? utcDefault : c.default,
+        default: ['updated_at', 'inserted_at'].includes(c.name) ? utcDefault : c.default,
       })),
       'FIXTURE_REALTIME_MESSAGE_COLUMNS_REQUIRED'
     );
@@ -153,7 +167,12 @@ function validate(rows, configured) {
     .filter((r) => r.partition)
     .map((r) => Date.parse(r.name.slice(9).replaceAll('_', '-')))
     .sort((a, b) => a - b);
-  assert.equal(dates.length, 5, 'FIXTURE_REALTIME_PARTITION_COUNT_REQUIRED');
+  assert.equal(dates.length, retained ? 7 : 5, 'FIXTURE_REALTIME_PARTITION_COUNT_REQUIRED');
+  assert.deepEqual(
+    dates.map((d) => new Date(d).toISOString().slice(0, 10)),
+    fixtureRealtimePartitionDays(utcDay, retained),
+    'FIXTURE_REALTIME_PARTITION_UTC_WINDOW_REQUIRED'
+  );
   assert.ok(
     dates.every((d, i) => i === 0 || d - dates[i - 1] === 86400000),
     'FIXTURE_REALTIME_PARTITION_SEQUENCE_REQUIRED'
@@ -173,24 +192,43 @@ function invariant(rows) {
     })),
   }));
 }
+const structureSql = `WITH relations AS (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='realtime' AND c.relname=ANY($1::text[]))
+  SELECT jsonb_build_object(
+    'classes',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.oid) FROM pg_class c WHERE c.oid IN (SELECT oid FROM relations)),
+    'attributes',(SELECT jsonb_agg(to_jsonb(a) ORDER BY a.attrelid,a.attnum) FROM pg_attribute a WHERE a.attrelid IN (SELECT oid FROM relations)),
+    'defaults',(SELECT jsonb_agg(to_jsonb(d) ORDER BY d.oid) FROM pg_attrdef d WHERE d.adrelid IN (SELECT oid FROM relations)),
+    'constraints',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.oid) FROM pg_constraint c WHERE c.conrelid IN (SELECT oid FROM relations)),
+    'indexes',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.indexrelid) FROM pg_index i WHERE i.indrelid IN (SELECT oid FROM relations)),
+    'inherits',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.inhrelid,i.inhseqno) FROM pg_inherits i WHERE i.inhrelid IN (SELECT oid FROM relations)),
+    'initial',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.objoid,i.objsubid) FROM pg_init_privs i WHERE i.classoid='pg_class'::regclass AND i.objoid IN (SELECT oid FROM relations)),
+    'defaultAcl',(SELECT jsonb_agg(to_jsonb(d) ORDER BY d.oid) FROM pg_default_acl d)) AS existing_structure`;
 export async function configureFixtureRealtimeCapturedRelations(db) {
   await assertFixtureServiceBootstrap(db);
   await db.query('BEGIN');
   try {
-    await db.query('SET LOCAL search_path=pg_catalog');
+    await db.query(
+      "SET LOCAL search_path=pg_catalog; SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='5s'"
+    );
     await db.query(
       'LOCK TABLE realtime.schema_migrations, realtime.messages IN ACCESS EXCLUSIVE MODE'
     );
-    const migrations = await db.query(`SELECT count(*)=83 AND min(version)=20211116024918
-      AND max(version)=20260827120000 AND md5(string_agg(version::text,',' ORDER BY version))='262da2efb4aa494a7d90cf451fc9cce5'
+    const migrations = await db.query(`SELECT count(*)=91 AND min(version)=20211116024918
+      AND max(version)=20261009120000 AND md5(string_agg(version::text,',' ORDER BY version))='07ccff1fbfc0665aee2027f75c40670b'
       AND to_regnamespace('_realtime') IS NULL AS genuine_realtime_migrations FROM realtime.schema_migrations`);
     assert.deepEqual(
       migrations.rows,
       [{ genuine_realtime_migrations: true }],
-      'FIXTURE_GENUINE_REALTIME_83_REQUIRED'
+      'FIXTURE_GENUINE_REALTIME_91_REQUIRED'
     );
     const before = (await db.query(snapshotSql)).rows;
-    validate(before, false);
+    const clock =
+      await db.query(`SELECT (transaction_timestamp() AT TIME ZONE 'UTC')::date::text AS utc_day,
+      current_setting('server_version_num')::integer BETWEEN 170000 AND 179999 AS pg17`);
+    assert.equal(clock.rows.length, 1, 'FIXTURE_REALTIME_UTC_DAY_REQUIRED');
+    assert.equal(clock.rows[0].pg17, true, 'FIXTURE_REALTIME_PG17_REQUIRED');
+    const utcDay = clock.rows[0].utc_day;
+    validate(before, false, utcDay);
     const empty = await db.query(
       'SELECT NOT EXISTS(SELECT 1 FROM realtime.messages) AS empty_messages'
     );
@@ -199,24 +237,56 @@ export async function configureFixtureRealtimeCapturedRelations(db) {
       [{ empty_messages: true }],
       'FIXTURE_REALTIME_EMPTY_MESSAGES_REQUIRED'
     );
-    await db.query('ALTER TABLE realtime.schema_migrations ALTER COLUMN inserted_at DROP DEFAULT');
-    await db.query('SET LOCAL ROLE supabase_realtime_admin');
-    for (const r of before.filter((r) => r.name !== 'schema_migrations')) {
-      // Only validated fixed parent or ISO-date child identifiers reach DDL.
+    // Native Admin-created partitions receive the exact upstream namespace defaults
+    // before ordinary ALTER OWNER, just like Realtime.Tenants creates its five.
+    // Refuse role/global/default-ACL drift instead of repairing unrelated grants.
+    const defaults = await db.query(`SELECT count(*)=1 AND bool_and((
+      defaclrole=10 AND defaclnamespace='realtime'::regnamespace AND defaclobjtype='r'
+      AND defaclacl::text='{postgres=a*r*wdDxtm/supabase_admin,dashboard_user=arwdDxtm/supabase_admin}') IS TRUE)
+      AS exact_partition_defaults FROM pg_default_acl WHERE defaclobjtype='r'
+      AND (defaclrole=10 AND defaclnamespace IN (0,'realtime'::regnamespace)
+        OR defaclrole=(SELECT oid FROM pg_roles WHERE rolname='supabase_realtime_admin'))`);
+    assert.deepEqual(
+      defaults.rows,
+      [{ exact_partition_defaults: true }],
+      'FIXTURE_REALTIME_PARTITION_DEFAULT_ACL_REQUIRED'
+    );
+    const originalNames = before.map((r) => r.name);
+    const originalStructure = (await db.query(structureSql, [originalNames])).rows;
+    for (const day of fixtureRealtimePartitionDays(utcDay, true).slice(0, 2)) {
+      const name = 'messages_' + day.replaceAll('-', '_');
+      const end = new Date(`${day}T00:00:00Z`);
+      end.setUTCDate(end.getUTCDate() + 1);
+      // Name and bounds derive only from the validated UTC calendar, never SQL input.
+      // No IF NOT EXISTS: a conflicting historical child is an unknown preimage.
       await db.query(
-        `ALTER TABLE ONLY realtime."${r.name}" ALTER COLUMN updated_at SET DEFAULT timezone('utc',clock_timestamp()), ALTER COLUMN inserted_at SET DEFAULT timezone('utc',clock_timestamp())`
+        `CREATE TABLE realtime."${name}" PARTITION OF realtime.messages FOR VALUES FROM ('${day}') TO ('${end.toISOString().slice(0, 10)}')`
       );
+      await db.query(`ALTER TABLE realtime."${name}" OWNER TO supabase_realtime_admin`);
     }
-    await db.query('RESET ROLE');
+    assert.deepEqual(
+      (await db.query(structureSql, [originalNames])).rows,
+      originalStructure,
+      'FIXTURE_REALTIME_EXISTING_STRUCTURE_CHANGED'
+    );
+    const expanded = (await db.query(snapshotSql)).rows;
+    // Genuine91 already supplies UTC timestamp defaults on parent and children.
+    validate(expanded, false, utcDay, true);
+    assert.deepEqual(
+      expanded.filter((r) => originalNames.includes(r.name)),
+      before,
+      'FIXTURE_REALTIME_EXISTING_RELATIONS_CHANGED'
+    );
+    await db.query('ALTER TABLE realtime.schema_migrations ALTER COLUMN inserted_at DROP DEFAULT');
     const after = (await db.query(snapshotSql)).rows;
-    validate(after, true);
+    validate(after, true, utcDay);
     assert.deepEqual(
       invariant(after),
-      invariant(before),
+      invariant(expanded),
       'FIXTURE_REALTIME_UNRELATED_METADATA_CHANGED'
     );
     const unchanged = await db.query(
-      `SELECT count(*)=83 AND md5(string_agg(version::text,',' ORDER BY version))='262da2efb4aa494a7d90cf451fc9cce5' AS history_unchanged FROM realtime.schema_migrations`
+      `SELECT count(*)=91 AND md5(string_agg(version::text,',' ORDER BY version))='07ccff1fbfc0665aee2027f75c40670b' AS history_unchanged FROM realtime.schema_migrations`
     );
     assert.deepEqual(
       unchanged.rows,
@@ -235,13 +305,16 @@ export async function configureFixtureRealtimeCapturedRelations(db) {
 export async function assertFixtureRealtimeCapturedRelations(db) {
   await assertFixtureServiceBootstrap(db);
   const result = await db.query(snapshotSql);
-  validate(result.rows, true);
-  const history = await db.query(`SELECT count(*)=83 AND min(version)=20211116024918
-    AND max(version)=20260827120000 AND md5(string_agg(version::text,',' ORDER BY version))='262da2efb4aa494a7d90cf451fc9cce5'
+  const clock = await db.query(
+    "SELECT (transaction_timestamp() AT TIME ZONE 'UTC')::date::text AS utc_day"
+  );
+  validate(result.rows, true, clock.rows[0].utc_day);
+  const history = await db.query(`SELECT count(*)=91 AND min(version)=20211116024918
+    AND max(version)=20261009120000 AND md5(string_agg(version::text,',' ORDER BY version))='07ccff1fbfc0665aee2027f75c40670b'
     AND to_regnamespace('_realtime') IS NULL AS genuine_realtime_migrations FROM realtime.schema_migrations`);
   assert.deepEqual(
     history.rows,
     [{ genuine_realtime_migrations: true }],
-    'FIXTURE_GENUINE_REALTIME_83_REQUIRED'
+    'FIXTURE_GENUINE_REALTIME_91_REQUIRED'
   );
 }

@@ -12,8 +12,8 @@ function baseline() {
     ['payload', 'jsonb', false, null],
     ['event', 'text', false, null],
     ['private', 'bool', false, 'false'],
-    ['updated_at', 'timestamp', true, 'now()'],
-    ['inserted_at', 'timestamp', true, 'now()'],
+    ['updated_at', 'timestamp', true, "timezone('utc'::text, clock_timestamp())"],
+    ['inserted_at', 'timestamp', true, "timezone('utc'::text, clock_timestamp())"],
     ['id', 'uuid', true, 'gen_random_uuid()'],
     ['binary_payload', 'bytea', false, null],
     ['skip_broadcast', 'bool', true, 'false'],
@@ -35,7 +35,7 @@ function baseline() {
     force_rls: false,
     replica: 'd',
     options: null,
-    acl: 'fixed-acl',
+    acl: '{supabase_realtime_admin=arwdDxtm/supabase_realtime_admin,postgres=a*r*wdDxtm/supabase_realtime_admin,dashboard_user=arwdDxtm/supabase_realtime_admin,anon=arw/supabase_realtime_admin,authenticated=arw/supabase_realtime_admin,service_role=arw/supabase_realtime_admin}',
     bound: null,
     parents: null,
     partition_key: 'RANGE (inserted_at)',
@@ -45,6 +45,7 @@ function baseline() {
     ...structuredClone(parent),
     name: `messages_2026_11_0${i + 1}`,
     kind: 'r',
+    acl: '{supabase_realtime_admin=arwdDxtm/supabase_realtime_admin,postgres=a*r*wdDxtm/supabase_realtime_admin,dashboard_user=arwdDxtm/supabase_realtime_admin}',
     partition: true,
     rls: false,
     parents: ['realtime.messages'],
@@ -97,19 +98,32 @@ function fake({
   changeBefore,
   changeAfter,
   failDDL,
+  partitionDefaults = true,
+  utcDay = '2026-11-02',
+  structureDrift = false,
 } = {}) {
   const calls = [];
   let reads = 0;
   const before = baseline();
   changeBefore?.(before);
-  const after = structuredClone(before);
-  for (const r of after)
-    for (const c of r.columns) {
-      if (r.name === 'schema_migrations' && c.name === 'inserted_at') c.default = null;
-      else if (r.name !== 'schema_migrations' && ['inserted_at', 'updated_at'].includes(c.name))
-        c.default = "timezone('utc'::text, clock_timestamp())";
-    }
+  const childTemplate = before.find((r) => r.partition);
+  const expanded = [
+    ...structuredClone(before),
+    ...['2026-10-30', '2026-10-31'].map((day) => {
+      const end = new Date(`${day}T00:00:00Z`);
+      end.setUTCDate(end.getUTCDate() + 1);
+      return {
+        ...structuredClone(childTemplate),
+        name: 'messages_' + day.replaceAll('-', '_'),
+        bound: `FOR VALUES FROM ('${day} 00:00:00') TO ('${end.toISOString().slice(0, 10)} 00:00:00')`,
+      };
+    }),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+  const orderedBefore = [...before].sort((a, b) => a.name.localeCompare(b.name));
+  const after = structuredClone(expanded);
+  after.find((r) => r.name === 'schema_migrations').columns[1].default = null;
   changeAfter?.(after);
+  let structures = 0;
   return {
     calls,
     query: async (sql) => {
@@ -118,9 +132,24 @@ function fake({
         return { rows: [{ owned_service_bootstrap: bootstrap }] };
       if (sql.includes('AS genuine_realtime_migrations'))
         return { rows: [{ genuine_realtime_migrations: migrations }] };
+      if (sql.includes('AS utc_day')) return { rows: [{ utc_day: utcDay, pg17: true }] };
+      if (sql.includes('AS exact_partition_defaults'))
+        return { rows: [{ exact_partition_defaults: partitionDefaults }] };
+      if (sql.includes('AS existing_structure'))
+        return {
+          rows: [
+            {
+              existing_structure: {
+                indexes: structures++ && structureDrift ? 'changed' : 'exact-original-index-rows',
+                defaults: 'exact-original-defaults',
+              },
+            },
+          ],
+        };
       if (sql.includes('AS empty_messages')) return { rows: [{ empty_messages: empty }] };
       if (sql.includes('AS history_unchanged')) return { rows: [{ history_unchanged: true }] };
-      if (sql.startsWith('SELECT c.relname')) return { rows: reads++ ? after : before };
+      if (sql.startsWith('SELECT c.relname'))
+        return { rows: [orderedBefore, expanded, after][Math.min(reads++, 2)] };
       if (failDDL && sql.startsWith('ALTER TABLE')) throw failDDL;
       return { rows: [] };
     },
@@ -152,13 +181,32 @@ for (const [name, opts] of [
     const db = fake(opts);
     await assert.rejects(configureFixtureRealtimeCapturedRelations(db));
     assert.equal(db.calls.at(-1), 'ROLLBACK');
-    assert.ok(!db.calls.some((s) => s.startsWith('ALTER TABLE')));
+    assert.ok(!db.calls.some((s) => /^(CREATE|ALTER) TABLE/.test(s)));
   });
-test('only captured ledger default and actual UTC wall-clock defaults are configured', async () => {
+test('genuine91 UTC defaults remain native while two retained partitions and only ledger default are configured', async () => {
   const db = fake();
   await configureFixtureRealtimeCapturedRelations(db);
-  assert.equal(db.calls.filter((s) => s.startsWith('ALTER TABLE ONLY')).length, 6);
-  assert.ok(db.calls.includes('SET LOCAL ROLE supabase_realtime_admin'));
+  assert.equal(db.calls.filter((s) => s.startsWith('ALTER TABLE ONLY')).length, 0);
+  assert.ok(!db.calls.some((s) => s.startsWith('SET LOCAL ROLE')));
+  assert.deepEqual(
+    db.calls.filter((s) => s.startsWith('CREATE TABLE')),
+    [
+      `CREATE TABLE realtime."messages_2026_10_30" PARTITION OF realtime.messages FOR VALUES FROM ('2026-10-30') TO ('2026-10-31')`,
+      `CREATE TABLE realtime."messages_2026_10_31" PARTITION OF realtime.messages FOR VALUES FROM ('2026-10-31') TO ('2026-11-01')`,
+    ]
+  );
+  assert.deepEqual(
+    db.calls.filter((s) => s.startsWith('ALTER TABLE')),
+    [
+      'ALTER TABLE realtime."messages_2026_10_30" OWNER TO supabase_realtime_admin',
+      'ALTER TABLE realtime."messages_2026_10_31" OWNER TO supabase_realtime_admin',
+      'ALTER TABLE realtime.schema_migrations ALTER COLUMN inserted_at DROP DEFAULT',
+    ]
+  );
+  const ledger = db.calls.find((s) => s.includes('AS genuine_realtime_migrations'));
+  assert.ok(ledger.includes('count(*)=91'));
+  assert.ok(ledger.includes('max(version)=20261009120000'));
+  assert.ok(ledger.includes('07ccff1fbfc0665aee2027f75c40670b'));
   assert.equal(db.calls.at(-1), 'COMMIT');
   assert.ok(!db.calls.some((s) => /\b(INSERT|UPDATE|DELETE|GRANT|REVOKE)\b/.test(s)));
 });
@@ -166,7 +214,7 @@ test('unrelated ACL drift fails the independent after-read and rolls back', asyn
   const db = fake({ changeAfter: (r) => (r[0].acl = 'changed') });
   await assert.rejects(
     configureFixtureRealtimeCapturedRelations(db),
-    /FIXTURE_REALTIME_UNRELATED_METADATA_CHANGED/
+    /FIXTURE_REALTIME_MESSAGE_OWNER_REQUIRED/
   );
   assert.equal(db.calls.at(-1), 'ROLLBACK');
 });
@@ -236,10 +284,39 @@ test('old synthetic NOT NULL/no-default ledger preimage is refused before DDL', 
   assert.equal(db.calls.at(-1), 'ROLLBACK');
 });
 
-test('relation catalogue excludes attached child indexes while retaining all seven tables', async () => {
+test('relation catalogue excludes attached child indexes across strict fresh5 expanded7 configured7 snapshots', async () => {
   const db = fake();
   await configureFixtureRealtimeCapturedRelations(db);
   const snapshots = db.calls.filter((s) => s.startsWith('SELECT c.relname'));
-  assert.equal(snapshots.length, 2);
+  assert.equal(snapshots.length, 3);
   for (const sql of snapshots) assert.match(sql, /c\.relkind IN \('r','p'\)/);
+});
+
+test('default ACL drift refuses before partition creation and rolls back', async () => {
+  const db = fake({ partitionDefaults: false });
+  await assert.rejects(
+    configureFixtureRealtimeCapturedRelations(db),
+    /FIXTURE_REALTIME_PARTITION_DEFAULT_ACL_REQUIRED/
+  );
+  assert.equal(db.calls.at(-1), 'ROLLBACK');
+  assert.ok(!db.calls.some((s) => s.startsWith('CREATE TABLE')));
+});
+test('a valid but stale five-day UTC window refuses before partition DDL', async () => {
+  const db = fake({ utcDay: '2026-11-03' });
+  await assert.rejects(
+    configureFixtureRealtimeCapturedRelations(db),
+    /FIXTURE_REALTIME_PARTITION_UTC_WINDOW_REQUIRED/
+  );
+  assert.equal(db.calls.at(-1), 'ROLLBACK');
+  assert.ok(!db.calls.some((s) => s.startsWith('CREATE TABLE')));
+});
+test('preexisting native index metadata drift refuses after expansion and rolls back', async () => {
+  const db = fake({ structureDrift: true });
+  await assert.rejects(
+    configureFixtureRealtimeCapturedRelations(db),
+    /FIXTURE_REALTIME_EXISTING_STRUCTURE_CHANGED/
+  );
+  assert.equal(db.calls.filter((s) => s.startsWith('CREATE TABLE')).length, 2);
+  assert.equal(db.calls.at(-1), 'ROLLBACK');
+  assert.ok(!db.calls.includes('COMMIT'));
 });

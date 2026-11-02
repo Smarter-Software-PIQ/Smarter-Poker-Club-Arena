@@ -43,13 +43,13 @@ RECORDS = [dict(scope='native-service-smoke', observer='passed', browser='chromi
                                       rollback='schema-trigger-role-absent',
                                       production_binary_version_parity=False,
                                       complete_application_acl_parity=False),
-                postgrest='14.5', realtime='2.134.11', change='observed', retries=0,
+                postgrest='14.5', realtime='2.144.0', change='observed', retries=0,
                 realtime_listener='127.0.0.1:4000', realtime_gateway='authenticated-change-observed',
                 realtime_rls='two-users-causal-isolation',
                 observation_bridge='native-synthetic-protocol'),
            dict(scope='native-service-smoke', peer='passed', gateway='reachable',
                 realtime_direct='refused', tenant_administration='refused')]
-ROLE_ALIGNMENT = {'scope': 'native-full-role-installer', 'status': 'passed', 'stage': 'complete', 'template_sha256': '1bd81744fe0b6c17c0bda62f1a46b7953c25fc7b00524fc3b509238c0d8f6c41', 'install_submitted': True, 'commit_acknowledged': True, 'catalog_outcome': 'committed', 'rollback_acknowledged': False, 'separate_read_only_observers': 4, 'graph_assertion': True, 'membership_assertion': True, 'actual_login_and_default_acl_tests': False, 'post_alignment_services': False, 'full_schema_ready': False, 'funded_or_production_complete': False, 'installer_backend_absent': True, 'all_driver_clients_closed': True, 'original_catalog_sha256': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'aligned_catalog_sha256': 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'}
+ROLE_ALIGNMENT = {'scope': 'native-full-role-installer', 'status': 'passed', 'stage': 'complete', 'template_sha256': '7d42d4f8d32d515bda18cd40c8c6357965a6a00869c8a922e38b9def3eee1706', 'install_submitted': True, 'commit_acknowledged': True, 'catalog_outcome': 'committed', 'rollback_acknowledged': False, 'separate_read_only_observers': 4, 'graph_assertion': True, 'membership_assertion': True, 'actual_login_and_default_acl_tests': False, 'post_alignment_services': False, 'full_schema_ready': False, 'funded_or_production_complete': False, 'installer_backend_absent': True, 'all_driver_clients_closed': True, 'original_catalog_sha256': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'aligned_catalog_sha256': 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'}
 SMOKE = '\n'.join(map(json.dumps, RECORDS)) + '\nNative service smoke and container/network cleanup passed (not a product certificate).\n'
 
 
