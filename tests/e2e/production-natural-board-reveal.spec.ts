@@ -264,14 +264,23 @@ test('one natural cash hand owes the full turn and river reveal', async ({
         ),
       }));
       const current = await capture();
+      const originalTransportsClosed = journal.areTransportsClosed(originalTransports);
       if (
         !state.visible ||
         !state.focused ||
         state.dialog ||
-        journal.areTransportsClosed(originalTransports) ||
+        originalTransportsClosed ||
         current.transportContinuity !== 'observed'
       ) {
         interrupted = true;
+        evidence.interruption = {
+          elapsedMs: Date.now() - since,
+          visible: state.visible,
+          focused: state.focused,
+          dialog: state.dialog,
+          originalTransportsClosed,
+          transportContinuity: current.transportContinuity,
+        };
         break;
       }
       if (current.verdict === 'qualified' || current.verdict === 'violation') break;
