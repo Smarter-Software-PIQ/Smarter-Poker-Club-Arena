@@ -96,10 +96,10 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         self.reset()
 
     # host fakes
-    def sources(self, _deadline):
+    def sources(self, _deadline, control=None, expected=None):
         if not self.sources_ok:
             seal.die('fixture source pin differs')
-        return dict(seal.NINEF_SOURCES)
+        return dict(expected or seal.NINEF_SOURCES)
 
     def current(self, args, _deadline):
         self.current_calls += 1
@@ -157,6 +157,9 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
 
     def command(self, command, _deadline, _limit=32768):
         self.probes.append(command[0])
+        if command[0] == 'docker':
+            if getattr(self,'inspector_open',False): raise ValueError('Inspector is open')
+            return ''
         if command[0] == 'curl':
             local = '127.0.0.1' in command[-1]
             return json.dumps(self.health if local or self.public_health is None else self.public_health)
@@ -198,6 +201,117 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
 
     def write_intent(self, **fields):
         (self.request_root / f'{DEAD_RUN}.legacy-checkpoint-intent').write_text(json.dumps({**self.intent, **fields}))
+
+    def daily_fixture(self):
+        self.failure={'schema':1,'runId':seal.DAILY_REFUSAL_RUN,'result':'failed','sha':seal.DAILY_REFUSAL_SHA,
+            'controlSha':seal.DAILY_REFUSAL_SHA,'invocationId':'9fafe653d72d44cdafaad9e5b3667187',
+            'transactionExitStatus':1,'recoveredDesiredSha':A_SHA,'recoveredDesiredImageId':A_IMAGE,'completedAt':1793613966}
+        self.assertEqual(seal.failed_routine_digest(self.failure),seal.DAILY_REFUSAL_FAILURE)
+        self.cycle={'kind':'hourly-reset','policyId':seal.SCHEDULE_POLICY_ID,'policyDigest':seal.NINEF_POLICY_DIGEST,
+            'startsAt':1793613600,'endsAt':1793613900,'runId':seal.DAILY_REFUSAL_RUN,'sha':seal.DAILY_REFUSAL_SHA,
+            'controlSha':seal.DAILY_REFUSAL_SHA,'status':'reserved','failure':self.failure}
+        self.base['routineMaintenanceCycles']={'1793613600':self.cycle}
+        seal.write_state(copy.deepcopy(self.base));seal.write_json_atomic(seal.result_path(seal.DAILY_REFUSAL_RUN),self.failure)
+        self.database={'schema':'terminal-owned-thaw/v1','sha':A_SHA,'instanceId':INSTANCE,
+            'databaseIdle':True,'freshLeader':True,'ownedV3Thaw':True,**seal.DAILY_REFUSAL_WINDOW}
+        for name,value in [('docker_json',self.live),('image_identity',(A_IMAGE,A_SHA,True))]:
+            p=patch.object(seal,name,return_value=value);p.start();self.addCleanup(p.stop)
+        self.inspector_open=False
+
+    def test_daily_unentered_owner_requires_real_terminal_cleanup_and_full_daily_thaw(self):
+        self.daily_fixture()
+        original=copy.deepcopy(self.cycle)
+        self.assertEqual(self.resolve(),seal.DAILY_REFUSAL_RUN)
+        state=seal.load_state();self.assertEqual(state['routineMaintenanceCycles']['1793613600'],original)
+        self.assertIsNone(original.get('window'))
+        resolution=state['routineFailureResolutions'][seal.DAILY_REFUSAL_RUN]
+        self.assertEqual(resolution['result'],'unentered-daily-cycle-proved')
+        self.assertEqual(resolution['proof']['database']['announcedAt'],1793613480003)
+        before=seal.STATE_FILE.read_bytes();self.assertEqual(self.resolve(),'not-needed');self.assertEqual(seal.STATE_FILE.read_bytes(),before)
+        self.assertEqual(self.owner(),'none')
+
+    def test_daily_refusal_retains_unknown_or_live_custody(self):
+        self.daily_fixture()
+        for suffix in ('request','intent','activation-entry','drill','legacy-checkpoint-intent','main-inspector-retirement-intent',
+                       'main-inspector-retirement-receipt','lightning-hold.json','lightning-hold.json.released',
+                       'break-deadline','awaiting-certificate'):
+            with self.subTest(suffix=suffix):
+                path=seal.STATE_DIR/'engine-release-requests'/(seal.DAILY_REFUSAL_RUN+'.'+suffix)
+                path.parent.mkdir(exist_ok=True);path.write_text('retained custody')
+                self.assertEqual(self.resolve(),'not-needed');path.unlink()
+        for flag in ('inspector_open','current_drift'):
+            setattr(self,flag,True);self.assertEqual(self.resolve(),'not-needed');setattr(self,flag,False)
+        self.cgroup_empty=False;self.assertEqual(self.resolve(),'not-needed');self.cgroup_empty=True
+        self.sources_ok=False;self.assertEqual(self.resolve(),'not-needed');self.sources_ok=True
+        health=copy.deepcopy(self.health)
+        for mutate in (lambda:self.health.update(releaseSha=TARGET_SHA),
+                       lambda:self.health['maintenance'].update(active=True),
+                       lambda:setattr(self,'public_health',{**self.health,'instanceId':'1-deadbeef'})):
+            mutate();self.assertEqual(self.resolve(),'not-needed');self.health=copy.deepcopy(health);self.public_health=None
+        for directory,suffix in [('engine-release-generation-pins','generation'),('engine-image-leases','lease'),
+                                 ('engine-intake-requests','intent'),('engine-intake-requests','request')]:
+            path=seal.STATE_DIR/directory/(seal.DAILY_REFUSAL_RUN+'.'+suffix);path.parent.mkdir(exist_ok=True);path.write_text('retained')
+            self.assertEqual(self.resolve(),'not-needed');path.unlink()
+        notice=seal.STATE_DIR/('engine-recovery-window-'+seal.DAILY_REFUSAL_RUN+'.json');notice.write_text('{}')
+        self.assertEqual(self.resolve(),'not-needed');notice.unlink()
+        before=seal.STATE_FILE.read_bytes();self.database['ownedV3Thaw']=False
+        self.assertEqual(self.resolve_or_refusal(),'refused');self.assertEqual(seal.STATE_FILE.read_bytes(),before)
+
+    def test_daily_refusal_recovery_resumes_after_audit_interruption(self):
+        self.daily_fixture()
+        with patch.object(seal,'audit_once',side_effect=RuntimeError('interrupted')):
+            with self.assertRaises(RuntimeError):self.resolve()
+        receipts=list(seal.RESULT_DIR.glob(seal.DAILY_REFUSAL_RUN+'.*.terminal-resolution.json'))
+        self.assertEqual(len(receipts),1);before=receipts[0].read_bytes()
+        self.assertEqual(self.resolve(),seal.DAILY_REFUSAL_RUN);self.assertEqual(receipts[0].read_bytes(),before)
+
+    def test_daily_observer_preserves_unbound_window_and_actual_thaw(self):
+        import shutil
+        self.daily_fixture()
+        self.assertEqual(self.resolve(), seal.DAILY_REFUSAL_RUN)
+        root = self.root / 'observer-root'
+        results = root / 'engine-release-results'
+        results.mkdir(parents=True)
+        os.chmod(root, 0o700); os.chmod(results, 0o700)
+        shutil.copyfile(seal.STATE_FILE, root / 'engine-release-seal.json')
+        for source in (seal.result_path(seal.DAILY_REFUSAL_RUN), seal.terminal_receipt_path(seal.DAILY_REFUSAL_RUN, LIVE_RUN, INVOCATION)):
+            shutil.copyfile(source, results / source.name)
+        for path in [root / 'engine-release-seal.json', *results.iterdir()]:
+            os.chmod(path, 0o600)
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        reply = observer.routine_remote(observer.ROUTINE_REQUEST, fd)
+        observer.validate_routine_reply(reply, observer.ROUTINE_REQUEST)
+        [row] = [r for r in reply['owners'] if r['runId'] == seal.DAILY_REFUSAL_RUN]
+        self.assertTrue(row['failureResolution']['present'])
+        self.assertFalse(row['unresolvedOwner'])
+        # Removing the receipt makes the canonical observation refuse rather than guess.
+        (results / seal.terminal_receipt_path(seal.DAILY_REFUSAL_RUN, LIVE_RUN, INVOCATION).name).unlink()
+        with self.assertRaises((ValueError, FileNotFoundError)):
+            observer.routine_remote(observer.ROUTINE_REQUEST, fd)
+
+    def test_daily_recovery_pins_actual_original_sources_and_native_templates(self):
+        import subprocess
+        env={k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
+        files={name:subprocess.check_output(['git','-C',str(ROOT),'show',seal.DAILY_REFUSAL_SHA+':server/scripts/'+name],env=env)
+               for name in seal.DAILY_REFUSAL_SOURCES}
+        files['engine-release-unit-wrapper-v1.sh']=files['engine-release-unit-wrapper.sh']
+        for source,marker,name in [
+            ('install-engine-supervisor.sh','cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n','club-arena-engine-release-v1@.service'),
+            ('install-engine-intake.sh',"cat > \"$UNIT_STAGE\" <<'UNIT'\n",'club-arena-engine-intake-v1@.service'),
+            ('install-engine-intake.sh',"cat > \"$PATH_STAGE\" <<'UNIT'\n",'club-arena-engine-intake-v1@.path')]:
+            body=files[source].decode().split(marker,1)[1].split('\nUNIT\n',1)[0]+'\n'
+            body=body.replace('$UNIT_WRAPPER_V1','/usr/local/lib/club-arena/engine-release-unit-wrapper-v1.sh').replace('\\$','$')
+            files[name]=body.encode()
+        # Call the real shared source verifier, not the fixture host stub.
+        with patch.object(seal,'failed_routine_bytes',side_effect=lambda p,*_:files[p.name]):
+            # The function is retained via its module loader, independently of setUp's stub.
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            with patch.object(module,'failed_routine_bytes',side_effect=lambda p,*_:files[p.name]):
+                self.assertEqual(module.ninef_sources(time.monotonic()+5,seal.DAILY_REFUSAL_SHA,seal.DAILY_REFUSAL_SOURCES),seal.DAILY_REFUSAL_SOURCES)
+                files['engine-release-recover.sh']+=b'changed'
+                with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                    module.ninef_sources(time.monotonic()+5,seal.DAILY_REFUSAL_SHA,seal.DAILY_REFUSAL_SOURCES)
 
     # cases
     def test_proved_terminal_owner_is_recorded_without_rewriting_history(self):
