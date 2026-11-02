@@ -47,6 +47,11 @@ export interface PreflopIntent {
   a: 'fold' | 'check' | 'call' | 'jam' | 'raiseTo';
   /** raise-TO target for a === 'raiseTo' (pre-legalization) */
   to?: number;
+  /** Telemetry receipt the caller fires (this module has no telemetry):
+   *  'v74_nlh_open_size' = the open was drawn from the V74 band;
+   *  'v76_retired_four_bet_bluff' = the V7 4-bet-bluff band would have
+   *  fired and was retired. Never changes the action. */
+  receipt?: 'v74_nlh_open_size' | 'v76_retired_four_bet_bluff';
 }
 
 export interface PreflopCtx {
@@ -1355,6 +1360,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       }
       return {
         a: 'raiseTo',
+        receipt: 'v74_nlh_open_size',
         to: nlhOpenRaiseTo({
           seat: nlhOpenSeat({ position, isButton: ctx.isButton, trueHeadsUp: trueHu }),
           depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
@@ -1954,6 +1960,11 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       return { a: 'raiseTo', to: currentBet * mult * ctx.sizingMultiplier };
     }
 
+    // V76 receipt carrier: true when the retired band rolled (see below).
+    let v76Retired = false;
+    const v76Done = (i: PreflopIntent): PreflopIntent =>
+      v76Retired ? { ...i, receipt: 'v76_retired_four_bet_bluff' } : i;
+
     // V7 4-BET BLUFF: NLHE only, facing exactly a 3-bet, no callers behind,
     // blocker-heavy band just below the value region. Small sizing, folds to
     // a 5-bet. Makes the value 4-bets unexploitable.
@@ -1976,11 +1987,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       strength >= t(0.72) &&
       strength < fourBetThresh &&
       currentBet * 2.3 < stack * 0.35 &&
-      rand() < bluffBudget * 0.22 * blockerMult * (aggro3 ? 1.5 : cash3 ? 1.4 : 1) &&
-      ctx.retireFourBetBluffBand !== true
+      rand() < bluffBudget * 0.22 * blockerMult * (aggro3 ? 1.5 : cash3 ? 1.4 : 1)
     ) {
-      const mult = 2.2 + rand() * 0.2;
-      return { a: 'raiseTo', to: currentBet * mult * ctx.sizingMultiplier };
+      if (ctx.retireFourBetBluffBand !== true) {
+        const mult = 2.2 + rand() * 0.2;
+        return { a: 'raiseTo', to: currentBet * mult * ctx.sizingMultiplier };
+      }
+      // V76: the band rolled and is retired. Record it for the caller and
+      // fall through to the call / fold read below (the action is unchanged
+      // from the retirement; only the receipt is new).
+      v76Retired = true;
     }
 
     // 5-bet pots: jam-or-fold on true premiums only.
@@ -2042,9 +2058,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     const floor3 = ctx.isOmaha ? 0.3 : 0.42;
     const pricedCallThresh = Math.max(floor3, callThresh - relief3 - commit3);
     const capOK3 = toCall <= stack * 0.35 || (investedShare >= 0.1 && guardOdds <= 0.45);
-    if (callStrength >= pricedCallThresh && capOK3) return { a: 'call' };
-    if (toCall > 0 && toCall <= pricePot * 0.15 && strength >= 0.45) return { a: 'call' };
-    if (toCall === 0) return { a: 'check' };
-    return { a: 'fold' };
+    if (callStrength >= pricedCallThresh && capOK3) return v76Done({ a: 'call' });
+    if (toCall > 0 && toCall <= pricePot * 0.15 && strength >= 0.45) return v76Done({ a: 'call' });
+    if (toCall === 0) return v76Done({ a: 'check' });
+    return v76Done({ a: 'fold' });
   }
 }

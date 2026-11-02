@@ -2195,6 +2195,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     0.002
   ),
   receipt(
+    'v74_nlh_open_size',
+    'HorsePreflop (V74)',
+    "No-limit hold'em raise-first-in open drawn from the V74 seat/table/format/depth band (cash never under 2.5bb)",
+    'V74',
+    'decide_nlh',
+    0.005
+  ),
+  receipt(
+    'v76_retired_four_bet_bluff',
+    'HorsePreflop (V76)',
+    "Hold'em facing one 3-bet: the V7 4-bet-bluff band rolled and was retired; the hand took the call / fold read instead",
+    'V76',
+    'decide_nlh'
+  ),
+  receipt(
     'v79_top_pair_weak_kicker',
     'HorseLogic (V79)',
     "Hold'em top pair with a 9-or-lower kicker facing a 0.6-pot+ or stack-committing turn/river wager: equity shaded",
