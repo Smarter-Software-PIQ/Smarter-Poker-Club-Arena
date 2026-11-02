@@ -945,6 +945,23 @@ test('newly reviewed satellite uses its stable closure identity and refuses hist
   }
 });
 
+test('retained-hand satellite admission cannot bypass its unresolved physical boundary', async () => {
+  const member = {
+    tournamentId: 'bf4db83a-0cbf-4922-870e-1dd172bdea5d',
+    operationId: '2f96f10b-f7a1-5ab4-8f14-39f9899a2ee3',
+  };
+  assert.equal(
+    originalControlIntent({ ...input, action: 'equal_read', tournamentId: member.tournamentId })
+      .operationId,
+    member.operationId
+  );
+  for (const action of ['equal_preview', 'equal_settle']) {
+    const f = equalFixture({ member, initial: 'stop_requested' });
+    assert.equal((await f.run(action)).outcome, 'unknown');
+    assert.equal(equalWrites(f).length, 0);
+  }
+});
+
 test('additional frozen events use separate operations and the full existing closure path', async () => {
   const manifest = JSON.parse(
     (await import('node:fs')).readFileSync(
@@ -955,8 +972,8 @@ test('additional frozen events use separate operations and the full existing clo
       'utf8'
     )
   );
-  assert.equal(manifest.members.length, 25);
-  assert.equal(new Set(manifest.members.map((m) => m.operationId)).size, 25);
+  assert.equal(manifest.members.length, 26);
+  assert.equal(new Set(manifest.members.map((m) => m.operationId)).size, 26);
   for (const member of manifest.members) {
     assert.equal(
       equalManifest.members.some((m) => m.tournamentId === member.tournamentId),

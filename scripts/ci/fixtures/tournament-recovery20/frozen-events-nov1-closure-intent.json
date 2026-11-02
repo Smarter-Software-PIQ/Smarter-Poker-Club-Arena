@@ -100,6 +100,14 @@
       "observedLastHandAt": "2026-11-01T21:05:59.859205+00:00"
     },
     {
+      "tournamentId": "bf4db83a-0cbf-4922-870e-1dd172bdea5d",
+      "operationId": "2f96f10b-f7a1-5ab4-8f14-39f9899a2ee3",
+      "observedLastHandAt": "2026-11-02T08:45:54.822892+00:00",
+      "observedAt": "2026-11-02T09:50:51.843985+00:00",
+      "source": "frozen-events-01a19a5c/two-new-candidates-deepread-20261102T095051Z.json",
+      "sourceSha256": "a83e052387dcc1b3991e76092a8f3a7c318e84b053c476ea92f70db05b991e33"
+    },
+    {
       "tournamentId": "cc64ed2b-90d3-4e8e-bb00-006c6d5e964f",
       "operationId": "a93e6bd1-9a09-520e-8aea-3e0a99206f2e",
       "observedLastHandAt": "2026-11-01T16:49:36.366343+00:00"
