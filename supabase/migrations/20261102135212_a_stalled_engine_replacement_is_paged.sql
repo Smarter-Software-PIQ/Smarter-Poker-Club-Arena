@@ -21,8 +21,9 @@
 -- financial_alerts row (source fn_ca_engine_release_stall_check) naming the
 -- serving version, the failure count, distinct runs and targets, and the
 -- latest stage/error. While the condition stays true it raises nothing more.
--- When the condition clears (a new version leads, or the window holds fewer
--- failures) the open alert is resolved with the re-measurement. A stale or
+-- The open alert is resolved only when a different engine version leads than
+-- the one it named: failures merely ageing out of the window (a wedged lane
+-- that stops attempting) is not recovery and keeps the page open. A stale or
 -- missing leader heartbeat is unknown, never "healthy": nothing is raised or
 -- resolved. It never touches releases, engines, freezes or money.
 --
@@ -55,6 +56,7 @@ DECLARE
   v_first     timestamptz;
   v_last      record;
   v_open      bigint;
+  v_open_version text;
   v_raised    integer := 0;
   v_resolved  integer := 0;
 BEGIN
@@ -86,11 +88,25 @@ BEGIN
    ORDER BY e.recorded_at DESC
    LIMIT 1;
 
-  SELECT fa.id INTO v_open
+  SELECT fa.id, fa.context->>'serving_version' INTO v_open, v_open_version
     FROM public.financial_alerts fa
    WHERE fa.source = 'fn_ca_engine_release_stall_check' AND NOT fa.resolved
    ORDER BY fa.created_at DESC
    LIMIT 1;
+
+  -- A different engine leads than the one the open page named: that stall is
+  -- over. Close it first; a new stall below pages afresh.
+  IF v_open IS NOT NULL AND left(COALESCE(v_open_version, ''), 8) IS DISTINCT FROM left(v_version, 8) THEN
+    UPDATE public.financial_alerts fa
+       SET resolved = true,
+           resolved_at = now(),
+           resolution = format('Re-measured by fn_ca_engine_release_stall_check at %s: engine %s now leads '
+                               || '(the page named %s); %s failed attempt(s) to replace it in the last %s hour(s).',
+                               now(), left(v_version, 8), left(COALESCE(v_open_version, ''), 8), v_failures, v_hours)
+     WHERE fa.id = v_open AND NOT fa.resolved;
+    GET DIAGNOSTICS v_resolved = ROW_COUNT;
+    v_open := NULL;
+  END IF;
 
   IF v_failures >= v_min THEN
     IF v_open IS NULL THEN
@@ -110,19 +126,12 @@ BEGIN
                                  'latest_error', v_last.error, 'latest_at', v_last.recorded_at));
       GET DIAGNOSTICS v_raised = ROW_COUNT;
     END IF;
-  ELSIF v_open IS NOT NULL THEN
-    UPDATE public.financial_alerts fa
-       SET resolved = true,
-           resolved_at = now(),
-           resolution = format('Re-measured by fn_ca_engine_release_stall_check at %s: engine %s leads and '
-                               || '%s failed attempt(s) to replace it in the last %s hour(s) (threshold %s).',
-                               now(), left(v_version, 8), v_failures, v_hours, v_min)
-     WHERE fa.source = 'fn_ca_engine_release_stall_check' AND NOT fa.resolved;
-    GET DIAGNOSTICS v_resolved = ROW_COUNT;
   END IF;
 
   RETURN jsonb_build_object('ok', true, 'checked_at', now(), 'state',
-                            CASE WHEN v_failures >= v_min THEN 'stalled' ELSE 'clear' END,
+                            CASE WHEN v_failures >= v_min THEN 'stalled'
+                                 WHEN v_open IS NOT NULL THEN 'stalled_open'
+                                 ELSE 'clear' END,
                             'serving_version', left(v_version, 8), 'failures', v_failures, 'runs', v_runs,
                             'targets', v_targets, 'raised', v_raised, 'resolved', v_resolved);
 END;

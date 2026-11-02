@@ -108,18 +108,24 @@ def main():
         sql("UPDATE engine_leader SET heartbeat_at = now() - interval '10 minutes'")
         out = sql("SELECT public.fn_ca_engine_release_stall_check(6, 3)->>'state'")
         assert out == 'leader_unknown' and open_alerts() == 1
-        # Replacement succeeds: a new version leads and only older-target failures remain below threshold? No:
-        # failures for other targets still count, so clear only when the window holds fewer than the threshold.
+        # A wedged lane that stops attempting is not recovery: failures age out, the page stays open.
+        sql("UPDATE engine_leader SET heartbeat_at=now()")
+        sql("UPDATE engine_deploy_exit_paths SET recorded_at = recorded_at - interval '7 hours'")
+        assert check() == 'stalled_open' and open_alerts() == 1
+        # Replacement succeeds: a different version leads, the page is resolved with the re-measurement.
         sql("UPDATE engine_leader SET engine_version='6d178de0', heartbeat_at=now()")
-        sql("DELETE FROM engine_deploy_exit_paths WHERE recorded_at > now() - interval '6 hours' AND run_id <> '41432783729-1'")
         assert check() == 'clear' and open_alerts() == 0
         resolution = sql("SELECT resolution FROM financial_alerts WHERE source='fn_ca_engine_release_stall_check'")
-        assert 'engine 6d178de0 leads' in resolution, resolution
+        assert 'engine 6d178de0 now leads (the page named eed06fe5)' in resolution, resolution
         # A later stall pages again as a new alert.
         for i, ago in enumerate(('50 minutes', '40 minutes', '30 minutes')):
             fail(f'{i}bbbbbbb' + '0' * 32, ago, f'9{i}-1')
         assert check() == 'stalled' and open_alerts() == 1
         assert sql("SELECT count(*) FROM financial_alerts WHERE source='fn_ca_engine_release_stall_check'") == '2'
+        # The new engine is itself replaced while still stalled: old page closes and a fresh one names the new leader.
+        sql("UPDATE engine_leader SET engine_version='9c9c9c9c', heartbeat_at=now()")
+        assert check() == 'stalled' and open_alerts() == 1
+        assert sql("SELECT context->>'serving_version' FROM financial_alerts WHERE source='fn_ca_engine_release_stall_check' AND NOT resolved") == '9c9c9c9c'
         # Clients cannot run it.
         assert not sql("SELECT has_function_privilege('anon','public.fn_ca_engine_release_stall_check(integer,integer)','EXECUTE')") == 't'
         assert sql("SELECT has_function_privilege('service_role','public.fn_ca_engine_release_stall_check(integer,integer)','EXECUTE')") == 't'
@@ -127,7 +133,7 @@ def main():
         r = subprocess.run([pg_bin('psql'), '-h', str(sock), '-p', port, '-U', 'postgres', '-d', 'postgres',
                             '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-f', str(MIGRATION)], capture_output=True, text=True)
         assert r.returncode != 0 and 'already exists' in r.stderr
-        print('a stalled engine replacement is paged: 9 behaviours PASS')
+        print('a stalled engine replacement is paged: 10 behaviours PASS')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)
         shutil.rmtree(scratch, ignore_errors=True)

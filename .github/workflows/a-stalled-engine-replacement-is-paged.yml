@@ -47,7 +47,6 @@ jobs:
           printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
           sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends postgresql-17
       # Runs as the runner user (non-root), exactly as the ci.yml step would.
-      - name: Settler lag judges the rows the settler reads
       - name: A stalled engine replacement is paged once and resolved on recovery
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
