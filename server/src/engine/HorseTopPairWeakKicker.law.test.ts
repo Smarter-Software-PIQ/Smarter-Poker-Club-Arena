@@ -1,13 +1,14 @@
 /**
  * V79 TOP PAIR, WEAK KICKER (2026-11-02, Burls via Dan: horses "stack off with
  * top pair, no weak kickers"), QUALIFIED CELLS. The cap applies only where the
- * realised win rate was measured below the price (7 days of reviewed NLH:
- * 6,117 weak-kicker calls, control 12,621 strong-kicker calls; see
- * HorseLogic v79InMeasuredCell). It is not a kicker rule:
+ * decision EV of the horses' calls was measured below zero with a
+ * hand-clustered 95% CI (see HorseLogic v79InMeasuredCell). It is not a
+ * kicker rule:
  *
- *  1. Exact classification and exact cells (0.9 pot+ any format; 0.6-0.9 pot
- *     only on an ace-high board outside tournaments; never at 60bb effective
- *     or less, never on a J-high-or-lower board, never under 0.6 pot).
+ *  1. Exact classification and exact cells (0.9 pot+; 0.6-0.9 pot only on an
+ *     ace-high board, heads-up, outside tournaments; never at 60bb effective
+ *     or less, on a J-high-or-lower board, under 0.6 pot, at a heads-up
+ *     table or in a bounty / PKO / mystery-bounty event).
  *  2. In a measured cell (pot-sized river bet, deep, K-high) it calls less;
  *     the off arm is today.
  *  3. Outside the cells the answer is exactly today's: a 0.75-pot bet on a
@@ -67,8 +68,24 @@ function river(
       is_sitting_out: false,
       is_horse: flip,
     } as SeatPlayer,
+    // A third seat that folded preflop: a ring table, not a heads-up table
+    // (heads-up tables are outside V79's measured cells).
+    {
+      seat: 3,
+      user_id: 'folder',
+      username: 'f',
+      stack: 300,
+      bet: 0,
+      totalInvested: 0,
+      cards: [],
+      is_folded: true,
+      is_all_in: false,
+      is_sitting_out: false,
+      is_horse: true,
+    } as SeatPlayer,
   ];
   const history = [
+    { stage: 'preflop', seat: 3, userId: 'folder', action: 'fold', amount: 0, timestamp: 0 },
     { stage: 'preflop', seat: 2, userId: VILLAIN, action: 'raise', amount: 6, timestamp: 1 },
     { stage: 'preflop', seat: 1, userId: 'hero', action: 'call', amount: 4, timestamp: 2 },
     { stage: 'flop', seat: 1, userId: 'hero', action: 'check', amount: 0, timestamp: 3 },
@@ -138,8 +155,27 @@ describe('V79 top pair weak kicker', () => {
     expect(v79TopPairWeakKicker(cards('9s5d'), cards(BOARD))).toBe(false); // second pair
     expect(v79TopPairWeakKicker(cards('QsQd'), cards(BOARD))).toBe(false); // pocket pair
     expect(v79TopPairWeakKicker(cards('Ks5d'), cards('KhKd3s7c2h'))).toBe(false); // paired top board
-    const cell = (potFrac: number, boardTopRank: number, tournament = false, effectiveBB = 150) =>
-      v79InMeasuredCell({ potFrac, boardTopRank, tournament, effectiveBB });
+    const cell = (
+      potFrac: number,
+      boardTopRank: number,
+      tournament = false,
+      effectiveBB = 150,
+      extra: Partial<{ headsUp: boolean; headsUpTable: boolean; bountyEvent: boolean }> = {}
+    ) =>
+      v79InMeasuredCell({
+        potFrac,
+        boardTopRank,
+        tournament,
+        effectiveBB,
+        headsUp: true,
+        headsUpTable: false,
+        bountyEvent: false,
+        ...extra,
+      });
+    expect(cell(0.75, 14, false, 150, { headsUp: false })).toBe(false); // cell B multiway
+    expect(cell(1, 13, false, 150, { headsUp: false })).toBe(true); // cell A multiway stays
+    expect(cell(1, 13, false, 150, { headsUpTable: true })).toBe(false); // heads-up table
+    expect(cell(1, 13, true, 150, { bountyEvent: true })).toBe(false); // bounty event
     expect(cell(1, 13)).toBe(true); // pot-sized, K-high, cash
     expect(cell(1, 13, true)).toBe(true); // pot-sized tournament
     expect(cell(0.9, 12)).toBe(true); // Q-high, 0.9 pot

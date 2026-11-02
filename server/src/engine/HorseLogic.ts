@@ -4213,32 +4213,36 @@ export function v79TopPairWeakKicker(hole: Card[], board: Card[]): boolean {
   return !board.some((c) => c.rank === kicker.rank);
 }
 /**
- * V79 QUALIFIED CELLS (2026-11-02, re-derived from 7 days of reviewed NLH
- * hands: 6,117 calls of a turn/river bet the horse did not start holding top
- * pair with a 2-9 kicker, control 12,621 calls with a T+ kicker; win = net
- * > 0, Wilson 95%). The first version capped every weak-kicker call facing
- * 0.6 pot+ or a stack-committing call. The evidence supports that only where
- * the realised win rate is measured below the price:
- *   - wager >= 0.9 pot, any format: 14.6% [13.2, 16.2] at a 34.6% price
- *     (n 2,085); tournaments alone 21.0% at 34.7% (n 735);
- *   - wager 0.6-0.9 pot on an ACE-HIGH board in cash or Lightning:
- *     19.0% [16.6, 21.6] at 29.9% (n 952, all formats), cash 23.3% and
- *     Lightning 23.8% at ~30% (n 511 / 648).
- * And it does NOT support capping (realised at or above the price), so these
- * stay exactly as before:
- *   - 0.6-0.9 pot on a K-high-or-lower board: 34.5% at 29.7% (n 1,376);
- *   - tournaments under 0.9 pot: 32.8% at 29.8% (n 1,169);
- *   - J-high-or-lower boards: 29.6% at 32.0%, no worse than a strong kicker;
- *   - effective stacks of 60bb or less (hero or bettor): 27.9-32.2% at
- *     30-31% (bettor 15-30bb n 240, 30-60bb n 838; hero 30-60bb n 855);
- *   - the commit-only case under 0.6 pot: 29.0% at 26.1% (n 93);
- *   - wagers under 0.6 pot (33.0% at 16.8%, n 701).
- * In the admitted cells the equity is capped at 0.25, below every admitted
- * price (0.6 pot = 27.3%, 0.9 pot = 32.1%), so the decision there is a fold.
- * This is a measured fold in named cells, not a kicker rule: outside them
- * the hand is priced exactly as before. Limits of the evidence: reviews
- * exist only for pots of 20bb+, only calls are visible, chops count as
- * losses, and over-bluffer opponents (exempt here) cannot be separated.
+ * V79 QUALIFIED CELLS (2026-11-02). Evidence is the DECISION EV of the call
+ * (net + chips already invested at the node, in bb), not a win rate, so chops
+ * carry their fractional pot return and turn calls include all later betting.
+ * Source: hand_history + ca_hand_facts (every hand kept; no pot-size floor),
+ * hold'em, 2026-10-28 to 2026-11-03, horse turn/river CALLS of a bet the horse
+ * did not start, holding top pair with a 2-9 kicker; 95% CIs clustered by
+ * hand. Mean EV of the call, bb:
+ *   Cell A, wager >= 0.9 pot: -28.30 [-30.61, -25.98], n 2,005 (1,762 hands);
+ *     below zero on the turn and river, in cash, Lightning and tournaments,
+ *     heads-up and multiway.
+ *   Cell B, 0.6-0.9 pot, ace-high board, outside tournaments, heads-up:
+ *     -7.30 [-9.69, -4.90], n 774.
+ * Excluded because the CI straddles zero or the sample cannot speak:
+ *   cell B multiway (-12.26 [-29.56, 5.04], n 48); heads-up TABLES
+ *   (-10.91 [-22.03, 0.20], n 13); 0.6-0.9 pot on K/Q-high boards
+ *   (-1.59 [-4.79, 1.61], n 709); tournaments at 0.6-0.9 pot
+ *   (-0.98 [-5.62, 3.67], n 251); bounty, PKO and mystery-bounty events
+ *   (chip EV omits the bounty: 12 of 54 tournament cell-A spots on Nov 1).
+ * Also left as today, narrower than the evidence allows (both also measured
+ * below zero): J-high-or-lower boards (-8.47, n 766) and 60bb effective or
+ * less (-2.51, n 2,073).
+ * Scope note: top pair with a T+ kicker loses as much or more in the same
+ * cells (cell A -43.00 [-46.42, -39.58], n 2,616); the loss is calling big
+ * bets with one pair, not the kicker alone. That is outside this rule.
+ * Limits: only the horses' own calls are observed (no counterfactual fold
+ * policy is measured); ICM is not modelled; the price ignores players still
+ * to act behind (potOdds = toCall / ((pot + toCall)(1 - rake)), gs.pot
+ * already holding the wager); measured over-bluffers keep today.
+ * In the admitted cells equity is capped at 0.25, below every admitted price,
+ * so the decision there is a fold; outside them, the hand is priced as before.
  */
 export const V79_CAP = 0.25;
 export const V79_MIN_EFFECTIVE_BB = 60;
@@ -4247,11 +4251,19 @@ export function v79InMeasuredCell(o: {
   boardTopRank: number;
   tournament: boolean;
   effectiveBB: number;
+  /** One opponent live at the decision. */
+  headsUp: boolean;
+  /** A heads-up TABLE (two dealt in): no qualifying sample. */
+  headsUpTable: boolean;
+  /** PKO / bounty / mystery-bounty event: chip EV omits the bounty. */
+  bountyEvent: boolean;
 }): boolean {
+  if (o.headsUpTable || o.bountyEvent) return false;
   if (!(o.effectiveBB > V79_MIN_EFFECTIVE_BB)) return false;
   if (o.boardTopRank < 12) return false; // J-high or lower: not supported
   if (o.potFrac >= 0.9) return true;
-  return o.potFrac >= 0.6 && o.boardTopRank === 14 && !o.tournament;
+  // Cell B: heads-up only (multiway n 48 straddles zero).
+  return o.potFrac >= 0.6 && o.boardTopRank === 14 && !o.tournament && o.headsUp;
 }
 
 export const V68_IMPLIED_MIN_POT_FRAC = 0.7;
@@ -10544,6 +10556,14 @@ export class HorseLogic {
           boardTopRank: Math.max(...board.map((c) => RANK_VALUES[c.rank])),
           tournament: isTournamentMode(gs),
           effectiveBB: effBB79,
+          headsUp: oppCount === 1,
+          headsUpTable: dealtHorseTableSize(gs, player.seat) <= 2,
+          bountyEvent:
+            isTournamentMode(gs) &&
+            (gs.tournament?.isPko === true ||
+              gs.tournament?.isBounty === true ||
+              gs.tournament?.isMysteryBounty === true ||
+              (gs.tournament?.bountyFactor ?? 0) > 0),
         }) &&
         eq15 > V79_CAP
       ) {
