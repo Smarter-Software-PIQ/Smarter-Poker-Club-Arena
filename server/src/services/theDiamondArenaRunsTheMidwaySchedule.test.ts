@@ -305,7 +305,10 @@ describe('a Diamond schedule spawns through the door', () => {
     expect(args.p_schedule_id).toBe(SCHEDULE);
     expect(args.p_scheduled_start).toBe(START.toISOString());
     expect(args.p_config.buyIn).toBe(150);
-    expect(args.p_config.guaranteedPrize).toBe(5000);
+    // Owner November 1: fresh events after Chicago midnight use half the guarantee.
+    expect(args.p_config.guaranteedPrize).toBe(
+      START.getTime() >= Date.parse('2026-11-02T06:00:00Z') ? 2500 : 5000
+    );
     expect(args.p_config.bountyAmount).toBe(37);
     expect(db.writes('tournament_schedule_spawns', 'update')).toEqual([{ tournament_id: TID }]);
     expect(reportError).not.toHaveBeenCalled();
@@ -354,8 +357,8 @@ describe('a Diamond schedule spawns through the door', () => {
   });
 });
 
-describe('a chip schedule is untouched', () => {
-  it('inserts exactly the row buildInsertRow builds, and never calls the Diamond door', async () => {
+describe('a chip schedule retains its currency and non-guarantee terms', () => {
+  it('inserts the built row with the dated guarantee policy, and never calls the Diamond door', async () => {
     const cfg = midwayBounty();
     vi.spyOn(supabase, 'from');
     // Dan 2026-10-21: the spawn path locks every level to one clock first,
@@ -365,6 +368,7 @@ describe('a chip schedule is untouched', () => {
         withLockedLevelClock(await built(cfg, START, CHIP_CLUB))
       )
     );
+    expected.guaranteed_prize = START.getTime() >= Date.parse('2026-11-02T06:00:00Z') ? 250 : 500;
     expect(expected.is_rebuy).toBe(true);
     vi.restoreAllMocks();
 
