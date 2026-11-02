@@ -105,6 +105,12 @@ function backendFor(rec: Recording) {
       club_members: [
         { club_id: CLUB, user_id: PLAYER, role: 'member', status: 'active', chip_balance: 5000 },
       ],
+      user_table_settings: [
+        {
+          user_id: PLAYER,
+          auto_time_bank: true,
+        },
+      ],
       // The seat row the table's ten-second liveness read looks for. Without
       // it the page concludes this player was removed and says so in a toast
       // that sits over the action bar.
@@ -328,25 +334,99 @@ test('a missing decision refreshes the table without sending the fold or reloadi
       .poll(() => engine.sent.some((frame) => frame.detail.startsWith('turn_change seat 2')))
       .toBe(true);
     engine.publishDecisionUnavailable();
-    // Wait for the missing-context snapshot to reach the page before tapping.
-    await page.waitForTimeout(300);
-    const before = engine.resyncRequests;
-    await bar.fold.click();
-    await expect.poll(() => engine.resyncRequests).toBe(before + 1);
-    await expect(
-      page.getByText('Your Action Was Not Sent. Please Review The Table And Try Again.', {
-        exact: true,
-      })
-    ).toBeVisible();
+    // Wait for the missing-context snapshot to withhold the unready action controls
+    // and trigger automatic recovery without sending any action or reloading.
+    await expect(bar.call).toBeHidden();
+    await expect.poll(() => engine.resyncRequests).toBeGreaterThanOrEqual(1);
     expect(engine.accepted).toEqual([]);
     expect(engine.problems).toEqual([]);
     await expect(bar.call).toBeVisible();
     // The refreshed decision belongs to the same visible hand; only a NEW
-    // player gesture submits it. The rejected fold was never replayed.
+    // player gesture submits it.
     await bar.call.click();
     await expect.poll(() => engine.accepted.length).toBe(1);
     expect(engine.accepted[0].action).toBe('call');
     expect(engine.problems).toEqual([]);
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('UTG at a new hand recovers action controls and countdown after stale-clock + >6 withheld polls, retains time bank across mid-turn snapshots and reconnects, acts, and stops polling', async ({
+  page,
+}) => {
+  test.skip(EXPECT_DEFECT, 'requires UTG missing-decision recovery fix');
+  const rec = recording();
+  await signIn(page, backendFor(rec));
+  const engine = await ReplayEngine.install(page, rec);
+  // Withhold action_context across 7 recovery polls (> 6 attempts) when the
+  // preflop turn arrives, reproducing the delayed-action_context sequence.
+  engine.withholdDecisionForPolls(7);
+  await page.goto(`table/${rec.table}`);
+  const bar = felt(page);
+  const heroSeat = page.locator('[data-seat-num="2"]');
+  const timebankCounter = page.locator('.tbc-widget');
+
+  try {
+    // Wait until the initial hand_started + SNAPSHOT have landed on the socket,
+    // then inject a stale previous-hand expiring clock (200ms left) followed by
+    // the new hand's hand_started so any leaked previous-hand deadline would
+    // expire while the new hand's UTG decision is still withheld.
+    await expect.poll(() => engine.sent.length).toBeGreaterThanOrEqual(2);
+    engine.publishStalePreviousHandExpiringClock(200);
+
+    // Wait for the preflop turn_change to seat 2 to be sent with action_context withheld.
+    await expect
+      .poll(() => engine.sent.some((frame) => frame.detail.startsWith('turn_change seat 2')))
+      .toBe(true);
+
+    // While the 7 polls are still withheld, force a mid-turn socket disconnect
+    // after at least 3 recovery RESYNCs so the client must reconnect AND continue
+    // polling past 6 attempts to recover the authoritative action_context.
+    await expect.poll(() => engine.resyncRequests).toBeGreaterThanOrEqual(3);
+    engine.disconnectSockets();
+
+    // After >6 recovery attempts complete, the authoritative action_context is
+    // released and the UTG action controls + countdown become visible.
+    await expect(bar.call).toBeVisible({ timeout: 25_000 });
+    await expect(bar.fold).toBeVisible();
+    expect(engine.resyncRequests).toBeGreaterThan(6);
+
+    // Active countdown ring is visible on the hero seat and time bank is intact (2 remaining, 0 spent).
+    await expect(heroSeat.locator('.seat__timer-ring')).toBeVisible();
+    await expect(timebankCounter).toBeVisible();
+    await expect(timebankCounter).toContainText('2');
+    expect(
+      engine.timeBankRequests,
+      'stale clock or withheld decision must never spend time bank'
+    ).toEqual([]);
+
+    // Emit a mid-turn time-bank snapshot whose action_context was scrubbed by
+    // the retention boundary (time_bank_active: true, action_context: null on
+    // the same turn clock). Preserved actionContext must keep the action
+    // controls visible without flickering off.
+    engine.publishMidTurnTimeBankSnapshot();
+    await page.waitForTimeout(250);
+    await expect(bar.call).toBeVisible();
+    await expect(bar.fold).toBeVisible();
+
+    // Once the decision is ready, the 350ms recovery poller must have stopped.
+    const pollsWhenReady = engine.resyncRequests + engine.httpStateRequests;
+    await page.waitForTimeout(1_100);
+    expect(engine.resyncRequests + engine.httpStateRequests).toBe(pollsWhenReady);
+
+    // Act on the recovered turn (call preflop) and continue play into the flop
+    // and turn streets without reloading.
+    await bar.call.click();
+    await expect(bar.check).toBeVisible({ timeout: 5_000 });
+    await bar.check.click();
+    await expect(bar.call).toBeVisible({ timeout: 5_000 });
+    await bar.call.click();
+    await expect(bar.check).toBeVisible({ timeout: 5_000 });
+
+    expect(engine.problems).toEqual([]);
+    expect(engine.timeBankRequests).toEqual([]);
+    expect(engine.accepted.map((a) => a.action)).toEqual(['call', 'check', 'call']);
   } finally {
     engine.dispose();
   }
