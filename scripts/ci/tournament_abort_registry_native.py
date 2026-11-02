@@ -7,7 +7,7 @@ import hashlib
 import json
 
 
-def install_and_reproduce_registry_guard(e, db, root, migration):
+def install_and_reproduce_registry_guard(e, db, root, migration, *, reproduce=True):
     path = root / 'scripts/ci/fixtures/tournament-abort/current-money-registry-guard.json'
     captured = json.loads(path.read_text())
     assert captured['registry_security'] == {
@@ -42,6 +42,9 @@ def install_and_reproduce_registry_guard(e, db, root, migration):
     setup = e.output / 'actual-money-registry-guard.sql'
     setup.write_text(sql)
     e.sql(db, file=setup, label='actual-production-money-registry-guard')
+    e.report['source_sha256'][str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not reproduce:
+        return
     # Remove only the correction. Everything else is the exact candidate, so the
     # failure includes the same full DDL/preimage sequence as the failed install.
     current = migration.read_text()
