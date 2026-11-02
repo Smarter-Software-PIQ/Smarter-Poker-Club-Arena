@@ -2,7 +2,7 @@
   "version": 1,
   "scope": "Owner October29 MTT fifteen-percent authority and bounded native proof; excludes finalized and committed contracts.",
   "files": {
-    "scripts/ci/test-mtt-unlimited.py": "74f688967a9c8e4b99eb3ccd2b5a8f3624e569ae4a88870898b2faee0501e43b",
+    "scripts/ci/test-mtt-unlimited.py": "8e51d40d3b4d299105fec9ccee784bd0f0889b249d5bf559ae18760dbe078e8a",
     "scripts/ci/test-mtt-fifteen-percent.py": "af9e86904b19f23f6b0f968149b91de35facd536fd572143119cf3399ce97eed",
     "scripts/ci/fixtures/mtt-fifteen-percent-preimages.json": "de0153211ed30265deafa8211c7a67e0a925317dd9fe1e8acb0bf4d13eae8359",
     "scripts/ci/fixtures/mtt-fifteen-provisional-authorities.json": "d0d9e01fec08d468cc9edb99b73a9093a9cae9df9a9149cfc9a1f16511455a68",
@@ -19,5 +19,13 @@
     "validation": "35 runner regressions passed. Separate extended MTT activation fixture passed four native groups and 14 stock isolation races. This metadata change does not recertify historical cash17, retained18 or fifteen-percent execution receipts. Exact-head required checks remain mandatory.",
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "ownedSocketByteBudgetSourceAudit20261102": {
+    "scope": "Resource-owner socket path selection only; no financial rule or existing assertion changed.",
+    "source": "scripts/ci/test-mtt-unlimited.py",
+    "sha256": "8e51d40d3b4d299105fec9ccee784bd0f0889b249d5bf559ae18760dbe078e8a",
+    "bytes": 46447,
+    "reason": "Actual hosted failure: archive-root socket exceeded 107 bytes. Retain short owned work parents, honor explicit socket root, use configured private temporary root only when the default is overlong, refuse explicit overlong roots and clean constructor allocations.",
+    "qualification": "Source binding updated; refreshed native and hosted results remain required. Historical qualification and remaining acceptance are unchanged."
   }
 }

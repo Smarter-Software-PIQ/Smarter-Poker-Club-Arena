@@ -135,3 +135,25 @@ wrapper and native environment isolation byte-for-byte from main. Its 59
 cases pass with the private object closure (three wrapper checks, 44.97s),
 and the sentinel proves no HEAD or refs changed. Root compilation passes;
 the 117 financial source hashes still match the retained qualification.
+
+## Hosted Unix socket path regression
+
+Accounting shard 3 failed before its retired-cash custody assertions: the
+PostgreSQL log showed an archive-root socket longer than the kernel's 107-byte
+limit. The previous owned-work-parent change exposed a caller that accepted
+`--socket-root` but only redirected the old literal `/tmp` default. It now
+passes the explicit root through the maintained constructor and removes that
+monkeypatch. The shared runner validates actual encoded socket path length,
+keeps short work parents, selects a configured private TMPDIR/RUNNER_TEMP when
+the default is too long, and refuses an overlong explicit root with its own
+empty constructor allocations cleaned. Mac fallbacks remain on the external SSD.
+No financial rules, production deadlines or assertions change.
+
+The new long-root regression failed before the correction. All 40 runner cases
+now pass, including explicit-root authority, configured-root fallback and refusal
+cleanup preserving a foreign sentinel. The actual previously failed private
+custody case passes on PostgreSQL 17 with a long data path and short explicit
+socket, with stopped/removed cleanup verified. Only current runner source pins
+and additive audit notes changed; historical acceptance remains intact. Fresh
+financial activation qualification passes four native groups and 14 stock
+isolation races, with current source binding and cleanup verified.

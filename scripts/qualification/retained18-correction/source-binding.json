@@ -6,8 +6,8 @@
       "sha256": "89b593fd5afe44d6568e2751bcd209b7b5cc10ad1c48e98c13efe8ea15d26e87"
     },
     "scripts/ci/test-mtt-unlimited.py": {
-      "bytes": 45013,
-      "sha256": "74f688967a9c8e4b99eb3ccd2b5a8f3624e569ae4a88870898b2faee0501e43b"
+      "bytes": 46447,
+      "sha256": "8e51d40d3b4d299105fec9ccee784bd0f0889b249d5bf559ae18760dbe078e8a"
     },
     "scripts/dev/probe-retained-source-correction-pg17.sh": {
       "bytes": 1314,
@@ -256,5 +256,13 @@
     "validation": "35 runner regressions passed. Separate extended MTT activation fixture passed four native groups and 14 stock isolation races. This metadata change does not recertify historical cash17, retained18 or fifteen-percent execution receipts. Exact-head required checks remain mandatory.",
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "ownedSocketByteBudgetSourceAudit20261102": {
+    "scope": "Resource-owner socket path selection only; no financial rule or existing assertion changed.",
+    "source": "scripts/ci/test-mtt-unlimited.py",
+    "sha256": "8e51d40d3b4d299105fec9ccee784bd0f0889b249d5bf559ae18760dbe078e8a",
+    "bytes": 46447,
+    "reason": "Actual hosted failure: archive-root socket exceeded 107 bytes. Retain short owned work parents, honor explicit socket root, use configured private temporary root only when the default is overlong, refuse explicit overlong roots and clean constructor allocations.",
+    "qualification": "Source binding updated; refreshed native and hosted results remain required. Historical qualification and remaining acceptance are unchanged."
   }
 }

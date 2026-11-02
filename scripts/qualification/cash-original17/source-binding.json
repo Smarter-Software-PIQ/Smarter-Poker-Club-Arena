@@ -210,8 +210,8 @@
       "sha256": "e4e050861cd66b668833fff0948a8fcbf0fe0db861e325a6d5f30ec4feed6b15"
     },
     "scripts/ci/test-mtt-unlimited.py": {
-      "bytes": 45013,
-      "sha256": "74f688967a9c8e4b99eb3ccd2b5a8f3624e569ae4a88870898b2faee0501e43b"
+      "bytes": 46447,
+      "sha256": "8e51d40d3b4d299105fec9ccee784bd0f0889b249d5bf559ae18760dbe078e8a"
     },
     "scripts/dev/probe-cash-original17-pg17.sh": {
       "bytes": 1215,
@@ -2663,5 +2663,13 @@
     "validation": "Both official endpoints returned identical key bytes; eight local installer/mirror regressions pass. Exact-head hosted native execution remains required. Source identity only, not historical financial or live recertification.",
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "ownedSocketByteBudgetSourceAudit20261102": {
+    "scope": "Resource-owner socket path selection only; no financial rule or existing assertion changed.",
+    "source": "scripts/ci/test-mtt-unlimited.py",
+    "sha256": "8e51d40d3b4d299105fec9ccee784bd0f0889b249d5bf559ae18760dbe078e8a",
+    "bytes": 46447,
+    "reason": "Actual hosted failure: archive-root socket exceeded 107 bytes. Retain short owned work parents, honor explicit socket root, use configured private temporary root only when the default is overlong, refuse explicit overlong roots and clean constructor allocations.",
+    "qualification": "Source binding updated; refreshed native and hosted results remain required. Historical qualification and remaining acceptance are unchanged."
   }
 }
