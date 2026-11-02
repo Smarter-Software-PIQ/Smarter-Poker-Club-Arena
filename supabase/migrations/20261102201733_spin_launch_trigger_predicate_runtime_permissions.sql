@@ -12,6 +12,7 @@
 -- The predicate and money converter remain postgres-only. Their invoker
 -- trigger must enter that private branch only as the converter's owner.
 -- No role elevation, new grants, money movement or cohort repair is installed.
+-- @live-proof: (SELECT NOT prosecdef AND prosrc ~ 'IF current_user = ''postgres'' THEN[[:space:]]+IF TG_TABLE_NAME=''tournaments'' AND public[.]fn_ca_midway_free_buy_conversion_transition' FROM pg_proc WHERE oid='public.fn_guard_managed_game_lifecycle()'::regprocedure) AND NOT has_function_privilege('service_role','public.fn_ca_midway_free_buy_conversion_transition(jsonb,jsonb)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_ca_midway_free_buy_conversion_transition(jsonb,jsonb)','EXECUTE')
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';

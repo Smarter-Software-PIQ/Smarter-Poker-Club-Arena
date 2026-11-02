@@ -84,6 +84,8 @@ try:
    migrations=list((ROOT/'supabase/migrations').glob('*_spin_launch_trigger_predicate_runtime_permissions.sql'))
    assert len(migrations)==1,migrations
    query(case,migrations[0].read_text())
+   proof=re.search(r'^-- @live-proof: (.+)$',migrations[0].read_text(),re.M).group(1)
+   assert query(case,'SELECT ('+proof+')::text;').strip()=='true'
    print(query(case,(FIX/'runtime.sql').read_text()),flush=True)
   else:
    migrations=list((ROOT/'supabase/migrations').glob('*_spin_launch_trigger_predicate_runtime_permissions.sql'))
