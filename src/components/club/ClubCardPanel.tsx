@@ -62,6 +62,12 @@ interface ClubCardPanelProps {
   cardImageUrl?: string | null;
   logoUrl?: string | null;
   entityType?: 'club' | 'union';
+  /**
+   * A display addition the owner set for this club (Dan 2026-11-02, Kings
+   * Club +1,500 members / +233 active). It is printed as its own labelled
+   * line and is NEVER added into the real MEMBERS or ACTIVE figures above it.
+   */
+  displayAddition?: { members: number; active: number; label: string } | null;
 }
 
 export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
@@ -78,6 +84,7 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   cardImageUrl,
   logoUrl,
   entityType = 'club',
+  displayAddition = null,
 }) => {
   const [cardFailed, setCardFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -216,6 +223,16 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
         <div className="club-card-stat">
           <span className="club-card-stat-label sc-label sc-ink--blue">MEMBERS</span>
           <span className="club-card-stat-value sc-ink--silver">{membersText}</span>
+          {displayAddition && displayAddition.members > 0 && (
+            <span
+              className="club-card-stat-split sc-label sc-ink--muted"
+              aria-label={`${displayAddition.label} Members, Not Counted As Real Members`}
+            >
+              <span className="club-card-stat-split-part">
+                +{displayAddition.members.toLocaleString()} {displayAddition.label.toUpperCase()}
+              </span>
+            </span>
+          )}
         </div>
         {/* Dan 2026-08-20: level is now the 1-55 member ladder, so the bare
             number is worth explaining on hover — which tier it is, and how
@@ -253,6 +270,16 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
             <span className="club-card-stat-split-dot" aria-hidden="true" />
             <span className="club-card-stat-split-part">{eventsText} EVENTS</span>
           </span>
+          {displayAddition && displayAddition.active > 0 && (
+            <span
+              className="club-card-stat-split sc-label sc-ink--muted"
+              aria-label={`${displayAddition.label} Active, Not Counted As Real Active Players`}
+            >
+              <span className="club-card-stat-split-part">
+                +{displayAddition.active.toLocaleString()} {displayAddition.label.toUpperCase()}
+              </span>
+            </span>
+          )}
         </div>
       </div>
 
