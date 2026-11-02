@@ -53,7 +53,7 @@ CREATE FUNCTION fn_ca_tournament_cancellation_receipt(uuid) RETURNS jsonb LANGUA
   code,_,err=e.sql(db,f"INSERT INTO tournaments VALUES('{tid}',now(),'REGISTERING',0,{origin});",label='restart-'+label,check=False)
   if not code or 'owner_deleted_tournament_cannot_restart' not in err:raise RuntimeError('target restart allowed: '+err)
  original=ROOT/'scripts/ci/fixtures/tournament-abort/original-refund-before-owner-deletion.sql'
- original_guard=ROOT/'supabase/migrations/20261102155242_owner_retirement_refuses_superseded_original_refund_disposition.sql'
+ original_guard=ROOT/'supabase/migrations/20261102155242_owner_retirement_refuses_superseded_original_refund.sql'
  e.sql(db,original.read_text(),label='exact-production-original-refund-before-change')
  def original_refused(tid,expected):
   code,_,err=e.sql(db,f"SELECT fn_ca_settle_tournament_abort('{op}','{tid}','native');",label=expected,check=False)
