@@ -121,6 +121,7 @@ export const FILTER_CASES = [
   },
 ];
 export const FILTER_COMPONENT_PATHS = [
+  'src/utils/tournamentLobbyRead.ts',
   ...new Set([
     ...FAVORITE_COMPONENT_PATHS,
     'src/pages/TournamentPage.tsx',
