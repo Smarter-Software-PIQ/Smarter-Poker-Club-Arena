@@ -15,6 +15,7 @@ import {
   FILTER_ACTION,
   FILTER_FINISH_ACTION,
   FILTER_FINISH_CASES,
+  FILTER_FINISH_COMPONENT_PATHS,
   FILTER_CASES,
   FILTER_COMPONENT_PATHS,
 } from '../../scripts/verification-harness/lobby-ui-proof.mjs';
@@ -300,10 +301,10 @@ describe('closed tournament favorite priority proof', () => {
     const { readFileSync } = await import('node:fs');
     const workflow = readFileSync('.github/workflows/lobby-ui-proof.yml', 'utf8');
     expect(workflow).toContain('runs-on: ubuntu-24.04');
-    const block = workflow.slice(
-      workflow.indexOf('- name: Verify only tournament favorite'),
-      workflow.indexOf('- name: Pin the published client after')
-    );
+    const block = workflow.match(
+      /- name: Verify only tournament favorite[\s\S]*?(?=\n {6}- (?:name:|uses:)|$)/
+    )?.[0];
+    expect(block).toBeTruthy();
     expect(block).toContain("if: github.event.action == 'verify-tournament-favorites'");
     expect(block).toContain(`--grep '${FAVORITE_CASES[0].title}$'`);
     expect(block).toContain('--project=chromium --workers=1 --retries=0 --trace=off');
@@ -429,16 +430,16 @@ describe('closed remaining filter proof', () => {
   const finishPin = () => ({
     ...pin(),
     action: FILTER_FINISH_ACTION,
-    components: Object.fromEntries(FILTER_COMPONENT_PATHS.map((path) => [path, sha])),
+    components: Object.fromEntries(FILTER_FINISH_COMPONENT_PATHS.map((path) => [path, sha])),
   });
-  it('runs exactly the two unfinished journeys and refuses arbitrary selection or incomplete results', () => {
+  it('runs exactly the three unfinished or visually unqualified journeys and refuses arbitrary selection or incomplete results', () => {
     expect(() =>
       admitDispatch(env, { action: FILTER_FINISH_ACTION, client_payload: {} })
     ).not.toThrow();
     expect(() =>
       admitDispatch(env, { action: FILTER_FINISH_ACTION, client_payload: { grep: 'other' } })
     ).toThrow();
-    expect(assertCases(finishReport(), FILTER_FINISH_ACTION)).toHaveLength(2);
+    expect(assertCases(finishReport(), FILTER_FINISH_ACTION)).toHaveLength(3);
     expect(FILTER_CASES).toHaveLength(9);
     for (const alter of [
       (r) => r.suites[0].specs.pop(),
@@ -466,8 +467,15 @@ describe('closed remaining filter proof', () => {
     expect(() =>
       assertPins(finishPin(), finishPin(), { ...cleanup, verified: false }, FILTER_FINISH_ACTION)
     ).toThrow();
-    const missing = finishPin();
-    delete missing.components[FILTER_COMPONENT_PATHS[0]];
-    expect(() => assertPins(missing, missing, cleanup, FILTER_FINISH_ACTION)).toThrow();
+    expect(FILTER_FINISH_COMPONENT_PATHS).toHaveLength(73);
+    for (const path of [
+      FILTER_COMPONENT_PATHS[0],
+      'src/pages/TablePage.tsx',
+      'src/hooks/useTableArt.ts',
+    ]) {
+      const missing = finishPin();
+      delete missing.components[path];
+      expect(() => assertPins(missing, missing, cleanup, FILTER_FINISH_ACTION)).toThrow();
+    }
   });
 });

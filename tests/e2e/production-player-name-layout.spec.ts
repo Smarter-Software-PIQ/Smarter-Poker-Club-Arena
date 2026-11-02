@@ -14,7 +14,9 @@ async function nameGeometry(page: Page) {
     // Query and measure in one browser task. A keyed live plate may remount
     // between locator resolution and a later evaluation, especially on resize.
     const names = [
-      ...document.querySelectorAll('.seat__info:not([aria-hidden="true"]) .seat__name'),
+      ...document.querySelectorAll(
+        '.table-page[data-table-art="ready"] .seat__info:not([aria-hidden="true"]) .seat__name'
+      ),
     ].filter(
       (well) => well.getClientRects().length > 0 && getComputedStyle(well).visibility !== 'hidden'
     );
@@ -190,6 +192,9 @@ test('live spectator player names stay complete on one line inside their plates'
     [1280, 900, 'wide'],
   ] as const) {
     await page.setViewportSize({ width, height });
+    const paintedTable = page.locator('.table-page[data-table-art="ready"]:visible');
+    await expect(paintedTable).toBeVisible();
+    await expect(page.locator('.table-art-cover:visible')).toHaveCount(0);
     await expect
       .poll(async () => (await nameGeometry(page)).length, {
         message: 'Live occupied seats must display actual player names',
@@ -215,9 +220,11 @@ test('live spectator player names stay complete on one line inside their plates'
     expect(longest.text.length).toBeGreaterThan(0);
     measurements.push({ mode, width, height, longest, names });
     await info.attach(`live-player-names-${mode}.png`, {
-      body: await page.screenshot(),
+      body: await paintedTable.screenshot(),
       contentType: 'image/png',
     });
+    await expect(page.locator('.table-art-cover:visible')).toHaveCount(0);
+    expect((await nameGeometry(page)).length).toBeGreaterThanOrEqual(2);
   }
   expect(participation).toEqual([]);
   await info.attach('live-player-name-layout.json', {

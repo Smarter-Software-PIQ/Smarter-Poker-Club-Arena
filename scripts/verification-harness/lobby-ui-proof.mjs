@@ -106,6 +106,11 @@ export const FILTER_ACTION = 'verify-lobby-filters';
 export const FILTER_FINISH_ACTION = 'verify-lobby-filter-finish';
 export const FILTER_FINISH_CASES = [
   {
+    file: 'production-player-name-layout.spec.ts',
+    title: 'live spectator player names stay complete on one line inside their plates',
+    project: 'chromium',
+  },
+  {
     file: 'production-lobby-filter-audit.spec.ts',
     title: 'remaining MTT entry and status sorts persist after reload',
     project: 'chromium',
@@ -168,6 +173,11 @@ export const FILTER_COMPONENT_PATHS = [
     'src/lightning/lightningSessionApi.ts',
   ]),
 ];
+export const FILTER_FINISH_COMPONENT_PATHS = [
+  ...FILTER_COMPONENT_PATHS,
+  'src/pages/TablePage.tsx',
+  'src/hooks/useTableArt.ts',
+];
 function selection(action) {
   if (action === 'verify-lobby-ui')
     return CASE_PAIRS.map(([file, title]) => ({ file, title, project: 'chromium' }));
@@ -180,7 +190,8 @@ function selection(action) {
 function componentPaths(action) {
   selection(action);
   if (action === FAVORITE_ACTION) return FAVORITE_COMPONENT_PATHS;
-  if (action === FILTER_ACTION || action === FILTER_FINISH_ACTION) return FILTER_COMPONENT_PATHS;
+  if (action === FILTER_ACTION) return FILTER_COMPONENT_PATHS;
+  if (action === FILTER_FINISH_ACTION) return FILTER_FINISH_COMPONENT_PATHS;
   return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
 }
 
