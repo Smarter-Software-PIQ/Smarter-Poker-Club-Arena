@@ -339,6 +339,8 @@ export function adaptServiceHandToPanel(h: ServiceHandRecord, heroId: string): P
     rake: Number(h.rake) || 0,
     bbjFee: Number(h.bbj_fee) || 0,
     tableName: h.table_name,
+    /* Rabbit hunting a previous hand from the Hand History page (2026-11-01). */
+    tableId: h.table_id ?? null,
     /* The table's real seat count, for the tracker export's `N-max`. */
     tableMaxSeats: h.table_max_seats ?? null,
     bombPot: h.bomb_pot ?? null,

@@ -1,0 +1,9 @@
+# Preserve independent package readback facts
+
+The first original-operation diagnostic proved apt_simulation failed before its APT-attempt marker or install call. Its package reader nevertheless collapsed every query into one unknown result, discarding otherwise readable installed-status and audit facts when policy metadata was incomplete.
+
+The existing read-only adapter now emits a strict native-perf-package-readback/v2 subreceipt. Fixed batched dpkg status, APT candidate and dpkg audit queries run independently with closed tool/command/parse outcomes and the original command-failure sanitizer. Each fixed package row distinguishes verified facts from unknown missing rows; empty status or policy output never means absence. The whole verified flag still requires all complete validated reads, while a dirty audit remains an explicit verified read with auditClean=false. No package, profile, path or command selector is added.
+
+The original receipt, failed installation outcome and retryAllowed=false remain authoritative. Immutable installer/profile/native/plan bytes, three read commands, adapter20s/provider25s limits and no-write behavior remain intact. Private output pipes are bounded, and timeout teardown applies only to the adapter's own read children. No simulate/update/install, state write, unit, recorder or engine action is added.
+
+The collapse regression fails before the correction and passes afterward. Focused tests retain partial facts, distinguish metadata/exit/bound/timeout/parse outcomes and reject malformed or private output. The existing Ubuntu terminal-read case checks the new query assertions and unchanged original records without another install, expiry or fault case. Hosted qualification and the subsequent original-operation read remain pending; no production failure cause is inferred from this source change.

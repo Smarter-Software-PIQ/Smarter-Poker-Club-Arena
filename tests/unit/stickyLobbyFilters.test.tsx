@@ -5,6 +5,7 @@ import StickyLobbyFilters from '../../src/components/lobby/StickyLobbyFilters';
 let observe: IntersectionObserverCallback;
 const disconnect = vi.fn();
 beforeEach(() => {
+  vi.stubGlobal('innerWidth', 393);
   vi.stubGlobal(
     'IntersectionObserver',
     class {
@@ -57,6 +58,7 @@ describe('compact sticky lobby controls', () => {
     rail.style.top = '70px';
     fireEvent(window, new Event('resize'));
     expect(screen.getByRole('navigation', { name: 'Quick Lobby Filters' })).toBeVisible();
+    vi.stubGlobal('innerWidth', 1280);
     rail.style.top = '0px';
     fireEvent(window, new Event('resize'));
     expect(screen.queryByRole('navigation', { name: 'Quick Lobby Filters' })).toBeNull();
@@ -112,4 +114,55 @@ describe('compact sticky lobby controls', () => {
     moveControls(300, true);
     expect(screen.queryByRole('navigation', { name: 'Quick Lobby Filters' })).toBeNull();
   });
+});
+
+it('replaces the full desktop deck only after actual catalogue scroll and latches until Browse', () => {
+  vi.stubGlobal('innerWidth', 1280);
+  const browse = vi.fn();
+  const { container, unmount } = render(
+    <div className="club-home">
+      <div className="club-lobby-machine">
+        <div className="club-lobby-command-top">
+          <section className="club-lobby-command-top__controls">
+            <div id="lobby-game-section-controls" />
+          </section>
+        </div>
+        <StickyLobbyFilters
+          gameLabel="PLO"
+          favoritesOnly={false}
+          showFavorites
+          sortOnly={false}
+          onBrowse={browse}
+          onFavorites={() => {}}
+          onFilters={() => {}}
+        />
+        <div className="lobby-table-wrap" />
+      </div>
+    </div>
+  );
+  const machine = container.querySelector('.club-lobby-machine')!;
+  const catalog = container.querySelector<HTMLElement>('.lobby-table-wrap')!;
+  expect(screen.queryByRole('navigation')).toBeNull();
+  fireEvent.scroll(window);
+  expect(machine).not.toHaveAttribute('data-compact-lobby-controls');
+  catalog.scrollTop = 120;
+  fireEvent.scroll(catalog);
+  expect(machine).toHaveAttribute('data-compact-lobby-controls', 'true');
+  expect(screen.getByRole('navigation')).toBeVisible();
+  // Removing the large deck can clamp scrollTop; that must not reopen it.
+  catalog.scrollTop = 0;
+  fireEvent.scroll(catalog);
+  expect(screen.getByRole('navigation')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Browse Game Types' }));
+  expect(catalog.scrollTop).toBe(0);
+  expect(machine).not.toHaveAttribute('data-compact-lobby-controls');
+  expect(screen.queryByRole('navigation')).toBeNull();
+  expect(browse).toHaveBeenCalledOnce();
+  catalog.scrollTop = 30;
+  fireEvent.scroll(catalog);
+  vi.stubGlobal('innerWidth', 393);
+  fireEvent.resize(window);
+  expect(machine).not.toHaveAttribute('data-compact-lobby-controls');
+  unmount();
+  expect(machine).not.toHaveAttribute('data-compact-lobby-controls');
 });

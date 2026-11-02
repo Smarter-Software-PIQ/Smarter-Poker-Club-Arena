@@ -445,3 +445,24 @@
   flex-direction: column;
   align-items: flex-start;
 }
+
+/* The personal award is distinct from the event total above the row. */
+.bbj-hits__share {
+  flex-shrink: 0;
+  color: #c8ffd2;
+  font-size: 3.5cqw;
+  font-weight: 800;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 0.9cqw rgb(53 217 90 / 45%);
+}
+
+.bbj-hits__hole {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1cqw;
+  width: 100%;
+  min-width: 0;
+  margin-top: 1.4cqw;
+}

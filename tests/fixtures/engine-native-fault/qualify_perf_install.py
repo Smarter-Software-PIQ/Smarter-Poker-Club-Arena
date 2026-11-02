@@ -316,6 +316,24 @@ def main():
                 'actualKernel': qualified['kernel'], 'profilePurpose': qualified['purpose'],
                 'wrapperKernelDispatchQualified': False, 'productionInstallationQualified': False})
 
+            phase = 'terminal_diagnostics'
+            # Read the already-terminal actual install; no new install, unit,
+            # expiry or native fault is introduced for this diagnostic proof.
+            adapter = load(ROOT / 'scripts/ci/native-perf-terminal-diagnostics.py', 'terminal_adapter')
+            before_records = {name: (work / name).read_bytes() for name in ('operation.json', 'apt-attempt.json')}
+            before_entries = set(work.iterdir())
+            child = machinery.run(['/usr/bin/python3', '-I', '-B', '-', op],
+                input=(ROOT / 'scripts/ci/native-perf-terminal-diagnostics.py').read_bytes(), timeout=25, check=False)
+            planner = helper.load('original_terminal_plan', 'package-plan.py', adapter.PLAN)
+            diagnostic = adapter.diagnostic_outcome(child.stdout, receipt, child.returncode, planner, helper)
+            if diagnostic is None or diagnostic['phase'] != 'verified' or diagnostic['aptAttemptRecorded'] is not True or diagnostic['packages']['schema'] != adapter.PACKAGE_SCHEMA or diagnostic['packages']['verified'] is not True or not all(query['verified'] and query['stage'] == 'complete' and query['reason'] == 'verified' and query['commandFailure'] is None for query in diagnostic['packages']['queries'].values()):
+                raise RuntimeError('fixture_terminal_diagnostics_unproven')
+            if set(work.iterdir()) != before_entries or any((work / name).read_bytes() != raw for name, raw in before_records.items()):
+                raise RuntimeError('fixture_terminal_diagnostics_wrote_state')
+            result['cases'].append({'case': 'terminal_read_preserves_original_records', 'passed': True,
+                'originalRecordsUnchanged': True, 'aptAttemptRecorded': True,
+                'packageReadbackVerified': True, 'productionInstallationQualified': False})
+
             phase = 'expiry_prepare'
             op, work = prepare(2)
             machinery.run(helper.unit_arguments(op, folder / 'runner.py'))
@@ -350,7 +368,7 @@ def main():
             'fixture_original_package_profile_unproven', 'fixture_public_deb_unproven',
             'fixture_install_interval_not_observed', 'fixture_exact_install_path_unproven',
             'fixture_foreign_network_present', 'fixture_network_identity_unproven', 'fixture_health_only_target_unproven', 'fixture_target_image_unproven',
-            'fixture_terminal_receipt_unproven', 'fixture_unit_gc_unproven', 'fixture_ssh_runtime_prerequisite_refused'}
+            'fixture_terminal_receipt_unproven', 'fixture_terminal_diagnostics_unproven', 'fixture_terminal_diagnostics_wrote_state', 'fixture_unit_gc_unproven', 'fixture_ssh_runtime_prerequisite_refused'}
         known |= {'fixture_command_refused', 'fixture_command_output_bound', 'fixture_foreign_container_present',
             'fixture_container_id_refused', 'fixture_target_readiness', 'fixture_pinned_target_refused',
             'fixture_network_subject_refused', 'fixture_actual_health_publication_refused',

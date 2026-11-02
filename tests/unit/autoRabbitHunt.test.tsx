@@ -40,6 +40,13 @@ vi.mock('../../src/components/common/Toast', () => ({ useToast: () => toast }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 
 import RabbitHunt from '../../src/components/table/RabbitHunt';
+import { vipService } from '../../src/services/VIPService';
+const vipAnswer = (isVIP: boolean) =>
+  vi.mocked(vipService.checkVIPStatus).mockResolvedValue({
+    isVIP,
+    status: isVIP ? 'monthly' : null,
+    monthlyLimits: { rabbitHunts: { used: 0, limit: isVIP ? 100 : 0 } },
+  } as never);
 import {
   DEFAULT_USER_TABLE_SETTINGS,
   TABLE_SETTINGS_META,
@@ -67,6 +74,7 @@ const tile = (over: Partial<React.ComponentProps<typeof RabbitHunt>> = {}) => (
 
 describe('the switch presses the same reveal a thumb presses', () => {
   it('fires once, with no tap, the moment the offer is up', async () => {
+    vipAnswer(true);
     const onReveal = vi
       .fn()
       .mockResolvedValue({ success: true, cards: [{ rank: 'A', suit: 's' }], diamondsSpent: 5 });
@@ -75,6 +83,7 @@ describe('the switch presses the same reveal a thumb presses', () => {
   });
 
   it('a re-render while the first press settles does not press twice', async () => {
+    vipAnswer(true);
     let resolveReveal!: (v: unknown) => void;
     const pending = new Promise((r) => {
       resolveReveal = r;
@@ -87,6 +96,27 @@ describe('the switch presses the same reveal a thumb presses', () => {
     expect(onReveal).toHaveBeenCalledTimes(1);
     resolveReveal({ success: true, cards: [{ rank: 'A', suit: 's' }], diamondsSpent: 5 });
     await waitFor(() => expect(onReveal).toHaveBeenCalledTimes(1));
+  });
+
+  it('never auto-spends for a membership that lapsed while the tab was open', async () => {
+    // TablePage still says VIP (autoRun true), but this offer's own fresh
+    // lookup says the membership is gone: the felt window would charge the
+    // full diamond price, so the automatic press must not happen.
+    vipAnswer(false);
+    const onReveal = vi.fn();
+    render(tile({ autoRun: true, onReveal }));
+    await waitFor(() => expect(vipService.checkVIPStatus).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onReveal).not.toHaveBeenCalled();
+  });
+
+  it('never auto-spends when the VIP lookup fails', async () => {
+    vi.mocked(vipService.checkVIPStatus).mockRejectedValue(new Error('read failed'));
+    const onReveal = vi.fn();
+    render(tile({ autoRun: true, onReveal }));
+    await waitFor(() => expect(vipService.checkVIPStatus).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onReveal).not.toHaveBeenCalled();
   });
 
   it('never fires for a guest - there is nobody to bill', async () => {
