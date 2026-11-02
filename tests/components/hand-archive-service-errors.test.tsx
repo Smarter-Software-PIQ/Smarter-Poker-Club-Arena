@@ -5,6 +5,9 @@ const state = vi.hoisted(() => ({
   result: { data: null as unknown, error: null as unknown },
   toast: { error: vi.fn(), success: vi.fn() },
 }));
+vi.mock('../../src/hooks/useVIP', () => ({
+  useVIPStatus: () => ({ isVIP: false, isLoading: false }),
+}));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useSearchParams: () => [new URLSearchParams(state.search)],
