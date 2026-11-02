@@ -315,6 +315,17 @@ class AnnouncedCancellation(unittest.TestCase):
             # Keep exact immutable Git objects, but qualify ancestry at that
             # original protected revision rather than traversing today's entire
             # unrelated main history inside the five-second helper budget.
+            # CI's root checkout is blob-filtered. Hydrate only the exact
+            # historical policy closure through that configured repository
+            # before the isolated, network-free helper deadline starts.
+            for source_path in (
+                    'server/release/activation-floor.json',
+                    'server/release/owner-maintenance-windows.json',
+                    'server/src/maintenance/maintenanceSchedulePolicy.json',
+                    'server/scripts/engine-release-intake.sh',
+                    'server/scripts/engine-release-transaction.sh',
+                    'server/scripts/engine-release-recover.sh'):
+                subprocess.check_output(['git', 'show', module.PHASE1_CONTROL + ':' + source_path], cwd=ROOT, timeout=30)
             proof_repo = Path(folder) / 'proof.git'
             subprocess.run(['git', 'init', '--bare', '-q', str(proof_repo)], check=True)
             objects = subprocess.check_output(['git', 'rev-parse', '--path-format=absolute', '--git-path', 'objects'], cwd=ROOT, text=True).strip()
