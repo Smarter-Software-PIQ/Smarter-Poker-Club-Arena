@@ -1,3 +1,4 @@
+import { HORSE_REQUEST_MAX_PENDING, HorseRequestCapacityError } from './requestRetentionBudget.js';
 import { HorseOwnPublicHistoryCache } from './ownPublicHistory.js';
 import {
   mainHorseHistoryRetentionBudget,
@@ -1622,6 +1623,68 @@ describe('LiveHorseDecisionWorkerClient', () => {
     }
   });
 
+  it('bounds a burst before READY and retains posted byte ownership past caller expiry', async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new LiveHorseDecisionWorkerClient({
+      workerFactory: () => worker,
+      maxInFlight: 1,
+      jobTimeoutMs: 10,
+    });
+    const discard = {
+      generation: 1,
+      fence: 'burst',
+      cards: [],
+      communityCards: [],
+      gameVariant: 'pineapple',
+    };
+    const pending = Array.from({ length: HORSE_REQUEST_MAX_PENDING }, () =>
+      client.decideDiscard(discard)
+    );
+    const observed = Promise.allSettled(pending);
+    try {
+      await expect(client.decideDiscard(discard)).rejects.toBeInstanceOf(HorseRequestCapacityError);
+      expect(client.status().queueDepth).toBe(HORSE_REQUEST_MAX_PENDING);
+      worker.emitMessage(ready);
+      vi.advanceTimersByTime(10);
+      await observed;
+      expect(client.status().queueDepth).toBe(1);
+      expect(client.status().retainedRequestBytes).toBeGreaterThan(0);
+      worker.emitMessage({ type: 'CANCELLED', requestId: 1, generation: 1, fence: 'burst' });
+      expect(client.status().retainedRequestBytes).toBe(0);
+      expect(client.status().phase).toBe('ready');
+    } finally {
+      worker.emitError(new Error('fixture teardown'));
+      await client.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('detaches queued request graphs so caller mutation cannot escape the byte allowance', async () => {
+    const worker = new FakeWorker();
+    const client = new LiveHorseDecisionWorkerClient({ workerFactory: () => worker });
+    const discard = {
+      generation: 1,
+      fence: 'detached',
+      cards: [] as any[],
+      communityCards: [],
+      gameVariant: 'pineapple',
+    };
+    const pending = client.decideDiscard(discard);
+    const observed = Promise.allSettled([pending]);
+    const bytes = client.status().retainedRequestBytes;
+    discard.cards.push({ attacker: 'x'.repeat(100_000) });
+    worker.emitMessage(ready);
+    expect(worker.sent.find((message: any) => message.type === 'DECIDE_DISCARD')).toMatchObject({
+      cards: [],
+    });
+    expect(client.status().retainedRequestBytes).toBe(bytes);
+    worker.emitError(new Error('fixture teardown'));
+    await observed;
+    await client.stop();
+    expect(client.status().retainedRequestBytes).toBe(0);
+  });
+
   it('admits one effect commit per issued plan even while the first answer is pending', async () => {
     const worker = new FakeWorker();
     const client = new LiveHorseDecisionWorkerClient({ workerFactory: () => worker });
@@ -1665,6 +1728,8 @@ describe('LiveHorseDecisionWorkerClient', () => {
       const rejected = expect(commit).rejects.toBeInstanceOf(HorseDecisionExpiredError);
       vi.advanceTimersByTime(10);
       await rejected;
+      expect(client.status().pendingPlanReservations).toBe(1);
+      expect(client.status().retainedRequestBytes).toBeGreaterThan(0);
       expect(worker.sent.filter((m: any) => m.type === 'COMMIT_DECISION_EFFECTS')).toHaveLength(1);
       expect(worker.sent.filter((m: any) => m.type === 'RETIRE_DECISION_EFFECTS')).toHaveLength(0);
       worker.emitMessage({
@@ -1688,6 +1753,8 @@ describe('LiveHorseDecisionWorkerClient', () => {
         operation: 'RETIRE_DECISION_EFFECTS',
         planDisposition: 'already_applied_volatile',
       });
+      expect(client.status().pendingPlanReservations).toBe(0);
+      expect(client.status().retainedRequestBytes).toBe(0);
       await expect(client.commitDecisionEffects(owned, acceptanceOf(owned))).rejects.toThrow(
         'no available client ownership'
       );
