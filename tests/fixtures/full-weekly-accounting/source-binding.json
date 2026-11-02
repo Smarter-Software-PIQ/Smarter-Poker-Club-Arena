@@ -1,4 +1,10 @@
 {
+  "inventoryCalendarFixtureAudit20261102": {
+    "reason": "Reviewed fixture-only DST correction: derive the prior Los Angeles closed book through the unchanged week-start function instead of UTC seven-day subtraction. Exact native PostgreSQL 17 failure reproduced before repair; after repair both DST transitions across UTC, Chicago and Tokyo sessions plus actual concurrent reader and negative STABLE control pass. Five-second deadline, production SQL, historical financial assertions and qualification states unchanged. This records current source identity, not a financial or production certificate.",
+    "path": "tests/fixtures/union-pnl-inventory/concurrency.py",
+    "previousSHA256": "b373c839e0514d3fc9e66c40059867734c4797540853306734a3ab67c03165c8",
+    "currentSHA256": "a3d553fb1d617d5c8637276660341ccba252461797b792437352384adec1d15d"
+  },
   "accountPreferenceFixtureAudit20261029": {
     "reason": "Reviewed exact fixture-only diff: replace the empty useUserStore mock with its selector bound to the existing synthetic auth identity. Preserve every cashout receipt, ABA, financial invariant and assertion. Connected 34-case fixture run passed; no production financial mutation or certificate restamp.",
     "path": "tests/components/cashout-own-event-acknowledgment.test.tsx",
@@ -440,7 +446,7 @@
     "scripts/dev/test-union-pnl-inventory.sh": "2ab14cd9ab5448aaea610f32d813addfd9ab96f0d65490ef2533ba12e5068e3e",
     "tests/fixtures/union-pnl-inventory/seed.sql": "6d4bb2e904b0c1b0c1f48247a4ab00367b65ef7210d5ba1781d5dc04702c848e",
     "tests/fixtures/union-pnl-inventory/regression.sql": "37bfad02bbb518377b4d773a15b691690c4af00dc5390fabd2f588bc490f21d1",
-    "tests/fixtures/union-pnl-inventory/concurrency.py": "7c64f9c92a8c0e09dd633ae3ce2d5ce244058587dfda9f83adff34fc0b6f0187",
+    "tests/fixtures/union-pnl-inventory/concurrency.py": "a3d553fb1d617d5c8637276660341ccba252461797b792437352384adec1d15d",
     "tests/fixtures/union-pnl-inventory/README.md": "1ec2588a68d7fa3123ca63a033c2ac6b02e3b0d4efb43aff01091ba36d56d826",
     "tests/fixtures/union-pnl-inventory/bootstrap.sql": "7bbbc23553513e88b53c066f6afe47170d5a2f85f2b215ac72fd2df603cd8a08",
     "supabase/migrations/20260917231832_union_accounting_schedule_adoption.sql": "ad8d6c8ff386f7701a7ae394059099bb847574ac88cc06d29401f35b2e62a876",
@@ -7693,11 +7699,5 @@
         "current": "a8484f029b6f5e8992d113e75f99b168a1372354c4d5f730eaa73430d9d019d0"
       }
     }
-  },
-  "inventoryCalendarFixtureAudit20261102": {
-    "reason": "Fixture-only DST correction: derive the previous Los Angeles accounting boundary through the unchanged fn_union_week_start, instead of subtracting seven UTC days. Native UTC reproduction failed before; both DST edges and three session time zones are covered. Production SQL and existing concurrency assertions remain unchanged; no financial certificate restamp.",
-    "path": "tests/fixtures/union-pnl-inventory/concurrency.py",
-    "previousSHA256": "b373c839e0514d3fc9e66c40059867734c4797540853306734a3ab67c03165c8",
-    "currentSHA256": "7c64f9c92a8c0e09dd633ae3ce2d5ce244058587dfda9f83adff34fc0b6f0187"
   }
 }
