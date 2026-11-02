@@ -30,3 +30,19 @@ export function evaluationConfig(args: {
     evaluation_engine_commit: args.engineCommit,
   };
 }
+
+/**
+ * horse_league_results is unique per (run_date, matchup). Epoch 1 keeps the
+ * historical matchup; a later audited epoch for another engine commit carries
+ * `_epoch<n>` (fn_gto_v31_evaluation_matchup in PostgreSQL is the authority).
+ */
+export function evaluationMatchup(
+  kind: GtoV31EvaluationKind,
+  family: GtoV31EvaluationFamily,
+  datasetChecksum: string,
+  epochNo: number
+): string {
+  if (!Number.isSafeInteger(epochNo) || epochNo < 1)
+    throw new Error('v31_evaluation_epoch_invalid');
+  return `gto_v31_${kind}_${family}_${datasetChecksum}${epochNo > 1 ? `_epoch${epochNo}` : ''}`;
+}

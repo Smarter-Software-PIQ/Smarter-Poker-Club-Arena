@@ -33,7 +33,8 @@ def make_schedule_transition_snapshot() -> dict:
             "sealed_non_eed_engine": True,
             "sealed_engine_sha": "26aaaa3f350ca063caed717b5fcbbcf34b5ae702",
             "full_v3_thaw": True,
-            "all_assigned_events_settled": True,
+            "all_140_owner_retirements_completed": True,
+            "v4_equal_share_receipt_count": 0,
             "attention14_metadata_closed": True,
         },
         "serving_hourly_health": {
@@ -188,13 +189,15 @@ class VerifyPhase5CompletionTests(unittest.TestCase):
 
     def test_schedule_transition_rejects_missing_prerequisites_or_short_evidence(self) -> None:
         snap = make_schedule_transition_snapshot()
-        snap["prerequisites"]["all_assigned_events_settled"] = False
+        snap["prerequisites"]["all_140_owner_retirements_completed"] = False
+        snap["prerequisites"]["v4_equal_share_receipt_count"] = 1
         snap["prerequisites"]["sealed_engine_sha"] = verifier.DAILY_BOOTSTRAP_SHA
         snap["candidate_policy"]["completionEvidence"] = "short"
         res = verifier.verify_schedule_transition(snap)
         self.assertFalse(res["ok"])
         joined = " | ".join(res["errors"])
-        self.assertIn("all_assigned_events_settled", joined)
+        self.assertIn("all_140_owner_retirements_completed", joined)
+        self.assertIn("v4_equal_share_receipt_count", joined)
         self.assertIn("sealed_engine_sha", joined)
         self.assertIn("completionEvidence", joined)
 

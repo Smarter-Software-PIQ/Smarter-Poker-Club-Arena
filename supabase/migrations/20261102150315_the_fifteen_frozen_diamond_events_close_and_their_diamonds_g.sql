@@ -84,6 +84,15 @@
 -- ============================================================================
 
 BEGIN;
+-- Superseded before installation by the November 2 owner direction in
+-- chat 01a19ccc: eligible Diamonds go to verified KingFish, with liabilities
+-- separated and one financial writer. Preserve the historical source below,
+-- but never execute its different house destination or inline disposition.
+DO $superseded_owner_destination$
+BEGIN
+ RAISE EXCEPTION 'owner_house_disposition_superseded_use_verified_kingfish_retirement'
+  USING ERRCODE='55000';
+END $superseded_owner_destination$;
 SET LOCAL lock_timeout = '3s';
 
 -- 1. THE FORFEIT LEG --------------------------------------------------------

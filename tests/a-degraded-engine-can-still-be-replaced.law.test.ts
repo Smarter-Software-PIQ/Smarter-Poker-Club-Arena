@@ -139,8 +139,8 @@ describe('a degraded engine can still be replaced', () => {
       // add only a fixture-local implementation of the mapfile builtin; the
       // release transaction and every boundary under test remain unchanged.
       const executableFixture = transaction.replace(
-        'set -euo pipefail',
-        `set -euo pipefail
+        'set -Eeuo pipefail',
+        `set -Eeuo pipefail
 mapfile() {
   [ "\${1:-}" = -t ] && [ "$#" = 2 ] || return 2
   local target="$2" line

@@ -1062,7 +1062,7 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner == DAILY_REFUSAL_RUN:
         validate_daily_refusal_resolution(resolution, cycle)
         return
-    if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
+    if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
         validate_cancelled_phase1_resolution(resolution, cycle)
         return
     if owner != NINEF_RUN:
@@ -1142,7 +1142,23 @@ SECOND_CANCELLED_PHASE1_THAW = {'announcedAtMs':1793620685533,'freezeStartedAtMs
  'releasedThroughMs':1793621105532,'ownershipToken':'c677673f-f968-4a21-a795-c1bcb175f6d9',
  'generation':1,'thawRecordedAtMs':1793621026339}
 
+CURRENT26_CANCELLED_RUN = '41469215622-1'
+CURRENT26_CANCELLED_SHA = 'fffcb62ea1f114322da964f9e580f8be3b3e3383'
+CURRENT26_CANCELLED_TARGET = '26aaaa3f350ca063caed717b5fcbbcf34b5ae702'
+CURRENT26_CANCELLED_SOURCES = {'engine-release-database-proof.py': 'd5b59033d68b071419a2b06aa34dc95cdc20d6ec2bed950fbeddd1035c113456', 'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4', 'engine-release-seal.py': '990d562162089464377994decf576892ab9b23d8defca0a18389992842745fff', 'engine-release-transaction.sh': '0a78bdb9e5b3ba761ea1daf4bbec55c42b2ee654a98d71a5850a46ef313a5abe', 'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83', 'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e'}
+CURRENT26_CANCELLED_WINDOW = {'announcedAt':1793635085893,'startsAt':1793635205893,'endsAt':1793635505893,'verified':True}
+CURRENT26_CANCELLED_THAW = {'announcedAtMs':1793635085893,'freezeStartedAtMs':1793635205893,
+ 'releasedThroughMs':1793635505893,'ownershipToken':'a993695f-4a6a-4cb3-99af-b88765f21c99',
+ 'generation':1,'thawRecordedAtMs':1793635427493}
+
+
+def cancelled_phase1_target(owner):
+    return CURRENT26_CANCELLED_TARGET if owner == CURRENT26_CANCELLED_RUN else cancelled_phase1_profile(owner)[1]
+
 def cancelled_phase1_profile(owner):
+    if owner == CURRENT26_CANCELLED_RUN:
+        return (CURRENT26_CANCELLED_RUN, CURRENT26_CANCELLED_SHA, CURRENT26_CANCELLED_SOURCES,
+                CURRENT26_CANCELLED_WINDOW, CURRENT26_CANCELLED_THAW)
     if owner == SECOND_CANCELLED_PHASE1_RUN:
         return (SECOND_CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SOURCES,
                 SECOND_CANCELLED_PHASE1_WINDOW, SECOND_CANCELLED_PHASE1_THAW)
@@ -1172,7 +1188,7 @@ def cancelled_phase1_cycle(cycle: Any) -> None:
     owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
     failed_routine_require(cycle == {'kind': 'hourly-reset', 'policyId': SCHEDULE_POLICY_ID,
         'policyDigest': NINEF_POLICY_DIGEST, 'startsAt': owner_window['startsAt']//3600000*3600, 'endsAt': owner_window['startsAt']//3600000*3600+300,
-        'runId': owner_run, 'sha': owner_sha, 'controlSha': owner_sha,
+        'runId': owner_run, 'sha': cancelled_phase1_target(owner_run), 'controlSha': owner_sha,
         'status': 'reserved', 'window': owner_window})
 
 
@@ -1185,7 +1201,7 @@ def validate_cancelled_phase1_resolution(resolution: Any, cycle: dict[str, Any],
         and resolution['verifiedByRunId'] != owner_run
         and SHA_RE.fullmatch(str(resolution['verifiedByControlSha']))
         and SHA_RE.fullmatch(str(resolution['verifiedByTargetSha']))
-        and owner_sha not in (resolution['verifiedByControlSha'], resolution['verifiedByTargetSha'])
+        and not ({owner_sha, cancelled_phase1_target(owner_run)} & {resolution['verifiedByControlSha'], resolution['verifiedByTargetSha']})
         and INVOCATION_ID_RE.fullmatch(str(resolution['invocationId']))
         and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > owner_window['endsAt'])
     proof = resolution['proof']
@@ -1221,7 +1237,7 @@ def cancelled_phase1_proof(args: argparse.Namespace, state: dict[str, Any], cycl
     source = failed_routine_command(['git', '-C', args.repo, 'show',
         str(args.control_sha) + ':scripts/ci/withdraw-waiting-engine-release.py'], deadline, 131072)
     proof = json.loads(failed_routine_command([sys.executable, '-B', '-c', source,
-        '--phase1-cancellation-proof'] + ([owner_run] if owner_run == SECOND_CANCELLED_PHASE1_RUN else []), deadline, 16384, max_seconds=30))
+        '--phase1-cancellation-proof'] + ([owner_run] if owner_run in {SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} else []), deadline, 16384, max_seconds=30))
     failed_routine_require(proof.get('originalCycle') == cycle)
     proof['qualifiedHelperSHA256'] = hashlib.sha256(source.encode()).hexdigest()
     return proof
@@ -1575,12 +1591,12 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     state; an interrupted run resumes with exactly those bytes."""
     run_id = str(args.run_id)
     invocation = str(args.invocation_id)
-    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} or
+    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} or
             os.geteuid() != 0):
         die('terminal routine failure proof identity is invalid')
     sha = valid_sha(str(args.sha))
     control_sha = valid_sha(str(args.control_sha))
-    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA, PREATTACH_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA, PREATTACH_SHA}:
+    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, CURRENT26_CANCELLED_SHA, CURRENT26_CANCELLED_TARGET, DAILY_REFUSAL_SHA, PREATTACH_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, CURRENT26_CANCELLED_SHA, CURRENT26_CANCELLED_TARGET, DAILY_REFUSAL_SHA, PREATTACH_SHA}:
         die('terminal routine failure proof identity is invalid')
     require_engine_lock(args.engine_lock_fd)
     deadline = time.monotonic() + 45
@@ -1589,12 +1605,12 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         proved = []
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
-            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
+            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
             if owner == PREATTACH_RUN:
                 establish_preattach_disposition(args, state, cycle, deadline)
             current = failed_routine_current(args, deadline)
-            prove = (lambda: cancelled_phase1_proof(args, state, cycle, deadline)) if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} else (lambda: terminal_owner_proof(state, cycle, deadline))
+            prove = (lambda: cancelled_phase1_proof(args, state, cycle, deadline)) if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} else (lambda: terminal_owner_proof(state, cycle, deadline))
             if owner == DAILY_REFUSAL_RUN:
                 prove = lambda: daily_refusal_proof(state, cycle, deadline)
             if owner == PREATTACH_RUN:
@@ -1609,10 +1625,10 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} else 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
-            if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
+            if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
                 validate_cancelled_phase1_resolution(resolution, cycle, verify_receipt=False)
             if owner == DAILY_REFUSAL_RUN:
                 validate_daily_refusal_resolution(resolution, cycle, verify_receipt=False)
@@ -3398,6 +3414,282 @@ def add_audit_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--reason", required=True)
 
 
+
+# Diagnostic evidence never participates in canonical release authority.
+def diagnostic_read(path: Path, *, private: bool = True) -> bytes:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & (0o077 if private else 0o022) or info.st_size > 1048576):
+            raise ValueError("unsafe diagnostic input")
+        data = os.read(fd, 1048577)
+        after = os.fstat(fd)
+        stamp = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if len(data) != info.st_size or stamp(info) != stamp(after):
+            raise ValueError("diagnostic input changed")
+        return data
+    finally:
+        os.close(fd)
+
+
+def diagnostic_json(data: bytes) -> Any:
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate diagnostic JSON key")
+            value[key] = item
+        return value
+    def nonfinite(value: str) -> NoReturn:
+        raise ValueError("nonfinite diagnostic JSON")
+    return json.loads(data, object_pairs_hook=unique, parse_constant=nonfinite)
+
+
+def diagnostic_shell_state(raw: dict[str, Any]) -> dict[str, Any]:
+    bounds = {"checkpointRequired": 1, "drainedCutover": 1, "prepared": 1,
+              "mutationStarted": 1, "lockHeld": 1, "checkpointBudgetSeconds": 300,
+              "checkpointWorkMs": 300000, "certificateExitStatus": 255,
+              "breakEndEpoch": 9999999999}
+    if set(raw) != set(bounds) | {"checkpointProfile", "predecessorSha"}:
+        raise ValueError("invalid diagnostic shell state fields")
+    result = {}
+    for key, bound in bounds.items():
+        value = raw[key]
+        if value == "UNKNOWN":
+            result[key] = value
+        elif (type(value) is int or isinstance(value, str) and value.isdecimal()) and 0 <= int(value) <= bound:
+            result[key] = int(value)
+        else:
+            raise ValueError("invalid bounded diagnostic shell state")
+    if raw["checkpointProfile"] not in ("UNKNOWN", "legacy-40s-v1", "eed-80s-v1"):
+        raise ValueError("invalid checkpoint profile")
+    if raw["predecessorSha"] != "UNKNOWN" and not SHA_RE.fullmatch(str(raw["predecessorSha"])):
+        raise ValueError("invalid diagnostic predecessor")
+    return {**result, "checkpointProfile": raw["checkpointProfile"], "predecessorSha": raw["predecessorSha"]}
+
+
+def diagnostic_validate(existing: Any, value: dict[str, Any]) -> dict[str, Any]:
+    if (not isinstance(existing, dict) or set(existing) != set(value)
+            or existing.get("schema") != value["schema"]
+            or existing.get("diagnosticOnly") is not True
+            or existing.get("binding") != value["binding"]):
+        raise ValueError("conflicting or unreadable original diagnostic")
+    if (not INVOCATION_ID_RE.fullmatch(str(existing.get("invocationId", "")))
+            or not isinstance(existing.get("observedAt"), str)):
+        raise ValueError("invalid existing diagnostic envelope")
+    if datetime.fromisoformat(existing["observedAt"]).utcoffset() is None or datetime.fromisoformat(existing["observedAt"]).utcoffset().total_seconds() != 0:
+        raise ValueError("diagnostic timestamp has no zone")
+    if value["schema"] == "engine-release-first-refusal/v1":
+        if (existing.get("origin") not in ("die", "err", "exit")
+                or type(existing.get("exitCode")) is not int or not 1 <= existing["exitCode"] <= 255
+                or existing.get("signal") != "UNKNOWN"
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}|UNKNOWN", str(existing.get("stage", "")))
+                or type(existing.get("sourceLine")) is not int
+                or existing["sourceLine"] < 0
+                or (existing["sourceLine"] == 0 and existing.get("sourceLineSha256") is not None)
+                or (existing["sourceLine"] > 0 and not re.fullmatch(r"[0-9a-f]{64}", str(existing.get("sourceLineSha256", ""))))
+                or existing.get("command") != "SOURCE_LINE_ONLY_NOT_ARGV"
+                or not isinstance(existing.get("knownStateDigests"), dict)
+                or set(existing["knownStateDigests"]) != {"seal", "checkpointIntent", "breakDeadline", "awaitingCertificate"}
+                or any(v is not None and v != "UNKNOWN" and not re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in existing["knownStateDigests"].values())
+                or existing.get("checkpointPath") != value["checkpointPath"]
+                or not isinstance(existing.get("shellState"), dict)
+                or not isinstance(existing.get("predecessor"), dict)
+                or not isinstance(existing.get("certificate"), dict)):
+            raise ValueError("invalid original diagnostic schema")
+        shell_state = diagnostic_shell_state(existing["shellState"])
+        source = diagnostic_read(Path(value["binding"]["generation"]) / "engine-release-transaction.sh", private=False)
+        source_lines = source.splitlines()
+        line = existing["sourceLine"]
+        if (hashlib.sha256(source).hexdigest() != value["binding"]["transactionSha256"]
+                or line > len(source_lines)
+                or line > 0 and existing["sourceLineSha256"] != hashlib.sha256(source_lines[line - 1]).hexdigest()
+                or existing["shellState"] != shell_state):
+            raise ValueError("retained refusal source or state mismatch")
+        if (existing["predecessor"] != {"selectedSha": shell_state["predecessorSha"], "sealSha256": existing["knownStateDigests"]["seal"]}
+                or existing["certificate"] != {"exitStatus": shell_state["certificateExitStatus"], "breakEndEpoch": shell_state["breakEndEpoch"],
+                   "deadlineSha256": existing["knownStateDigests"]["breakDeadline"], "awaitingMarkerSha256": existing["knownStateDigests"]["awaitingCertificate"]}):
+            raise ValueError("invalid original diagnostic schema")
+    elif (existing.get("terminalObservation") != value["terminalObservation"]
+          or existing.get("invocationId") != value["invocationId"]):
+        raise ValueError("invalid attempt diagnostic schema")
+    return existing
+
+
+def diagnostic_create(path: Path, value: dict[str, Any]) -> dict[str, Any]:
+    data = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    fd, temporary = tempfile.mkstemp(prefix=".diagnostic-", dir=path.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            existing = diagnostic_json(diagnostic_read(path))
+            return diagnostic_validate(existing, value)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        return value
+    finally:
+        os.unlink(temporary)
+
+
+def cmd_diagnostic_read(args: argparse.Namespace) -> None:
+    """Read retained evidence after cleanup, never reconstruct release authority."""
+    try:
+        if not RUN_ID_RE.fullmatch(args.run_id):
+            raise ValueError("invalid run identity")
+        target, control = valid_sha(args.sha), valid_sha(args.control_sha)
+        generation = Path(args.generation)
+        if (not generation.is_absolute() or generation.resolve() != generation or generation.is_symlink()
+                or STATE_DIR.resolve() != STATE_DIR or STATE_DIR.is_symlink()):
+            raise ValueError("unsafe diagnostic binding")
+        root = STATE_DIR / "engine-release-diagnostics"
+        info = root.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError("unsafe diagnostic directory")
+        source_digests = {
+            "transactionSha256": hashlib.sha256(diagnostic_read(generation / "engine-release-transaction.sh", private=False)).hexdigest(),
+            "producerSha256": hashlib.sha256(diagnostic_read(generation / "engine-release-seal.py", private=False)).hexdigest()}
+        def read_record(path: Path, schema: str) -> dict[str, Any] | None:
+            try:
+                record = diagnostic_json(diagnostic_read(path))
+            except FileNotFoundError:
+                return None
+            if not isinstance(record, dict) or not isinstance(record.get("binding"), dict):
+                raise ValueError("unreadable retained diagnostic")
+            binding = record["binding"]
+            expected = {"runId": args.run_id, "targetSha": target, "controlSha": control,
+                        "generation": str(generation), **source_digests}
+            if (set(binding) != set(expected) | {"requestSha256", "pinSha256"}
+                    or any(binding.get(k) != v for k, v in expected.items())
+                    or any(not re.fullmatch(r"[0-9a-f]{64}", str(binding.get(k, ""))) for k in ("requestSha256", "pinSha256"))):
+                raise ValueError("retained source identity mismatch")
+            if schema == "engine-release-first-refusal/v1":
+                keys = {"schema", "diagnosticOnly", "binding", "invocationId", "observedAt", "origin", "stage", "exitCode", "signal",
+                        "sourceLine", "sourceLineSha256", "command", "knownStateDigests", "checkpointPath", "shellState", "predecessor", "certificate"}
+                expected_checkpoint = str(Path(os.environ.get("ENGINE_RELEASE_REQUEST_ROOT", str(STATE_DIR / "engine-release-requests"))) / f"{args.run_id}.legacy-checkpoint-intent")
+                if set(record) != keys or record.get("checkpointPath") != expected_checkpoint:
+                    raise ValueError("invalid retained refusal fields")
+            else:
+                if set(record) != {"schema", "diagnosticOnly", "binding", "invocationId", "observedAt", "terminalObservation"}:
+                    raise ValueError("invalid retained attempt fields")
+            expected_record = {**record, "schema": schema, "diagnosticOnly": True, "binding": expected | {k: binding[k] for k in ("requestSha256", "pinSha256")}}
+            if schema == "engine-release-attempt/v1":
+                expected_record["terminalObservation"] = "UNKNOWN_UNTIL_FIRST_REFUSAL_OR_CANONICAL_RESULT"
+            return diagnostic_validate(record, expected_record)
+        first = read_record(root / f"{args.run_id}.first-refusal.json", "engine-release-first-refusal/v1")
+        invocation = args.invocation_id or (first["invocationId"] if first else None)
+        if invocation is not None and not INVOCATION_ID_RE.fullmatch(invocation):
+            raise ValueError("invalid diagnostic invocation")
+        attempt = read_record(root / f"{args.run_id}.attempt-{invocation}.json", "engine-release-attempt/v1") if invocation else None
+        if first and not read_record(root / f"{args.run_id}.attempt-{first['invocationId']}.json", "engine-release-attempt/v1"):
+            raise ValueError("original attempt evidence missing")
+        print(json.dumps({"schema": "engine-release-diagnostic-read/v1", "diagnosticOnly": True,
+                          "observation": "FIRST_REFUSAL_RECORDED" if first else "UNKNOWN_NO_REFUSAL_RECORDED",
+                          "firstRefusal": first, "attempt": attempt}, sort_keys=True))
+    except (OSError, ValueError, UnicodeError):
+        print("[engine-release-diagnostic] UNKNOWN: retained evidence unreadable or source identity mismatched", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def cmd_diagnostic(args: argparse.Namespace) -> None:
+    try:
+        if not RUN_ID_RE.fullmatch(args.run_id) or not INVOCATION_ID_RE.fullmatch(args.invocation_id):
+            raise ValueError("invalid diagnostic identity")
+        target, control = valid_sha(args.sha), valid_sha(args.control_sha)
+        generation = Path(args.generation)
+        if not generation.is_absolute() or generation.resolve() != generation or generation.is_symlink():
+            raise ValueError("unsafe diagnostic generation")
+        request_path = Path(os.environ.get("ENGINE_RELEASE_REQUEST_ROOT", str(STATE_DIR / "engine-release-requests"))) / f"{args.run_id}.request"
+        pin_path = Path(os.environ.get("ENGINE_RELEASE_PIN_ROOT", str(STATE_DIR / "engine-release-generation-pins"))) / f"{args.run_id}.generation"
+        if (Path(args.request) != request_path or Path(args.pin) != pin_path
+                or request_path.parent.resolve() != request_path.parent
+                or pin_path.parent.resolve() != pin_path.parent):
+            raise ValueError("unbound diagnostic paths")
+        if STATE_DIR.is_symlink() or STATE_DIR.resolve() != STATE_DIR:
+            raise ValueError("unsafe diagnostic state root")
+        source = generation / "engine-release-transaction.sh"
+        source_bytes = diagnostic_read(source, private=False)
+        if source.is_symlink() or not source.is_file() or len(source_bytes) > 1048576:
+            raise ValueError("unsafe transaction source")
+        request = diagnostic_read(Path(args.request))
+        pin = diagnostic_read(Path(args.pin))
+        fields = request.decode().splitlines()
+        pin_fields = pin.decode().splitlines()
+        if (len(fields) != 6 or fields[0] != target or fields[3] != str(generation)
+                or fields[4] != control
+                or fields[1] != args.run_url or not RUN_URL_RE.fullmatch(args.run_url)
+                or args.run_url.rsplit("/", 1)[-1] != args.run_id.split("-")[0]
+                or not fields[5].isdigit() or len(pin_fields) != 2
+                or pin_fields != [str(generation), control]):
+            raise ValueError("diagnostic request/pin identity mismatch")
+        binding = {"runId": args.run_id, "targetSha": target, "controlSha": control,
+                   "generation": str(generation), "requestSha256": hashlib.sha256(request).hexdigest(),
+                   "pinSha256": hashlib.sha256(pin).hexdigest(),
+                   "transactionSha256": hashlib.sha256(source_bytes).hexdigest(),
+                   "producerSha256": hashlib.sha256(diagnostic_read(Path(__file__).resolve(), private=False)).hexdigest()}
+        root = STATE_DIR / "engine-release-diagnostics"
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = root.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError("unsafe retained diagnostic directory")
+        parent_fd = os.open(root.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
+        now = datetime.fromtimestamp(time.time(), ZoneInfo("UTC")).isoformat()
+        attempt = {"schema": "engine-release-attempt/v1", "diagnosticOnly": True,
+                   "binding": binding, "invocationId": args.invocation_id, "observedAt": now,
+                   "terminalObservation": "UNKNOWN_UNTIL_FIRST_REFUSAL_OR_CANONICAL_RESULT"}
+        diagnostic_create(root / f"{args.run_id}.attempt-{args.invocation_id}.json", attempt)
+        if args.command == "diagnostic-attempt-begin":
+            return
+        if (not 1 <= args.exit_code <= 255 or not 0 <= args.source_line <= len(source_bytes.splitlines())
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}|UNKNOWN", args.stage)):
+            raise ValueError("invalid refusal diagnostic")
+        lines = source_bytes.splitlines()
+        line_hash = hashlib.sha256(lines[args.source_line-1]).hexdigest() if args.source_line else None
+        digests = {}
+        for label, path in (("seal", STATE_FILE), ("checkpointIntent", Path(args.request).with_suffix(".legacy-checkpoint-intent")),
+                            ("breakDeadline", Path(args.request).with_suffix(".break-deadline")),
+                            ("awaitingCertificate", Path(args.request).with_suffix(".awaiting-certificate"))):
+            try:
+                digests[label] = hashlib.sha256(diagnostic_read(path)).hexdigest()
+            except FileNotFoundError:
+                digests[label] = None
+            except (OSError, ValueError):
+                digests[label] = "UNKNOWN"
+        shell_state = diagnostic_shell_state({
+            "checkpointRequired": args.checkpoint_required, "drainedCutover": args.drained_cutover,
+            "prepared": args.prepared, "mutationStarted": args.mutation_started, "lockHeld": args.lock_held,
+            "checkpointBudgetSeconds": args.checkpoint_budget_seconds, "checkpointWorkMs": args.checkpoint_work_ms,
+            "checkpointProfile": args.checkpoint_profile, "predecessorSha": args.predecessor_sha,
+            "certificateExitStatus": args.certificate_exit_status, "breakEndEpoch": args.break_end_epoch})
+        value = {"schema": "engine-release-first-refusal/v1", "diagnosticOnly": True,
+                 "binding": binding, "invocationId": args.invocation_id, "observedAt": now,
+                 "origin": args.origin, "stage": args.stage, "exitCode": args.exit_code,
+                 "signal": "UNKNOWN", "sourceLine": args.source_line, "sourceLineSha256": line_hash,
+                 "command": "SOURCE_LINE_ONLY_NOT_ARGV", "knownStateDigests": digests,
+                 "checkpointPath": str(Path(args.request).with_suffix(".legacy-checkpoint-intent")),
+                 "shellState": shell_state,
+                 "predecessor": {"selectedSha": shell_state["predecessorSha"], "sealSha256": digests["seal"]},
+                 "certificate": {"exitStatus": shell_state["certificateExitStatus"], "breakEndEpoch": shell_state["breakEndEpoch"],
+                                 "deadlineSha256": digests["breakDeadline"], "awaitingMarkerSha256": digests["awaitingCertificate"]}}
+        diagnostic_create(root / f"{args.run_id}.first-refusal.json", value)
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+        print("[engine-release-diagnostic] UNKNOWN: original evidence unavailable/conflicting; release outcome unchanged", file=sys.stderr)
+        raise SystemExit(1)
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser()
     commands = result.add_subparsers(dest="command", required=True)
@@ -3517,6 +3809,26 @@ def parser() -> argparse.ArgumentParser:
     attest_result.add_argument("--run-id", required=True)
     attest_result.add_argument("--invocation-id")
     attest_result.set_defaults(handler=cmd_attest_result)
+
+    diagnostic_read_command = commands.add_parser("diagnostic-read")
+    for name in ("run-id", "sha", "control-sha", "generation"):
+        diagnostic_read_command.add_argument("--" + name, required=True)
+    diagnostic_read_command.add_argument("--invocation-id")
+    diagnostic_read_command.set_defaults(handler=cmd_diagnostic_read)
+
+    for diagnostic_name in ("diagnostic-attempt-begin", "diagnostic-first-refusal"):
+        diagnostic = commands.add_parser(diagnostic_name)
+        for name in ("run-id", "sha", "control-sha", "invocation-id", "generation", "request", "pin", "run-url"):
+            diagnostic.add_argument("--" + name, required=True)
+        diagnostic.add_argument("--origin", choices=("die", "err", "exit"), default="exit")
+        diagnostic.add_argument("--stage", default="UNKNOWN")
+        for name in ("checkpoint-required", "drained-cutover", "prepared", "mutation-started", "lock-held",
+                     "checkpoint-budget-seconds", "checkpoint-work-ms", "checkpoint-profile", "predecessor-sha",
+                     "certificate-exit-status", "break-end-epoch"):
+            diagnostic.add_argument("--" + name, default="UNKNOWN")
+        diagnostic.add_argument("--source-line", type=int, default=0)
+        diagnostic.add_argument("--exit-code", type=int, default=1)
+        diagnostic.set_defaults(handler=cmd_diagnostic)
 
     record_failure = commands.add_parser("record-failure")
     record_failure.add_argument("--sha", required=True)

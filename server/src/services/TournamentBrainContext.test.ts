@@ -201,6 +201,19 @@ describe('TournamentBrainContext V12 - derivation', () => {
     expect(c.bountyFactor).toBeCloseTo(0.4, 5);
     expect(deriveContext(row() as never, 20, 50, 50000).bountyFactor).toBe(0);
   });
+
+  it('computes medianStackChips directly from descending liveStacks for odd, even, and empty fields', () => {
+    const emptyCtx = deriveContext(row() as never, 4, 10, 8000, []);
+    expect(emptyCtx.medianStackChips).toBe(0);
+
+    const oddCtx = deriveContext(row() as never, 5, 10, 15000, [5000, 1000, 4000, 2000, 3000]);
+    expect(oddCtx.medianStackChips).toBe(3000);
+    expect(oddCtx.stacks).toEqual([5000, 4000, 3000, 2000, 1000]);
+
+    const evenCtx = deriveContext(row() as never, 4, 10, 11000, [5000, 1000, 3500, 1500]);
+    expect(evenCtx.medianStackChips).toBe((3500 + 1500) / 2);
+    expect(evenCtx.stacks).toEqual([5000, 3500, 1500, 1000]);
+  });
 });
 
 describe('HorseLogic V12 - icmRisk v2', () => {

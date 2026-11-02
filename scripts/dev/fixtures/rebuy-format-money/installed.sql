@@ -1,9 +1,10 @@
+-- Purchase core and Midway predicate refreshed from migration 20261102154336.
+-- Other retained bodies below keep their original capture provenance.
 -- Byte-exact production bodies captured from PokerIQ-Production on 2026-09-26
 -- (pg_get_functiondef). prosrc md5 at capture:
 --   fn_ca_unit_floor_cents 6913ab97032595592bb15d7382e81291
 --   fn_ca_recovery_fee_cents aae5a7c097452348fb45027c73529693
 --   fn_ca_tournament_fee_ratio 553cacfc307b824639512ad62c7b2758
---   fn_ca_process_tournament_chip_purchase_money_v1 e9e4ff539983228b5c899e5fd922ffa4
 \set ON_ERROR_STOP on
 
 CREATE OR REPLACE FUNCTION public.fn_ca_unit_floor_cents(p_cents bigint, p_unit_cents integer DEFAULT 1)
@@ -60,6 +61,27 @@ AS $function$
 $function$
 
 ;
+
+CREATE OR REPLACE FUNCTION public.fn_ca_tournament_purchase_fee_ratio(p_buy_in numeric, p_buy_in_fee numeric, p_unit_cents integer)
+ RETURNS numeric
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+ SELECT CASE WHEN p_unit_cents=100 AND p_buy_in=0 AND p_buy_in_fee=0 THEN 0
+ ELSE public.fn_ca_tournament_fee_ratio(p_buy_in,p_buy_in_fee) END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_pko(p_tournament_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+ SELECT EXISTS(SELECT 1 FROM public.tournaments t WHERE t.id=p_tournament_id
+  AND (t.union_id='fade0000-0000-0000-0000-000000000001'::uuid
+       OR t.club_id='fade0000-0000-0000-0000-000000000001'::uuid)
+  AND t.free_buy AND t.is_pko AND NOT coalesce(t.is_mystery_bounty,false)
+  AND upper(t.tournament_type)='MTT' AND t.buy_in_amount=0 AND t.buy_in_fee=0
+  AND t.bounty_amount=1 AND t.guaranteed_prize=0
+  AND t.satellite_target_id IS NULL AND lower(coalesce(t.variant,''))<>'satellite');
+$$;
 
 CREATE OR REPLACE FUNCTION public.fn_ca_process_tournament_chip_purchase_money_v1(p_tournament_id uuid, p_user_id uuid, p_rebuy_type text, p_cost numeric, p_chips numeric, p_current_level integer, p_client_token text DEFAULT NULL::text)
  RETURNS jsonb
@@ -211,8 +233,9 @@ BEGIN
     v_add:=COALESCE(NULLIF(v_t.rebuy_chips,0),v_t.starting_chips,0)::integer;
   END IF;
 
-  v_fee_ratio:=public.fn_ca_tournament_fee_ratio(
-    v_t.buy_in_amount,v_t.buy_in_fee);
+  v_fee_ratio:=public.fn_ca_tournament_purchase_fee_ratio(
+    v_t.buy_in_amount,v_t.buy_in_fee,v_unit);
+  IF public.fn_ca_midway_free_buy_pko(p_tournament_id) THEN v_fee_ratio:=0; END IF;
   v_ratio:=CASE WHEN p_rebuy_type='addon' THEN 0 ELSE v_fee_ratio END;
   v_total:=round(v_base::numeric);
   v_fee:=CASE WHEN v_ratio>0 AND v_total>0
@@ -288,7 +311,7 @@ BEGIN
   v_original_entitlement:=NULLIF(current_setting('app.pnl_tournament_entitlement',true),'')::uuid;
   IF v_rows<>1 THEN
     RAISE EXCEPTION 'Exact tournament funding wallet changed during debit'
-      USING ERRCODE='40001';
+      USING ERRCODE='55000';
   END IF;
   END IF; -- DIAMOND PHASE 8: end of the chip-wallet branch
   PERFORM set_config('app.ledger_category',COALESCE(v_led_cat,''),true);
@@ -318,7 +341,7 @@ BEGIN
   END IF;
   IF v_new_chips IS NULL THEN
     RAISE EXCEPTION 'Locked tournament roster changed during chip grant'
-      USING ERRCODE='40001';
+      USING ERRCODE='55000';
   END IF;
 
   IF v_bounty_head>0 THEN
@@ -375,7 +398,7 @@ BEGIN
   GET DIAGNOSTICS v_rows=ROW_COUNT;
   IF v_rows<>1 THEN
     RAISE EXCEPTION 'Tournament vanished during chip-purchase pool booking'
-      USING ERRCODE='40001';
+      USING ERRCODE='55000';
   END IF;
 
   IF v_fee>0 AND v_t.club_id IS NOT NULL AND v_unit = 100 THEN

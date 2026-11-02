@@ -519,6 +519,41 @@ def coredump_restart_signs(data, container_id, window):
     return rows
 
 
+def capacity_metadata(value):
+    """Only bounded scalars leave the host; absent reads never mean zero."""
+    if not isinstance(value, dict): return None
+    def number(v):
+        return v if type(v) is int and 0 <= v <= 9007199254740991 else None
+    keys = ('hostMemTotalBytes', 'hostMemAvailableBytes', 'hostSwapTotalBytes',
+            'hostSwapFreeBytes', 'configuredMemoryBytes', 'configuredMemorySwapBytes',
+            'configuredNanoCpus', 'configuredPidsLimit', 'diskTotalBytes',
+            'diskAvailableBytes', 'diskFreeInodes')
+    result = {key: number(value.get(key)) for key in keys}
+    for key in ('configuredMemorySwapBytes', 'configuredPidsLimit'):
+        if value.get(key) == -1 and type(value.get(key)) is int: result[key] = -1
+    for key in ('nofileSoft', 'nofileHard', 'nprocSoft', 'nprocHard'):
+        v = value.get(key)
+        result[key] = 'unlimited' if v == 'unlimited' else number(v)
+    result['cgroupV2'] = None
+    chain = value.get('cgroupV2')
+    if isinstance(chain, list) and 1 <= len(chain) <= 3:
+        rows = []
+        for index, row in enumerate(chain):
+            if not isinstance(row, dict) or type(row.get('level')) is not int or row['level'] != index:
+                break
+            clean = {'level': index}
+            for key in ('memoryMaxBytes', 'memoryHighBytes', 'memoryCurrentBytes',
+                        'swapMaxBytes', 'swapCurrentBytes', 'pidsMax', 'pidsCurrent',
+                        'oom', 'oomKill', 'highEvents', 'maxEvents'):
+                v = row.get(key)
+                clean[key] = ('max' if v == 'max' and key in
+                              ('memoryMaxBytes', 'memoryHighBytes', 'swapMaxBytes', 'pidsMax') else number(v))
+            rows.append(clean)
+        else:
+            result['cgroupV2'] = rows
+    return result
+
+
 # One fixed read-only subprocess replaces the existing container read, keeping
 # the same four-second source budget. It never opens a core file or emits paths.
 CORE_CAPTURE_COMMAND = r"""
@@ -526,7 +561,7 @@ import hashlib, json, os, re, stat, subprocess, sys
 
 def inspect():
     value = subprocess.run(['docker','inspect','--format',
-        '{"Id":{{json .Id}},"State":{{json .State}},"Config":{"WorkingDir":{{json .Config.WorkingDir}}},"HostConfig":{"Ulimits":{{json .HostConfig.Ulimits}}}}',
+        '{"Id":{{json .Id}},"State":{{json .State}},"Config":{"WorkingDir":{{json .Config.WorkingDir}}},"HostConfig":{"Ulimits":{{json .HostConfig.Ulimits}},"Memory":{{json .HostConfig.Memory}},"MemorySwap":{{json .HostConfig.MemorySwap}},"NanoCpus":{{json .HostConfig.NanoCpus}},"PidsLimit":{{json .HostConfig.PidsLimit}}}}',
         'club-arena-engine'],
                            capture_output=True, timeout=1, check=True)
     if len(value.stdout)>1024*1024: raise ValueError('inspect bound')
@@ -540,6 +575,59 @@ def limit(value):
     if value=='unlimited': return value
     if re.fullmatch(r'[0-9]{1,16}', value) and int(value)<=9007199254740991: return int(value)
     return 'unknown'
+def capacity(pid, identity, config):
+    result={}
+    try:
+        for line in text('/proc/meminfo').splitlines():
+            match=re.fullmatch(r'(MemTotal|MemAvailable|SwapTotal|SwapFree):\s+([0-9]+) kB',line)
+            if match: result['host'+match[1]+'Bytes']=int(match[2])*1024
+    except (OSError,ValueError): pass
+    for field,key in (('Memory','configuredMemoryBytes'),('MemorySwap','configuredMemorySwapBytes'),
+                      ('NanoCpus','configuredNanoCpus'),('PidsLimit','configuredPidsLimit')):
+        value=config.get(field)
+        if type(value) is int and -1<=value<=9007199254740991: result[key]=value
+    try:
+        disk=os.statvfs('/opt/club-arena')
+        result.update(diskTotalBytes=disk.f_blocks*disk.f_frsize,
+                      diskAvailableBytes=disk.f_bavail*disk.f_frsize,diskFreeInodes=disk.f_favail)
+    except OSError: pass
+    try:
+        for line in text('/proc/'+str(pid)+'/limits').splitlines():
+            match=re.fullmatch(r'Max (open files|processes)\s+(\S+)\s+(\S+)\s+(?:files|processes)',line.strip())
+            if match:
+                key='nofile' if match[1]=='open files' else 'nproc'
+                result[key+'Soft'],result[key+'Hard']=map(limit,match.groups()[1:])
+    except (OSError,ValueError): pass
+    result['cgroupV2']=None
+    try:
+        membership=text('/proc/'+str(pid)+'/cgroup')
+        # Only known Docker host layouts, for this exact inspected container.
+        match=re.fullmatch(r'0::(/(?:system.slice/docker-'+identity+r'\.scope|docker/'+identity+r'))',membership)
+        if not match: return result
+        text('/sys/fs/cgroup/cgroup.controllers') # v2 presence, no v1 inference
+        path=match[1]; chain=[]
+        while True:
+            root='/sys/fs/cgroup'+path
+            row={'level':len(chain)}
+            for filename,key in (('memory.max','memoryMaxBytes'),('memory.high','memoryHighBytes'),
+                ('memory.current','memoryCurrentBytes'),('memory.swap.max','swapMaxBytes'),
+                ('memory.swap.current','swapCurrentBytes'),('pids.max','pidsMax'),('pids.current','pidsCurrent')):
+                try:
+                    value=text(root+'/'+filename)
+                    row[key]='max' if value=='max' else limit(value)
+                except (OSError,ValueError): row[key]=None
+            try:
+                events=dict(line.split() for line in text(root+'/memory.events').splitlines())
+                for event,key in (('oom','oom'),('oom_kill','oomKill'),('high','highEvents'),('max','maxEvents')):
+                    row[key]=limit(events.get(event,''))
+            except (OSError,ValueError): pass
+            chain.append(row)
+            if not path: break
+            path=path.rsplit('/',1)[0]
+        if text('/proc/'+str(pid)+'/cgroup')==membership: result['cgroupV2']=chain
+    except (OSError,ValueError): pass
+    return result
+
 a=inspect(); identity=a.get('Id'); pid=a.get('State',{}).get('Pid')
 if not isinstance(identity,str) or not re.fullmatch(r'[0-9a-f]{64}',identity) or type(pid) is not int or pid<0:
     raise ValueError('container identity')
@@ -803,10 +891,11 @@ if pattern=='core' and m['usesPid']==0 and a.get('Config',{}).get('WorkingDir')=
     finally:
         if app is not None: os.close(app)
         if root is not None: os.close(root)
+resources=capacity(pid,identity,a.get('HostConfig',{}))
 b=inspect()
 if b.get('Id')!=identity or b.get('State',{}).get('Pid')!=pid or b.get('State',{}).get('StartedAt')!=a.get('State',{}).get('StartedAt'):
     raise ValueError('container changed')
-print(json.dumps({'Id':identity,'State':a.get('State',{}),'CoreCapture':m}))
+print(json.dumps({'Id':identity,'State':a.get('State',{}),'CoreCapture':m,'Capacity':resources}))
 """
 
 
@@ -954,6 +1043,7 @@ def read_restart_incident(window, raw):
                     if isinstance(value.get(key), str) and re.fullmatch(r'\d{4}-\d\d-\d\dT[0-9:.]+Z', value[key]):
                         row[key] = value[key]
                 row['coreCapture'] = core_capture
+                row['capacity'] = capacity_metadata(inspected.get('Capacity'))
                 rows.append(row)
             elif source == 'events':
                 for line in data.splitlines():

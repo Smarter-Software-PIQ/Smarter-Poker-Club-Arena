@@ -1,0 +1,23 @@
+{
+  "_owner": "feat/rabbit-hunt-price-owned-admin",
+  "_comment": "20261102165142: the read-only price preview, the per-player kept run-outs a reveal records, and the staff correction desk over the same audited correction core.",
+  "tables": ["rabbit_hunt_owned_runouts"],
+  "functions": [
+    "fn_rabbit_hunt_charge_correction_core",
+    "fn_rabbit_hunt_charge_preview",
+    "fn_rabbit_hunt_keep_bought_runout",
+    "fn_rabbit_hunt_owned_runout",
+    "fn_staff_correct_rabbit_hunt_charge",
+    "fn_staff_rabbit_hunt_receipts"
+  ],
+  "columns": {
+    "rabbit_hunt_owned_runouts": [
+      "board_len",
+      "cards",
+      "hand_number",
+      "owned_at",
+      "table_id",
+      "user_id"
+    ]
+  }
+}

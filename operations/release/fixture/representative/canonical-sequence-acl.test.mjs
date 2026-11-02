@@ -38,3 +38,21 @@ test('mandatory native smoke exercises genuine NULL sequence ACL with literal ow
   const workflow=await readFile(new URL('../../../../.github/workflows/component-fixture-native-smoke.yml',import.meta.url),'utf8');
   assert.ok(workflow.includes('node --test operations/release/fixture/representative/*.test.mjs'));
 });
+
+
+test('complete catalogue ACCESS ordering has an explicit locale-independent byte order',async()=>{
+  // Query contract only: the separate genuine PG17 C/ICU databases establish
+  // native behavior. Neither a fabricated catalogue nor this capture is a pass.
+  const queries=[];
+  await schemaCataloguePayload({query:async sql=>{
+    queries.push(sql);
+    return sql.includes('AS catalogue') ? {rows:[{catalogue:'{}'}]} : {rows:[]};
+  }});
+  const sql=queries.find(sql=>sql.includes('AS catalogue'));
+  assert.ok(sql.includes('ORDER BY kind COLLATE "C",schema_name COLLATE "C",object_name COLLATE "C"'));
+  assert.ok(!sql.includes('ORDER BY kind,schema_name,object_name'));
+  assert.ok(sql.includes('jsonb_build_array(kind,schema_name,object_name,owner_name,grants)'));
+  assert.ok(sql.includes('FROM aclexplode('));
+  assert.ok(!/DISTINCT ON|LIMIT |OFFSET /.test(sql));
+  assert.ok(queries.includes('SET LOCAL search_path = pg_catalog'));
+});

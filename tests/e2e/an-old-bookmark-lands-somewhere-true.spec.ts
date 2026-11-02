@@ -63,6 +63,7 @@ const ARENA_ROUTES = [
   `table/${DIAMOND_TABLE}`,
   'stats',
   'diamond-staff-desk',
+  'rabbit-hunt-desk',
   'wallet',
 ];
 
