@@ -71,6 +71,12 @@ export interface ReplayRabbitCandidate {
 
 export interface ReplayRabbitOffer {
   readonly show: boolean;
+  /**
+   * The hand ended early on one board (so it HAD a run-out to sell) but is
+   * older than the one-day retention. Shown as a plain note so the limit is
+   * stated, not inferred from a missing button (2026-11-02).
+   */
+  readonly pastRetention: boolean;
   /** How many cards the engine would sell; 0 when there is nothing to sell. */
   readonly cardsUnseen: number;
   /** Milliseconds of the server's retention still left, floored at 0. */
@@ -81,7 +87,7 @@ export function replayRabbitOffer(
   hand: ReplayRabbitCandidate | null | undefined,
   now = Date.now()
 ): ReplayRabbitOffer {
-  const none = { show: false, cardsUnseen: 0, msLeft: 0 } as const;
+  const none = { show: false, pastRetention: false, cardsUnseen: 0, msLeft: 0 } as const;
   if (!hand) return none;
 
   // More than one board is a re-run or a bomb pot. The engine does not sell
@@ -99,7 +105,8 @@ export function replayRabbitOffer(
   const msLeft = Math.max(0, RABBIT_HUNT_REPLAY_RETENTION_MS - age);
   // A clock skewed into the future is not a reason to hide the button; the
   // engine will refuse if it is genuinely too old.
-  if (age > RABBIT_HUNT_REPLAY_RETENTION_MS) return { show: false, cardsUnseen, msLeft: 0 };
+  if (age > RABBIT_HUNT_REPLAY_RETENTION_MS)
+    return { show: false, pastRetention: true, cardsUnseen, msLeft: 0 };
 
-  return { show: true, cardsUnseen, msLeft };
+  return { show: true, pastRetention: false, cardsUnseen, msLeft };
 }

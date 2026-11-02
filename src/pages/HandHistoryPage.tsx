@@ -1299,6 +1299,7 @@ export default function HandHistoryPage() {
             }
             rabbitUserId={userId}
             rabbitIsVIP={viewerIsVip}
+            rabbitTableId={detailHand.tableId ?? null}
             onReplay={(hand) => {
               setDetailSelection(null);
               setReplayId(hand.id);

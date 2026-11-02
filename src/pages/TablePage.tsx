@@ -30578,6 +30578,7 @@ function LiveTablePage({
            reveal here, through the same charging call. */
         onRabbitHunt={handleRabbitReveal}
         rabbitIsVIP={viewerIsVip}
+        rabbitTableId={tableId ?? null}
         onRabbitHuntReceipt={handleRabbitReceipt}
         rabbitUserId={userId === 'guest' ? null : userId}
         /* Take the hand you are LOOKING AT. This was `onReplay={() => {...}}`

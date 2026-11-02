@@ -76,6 +76,10 @@ import {
   stamp,
 } from '../../utils/handFormat';
 import { handDeepLink } from '../../lib/handHistoryLive';
+import {
+  fetchReplayRabbitStatus,
+  type ReplayRabbitStatus,
+} from '../../services/rabbitHuntReplayStatus';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useHandReviewDetails } from '../../hooks/useHandReviewDetails';
 
@@ -115,6 +119,13 @@ export interface HandDetailModalProps {
    * refuse. Supplied by TablePage from useVIPStatus.
    */
   rabbitIsVIP?: boolean;
+  /**
+   * The table the hand was dealt at, so the replayer can ask whether this
+   * hand's run-out is actually on file (fn_rabbit_hunt_replay_status) before
+   * offering a previous-hand purchase. Without it the block falls back to
+   * offering the button and lets the engine answer.
+   */
+  rabbitTableId?: string | null;
   /** Open the full animated replay of THE HAND PASSED IN, not "the last hand". */
   onReplay?: (hand: HandRecord) => void;
   /** Open the share modal for THE HAND PASSED IN. */
@@ -211,6 +222,7 @@ function RabbitHuntReplayBlock({
   onRabbitHuntReceipt,
   userId,
   isVIP = false,
+  tableId,
 }: {
   hand: HandRecord;
   model: ReplayModel;
@@ -218,6 +230,7 @@ function RabbitHuntReplayBlock({
   onRabbitHuntReceipt?: (handNumber: number) => Promise<RabbitHuntRevealResult | null>;
   userId: string | null | undefined;
   isVIP?: boolean;
+  tableId?: string | null;
 }) {
   const [offerNow, setOfferNow] = useState(Date.now);
   useEffect(() => {
@@ -251,17 +264,63 @@ function RabbitHuntReplayBlock({
     disabled: !offer.show,
   });
 
-  // Nothing left to sell, a re-run, or past the engine's window - and nothing
-  // already bought that we should keep showing.
-  if (!offer.show && !hasRevealed && !isRevealing) return null;
+  const withinFeltWindow = offerNow - hand.timestamp <= RABBIT_HUNT_FELT_WINDOW_MS;
+  /* PAST THE FELT WINDOW, ASK WHETHER THE RUN-OUT IS ACTUALLY ON FILE
+     (2026-11-02). Age alone said "buyable for a day"; the truth can be that
+     previous-hand rabbit hunting is not live yet, that this hand was not
+     saved, or that the caller was not dealt in. No card is returned. */
+  const needsStatus =
+    offer.show && !withinFeltWindow && !hasRevealed && !isRevealing && Boolean(tableId);
+  const [replayStatus, setReplayStatus] = useState<ReplayRabbitStatus | null>(null);
+  useEffect(() => {
+    if (!needsStatus || !tableId) return;
+    let cancelled = false;
+    setReplayStatus(null);
+    void fetchReplayRabbitStatus(tableId, hand.handNumber).then((s) => {
+      if (!cancelled) setReplayStatus(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsStatus, tableId, hand.handNumber]);
+
+  // Nothing left to sell (the board ran out) or a re-run - and nothing already
+  // bought that we should keep showing. A hand past the one-day retention still
+  // renders, to SAY the limit rather than silently drop the control.
+  if (!offer.show && !offer.pastRetention && !hasRevealed && !isRevealing) return null;
 
   // VIP ONLY past the felt window (Dan 2026-11-01). Inside the window the
   // newest hand is the original everyone-may-buy felt purchase; past it a
   // non-VIP gets the note, never a button the engine would refuse. A reveal
   // they already own re-shows above regardless - the engine answers an owned
   // hand free before the VIP gate.
-  const withinFeltWindow = offerNow - hand.timestamp <= RABBIT_HUNT_FELT_WINDOW_MS;
-  const vipNoteInsteadOfButton = !isVIP && !withinFeltWindow && !hasRevealed && !isRevealing;
+  const settled = hasRevealed || isRevealing;
+  const statusNote: string | null = settled
+    ? null
+    : offer.pastRetention
+      ? 'Past The 1 Day Limit. Rabbit Hunts Are Kept For 1 Day After Each Hand'
+      : withinFeltWindow || !needsStatus
+        ? null
+        : replayStatus === null
+          ? 'Checking This Hand...'
+          : replayStatus.status === 'unavailable'
+            ? 'Previous Hand Rabbit Hunt Is Not Live Yet'
+            : replayStatus.status === 'not_saved'
+              ? 'This Hand Was Not Saved For Rabbit Hunt'
+              : replayStatus.status === 'not_eligible'
+                ? 'You Were Not Dealt Into This Hand'
+                : replayStatus.status === 'expired'
+                  ? 'Past The 1 Day Limit. Rabbit Hunts Are Kept For 1 Day After Each Hand'
+                  : null;
+  const vipNoteInsteadOfButton = !isVIP && !withinFeltWindow && !settled && !statusNote;
+  const savedUntil =
+    replayStatus?.status === 'saved' && !withinFeltWindow && !settled
+      ? new Date(replayStatus.expiresAt).toLocaleString(undefined, {
+          weekday: 'short',
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : null;
 
   return (
     <section className="hdm-rabbit" aria-label="Rabbit Hunt">
@@ -274,6 +333,13 @@ function RabbitHuntReplayBlock({
         )}
       </header>
       <div className="hdm-section-count">Hand {hand.handNumber.toLocaleString()} · Only You</div>
+      {settled ? null : (
+        <div className="hdm-section-count hdm-rabbit__limit">
+          {savedUntil
+            ? `Available Until ${savedUntil}`
+            : 'VIP Rabbit Hunt On A Previous Hand Is Available For 1 Day'}
+        </div>
+      )}
       {hasRevealed ? (
         <div className="hdm-board hdm-rabbit__cards">
           <span className="hdm-board__badge">Would Have Come</span>
@@ -292,6 +358,10 @@ function RabbitHuntReplayBlock({
               />
             ))}
           </span>
+        </div>
+      ) : statusNote ? (
+        <div className="hdm-section-count" role="status">
+          {statusNote}
         </div>
       ) : vipNoteInsteadOfButton ? (
         <div className="hdm-section-count">Rabbit Hunting A Previous Hand Is A VIP Feature</div>
@@ -410,6 +480,7 @@ export function HandDetailModal({
   onRabbitHuntReceipt,
   rabbitUserId,
   rabbitIsVIP,
+  rabbitTableId,
   onLoadOlder,
   hasOlderHands = false,
   olderHandsLoading = false,
@@ -900,6 +971,7 @@ export function HandDetailModal({
                     onRabbitHuntReceipt={onRabbitHuntReceipt}
                     userId={rabbitUserId}
                     isVIP={rabbitIsVIP}
+                    tableId={rabbitTableId ?? hand.tableId ?? null}
                   />
                 ) : null}
 

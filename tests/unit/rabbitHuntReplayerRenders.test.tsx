@@ -21,6 +21,14 @@ vi.mock('@/components/common/Toast', () => ({
   useToast: () => ({ error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() }),
 }));
 vi.mock('@/utils/errorReporter', () => ({ reportError: vi.fn() }));
+// Past the felt window the block asks whether the run-out is on file
+// (2026-11-02). These cases are about the purchase, so the hand is saved.
+vi.mock('@/services/rabbitHuntReplayStatus', () => ({
+  fetchReplayRabbitStatus: vi.fn().mockResolvedValue({
+    status: 'saved',
+    expiresAt: Date.now() + 20 * 60 * 60 * 1000,
+  }),
+}));
 
 const HERO = '11111111-2222-4333-8444-555555555555';
 const VILLAIN = '22222222-3333-4444-8555-666666666666';
@@ -141,7 +149,7 @@ describe('the replayer offers the hunt on a hand that still qualifies', () => {
     expect(queryByRole('button', { name: /Show What Would Have Come/i })).toBeNull();
   });
 
-  it('STILL offers a VIP a hand past the old felt window (Dan 2026-11-01)', () => {
+  it('STILL offers a VIP a hand past the old felt window (Dan 2026-11-01)', async () => {
     // "If you are looking at a PREVIOUS HAND you can RABBIT HUNT." The engine
     // persists every captured runout and serves replayed hands from the
     // sealed offers table, so two minutes old is now squarely on sale - to a
@@ -158,10 +166,13 @@ describe('the replayer offers the hunt on a hand that still qualifies', () => {
         rabbitIsVIP
       />
     );
-    expect(queryByRole('button', { name: /Show What Would Have Come/i })).not.toBeNull();
+    // The status check answers asynchronously; the button follows it.
+    await waitFor(() =>
+      expect(queryByRole('button', { name: /Show What Would Have Come/i })).not.toBeNull()
+    );
   });
 
-  it('shows a plain member the VIP note past the felt window, never a dead button', () => {
+  it('shows a plain member the VIP note past the felt window, never a dead button', async () => {
     const twoMinutes = new Date(Date.now() - 120_000).toISOString();
     const { queryByRole, getByText } = render(
       <HandDetailModal
@@ -174,8 +185,10 @@ describe('the replayer offers the hunt on a hand that still qualifies', () => {
         rabbitIsVIP={false}
       />
     );
+    await waitFor(() =>
+      expect(getByText('Rabbit Hunting A Previous Hand Is A VIP Feature')).toBeTruthy()
+    );
     expect(queryByRole('button', { name: /Show What Would Have Come/i })).toBeNull();
-    expect(getByText('Rabbit Hunting A Previous Hand Is A VIP Feature')).toBeTruthy();
   });
 
   it('a plain member still buys the newest hand inside the felt window', () => {
