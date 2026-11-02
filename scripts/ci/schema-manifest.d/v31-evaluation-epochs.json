@@ -6,5 +6,8 @@
     "fn_gto_v31_evaluation_matchup",
     "fn_gto_v31_evaluation_epoch_guard",
     "fn_gto_v31_release_evaluation_guard"
-  ]
+  ],
+  "columns": {
+    "gto_v31_release_evaluations": ["evaluation_epoch_id", "evaluation_engine_commit"]
+  }
 }

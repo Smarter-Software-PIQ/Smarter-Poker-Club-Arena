@@ -713,6 +713,8 @@ BEGIN
   );
 END;
 $function$;
+-- Its live grant is postgres only; restated so no default privilege can widen it.
+REVOKE ALL ON FUNCTION public.fn_gto_v31_candidate_evaluations_valid(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_gto_v31_mark_candidate(p_dataset_id uuid)
  RETURNS text
