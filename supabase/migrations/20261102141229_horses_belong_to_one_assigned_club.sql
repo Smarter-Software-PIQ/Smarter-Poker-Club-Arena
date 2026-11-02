@@ -1788,8 +1788,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public', 'pg_temp' AS $
     FROM public.club_display_labeled_additions a
    WHERE a.club_id = ANY (coalesce(p_club_ids, '{}'::uuid[]));
 $$;
-REVOKE ALL ON FUNCTION public.fn_club_display_labeled_additions(uuid[]) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.fn_club_display_labeled_additions(uuid[]) TO anon, authenticated, service_role;
+-- A logged-in lobby reads it; the pre-login roles do not.
+REVOKE ALL ON FUNCTION public.fn_club_display_labeled_additions(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_club_display_labeled_additions(uuid[]) TO authenticated, service_role;
 
 -- The blended boost made Kings' member count read higher than its members.
 UPDATE public.club_display_member_boost
