@@ -1,3 +1,4 @@
+import { horseCashGameAllowed } from './HorseCashSchedule.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE FLEET MANAGER — Server-Side Cash Table Seeding
@@ -2888,6 +2889,12 @@ export class HorseFleetManager {
           if (isTableOfDisabledGame(table, disabledGameIds)) {
             disabledGameTables++;
             if (diag) diag.withheld = 'game_disabled';
+            continue;
+          }
+
+          if (!horseCashGameAllowed(table, Date.now())) {
+            beat.withheldTables++;
+            if (diag) diag.withheld = 'owner_cash_game_restriction';
             continue;
           }
 

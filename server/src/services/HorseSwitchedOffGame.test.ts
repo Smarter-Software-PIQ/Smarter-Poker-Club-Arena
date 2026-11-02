@@ -34,7 +34,9 @@ describe('a switched-off game empties of horses', () => {
   it('is wired into the rotator leave pass through the same leaveTable door', () => {
     expect(ROTATOR).toContain('const disabledGameIds = await this.readDisabledGameIds(byTable);');
     expect(ROTATOR).toContain('const offGame = horsesLeaveSwitchedOffGame(');
-    expect(ROTATOR).toContain('if (!benched && !offPlo && !offGame) continue;');
+    expect(ROTATOR).toContain(
+      'if (!benched && !offPlo && !offGame && !restrictedCashGame) continue;'
+    );
     const pass = ROTATOR.slice(ROTATOR.indexOf('const offGame = horsesLeaveSwitchedOffGame('));
     expect(pass.indexOf('await engine.leaveTable(uid)')).toBeGreaterThan(0);
     // The read fails open: any error or incomplete read returns an empty set.
