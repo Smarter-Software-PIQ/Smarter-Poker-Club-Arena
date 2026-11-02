@@ -1,5 +1,7 @@
 import importlib.util
 from pathlib import Path
+import re
+import subprocess
 import unittest
 
 spec = importlib.util.spec_from_file_location('perf_install', Path(__file__).resolve().parents[2] / 'scripts/ci/native-perf-install.py')
@@ -17,6 +19,21 @@ def transcript(rows):
 
 
 class PackagePlan(unittest.TestCase):
+    def test_qualification_run_survives_sudo_environment_boundary(self):
+        workflow = (fixture.ROOT / '.github/workflows/profile-engine-main-thread.yml').read_text()
+        command = re.search(r'(?m)^\s*sudo env (.*?) python3 -B tests/fixtures/engine-native-fault/qualify_perf_packages.py \\\s*$', workflow)
+        self.assertIsNotNone(command)
+        # Exercise the actual carrier assignments across an empty environment,
+        # modeling sudo sanitization without invoking sudo or package tools.
+        for run_id in ('123456789', '987654321'):
+            result = subprocess.run(['/bin/sh', '-c', '/usr/bin/env -i ' + command.group(1) + ' /usr/bin/env'],
+                env={'RUNNER_TEMP': '/owned qualification', 'GITHUB_RUN_ID': run_id,
+                    'UNTRUSTED_SELECTOR': 'must-not-cross'}, capture_output=True, text=True, timeout=5, check=True)
+            forwarded = dict(line.split('=', 1) for line in result.stdout.splitlines())
+            self.assertEqual(forwarded.get('GITHUB_RUN_ID'), run_id)
+            self.assertEqual(forwarded.get('TMPDIR'), '/owned qualification/native-perf-packages')
+            self.assertNotIn('UNTRUSTED_SELECTOR', forwarded)
+
     def test_installed_tools_are_not_a_fresh_install_or_downgrade(self):
         self.assertEqual(module.installed_targets({}), 'installation_needed')
         self.assertEqual(module.installed_targets({name: module.VERSION for name in module.TARGETS}), 'tools_already_installed')
