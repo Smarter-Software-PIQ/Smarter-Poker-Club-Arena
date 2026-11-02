@@ -94,6 +94,15 @@ def signal_child(driver_path, output, pg):
 
 
 class RunnerDatabaseCleanupTest(unittest.TestCase):
+    def test_default_socket_stays_inside_the_explicit_owned_work_parent(self):
+        driver = load_runner()
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            execution = driver.Execution(ROOT, parent, Path('not-executed'), parent, 60)
+            self.assertEqual(execution.scratch.parent, parent)
+            self.assertEqual(execution.socket.parent, parent)
+            self.assertNotEqual(execution.scratch, execution.socket)
+
     def setUp(self):
         self.driver = load_runner()
         self.execution = object.__new__(self.driver.Execution)

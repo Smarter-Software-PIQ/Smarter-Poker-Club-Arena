@@ -1,0 +1,59 @@
+# Horse attendance targets share the purchase transaction
+
+Independent MTT discovery, creation and overlay passes calculated their own
+shortfalls before purchasing entries. The existing acquisition lock serialized
+each purchase, but the purchase API never received the intended attendance
+target. Two passes could therefore spend the same stale shortfall. The native
+regression reproduces two entries against a target of one before the correction.
+
+## Maintained correction
+
+`fn_register_horse_for_tournament_to_target` is a service-only input door. It
+takes the existing acquisition lock and counts the actual registered/playing
+roster before permitting another ordinary funded entry. It delegates prices,
+wallet selection, accounting, eligibility, capacity, freeze, cutoff and receipts
+to the unchanged ordinary Horse admission authority. Existing paid-entry replays
+remain valid, and a ticket issued after the caller's hint read can still be
+redeemed at quota with wallet funding explicitly disabled. Ticket errors remain
+errors. This target is an automated attendance choice, never a restriction on
+a person's registration.
+
+The MTT caller passes its intended absolute target, clamps it to the prestart
+curve, and treats a satisfied target as a normal stop without penalizing a
+Horse. Bought-seat formats retain their existing door. The schema manifest
+declares the new authority so an engine cannot activate without its prerequisite.
+
+## Regression protection and local qualification
+
+- The existing required accounting chain now runs 57 actual-wrapper/cap-lock
+  checks, including the before/after race, 80 overlapping inputs stopping at
+  exactly 31 entries, paid/ticket replay, invalid targets, rollback, permissions
+  and a positively observed lock wait where closure wins before admission.
+  This small fixture uses controlled economic delegates and does not by itself
+  certify financial formulas.
+- The existing full financial activation fixture separately installs the new
+  migration and exercises its real Horse admission closure: an actual 200-chip
+  purchase has matching wallet, ledger, entitlement and accounting-frame records;
+  a full-target refusal and lost-response replay leave financial state unchanged;
+  a missing original-funding capture rolls the entire attempted purchase back.
+  All four native groups and 14 isolation race cases pass, with exact source
+  bindings checked again at completion and both cluster cleanup predicates true.
+- Engine tests cover explicit target propagation, invalid input, ordinary quota
+  completion, wallet selection, paid-ticket recovery, refusal backoff, shutdown,
+  finalized pools, fleet holds and existing count authority. The first connected
+  run passes 117 tests in ten files. Root and server TypeScript checks pass.
+
+The full financial runner previously defaulted its socket directory to `/tmp`
+despite accepting an explicit owned work directory. Its default now keeps both
+the cluster and socket beneath that directory; the explicit socket override is
+preserved. A constructor regression and all 35 runner unit tests pass. This
+permits the required local financial qualification on the owner's external SSD.
+
+## Delivery and acceptance
+
+These are local qualification results, not a production completion claim.
+Protected merge, exact migration installation/readback, engine publication and
+natural runtime evidence remain required. No production registration, financial
+probe, repair loop, runtime patch, existing-record rewrite or extra release
+operation was used. Phase 1's pending release/live-registration acceptance is
+tracked separately; beginning Phase 2 does not mark Phase 1 complete.

@@ -13,6 +13,7 @@ HUMAN = "supabase/migrations/20260917233447_tournament_original_funding_and_obli
 HORSE = "supabase/migrations/20260918002654_horse_tournament_entry_retains_original_funding.sql"
 SUCCESSOR = "supabase/migrations/20260918005809_mtt_activation_preserves_original_funding.sql"
 ACTIVATION = "supabase/migrations/20260918005913_mtt_activate_unlimited_with_original_funding.sql"
+ATTENDANCE_TARGET = "supabase/migrations/20261102153439_horse_attendance_targets_serialize_funded_registrations.sql"
 HORSE_MISSING = {
     "fn_register_horse_for_tournament_before_maintenance_gate(uuid,uuid)",
     "fn_register_horse_for_tournament_before_atomic_lifecycle_gate(uuid,uuid)",
@@ -299,8 +300,69 @@ def funding_native(e, template, catalog, activate):
         raise RuntimeError('horse duplicate did not preserve its existing entry')
     if data != e.snapshot(database, 'original-funding-replay-after-data') or expected_catalog != e.catalog_snapshot(database, 'original-funding-replay-after-catalog'):
         raise RuntimeError('original admission replay changed money or evidence')
+    # Synthetic opening identities only, in this existing private database.
+    # The tested admissions below use the actual wallet, ledger, entitlement,
+    # accounting-frame and original-funding owners already qualified above.
+    e.sql(database, """BEGIN; SET LOCAL session_replication_role=replica;
+      INSERT INTO auth.users(id) SELECT ('46468100-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid FROM generate_series(5,6)n;
+      INSERT INTO public.users(id,username) SELECT id,'target_'||id::text FROM auth.users WHERE id::text IN
+       ('46468100-0000-4000-8000-000000000005','46468100-0000-4000-8000-000000000006');
+      INSERT INTO public.profiles(id,username,is_horse) SELECT id,'target_'||id::text,true FROM auth.users WHERE id::text IN
+       ('46468100-0000-4000-8000-000000000005','46468100-0000-4000-8000-000000000006');
+      INSERT INTO public.club_members(club_id,user_id,role,status,chip_balance,joined_at)
+       SELECT 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4',id,'player','active',1000,now()-interval '1 day'
+       FROM auth.users WHERE id::text IN
+        ('46468100-0000-4000-8000-000000000005','46468100-0000-4000-8000-000000000006');
+      INSERT INTO public.accounting_agreement_history(entity_type,entity_key,club_id,subject_user_id,event_type,after_terms)
+       SELECT 'club_members',club_id::text||':'||user_id::text,club_id,user_id,'baseline',
+        public.fn_accounting_agreement_terms('club_members',to_jsonb(m)) FROM public.club_members m
+       WHERE user_id::text IN
+        ('46468100-0000-4000-8000-000000000005','46468100-0000-4000-8000-000000000006');
+      COMMIT;""", label='target-funded-synthetic-opening')
+    e.sql(database, file=e.root / ATTENDANCE_TARGET, label='actual-attendance-target-migration')
+
+    def target_input(target):
+        return """BEGIN; SET LOCAL ROLE service_role;
+          SET LOCAL request.jwt.claims='{"role":"service_role"}';
+          SELECT public.fn_register_horse_for_tournament_to_target(
+           '46462000-0000-4000-8000-000000000003',
+           '46468100-0000-4000-8000-000000000005',true,""" + str(target) + "); COMMIT;"
+
+    before = e.snapshot(database, 'target-full-before-data')
+    _, answer, _ = e.sql(database, target_input(4), label='actual-attendance-target-full')
+    if json.loads(answer).get('reason') != 'horse_attendance_target_met' or before != e.snapshot(database, 'target-full-after-data'):
+        raise RuntimeError('filled attendance target changed actual financial or roster state')
+    rejected_capture('target-original-capture-atomic-refusal', target_input(5))
+    _, answer, _ = e.sql(database, target_input(5), label='actual-target-funded-entry')
+    if json.loads(answer).get('ok') is not True:
+        raise RuntimeError('target-qualified entry did not reach actual funded admission')
+    _, answer, _ = e.sql(database, """SELECT jsonb_build_object(
+      'wallet',(SELECT chip_balance FROM public.club_members WHERE club_id='a41434bb-8d0c-400a-8f0d-e8b3d65afed4'
+        AND user_id='46468100-0000-4000-8000-000000000005'),
+      'untouched_wallet',(SELECT chip_balance FROM public.club_members WHERE club_id='a41434bb-8d0c-400a-8f0d-e8b3d65afed4'
+        AND user_id='46468100-0000-4000-8000-000000000006'),
+      'entrants',(SELECT current_players FROM public.tournaments WHERE id='46462000-0000-4000-8000-000000000003'),
+      'funding',count(*),'exact',count(*) FILTER(WHERE f.amount=200 AND f.operation='entry'
+        AND f.asset='chips' AND e.source_ledger_id=f.ledger_id AND l.amount=200 AND w.amount=200
+        AND f.registration_snapshot->>'id'=p.id::text AND frame.transaction_id=f.transaction_id))
+      FROM public.tournament_participant_funding_receipts f
+      JOIN public.tournament_refund_entitlements e ON e.id=f.entitlement_id
+      JOIN public.chip_ledger l ON l.id=f.ledger_id
+      JOIN public.wallet_transactions w ON w.id=f.wallet_transaction_id
+      JOIN public.tournament_players p ON p.id=f.registration_id
+      JOIN public.union_pnl_transaction_frames frame ON frame.transaction_id=f.transaction_id
+      WHERE f.user_id='46468100-0000-4000-8000-000000000005';""", label='target-exact-original-funding')
+    if json.loads(answer) != {'wallet':800,'untouched_wallet':1000,'entrants':5,'funding':1,'exact':1}:
+        raise RuntimeError('target-qualified original wallet/ledger/entitlement/frame mismatch: ' + answer)
+    before = e.snapshot(database, 'target-lost-ack-before-data')
+    _, answer, _ = e.sql(database, target_input(0), label='target-lost-ack-replay')
+    if json.loads(answer).get('reason') != 'already_registered' or before != e.snapshot(database, 'target-lost-ack-after-data'):
+        raise RuntimeError('target-qualified lost-ACK replay changed original money or entry')
     e.discard(database)
     e.report['native'].append({'case': 'original_human_horse_funding_across_activation',
         'two_actual_200_charges': True, 'exact_registration_wallet_entitlement_frame': True,
         'two_missing_capture_whole_transaction_rollbacks': True, 'unchanged_replay': True,
+        'target_200_actual_wallet_ledger_entitlement_frame': True,
+        'target_full_no_effects_and_missing_capture_rollback': True,
+        'target_lost_ack_replay_unchanged': True,
         'database_removed': True})

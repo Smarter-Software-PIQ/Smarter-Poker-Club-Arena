@@ -63,7 +63,7 @@ function harness(ids: string[], answer: () => Answer) {
     return b as never;
   });
   const entries = () =>
-    rpc.mock.calls.filter(([name]) => name === 'fn_register_horse_for_tournament').length;
+    rpc.mock.calls.filter(([name]) => name === 'fn_register_horse_for_tournament_to_target').length;
   return { svc, entries, advance: (ms: number) => (clock += ms) };
 }
 

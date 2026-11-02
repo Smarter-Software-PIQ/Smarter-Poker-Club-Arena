@@ -96,7 +96,7 @@ describe('a fill pass leaves the field count to the door', () => {
       return b as never;
     });
     const entries = () =>
-      rpc.mock.calls.filter(([name]) => name === 'fn_register_horse_for_tournament');
+      rpc.mock.calls.filter(([name]) => name === 'fn_register_horse_for_tournament_to_target');
     return { svc, updates, entries };
   }
 

@@ -97,12 +97,13 @@ def stock_isolationtester(pg):
 
 
 class Execution:
-    def __init__(self, root, output, pg, work_parent, deadline, socket_parent="/tmp"):
+    def __init__(self, root, output, pg, work_parent, deadline, socket_parent=None):
         self.root, self.output, self.pg = root, output, pg
         self.env = clean_environment()
         self.expires = time.monotonic() + deadline
         self.scratch = Path(tempfile.mkdtemp(prefix="r46-mtt-", dir=work_parent))
-        self.socket = Path(tempfile.mkdtemp(prefix="r46mtt-sock-", dir=socket_parent))
+        self.socket = Path(tempfile.mkdtemp(
+            prefix="r46mtt-sock-", dir=work_parent if socket_parent is None else socket_parent))
         self.cluster = self.scratch / "data"
         self.port = "55496"  # Private socket directory; TCP is disabled.
         self.index = 0

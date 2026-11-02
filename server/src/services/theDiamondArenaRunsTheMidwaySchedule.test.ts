@@ -537,7 +537,7 @@ describe('the Diamond bankroll gate reads Diamonds', () => {
     await svc.registerHorses(TID, 2);
 
     const entered = rpc.mock.calls
-      .filter(([name]) => name === 'fn_register_horse_for_tournament')
+      .filter(([name]) => name === 'fn_register_horse_for_tournament_to_target')
       .map(([, args]) => (args as unknown as { p_user_id: string }).p_user_id);
     expect(entered).toEqual([rich]);
     // The arena has no chip wallet for a Deep Stack horse; it was never consulted.
