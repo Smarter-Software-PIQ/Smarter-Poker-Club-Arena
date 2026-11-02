@@ -10,18 +10,30 @@ Supports three deterministic verification stages:
        escrow pre-image, playing vs. eliminated roster, zero unpaid obligations,
        zero existing receipts, and untouched unrelated seats.
      - Computes the exact deterministic UUID-ordered equal-share table (`shares`)
-       and verifies that the PostgreSQL canonical JSONB `md5((financial->'shares')::text)`
-       matches `expected_allocation_hash`.
+       matching `fn_ca_settle_tournament_abort_equal_share` (20261101004247 lines 95-110):
+       * Combined `total_units = prize_units + bounty_units` split equally (`trunc(total_units / n)`
+         with `+1` unit to the first `mod(total_units, n)` recipients in `ORDER BY user_id`).
+       * `prize_part = least(prize_units_remaining, share_units)` and
+         `bounty_part = share_units - prize_part`.
+       * Exact 6-field share object `{registration_id, user_id, amount, prize, bounty, key}`
+         serialized with PostgreSQL `numeric / numeric` division scale (`16` or `20` fractional
+         places depending on `NBASE = 10000` word count) and `jsonb::text` key ordering
+         (`(len(key), utf8_bytes(key))`), producing the exact `md5((financial->'shares')::text)`
+         `allocation_hash` (`64a9a39913c887308e1481118efda36d` for `Proby`).
      - When `--require-quiesced` is set, verifies `target_owners[0].state == 'quiesced'`,
        `quiescence.generation == lease.generation`, `quiescence.money_hash == current_money_hash`,
        `pending_custody is False`, and `unacknowledged_boundaries == 0`.
   2. `preview`:
-     - Verifies the `equal_preview` workflow receipt (`outcome == 'equal_share_preview_rolled_back'`,
-       `preview.preview_only is True`, `preview.rolled_back is True`,
-       `preview.allocation_hash == expected_allocation_hash`,
-       `preview.money_hash == expected_money_hash`, `preview.receipt.total_distributed`,
-       `preview.receipt.fee_before`, and `canonicalAfter.state == 'quiesced'` with
-       `canonicalAfter.receipt is None`).
+     - Verifies the `equal_preview` workflow receipt (`publicResult` from
+       `.github/scripts/tournament-original-recovery-control.mjs`):
+       * `request.action == 'equal_preview'` (or legacy `mode == 'equal_preview'`)
+       * `outcome == 'equal_share_preview_rolled_back'`
+       * `preview.preview_only is True`, `preview.rolled_back is True`
+       * `preview.allocation_hash == expected_allocation_hash`
+       * `preview.money_hash == expected_money_hash`
+       * `preview.receipt.financial.{total_distributed, prize_before, bounty_before, fee_before, unit_scale}`
+       * `canonicalAfter.state == 'quiesced'`, `canonicalAfter.receipt is None`,
+         and `canonicalAfter.current_boundary_valid is True`.
   3. `postsettle`:
      - Verifies the complete post-`equal_settle` + post-`equal_ack` durable DB and
        runtime state:
@@ -30,12 +42,14 @@ Supports three deterministic verification stages:
          `mode == 'started_operator_equal_share'`, `fully_settled is True`,
          `allocation_hash == expected_allocation_hash`
        * Every playing recipient has a matching credit in `wallet_credit_idempotency`
-         (or `poker_diamond_tournament_ledger` for Diamonds) and `tournament_payouts`
-         (`source == 'operator_abort_equal_share'`)
+         (`key = '<share.key>:prize'` / `'<share.key>:bounty'`) and `tournament_payouts`
+         (`source == 'operator_abort_equal_share'`) for positive prize shares
        * `tournament_escrow` has `prize_balance == 0`, `bounty_balance == 0`,
-         `fee_balance == 0`, `closed_at IS NOT NULL`, `terminal_closed_at IS NOT NULL`
+         `fee_balance == 0`, `closed_at IS NOT NULL`, `close_note IS NOT NULL`
+         (and for Diamond events, `poker_diamond_custody` has `0` unreleased rows)
        * `tournament_rake_settlements` has `amount == expected_fee`,
-         `source == 'operator_abort_equal_share'`
+         `source == 'operator_abort_equal_share'`, `settled_at IS NOT NULL`,
+         `attributed_at IS NOT NULL`, `attribution_error IS NULL`, and valid `destination`
        * `tournaments.status == 'CANCELLED'`, `current_players == 0`,
          `prize_pool == 0`, `bounty_pool == 0`, `total_rake == expected_fee`,
          `ended_at IS NOT NULL`
@@ -61,11 +75,12 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 PROBY_TOURNAMENT_ID = "2781bcd7-cc8a-4713-ab3e-0d0a81fdf110"
 PROBY_OPERATION_ID = "d44c4440-2911-430c-8ee7-376611ef3f38"
 PROBY_TABLE_ID = "96341322-7624-4b93-ae79-6820367d05f3"
-PROBY_EXPECTED_ALLOCATION_HASH = "025de5372478d079e763291256fe60cd"
+PROBY_EXPECTED_ALLOCATION_HASH = "64a9a39913c887308e1481118efda36d"
 PROBY_EXPECTED_PLAYING_RECIPIENTS = (
     ("4c417026-97b3-476e-ac35-18d4455a592d", "89013192-99f8-4549-8c9d-63da040ce094"),
     ("4cb9ecf4-962b-44d2-87be-95fcfa1a2918", "c087624b-9868-455e-a6d0-ab33c24acf1f"),
@@ -85,28 +100,72 @@ def _d(val: Any) -> Decimal:
     return Decimal(str(val))
 
 
-def _fmt_pg_numeric(units: int, unit_scale: int) -> Any:
-    """Format scaled integer units identically to PostgreSQL numeric->jsonb."""
-    if unit_scale == 1:
-        return int(units)
-    dec = Decimal(units) / Decimal(unit_scale)
-    if dec == dec.to_integral_value():
-        return int(dec)
-    normalized = dec.normalize()
-    text = format(normalized, "f")
-    return float(text) if float(text) == dec else DecNumber(text)
+def _fmt_clean_amount(units: int, unit_scale: int) -> str:
+    """Format integer units as a concise decimal string (like `review_allocation.py`)."""
+    whole, fraction = divmod(int(units), int(unit_scale))
+    if unit_scale == 1 or fraction == 0:
+        return str(whole)
+    return f"{whole}.{str(fraction).zfill(2).rstrip('0')}"
 
 
-class DecNumber(float):
-    """Float wrapper that preserves exact decimal text representation in JSON."""
+def _pg_numeric_div_text(units: int, unit_scale: int) -> str:
+    """
+    Replicates PostgreSQL `numeric / numeric` (`select_div_scale` in `src/backend/utils/adt/numeric.c`)
+    where `share_units / unit_scale` is cast to `jsonb`.
+    In PostgreSQL (`NBASE = 10000`, `DEC_DIGITS = 4`, `NUMERIC_MIN_SIG_DIGITS = 16`):
+      - `weight1` is the base-10000 weight of `units` (`0` when `1 <= units <= 9999`, `1` when `10000 <= units <= 99999999`, etc.)
+      - `weight2` is `0` for `unit_scale in (1, 100)`
+      - `qweight = weight1 - weight2 - (1 if first_digit(units) < first_digit(unit_scale) else 0)`
+      - `rscale = max(16 - qweight * 4, 6)`
+    """
+    u = int(units)
+    s = int(unit_scale)
+    if u < 0 or s not in (1, 100):
+        raise ValueError(f"Unsupported units={u}, unit_scale={s}")
+    if u == 0:
+        return "0." + ("0" * 20)
 
-    def __new__(cls, text: str) -> "DecNumber":
-        obj = super().__new__(cls, float(text))
-        obj._text = text
-        return obj
+    # Decompose `u` into base-10000 digits
+    digits1: list[int] = []
+    tmp = u
+    while tmp > 0:
+        digits1.append(tmp % 10000)
+        tmp //= 10000
+    digits1.reverse()
+    weight1 = len(digits1) - 1
+    first_digit1 = digits1[0]
+
+    weight2 = 0
+    first_digit2 = s  # since s in (1, 100) < 10000
+
+    qweight = weight1 - weight2
+    if first_digit1 < first_digit2:
+        qweight -= 1
+
+    rscale = 16 - qweight * 4
+    if rscale < 6:
+        rscale = 6
+
+    whole, rem = divmod(u, s)
+    if s == 1:
+        frac_str = "0" * rscale
+    else:
+        frac_two = f"{rem:02d}"
+        frac_str = frac_two + ("0" * (rscale - 2))
+    return f"{whole}.{frac_str}"
+
+
+class PgJsonbNumeric:
+    """Represents a PostgreSQL `numeric` value inside a `jsonb` structure."""
+
+    def __init__(self, units: int, unit_scale: int) -> None:
+        self.units = int(units)
+        self.unit_scale = int(unit_scale)
+        self.pg_text = _pg_numeric_div_text(self.units, self.unit_scale)
+        self.clean_text = _fmt_clean_amount(self.units, self.unit_scale)
 
     def __repr__(self) -> str:
-        return self._text
+        return self.pg_text
 
 
 def _pg_jsonb_serialize_value(val: Any) -> str:
@@ -116,8 +175,8 @@ def _pg_jsonb_serialize_value(val: Any) -> str:
         return "true"
     if val is False:
         return "false"
-    if isinstance(val, DecNumber):
-        return repr(val)
+    if isinstance(val, PgJsonbNumeric):
+        return val.pg_text
     if isinstance(val, int):
         return str(val)
     if isinstance(val, float):
@@ -155,8 +214,12 @@ def compute_equal_share_allocation(
     playing_roster: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """
-    Replicates `smarter_private.tournament_equal_share_plan(p_operation_id, p_tournament_id)`
-    exact integer-unit division, remainder distribution, and PostgreSQL JSONB `allocation_hash`.
+    Replicates `public.fn_ca_settle_tournament_abort_equal_share` (20261101004247 lines 95-110)
+    and `review_allocation.py` (lines 64-74):
+      - Splits the COMBINED bank (`total_units = prize_units + bounty_units`) in `ORDER BY user_id`.
+      - Allocates `prize_part = min(prize_units_remaining, share_units)` and
+        `bounty_part = share_units - prize_part`.
+      - Computes the exact PostgreSQL `md5((financial->'shares')::text)` `allocation_hash`.
     """
     if asset not in ("chips", "diamonds"):
         raise ValueError(f"Unsupported asset {asset!r}")
@@ -174,48 +237,59 @@ def compute_equal_share_allocation(
 
     ordered = sorted(
         playing_roster,
-        key=lambda r: (str(r["user_id"]).lower(), str(r["registration_id"]).lower()),
+        key=lambda r: (UUID(str(r["user_id"])).int, UUID(str(r["registration_id"])).int),
     )
     count = len(ordered)
     if count <= 0:
         raise ValueError("Cannot compute equal-share allocation for 0 playing recipients")
 
-    p_quot, p_rem = divmod(prize_units, count)
-    b_quot, b_rem = divmod(bounty_units, count)
+    total_units = prize_units + bounty_units
+    tot_quot, tot_rem = divmod(total_units, count)
 
+    rem_prize_units = prize_units
+    rem_bounty_units = bounty_units
+    pg_shares_for_hash: list[dict[str, Any]] = []
     shares: list[dict[str, Any]] = []
+
     for idx, row in enumerate(ordered, start=1):
-        uid = str(row["user_id"]).lower()
-        reg_id = str(row["registration_id"]).lower()
-        p_u = p_quot + (1 if idx <= p_rem else 0)
-        b_u = b_quot + (1 if idx <= b_rem else 0)
-        tot_u = p_u + b_u
-        prize_val = _fmt_pg_numeric(p_u, unit_scale)
-        bounty_val = _fmt_pg_numeric(b_u, unit_scale)
-        amount_val = _fmt_pg_numeric(tot_u, unit_scale)
-        prize_key = (
-            f"tourney:{tournament_id}:operator-equal-share:{operation_id}:{uid}:prize"
-            if p_u > 0
-            else None
-        )
-        bounty_key = (
-            f"tourney:{tournament_id}:operator-equal-share:{operation_id}:{uid}:bounty"
-            if b_u > 0
-            else None
+        uid = str( UUID(str(row["user_id"])) )
+        reg_id = str( UUID(str(row["registration_id"])) )
+        share_u = tot_quot + (1 if idx <= tot_rem else 0)
+        prize_u = min(rem_prize_units, share_u)
+        bounty_u = share_u - prize_u
+        rem_prize_units -= prize_u
+        rem_bounty_units -= bounty_u
+
+        base_key = f"tourney:{tournament_id}:operator-equal-share:{operation_id}:{uid}"
+        pg_shares_for_hash.append(
+            {
+                "registration_id": reg_id,
+                "user_id": uid,
+                "amount": PgJsonbNumeric(share_u, unit_scale),
+                "prize": PgJsonbNumeric(prize_u, unit_scale),
+                "bounty": PgJsonbNumeric(bounty_u, unit_scale),
+                "key": base_key,
+            }
         )
         shares.append(
             {
                 "registration_id": reg_id,
                 "user_id": uid,
-                "prize": prize_val,
-                "bounty": bounty_val,
-                "amount": amount_val,
-                "prize_key": prize_key,
-                "bounty_key": bounty_key,
+                "amount": _fmt_clean_amount(share_u, unit_scale),
+                "prize": _fmt_clean_amount(prize_u, unit_scale),
+                "bounty": _fmt_clean_amount(bounty_u, unit_scale),
+                "key": base_key,
+                "prize_key": f"{base_key}:prize" if prize_u > 0 else None,
+                "bounty_key": f"{base_key}:bounty" if bounty_u > 0 else None,
             }
         )
 
-    canonical_shares_text = _pg_jsonb_serialize_value(shares)
+    if rem_prize_units != 0 or rem_bounty_units != 0:
+        raise ValueError(
+            f"Equal-share bank conservation failed: rem_prize={rem_prize_units}, rem_bounty={rem_bounty_units}"
+        )
+
+    canonical_shares_text = _pg_jsonb_serialize_value(pg_shares_for_hash)
     allocation_hash = hashlib.md5(canonical_shares_text.encode("utf-8")).hexdigest()
 
     return {
@@ -224,14 +298,12 @@ def compute_equal_share_allocation(
         "asset": asset,
         "unit_scale": unit_scale,
         "recipient_count": count,
-        "prize_pool": _fmt_pg_numeric(prize_units, unit_scale),
-        "bounty_pool": _fmt_pg_numeric(bounty_units, unit_scale),
-        "total_distributable": _fmt_pg_numeric(prize_units + bounty_units, unit_scale),
-        "fee_balance": _fmt_pg_numeric(fee_units, unit_scale),
-        "prize_quotient_units": p_quot,
-        "prize_remainder_units": p_rem,
-        "bounty_quotient_units": b_quot,
-        "bounty_remainder_units": b_rem,
+        "prize_pool": _fmt_clean_amount(prize_units, unit_scale),
+        "bounty_pool": _fmt_clean_amount(bounty_units, unit_scale),
+        "total_distributable": _fmt_clean_amount(total_units, unit_scale),
+        "fee_balance": _fmt_clean_amount(fee_units, unit_scale),
+        "total_quotient_units": tot_quot,
+        "total_remainder_units": tot_rem,
         "shares": shares,
         "canonical_shares_text": canonical_shares_text,
         "allocation_hash": allocation_hash,
@@ -261,8 +333,10 @@ def verify_preflight(
     event = payload.get("event") or {}
     if str(event.get("id", "")).lower() != tournament_id:
         errors.append(f"event.id {event.get('id')!r} != tournament_id {tournament_id!r}")
-    if event.get("status") != "RUNNING":
-        errors.append(f"event.status must be 'RUNNING' before settlement, got {event.get('status')!r}")
+    if event.get("status") not in ("RUNNING", "BREAK", "LATE_REG"):
+        errors.append(
+            f"event.status must be RUNNING/BREAK/LATE_REG before settlement, got {event.get('status')!r}"
+        )
 
     target_owners = payload.get("target_owners") or []
     if len(target_owners) != 1:
@@ -314,18 +388,18 @@ def verify_preflight(
     playing_roster = [
         r
         for r in roster
-        if str(r.get("status", "")).lower() in ("playing", "registered")
+        if str(r.get("status", "")).lower() == "playing"
         and r.get("eliminated_at") is None
     ]
     eliminated_roster = [
         r
         for r in roster
         if str(r.get("status", "")).lower() == "eliminated"
-        or r.get("eliminated_at") is not None
+        and r.get("eliminated_at") is not None
     ]
 
     if len(playing_roster) + len(eliminated_roster) != len(roster):
-        errors.append("roster contains ambiguous player status rows")
+        errors.append("roster contains ambiguous player status or eliminated_at rows")
 
     if enforce_proby_constants:
         actual_playing_pairs = tuple(
@@ -446,31 +520,31 @@ def verify_preview(
     expected_money_hash: str | None = None,
     expected_total_distributed: Decimal = Decimal("31.50"),
     expected_fee_before: Decimal = Decimal("3.50"),
-    expected_recipient_count: int = 6,
+    expected_bounty_before: Decimal = Decimal("0.00"),
 ) -> dict[str, Any]:
     """
-    Validates the output of `equal_preview` from `tournament-original-recovery-control.mjs`.
+    Validates the output of `equal_preview` from `.github/scripts/tournament-original-recovery-control.mjs`
+    (`publicResult(result)` schema).
     """
     errors: list[str] = []
 
-    if preview_output.get("mode") != "equal_preview":
-        errors.append(f"mode must be 'equal_preview', got {preview_output.get('mode')!r}")
+    req = preview_output.get("request") or {}
+    action = req.get("action") or preview_output.get("mode")
+    if action != "equal_preview":
+        errors.append(f"request.action must be 'equal_preview', got {action!r}")
     if preview_output.get("outcome") != "equal_share_preview_rolled_back":
         errors.append(
             f"outcome must be 'equal_share_preview_rolled_back', got {preview_output.get('outcome')!r}"
         )
-    if str(preview_output.get("tournamentId", "")).lower() != expected_tournament_id.lower():
-        errors.append(
-            f"tournamentId {preview_output.get('tournamentId')!r} != {expected_tournament_id!r}"
-        )
-    if str(preview_output.get("operationId", "")).lower() != expected_operation_id.lower():
-        errors.append(
-            f"operationId {preview_output.get('operationId')!r} != {expected_operation_id!r}"
-        )
+
+    tid = str(req.get("tournamentId") or preview_output.get("tournamentId") or "").lower()
+    op_id = str(req.get("operationId") or preview_output.get("operationId") or "").lower()
+    if tid != expected_tournament_id.lower():
+        errors.append(f"tournamentId {tid!r} != {expected_tournament_id!r}")
+    if op_id != expected_operation_id.lower():
+        errors.append(f"operationId {op_id!r} != {expected_operation_id!r}")
 
     preview = preview_output.get("preview") or {}
-    if preview.get("ok") is not True:
-        errors.append("preview.ok must be True")
     if preview.get("preview_only") is not True:
         errors.append("preview.preview_only must be True")
     if preview.get("rolled_back") is not True:
@@ -485,37 +559,41 @@ def verify_preview(
         )
 
     receipt = preview.get("receipt") or {}
+    if receipt.get("ok") is not True or receipt.get("success") is not True or receipt.get("fully_settled") is not True:
+        errors.append("preview.receipt ok/success/fully_settled must all be True")
     if receipt.get("receipt_version") != 4:
         errors.append(f"preview.receipt.receipt_version must be 4, got {receipt.get('receipt_version')!r}")
     if receipt.get("mode") != "started_operator_equal_share":
         errors.append(
             f"preview.receipt.mode must be 'started_operator_equal_share', got {receipt.get('mode')!r}"
         )
-    if receipt.get("fully_settled") is not True:
-        errors.append("preview.receipt.fully_settled must be True")
+    if receipt.get("status") != "CANCELLED":
+        errors.append(f"preview.receipt.status must be 'CANCELLED', got {receipt.get('status')!r}")
     if receipt.get("allocation_hash") != expected_allocation_hash:
         errors.append(
             f"preview.receipt.allocation_hash {receipt.get('allocation_hash')!r} != {expected_allocation_hash!r}"
         )
-    if int(receipt.get("recipient_count") or 0) != expected_recipient_count:
+    if _d(receipt.get("total_refunded")) != Decimal("0"):
         errors.append(
-            f"preview.receipt.recipient_count {receipt.get('recipient_count')!r} != {expected_recipient_count}"
+            f"preview.receipt.total_refunded must be 0, got {receipt.get('total_refunded')!r}"
         )
-    if _d(receipt.get("total_distributed")) != expected_total_distributed:
+
+    fin = receipt.get("financial") or {}
+    tot_dist = fin.get("total_distributed") if "total_distributed" in fin else receipt.get("total_distributed")
+    fee_bef = fin.get("fee_before") if "fee_before" in fin else receipt.get("fee_before")
+    bounty_bef = fin.get("bounty_before") if "bounty_before" in fin else receipt.get("bounty_before", 0)
+
+    if _d(tot_dist) != expected_total_distributed:
         errors.append(
-            f"preview.receipt.total_distributed {receipt.get('total_distributed')!r} != {expected_total_distributed}"
+            f"preview.receipt.financial.total_distributed {tot_dist!r} != {expected_total_distributed}"
         )
-    if _d(receipt.get("fee_before")) != expected_fee_before:
+    if _d(fee_bef) != expected_fee_before:
         errors.append(
-            f"preview.receipt.fee_before {receipt.get('fee_before')!r} != {expected_fee_before}"
+            f"preview.receipt.financial.fee_before {fee_bef!r} != {expected_fee_before}"
         )
-    if _d(receipt.get("total_rake_after")) != expected_fee_before:
+    if _d(bounty_bef) != expected_bounty_before:
         errors.append(
-            f"preview.receipt.total_rake_after {receipt.get('total_rake_after')!r} != {expected_fee_before}"
-        )
-    if _d(receipt.get("fees_reversed")) != Decimal("0"):
-        errors.append(
-            f"preview.receipt.fees_reversed must be 0, got {receipt.get('fees_reversed')!r}"
+            f"preview.receipt.financial.bounty_before {bounty_bef!r} != {expected_bounty_before}"
         )
 
     canonical_after = preview_output.get("canonicalAfter") or {}
@@ -579,10 +657,13 @@ def verify_postsettle(
     expected_hash = expected_allocation["allocation_hash"]
     expected_shares = expected_allocation["shares"]
     expected_total_dist = _d(expected_allocation["total_distributable"])
+    expected_prize_pool = _d(expected_allocation["prize_pool"])
+    expected_bounty_pool = _d(expected_allocation["bounty_pool"])
     expected_fee = _d(expected_allocation["fee_balance"])
     expected_count = int(expected_allocation["recipient_count"])
+    expected_asset = expected_allocation["asset"]
 
-    # 1. Abort target & canonical receipt
+    # 1. Abort target & canonical receipt (`v_receipt` JSONB + `tournament_cancellation_receipts` row)
     target = postsettle_payload.get("target") or {}
     if target.get("state") != "settled":
         errors.append(f"target.state must be 'settled', got {target.get('state')!r}")
@@ -612,58 +693,111 @@ def verify_postsettle(
         errors.append(
             f"cancellation_receipt.allocation_hash {receipt.get('allocation_hash')!r} != {expected_hash!r}"
         )
-    if int(receipt.get("recipient_count") or 0) != expected_count:
-        errors.append(
-            f"cancellation_receipt.recipient_count {receipt.get('recipient_count')!r} != {expected_count}"
-        )
-    if _d(receipt.get("total_distributed")) != expected_total_dist:
-        errors.append(
-            f"cancellation_receipt.total_distributed {receipt.get('total_distributed')!r} != {expected_total_dist}"
-        )
-    if _d(receipt.get("fee_before")) != expected_fee or _d(receipt.get("total_rake_after")) != expected_fee:
-        errors.append(
-            f"cancellation_receipt fee_before/total_rake_after ({receipt.get('fee_before')}/{receipt.get('total_rake_after')}) != {expected_fee}"
-        )
     if _d(receipt.get("fees_reversed")) != Decimal("0"):
         errors.append(f"cancellation_receipt.fees_reversed must be 0, got {receipt.get('fees_reversed')!r}")
+    if _d(receipt.get("total_refunded")) != Decimal("0"):
+        errors.append(f"cancellation_receipt.total_refunded must be 0, got {receipt.get('total_refunded')!r}")
+
+    fin = receipt.get("financial") or {}
+    rec_shares = fin.get("shares") if "shares" in fin else (receipt.get("shares") or [])
+    if len(rec_shares) != expected_count:
+        errors.append(
+            f"cancellation_receipt.financial.shares count {len(rec_shares)} != {expected_count}"
+        )
+    tot_dist = fin.get("total_distributed") if "total_distributed" in fin else receipt.get("total_distributed")
+    prize_bef = fin.get("prize_before") if "prize_before" in fin else receipt.get("prize_before", expected_prize_pool)
+    bounty_bef = fin.get("bounty_before") if "bounty_before" in fin else receipt.get("bounty_before", expected_bounty_pool)
+    fee_bef = fin.get("fee_before") if "fee_before" in fin else receipt.get("fee_before")
+
+    if _d(tot_dist) != expected_total_dist:
+        errors.append(
+            f"cancellation_receipt.financial.total_distributed {tot_dist!r} != {expected_total_dist}"
+        )
+    if _d(prize_bef) != expected_prize_pool:
+        errors.append(
+            f"cancellation_receipt.financial.prize_before {prize_bef!r} != {expected_prize_pool}"
+        )
+    if _d(bounty_bef) != expected_bounty_pool:
+        errors.append(
+            f"cancellation_receipt.financial.bounty_before {bounty_bef!r} != {expected_bounty_pool}"
+        )
+    if _d(fee_bef) != expected_fee:
+        errors.append(
+            f"cancellation_receipt.financial.fee_before {fee_bef!r} != {expected_fee}"
+        )
 
     if target.get("receipt") != receipt:
         errors.append("target.receipt does not match canonical cancellation_receipt")
 
-    # 2. Per-recipient wallet idempotency credits & tournament_payouts
+    # 2. Per-recipient wallet idempotency credits (`wallet_credit_idempotency.key`) & `tournament_payouts`
     wallet_credits = postsettle_payload.get("wallet_credits") or []
-    credits_by_key = {str(c.get("idempotency_key")): c for c in wallet_credits}
+    credits_by_key = {
+        str(c.get("key") or c.get("idempotency_key")): c
+        for c in wallet_credits
+    }
     payouts = postsettle_payload.get("tournament_payouts") or []
-    payouts_by_user = {str(p.get("user_id", "")).lower(): p for p in payouts}
+    equal_share_payouts = [
+        p for p in payouts if p.get("source") == "operator_abort_equal_share"
+    ]
+    payouts_by_key = {
+        str(p.get("idempotency_key") or f"tourney:{tournament_id}:operator-equal-share:{operation_id}:{str(p.get('user_id', '')).lower()}:prize"): p
+        for p in equal_share_payouts
+    }
 
-    if len(wallet_credits) != expected_count:
-        errors.append(f"expected {expected_count} wallet_credit_idempotency rows, got {len(wallet_credits)}")
-    if len(payouts) != expected_count:
-        errors.append(f"expected {expected_count} tournament_payouts rows, got {len(payouts)}")
+    expected_credit_legs = sum(
+        (1 if _d(s["prize"]) > 0 else 0) + (1 if _d(s["bounty"]) > 0 else 0)
+        for s in expected_shares
+    )
+    expected_prize_legs = sum(1 for s in expected_shares if _d(s["prize"]) > 0)
+
+    if len(wallet_credits) != expected_credit_legs:
+        errors.append(
+            f"expected {expected_credit_legs} wallet_credit_idempotency rows, got {len(wallet_credits)}"
+        )
+    if len(equal_share_payouts) != expected_prize_legs:
+        errors.append(
+            f"expected {expected_prize_legs} operator_abort_equal_share tournament_payouts rows, got {len(equal_share_payouts)}"
+        )
 
     for share in expected_shares:
         uid = share["user_id"]
-        expected_amt = _d(share["amount"])
+        prize_amt = _d(share["prize"])
+        bounty_amt = _d(share["bounty"])
         pkey = share["prize_key"]
-        credit = credits_by_key.get(pkey)
-        if credit is None:
-            errors.append(f"missing wallet_credit_idempotency row for key {pkey!r}")
-        else:
-            if str(credit.get("user_id", "")).lower() != uid:
-                errors.append(f"wallet_credit_idempotency user_id {credit.get('user_id')!r} != {uid!r}")
-            if _d(credit.get("amount")) != expected_amt:
-                errors.append(f"wallet_credit_idempotency amount {credit.get('amount')!r} != {expected_amt}")
+        bkey = share["bounty_key"]
 
-        payout = payouts_by_user.get(uid)
-        if payout is None:
-            errors.append(f"missing tournament_payouts row for user_id {uid!r}")
-        else:
-            if _d(payout.get("amount")) != expected_amt:
-                errors.append(f"tournament_payouts amount for {uid} is {payout.get('amount')!r}, expected {expected_amt}")
-            if payout.get("source") != "operator_abort_equal_share":
-                errors.append(
-                    f"tournament_payouts.source for {uid} is {payout.get('source')!r}, expected 'operator_abort_equal_share'"
-                )
+        if prize_amt > 0:
+            credit = credits_by_key.get(pkey)
+            if credit is None:
+                errors.append(f"missing wallet_credit_idempotency row for prize key {pkey!r}")
+            else:
+                if str(credit.get("user_id", "")).lower() != uid:
+                    errors.append(f"wallet_credit_idempotency user_id {credit.get('user_id')!r} != {uid!r}")
+                if _d(credit.get("amount")) != prize_amt:
+                    errors.append(f"wallet_credit_idempotency amount {credit.get('amount')!r} != {prize_amt}")
+
+            payout = payouts_by_key.get(pkey)
+            if payout is None:
+                errors.append(f"missing tournament_payouts row for prize key {pkey!r} (user {uid!r})")
+            else:
+                if str(payout.get("user_id", "")).lower() != uid:
+                    errors.append(f"tournament_payouts user_id {payout.get('user_id')!r} != {uid!r}")
+                if _d(payout.get("amount")) != prize_amt:
+                    errors.append(
+                        f"tournament_payouts amount for {uid} is {payout.get('amount')!r}, expected {prize_amt}"
+                    )
+
+        if bounty_amt > 0:
+            bcredit = credits_by_key.get(bkey)
+            if bcredit is None:
+                errors.append(f"missing wallet_credit_idempotency row for bounty key {bkey!r}")
+            else:
+                if str(bcredit.get("user_id", "")).lower() != uid:
+                    errors.append(f"wallet_credit_idempotency user_id {bcredit.get('user_id')!r} != {uid!r}")
+                if _d(bcredit.get("amount")) != bounty_amt:
+                    errors.append(
+                        f"wallet_credit_idempotency bounty amount {bcredit.get('amount')!r} != {bounty_amt}"
+                    )
 
     # 3. Tournament escrow & rake settlement
     escrow = postsettle_payload.get("chip_escrow") or {}
@@ -673,12 +807,16 @@ def verify_postsettle(
         errors.append(f"chip_escrow.bounty_balance must be 0, got {escrow.get('bounty_balance')!r}")
     if _d(escrow.get("fee_balance")) != Decimal("0"):
         errors.append(f"chip_escrow.fee_balance must be 0, got {escrow.get('fee_balance')!r}")
-    if _d(escrow.get("prize_out")) != expected_total_dist:
-        errors.append(f"chip_escrow.prize_out must be {expected_total_dist}, got {escrow.get('prize_out')!r}")
-    if _d(escrow.get("fee_out")) != expected_fee:
-        errors.append(f"chip_escrow.fee_out must be {expected_fee}, got {escrow.get('fee_out')!r}")
-    if escrow.get("closed_at") is None or escrow.get("terminal_closed_at") is None:
-        errors.append("chip_escrow closed_at and terminal_closed_at must both be non-null")
+    if escrow.get("closed_at") is None:
+        errors.append("chip_escrow.closed_at must not be null")
+    if not escrow.get("close_note"):
+        errors.append("chip_escrow.close_note must not be empty")
+
+    if expected_asset == "diamonds":
+        if int(postsettle_payload.get("unreleased_diamond_custody_rows") or 0) != 0:
+            errors.append(
+                f"unreleased_diamond_custody_rows must be 0, got {postsettle_payload.get('unreleased_diamond_custody_rows')}"
+            )
 
     rake_settlements = postsettle_payload.get("rake_settlements") or []
     if len(rake_settlements) != 1:
@@ -690,6 +828,19 @@ def verify_postsettle(
         if rs.get("source") != "operator_abort_equal_share":
             errors.append(
                 f"rake_settlements[0].source {rs.get('source')!r} != 'operator_abort_equal_share'"
+            )
+        if rs.get("settled_at") is None or rs.get("attributed_at") is None:
+            errors.append("rake_settlements[0] settled_at and attributed_at must both be non-null")
+        if rs.get("attribution_error") is not None:
+            errors.append(
+                f"rake_settlements[0].attribution_error must be null, got {rs.get('attribution_error')!r}"
+            )
+        dest = str(rs.get("destination") or "")
+        if not dest or dest == "pending":
+            errors.append(f"rake_settlements[0].destination must be resolved, got {dest!r}")
+        if enforce_proby_constants and dest != "union:fade0000-0000-0000-0000-000000000001":
+            errors.append(
+                f"Proby rake_settlements[0].destination must be 'union:fade0000-0000-0000-0000-000000000001', got {dest!r}"
             )
 
     # 4. Tournament row, roster, seats, table & permit disposition

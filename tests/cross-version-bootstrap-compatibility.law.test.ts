@@ -156,7 +156,7 @@ describe('cross-version bootstrap compatibility contract (Phase 2)', () => {
     );
     expect(probyRes.error).toBeUndefined();
     expect(probyRes.status, probyRes.stderr || probyRes.stdout).toBe(0);
-    expect(probyRes.stderr).toContain('Ran 5 tests');
+    expect(probyRes.stderr).toContain('Ran 6 tests');
     expect(probyRes.stderr).toContain('OK');
   });
 

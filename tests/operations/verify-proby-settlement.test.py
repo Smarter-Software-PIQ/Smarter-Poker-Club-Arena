@@ -196,12 +196,17 @@ def make_live_proby_preflight_payload() -> dict:
 
 def make_proby_preview_payload() -> dict:
     return {
-        "mode": "equal_preview",
+        "request": {
+            "action": "equal_preview",
+            "tournamentId": vps.PROBY_TOURNAMENT_ID,
+            "operationId": vps.PROBY_OPERATION_ID,
+            "moneyHash": "d0b8e08f0b0781ffb679ba6fd1f6eb88",
+            "closureMode": "equal_share",
+        },
         "outcome": "equal_share_preview_rolled_back",
-        "tournamentId": vps.PROBY_TOURNAMENT_ID,
-        "operationId": vps.PROBY_OPERATION_ID,
         "preview": {
-            "ok": True,
+            "operation_id": vps.PROBY_OPERATION_ID,
+            "tournament_id": vps.PROBY_TOURNAMENT_ID,
             "preview_only": True,
             "rolled_back": True,
             "allocation_hash": vps.PROBY_EXPECTED_ALLOCATION_HASH,
@@ -216,11 +221,18 @@ def make_proby_preview_payload() -> dict:
                 "fully_settled": True,
                 "status": "CANCELLED",
                 "allocation_hash": vps.PROBY_EXPECTED_ALLOCATION_HASH,
-                "recipient_count": 6,
-                "total_distributed": 31.5,
-                "fee_before": 3.5,
-                "total_rake_after": 3.5,
-                "fees_reversed": 0,
+                "total_refunded": 0,
+                "refunded_count": 0,
+                "financial": {
+                    "fully_settled": True,
+                    "asset": "chips",
+                    "total_refunded": 0,
+                    "total_distributed": 31.5,
+                    "prize_before": 31.5,
+                    "bounty_before": 0,
+                    "fee_before": 3.5,
+                    "unit_scale": 100,
+                },
             },
         },
         "canonicalAfter": {
@@ -255,16 +267,34 @@ def make_proby_postsettle_payload() -> dict:
         "fully_settled": True,
         "status": "CANCELLED",
         "allocation_hash": vps.PROBY_EXPECTED_ALLOCATION_HASH,
-        "recipient_count": 6,
-        "total_distributed": 31.5,
-        "fee_before": 3.5,
-        "total_rake_after": 3.5,
+        "total_refunded": 0,
         "fees_reversed": 0,
-        "shares": alloc["shares"],
+        "financial": {
+            "asset": "chips",
+            "fully_settled": True,
+            "refunds": [],
+            "total_refunded": 0,
+            "shares": [
+                {
+                    "registration_id": s["registration_id"],
+                    "user_id": s["user_id"],
+                    "amount": 5.25,
+                    "prize": 5.25,
+                    "bounty": 0,
+                    "key": s["key"],
+                }
+                for s in alloc["shares"]
+            ],
+            "total_distributed": 31.5,
+            "prize_before": 31.5,
+            "bounty_before": 0,
+            "fee_before": 3.5,
+            "unit_scale": 100,
+        },
     }
     wallet_credits = [
         {
-            "idempotency_key": s["prize_key"],
+            "key": s["prize_key"],
             "user_id": s["user_id"],
             "amount": 5.25,
         }
@@ -272,6 +302,7 @@ def make_proby_postsettle_payload() -> dict:
     ]
     payouts = [
         {
+            "idempotency_key": s["prize_key"],
             "user_id": s["user_id"],
             "amount": 5.25,
             "source": "operator_abort_equal_share",
@@ -343,14 +374,19 @@ def make_proby_postsettle_payload() -> dict:
             "fee_balance": 0,
             "prize_out": 31.5,
             "bounty_out": 0,
-            "fee_out": 3.5,
+            "fee_out": 0,
             "closed_at": "2026-11-02T15:05:00+00:00",
-            "terminal_closed_at": "2026-11-02T15:05:00+00:00",
+            "close_note": "Explicit operator equal-share close after generation-bound physical and manager drain",
+            "terminal_closed_at": None,
         },
         "rake_settlements": [
             {
                 "amount": 3.5,
                 "source": "operator_abort_equal_share",
+                "destination": "union:fade0000-0000-0000-0000-000000000001",
+                "settled_at": "2026-11-02T15:05:00+00:00",
+                "attributed_at": "2026-11-02T15:05:00+00:00",
+                "attribution_error": None,
             }
         ],
         "event": {
@@ -390,17 +426,67 @@ def make_proby_postsettle_payload() -> dict:
 
 
 class VerifyProbySettlementTest(unittest.TestCase):
-    def test_preflight_matches_live_proby_preimage_and_pg_jsonb_allocation_hash(self) -> None:
+    def test_preflight_matches_live_proby_preimage_and_exact_plpgsql_allocation_hash(self) -> None:
         payload = make_live_proby_preflight_payload()
         res = vps.verify_preflight(payload, require_quiesced=False)
         self.assertTrue(res["ok"], res["errors"])
-        self.assertEqual(res["allocation"]["allocation_hash"], "025de5372478d079e763291256fe60cd")
+        self.assertEqual(res["allocation"]["allocation_hash"], "64a9a39913c887308e1481118efda36d")
         self.assertEqual(res["allocation"]["recipient_count"], 6)
-        self.assertEqual(res["allocation"]["prize_remainder_units"], 0)
+        self.assertEqual(res["allocation"]["total_remainder_units"], 0)
         for share in res["allocation"]["shares"]:
-            self.assertEqual(share["prize"], 5.25)
-            self.assertEqual(share["bounty"], 0)
-            self.assertEqual(share["amount"], 5.25)
+            self.assertEqual(share["prize"], "5.25")
+            self.assertEqual(share["bounty"], "0")
+            self.assertEqual(share["amount"], "5.25")
+            self.assertTrue(share["key"].startswith(f"tourney:{vps.PROBY_TOURNAMENT_ID}:operator-equal-share:{vps.PROBY_OPERATION_ID}:"))
+
+    def test_combined_prize_and_bounty_bank_matches_live_pko_allocation_hash(self) -> None:
+        # Live Friday Five-Card Bounty (0fc27b7b-4290-4e73-8680-9791e021f114):
+        # 20,000 prize + 1,350 bounty = 21,350 Diamonds across 18 playing recipients.
+        # Combined split: 2 ones-remainder (first 2 get 1,187, next 16 get 1,186).
+        # Prize bank (20,000) covers first 16 in full (2*1187 + 14*1186 = 18,978),
+        # 17th recipient gets 1,022 prize + 164 bounty = 1,186,
+        # 18th recipient gets 0 prize + 1,186 bounty = 1,186.
+        roster_18 = [
+            {"registration_id": "532b063e-02f2-49e5-adfd-31e4faf10842", "user_id": "02c8d806-24c7-40bd-b5b5-30cf96811e3e"},
+            {"registration_id": "367043aa-dab1-4a0d-8455-6f85d25896af", "user_id": "22f02ebc-4757-4e06-99e6-f7e4a95720b4"},
+            {"registration_id": "18b71681-7ae4-456e-bbd5-367146583597", "user_id": "4a47059d-4b08-4a8d-878c-3debacadeb79"},
+            {"registration_id": "82db8e3e-537e-4660-8af4-b06081d28996", "user_id": "6ebcbd12-3e9d-4d5f-adc7-b8f53a7baa9a"},
+            {"registration_id": "6f492f76-d103-43db-969d-fd23d890e66c", "user_id": "761b4352-ee05-4423-a791-65303d364989"},
+            {"registration_id": "7acc52ee-83e7-41a2-9fab-0c6d3dec4610", "user_id": "767508e4-917a-496a-8412-c5ea94c80a1e"},
+            {"registration_id": "35719087-8262-4f4d-9e58-468a65e1f256", "user_id": "767bd910-5e57-4df5-9a06-9fad7cc51c15"},
+            {"registration_id": "c3979b33-0962-461b-aa3d-db20d83e3833", "user_id": "775f4778-ceda-44bb-a26b-7c4194c8c0c1"},
+            {"registration_id": "644c70c1-9f51-4aa5-aa2d-d39918dcc529", "user_id": "7a74d9fe-baef-4224-b20e-cea476853795"},
+            {"registration_id": "cfe5abe6-4f7d-4a29-8dec-aada69a56684", "user_id": "7e4ba828-ba3c-43ca-a9f7-8a697be64c15"},
+            {"registration_id": "5ef0be29-7813-49da-b4cb-0e30dd4087db", "user_id": "8037b1c0-ddb7-46c1-a068-f11080d7771c"},
+            {"registration_id": "2c55c4c2-f3bb-4501-9dfc-7dcfa9130331", "user_id": "d88dfe5b-9086-40b7-8cc7-d44e23a7a66a"},
+            {"registration_id": "22f2c2a2-9976-49ca-b9c3-3156fe974624", "user_id": "dfc642c5-3433-4b88-89ae-74c4e888a618"},
+            {"registration_id": "53d4ca0c-07c3-4b84-895e-d22d38f47f25", "user_id": "e21f87dd-4cc8-4900-ac3b-8e1946413c79"},
+            {"registration_id": "3d8c84cb-5412-49b2-b90f-6b78cb910b4a", "user_id": "ea994444-7a16-435a-9641-fc6b6c837186"},
+            {"registration_id": "fef07c0b-3173-4924-996f-2c195a310e0f", "user_id": "ed8f5032-e632-4df2-9e8f-d705b883149c"},
+            {"registration_id": "19223a8b-3025-4f47-a577-7e600af284bc", "user_id": "edd28444-0a9a-4eb4-acb1-4136f6d71af2"},
+            {"registration_id": "791ddfd6-031a-4c3f-a84d-a44f97cf0986", "user_id": "f77cb4c6-6fc4-45e9-bc6b-7791205391be"},
+        ]
+        alloc = vps.compute_equal_share_allocation(
+            tournament_id="0fc27b7b-4290-4e73-8680-9791e021f114",
+            operation_id="00000000-0000-0000-0000-000000000001",
+            asset="diamonds",
+            prize_balance=Decimal("20000"),
+            bounty_balance=Decimal("1350"),
+            fee_balance=Decimal("2135"),
+            playing_roster=roster_18,
+        )
+        self.assertEqual(alloc["allocation_hash"], "1cfb885d247d778092fab39888af9a3f")
+        self.assertEqual(alloc["shares"][0]["amount"], "1187")
+        self.assertEqual(alloc["shares"][0]["prize"], "1187")
+        self.assertEqual(alloc["shares"][0]["bounty"], "0")
+        self.assertEqual(alloc["shares"][16]["amount"], "1186")
+        self.assertEqual(alloc["shares"][16]["prize"], "1022")
+        self.assertEqual(alloc["shares"][16]["bounty"], "164")
+        self.assertEqual(alloc["shares"][17]["amount"], "1186")
+        self.assertEqual(alloc["shares"][17]["prize"], "0")
+        self.assertEqual(alloc["shares"][17]["bounty"], "1186")
+        self.assertIsNone(alloc["shares"][17]["prize_key"])
+        self.assertIsNotNone(alloc["shares"][17]["bounty_key"])
 
     def test_preflight_require_quiesced_rejects_stop_requested_and_passes_when_quiesced(self) -> None:
         payload = make_live_proby_preflight_payload()
@@ -456,7 +542,7 @@ class VerifyProbySettlementTest(unittest.TestCase):
         self.assertFalse(res["ok"])
         joined = "\n".join(res["errors"])
         self.assertIn("wallet_credit_idempotency amount", joined)
-        self.assertIn("chip_escrow closed_at", joined)
+        self.assertIn("chip_escrow.closed_at", joined)
         self.assertIn("unrelated active seat 3348189b-2bbe-42db-9300-835fa1a89f88 stack changed", joined)
         self.assertIn("open_tournament_leases must be 0", joined)
 
