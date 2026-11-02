@@ -30,7 +30,7 @@ describe('horse release verification kit', () => {
     expect(r.out).toContain('ok');
   });
 
-  it.each(['ladder', 'seat-jams', 'v78', 'v79'])(
+  it.each(['ladder', 'seat-jams', 'v78', 'v79', 'four-bet-fold', 'reshove'])(
     '%s renders one read-only statement with literal window bounds',
     (mode) => {
       const r = run('sql', mode, '2026-11-03T00:00:00Z', '2026-11-03T04:00:00Z');
