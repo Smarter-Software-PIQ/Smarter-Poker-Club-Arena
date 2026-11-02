@@ -21,6 +21,7 @@ import { exactChipFigure } from '../../utils/cashierAmount';
 import { enumToTitleCase, titleCase } from '../../utils/titleCase';
 import { downloadCsv, toCsv } from '../../utils/downloadCsv';
 import { WalletDeskHeading, WalletDeskRow } from '../wallet/WalletDesk';
+import '../wallet/WalletDesk.css';
 
 export type TreasuryLogWallet =
   | 'union_bank'
