@@ -24,18 +24,45 @@ export default function StickyLobbyFilters({
 }: StickyLobbyFiltersProps) {
   const railRef = useRef<HTMLElement>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const desktopCollapsed = useRef(false);
   useEffect(() => {
     const rail = railRef.current;
-    const controls = rail?.closest('.club-home')?.querySelector('#lobby-game-section-controls');
-    if (!rail || !controls) return;
+    const home = rail?.closest('.club-home');
+    const machine = rail?.closest<HTMLElement>('.club-lobby-machine');
+    const controls = home?.querySelector('#lobby-game-section-controls');
+    if (!rail || !controls || !home) return;
+    const resetDesktop = () => {
+      desktopCollapsed.current = false;
+      machine?.removeAttribute('data-compact-lobby-controls');
+    };
+    const catalogScrolled = (event: Event) => {
+      const target = event.target;
+      if (
+        window.innerWidth <= 900 ||
+        !(target instanceof HTMLElement) ||
+        !target.matches('.lobby-table-wrap') ||
+        target.scrollTop <= 0
+      )
+        return;
+      desktopCollapsed.current = true;
+      machine?.setAttribute('data-compact-lobby-controls', 'true');
+      setCollapsed(true);
+    };
+    home.addEventListener('scroll', catalogScrolled, true);
     let observer: IntersectionObserver | undefined;
     const bind = () => {
       observer?.disconnect();
+      if (window.innerWidth > 900) {
+        setCollapsed(desktopCollapsed.current);
+        return;
+      }
+      resetDesktop();
       const top = Math.max(0, parseFloat(getComputedStyle(rail).top) || 0);
       setCollapsed(controls.getBoundingClientRect().bottom <= top);
       observer = new IntersectionObserver(
         ([entry]) => {
-          setCollapsed(!entry.isIntersecting && entry.boundingClientRect.bottom <= top);
+          if (window.innerWidth <= 900)
+            setCollapsed(!entry.isIntersecting && entry.boundingClientRect.bottom <= top);
         },
         { rootMargin: `-${top}px 0px 0px 0px` }
       );
@@ -51,6 +78,8 @@ export default function StickyLobbyFilters({
     if (header && headerSize) headerSize.observe(header);
     return () => {
       observer?.disconnect();
+      resetDesktop();
+      home.removeEventListener('scroll', catalogScrolled, true);
       headerSize?.disconnect();
       window.removeEventListener('resize', bind);
     };
@@ -64,7 +93,20 @@ export default function StickyLobbyFilters({
     >
       <button
         type="button"
-        onClick={(event) => onBrowse(event.currentTarget)}
+        onClick={(event) => {
+          if (desktopCollapsed.current) {
+            const home = event.currentTarget.closest('.club-home');
+            home?.querySelectorAll<HTMLElement>('.lobby-table-wrap').forEach((catalog) => {
+              catalog.scrollTop = 0;
+            });
+            desktopCollapsed.current = false;
+            railRef.current
+              ?.closest('.club-lobby-machine')
+              ?.removeAttribute('data-compact-lobby-controls');
+            setCollapsed(false);
+          }
+          onBrowse(event.currentTarget);
+        }}
         aria-label="Browse Game Types"
       >
         <LobbyFilterLabel>{gameLabel}</LobbyFilterLabel>

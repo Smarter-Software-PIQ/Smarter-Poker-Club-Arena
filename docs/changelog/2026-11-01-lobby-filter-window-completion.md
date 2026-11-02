@@ -1,0 +1,9 @@
+# Complete Lobby Windows And Compact Desktop Controls
+
+The main club lobby now completes its existing scoped tournament schedule in UUID keyset pages of 500. A single capped response no longer drops the two furthest upcoming events when a schedule exceeds 500 rows. Every page keeps the same status, club/union membership and time horizon. The first exact count bounds the chain, with at most 21 requests and 10,000 rows; malformed identities, failed pages or overflow preserve the last complete list and report an explicit error. The existing realtime revision reconciliation covers the whole chain, including births behind its cursor.
+
+On desktop, actual catalogue scrolling replaces the large pinned selector deck with the compact filter rail. Browse restores the full deck and resets the catalogue scroll. The latch survives a scroll-height clamp, and mobile retains its intersection-based behavior. No frame artwork, fonts or filter meaning changed.
+
+The maintained nine-case live audit independently requires a contiguous terminal tournament census before comparing filters. It preserves newer realtime fields across the complete read. Ordinary Playwright click actionability remains enforced; the audit avoids a redundant explicit scroll when the control already fits inside the viewport and every scroll clip. Its case catalogue, action deadlines, overall budget, isolated-account safeguards and strict publication identity checks remain unchanged.
+
+Focused regression coverage includes 501/502/1,000-row schedules, unlimited equal-time tail events, the actual page query factory, realtime insert/delete reconciliation, partial failures, nonadvancing cursors, bounded overflow, independent page provenance, and desktop scroll/Browse behavior. Live acceptance is still required; the previous production attempts remain failed evidence.

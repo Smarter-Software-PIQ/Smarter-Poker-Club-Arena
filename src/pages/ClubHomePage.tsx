@@ -119,6 +119,7 @@ import { joinCashGame, joinGameRefusalText, waitlistedText } from '../services/c
 import { applyClubScope, inClubScope, type ClubScope } from '../utils/clubScope';
 import {
   reconcileTournamentLobbyRead,
+  readTournamentLobbyWindow,
   type TournamentLobbyChange,
 } from '../utils/tournamentLobbyRead';
 import { waitlistService } from '../services/WaitlistService';
@@ -3341,24 +3342,27 @@ function ClubHomePageContent({
       // not evidence of either trait, and nothing on the board reads them. This
       // read REPLACES the fast path's rows, so is_xmtt and union_id, which only
       // get_club_home carried, vanished from the board here until now.
-      const clubTournamentQuery = supabase
-        .from('tournaments')
-        /* The arena embed (#5050) says which asset each event is drawn in, so
+      const tournamentHorizon = lobbyQueryHorizonIso();
+      const clubTournamentQuery = (after: string | null) => {
+        const query = supabase
+          .from('tournaments')
+          /* The arena embed (#5050) says which asset each event is drawn in, so
            a Diamond Spin's card can advertise its own table's top
            (withDiamondSpinCeilings below). */
-        .select(
-          'format_contract, id, name, game_type, buy_in_amount, buy_in_fee, guaranteed_prize, start_time, status, current_players, max_players, starting_chips, club_id, tournament_type, satellite_target_id, satellite_target, variant, table_size, min_players, satellite_seats, late_reg_mins, late_reg_levels, rebuy_levels, prize_pool_finalized, started_at, current_level, blind_structure, level_started_at, spin_multiplier, prize_pool, is_bounty, bounty_amount, is_pko, is_mystery_bounty, is_pinned, is_vip_only, label_as_new, hide_club_name, is_rebuy, is_reentry, add_on_available, is_private, is_xmtt, union_id, blind_speed, ' +
-            TOURNAMENT_ARENA_EMBED
-        )
-        // Joinable-only (Dan 2026-08-15, round 2 of the silent-join fix): the
-        // COMPLETED-only exclusion let all 6,669 CANCELLED tournaments
-        // through, and this page -- /clubs/:clubId, the one the featured
-        // club card opens -- kept serving a cancelled April Sit&Go as a
-        // joinable 6/6 card after TournamentService was fixed, because it
-        // runs its own query rather than the service. Same rule as the
-        // service now: a lobby lists what can be ENTERED.
-        .in('status', LOBBY_TOURNAMENT_STATUSES)
-        /* THE BOARD IS A WINDOW, AND THE CAP IS NOT A WINDOW (Dan 2026-08-26).
+          .select(
+            'format_contract, id, name, game_type, buy_in_amount, buy_in_fee, guaranteed_prize, start_time, status, current_players, max_players, starting_chips, club_id, tournament_type, satellite_target_id, satellite_target, variant, table_size, min_players, satellite_seats, late_reg_mins, late_reg_levels, rebuy_levels, prize_pool_finalized, started_at, current_level, blind_structure, level_started_at, spin_multiplier, prize_pool, is_bounty, bounty_amount, is_pko, is_mystery_bounty, is_pinned, is_vip_only, label_as_new, hide_club_name, is_rebuy, is_reentry, add_on_available, is_private, is_xmtt, union_id, blind_speed, ' +
+              TOURNAMENT_ARENA_EMBED,
+            { count: 'exact' }
+          )
+          // Joinable-only (Dan 2026-08-15, round 2 of the silent-join fix): the
+          // COMPLETED-only exclusion let all 6,669 CANCELLED tournaments
+          // through, and this page -- /clubs/:clubId, the one the featured
+          // club card opens -- kept serving a cancelled April Sit&Go as a
+          // joinable 6/6 card after TournamentService was fixed, because it
+          // runs its own query rather than the service. Same rule as the
+          // service now: a lobby lists what can be ENTERED.
+          .in('status', LOBBY_TOURNAMENT_STATUSES)
+          /* THE BOARD IS A WINDOW, AND THE CAP IS NOT A WINDOW (Dan 2026-08-26).
            This query had no time bound at all, so the only thing deciding what
            reached the lobby was `.limit(200)` ordered by start_time ASCENDING
            -- and a RUNNING event's start_time is in the PAST, so it sorts
@@ -3366,33 +3370,38 @@ function ClubHomePageContent({
            into the future card, and publishing 48 hours of MTTs instead of 24
            would have made that the normal state: the fix for "not enough
            events" would have quietly deleted the ones furthest out. Bounding
-           the query by the longest window the rules allow (6 days) means the
-           cap now only ever trims things nothing was going to show anyway. */
-        .lte('start_time', lobbyQueryHorizonIso())
-        .order('start_time', { ascending: true })
-        /* The tables query has been capped since P1-1; these two were not
-           capped at all. An unbounded list query is the shape that pulled
-           tens of thousands of rows into this page once already. */
-        .limit(QUERY_LIMITS.MODERATE);
-      // THE SAME rule, THE SAME shape as the cash-table query above.
-      //
-      // This used to be two queries: one for the club's own private games and
-      // a second, conditional one for the union's. That asymmetry is how both
-      // of this lobby's scope bugs hid - the tournament path simply looked
-      // different enough from the table path that a fix to one did not
-      // obviously apply to the other, and on 2026-08-23 the union branch was
-      // found missing from the tournament side of get_club_home while the
-      // table side had been fixed. One query now, one rule, one shape.
-      applyClubScope(clubTournamentQuery, {
-        clubId: resolvedId,
-        unionId,
-        siblingClubIds: unionClubIds,
-      });
+           the query by the longest window the rules allow (6 days) bounds
+           the schedule. Read every page inside that window below. */
+          .lte('start_time', tournamentHorizon)
+          .order('id', { ascending: true })
+          // Each request remains bounded; the complete chain has a 10,000-row ceiling.
+          .limit(QUERY_LIMITS.MODERATE);
+        // THE SAME rule, THE SAME shape as the cash-table query above.
+        //
+        // This used to be two queries: one for the club's own private games and
+        // a second, conditional one for the union's. That asymmetry is how both
+        // of this lobby's scope bugs hid - the tournament path simply looked
+        // different enough from the table path that a fix to one did not
+        // obviously apply to the other, and on 2026-08-23 the union branch was
+        // found missing from the tournament side of get_club_home while the
+        // table side had been fixed. One query now, one rule, one shape.
+        applyClubScope(query, {
+          clubId: resolvedId,
+          unionId,
+          siblingClubIds: unionClubIds,
+        });
+        if (after !== null) query.gt('id', after);
+        return query;
+      };
 
       const tournamentRevisionAtRead = tournamentRevisionRef.current;
       const [tableResult, clubTournamentResult, bbjResult] = await Promise.all([
         tableQuery,
-        clubTournamentQuery,
+        readTournamentLobbyWindow(async (after) => {
+          const result = await clubTournamentQuery(after);
+          // The generated client cannot type the existing arena relationship embed.
+          return { ...result, data: result.data as unknown as TournamentData[] | null };
+        }),
         (async () => {
           try {
             /* The third jackpot read. An arena pays no rake and banks no
@@ -3510,8 +3519,10 @@ function ClubHomePageContent({
       hasDataRef.current = true;
 
       // Merge club tournaments + XMTT tournaments (now just club tournaments due to scope rule)
-      if (clubTournamentResult.error)
+      if (clubTournamentResult.error) {
         reportError(clubTournamentResult.error, 'ClubHomePage.Club_tournaments_failed');
+        toast.error('Tournament Schedule Could Not Be Loaded Completely');
+      }
 
       if (!clubTournamentResult.error && Array.isArray(clubTournamentResult.data)) {
         /* A Diamond Spin advertises the top of the table its creation pinned;
@@ -3550,12 +3561,8 @@ function ClubHomePageContent({
       }
       // A failed or unconfirmed half is not a loaded list; the next load retries.
       if (tablesRead && tournamentsRead) setGameListsLoaded(true);
-      /* Each list against ITS OWN cap: the tournament query stops at
-         MODERATE (500), not LIST (200), so comparing it to LIST printed "+"
-         beside counts that had not been cut short at all. */
-      setCountsCapped(
-        tableCapped || (clubTournamentResult.data?.length ?? 0) >= QUERY_LIMITS.MODERATE
-      );
+      // The tournament window is complete or failed; only cash retains a row cap.
+      setCountsCapped(tableCapped);
 
       // BBJ jackpot. Number() is load-bearing, not cosmetic: main_balance is
       // numeric(14,2) and arrives as the STRING "10500.67". Assigning it raw
