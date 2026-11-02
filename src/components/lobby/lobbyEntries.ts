@@ -1752,7 +1752,7 @@ export function levelRemainingMs(t: LobbyTournamentRow, now: number): number | n
   if (!t.level_started_at) return null;
   const structure = parseBlindStructure(t.blind_structure);
   if (!structure) return null;
-  const mins = blindLevelMinutes(structure, tournamentLevel(t));
+  const mins = blindLevelMinutes(structure, tournamentLevel(t), Number(t.buy_in_amount));
   if (mins <= 0) return null;
   const began = new Date(t.level_started_at).getTime();
   if (!Number.isFinite(began)) return null;

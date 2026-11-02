@@ -336,6 +336,38 @@ export function restingAvatarBox(image: HTMLElement, scale: number): DOMRect {
   );
 }
 
+/** Permanent action badge keepout, independent of its owed pop-in animation.
+ * Actions are direct, absolutely positioned seat children. The layout coordinates
+ * and individual translate remain permanent; only the animated transform is
+ * replaced by its resting translateX(-50%). No painted element is changed.
+ */
+export function restingActionBox(action: HTMLElement, scale: number): DOMRect {
+  const seat = action.closest<HTMLElement>('.seat');
+  if (!seat || action.offsetParent !== seat) return action.getBoundingClientRect();
+  const style = getComputedStyle(action);
+  const width = parseFloat(style.width),
+    height = parseFloat(style.height);
+  if (!(width > 0 && height > 0)) return action.getBoundingClientRect();
+  const used = (value: string, basis: number, fallback: number): number => {
+    const amount = parseFloat(value);
+    return Number.isFinite(amount)
+      ? amount * (value.trim().endsWith('%') ? basis / 100 : 1)
+      : fallback;
+  };
+  const translate = (style.translate || 'none').trim().split(/\s+/);
+  const x =
+    used(style.left, seat.clientWidth, action.offsetLeft) +
+    used(translate[0], width, 0) -
+    width / 2 +
+    seat.clientLeft;
+  const y =
+    used(style.top, seat.clientHeight, action.offsetTop) +
+    used(translate[1] || '0', height, 0) +
+    seat.clientTop;
+  const base = seat.getBoundingClientRect();
+  return new DOMRect(base.left + x * scale, base.top + y * scale, width * scale, height * scale);
+}
+
 /** Project CSS layout pixels without turning fractional widths into a scale. */
 export function tableRenderScale(element: HTMLElement): number {
   const style = getComputedStyle(element);

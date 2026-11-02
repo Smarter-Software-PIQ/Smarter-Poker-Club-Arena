@@ -151,18 +151,58 @@ export const FILTER_COMPONENT_PATHS = [
     'src/lightning/lightningSessionApi.ts',
   ]),
 ];
+export const HIGH_CLOCK_ACTION = 'verify-high-buyin-clock';
+export const HIGH_CLOCK_CASES = [
+  {
+    file: 'production-high-buyin-clock.spec.ts',
+    title: 'above 25 previews and the natural engine level clock stay within seven to ten minutes',
+    project: 'chromium',
+  },
+];
+export const HIGH_CLOCK_COMPONENT_PATHS = [
+  'src/components/lobby/tournamentFigures.ts',
+  'src/components/lobby/lobbyEntries.ts',
+  'src/components/lobby/lateRegWindow.ts',
+  'src/services/TournamentService.ts',
+  'src/pages/TournamentPage.tsx',
+  'src/pages/tournament/TournamentDetails.tsx',
+  'src/components/lobby/GameLobbyPanel.tsx',
+  'src/components/tournament/details/BlindsTab.tsx',
+];
+export const HIGH_CLOCK_ENGINE_PATHS = [
+  'server/src/tournament/TournamentManager.ts',
+  'server/src/tournament/TournamentManagerBase.ts',
+  'server/src/tournament/lockedLevelClock.ts',
+  'server/src/tournament/SpinDrawReceipt.ts',
+];
+export function assertEnginePin(engine) {
+  if (
+    !engine ||
+    !SHA.test(engine.releaseSha || '') ||
+    typeof engine.instanceId !== 'string' ||
+    !engine.instanceId ||
+    engine.maintenanceActive !== false ||
+    Object.keys(engine.components || {})
+      .sort()
+      .join('|') !== [...HIGH_CLOCK_ENGINE_PATHS].sort().join('|') ||
+    Object.values(engine.components).some((value) => !SHA.test(value))
+  )
+    throw new Error('The high buy-in clock requires protected, running engine provenance.');
+}
 function selection(action) {
   if (action === 'verify-lobby-ui')
     return CASE_PAIRS.map(([file, title]) => ({ file, title, project: 'chromium' }));
   if (action === RECOVERY_ACTION) return RECOVERY_CASES;
   if (action === FAVORITE_ACTION) return FAVORITE_CASES;
   if (action === FILTER_ACTION) return FILTER_CASES;
+  if (action === HIGH_CLOCK_ACTION) return HIGH_CLOCK_CASES;
   throw new Error('Unknown closed Lobby proof request.');
 }
 function componentPaths(action) {
   selection(action);
   if (action === FAVORITE_ACTION) return FAVORITE_COMPONENT_PATHS;
   if (action === FILTER_ACTION) return FILTER_COMPONENT_PATHS;
+  if (action === HIGH_CLOCK_ACTION) return HIGH_CLOCK_COMPONENT_PATHS;
   return action === RECOVERY_ACTION ? RECOVERY_COMPONENT_PATHS : COMPONENT_PATHS;
 }
 
@@ -174,7 +214,13 @@ export function admitDispatch(environment, event) {
     !SHA.test(environment.GITHUB_SHA || '') ||
     !ID.test(environment.PROOF_RUN_ID || '') ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(environment.GITHUB_REPOSITORY || '') ||
-    !['verify-lobby-ui', RECOVERY_ACTION, FAVORITE_ACTION, FILTER_ACTION].includes(event?.action) ||
+    ![
+      'verify-lobby-ui',
+      RECOVERY_ACTION,
+      FAVORITE_ACTION,
+      FILTER_ACTION,
+      HIGH_CLOCK_ACTION,
+    ].includes(event?.action) ||
     !event.client_payload ||
     Array.isArray(event.client_payload) ||
     typeof event.client_payload !== 'object' ||
@@ -257,6 +303,12 @@ export function assertPins(before, after, cleanup, action = 'verify-lobby-ui') {
     JSON.stringify(before.components) !== JSON.stringify(after.components)
   )
     throw new Error('Verification source or component provenance changed.');
+  if (action === HIGH_CLOCK_ACTION) {
+    assertEnginePin(before.engine);
+    assertEnginePin(after.engine);
+    if (JSON.stringify(before.engine) !== JSON.stringify(after.engine))
+      throw new Error('The serving engine changed during the clock witness.');
+  }
   if (cleanup?.verified !== true || cleanup.runId !== before.runId)
     throw new Error('The owned isolated account cleanup was not verified.');
 }
@@ -357,7 +409,33 @@ export async function pin(file, environment = process.env) {
     )
   )
     throw new Error('The actual client origin installation did not pass.');
+  let engine;
+  if (action === HIGH_CLOCK_ACTION) {
+    const health = await jsonResponse(
+      `https://engine.smarter.poker/health?high-clock-proof=${environment.PROOF_RUN_ID}-${file}`
+    );
+    engine = {
+      releaseSha: health.releaseSha,
+      instanceId: health.instanceId ?? health.instance_id ?? health.instance,
+      maintenanceActive: health.maintenance?.active === true,
+      components: {},
+    };
+    if (health.maintenance?.active !== false)
+      throw new Error('Engine maintenance state is not explicitly inactive.');
+    git('cat-file', '-e', `${engine.releaseSha}^{commit}`);
+    git('merge-base', '--is-ancestor', engine.releaseSha, 'origin/main');
+    for (const path of HIGH_CLOCK_ENGINE_PATHS) {
+      const live = git('rev-parse', `${engine.releaseSha}:${path}`);
+      if (live !== git('rev-parse', `${source}:${path}`))
+        throw new Error(
+          `The serving engine clock differs from protected verification source: ${path}`
+        );
+      engine.components[path] = live;
+    }
+    assertEnginePin(engine);
+  }
   const result = {
+    ...(engine ? { engine } : {}),
     schema: 1,
     action,
     runId: environment.PROOF_RUN_ID,
@@ -404,6 +482,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       JSON.stringify(
         {
           schema: 1,
+          ...(event.action === HIGH_CLOCK_ACTION ? { engine: before.engine } : {}),
           action: event.action,
           verdict: 'passed',
           scope: cases,

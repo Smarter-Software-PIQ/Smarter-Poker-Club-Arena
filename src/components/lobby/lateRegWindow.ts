@@ -52,7 +52,7 @@ function levelWindowEndMs(t: LobbyTournamentRow, cap: number, current: number): 
   if (!structure || cap > structure.length || !Number.isFinite(levelBegun)) return null;
   let end = levelBegun;
   for (let index = current; index < cap; index++) {
-    const minutes = blindLevelMinutes(structure, index + 1);
+    const minutes = blindLevelMinutes(structure, index + 1, Number(t.buy_in_amount));
     if (!Number.isFinite(minutes) || minutes <= 0) return null;
     end += minutes * 60000;
   }

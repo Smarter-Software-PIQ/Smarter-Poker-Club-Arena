@@ -3,6 +3,7 @@ import {
   avatarRestPose,
   restingAvatarTop,
   restingAvatarBox,
+  restingActionBox,
   tableRenderScale,
 } from '../components/table/avatarCrownBounds';
 import { createOpponentAvatarLayout } from '../components/table/opponentAvatarLayout';
@@ -201,7 +202,9 @@ export function useProtectedCardLayout(
         const box =
           element instanceof HTMLElement && element.matches('.seat__position-badge')
             ? restingAvatarBox(element, scale)
-            : element.getBoundingClientRect();
+            : element instanceof HTMLElement && element.matches('.seat__action')
+              ? restingActionBox(element, scale)
+              : element.getBoundingClientRect();
         return box.width > 0 && box.height > 0 ? box : null;
       };
       const protectedEntries = Array.from(
@@ -731,7 +734,9 @@ export function useProtectedCardLayout(
             ? (artwork.paintedBox(element, true, rest) ?? rest!)
             : element instanceof HTMLElement && element.matches('.seat__position-badge')
               ? measurePermanentBox(element, scale)
-              : element.getBoundingClientRect();
+              : element instanceof HTMLElement && element.matches('.seat__action')
+                ? restingActionBox(element, scale)
+                : element.getBoundingClientRect();
         boxSources.set(box, element);
         if (element instanceof HTMLImageElement && element.matches('.seat__avatar-img')) {
           paintedSources.set(box, element);
