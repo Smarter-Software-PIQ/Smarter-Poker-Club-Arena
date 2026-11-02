@@ -62,6 +62,9 @@ BEGIN
      CASE WHEN v_now >= '2026-11-02 00:00:00 America/Chicago'::timestamptz
           THEN 0.2 ELSE 0.5 END)::integer);$insert$);
  IF patched = original THEN RAISE EXCEPTION 'cash cluster capacity anchor absent'; END IF;
+ IF position('fn_cash_game_never_moves_players(' IN patched) = 0 THEN
+   RAISE EXCEPTION 'cash cluster must preserve Classic player movement restriction';
+ END IF;
  EXECUTE patched;
 END $patch$;
 REVOKE ALL ON FUNCTION public.fn_cash_cluster_tick(uuid,integer) FROM PUBLIC, anon, authenticated;
