@@ -99,6 +99,7 @@ export function ChallengeCard({
     <article
       id={`mission-card-${challenge.id}`}
       tabIndex={-1}
+      data-casino-realism="smarter-casino-realism"
       data-mission-tier={tier}
       data-mission-state={claimed ? 'claimed' : done ? 'complete' : 'active'}
       aria-busy={claiming || rerolling}
@@ -274,6 +275,7 @@ export function ChallengeCard({
           {!done && confirmingReroll && (
             <div
               className={styles.rerollConfirm}
+              data-casino-realism="smarter-casino-realism"
               role="group"
               aria-label={`Confirm Reroll For ${c.name}`}
               aria-live="polite"

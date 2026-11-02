@@ -38,7 +38,24 @@
 
 .celebratePayouts {
   border-color: rgba(214, 173, 82, 0.26);
-  background: linear-gradient(90deg, transparent, rgba(7, 61, 50, 0.22), transparent);
+  background:
+    linear-gradient(90deg, transparent, rgba(7, 61, 50, 0.22), transparent), rgba(3, 5, 4, 0.78);
+  box-shadow: var(--mission-cavity);
+}
+
+.celebrateBalanceLedger {
+  padding: 10px 14px;
+  border: 1px solid rgba(184, 196, 201, 0.2);
+  background: rgba(3, 5, 4, 0.72);
+  box-shadow: var(--mission-cavity);
+}
+
+.celebrateReceipt {
+  padding: 7px 10px;
+  border: 1px solid rgba(214, 173, 82, 0.24);
+  background: rgba(3, 5, 4, 0.84);
+  box-shadow: var(--mission-cavity);
+  font-variant-numeric: tabular-nums;
 }
 
 .celebrateDiamondPayout .celebratePayoutValue {

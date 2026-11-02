@@ -90,9 +90,10 @@ def make_attention14_closure_snapshot() -> dict:
         eid = int(target["event_id"])
         original_events.append({
             "event_id": eid,
-            "source": "alertmanager" if eid == 312178 else "financial-alerts-updates",
-            "alertname": "VercelDeploymentFailed" if eid == 312178 else "TournamentStopNotSettled",
-            "payload_md5": "c" * 32,
+            "tournament_id": target.get("tournament_id"),
+            "source": target["source"],
+            "alertname": target["alertname"],
+            "payload_md5": target["payload_md5"],
             "root_cause": root_cause_text,
             "resolution": "Resolved via protected engine release and terminal tournament settlement.",
             "correction_ref": "PR #9183",
@@ -100,10 +101,19 @@ def make_attention14_closure_snapshot() -> dict:
             "historical_deploy_failures_preserved": 19 if eid == 312178 else None,
         })
 
+    incident_notes = []
     current33_members = []
     for inc in verifier.ORIGINAL33_INCIDENTS:
         iid = inc["id"]
         is_fin = iid != verifier.NONFINANCIAL_INCIDENT_ID
+        if is_fin:
+            incident_notes.append({
+                "incident_id": iid,
+                "current_member_snapshot_md5": "d" * 32,
+                "root_cause": root_cause_text,
+                "resolution": "All current financial source alerts and terminal tournament states verified.",
+                "correction_ref": "PR #9183",
+            })
         current33_members.append({
             "incident_id": iid,
             "source": inc["source"],
@@ -135,6 +145,7 @@ def make_attention14_closure_snapshot() -> dict:
             "funding_acceptance_sha256": "3" * 64,
             "runtime_retirements": runtime_retirements,
             "original_events": original_events,
+            "incident_notes": incident_notes,
         },
         "all33_readback": {
             "oct31_projection": {
@@ -200,14 +211,18 @@ class VerifyPhase5CompletionTests(unittest.TestCase):
         snap = make_attention14_closure_snapshot()
         snap["all33_readback"]["current33_members"][0]["closure_basis"] = "aged_out_unverified"
         snap["all33_readback"]["current33_members"][0]["all_current_sources_resolved"] = False
+        snap["evidence_packet"]["incident_notes"][0]["current_member_snapshot_md5"] = "e" * 32
         snap["evidence_packet"]["original_events"][0]["event_id"] = 312179
+        snap["all33_readback"]["oct31_projection"]["attention_status"] = "critical"
         snap["overdue_unsettled_abort_targets"] = 2
         res = verifier.verify_attention14_closure(snap)
         self.assertFalse(res["ok"])
         joined = " | ".join(res["errors"])
         self.assertIn("aged_out_unverified", joined)
         self.assertIn("all_current_sources_resolved", joined)
+        self.assertIn("incident_notes.current_member_snapshot_md5", joined)
         self.assertIn("312179", joined)
+        self.assertIn("attention_status", joined)
         self.assertIn("overdue_unsettled_abort_targets", joined)
 
     def test_worktree_cleanup_readiness_enforces_ssd_prefix_and_merged_clean_state(self) -> None:

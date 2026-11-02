@@ -187,18 +187,88 @@ ORIGINAL33_INCIDENTS: tuple[dict[str, str], ...] = (
 ORIGINAL33_BY_ID: dict[str, dict[str, str]] = {row["id"]: row for row in ORIGINAL33_INCIDENTS}
 
 OPERATIONAL_12_TARGETS: tuple[dict[str, Any], ...] = (
-    {"event_id": 307351},
-    {"event_id": 312168, "tournament_id": "94beb183-6b2a-4dbf-b1ea-556bf9681124"},
-    {"event_id": 312169, "tournament_id": "9b0e7b08-17ad-46ad-be00-9745f788cdd3"},
-    {"event_id": 312170, "tournament_id": "4b7f3840-cc55-49b7-acd0-57216a89d044"},
-    {"event_id": 312171, "tournament_id": "6d047305-e5ac-4200-803f-399c83cf76f3"},
-    {"event_id": 312172, "tournament_id": "bf050b4a-afd3-43d4-82f4-5eab0983d490"},
-    {"event_id": 312173, "tournament_id": "fac51189-3bcc-4bd6-b5b5-34316c034edb"},
-    {"event_id": 312174, "tournament_id": "4d88fc8c-a6d7-4e93-8cb6-ac45acb4e35d"},
-    {"event_id": 312175, "tournament_id": "c2835ddc-d3b6-4b91-9e1b-895028435b3c"},
-    {"event_id": 312176, "tournament_id": "bfad9be3-52f8-4f08-863b-cb8790ab4b75"},
-    {"event_id": 312177, "tournament_id": "15202cb0-648c-4583-a6f9-9512a6e678c6"},
-    {"event_id": 312178},
+    {
+        "event_id": 307351,
+        "source": "ca-stall-watch",
+        "alertname": "TournamentStopNotSettled",
+        "payload_md5": "2654c086f04dd7a3c11ee205d506df48",
+    },
+    {
+        "event_id": 312168,
+        "tournament_id": "94beb183-6b2a-4dbf-b1ea-556bf9681124",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "42e36162d14a480b1671b73e715690b6",
+    },
+    {
+        "event_id": 312169,
+        "tournament_id": "9b0e7b08-17ad-46ad-be00-9745f788cdd3",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "88477d0c048c3044f0f4492dea5213e9",
+    },
+    {
+        "event_id": 312170,
+        "tournament_id": "4b7f3840-cc55-49b7-acd0-57216a89d044",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "52d492fd3178a06a4bde65d66c807c2c",
+    },
+    {
+        "event_id": 312171,
+        "tournament_id": "6d047305-e5ac-4200-803f-399c83cf76f3",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "16c7777a0a6528563a8f63a92f9625a2",
+    },
+    {
+        "event_id": 312172,
+        "tournament_id": "bf050b4a-afd3-43d4-82f4-5eab0983d490",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "79fb439bc732cc17d6fc59d4867318b0",
+    },
+    {
+        "event_id": 312173,
+        "tournament_id": "fac51189-3bcc-4bd6-b5b5-34316c034edb",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "1602a58b525a3012e3269c57dbb07a19",
+    },
+    {
+        "event_id": 312174,
+        "tournament_id": "4d88fc8c-a6d7-4e93-8cb6-ac45acb4e35d",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "b2ca1f8bb37be05cac1b12fb2f1b35f6",
+    },
+    {
+        "event_id": 312175,
+        "tournament_id": "c2835ddc-d3b6-4b91-9e1b-895028435b3c",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "9bae13c8a26bc1bd5ed935164238a2b8",
+    },
+    {
+        "event_id": 312176,
+        "tournament_id": "bfad9be3-52f8-4f08-863b-cb8790ab4b75",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "f29f261f7a74bef837070a1df2c00a3c",
+    },
+    {
+        "event_id": 312177,
+        "tournament_id": "15202cb0-648c-4583-a6f9-9512a6e678c6",
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.stuck_tournament",
+        "payload_md5": "81ac90bdd7f0cc456d871ea16d991128",
+    },
+    {
+        "event_id": 312178,
+        "source": "sp-daily-digest",
+        "alertname": "DailyDigest.deploy_failed",
+        "payload_md5": "462a8b6bddb8f9fc643aaac31aa4b776",
+    },
 )
 OPERATIONAL_12_BY_ID: dict[int, dict[str, Any]] = {int(t["event_id"]): t for t in OPERATIONAL_12_TARGETS}
 
@@ -296,6 +366,9 @@ def verify_schedule_transition(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     # Verify cmd_restoration_needed eligibility on serving hourly engine
     if isinstance(restoration_health, Mapping) and restoration_health:
         sched = (restoration_health.get("maintenance") or {}).get("schedule") or {}
+        serving_sha = str(restoration_health.get("releaseSha", ""))
+        if not SHA40_RE.fullmatch(serving_sha) or serving_sha == DAILY_BOOTSTRAP_SHA:
+            errors.append(f"serving_hourly_health.releaseSha must be a 40-hex non-eed06fe5 SHA, got {serving_sha!r}")
         if (
             restoration_health.get("running") is not True
             or sched.get("timeZone") != SCHEDULE_TIME_ZONE
@@ -311,6 +384,15 @@ def verify_schedule_transition(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     # Verify post-restoration daily 04:00 Chicago health contract
     if isinstance(post_restoration_health, Mapping) and post_restoration_health:
         sched_after = (post_restoration_health.get("maintenance") or {}).get("schedule") or {}
+        post_sha = str(post_restoration_health.get("releaseSha", ""))
+        if not SHA40_RE.fullmatch(post_sha) or post_sha == DAILY_BOOTSTRAP_SHA:
+            errors.append(f"post_restoration_daily_health.releaseSha must be a 40-hex non-eed06fe5 SHA, got {post_sha!r}")
+        if (
+            isinstance(restoration_health, Mapping)
+            and restoration_health.get("releaseSha")
+            and post_sha == str(restoration_health.get("releaseSha"))
+        ):
+            errors.append("post_restoration_daily_health.releaseSha must differ from serving_hourly_health.releaseSha")
         if (
             post_restoration_health.get("running") is not True
             or sched_after.get("timeZone") != SCHEDULE_TIME_ZONE
@@ -373,6 +455,8 @@ def verify_attention14_closure(snapshot: Mapping[str, Any]) -> dict[str, Any]:
             seen_tids.add(tid)
             if tid not in ORIGINAL89_IDS:
                 errors.append(f"Unexpected tournament_id in runtime_retirements: {tid}")
+            if str(r.get("operation_id", "")) != "d44c4440-2911-430c-8ee7-376611ef3f38":
+                errors.append(f"Original89 event {tid} operation_id must be d44c4440-2911-430c-8ee7-376611ef3f38")
             if r.get("runtime_retired") is not True:
                 errors.append(f"Original89 event {tid} runtime_retired must be True")
             if not SHA64_RE.fullmatch(str(r.get("artifact_sha256", ""))):
@@ -399,10 +483,14 @@ def verify_attention14_closure(snapshot: Mapping[str, Any]) -> dict[str, Any]:
             if target_spec is None:
                 errors.append(f"Unexpected operational event_id in original_events: {eid}")
                 continue
-            if not str(note.get("source", "")).strip() or not str(note.get("alertname", "")).strip():
-                errors.append(f"Operational event {eid} missing source or alertname")
-            if not MD5_RE.fullmatch(str(note.get("payload_md5", ""))):
-                errors.append(f"Operational event {eid} missing 32-hex payload_md5")
+            if str(note.get("source", "")) != target_spec["source"]:
+                errors.append(f"Operational event {eid} source mismatch: expected {target_spec['source']!r}, got {note.get('source')!r}")
+            if str(note.get("alertname", "")) != target_spec["alertname"]:
+                errors.append(f"Operational event {eid} alertname mismatch: expected {target_spec['alertname']!r}, got {note.get('alertname')!r}")
+            if str(note.get("payload_md5", "")) != target_spec["payload_md5"]:
+                errors.append(f"Operational event {eid} payload_md5 mismatch: expected {target_spec['payload_md5']!r}, got {note.get('payload_md5')!r}")
+            if "tournament_id" in target_spec and str(note.get("tournament_id", target_spec["tournament_id"])) != target_spec["tournament_id"]:
+                errors.append(f"Operational event {eid} tournament_id mismatch: expected {target_spec['tournament_id']!r}")
             if len(str(note.get("root_cause", "")).strip()) < 40:
                 errors.append(f"Operational event {eid} root_cause must be >= 40 chars")
             if not str(note.get("resolution", "")).strip():
@@ -416,6 +504,30 @@ def verify_attention14_closure(snapshot: Mapping[str, Any]) -> dict[str, Any]:
                 errors.append("Operational event 312178 must preserve historical_deploy_failures_preserved = 19")
         if seen_eids != set(OPERATIONAL_12_BY_ID.keys()):
             errors.append("original_events did not cover the exact 12 target event IDs")
+
+    # 2b. Verify incident_notes (exact 32 financial-source incident witnesses) if supplied in evidence_packet
+    inc_notes = evidence.get("incident_notes")
+    inc_notes_by_id: dict[str, Mapping[str, Any]] = {}
+    if inc_notes is not None:
+        if not isinstance(inc_notes, list) or len(inc_notes) != 32:
+            errors.append(f"incident_notes must contain 32 entries, got {len(inc_notes) if isinstance(inc_notes, list) else 'non-list'}")
+        else:
+            expected_fin_ids = {iid for iid in ORIGINAL33_BY_ID if iid != NONFINANCIAL_INCIDENT_ID}
+            for n in inc_notes:
+                niid = str(n.get("incident_id", ""))
+                inc_notes_by_id[niid] = n
+                if niid not in expected_fin_ids:
+                    errors.append(f"Unexpected incident_id in incident_notes: {niid}")
+                if not MD5_RE.fullmatch(str(n.get("current_member_snapshot_md5", ""))):
+                    errors.append(f"Incident note {niid} missing 32-hex current_member_snapshot_md5")
+                if len(str(n.get("root_cause", "")).strip()) < 40:
+                    errors.append(f"Incident note {niid} root_cause must be >= 40 chars")
+                if not str(n.get("resolution", "")).strip():
+                    errors.append(f"Incident note {niid} resolution must be non-empty")
+                if not CORRECTION_REF_RE.match(str(n.get("correction_ref", ""))):
+                    errors.append(f"Incident note {niid} invalid correction_ref: {n.get('correction_ref')!r}")
+            if set(inc_notes_by_id.keys()) != expected_fin_ids:
+                errors.append("incident_notes did not cover all 32 financial incident IDs")
 
     # 3. Verify all33_readback: original212, current33_members (32 financial + 1 non-financial e841), and oct31_projection
     orig212 = readback.get("original212", {})
@@ -473,6 +585,8 @@ def verify_attention14_closure(snapshot: Mapping[str, Any]) -> dict[str, Any]:
                     errors.append(f"Financial incident {iid} current_events != occurrences")
                 if not MD5_RE.fullmatch(str(inc.get("current_member_snapshot_md5", ""))):
                     errors.append(f"Financial incident {iid} missing 32-hex current_member_snapshot_md5")
+                elif iid in inc_notes_by_id and str(inc_notes_by_id[iid].get("current_member_snapshot_md5")) != str(inc.get("current_member_snapshot_md5")):
+                    errors.append(f"Financial incident {iid} incident_notes.current_member_snapshot_md5 != readback.current_member_snapshot_md5")
 
         if seen_inc_ids != set(ORIGINAL33_BY_ID.keys()):
             errors.append("current33_members did not cover all 33 original incident IDs")
@@ -480,8 +594,11 @@ def verify_attention14_closure(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     oct31 = readback.get("oct31_projection", {})
     if "error" in oct31:
         errors.append(f"oct31_projection error: {oct31.get('error')}")
-    elif int(oct31.get("attention", -1)) != 14:
-        errors.append(f"oct31_projection.attention must preserve historical 14, got {oct31.get('attention')}")
+    else:
+        if int(oct31.get("attention", -1)) != 14:
+            errors.append(f"oct31_projection.attention must preserve historical 14, got {oct31.get('attention')}")
+        if str(oct31.get("attention_status", "")) not in ("reviewed", "ok"):
+            errors.append(f"oct31_projection.attention_status must be 'reviewed' or 'ok', got {oct31.get('attention_status')!r}")
 
     return {
         "ok": len(errors) == 0,
