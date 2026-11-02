@@ -375,6 +375,15 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                     'database': {**resolution['proof']['database'], 'sha': B_SHA}}}, self.cycle),
                 ('runtime pid not int', {**resolution, 'proof': {**resolution['proof'],
                     'runtime': {**resolution['proof']['runtime'], 'hostPid': '1'}}}, self.cycle),
+                ('started not a timestamp', {**resolution, 'proof': {**resolution['proof'],
+                    'runtime': {**resolution['proof']['runtime'], 'startedAt': 'yesterday'}}}, self.cycle),
+                ('started without zone', {**resolution, 'proof': {**resolution['proof'],
+                    'runtime': {**resolution['proof']['runtime'], 'startedAt': '2026-11-02T05:54:48.403092401'}}}, self.cycle),
+                ('started before failure', {**resolution, 'proof': {**resolution['proof'],
+                    'runtime': {**resolution['proof']['runtime'], 'startedAt': '2026-11-02T04:05:00Z'}}}, self.cycle),
+                ('instance malformed', {**resolution, 'proof': {**resolution['proof'],
+                    'runtime': {**resolution['proof']['runtime'], 'instanceId': 'engine.a'},
+                    'database': {**resolution['proof']['database'], 'instanceId': 'engine.a'}}}, self.cycle),
                 ('extra field', {**resolution, 'note': 'x'}, self.cycle)]:
             with self.subTest(name), self.assertRaisesRegex(ValueError, 'Routine owner evidence refused'):
                 observer.terminal_failure_resolution(value, cycle, self.failure, fd, blank())
@@ -511,6 +520,9 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'runtime extra key': lambda r: r['proof']['runtime'].update(note='x'),
             'runtime pid not int': lambda r: r['proof']['runtime'].update(hostPid='758052'),
             'runtime container malformed': lambda r: r['proof']['runtime'].update(containerId='x'),
+            'started not a timestamp': lambda r: r['proof']['runtime'].update(startedAt='yesterday'),
+            'started without zone': lambda r: r['proof']['runtime'].update(startedAt='2026-11-02T05:54:48.403092401'),
+            'started before failure': lambda r: r['proof']['runtime'].update(startedAt='2026-11-02T04:05:00Z'),
             'database sha differs': lambda r: r['proof']['database'].update(sha=B_SHA),
             'database other instance': lambda r: r['proof']['database'].update(instanceId='1-deadbeef'),
             'database boolean as int': lambda r: r['proof']['database'].update(databaseIdle=1),

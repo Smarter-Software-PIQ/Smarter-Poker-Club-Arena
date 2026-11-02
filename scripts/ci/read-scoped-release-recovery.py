@@ -298,6 +298,17 @@ def ninef_row(row):
             row.get('kind') == 'hourly-reset' and row.get('window') == NINEF_WINDOW)
 
 
+def ninef_started_after_failure(value):
+    """A timezone-aware ISO timestamp strictly after the 9f failure completed."""
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        started = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return False
+    return started.tzinfo is not None and started.timestamp() > NINEF_COMPLETED_AT
+
+
 def terminal_failure_resolution(value, cycle, result, result_fd, answer):
     """Observe the one recorded terminal-failure proof (9f); it authorizes nothing.
 
@@ -328,9 +339,9 @@ def terminal_failure_resolution(value, cycle, result, result_fd, answer):
     runtime, database = proof['runtime'], proof['database']
     routine_require(set(runtime) == {'containerId', 'startedAt', 'hostPid', 'instanceId'} and
         isinstance(runtime['containerId'], str) and re.fullmatch('[0-9a-f]{64}', runtime['containerId']) and
-        isinstance(runtime['startedAt'], str) and bool(runtime['startedAt']) and
+        ninef_started_after_failure(runtime['startedAt']) and
         type(runtime['hostPid']) is int and runtime['hostPid'] > 0 and
-        isinstance(runtime['instanceId'], str) and re.fullmatch('[A-Za-z0-9._:-]{1,128}', runtime['instanceId']) and
+        isinstance(runtime['instanceId'], str) and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}', runtime['instanceId']) and
         database == {'schema': 'terminal-owned-thaw/v1', 'sha': cycle['failure'].get('recoveredDesiredSha'),
                      'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True,
                      'ownedV3Thaw': True, 'announcedAt': NINEF_WINDOW['announcedAt'],

@@ -958,12 +958,23 @@ def terminal_owner_proved(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
     return terminal_owner_proof(state, cycle, time.monotonic() + 45) is not None
 
 
+def terminal_started_after_failure(value: Any) -> bool:
+    """A timezone-aware ISO timestamp strictly after the 9f failure completed."""
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        started = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return False
+    return started.tzinfo is not None and started.timestamp() > NINEF_COMPLETED_AT
+
+
 def terminal_runtime_and_database(proof: dict[str, Any], cycle: dict[str, Any]) -> bool:
     """Exact typed runtime and database witnesses of a recorded 9f proof."""
     runtime, database = proof.get('runtime'), proof.get('database')
     return (isinstance(runtime, dict) and set(runtime) == {'containerId', 'startedAt', 'hostPid', 'instanceId'} and
             isinstance(runtime['containerId'], str) and re.fullmatch('[0-9a-f]{64}', runtime['containerId']) is not None and
-            isinstance(runtime['startedAt'], str) and bool(runtime['startedAt']) and
+            terminal_started_after_failure(runtime['startedAt']) and
             type(runtime['hostPid']) is int and runtime['hostPid'] > 0 and
             isinstance(runtime['instanceId'], str) and INSTANCE_ID_RE.fullmatch(runtime['instanceId']) is not None and
             isinstance(database, dict) and
