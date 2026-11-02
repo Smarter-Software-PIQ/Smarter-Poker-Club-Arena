@@ -7583,12 +7583,7 @@ function LiveTablePage({
   const heroPromptedToAct = isHeroTurnContext && !suppressPanelForPreAction;
 
   useEffect(() => {
-    if (
-      !isHeroTurnContext ||
-      heroDecisionReady ||
-      Boolean(lightningRoom) ||
-      engineWsStatus !== 'connected'
-    ) {
+    if (!isHeroTurnContext || heroDecisionReady || Boolean(lightningRoom)) {
       return;
     }
     let cancelled = false;
@@ -7656,7 +7651,7 @@ function LiveTablePage({
     };
     const stopPoller = startMissingDecisionPoller({
       requestSnapshot: () => {
-        if (!cancelled) requestEngineSnapshot();
+        if (!cancelled && engineWsStatus === 'connected') requestEngineSnapshot();
       },
       fetchTableState:
         requestedTableId && userId

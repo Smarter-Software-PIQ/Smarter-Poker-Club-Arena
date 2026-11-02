@@ -221,50 +221,86 @@ export interface MissingDecisionPollerDeps {
   clearIntervalTimer?: (id: ReturnType<typeof setInterval>) => void;
   initialDelayMs?: number;
   intervalMs?: number;
+  maxIntervalMs?: number;
   maxAttempts?: number;
 }
 
 /**
- * Bounded, non-overlapping 350ms recovery poller for a hero turn whose
+ * Compute bounded polling delay for missing-decision recovery:
+ * - Attempts 1..8: `baseIntervalMs` (default 350ms, first 2.8s of the turn)
+ * - Attempts 9..16: `min(maxIntervalMs, baseIntervalMs * 2)` (default 700ms, up to 8.4s)
+ * - Attempts 17+: `maxIntervalMs` (default 1400ms, permanent bounded polling for the rest of the turn + time bank)
+ */
+export function getMissingDecisionPollDelayMs(
+  completedAttempts: number,
+  baseIntervalMs = 350,
+  maxIntervalMs = Math.max(baseIntervalMs, baseIntervalMs * 4)
+): number {
+  const safeBase = Math.max(1, baseIntervalMs);
+  const safeMax = Math.max(safeBase, maxIntervalMs);
+  if (completedAttempts < 8) {
+    return safeBase;
+  }
+  if (completedAttempts < 16) {
+    return Math.min(safeMax, safeBase * 2);
+  }
+  return safeMax;
+}
+
+/**
+ * Permanent bounded-backoff recovery poller for an eligible hero turn whose
  * `actionContext` is still withheld on the client.
  *
- * - Recovers across >6 attempts (default `maxAttempts = 24`, ~8.4s window).
- * - Never overlaps in-flight `fetchTableState` HTTP requests.
- * - Backs off HTTP calls exponentially on consecutive null/error responses so
- *   an unreachable or refusing endpoint never causes excessive load.
+ * - Never silently abandons the player while the turn remains active: defaults to
+ *   `maxAttempts = Number.POSITIVE_INFINITY` and steps the tick interval from
+ *   `350ms` (attempts 1..8) → `700ms` (attempts 9..16) → `1400ms` (attempts 17+)
+ *   until `stop()` is called or an explicit `maxAttempts` limit is reached.
+ * - Never overlaps in-flight `fetchTableState` HTTP requests (`httpInFlight`).
+ * - Applies bounded HTTP failure cooldown (`Math.min(4, 2^(failures-1))` ticks,
+ *   capped at 4 ticks) on consecutive `null`/rejected HTTP responses so an
+ *   unreachable or refusing endpoint never causes excessive load yet continues
+ *   retrying throughout the entire turn and time bank.
  * - Stops immediately when `stop()` is called (turn ends, decision arrives,
- *   table changes, or component unmounts) or when `maxAttempts` is reached.
+ *   table changes, or component unmounts).
  */
 export function startMissingDecisionPoller(deps: MissingDecisionPollerDeps): () => void {
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((id) => clearTimeout(id));
-  const setIntervalTimer = deps.setIntervalTimer ?? ((fn, ms) => setInterval(fn, ms));
-  const clearIntervalTimer = deps.clearIntervalTimer ?? ((id) => clearInterval(id));
   const initialDelayMs = deps.initialDelayMs ?? 350;
   const intervalMs = deps.intervalMs ?? 350;
-  const maxAttempts = deps.maxAttempts ?? 24;
+  const maxIntervalMs =
+    deps.maxIntervalMs ??
+    (deps.maxAttempts !== undefined && Number.isFinite(deps.maxAttempts)
+      ? intervalMs
+      : Math.max(intervalMs, intervalMs * 4));
+  const maxAttempts = deps.maxAttempts ?? Number.POSITIVE_INFINITY;
 
   let cancelled = false;
   let httpInFlight = false;
   let attempts = 0;
   let consecutiveHttpFailures = 0;
   let httpCooldownTicks = 0;
-  let initialTimer: ReturnType<typeof setTimeout> | null = null;
-  let retryInterval: ReturnType<typeof setInterval> | null = null;
+  let activeTimer: ReturnType<typeof setTimeout> | null = null;
 
   const stop = () => {
     cancelled = true;
-    if (initialTimer !== null) {
-      clearTimer(initialTimer);
-      initialTimer = null;
-    }
-    if (retryInterval !== null) {
-      clearIntervalTimer(retryInterval);
-      retryInterval = null;
+    if (activeTimer !== null) {
+      clearTimer(activeTimer);
+      activeTimer = null;
     }
   };
 
+  const scheduleNext = (delayMs: number) => {
+    if (cancelled) return;
+    if (attempts >= maxAttempts) {
+      stop();
+      return;
+    }
+    activeTimer = setTimer(tick, delayMs);
+  };
+
   const tick = () => {
+    activeTimer = null;
     if (cancelled) return;
     if (attempts >= maxAttempts) {
       stop();
@@ -272,6 +308,7 @@ export function startMissingDecisionPoller(deps: MissingDecisionPollerDeps): () 
     }
     attempts += 1;
     deps.requestSnapshot();
+    scheduleNext(getMissingDecisionPollDelayMs(attempts, intervalMs, maxIntervalMs));
     if (!deps.fetchTableState || httpInFlight) return;
     if (httpCooldownTicks > 0) {
       httpCooldownTicks -= 1;
@@ -289,7 +326,7 @@ export function startMissingDecisionPoller(deps: MissingDecisionPollerDeps): () 
           deps.onTableState?.(live);
         } else {
           consecutiveHttpFailures += 1;
-          httpCooldownTicks = Math.min(8, Math.pow(2, consecutiveHttpFailures - 1));
+          httpCooldownTicks = Math.min(4, Math.pow(2, consecutiveHttpFailures - 1));
         }
       })
       .finally(() => {
@@ -297,9 +334,6 @@ export function startMissingDecisionPoller(deps: MissingDecisionPollerDeps): () 
       });
   };
 
-  if (initialDelayMs !== intervalMs) {
-    initialTimer = setTimer(tick, initialDelayMs);
-  }
-  retryInterval = setIntervalTimer(tick, intervalMs);
+  scheduleNext(initialDelayMs);
   return stop;
 }

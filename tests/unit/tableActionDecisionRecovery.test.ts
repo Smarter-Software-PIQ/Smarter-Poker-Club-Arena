@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  getMissingDecisionPollDelayMs,
   resolveSnapshotActionContext,
   resolveTurnChangeActionContext,
   startMissingDecisionPoller,
@@ -193,7 +194,9 @@ describe('authoritative decision readiness', () => {
     expect(page).toContain('isTimeBankActive: Boolean(mapped.isTimeBankActive),');
     expect(page).toContain('nextTurnStartTimeMs: mapped.actionTimerStartTime,');
     expect(page).toContain('const stopPoller = startMissingDecisionPoller({');
-    expect(page).toContain('if (!cancelled) requestEngineSnapshot();');
+    expect(page).toContain(
+      "if (!cancelled && engineWsStatus === 'connected') requestEngineSnapshot();"
+    );
     expect(page).toContain('GameServerAPI.getTableState(requestedTableId)');
   });
 
@@ -383,7 +386,16 @@ describe('preserved actionContext boundary invariants', () => {
   });
 });
 
-describe('startMissingDecisionPoller lifecycle, concurrency, and error backoff', () => {
+describe('startMissingDecisionPoller lifecycle, concurrency, and permanent bounded-backoff recovery', () => {
+  it('computes bounded poll delays: 350ms for attempts 1-8, 700ms for attempts 9-16, and 1400ms for 17+', () => {
+    expect(getMissingDecisionPollDelayMs(1, 350, 1400)).toBe(350);
+    expect(getMissingDecisionPollDelayMs(7, 350, 1400)).toBe(350);
+    expect(getMissingDecisionPollDelayMs(8, 350, 1400)).toBe(700);
+    expect(getMissingDecisionPollDelayMs(15, 350, 1400)).toBe(700);
+    expect(getMissingDecisionPollDelayMs(16, 350, 1400)).toBe(1400);
+    expect(getMissingDecisionPollDelayMs(40, 350, 1400)).toBe(1400);
+  });
+
   it('recovers after more than 6 attempts and stops immediately when stop() is called', async () => {
     vi.useFakeTimers();
     try {
@@ -408,10 +420,8 @@ describe('startMissingDecisionPoller lifecycle, concurrency, and error backoff',
         onTableState,
       });
 
-      // Advance past initial 120ms + eight 350ms intervals (9 total attempts > 6).
-      for (let i = 0; i < 10; i += 1) {
-        await vi.advanceTimersByTimeAsync(350);
-      }
+      // Attempts 1..8 fire at 350ms intervals (2800ms); attempt 9 fires 700ms later (3500ms).
+      await vi.advanceTimersByTimeAsync(3500);
 
       expect(requestSnapshot).toHaveBeenCalledTimes(9);
       expect(fetchTableState).toHaveBeenCalledTimes(9);
@@ -421,9 +431,56 @@ describe('startMissingDecisionPoller lifecycle, concurrency, and error backoff',
       });
 
       // Advancing further after stop() produces zero additional calls.
-      await vi.advanceTimersByTimeAsync(5000);
+      await vi.advanceTimersByTimeAsync(10_000);
       expect(requestSnapshot).toHaveBeenCalledTimes(9);
       expect(fetchTableState).toHaveBeenCalledTimes(9);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never silently abandons the player after 24 ticks when action_context remains missing while turn/time-bank time remains', async () => {
+    vi.useFakeTimers();
+    try {
+      const requestSnapshot = vi.fn();
+      let tickCount = 0;
+      const fetchTableState = vi.fn(async () => {
+        tickCount += 1;
+        // Simulate 15 initial HTTP transport failures (null), followed by 15 withheld snapshots,
+        // and finally an authoritative action_context arriving well past tick 24 (~30s into turn + time bank).
+        if (tickCount <= 6) {
+          return null;
+        }
+        if (tickCount < 18) {
+          return { current_player: 2, action_context: undefined };
+        }
+        return { current_player: 2, action_context: 'incarnation-1:preflop:0:2:5-late' };
+      });
+      let recoveredContext: string | undefined;
+      const onTableState = vi.fn((state: Record<string, unknown>) => {
+        if (typeof state.action_context === 'string' && state.action_context.length > 0) {
+          recoveredContext = state.action_context;
+          stop();
+        }
+      });
+
+      const stop = startMissingDecisionPoller({
+        requestSnapshot,
+        fetchTableState,
+        onTableState,
+      });
+
+      // Advance 45 seconds of simulated turn + time-bank duration.
+      // Without permanent bounded-backoff recovery, a 24-tick cutoff would stop at 8.4s
+      // and never recover the late action_context.
+      await vi.advanceTimersByTimeAsync(45_000);
+
+      expect(requestSnapshot.mock.calls.length).toBeGreaterThan(24);
+      expect(recoveredContext).toBe('incarnation-1:preflop:0:2:5-late');
+
+      const callsAtRecovery = requestSnapshot.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(requestSnapshot).toHaveBeenCalledTimes(callsAtRecovery);
     } finally {
       vi.useRealTimers();
     }
@@ -463,7 +520,7 @@ describe('startMissingDecisionPoller lifecycle, concurrency, and error backoff',
     }
   });
 
-  it('handles HTTP rejections with exponential backoff without excessive load and stops at maxAttempts', async () => {
+  it('handles HTTP rejections with bounded backoff without excessive load and honors explicit maxAttempts when provided', async () => {
     vi.useFakeTimers();
     try {
       const requestSnapshot = vi.fn();
@@ -483,9 +540,9 @@ describe('startMissingDecisionPoller lifecycle, concurrency, and error backoff',
         await vi.advanceTimersByTimeAsync(350);
       }
 
-      // WS snapshot capped at exactly maxAttempts (10).
+      // WS snapshot capped at explicit maxAttempts (10).
       expect(requestSnapshot).toHaveBeenCalledTimes(10);
-      // Exponential HTTP cooldown (1, 2, 4 ticks skipped between failures) keeps HTTP load low (3 requests across 10 ticks).
+      // Bounded HTTP cooldown (1, 2, 4 ticks skipped between failures) keeps HTTP load low (3 requests across 10 ticks).
       expect(fetchTableState).toHaveBeenCalledTimes(3);
       expect(onTableState).not.toHaveBeenCalled();
     } finally {
