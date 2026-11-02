@@ -80,6 +80,13 @@ import {
   fetchReplayRabbitStatus,
   type ReplayRabbitStatus,
 } from '../../services/rabbitHuntReplayStatus';
+import {
+  describeRabbitHuntCharge,
+  fetchOwnedRunout,
+  fetchRabbitHuntChargePreview,
+  type OwnedRunout,
+  type RabbitHuntChargePreview,
+} from '../../services/rabbitHuntPricing';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useHandReviewDetails } from '../../hooks/useHandReviewDetails';
 
@@ -284,17 +291,38 @@ function RabbitHuntReplayBlock({
     };
   }, [needsStatus, tableId, hand.handNumber]);
 
+  /* A RUN-OUT YOU BOUGHT IS YOURS TO KEEP (2026-11-02). The shared saved
+     run-out is deleted after a day; the cards this player paid for and saw are
+     kept for them alone (fn_rabbit_hunt_owned_runout) and re-show here, free,
+     at any age. */
+  const [owned, setOwned] = useState<OwnedRunout | null>(null);
+  useEffect(() => {
+    if (!tableId || hasRevealed) return;
+    let cancelled = false;
+    void fetchOwnedRunout(tableId, hand.handNumber).then((o) => {
+      if (!cancelled) setOwned(o);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tableId, hand.handNumber, hasRevealed]);
+
+  /* THE PRICE BEFORE THE TAP (2026-11-02): what this reveal will use, read
+     from fn_rabbit_hunt_charge_preview in the engine's own charge order. */
+  const [price, setPrice] = useState<RabbitHuntChargePreview | null>(null);
+
   // Nothing left to sell (the board ran out) or a re-run - and nothing already
   // bought that we should keep showing. A hand past the one-day retention still
   // renders, to SAY the limit rather than silently drop the control.
-  if (!offer.show && !offer.pastRetention && !hasRevealed && !isRevealing) return null;
+  // (Decided here, returned after the last hook below.)
+  const hidden = !offer.show && !offer.pastRetention && !hasRevealed && !isRevealing && !owned;
 
   // VIP ONLY past the felt window (Dan 2026-11-01). Inside the window the
   // newest hand is the original everyone-may-buy felt purchase; past it a
   // non-VIP gets the note, never a button the engine would refuse. A reveal
   // they already own re-shows above regardless - the engine answers an owned
   // hand free before the VIP gate.
-  const settled = hasRevealed || isRevealing;
+  const settled = hasRevealed || isRevealing || Boolean(owned);
   const statusNote: string | null = settled
     ? null
     : offer.pastRetention
@@ -313,6 +341,21 @@ function RabbitHuntReplayBlock({
                   ? 'Past The 1 Day Limit. Rabbit Hunts Are Kept For 1 Day After Each Hand'
                   : null;
   const vipNoteInsteadOfButton = !isVIP && !withinFeltWindow && !settled && !statusNote;
+  const showsButton = !settled && !statusNote && !vipNoteInsteadOfButton;
+  const wantsPrice = showsButton && !hidden;
+  useEffect(() => {
+    if (!wantsPrice) return;
+    let cancelled = false;
+    void fetchRabbitHuntChargePreview().then((p) => {
+      if (!cancelled) setPrice(p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsPrice]);
+  if (hidden) return null;
+  const priceLine = showsButton ? describeRabbitHuntCharge(price) : null;
+  const shownCards = hasRevealed ? cards : (owned?.cards ?? []);
   const savedUntil =
     replayStatus?.status === 'saved' && !withinFeltWindow && !settled
       ? new Date(replayStatus.expiresAt).toLocaleString(undefined, {
@@ -326,7 +369,7 @@ function RabbitHuntReplayBlock({
     <section className="hdm-rabbit" aria-label="Rabbit Hunt">
       <header className="hdm-section-head">
         <span>Rabbit Hunt</span>
-        {hasRevealed ? null : (
+        {hasRevealed || owned ? null : (
           <span className="hdm-section-count">
             {offer.cardsUnseen} Card{offer.cardsUnseen === 1 ? '' : 's'} Unseen
           </span>
@@ -340,11 +383,11 @@ function RabbitHuntReplayBlock({
             : 'VIP Rabbit Hunt On A Previous Hand Is Available For 1 Day'}
         </div>
       )}
-      {hasRevealed ? (
+      {hasRevealed || owned ? (
         <div className="hdm-board hdm-rabbit__cards">
           <span className="hdm-board__badge">Would Have Come</span>
           <span className="hdm-board__cards">
-            {cards.map((c, i) => (
+            {shownCards.map((c, i) => (
               <CardImage
                 key={i}
                 /* The reveal's rank is a plain string off the wire; the board
@@ -366,22 +409,34 @@ function RabbitHuntReplayBlock({
       ) : vipNoteInsteadOfButton ? (
         <div className="hdm-section-count">Rabbit Hunting A Previous Hand Is A VIP Feature</div>
       ) : (
-        <button
-          type="button"
-          className="hdm-rabbit__btn"
-          onClick={() => void reveal(hand.handNumber)}
-          disabled={isRevealing}
-          aria-busy={isRevealing}
-        >
-          {isRevealing
-            ? isSlow
-              ? 'Still Connecting...'
-              : 'Revealing...'
-            : recoveryNeeded
-              ? 'Recover This Hand'
-              : 'Show What Would Have Come'}
-        </button>
+        <>
+          <button
+            type="button"
+            className="hdm-rabbit__btn"
+            onClick={() => void reveal(hand.handNumber)}
+            disabled={isRevealing}
+            aria-busy={isRevealing}
+          >
+            {isRevealing
+              ? isSlow
+                ? 'Still Connecting...'
+                : 'Revealing...'
+              : recoveryNeeded
+                ? 'Recover This Hand'
+                : 'Show What Would Have Come'}
+          </button>
+          {priceLine ? (
+            <div className="hdm-section-count hdm-rabbit__price" role="note">
+              {priceLine}
+            </div>
+          ) : null}
+        </>
       )}
+      {owned && !hasRevealed ? (
+        <div className="hdm-section-count hdm-rabbit__owned">
+          You Bought This Run Out. It Stays In Your Hand History
+        </div>
+      ) : null}
     </section>
   );
 }
