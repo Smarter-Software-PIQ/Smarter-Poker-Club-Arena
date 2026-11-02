@@ -48,6 +48,7 @@ function bootstrapHarness() {
     formatGameTitle: (name: string) => name,
     formatBlindPair: (small: number, big: number) => `${small}/${big}`,
     createEmptySeats: (width: number) => Array(width).fill(null),
+    rememberTableIsTournament: vi.fn(),
   };
   const controller = new Function(...Object.keys(env), script)(...Object.values(env));
   return {

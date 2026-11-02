@@ -55,8 +55,8 @@ describe('table kind memory', () => {
   it('seeds TablePage first paint and records the kind when the row loads', () => {
     const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
     expect(page).toContain('isTournament: knownTableIsTournament(tableId) ?? false,');
-    expect(page).toContain(
-      "rememberTableIsTournament(table.id, table.game_type === 'tournament' || !!table.tournament_id);"
+    expect(page.replace(/\s+/g, ' ')).toContain(
+      "rememberTableIsTournament( table.id, table.game_type === 'tournament' || !!table.tournament_id );"
     );
   });
 });
