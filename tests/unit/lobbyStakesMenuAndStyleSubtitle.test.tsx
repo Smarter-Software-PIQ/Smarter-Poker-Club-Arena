@@ -231,7 +231,7 @@ function renderLobby(selected: string[] = [], onStylesChange = vi.fn()) {
 }
 
 describe('Lightning Games lobby identity', () => {
-  it('uses the existing painted fire for Lightning rows, including legacy aliases', () => {
+  it('uses the lightning bolt for Lightning rows, including legacy aliases', () => {
     renderLobby();
     const icons = screen.getAllByRole('img', { name: 'Lightning Games' });
     expect(icons).toHaveLength(2);
@@ -239,8 +239,9 @@ describe('Lightning Games lobby identity', () => {
     expect(premiumCss).toContain("[data-tournament-icon='lightning']");
     expect(premiumCss).toContain('.lt-tournament-icon[data-lobby-symbol]');
     for (const icon of icons) {
-      expect(icon.getAttribute('data-lobby-symbol')).toBe('fire');
-      expect(icon.querySelector('[data-lobby-art="fire"] [data-atlas-width]')).not.toBeNull();
+      expect(icon.getAttribute('data-lobby-symbol')).toBe('lightning');
+      expect(icon.querySelector('[data-lobby-art="fire"]')).toBeNull();
+      expect(icon.querySelector('svg')).not.toBeNull();
     }
     const stakeValues = document.querySelectorAll('.premium-cash-stakes-value');
     expect(stakeValues.length).toBeGreaterThan(0);
