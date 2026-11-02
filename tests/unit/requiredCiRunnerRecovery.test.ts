@@ -635,11 +635,24 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(budget({ connected_ui_observations: false })).toBe(55);
     expect(budget({})).toBe(55);
     expect(budget({ connected_ui_observations: true })).toBe(120);
-    expect(job.steps[1]).toStrictEqual({
-      name: 'Admit the fixed unpublished original-input carrier read-only',
+    expect(job.steps[1].name).toBe('Prepare the current-run original-input transfer directory');
+    expect(job.steps[1].if).toBe('inputs.connected_ui_observations');
+    expect(job.steps[1].env).toEqual({ RETAINED_ID: '${{ inputs.retained_web_artifact_id }}' });
+    expect(job.steps[1].run).toContain('[[ "$RETAINED_ID" =~ ^[1-9][0-9]*$ ]]');
+    expect(job.steps[2]).toStrictEqual({
+      name: "Receive only the protected caller's current-run original ZIP",
       if: 'inputs.connected_ui_observations',
-      env: { GH_TOKEN: '${{ github.token }}' },
-      run: 'python3 -B operations/release/native/original-web-retention.py --admit',
+      uses: 'actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093',
+      with: {
+        'artifact-ids': '${{ inputs.retained_web_artifact_id }}',
+        path: '${{ runner.temp }}/original-web-retention',
+        'merge-multiple': true,
+      },
+    });
+    expect(job.steps[3]).toStrictEqual({
+      name: 'Admit the fixed original ZIP before private capture or native build',
+      if: 'inputs.connected_ui_observations',
+      run: 'python3 -B operations/release/native/original-web-retention.py --admit-staged',
     });
     const defaultSteps = job.steps.filter(
       (step: { if?: string }) =>
@@ -665,7 +678,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // private-capture branch; every default stage and55m budget is asserted above.
     normalized.jobs['native-smoke']['runs-on'] = expression('ubuntu-24.04');
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
-      '2afca84ef23b1d706aee8fcad336aa6b5f3ddaf4286b4e4dd7179d7d0ad0226c'
+      'f6d7cf20fe528a40a49c44a24bfca4aa22da3503a41ea4e2b7e72fc6ff57262c'
     );
   });
 });

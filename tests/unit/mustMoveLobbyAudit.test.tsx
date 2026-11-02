@@ -358,24 +358,28 @@ describe('lobby replies belong to the current game and opening', () => {
     expect(screen.queryByText('Seat Change')).toBeNull();
   });
 
-  it('does not navigate from a corner join after a game switch', async () => {
-    const joinReply = deferredRpc();
+  it('the corner never joins the game itself (the pill is gone, Dan 2026-11-01)', async () => {
+    /* "REMOVE THE BLUE PILL SHAPED 'CHAIR OPEN IN THE GAME TAKE A SEAT'.
+       SHOULDN'T BE THERE FROM THE CASH GAME OBSERVER VIEW." The corner used
+       to call fn_cash_game_join and move the viewer; a waitlisted viewer with
+       chairs open now sees only their place, the tap opens the lobby, and no
+       join RPC ever leaves this component. This replaces the stale-join race
+       test: with no join there is no stale join. */
     const waiting = lobby({ seated: false, waitlist: { on_list: true, waiting: 1, position: 1 } });
     mocks.rpc.mockImplementation((name: string) =>
       name === 'fn_cash_game_join'
-        ? joinReply.promise
+        ? Promise.reject(new Error('the corner must never call the game door'))
         : Promise.resolve({ data: waiting, error: null })
     );
     const props = { onGoToTable: vi.fn(), onOpenLobby: vi.fn(), onSeatChange: vi.fn() };
-    const { rerender } = render(<CashClusterHUD gameId={GAME} {...props} />);
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'A Chair Is Open In This Game - Take It' })
-    );
-    rerender(<CashClusterHUD gameId="g-2" {...props} />);
-    await act(async () =>
-      joinReply.resolve({ data: { ok: true, action: 'seat', table_id: MAIN2 }, error: null })
-    );
+    render(<CashClusterHUD gameId={GAME} {...props} />);
+    expect(
+      screen.queryByRole('button', { name: 'A Chair Is Open In This Game - Take It' })
+    ).toBeNull();
+    fireEvent.click(await screen.findByText('Waitlist: #1 Of 1'));
+    expect(props.onOpenLobby).toHaveBeenCalled();
     expect(props.onGoToTable).not.toHaveBeenCalled();
+    expect(mocks.rpc.mock.calls.some((c) => c[0] === 'fn_cash_game_join')).toBe(false);
   });
 
   it('does not let an old failure erase a newer successful read', async () => {
@@ -701,7 +705,7 @@ describe('every caller state the read can return', () => {
     }
   });
 
-  it('not seated, on the waitlist: the place, JOIN GAME, and the corner offers the list place', async () => {
+  it('not seated, on the waitlist: the place, JOIN GAME, and the corner reads only the list place', async () => {
     mocks.rpc.mockResolvedValue({
       data: lobby({
         seated: false,
@@ -725,10 +729,18 @@ describe('every caller state the read can return', () => {
     expect(screen.queryByText('Your Seat')).toBeNull();
     unmount();
 
-    /* The corner: chairs are open in the cluster (Main 2 and the feeder), so
-       the offer is the chair, in the game and not "here". */
-    render(<CashClusterHUD gameId={GAME} onOpenLobby={vi.fn()} onSeatChange={vi.fn()} />);
-    await screen.findByText('Chair Open In This Game: Take A Seat');
+    /* The corner: chairs ARE open in the cluster (Main 2 and the feeder) and
+       the corner STILL reads only the place on the list. Dan 2026-11-01,
+       binding: "REMOVE THE BLUE PILL SHAPED 'CHAIR OPEN IN THE GAME TAKE A
+       SEAT'. SHOULDN'T BE THERE FROM THE CASH GAME OBSERVER VIEW." The
+       lobby's JOIN GAME is the one door onto a chair; Gate 4 still seats a
+       waitlisted player from the server side. */
+    const onOpen = vi.fn();
+    render(<CashClusterHUD gameId={GAME} onOpenLobby={onOpen} onSeatChange={vi.fn()} />);
+    const pill = await screen.findByText('Waitlist: #2 Of 3');
+    expect(screen.queryByText('Chair Open In This Game: Take A Seat')).toBeNull();
+    fireEvent.click(pill);
+    expect(onOpen).toHaveBeenCalled();
   });
 
   it('not seated, on the waitlist, nothing open: the corner reads the place on the list', async () => {

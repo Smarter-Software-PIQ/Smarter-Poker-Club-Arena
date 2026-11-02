@@ -381,8 +381,13 @@ describe('Tournament details snapshot recovery', () => {
   });
 
   it.each(['002c2d27-9584-4e52-835a-bb2be148fc81', 'regular-club'])(
-    'keeps the footer caption compact while preserving late-entry context for %s',
+    'wears the register plate in the footer with the late-entry countdown for %s',
     async (clubId) => {
+      /* Dan 2026-11-01, binding: "MAKE THE REGISTER BUTTONS MORE VISIBLE ON
+         THE LATE REGISTER ON THE BOTTOM TO BE MORE LIKE THE LATE REG AT THE
+         TOP." The footer action used to be the quiet Share outline with a
+         compact caption; it is the header's rendered register plate now,
+         countdown and pulse included, and must never match Share again. */
       fixture.getTournament.mockResolvedValue(
         tournament('a', { club_id: clubId, format_contract: 'mtt-v2', late_reg_levels: 29 })
       );
@@ -390,9 +395,11 @@ describe('Tournament details snapshot recovery', () => {
       await flush();
       const footer = within(document.querySelector('.details-footer') as HTMLElement);
       const action = footer.getByRole('button', { name: /Late Register/ });
-      expect(action.textContent).toBe('Late Register');
+      expect(action.textContent).toMatch(/^Late Register \(\d+ levels? remaining\)$/);
       expect(action.getAttribute('aria-label')).toMatch(/levels remaining/);
-      expect(action.className).toBe(footer.getByRole('button', { name: 'Share' }).className);
+      expect(action.className).toContain('tournament-register-button');
+      expect(action.className).toContain('late-reg');
+      expect(action.className).not.toBe(footer.getByRole('button', { name: 'Share' }).className);
       fireEvent.click(action);
       expect(fixture.register).toHaveBeenCalledTimes(1);
       expect(fixture.register).toHaveBeenCalledWith(
@@ -486,8 +493,12 @@ describe('Tournament details snapshot recovery', () => {
       expect(action.closest('.details-header__actions')).not.toBeNull();
       expect(action.closest('.details-footer')).toBeNull();
       expect(screen.getAllByRole('button', { name: 'Register', exact: true })).toHaveLength(2);
+      /* Dan 2026-11-01: the footer's register action wears the header's
+         rendered plate, never the quiet Share outline. */
       const footer = within(document.querySelector('.details-footer') as HTMLElement);
-      expect(footer.getByRole('button', { name: 'Register', exact: true }).className).toBe(
+      const footerRegister = footer.getByRole('button', { name: 'Register', exact: true });
+      expect(footerRegister.className).toContain('tournament-register-button');
+      expect(footerRegister.className).not.toBe(
         footer.getByRole('button', { name: 'Share', exact: true }).className
       );
     }

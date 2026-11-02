@@ -1199,6 +1199,42 @@ describe('required CI owns native fixture verification', () => {
     ])
       expect(admit(inputs, { ...github, ...changed })).toBe(false);
     expect(admit({ ...inputs, connected_ui_observations: false }, github)).toBe(false);
+    const schema = parse(
+      readFileSync(join(root, '.github/workflows/schema-manifest-refresh.yml'), 'utf8')
+    );
+    const producer = schema.jobs['retain-original-web'];
+    const producerAdmit = new Function('inputs', 'github', `return (${producer.if});`);
+    expect(producerAdmit(inputs, github)).toBe(true);
+    for (const changed of [
+      { event_name: 'pull_request' },
+      { ref: 'refs/heads/unsafe' },
+      { repository_id: '42' },
+      { repository: 'another/repo' },
+      { workflow_ref: github.workflow_ref.replace('schema-manifest-refresh', 'other') },
+    ])
+      expect(producerAdmit(inputs, { ...github, ...changed })).toBe(false);
+    expect(producerAdmit({ ...inputs, connected_ui_observations: false }, github)).toBe(false);
+    expect(producer.permissions).toEqual({ contents: 'write', actions: 'read' });
+    expect(producer['timeout-minutes']).toBe(5);
+    expect(schema.jobs['isolated-connected-ui'].needs).toBe('retain-original-web');
+    expect(schema.jobs['isolated-connected-ui'].permissions).toEqual({
+      contents: 'read',
+      actions: 'read',
+    });
+    expect(schema.jobs['isolated-connected-ui'].with.retained_web_artifact_id).toBe(
+      '${{ needs.retain-original-web.outputs.artifact_id }}'
+    );
+    const reader = producer.steps.find(
+      (step: { env?: Record<string, string> }) => step.env?.GH_TOKEN
+    );
+    expect(reader.env).toEqual({ GH_TOKEN: '${{ github.token }}' });
+    expect(reader.run).toContain('original-web-retention.py --stage');
+    expect(JSON.stringify(producer)).not.toMatch(/DATABASE_URL|npm |fixture-smoke.py|secrets\./);
+    const transfer = producer.steps.find((step: { id?: string }) => step.id === 'original');
+    expect(transfer.with.name).toBe('original-web-13059295561-${{ github.run_attempt }}');
+    expect(transfer.with['retention-days']).toBe(1);
+    expect(transfer.with.overwrite).toBeUndefined();
+
     const steps = native.jobs['native-smoke'].steps;
     const captures = steps.filter(
       (step: { env?: Record<string, string> }) => step.env?.DATABASE_URL
