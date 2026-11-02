@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "source": "frozen-events-01a19a5c/live-candidates.json",
+  "sourceSha256": "03fb1ec95d7934e85a1c07cc2d4a8b1ad3720fc7a687adabe051464dc0c6b595",
+  "observedAt": "2026-11-02T03:47:11.192053+00:00",
+  "ownerChatId": "01a19a5c-0f6b-7ae1-9dc5-fe2708a568e7",
+  "reason": "Owner requested removal of frozen tournaments on November 1; close these reviewed events and equally distribute remaining funds among eligible remaining players, preserving earned payments and history.",
+  "members": [
+    {
+      "tournamentId": "0771b01a-b8ea-434b-bf2e-f7d4651d445e",
+      "operationId": "05ad5e1e-deaf-5d53-ae7a-737e50f5cf3c",
+      "observedLastHandAt": "2026-11-01T03:49:32.36531+00:00"
+    },
+    {
+      "tournamentId": "161b65b2-a718-4fd7-9a6b-f60fbd77a40a",
+      "operationId": "98fc03ab-1650-5af8-a6da-3f8240b2168e",
+      "observedLastHandAt": "2026-11-01T18:14:10.672318+00:00"
+    },
+    {
+      "tournamentId": "1bd6558e-1964-41d9-9ceb-cb908fde6c1a",
+      "operationId": "8a8b58d1-7b46-57d5-bb30-10292463f10c",
+      "observedLastHandAt": "2026-11-01T21:04:48.732079+00:00"
+    },
+    {
+      "tournamentId": "261eacc5-a26b-40c8-a30e-1913ab6e5a9e",
+      "operationId": "b3d4680a-38ed-533f-8d12-bbcab9cb6d8f",
+      "observedLastHandAt": "2026-11-01T15:28:25.840143+00:00"
+    },
+    {
+      "tournamentId": "525a9726-68f5-4deb-8071-d62a9c6d9480",
+      "operationId": "cbb21fc2-2cd2-5ab8-9fca-06992d958af8",
+      "observedLastHandAt": "2026-11-01T15:27:46.192303+00:00"
+    },
+    {
+      "tournamentId": "54ca613b-0bd2-4492-8610-b1281dbaa822",
+      "operationId": "b8719110-10fe-552f-91dc-f5429711a8c1",
+      "observedLastHandAt": "2026-11-01T16:49:38.146453+00:00"
+    },
+    {
+      "tournamentId": "65cb94c0-752a-43b4-981d-098294d044f9",
+      "operationId": "51d8ce37-55a4-5a6c-96ec-4d729dc85fea",
+      "observedLastHandAt": "2026-11-01T02:18:37.351504+00:00"
+    },
+    {
+      "tournamentId": "6a0cbe20-8139-4c73-90d0-a038c5095387",
+      "operationId": "7d1c98ab-1341-5a88-80df-611e522e1989",
+      "observedLastHandAt": "2026-11-01T21:04:55.99687+00:00"
+    },
+    {
+      "tournamentId": "73ad085c-0598-4202-84fc-27d30604d134",
+      "operationId": "623599db-a65a-577b-9cc7-d9e9fbbe3093",
+      "observedLastHandAt": "2026-11-01T19:39:35.829667+00:00"
+    },
+    {
+      "tournamentId": "94eefeb1-5435-4fdd-b601-dbd7938bfd82",
+      "operationId": "3a6b6a99-af9a-580e-9eb4-075ef4bc369d",
+      "observedLastHandAt": "2026-11-01T12:37:50.608385+00:00"
+    },
+    {
+      "tournamentId": "9e527f7b-d2b5-499c-a0c1-0720e5e29369",
+      "operationId": "98414b46-ecfe-521c-b5a8-b592c2593e0e",
+      "observedLastHandAt": "2026-11-01T16:49:05.080183+00:00"
+    },
+    {
+      "tournamentId": "aa8e9409-8385-4a8d-9607-9bbc00769f97",
+      "operationId": "6afcf4ca-d8ec-542a-88ba-1dc5a6fdfa80",
+      "observedLastHandAt": "2026-11-01T15:27:59.061143+00:00"
+    },
+    {
+      "tournamentId": "bc8b63f8-5d0b-46c3-9693-e80174d42934",
+      "operationId": "06f1f061-80ba-568c-9d80-5f0fa1f05e52",
+      "observedLastHandAt": "2026-11-01T21:05:59.859205+00:00"
+    },
+    {
+      "tournamentId": "cc64ed2b-90d3-4e8e-bb00-006c6d5e964f",
+      "operationId": "a93e6bd1-9a09-520e-8aea-3e0a99206f2e",
+      "observedLastHandAt": "2026-11-01T16:49:36.366343+00:00"
+    },
+    {
+      "tournamentId": "d58470df-498c-42d0-b5d4-9d7cb5b7828a",
+      "operationId": "b7194d26-6005-5b1b-bab0-8ea363436310",
+      "observedLastHandAt": "2026-11-01T21:04:14.85944+00:00"
+    },
+    {
+      "tournamentId": "e408f603-5364-44b0-80aa-5dd6a917e47a",
+      "operationId": "cb1c76c5-b892-558d-b252-aa73be875782",
+      "observedLastHandAt": "2026-11-01T02:22:55.821337+00:00"
+    },
+    {
+      "tournamentId": "eeed2c77-f292-4e09-a0db-dbe544c115f7",
+      "operationId": "934a754f-a963-596f-ac48-c2f0e3c5d7a5",
+      "observedLastHandAt": "2026-11-01T15:28:17.043425+00:00"
+    },
+    {
+      "tournamentId": "f18c199d-69e7-4c51-9f7b-c121cdacbebc",
+      "operationId": "12ce2b71-2b98-5264-b3dc-22c9cf4259b6",
+      "observedLastHandAt": "2026-11-01T16:49:34.837585+00:00"
+    },
+    {
+      "tournamentId": "f2c1265c-85f4-487c-b3f2-65984da196d7",
+      "operationId": "52934901-0961-55e9-93a6-c2335483d572",
+      "observedLastHandAt": "2026-11-01T19:39:13.175228+00:00"
+    }
+  ]
+}
