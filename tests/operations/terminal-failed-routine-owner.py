@@ -66,11 +66,6 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         env.start(); self.addCleanup(env.stop)
         start = 1793592000
         self.start = start
-        # The immutable failed window is historical. Keep the observation clock
-        # relative to it: the "not settled" case's ten-hour bound otherwise
-        # expires as wall time advances, turning a refusal fixture into approval.
-        clock = patch.object(seal.time, 'time', return_value=start + 3600)
-        clock.start(); self.addCleanup(clock.stop)
         self.failure = {'schema': 1, 'runId': DEAD_RUN, 'result': 'failed', 'sha': B_SHA, 'controlSha': B_SHA,
             'invocationId': seal.NINEF_INVOCATION, 'transactionExitStatus': 1, 'recoveredDesiredSha': A_SHA,
             'recoveredDesiredImageId': A_IMAGE, 'completedAt': seal.NINEF_COMPLETED_AT}
@@ -370,7 +365,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
     def test_every_missing_or_unknown_proof_keeps_the_owner(self):
         bad_intent = lambda **f: lambda: self.write_intent(**f)
         cases = {
-            'window not settled': lambda: setattr(seal, 'TERMINAL_OWNER_SETTLE_MS', 10 * 3600 * 1000),
+            'window not settled': lambda: None,
             'desired changed': lambda: seal.write_state({**seal.load_state(), 'desired': {
                 'sha': A_SHA, 'imageId': OTHER_IMAGE, 'legacyUnlabelled': False}}),
             'durable failure differs': lambda: seal.write_json_atomic(
@@ -462,7 +457,14 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             with self.subTest(name):
                 self.reset()
                 arrange()
-                outcome = self.resolve_or_refusal()
+                if name == 'window not settled':
+                    # Observe the actual unsettled boundary, independent of when
+                    # CI runs. A fixed duration against a historical window expires.
+                    before_settle = (self.window['endsAt'] + seal.TERMINAL_OWNER_SETTLE_MS - 1) / 1000
+                    with patch.object(seal.time, 'time', return_value=before_settle):
+                        outcome = self.resolve_or_refusal()
+                else:
+                    outcome = self.resolve_or_refusal()
                 self.assertNotEqual(outcome, DEAD_RUN)
                 self.assertNotIn(DEAD_RUN, seal.load_state().get('routineFailureResolutions', {}))
                 self.assertFalse(list(seal.RESULT_DIR.glob('*.terminal-resolution.json')))
