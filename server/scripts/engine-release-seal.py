@@ -1056,6 +1056,9 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner == FAILED_ROUTINE_RUN:
         validate_failed_routine_resolution(resolution, cycle)
         return
+    if owner == PREATTACH_RUN:
+        validate_preattach_resolution(resolution, cycle)
+        return
     if owner == DAILY_REFUSAL_RUN:
         validate_daily_refusal_resolution(resolution, cycle)
         return
@@ -1306,6 +1309,261 @@ def daily_refusal_proof(state: dict[str,Any], cycle: dict[str,Any], deadline: fl
         return None
 
 
+# This profile resolves only the original 08e refusal before WebSocket creation.
+# It never retries that operation or claims that its native close succeeded.
+PREATTACH_RUN = '41452708967-1'
+PREATTACH_SHA = '08e3edee7aaa1ca235403e3812504fd6cf88206c'
+PREATTACH_INVOCATION = 'ca957c4b8b6c40fe8f47ea2bb6e1ce93'
+PREATTACH_PROPOSAL = 'd40c983e9c26be190ca0167f17f0d35b07b9daa4f9984e17d8b339c8bb7b13c0'
+PREATTACH_CONTAINER = 'e236a170ab73204b2a0826fdccb9efb36f21043ccd2bf009ce64421b7a1e0a4b'
+PREATTACH_SOURCES = {
+    'engine-release-transaction.sh': '0a78bdb9e5b3ba761ea1daf4bbec55c42b2ee654a98d71a5850a46ef313a5abe',
+    'engine-release-unit-wrapper.sh': 'e9abdbe2c97c3594b32a920285e78858c1e0497f00a8a7edd21b99ba0491dc9c',
+    'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83',
+    'install-engine-supervisor.sh': 'b47aaaca69f749a60e72ef983719b4d18c00b75d7c1d19958508a45930d0fa96',
+    'install-engine-intake.sh': '5476d126add86e299728488c97eb0f47c2bdeddb3b0b28d680db6535eea47f1b',
+    'main-inspector-retirement.py': '80cc6afcd4aa40540603132b893e9d0880f08606b9a2aac6494aac1bea8bd7e5',
+    'main-inspector-retirement-entry.mjs': 'b1a6141c4f11455f96d55b81acd24ba950f90902b96720467701f5ad0e2fa801',
+    'retire-owned-main-inspector.mjs': 'dd91b8fa3e514a032b8b1133b1985988710c07239f692e8aeef65d21427f5d44',
+    'main-inspector-socket-qualification.mjs': 'a34c84ab8e1cd0f92b645a02e89a379d863f07da0021a9930643f90eea8a5482',
+}
+PREATTACH_DIAGNOSTIC = {'schema': 'main-inspector-retirement-failure/v1', 'ok': False,
+    'hostStage': 'native_exit', 'reason': 'retirement_outcome_unproved', 'intent': 'durable',
+    'ack': 'flushed', 'childExit': 'nonzero', 'retryAllowed': False,
+    'native': {'ok': False, 'retryAllowed': False, 'entryStage': 'transport', 'stage': 'attach',
+        'reason': 'outcome_unknown', 'closeRequested': False, 'closeAcknowledged': False,
+        'connectionClosed': False, 'listenerAbsent': None}}
+
+
+def preattach_cycle(cycle: Any) -> None:
+    failed_routine_require(isinstance(cycle, dict) and cycle.get('runId') == PREATTACH_RUN
+        and cycle.get('sha') == cycle.get('controlSha') == PREATTACH_SHA
+        and cycle.get('startsAt') == 1793628000 and cycle.get('endsAt') == 1793628300
+        and cycle.get('status') == 'reserved' and cycle.get('window') is None
+        and cycle.get('kind') == 'hourly-reset' and cycle.get('policyId') == SCHEDULE_POLICY_ID
+        and cycle.get('policyDigest') == NINEF_POLICY_DIGEST)
+    failure = cycle.get('failure')
+    failed_routine_require(isinstance(failure, dict) and set(failure) == {
+        'schema', 'runId', 'result', 'sha', 'controlSha', 'invocationId', 'transactionExitStatus',
+        'recoveredDesiredSha', 'recoveredDesiredImageId', 'completedAt'}
+        and type(failure['schema']) is int and failure['schema'] == 1
+        and failure['runId'] == PREATTACH_RUN and failure['sha'] == failure['controlSha'] == PREATTACH_SHA
+        and failure['invocationId'] == PREATTACH_INVOCATION and failure['result'] == 'failed'
+        and type(failure['transactionExitStatus']) is int and failure['transactionExitStatus'] == 1
+        and failure['recoveredDesiredSha'] == FAILED_ROUTINE_DESIRED
+        and failure['recoveredDesiredImageId'] == FAILED_ROUTINE_IMAGE
+        and type(failure['completedAt']) is int and 1793627880 <= failure['completedAt'] < 1793628000)
+
+
+def preattach_claim() -> dict[str, Any]:
+    claim = failed_routine_json(STATE_DIR / 'engine-release-requests' /
+        (PREATTACH_RUN + '.main-inspector-retirement-intent'))
+    failed_routine_require(isinstance(claim, dict) and set(claim) == {
+        'schema','runId','invocationId','controlSha','requestDeadline','target','requestSha256',
+        'nativeUnit','source','instance','containerIdentity','proposal','proposalSha256','deadlineMs','retryAllowed'}
+        and claim['schema'] == 'main-inspector-retirement-claim/v1'
+        and claim['runId'] == PREATTACH_RUN and claim['controlSha'] == claim['target'] == PREATTACH_SHA
+        and claim['invocationId'] == PREATTACH_INVOCATION and claim['source'] == FAILED_ROUTINE_DESIRED
+        and claim['instance'] == '1-2790e861' and claim['retryAllowed'] is False
+        and type(claim['requestDeadline']) is int and claim['requestDeadline'] == 1793638383
+        and type(claim['deadlineMs']) is int and 1793627880000 < claim['deadlineMs'] < 1793628000000
+        and re.fullmatch('[0-9a-f]{64}', str(claim['requestSha256']))
+        and claim['nativeUnit'] == {'InvocationID':PREATTACH_INVOCATION,'ActiveState':'activating','SubState':'start'}
+        and claim['proposalSha256'] == PREATTACH_PROPOSAL
+        and isinstance(claim['containerIdentity'], str)
+        and hashlib.sha256(claim['containerIdentity'].encode()).hexdigest() == PREATTACH_CONTAINER
+        and hashlib.sha256(json.dumps(claim['proposal'], separators=(',', ':')).encode()).hexdigest() == PREATTACH_PROPOSAL)
+    return claim
+
+
+def preattach_journal(cycle: dict[str, Any], deadline: float) -> dict[str, Any]:
+    unit = 'club-arena-engine-release-v1@' + PREATTACH_RUN + '.service'
+    raw = failed_routine_command(['journalctl', '--unit=' + unit,
+        '_SYSTEMD_INVOCATION_ID=' + PREATTACH_INVOCATION, '--no-pager', '--output=json',
+        '--output-fields=MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP',
+        '--lines=4', '--grep=main-inspector-retirement-failure/v1'], deadline, 16384)
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            failed_routine_require(key not in value)
+            value[key] = item
+        return value
+    rows = [json.loads(line, object_pairs_hook=unique) for line in raw.splitlines() if line.strip()]
+    failed_routine_require(len(rows) == 1)
+    row = rows[0]
+    failed_routine_require(row.get('_SYSTEMD_UNIT') == unit
+        and row.get('_SYSTEMD_INVOCATION_ID') == PREATTACH_INVOCATION
+        and failed_routine_digest(json.loads(row.get('MESSAGE', ''), object_pairs_hook=unique)) == failed_routine_digest(PREATTACH_DIAGNOSTIC)
+        and str(row.get('__REALTIME_TIMESTAMP', '')).isdigit()
+        and 1793627880000000 <= int(row['__REALTIME_TIMESTAMP'])
+            < (cycle['failure']['completedAt'] + 1) * 1000000)
+    return {'journalDigest': failed_routine_digest(row), 'atMicros': int(row['__REALTIME_TIMESTAMP'])}
+
+
+def preattach_runtime(claim: dict[str, Any], deadline: float) -> dict[str, Any]:
+    value = terminal_inspect_container(deadline)
+    live = value['State']
+    original = claim['containerIdentity'].split()
+    failed_routine_require(len(original) == 5 and value.get('Id') == original[0]
+        and value.get('Image') == FAILED_ROUTINE_IMAGE and live.get('Running') is True
+        and live.get('Status') == 'running' and type(live.get('Pid')) is int and live['Pid'] > 0)
+    identity = f"{value['Id']} {value['Image']} true {live['StartedAt']} {live['Pid']}"
+    if identity != claim['containerIdentity']:
+        # A naturally replaced predecessor is admissible only with positive
+        # kernel proof that the original process is gone and the new Inspector
+        # is closed. This does not start, stop or signal either process.
+        born = datetime.fromisoformat(live['StartedAt'].replace('Z', '+00:00'))
+        failed_routine_require(born.tzinfo is not None and born.timestamp()*1000 > claim['deadlineMs']
+            and born.timestamp() < time.time() and live['Pid'] != int(original[4]))
+        old_birth = terminal_proc_birth(int(original[4]))
+        failed_routine_require(old_birth is None or old_birth*1000 > claim['deadlineMs'])
+        runtime = failed_routine_runtime(deadline, bounded=True)
+        failed_routine_require(runtime['containerId'] == value['Id'] and runtime['startedAt'] == live['StartedAt']
+            and runtime['instanceId'] != claim['instance'])
+        failed_routine_database(runtime, deadline)
+        after = terminal_inspect_container(deadline)
+        failed_routine_require(all(after.get(k) == value.get(k) for k in ('Id','Image'))
+            and all(after.get('State',{}).get(k) == live.get(k) for k in ('Pid','StartedAt','Running','Status')))
+        return {'mode':'successor-inspector-closed', **runtime, 'hostPid':live['Pid'],
+            'originalProcess':'kernel-enoent' if old_birth is None else 'pid-reused-after-claim',
+            'databaseIdle':True, 'freshLeader':True}
+    for url in ('http://127.0.0.1:8080/health', os.environ.get('ENGINE_URL', 'https://engine.smarter.poker').rstrip('/') + '/health'):
+        h = json.loads(failed_routine_command(['curl','--fail','--silent','--show-error','--max-time','3',
+            url + '?preattach=' + str(time.time_ns())], deadline, 1048576))
+        m = h.get('maintenance') or {}
+        failed_routine_require(h.get('releaseSha') == FAILED_ROUTINE_DESIRED and h.get('instanceId') == claim['instance']
+            and h.get('running') is True and h.get('liveness') == h.get('status') == 'ok'
+            and m.get('phase') == 'idle' and m.get('active') is False and m.get('durableConfirmed') is False)
+    # Kernel metadata only: no discovery, connection, evaluation or close.
+    source = (Path(__file__).resolve().parent / 'main-inspector-socket-qualification.mjs').read_text()
+    script = source + '\nconsole.log(JSON.stringify(captureMainInspectorBinding({pid:1,port:9229,deadlineMs:Date.now()+2000,expectedBinding:' + json.dumps(claim['proposal']['binding']) + '})));'
+    binding = json.loads(failed_routine_command(['docker','exec',value['Id'],'sh','-c',
+        'case "${NODE_OPTIONS-}" in *--inspect*|*--debug*) exit 1;; esac; exec env -u NODE_OPTIONS -u NODE_PATH node --no-inspect "$@"',
+        'preattach-proof','--input-type=module','-e',script], deadline, 4096))
+    failed_routine_require(binding == claim['proposal']['binding'])
+    runtime = {'containerId':value['Id'],'startedAt':live['StartedAt'],'instanceId':claim['instance']}
+    failed_routine_database(runtime, deadline)
+    return {'mode':'original-clientless-inspector', 'containerIdentitySHA256':PREATTACH_CONTAINER,
+            'instanceId':claim['instance'], 'bindingDigest':failed_routine_digest(binding),
+            'databaseIdle':True, 'freshLeader':True}
+
+
+def validate_preattach_runtime(runtime: Any, claim: dict[str, Any], observed: int) -> None:
+    failed_routine_require(isinstance(runtime, dict) and runtime.get('databaseIdle') is True
+        and runtime.get('freshLeader') is True)
+    if runtime.get('mode') == 'original-clientless-inspector':
+        failed_routine_require(runtime == {'mode':'original-clientless-inspector',
+            'containerIdentitySHA256':PREATTACH_CONTAINER,'instanceId':claim['instance'],
+            'bindingDigest':failed_routine_digest(claim['proposal']['binding']), 'databaseIdle':True,'freshLeader':True})
+    else:
+        original = claim['containerIdentity'].split()
+        failed_routine_require(set(runtime) == {'mode','containerId','startedAt','instanceId','hostPid',
+            'originalProcess','databaseIdle','freshLeader'} and runtime['mode'] == 'successor-inspector-closed'
+            and runtime['containerId'] == original[0] and type(runtime['hostPid']) is int
+            and runtime['hostPid'] > 0 and runtime['hostPid'] != int(original[4])
+            and INSTANCE_ID_RE.fullmatch(str(runtime['instanceId'])) and runtime['instanceId'] != claim['instance']
+            and runtime['originalProcess'] in {'kernel-enoent','pid-reused-after-claim'})
+        born = datetime.fromisoformat(runtime['startedAt'].replace('Z','+00:00'))
+        failed_routine_require(born.tzinfo is not None and claim['deadlineMs'] < born.timestamp()*1000 <= observed*1000)
+
+
+def preattach_proof(state: dict[str, Any], cycle: dict[str, Any], deadline: float) -> dict[str, Any]:
+    preattach_cycle(cycle)
+    failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+        and PREATTACH_RUN not in state['committedRuns']
+        and state['desired']['sha'] == FAILED_ROUTINE_DESIRED and state['desired']['imageId'] == FAILED_ROUTINE_IMAGE
+        and load_failure(PREATTACH_RUN) == cycle['failure'] and time.time() > cycle['failure']['completedAt'])
+    claim = preattach_claim()
+    sources = ninef_sources(deadline, PREATTACH_SHA, PREATTACH_SOURCES)
+    native = failed_routine_native_proof(deadline, PREATTACH_RUN, retained_preattach=True)
+    historical = preattach_journal(cycle, deadline)
+    runtime = preattach_runtime(claim, deadline)
+    return {'failureDigest':failed_routine_digest(cycle['failure']), 'claimDigest':failed_routine_digest(claim),
+        'sourceDigests':sources, 'nativeDigest':failed_routine_digest(native), 'historical':historical,
+        'runtime':runtime, 'nativeCloseInvoked':False, 'retryAllowed':False}
+
+
+def validate_preattach_resolution(value: Any, cycle: dict[str, Any], verify_receipt: bool = True) -> None:
+    preattach_cycle(cycle)
+    failed_routine_require(isinstance(value, dict) and set(value) == TERMINAL_RESOLUTION_KEYS
+        and type(value['schema']) is int and value['schema'] == 1 and value['result'] == 'preattach-refusal-proved' and value['originalCycle'] == cycle
+        and RUN_ID_RE.fullmatch(str(value['verifiedByRunId'])) and value['verifiedByRunId'] != PREATTACH_RUN
+        and all(SHA_RE.fullmatch(str(value[k])) and value[k] != PREATTACH_SHA for k in ('verifiedByControlSha','verifiedByTargetSha'))
+        and INVOCATION_ID_RE.fullmatch(str(value['invocationId']))
+        and type(value['observedAt']) is int and value['observedAt'] > cycle['failure']['completedAt'])
+    proof = value['proof']; claim = preattach_claim()
+    failed_routine_require(isinstance(proof, dict) and set(proof) == {
+        'failureDigest','claimDigest','sourceDigests','nativeDigest','historical','runtime','nativeCloseInvoked','retryAllowed'}
+        and proof['failureDigest'] == failed_routine_digest(cycle['failure'])
+        and proof['claimDigest'] == failed_routine_digest(claim) and proof['sourceDigests'] == PREATTACH_SOURCES
+        and proof['nativeCloseInvoked'] is False and proof['retryAllowed'] is False
+        and re.fullmatch('[0-9a-f]{64}', str(proof['nativeDigest']))
+        and isinstance(proof['historical'], dict) and set(proof['historical']) == {'journalDigest','atMicros'}
+        and re.fullmatch('[0-9a-f]{64}', str(proof['historical']['journalDigest']))
+        and type(proof['historical']['atMicros']) is int
+        and 1793627880000000 <= proof['historical']['atMicros'] < (cycle['failure']['completedAt'] + 1)*1000000)
+    validate_preattach_runtime(proof['runtime'], claim, value['observedAt'])
+    if verify_receipt:
+        failed_routine_require(failed_routine_json(terminal_receipt_path(PREATTACH_RUN,
+            value['verifiedByRunId'], value['invocationId'])) == value)
+
+
+def cmd_attest_preattach_resolution(args: argparse.Namespace) -> None:
+    failed_routine_require(args.run_id == PREATTACH_RUN and re.fullmatch('[0-9a-f]{64}', args.claim_digest))
+    state = load_state()
+    cycles = [c for c in routine_cycles(state).values() if c['runId'] == PREATTACH_RUN]
+    failed_routine_require(len(cycles) == 1)
+    resolution = failed_routine_json(RESULT_DIR / (PREATTACH_RUN + '.preattach-disposition.json'))
+    validate_preattach_resolution(resolution, cycles[0])
+    failed_routine_require(resolution['proof']['claimDigest'] == args.claim_digest)
+    print('preattach-refusal-proved')
+
+
+
+def establish_preattach_disposition(args: argparse.Namespace, state: dict[str, Any], cycle: dict[str, Any], deadline: float) -> None:
+    # This is a no-runtime-action disposition under the caller's engine/seal
+    # locks. Establish it before the unchanged entry-state gate; the gate must
+    # still validate every other retained foreign claim before routine release.
+    disposition = RESULT_DIR / (PREATTACH_RUN + '.preattach-disposition.json')
+    try:
+        disposition.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        validate_preattach_resolution(failed_routine_json(disposition), cycle)
+        return
+    current = failed_routine_current_identity(args, deadline)
+    proof = preattach_proof(state, cycle, deadline)
+    failed_routine_require(load_state() == state and preattach_proof(state, cycle, deadline) == proof
+        and failed_routine_current_identity(args, deadline) == current)
+    resolution = {'schema':1, 'result':'preattach-refusal-proved', 'originalCycle':cycle,
+        'verifiedByRunId':args.run_id, 'verifiedByControlSha':args.control_sha,
+        'verifiedByTargetSha':args.sha, 'invocationId':args.invocation_id,
+        'observedAt':int(time.time()), 'proof':proof}
+    validate_preattach_resolution(resolution, cycle, verify_receipt=False)
+    receipt = terminal_receipt_path(PREATTACH_RUN,args.run_id,args.invocation_id)
+    try:
+        receipt.lstat()
+    except FileNotFoundError:
+        write_json_atomic(receipt,resolution)
+    else:
+        retained = failed_routine_json(receipt)
+        validate_preattach_resolution(retained, cycle)
+        failed_routine_require(all(retained[k] == resolution[k] for k in
+            ('verifiedByRunId','verifiedByControlSha','verifiedByTargetSha','invocationId'))
+            and all(retained['proof'][k] == proof[k] for k in
+                ('failureDigest','claimDigest','sourceDigests','historical','nativeCloseInvoked','retryAllowed')))
+        resolution = retained
+    disposition = RESULT_DIR / (PREATTACH_RUN + '.preattach-disposition.json')
+    try:
+        disposition.lstat()
+    except FileNotFoundError:
+        write_json_atomic(disposition,resolution)
+    else:
+        failed_routine_require(failed_routine_json(disposition) == resolution)
+    validate_preattach_resolution(resolution,cycle)
+
+
 def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     """Inside the existing transaction, under the engine and seal locks, record a
     terminal-failure proof for each expired failed foreign routine owner whose
@@ -1317,12 +1575,12 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     state; an interrupted run resumes with exactly those bytes."""
     run_id = str(args.run_id)
     invocation = str(args.invocation_id)
-    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN} or
+    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} or
             os.geteuid() != 0):
         die('terminal routine failure proof identity is invalid')
     sha = valid_sha(str(args.sha))
     control_sha = valid_sha(str(args.control_sha))
-    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA}:
+    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA, PREATTACH_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA, PREATTACH_SHA}:
         die('terminal routine failure proof identity is invalid')
     require_engine_lock(args.engine_lock_fd)
     deadline = time.monotonic() + 45
@@ -1331,12 +1589,16 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         proved = []
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
-            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
+            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
+            if owner == PREATTACH_RUN:
+                establish_preattach_disposition(args, state, cycle, deadline)
             current = failed_routine_current(args, deadline)
             prove = (lambda: cancelled_phase1_proof(args, state, cycle, deadline)) if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} else (lambda: terminal_owner_proof(state, cycle, deadline))
             if owner == DAILY_REFUSAL_RUN:
                 prove = lambda: daily_refusal_proof(state, cycle, deadline)
+            if owner == PREATTACH_RUN:
+                prove = lambda: preattach_proof(state, cycle, deadline)
             proof = prove()
             if proof is None:
                 continue
@@ -1347,14 +1609,20 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} else 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
             if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
                 validate_cancelled_phase1_resolution(resolution, cycle, verify_receipt=False)
             if owner == DAILY_REFUSAL_RUN:
                 validate_daily_refusal_resolution(resolution, cycle, verify_receipt=False)
-            receipt = terminal_receipt_path(owner, run_id, invocation)
+            if owner == PREATTACH_RUN:
+                retained = failed_routine_json(RESULT_DIR / (PREATTACH_RUN + '.preattach-disposition.json'))
+                validate_preattach_resolution(retained, cycle)
+                failed_routine_require(all(retained['proof'][k] == proof[k] for k in (
+                    'failureDigest','claimDigest','sourceDigests','historical','nativeCloseInvoked','retryAllowed')))
+                resolution = retained
+            receipt = terminal_receipt_path(owner, resolution['verifiedByRunId'], resolution['invocationId'])
             try:
                 receipt.lstat()
             except FileNotFoundError:
@@ -1367,7 +1635,7 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
                 resolution = original
             validate_routine_resolution(owner, resolution, cycle)
             audit_once('routine_terminal_failure_proved', state,
-                       'routine_terminal_failure_proved:' + owner + ':' + run_id + ':' + invocation,
+                       'routine_terminal_failure_proved:' + owner + ':' + resolution['verifiedByRunId'] + ':' + resolution['invocationId'],
                        resolution=resolution)
             if load_state() != state or time.monotonic() >= deadline:
                 die('terminal routine failure proof lost its seal or deadline before compare-and-swap')
@@ -2564,7 +2832,7 @@ def failed_routine_service_empty(unit: str, before: dict[str, str], deadline: fl
         return 'unloaded-manager-cgroup-empty'
 
 
-def failed_routine_native_proof(deadline: float, owner: str = FAILED_ROUTINE_RUN) -> dict[str, Any]:
+def failed_routine_native_proof(deadline: float, owner: str = FAILED_ROUTINE_RUN, retained_preattach: bool = False) -> dict[str, Any]:
     units = {}
     for prefix, extension in (('release', 'service'), ('intake', 'service'), ('intake', 'path')):
         unit = f'club-arena-engine-{prefix}-v1@{owner}.{extension}'
@@ -2581,8 +2849,13 @@ def failed_routine_native_proof(deadline: float, owner: str = FAILED_ROUTINE_RUN
         (STATE_DIR / 'engine-intake-requests', ('request', 'intent')),
         (STATE_DIR / 'engine-release-generation-pins', ('generation',)),
         (STATE_DIR / 'engine-image-leases', ('lease',)))
+    if retained_preattach:
+        failed_routine_require(owner == PREATTACH_RUN)
+        preattach_claim()
     for root, suffixes in roots:
         for suffix in suffixes:
+            if retained_preattach and suffix == 'main-inspector-retirement-intent':
+                continue
             require_absent(root / (owner + '.' + suffix))
     require_absent(STATE_DIR / ('engine-recovery-window-' + owner + '.json'))
     return units
@@ -2622,7 +2895,7 @@ def failed_routine_history(failure: dict[str, Any], deadline: float) -> dict[str
     return {'journalDigest': failed_routine_digest(row), 'atMicros': stamp}
 
 
-def failed_routine_current(args: argparse.Namespace, deadline: float) -> dict[str, Any]:
+def failed_routine_current_identity(args: argparse.Namespace, deadline: float) -> dict[str, Any]:
     control = Path(__file__).resolve().parent
     request_root = STATE_DIR / 'engine-release-requests'
     request = failed_routine_bytes(request_root / (args.run_id + '.request')).decode().splitlines()
@@ -2639,14 +2912,33 @@ def failed_routine_current(args: argparse.Namespace, deadline: float) -> dict[st
         current['InvocationID'] == args.invocation_id == os.environ.get('INVOCATION_ID'))
     groups = [line.split(':', 2)[2] for line in Path('/proc/self/cgroup').read_text().splitlines()]
     failed_routine_require(bool(current['ControlGroup']) and current['ControlGroup'] in groups)
-    failed_routine_command([str(control / 'main-inspector-retirement.py'), '--entry-state', args.run_id], deadline)
     return {'requestDigest': failed_routine_digest(request), 'unit': current}
 
 
-def failed_routine_runtime(deadline: float) -> dict[str, Any]:
+def failed_routine_current(args: argparse.Namespace, deadline: float) -> dict[str, Any]:
+    current = failed_routine_current_identity(args, deadline)
+    control = Path(__file__).resolve().parent
+    failed_routine_command([str(control / 'main-inspector-retirement.py'), '--entry-state', args.run_id], deadline)
+    return current
+
+
+def failed_routine_runtime(deadline: float, bounded: bool = False) -> dict[str, Any]:
     container = os.environ.get('CONTAINER', 'club-arena-engine')
-    value = docker_json('container', container)
-    image, source, _ = image_identity(FAILED_ROUTINE_IMAGE, require_label=False)
+    if bounded:
+        value = terminal_inspect_container(deadline)
+        metadata = json.loads(failed_routine_command(['docker','image','inspect','--format','{{json .}}',
+            FAILED_ROUTINE_IMAGE], deadline, 262144))
+        image = metadata.get('Id')
+        config = metadata.get('Config') or {}
+        source = (config.get('Labels') or {}).get('org.opencontainers.image.revision')
+        if not isinstance(source, str) or not SHA_RE.fullmatch(source.lower()):
+            matches = [v.split('=',1)[1] for v in config.get('Env',[]) if isinstance(v,str) and v.startswith('GIT_COMMIT_SHA=')]
+            failed_routine_require(len(matches) == 1 and SHA_RE.fullmatch(matches[0].lower()))
+            source = matches[0]
+        source = source.lower()
+    else:
+        value = docker_json('container', container)
+        image, source, _ = image_identity(FAILED_ROUTINE_IMAGE, require_label=False)
     failed_routine_require(image == FAILED_ROUTINE_IMAGE and source == FAILED_ROUTINE_DESIRED and
         value.get('Image') == image and value.get('State', {}).get('Status') == 'running' and
         CONTAINER_ID_RE.fullmatch(str(value.get('Id', ''))) is not None)
@@ -3135,6 +3427,10 @@ def parser() -> argparse.ArgumentParser:
     resolve_failed.add_argument('--control-sha', required=True)
     resolve_failed.add_argument('--invocation-id', required=True)
     resolve_failed.set_defaults(handler=cmd_resolve_failed_routine)
+    preattach = commands.add_parser('attest-preattach-resolution')
+    preattach.add_argument('--run-id', required=True)
+    preattach.add_argument('--claim-digest', required=True)
+    preattach.set_defaults(handler=cmd_attest_preattach_resolution)
     resolve_terminal = commands.add_parser('resolve-terminal-routine-failures')
     resolve_terminal.add_argument('--repo', default='/opt/club-arena')
     resolve_terminal.add_argument('--engine-lock-fd', type=int, required=True)

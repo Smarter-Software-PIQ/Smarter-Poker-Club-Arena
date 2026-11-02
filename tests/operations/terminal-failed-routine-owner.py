@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('terminal_owner_seal', ROOT / 'server/scripts/engine-release-seal.py')
 seal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(seal)
+ORIGINAL_BOUNDED_COMMAND = seal.failed_routine_command
 observer_spec = importlib.util.spec_from_file_location('terminal_owner_observer',
                                                        ROOT / 'scripts/ci/read-scoped-release-recovery.py')
 observer = importlib.util.module_from_spec(observer_spec)
@@ -365,7 +366,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
     def test_every_missing_or_unknown_proof_keeps_the_owner(self):
         bad_intent = lambda **f: lambda: self.write_intent(**f)
         cases = {
-            'window not settled': lambda: setattr(seal, 'TERMINAL_OWNER_SETTLE_MS', 10 * 3600 * 1000),
+            'window not settled': lambda: setattr(seal, 'TERMINAL_OWNER_SETTLE_MS', int(time.time()*1000) - self.window['endsAt'] + 60000),
             'desired changed': lambda: seal.write_state({**seal.load_state(), 'desired': {
                 'sha': A_SHA, 'imageId': OTHER_IMAGE, 'legacyUnlabelled': False}}),
             'durable failure differs': lambda: seal.write_json_atomic(
@@ -931,6 +932,208 @@ class SecondCancelledAnnouncementOwner(unittest.TestCase):
                     self.assertNotIn('routineFailureResolutions', json.loads(seal.STATE_FILE.read_text()))
                     self.assertEqual(list(seal.RESULT_DIR.iterdir()), [])
                 finally: self.proof = original
+
+
+class PreattachmentOwner(unittest.TestCase):
+    # Reuse only fixture plumbing, not its other-owner test cases.
+    for name in ('sources','current','reset','native_unit','service_empty','container','birth',
+                 'quiet','refused','resolve','resolve_or_refusal','owner','write_intent'):
+        locals()[name] = getattr(TerminalFailedRoutineOwner, name)
+
+    def setUp(self):
+        TerminalFailedRoutineOwner.setUp(self)
+        self.dead = seal.PREATTACH_RUN
+        self.request_root = seal.STATE_DIR / 'engine-release-requests'
+        self.request_root.mkdir()
+        self.live = {'Id':CONTAINER,'Image':A_IMAGE,'State':{'Running':True,'Status':'running',
+            'StartedAt':'2026-11-02T13:10:18.979153938Z','Pid':12345}}
+        identity = f"{CONTAINER} {A_IMAGE} true {self.live['State']['StartedAt']} 12345"
+        proposal = {'schema':'main-inspector-retirement/v1',
+            'endpoint':'ws://127.0.0.1:9229/11111111-1111-4111-8111-111111111111',
+            'binding':{'schema':'main-inspector-socket-binding/v1','pid':1,'startTicks':'10',
+                'namespace':'net:[100]','listener':{'family':'tcp','local':'0100007F:240D','inode':'77'}}}
+        import hashlib
+        for key,value in {'PREATTACH_CONTAINER':hashlib.sha256(identity.encode()).hexdigest(),
+            'PREATTACH_PROPOSAL':hashlib.sha256(json.dumps(proposal,separators=(',',':')).encode()).hexdigest()}.items():
+            p=patch.object(seal,key,value);p.start();self.addCleanup(p.stop)
+        self.claim={'schema':'main-inspector-retirement-claim/v1','runId':self.dead,
+            'invocationId':seal.PREATTACH_INVOCATION,'controlSha':seal.PREATTACH_SHA,
+            'requestDeadline':1793638383,'target':seal.PREATTACH_SHA,'requestSha256':'9'*64,
+            'nativeUnit':{'InvocationID':seal.PREATTACH_INVOCATION,'ActiveState':'activating','SubState':'start'},
+            'source':A_SHA,'instance':'1-2790e861','containerIdentity':identity,'proposal':proposal,
+            'proposalSha256':seal.PREATTACH_PROPOSAL,'deadlineMs':1793627940000,'retryAllowed':False}
+        self.claim_path=self.request_root/(self.dead+'.main-inspector-retirement-intent')
+        self.claim_path.write_text(json.dumps(self.claim))
+        self.failure={'schema':1,'runId':self.dead,'result':'failed','sha':seal.PREATTACH_SHA,
+            'controlSha':seal.PREATTACH_SHA,'invocationId':seal.PREATTACH_INVOCATION,'transactionExitStatus':1,
+            'recoveredDesiredSha':A_SHA,'recoveredDesiredImageId':A_IMAGE,'completedAt':1793627937}
+        self.cycle={'kind':'hourly-reset','policyId':seal.SCHEDULE_POLICY_ID,'policyDigest':seal.NINEF_POLICY_DIGEST,
+            'startsAt':1793628000,'endsAt':1793628300,'runId':self.dead,'sha':seal.PREATTACH_SHA,
+            'controlSha':seal.PREATTACH_SHA,'status':'reserved','failure':self.failure}
+        self.base['routineMaintenanceCycles']={'1793628000':self.cycle}
+        seal.write_state(self.base);seal.write_json_atomic(seal.result_path(self.dead),self.failure)
+        self.health['instanceId']=self.claim['instance']
+        self.database={'schema':'failed-routine-database-idle/v1','sha':A_SHA,'instanceId':self.claim['instance'],
+            'databaseIdle':True,'freshLeader':True}
+        self.journal=[{'MESSAGE':json.dumps(seal.PREATTACH_DIAGNOSTIC),
+            '_SYSTEMD_UNIT':f'club-arena-engine-release-v1@{self.dead}.service',
+            '_SYSTEMD_INVOCATION_ID':seal.PREATTACH_INVOCATION,'__REALTIME_TIMESTAMP':'1793627936000000'}]
+        p=patch.object(seal,'failed_routine_current_identity',side_effect=self.current);p.start();self.addCleanup(p.stop)
+        self.mocks['failed_routine_current'].side_effect=self.entry
+        self.entry_seen=False
+
+    def command(self,command,deadline,limit=32768):
+        if command[:3]==['docker','container','inspect']:
+            return json.dumps(self.live)
+        if command[:3]==['docker','image','inspect']:
+            return json.dumps({'Id':A_IMAGE,'Config':{'Env':['GIT_COMMIT_SHA='+A_SHA]}})
+        if command[0]=='docker' and 'preattach-proof' in command:
+            return json.dumps(getattr(self,'binding_override',self.claim['proposal']['binding']))
+        return TerminalFailedRoutineOwner.command(self,command,deadline,limit)
+
+    def entry(self,args,deadline):
+        # The real readonly attestation must succeed BEFORE the ordinary gate.
+        self.quiet(lambda:seal.cmd_attest_preattach_resolution(Namespace(
+            run_id=self.dead,claim_digest=seal.failed_routine_digest(self.claim))))
+        self.entry_seen=True
+        return self.current(args,deadline)
+
+    def test_original_claim_and_failure_survive_distinct_disposition_and_duplicate(self):
+        before=self.claim_path.read_bytes()
+        self.assertEqual(self.resolve(),self.dead)
+        self.assertTrue(self.entry_seen)
+        state=seal.load_state();r=state['routineFailureResolutions'][self.dead]
+        self.assertEqual(r['result'],'preattach-refusal-proved')
+        self.assertIs(r['proof']['nativeCloseInvoked'],False)
+        self.assertEqual(state['routineMaintenanceCycles']['1793628000'],self.cycle)
+        self.assertEqual(self.claim_path.read_bytes(),before)
+        self.assertFalse((self.request_root/(self.dead+'.main-inspector-retirement-receipt')).exists())
+        self.assertEqual(self.owner(),'none')
+        self.assertEqual(self.resolve(),'not-needed')
+        self.assertEqual(seal.load_state(),state)
+
+    def test_missing_or_changed_native_facts_never_dispose(self):
+        good=copy.deepcopy(self.journal)
+        cases=[None]
+        for key in ['closeRequested','closeAcknowledged','connectionClosed']:
+            row=copy.deepcopy(good);v=json.loads(row[0]['MESSAGE']);v['native'][key]=True;row[0]['MESSAGE']=json.dumps(v);cases.append(row)
+        for key,value in [('stage','connect'),('reason','deadline_exhausted')]:
+            row=copy.deepcopy(good);v=json.loads(row[0]['MESSAGE']);v['native'][key]=value;row[0]['MESSAGE']=json.dumps(v);cases.append(row)
+        row=copy.deepcopy(good);v=json.loads(row[0]['MESSAGE']);v['childExit']='unknown';row[0]['MESSAGE']=json.dumps(v);cases.append(row)
+        row=copy.deepcopy(good);row[0]['_SYSTEMD_INVOCATION_ID']='0'*32;cases.append(row)
+        cases.append(good+good)
+        for journal in cases:
+            with self.subTest(journal=journal):
+                self.journal=journal or []
+                self.refused(self.resolve)
+                self.assertFalse(list(seal.RESULT_DIR.glob('*.terminal-resolution.json')))
+                self.assertNotIn('routineFailureResolutions',seal.load_state())
+        self.journal=good
+
+    def test_active_owner_retained_edges_and_claim_drift_refuse(self):
+        for suffix in ('request','intent','legacy-checkpoint-intent','main-inspector-retirement-receipt',
+                       'activation-entry','lightning-hold.json','awaiting-certificate'):
+            with self.subTest(suffix=suffix):
+                p=self.request_root/(self.dead+'.'+suffix);p.write_text('{}')
+                self.refused(self.resolve);p.unlink()
+                self.assertFalse(list(seal.RESULT_DIR.glob('*.terminal-resolution.json')))
+        self.cgroup_empty=False;self.refused(self.resolve);self.cgroup_empty=True
+        original=self.claim_path.read_bytes()
+        for key,value in [('retryAllowed',True),('source','f'*40),('invocationId','f'*32),
+                          ('proposalSha256','f'*64),('requestDeadline',0),('instance','1-deadbeef')]:
+            with self.subTest(key=key):
+                self.claim_path.write_text(json.dumps({**self.claim,key:value}));self.refused(self.resolve)
+        self.claim_path.write_bytes(original)
+
+    def test_runtime_health_binding_and_database_must_match(self):
+        self.binding_override={};self.refused(self.resolve);del self.binding_override
+        self.public_health={**self.health,'instanceId':'1-deadbeef'};self.refused(self.resolve);self.public_health=None
+        self.database['databaseIdle']=False;self.refused(self.resolve);self.database['databaseIdle']=True
+        self.health['maintenance']['active']=True;self.refused(self.resolve);self.health['maintenance']['active']=False
+        self.current_drift=True;self.refused(self.resolve);self.current_drift=False
+        self.sources_ok=False;self.refused(self.resolve);self.sources_ok=True
+        self.assertFalse(list(seal.RESULT_DIR.glob('*.terminal-resolution.json')))
+
+    def test_interrupted_disposition_write_converges_without_close_receipt(self):
+        real=seal.write_json_atomic
+        def fail(path,value):
+            if str(path).endswith('.preattach-disposition.json'):raise OSError('fixture power loss')
+            real(path,value)
+        with patch.object(seal,'write_json_atomic',side_effect=fail),self.assertRaises(OSError):self.resolve()
+        self.assertEqual(len(list(seal.RESULT_DIR.glob('*.terminal-resolution.json'))),1)
+        self.assertNotIn('routineFailureResolutions',seal.load_state())
+        self.live['State'].update(Pid=45678,StartedAt='2026-11-02T14:10:00Z')
+        self.health['instanceId']=self.database['instanceId']='1-deadbeef'
+        self.old_birth=None
+        self.assertEqual(self.resolve(),self.dead)
+        self.assertFalse((self.request_root/(self.dead+'.main-inspector-retirement-receipt')).exists())
+
+    def test_interrupted_seal_cas_resumes_with_another_verifier_preserving_receipt(self):
+        with patch.object(seal,'write_state',side_effect=OSError('fixture power loss')),self.assertRaises(OSError):self.resolve()
+        disposition=seal.RESULT_DIR/(self.dead+'.preattach-disposition.json')
+        before=disposition.read_bytes()
+        self.live['State'].update(Pid=45678,StartedAt='2026-11-02T14:10:00Z')
+        self.health['instanceId']=self.database['instanceId']='1-deadbeef'
+        self.old_birth=None
+        self.assertEqual(self.resolve(invocation='f'*32),self.dead)
+        self.assertEqual(disposition.read_bytes(),before)
+        r=seal.load_state()['routineFailureResolutions'][self.dead]
+        self.assertEqual(r['invocationId'],INVOCATION)
+        self.assertEqual(len(list(seal.RESULT_DIR.glob('*.terminal-resolution.json'))),1)
+
+    def test_successor_requires_positive_old_process_death_and_closed_inspector(self):
+        self.live['State'].update(Pid=45678,StartedAt='2026-11-02T14:10:00Z')
+        runtime={'containerId':CONTAINER,'startedAt':self.live['State']['StartedAt'],'instanceId':'1-deadbeef'}
+        self.database['instanceId']=runtime['instanceId']
+        self.health['instanceId']=runtime['instanceId']
+        self.old_birth=1793627900;self.refused(self.resolve)
+        self.old_birth=None
+        self.inspector_open=True
+        with self.assertRaises(ValueError):self.resolve()
+        self.inspector_open=False
+        self.assertEqual(self.resolve(),self.dead)
+        proof=seal.load_state()['routineFailureResolutions'][self.dead]['proof']
+        self.assertEqual(proof['runtime']['mode'],'successor-inspector-closed')
+        self.assertEqual(proof['runtime']['originalProcess'],'kernel-enoent')
+
+    def test_successor_metadata_obeys_the_shared_absolute_deadline(self):
+        with patch.object(seal,'failed_routine_command',side_effect=ORIGINAL_BOUNDED_COMMAND), \
+                patch.object(seal.subprocess,'Popen',side_effect=AssertionError('expired proof cannot spawn')):
+            self.refused(lambda:seal.failed_routine_runtime(time.monotonic()-1,bounded=True))
+
+    def test_canonical_observer_reads_distinct_disposition_and_refuses_missing_receipt(self):
+        import shutil
+        self.assertEqual(self.resolve(),self.dead)
+        root=self.root/'canonical';root.mkdir(mode=0o700)
+        results=root/'engine-release-results';results.mkdir(mode=0o700)
+        shutil.copyfile(seal.STATE_FILE,root/'engine-release-seal.json')
+        for source in seal.RESULT_DIR.iterdir():shutil.copyfile(source,results/source.name)
+        for path in [root/'engine-release-seal.json',*results.iterdir()]:os.chmod(path,0o600)
+        fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY);self.addCleanup(os.close,fd)
+        with patch.object(observer,'PREATTACH_CONTAINER',seal.PREATTACH_CONTAINER):
+            reply=observer.routine_remote(observer.ROUTINE_REQUEST,fd)
+            observer.validate_routine_reply(reply,observer.ROUTINE_REQUEST)
+            row=next(r for r in reply['owners'] if r['runId']==self.dead)
+            self.assertFalse(row['unresolvedOwner'])
+            self.assertTrue(row['failureResolution']['noAnnouncementRecorded'])
+            receipt=next(results.glob('*.terminal-resolution.json'));receipt.unlink()
+            with self.assertRaises(observer.ScopedRefusal) as error:observer.routine_remote(observer.ROUTINE_REQUEST,fd)
+            self.assertEqual((error.exception.phase,error.exception.code),('routine_disposition','file_missing'))
+        # Oversize remains refused, now with a closed diagnostic. No cap bump.
+        (root/'engine-release-seal.json').write_bytes(b' '*65537)
+        with self.assertRaises(observer.ScopedRefusal) as error:observer.routine_remote(observer.ROUTINE_REQUEST,fd)
+        self.assertEqual((error.exception.phase,error.exception.code),('routine_seal_read','file_size'))
+        out=observer.refusal(observer.ROUTINE_REQUEST,error.exception)
+        observer.validate_refusal(out,observer.ROUTINE_REQUEST)
+
+    def test_resolution_rejects_boolean_coercion_and_changed_claim(self):
+        self.assertEqual(self.resolve(),self.dead)
+        r=seal.load_state()['routineFailureResolutions'][self.dead]
+        for key in ['databaseIdle','freshLeader']:
+            value=copy.deepcopy(r);value['proof']['runtime'][key]=1
+            self.refused(lambda:seal.validate_preattach_resolution(value,self.cycle,verify_receipt=False))
+        self.claim_path.write_text(json.dumps({**self.claim,'requestSha256':'8'*64}))
+        self.refused(self.owner)
 
 
 if __name__ == '__main__':

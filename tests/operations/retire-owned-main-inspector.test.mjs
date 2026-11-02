@@ -218,3 +218,50 @@ test('actual child Inspector closes while same process and game witness survive'
   await assert.rejects(fetch(target.replace('ws:', 'http:').replace(/\/[^/]+$/, '/json/list')));
   assert.equal(child.exitCode, null);
 });
+
+for (const at of ['attach', 'close']) {
+  test(`kernel diagnostic at ${at} is typed without leaking native metadata`, async () => {
+    const f = fixture();
+    const result = await retireOwnedMainInspector({
+      endpoint,
+      expectedPid: 12345,
+      deadlineMs: Date.now() + 1000,
+      createWebSocket: f.createWebSocket,
+      qualify: (stage) => {
+        if (stage === at)
+          throw Object.assign(new Error('main_inspector_socket_unproved'), {
+            kernelStep: 'descriptors',
+            path: '/private/native/path',
+          });
+        return true;
+      },
+    });
+    assert.equal(result.reason, 'main_inspector_socket_unproved');
+    assert.equal(result.kernelStep, 'descriptors');
+    assert.equal(result.stage, at);
+    assert.equal(result.closeRequested, false);
+    assert.equal(result.retryAllowed, false);
+    assert.equal(f.sent.length, at === 'attach' ? 0 : 1);
+    assert.equal(JSON.stringify(result).includes('/private'), false);
+  });
+}
+
+test('unrecognized kernel details never cross the transport boundary', async () => {
+  const result = await retireOwnedMainInspector({
+    endpoint,
+    expectedPid: 12345,
+    deadlineMs: Date.now() + 1000,
+    qualify: () => {
+      throw Object.assign(new Error('main_inspector_socket_unproved'), {
+        kernelStep: '/private/native/path',
+      });
+    },
+    createWebSocket: () => {
+      throw new Error('must not connect');
+    },
+  });
+  assert.equal(result.reason, 'main_inspector_socket_unproved');
+  assert.equal(Object.hasOwn(result, 'kernelStep'), false);
+  assert.equal(result.stage, 'attach');
+  assert.equal(result.closeRequested, false);
+});

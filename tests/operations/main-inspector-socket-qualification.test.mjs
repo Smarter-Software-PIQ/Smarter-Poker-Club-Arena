@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import mutableFs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -639,4 +641,114 @@ test('kernel metadata read failure keeps only its fixed predicate name', (t) => 
       return true;
     }
   );
+});
+
+// Deterministically close an enumerated descriptor at the readlink boundary.
+function descriptorRace(t, path, effect) {
+  const readlink = mutableFs.readlinkSync;
+  t.mock.method(mutableFs, 'readlinkSync', function (current, ...args) {
+    if (current === path) effect();
+    return readlink.call(this, current, ...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+}
+test('unrelated descriptor disappearance preserves both complete positive socket proofs', (t) => {
+  const f = fixture(t),
+    before = f.capture();
+  const path = join(f.root, String(main), 'fd/9');
+  fs.symlinkSync('/unrelated/file', path);
+  let removed = false;
+  descriptorRace(t, path, () => {
+    if (!removed) {
+      removed = true;
+      fs.unlinkSync(path);
+    }
+  });
+  assert.deepEqual(f.capture({ expectedBinding: before }), before);
+  assert.equal(removed, true);
+});
+test('a vanished descriptor that is reused before final proof is refused', (t) => {
+  const f = fixture(t),
+    path = join(f.root, String(main), 'fd/9');
+  fs.symlinkSync('/unrelated/file', path);
+  let calls = 0;
+  descriptorRace(t, path, () => {
+    if (++calls === 1) fs.unlinkSync(path);
+    else if (calls === 2) fs.symlinkSync('/reused/file', path);
+  });
+  assert.throws(() => f.capture(), /main_inspector_socket_unproved/);
+  assert.ok(calls >= 2, 'must recheck a missing descriptor');
+});
+test('disappearance of the required listener cannot become an empty owner set', (t) => {
+  const f = fixture(t),
+    path = join(f.root, String(main), 'fd/3');
+  let removed = false;
+  descriptorRace(t, path, () => {
+    if (!removed) {
+      removed = true;
+      fs.unlinkSync(path);
+    }
+  });
+  assert.throws(() => f.capture(), /main_inspector_socket_unproved/);
+});
+for (const code of ['EACCES', 'EPERM', 'EIO', 'EBADF']) {
+  test(`descriptor ${code} remains unknown rather than absent`, (t) => {
+    const f = fixture(t),
+      path = join(f.root, String(main), 'fd/9');
+    fs.symlinkSync('/unrelated/file', path);
+    descriptorRace(t, path, () => {
+      throw Object.assign(new Error('private native detail'), { code });
+    });
+    assert.throws(
+      () => f.capture(),
+      (error) =>
+        error.message === 'main_inspector_socket_unproved' && error.kernelStep === 'descriptors'
+    );
+  });
+}
+
+test('disappearance never waives the absolute deadline at final absence proof', (t) => {
+  const f = fixture(t),
+    path = join(f.root, String(main), 'fd/9');
+  fs.symlinkSync('/unrelated/file', path);
+  const now = Date.now(),
+    deadlineMs = now + 1000;
+  let removed = false;
+  descriptorRace(t, path, () => {
+    if (!removed) {
+      removed = true;
+      fs.unlinkSync(path);
+      t.mock.method(Date, 'now', () => deadlineMs);
+    }
+  });
+  assert.throws(() => f.capture({ deadlineMs }), /main_inspector_socket_unproved/);
+});
+test('a vanished own client still requires positive ownership of its target inode', (t) => {
+  const f = fixture(t);
+  ownPair(f.root);
+  const path = join(f.root, String(process.pid), 'fd/5');
+  let removed = false;
+  descriptorRace(t, path, () => {
+    if (!removed) {
+      removed = true;
+      fs.unlinkSync(path);
+    }
+  });
+  assert.throws(() => f.capture({ allowOwnClient: true }), /main_inspector_socket_unproved/);
+});
+test('permission loss during final missing-descriptor readback is refused', (t) => {
+  const f = fixture(t),
+    path = join(f.root, String(main), 'fd/9');
+  fs.symlinkSync('/unrelated/file', path);
+  let calls = 0;
+  descriptorRace(t, path, () => {
+    if (++calls === 1) fs.unlinkSync(path);
+    else throw Object.assign(new Error('private'), { code: 'EACCES' });
+  });
+  assert.throws(() => f.capture(), /main_inspector_socket_unproved/);
+  assert.ok(calls >= 2);
 });

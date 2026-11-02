@@ -158,7 +158,18 @@ function inspectorKernelSnapshot({
         const fd = entry.name;
         if (Date.now() >= deadlineMs || ++budget.fds > 16384 || !/^[0-9]{1,10}$/.test(fd))
           throw inspectorSocketRefusal();
-        const value = inspectorFs.readlinkSync(`${root}/${member}/fd/${fd}`);
+        const path = `${root}/${member}/fd/${fd}`;
+        let value;
+        try {
+          value = inspectorFs.readlinkSync(path);
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error;
+          // An enumerated FD may close during ordinary engine IO. Missing is
+          // not ownership: every target inode still needs its positive owner
+          // below, and this coordinate must remain absent at final readback.
+          budget.disappeared.add(path);
+          continue;
+        }
         if (value.length > 4096) throw inspectorSocketRefusal();
         const socket = /^socket:\[([0-9]{1,20})\]$/.exec(value);
         if (socket && owners.has(socket[1])) owners.get(socket[1]).add(member);
@@ -255,11 +266,24 @@ export function captureMainInspectorBinding({
       port,
       deadlineMs,
       allowOwnClient,
-      budget: { fds: 0 },
+      budget: { fds: 0, disappeared: new Set() },
       diagnostic,
     };
     const before = inspectorKernelSnapshot(options);
     const after = inspectorKernelSnapshot(options);
+    diagnostic.step = 'descriptors';
+    for (const path of options.budget.disappeared) {
+      if (Date.now() >= deadlineMs || ++options.budget.fds > 16384) throw inspectorSocketRefusal();
+      let absent = false;
+      try {
+        inspectorFs.readlinkSync(path);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+        absent = true;
+      }
+      // FD reuse is ambiguous even when the replacement is not a socket.
+      if (!absent) throw inspectorSocketRefusal();
+    }
     diagnostic.step = 'binding_recheck';
     if (
       Date.now() >= deadlineMs ||

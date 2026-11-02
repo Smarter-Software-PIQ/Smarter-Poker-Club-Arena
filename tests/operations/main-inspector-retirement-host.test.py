@@ -510,7 +510,7 @@ sys.exit(0 if ok else 1)
         reserve = callback.index("if (stage === 'close' && retirementRemaining() <= 5000) return false;")
         self.assertGreater(reserve, capture)
 
-    def entry(self, owner_uid=0, run=RUN, docker_identity=IDENTITY):
+    def entry(self, owner_uid=0, run=RUN, docker_identity=IDENTITY, attestation=None):
         actual_fstat = os.fstat
 
         def owned_fstat(fd):
@@ -518,6 +518,14 @@ sys.exit(0 if ok else 1)
             return SimpleNamespace(st_mode=value.st_mode, st_uid=owner_uid)
 
         def metadata(args, **kwargs):
+            if args[0] == str(self.control / 'engine-release-seal.py'):
+                self.assertEqual(args[1:4], ['attest-preattach-resolution','--run-id','41452708967-1'])
+                self.assertEqual(args[4], '--claim-digest')
+                self.assertRegex(args[5], r'^[0-9a-f]{64}$')
+                self.assertLessEqual(kwargs['timeout'],2.5)
+                self.events.append('preattach_attestation')
+                if attestation is None:raise subprocess.CalledProcessError(1,args)
+                return SimpleNamespace(stdout=attestation)
             self.assertEqual(args[:2], ['docker', 'inspect'])
             self.assertEqual(args[-1], 'club-arena-engine')
             self.assertLessEqual(kwargs['timeout'], 2)
@@ -604,6 +612,16 @@ sys.exit(0 if ok else 1)
         self.assertIn('entry_metadata', self.events)
         self.assertFalse(receipt.exists())
         self.assertEqual(self.events.count('entry_metadata'), 1)
+
+    def test_preattach_disposition_is_distinct_and_never_allows_original_owner_replay(self):
+        intent,receipt=self.foreign(run='41452708967-1')
+        self.assertEqual(self.entry(),1)
+        self.assertEqual(self.entry(attestation=b'other\n'),1)
+        self.assertEqual(self.entry(attestation=b'preattach-refusal-proved\n'),0)
+        self.assertEqual(self.entry(run='41452708967-1',attestation=b'preattach-refusal-proved\n'),1)
+        self.assertTrue(intent.exists());self.assertFalse(receipt.exists())
+        receipt.write_text('{}')
+        self.assertEqual(self.entry(attestation=b'preattach-refusal-proved\n'),1)
 
     def test_foreign_same_process_complete_pair_resolves_uncertainty_without_replay(self):
         intent, receipt = self.foreign(complete=True)
