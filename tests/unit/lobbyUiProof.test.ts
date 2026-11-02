@@ -522,9 +522,12 @@ describe('closed remaining filter proof', () => {
     expect(() =>
       assertPins(finishPin(), finishPin(), { ...cleanup, verified: false }, FILTER_FINISH_ACTION)
     ).toThrow();
-    expect(FILTER_FINISH_COMPONENT_PATHS).toHaveLength(73);
+    expect(FILTER_FINISH_COMPONENT_PATHS).toHaveLength(77);
     for (const path of [
-      FILTER_COMPONENT_PATHS[0],
+      'src/throwables/AtlasSprite.tsx',
+      'src/throwables/atlasUrl.ts',
+      'src/throwables/artwork.generated.json',
+      'public/images/throwables/animated/rocket.webp',
       'src/pages/TablePage.tsx',
       'src/hooks/useTableArt.ts',
     ]) {

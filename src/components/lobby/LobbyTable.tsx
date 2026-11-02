@@ -1,3 +1,4 @@
+import { AtlasSprite } from '../../throwables/AtlasSprite';
 import { useMttLobbyEntryCounts } from '../../hooks/useMttLobbyEntryCounts';
 import { isRecordedSatelliteTournament } from '../../utils/tournamentFilters';
 import { useSatelliteDestination } from './game-cards/useTournamentCardText';
@@ -380,19 +381,49 @@ const TOURNAMENT_ICON_LABELS: Record<TournamentFormatIcon, string> = {
   standard: 'Tournament',
 };
 
+function LobbyArtSymbol({ kind }: { kind: 'target' | 'fire' }) {
+  return (
+    <svg
+      className="lt-lobby-art-icon"
+      data-lobby-art={kind}
+      viewBox="0 0 66 66"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <AtlasSprite
+        src="rocket"
+        rect={kind === 'target' ? [815, 105, 430, 435] : [540, 90, 224, 510]}
+        x={0}
+        y={0}
+        width={66}
+        height={66}
+      />
+    </svg>
+  );
+}
+
 function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
   const kind = tournamentFormatIcon(entry);
   if (!kind) return null;
   const label = TOURNAMENT_ICON_LABELS[kind];
+  const art =
+    entry.kind === 'spin'
+      ? null
+      : kind === 'bounty'
+        ? 'target'
+        : kind === 'hyper' || kind === 'turbo'
+          ? 'fire'
+          : null;
   return (
     <span
       className="lt-tournament-icon"
       data-tournament-icon={kind}
+      data-lobby-symbol={art ?? undefined}
       role="img"
       aria-label={label}
       title={label}
     >
-      <SignalIcon kind={kind} />
+      {art ? <LobbyArtSymbol kind={art} /> : <SignalIcon kind={kind} />}
     </span>
   );
 }
@@ -883,10 +914,13 @@ function TournamentHeadingRow({
               <span
                 className="lt-tournament-icon"
                 data-tournament-icon="lightning"
+                data-lobby-symbol="fire"
                 role="img"
                 aria-label="Lightning Games"
                 title="Lightning Games"
-              />
+              >
+                <LobbyArtSymbol kind="fire" />
+              </span>
             ) : (
               <span
                 className="lt-tournament-icon"

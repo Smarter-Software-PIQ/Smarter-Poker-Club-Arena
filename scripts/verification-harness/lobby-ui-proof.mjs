@@ -61,6 +61,11 @@ export const FAVORITE_CASES = [
 ];
 export const FAVORITE_COMPONENT_PATHS = [
   ...new Set([
+    'src/throwables/AtlasSprite.tsx',
+    'src/throwables/atlasUrl.ts',
+    'src/throwables/artwork.generated.json',
+    'public/images/throwables/animated/rocket.webp',
+
     ...COMPONENT_PATHS,
     'src/components/lobby/LobbyTable.tsx',
     'src/components/lobby/tournamentFavoriteOrder.ts',

@@ -2693,7 +2693,18 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   });
   expect(bountyGeometry.width).toBeGreaterThanOrEqual(0.1);
   expect(bountyGeometry.inside && bountyGeometry.besideTitle).toBe(true);
-  expect(bountyGeometry.filter).toBe('brightness(1.35)');
+  expect(bountyGeometry.filter).toBe('none');
+  await expect(
+    bounty.locator('[data-lobby-symbol="target"] [data-lobby-art="target"]')
+  ).toHaveCount(1);
+  await bounty.locator('[data-atlas-width]').evaluate(async (element) => {
+    const url = getComputedStyle(element).backgroundImage.match(/^url\(["']?(.*?)["']?\)$/)?.[1];
+    if (!url || !url.includes('rocket.webp'))
+      throw new Error('The actual rocket target artwork is missing');
+    const art = new Image();
+    art.src = url;
+    await art.decode();
+  });
   await testInfo.attach('lobby-white-copy-bounty-phone.png', {
     body: await page.screenshot(),
     contentType: 'image/png',
@@ -2763,6 +2774,23 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   await h.choose('ALL');
   await assertCashControlsAndHeaders(page, 'all');
   await expect(page.locator('tr[data-kind="cash"] .lt-seats__tables')).toHaveCount(0);
+  const fire = page
+    .locator('tr[data-kind="cash"][data-lightning-format="true"] [data-lobby-symbol="fire"]')
+    .first();
+  await expect(fire).toBeVisible();
+  await fire.scrollIntoViewIfNeeded();
+  await fire.locator('[data-atlas-width]').evaluate(async (element) => {
+    const url = getComputedStyle(element).backgroundImage.match(/^url\(["']?(.*?)["']?\)$/)?.[1];
+    if (!url || !url.includes('rocket.webp'))
+      throw new Error('The actual rocket flame artwork is missing');
+    const art = new Image();
+    art.src = url;
+    await art.decode();
+  });
+  await testInfo.attach('cash-lightning-fire-phone.png', {
+    body: await fire.screenshot(),
+    contentType: 'image/png',
+  });
   const cashPlayers = await page
     .locator('tr[data-kind="cash"] td[data-label="Players"]')
     .evaluateAll((cells) =>
