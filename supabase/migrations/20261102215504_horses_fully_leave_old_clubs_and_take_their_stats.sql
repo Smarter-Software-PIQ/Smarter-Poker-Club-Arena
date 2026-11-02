@@ -200,6 +200,20 @@ SELECT g.user_id, g.club_id, g.snapshot_date,
   ) g
  GROUP BY g.user_id, g.club_id, g.snapshot_date;
 
+-- Read only by the SECURITY DEFINER readers (owner postgres).
+REVOKE ALL ON public.ca_stats_club_member_daily_stats, public.ca_stats_club_player_daily,
+  public.ca_stats_member_record_daily_facts, public.ca_stats_club_data_fact_ct,
+  public.ca_stats_club_tournament_player_daily, public.ca_stats_player_stats_real,
+  public.ca_stats_player_stats_snapshots_real, public.ca_stats_player_stats_lifetime,
+  public.ca_stats_player_stats_snapshots_lifetime
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_club_member_daily_stats, public.ca_stats_club_player_daily,
+  public.ca_stats_member_record_daily_facts, public.ca_stats_club_data_fact_ct,
+  public.ca_stats_club_tournament_player_daily, public.ca_stats_player_stats_real,
+  public.ca_stats_player_stats_snapshots_real, public.ca_stats_player_stats_lifetime,
+  public.ca_stats_player_stats_snapshots_lifetime
+  TO service_role;
+
 -- A prize or bounty credited to a departed split record after it departed is
 -- returned to that club's bank once every event the record is in has
 -- finished. One claim per record (receipt and op id are unique), so it is
