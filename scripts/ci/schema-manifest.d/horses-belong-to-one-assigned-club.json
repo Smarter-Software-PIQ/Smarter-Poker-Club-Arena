@@ -1,0 +1,24 @@
+{
+  "_owner": "agent/horse-club-split-20261102",
+  "_comment": "Horses belong to one assigned club (20261102141229): manifest, split operation and the labelled Kings display addition.",
+  "tables": [
+    "ca_horse_club_manifests",
+    "ca_horse_club_assignments",
+    "ca_horse_club_split_state",
+    "ca_horse_club_split_operations",
+    "ca_horse_club_split_receipts",
+    "club_display_labeled_additions"
+  ],
+  "functions": [
+    "fn_ca_horse_split_phase",
+    "fn_ca_horse_assigned_club",
+    "fn_ca_horse_club_refusal",
+    "fn_ca_horse_split_op_key",
+    "fn_ca_horse_club_split_preflight",
+    "fn_ca_horse_club_split_begin_drain",
+    "fn_ca_horse_split_wallet_leg",
+    "fn_ca_horse_club_split_execute",
+    "fn_club_display_labeled_additions"
+  ],
+  "columns": {}
+}
