@@ -10,7 +10,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund && npm cache clean --force
 
 # Keep the genuine Realtime Erlang release and its matching Debian libc together.
-FROM supabase/realtime:v2.134.11@sha256:12780404637ec3cf0d9c2f6b44a94bfe1ca076f186a5bb1130fa84ea2d774bbb AS postgres-runtime
+FROM supabase/realtime:v2.144.0@sha256:5dd66b136b0aa93e42450946d88c793c24b1ea876db249295c1e5df80ef9f514 AS postgres-runtime
 USER root
 ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/usr/lib/postgresql/17/bin:/opt/qualification/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \

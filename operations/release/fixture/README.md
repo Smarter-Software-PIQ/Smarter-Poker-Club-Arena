@@ -108,7 +108,7 @@ authenticated role, finite real expiry and an empty refresh token.
 
 The Dockerfile pins Linux amd64 platform manifests. The current Auth v2.197.0
 manifest was verified through the official Docker Registry API on 2026-10-31;
-Realtime v2.134.11 was verified on 2026-11-02; the other base manifests retain their 2026-09-11 verification. Other architectures
+Realtime v2.144.0 was verified on 2026-11-02; the other base manifests retain their 2026-09-11 verification. Other architectures
 deliberately fail closed.
 
 | Input             | Version                | Linux amd64 manifest digest                                               |
@@ -116,10 +116,10 @@ deliberately fail closed.
 | Official Node     | 22.23.2, bookworm-slim | `sha256:4d676821dff059fd00d277ee4261ef34ea712317fed0737c03941481b5760c96` |
 | Supabase GoTrue   | v2.197.0               | `sha256:839f529492d116b4e8b7777c953a27c381d34c15a744b1bcefde5eefaa1f9f9f` |
 | PostgREST         | v14.5                  | `sha256:bb289d00570b569525e1e22fb77c49cd17c17ca3f41da9ee2b4351a35027551b` |
-| Supabase Realtime | v2.134.11              | `sha256:12780404637ec3cf0d9c2f6b44a94bfe1ca076f186a5bb1130fa84ea2d774bbb` |
+| Supabase Realtime | v2.144.0               | `sha256:5dd66b136b0aa93e42450946d88c793c24b1ea876db249295c1e5df80ef9f514` |
 
 Realtime's official image supplies its matching Debian trixie runtime and Erlang
-release. The [tagged upstream Dockerfile](https://github.com/supabase/realtime/blob/v2.134.11/Dockerfile)
+release. The [tagged upstream Dockerfile](https://github.com/supabase/realtime/blob/v2.144.0/Dockerfile)
 documents that layout. GoTrue is copied as the upstream static Go binary; the
 [tagged build](https://github.com/supabase/auth/blob/v2.197.0/Dockerfile)
 sets `CGO_ENABLED=0`. The PostgREST amd64 image supplies `/bin/postgrest`, the
@@ -229,14 +229,14 @@ real Realtime migrations does not try to write beneath read-only `/app`.
 The Docker build calls `adaptRealtimeLauncher()` from the trusted runtime
 module. It accepts only the entire pinned Elixir 1.19.5 generated launcher
 (SHA256 `b35710db4fe3c141340dac83d02fbe9d3c8407ff600eb98915f54feb69e227a9`)
-and Realtime v2.134.11 release environment
+and Realtime v2.144.0 release environment
 (`3fbe75e1c0ea82357e01a38af7666f2f54fac8e389c303084a45a48aeb178121`).
 Any mismatch fails the build before modification. Its counted replacements
 remove the cookie environment fallback and all four cookie argument sites;
 an explicit `RELEASE_COOKIE` now fails with a constant error. No compiled
 Erlang application or authentication implementation is replaced.
 
-The pinned [Realtime release environment](https://github.com/supabase/realtime/blob/v2.134.11/rel/env.sh.eex)
+The pinned [Realtime release environment](https://github.com/supabase/realtime/blob/v2.144.0/rel/env.sh.eex)
 forces named distribution. The fixture therefore explicitly uses `name`,
 preserving that actual upstream behavior instead of claiming `none` took effect.
 The [Elixir launcher](https://github.com/elixir-lang/elixir/blob/v1.19.5/lib/mix/lib/mix/tasks/release.init.ex)
@@ -261,7 +261,7 @@ arguments; they do not claim native Erlang, database, or browser proof.
 
 The build also calls `adaptRealtimeConfiguration()`. It accepts only the entire
 pinned `config/runtime.exs` (SHA256
-`6892bee389b9974972ece8e8737d2cdbe8bac50e82f2776037641e786b16d84c`) at the fixed
+`38b717da09ddb06a090075a27206fef346ef39c6f5928af6073df921f2c38567`) at the fixed
 release path and applies two bounded changes: `{:ip, {127, 0, 0, 1}}` in its
 HTTP socket options and `channel_name: "fixture_realtime_cluster"` in its
 PostgreSQL discovery strategy.
@@ -323,7 +323,7 @@ enter the failure receipt. The one-loopback-listener requirement stays enforced.
 3. Start `/usr/local/bin/postgrest` with synthetic local DB/JWT configuration.
 4. Run `/app/bin/migrate`, then `/app/bin/realtime eval
 'Realtime.Release.seeds(Realtime.Repo)'`, then `/app/bin/server`. These are
-   [upstream release commands](https://github.com/supabase/realtime/blob/v2.134.11/run.sh),
+   [upstream release commands](https://github.com/supabase/realtime/blob/v2.144.0/run.sh),
    called directly without sudo, the image's upstream launcher, or its cloud
    secret hooks. Set `SELF_HOST_TENANT_NAME=realtime-dev`, matching the gateway's
    fixed `realtime-dev.supabase-realtime` host. Supply only runtime-generated
@@ -331,7 +331,7 @@ enter the failure receipt. The one-loopback-listener requirement stays enforced.
    the upstream seed logs some tenant failures, so validate the tenant, health,
    real authenticated subscription, and actual database change.
 
-After genuine Realtime migrations pass their exact 83-version readback, both paths apply the captured deployment relation configuration in the private database: removal of the migration-ledger inserted_at default while preserving nullability, and UTC wall-clock message defaults. Exact native preimages, owners, partition bounds and empty messages are required; unrelated metadata and migration history are preserved, then a separate connection verifies the result. This is captured deployment configuration; its upstream override provenance is unestablished. Full-schema comparison remains mandatory.
+After genuine Realtime migrations pass their exact 91-version readback, both paths configure the captured retained-partition window in the private database. The unchanged upstream fresh bootstrap creates five daily partitions, while its 72-hour retention keeps seven in a mature deployment. The guarded transaction creates only the two older retained partitions and removes the migration-ledger inserted_at default while preserving nullability. Genuine v2.144.0 already supplies the captured UTC wall-clock message defaults and SELECT/INSERT grant options; these are asserted, not rewritten. Exact native preimages, owners, partition bounds, privileges and empty messages are required; unrelated metadata and migration history remain unchanged. A separate connection verifies the result. Full-schema comparison remains mandatory.
 
 The root-owned runtime and schema provenance remain authoritative for complete
 fixture bootstrapping. This package's tiny native SQL table checks protocols and
@@ -775,20 +775,22 @@ used. Exact full-schema comparison remains mandatory.
 Capture18 identified thirteen remaining raw ACL differences after the namespace
 baseline matched. The same bounded private admin transaction now configures the
 captured Auth ACL order on four tables and one sequence without changing effective
-privileges, and restores postgres SELECT/INSERT grant options on the Realtime
-parent and five consecutive partitions. Exact native preimages, owners, relation
-shapes, the 83-entry Realtime ledger and absent initial privileges are required.
+privileges, and asserts the genuine Realtime grants on the
+parent and seven consecutive retained partitions. Exact native preimages, owners, relation
+shapes, the 91-entry Realtime ledger and absent initial privileges are required.
 The dblink configuration helper records the captured five-role initial EXECUTE
 baseline for only its two privileged signatures using ordinary extension-context
 GRANT, drops with no members, and restores the fresh current ACL before the
-unchanged legacy dblink profile runs. All thirteen final ACLs are checked again
+unchanged legacy dblink profile runs. All captured ACLs are checked again
 by an independent post-commit observer. Wrong identity, drift or repeated
 adaptation refuses; rollback remains owned by the existing transaction.
 
 These modules and the explicit dblink helper control/SQL are included in both
 the reviewed Docker context and sanitized source receipt. Isolated PostgreSQL17
-proof matches all thirteen raw before/after ACL block hashes and sizes from
-capture18, including ACL ordering and initial privilege semantics. This is
+proof retained the thirteen raw before/after ACL block hashes and sizes from
+capture18, including ACL ordering and initial privilege semantics. Current91
+native proof separately verifies the unchanged six Realtime postimages and the
+two additional retained-partition ACLs. This is
 captured fixture configuration, not a claim about historical production changes
 or upstream service migrations. Genuine Linux providers, strict full-schema
 comparison and the fifteen connected cases remain separate required evidence.
@@ -872,8 +874,14 @@ database. The stock seed retains its original release entrypoint and native SQL.
 Its child first asserts the already loaded Realtime.Repo control database, then
 sets only that child's DB_NAME to the application database while the unchanged
 seed derives its tenant target. Repository configuration stays fixed; the child
-restores its environment before exiting. The exact83 application migration ledger,
-message-column contract and genuine control tenant83 witness are checked through
+restores its environment before exiting. The exact91 application migration ledger,
+message-column contract and genuine control tenant91 witness are checked through
 separate bounded owned connections. Actual causal Realtime, RLS and peer refusals
 remain required. All control proof clients close before unchanged cluster-wide
 preimage quiescence; schema export still selects every application schema.
+
+### Captured Realtime generation and application policies
+
+Capture20 proved that the current application has 91 genuine Realtime tenant migrations through 20261009120000, not the older 83-migration fixture generation. The pinned official v2.144.0 image and public snapshot match all 91 versions and the three newer authorize, list_changes_sync and settled_changes function definitions. The fifteen existing function dump blocks remain unchanged. The pre-alignment native role witness now reflects that generation's schema and default grant options; the aligned role target remains unchanged.
+
+Eleven source-bound application policies on realtime.messages are restored with application SQL, separately from native service objects. Their complete quoted pg_dump blocks and maintained migration provenance must match exactly. Unknown policies, altered predicates or privileges, extra statements and an application policy appearing in native service output refuse composition. This changes ownership classification only; native managed objects still require exact bidirectional comparison, and full schema restore/catalogue parity and all fifteen connected cases remain required.

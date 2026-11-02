@@ -13,6 +13,17 @@ function fixture(mode = 'success') {
   const seen = [],
     clients = [];
   const state = { catalog: native, activeInstaller: false, installs: 0, rollbacks: 0 };
+  if (mode === 'obsolete-realtime-generation') {
+    state.catalog = structuredClone(native);
+    const realtime = state.catalog.schemas.find(({ name }) => name === 'realtime');
+    realtime.acl = realtime.acl.map((entry) =>
+      entry.replace('supabase_realtime_admin=UC/supabase_admin', 'supabase_realtime_admin=U*C*/supabase_admin'));
+    const defaults = state.catalog.default_acl.find((entry) =>
+      entry.creator === 'supabase_admin' && entry.schema === 'realtime' && entry.type === 'r');
+    for (const entry of defaults.acl)
+      if (entry.grantee === 'postgres' && ['SELECT', 'INSERT'].includes(entry.privilege))
+        entry.grantable = false;
+  }
   class Application extends EventEmitter {
     processID = 99;
     connectionParameters = { query_timeout: 5 };
@@ -178,6 +189,12 @@ test('SQL refusal explicitly rolls back and observes the full original catalog f
   assert.equal(f.state.installs, 1);
   assert.equal(f.state.rollbacks, 1);
   assert.ok(f.clients.every((c) => c.closed));
+});
+test('obsolete Realtime service permissions cannot authorize the current generation installer', async () => {
+  const f = await refused('obsolete-realtime-generation');
+  assert.equal(f.state.installs, 0);
+  assert.equal(f.error.proof.commit_acknowledged, false);
+  assert.ok(f.clients.every((client) => client.closed));
 });
 test('lost COMMIT response stays failed even when a fresh observer sees the committed catalog', async () => {
   const f = await refused('commit-transport-loss');

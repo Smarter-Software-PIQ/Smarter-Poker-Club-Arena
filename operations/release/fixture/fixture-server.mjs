@@ -81,7 +81,7 @@ const environment = Object.freeze({
 });
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Pinned Realtime v2.134.11 uses the Elixir 1.19.5 release template, rendered
+// Pinned Realtime v2.144.0 uses the Elixir 1.19.5 release template, rendered
 // with release name realtime and its default -mode option. The whole-file
 // preimages bind this fixture-only adaptation; an upstream change stops build.
 export function privateRealtimeLauncher(launcher, releaseEnvironment) {
@@ -118,7 +118,7 @@ export function privateRealtimeLauncher(launcher, releaseEnvironment) {
 export async function adaptRealtimeLauncher() {
   assert.equal(process.getuid(), 0);
   const launcher = '/app/bin/realtime';
-  const releaseEnvironment = '/app/releases/2.134.11/env.sh';
+  const releaseEnvironment = '/app/releases/2.144.0/env.sh';
   for (const file of [launcher, releaseEnvironment]) {
     const details = await lstat(file);
     assert.ok(details.isFile() && !details.isSymbolicLink());
@@ -139,7 +139,7 @@ export async function adaptRealtimeLauncher() {
 export function loopbackRealtimeConfiguration(source) {
   assert.equal(
     createHash('sha256').update(source).digest('hex'),
-    '6892bee389b9974972ece8e8737d2cdbe8bac50e82f2776037641e786b16d84c',
+    '38b717da09ddb06a090075a27206fef346ef39c6f5928af6073df921f2c38567',
     'FIXTURE_REALTIME_CONFIG_PREIMAGE_REFUSED'
   );
   const before = 'socket_opts: [realtime_ip_version]';
@@ -153,7 +153,7 @@ export function loopbackRealtimeConfiguration(source) {
 
 export async function adaptRealtimeConfiguration() {
   assert.equal(process.getuid(), 0);
-  const file = '/app/releases/2.134.11/runtime.exs';
+  const file = '/app/releases/2.144.0/runtime.exs';
   const details = await lstat(file);
   assert.ok(details.isFile() && !details.isSymbolicLink());
   const adapted = loopbackRealtimeConfiguration(await readFile(file, 'utf8'));
@@ -463,8 +463,8 @@ export async function realtimeMigrated(db, control) {
   await assertRealtimeControlIdentity(control);
   try {
     const result = await db.query(`SELECT
-      (SELECT count(*)=83 AND min(version)=20211116024918 AND max(version)=20260827120000
-        AND md5(string_agg(version::text, ',' ORDER BY version))='262da2efb4aa494a7d90cf451fc9cce5'
+      (SELECT count(*)=91 AND min(version)=20211116024918 AND max(version)=20261009120000
+        AND md5(string_agg(version::text, ',' ORDER BY version))='07ccff1fbfc0665aee2027f75c40670b'
         FROM realtime.schema_migrations) AND
       EXISTS(SELECT 1 FROM pg_attribute a JOIN pg_attrdef d
         ON d.adrelid=a.attrelid AND d.adnum=a.attnum
@@ -472,7 +472,7 @@ export async function realtimeMigrated(db, control) {
           AND a.atttypid='boolean'::regtype AND a.attnotnull AND pg_get_expr(d.adbin,d.adrelid)='false') AND
       to_regnamespace('_realtime') IS NULL AS complete`);
     const tenant = await control.query(`SELECT EXISTS(SELECT 1 FROM _realtime.tenants
-      WHERE external_id='realtime-dev' AND migrations_ran=83) AS complete`);
+      WHERE external_id='realtime-dev' AND migrations_ran=91) AS complete`);
     return result.rows[0]?.complete === true && tenant.rows[0]?.complete === true;
   } catch (error) {
     // A service still creating its catalog may not be ready. Authorization

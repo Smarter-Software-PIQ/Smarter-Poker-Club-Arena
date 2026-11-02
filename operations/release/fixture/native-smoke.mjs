@@ -1022,7 +1022,7 @@ async function services() {
         service_roles: { ...serviceRoles, auth_claim_helpers: 'service-owned-and-http-verified' },
         managed_postgres: managedPostgres,
         postgrest: '14.5',
-        realtime: '2.134.11',
+        realtime: '2.144.0',
         realtime_listener: '127.0.0.1:4000',
         realtime_gateway: 'authenticated-change-observed',
         realtime_rls: 'two-users-causal-isolation',
