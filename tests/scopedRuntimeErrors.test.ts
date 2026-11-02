@@ -72,6 +72,10 @@ describe('explicit bounded original runtime error observation', () => {
     );
     expect(source).toContain('if before != after:');
     expect(source).toContain("health('http://127.0.0.1:8080')");
+    expect(source).toContain('def host_health():');
+    expect(source).toContain('def public_health():');
+    expect(source).toContain("'publicEngineBefore': before");
+    expect(source).toContain("'publicEngineAfter': after");
     expect(source).toContain("result.get('hostEngineBefore') != before");
     expect(source).toContain("result.get('hostEngineAfter') != after");
     expect(source).toContain("'perRecordEngineIdentity': 'unproven;");

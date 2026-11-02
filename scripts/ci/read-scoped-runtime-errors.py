@@ -1471,6 +1471,41 @@ def failure_diagnostic(error):
             'category': category, 'readOnly': True}
 
 
+def healthy_identity(value):
+    return (isinstance(value, dict) and set(value) == {'version', 'instanceId'}
+            and isinstance(value.get('version'), str)
+            and isinstance(value.get('instanceId'), str)
+            and bool(re.fullmatch('[0-9a-f]{8,40}', value.get('version', '')))
+            and bool(re.fullmatch('[A-Za-z0-9-]{1,100}', value.get('instanceId', ''))))
+
+
+def unavailable_health(value):
+    return (isinstance(value, dict)
+            and set(value) == {'status', 'stage', 'category', 'readOnly'}
+            and value.get('status') == 'unavailable'
+            and value.get('readOnly') is True
+            and isinstance(value.get('stage'), str) and value['stage'] in FAILURE_STAGES
+            and isinstance(value.get('category'), str) and value['category'] in FAILURE_CATEGORIES)
+
+
+def host_health():
+    try:
+        return health('http://127.0.0.1:8080')
+    except Exception as error:
+        diagnostic = failure_diagnostic(error)
+        return {'status': 'unavailable', 'stage': diagnostic['stage'],
+                'category': diagnostic['category'], 'readOnly': True}
+
+
+def public_health():
+    try:
+        return health()
+    except Exception as error:
+        diagnostic = failure_diagnostic(error)
+        return {'status': 'unavailable', 'stage': diagnostic['stage'],
+                'category': diagnostic['category'], 'readOnly': True}
+
+
 def remote_failure(reply):
     # Only our exact bounded JSON diagnostic may cross the SSH boundary.
     # Anything else remains a transport category; it is never printed.
@@ -1498,7 +1533,7 @@ def main():
         request = json.loads(base64.b64decode(sys.argv[2], validate=True))
         scopes, window, mux_timing, fold_timing, lease_metrics, restart_incident, historical = observation_request(request)
         FAILURE_STAGE = 'host_health_before'
-        before = health('http://127.0.0.1:8080')
+        before = host_health()
         if historical:
             raw, current_raw, archives = b'', b'', []
             archive_metadata = {'status': 'not_requested'}
@@ -1521,9 +1556,10 @@ def main():
         metric_evidence = read_lease_metrics(window) if lease_metrics else None
         restart_evidence = read_restart_incident(window, raw) if restart_incident else None
         FAILURE_STAGE = 'host_health_after'
-        after = health('http://127.0.0.1:8080')
-        if before != after:
-            raise RuntimeError('Host engine changed during observation')
+        after = host_health()
+        if healthy_identity(before) and healthy_identity(after) and not restart_incident:
+            if before != after:
+                raise RuntimeError('Host engine changed during observation')
         FAILURE_STAGE = 'response_sanitization'
         extra = {'muxSubscriptionTimings': extract_mux_timings(raw)} if mux_timing else {}
         if fold_timing:
@@ -1576,7 +1612,7 @@ def main():
     if not re.fullmatch('[A-Za-z0-9.-]+', host) or host.startswith('-') or not key.strip() or not pin.strip():
         raise RuntimeError('Configured read transport unavailable')
     FAILURE_STAGE = 'public_health_before'
-    before = health()
+    before = public_health()
     FAILURE_STAGE = 'transport_setup'
     directory = Path(tempfile.mkdtemp(prefix='scoped-engine-read-', dir=os.environ['RUNNER_TEMP']))
     try:
@@ -1637,12 +1673,20 @@ def main():
         incident = 'originalTenIncident' in (window or {})
         if ('originalTenIncident' in result) != incident or (incident and result['originalTenIncident'] != original_ten_description(window)):
             raise RuntimeError('Original ten incident evidence differs')
+        host_before = result.get('hostEngineBefore')
+        host_after = result.get('hostEngineAfter')
+        if not (healthy_identity(host_before) or unavailable_health(host_before)) or not (healthy_identity(host_after) or unavailable_health(host_after)):
+            raise RuntimeError('Observation contract unavailable')
         FAILURE_STAGE = 'public_health_after'
-        after = health()
-        if before != after or result.get('hostEngineBefore') != before or result.get('hostEngineAfter') != after:
-            raise RuntimeError('Public and host engine identity changed or differ')
+        after = public_health()
+        if (healthy_identity(before) and healthy_identity(after)
+                and healthy_identity(host_before) and healthy_identity(host_after)
+                and not restart_incident):
+            if before != after or result.get('hostEngineBefore') != before or result.get('hostEngineAfter') != after:
+                raise RuntimeError('Public and host engine identity changed or differ')
         FAILURE_STAGE = 'response_sanitization'
         output = {**result, 'observedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                  'publicEngineBefore': before, 'publicEngineAfter': after,
                   'engineAtObservation': after, 'selection': scopes, 'diagnosticOnly': True}
         serialized = json.dumps(output, indent=2)+'\n'
         if key in serialized or pin in serialized:

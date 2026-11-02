@@ -1679,6 +1679,142 @@ class NativeLogReader(unittest.TestCase):
                 finally:
                     os.chdir(current)
 
+    def test_public_and_host_health_outage_does_not_block_bounded_host_diagnostics(self):
+        import base64
+        original_run = subprocess.run
+        start = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        window = reader.log_window(start)
+        healthy = {'version': 'abcdef012345', 'instanceId': '1-fixture'}
+
+        # 1. Remote execution when loopback http://127.0.0.1:8080/health is down
+        # (e.g. ConnectionRefusedError / HTTP 502) still captures container state,
+        # restart history, kernel faults, and bounded logs, recording the health
+        # failure in hostEngineBefore and hostEngineAfter.
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            docker = directory/'docker'
+            docker.write_text(
+                '#!'+sys.executable+'\nimport sys, json\n'
+                'if sys.argv[1:3] == ["inspect", "--format"]:\n'
+                '    print(json.dumps({"Id": "aa"*32, "RestartCount": 2, "State": {"Pid": 2104, "Status": "exited", "Running": False, "Restarting": False, "OOMKilled": False, "Dead": False, "ExitCode": 139, "Error": "", "StartedAt": "2026-11-02T13:10:00Z", "FinishedAt": "2026-11-02T14:34:51Z"}}))\n'
+                'elif sys.argv[1] == "events":\n'
+                '    print(json.dumps({"Action": "die", "timeNano": 1793630091000000000, "Actor": {"Attributes": {"name": "club-arena-engine", "exitCode": "139"}}}))\n'
+                'elif sys.argv[1] == "logs":\n'
+                '    print('+repr(STAMP+'[ServerTableEngine.'+TABLE+'.watchdog_kill] Engine self-terminating for restart: tournament_table_zombie')+')\n'
+                'else:\n'
+                '    sys.exit(1)\n'
+            )
+            docker.chmod(0o700)
+            journalctl = directory/'journalctl'
+            journalctl.write_text('#!'+sys.executable+'\nimport sys, json\nprint(json.dumps({"MESSAGE": "traps: node[2104] general protection fault ip:7f91df2a3dc5 sp:7ffd08b7df58 error:0 in libc.so.6", "__REALTIME_TIMESTAMP": "1793630090551535"}) if "-k" in sys.argv else "")\n')
+            journalctl.chmod(0o700)
+            request = {'scopes': SCOPES, 'windowStart': start, 'restartIncident': True}
+            encoded = base64.b64encode(json.dumps(request).encode()).decode()
+            program = (
+                "import importlib.util,sys\n"
+                "s=importlib.util.spec_from_file_location('r',"+repr(str(ROOT/'scripts/ci/read-scoped-runtime-errors.py'))+")\n"
+                "m=importlib.util.module_from_spec(s)\n"
+                "s.loader.exec_module(m)\n"
+                "def fail_health(origin='https://engine.smarter.poker'):\n"
+                "    raise OSError('Connection refused')\n"
+                "m.health=fail_health\n"
+                "sys.argv=['reader','--remote',"+repr(encoded)+"]\n"
+                "m.main()\n"
+            )
+            remote_res = original_run([sys.executable, '-c', program], capture_output=True, text=True, env={'PATH': str(directory)+':/usr/bin:/bin'}, timeout=10)
+            self.assertEqual(remote_res.returncode, 0, remote_res.stderr)
+            remote_out = json.loads(remote_res.stdout)
+            self.assertEqual(remote_out['hostEngineBefore'], {'status': 'unavailable', 'stage': 'host_health_before', 'category': 'io_unavailable', 'readOnly': True})
+            self.assertEqual(remote_out['hostEngineAfter'], {'status': 'unavailable', 'stage': 'host_health_after', 'category': 'io_unavailable', 'readOnly': True})
+            self.assertEqual(remote_out['restartIncident']['sources']['container']['status'], 'observed')
+            self.assertEqual(remote_out['restartIncident']['sources']['container']['records'][0]['ExitCode'], 139)
+            self.assertEqual(remote_out['restartIncident']['sources']['container']['records'][0]['OOMKilled'], False)
+            self.assertEqual(remote_out['restartIncident']['sources']['events']['records'][0]['exitCode'], 139)
+            self.assertEqual(remote_out['restartIncident']['sources']['kernel']['records'][0]['fault'], 'general_protection_fault')
+            self.assertEqual(remote_out['records'][0]['engineReasons'], ['tournament_table_zombie'])
+
+        # 2. Outer dispatch when public https://engine.smarter.poker/health returns 502
+        # (or recovers mid-observation) still invokes SSH, validates the remote payload,
+        # and writes observation.json with publicEngineBefore / publicEngineAfter.
+        for scenario in ['both_unavailable', 'recovered_during_restart_incident', 'restarted_during_restart_incident', 'invalid_host_health_rejected']:
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as name:
+                directory = Path(name)
+                generated = directory/'fixture_key'
+                original_run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(generated)], check=True)
+                private = generated.read_text()
+                pin = 'fixture.example '+(directory/'fixture_key.pub').read_text()
+                event = directory/'event.json'
+                payload = {'tournament_log_observation': SCOPES, 'tournament_log_window_start': start, 'restartIncident': True}
+                event.write_text(json.dumps({'action': 'audit-production-integrity', 'client_payload': payload}))
+                calls = []
+
+                def transport(args, **kwargs):
+                    if args[0] != 'ssh':
+                        return original_run(args, **kwargs)
+                    calls.append(args)
+                    if scenario == 'invalid_host_health_rejected':
+                        host_before = {'status': 'corrupted'}
+                        host_after = {'status': 'corrupted'}
+                    elif scenario == 'both_unavailable':
+                        host_before = {'status': 'unavailable', 'stage': 'host_health_before', 'category': 'io_unavailable', 'readOnly': True}
+                        host_after = {'status': 'unavailable', 'stage': 'host_health_after', 'category': 'io_unavailable', 'readOnly': True}
+                    elif scenario == 'recovered_during_restart_incident':
+                        host_before = {'status': 'unavailable', 'stage': 'host_health_before', 'category': 'refused', 'readOnly': True}
+                        host_after = healthy
+                    else:
+                        host_before = healthy
+                        host_after = {'version': 'abcdef012345', 'instanceId': '2-restarted'}
+                    output = {
+                        'schema': 'scoped-runtime-errors/v1',
+                        'readOnly': True,
+                        'window': reader.observation_window_description(window, False),
+                        'hostEngineBefore': host_before,
+                        'hostEngineAfter': host_after,
+                        'restartIncident': {'container': {'status': 'ok', 'state': {'oomKilled': False, 'exitCode': 0}}},
+                        **reader.extract(b'', SCOPES),
+                    }
+                    return subprocess.CompletedProcess(args, 0, json.dumps(output).encode(), b'')
+
+                def public_side_effect():
+                    if scenario == 'both_unavailable':
+                        raise RuntimeError('Health unavailable')
+                    if scenario == 'recovered_during_restart_incident':
+                        if not calls:
+                            raise RuntimeError('Health unavailable')
+                        return healthy
+                    if scenario == 'restarted_during_restart_incident':
+                        return healthy if not calls else {'version': 'abcdef012345', 'instanceId': '2-restarted'}
+                    return healthy
+
+                current = Path.cwd()
+                try:
+                    os.chdir(directory)
+                    env = {'GITHUB_EVENT_NAME': 'repository_dispatch', 'GITHUB_EVENT_PATH': str(event), 'RUNNER_TEMP': str(directory), 'HETZNER_HOST': 'fixture.example', 'HETZNER_SSH_PRIVATE_KEY': private, 'HETZNER_HOST_KEY': pin}
+                    with patch.dict(os.environ, env), patch.object(sys, 'argv', [str(ROOT/'scripts/ci/read-scoped-runtime-errors.py')]), patch.object(reader, 'health', side_effect=public_side_effect), patch.object(subprocess, 'run', side_effect=transport):
+                        if scenario == 'invalid_host_health_rejected':
+                            with self.assertRaises(RuntimeError):
+                                reader.main()
+                        else:
+                            reader.main()
+                    self.assertEqual(len(calls), 1)
+                    artifact = directory/'artifacts/scoped-runtime-errors/observation.json'
+                    self.assertEqual(artifact.exists(), scenario != 'invalid_host_health_rejected')
+                    if artifact.exists():
+                        saved = json.loads(artifact.read_text())
+                        if scenario == 'both_unavailable':
+                            self.assertEqual(saved['publicEngineBefore'], {'status': 'unavailable', 'stage': 'public_health_before', 'category': 'refused', 'readOnly': True})
+                            self.assertEqual(saved['publicEngineAfter'], {'status': 'unavailable', 'stage': 'public_health_after', 'category': 'refused', 'readOnly': True})
+                            self.assertEqual(saved['engineAtObservation'], saved['publicEngineAfter'])
+                        elif scenario == 'recovered_during_restart_incident':
+                            self.assertEqual(saved['publicEngineBefore'], {'status': 'unavailable', 'stage': 'public_health_before', 'category': 'refused', 'readOnly': True})
+                            self.assertEqual(saved['publicEngineAfter'], healthy)
+                            self.assertEqual(saved['hostEngineAfter'], healthy)
+                        elif scenario == 'restarted_during_restart_incident':
+                            self.assertEqual(saved['publicEngineBefore'], healthy)
+                            self.assertEqual(saved['publicEngineAfter'], {'version': 'abcdef012345', 'instanceId': '2-restarted'})
+                finally:
+                    os.chdir(current)
+
 
 if __name__ == '__main__':
     unittest.main()
