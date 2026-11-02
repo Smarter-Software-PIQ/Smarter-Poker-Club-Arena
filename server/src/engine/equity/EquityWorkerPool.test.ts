@@ -666,6 +666,15 @@ describe('retired equity workers retain capacity until termination completes', (
     try {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(workers).toHaveLength(1);
+      expect(bounded.status()).toMatchObject({
+        retiringWorkers: 1,
+        workerMemory: [null],
+        routingReady: true,
+        recoveryInFlight: true,
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(bounded.status()).toMatchObject({ retiringWorkers: 1, routingReady: false });
+      expect(workers).toHaveLength(1);
       finishTermination(1);
       await vi.advanceTimersByTimeAsync(250);
       expect(workers).toHaveLength(2);

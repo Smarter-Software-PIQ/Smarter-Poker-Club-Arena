@@ -103,7 +103,7 @@ export interface EquityWorkerPoolStatus {
   routingReady: boolean;
   /** New calculator work can be accepted only while at least one worker is ready. */
   acceptingWork: boolean;
-  /** A respawn delay or replacement READY deadline is active; cooldown is excluded. */
+  /** Bounded retirement, respawn delay or replacement READY; cooldown is excluded. */
   recoveryInFlight: boolean;
   configuredWorkers: number;
   readyWorkers: number;
@@ -115,7 +115,7 @@ export interface EquityWorkerPoolStatus {
   maxQueuedJobs: number;
   maxQueuedBytes: number;
   admissionRejections: number;
-  /** Existing READY/result samples only; null means unknown, not zero. */
+  /** Owned READY/result samples, including retiring isolates; null means unknown. */
   workerMemory: Array<IsolateMemorySample | null>;
   oldestQueuedAgeMs: number;
   lastCompletionAgeMs: number | null;
@@ -261,6 +261,7 @@ export class EquityWorkerPool {
   private phase: EquityWorkerPoolPhase = 'idle';
   private readonly slots = new Set<WorkerSlot>();
   private readonly retiring = new Map<WorkerSlot, Promise<void>>();
+  private readonly retirementRoutingUntil = new Map<WorkerSlot, number>();
   private readonly idle: WorkerSlot[] = [];
   private readonly queue: Job[] = [];
   private nextId = 1;
@@ -355,7 +356,7 @@ export class EquityWorkerPool {
       maxQueuedJobs: this.maxQueuedJobs,
       maxQueuedBytes: this.maxQueuedBytes,
       admissionRejections: this.admissionRejections,
-      workerMemory: [...this.slots].map((slot) => slot.memory ?? null),
+      workerMemory: [...this.slots, ...this.retiring.keys()].map((slot) => slot.memory ?? null),
       oldestQueuedAgeMs: Math.max(0, now - oldestQueuedAt),
       lastCompletionAgeMs:
         this.lastCompletedAt === null ? null : Math.max(0, now - this.lastCompletedAt),
@@ -740,7 +741,7 @@ export class EquityWorkerPool {
     }
     if (this.phase !== 'starting') this.phase = 'degraded';
     if (exited) {
-      // The worker-authored exit event already proves execution has stopped.
+      // The Node exit event already proves execution has stopped.
       this.scheduleRespawn();
       return;
     }
@@ -756,13 +757,16 @@ export class EquityWorkerPool {
       .then(() => slot.worker.terminate())
       .then(() => {});
     this.retiring.set(slot, termination);
+    this.retirementRoutingUntil.set(slot, Date.now() + this.readyTimeoutMs);
     void termination.then(
       () => {
         this.retiring.delete(slot);
+        this.retirementRoutingUntil.delete(slot);
         this.scheduleRespawn();
       },
       (error) => {
         // Keep failed custody: a later shutdown cannot claim it succeeded.
+        this.retirementRoutingUntil.delete(slot);
         this.lastError = `Equity worker termination failed: ${this.errorMessage(error)}`;
       }
     );
@@ -843,13 +847,18 @@ export class EquityWorkerPool {
   }
 
   /**
-   * Only an immediate respawn or a replacement bounded by its READY deadline
+   * Only a bounded retirement, immediate respawn or replacement READY deadline
    * preserves dealer routing. A spent-budget cooldown deliberately does not.
    */
   private boundedRecoveryInFlight(): boolean {
     if (!this.hasReachedReady || this.nextRecoveryAt !== null) return false;
     return (
       this.pendingRespawns > 0 ||
+      // A normal asynchronous termination must not briefly withdraw a healthy
+      // dealer. Reuse the existing replacement-readiness budget for routing
+      // only: expiration never releases custody or authorizes another worker.
+      (this.respawnBudget > 0 &&
+        [...this.retirementRoutingUntil.values()].some((until) => Date.now() < until)) ||
       [...this.slots].some((slot) => !slot.down && !slot.ready && slot.readyTimer !== undefined)
     );
   }

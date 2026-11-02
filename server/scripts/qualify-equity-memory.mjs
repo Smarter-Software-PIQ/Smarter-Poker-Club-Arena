@@ -37,7 +37,13 @@ let completed = 0,
   refused = 0,
   rounds = 0;
 const started = performance.now();
-const keepAlive = setTimeout(() => {}, (seconds + 30) * 1000);
+const keepAlive = setTimeout(
+  () => {
+    console.error('Isolated equity qualification exceeded its total execution budget');
+    process.exit(1);
+  },
+  (seconds + 30) * 1000
+);
 try {
   await pool.ready();
   delay.enable();
