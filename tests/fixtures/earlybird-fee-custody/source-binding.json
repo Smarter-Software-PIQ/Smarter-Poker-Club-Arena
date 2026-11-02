@@ -15,10 +15,17 @@
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "supabase/migrations/20260918122532_five_original_spin_standings_retain_their_recorded_cash_outc.sql": "9f6e0b02abea54394d317c6d20f8e47ae10edefc9ba6c12f6542c23daf4540c4",
     ".prettierignore": "235ee2868de8a5151295cc68084d408bbd5e07d259f30f7da1b20d5d71b4d85f",
-    "tests/unit/fixtureNativeCi.test.ts": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29",
+    "tests/unit/fixtureNativeCi.test.ts": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536"
   },
   "restamp_audit": [
+    {
+      "on": "2026-11-02",
+      "file": "tests/unit/fixtureNativeCi.test.ts",
+      "from": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29",
+      "to": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb",
+      "why": "Reviewed the additive protected-original-input transfer assertions: only the narrow protected manual producer has Contents write; the reusable native job and PR caller retain Contents read and Actions read; exact dependency artifact ID, guards and one-day immutable transfer are asserted. Existing financial/native commands, populations, assertions, deadlines and historical execution states are unchanged. These hashes are source identity only, not financial execution or production proof."
+    },
     {
       "file": "scripts/dev/test-full-weekly-accounting-activation.sh",
       "from": "f94ca2ae32d92fc4e5d981e8089d42d91f15a448c56483f7d3669d57942d4200",

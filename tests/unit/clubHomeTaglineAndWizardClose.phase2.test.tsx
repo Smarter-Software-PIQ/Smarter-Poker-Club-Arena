@@ -268,8 +268,12 @@ describe('closing the opening wizard', () => {
  * read results, every admitted status, and its actual React Router callback.
  * No database fixture, registration, chips or fabricated live result. */
 describe('the tournament row reviews every lobby-admitted status', () => {
+  /* Dan 2026-11-01, binding: "WHEN YOU CLICK ON A TOURNAMENT THATS 'RUNNING'
+     IT SHOULD TAKE YOU DIRECTLY TO THE LOBBY. OR REALLY ANY TOURNAMENT, IT
+     SHOULD NOT TAKE YOU TO THIS PAGE FIRST." The row opens the tournament
+     lobby directly at every status; no game card in between; nothing spent. */
   it.each(['REGISTERING', 'RUNNING', 'LATE_REG', 'STARTING_SOON', 'BAGGED'])(
-    '%s selects its own screen without registering',
+    '%s opens the tournament lobby directly without registering',
     async (status) => {
       h.setupReads = [DONE];
       h.tournaments = [
@@ -301,12 +305,8 @@ describe('the tournament row reviews every lobby-admitted status', () => {
       expect(row, 'the actual lobby did not render the synthetic admitted event').not.toBeNull();
       fireEvent.click(row!);
       await flush();
-      expect(screen.queryByTestId('tournament-destination')).toBeNull();
-      const panel = screen.getByRole('dialog');
-      expect(panel.querySelector('.glp__arena-card')).not.toBeNull();
-      fireEvent.click(within(panel).getByRole('button', { name: 'Details', exact: true }));
-      await flush();
       expect(screen.getByTestId('tournament-destination')).toBeTruthy();
+      expect(document.querySelector('.glp__arena-card')).toBeNull();
       expect(h.register).not.toHaveBeenCalled();
       expect(
         h.rpc.mock.calls.some(([name]) => /register|buyin|buy_in|purchase/i.test(String(name)))

@@ -85,7 +85,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  retain-original-web:
+    # Draft assets require push visibility. This protected GET-only job never
+    # receives database credentials or executes candidate/schema/native code.
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations &&
+      github.ref == 'refs/heads/main' && github.repository_id == '1132369872' &&
+      github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' &&
+      github.workflow_ref == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena/.github/workflows/schema-manifest-refresh.yml@refs/heads/main'
+    permissions:
+      contents: write
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      artifact_id: ${{ steps.original.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read only the fixed draft carrier and verify its original ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/original-web-retention"
+          python3 -B operations/release/native/original-web-retention.py --stage
+      - name: Transfer the unchanged original ZIP within this workflow run
+        id: original
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: original-web-13059295561-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/original-web-retention/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   isolated-connected-ui:
+    needs: retain-original-web
     if: github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations && github.ref == 'refs/heads/main' && github.repository_id == '1132369872'
     permissions:
       contents: read
@@ -94,6 +131,7 @@ jobs:
     with:
       source_sha: ${{ github.sha }}
       connected_ui_observations: true
+      retained_web_artifact_id: ${{ needs.retain-original-web.outputs.artifact_id }}
       web_artifact_run_id: '41244053719'
       web_artifact_id: '13059295561'
       engine_source_sha: '9c9779174bd148fc73e2ede985c3b06865cc0cc7'

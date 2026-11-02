@@ -1,0 +1,3 @@
+# tests/union-wallet-and-realtime-gameplay.law.test.ts
+
+Dan 2026-11-01: a union player with chips in any member club wallet is never told "Not Enough Chips". Cash buy-ins, tournament entries, Free-Buy entries and their later rebuys and add-ons resolve to a funded member club (entry plus one rebuy plus one add-on), the spendable-balance read follows the same rule for tournament tables, and un-hinted home-club lookups prefer a funded wallet. Live play stays instant: hero actions apply optimistically on fold, check, call, raise and all-in, hole cards that arrive before HAND_STARTED are buffered and shown on it, the engine announces the hand before dealing, and next-hand preparation runs inside the two-second rest.

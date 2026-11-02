@@ -231,9 +231,10 @@
 }
 
 @media (max-width: 600px) {
-  /* Tighter tracking on a phone: the longest state ("Chair Open In This Game:
-     Take A Seat") is one pill over the seats, and 0.1em on 36 characters is
-     14px of width the felt does not have at 375px. */
+  /* Tighter tracking on a phone: the waitlist pill sits over the seats, and
+     0.1em of letter-spacing is width the felt does not have at 375px. (The
+     old longest state, "Chair Open In This Game: Take A Seat", was removed
+     by owner order on 2026-11-01.) */
   .cch-seat-change {
     font-size: 11px;
     padding: 0 12px;

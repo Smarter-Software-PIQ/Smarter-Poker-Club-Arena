@@ -1915,8 +1915,15 @@ export default function TournamentDetails({
   // One state machine serves the header and the matching Share-style footer entry.
   const tournamentAction = (placement: 'header' | 'footer') => {
     const footer = placement === 'footer';
-    const RegisterButton = footer ? 'button' : TournamentRegisterButton;
-    const registerClass = footer ? 'btn btn-share' : 'btn btn-register';
+    /* ── THE FOOTER WEARS THE PLATE TOO (Dan 2026-11-01, binding) ─────────
+       "MAKE THE REGISTER BUTTONS MORE VISIBLE ON THE LATE REGISTER ON THE
+        BOTTOM TO BE MORE LIKE THE LATE REG AT THE TOP."
+       The footer's register actions rendered as the quiet Share outline
+       (`btn btn-share`); they render on the same approved register plate the
+       header uses, countdown included, sized in TournamentRegisterButton.css.
+       Share itself stays the quiet one beside it. */
+    const RegisterButton = TournamentRegisterButton;
+    const registerClass = 'btn btn-register';
     const myEntry = entries.find((e) => e.user_id === user?.id);
 
     /* `isWatchable` covers LATE_REG as well as RUNNING. A late-reg
@@ -2017,7 +2024,7 @@ export default function TournamentDetails({
           return (
             <>
               <RegisterButton
-                className={footer ? registerClass : `${registerClass} late-reg`}
+                className={`${registerClass} late-reg`}
                 type="button"
                 onClick={() => void handleReEnter()}
                 disabled={isReEntering}
@@ -2042,7 +2049,7 @@ export default function TournamentDetails({
         return (
           <>
             <RegisterButton
-              className={footer ? registerClass : `${registerClass} late-reg`}
+              className={`${registerClass} late-reg`}
               type="button"
               onClick={() => handleRegister(true)}
               aria-label={`Late Register (${lateRegCountdown})`}
@@ -2051,7 +2058,7 @@ export default function TournamentDetails({
                 isTournamentEntryUnavailable(tournament, tournament.current_players)
               }
             >
-              {footer ? 'Late Register' : `Late Register (${lateRegCountdown})`}
+              {`Late Register (${lateRegCountdown})`}
             </RegisterButton>
             {watchBtn}
           </>
