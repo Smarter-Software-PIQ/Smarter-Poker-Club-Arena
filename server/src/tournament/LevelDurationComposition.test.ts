@@ -164,6 +164,29 @@ describe('the actual manager resolves raw level duration before applying acceler
     const overB = state.resolveBlindLevel(structureB, 2);
     expect((state as any)._cachedOverflowStepRatio.structure).toBe(structureB);
     expect(overB.bigBlind).toBeGreaterThan(160);
+
+    // Mutating an earlier level's bigBlind in place (without changing array
+    // reference, length, or final bigBlind) also invalidates the cached ratio
+    const structureC = [
+      { level: 1, smallBlind: 50, bigBlind: 100, ante: 0, durationMinutes: 5 },
+      { level: 2, smallBlind: 75, bigBlind: 150, ante: 0, durationMinutes: 5 },
+      { level: 3, smallBlind: 100, bigBlind: 200, ante: 0, durationMinutes: 5 },
+    ];
+    let cMapCalls = 0;
+    const origCMap = structureC.map.bind(structureC);
+    vi.spyOn(structureC, 'map').mockImplementation((...args: any[]) => {
+      cMapCalls++;
+      return origCMap(...(args as [any]));
+    });
+    const beforeMutation = state.resolveBlindLevel(structureC, 5);
+    expect(cMapCalls).toBe(1);
+    // In-place change to level 1's bigBlind (100 -> 140) narrows the observed
+    // step ratio from sqrt(200/100)=1.4142 to sqrt(200/140)=1.1952 while
+    // keeping structureC reference, length (3), and final bigBlind (200) identical.
+    structureC[0].bigBlind = 140;
+    const afterMutation = state.resolveBlindLevel(structureC, 5);
+    expect(cMapCalls).toBe(2);
+    expect(afterMutation.bigBlind).toBeLessThan(beforeMutation.bigBlind);
   });
 });
 

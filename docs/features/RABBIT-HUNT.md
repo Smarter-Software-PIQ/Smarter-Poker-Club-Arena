@@ -48,3 +48,19 @@ A player who was not dealt into a hand gets exactly the answer a hand with nothi
 ## Who Decides
 
 The engine (`revealRabbitHunt`) is the only authority: the felt window, the VIP rule for previous hands (checked before any charge, failing closed), the dealt in set, the table's `allow_rabbit_hunt` switch, and the free reopen. The client only decides which control to show.
+
+## The Price Before The Tap
+
+`fn_rabbit_hunt_charge_preview()` (signed in players, read only) answers what the caller's next rabbit hunt would draw on, in `fn_consume_rabbit_hunt_v2`'s own order: Lifetime VIP, the soonest expiring credit, the monthly VIP allowance, another credit, then diamonds. The Hand History button shows it under the tap ("Uses 1 VIP Rabbit Hunt (63 Left This Month)", "Costs 5 Diamonds (You Have 2)"). The engine still decides and charges; the preview never changes anything.
+
+## Auto Run Allowance
+
+The Auto Run Rabbit Hunt setting says each automatic reveal is charged like a tap, and under it shows the live allowance from the same preview ("Lifetime VIP: Unlimited Reveals", "40 VIP Rabbit Hunts Left This Month", "VIP Rabbit Hunts Used Up This Month. Next Reveals Cost 5 Diamonds").
+
+## A Bought Run Out Is Kept
+
+The shared saved run out is deleted after one day. When a reveal is recorded (`rabbit_hunt_reveals` insert), the trigger `rabbit_hunt_reveal_keeps_the_bought_runout` copies only the cards that player paid for and saw into `rabbit_hunt_owned_runouts` (one row per player, table and hand). `fn_rabbit_hunt_owned_runout(table, hand)` returns only the caller's own row, so Hand History re-shows that run out free at any age with "You Bought This Run Out. It Stays In Your Hand History". No other player's purchase, and no card beyond the run out, is ever returned.
+
+## Rabbit Hunt Desk (Staff)
+
+`/rabbit-hunt-desk` (Financial Admin hub, platform staff only, behind `PlatformStaffGuard`) finds a player by username, player number or id through `fn_staff_rabbit_hunt_receipts` and lists their last 50 charges with any correction. "Correct" calls `fn_staff_correct_rabbit_hunt_charge`, which checks `fn_is_platform_admin()` in the database and runs the same audited core as the service correction, recorded as `staff <username> (<id>)`. Diamond charges are refused and go to the Diamond desk.

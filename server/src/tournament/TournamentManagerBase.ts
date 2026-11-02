@@ -11065,15 +11065,24 @@ export abstract class TournamentManagerBase {
     }
 
     const lastLevel = blindStructure[lastPlayableIndex(blindStructure)];
-    const lastPlayableBb = Number(lastLevel?.bigBlind);
     const cachedRatio = (this as any)?._cachedOverflowStepRatio as
-      | { structure: any[]; length: number; lastBb: number; ratio: number }
+      | { structure: any[]; length: number; bigBlinds: number[]; ratio: number }
       | undefined;
-    const stepRatio =
-      cachedRatio &&
+    let cacheMatches =
+      cachedRatio != null &&
       cachedRatio.structure === blindStructure &&
       cachedRatio.length === blindStructure.length &&
-      Object.is(cachedRatio.lastBb, lastPlayableBb)
+      cachedRatio.bigBlinds.length === blindStructure.length;
+    if (cacheMatches && cachedRatio) {
+      for (let k = 0; k < blindStructure.length; k++) {
+        if (!Object.is(cachedRatio.bigBlinds[k], Number(blindStructure[k]?.bigBlind))) {
+          cacheMatches = false;
+          break;
+        }
+      }
+    }
+    const stepRatio =
+      cacheMatches && cachedRatio
         ? cachedRatio.ratio
         : (() => {
             /**
@@ -11086,12 +11095,13 @@ export abstract class TournamentManagerBase {
              * PERSISTED array, so it is the same number after a restart — the
              * anchoring contract in the note above is preserved exactly.
              */
-            const computed = observedStepRatio(blindStructure.map((l: any) => Number(l?.bigBlind)));
+            const bigBlinds = blindStructure.map((l: any) => Number(l?.bigBlind));
+            const computed = observedStepRatio(bigBlinds);
             if (this && typeof this === 'object') {
               (this as any)._cachedOverflowStepRatio = {
                 structure: blindStructure,
                 length: blindStructure.length,
-                lastBb: lastPlayableBb,
+                bigBlinds,
                 ratio: computed,
               };
             }
