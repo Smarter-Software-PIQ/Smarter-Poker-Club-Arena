@@ -757,7 +757,7 @@ export class EquityWorkerPool {
       .then(() => slot.worker.terminate())
       .then(() => {});
     this.retiring.set(slot, termination);
-    this.retirementRoutingUntil.set(slot, Date.now() + this.readyTimeoutMs);
+    this.retirementRoutingUntil.set(slot, performance.now() + this.readyTimeoutMs);
     void termination
       .then(() => {
         this.retiring.delete(slot);
@@ -857,7 +857,7 @@ export class EquityWorkerPool {
       // dealer. Reuse the existing replacement-readiness budget for routing
       // only: expiration never releases custody or authorizes another worker.
       (this.respawnBudget > 0 &&
-        [...this.retirementRoutingUntil.values()].some((until) => Date.now() < until)) ||
+        [...this.retirementRoutingUntil.values()].some((until) => performance.now() < until)) ||
       [...this.slots].some((slot) => !slot.down && !slot.ready && slot.readyTimer !== undefined)
     );
   }

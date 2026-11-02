@@ -643,8 +643,48 @@ describe('a spent equity pool recovers on its own (2026-09-11)', () => {
 describe('retired equity workers retain capacity until termination completes', () => {
   afterEach(() => vi.useRealTimers());
 
+  it.each([-3_600_000, 3_600_000])(
+    'keeps the retirement deadline monotonic across a %i ms wall-clock change',
+    async (offset) => {
+      vi.useFakeTimers({
+        toFake: [
+          'Date',
+          'performance',
+          'setTimeout',
+          'clearTimeout',
+          'setInterval',
+          'clearInterval',
+        ],
+      });
+      let finish!: (code: number) => void;
+      const termination = new Promise<number>((resolve) => {
+        finish = resolve;
+      });
+      const worker = new ScriptedEquityWorker();
+      worker.terminate = () => termination;
+      const factory = vi.fn(() => worker);
+      const bounded = new EquityWorkerPool({ size: 1, readyTimeoutMs: 20, workerFactory: factory });
+      const ready = bounded.ready();
+      worker.ready();
+      await ready;
+      worker.fail();
+      try {
+        vi.setSystemTime(Date.now() + offset);
+        expect(bounded.status().routingReady).toBe(true);
+        await vi.advanceTimersByTimeAsync(21);
+        expect(bounded.status()).toMatchObject({ retiringWorkers: 1, routingReady: false });
+        expect(factory).toHaveBeenCalledTimes(1);
+      } finally {
+        finish(1);
+        await bounded.shutdown();
+      }
+    }
+  );
+
   it('does not create a replacement while a retired worker still owns memory', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({
+      toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+    });
     let finishTermination!: (code: number) => void;
     const termination = new Promise<number>((resolve) => {
       finishTermination = resolve;
