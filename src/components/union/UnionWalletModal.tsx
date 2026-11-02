@@ -75,10 +75,20 @@ import {
 } from '../../services/unionClubBalances';
 import { useOptionalToast } from '../common/Toast';
 import './UnionWalletModal.css';
+import UnionTreasuryLog, { type TreasuryLogWallet } from './UnionTreasuryLog';
 
 // Keep this union explicit at the UI boundary. Static release certification
 // verifies that the reserve wallet remains a first-class, read-only modal key.
 export type UnionWalletKey = 'chips' | 'rake' | 'bbj' | 'promo' | 'spin_reserve';
+
+/** Which treasury log each wallet this desk opens shows (Dan 2026-11-02). */
+const TREASURY_LOG_WALLET: Record<UnionWalletKey, TreasuryLogWallet> = {
+  chips: 'union_bank',
+  rake: 'rake_treasury',
+  bbj: 'backup_bbj',
+  promo: 'promo',
+  spin_reserve: 'spins_treasury',
+};
 
 /** "The Felt Society" stays "The Felt Society", never "The The Felt Society". */
 export function theClub(name: string): string {
@@ -228,9 +238,7 @@ export function UnionWalletModal({
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [directoryReload, setDirectoryReload] = useState(0);
   /** Club Bank / Promo balances by club id (union owner and union leads only). */
-  const [clubBalances, setClubBalances] = useState<Map<string, UnionClubBalance>>(
-    () => new Map()
-  );
+  const [clubBalances, setClubBalances] = useState<Map<string, UnionClubBalance>>(() => new Map());
   const [balanceReload, setBalanceReload] = useState(0);
   const directoryLoadVersion = useRef(0);
   const [search, setSearch] = useState('');
@@ -696,7 +704,7 @@ export function UnionWalletModal({
                   ? ' Into Their Player Wallet'
                   : '';
           succeed(
-            `Sent ${fmt(amt)} ${kind === 'chips' ? 'Chips' : kind === 'diamonds' ? 'Diamonds' : 'Promo Chips'} To ${who}.${landed ? landed + '.' : ''}`,
+            `Sent ${fmt(amt)} ${kind === 'chips' ? 'Chips' : kind === 'diamonds' ? 'Diamonds' : 'Promo Chips'} To ${who}.${landed ? landed + '.' : ''}`
           );
           if (res.wallet_after != null) setLiveBalance(res.wallet_after);
         } else {
@@ -714,9 +722,7 @@ export function UnionWalletModal({
               apiNote(`${walletLabel} To ${target.data.name} Promo Wallet`),
               opId
             )) as { promoAfter?: number | null };
-            succeed(
-              `Sent ${fmt(amt)} Promo Chips Into ${theClub(target.data.name)} Promo Wallet.`,
-            );
+            succeed(`Sent ${fmt(amt)} Promo Chips Into ${theClub(target.data.name)} Promo Wallet.`);
             // The wallet's figure after the send, from the row that moved it,
             // rather than a subtraction on this screen.
             if (typeof sent?.promoAfter === 'number') setLiveBalance(sent.promoAfter);
@@ -729,9 +735,7 @@ export function UnionWalletModal({
               apiNote(`${walletLabel} To ${target.data.name} Club Bank`),
               opId
             )) as { unionBalanceAfter?: number | null };
-            succeed(
-              `Sent ${fmt(amt)} Chips Into ${theClub(target.data.name)} Club Bank.`,
-            );
+            succeed(`Sent ${fmt(amt)} Chips Into ${theClub(target.data.name)} Club Bank.`);
             if (typeof sent?.unionBalanceAfter === 'number') setLiveBalance(sent.unionBalanceAfter);
             else setLiveBalance((prev) => prev - amt);
           }
@@ -775,9 +779,7 @@ export function UnionWalletModal({
             if (cb.duplicate) {
               await acknowledge();
               setAmount('');
-              succeed(
-                'This Money Move Was Already Processed. The Wallet Is Refreshing.',
-              );
+              succeed('This Money Move Was Already Processed. The Wallet Is Refreshing.');
               try {
                 onSent?.();
               } catch (callbackError) {
@@ -797,7 +799,7 @@ export function UnionWalletModal({
           succeed(
             isPromoPull
               ? `Pulled ${fmt(amt)} Promo Chips Back From ${theClub(target.data.name)} Promo Wallet.`
-              : `Pulled ${fmt(amt)} Chips Back From ${theClub(target.data.name)} Club Bank.`,
+              : `Pulled ${fmt(amt)} Chips Back From ${theClub(target.data.name)} Club Bank.`
           );
           const after = isPromoPull ? cb.promo_after : cb.union_balance;
           if (typeof after === 'number') setLiveBalance(after);
@@ -1135,6 +1137,14 @@ export function UnionWalletModal({
           is not a send source and must never grow a picker or a send
           (tests/config/spinReserveWalletView.test.ts). */}
         {readOnly && (
+          <UnionTreasuryLog
+            unionId={unionId}
+            wallet={TREASURY_LOG_WALLET[walletKey]}
+            walletLabel={walletLabel}
+          />
+        )}
+
+        {readOnly && (
           <>
             <WalletDeskHeading title="Reserve Ledger" meta={`${reserveLedger.length} Entries`} />
             <p className="wdesk__empty">
@@ -1279,6 +1289,11 @@ export function UnionWalletModal({
 
             {mode === 'ledger' && (
               <>
+                <UnionTreasuryLog
+                  unionId={unionId}
+                  wallet={TREASURY_LOG_WALLET[walletKey]}
+                  walletLabel={walletLabel}
+                />
                 <WalletDeskHeading
                   title="Ledger"
                   meta={`${ledgerTotal.toLocaleString('en-US')} Entries · ${walletLabel}`}
