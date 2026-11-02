@@ -23,6 +23,13 @@ DO $$ BEGIN IF (SELECT md5(pg_get_functiondef(oid)) FROM pg_proc WHERE pronamesp
 
 DO $$ BEGIN IF (SELECT md5(pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname='fn_guard_managed_game_lifecycle') IS DISTINCT FROM '9427a9188600a598463e3cb1914cf5f6' THEN RAISE EXCEPTION 'Inspected definition changed: fn_guard_managed_game_lifecycle'; END IF; END $$;
 
+-- Register private money owners before their CREATE statements. The production
+-- DDL guard refuses unregistered writers; this grants no execution privilege.
+INSERT INTO public.ca_money_rpc_registry(proname,status,notes) VALUES
+ ('fn_ca_midway_free_buy_promo_head','approved','Private Midway-only one-chip promo funding or unplayed return, exact registration idempotency, settlement lane, balance guard and chip ledger with escrow conservation.'),
+ ('fn_ca_convert_midway_free_buy','approved','Private owner-authorized unstarted Midway Free Buy conversion; locks event and roster, refuses played or funded rows, funds each head through the registered promo owner.')
+ON CONFLICT(proname) DO NOTHING;
+
 -- One promo-funded initial head is journaled with its exact registration identity.
 CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_pko(p_tournament_id uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$

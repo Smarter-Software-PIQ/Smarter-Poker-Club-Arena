@@ -124,7 +124,8 @@ def main():
     inputs += [Path('supabase/migrations/20261031034048_diamond_closure_parks_retained_originals_without_disposing_t.sql'),Path('scripts/ci/build-diamond-complete-park.py')]
     inputs += [Path('supabase/migrations/20261031032915_diamond_arena_owner_boundary_closure_without_refunds.sql'),Path('scripts/ci/build-diamond-owner-closure.py'),Path('scripts/ci/test-diamond-owner-closure.py'),Path('scripts/ci/fixtures/diamond-owner-closure.json')]
     inputs += [Path('supabase/migrations/20261102152030_diamond_closure_disables_and_rejects_future_schedules.sql'),Path('scripts/ci/diamond_closed_schedule_cases.py')]
-    inputs += [Path('supabase/migrations/20261102152756_owner_tournament_deletion_replaces_equal_share_intent.sql'),Path('scripts/ci/test-owner-deletion-intent.py'),Path('scripts/ci/fixtures/tournament-abort/owner-retirement-nov2-manifest.json'),Path('scripts/ci/fixtures/tournament-abort/restart-before-owner-deletion.sql'),Path('scripts/ci/fixtures/tournament-abort/equal-share-before-owner-deletion.sql')]
+    inputs += [Path('supabase/migrations/20261102150315_the_fifteen_frozen_diamond_events_close_and_their_diamonds_g.sql'),Path('supabase/migrations/20261102161821_owner_retirement_main_bank_funds_exact_player_refunds.sql'),Path('scripts/ci/test-owner-bank-refund.py'),Path('scripts/ci/fixtures/tournament-abort/owner-bank-refund-catalog.json')]
+    inputs += [Path('supabase/migrations/20261102152756_owner_tournament_deletion_replaces_equal_share_intent.sql'),Path('scripts/ci/test-owner-deletion-intent.py'),Path('scripts/ci/fixtures/tournament-abort/original-refund-before-owner-deletion.sql'),Path('supabase/migrations/20261102155242_owner_retirement_refuses_superseded_original_refund.sql'),Path('scripts/ci/fixtures/tournament-abort/owner-retirement-nov2-manifest.json'),Path('scripts/ci/fixtures/tournament-abort/restart-before-owner-deletion.sql'),Path('scripts/ci/fixtures/tournament-abort/equal-share-before-owner-deletion.sql')]
     inputs += [Path('scripts/ci/test-diamond-history-removal.py'),Path('scripts/operations/remove-diamond-settled-history.sql')]
     source=dict(manifest['source_sha256']);source.update({str(p):sha(ROOT/p) for p in inputs})
     e.report.update(source_sha256=source,installation_refusals=[],races=[],scope='private original continuation on exact production-captured atomic/stack/retention functions and maintained real financial/F06 closure; not live activation')
@@ -190,6 +191,12 @@ def main():
         owner_intent=json.loads((out/'owner-deletion-intent/result.json').read_text())
         if owner_intent['status']!='passed':raise RuntimeError('Owner deletion intent qualification failed')
         e.report['owner_deletion_intent']={'status':'passed','evidence':'owner-deletion-intent/result.json'}
+        e.run('owner-bank-refund',[sys.executable,ROOT/'scripts/ci/test-owner-bank-refund.py',
+            '--pg-bin',args.pg_bin.resolve(),'--evidence',out/'owner-bank-refund',
+            '--work-root',work,'--socket-root',args.socket_root],seconds=300)
+        bank_refund=json.loads((out/'owner-bank-refund/result.json').read_text())
+        if bank_refund['status']!='passed':raise RuntimeError('Owner bank refund qualification failed')
+        e.report['owner_bank_refund']={'status':'passed','evidence':'owner-bank-refund/result.json'}
         if any(sha(ROOT/p)!=digest for p,digest in source.items()):raise RuntimeError('qualification source changed')
         e.report['status']='passed';e.discard(db)
     except BaseException as error:e.report['failure']=repr(error)
