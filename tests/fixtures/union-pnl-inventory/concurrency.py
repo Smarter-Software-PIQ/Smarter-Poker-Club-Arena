@@ -104,7 +104,14 @@ write(w,'COMMIT;'); finish(w)
 print('PASS: original capture trigger retains its actual book shared lock until commit')
 
 boundary=query('SELECT public.fn_union_week_start(now());')
-book=query("SELECT public.fn_union_week_start(now())-interval '7 days';")
+# A UTC seven-day subtraction misses the previous Los Angeles boundary by
+# one hour across DST. Derive both ends from the actual accounting calendar.
+book=query(f"SELECT public.fn_union_week_start('{boundary}'::timestamptz-interval '1 day');")
+for zone in ('UTC', 'America/Chicago', 'Asia/Tokyo'):
+    assert query(f"""SET TIME ZONE '{zone}';
+SELECT bool_and(public.fn_union_week_start(boundary-interval '1 day')=previous)
+FROM (VALUES ('2026-11-02 08:00Z'::timestamptz,'2026-10-26 07:00Z'::timestamptz),
+             ('2026-03-09 07:00Z'::timestamptz,'2026-03-02 08:00Z'::timestamptz)) b(boundary,previous);""")=='t'
 
 def run(ident, stable=False):
     rowid=f'00000000-0000-0000-0000-{ident:012d}'
