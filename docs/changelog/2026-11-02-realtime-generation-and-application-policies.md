@@ -36,3 +36,10 @@ Public-source/native PostgreSQL proofs and focused regressions qualify these
 changes. The submitted candidate still requires its own Linux native gate,
 protected merge, publication, full schema restore and connected fifteen-case
 result before application acceptance can close.
+
+The required client shard also exposed a setup race in the existing financial
+access-withdrawal regression. Its identity label could paint before subscription
+and refresh effects were ready, while optional callback delivery could silently
+lose the test event. The test now uses the neighbouring test's async mount barrier
+and verifies the callback before delivery. The new-read, denied-render and
+stale-downline assertions remain; production UI and timeouts are unchanged.
