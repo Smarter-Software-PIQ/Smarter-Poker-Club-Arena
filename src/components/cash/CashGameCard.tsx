@@ -228,6 +228,7 @@ export default function CashGameCard({
         className="cgc__hit cgc__hit--view"
         style={zoneStyle(z.view)}
         onClick={onView}
+        disabled={!onView}
         aria-label="View Game"
       />
       <button

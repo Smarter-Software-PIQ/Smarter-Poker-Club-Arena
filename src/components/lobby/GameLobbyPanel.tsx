@@ -646,6 +646,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
         else cta.run?.();
       },
       secondaryLabel: isCash ? (entry.game ? 'View Game' : 'View Table') : 'Details',
+      secondaryDisabled: isCash && busy,
       onSecondary: () => {
         if (isCash && onViewCashTable) onViewCashTable(entry.id);
         else

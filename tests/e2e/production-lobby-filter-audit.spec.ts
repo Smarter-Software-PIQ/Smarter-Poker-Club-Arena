@@ -1519,6 +1519,7 @@ for (const type of TYPES) {
     const evidence: unknown[] = [];
     await clickControl(sheet.getByRole('button', { name: 'Close Game Filters', exact: true }));
     await Promise.all(h.reads);
+    if (cash) await assertCashControlsAndHeaders(page, type.toLowerCase());
     const ledReadings = await assertExteriorLeds(page, h.rawRows, spec, cash);
     evidence.push({ control: 'raw-source-exterior-led-palette', ledReadings });
     await h.rows.first().scrollIntoViewIfNeeded({ timeout: 10_000 });
@@ -1960,7 +1961,69 @@ for (const type of TYPES) {
   });
 }
 
-async function readScheduleHeader(page: Page) {
+async function assertCashControlsAndHeaders(page: Page, label: string) {
+  const rail = page.locator('.lobby-sticky-filters');
+  const primary = page.locator('#lobby-game-section-controls .game-bar__filter-btn');
+  const inViewportDoors = () =>
+    page
+      .locator(
+        '#lobby-game-section-controls .game-bar__filter-btn, .lobby-sticky-filters button[aria-label="Open Sticky Filters"]'
+      )
+      .evaluateAll(
+        (buttons) =>
+          buttons.filter((button) => {
+            const box = button.getBoundingClientRect();
+            const css = getComputedStyle(button);
+            return (
+              css.display !== 'none' &&
+              css.visibility !== 'hidden' &&
+              box.width > 0 &&
+              box.height > 0 &&
+              box.top >= 0 &&
+              box.bottom <= innerHeight &&
+              box.left >= 0 &&
+              box.right <= innerWidth
+            );
+          }).length
+      );
+  for (const viewport of [
+    { width: 393, height: 852 },
+    { width: 1280, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.locator('.lobby-controls__heading').scrollIntoViewIfNeeded({ timeout: 10_000 });
+    await expect(rail).toBeHidden();
+    await expect(primary).toHaveCount(1);
+    await expect(primary).toBeInViewport();
+    await expect.poll(inViewportDoors).toBe(1);
+    // Availability All and the independent All Games tab are different controls.
+    await expect(
+      page.locator('.lobby-refinements').getByRole('button', { name: 'All', exact: true })
+    ).toHaveCount(1);
+    await test.info().attach(`cash-controls-${label}-${viewport.width}px.png`, {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    const header = await readScheduleHeader(page, true);
+    await test.info().attach(`cash-header-${label}-${viewport.width}px.json`, {
+      body: JSON.stringify(header),
+      contentType: 'application/json',
+    });
+    await test.info().attach(`cash-header-${label}-${viewport.width}px.png`, {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await page.locator('tr[data-id]:visible').last().scrollIntoViewIfNeeded({ timeout: 10_000 });
+    await expect(rail).toBeVisible();
+    await expect(
+      rail.getByRole('button', { name: 'Open Sticky Filters', exact: true })
+    ).toHaveCount(1);
+    await expect.poll(inViewportDoors).toBe(1);
+  }
+  await page.setViewportSize({ width: 393, height: 852 });
+}
+
+async function readScheduleHeader(page: Page, cash = false) {
   const header = page.locator('.has-premium-chassis:visible thead:visible');
   await expect(header).toHaveCount(1);
   await header.scrollIntoViewIfNeeded({ timeout: 10_000 });
@@ -2036,7 +2099,9 @@ async function readScheduleHeader(page: Page) {
   expect(geometry.row.top).toBeGreaterThanOrEqual(0);
   expect(geometry.row.bottom).toBeLessThanOrEqual(geometry.viewport.height + 1);
   for (const [index, cell] of geometry.cells.entries()) {
-    expect(cell.text).toMatch([/^Game/i, /^Buy-In/i, /^Players/i, /^Status/i][index]);
+    expect(cell.text).toMatch(
+      [/^Game/i, cash ? /^Stakes/i : /^Buy-In/i, /^Players/i, /^Status/i][index]
+    );
     expect(cell.left).toBeCloseTo(index ? geometry.cells[index - 1].right : geometry.row.left, 0);
     expect(cell.top).toBeCloseTo(geometry.cells[0].top, 0);
     expect(cell.bottom).toBeCloseTo(geometry.cells[0].bottom, 0);
@@ -2365,6 +2430,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   }
   // ALL is a cash-family sort-only sheet, so every displayed choice is meaningful.
   await h.choose('ALL');
+  await assertCashControlsAndHeaders(page, 'all');
   const allBaseline = await h.ids();
   expect(allBaseline.length).toBeGreaterThan(0);
   const quick = page.locator('.lobby-refinements');

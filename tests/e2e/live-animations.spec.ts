@@ -243,12 +243,19 @@ test.describe('LIVE E2E — a complete hand, animation by animation', () => {
     // Second card is delayed 120ms; the JS window is 600ms and must cover both.
     expect(b9.cardShowdownFlip + 120).toBeLessThan(600);
 
-    // ── BEAT 10 — the WINNER is celebrated ─────────────────────────────────
+    // ── BEAT 10 — celebrate without moving the occupied character ──────────
+    const fixedAvatar = page.locator('#seat .seat__avatar-wrap');
+    const winnerPose = await fixedAvatar.boundingBox();
     const b10 = await beat(
       page,
       `$('seat').classList.add('seat--winner','seat--winner-glow','seat--winner-pop');`
     );
-    expect(b10.seatWinnerPop).toBe(600);
+    // Owner 2026-11-01: character positions stay fixed through every action.
+    // Keep the winner's visual cue and every card/chip beat in this test.
+    expect(b10.seatWinnerPop).toBeUndefined();
+    expect(b10.seatWinnerAvatarGlow).toBe(1200);
+    expect(await fixedAvatar.boundingBox()).toEqual(winnerPose);
+    expect(await fixedAvatar.evaluate((avatar) => avatar.getAnimations().length)).toBe(0);
 
     // ── BEAT 11 — the POT SHIPS to the winner ──────────────────────────────
     const b11 = await beat(
