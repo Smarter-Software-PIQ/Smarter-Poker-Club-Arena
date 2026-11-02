@@ -141,10 +141,11 @@ describe('the replayer offers the hunt on a hand that still qualifies', () => {
     expect(queryByRole('button', { name: /Show What Would Have Come/i })).toBeNull();
   });
 
-  it('STILL offers it on a hand past the old felt window (Dan 2026-11-01)', () => {
+  it('STILL offers a VIP a hand past the old felt window (Dan 2026-11-01)', () => {
     // "If you are looking at a PREVIOUS HAND you can RABBIT HUNT." The engine
     // persists every captured runout and serves replayed hands from the
-    // sealed offers table, so two minutes old is now squarely on sale.
+    // sealed offers table, so two minutes old is now squarely on sale - to a
+    // VIP ("both of these features are VIP only").
     const twoMinutes = new Date(Date.now() - 120_000).toISOString();
     const { queryByRole } = render(
       <HandDetailModal
@@ -154,6 +155,42 @@ describe('the replayer offers the hunt on a hand that still qualifies', () => {
         heroId={HERO}
         onRabbitHunt={vi.fn()}
         rabbitUserId={HERO}
+        rabbitIsVIP
+      />
+    );
+    expect(queryByRole('button', { name: /Show What Would Have Come/i })).not.toBeNull();
+  });
+
+  it('shows a plain member the VIP note past the felt window, never a dead button', () => {
+    const twoMinutes = new Date(Date.now() - 120_000).toISOString();
+    const { queryByRole, getByText } = render(
+      <HandDetailModal
+        isOpen
+        onClose={() => {}}
+        hands={[record({ played_at: twoMinutes })]}
+        heroId={HERO}
+        onRabbitHunt={vi.fn()}
+        rabbitUserId={HERO}
+        rabbitIsVIP={false}
+      />
+    );
+    expect(queryByRole('button', { name: /Show What Would Have Come/i })).toBeNull();
+    expect(getByText('Rabbit Hunting A Previous Hand Is A VIP Feature')).toBeTruthy();
+  });
+
+  it('a plain member still buys the newest hand inside the felt window', () => {
+    // The original 2026-08-25 felt purchase is unchanged: inside the
+    // 90-second beat the button is there for everyone.
+    const justNow = new Date(Date.now() - 5_000).toISOString();
+    const { queryByRole } = render(
+      <HandDetailModal
+        isOpen
+        onClose={() => {}}
+        hands={[record({ played_at: justNow })]}
+        heroId={HERO}
+        onRabbitHunt={vi.fn()}
+        rabbitUserId={HERO}
+        rabbitIsVIP={false}
       />
     );
     expect(queryByRole('button', { name: /Show What Would Have Come/i })).not.toBeNull();

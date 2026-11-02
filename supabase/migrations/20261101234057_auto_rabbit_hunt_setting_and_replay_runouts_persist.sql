@@ -8,7 +8,9 @@
 -- Dan 2026-11-01, two Rabbit Hunt features in one breath:
 --
 --   1. "AUTO RUN RABBIT HUNT, to always show the run out at the end of a
---      hand." A per-player switch. The client tile presses the same paid
+--      hand." A per-player switch, VIP ONLY (Dan, same day: "both of these
+--      features are VIP only" - the stored value is inert for a non-VIP,
+--      exactly like all_in_squeeze). The client tile presses the same paid
 --      reveal a thumb presses, automatically, the moment the offer lands.
 --      The column defaults FALSE: a reveal can cost 5 diamonds, and a switch
 --      that spends money on every hand must be opted INTO, never inherited.
@@ -22,7 +24,11 @@
 --      runout to public.rabbit_hunt_offers - the RLS-sealed, no-policy table
 --      built for exactly this in 20260823141355 and left unwritten when the
 --      economy moved in-engine - and revealRabbitHunt falls back to that row
---      for any hand the map no longer holds. This migration gives that row
+--      for any hand the map no longer holds - for VIPs only ("both of
+--      these features are VIP only"): the engine refuses a non-VIP a
+--      previous hand before any charge, while the felt tile's own impulse
+--      window stays open to everyone exactly as since 2026-08-25. This
+--      migration gives that row
 --      the dealt-in set, so the "you were not dealt into that hand" gate
 --      holds on the DB path exactly as it does in memory, and finally
 --      schedules the pruner that 20260823141355 created but never scheduled
@@ -46,7 +52,7 @@ ALTER TABLE public.user_table_settings
   ADD COLUMN IF NOT EXISTS auto_rabbit_hunt boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.user_table_settings.auto_rabbit_hunt IS
-  'Auto Run Rabbit Hunt (Dan 2026-11-01): the felt tile presses the paid reveal itself on every early-ended hand. Opt-in because each reveal is charged like a tap (VIP pool, pack, or 5 diamonds). Works with rabbit_hunt_button off; the tile mounts and immediately reveals.';
+  'Auto Run Rabbit Hunt (Dan 2026-11-01): the felt tile presses the paid reveal itself on every early-ended hand. VIP ONLY ("both of these features are VIP only"): the stored value is inert for a non-VIP, like all_in_squeeze. Opt-in because each reveal is charged like a tap (VIP pool, pack, or 5 diamonds). Works with rabbit_hunt_button off; the tile mounts and immediately reveals.';
 
 ALTER TABLE public.rabbit_hunt_offers
   ADD COLUMN IF NOT EXISTS eligible_user_ids uuid[] NOT NULL DEFAULT '{}';

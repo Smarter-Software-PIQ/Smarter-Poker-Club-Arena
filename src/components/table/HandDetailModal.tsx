@@ -57,7 +57,11 @@ import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
 import RecordedPotAwards from '../handdetail/RecordedPotAwards';
 import CardImage, { CardBack } from './CardImage';
-import { replayRabbitOffer, RABBIT_HUNT_REPLAY_RETENTION_MS } from './replayRabbitOffer';
+import {
+  replayRabbitOffer,
+  RABBIT_HUNT_REPLAY_RETENTION_MS,
+  RABBIT_HUNT_FELT_WINDOW_MS,
+} from './replayRabbitOffer';
 import { useRabbitHuntReveal } from './useRabbitHuntReveal';
 import type { RabbitHuntRevealResult } from './RabbitHunt';
 import { cardKey } from '../../utils/handEvaluator';
@@ -102,6 +106,15 @@ export interface HandDetailModalProps {
   onRabbitHuntReceipt?: (handNumber: number) => Promise<RabbitHuntRevealResult | null>;
   /** The signed-in player; without one there is nobody to bill. */
   rabbitUserId?: string | null;
+  /**
+   * VIP ONLY (Dan 2026-11-01): rabbit hunting a PREVIOUS hand is a VIP
+   * feature, enforced by the engine before any charge. This flag only
+   * decides which control a non-VIP sees - the buy button while the felt
+   * window is still open (the original everyone-may-buy purchase), the VIP
+   * note after it - so the replayer never dangles a button the engine would
+   * refuse. Supplied by TablePage from useVIPStatus.
+   */
+  rabbitIsVIP?: boolean;
   /** Open the full animated replay of THE HAND PASSED IN, not "the last hand". */
   onReplay?: (hand: HandRecord) => void;
   /** Open the share modal for THE HAND PASSED IN. */
@@ -197,12 +210,14 @@ function RabbitHuntReplayBlock({
   onRabbitHunt,
   onRabbitHuntReceipt,
   userId,
+  isVIP = false,
 }: {
   hand: HandRecord;
   model: ReplayModel;
   onRabbitHunt: (handNumber: number) => Promise<RabbitHuntRevealResult>;
   onRabbitHuntReceipt?: (handNumber: number) => Promise<RabbitHuntRevealResult | null>;
   userId: string | null | undefined;
+  isVIP?: boolean;
 }) {
   const [offerNow, setOfferNow] = useState(Date.now);
   useEffect(() => {
@@ -240,6 +255,14 @@ function RabbitHuntReplayBlock({
   // already bought that we should keep showing.
   if (!offer.show && !hasRevealed && !isRevealing) return null;
 
+  // VIP ONLY past the felt window (Dan 2026-11-01). Inside the window the
+  // newest hand is the original everyone-may-buy felt purchase; past it a
+  // non-VIP gets the note, never a button the engine would refuse. A reveal
+  // they already own re-shows above regardless - the engine answers an owned
+  // hand free before the VIP gate.
+  const withinFeltWindow = offerNow - hand.timestamp <= RABBIT_HUNT_FELT_WINDOW_MS;
+  const vipNoteInsteadOfButton = !isVIP && !withinFeltWindow && !hasRevealed && !isRevealing;
+
   return (
     <section className="hdm-rabbit" aria-label="Rabbit Hunt">
       <header className="hdm-section-head">
@@ -270,6 +293,8 @@ function RabbitHuntReplayBlock({
             ))}
           </span>
         </div>
+      ) : vipNoteInsteadOfButton ? (
+        <div className="hdm-section-count">Rabbit Hunting A Previous Hand Is A VIP Feature</div>
       ) : (
         <button
           type="button"
@@ -384,6 +409,7 @@ export function HandDetailModal({
   onRabbitHunt,
   onRabbitHuntReceipt,
   rabbitUserId,
+  rabbitIsVIP,
   onLoadOlder,
   hasOlderHands = false,
   olderHandsLoading = false,
@@ -873,6 +899,7 @@ export function HandDetailModal({
                     onRabbitHunt={onRabbitHunt}
                     onRabbitHuntReceipt={onRabbitHuntReceipt}
                     userId={rabbitUserId}
+                    isVIP={rabbitIsVIP}
                   />
                 ) : null}
 

@@ -110,20 +110,29 @@ describe('the setting itself', () => {
     expect(DEFAULT_USER_TABLE_SETTINGS.auto_rabbit_hunt).toBe(false);
   });
 
-  it('has a reachable switch in the settings list', () => {
+  it('has a reachable switch in the settings list, VIP-gated and NOT quick', () => {
     const row = TABLE_SETTINGS_META.find((m) => m.key === 'auto_rabbit_hunt');
     expect(row, 'no TABLE_SETTINGS_META row').toBeTruthy();
     expect(row!.label).toBe('Auto Run Rabbit Hunt');
     expect(row!.description.length).toBeGreaterThan(0);
+    // Dan 2026-11-01: "both of these features are VIP only." The panel
+    // renders the effective value (stored AND VIP) and a non-VIP tap gets
+    // the upsell, exactly like all_in_squeeze - and like all_in_squeeze it
+    // must stay OFF the Hero Hub quick list, which writes straight through
+    // toggleSetting with no VIP gate in front of it.
+    expect(row!.vip).toBe(true);
+    expect(row!.quick).not.toBe(true);
   });
 
-  it('TablePage wires the switch to the tile, and auto keeps the HUD slot live', () => {
+  it('TablePage arms the tile only for a VIP, and auto keeps the HUD slot live', () => {
     const page = read('src/pages/TablePage.tsx').replace(/\s+/g, '');
-    expect(page).toContain('autoRun={v8Settings.auto_rabbit_hunt}');
+    // VIP ONLY (Dan 2026-11-01): the effective value is stored AND VIP, so a
+    // lapsed membership stops the automatic spending the moment it lapses.
+    expect(page).toContain('autoRun={v8Settings.auto_rabbit_hunt&&viewerIsVip}');
     // Auto IS the player asking for the runout, so hiding the manual button
     // must not silence the automatic one.
     expect(page).toContain(
-      'rabbitEnabled:v8Settings.rabbit_hunt_button||v8Settings.auto_rabbit_hunt'
+      'rabbitEnabled:v8Settings.rabbit_hunt_button||(v8Settings.auto_rabbit_hunt&&viewerIsVip)'
     );
   });
 

@@ -47,6 +47,19 @@
  */
 export const RABBIT_HUNT_REPLAY_RETENTION_MS = 86_400_000;
 
+/**
+ * The felt tile's own beat: the engine stamps `expires_at` ninety seconds
+ * after the offer (RABBIT_HUNT_OFFER_TTL_MS, ServerTableEngineSettlement).
+ * Inside it, the NEWEST hand is on sale to every player - that is the
+ * original 2026-08-25 felt purchase, unchanged. Past it, a purchase is the
+ * PREVIOUS-HAND feature, which is VIP-only (Dan 2026-11-01: "both of these
+ * features are VIP only"), and the engine refuses a non-VIP before any
+ * charge. The replayer uses this number only to decide which control a
+ * non-VIP sees: the buy button while the felt window is open, the VIP note
+ * after it.
+ */
+export const RABBIT_HUNT_FELT_WINDOW_MS = 90_000;
+
 export interface ReplayRabbitCandidate {
   /** hand_number, the key the engine files its offer under. */
   readonly handNumber: number;

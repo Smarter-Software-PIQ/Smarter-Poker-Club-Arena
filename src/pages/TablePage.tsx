@@ -24096,8 +24096,10 @@ function LiveTablePage({
     // AUTO RUN RABBIT HUNT (Dan 2026-11-01): auto IS the player asking for
     // the runout, so it keeps the slot live even when the manual button is
     // hidden — the tile mounts, presses itself, and the cards land on the
-    // board exactly as a tap would put them there.
-    rabbitEnabled: v8Settings.rabbit_hunt_button || v8Settings.auto_rabbit_hunt,
+    // board exactly as a tap would put them there. VIP ONLY, like the stored
+    // switch itself: the effective value is (auto_rabbit_hunt AND VIP), so a
+    // lapsed membership stops the automatic spending the moment it lapses.
+    rabbitEnabled: v8Settings.rabbit_hunt_button || (v8Settings.auto_rabbit_hunt && viewerIsVip),
   });
 
   /**
@@ -27306,7 +27308,7 @@ function LiveTablePage({
                 userId={userId === 'guest' ? null : userId}
                 onReveal={handleRabbitReveal}
                 registerHotkey={registerRabbitHotkey}
-                autoRun={v8Settings.auto_rabbit_hunt}
+                autoRun={v8Settings.auto_rabbit_hunt && viewerIsVip}
               />
             )}
             <PreviousHandCard
@@ -30484,6 +30486,7 @@ function LiveTablePage({
            shows the offer for ~2.5s; a player who missed it can buy the same
            reveal here, through the same charging call. */
         onRabbitHunt={handleRabbitReveal}
+        rabbitIsVIP={viewerIsVip}
         onRabbitHuntReceipt={handleRabbitReceipt}
         rabbitUserId={userId === 'guest' ? null : userId}
         /* Take the hand you are LOOKING AT. This was `onReplay={() => {...}}`

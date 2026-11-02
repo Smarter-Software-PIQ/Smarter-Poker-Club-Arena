@@ -107,6 +107,14 @@ export interface UserTableSettings {
    * with `rabbit_hunt_button` off — auto IS the player's way of saying they
    * want the runout, so the tile mounts (and immediately reveals) even when
    * the manual button is hidden.
+   *
+   * VIP ONLY (Dan 2026-11-01: "both of these features are VIP only"). Same
+   * shape as all_in_squeeze: the stored value is inert for a non-VIP - the
+   * EFFECTIVE value is (auto_rabbit_hunt AND active VIP), the panel renders
+   * the effective value, and a non-VIP who taps it on gets the VIP upsell
+   * instead of a write. TablePage applies the same AND before the tile is
+   * allowed to press itself, so a lapsed membership stops the spending the
+   * moment it lapses.
    */
   auto_rabbit_hunt: boolean;
   /**
@@ -262,8 +270,11 @@ export const TABLE_SETTINGS_META: SettingMeta[] = [
     key: 'auto_rabbit_hunt',
     label: 'Auto Run Rabbit Hunt',
     description:
-      'Automatically Reveal The Run Out Every Time A Hand Ends Early. Each Reveal Is Charged Like A Tap',
-    quick: true,
+      'Automatically Reveal The Run Out Every Time A Hand Ends Early. Each Reveal Is Charged Like A Tap. VIP Perk',
+    /* VIP-gated like all_in_squeeze, and deliberately NOT `quick`: the Hero
+       Hub's quick list writes straight through toggleSetting with no VIP
+       gate in front of it. */
+    vip: true,
   },
   {
     key: 'all_in_squeeze',

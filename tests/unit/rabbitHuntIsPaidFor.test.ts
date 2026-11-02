@@ -274,6 +274,11 @@ describe('who is offered a hunt, and for how many cards', () => {
     expect(SETTLEMENT).toMatch(/from\('rabbit_hunt_offers'\)/);
     expect(SETTLEMENT).not.toMatch(/error: 'That Hand Is Too Old To Rabbit Hunt'/);
     expect(SETTLEMENT).toMatch(/RABBIT_HUNT_OFFER_TTL_MS/);
+    // VIP ONLY past the felt window (Dan 2026-11-01), refused BEFORE the
+    // charge, with the profiles read failing closed.
+    expect(SETTLEMENT).toMatch(/callerHasActiveVip/);
+    expect(SETTLEMENT).toMatch(/Rabbit Hunting A Previous Hand Is A VIP Feature/);
+    expect(SETTLEMENT).toMatch(/feltWindowPurchase/);
     // The persisted row carries the dealt-in set, so the spectator gate
     // holds on the DB path exactly as it does in memory.
     expect(SETTLEMENT).toMatch(/eligible_user_ids: Array\.from\(persisted\.eligible\)/);

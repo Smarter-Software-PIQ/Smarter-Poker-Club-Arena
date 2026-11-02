@@ -206,12 +206,28 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // (sp_prune_rabbit_hunt_offers), not a clock in this method. Every other
     // gate — table toggle, board length, dealt-in, payment, free re-open —
     // is below and unchanged.
-    const offer =
-      this.rabbitHuntOffers.get(hand) ?? (await this.loadPersistedRabbitOffer(hand, userId));
+    const memoryOffer = this.rabbitHuntOffers.get(hand);
+    const offer = memoryOffer ?? (await this.loadPersistedRabbitOffer(hand, userId));
 
     if (!offer) {
       return { success: false, error: 'Rabbit Hunt Is No Longer Available For That Hand' };
     }
+    // THE FELT WINDOW vs A PREVIOUS HAND (Dan 2026-11-01: "both of these
+    // features are VIP only"). The felt tile's own impulse purchase - the
+    // NEWEST offer, inside its 90-second beat - stays open to every player,
+    // exactly as it has been since 2026-08-25. Anything else is the
+    // previous-hand feature: an older hand, an aged offer, or a hand only the
+    // persisted table still holds - and that is sold to VIPs only. The gate
+    // itself sits below, after the free re-open, so a reveal the player
+    // already OWNS re-shows free whatever their membership is today.
+    let newestOfferedHand = -Infinity;
+    for (const offeredHand of this.rabbitHuntOffers.keys()) {
+      if (offeredHand > newestOfferedHand) newestOfferedHand = offeredHand;
+    }
+    const feltWindowPurchase =
+      !!memoryOffer &&
+      hand === newestOfferedHand &&
+      Date.now() - memoryOffer.offeredAt <= RABBIT_HUNT_OFFER_TTL_MS;
     if ((this.tableInfo as { allow_rabbit_hunt?: boolean })?.allow_rabbit_hunt === false) {
       return { success: false, error: 'Rabbit Hunt Is Disabled At This Table' };
     }
@@ -232,6 +248,12 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // response or a double tap must never bill twice for one reveal.
     if (offer.revealed.has(userId)) {
       return { success: true, cards, board_length: offer.boardLength, source: 'already_revealed' };
+    }
+    if (!feltWindowPurchase && !(await this.callerHasActiveVip(userId))) {
+      // VIP-only, checked BEFORE any charge like every other free gate. The
+      // profiles read fails CLOSED: on a lookup fault a previous hand is
+      // refused rather than sold, and the felt window is never affected.
+      return { success: false, error: 'Rabbit Hunting A Previous Hand Is A VIP Feature' };
     }
     if (this.rabbitHuntInFlight.has(userId)) {
       // Keep concurrent taps from duplicating work while the first RPC runs.
@@ -513,6 +535,31 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     } catch (err) {
       reportError(err, 'ServerTableEngine.rabbit_hunt_offer_lookup_error');
       return null;
+    }
+  }
+
+  /**
+   * Is the caller a VIP right now? The same test the billing RPCs apply
+   * (20260909203940: COALESCE(is_vip,false) AND (lifetime OR unexpired)),
+   * read from profiles, because the previous-hand rabbit hunt is VIP-only
+   * (Dan 2026-11-01) and the refusal must land BEFORE any charge. Fails
+   * CLOSED: a lookup fault answers "not a VIP", which refuses a previous
+   * hand rather than selling one that should not have been sold.
+   */
+  protected async callerHasActiveVip(userId: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('is_vip, vip_tier, vip_expires_at')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data || data.is_vip !== true) return false;
+      if (data.vip_tier === 'lifetime') return true;
+      return data.vip_expires_at == null || new Date(data.vip_expires_at).getTime() > Date.now();
+    } catch (err) {
+      reportError(err, 'ServerTableEngine.rabbit_hunt_vip_check_error');
+      return false;
     }
   }
 
