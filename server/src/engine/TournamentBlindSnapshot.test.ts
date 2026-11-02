@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import type { HandController } from './HandController.js';
+import { HandController } from './HandController.js';
 import { horseTournamentProvenanceMatchesSnapshot } from './HorseTournamentContextProvenance.js';
 import type {
   FastHorseDecisionResult,
@@ -210,7 +210,9 @@ describe('tournament levels belong to the hand that was created with them', () =
     // Restore its allocated identity to exercise the real publication methods.
     engine.handCount = 100;
     const handNumber = engine.handCount;
-    Object.assign(engine.tableInfo, levelTwo);
+    loadTournamentBlinds.mockResolvedValue({ ...engine.tableInfo, ...levelTwo });
+    await engine.refreshBlinds();
+    expect(engine.tableInfo).toMatchObject(levelTwo);
     const expected = {
       table_id: engine.tableId,
       hand_number: handNumber,
@@ -226,7 +228,11 @@ describe('tournament levels belong to the hand that was created with them', () =
       ?.find((arg: any) => arg?.hand_blinds);
     expect(publicPayload?.hand_blinds).toEqual(expected);
     engine.handCount = 101;
-    expect(engine.getTableState('u1')?.hand_blinds).toBeUndefined();
+    expect(engine.getTableState('u1')?.hand_blinds).toBeNull();
+    expect(engine.getObserverState()?.hand_blinds).toBeNull();
+    engine.hub.publish.mockClear();
+    await engine.broadcastCurrentState();
+    expect(engine.hub.publish.mock.calls[0][1].hand_blinds).toBeNull();
     loadTournamentBlinds.mockResolvedValue({ ...engine.tableInfo, ...levelTwo });
     await deal();
     engine.handCount = engine.handController.getHandNumber();
@@ -237,6 +243,56 @@ describe('tournament levels belong to the hand that was created with them', () =
       big_blind: 40,
     });
   });
+
+  it('retains dealt blinds through real hand recovery and serialized reconnect', async () => {
+    const { engine, deal } = fixture();
+    const first = await deal();
+    engine.handCount = first.getHandNumber();
+    first.start();
+    const encoded = first.serializeRecoveryState();
+    Object.assign(engine.tableInfo, levelTwo);
+    engine.handController = HandController.fromRecoveryState(
+      encoded,
+      engine.tableId,
+      engine.handCount
+    );
+    const reconnect = JSON.parse(JSON.stringify(engine.getTableState('u1')));
+    expect(reconnect.hand_blinds).toEqual({
+      table_id: engine.tableId,
+      hand_number: engine.handCount,
+      small_blind: 10,
+      big_blind: 20,
+    });
+    expect(engine.handController.getBlindSnapshot()).toMatchObject({
+      smallBlind: 10,
+      bigBlind: 20,
+    });
+    expect(reconnect.pot).toBe(36);
+  });
+
+  it.each([
+    { smallBlind: 10, bigBlind: 0 },
+    { smallBlind: -1, bigBlind: 20 },
+    { smallBlind: 40, bigBlind: 20 },
+    { smallBlind: 10, bigBlind: Infinity },
+  ])(
+    'explicitly rejects invalid dealt stakes instead of advertising legacy support: %j',
+    async (blinds) => {
+      const { engine, deal } = fixture();
+      const hand = await deal();
+      engine.handCount = hand.getHandNumber();
+      vi.spyOn(hand, 'getBlindSnapshot').mockReturnValue({
+        ...blinds,
+        ante: 0,
+        bigBlindAnte: false,
+      });
+      expect(engine.getTableState('u1')?.hand_blinds).toBeNull();
+      expect(engine.getObserverState()?.hand_blinds).toBeNull();
+      engine.hub.publish = vi.fn();
+      await engine.broadcastCurrentState();
+      expect(engine.hub.publish.mock.calls[0][1].hand_blinds).toBeNull();
+    }
+  );
 
   it.each([false, true])(
     'keeps the Horse request on the dealt level until the next hand (big-blind ante: %s)',

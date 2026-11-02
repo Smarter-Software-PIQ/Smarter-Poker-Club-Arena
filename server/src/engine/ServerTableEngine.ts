@@ -172,15 +172,24 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
 
   /** Frozen dealt stakes, never the tournament's asynchronously updated next level. */
   private handBlindSnapshotFields(): Record<string, unknown> {
-    const blinds = this.handController?.getBlindSnapshot?.();
+    // Between hands, table metadata is sufficient. An active modern hand that cannot
+    // prove its denomination must send null: omission means legacy support to
+    // the client and would substitute the tournament's next level mid-hand.
+    if (!this.handController) return {};
+    const blinds = this.handController.getBlindSnapshot?.();
     const handNumber = this.handController?.getHandNumber?.();
     if (
       !blinds ||
       !Number.isSafeInteger(handNumber) ||
       !(handNumber && handNumber > 0) ||
-      handNumber !== this.handCount
+      handNumber !== this.handCount ||
+      !Number.isFinite(blinds.smallBlind) ||
+      blinds.smallBlind < 0 ||
+      !Number.isFinite(blinds.bigBlind) ||
+      blinds.bigBlind <= 0 ||
+      blinds.smallBlind > blinds.bigBlind
     )
-      return {};
+      return { hand_blinds: null };
     return {
       hand_blinds: {
         table_id: this.tableId,
