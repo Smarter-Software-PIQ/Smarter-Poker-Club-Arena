@@ -27,6 +27,7 @@
 -- resolved. It never touches releases, engines, freezes or money.
 --
 -- Scheduled hourly at minute 23 (outside the :50-:03 break window).
+-- periodic-work: this is detection, not compensation. It repairs, retries and settles nothing; the stalled release is fixed at its cause by its owner. The schedule exists only because a release that fails on the host leaves no other reader that would page anyone.
 -- Native proof: scripts/ci/test-a-stalled-engine-replacement-is-paged.py.
 --
 -- @live-proof: (SELECT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'ca-engine-release-stall-check-hourly' AND schedule = '23 * * * *' AND active) AND to_regprocedure('public.fn_ca_engine_release_stall_check(integer,integer)') IS NOT NULL AND NOT has_function_privilege('anon','public.fn_ca_engine_release_stall_check(integer,integer)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_ca_engine_release_stall_check(integer,integer)','EXECUTE'))
