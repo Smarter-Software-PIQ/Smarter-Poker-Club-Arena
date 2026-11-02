@@ -3,7 +3,7 @@
 Only opening registrations/identities are synthetic. No production URL accepted.
 """
 from pathlib import Path
-import json, os, tempfile, time
+import hashlib, json, os, tempfile, time
 from satellite_qualifier_fixture import module
 from tournament_abort_fixture import install_financial_foundation
 R=Path(__file__).resolve().parents[2]
@@ -15,6 +15,7 @@ E=module(R/'scripts/ci/test-mtt-unlimited.py','midway_full').Execution(
  Path(os.environ.get('TMPDIR',tempfile.gettempdir())),600,
  socket_parent=Path(os.environ.get('CA_PG_SOCKET_ROOT',os.environ.get('TMPDIR',tempfile.gettempdir()))))
 try:
+ E.report['source_sha256']={str(p.relative_to(R)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__),M,*F.iterdir()] if p.is_file()}
  E.start();d=E.database();install_financial_foundation(E,d,R,O)
  E.sql(d,'ALTER TABLE public.tournaments ADD COLUMN IF NOT EXISTS payout_depth_percent numeric;',label='current-payout-column')
  sql='SET check_function_bodies=off;'+''.join(json.loads((F/'conversion-preimages.json').read_text()).values())
@@ -26,6 +27,10 @@ try:
  E.report['install_seconds']=time.monotonic()-began
  assert E.report['install_seconds']<8
  E.sql(d,"""DO $$BEGIN
+ IF has_function_privilege('anon','fn_ca_tournament_escrow_chips(uuid)','EXECUTE')
+ OR has_function_privilege('service_role','fn_ca_tournament_charge_split(uuid,text,numeric)','EXECUTE')
+ OR NOT has_function_privilege('service_role','fn_ca_tournament_escrow_chips(uuid)','EXECUTE') THEN
+ RAISE EXCEPTION 'Original execution permissions changed'; END IF;
  IF (SELECT promo_wallet FROM union_wallets WHERE union_id='fade0000-0000-0000-0000-000000000001')<>588
  OR (SELECT bounty_balance FROM tournament_escrow WHERE tournament_id='10000000-0000-0000-0000-000000000001')<>412
  OR (SELECT sum(current_bounty) FROM tournament_players WHERE tournament_id='10000000-0000-0000-0000-000000000001')<>412 THEN

@@ -3165,6 +3165,11 @@ $function$
 
 ;
 
+-- Preserve the inspected original execution boundaries explicitly.
+REVOKE ALL ON FUNCTION public.fn_ca_tournament_charge_split(uuid,text,numeric) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_tournament_escrow_chips(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_tournament_escrow_chips(uuid) TO service_role;
+
 -- All existing unstarted Midway Free Buys, including already registered
 -- events, were explicitly included by the owner on November 2. The row lock
 -- serializes conversion with registration and launch; running events are
