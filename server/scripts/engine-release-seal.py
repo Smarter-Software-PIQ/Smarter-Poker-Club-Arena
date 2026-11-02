@@ -587,6 +587,39 @@ def daily_bootstrap_schedule(repo: str, sha: str, schedule: Any, starts: int) ->
     return hashlib.sha256(raw.strip().encode()).hexdigest()==DAILY_BOOTSTRAP_SCHEDULE_DIGEST
 
 
+def qualified_early_promise(repo: str, h: dict, w: dict, raw: str | None) -> bool:
+    """Preserve raw freeze custody; bind only the demonstrated EED 1ms defect.
+
+    The caller obtains this snapshot through the fixed authenticated database
+    reader. No health field, tolerance, clock offset or caller-supplied endpoint
+    can stand in for the installed authoritative promise contract.
+    """
+    if not isinstance(raw, str) or len(raw)>16384: return False
+    try:
+        proof=json.loads(raw); m=h['maintenance']; p=m['presentation']
+        row=proof['maintenance']; leader=proof['leader']
+        stamp=lambda value: datetime.fromisoformat(value.replace('Z','+00:00')).timestamp()*1000
+        now=time.time()*1000
+        source=run(['git','-C',repo,'show',f'{DAILY_BOOTSTRAP_SHA}:server/src/maintenance/MaintenanceBreak.ts'])
+        if hashlib.sha256((source+'\n').encode()).hexdigest()!='eeb5342d32ea50d5c230dbe955382fa5eee823a1a90c9e5ebb9ab2f227e345c1': return False
+        return (h['releaseSha']==DAILY_BOOTSTRAP_SHA and m['phase']=='counting_down'
+            and proof['schema']=='maintenance-promise-floor/v1'
+            and proof['thawDefinitionMd5']=='cb733d7201725719813ffd1b1e099b1b'
+            and 0<=now-stamp(proof['observedAt'])<=10000
+            and leader['version']==DAILY_BOOTSTRAP_SHA[:8] and leader['instanceId']==h['instanceId']
+            and 0<=now-stamp(leader['heartbeatAt'])<=60000
+            and row['id'] is True and row['enforce_freeze'] is True and row['phase']=='counting_down'
+            and row['reason']==m['reason'] and isinstance(row['ownership_token'],str)
+            and re.fullmatch(r'[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}',row['ownership_token']) is not None
+            and stamp(row['announced_at'])==w['announcedAt']
+            and stamp(row['break_started_at'])==w['startsAt']-1
+            and stamp(row['break_ends_at'])==w['endsAt']-1
+            and m['breakEndsAt']==w['endsAt']-1
+            and p['break_ends_at']==w['endsAt']-1 and p['scheduled_ends_at']==w['endsAt']-1
+            and w['startsAt']<=now<w['endsAt'])
+    except (KeyError,TypeError,ValueError,AttributeError,OverflowError): return False
+
+
 def cmd_bind_routine_window(args: argparse.Namespace) -> None:
     raw = sys.stdin.read(1048577)
     if len(raw)>1048576: die('routine health binding exceeds its bound')
@@ -607,9 +640,12 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
             die('routine durable maintenance identity is unproved')
         announced=p['break_id']; w={'announcedAt':announced,'startsAt':announced+120000,'endsAt':announced+420000,'verified':True}
         probe={**c,'window':w}; routine_window(probe,verified=True)
+        early_promise = False
         if (type(p.get('break_ends_at')) is not int or p['break_ends_at']!=w['endsAt']
                 or type(p.get('scheduled_ends_at')) is not int or p['scheduled_ends_at']!=w['endsAt']):
-            die('routine presentation changed its promised window')
+            if not qualified_early_promise(args.repo,h,w,getattr(args,'promise_floor_proof',None)):
+                die('routine presentation changed its promised window')
+            early_promise = True
         now=int(time.time()*1000)
         if not announced <= now < w['endsAt'] or (m['phase']=='last_hand') != (now<w['startsAt']):
             die('routine announcement is outside its original window/phase')
@@ -632,6 +668,13 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
         old=routine_window(c)
         if old is not None and any(old[k]!=w[k] for k in ('announcedAt','startsAt','endsAt')):
             die('routine window cannot slide after its first declaration')
+        if early_promise:
+            witness = json.loads(args.promise_floor_proof)
+            audit_once('routine_original_promise_proved', state,
+                'routine_original_promise:' + str(args.run_id) + ':' + h['instanceId'] + ':' + witness['maintenance']['ownership_token'],
+                runId=str(args.run_id), window=w, rawStart=w['startsAt']-1, rawEnd=w['endsAt']-1,
+                ownershipToken=witness['maintenance']['ownership_token'], instanceId=h['instanceId'],
+                thawDefinitionMd5=witness['thawDefinitionMd5'])
         if c.get('window') != w:
             c['window']=w; write_state(state)
         print(json.dumps(c,sort_keys=True))
@@ -1016,7 +1059,7 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner == DAILY_REFUSAL_RUN:
         validate_daily_refusal_resolution(resolution, cycle)
         return
-    if owner == CANCELLED_PHASE1_RUN:
+    if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
         validate_cancelled_phase1_resolution(resolution, cycle)
         return
     if owner != NINEF_RUN:
@@ -1088,7 +1131,26 @@ CANCELLED_PHASE1_THAW = {'announcedAtMs': 1793602682415, 'freezeStartedAtMs': 17
                        'thawRecordedAtMs': 1793603023814}
 
 
-def cancelled_phase1_started_at(value: Any, observed_at: int) -> bool:
+SECOND_CANCELLED_PHASE1_RUN = '41432783729-1'
+SECOND_CANCELLED_PHASE1_SHA = '6d178de0dbb1bdb2d74fb9b478a11768619a0a93'
+SECOND_CANCELLED_PHASE1_SOURCES = {'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6', 'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4', 'engine-release-seal.py': '0811a7631975ba6a52f682324cb0fd43bb3240e7cb40b261d44490a386cd5d70', 'engine-release-transaction.sh': '2b19a4f63063275eb63d9d7d071b8caf57d8389b7d294f39402c8171cd963652', 'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83', 'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e'}
+SECOND_CANCELLED_PHASE1_WINDOW = {'announcedAt':1793620685533,'startsAt':1793620805533,'endsAt':1793621105533,'verified':True}
+SECOND_CANCELLED_PHASE1_THAW = {'announcedAtMs':1793620685533,'freezeStartedAtMs':1793620805532,
+ 'releasedThroughMs':1793621105532,'ownershipToken':'c677673f-f968-4a21-a795-c1bcb175f6d9',
+ 'generation':1,'thawRecordedAtMs':1793621026339}
+
+def cancelled_phase1_profile(owner):
+    if owner == SECOND_CANCELLED_PHASE1_RUN:
+        return (SECOND_CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SOURCES,
+                SECOND_CANCELLED_PHASE1_WINDOW, SECOND_CANCELLED_PHASE1_THAW)
+    if owner != CANCELLED_PHASE1_RUN:
+        raise ValueError('unqualified cancelled announcement owner')
+    return (CANCELLED_PHASE1_RUN, CANCELLED_PHASE1_SHA, CANCELLED_PHASE1_SOURCES,
+            CANCELLED_PHASE1_WINDOW, CANCELLED_PHASE1_THAW)
+
+
+def cancelled_phase1_started_at(value: Any, observed_at: int, owner: str = CANCELLED_PHASE1_RUN) -> bool:
+    owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(owner)
     if not isinstance(value, str):
         return False
     try:
@@ -1097,39 +1159,41 @@ def cancelled_phase1_started_at(value: Any, observed_at: int) -> bool:
         # It does not require the preannouncement process to have survived.
         birth = started.timestamp() * 1000
         return (started.tzinfo is not None and 0 < birth < observed_at * 1000
-            and (birth < CANCELLED_PHASE1_WINDOW['announcedAt']
-                 or birth > max(CANCELLED_PHASE1_WINDOW['endsAt'], CANCELLED_PHASE1_THAW['thawRecordedAtMs'])))
+            and (birth < owner_window['announcedAt']
+                 or birth > max(owner_window['endsAt'], owner_thaw['thawRecordedAtMs'])))
     except ValueError:
         return False
 
 
 def cancelled_phase1_cycle(cycle: Any) -> None:
+    owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
     failed_routine_require(cycle == {'kind': 'hourly-reset', 'policyId': SCHEDULE_POLICY_ID,
-        'policyDigest': NINEF_POLICY_DIGEST, 'startsAt': 1793602800, 'endsAt': 1793603100,
-        'runId': CANCELLED_PHASE1_RUN, 'sha': CANCELLED_PHASE1_SHA, 'controlSha': CANCELLED_PHASE1_SHA,
-        'status': 'reserved', 'window': CANCELLED_PHASE1_WINDOW})
+        'policyDigest': NINEF_POLICY_DIGEST, 'startsAt': owner_window['startsAt']//3600000*3600, 'endsAt': owner_window['startsAt']//3600000*3600+300,
+        'runId': owner_run, 'sha': owner_sha, 'controlSha': owner_sha,
+        'status': 'reserved', 'window': owner_window})
 
 
 def validate_cancelled_phase1_resolution(resolution: Any, cycle: dict[str, Any], verify_receipt: bool = True) -> None:
+    owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
     cancelled_phase1_cycle(cycle)
     failed_routine_require(isinstance(resolution, dict) and set(resolution) == TERMINAL_RESOLUTION_KEYS
         and resolution['schema'] == 1 and resolution['result'] == 'cancelled-announcement-proved'
         and resolution['originalCycle'] == cycle and RUN_ID_RE.fullmatch(str(resolution['verifiedByRunId']))
-        and resolution['verifiedByRunId'] != CANCELLED_PHASE1_RUN
+        and resolution['verifiedByRunId'] != owner_run
         and SHA_RE.fullmatch(str(resolution['verifiedByControlSha']))
         and SHA_RE.fullmatch(str(resolution['verifiedByTargetSha']))
-        and CANCELLED_PHASE1_SHA not in (resolution['verifiedByControlSha'], resolution['verifiedByTargetSha'])
+        and owner_sha not in (resolution['verifiedByControlSha'], resolution['verifiedByTargetSha'])
         and INVOCATION_ID_RE.fullmatch(str(resolution['invocationId']))
-        and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > CANCELLED_PHASE1_WINDOW['endsAt'])
+        and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > owner_window['endsAt'])
     proof = resolution['proof']
     failed_routine_require(isinstance(proof, dict) and set(proof) == {'schema', 'originalCycle', 'recordHashes',
         'retainedHashes', 'sourceHashes', 'thaw', 'container', 'instanceId', 'qualifiedHelperSHA256'}
         and proof['schema'] == 'cancelled-routine-announcement-proof/v1' and proof['originalCycle'] == cycle
-        and proof['sourceHashes'] == CANCELLED_PHASE1_SOURCES
-        and proof['thaw'] == CANCELLED_PHASE1_THAW and INSTANCE_ID_RE.fullmatch(str(proof['instanceId']))
+        and proof['sourceHashes'] == owner_sources
+        and proof['thaw'] == owner_thaw and INSTANCE_ID_RE.fullmatch(str(proof['instanceId']))
         and isinstance(proof['container'], dict) and set(proof['container']) == {'id', 'startedAt', 'image'}
         and CONTAINER_ID_RE.fullmatch(str(proof['container']['id']))
-        and cancelled_phase1_started_at(proof['container']['startedAt'], resolution['observedAt'])
+        and cancelled_phase1_started_at(proof['container']['startedAt'], resolution['observedAt'], owner_run)
         and proof['container']['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
         and re.fullmatch('[0-9a-f]{64}', str(proof['qualifiedHelperSHA256'])))
     for key, names in (('recordHashes', {'receipt','intent','quiescent','stop-issued'}),
@@ -1137,23 +1201,24 @@ def validate_cancelled_phase1_resolution(resolution: Any, cycle: dict[str, Any],
         failed_routine_require(isinstance(proof[key], dict) and set(proof[key]) == names
             and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof[key].values()))
     if verify_receipt:
-        path = terminal_receipt_path(CANCELLED_PHASE1_RUN, resolution['verifiedByRunId'], resolution['invocationId'])
+        path = terminal_receipt_path(owner_run, resolution['verifiedByRunId'], resolution['invocationId'])
         failed_routine_require(failed_routine_json(path) == resolution)
 
 
 def cancelled_phase1_proof(args: argparse.Namespace, state: dict[str, Any], cycle: dict[str, Any],
                            deadline: float) -> dict[str, Any]:
+    owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
     cancelled_phase1_cycle(cycle)
     failed_routine_require(state.get('pending') is None and state.get('finalization') is None
-        and CANCELLED_PHASE1_RUN not in state['committedRuns']
-        and time.time() * 1000 > CANCELLED_PHASE1_WINDOW['endsAt'])
+        and owner_run not in state['committedRuns']
+        and time.time() * 1000 > owner_window['endsAt'])
     # Execute only this transaction's immutable protected source, not whatever
     # another checkout or later main currently contains. The helper is read-only
     # in this mode; cancellation must already have its own durable receipt.
     source = failed_routine_command(['git', '-C', args.repo, 'show',
         str(args.control_sha) + ':scripts/ci/withdraw-waiting-engine-release.py'], deadline, 131072)
     proof = json.loads(failed_routine_command([sys.executable, '-B', '-c', source,
-        '--phase1-cancellation-proof'], deadline, 16384, max_seconds=30))
+        '--phase1-cancellation-proof'] + ([owner_run] if owner_run == SECOND_CANCELLED_PHASE1_RUN else []), deadline, 16384, max_seconds=30))
     failed_routine_require(proof.get('originalCycle') == cycle)
     proof['qualifiedHelperSHA256'] = hashlib.sha256(source.encode()).hexdigest()
     return proof
@@ -1252,12 +1317,12 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
     state; an interrupted run resumes with exactly those bytes."""
     run_id = str(args.run_id)
     invocation = str(args.invocation_id)
-    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN} or
+    if (not RUN_ID_RE.fullmatch(run_id) or not INVOCATION_ID_RE.fullmatch(invocation) or run_id in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN} or
             os.geteuid() != 0):
         die('terminal routine failure proof identity is invalid')
     sha = valid_sha(str(args.sha))
     control_sha = valid_sha(str(args.control_sha))
-    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA}:
+    if sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA} or control_sha in {NINEF_SHA, CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SHA, DAILY_REFUSAL_SHA}:
         die('terminal routine failure proof identity is invalid')
     require_engine_lock(args.engine_lock_fd)
     deadline = time.monotonic() + 45
@@ -1266,10 +1331,10 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         proved = []
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
-            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
+            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, DAILY_REFUSAL_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
             current = failed_routine_current(args, deadline)
-            prove = (lambda: cancelled_phase1_proof(args, state, cycle, deadline)) if owner == CANCELLED_PHASE1_RUN else (lambda: terminal_owner_proof(state, cycle, deadline))
+            prove = (lambda: cancelled_phase1_proof(args, state, cycle, deadline)) if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} else (lambda: terminal_owner_proof(state, cycle, deadline))
             if owner == DAILY_REFUSAL_RUN:
                 prove = lambda: daily_refusal_proof(state, cycle, deadline)
             proof = prove()
@@ -1282,10 +1347,10 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner == CANCELLED_PHASE1_RUN else 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
-            if owner == CANCELLED_PHASE1_RUN:
+            if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
                 validate_cancelled_phase1_resolution(resolution, cycle, verify_receipt=False)
             if owner == DAILY_REFUSAL_RUN:
                 validate_daily_refusal_resolution(resolution, cycle, verify_receipt=False)
@@ -3054,6 +3119,7 @@ def parser() -> argparse.ArgumentParser:
     binding = commands.add_parser('bind-routine-window')
     binding.add_argument('--repo', required=True)
     binding.add_argument('--run-id', required=True)
+    binding.add_argument('--promise-floor-proof')
     binding.set_defaults(handler=cmd_bind_routine_window)
     restoring = commands.add_parser('restoration-needed')
     restoring.add_argument('--repo', required=True)

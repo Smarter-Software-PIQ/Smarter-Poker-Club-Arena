@@ -189,3 +189,6 @@ if __name__=='__main__':
 
     # Retired history cannot block active/system maintenance clock credit.
     subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/ci/test-thaw-preserves-retired-clubs.py')], check=True)
+
+    # Old engine bootstrap preserves its raw identity and original promise.
+    subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/ci/test-maintenance-promise-floor.py')], check=True)

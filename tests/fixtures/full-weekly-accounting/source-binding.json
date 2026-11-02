@@ -619,7 +619,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "0db0a730d01832b96cae63be7f92a117896e6b3f908101d038910ffd74959859",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -7699,5 +7699,11 @@
         "current": "a8484f029b6f5e8992d113e75f99b168a1372354c4d5f730eaa73430d9d019d0"
       }
     }
+  },
+  "maintenanceBootstrapFixtureAudit20261102": {
+    "reason": "Reviewed nested binding diff: only the formatter exclusion for SHA-pinned old EED maintenance client and its explicit source audit changed. Financial sources, fixtures, assertions, historical execution and qualification states unchanged. Source identity only, not financial or production proof.",
+    "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+    "previousSHA256": "0db0a730d01832b96cae63be7f92a117896e6b3f908101d038910ffd74959859",
+    "currentSHA256": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce"
   }
 }

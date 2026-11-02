@@ -448,7 +448,26 @@ CANCELLED_PHASE1_THAW = {'announcedAtMs': 1793602682415, 'freezeStartedAtMs': 17
                        'thawRecordedAtMs': 1793603023814}
 
 
-def cancelled_phase1_started_at(value, observed_at):
+SECOND_CANCELLED_PHASE1_RUN = '41432783729-1'
+SECOND_CANCELLED_PHASE1_SHA = '6d178de0dbb1bdb2d74fb9b478a11768619a0a93'
+SECOND_CANCELLED_PHASE1_SOURCES = {'engine-release-database-proof.py': '0d719753338f5e56541a0dfb23f2ecb06ae556df1e4a45215f25523f727c24c6', 'engine-release-lightning-hold.py': '401a15fa30f663b8614cf962ed4650c7f55927d29705ab9bdef9dac0638ee6e4', 'engine-release-seal.py': '0811a7631975ba6a52f682324cb0fd43bb3240e7cb40b261d44490a386cd5d70', 'engine-release-transaction.sh': '2b19a4f63063275eb63d9d7d071b8caf57d8389b7d294f39402c8171cd963652', 'engine-release-recover.sh': 'b6186c0e752ee93c9d57e79cb963c4386ff70ff0ed2a52f141d8373013096b83', 'engine-release-activation-floor.py': '62394346e0010c650298775c5e9f32eded44c7935d054dd5017fdad4d088695e'}
+SECOND_CANCELLED_PHASE1_WINDOW = {'announcedAt':1793620685533,'startsAt':1793620805533,'endsAt':1793621105533,'verified':True}
+SECOND_CANCELLED_PHASE1_THAW = {'announcedAtMs':1793620685533,'freezeStartedAtMs':1793620805532,
+ 'releasedThroughMs':1793621105532,'ownershipToken':'c677673f-f968-4a21-a795-c1bcb175f6d9',
+ 'generation':1,'thawRecordedAtMs':1793621026339}
+
+def cancelled_phase1_profile(owner):
+    if owner == SECOND_CANCELLED_PHASE1_RUN:
+        return (SECOND_CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_SHA, SECOND_CANCELLED_PHASE1_SOURCES,
+                SECOND_CANCELLED_PHASE1_WINDOW, SECOND_CANCELLED_PHASE1_THAW)
+    if owner != CANCELLED_PHASE1_RUN:
+        raise ValueError('unqualified cancelled announcement owner')
+    return (CANCELLED_PHASE1_RUN, CANCELLED_PHASE1_SHA, CANCELLED_PHASE1_SOURCES,
+            CANCELLED_PHASE1_WINDOW, CANCELLED_PHASE1_THAW)
+
+
+def cancelled_phase1_started_at(value, observed_at, owner=CANCELLED_PHASE1_RUN):
+    owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(owner)
     if not isinstance(value, str):
         return False
     try:
@@ -457,39 +476,41 @@ def cancelled_phase1_started_at(value, observed_at):
         # It does not require the preannouncement process to have survived.
         birth = started.timestamp() * 1000
         return (started.tzinfo is not None and 0 < birth < observed_at * 1000
-            and (birth < CANCELLED_PHASE1_WINDOW['announcedAt']
-                 or birth > max(CANCELLED_PHASE1_WINDOW['endsAt'], CANCELLED_PHASE1_THAW['thawRecordedAtMs'])))
+            and (birth < owner_window['announcedAt']
+                 or birth > max(owner_window['endsAt'], owner_thaw['thawRecordedAtMs'])))
     except ValueError:
         return False
 
 
 def cancelled_phase1_cycle(cycle):
+    owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
     routine_require(cycle == {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
-        'policyDigest': NINEF_POLICY_DIGEST, 'startsAt': 1793602800, 'endsAt': 1793603100,
-        'runId': CANCELLED_PHASE1_RUN, 'sha': CANCELLED_PHASE1_SHA, 'controlSha': CANCELLED_PHASE1_SHA,
-        'status': 'reserved', 'window': CANCELLED_PHASE1_WINDOW})
+        'policyDigest': NINEF_POLICY_DIGEST, 'startsAt': owner_window['startsAt']//3600000*3600, 'endsAt': owner_window['startsAt']//3600000*3600+300,
+        'runId': owner_run, 'sha': owner_sha, 'controlSha': owner_sha,
+        'status': 'reserved', 'window': owner_window})
 
 
 def cancelled_announcement_resolution(resolution, cycle, result, result_fd, answer):
+    owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(cycle['runId'])
     cancelled_phase1_cycle(cycle)
     routine_require(isinstance(resolution, dict) and set(resolution) == {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'verifiedByControlSha', 'verifiedByTargetSha', 'invocationId', 'observedAt', 'proof'}
         and resolution['schema'] == 1 and resolution['result'] == 'cancelled-announcement-proved'
         and resolution['originalCycle'] == cycle and RUN.fullmatch(str(resolution['verifiedByRunId']))
-        and resolution['verifiedByRunId'] != CANCELLED_PHASE1_RUN
+        and resolution['verifiedByRunId'] != owner_run
         and SHA.fullmatch(str(resolution['verifiedByControlSha']))
         and SHA.fullmatch(str(resolution['verifiedByTargetSha']))
-        and CANCELLED_PHASE1_SHA not in (resolution['verifiedByControlSha'], resolution['verifiedByTargetSha'])
+        and owner_sha not in (resolution['verifiedByControlSha'], resolution['verifiedByTargetSha'])
         and INVOCATION.fullmatch(str(resolution['invocationId']))
-        and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > CANCELLED_PHASE1_WINDOW['endsAt'])
+        and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > owner_window['endsAt'])
     proof = resolution['proof']
     routine_require(isinstance(proof, dict) and set(proof) == {'schema', 'originalCycle', 'recordHashes',
         'retainedHashes', 'sourceHashes', 'thaw', 'container', 'instanceId', 'qualifiedHelperSHA256'}
         and proof['schema'] == 'cancelled-routine-announcement-proof/v1' and proof['originalCycle'] == cycle
-        and proof['sourceHashes'] == CANCELLED_PHASE1_SOURCES
-        and proof['thaw'] == CANCELLED_PHASE1_THAW and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}', str(proof['instanceId']))
+        and proof['sourceHashes'] == owner_sources
+        and proof['thaw'] == owner_thaw and re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}', str(proof['instanceId']))
         and isinstance(proof['container'], dict) and set(proof['container']) == {'id', 'startedAt', 'image'}
         and re.fullmatch(r'[0-9a-f]{64}', str(proof['container']['id']))
-        and cancelled_phase1_started_at(proof['container']['startedAt'], resolution['observedAt'])
+        and cancelled_phase1_started_at(proof['container']['startedAt'], resolution['observedAt'], owner_run)
         and proof['container']['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
         and re.fullmatch('[0-9a-f]{64}', str(proof['qualifiedHelperSHA256'])))
     for key, names in (('recordHashes', {'receipt','intent','quiescent','stop-issued'}),
@@ -497,7 +518,7 @@ def cancelled_announcement_resolution(resolution, cycle, result, result_fd, answ
         routine_require(isinstance(proof[key], dict) and set(proof[key]) == names
             and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof[key].values()))
     routine_require(result is None)
-    name = CANCELLED_PHASE1_RUN + '.' + resolution['verifiedByRunId'] + '.' + resolution['invocationId'] + '.terminal-resolution.json'
+    name = owner_run + '.' + resolution['verifiedByRunId'] + '.' + resolution['invocationId'] + '.terminal-resolution.json'
     metadata = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
     receipt, raw = read_json(result_fd, name, private=True, with_bytes=True)
     routine_require(receipt == resolution)
@@ -537,7 +558,7 @@ def routine_remote(request, root_fd):
                     all(isinstance(v, dict) and (k == FAILED_CUSTODY_REQUEST['runKey'] or
                                                  (k == NINEF_RUN and v.get('result') == 'terminal-failure-proved') or
                                                  (k == DAILY_REFUSAL_RUN and v.get('result') == 'unentered-daily-cycle-proved') or
-                                                 (k == CANCELLED_PHASE1_RUN and v.get('result') == 'cancelled-announcement-proved'))
+                                                 (k in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN} and v.get('result') == 'cancelled-announcement-proved'))
                         for k, v in resolutions.items()))
     if resolutions:
         routine_require(all(sum(c.get('runId') == owner for c in cycles.values() if isinstance(c, dict)) == 1
@@ -638,17 +659,18 @@ def validate_routine_reply(value, request):
             'noAnnouncementRecorded', 'databaseIdleRecorded'} and
             type(resolution['present']) is bool and type(row['unresolvedOwner']) is bool and
             row['unresolvedOwner'] is (not resolution['present']))
-        if resolution['present'] and row['runId'] == CANCELLED_PHASE1_RUN:
+        if resolution['present'] and row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
+            owner_run, owner_sha, owner_sources, owner_window, owner_thaw = cancelled_phase1_profile(row['runId'])
             cycle = {k: row[k] for k in ('runId','sha','controlSha','policyId','policyDigest','kind','status','startsAt','endsAt','window')}
             cancelled_phase1_cycle(cycle)
             routine_require(row['failurePresent'] is False and row['result']['present'] is False
                 and row['committed']['present'] is False
                 and all(isinstance(resolution[k], str) and re.fullmatch('[0-9a-f]{64}', resolution[k])
                     for k in ('sha256', 'receiptSha256', 'invocationSha256'))
-                and RUN.fullmatch(str(resolution['verifiedByRunId'])) and resolution['verifiedByRunId'] != CANCELLED_PHASE1_RUN
-                and all(SHA.fullmatch(str(resolution[k])) and resolution[k] != CANCELLED_PHASE1_SHA
+                and RUN.fullmatch(str(resolution['verifiedByRunId'])) and resolution['verifiedByRunId'] != owner_run
+                and all(SHA.fullmatch(str(resolution[k])) and resolution[k] != owner_sha
                     for k in ('controlSha', 'targetSha'))
-                and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > CANCELLED_PHASE1_WINDOW['endsAt']
+                and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > owner_window['endsAt']
                 and all(resolution[k] is True for k in ('cycleMatches', 'failureMatches', 'receiptMatches', 'databaseIdleRecorded'))
                 and resolution['noAnnouncementRecorded'] is None)
         elif resolution['present'] and row['runId'] == DAILY_REFUSAL_RUN:
@@ -708,7 +730,7 @@ def validate_routine_reply(value, request):
                             row['failurePresent'] == (result['cycleFailureMatches'] is not None))
         else:
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
-        if resolution['present'] and row['runId'] == CANCELLED_PHASE1_RUN:
+        if resolution['present'] and row['runId'] in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN}:
             routine_require(result['present'] is False and row['failurePresent'] is False)
         elif resolution['present'] and row['runId'] == DAILY_REFUSAL_RUN:
             routine_require(row['sha']==row['controlSha']==DAILY_REFUSAL_SHA and row['status']=='reserved'

@@ -145,6 +145,80 @@ class HourlyCycle(unittest.TestCase):
                             except SystemExit as result: self.assertEqual(result.code,expected,(phase,changed))
                             else: self.assertEqual(expected,0,(phase,changed))
 
+    def test_old_early_timer_requires_installed_promise_and_exact_raw_custody(self):
+        from datetime import datetime, timezone
+        path=self.repo/'server/src/maintenance/MaintenanceBreak.ts'
+        path.write_bytes(subprocess.check_output(['git','-C',str(ROOT),'show',
+            'eed06fe51dea622069c661a6213d5b031ff3a9e3:server/src/maintenance/MaintenanceBreak.ts'],env=self.env))
+        self.git('add','.'); self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','-qm','immutable old timer')
+        self.sha=self.git('rev-parse','HEAD'); self.git('update-ref','refs/remotes/origin/main',self.sha)
+        state=seal.load_state(); state['desired']['sha']=self.sha; seal.write_state(state)
+        c=self.reserve(); start=c['startsAt']*1000+3; announce=start-120000; end=start+300000
+        self.clock.return_value=(start+1)/1000
+        iso=lambda ms:datetime.fromtimestamp(ms/1000,timezone.utc).isoformat(timespec='milliseconds')
+        h={'releaseSha':self.sha,'instanceId':'1-abcdef12','running':True,'weeklyPayout':None,
+           'maintenance':{'active':True,'durableConfirmed':True,'phase':'counting_down',
+             'reason':'Deployment Recovery','breakEndsAt':end-1,
+             'presentation':{'active':True,'phase':'counting_down','reason':'Deployment Recovery',
+                'break_id':announce,'break_ends_at':end-1,'scheduled_ends_at':end-1}}}
+        (seal.STATE_DIR/f"engine-recovery-window-{c['runId']}.json").write_text(json.dumps({
+            'runId':c['runId'],'sha':c['sha'],'announcedAt':announce}))
+        proof={'schema':'maintenance-promise-floor/v1','thawDefinitionMd5':'cb733d7201725719813ffd1b1e099b1b',
+            'observedAt':iso(start+1),'leader':{'version':self.sha[:8],'instanceId':h['instanceId'],'heartbeatAt':iso(start)},
+            'maintenance':{'id':True,'enforce_freeze':True,'phase':'counting_down','reason':'Deployment Recovery',
+              'announced_at':iso(announce),'break_started_at':iso(start-1),'break_ends_at':iso(end-1),
+              'ownership_token':'a1000000-0000-4000-8000-000000000001'}}
+        def bind(data=h,witness=proof):
+            out=io.StringIO()
+            with patch.object(seal.sys,'stdin',io.StringIO(json.dumps(data))),redirect_stdout(out):
+                seal.cmd_bind_routine_window(Namespace(repo=str(self.repo),run_id=c['runId'],
+                    promise_floor_proof=json.dumps(witness) if witness is not None else None))
+            return json.loads(out.getvalue())
+        with patch.object(seal,'DAILY_BOOTSTRAP_SHA',self.sha):
+            self.assert_refused(lambda:bind(witness=None))
+            for where,key,value in [(None,'thawDefinitionMd5','0'*32),(None,'observedAt',iso(start-11000)),
+                    ('leader','instanceId','1-deadbeef'),('leader','heartbeatAt',iso(start-61000)),
+                    ('maintenance','break_started_at',iso(start-2)),('maintenance','break_ends_at',iso(end-2)),
+                    ('maintenance','announced_at',iso(announce-1)),('maintenance','enforce_freeze',False),
+                    ('maintenance','ownership_token',None),('maintenance','phase','last_hand')]:
+                bad=copy.deepcopy(proof); (bad[where] if where else bad)[key]=value
+                self.assert_refused(lambda:bind(witness=bad))
+            self.clock.return_value=(start-0.5)/1000
+            self.assert_refused(bind)  # full 120-second notice, no gained millisecond
+            self.clock.return_value=(start+1)/1000
+            actual=bind(); self.assertEqual(actual['window'],{'announcedAt':announce,'startsAt':start,'endsAt':end,'verified':True})
+            before=seal.STATE_FILE.read_bytes(); bind(); self.assertEqual(seal.STATE_FILE.read_bytes(),before)
+            # The raw witness cannot slide an already bound original promise.
+            changed=copy.deepcopy(h);changed['maintenance']['presentation']['break_id']+=1
+            self.assert_refused(lambda:bind(data=changed))
+        self.assert_refused(bind)  # arbitrary source cannot use the installed contract
+
+    def test_actual_countdown_consumers_keep_raw_budget_and_full_notice(self):
+        import datetime
+        source=(ROOT/'server/scripts/engine-release-transaction.sh').read_text()
+        programs=[]
+        for section,end in [('maintenance_certificate() {','legacy_checkpoint_countdown() {'),
+                            ('legacy_checkpoint_countdown() {','persist_break_deadline() {')]:
+            chunk=source[source.index(section):source.index(end,source.index(section))]
+            programs += [part.split("\n'",1)[0] for part in chunk.split("python3 -c '\n")[1:]
+                         if 'hourly=isinstance(schedule' in part.split("\n'",1)[0]]
+        self.assertEqual(len(programs),2)
+        start=1793620805533; end=start+300000
+        for program in programs:
+            for offset,remaining,expected in [(1,299998,0),(-0.5,300000,1),(15000,284999,1)]:
+                self.clock.return_value=(start+offset)/1000
+                h={'releaseSha':'eed06fe51dea622069c661a6213d5b031ff3a9e3','running':True,'weeklyPayout':None,
+                    'maintenance':{'active':True,'phase':'counting_down','durableConfirmed':True,
+                        'reason':'Deployment Recovery','remainingMs':remaining,'breakEndsAt':end-1,
+                        'readyForRestart':True,'unparkedTables':0}}
+                env={'PHASE1_CYCLE_START':str(start//1000),'PHASE1_WINDOW_START':str(start),
+                    'PHASE1_WINDOW_END':str(end),'PHASE1_OBSERVED_WINDOW_END':str(end-1),
+                    'MIN_BREAK_MS':'285000','ENTRY_MODE':'initial','EXPECTED_BREAK_END_EPOCH':'0'}
+                with patch.dict(os.environ,env,clear=True),patch.object(seal.sys,'stdin',io.StringIO(json.dumps(h))),redirect_stdout(io.StringIO()):
+                    try:exec(compile(program,'actual-raw-budget-consumer','exec'),{})
+                    except SystemExit as result:self.assertNotEqual(result.code,0) if expected else self.assertEqual(result.code,0)
+                    else:self.assertEqual(expected,0)
+
     def assert_refused(self,call):
         before=seal.STATE_FILE.read_bytes()
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit): call()
@@ -563,6 +637,39 @@ printf 'NOOP\n'
         with patch.object(db,'read_leader',return_value=('eed06fe5','1-other',2)),patch.object(db,'build_opener') as network,self.assertRaises(ValueError):
             db.verify_failed_routine_idle('https://'+db.PROJECT_HOST,'fixture-key','1-abcdef12',15)
         network.assert_not_called()
+
+    def test_promise_reader_uses_one_bounded_get_and_requires_installed_contract(self):
+        spec=importlib.util.spec_from_file_location('promise_database',ROOT/'server/scripts/engine-release-database-proof.py')
+        db=importlib.util.module_from_spec(spec);spec.loader.exec_module(db)
+        from unittest.mock import MagicMock
+        from datetime import datetime, timezone
+        proof={'schema':'maintenance-promise-floor/v1','thawDefinitionMd5':'cb733d7201725719813ffd1b1e099b1b',
+            'maintenance':None,'leader':{'version':'eed06fe5','instanceId':'1-abcdef12',
+            'heartbeatAt':datetime.now(timezone.utc).isoformat()}}
+        response=MagicMock(); response.__enter__.return_value=response
+        response.read.return_value=json.dumps(proof).encode()
+        opener=MagicMock();opener.open.return_value=response
+        with patch.object(db,'build_opener',return_value=opener):
+            self.assertEqual(db.read_maintenance_promise('https://'+db.PROJECT_HOST,'fixture-key'),proof)
+        request=opener.open.call_args.args[0]
+        self.assertEqual(request.get_method(),'GET')
+        self.assertEqual(request.full_url,'https://'+db.PROJECT_HOST+'/rest/v1/rpc/fn_engine_maintenance_promise_proof')
+        self.assertEqual(opener.open.call_args.kwargs,{'timeout':1.5})
+        response.read.assert_called_once_with(16385)
+        response.read.return_value=b'x'*16385
+        with patch.object(db,'build_opener',return_value=opener),self.assertRaises(ValueError):
+            db.read_maintenance_promise('https://'+db.PROJECT_HOST,'fixture-key')
+        argv=['proof','--env-file','/unused','--sha',seal.DAILY_BOOTSTRAP_SHA,'--instance-id','1-abcdef12','--maintenance-promise']
+        for value,allowed in [(proof,True),({**proof,'schema':'unknown'},False),
+                ({**proof,'thawDefinitionMd5':'old'},False),
+                ({**proof,'leader':{**proof['leader'],'instanceId':'1-abcdef13'}},False),
+                ({**proof,'leader':{**proof['leader'],'heartbeatAt':'2000-01-01T00:00:00Z'}},False),([],False)]:
+            with patch.object(db.sys,'argv',argv),patch.object(db,'read_fixed_env',return_value={
+                    'SUPABASE_URL':'https://'+db.PROJECT_HOST,'SUPABASE_SERVICE_ROLE_KEY':'fixture-key'}), \
+                 patch.object(db,'read_maintenance_promise',return_value=value),redirect_stdout(io.StringIO()),redirect_stderr(io.StringIO()):
+                if allowed: db.main()
+                else:
+                    with self.assertRaises(SystemExit): db.main()
 
     def test_unloaded_failed_custody_requires_positive_manager_kernel_and_metadata_proofs(self):
         unit=f'club-arena-engine-intake-v1@{seal.FAILED_ROUTINE_RUN}.service'

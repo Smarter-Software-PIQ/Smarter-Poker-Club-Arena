@@ -314,6 +314,19 @@ def die(message: str) -> NoReturn:
     raise SystemExit(1)
 
 
+def read_maintenance_promise(base_url: str, service_key: str) -> object:
+    """One authenticated read-only snapshot; no announcement or release write."""
+    request = Request(f"{base_url}/rest/v1/rpc/fn_engine_maintenance_promise_proof",
+        headers={"apikey": service_key, "authorization": f"Bearer {service_key}",
+                 "accept": "application/json", "cache-control": "no-cache, no-store"}, method="GET")
+    opener = build_opener(HTTPSHandler(context=ssl.create_default_context()), RefuseRedirects())
+    with opener.open(request, timeout=1.5) as response:
+        raw = response.read(16385)
+    if len(raw) > 16384:
+        raise ValueError("maintenance promise witness exceeds bound")
+    return json.loads(raw)
+
+
 def read_fixed_env(path: Path) -> dict[str, str]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -487,6 +500,7 @@ def main() -> None:
     parser.add_argument("--mixed-custody-contract", action="store_true")
     parser.add_argument("--failed-routine-idle", action="store_true")
     parser.add_argument("--terminal-owned-thaw", action="store_true")
+    parser.add_argument("--maintenance-promise", action="store_true")
     parser.add_argument("--window-announced-ms", type=int)
     parser.add_argument("--window-starts-ms", type=int)
     parser.add_argument("--window-ends-ms", type=int)
@@ -522,6 +536,24 @@ def main() -> None:
         die("SUPABASE_URL is not the pinned Club Arena project origin")
     if not service_key:
         die("SUPABASE_SERVICE_ROLE_KEY is absent from the fixed engine environment")
+
+    if args.maintenance_promise:
+        if (target_sha != 'eed06fe51dea622069c661a6213d5b031ff3a9e3' or
+                args.terminal_owned_thaw or args.failed_routine_idle or args.mixed_custody_contract):
+            die('maintenance promise is limited to the qualified predecessor')
+        try:
+            proof = read_maintenance_promise(base_url, service_key)
+            leader = proof.get('leader') or {}
+            if (proof.get('schema') != 'maintenance-promise-floor/v1' or
+                    proof.get('thawDefinitionMd5') != 'cb733d7201725719813ffd1b1e099b1b'):
+                raise ValueError('maintenance promise contract is not installed')
+            if (leader.get('version') != target_sha[:8] or leader.get('instanceId') != instance_id or
+                    not 0 <= heartbeat_age_seconds(leader.get('heartbeatAt')) <= args.max_heartbeat_age_seconds):
+                raise ValueError('maintenance promise leader differs')
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, TypeError, AttributeError) as exc:
+            die(f'maintenance promise witness unconfirmed ({type(exc).__name__})')
+        print(json.dumps(proof, sort_keys=True))
+        return
 
     if args.terminal_owned_thaw:
         if (args.mixed_custody_contract or args.failed_routine_idle or not instance_id or
