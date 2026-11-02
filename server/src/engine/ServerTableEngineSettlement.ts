@@ -721,7 +721,10 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         // failed one costs only the replayer offer, never the felt one.
         const persistedHand = this.handCount;
         const persisted = this.rabbitHuntOffers.get(persistedHand);
-        if (persisted) {
+        // Only a hand that ended BEFORE the river has anything to sell: a full
+        // board leaves nothing unseen (revealRabbitHunt refuses it anyway), so
+        // writing it would be a row per showdown platform-wide for nothing.
+        if (persisted && persisted.cards.length > 0 && persisted.boardLength < 5) {
           void (async () => {
             try {
               const { error: offerPersistError } = await supabase.from('rabbit_hunt_offers').upsert(
