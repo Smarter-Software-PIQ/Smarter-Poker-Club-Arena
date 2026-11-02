@@ -1,4 +1,4 @@
-/** Owner November 1: halve future guarantees, preserving the 200 / 25k event. */
+/** Owner November 1: reduced guarantees, with the confirmed nightly and 1.5K terms. */
 export const GUARANTEE_REDUCTION_START_MS = Date.parse('2026-11-02T06:00:00Z');
 
 function guaranteeLabel(value: number): string {
@@ -38,7 +38,13 @@ export function withReducedTournamentGuarantee(
     (entry === 200 && before === 25000)
   )
     return row;
-  const after = Math.round(before * 50) / 100;
+  // Owner's final board instruction preserves the 7pm 35-chip rebuy/add-on
+  // and the still-unreduced Six-Card event; all other existing terms stay put.
+  const preserved =
+    (row.schedule_id === '099ac5a4-c866-4acb-917c-31337bf468b1' && entry === 35) ||
+    row.schedule_id === '39518fc3-ee0b-4e45-83ae-3619aa9a5c07';
+  const reduced = preserved ? before : Math.round(before * 50) / 100;
+  const after = reduced === 1200 || reduced === 1250 ? 1500 : reduced;
   return {
     ...row,
     guaranteed_prize: after,
