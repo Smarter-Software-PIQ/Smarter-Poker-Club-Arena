@@ -365,7 +365,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
     def test_every_missing_or_unknown_proof_keeps_the_owner(self):
         bad_intent = lambda **f: lambda: self.write_intent(**f)
         cases = {
-            'window not settled': lambda: setattr(seal, 'TERMINAL_OWNER_SETTLE_MS', 10 * 3600 * 1000),
+            'window not settled': lambda: setattr(seal, 'TERMINAL_OWNER_SETTLE_MS', int(seal.time.time() * 1000) - self.window['endsAt'] + 10 * 3600 * 1000),
             'desired changed': lambda: seal.write_state({**seal.load_state(), 'desired': {
                 'sha': A_SHA, 'imageId': OTHER_IMAGE, 'legacyUnlabelled': False}}),
             'durable failure differs': lambda: seal.write_json_atomic(

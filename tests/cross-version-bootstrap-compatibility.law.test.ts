@@ -96,9 +96,8 @@ describe('cross-version bootstrap compatibility contract (Phase 2)', () => {
     expect(DEADLINE_FLOOR_TS).toContain('const remaining = targetEpochMs - now();');
     expect(DEADLINE_FLOOR_TS).toContain('if (remaining > 0) {');
 
-    expect(MAINTENANCE_BREAK_TS).toContain(
-      "import { scheduleAtExactEpochMs } from './deadlineFloorTimer.js';"
-    );
+    expect(MAINTENANCE_BREAK_TS).toContain('export function scheduleAtExactEpochMs');
+    expect(MAINTENANCE_BREAK_TS).toContain('const remaining = targetEpochMs - now();');
     const callSites = MAINTENANCE_BREAK_TS.match(/scheduleAtExactEpochMs\(/g) ?? [];
     expect(callSites.length).toBe(4);
     expect(MAINTENANCE_BREAK_TS).toContain('this.announceTimer = handle;');

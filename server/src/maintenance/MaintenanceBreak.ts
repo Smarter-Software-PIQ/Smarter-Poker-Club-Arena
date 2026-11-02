@@ -77,7 +77,6 @@ import {
 import { randomUUID } from 'node:crypto';
 import { completeReconnectFreeze, completeTableReconnectFreeze } from './reconnectFreeze.js';
 import { setLastHandSettlementWindow, setMaintenanceFrozen } from './freezeState.js';
-import { scheduleAtExactEpochMs } from './deadlineFloorTimer.js';
 import {
   assertMaintenanceThawRelease,
   MaintenanceThawError,
@@ -85,6 +84,39 @@ import {
   type MaintenanceThawRequest,
   type MaintenanceThawRelease,
 } from './maintenanceThawV3.js';
+
+/**
+ * Guarantees that `onDue()` is never invoked while `now() < targetEpochMs`: if
+ * a timer callback wakes up early (`remaining > 0`), it re-arms for `remaining`
+ * milliseconds and updates the caller's timer handle via `onHandle`.
+ */
+export function scheduleAtExactEpochMs<THandle = NodeJS.Timeout>(
+  targetEpochMs: number,
+  now: () => number,
+  setTimer: (fn: () => void, ms: number) => THandle,
+  onHandle: (handle: THandle | null) => void,
+  onDue: () => void,
+  shouldContinue?: () => boolean
+): THandle {
+  const tick = (): void => {
+    if (shouldContinue && !shouldContinue()) {
+      onHandle(null);
+      return;
+    }
+    const remaining = targetEpochMs - now();
+    if (remaining > 0) {
+      const nextHandle = setTimer(tick, remaining);
+      onHandle(nextHandle);
+      return;
+    }
+    onHandle(null);
+    onDue();
+  };
+  const initialDelay = Math.max(0, targetEpochMs - now());
+  const initialHandle = setTimer(tick, initialDelay);
+  onHandle(initialHandle);
+  return initialHandle;
+}
 
 /**
  * The parking primitive, as this module needs it.
