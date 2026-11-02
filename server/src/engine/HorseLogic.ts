@@ -268,6 +268,7 @@ import {
   estimateRiverRangeComposition,
 } from './HorseEval.js';
 import { anteOrbitCostBB } from './AnteMath.js';
+import { v81Cell, v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { ploPairedBoardMustFold } from './HorsePloPairedBoardFold.js';
 import {
   holdemPremiumAggressionVerdict,
@@ -2420,6 +2421,13 @@ export interface HorseDecideOpts {
    *  measured over-bluffer keeps today. Default on; explicit false keeps
    *  today's equity. */
   v80TopPairStrongKicker?: boolean;
+  /** V81 (2026-11-02, Phase 4): PLO4/PLO5 turn/river CALLS of a >= 0.9-pot
+   *  wager fold in the measured cells (HorseOmahaBigBetCalls.v81Cell): river
+   *  straights on a flush board, non-nut straights, straights on a paired
+   *  board, dominated flushes, nut flushes on a paired board, cash two pair;
+   *  turn dominated flushes and paired-board straights. Default on;
+   *  explicit false keeps today. */
+  v81OmahaBigBetCalls?: boolean;
   /** Phase 7 Round 1: final action-specific tournament utility arbiter.
    *  Complete schema-v1 tournament decisions evaluate every legal action
    *  family after all legacy strategy layers; no global style multiplier can
@@ -4013,6 +4021,80 @@ function shortAllInCallFloorOutsideGraph(
     : decision;
 }
 
+/**
+ * V81 (2026-11-02, Phase 4): PLO4/PLO5 big-bet call discipline. Runs in the
+ * policy graph's wager_rules node right after the paired-board fold, so the
+ * signed graph records the fold; see HorseOmahaBigBetCalls.ts for the
+ * evidence and the exact cells.
+ */
+function omahaBigBetCallFold(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  try {
+    if (opts.v81OmahaBigBetCalls === false) return decision;
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    if (toCall <= 0.005) return decision;
+    const isCall =
+      decision.action === 'call' || (decision.action === 'all_in' && stack <= toCall + 0.005);
+    if (!isCall) return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
+    const street = String(gs.stage ?? '');
+    const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    const streetBets = new Map<number, number>();
+    for (const p of gs.players ?? [])
+      if (Number.isFinite(p.bet) && (p.bet ?? 0) > 0) streetBets.set(p.seat, p.bet ?? 0);
+    // The wager exactly as the evidence measured it: the last bettor, the
+    // chips it added, the pot just before it. Unreconcilable history: no fold.
+    const faced = v81StreetWager(gs.actionHistory, street, streetBets, pot);
+    if (faced === null) return decision;
+    const bettor = (gs.players ?? []).find((p) => p.seat === faced.bettorSeat);
+    if (!bettor || bettor.is_folded) return decision;
+    const bb = gs.bigBlind > 0 ? gs.bigBlind : 1;
+    const effectiveBB = Math.min(stack + heroBet, (bettor.stack ?? 0) + (bettor.bet ?? 0)) / bb;
+    const tournament = isTournamentMode(gs);
+    const cell = v81Cell({
+      variant: String(gs.gameVariant ?? ''),
+      street,
+      hole: player.cards ?? [],
+      board: gs.communityCards ?? [],
+      potFrac: faced.wager / faced.potBefore,
+      effectiveBB,
+      tournament,
+      headsUpTable: dealtHorseTableSize(gs, player.seat) <= 2,
+      bountyEvent:
+        tournament &&
+        (gs.tournament?.isPko === true ||
+          gs.tournament?.isBounty === true ||
+          gs.tournament?.isMysteryBounty === true ||
+          (gs.tournament?.bountyFactor ?? 0) > 0),
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      heroHasStreetChips: heroBet > 0.005,
+      // MEASURED postflop over-bluffer only: in PLO every opponent is
+      // PRESUMED a preflop maniac (HorseOpponentExploit, Dan 2026-10-27),
+      // and a presumption is not evidence about who over-bets the river.
+      bettorOverBluffs: isPostflopManiac(HorseMind.opponentRead(bettor.user_id)),
+    });
+    if (cell === null) return decision;
+    if (telemetryOn(opts)) noteFire('v81_omaha_big_bet_call_fold');
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
+  } catch {
+    return decision;
+  }
+}
+
 /** The outer safety net: only a decision the policy graph never signed. */
 function pairedBoardFoldOutsideGraph(
   decision: HorseDecision,
@@ -4021,7 +4103,7 @@ function pairedBoardFoldOutsideGraph(
   opts: HorseDecideOpts
 ): HorseDecision {
   return decision.policyGraph === undefined
-    ? pairedBoardFold(decision, player, gs, opts)
+    ? omahaBigBetCallFold(pairedBoardFold(decision, player, gs, opts), player, gs, opts)
     : decision;
 }
 
@@ -5656,7 +5738,7 @@ export class HorseLogic {
         gs
       );
       const ruled = holdemPremiumAggression(
-        pairedBoardFold(wagered, player, gs, opts),
+        omahaBigBetCallFold(pairedBoardFold(wagered, player, gs, opts), player, gs, opts),
         player,
         gs,
         opts
