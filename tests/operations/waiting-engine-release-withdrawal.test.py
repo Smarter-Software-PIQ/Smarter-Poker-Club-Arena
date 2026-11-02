@@ -2,6 +2,7 @@
 """Finite qualification of the original transaction-only terminal boundary."""
 from contextlib import ExitStack
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -312,24 +313,70 @@ class AnnouncedCancellation(unittest.TestCase):
             reservation.chmod(0o600)
             pins = state / 'engine-release-generation-pins'; pins.mkdir()
             (pins / (key + '.generation')).write_text(str(generation) + '\n' + module.PHASE1_CONTROL + '\n')
-            # Keep exact immutable Git objects, but qualify ancestry at that
-            # original protected revision rather than traversing today's entire
-            # unrelated main history inside the five-second helper budget.
-            # CI's root checkout is blob-filtered. Hydrate only the exact
-            # historical policy closure through that configured repository
-            # before the isolated, network-free helper deadline starts.
-            for source_path in (
-                    'server/release/activation-floor.json',
-                    'server/release/owner-maintenance-windows.json',
-                    'server/src/maintenance/maintenanceSchedulePolicy.json',
-                    'server/scripts/engine-release-intake.sh',
-                    'server/scripts/engine-release-transaction.sh',
-                    'server/scripts/engine-release-recover.sh'):
-                subprocess.check_output(['git', 'show', module.PHASE1_CONTROL + ':' + source_path], cwd=ROOT, timeout=30)
+            # Build a private immutable commit graph and exact policy closure.
+            # Shared pack lookups alone consumed the five-second CLI budget,
+            # even after warming the cache. No source bytes or ancestry are faked.
+            source_paths = [
+                'server/release/activation-floor.json',
+                'server/release/owner-maintenance-windows.json',
+                'server/src/maintenance/maintenanceSchedulePolicy.json',
+                'server/scripts/engine-release-intake.sh',
+                'server/scripts/engine-release-transaction.sh',
+                'server/scripts/engine-release-recover.sh',
+                'server/scripts/engine-release-activation-floor.py',
+                'server/scripts/engine-release-seal.py',
+            ]
             proof_repo = Path(folder) / 'proof.git'
             subprocess.run(['git', 'init', '--bare', '-q', str(proof_repo)], check=True)
-            objects = subprocess.check_output(['git', 'rev-parse', '--path-format=absolute', '--git-path', 'objects'], cwd=ROOT, text=True).strip()
-            (proof_repo / 'objects/info/alternates').write_text(objects + '\n')
+            # Copy real reachable commits only, not the unrelated historical
+            # file corpus. The helper still proves the actual policy ancestor.
+            revisions = list(dict.fromkeys([request['releaseSha'], request['controlSha']]))
+            graph = subprocess.check_output(['git', 'rev-list', *revisions],
+                cwd=ROOT, timeout=30)
+            graph_pack = Path(folder) / 'commits.pack'
+            with graph_pack.open('wb') as output:
+                subprocess.run(['git', 'pack-objects', '--stdout'], cwd=ROOT,
+                    input=graph, stdout=output, check=True, timeout=60)
+            with graph_pack.open('rb') as source:
+                subprocess.run(['git', '-C', str(proof_repo), 'index-pack', '--stdin'],
+                    stdin=source, stdout=subprocess.PIPE, check=True, timeout=30)
+            graph_pack.unlink()
+            copied_graph = subprocess.check_output(['git', '-C', str(proof_repo),
+                'rev-list', *revisions], timeout=30)
+            self.assertEqual(set(copied_graph.splitlines()), set(graph.splitlines()))
+            specs = []
+            for revision in revisions:
+                paths = source_paths + subprocess.check_output(['git', 'ls-tree', '--name-only',
+                    revision, '--', '.gitattributes', '.gitmodules'],
+                    cwd=ROOT, text=True, timeout=30).splitlines()
+                specs.append(revision + '^{tree}')
+                for source_path in paths:
+                    parts = source_path.split('/')
+                    specs.extend(revision + ':' + '/'.join(parts[:n])
+                                 for n in range(1, len(parts) + 1))
+            specs = list(dict.fromkeys(specs))
+            object_ids = subprocess.check_output(['git', 'rev-parse', *specs], cwd=ROOT,
+                                                  text=True, timeout=30).splitlines()
+            self.assertEqual(len(object_ids), len(specs))
+            raw = subprocess.check_output(['git', 'cat-file', '--batch'], cwd=ROOT,
+                input=('\n'.join(object_ids) + '\n').encode(), timeout=30)
+            stream = io.BytesIO(raw); records = []
+            for oid in object_ids:
+                header = stream.readline().decode().split()
+                self.assertEqual(header[0], oid)
+                self.assertIn(header[1], ('blob', 'tree'))
+                records.append((oid, header[1], stream.read(int(header[2]))))
+                self.assertEqual(stream.read(1), b'\n')
+            self.assertEqual(stream.read(), b'')
+            # Attribute blobs precede trees so normal Git fsck remains enabled.
+            for oid, kind, data in sorted(records, key=lambda row: row[1] != 'blob'):
+                copied = subprocess.check_output(['git', '-C', str(proof_repo),
+                    'hash-object', '-t', kind, '-w', '--stdin'], input=data,
+                    timeout=30).decode().strip()
+                self.assertEqual(copied, oid)
+                local_object = proof_repo / 'objects' / oid[:2] / oid[2:]
+                self.assertTrue(local_object.is_file() and not local_object.is_symlink())
+            self.assertFalse((proof_repo / 'objects/info/alternates').exists())
             subprocess.run(['git', '-C', str(proof_repo), 'update-ref', 'refs/remotes/origin/main', module.PHASE1_CONTROL], check=True)
             calls = []
             def command(args, timeout=5):

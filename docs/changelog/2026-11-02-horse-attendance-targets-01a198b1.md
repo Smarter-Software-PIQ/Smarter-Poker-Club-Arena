@@ -80,3 +80,14 @@ refusals, no fifth promise, and original-entry recovery over fresh connections.
 These are the actual acquisition and capacity wrappers with controlled
 economic delegates, not production registrations or a performance benchmark.
 The separate original financial qualification remains necessary for money.
+
+## Local historical-controller fixture input
+
+The connected withdrawal regression still failed alone at its unchanged
+five-second floor-CLI deadline. Git trace recorded 0.4–0.7 seconds per repeated
+policy blob read through the shared repository's packs. The fixture now copies
+its exact commit, source blobs and containing trees into its private Git object
+database before entering that deadline, verifies every copied object ID and
+copies the real reachable commit graph for immutable ancestry, with no shared
+object alternate inside the timed helper. Normal Git fsck stays enabled. No production
+controller, deadline, source identity, policy or admission assertion changes.
