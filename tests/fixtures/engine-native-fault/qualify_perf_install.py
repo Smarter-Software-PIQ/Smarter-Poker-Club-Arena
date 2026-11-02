@@ -31,13 +31,17 @@ SOURCES = {
 }
 
 RUNNER = r'''
-import importlib.util,json,os,sys,time
+import argparse,importlib.util,json,os,sys,time
 from pathlib import Path
+parser=argparse.ArgumentParser()
+parser.add_argument('mode',choices=('launch','execute','stop-post'))
+parser.add_argument('--operation',required=True)
+arguments=parser.parse_args()
+mode,op=arguments.mode,arguments.operation
 folder=Path(__file__).parent
 spec=importlib.util.spec_from_file_location('owned_installer',folder/'installer.py')
 helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
 native=helper.load('qualified_identity','native-fault-observation.py',helper.CONTROLLER_SHA)
-mode,op=sys.argv[1:]
 if mode=='launch':
     helper.run(helper.unit_arguments(op,Path(__file__)))
 elif mode=='execute':

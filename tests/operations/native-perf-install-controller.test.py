@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import shlex
+import sys
 import tempfile
 from pathlib import Path
 import unittest
@@ -8,6 +10,23 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location('installer', Path(__file__).resolve().parents[2] / 'scripts/ci/native-perf-install-controller.py')
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
+
+
+class FixtureUnitArguments(unittest.TestCase):
+    def test_expiry_runner_accepts_actual_execute_and_stop_post_unit_cli(self):
+        fixture_spec = importlib.util.spec_from_file_location('expiry_fixture',
+            Path(__file__).resolve().parents[1] / 'fixtures/engine-native-fault/qualify_perf_install.py')
+        fixture = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(fixture)
+        arguments = helper.unit_arguments('17', Path('/owned/runner.py'))
+        stop = next(value.split('=', 2)[2] for value in arguments if value.startswith('--property=ExecStopPost='))
+        cases = (arguments[-4:], shlex.split(stop)[1:])
+        for expected, command in zip(('execute', 'stop-post'), cases):
+            namespace = {'__file__': '/owned/runner.py'}
+            with self.subTest(mode=expected), patch.object(sys, 'argv', command):
+                # Run the real parser before any fixture imports or side effects.
+                exec(fixture.RUNNER.split('folder=Path(__file__).parent', 1)[0], namespace)
+                self.assertEqual((namespace['mode'], namespace['op']), (expected, '17'))
 
 
 class CanonicalArchives(unittest.TestCase):
