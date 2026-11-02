@@ -113,6 +113,12 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   bash "$repo/scripts/ci/test-certification-vip-grant.sh"
 
+# The price shows before the tap, a bought run-out is kept for its buyer
+# alone, and staff correct one reveal once through the audited core.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  bash "$repo/scripts/ci/test-rabbit-hunt-enhancements.sh"
+
 # Player Hub reads the entire persisted tournament or cash sitting.
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   RUNNER_TEMP="$DATA_CONSOLE_PG_SCRATCH_PARENT" \

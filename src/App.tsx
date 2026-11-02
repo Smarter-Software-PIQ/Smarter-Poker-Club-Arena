@@ -338,6 +338,10 @@ const CommerceDeskPage = lazyWithRetry(() => import('./pages/admin/CommerceDeskP
    adjustments. PlatformStaffGuard closes the route; every door checks staff
    again. Outside the arena's own paths, which render the safe shell for all. */
 const DiamondStaffDeskPage = lazyWithRetry(() => import('./pages/admin/DiamondStaffDeskPage'));
+/* Rabbit Hunt Desk (2026-11-02): platform staff correct one rabbit hunt
+   reveal's charge through the audited staff door. PlatformStaffGuard closes
+   the route; fn_staff_correct_rabbit_hunt_charge checks staff again. */
+const RabbitHuntDeskPage = lazyWithRetry(() => import('./pages/admin/RabbitHuntDeskPage'));
 
 // Loading fallback
 function LoadingSpinner() {
@@ -2495,6 +2499,18 @@ function FullApp() {
                       <PlatformStaffGuard>
                         <PageErrorBoundary pageName="Commerce Desk">
                           <CommerceDeskPage />
+                        </PageErrorBoundary>
+                      </PlatformStaffGuard>
+                    </AuthGuard>
+                  }
+                />
+                <Route
+                  path="rabbit-hunt-desk"
+                  element={
+                    <AuthGuard>
+                      <PlatformStaffGuard>
+                        <PageErrorBoundary pageName="Rabbit Hunt Desk">
+                          <RabbitHuntDeskPage />
                         </PageErrorBoundary>
                       </PlatformStaffGuard>
                     </AuthGuard>
