@@ -40,13 +40,7 @@
  * retain their readable sentences and existing actions.
  */
 
-import {
-  joinCashGame,
-  joinGameRefusalText,
-  pendingMoveNotice,
-  waitlistedText,
-} from '../../services/cashGameLobby';
-import { useToast } from '../common/Toast';
+import { pendingMoveNotice } from '../../services/cashGameLobby';
 import { useCashGameLobby } from './useCashGameLobby';
 import './CashClusterHUD.css';
 import { useSeatChangeVisibility } from '../../hooks/useSeatChangeVisibility';
@@ -60,9 +54,10 @@ export interface CashClusterHUDProps {
   onOpenLobby: () => void;
   onSeatChange: () => void;
   /**
-   * A viewer holding a place on the game's waitlist is sent to the table the
-   * game door names the moment a chair opens (Gate 4). Optional: a surface
-   * with no way to move the viewer simply shows the place.
+   * Accepted and unused since 2026-11-01: the corner no longer moves a viewer
+   * itself (see the ruling on the waitlist pill below). Kept so existing
+   * render sites keep compiling and the server-side Gate 4 door remains the
+   * one thing that seats a waitlisted player.
    */
   onGoToTable?: (tableId: string) => void;
 }
@@ -72,61 +67,27 @@ export function CashClusterHUD({
   refreshKey = 0,
   onOpenLobby,
   onSeatChange,
-  onGoToTable,
 }: CashClusterHUDProps) {
-  const toast = useToast();
   const { visible: seatChangeVisible } = useSeatChangeVisibility();
-  const {
-    lobby,
-    busy: joining,
-    load,
-    beginAction,
-  } = useCashGameLobby(gameId, true, CASH_CLUSTER_HUD_POLL_MS, refreshKey);
+  const { lobby } = useCashGameLobby(gameId, true, CASH_CLUSTER_HUD_POLL_MS, refreshKey);
 
   const me = lobby?.me ?? null;
   const moveNotice = me?.seated ? pendingMoveNotice(me.pending_move) : null;
   const seatChangeAvailable = Boolean(me?.seated && me.seat_change.available);
   const listed = me?.seat_change.request ?? null;
   const onWaitlist = Boolean(me && !me.seated && me.waitlist?.on_list);
-  /**
-   * ── "TAKE A SEAT" HAS TO MEAN A SEAT HE CAN SEE (Dan 2026-09-07, item 9) ──
-   *
-   * "THERE CURRENTLY ISN'T A SEAT OPEN IN THIS GAME, SO IT SHOULD SAY JOIN THE
-   *  WAITING LIST"
-   *
-   * He was looking at a full table being told to take a chair. This was true
-   * at the CLUSTER level and false at the table in front of him: `.some()`
-   * over every table in the game means one empty seat two tables away lit the
-   * button on all of them.
-   *
-   * The cluster reading is still the right one for the ACTION - takeChair()
-   * seats you wherever the door sends you, which is the point of a cluster -
-   * so it is kept, under a name that says what it is. What changes is the
-   * COPY: an offer that will move a player to another table now says so.
-   */
-  const openTables = (lobby?.tables ?? []).filter(
-    (t) => Number(t.open_seats ?? 0) > 0 && (t.lifecycle === 'live' || t.lifecycle === 'opening')
-  );
-  const chairOpenInCluster = openTables.length > 0;
+  /* ── THE BLUE PILL IS GONE (Dan 2026-11-01, binding) ─────────────────────
+     "REMOVE THE BLUE PILL SHAPED 'CHAIR OPEN IN THE GAME TAKE A SEAT'.
+      SHOULDN'T BE THERE FROM THE CASH GAME OBSERVER VIEW."
 
-  const takeChair = async () => {
-    const action = beginAction();
-    if (!action) return;
-    try {
-      const r = await joinCashGame(gameId);
-      if (!action.isCurrent()) return;
-      if (r.action === 'waitlisted') {
-        toast.info(waitlistedText(r));
-      } else if (r.table_id) {
-        onGoToTable?.(r.table_id);
-      }
-      await load();
-    } catch (err) {
-      if (action.isCurrent()) toast.warning(joinGameRefusalText(err));
-    } finally {
-      action.finish();
-    }
-  };
+     This corner used to flip a waitlisted viewer's pill to "Chair Open In
+     This Game: Take A Seat" and seat them through joinCashGame itself. The
+     pill is removed at its source: the corner now only ever reads the place
+     on the list and opens the lobby, whose JOIN GAME is the one door onto a
+     chair. Gate 4 (the server door) still moves a waitlisted player the
+     moment their chair opens, so nothing a player is owed is lost - only the
+     floating offer over the observer view. Supersedes the 2026-09-07 item 9
+     copy fix, which rewrote this pill rather than removing it. */
 
   /* NOTHING TO SAY, NOTHING DRAWN (2026-09-05). With the bar gone this column
      is only a notice and up to two buttons, and a player sitting quietly in
@@ -192,22 +153,11 @@ export function CashClusterHUD({
       {onWaitlist && (
         <button
           type="button"
-          className={`cch-seat-change${chairOpenInCluster ? '' : ' cch-seat-change--listed'}`}
-          disabled={joining}
-          onClick={() => (chairOpenInCluster ? void takeChair() : onOpenLobby())}
-          aria-label={
-            chairOpenInCluster
-              ? 'A Chair Is Open In This Game - Take It'
-              : 'Your Place On The Waitlist'
-          }
+          className="cch-seat-change cch-seat-change--listed"
+          onClick={onOpenLobby}
+          aria-label="Your Place On The Waitlist"
         >
-          {/* "In This Game", not "here". The seat may be at another table in
-              the cluster and takeChair() will move you to it - which is a fine
-              offer, but it must not read as an invitation to sit at the full
-              table you are watching. */}
-          {chairOpenInCluster
-            ? 'Chair Open In This Game: Take A Seat'
-            : `Waitlist: #${me?.waitlist?.position ?? '-'} Of ${me?.waitlist?.waiting ?? '-'}`}
+          {`Waitlist: #${me?.waitlist?.position ?? '-'} Of ${me?.waitlist?.waiting ?? '-'}`}
         </button>
       )}
     </div>
