@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { invocation, servingIdentity, pinOwner, epochReceipts, selectEpoch as select, promotionPlan, maintenanceRefusal,
   evaluatorArguments, hostTranscript, OUTCOMES, promotionRequest, PROMOTION_BUDGET_MS, EPOCH_PROTOCOL, epochProtocolPresent,
-  epochAwareCommit } from './gto-v31-qualification.mjs';
+  epochAwareCommit, SERVING_GATE, servingGateCommit, runnerRevokes } from './gto-v31-qualification.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -134,15 +134,30 @@ test('host outcomes are explicit, and a disagreeing transcript is never a succes
   assert.equal(OUTCOMES[66].changed, false);
   assert.equal(hostTranscript('V31_ATOMIC_OUTCOME refused-lock-busy\n', 75).outcome, 'refused-lock-or-boundary');
   assert.equal(hostTranscript('V31_ATOMIC_OUTCOME promoted-loaded-ready\n', 69).outcome, 'host-outcome-unknown');
-  const t = hostTranscript('V31_ATOMIC_STAGE promote {"result":"promoted"}\nV31_ATOMIC_STAGE load not-json\nV31_ATOMIC_OUTCOME promoted-load-incomplete\n', 68);
-  assert.deepEqual([t.outcome, t.stages.promote[0].result, t.stages.load[0]], ['promoted-load-incomplete', 'promoted', null]);
+  const t = hostTranscript('V31_ATOMIC_STAGE promote {"result":"promoted"}\nV31_ATOMIC_STAGE load not-json\nV31_ATOMIC_STAGE revoke {"result":"revoked"}\nV31_ATOMIC_STAGE clear {}\nV31_ATOMIC_OUTCOME rolled-back-empty\n', 68);
+  assert.deepEqual([t.outcome, t.stages.promote[0].result, t.stages.load[0], t.stages.revoke[0].result, t.serving],
+    ['rolled-back-empty', 'promoted', null, 'revoked', 'empty']);
+  // Every outcome says what live workers can serve afterwards; none leaves a mix unreported.
+  for (const [code, known] of Object.entries(OUTCOMES))
+    assert.ok(['loaded', 'empty', 'unchanged', 'converging', 'unknown'].includes(known.serving), code);
+  assert.equal(OUTCOMES[72].outcome, 'rollback-incomplete');
+  assert.equal(OUTCOMES[71].rerun, false);
+  assert.equal(OUTCOMES[67].serving, 'empty');
+  assert.equal(OUTCOMES[70].serving, 'empty');
+  assert.equal(OUTCOMES[73].serving, 'unknown');
+  for (const outcome of ['rollback-incomplete', 'in-container-step-not-terminated', 'host-outcome-unknown'])
+    assert.equal(runnerRevokes(outcome), true, outcome);
+  for (const outcome of ['promoted-loaded-ready', 'rolled-back-empty', 'promoted-loaded-readiness-unproved', 'promoted-unbound'])
+    assert.equal(runnerRevokes(outcome), false, outcome);
 });
 
 test('promotion requests and evaluator arguments carry no override or interpolation', () => {
   const p = { datasetId: '187815b1-3701-46c8-8514-93db3cdb6d07', checksum: 'f'.repeat(64), engineSha: C1, servingSha: C2,
-    requestId: '2687c795-6014-4543-85fd-460f418da6c3', cellCount: 107, afterUtc: '2026-11-02T15:20:00.000Z' };
+    requestId: '2687c795-6014-4543-85fd-460f418da6c3', cellCount: 107, afterUtc: '2026-11-02T15:20:00.000Z',
+    closureDigest: 'e'.repeat(64), boundBy: 'github-actions:repo:run-1-1:dan' };
   assert.deepEqual(promotionRequest(p), p);
-  for (const bad of [{ engineSha: C1.slice(1) }, { servingSha: '0'.repeat(40) }, { cellCount: 0 }, { afterUtc: 'now' }, { requestId: 'x' }])
+  for (const bad of [{ engineSha: C1.slice(1) }, { servingSha: '0'.repeat(40) }, { cellCount: 0 }, { afterUtc: 'now' }, { requestId: 'x' },
+    { closureDigest: undefined }, { closureDigest: '0'.repeat(64) }, { boundBy: 'a b' }, { boundBy: '' }])
     assert.throws(() => promotionRequest({ ...p, ...bad }));
   assert.deepEqual(evaluatorArguments(id, 'evaluate'), ['scripts/gto-v31-evaluate-worker.mjs', `--dataset=${id}`]);
   assert.throws(() => evaluatorArguments(id, 'promote'));
@@ -184,5 +199,32 @@ test('the epoch protocol is read from the exact commit in a real git history', (
     assert.equal(epochAwareCommit(dir, legacy), false);
     assert.equal(epochAwareCommit(dir, aware), true);
     assert.equal(epochAwareCommit(dir, 'f'.repeat(40)), false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('promotion refuses a serving engine whose live workers cannot refuse an unbound dataset', () => {
+  const dir = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'v31-gate-'));
+  const git = (...args) => {
+    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout.trim();
+  };
+  const write = (files) => { for (const [p, t] of Object.entries(files)) { mkdirSync(dirname(join(dir, p)), { recursive: true }); writeFileSync(join(dir, p), t); } };
+  try {
+    git('init', '-q', '-b', 'main');
+    write(Object.fromEntries(Object.keys(SERVING_GATE).map((p) => [p, 'ungated\n'])));
+    git('add', '-A'); git('commit', '-q', '-m', 'ungated');
+    const ungated = git('rev-parse', 'HEAD');
+    write(Object.fromEntries(Object.entries(SERVING_GATE).map(([p, marker]) => [p, `${marker}\n`])));
+    git('add', '-A'); git('commit', '-q', '-m', 'gated');
+    const gated = git('rev-parse', 'HEAD');
+    assert.equal(servingGateCommit(dir, ungated), false);
+    assert.equal(servingGateCommit(dir, gated), true);
+    for (const path of Object.keys(SERVING_GATE)) {
+      write({ [path]: 'removed\n' }); git('add', '-A'); git('commit', '-q', '-m', `drop ${path}`);
+      assert.equal(servingGateCommit(dir, git('rev-parse', 'HEAD')), false, path);
+      write({ [path]: `${SERVING_GATE[path]}\n` }); git('add', '-A'); git('commit', '-q', '-m', `restore ${path}`);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
