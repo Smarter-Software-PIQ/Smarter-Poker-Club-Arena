@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { captureFixtureServicePreimage } from './service-preimage.mjs';
+import { graphqlLegacyAclInstallSql, graphqlLegacyAclObservationSql } from './graphql-legacy-acl.mjs';
 
 export const currentRoleGraphWitness =
   'sha256:3a2743a41de40149f61ac411400e0009b9e2f55ae9497117041f8e71156ac679';
@@ -725,8 +726,10 @@ export async function installCurrentApplicationExtensions({
         "BEGIN; SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='5s';"
       );
       try {
-        if (owner === 'supabase_admin')
+        if (owner === 'supabase_admin') {
+          await client.query(graphqlLegacyAclInstallSql);
           await client.query(currentApplicationExtensionNamespaceSql);
+        }
         else await client.query(postgresExtensionOwnerBeginSql);
         for (const item of currentApplicationExtensions.filter(
           (item) => item.owner === owner && !['pg_cron', 'plpgsql'].includes(item.name)
@@ -759,6 +762,9 @@ export async function installCurrentApplicationExtensions({
       assert.ok(Number.isInteger(legacyObserver.processID) && legacyObserver.processID > 0);
       assert.notEqual(legacyObserver.processID, bootstrap.processID);
       assert.ok(!ownerBootstrap || legacyObserver.processID !== ownerBootstrap.processID);
+      assert.deepEqual((await legacyObserver.query(graphqlLegacyAclObservationSql)).rows,
+        [{graphql_legacy_acl_exact: true}],
+        new assert.AssertionError({message: 'FIXTURE_ASSERT_GRAPHQL_LEGACY_ACL_POSTIMAGE'}));
       assert.deepEqual((await legacyObserver.query(legacyDblinkAclObservationSql)).rows,
         [{legacy_dblink_exact: true}],
         new assert.AssertionError({message: 'FIXTURE_ASSERT_LEGACY_DBLINK_POSTIMAGE'}));

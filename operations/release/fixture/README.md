@@ -755,6 +755,23 @@ adopted or overwritten. Database/socket/initdb-owner/PG17 guards, atomic rollbac
 and the original timeouts remain; no application superuser or CREATE grant is
 added. The thirteen genuine provider names/versions/owners remain unchanged.
 
+The existing admin transaction also reproduces the captured initial ACL baseline
+for the already present `graphql` and `graphql_public` namespaces. Read-only
+production metadata has five exact current grants, identical `pg_init_privs`
+entries of type `e`, and no extension membership for either namespace. Ordinary
+manual grants without that initial baseline cause pg_dump to emit two additional
+ACL blocks, so current privileges alone are insufficient for exact composition.
+The explicit `fixture_graphql_acl_baseline` helper performs only the reviewed
+three GRANT statements in PostgreSQL extension context, creates no members, and
+is dropped with RESTRICT in the same transaction before the thirteen genuine
+providers. It is a disposable captured-configuration helper, not a GraphQL
+provider. Missing initial state, namespace/owner/ACL drift, existing membership,
+an occupied helper or wrong private owner/database/PG17 context refuses. The
+postimage requires identical raw current/initial ACLs and absent helper/member
+state; a separate post-commit admin observer repeats that check. No direct
+catalog write, binary-upgrade mode, provider substitution or schema exclusion is
+used. Exact full-schema comparison remains mandatory.
+
 Credential-free native smoke now invokes the existing `schema-preimage` command
 in its fresh preimage container. The original pre-alignment catalogue witness
 remains unchanged, but readiness additionally requires the current38-role graph,

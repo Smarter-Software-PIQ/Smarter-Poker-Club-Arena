@@ -84,7 +84,7 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
 
 WORKDIR /opt/qualification
 # These are trusted, reviewed runtime files, never supplied by a candidate archive.
-COPY fixture-server.mjs runtime-files.mjs gateway.mjs auth-fixture.mjs auth-bootstrap-proof.mjs service-role-boundary.mjs realtime-control-plane.mjs realtime-legacy-relations.mjs actors.mjs tournament-admission.mjs financial-route-phase.mjs seed-fixture.mjs native-smoke.mjs observation-bridge.mjs cron-provider.mjs safeupdate-provider.mjs service-preimage.mjs role-alignment.mjs current-application-roles.mjs role-alignment-render.mjs role-alignment-installer.sql role-alignment-native.json role-alignment-aligned.json role-alignment-graph.sql role-alignment-membership.sql /opt/qualification/runtime/
+COPY graphql-legacy-acl.mjs fixture-server.mjs runtime-files.mjs gateway.mjs auth-fixture.mjs auth-bootstrap-proof.mjs service-role-boundary.mjs realtime-control-plane.mjs realtime-legacy-relations.mjs actors.mjs tournament-admission.mjs financial-route-phase.mjs seed-fixture.mjs native-smoke.mjs observation-bridge.mjs cron-provider.mjs safeupdate-provider.mjs service-preimage.mjs role-alignment.mjs current-application-roles.mjs role-alignment-render.mjs role-alignment-installer.sql role-alignment-native.json role-alignment-aligned.json role-alignment-graph.sql role-alignment-membership.sql /opt/qualification/runtime/
 RUN node --input-type=module -e "import {adaptRealtimeLauncher,adaptRealtimeConfiguration} from '/opt/qualification/runtime/fixture-server.mjs'; await adaptRealtimeLauncher(); await adaptRealtimeConfiguration();" \
     && printf '#!/bin/sh\nexec /usr/local/bin/node /opt/qualification/runtime/fixture-server.mjs "$@"\n' > /usr/local/bin/fixture-server \
     && chmod 0555 /usr/local/bin/fixture-server \
@@ -248,6 +248,7 @@ RUN node --input-type=module -e ' \
       fs.writeFileSync("/tmp/provider-install/opt/qualification/provenance/genuine-providers.json",JSON.stringify(result)+"\n");'
 
 FROM postgres-runtime
+COPY fixture_graphql_acl_baseline.control fixture_graphql_acl_baseline--1.0.sql /usr/share/postgresql/17/extension/
 COPY --from=safeupdate-builder --chmod=0555 /tmp/safeupdate/safeupdate.so /usr/lib/postgresql/17/lib/safeupdate.so
 COPY --from=cron-builder --chmod=0555 /tmp/cron-install/usr/lib/postgresql/17/lib/pg_cron.so /usr/lib/postgresql/17/lib/pg_cron.so
 COPY --from=cron-builder /tmp/cron-install/usr/share/postgresql/17/extension/pg_cron* /usr/share/postgresql/17/extension/
