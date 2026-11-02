@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { serviceRoleBootstrapSql } from '../service-role-boundary.mjs';
+import { serviceRoleBootstrapSql, createFixtureApplicationOwner } from '../service-role-boundary.mjs';
 import { authCapturedAclInstallSql, authCapturedAclObservationSql, authCapturedAclInventory } from '../auth-captured-acls.mjs';
 
 const names = ['audit_log_entries','instances','refresh_tokens','refresh_tokens_id_seq','users'];
@@ -53,4 +53,21 @@ test('Auth ACL installer and independent observer refuse unknown private identit
   }
   assert.ok(authCapturedAclInstallSql.includes('IS DISTINCT FROM TRUE'));
   assert.ok(!authCapturedAclObservationSql.includes('REVOKE') && !authCapturedAclObservationSql.includes('GRANT '));
+});
+
+test('Auth raw preimage follows actual bootstrap role OID order including the hidden owner entry', async () => {
+  const writes = [];
+  await createFixtureApplicationOwner({async query(sql) {
+    if (sql.includes('AS owned_bootstrap')) return {rows:[{owned_bootstrap:true}]};
+    writes.push(sql); return {rows:[]};
+  }});
+  const bootstrap = writes.join('\n') + serviceRoleBootstrapSql('f'.repeat(64));
+  const creationOrder = [...bootstrap.matchAll(/CREATE ROLE ([a-z_]+)/g)].map(match => match[1]);
+  for (const name of ['postgres', 'supabase_auth_admin', 'dashboard_user'])
+    assert.equal(creationOrder.filter(role => role === name).length, 1, name);
+  assert.ok(creationOrder.indexOf('postgres') < creationOrder.indexOf('supabase_auth_admin'));
+  assert.ok(creationOrder.indexOf('supabase_auth_admin') < creationOrder.indexOf('dashboard_user'));
+  assert.ok(authCapturedAclInstallSql.includes("'{postgres=ar*wdDxtm/supabase_auth_admin,supabase_auth_admin=arwdDxtm/supabase_auth_admin,dashboard_user=arwdDxtm/supabase_auth_admin}'"));
+  assert.ok(authCapturedAclInstallSql.includes("'{postgres=rwU/supabase_auth_admin,supabase_auth_admin=rwU/supabase_auth_admin,dashboard_user=rwU/supabase_auth_admin}'"));
+  assert.ok(!authCapturedAclInstallSql.includes("'{postgres=ar*wdDxtm/supabase_auth_admin,dashboard_user=arwdDxtm/supabase_auth_admin,supabase_auth_admin=arwdDxtm/supabase_auth_admin}'"));
 });

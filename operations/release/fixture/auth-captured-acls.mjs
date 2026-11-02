@@ -4,9 +4,9 @@ export const authCapturedAclInventory = Object.freeze([
   Object.freeze(['refresh_tokens', 'r']), Object.freeze(['refresh_tokens_id_seq', 'S']),
   Object.freeze(['users', 'r']),
 ]);
-const tableBefore = '{postgres=ar*wdDxtm/supabase_auth_admin,dashboard_user=arwdDxtm/supabase_auth_admin,supabase_auth_admin=arwdDxtm/supabase_auth_admin}';
+const tableBefore = '{postgres=ar*wdDxtm/supabase_auth_admin,supabase_auth_admin=arwdDxtm/supabase_auth_admin,dashboard_user=arwdDxtm/supabase_auth_admin}';
 const tableAfter = '{supabase_auth_admin=arwdDxtm/supabase_auth_admin,dashboard_user=arwdDxtm/supabase_auth_admin,postgres=ar*wdDxtm/supabase_auth_admin}';
-const sequenceBefore = '{postgres=rwU/supabase_auth_admin,dashboard_user=rwU/supabase_auth_admin,supabase_auth_admin=rwU/supabase_auth_admin}';
+const sequenceBefore = '{postgres=rwU/supabase_auth_admin,supabase_auth_admin=rwU/supabase_auth_admin,dashboard_user=rwU/supabase_auth_admin}';
 const sequenceAfter = '{supabase_auth_admin=rwU/supabase_auth_admin,dashboard_user=rwU/supabase_auth_admin,postgres=rwU/supabase_auth_admin}';
 const context = `current_database()='club_arena_qualification'
   AND inet_server_addr() IS NULL AND current_user='supabase_admin' AND session_user='supabase_admin'

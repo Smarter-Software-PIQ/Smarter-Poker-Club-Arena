@@ -19,3 +19,12 @@ The sanitized diagnostic now recognizes only the thirteen exact source-owned
 SQL guard tokens at that owning stage. Its independent decoder rejects unknown,
 mixed or mismatched labels; raw messages and query context remain private.
 This attribution is not a passing qualification or a substitute for the root fix.
+
+The closed hosted diagnostic identified AUTH_ACL_PREIMAGE. Actual bootstrap role
+creation and all 75 pinned GoTrue SQL migrations reproduce its middle owner ACL
+entry, whereas the earlier isolated setup created Dashboard before AuthAdmin.
+Because pg_dump omits that owner grant, the earlier raw block oracle did not
+establish this internal ordering. Correct the two exact preimage constants;
+postimage grants, SQL operations and drift guards remain unchanged. The original
+module refuses and the corrected module passes on the actual migration chain,
+with the same five raw before/after block oracles and rollback/cleanup proof.
