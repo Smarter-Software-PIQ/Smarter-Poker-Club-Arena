@@ -88,6 +88,50 @@ describe('closed tournament seats deliver their reports before prune', () => {
       expect(screen.getByRole('dialog', { name: /tournament ranking/i })).toBeTruthy();
     }
   );
+  it('releases an administratively cancelled null-rank seat without inventing a report', async () => {
+    mocks.rows = [row];
+    mocks.read.mockResolvedValue({ ...result, tournamentStatus: 'CANCELLED', finishPlace: null });
+    expect((await reportRemovedTournamentSeats(['old-table'], 'hero', () => true)).size).toBe(0);
+    expect(peekSessionSummary()).toBeNull();
+  });
+  it('retains a cancelled tab while the same event still has a live-seat witness', async () => {
+    mocks.rows = [row];
+    mocks.read.mockResolvedValue({ ...result, tournamentStatus: 'CANCELLED', finishPlace: null });
+    expect([
+      ...(await reportRemovedTournamentSeats(
+        ['old-table'],
+        'hero',
+        () => true,
+        new Set(['nightly'])
+      )),
+    ]).toEqual(['old-table']);
+    expect(peekSessionSummary()).toBeNull();
+  });
+  it('preserves an earned ranking when the remaining event is later cancelled', async () => {
+    mocks.rows = [row];
+    mocks.read.mockResolvedValue({ ...result, tournamentStatus: 'CANCELLED' });
+    await act(async () => {
+      expect((await reportRemovedTournamentSeats(['old-table'], 'hero', () => true)).size).toBe(0);
+    });
+    expect(peekSessionSummary()?.tournament?.finishPlace).toBe(353);
+  });
+  it('preserves a settled satellite qualification when the event is cancelled', async () => {
+    mocks.rows = [row];
+    const satelliteQualification = { targetId: 'target', deliveryKind: 'ticket', amount: 100 };
+    mocks.read.mockResolvedValue({
+      ...result,
+      tournamentStatus: 'CANCELLED',
+      entryStatus: 'winner',
+      finishPlace: null,
+      satelliteQualification,
+    });
+    await act(async () => {
+      expect((await reportRemovedTournamentSeats(['old-table'], 'hero', () => true)).size).toBe(0);
+    });
+    expect(peekSessionSummary()?.tournament?.satelliteQualification).toEqual(
+      satelliteQualification
+    );
+  });
   it('does not report a balancer move or a rebought entrant as a finish', async () => {
     mocks.rows = [row];
     mocks.read.mockResolvedValue({ ...result, entryStatus: 'playing', finishPlace: null });

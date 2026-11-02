@@ -133,6 +133,11 @@ import {
 import { sitOutMsRemaining, sitOutBadgeLabel } from '../lib/sitOutDeadline';
 import { heroMayReopenBetting } from '../lib/raiseReopen';
 import { TOURNAMENT_CHAMPION_DISPLAY_MS } from '../utils/tournamentChampion';
+import type { TournamentResultRead } from '../services/tournamentResult';
+import {
+  exitCancelledTournament,
+  isUnrankedTournamentCancellation,
+} from '../services/tournamentCancellationExit';
 import { awaitTournamentResultEnrichment } from '../utils/tournamentResultEnrichment';
 import {
   readMySatelliteQualifierResult,
@@ -5313,6 +5318,7 @@ function LiveTablePage({
   /* The pending tournament-exit navigation, so the subscription's cleanup can
      cancel it. See goToLobbyWithResult. */
   const tournamentExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verifyDurableTournamentExitRef = useRef<(() => Promise<void>) | null>(null);
   const goToLobbyWithResultRef = useRef<
     ((position: number, prize: number, delayMs: number) => void) | null
   >(null);
@@ -15483,6 +15489,7 @@ function LiveTablePage({
         // Subscribe to tournament break + add-on events via Realtime
         if (table.tournament_id) {
           const durableTournamentId = table.tournament_id;
+          const durableTableId = table.id;
           let committedSatelliteQualification: SatelliteQualifierResult | null = null;
           const durableTournamentName = table.name;
           const breakChanKey = `t-break-${durableTournamentId}`;
@@ -15535,11 +15542,13 @@ function LiveTablePage({
              was the last one. Single-table mode has no such subscriber, so it
              still navigates here. */
           let exitStarted = false;
+          let cancellationExitStarted = false;
+          let durableCancellationResult: TournamentResultRead | undefined;
           let terminalCompletionWitnessed = loadedTournamentStatus === 'COMPLETED';
           let terminalCelebrationStarted = false;
 
           const goToLobbyWithResult = (position: number, prize: number, delayMs: number) => {
-            if (exitStarted) return;
+            if (!isMounted || exitStarted || cancellationExitStarted) return;
             if (terminalCompletionWitnessed && !terminalCelebrationStarted) return;
             exitStarted = true;
 
@@ -15562,7 +15571,14 @@ function LiveTablePage({
                    a no-op. The bounded fallback preserves the broadcast's
                    authoritative position/prize and always reaches the card,
                    close signals and navigation below. */
-                const full = await resultEnrichment;
+                const enriched = await resultEnrichment;
+                const full = durableCancellationResult ?? enriched;
+                if (!isMounted || cancellationExitStarted) return;
+                if (isUnrankedTournamentCancellation(full)) {
+                  exitStarted = false;
+                  await exitFromDurableCancellation(full?.tournamentStatus);
+                  return;
+                }
                 publishSessionSummary({
                   handStatsTarget: tableId ? { tableId, userId, asOf: Date.now() } : undefined,
                   // Initial result recovery has no surviving play-session counters.
@@ -16007,6 +16023,56 @@ function LiveTablePage({
             }
           }
 
+          let cancellationExitInFlight = false;
+          async function exitFromDurableCancellation(status: unknown): Promise<void> {
+            if (!isMounted || durableCompletionHandled || cancellationExitInFlight) return;
+            cancellationExitInFlight = true;
+            try {
+              const exited = await exitCancelledTournament({
+                tournamentStatus: status,
+                tableId: durableTableId,
+                tournamentId: durableTournamentId,
+                userId,
+                isCurrent: () => isMounted && !durableCompletionHandled,
+                onResult: (result) => {
+                  // Preserve an earned result already waiting on its display
+                  // timer, and use the same report path on a cold cancelled URL.
+                  durableCancellationResult = result;
+                  goToLobbyWithResult(Number(result.finishPlace) || 0, result.prize, 0);
+                },
+                onExit: () => {
+                  durableCompletionHandled = true;
+                  cancellationExitStarted = true;
+                  exitStarted = true;
+                  if (durableCompletionRetryTimer) clearTimeout(durableCompletionRetryTimer);
+                  durableCompletionRetryTimer = null;
+                  if (tournamentExitTimerRef.current) clearTimeout(tournamentExitTimerRef.current);
+                  tournamentExitTimerRef.current = null;
+                  const seatAtExit = tableStateRef.current.heroSeat;
+                  heroSeatRef.current = 0;
+                  setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+                  toast.info('This Tournament Has Been Cancelled.');
+                  if (userId && userId !== 'guest') {
+                    masterBus.emit('SESSION_ENDED', { tableId: durableTableId, userId });
+                  }
+                  masterBus.emit('TABLE_LEFT', { tableId: durableTableId, seat: seatAtExit });
+                  masterBus.emit('TABLE_MENU_ACTION', {
+                    tableId: durableTableId,
+                    action: 'CLOSE_TABLE_TAB',
+                  });
+                  // The container keeps every other played or observed tab.
+                  if (!embeddedTableId) {
+                    const clubId = lobbyClubIdRef.current;
+                    navigate(clubId ? `/clubs/${clubId}` : '/');
+                  }
+                },
+              });
+              if (!exited) scheduleDurableCompletionRetry();
+            } finally {
+              cancellationExitInFlight = false;
+            }
+          }
+
           async function verifyDurableCompletion(): Promise<void> {
             if (!isMounted || durableCompletionHandled) return;
             const { data: terminal, error: terminalError } = await supabase
@@ -16034,6 +16100,10 @@ function LiveTablePage({
               loadedSatelliteTarget = satelliteTarget;
             }
             applyDurableFinalTableState(terminal);
+            if (terminal.status === 'CANCELLED') {
+              await exitFromDurableCancellation(terminal.status);
+              return;
+            }
             if (terminal.status === 'COMPLETED') {
               terminalCompletionWitnessed = true;
               await exitFromDurableCompletion();
@@ -16067,6 +16137,9 @@ function LiveTablePage({
                 applyDurableFinalTableState(payload.new);
                 if (typeof payload.new?.on_break === 'boolean')
                   void refreshTournamentBreakRef.current();
+                if (payload.new?.status === 'CANCELLED') {
+                  void verifyDurableCompletion();
+                }
                 if (payload.new?.status === 'COMPLETED') {
                   terminalCompletionWitnessed = true;
                   void exitFromDurableCompletion();
@@ -16947,6 +17020,7 @@ function LiveTablePage({
               }
             });
           breakChannelRef.current = breakChan;
+          verifyDurableTournamentExitRef.current = verifyDurableCompletion;
           // Bootstrap the durable backstop independently of Realtime status.
           // A channel can time out before ever reporting SUBSCRIBED, and a
           // successful non-terminal read below keeps the capped poll alive.
@@ -17286,6 +17360,7 @@ function LiveTablePage({
          a hold released after teardown would otherwise navigate a page that has
          already moved on. Cleared here, published where it is declared. */
       goToLobbyWithResultRef.current = null;
+      verifyDurableTournamentExitRef.current = null;
     };
   }, [tableId, userId]);
 
@@ -18134,6 +18209,11 @@ function LiveTablePage({
     observePublicEventRef.current(tableId ?? '', evt.type, evt.data);
 
     switch (evt.type) {
+      case 'ENGINE_RESTARTING':
+        // Retirement uses the existing restart frame. Only durable database
+        // cancellation can close this tab; an ordinary restart stays mounted.
+        void verifyDurableTournamentExitRef.current?.();
+        break;
       case 'ENGINE_EVENT_GAP': {
         const reason = String((evt.data as { reason?: unknown }).reason || '');
         if (reason !== 'reconnect' && reason !== 'event_sequence_gap') break;
