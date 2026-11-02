@@ -1,0 +1,11 @@
+# Preserve the announced maintenance window and resolve its stranded owner
+
+The 197 receiver 41400905104-1 announced 06:58:02.415 UTC, but the old EED runtime started its countdown one millisecond early. Its exact certificate then differed from the canonical reserved window. The controller correctly refused activation, while its announcement-only recovery retained the routine owner. The earlier 9f census failure was already resolved through its separate immutable proof.
+
+MaintenanceBreak now re-arms an early scheduled callback until the same absolute deadline, checking lifecycle and announcement identity. Explicit manual countdown behavior is preserved. The legacy checkpoint binds its own canonical window before checking its absolute safety reserve; exports made by the certificate command substitution cannot supply the parent shell's values.
+
+The existing withdrawal capability admits only this exact 197 generation in its positively empty auto-restart state. It masks the original release, never signals a live process, preserves its announcement and cycle, verifies the exact completed historical v3 thaw, and retires only hash-bound request edges. The original nominal window is never rounded or rewritten. Pinned Phase1 floor reads receive the retained request root and run without bytecode writes into immutable generations.
+
+The owning sealed transaction can resolve that cancelled announcement only from a completed immutable cancellation receipt, fresh process/runtime/thaw evidence, and unchanged canonical state under both locks. It records a separate immutable resolution before audit and compare-and-swap. No failure is fabricated and no financial operation is replayed. The canonical observation reader recognizes this typed resolution without performing recovery.
+
+Focused regressions reproduce early timer execution and missing inherited shell window values. Python fixtures cover exact original generation policy/bootstrap, conflicting transactions, changed source/window/thaw evidence, process races, duplicate cancellation, retained custody, and interruptions between receipt, audit and seal writes. Existing census, rollback, failed-owner and native custody checks remain required. Local TypeScript and final candidate checks are recorded in the task checkpoint; protected merge, installed identities and live activation are still pending.

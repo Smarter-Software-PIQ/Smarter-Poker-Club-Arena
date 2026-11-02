@@ -1420,6 +1420,10 @@ raise SystemExit(0 if d["weeklyPayout"] is None else 1)
     0|2) ;;
     *) return 1 ;;
   esac
+  # The preceding certificate runs in command substitution: its exported
+  # window cannot populate this shell. Bind this observation independently,
+  # including the locked recheck, through the same exact owner/window guard.
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then bind_phase1_window "$body" || return 1; fi
   printf '%s' "$body" | MIN_BREAK_MS=$((MIN_BREAK_REMAINING_MS + headroom)) ENTRY_STARTED_MS="${ENTRY_STARTED_MS:-0}" ENTRY_MODE="${3:-initial}" EXPECTED_BREAK_END_EPOCH="$expected_end" DAILY_TRANSITION="${DAILY_TRANSITION:-0}" ACTIVATION_FLOOR_END_EPOCH="${ACTIVATION_FLOOR_END_EPOCH:-0}" ACTIVATION_FLOOR_OWNER_WINDOW="${ACTIVATION_FLOOR_OWNER_WINDOW:-}" FLOOR_ANNOUNCED_AT="$floor_stamp" legacy_entry_read python3 -c '
 import json, math, os, sys, time
 d=json.load(sys.stdin); m=d.get("maintenance")

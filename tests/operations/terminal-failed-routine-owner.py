@@ -535,5 +535,116 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         seal.write_state(good)
 
 
+class CancelledAnnouncementOwner(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'])
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, value in {'STATE_DIR': self.root, 'STATE_FILE': self.root / 'engine-release-seal.json',
+                'AUDIT_FILE': self.root / 'audit.jsonl', 'RESULT_DIR': self.root / 'engine-release-results',
+                'LOCK_FILE': self.root / 'lock'}.items():
+            p = patch.object(seal, name, value); p.start(); self.addCleanup(p.stop)
+        seal.RESULT_DIR.mkdir(mode=0o700)
+        self.cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+            'policyDigest': seal.NINEF_POLICY_DIGEST, 'startsAt': 1793602800, 'endsAt': 1793603100,
+            'runId': seal.CANCELLED_PHASE1_RUN, 'sha': seal.CANCELLED_PHASE1_SHA,
+            'controlSha': seal.CANCELLED_PHASE1_SHA, 'status': 'reserved',
+            'window': dict(seal.CANCELLED_PHASE1_WINDOW)}
+        self.base = {'schema': 1, 'desired': {'sha': A_SHA, 'imageId': A_IMAGE, 'legacyUnlabelled': False},
+            'highWaterSha': A_SHA, 'committedRuns': {}, 'pending': None, 'finalization': None,
+            'generation': 312, 'routineMaintenanceCycles': {'1793602800': self.cycle}}
+        seal.write_state(copy.deepcopy(self.base))
+        self.proof = {'schema': 'cancelled-routine-announcement-proof/v1', 'originalCycle': self.cycle,
+            'recordHashes': dict.fromkeys(('receipt','intent','quiescent','stop-issued'), 'a' * 64),
+            'retainedHashes': dict.fromkeys(('entryHash','reservationHash','releasedHoldHash'), 'b' * 64),
+            'sourceHashes': dict(seal.CANCELLED_PHASE1_SOURCES), 'thaw': dict(seal.CANCELLED_PHASE1_THAW),
+            'container': {'id': CONTAINER, 'startedAt': '2026-11-02T05:54:48.403092401Z', 'image': A_IMAGE},
+            'instanceId': '1-2ced3e43'}
+        self.commands = []
+        def command(argv, deadline, limit=32768, **kw):
+            self.commands.append(argv)
+            if argv[0] == 'git': return '# qualified read-only helper'
+            self.assertEqual(argv[1:3], ['-B', '-c'])
+            self.assertEqual(argv[-1], '--phase1-cancellation-proof')
+            return json.dumps(self.proof)
+        for name, value in [('require_engine_lock', lambda fd: None),
+                ('failed_routine_current', lambda a,d: {'same': True}),
+                ('failed_routine_command', command),
+                ('failed_routine_json', lambda p: json.loads(Path(p).read_text()))]:
+            p = patch.object(seal, name, side_effect=value); p.start(); self.addCleanup(p.stop)
+
+    def resolve(self):
+        with patch.object(seal.os, 'geteuid', return_value=0), redirect_stdout(io.StringIO()) as out:
+            seal.cmd_resolve_terminal_routine_failures(Namespace(repo='/qualified/repo', engine_lock_fd=9,
+                run_id=LIVE_RUN, sha=TARGET_SHA, control_sha=CONTROL_SHA, invocation_id=INVOCATION))
+        return out.getvalue().strip()
+
+    def test_cancellation_resolves_without_fabricating_a_failure_and_replays(self):
+        self.assertEqual(self.resolve(), seal.CANCELLED_PHASE1_RUN)
+        state = seal.load_state()
+        self.assertEqual(state['routineMaintenanceCycles'], self.base['routineMaintenanceCycles'])
+        self.assertFalse(seal.result_path(seal.CANCELLED_PHASE1_RUN).exists())
+        resolution = state['routineFailureResolutions'][seal.CANCELLED_PHASE1_RUN]
+        self.assertEqual(resolution['result'], 'cancelled-announcement-proved')
+        self.assertEqual(self.resolve(), 'not-needed')
+        self.assertFalse(seal.routine_owner_unresolved(state, self.cycle))
+        fd = os.open(seal.RESULT_DIR, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            answer, _ = observer.routine_failure_resolution(resolution, self.cycle, None, fd)
+            self.assertTrue(answer['present'] and answer['receiptMatches'])
+            for field, change in [('sourceHashes', {}), ('thaw', {}), ('container', {})]:
+                bad = copy.deepcopy(resolution); bad['proof'][field] = change
+                with self.assertRaises((ValueError, KeyError)):
+                    observer.routine_failure_resolution(bad, self.cycle, None, fd)
+        finally: os.close(fd)
+        root_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            observed = observer.routine_remote(dict(observer.ROUTINE_REQUEST), root_fd)
+            self.assertFalse(observed['owners'][0]['unresolvedOwner'])
+            self.assertFalse(observed['owners'][0]['failurePresent'])
+        finally: os.close(root_fd)
+        self.assertEqual(len([a for a in self.commands if a[0] == 'git']), 2)
+        self.assertTrue(all(a[4] == CONTROL_SHA + ':scripts/ci/withdraw-waiting-engine-release.py'
+                            for a in self.commands if a[0] == 'git'))
+
+    def test_receipt_audit_and_state_interruptions_resume_one_resolution(self):
+        for edge in ('audit_once', 'write_state'):
+            with self.subTest(edge=edge):
+                seal.write_state(copy.deepcopy(self.base))
+                for p in seal.RESULT_DIR.iterdir(): p.unlink()
+                seal.AUDIT_FILE.unlink(missing_ok=True)
+                with patch.object(seal, edge, side_effect=RuntimeError('crash')):
+                    with self.assertRaises(RuntimeError): self.resolve()
+                receipt = seal.terminal_receipt_path(seal.CANCELLED_PHASE1_RUN, LIVE_RUN, INVOCATION)
+                before = receipt.read_bytes()
+                self.assertNotIn('routineFailureResolutions', seal.load_state())
+                self.assertEqual(self.resolve(), seal.CANCELLED_PHASE1_RUN)
+                self.assertEqual(receipt.read_bytes(), before)
+                rows = [json.loads(x) for x in seal.AUDIT_FILE.read_text().splitlines()]
+                self.assertEqual(len(rows), 1)
+
+    def test_changed_window_source_thaw_and_live_transaction_refuse(self):
+        for field in ('pending', 'finalization', 'committed', 'window', 'source', 'thaw', 'startedAt', 'proofChanged'):
+            with self.subTest(field=field):
+                state = copy.deepcopy(self.base); proof = copy.deepcopy(self.proof)
+                if field in ('pending','finalization'): state[field] = {'runId': LIVE_RUN, 'sha': TARGET_SHA, 'imageId': OTHER_IMAGE}
+                if field == 'committed': state['committedRuns'][seal.CANCELLED_PHASE1_RUN] = {'sha': seal.CANCELLED_PHASE1_SHA, 'imageId': OTHER_IMAGE}
+                if field == 'window': state['routineMaintenanceCycles']['1793602800']['window']['startsAt'] -= 1
+                if field == 'source': proof['sourceHashes'] = {}
+                if field == 'thaw': proof['thaw']['freezeStartedAtMs'] += 1
+                if field == 'startedAt': proof['container']['startedAt'] = 'unknown'
+                seal.write_state(state)
+                for p in seal.RESULT_DIR.iterdir(): p.unlink()
+                original = self.proof; self.proof = proof
+                if field == 'proofChanged':
+                    self.proof['originalCycle'] = {**self.cycle, 'sha': A_SHA}
+                try:
+                    with redirect_stderr(io.StringIO()), self.assertRaises((SystemExit, ValueError)):
+                        self.resolve()
+                    self.assertNotIn('routineFailureResolutions', json.loads(seal.STATE_FILE.read_text()))
+                    self.assertEqual(list(seal.RESULT_DIR.iterdir()), [])
+                finally: self.proof = original
+
+
 if __name__ == '__main__':
     unittest.main()

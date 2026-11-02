@@ -184,6 +184,43 @@ afterEach(() => vi.useRealTimers());
 // ───────────────────────────────────────────────────────────────────────────
 
 describe('the announcement', () => {
+  it.each([1, 25])(
+    'does not shorten the promise when its timer fires %sms early',
+    async (early) => {
+      let at = Date.parse('2026-11-02T06:58:02.415Z');
+      const announced = at;
+      const timers: Array<{ fn: () => void; ms: number }> = [];
+      const store = new FakeStore();
+      const mb = new MaintenanceBreak({
+        engines: () => new Map<string, FakeEngine>().entries(),
+        isRunning: () => true,
+        emit: () => {},
+        store,
+        now: () => at,
+        setTimer: ((fn: () => void, ms: number) => {
+          timers.push({ fn, ms });
+          return {} as NodeJS.Timeout;
+        }) as any,
+        clearTimer: () => {},
+      });
+      await mb.announceLastHand();
+      at = announced + 120_000 - early;
+      timers[0].fn();
+      await Promise.resolve();
+      expect(store.row?.phase).toBe('last_hand');
+      expect(timers.at(-1)?.ms).toBe(early);
+      // A second early callback cannot consume the notice either.
+      timers.at(-1)!.fn();
+      expect(store.row?.phase).toBe('last_hand');
+      at = announced + 120_000 + (early === 25 ? 40 : 0);
+      timers.at(-1)!.fn();
+      await vi.waitFor(() => expect(store.row?.phase).toBe('counting_down'));
+      expect(store.row?.breakStartedAt).toBe(announced + 120_000);
+      expect(store.row?.breakEndsAt).toBe(announced + 420_000);
+      await mb.stop();
+    }
+  );
+
   it('makes the durable promise before any player can see it', async () => {
     const { mb, store, emitted } = build(1);
     const saving = deferred<void>();
@@ -2216,11 +2253,13 @@ describe('the maintenance owner cannot outlive shutdown', () => {
     const timers: Array<{ fn: () => void; ms: number }> = [];
     const engines = new Map<string, FakeEngine>([['t0', new FakeEngine()]]);
     let thawStarted = false;
+    let now = Date.parse('2026-11-02T06:58:02.415Z');
     const mb = new MaintenanceBreak({
       engines: () => engines.entries() as any,
       isRunning: () => true,
       emit: () => {},
       store: new FakeStore(),
+      now: () => now,
       thaw: async (request) => {
         thawStarted = true;
         await thawing.promise;
@@ -2233,7 +2272,9 @@ describe('the maintenance owner cannot outlive shutdown', () => {
     });
 
     await mb.announceLastHand();
-    timers.shift()!.fn();
+    const countdownTimer = timers.shift()!;
+    now += countdownTimer.ms;
+    countdownTimer.fn();
     await Promise.resolve();
     await Promise.resolve();
     const endTimer = timers.find(
@@ -2241,6 +2282,7 @@ describe('the maintenance owner cannot outlive shutdown', () => {
         timer.ms === MaintenanceBreak.BREAK_DURATION_MS - MaintenanceBreak.THAW_PREPARATION_LEAD_MS
     );
     expect(endTimer).toBeDefined();
+    now += endTimer!.ms;
     endTimer!.fn();
     expect(thawStarted).toBe(true);
 
