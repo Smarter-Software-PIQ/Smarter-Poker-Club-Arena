@@ -9,3 +9,9 @@ The follow-up migration nests that predicate call inside current_user = postgres
 Regression: the maintained native Free Buy suite now reproduces the original permission failure as service_role, installs the exact follow-up migration, exercises engine presentation updates and ordinary authenticated updates through both trigger bodies, refuses a protected registered-contract change and forged conversion context, and verifies private ACLs and rollback. Existing 412-entry conversion and custody tests continue to run through the required chip-journal registration gate.
 
 Delivery and live original-cohort results are tracked in the task checkpoint; source changes alone do not establish recovery.
+
+The required recording submission also exposed a test fixture assumption: an
+external-SSD scratch directory inside the checkout inherited its parent Git
+history, so the unavailable-revision case could accidentally pass its Git read.
+That case now owns a real one-commit fixture repository, keeping HEAD~1 unknown
+regardless of the scratch directory location. Its refusal assertion is retained.
