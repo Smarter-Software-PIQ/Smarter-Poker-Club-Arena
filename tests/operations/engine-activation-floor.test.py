@@ -66,11 +66,13 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
-    def owner_record(self):
+    def owner_record(self, legacy=False):
         source = json.loads((ROOT / MANIFEST).read_text())
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
         window = next(w for w in windows['windows'] if w['id'] == source['ownerWindowId'])
         window['contains'] = self.sha
+        if legacy:
+            window.pop('supersedesPhase1Schedule', None)
         (self.repo / MANIFEST).write_bytes((ROOT / MANIFEST).read_bytes())
         (self.repo / 'server/release/owner-maintenance-windows.json').write_text(json.dumps({'version': 1, 'windows': [window]}))
         self.sha = self.commit()
@@ -188,7 +190,7 @@ recovery_window_reason() { echo no-emergency; }
         import contextlib
         import io
         import sys
-        record = self.owner_record()
+        record = self.owner_record(legacy=True)
         fixture_owner = json.loads((self.repo / MANIFEST).read_text())['ownerWindowId']
         self.assertEqual(record['ownerWindowId'], fixture_owner)
         for name in ('server/scripts/engine-release-seal.py', 'server/src/maintenance/maintenanceSchedulePolicy.json'):
