@@ -29,7 +29,7 @@ FIRST_FAILURE_STAGE = None
 FIRST_COMMAND_FAILURE = None
 QUALIFICATION_PHASE = None
 FIRST_FAILURE_PHASE = None
-FILTER_CONTEXTS = {'EMPTY','SINGLE','SEQUENCE_SINGLE','SEQUENCE_FIRST','FUNCTION_FIRST','VIEW_SINGLE','VIEW_MANY','VIEW_CYCLE','VIEW_EXCLUDED'}
+FILTER_CONTEXTS = {'EMPTY','SINGLE','SEQUENCE_SINGLE','SEQUENCE_FIRST','FUNCTION_FIRST','VIEW_SINGLE','VIEW_MANY','VIEW_CYCLE','VIEW_EXCLUDED','TYPE_NAME_MANY','TYPE_NAME_EXCLUDED'}
 QUALIFICATION_PHASES = {context + '_' + phase for context in {'MAIN', *FILTER_CONTEXTS} for phase in {'STOCK','DUMP_IO','DUMP_EXIT','DUMP_WIRE','DUMP_FRAMES','PARITY','ORDER'}} | {'FD_MISSING','FD_KIND','FD_CLOSED'}
 COMMAND_SITES = {'BATCH_COMPILE', 'BATCH_EXECUTE', 'D5_CAPABILITY', 'RUNTIME_NPM', 'RUNTIME_HYDRATE'}
 COMPILER_CATEGORIES = ((b'-Werror=misleading-indentation', 'MISLEADING_INDENTATION'),
@@ -111,7 +111,9 @@ def transformations():
              '\tca_diag_init();\n\tConnectDatabase(fout, &dopt.cparams, false);'),
             (OBJECT_LOOP, DIAG_LOOP),
             ('static void help(const char *progname);',
-             '#include "native-dump-function-batch.c"\n#include "native-dump-sequence-batch.c"\n#include "native-dump-view-batch.c"\n\nstatic void help(const char *progname);'),
+             '#include "native-dump-function-batch.c"\n#include "native-dump-sequence-batch.c"\n#include "native-dump-view-batch.c"\n#include "native-dump-type-name-batch.c"\n\nstatic void help(const char *progname);'),
+            ('\tif (typeInfo && typeInfo->ftypname)\n\t\treturn typeInfo->ftypname;\n\n\tquery = createPQExpBuffer();',
+             '\tif (typeInfo && typeInfo->ftypname)\n\t\treturn typeInfo->ftypname;\n\n\tif (ca_type_name_batch_prefetch(fout, oid))\n\t\treturn typeInfo->ftypname;\n\n\tquery = createPQExpBuffer();'),
             ('\tres = ExecuteSqlQueryForSingleRow(fout, query->data);\n\n\tproretset =',
              '\tres = ca_function_batch_result(fout, finfo, query->data);\n\n\tproretset ='),
             ('\t\t\t\t\t\t  fmtQualifiedDumpable(tbinfo));\n\t}\n\n\tres = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);\n\n\tif (PQntuples(res) != 1)\n\t\tpg_fatal(ngettext("query to get data of sequence',
@@ -383,7 +385,7 @@ def validate_frames(data, with_subtypes=False):
     return {'records':sequence,'query_subtypes':details} if with_subtypes else sequence
 
 
-def diagnostic_dump(executable, args, env, cwd, context='MAIN', expected_view_requests=None):
+def diagnostic_dump(executable, args, env, cwd, context='MAIN', expected_view_requests=None, expected_type_requests=None):
     global QUALIFICATION_PHASE
     require(context in {'MAIN', *FILTER_CONTEXTS})
     QUALIFICATION_PHASE = context + '_DUMP_IO'
@@ -423,6 +425,8 @@ def diagnostic_dump(executable, args, env, cwd, context='MAIN', expected_view_re
         facts = validate_frames(bytes(frames), with_subtypes=True)
         if expected_view_requests is not None:
             require(facts['query_subtypes']['VIEW_DEFINITION']['queries_completed'] == expected_view_requests)
+        if expected_type_requests is not None:
+            require(facts['query_subtypes']['TYPE_NAME']['queries_completed'] == expected_type_requests)
         return bytes(output), facts['records']
     finally:
         selector.close()
@@ -503,7 +507,7 @@ def qualify_batch_contract(repo, work, env):
     # Native isolated result-contract faults, not a database or production probe.
     directory = work / 'batch-contract'
     directory.mkdir()
-    for name in ['native-dump-function-batch.c', 'native-dump-sequence-batch.c', 'native-dump-view-batch.c', 'native-dump-function-batch-test.c']:
+    for name in ['native-dump-function-batch.c', 'native-dump-sequence-batch.c', 'native-dump-view-batch.c', 'native-dump-type-name-batch.c', 'native-dump-function-batch-test.c']:
         shutil.copyfile(repo / 'operations/release/fixture' / name, directory / name)
     executable = directory / 'contract'
     command(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
@@ -569,6 +573,48 @@ def qualify_batch_contract(repo, work, env):
     red = subprocess.run([str(stock_reader), 'view-valid', '129'], cwd=directory,
                          env=env, capture_output=True, timeout=5)
     require(red.returncode == 108 and red.stdout == b'' and red.stderr == b'')
+    # Streamed TYPE_NAME metadata uses only upstream TypeInfo names. Re-run
+    # exact query/ordinal, zero/cache/unknown, shared-live-cache and fault cases.
+    for count in [0, 1, 127, 128, 129, 512, 513]:
+        command([str(executable), 'type-valid', str(count)], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
+    for mode in ['type-zero', 'type-cached', 'type-unknown', 'type-position']:
+        command([str(executable), mode, '129'], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
+    command([str(executable), 'type-cross-function-cache', '257'], cwd=directory, env=env, timeout=5, site='BATCH_EXECUTE')
+    for mode in ['type-send', 'type-extra', 'type-missing', 'type-status', 'type-rows',
+                 'type-fields', 'type-name', 'type-null', 'type-empty', 'type-bytes',
+                 'type-partial', 'type-shared-bytes']:
+        failed = subprocess.run([str(executable), mode, '257'], cwd=directory,
+                                env=env, capture_output=True, timeout=5)
+        require(failed.returncode == 23 and failed.stdout == b'' and failed.stderr == b'')
+    for mode in ['type-interrupt', 'type-partial-interrupt']:
+        process = subprocess.Popen([str(executable), mode, '129'], cwd=directory,
+                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            with selectors.DefaultSelector() as ready:
+                ready.register(process.stdout, selectors.EVENT_READ)
+                require(ready.select(timeout=5))
+                require(os.read(process.stdout.fileno(), 5) == b'WAIT\n')
+            process.send_signal(signal.SIGINT)
+            stdout, stderr = process.communicate(timeout=5)
+            require(process.returncode == -signal.SIGINT and stdout == b'' and stderr == b'')
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+    # The same contract with the original stock singleton name reader must
+    # fail the 129-type request-count assertion with exit112 (129 versus2).
+    type_reader = (directory / 'native-dump-type-name-batch.c').read_text()
+    type_marker = '    static const char *columns[] = {"format_type"};'
+    require(type_reader.count(type_marker) == 1)
+    (directory / 'native-dump-type-name-stock-reader.c').write_text(
+        type_reader.replace(type_marker, '    return false;\n' + type_marker))
+    old_type = directory / 'stock-type-contract'
+    command(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+             '-DCA_TYPE_NAME_STOCK_COUNTERFACTUAL', 'native-dump-function-batch-test.c',
+             '-o', str(old_type)], cwd=directory, env=env, site='BATCH_COMPILE')
+    red = subprocess.run([str(old_type), 'type-valid', '129'], cwd=directory,
+                         env=env, capture_output=True, timeout=5)
+    require(red.returncode == 112 and red.stdout == b'' and red.stderr == b'')
     shutil.rmtree(directory)
     return True
 
@@ -608,7 +654,12 @@ def qualify(repo, work, output, env, stock_executable):
                "GRANT USAGE ON SCHEMA diagnostic_schema TO diagnostic_reader; "
                "GRANT SELECT(id) ON diagnostic_schema.sample TO diagnostic_reader; "
                "ALTER DEFAULT PRIVILEGES IN SCHEMA diagnostic_schema GRANT SELECT ON TABLES TO diagnostic_reader;\n")
-        sql += '\n'.join(f'CREATE FUNCTION diagnostic_schema.f_{i}() RETURNS integer LANGUAGE sql AS $$SELECT {i}$$;' for i in range(5500))
+        # Reuse the first129 existing routine slots; their distinct enum
+        # argument types force the REAL stock name reader without adding routines.
+        sql += 'CREATE SCHEMA diagnostic_type_names;\n'
+        sql += '\n'.join(f"CREATE TYPE diagnostic_type_names.type_{i} AS ENUM ('value');" for i in range(129))
+        sql += '\n'.join((f'CREATE FUNCTION diagnostic_type_names.f_{i}(a diagnostic_type_names.type_{i}) RETURNS integer LANGUAGE sql AS $$SELECT {i}$$;'
+                          if i < 129 else f'CREATE FUNCTION diagnostic_schema.f_{i}() RETURNS integer LANGUAGE sql AS $$SELECT {i}$$;') for i in range(5500))
         sql += """
 CREATE FUNCTION diagnostic_schema.f_default(a integer DEFAULT 7) RETURNS integer LANGUAGE sql IMMUTABLE STRICT SECURITY DEFINER SET search_path TO pg_catalog AS $$SELECT a$$;
 CREATE FUNCTION diagnostic_schema.f_default(a text) RETURNS text LANGUAGE plpgsql AS $$BEGIN RETURN a; END$$;
@@ -716,6 +767,18 @@ COMMENT ON VIEW "diagnostic Other"."View With Space" IS 'private view batch fixt
                 require(before < function < after)
                 if schema == 'diagnostic_function_first':
                     require(filtered_stock.index(b'CREATE FUNCTION ' + prefix + b'"aa_free"') < before)
+        # Exactly129 selected enum-argument routines need2 stock-SQL name
+        # batches. Excluding their schema leaves no selected name consumer.
+        for context, type_args, requests in [
+            ('TYPE_NAME_MANY', args + ['--schema=diagnostic_type_names'], 2),
+            ('TYPE_NAME_EXCLUDED', args + ['--schema=diagnostic_type_names', '--exclude-schema=diagnostic_type_names'], 0),
+        ]:
+            QUALIFICATION_PHASE = context + '_STOCK'
+            type_stock = command([str(stock_executable), *type_args], cwd=work, env=dump_env, timeout=45)
+            typed, _ = diagnostic_dump(output / 'bin/pg_dump', type_args, dump_env, work,
+                                       context=context, expected_type_requests=requests)
+            QUALIFICATION_PHASE = context + '_PARITY'
+            require(normalize_sql(type_stock) == normalize_sql(typed))
         # Exclusion leaves only the materialized view; excluded normal views
         # must not enter the request/cache even though the remaining view refers to one.
         excluded_args = args + ['--schema=diagnostic_view_many', '--exclude-table=diagnostic_view_many.v_*']
@@ -736,6 +799,7 @@ COMMENT ON VIEW "diagnostic Other"."View With Space" IS 'private view batch fixt
         require(stock.count(b'Type: SEQUENCE;') == 138 and b'OWNED BY' in stock and
                 b'GENERATED ALWAYS AS IDENTITY' in stock and b'CYCLE' in stock)
         require(stock.count(b'Type: VIEW;') == 134 and stock.count(b'Type: MATERIALIZED VIEW;') == 1)
+        require(stock.count(b'CREATE TYPE \"diagnostic_type_names\".') == 129 and stock.count(b'CREATE FUNCTION \"diagnostic_type_names\".') == 129)
         require(b'SELECT pg_catalog.setval(' not in stock)
         require(b'GRANT SELECT("id")' in stock and b'ALTER DEFAULT PRIVILEGES' in stock and b'CREATE FUNCTION' in stock)
         return {'passed': True, 'sql_bytes_equal': True, 'fd3_records_valid': True,
@@ -744,7 +808,10 @@ COMMENT ON VIEW "diagnostic Other"."View With Space" IS 'private view batch fixt
                 'synthetic_sequence_count': 138, 'sequence_metadata_sql_equal': True, 'metadata_interleaved_sql_equal': True,
                 'sequence_data_reader_unchanged': True, 'synthetic_view_count': 135,
                 'view_metadata_sql_equal': True, 'view_batch_stock_red_green': True,
-                'view_dummy_deferred_sql_equal': True, 'metadata_total_results_max': 128,
+                'view_dummy_deferred_sql_equal': True, 'synthetic_type_name_count': 129,
+                'type_name_batch_max': 128, 'type_name_sql_equal': True,
+                'type_name_batch_stock_red_green': True, 'type_name_mixed_cache_bound': True,
+                'type_name_result_cache_added': False, 'metadata_total_results_max': 128,
                 'metadata_total_bytes_max': 128 * 1024 * 1024,
                 'dependency_interleaved_sql_equal': True, 'filtered_zero_one_equal': True, 'native_batch_result_faults_refused': True, 'diagnostic_object_scope': 'effective-selected-components',
                 'diagnostic_wire': 'D5-absolute17-tag6-delta-uleb128', 'query_subtypes_valid': True,
@@ -832,6 +899,8 @@ def build(repo, output):
         shutil.copyfile(sequence_helper, source / 'src/bin/pg_dump/native-dump-sequence-batch.c')
         view_helper = repo / 'operations/release/fixture/native-dump-view-batch.c'
         shutil.copyfile(view_helper, source / 'src/bin/pg_dump/native-dump-view-batch.c')
+        type_helper = repo / 'operations/release/fixture/native-dump-type-name-batch.c'
+        shutil.copyfile(type_helper, source / 'src/bin/pg_dump/native-dump-type-name-batch.c')
         BUILD_STAGE = 'DIAGNOSTIC_BUILD'
         command(['make', '-C', 'src/bin/pg_dump', '-j1', 'pg_dump'], cwd=source, env=env, timeout=120)
         (output / 'bin').mkdir(mode=0o700)
@@ -855,8 +924,9 @@ def build(repo, output):
                     'function_batch_helper_sha256': digest(batch_helper.read_bytes()),
                     'sequence_batch_helper_sha256': digest(sequence_helper.read_bytes()),
                     'view_batch_helper_sha256': digest(view_helper.read_bytes()),
+                    'type_name_batch_helper_sha256': digest(type_helper.read_bytes()),
                     'function_batch_contract_sha256': digest((repo / 'operations/release/fixture/native-dump-function-batch-test.c').read_bytes()),
-                    'transport': 'bounded-stock-function-sequence-view-metadata-v4',
+                    'transport': 'bounded-stock-function-sequence-view-type-metadata-v5',
                     'binary_sha256': digest((output / 'bin/pg_dump').read_bytes()),
                     'libpq_sha256': digest((output / 'lib/libpq.so.5').read_bytes()), 'qualification': proof}
         # Keep only the two executable inputs and manifest for the capture.

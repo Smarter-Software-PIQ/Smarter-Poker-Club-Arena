@@ -9,10 +9,16 @@
 typedef unsigned int Oid;
 typedef struct { Oid oid; } CatalogId;
 typedef struct { int objType, dump, components; CatalogId catId; } DumpableObject;
-typedef struct { DumpableObject dobj; char relkind; bool dummy_view; } FuncInfo;
+typedef struct { DumpableObject dobj; char relkind; bool dummy_view; int nargs; Oid *argtypes; } FuncInfo;
+typedef struct { char *ftypname; } TypeInfo;
+static TypeInfo *test_types;
+static int test_type_count;
+static TypeInfo *findTypeByOid(Oid oid){return oid>0 && oid<=(Oid)test_type_count?&test_types[oid-1]:NULL;}
+static char *pg_strdup(const char *value){size_t n=strlen(value)+1;char *copy=malloc(n);if(!copy)exit(113);memcpy(copy,value,n);return copy;}
+#define pg_free free
 typedef FuncInfo TableInfo;
 typedef struct { int remoteVersion; } Archive;
-typedef struct { int status, rows, fields, cleared; } PGresult;
+typedef struct { int status, rows, fields, cleared, type_name; Oid type_oid; } PGresult;
 typedef struct { char data[65536]; } Buffer;
 typedef Buffer *PQExpBuffer;
 #define DO_FUNC 1
@@ -30,6 +36,9 @@ static const char *mode, *fault;
 static int sent, delivered, cleared, created, requests, query_open, fields;
 static PGresult results[20000];
 static const char *names[] = {"proretset","prosrc","probin","provolatile","proisstrict","prosecdef","lanname","proconfig","procost","prorows","funcargs","funciargs","funcresult","proleakproof","protrftypes","proparallel","prokind","prosupport","prosqlbody"};
+static Oid sent_type_oids[128];
+static bool sending_type_names;
+static const char *type_names[] = {"format_type"};
 static const char *view_names[] = {"viewdef"};
 static const char *sequence_names[] = {"format_type","seqstart","seqincrement","seqmax","seqmin","seqcache","seqcycle"};
 static void check_cleanup(void);
@@ -43,14 +52,16 @@ static void appendPQExpBuffer(PQExpBuffer b,const char *format,...) {
 }
 static void *GetConnection(Archive *a) { return a; }
 static void ca_diag_query_begin(void) { if(query_open)exit(90); query_open=1; }
-static void ca_diag_query_begin_subtype(int subtype){if(subtype!=1 && subtype!=4 && subtype!=7)exit(106);ca_diag_query_begin();}
+static void ca_diag_query_begin_subtype(int subtype){if(subtype!=1 && subtype!=4 && subtype!=7 && subtype!=10)exit(106);ca_diag_query_begin();}
 static void ca_diag_query_end(void) { if(!query_open)exit(91); query_open=0; }
 static int PQsendQuery(void *connection,const char *sql) {
     const char *at=sql;(void)connection;
     if(!strcmp(fault,"send"))return 0;
-    fields=strstr(sql,"pg_get_viewdef")?1:strstr(sql,"pg_catalog.pg_sequence")?7:19;
+    sending_type_names=strstr(sql,"SELECT pg_catalog.format_type(")!=NULL;
+    fields=sending_type_names?1:strstr(sql,"pg_get_viewdef")?1:strstr(sql,"pg_catalog.pg_sequence")?7:19;
     sent=delivered=0;requests++;
     for(;*at;at++) {
+        if(!strncmp(at,"SELECT pg_catalog.format_type('",31)){unsigned oid;if(sscanf(at,"SELECT pg_catalog.format_type('%u'",&oid)!=1||sent>=128)exit(114);sent_type_oids[sent]=oid;}
         if(*at==';')sent++;
         if((!strcmp(mode,"mixed") || !strcmp(mode,"partial")) && !strncmp(at,"EXECUTE dumpFunc('",18)) {
             unsigned oid=0;
@@ -70,7 +81,7 @@ static PGresult *PQgetResult(void *connection) {
     if(!strcmp(fault,"interrupt") || (!strcmp(fault,"partial-interrupt") && delivered>0)){if(write(STDOUT_FILENO,"WAIT\n",5)!=5)exit(96);sleep(20);}
     if(delivered==sent+(!strcmp(fault,"extra")?1:0)-(!strcmp(fault,"missing")?1:0))return NULL;
     if(created>=20000)exit(103);
-    delivered++;r=&results[created++];r->status=PGRES_TUPLES_OK;r->rows=1;r->fields=fields;
+    delivered++;r=&results[created++];r->status=PGRES_TUPLES_OK;r->rows=1;r->fields=fields;r->type_name=sending_type_names;r->type_oid=sending_type_names?sent_type_oids[(delivered-1)%128]:0;
     if(!strcmp(fault,"status"))r->status=9;
     if(!strcmp(fault,"rows"))r->rows=0;
     if(!strcmp(fault,"fields"))r->fields=fields-1;
@@ -79,11 +90,13 @@ static PGresult *PQgetResult(void *connection) {
 static int PQresultStatus(PGresult *r){return r->status;}
 static int PQntuples(PGresult *r){return r->rows;}
 static int PQnfields(PGresult *r){return r->fields;}
-static char *PQfname(PGresult *r,int f){return (char *)(!strcmp(fault,"name")?"wrong":r->fields==1?view_names[f]:r->fields==7?sequence_names[f]:names[f]);}
+static char *PQfname(PGresult *r,int f){return (char *)(!strcmp(fault,"name")?"wrong":r->type_name?type_names[f]:r->fields==1?view_names[f]:r->fields==7?sequence_names[f]:names[f]);}
+static char *PQgetvalue(PGresult *r,int row,int field){static char value[80];(void)row;(void)field;snprintf(value,sizeof(value),"synthetic_type_%u",r->type_oid);return value;}
 static int PQgetisnull(PGresult *r,int row,int f){(void)r;(void)row;(void)f;return !strcmp(fault,"null");}
 static int PQgetlength(PGresult *r,int row,int f){
     (void)row;(void)f;
     if(!strcmp(fault,"empty"))return 0;
+    if(!strcmp(mode,"type-shared-bytes"))return r->type_name?2097152:50000;
     if(!strcmp(mode,"view-shared-bytes"))return r->fields==1?1050000:130000;
     if(!strcmp(mode,"shared-bytes"))return r->fields==19?50000:2097152;
     if(!strcmp(mode,"shared-bytes-sequence-first"))return r->fields==7?130000:1000000;
@@ -110,12 +123,22 @@ static PGresult *ExecuteSqlQueryForSingleRow(Archive *a,const char *sql){return 
 #else
 #include "native-dump-view-batch.c"
 #endif
-static void check_cleanup(void){if(cleared!=created || ca_metadata_cached_results || ca_metadata_cached_bytes)_Exit(98);}
+#ifdef CA_TYPE_NAME_STOCK_COUNTERFACTUAL
+#include "native-dump-type-name-stock-reader.c"
+#else
+#include "native-dump-type-name-batch.c"
+#endif
+static void check_cleanup(void){
+    int i;
+    if(cleared!=created || ca_metadata_cached_results || ca_metadata_cached_bytes)_Exit(98);
+    if(test_types && strncmp(mode,"type-",5)==0 && strcmp(mode,"type-partial")!=0)
+        for(i=0;i<test_type_count;i++)if(test_types[i].ftypname)_Exit(118);
+}
 int main(int argc,char **argv){
     Archive archive={170011};int i,n,selected=0;DumpableObject **objects;FuncInfo *items;
     bool sequence,interleave,view;
     if(argc!=3)return 94;
-    mode=argv[1];view=!strncmp(mode,"view-",5);fault=view?mode+5:!strncmp(mode,"seq-",4)?mode+4:mode;n=atoi(argv[2]);
+    mode=argv[1];view=!strncmp(mode,"view-",5);fault=!strncmp(mode,"type-",5)?mode+5:view?mode+5:!strncmp(mode,"seq-",4)?mode+4:mode;n=atoi(argv[2]);
     sequence=!strncmp(mode,"seq-",4);interleave=!strncmp(mode,"interleave-",11)||!strncmp(mode,"shared-bytes",12);
     atexit(check_cleanup);
     objects=calloc(n,sizeof(*objects));items=calloc(n,sizeof(*items));
@@ -162,6 +185,47 @@ int main(int argc,char **argv){
         objects[i]=&items[i].dobj;
     }
     ca_batch_objects=objects;ca_batch_objects_count=n;
+    if(!strncmp(mode,"type-",5)){
+        Oid *arguments=calloc(n?n:1,sizeof(Oid));test_types=calloc(n?n:1,sizeof(TypeInfo));test_type_count=n;
+        for(i=0;i<n;i++){items[i].dobj=(DumpableObject){DO_FUNC,1,1,{(Oid)(i+1)}};arguments[i]=(Oid)(i+1);items[i].nargs=1;items[i].argtypes=&arguments[i];}
+        if(!strcmp(mode,"type-cached"))for(i=0;i<n;i++)test_types[i].ftypname=pg_strdup("cached");
+        for(i=0;i<n;i++){
+            Oid oid=(Oid)(i+1);PGresult *result;char query[160];bool batched;
+            ca_batch_position=i;
+            if(!strcmp(mode,"type-zero"))continue;
+            if(test_types[i].ftypname)continue;
+            if(!strcmp(mode,"type-unknown"))oid=(Oid)(n+7);
+            if(!strcmp(mode,"type-position"))ca_batch_position=-1;
+            if((!strcmp(mode,"type-shared-bytes") || !strcmp(mode,"type-cross-function-cache")) && i==0){
+                PGresult *function;snprintf(query,sizeof(query),"EXECUTE dumpFunc('%u')",oid);
+                function=ca_function_batch_result(&archive,&items[i],query);PQclear(function);
+            }
+            batched=ca_type_name_batch_prefetch(&archive,oid);
+            if(!strcmp(mode,"type-unknown") || !strcmp(mode,"type-position")){if(batched || requests)return 115;continue;}
+            if(!batched){
+                snprintf(query,sizeof(query),"SELECT pg_catalog.format_type('%u'::pg_catalog.oid, NULL)",oid);
+                result=ExecuteSqlQuery(&archive,query,PGRES_TUPLES_OK);
+                test_types[i].ftypname=pg_strdup(PQgetvalue(result,0,0));PQclear(result);
+            }
+            if(created-cleared!=ca_metadata_cached_results)return 119;
+            if(!strcmp(mode,"type-partial"))exit(23);
+        }
+        if(!strcmp(mode,"type-valid") && requests!=(n+127)/128){
+            /* Intentional singleton counterfactual has legitimate native names,
+             * not an incomplete batch. Release them before its deliberate RED. */
+            for(i=0;i<n;i++){free(test_types[i].ftypname);test_types[i].ftypname=NULL;}
+            return 112;
+        }
+        if((!strcmp(mode,"type-zero") || !strcmp(mode,"type-cached") || !strcmp(mode,"type-unknown") || !strcmp(mode,"type-position")) && requests)return 115;
+        for(i=0;i<n;i++){
+            char expected[80];snprintf(expected,sizeof(expected),"synthetic_type_%u",i+1);
+            if(!strcmp(mode,"type-valid") && (!test_types[i].ftypname || strcmp(test_types[i].ftypname,expected)))return 116;
+            free(test_types[i].ftypname);
+        }
+        if(!strcmp(mode,"type-cross-function-cache"))ca_function_batch_clear();
+        if(query_open || ca_metadata_cached_results || ca_metadata_cached_bytes)return 117;
+        free(test_types);test_types=NULL;test_type_count=0;free(arguments);free(objects);free(items);return 0;
+    }
     for(i=0;i<n;i++){
         PGresult *r;char query[256];ca_batch_position=i;
         if(objects[i]->objType==DO_FUNC && objects[i]->dump){
