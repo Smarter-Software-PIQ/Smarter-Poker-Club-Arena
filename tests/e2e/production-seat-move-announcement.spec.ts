@@ -81,6 +81,7 @@ test('the published table explains controlled seat moves without moving a player
   let realIncomingFrames = 0;
   let subjectTableId: string | null = null;
   let snapshotTemplate: Record<string, any> | null = null;
+  let tableClient: WebSocketRoute | null = null;
   let latestSequence = 0;
   let syntheticPhase = false;
   const refusedSynthetic = { http: 0, websocket: 0 };
@@ -147,8 +148,10 @@ test('the published table explains controlled seat moves without moving a player
             if (frame.tableId === subjectTableId) {
               if (typeof frame.seq === 'number')
                 latestSequence = Math.max(latestSequence, frame.seq);
-              if (frame.type === 'SNAPSHOT' && Array.isArray(frame.state?.players))
+              if (frame.type === 'SNAPSHOT' && Array.isArray(frame.state?.players)) {
                 snapshotTemplate = frame;
+                tableClient = client;
+              }
             }
           } catch {
             /* genuine non-JSON bytes are still forwarded unchanged */
@@ -338,9 +341,9 @@ test('the published table explains controlled seat moves without moving a player
       };
       // Absent EVENT seq is the existing legacy contract: it cannot advance or
       // corrupt the real server's monotonic event epoch. Nothing is sent upstream.
-      clients
-        .at(-1)!
-        .send(JSON.stringify({ type: 'EVENT', tableId: source.id, ts: Date.now(), payload }));
+      tableClient!.send(
+        JSON.stringify({ type: 'EVENT', tableId: source.id, ts: Date.now(), payload })
+      );
     };
     const mainText = `${alias} Was Moved To The Main Game`;
     const otherText = `${alias} Was Moved To ${other.name.trim()}`;
@@ -421,6 +424,7 @@ test('the published table explains controlled seat moves without moving a player
       followName: alias,
     });
     snapshotTemplate = null;
+    tableClient = null;
     await page.goto(`table/${source.id}?${watchQuery}`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('button', { name: 'Stop Following', exact: true })).toBeVisible();
     await expect(page.locator('.table-surface')).toBeVisible();
@@ -437,7 +441,7 @@ test('the published table explains controlled seat moves without moving a player
     // Block every write and upstream frame before delivering a synthetic own
     // seat move. It reaches the actual published parser and navigation hook.
     syntheticPhase = true;
-    clients.at(-1)!.send(
+    tableClient!.send(
       JSON.stringify({
         type: 'EVENT',
         tableId: source.id,
@@ -453,7 +457,7 @@ test('the published table explains controlled seat moves without moving a player
       })
     );
     await expect(toastMessage(`${diagnosticAlias} Was Moved To The Main Game`)).toBeVisible();
-    clients.at(-1)!.send(
+    tableClient!.send(
       JSON.stringify({
         type: 'EVENT',
         tableId: source.id,
@@ -511,7 +515,7 @@ test('the published table explains controlled seat moves without moving a player
     input.seq = latestSequence + 1;
     // The guard is armed before any synthetic bytes reach the real parser.
     syntheticPhase = true;
-    clients.at(-1)!.send(JSON.stringify(input));
+    tableClient!.send(JSON.stringify(input));
     await expect(page.locator(`.seat--hero[data-player-id="${fixtureUserId}"]`)).toHaveCount(1);
     await expect(page.locator('.table-page')).toHaveAttribute('data-hero', 'true');
     // Observe actual committed rendering, not a queued React state update.

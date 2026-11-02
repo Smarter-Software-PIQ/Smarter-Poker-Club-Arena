@@ -3045,7 +3045,7 @@ export const SeatSlot = memo(
             cleared. Otherwise the chip stack slides in on fresh bets/raises. */}
         <div className="seat__wager-group">
           {showAllInPuck && (
-            <div className="seat__bet-chips">
+            <div key="all-in-puck" className="seat__bet-chips" data-wager-kind="all-in">
               {/* Its own felt slot keeps the marker in front of this player
                 even when a six-card hand leaves a narrow gap for the chips. */}
               <div className="seat__allin-puck" role="status" aria-label={`${player.name}: All In`}>
@@ -3055,7 +3055,7 @@ export const SeatSlot = memo(
             </div>
           )}
           {lastBetAmount && lastBetAmount > 0 ? (
-            <div className="seat__bet-chips">
+            <div key="contribution" className="seat__bet-chips" data-wager-kind="chips">
               <ChipPhysics
                 amount={lastBetAmount}
                 formatAmount={wagerFmt}

@@ -1318,7 +1318,7 @@ it.each([
   { heroActive: true, heroSpot: false, opponentActive: false, opponentSpot: true },
   { heroActive: false, heroSpot: true, opponentActive: true, opponentSpot: false },
 ])(
-  'matches mixed decoded subjects to the unchanged focused Hero: %j',
+  'matches mixed decoded subjects to the fixed Hero through attention states: %j',
   async ({ heroActive, heroSpot, opponentActive, opponentSpot }) => {
     const page = document.createElement('div');
     page.className = 'table-page';
@@ -1369,16 +1369,15 @@ it.each([
       await Promise.resolve();
       await Promise.resolve();
       layout.prepare();
-      const heroFocus = (heroActive ? 1.04 : 1) * (heroSpot ? 1.04 : 1);
-      const opponentFocus = (opponentActive ? 1.04 : 1) * (opponentSpot ? 1.04 : 1);
       const gain = Number(
         images[1]
           .closest<HTMLElement>('.seat__avatar')!
           .style.getPropertyValue('--sp-opponent-art-scale')
       );
       // Independent decoded row counts: 200 Hero pixels, 300 opponent pixels.
-      expect(gain).toBeCloseTo(((200 / 300) * heroFocus) / opponentFocus, 5);
-      expect((300 / 340) * 80 * opponentFocus * gain).toBeCloseTo((200 / 340) * 80 * heroFocus, 4);
+      // Attention classes retain status cues but cannot change either height.
+      expect(gain).toBeCloseTo(200 / 300, 5);
+      expect((300 / 340) * 80 * gain).toBeCloseTo((200 / 340) * 80, 4);
       expect(
         images[0]
           .closest<HTMLElement>('.seat__avatar')!
@@ -1401,7 +1400,7 @@ it.each([
   }
 );
 
-it('switching turn/spotlight focus across seats updates --sp-opponent-art-scale without resetting opponent pod shifts or state.key', async () => {
+it('switching turn/spotlight focus retains the same artwork scale, opponent pod shifts and state.key', async () => {
   const page = document.createElement('div');
   page.className = 'table-page';
   page.innerHTML = `<div class="table-scaler"><div class="seat-wrapper seat-wrapper--spot"><div class="seat seat--hero seat--active" data-player-id="hero"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div></div></div><div class="seat-wrapper"><div class="seat" data-player-id="villain-1" data-opponent-lane="cap" style="--sp-opponent-x: 4px; --sp-opponent-y: -6px;"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div><div class="seat__info" style="width:112px;height:36px"></div></div></div></div>`;
@@ -1456,9 +1455,9 @@ it('switching turn/spotlight focus across seats updates --sp-opponent-art-scale 
     villainSeat.dataset.opponentLane = 'cap';
     state.shifts.set(villainSeat, [4, -6]);
     const initialScale = Number(villainAvatar.style.getPropertyValue('--sp-opponent-art-scale'));
-    expect(initialScale).toBeCloseTo((200 / 300) * 1.04 * 1.04, 5);
+    expect(initialScale).toBeCloseTo(200 / 300, 5);
 
-    // Turn moves from Hero to Villain: focus gain changes, but ring key and shifts must stay intact!
+    // Turn attention moves from Hero to Villain without resizing or moving either character.
     heroWrapper.classList.remove('seat-wrapper--spot');
     heroSeat.classList.remove('seat--active');
     villainWrapper.classList.add('seat-wrapper--spot');
@@ -1471,11 +1470,136 @@ it('switching turn/spotlight focus across seats updates --sp-opponent-art-scale 
     expect(villainSeat.style.getPropertyValue('--sp-opponent-y')).toBe('-6px');
     expect(villainSeat.dataset.opponentLane).toBe('cap');
     expect(layout.ready()).toBe(true);
+    expect(layout.canMove()).toBe(true);
+    state.locked = true;
+    expect(layout.ready()).toBe(true);
+    expect(layout.canMove()).toBe(false);
+    expect(layout.captionRaiseBounds(villainSeat)).toBeNull();
     const nextScale = Number(villainAvatar.style.getPropertyValue('--sp-opponent-art-scale'));
-    expect(nextScale).toBeCloseTo(200 / 300 / (1.04 * 1.04), 5);
+    expect(nextScale).toBeCloseTo(initialScale, 5);
   } finally {
     layout.stop();
     canvas.mockRestore();
     page.remove();
+  }
+});
+
+it.each([
+  { bottom: true, bottomSlot: 120 },
+  { bottom: true, bottomSlot: 40 },
+  { bottom: true, bottomSlot: 73.78125 },
+  { bottom: false, bottomSlot: 120 },
+])('matches spectator artwork without inventing a Hero: %j', async ({ bottom, bottomSlot }) => {
+  const page = document.createElement('div');
+  page.className = 'table-page';
+  page.dataset.hero = 'false';
+  page.innerHTML = `<div class="table-scaler">${[0, 1, 2]
+    .map(
+      (i) =>
+        `<div class="seat-wrapper ${i === 0 && bottom ? 'seat-wrapper--hero' : ''}"><div class="seat" data-player-id="observer-${i}"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img" /></div><div class="seat__info" style="width:112px;height:36px"></div><div class="seat__cards" style="width:90px;height:60px"></div></div></div>`
+    )
+    .join('')}</div>`;
+  document.body.append(page);
+  const images = [...page.querySelectorAll<HTMLImageElement>('img')];
+  const slots = [bottomSlot, 60, 90];
+  const paintedRows = [12, 18, 10];
+  images.forEach((image, i) => {
+    image.src = `https://example.invalid/observer-${Number(bottom)}-${bottomSlot}-${i}.webp`;
+    image.style.transform = 'none';
+    image.style.objectFit = 'contain';
+    image.style.objectPosition = '50% 100%';
+    image.style.width = `${slots[i]}px`;
+    image.style.height = `${slots[i]}px`;
+    for (const [name, value] of Object.entries({
+      complete: true,
+      naturalWidth: 12,
+      naturalHeight: 20,
+      offsetWidth: Math.round(slots[i]),
+      offsetHeight: Math.round(slots[i]),
+    }))
+      Object.defineProperty(image, name, { configurable: true, value });
+  });
+  const canvas = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => {
+    let index = 0;
+    return {
+      drawImage: (image: HTMLImageElement) => {
+        index = images.indexOf(image);
+      },
+      getImageData: () => {
+        const data = new Uint8ClampedArray(12 * 20 * 4);
+        for (let y = 20 - paintedRows[index]; y < 20; y++)
+          for (let x = 0; x < 12; x++) data[(y * 12 + x) * 4 + 3] = 255;
+        return { data };
+      },
+    } as unknown as CanvasRenderingContext2D;
+  });
+  const state: OpponentAvatarState = { key: '', shifts: new WeakMap() };
+  const layout = createOpponentAvatarLayout(
+    page.firstElementChild as HTMLElement,
+    page,
+    state,
+    vi.fn()
+  );
+  const panels = [...page.querySelectorAll<HTMLElement>('.seat__info,.seat__cards')];
+  const originalPanels = panels.map((panel) => panel.style.cssText);
+  const nativeHeights = paintedRows.map((rows, i) => (slots[i] * rows) / 20);
+  const target = bottom ? nativeHeights[0] : Math.max(...nativeHeights);
+  try {
+    layout.prepare();
+    await Promise.resolve();
+    await Promise.resolve();
+    for (let pass = 0; pass < 4; pass++) {
+      layout.prepare(`hand-${pass}`);
+      images.forEach((image, i) => {
+        const scale =
+          Number(image.parentElement!.style.getPropertyValue('--sp-opponent-art-scale')) || 1;
+        expect(nativeHeights[i] * scale).toBeCloseTo(target, 4);
+      });
+    }
+    expect(page.querySelector('.seat--hero')).toBeNull();
+    expect(panels.map((panel) => panel.style.cssText)).toEqual(originalPanels);
+    if (bottom) {
+      const anchor = images[0].closest<HTMLElement>('.seat')!;
+      expect(images[0].parentElement!.style.getPropertyValue('--sp-opponent-art-scale')).toBe('');
+      // Only the other chairs participate in allocation or the completion lock.
+      images
+        .slice(1)
+        .forEach((image) => state.shifts.set(image.closest<HTMLElement>('.seat')!, [0, 0]));
+      layout.lock();
+      expect(state.locked).toBe(true);
+      state.locked = false;
+      state.shifts.set(anchor, [0, 0]);
+      const accepts = vi.fn(() => true);
+      expect(layout.tryShiftOwnerForWager(anchor, 50, accepts)).toBe(false);
+      expect(accepts).not.toHaveBeenCalled();
+      expect(anchor.style.getPropertyValue('--sp-opponent-y')).toBe('');
+    }
+  } finally {
+    layout.stop();
+    canvas.mockRestore();
+    page.remove();
+  }
+});
+
+it('waits for image loading but releases a terminal failed portrait to the baseline placer', () => {
+  const page = document.createElement('div');
+  page.innerHTML = '<div class="table-scaler"><img class="seat__avatar-img" /></div>';
+  const scaler = page.firstElementChild as HTMLElement;
+  const image = scaler.querySelector('img')!;
+  Object.defineProperty(image, 'complete', { configurable: true, value: false });
+  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 0 });
+  const layout = createOpponentAvatarLayout(
+    scaler,
+    page,
+    { key: '', shifts: new WeakMap() },
+    vi.fn()
+  );
+  try {
+    expect(layout.awaitingMetadata()).toBe(true);
+    Object.defineProperty(image, 'complete', { configurable: true, value: true });
+    expect(layout.awaitingMetadata()).toBe(false);
+    expect(layout.awaitingInitialLayout()).toBe(false);
+  } finally {
+    layout.stop();
   }
 });

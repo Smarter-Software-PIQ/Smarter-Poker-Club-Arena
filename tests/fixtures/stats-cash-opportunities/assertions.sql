@@ -31,14 +31,7 @@ CREATE FUNCTION public.fixture_stats_v2(p_hand uuid,p_stack numeric) RETURNS jso
 SELECT jsonb_build_object('version',2,'facts',jsonb_build_array(jsonb_build_object(
  'hand_id',p_hand,'user_id','20000000-0000-0000-0000-000000000001',
  'club_id','10000000-0000-0000-0000-000000000001','table_id','40000000-0000-0000-0000-000000000009',
- -- played_at was the literal '2026-10-03T12:00:00Z', twenty-nine days inside
- -- the 30-day window on the day it was written and OUTSIDE it from
- -- 2026-11-02 00:00Z: at UTC midnight the window's from_at rolled past the
- -- hand, exact_hands fell from 3 to 2 and every run of this fixture failed,
- -- on main and on every open PR, with nothing in any diff to blame. A seeded
- -- hand that must sit inside a rolling window is seeded RELATIVE to now, so
- -- the fixture means the same thing on every date it runs.
- 'tournament_id',NULL,'played_at',to_char((now() - interval '7 days') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),'game_variant','nlh','big_blind',2,
+ 'tournament_id',NULL,'played_at',(((now() AT TIME ZONE 'UTC')::date - 1)::timestamp AT TIME ZONE 'UTC' + interval '12 hours'),'game_variant','nlh','big_blind',2,
  'seat',1,'position','BTN','players_dealt',2,'opponent_ids',jsonb_build_array('20000000-0000-0000-0000-000000000002'),
  'hole_cards',NULL,'hand_class','AKs','invested',10,'returned',15,'net',5,'net_bb',2.5,
  'rake_paid',0,'vpip',true,'pfr',true,'three_bet',true,'four_bet',false,
