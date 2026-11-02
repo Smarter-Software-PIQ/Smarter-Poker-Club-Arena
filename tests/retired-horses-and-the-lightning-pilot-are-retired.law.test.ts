@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const NAME = '20261102231943_retired_horses_leave_every_stat_and_the_lightning_pilot_closes.sql';
+const NAME = '20261102231943_retired_horses_and_the_lightning_pilot_retire.sql';
 const sql = readFileSync(join(__dirname, '..', 'supabase', 'migrations', NAME), 'utf8');
 const PILOT = 'e14bc9f7-736d-425f-8f2c-e78305ebac1d';
 

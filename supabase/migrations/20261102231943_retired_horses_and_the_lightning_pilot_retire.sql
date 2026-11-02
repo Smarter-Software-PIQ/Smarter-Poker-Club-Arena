@@ -1,4 +1,4 @@
--- 20261102231943_retired_horses_leave_every_stat_and_the_lightning_pilot_closes
+-- 20261102231943_retired_horses_and_the_lightning_pilot_retire
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-02 23:19:43 UTC.
 --
