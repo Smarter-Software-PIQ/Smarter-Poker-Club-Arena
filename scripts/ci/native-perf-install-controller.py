@@ -230,6 +230,35 @@ def verified_perf_path(qualified):
     refuse('profile_refused')
 
 
+def seed_archives(native, folder, rows):
+    """No-download APT consumes only these verified canonical cache entries."""
+    cache = native.trusted_directory(folder / 'archives', create=True)
+    partial = native.trusted_directory(cache / 'partial', create=True)
+    if set(os.listdir(cache)) != {'partial'} or os.listdir(partial):
+        refuse('bundle_refused')
+    result = {}
+    for row in rows:
+        raw = read(folder / 'packages' / (row['package'] + '.deb'), row['bytes'])
+        if len(raw) != row['bytes'] or digest(raw) != row['sha256']:
+            refuse('bundle_refused')
+        destination = cache / (row['package'] + '_' + row['version'] + '_' + row['architecture'] + '.deb')
+        fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        retained = read(destination, row['bytes'])
+        if len(retained) != row['bytes'] or digest(retained) != row['sha256']:
+            refuse('bundle_refused')
+        result[row['package']] = str(destination)
+    fd = os.open(cache, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return cache, result
+
+
 def manager(op):
     # Same strict not-found admission as the qualified020c systemd_state.
     fields = ('LoadState', 'ActiveState', 'SubState', 'InvocationID', 'MainPID',
@@ -328,10 +357,9 @@ def execute(native, op):
                 new.append(row)
         if not new:
             refuse('installed_tool_unproven')  # No fresh install was exercised.
-        cache = native.trusted_directory(folder / 'archives', create=True)
-        native.trusted_directory(cache / 'partial', create=True)
+        cache, archives = seed_archives(native, folder, qualified['packages'])
         arguments = apt_arguments(cache)
-        files = [str(folder / 'packages' / (row['package'] + '.deb')) for row in new]
+        files = [archives[row['package']] for row in new]
         planner = load('qualified_plan', 'package-plan.py', record['planSourceSHA256'])
         planned = planner.plan(run([*arguments, '--simulate', 'install', *files], timeout=15))
         if planned != {row['package']: row['version'] for row in new}:

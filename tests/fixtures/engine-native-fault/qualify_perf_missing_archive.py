@@ -82,13 +82,20 @@ def main():
         if not missing or not missing <= {b'hwdata', b'lsb-release', b'pci.ids', b'usb.ids'}:
             raise RuntimeError('fixture_expected_missing_dependency_unproven')
         run(['docker', 'exec', container, 'mkdir', '-p', '/owned/cache/partial'])
+        # Supply the reviewed target itself. ONLY its unexpected runtime
+        # dependencies remain missing, matching the production cache contract.
+        cached = '/owned/cache/linux-tools-common_6.8.0-147.147_all.deb'
+        run(['docker', 'cp', str(args.deb), container + ':' + cached])
+        observed = run(['docker', 'exec', container, 'sha256sum', cached]).stdout.split()[0].decode()
+        if observed != args.sha256:
+            raise RuntimeError('fixture_public_deb_refused')
         spec = importlib.util.spec_from_file_location('installer_arguments', Path(__file__).resolve().parents[3] / 'scripts/ci/native-perf-install-controller.py')
         helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
         install = run(['docker', 'exec', '-e', 'LC_ALL=C', '-e', 'NEEDRESTART_MODE=l',
             '-e', 'DEBIAN_FRONTEND=noninteractive', container, *helper.apt_arguments('/owned/cache'), '-y',
             # Appends an observation marker; canonical hooks are not suppressed.
             '-o', 'DPkg::Pre-Invoke::=/usr/bin/touch /owned/dpkg-invoked',
-            'install', '/owned/tools-common.deb'], accepted=(100,))
+            'install', cached], accepted=(100,))
         after = run(['docker', 'exec', container, 'sha256sum', '/var/lib/dpkg/status']).stdout.split()[0]
         marker = run(['docker', 'exec', container, 'test', '!', '-e', '/owned/dpkg-invoked']).returncode
         if before != after or marker != 0:

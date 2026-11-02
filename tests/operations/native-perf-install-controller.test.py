@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -7,6 +8,30 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location('installer', Path(__file__).resolve().parents[2] / 'scripts/ci/native-perf-install-controller.py')
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
+
+
+class CanonicalArchives(unittest.TestCase):
+    def test_verified_bytes_seed_canonical_cache_once_without_overwriting(self):
+        with tempfile.TemporaryDirectory(prefix='perf-archives-') as temporary:
+            folder = Path(temporary); (folder / 'packages').mkdir()
+            payload = b'isolated public archive bytes'
+            row = {'package': 'linux-tools-6.8.0-147', 'version': '6.8.0-147.147',
+                'architecture': 'amd64', 'bytes': len(payload), 'sha256': helper.digest(payload)}
+            (folder / 'packages' / (row['package'] + '.deb')).write_bytes(payload)
+            class Native:
+                @staticmethod
+                def trusted_directory(path, create=False):
+                    if create: path.mkdir(exist_ok=True)
+                    return path
+            # Only root ownership is substituted on macOS; the actual file copy,
+            # digest, canonical name, fsync and duplicate refusal execute.
+            with patch.object(helper, 'read', side_effect=lambda path, limit: path.read_bytes()):
+                cache, names = helper.seed_archives(Native, folder, [row])
+                target = cache / 'linux-tools-6.8.0-147_6.8.0-147.147_amd64.deb'
+                self.assertEqual(names, {row['package']: str(target)})
+                self.assertEqual(target.read_bytes(), payload)
+                with self.assertRaises(RuntimeError): helper.seed_archives(Native, folder, [row])
+                self.assertEqual(target.read_bytes(), payload)
 
 
 class CommandDiagnostics(unittest.TestCase):
