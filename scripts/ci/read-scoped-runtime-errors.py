@@ -15,6 +15,7 @@ import tempfile
 import time
 import urllib.request
 import urllib.parse
+import urllib.error
 from pathlib import Path
 
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
@@ -520,7 +521,7 @@ def coredump_restart_signs(data, container_id, window):
 # One fixed read-only subprocess replaces the existing container read, keeping
 # the same four-second source budget. It never opens a core file or emits paths.
 CORE_CAPTURE_COMMAND = r"""
-import hashlib, json, os, re, stat, subprocess
+import hashlib, json, os, re, stat, subprocess, sys
 
 def inspect():
     value = subprocess.run(['docker','inspect','--format',
@@ -539,8 +540,13 @@ def limit(value):
     if re.fullmatch(r'[0-9]{1,16}', value) and int(value)<=9007199254740991: return int(value)
     return 'unknown'
 a=inspect(); identity=a.get('Id'); pid=a.get('State',{}).get('Pid')
-if not isinstance(identity,str) or not re.fullmatch(r'[0-9a-f]{64}',identity) or type(pid) is not int or pid<=0:
+if not isinstance(identity,str) or not re.fullmatch(r'[0-9a-f]{64}',identity) or type(pid) is not int or pid<0:
     raise ValueError('container identity')
+if pid == 0:
+    # A stopped container still owns its exit evidence. There is no current
+    # process whose /proc metadata can be read; do not lose State with it.
+    print(json.dumps({'Id':identity,'State':a.get('State',{}),'CoreCapture':None}))
+    sys.exit(0)
 m={'patternClass':'unknown','usesPid':'unknown','processSoft':'unknown','processHard':'unknown',
    'containerSoft':'unknown','containerHard':'unknown','candidate':'unknown'}
 try:
@@ -1421,7 +1427,10 @@ def health(origin='https://engine.smarter.poker'):
     if len(body) > 262144:
         raise RuntimeError('Health size refused')
     value = json.loads(body)
-    if not re.fullmatch('[0-9a-f]{8,40}', value.get('version', '')) or not re.fullmatch('[A-Za-z0-9-]{1,100}', value.get('instanceId', '')):
+    if (not isinstance(value, dict) or not isinstance(value.get('version'), str)
+            or not isinstance(value.get('instanceId'), str)
+            or not re.fullmatch('[0-9a-f]{8,40}', value['version'])
+            or not re.fullmatch('[A-Za-z0-9-]{1,100}', value['instanceId'])):
         raise RuntimeError('Health identity unavailable')
     return {k: value[k] for k in ['version', 'instanceId']}
 
@@ -1490,6 +1499,26 @@ def remote_failure(reply):
                               'remote_transport')
 
 
+def incident_health(origin='https://engine.smarter.poker'):
+    """Health is evidence, not admission, ONLY for explicit restart forensics."""
+    try:
+        return {'status': 'observed', 'identity': health(origin)}
+    except (OSError, ValueError, RuntimeError) as error:
+        if isinstance(error, urllib.error.HTTPError):
+            error.close()
+        return {'status': 'unavailable', 'identity': None,
+                'failure': failure_diagnostic(error)}
+
+
+def incident_identity_status(*identities):
+    observed = [value for value in identities if value is not None]
+    if any(value != observed[0] for value in observed[1:]):
+        return 'changed_or_different'
+    if len(observed) != len(identities):
+        return 'unproven'
+    return 'consistent_at_sample_times_only'
+
+
 def main():
     global FAILURE_STAGE
     FAILURE_STAGE = 'admission'
@@ -1498,14 +1527,27 @@ def main():
         request = json.loads(base64.b64decode(sys.argv[2], validate=True))
         scopes, window, mux_timing, fold_timing, lease_metrics, restart_incident, historical = observation_request(request)
         FAILURE_STAGE = 'host_health_before'
-        before = health('http://127.0.0.1:8080')
+        availability = {}
+        if restart_incident:
+            availability['healthBefore'] = incident_health('http://127.0.0.1:8080')
+            before = availability['healthBefore']['identity']
+        else:
+            before = health('http://127.0.0.1:8080')
         if historical:
             raw, current_raw, archives = b'', b'', []
             archive_metadata = {'status': 'not_requested'}
         else:
             capture_started = time.monotonic()
             FAILURE_STAGE = 'current_logs'
-            raw = capture(log_command(window))
+            try:
+                raw = capture(log_command(window))
+                if restart_incident:
+                    availability['currentLogs'] = {'status': 'observed'}
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                if not restart_incident:
+                    raise
+                raw = b''
+                availability['currentLogs'] = {'status': 'unavailable', 'failure': failure_diagnostic(error)}
             # Docker's --tail bounds current physical lines. Enforce the same
             # shared ceiling even if a source violates that contract.
             if len(raw.splitlines()) > MAX_PHYSICAL_LINES:
@@ -1521,9 +1563,13 @@ def main():
         metric_evidence = read_lease_metrics(window) if lease_metrics else None
         restart_evidence = read_restart_incident(window, raw) if restart_incident else None
         FAILURE_STAGE = 'host_health_after'
-        after = health('http://127.0.0.1:8080')
-        if before != after:
-            raise RuntimeError('Host engine changed during observation')
+        if restart_incident:
+            availability['healthAfter'] = incident_health('http://127.0.0.1:8080')
+            after = availability['healthAfter']['identity']
+        else:
+            after = health('http://127.0.0.1:8080')
+            if before != after:
+                raise RuntimeError('Host engine changed during observation')
         FAILURE_STAGE = 'response_sanitization'
         extra = {'muxSubscriptionTimings': extract_mux_timings(raw)} if mux_timing else {}
         if fold_timing:
@@ -1536,6 +1582,7 @@ def main():
             extra['originalTenIncident'] = original_ten_description(window)
         if restart_incident:
             extra['restartIncident'] = restart_evidence
+            extra['incidentAvailability'] = availability
         records = ({'records': [], 'matchingRecords': 0, 'omittedRecords': 0, 'oversizedRecords': 0,
                     'absenceMeans': 'unknown; metrics-only read does not read logs; historical retention and source identity are unproven'}
                    if historical else extract_sources(current_raw, archives, scopes))
@@ -1576,7 +1623,8 @@ def main():
     if not re.fullmatch('[A-Za-z0-9.-]+', host) or host.startswith('-') or not key.strip() or not pin.strip():
         raise RuntimeError('Configured read transport unavailable')
     FAILURE_STAGE = 'public_health_before'
-    before = health()
+    public_before = incident_health() if restart_incident else None
+    before = public_before['identity'] if restart_incident else health()
     FAILURE_STAGE = 'transport_setup'
     directory = Path(tempfile.mkdtemp(prefix='scoped-engine-read-', dir=os.environ['RUNNER_TEMP']))
     try:
@@ -1628,6 +1676,8 @@ def main():
             raise RuntimeError('Lease metric observation differs')
         if ('restartIncident' in result) != restart_incident:
             raise RuntimeError('Restart observation differs')
+        if ('incidentAvailability' in result) != restart_incident:
+            raise RuntimeError('Incident availability observation differs')
         if ('leaseHistoricalMetricsOnly' in result) != historical:
             raise RuntimeError('Historical metric observation differs')
         if historical and (result.get('leaseHistoricalMetricsOnly') is not True or result.get('logRead') != 'not_requested'
@@ -1638,9 +1688,16 @@ def main():
         if ('originalTenIncident' in result) != incident or (incident and result['originalTenIncident'] != original_ten_description(window)):
             raise RuntimeError('Original ten incident evidence differs')
         FAILURE_STAGE = 'public_health_after'
-        after = health()
-        if before != after or result.get('hostEngineBefore') != before or result.get('hostEngineAfter') != after:
+        public_after = incident_health() if restart_incident else None
+        after = public_after['identity'] if restart_incident else health()
+        if not restart_incident and (before != after or result.get('hostEngineBefore') != before or result.get('hostEngineAfter') != after):
             raise RuntimeError('Public and host engine identity changed or differ')
+        if restart_incident:
+            result['publicHealthBefore'] = public_before
+            result['publicHealthAfter'] = public_after
+            result['identityContinuity'] = incident_identity_status(
+                before, result.get('hostEngineBefore'), result.get('hostEngineAfter'), after)
+            result['hostAuthentication'] = 'configured_pinned_ssh_host'
         FAILURE_STAGE = 'response_sanitization'
         output = {**result, 'observedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   'engineAtObservation': after, 'selection': scopes, 'diagnosticOnly': True}
