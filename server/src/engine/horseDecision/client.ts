@@ -43,7 +43,11 @@ import {
   type HorsePlanBatchBinding,
   type HorsePlanRetirementReason,
 } from '../HorsePlanHandIdentity.js';
-import { horsePlanAcceptanceIsValid, type HorsePlanAcceptance } from '../HorsePlanEffectReceipt.js';
+import {
+  horsePlanAcceptanceIsValid,
+  horsePlanIssuedBatchDigest,
+  type HorsePlanAcceptance,
+} from '../HorsePlanEffectReceipt.js';
 import { horsePhase6AttributionMismatch } from '../HorsePhase6Attribution.js';
 import { Worker } from 'node:worker_threads';
 import { HorseCommittedDecisionTracker } from '../HorseCommittedDecisionTracker.js';
@@ -598,6 +602,7 @@ export class LiveHorseDecisionWorkerClient {
     {
       binding: HorsePlanBatchBinding;
       state: 'available' | 'committing' | 'retired';
+      confirmedCommit?: { fingerprint: string; ack: HorseDecisionWorkerAck };
     }
   >();
   /** When the current head of `inFlight` became the worker's running job. */
@@ -936,6 +941,26 @@ export class LiveHorseDecisionWorkerClient {
     if (!horsePlanAcceptanceIsValid(acceptance, result.planBinding))
       return Promise.reject(new Error('Horse plan commit lacks its exact acceptance'));
     const owner = this.planOwners.get(result);
+    // Bound fingerprint work before hashing caller-owned data. A confirmed
+    // duplicate reuses its actual worker ACK; it never posts another effect.
+    horseRequestAllowance({ binding: result.planBinding, effects: result.effects, acceptance });
+    const batchDigest = horsePlanIssuedBatchDigest(result.planBinding, result.effects);
+    const fingerprint = JSON.stringify([
+      batchDigest,
+      acceptance.version,
+      acceptance.action,
+      acceptance.amount,
+      acceptance.witness?.requestId ?? null,
+      acceptance.witness?.decisionKey ?? null,
+    ]);
+    if (
+      owner?.confirmedCommit &&
+      batchDigest !== null &&
+      owner.confirmedCommit.fingerprint === fingerprint &&
+      result.planIssueDisposition === 'issued'
+    ) {
+      return { ...owner.confirmedCommit.ack, planDisposition: 'already_applied_volatile' };
+    }
     if (!owner || owner.state !== 'available' || result.planIssueDisposition !== 'issued')
       return Promise.reject(new Error('Horse plan commit has no available client ownership'));
     // Effect acceptance rechecks authority for a selected Phase 8 candidate.
@@ -1041,12 +1066,23 @@ export class LiveHorseDecisionWorkerClient {
     noteFire('phase15_plan_commit_posted');
     // Worker issue ownership is checked separately. This transport method does
     // not certify table acceptance; Turns retains its exact accepted-wager gate.
-    return this.enqueue<HorseDecisionWorkerAck>(request, 'ACK', undefined, true).catch((error) => {
-      // Retirement is ordered after a posted commit, never a blind replay.
-      // If that commit applied, the worker preserves its applied terminal state.
-      this.retireDecisionEffects(result, 'commit_unconfirmed', true);
-      throw error;
-    });
+    return this.enqueue<HorseDecisionWorkerAck>(request, 'ACK', undefined, true)
+      .then((ack) => {
+        if (
+          batchDigest !== null &&
+          (ack.planDisposition === 'applied_volatile' ||
+            ack.planDisposition === 'already_applied_volatile')
+        ) {
+          owner.confirmedCommit = { fingerprint, ack: { ...ack } };
+        }
+        return ack;
+      })
+      .catch((error) => {
+        // Retirement is ordered after a posted commit, never a blind replay.
+        // If that commit applied, the worker preserves its applied terminal state.
+        this.retireDecisionEffects(result, 'commit_unconfirmed', true);
+        throw error;
+      });
   }
 
   private retireDecisionEffects(
