@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
-import { test, expect, devices, type Page, type Locator } from '@playwright/test';
+import { test, expect, devices, type Page, type Locator, type TestInfo } from '@playwright/test';
 import {
   FILTER_SPECS,
   type GameFilterValue,
@@ -1678,6 +1678,103 @@ async function setup(page: Page) {
   };
 }
 
+async function assertMttEntriesAndTypography(
+  page: Page,
+  h: Awaited<ReturnType<typeof setup>>,
+  testInfo: TestInfo
+) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    if (!document.fonts.check('700 16px "Roboto Condensed"'))
+      throw new Error('Approved lobby font unavailable');
+  });
+  const readEntryCards = () =>
+    h.rows.evaluateAll((elements) =>
+      elements
+        .filter((row) => row.getAttribute('data-kind') === 'mtt')
+        .map((row) => {
+          const buy = row.querySelector('td[data-label="Buy-In"]')!;
+          const entries = row.querySelector('td[data-label="Entries"]')!;
+          const measure = (cell: Element | null) => {
+            if (!cell) return null;
+            const value = cell.querySelector('.lt-seats__num,.premium-cash-stakes-value');
+            if (!value) return null;
+            const labelStyle = getComputedStyle(cell, '::before');
+            const valueStyle = getComputedStyle(value);
+            const box = value.getBoundingClientRect();
+            return {
+              labelFont: labelStyle.fontSize,
+              labelMargin: labelStyle.marginBottom,
+              labelFamily: labelStyle.fontFamily,
+              labelWeight: labelStyle.fontWeight,
+              valueFont: valueStyle.fontSize,
+              valueFamily: valueStyle.fontFamily,
+              valueWeight: valueStyle.fontWeight,
+              valueTop: box.top,
+              valueHeight: box.height,
+            };
+          };
+          return {
+            id: row.getAttribute('data-id')!,
+            numericBuyIn: /^[0-9][0-9,]*$/.test(buy?.textContent?.trim() || ''),
+            buy: measure(buy),
+            entries: measure(entries),
+            count: entries?.querySelector('.lt-seats__num')?.textContent,
+            freshness: entries?.querySelector('.lt-seats__num')?.getAttribute('title'),
+          };
+        })
+    );
+  await expect
+    .poll(async () => {
+      const cards = await readEntryCards();
+      if (!cards.length) return ['Missing MTT cards'];
+      if (!cards.some((card) => card.numericBuyIn)) return ['Missing numeric Buy-In witness'];
+      return cards.flatMap((card) => {
+        if (!card.buy || !card.entries) return [card.id + ': missing columns'];
+        return card.freshness !== 'Entries Including Rebuys' ||
+          h.rawRows.get(card.id)?.proof_entry_count == null ||
+          Number(card.count?.replaceAll(',', '')) !==
+            Number(h.rawRows.get(card.id)?.proof_entry_count) ||
+          card.buy.labelFont !== card.entries.labelFont ||
+          card.buy.labelMargin !== card.entries.labelMargin ||
+          card.buy.labelFamily !== card.entries.labelFamily ||
+          card.buy.labelWeight !== card.entries.labelWeight ||
+          (card.numericBuyIn &&
+            (card.buy.valueFont !== card.entries.valueFont ||
+              card.buy.valueFamily !== card.entries.valueFamily ||
+              card.buy.valueWeight !== card.entries.valueWeight ||
+              Math.abs(card.buy.valueTop - card.entries.valueTop) > 0.6 ||
+              Math.abs(card.buy.valueHeight - card.entries.valueHeight) > 0.6))
+          ? [card.id + ': entry count or typography differs']
+          : [];
+      });
+    })
+    .toEqual([]);
+  await testInfo.attach('mtt-live-entries-and-typography.json', {
+    body: Buffer.from(JSON.stringify(await readEntryCards())),
+    contentType: 'application/json',
+  });
+
+  const witness = (await readEntryCards()).find((card) => card.numericBuyIn)!;
+  await page
+    .locator(`[data-testid="lobby-game-row"][data-id="${witness.id}"]`)
+    .scrollIntoViewIfNeeded();
+  await testInfo.attach('mtt-live-entries-and-typography.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+}
+
+test('live MTT entries match committed counts and Buy-In typography', async ({
+  page,
+}, testInfo) => {
+  // Existing club readiness allows 45s; leave room for source counts, fonts and the picture.
+  test.setTimeout(90_000);
+  const h = await setup(page);
+  await h.choose('MTT');
+  await assertMttEntriesAndTypography(page, h, testInfo);
+});
+
 test.describe('functional filter matrix', () => {
   // Native layout proof stays Retina in the separate shared case below.
   test.use({ deviceScaleFactor: 1 });
@@ -2651,61 +2748,7 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   );
   for (const clock of clocks) expect(clock.text).toMatch(/^\d+d \d+h$/);
   // Direct heading sorts never reopen the old clipped menu; Game is inert.
-  const readEntryCards = () =>
-    h.rows.evaluateAll((elements) =>
-      elements
-        .filter((row) => row.getAttribute('data-kind') === 'mtt')
-        .map((row) => {
-          const buy = row.querySelector('td[data-label="Buy-In"]')!;
-          const entries = row.querySelector('td[data-label="Entries"]')!;
-          const measure = (cell: Element | null) => {
-            if (!cell) return null;
-            const value = cell.querySelector('.lt-seats__num,.premium-cash-stakes-value');
-            if (!value) return null;
-            const labelStyle = getComputedStyle(cell, '::before');
-            const valueStyle = getComputedStyle(value);
-            const box = value.getBoundingClientRect();
-            return {
-              labelFont: labelStyle.fontSize,
-              labelMargin: labelStyle.marginBottom,
-              valueFont: valueStyle.fontSize,
-              valueTop: box.top,
-              valueHeight: box.height,
-            };
-          };
-          return {
-            id: row.getAttribute('data-id')!,
-            buy: measure(buy),
-            entries: measure(entries),
-            count: entries?.querySelector('.lt-seats__num')?.textContent,
-            freshness: entries?.querySelector('.lt-seats__num')?.getAttribute('title'),
-          };
-        })
-    );
-  await expect
-    .poll(async () => {
-      const cards = await readEntryCards();
-      if (!cards.length) return ['Missing MTT cards'];
-      return cards.flatMap((card) => {
-        if (!card.buy || !card.entries) return [card.id + ': missing columns'];
-        return card.freshness !== 'Entries Including Rebuys' ||
-          h.rawRows.get(card.id)?.proof_entry_count == null ||
-          Number(card.count?.replaceAll(',', '')) !==
-            Number(h.rawRows.get(card.id)?.proof_entry_count) ||
-          card.buy.labelFont !== card.entries.labelFont ||
-          card.buy.labelMargin !== card.entries.labelMargin ||
-          card.buy.valueFont !== card.entries.valueFont ||
-          Math.abs(card.buy.valueTop - card.entries.valueTop) > 0.6 ||
-          Math.abs(card.buy.valueHeight - card.entries.valueHeight) > 0.6
-          ? [card.id + ': entry count or typography differs']
-          : [];
-      });
-    })
-    .toEqual([]);
-  await testInfo.attach('mtt-live-entries-and-typography.json', {
-    body: Buffer.from(JSON.stringify(await readEntryCards())),
-    contentType: 'application/json',
-  });
+  await assertMttEntriesAndTypography(page, h, testInfo);
   const headings = page.locator('.compact-lobby:visible thead');
   await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
   for (const label of [/^Buy-In/, /^Entries/, /^Status/]) {
