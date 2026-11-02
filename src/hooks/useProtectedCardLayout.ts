@@ -2392,7 +2392,6 @@ export function useProtectedCardLayout(
       }
       promoteWagers();
     };
-    place();
     let frame: number | null = null;
     const schedule = () => {
       if (frame !== null) return;
@@ -2401,6 +2400,9 @@ export function useProtectedCardLayout(
         place();
       });
     };
+    // prepare() can synchronously request another pass when retained portrait
+    // metadata changes the ring. Initialize the scheduler before the first pass.
+    place();
     // Revision commits share the observer frame instead of synchronously
     // repeating the expensive initial allocation during the same commit.
     placeRef.current = schedule;
