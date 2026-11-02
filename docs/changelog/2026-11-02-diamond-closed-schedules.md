@@ -29,3 +29,8 @@ The native routing regression executes the captured current function before and
 after the exact migration, proving the refusal and unaffected outside identity.
 It qualifies no fund transfer, deletion, physical drain or financial settlement.
 Those remain unfinished and require their own connected implementation/proof.
+
+The existing restart source authority also rejects inserting either the retired
+identity itself or a new tournament cloned from that identity. The native fixture
+executes the actual existing trigger path for both cases. This does not prevent
+unrelated new games or the excluded waiting SNG/Spin board from starting.
