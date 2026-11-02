@@ -324,12 +324,19 @@ def terminal_failure_resolution(value, cycle, result, result_fd, answer):
         proof['failureDigest'] == NINEF_FAILURE and proof['sourceDigests'] == NINEF_SOURCES and
         all(isinstance(proof[k], str) and re.fullmatch('[0-9a-f]{64}', proof[k])
             for k in ('checkpointIntentDigest', 'checkpointRefusalDigest')) and
-        proof['originalProcess'] in {'kernel-enoent', 'pid-reused-after-intent'} and
-        proof['database'].get('schema') == 'terminal-owned-thaw/v1' and
-        proof['database'].get('ownedV3Thaw') is True and proof['database'].get('databaseIdle') is True and
-        proof['database'].get('freshLeader') is True and
-        all(proof['database'].get(k) == NINEF_WINDOW[k] for k in ('announcedAt', 'startsAt', 'endsAt')) and
-        proof['database'].get('instanceId') == proof['runtime'].get('instanceId'))
+        proof['originalProcess'] in {'kernel-enoent', 'pid-reused-after-intent'})
+    runtime, database = proof['runtime'], proof['database']
+    routine_require(set(runtime) == {'containerId', 'startedAt', 'hostPid', 'instanceId'} and
+        isinstance(runtime['containerId'], str) and re.fullmatch('[0-9a-f]{64}', runtime['containerId']) and
+        isinstance(runtime['startedAt'], str) and bool(runtime['startedAt']) and
+        type(runtime['hostPid']) is int and runtime['hostPid'] > 0 and
+        isinstance(runtime['instanceId'], str) and re.fullmatch('[A-Za-z0-9._:-]{1,128}', runtime['instanceId']) and
+        database == {'schema': 'terminal-owned-thaw/v1', 'sha': cycle['failure'].get('recoveredDesiredSha'),
+                     'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True,
+                     'ownedV3Thaw': True, 'announcedAt': NINEF_WINDOW['announcedAt'],
+                     'startsAt': NINEF_WINDOW['startsAt'], 'endsAt': NINEF_WINDOW['endsAt']} and
+        all(type(database[k]) is bool for k in ('databaseIdle', 'freshLeader', 'ownedV3Thaw')) and
+        all(type(database[k]) is int for k in ('announcedAt', 'startsAt', 'endsAt')))
     name = NINEF_RUN + '.' + value['verifiedByRunId'] + '.' + value['invocationId'] + '.terminal-resolution.json'
     metadata = os.stat(name, dir_fd=result_fd, follow_symlinks=False)
     receipt, raw = read_json(result_fd, name, private=True, with_bytes=True)

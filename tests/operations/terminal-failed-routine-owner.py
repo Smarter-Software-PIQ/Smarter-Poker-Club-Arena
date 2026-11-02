@@ -367,6 +367,14 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                 ('sources differ', {**resolution, 'proof': {**resolution['proof'], 'sourceDigests': {}}}, self.cycle),
                 ('verifier targets 9f', {**resolution, 'verifiedByTargetSha': B_SHA}, self.cycle),
                 ('database unchecked', {**resolution, 'proof': {**resolution['proof'], 'database': None}}, self.cycle),
+                ('instances both absent', {**resolution, 'proof': {**resolution['proof'],
+                    'runtime': {k: v for k, v in resolution['proof']['runtime'].items() if k != 'instanceId'},
+                    'database': {k: v for k, v in resolution['proof']['database'].items() if k != 'instanceId'}}},
+                 self.cycle),
+                ('database sha differs', {**resolution, 'proof': {**resolution['proof'],
+                    'database': {**resolution['proof']['database'], 'sha': B_SHA}}}, self.cycle),
+                ('runtime pid not int', {**resolution, 'proof': {**resolution['proof'],
+                    'runtime': {**resolution['proof']['runtime'], 'hostPid': '1'}}}, self.cycle),
                 ('extra field', {**resolution, 'note': 'x'}, self.cycle)]:
             with self.subTest(name), self.assertRaisesRegex(ValueError, 'Routine owner evidence refused'):
                 observer.terminal_failure_resolution(value, cycle, self.failure, fd, blank())
@@ -391,6 +399,51 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         seal.write_json_atomic(seal.terminal_receipt_path(other, LIVE_RUN, INVOCATION), record)
         seal.write_state({**state, 'routineFailureResolutions': {other: record}})
         self.refused(self.owner)
+
+    def test_database_witness_requires_the_exact_v3_thaw_ledger(self):
+        spec = importlib.util.spec_from_file_location('terminal_owner_db', ROOT / 'server/scripts/engine-release-database-proof.py')
+        db = importlib.util.module_from_spec(spec); spec.loader.exec_module(db)
+        targets = {k: i for i, k in enumerate(sorted(db.TERMINAL_THAW_TARGETS))}
+        good = {'freeze_started_at': '2026-11-02T04:00:04.929+00:00', 'announced_at': '2026-11-02T03:58:04.929+00:00',
+                'release_target_at': '2026-11-02T04:05:04.929+00:00', 'thawed_at': '2026-11-02T04:05:05+00:00',
+                'frozen_seconds': 300, 'contract_version': 3, 'release_generation': 1,
+                'ownership_token': '0b6c1f2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b', 'thawed_by': A_SHA[:8],
+                'shifted': {'complete': True, '_targets_snapshotted': True, '_target_counts': dict(targets), **targets}}
+        class Reply(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+        def run(row, breaks=(b'[]', b'[]')):
+            replies = list(breaks)
+            class Opener:
+                def open(self, request, timeout):
+                    url = request.full_url
+                    if 'engine_maintenance_break' in url:
+                        return Reply(replies.pop(0))
+                    return Reply(b'[]' if 'release_target_at=gt' in url else json.dumps([row]).encode())
+            with patch.object(db, 'build_opener', lambda *_: Opener()), \
+                    patch.object(db, 'read_leader', lambda *_: (A_SHA[:8], INSTANCE, 1)):
+                return db.verify_terminal_owned_thaw('https://db.invalid', 'k', A_SHA, INSTANCE, 15,
+                                                     *(self.window[k] for k in ('announcedAt', 'startsAt', 'endsAt')))
+        self.assertTrue(run(good)['ownedV3Thaw'])
+        self.assertNotIn('ownership_token', json.dumps(run(good)))
+        first = sorted(targets)[1]
+        for name, mutate in {
+            'count is boolean true': lambda r: (r['shifted'].update({first: 1}), r['shifted']['_target_counts'].update({first: True})),
+            'count is boolean false': lambda r: r['shifted']['_target_counts'].update({sorted(targets)[0]: False}),
+            'shifted is boolean': lambda r: r['shifted'].update({first: True}),
+            'count differs': lambda r: r['shifted']['_target_counts'].update({first: 99}),
+            'negative shift': lambda r: (r['shifted'].update({first: -1}), r['shifted']['_target_counts'].update({first: -1})),
+            'extra ledger key': lambda r: r['shifted'].update(tournaments=0),
+            'target missing': lambda r: r['shifted'].pop(first),
+            'not snapshotted': lambda r: r['shifted'].update(_targets_snapshotted=False),
+            'incomplete': lambda r: r['shifted'].update(complete=False),
+            'token absent': lambda r: r.update(ownership_token=None),
+            'token malformed': lambda r: r.update(ownership_token='not-a-uuid'),
+        }.items():
+            with self.subTest(name), self.assertRaises(ValueError):
+                row = copy.deepcopy(good); mutate(row); run(row)
+        with self.subTest('maintenance row at the closing bookend'), self.assertRaises(ValueError):
+            run(good, breaks=(b'[]', b'[{"id":1}]'))
 
     def test_a_recorded_resolution_needs_its_identical_receipt(self):
         self.assertEqual(self.resolve(), DEAD_RUN)
@@ -453,6 +506,14 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'sources differ': lambda r: r['proof'].update(sourceDigests={}),
             'verifier targets 9f': lambda r: r.update(verifiedByTargetSha=B_SHA),
             'verifier control missing': lambda r: r.pop('verifiedByControlSha'),
+            'runtime instance missing': lambda r: (r['proof']['runtime'].pop('instanceId'),
+                                                   r['proof']['database'].pop('instanceId')),
+            'runtime extra key': lambda r: r['proof']['runtime'].update(note='x'),
+            'runtime pid not int': lambda r: r['proof']['runtime'].update(hostPid='758052'),
+            'runtime container malformed': lambda r: r['proof']['runtime'].update(containerId='x'),
+            'database sha differs': lambda r: r['proof']['database'].update(sha=B_SHA),
+            'database other instance': lambda r: r['proof']['database'].update(instanceId='1-deadbeef'),
+            'database boolean as int': lambda r: r['proof']['database'].update(databaseIdle=1),
         }.items():
             with self.subTest(name):
                 state = copy.deepcopy(good)

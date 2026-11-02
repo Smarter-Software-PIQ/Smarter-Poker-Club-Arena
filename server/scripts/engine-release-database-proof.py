@@ -457,7 +457,7 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
     shape_ok = (isinstance(shifted, dict) and isinstance(counts, dict) and
                 set(shifted) == TERMINAL_THAW_TARGETS | {'complete', '_targets_snapshotted', '_target_counts'} and
                 set(counts) == TERMINAL_THAW_TARGETS and shifted.get('_targets_snapshotted') is True and
-                all(type(shifted[k]) is int and shifted[k] >= 0 and counts[k] == shifted[k]
+                all(type(shifted[k]) is int and type(counts[k]) is int and shifted[k] >= 0 and counts[k] == shifted[k]
                     for k in TERMINAL_THAW_TARGETS))
     if (millis(row.get('announced_at')) != announced_ms or millis(row.get('freeze_started_at')) != starts_ms or
             millis(row.get('release_target_at')) != ends_ms or row.get('contract_version') != 3 or

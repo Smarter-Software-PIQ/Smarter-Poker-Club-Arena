@@ -958,6 +958,23 @@ def terminal_owner_proved(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
     return terminal_owner_proof(state, cycle, time.monotonic() + 45) is not None
 
 
+def terminal_runtime_and_database(proof: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    """Exact typed runtime and database witnesses of a recorded 9f proof."""
+    runtime, database = proof.get('runtime'), proof.get('database')
+    return (isinstance(runtime, dict) and set(runtime) == {'containerId', 'startedAt', 'hostPid', 'instanceId'} and
+            isinstance(runtime['containerId'], str) and re.fullmatch('[0-9a-f]{64}', runtime['containerId']) is not None and
+            isinstance(runtime['startedAt'], str) and bool(runtime['startedAt']) and
+            type(runtime['hostPid']) is int and runtime['hostPid'] > 0 and
+            isinstance(runtime['instanceId'], str) and INSTANCE_ID_RE.fullmatch(runtime['instanceId']) is not None and
+            isinstance(database, dict) and
+            database == {'schema': 'terminal-owned-thaw/v1', 'sha': cycle['failure']['recoveredDesiredSha'],
+                         'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True,
+                         'ownedV3Thaw': True, 'announcedAt': NINEF_WINDOW['announcedAt'],
+                         'startsAt': NINEF_WINDOW['startsAt'], 'endsAt': NINEF_WINDOW['endsAt']} and
+            all(type(database[k]) is bool for k in ('databaseIdle', 'freshLeader', 'ownedV3Thaw')) and
+            all(type(database[k]) is int for k in ('announcedAt', 'startsAt', 'endsAt')))
+
+
 def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, Any]) -> None:
     """The pinned 41349091113-1 record, or an exact terminal-failure proof record."""
     if owner == FAILED_ROUTINE_RUN:
@@ -986,9 +1003,7 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
             proof['sourceDigests'] == NINEF_SOURCES and
             all(isinstance(proof[k], str) and re.fullmatch('[0-9a-f]{64}', proof[k]) is not None
                 for k in ('checkpointIntentDigest', 'checkpointRefusalDigest')) and
-            isinstance(proof['runtime'], dict) and isinstance(proof['database'], dict) and
-            proof['database'].get('databaseIdle') is True and proof['database'].get('freshLeader') is True and
-            proof['database'].get('ownedV3Thaw') is True):
+            terminal_runtime_and_database(proof, cycle)):
         die('routine failure resolution history is invalid')
     try:
         receipt = failed_routine_json(terminal_receipt_path(owner, str(resolution['verifiedByRunId']),
