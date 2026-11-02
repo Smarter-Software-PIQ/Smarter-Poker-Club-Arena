@@ -498,8 +498,10 @@ describe('a shared game link', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     await act(async () => gate.resolve());
     await settle();
-    expect(screen.getByRole('dialog', { name: 'Nightly Event Lobby' })).toBeTruthy();
-    expect(search().get('game')).toBe('event');
+    /* Dan 2026-11-01: a linked TOURNAMENT opens its own lobby screen through
+       the same door a row tap uses - never the pre-commit drawer. */
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByTestId('tournament-destination')).toBeTruthy();
     expect(h.pushView).not.toHaveBeenCalled();
     expect(h.pushFilters).not.toHaveBeenCalled();
   });

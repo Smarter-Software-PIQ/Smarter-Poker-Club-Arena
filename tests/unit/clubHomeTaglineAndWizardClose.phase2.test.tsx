@@ -301,11 +301,12 @@ describe('the tournament row reviews every lobby-admitted status', () => {
       expect(row, 'the actual lobby did not render the synthetic admitted event').not.toBeNull();
       fireEvent.click(row!);
       await flush();
-      expect(screen.queryByTestId('tournament-destination')).toBeNull();
-      const panel = screen.getByRole('dialog');
-      expect(panel.querySelector('.glp__arena-card')).not.toBeNull();
-      fireEvent.click(within(panel).getByRole('button', { name: 'Details', exact: true }));
-      await flush();
+      /* Dan 2026-11-01: "WHEN YOU CLICK ON A TOURNAMENT THATS 'RUNNING' IT
+         SHOULD TAKE YOU DIRECTLY TO THE LOBBY. OR REALLY ANY TOURNAMENT, IT
+         SHOULD NOT TAKE YOU TO THIS PAGE FIRST." The pre-commit drawer never
+         opens for a tournament row; the row lands on the tournament's own
+         screen at every admitted status, and still spends nothing. */
+      expect(screen.queryByRole('dialog')).toBeNull();
       expect(screen.getByTestId('tournament-destination')).toBeTruthy();
       expect(h.register).not.toHaveBeenCalled();
       expect(
