@@ -192,7 +192,7 @@ describe("The champion's exit", () => {
 
   it('bootstraps the durable completion backstop after the realtime channel is wired', () => {
     expect(tablePage).toMatch(
-      /breakChannelRef\.current = breakChan;\s*void verifyDurableCompletion\(\);/
+      /breakChannelRef\.current = breakChan;\s*verifyDurableTournamentExitRef\.current = verifyDurableCompletion;\s*void verifyDurableCompletion\(\);/
     );
   });
 
@@ -231,8 +231,11 @@ describe("The champion's exit", () => {
     // lifetime because a player finishes a tournament exactly once.
     const at = tablePage.indexOf('const goToLobbyWithResult =');
     const fn = sliceStatement(tablePage, 'const goToLobbyWithResult =');
-    expect(fn).toMatch(/if \(exitStarted\) return;/);
+    expect(fn).toMatch(/if \(!isMounted \|\| exitStarted \|\| cancellationExitStarted\) return;/);
     expect(fn).toMatch(/exitStarted = true;/);
+    expect(
+      fn.indexOf('if (!isMounted || exitStarted || cancellationExitStarted) return;')
+    ).toBeLessThan(fn.indexOf('exitStarted = true;'));
   });
 
   it('bounds optional result enrichment before publishing and closing the table', () => {
@@ -447,7 +450,7 @@ describe('One card, one carrier', () => {
     // The persisted format identifies Spin; the mystery flag independently
     // controls the chest receipt read. Both must reach the result mapper.
     expect(reader).toMatch(
-      /select\(\s*'format_contract, name, current_players, variant, tournament_type, is_mystery_bounty, buy_in_amount, buy_in_fee'\s*\)/
+      /select\(\s*'status, format_contract, name, current_players, variant, tournament_type, is_mystery_bounty, buy_in_amount, buy_in_fee'\s*\)/
     );
   });
 });
