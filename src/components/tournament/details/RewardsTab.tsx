@@ -1,3 +1,4 @@
+import { payoutSharePercent } from '../../../utils/tournamentPrizeFunding';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  REWARDS — what this event pays, and what is left to be pulled out of it
@@ -1170,10 +1171,14 @@ export default function RewardsTab({
                     {finisher ? (
                       <span className="rw-who">
                         <span className="tl-name rw-who__name">{finisher.username}</span>
-                        <span className="rw-pct">{pct(band.percentage)}</span>
+                        <span className="rw-pct">
+                          {pct(payoutSharePercent(band.percentage, parsedPlaces ?? []))}
+                        </span>
                       </span>
                     ) : (
-                      <span className="rw-pct">{pct(band.percentage)}</span>
+                      <span className="rw-pct">
+                        {pct(payoutSharePercent(band.percentage, parsedPlaces ?? []))}
+                      </span>
                     )}
                     {isHeroRow && (
                       <span className="tl-badge tl-badge--action rw-tag">

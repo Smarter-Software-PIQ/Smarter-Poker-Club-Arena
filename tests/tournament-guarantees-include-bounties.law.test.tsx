@@ -1,7 +1,11 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { tournamentEntryDescription, placeGuarantee } from '../src/utils/tournamentPrizeFunding';
+import {
+  tournamentEntryDescription,
+  placeGuarantee,
+  payoutSharePercent,
+} from '../src/utils/tournamentPrizeFunding';
 import {
   effectivePrizePool,
   effectivePlaceLadderPool,
@@ -73,6 +77,19 @@ function props(pool = 4050): TournamentTabProps {
 }
 
 describe('The guarantee includes bounties, never rake', () => {
+  it('displays the normalized share without repricing exact paid award weights', async () => {
+    const structure = [
+      { place: 1, percentage: 3914 },
+      { place: 2, percentage: 136 },
+    ];
+    expect(payoutSharePercent(136, structure)).toBe(3.36);
+    const fixture = props();
+    fixture.tournament.payout_structure = JSON.stringify(structure);
+    const view = render(<RewardsTab {...fixture} />);
+    await waitFor(() => expect(view.getByText('3.36%')).toBeTruthy());
+    expect(view.queryByText('136%')).toBeNull();
+  });
+
   it('prices the exact owner example from the charged entry terms', () => {
     expect(
       tournamentEntryDescription({

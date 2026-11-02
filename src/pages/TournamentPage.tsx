@@ -1,3 +1,4 @@
+import { payoutSharePercent } from '../utils/tournamentPrizeFunding';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
 import type { FollowTournamentPlayer } from '../utils/followTournamentPlayer';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
@@ -1927,7 +1928,9 @@ export default function TournamentPage() {
                   {/* The top three used to print NOTHING: an emoji had been
                       stripped from each branch and the empty strings stayed. */}
                   <span className="sc-label sc-ink--blue">{ordinal(pos)}</span>
-                  <span className="tourn-value sc-ink--muted">{payout.percentage}%</span>
+                  <span className="tourn-value sc-ink--muted">
+                    {payoutSharePercent(payout.percentage, selectedPayouts)}%
+                  </span>
                   {/* Whole chips. This printed `Math.trunc(x * 100) / 100`,
                       a decimal, on a forward-facing page. */}
                   <span className="tourn-value sc-ink--silver">

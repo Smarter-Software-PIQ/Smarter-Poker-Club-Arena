@@ -43,3 +43,13 @@ export function tournamentEntryDescription(
     .trim();
   return `${authored || `Fixed Knockout Bounty: ${chips(bounty)} ${moneyWordAtUnit(unitCents)}.`} ${entry}`;
 }
+
+/** Display the normalized share used by the canonical integer-weight payout math. */
+export function payoutSharePercent(
+  weight: number,
+  structure: readonly { percentage?: number }[]
+): number {
+  const bp = (n: unknown) => Math.max(0, Math.round(amount(n) * 100));
+  const total = structure.reduce((sum, row) => sum + bp(row.percentage), 0);
+  return total > 0 ? Number(((bp(weight) * 100) / total).toFixed(2)) : 0;
+}

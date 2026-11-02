@@ -1,3 +1,4 @@
+import { payoutSharePercent } from '../../utils/tournamentPrizeFunding';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * GAME LOBBY PANEL — the selected game's dedicated lobby (Lobby V2)
@@ -1252,7 +1253,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                             {panelPayouts.map((p) => (
                               <tr key={p.place}>
                                 <td>{p.place}</td>
-                                <td>{p.percentage}%</td>
+                                <td>{payoutSharePercent(p.percentage, panelPayouts)}%</td>
                                 {Math.max(
                                   Number(tournament.prize_pool) || 0,
                                   Number(tournament.guaranteed_prize) || 0

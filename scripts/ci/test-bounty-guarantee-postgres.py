@@ -27,7 +27,10 @@ try:
     sql_file(root/'tests/sql/bounty-guarantee-before-check.sql')
     sql_file(root/'supabase/migrations/20261102043648_tournament_guarantees_include_funded_bounties.sql')
     sql_file(root/'tests/sql/bounty-guarantee-after-check.sql')
-    print('PASS: before regression, exact migration, funded guarantee, late entry overlay return, replay, journal rollback and funding access')
+    sql_file(root/'tests/sql/fixtures/bounty-owner-correction.sql')
+    sql_file(root/'supabase/migrations/20261102051343_receipt_bound_owner_bounty_correction_admission.sql')
+    sql_file(root/'tests/sql/bounty-owner-correction-check.sql')
+    print('PASS: before regression, exact migration, funded guarantee, late entry overlay return, replay, journal rollback and funding access, paid-preserving owner correction and guard refusals')
 finally:
     if started:
         run([pg/'pg_ctl','-D',work/'data','-m','immediate','stop'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
