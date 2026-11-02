@@ -1,6 +1,7 @@
 import { configureFixtureRealtimeCapturedRelations, assertFixtureRealtimeCapturedRelations } from './realtime-legacy-relations.mjs';
 import { REALTIME_CONTROL_DATABASE, realtimeControlConnection, REALTIME_SEED_EXPRESSION, createRealtimeControlDatabase, assertRealtimeControlIdentity, assertRealtimeControlIsolation } from './realtime-control-plane.mjs';
 import { configureFixtureSafeupdate } from './safeupdate-provider.mjs';
+import { schemaRestoreFailure } from './schema-restore-diagnostics.mjs';
 import { captureFixtureServicePreimage } from './service-preimage.mjs';
 import { alignFixtureRoles } from './role-alignment.mjs';
 import {
@@ -586,6 +587,14 @@ function serviceEnvironments(secrets) {
   };
 }
 
+// Both private bootstrap modes need the same closed failure boundary. Ordinary
+// running fixtures retain their fixed-stage-only stderr and never export errors.
+export function fixtureBootstrapFailureDiagnostic({ preimageOnly, schemaMode, stage, error }) {
+  if (!preimageOnly && schemaMode !== 'preflight') return null;
+  const prefix = schemaMode === 'preflight' ? 'fixture-preflight-' : 'fixture-preimage-';
+  return nativeFailureDiagnostic(prefix + stage, error);
+}
+
 async function start(args, preimageOnly = false, roleAlignment = false, schemaMode = null) {
   let inputs;
   let setupStage = 'arguments';
@@ -611,11 +620,8 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
     setupStage = 'postgres-socket';
     await mkdir('/run/postgresql', { mode: 0o700 });
   } catch (error) {
-    if (preimageOnly) {
-      process.stderr.write(
-        JSON.stringify(nativeFailureDiagnostic('fixture-preimage-' + setupStage, error)) + '\n'
-      );
-    }
+    const diagnostic = fixtureBootstrapFailureDiagnostic({ preimageOnly, schemaMode, stage: setupStage, error });
+    if (diagnostic) process.stderr.write(JSON.stringify(diagnostic) + '\n');
     throw error;
   }
   const supervisor = new ServiceSupervisor();
@@ -905,23 +911,29 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
     // must reconcile service-managed objects with the pinned real migrations.
     // Missing/duplicate objects fail here; no migration history is fabricated.
     stage = 'application-schema';
-    await supervisor.command(`${pgBin}/psql`, [
-      '-X',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-h',
-      '/run/postgresql',
-      '-U',
-      'postgres',
-      '-d',
-      database,
-      '-f',
-      schemaRoot + '/schema.sql',
-    ]);
+    try {
+      await supervisor.command(`${pgBin}/psql`, [
+        '-X',
+        '-v',
+        'ON_ERROR_STOP=1',
+        '-v',
+        'VERBOSITY=sqlstate',
+        '-h',
+        '/run/postgresql',
+        '-U',
+        'postgres',
+        '-d',
+        database,
+        '-f',
+        schemaRoot + '/schema.sql',
+      ]);
+    } catch (error) {
+      throw schemaRestoreFailure(error);
+    }
     const applicationOwner = await assertApplicationOwnerBoundary(db);
     if (schemaMode === 'preflight') {
       stage = 'full-schema-preflight';
-      const { preflightSchema } =
+      const { preflightSchema, SCHEMA_PREFLIGHT_STAGES } =
         await import('/opt/qualification/controls/operations/release/native/schema-preflight.mjs');
       const proof = await preflightSchema({
         db,
@@ -931,6 +943,10 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
         api: fixtureAuth({ serviceKey: secrets.serviceKey, jwtSecret: secrets.jwtSecret }),
         template,
         applicationOwner,
+        onStage(next) {
+          assert.ok(SCHEMA_PREFLIGHT_STAGES.includes(next));
+          stage = 'schema-preflight-' + next;
+        },
       });
       await writeFile(root + '/schema-preflight.json', JSON.stringify(proof), {
         flag: 'wx',
@@ -1141,11 +1157,8 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
     // Private service logs can include synthetic credentials. Public stderr
     // contains the bounded stage only, never child output or raw SQL/errors.
     process.stderr.write(`FIXTURE_FAILED:${stage}\n`);
-    if (preimageOnly) {
-      process.stderr.write(
-        JSON.stringify(nativeFailureDiagnostic('fixture-preimage-' + stage, error)) + '\n'
-      );
-    }
+    const diagnostic = fixtureBootstrapFailureDiagnostic({ preimageOnly, schemaMode, stage, error });
+    if (diagnostic) process.stderr.write(JSON.stringify(diagnostic) + '\n');
     process.exitCode = 1;
   } finally {
     try {
@@ -1157,11 +1170,8 @@ async function start(args, preimageOnly = false, roleAlignment = false, schemaMo
         supervisor,
       });
     } catch (error) {
-      if (preimageOnly) {
-        process.stderr.write(
-          JSON.stringify(nativeFailureDiagnostic('fixture-preimage-cleanup', error)) + '\n'
-        );
-      }
+      const diagnostic = fixtureBootstrapFailureDiagnostic({ preimageOnly, schemaMode, stage: 'cleanup', error });
+      if (diagnostic) process.stderr.write(JSON.stringify(diagnostic) + '\n');
       throw error;
     } finally {
       process.removeListener('SIGTERM', stop);

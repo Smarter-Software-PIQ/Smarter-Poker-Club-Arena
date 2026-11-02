@@ -1,0 +1,5 @@
+# Attribute full schema preflight failures to fixed pipeline phases
+
+The maintained full-schema preflight now accepts an optional `onStage` callback with a no-op default. It emits only one of seventeen frozen source-owned labels immediately before the existing input, catalogue, role, permission, Auth, signup, PostgREST, empty-state and health steps. The original assertions, original-catalogue restoration plan, order, SQL, timing and success receipt are unchanged. The runtime owner can bind these labels to its bounded closed diagnostic emitter without exposing error text or private catalogue/account values.
+
+Focused tests execute the maintained pipeline function body with fixed imported boundaries replaced by controlled doubles. They verify complete order, first actual failing boundary attribution, unchanged exception propagation, no later phases, optional callback compatibility and callback refusal before work. These are diagnostic wiring checks, not genuine full-schema/Auth qualification or a root-cause fix. Capture22's underlying refusal remains unknown until the maintained native operation reports its actual stage.

@@ -912,3 +912,19 @@ rolls back on any failure. Every new runtime module is bound into the same image
 allowlist and source receipts; closed diagnostics retain no SQL or data. Native
 proofs do not substitute for full-schema restore, catalogue comparison or the
 fifteen connected application cases.
+
+### Full-preflight failure attribution
+
+The private schema-preflight command now emits the same closed startup and
+cleanup diagnostics as schema-preimage, while ordinary running fixtures retain
+their existing private error boundary. Its fixed seventeen source phases
+distinguish restore mapping, catalogue and role reads, parity, Auth, canonical
+signup, PostgREST and empty game-state checks without exporting compared rows.
+
+Application restore still uses ordinary postgres and ON_ERROR_STOP. PSQL
+SQLSTATE-only verbosity allows an owned error adapter to retain only a bounded
+SQLSTATE, schema line and child exit code; raw SQL, paths, stderr and messages
+remain private. The independent decoder accepts this exact closed record only
+at the application-schema preflight stage. No restore assertion, role, catalogue
+comparison or readiness requirement is relaxed. This reporting repair does not
+claim to identify or fix capture22's underlying preflight failure.

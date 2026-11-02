@@ -13,7 +13,7 @@ import uuid
 import importlib.util
 import time
 
-FILES = ('postgres-extension-captured-acls.mjs', 'cron-captured-table-acls.mjs', 'realtime-captured-publication.mjs', 'managed-bootstrap-functions.mjs', 'managed-bootstrap-functions.sql', 'auth-captured-acls.mjs', 'realtime-captured-acls.mjs', 'dblink-captured-initial-acl.mjs', 'fixture_dblink_acl_baseline.control', 'fixture_dblink_acl_baseline--1.0.sql', 'graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
+FILES = ('schema-restore-diagnostics.mjs', 'postgres-extension-captured-acls.mjs', 'cron-captured-table-acls.mjs', 'realtime-captured-publication.mjs', 'managed-bootstrap-functions.mjs', 'managed-bootstrap-functions.sql', 'auth-captured-acls.mjs', 'realtime-captured-acls.mjs', 'dblink-captured-initial-acl.mjs', 'fixture_dblink_acl_baseline.control', 'fixture_dblink_acl_baseline--1.0.sql', 'graphql-legacy-acl.mjs', 'fixture_graphql_acl_baseline.control', 'fixture_graphql_acl_baseline--1.0.sql', 'Dockerfile', 'package.json', 'package-lock.json', 'fixture-server.mjs',
          'runtime-files.mjs', 'gateway.mjs', 'auth-fixture.mjs', 'auth-bootstrap-proof.mjs',
          'service-role-boundary.mjs', 'realtime-control-plane.mjs', 'realtime-legacy-relations.mjs', 'cron-provider.mjs', 'safeupdate-provider.mjs', 'service-preimage.mjs', 'role-alignment.mjs', 'current-application-roles.mjs', 'role-alignment-render.mjs', 'role-alignment-installer.sql', 'role-alignment-native.json', 'role-alignment-aligned.json', 'role-alignment-graph.sql', 'role-alignment-membership.sql', 'actors.mjs', 'financial-route-phase.mjs',
          'seed-fixture.mjs', 'native-smoke.mjs', 'observation-bridge.mjs', 'build-image.sh', 'smoke-image.sh')
@@ -55,12 +55,18 @@ NATIVE_STAGES = frozenset((
         'helper-staging', 'network-create', 'services-start', 'services-ready', 'peer',
         'oracle', 'services-shutdown', 'preimage-start', 'preimage-ready', 'preimage-copy',
         'preimage-ack', 'preimage-shutdown', 'cleanup')),
-    *( 'fixture-preimage-' + step for step in (
+    *( prefix + step for prefix in ('fixture-preimage-', 'fixture-preflight-') for step in (
         'arguments', 'package', 'directories', 'cookie', 'postgres-socket', 'archives',
         'postgresql', 'postgresql-auth-legacy-ledger', 'postgresql-native-cron-install', 'postgresql-safeupdate-configure',
         'genuine-auth-migrations', 'genuine-realtime-migrations', 'realtime-captured-relation-configuration',
         'managed-postgres-event-trigger-boundary', 'post-service-catalog-preimage', 'full-role-alignment',
-        'current-application-role-extension', 'genuine-service-schema-preimage', 'cleanup'))))
+        'current-application-role-extension', 'genuine-service-schema-preimage', 'cleanup')),
+    'fixture-preflight-application-schema', 'fixture-preflight-full-schema-preflight',
+    *( 'fixture-preflight-schema-preflight-' + step for step in (
+        'catalogue-inputs', 'catalogue-restore-map', 'catalogue-snapshot', 'role-snapshot',
+        'catalogue-parity', 'auth-platform-helpers', 'cron-catalogue', 'auth-write-denial',
+        'auth-start', 'auth-ready', 'auth-users', 'auth-mfa', 'canonical-signup',
+        'postgrest-start', 'postgrest-own-profile', 'empty-game-state', 'healthy'))))
 CURRENT_APPLICATION_ASSERTION_SITES = frozenset((
     'ROLE_SOURCE_PIN',
     'ROLE_INSTALL_BACKEND',
@@ -128,16 +134,34 @@ def native_failures(output):
         if (not isinstance(row, dict) or row.get('status') != 'failed'
                 or not isinstance(row.get('stage'), str) or row['stage'] not in NATIVE_STAGES):
             continue
+        restore_fields = {'restore_sqlstate', 'restore_line', 'restore_exit_code'}
+        if restore_fields.intersection(row) or row.get('error') == 'SchemaRestoreError':
+            if (set(row) != {'status', 'stage', 'error'} | restore_fields
+                    or row['stage'] != 'fixture-preflight-application-schema'
+                    or row.get('error') != 'SchemaRestoreError'
+                    or not isinstance(row.get('restore_sqlstate'), str)
+                    or not re.fullmatch('[0-9A-Z]{5}', row['restore_sqlstate'])
+                    or row['restore_sqlstate'] == '00000'
+                    or type(row.get('restore_line')) is not int
+                    or not 1 <= row['restore_line'] <= 134217728
+                    or type(row.get('restore_exit_code')) is not int
+                    or not 1 <= row['restore_exit_code'] <= 255):
+                continue
+            record = {'stage': row['stage'], 'category': 'SchemaRestoreError',
+                      **{key: row[key] for key in restore_fields}}
+            if record not in records:
+                records.append(record)
+            continue
         has_assertion_site = 'assertion_site' in row
         assertion_site = row.pop('assertion_site', None)
-        if has_assertion_site and (row.get('stage') != 'fixture-preimage-current-application-role-extension'
+        if has_assertion_site and (row.get('stage') not in {'fixture-preimage-current-application-role-extension', 'fixture-preflight-current-application-role-extension'}
                 or row.get('error') != 'AssertionError' or not isinstance(assertion_site, str)
                 or assertion_site not in CURRENT_APPLICATION_ASSERTION_SITES):
             continue
         has_sql_guard_site = 'sql_guard_site' in row
         sql_guard_site = row.pop('sql_guard_site', None)
         if has_sql_guard_site and (has_assertion_site
-                or row.get('stage') != 'fixture-preimage-current-application-role-extension'
+                or row.get('stage') not in {'fixture-preimage-current-application-role-extension', 'fixture-preflight-current-application-role-extension'}
                 or row.get('error') != 'error' or row.get('sqlstate') != 'P0001'
                 or not isinstance(sql_guard_site, str) or sql_guard_site not in CURRENT_APPLICATION_SQL_GUARD_SITES):
             continue

@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {fixtureBootstrapFailureDiagnostic as diagnose} from '../fixture-server.mjs';
+
+test('full preflight emits bounded setup, restore, substep and cleanup failures while normal start remains private',()=>{
+  const error=Object.assign(new Error('PRIVATE SQL AND FIXTURE CREDENTIALS'),{actual:'PRIVATE',expected:'PRIVATE',stderr:'PRIVATE',sqlstate:'PRIVATE'});
+  for(const stage of ['archives','application-schema','schema-preflight-catalogue-parity','schema-preflight-auth-users','cleanup']){
+    assert.equal(diagnose({preimageOnly:false,schemaMode:null,stage,error}),null);
+    for(const [preimageOnly,schemaMode,prefix] of [[true,null,'fixture-preimage-'],[false,'preflight','fixture-preflight-']]){
+      const row=diagnose({preimageOnly,schemaMode,stage,error});
+      assert.deepEqual(row,{status:'failed',stage:prefix+stage,error:'Error'});
+      assert.ok(!JSON.stringify(row).includes('PRIVATE'));
+    }
+  }
+});
+test('real setup/main/cleanup catches use shared emitter and restore keeps its ordinary role and strict stop',async()=>{
+  const s=await readFile(new URL('../fixture-server.mjs',import.meta.url),'utf8');
+  assert.equal((s.match(/const diagnostic = fixtureBootstrapFailureDiagnostic/g)||[]).length,3);
+  const restore=s.slice(s.indexOf("stage = 'application-schema';"),s.indexOf('const applicationOwner =',s.indexOf("stage = 'application-schema';")));
+  assert.ok(restore.includes("'ON_ERROR_STOP=1'"));assert.ok(restore.includes("'VERBOSITY=sqlstate'"));
+  assert.match(restore,/'-U',\s*'postgres'/);assert.ok(restore.includes('throw schemaRestoreFailure(error)'));
+  assert.ok(s.includes('SCHEMA_PREFLIGHT_STAGES.includes(next)'));
+  assert.ok(s.includes("stage = 'schema-preflight-' + next"));
+});

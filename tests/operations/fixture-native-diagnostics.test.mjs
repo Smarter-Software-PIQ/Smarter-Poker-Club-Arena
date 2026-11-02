@@ -19,6 +19,8 @@ test('actual preimage entrypoint retains argument and package refusals without p
   );
   for (const [args, stage] of [
     [[script, 'preimage', 'PRIVATE ARGUMENT'], 'fixture-preimage-arguments'],
+    [[script, 'schema-preflight', 'PRIVATE ARGUMENT'], 'fixture-preflight-arguments'],
+    [['--import', 'data:text/javascript,process.getuid=()=>-1', script, 'schema-preflight', '--schema=/inputs/schema.zip'], 'fixture-preflight-package'],
     // Deterministic package refusal before any filesystem or service mutation.
     [
       ['--import', 'data:text/javascript,process.getuid=()=>-1', script, 'preimage'],
@@ -376,4 +378,37 @@ test('only exact owned P0001 guard messages expose closed SQL guard sites', () =
     }
     assert.equal(nativeFailureDiagnostic('fixture-preimage-cleanup',error).sql_guard_site,undefined);
   }
+});
+
+
+test('preflight role diagnostics retain only the same closed owning stage tokens',()=>{
+ const stages=['fixture-preimage-current-application-role-extension','fixture-preflight-current-application-role-extension'];
+ const assertion=new assert.AssertionError({message:'FIXTURE_ASSERT_MANAGED_BOOTSTRAP_FUNCTIONS_POSTIMAGE'});
+ const sql={name:'error',code:'P0001',message:'FIXTURE_POSTGRES_EXTENSION_ACL_PREIMAGE_REQUIRED',detail:'PRIVATE SQL',context:'PRIVATE ROLE'};
+ for(const stage of stages){
+  assert.equal(nativeFailureDiagnostic(stage,assertion).assertion_site,'MANAGED_BOOTSTRAP_FUNCTIONS_POSTIMAGE');
+  assert.equal(nativeFailureDiagnostic(stage,sql).sql_guard_site,'POSTGRES_EXTENSION_ACL_PREIMAGE');
+ }
+ for(const stage of ['fixture-preflight-current-application-role-extension-extra','fixture-preflight-schema-preflight-catalogue-parity','fixture-preimage-application-schema']){
+  assert.equal(nativeFailureDiagnostic(stage,assertion).assertion_site,undefined);
+  assert.equal(nativeFailureDiagnostic(stage,sql).sql_guard_site,undefined);
+ }
+});
+
+test('only owned restore failures expose bounded SQLSTATE line and exit at the exact preflight stage',async()=>{
+ const {schemaRestoreFailure}=await import('../../operations/release/fixture/schema-restore-diagnostics.mjs');
+ const original=Object.assign(new Error('PRIVATE exec message'),{code:3,
+   stderr:'psql:/run/club-arena-qualification/private/schema/schema.sql:12345: ERROR:  42501\n',stdout:'PRIVATE SQL'});
+ const owned=schemaRestoreFailure(original);
+ const stage='fixture-preflight-application-schema';
+ const expected={status:'failed',stage,error:'SchemaRestoreError',restore_sqlstate:'42501',restore_line:12345,restore_exit_code:3};
+ assert.deepEqual(nativeFailureDiagnostic(stage,owned),expected);
+ for(const foreign of [original,{...owned},Object.assign(new Error('PRIVATE'),{name:'SchemaRestoreError',restore_sqlstate:'42501',restore_line:12345,restore_exit_code:3})]){
+  const record=nativeFailureDiagnostic(stage,foreign);
+  assert.equal(record.restore_sqlstate,undefined);assert.ok(!JSON.stringify(record).includes('PRIVATE'));
+ }
+ for(const wrong of ['fixture-preimage-application-schema','fixture-preflight-full-schema-preflight','fixture-preflight-application-schema-extra']){
+  const record=nativeFailureDiagnostic(wrong,owned);assert.equal(record.error,'Error');assert.equal(record.restore_line,undefined);
+ }
+ assert.ok(!JSON.stringify(nativeFailureDiagnostic(stage,owned)).includes('PRIVATE'));
 });
