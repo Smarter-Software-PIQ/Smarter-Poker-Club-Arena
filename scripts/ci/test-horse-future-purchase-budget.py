@@ -3,6 +3,7 @@
 Unchanged economic delegates are fixture sinks: no claim to requalify their money rules.
 """
 import concurrent.futures
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,7 +35,7 @@ def main():
         command([PG/'pg_ctl','-D',d/'db','-l',d/'log','-o',f"-k {sock} -p 55479 -c listen_addresses='' -c shared_buffers=16MB -c max_connections=10",'-w','start'])
         psql=[str(PG/'psql'),'-X','-At','-v','ON_ERROR_STOP=1','-h',str(sock),'-p','55479','-U','postgres','-d','postgres']
         def run(q, failure=False):
-            r=subprocess.run([*psql,'-c',q],env=ENV,text=True,capture_output=True)
+            r=subprocess.run([*psql,'-c',q],env=ENV,text=True,capture_output=True,timeout=30)
             if r.returncode and not failure: raise AssertionError(r.stderr)
             return r.stderr if failure else r.stdout.strip()
         def call(label,seat=False,horse='horse'):
@@ -151,8 +152,8 @@ CREATE FUNCTION fn_seat_horse_in_seat_first_game_before_terminal_seat_gate(uuid,
             run(target_migration.read_text())
             check('target input does not rewrite the ordinary economic authority',
                   run("SELECT md5(pg_get_functiondef('fn_register_horse_for_tournament(uuid,uuid,boolean)'::regprocedure))")==unchanged)
-            def target_call(horse,target='1',allow=True):
-                return f"SELECT fn_register_horse_for_tournament_to_target('{uid('target')}','{uid(horse)}',{str(allow).lower()},{target});"
+            def target_call(horse,target='1',allow=True,label='target'):
+                return f"SELECT fn_register_horse_for_tournament_to_target('{uid(label)}','{uid(horse)}',{str(allow).lower()},{target});"
             reset(n=0)
             barrier=threading.Barrier(2)
             def target_contender(horse):
@@ -254,7 +255,58 @@ CREATE FUNCTION fn_seat_horse_in_seat_first_game_before_terminal_seat_gate(uuid,
                   result.get('reason')=='registration_closed' and
                   run('SELECT (SELECT count(*) FROM tournament_players)||\':\'||(SELECT count(*) FROM purchases)')=='0:0')
             run(f"UPDATE tournaments SET prize_pool_finalized=false WHERE id='{uid('target')}'")
-            print(json.dumps({'passed':len(checks),'checks':checks,'scope':'actual wrappers and actual cap lock; controlled unchanged economic delegate sinks'}))
+            # Representative shared-fleet day: 1,000 accounts already holding
+            # two legitimate promises compete across eight different targets.
+            # The real acquisition lock/cap wrapper remains authoritative;
+            # financial delegates are still controlled sinks, not a benchmark.
+            reset(n=0)
+            busy_horses=['busy-day-'+str(i) for i in range(1000)]
+            busy_ids=','.join("'"+uid(h)+"'" for h in busy_horses)
+            run('INSERT INTO profiles VALUES '+','.join(f"('{uid(h)}',true)" for h in busy_horses))
+            run(f"UPDATE tournaments SET status='REGISTERING' WHERE id IN ('{uid('old0')}','{uid('old1')}')")
+            run(f"INSERT INTO tournament_players SELECT gen_random_uuid(),t.id,h.id,'registered' FROM profiles h CROSS JOIN tournaments t WHERE h.id IN ({busy_ids}) AND t.id IN ('{uid('old0')}','{uid('old1')}')")
+            busy_targets={f'busy-event-{i}':n for i,n in enumerate([313,143,127,91,80,69,53,41])}
+            for label in busy_targets:
+                run(f"INSERT INTO tournaments(id,status,start_time) VALUES('{uid(label)}','REGISTERING',now()+interval '3 hours')")
+            def busy_event(item):
+                label,target=item
+                ordered=sorted(busy_horses,key=lambda h:hashlib.sha256(
+                    f"{uid(label)}:horse-candidates-v1:0:{uid(h)}".encode()).hexdigest())
+                chosen=[];refused=0;deadline=time.monotonic()+120
+                for horse in ordered:
+                    if time.monotonic()>=deadline:raise AssertionError('busy-day admission deadline')
+                    answer=json.loads(run(target_call(horse,str(target),label=label)))
+                    if answer.get('ok') is True:
+                        chosen.append(horse)
+                        if len(chosen)==target:break
+                    elif answer.get('reason')=='horse_tournament_reservation_budget':refused+=1
+                    else:raise AssertionError('unexpected shared-fleet admission: '+str(answer))
+                return label,chosen,refused
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                busy=list(pool.map(busy_event,busy_targets.items()))
+            check('one thousand shared accounts reach eight independent varied event targets',
+                  all(len(chosen)==busy_targets[label] for label,chosen,_ in busy))
+            event_ids=','.join("'"+uid(label)+"'" for label in busy_targets)
+            actual_fields=json.loads(run(f"SELECT json_object_agg(tournament_id,n) FROM (SELECT tournament_id,count(*)n FROM tournament_players WHERE tournament_id IN ({event_ids}) GROUP BY tournament_id)s"))
+            check('each persisted busy-day field independently matches its own target',
+                  actual_fields=={uid(label):n for label,n in busy_targets.items()})
+            check('shared-fleet run actually exercises cross-event capacity refusals',
+                  sum(refused for _,_,refused in busy)>0)
+            actual=json.loads(run("SELECT json_build_object("+
+                "'entries',(SELECT count(*) FROM tournament_players),"+
+                "'charges',(SELECT count(*) FROM purchases),"+
+                "'unique_charges',(SELECT count(DISTINCT (tournament_id,user_id)) FROM purchases),"+
+                "'min_load',(SELECT min(n) FROM (SELECT count(DISTINCT tournament_id)n FROM tournament_players GROUP BY user_id)s),"+
+                "'max_load',(SELECT max(n) FROM (SELECT count(DISTINCT tournament_id)n FROM tournament_players GROUP BY user_id)s))"))
+            check('shared-fleet promises and controlled charges commit exactly once with no fifth game',
+                  actual=={'entries':2000+sum(busy_targets.values()),'charges':sum(busy_targets.values()),
+                           'unique_charges':sum(busy_targets.values()),'min_load':2,'max_load':4})
+            for label,chosen,_ in busy:
+                replay=json.loads(run(target_call(chosen[0],'0',label=label)))
+                if replay.get('already_registered') is not True:raise AssertionError('durable shared-fleet replay lost original entry')
+            check('fresh connections recover original shared-fleet entries without another charge',
+                  run('SELECT count(*) FROM purchases')==str(sum(busy_targets.values())))
+            print(json.dumps({'passed':len(checks),'checks':checks,'busy_day':{'accounts':len(busy_horses),'events':len(busy_targets),'targets':busy_targets,'controlled_charges':actual['charges'],'max_promises':actual['max_load'],'capacity_refusals':sum(refused for _,_,refused in busy)},'scope':'actual wrappers and actual cap lock; controlled unchanged economic delegate sinks'}))
         finally: command([PG/'pg_ctl','-D',d/'db','-m','immediate','-w','stop'])
     # Qualify the same purchase wrapper's timing migration after this cluster
     # stops; failures propagate through the existing required accounting owner.

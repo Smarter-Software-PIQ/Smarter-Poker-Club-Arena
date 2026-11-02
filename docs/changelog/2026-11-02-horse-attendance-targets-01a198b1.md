@@ -69,3 +69,14 @@ failure propagation, Signed-By, signed package validation, PostgreSQL version,
 tests and deadlines are preserved. Regression contracts cover both installers;
 actual hosted execution remains required. Other standalone workflows that
 passed their bounded infrastructure retry retain their source.
+
+## Shared-fleet capacity qualification
+
+The maintained purchase-budget qualification additionally drives 1,000 isolated
+accounts, each with two existing tournament promises, across eight distinct
+event targets of 313, 143, 127, 91, 80, 69, 53 and 41. It checks each persisted
+field independently, exact 917 controlled charges, exercised cross-event cap
+refusals, no fifth promise, and original-entry recovery over fresh connections.
+These are the actual acquisition and capacity wrappers with controlled
+economic delegates, not production registrations or a performance benchmark.
+The separate original financial qualification remains necessary for money.
