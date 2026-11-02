@@ -2,7 +2,7 @@ import {
   ORIGINAL_RECOVERY_OPERATION,
   ORIGINAL_RECOVERY_TWENTY,
 } from './handlers/tournamentOriginalRecovery.js';
-import { mttPrizeShare } from './services/mttHorseArrivalPlan.js';
+import { mttGuaranteeEntryAmount } from './services/mttHorseArrivalPlan.js';
 import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
@@ -9063,7 +9063,7 @@ export class GameServer {
                 // continues through late registration instead of buying 100 up front.
                 guaranteedPrize: Number(tournament.guaranteed_prize) || 0,
                 prizePool: Number((tournament as { prize_pool?: unknown }).prize_pool) || 0,
-                buyInPrizeShare: mttPrizeShare(tournament),
+                buyInPrizeShare: mttGuaranteeEntryAmount(tournament),
               });
               const redeemTickets =
                 ticketEligible(tournament) && ticketTargets?.has(tournament.id) === true;

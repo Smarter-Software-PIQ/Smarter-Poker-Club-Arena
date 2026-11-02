@@ -1,7 +1,7 @@
 import {
   mttPlannedField,
   mttPrestartPlan,
-  mttPrizeShare,
+  mttGuaranteeEntryAmount,
   mttPrestartArrivalTarget,
 } from './mttHorseArrivalPlan.js';
 import { orderHorseTournamentCandidates } from './HorseTournamentCandidateOrder.js';
@@ -7061,7 +7061,7 @@ export class TournamentRecurringService {
             currentPlayers: current,
             guaranteedPrize: Number(entryEvent.guaranteed_prize),
             prizePool: Number(entryEvent.prize_pool),
-            buyInPrizeShare: mttPrizeShare(entryEvent),
+            buyInPrizeShare: mttGuaranteeEntryAmount(entryEvent),
           });
           count = Math.min(count, Math.max(0, target - current));
           // A paid award still uses the existing bounded ticket-only recovery
