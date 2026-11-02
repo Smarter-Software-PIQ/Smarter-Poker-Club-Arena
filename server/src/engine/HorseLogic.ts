@@ -268,7 +268,7 @@ import {
   estimateRiverRangeComposition,
 } from './HorseEval.js';
 import { anteOrbitCostBB } from './AnteMath.js';
-import { v81Cell } from './HorseOmahaBigBetCalls.js';
+import { v81Cell, v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { ploPairedBoardMustFold } from './HorsePloPairedBoardFold.js';
 import {
   holdemPremiumAggressionVerdict,
@@ -4045,30 +4045,26 @@ function omahaBigBetCallFold(
       decision.action === 'call' || (decision.action === 'all_in' && stack <= toCall + 0.005);
     if (!isCall) return decision;
     if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
+    const street = String(gs.stage ?? '');
     const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
-    const bettor = (gs.players ?? [])
-      .filter((p) => p.seat !== player.seat && !p.is_folded)
-      .reduce<SeatPlayer | null>((m, p) => (!m || (p.bet ?? 0) > (m.bet ?? 0) ? p : m), null);
-    // A bettor MEASURED as a postflop over-bluffer keeps today's answer: the
-    // evidence is the horses' calls against the population, and the maniac
-    // call-down (HorseManiacPressure) is a measured exploit. Only the
-    // postflop read counts: in PLO every opponent is PRESUMED a preflop
-    // maniac (HorseOpponentExploit, Dan 2026-10-27), and a presumption is not
-    // evidence about who over-bets the river.
-    if (bettor && isPostflopManiac(HorseMind.opponentRead(bettor.user_id))) return decision;
+    const streetBets = new Map<number, number>();
+    for (const p of gs.players ?? [])
+      if (Number.isFinite(p.bet) && (p.bet ?? 0) > 0) streetBets.set(p.seat, p.bet ?? 0);
+    // The wager exactly as the evidence measured it: the last bettor, the
+    // chips it added, the pot just before it. Unreconcilable history: no fold.
+    const faced = v81StreetWager(gs.actionHistory, street, streetBets, pot);
+    if (faced === null) return decision;
+    const bettor = (gs.players ?? []).find((p) => p.seat === faced.bettorSeat);
+    if (!bettor || bettor.is_folded) return decision;
     const bb = gs.bigBlind > 0 ? gs.bigBlind : 1;
-    const effectiveBB =
-      Math.min(
-        stack + heroBet,
-        bettor ? (bettor.stack ?? 0) + (bettor.bet ?? 0) : Number.POSITIVE_INFINITY
-      ) / bb;
+    const effectiveBB = Math.min(stack + heroBet, (bettor.stack ?? 0) + (bettor.bet ?? 0)) / bb;
     const tournament = isTournamentMode(gs);
     const cell = v81Cell({
       variant: String(gs.gameVariant ?? ''),
-      street: String(gs.stage ?? ''),
+      street,
       hole: player.cards ?? [],
       board: gs.communityCards ?? [],
-      potFrac: toCall / Math.max(1e-9, pot - toCall),
+      potFrac: faced.wager / faced.potBefore,
       effectiveBB,
       tournament,
       headsUpTable: dealtHorseTableSize(gs, player.seat) <= 2,
@@ -4084,6 +4080,10 @@ function omahaBigBetCallFold(
       multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
       bombPot: gs.bombPot === true,
       heroHasStreetChips: heroBet > 0.005,
+      // MEASURED postflop over-bluffer only: in PLO every opponent is
+      // PRESUMED a preflop maniac (HorseOpponentExploit, Dan 2026-10-27),
+      // and a presumption is not evidence about who over-bets the river.
+      bettorOverBluffs: isPostflopManiac(HorseMind.opponentRead(bettor.user_id)),
     });
     if (cell === null) return decision;
     if (telemetryOn(opts)) noteFire('v81_omaha_big_bet_call_fold');

@@ -15,7 +15,7 @@ import { HorseLogic } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
-import { omahaCallClass, v81Cell, type V81Input } from './HorseOmahaBigBetCalls.js';
+import { omahaCallClass, v81Cell, v81StreetWager, type V81Input } from './HorseOmahaBigBetCalls.js';
 import { horseDecisionReceiptIsValid } from './horseDecision/responseValidation.js';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
 
@@ -34,7 +34,13 @@ function river(
   hole: string,
   board: string,
   bet: number,
-  o: { flip?: boolean; seats?: 2 | 3; mode?: 'cash' | 'tournament'; heroStack?: number } = {}
+  o: {
+    flip?: boolean;
+    seats?: 2 | 3;
+    mode?: 'cash' | 'tournament';
+    heroStack?: number;
+    bigBlind?: number;
+  } = {}
 ) {
   const heroStack = o.heroStack ?? 300;
   const players: SeatPlayer[] = [
@@ -108,7 +114,7 @@ function river(
       gameVariant: variant,
       bettingStructure: 'pot_limit',
       gameMode: o.mode ?? 'cash',
-      bigBlind: 2,
+      bigBlind: o.bigBlind ?? 2,
       dealerSeat: 1,
       actionHistory: history,
     },
@@ -159,7 +165,7 @@ describe('V81 Omaha big-bet call discipline', () => {
     expect(omahaCallClass(cards(NUT_STRAIGHT), cards(DRY))).toBe('straight_nut');
     expect(omahaCallClass(cards(DOM_FLUSH), cards(FLUSHY))).toBe('flush_dominated');
     expect(omahaCallClass(cards('Ah5h6s6d'), cards(FLUSHY))).toBe('flush_nut');
-    expect(omahaCallClass(cards('Qh8hTsTd'), cards(FLUSHY))).toBe('flush_second'); // not admitted
+    expect(omahaCallClass(cards('Qh8hTsTd'), cards(FLUSHY))).toBe('flush_second');
     expect(omahaCallClass(cards('Js8sKs7d'), cards('Ks9h4h7c2d'))).toBe('two_pair');
     const base: V81Input = {
       variant: 'plo4',
@@ -175,31 +181,94 @@ describe('V81 Omaha big-bet call discipline', () => {
       multiBoard: false,
       bombPot: false,
       heroHasStreetChips: false,
+      bettorOverBluffs: false,
     };
-    expect(v81Cell(base)).toBe('straight_nonnut');
-    expect(v81Cell({ ...base, variant: 'plo5', hole: cards('6s5hKdKc2h') })).toBe(
-      'straight_nonnut'
-    );
-    expect(v81Cell({ ...base, potFrac: 0.89 })).toBeNull();
-    expect(v81Cell({ ...base, effectiveBB: 20 })).toBeNull();
-    expect(v81Cell({ ...base, headsUpTable: true })).toBeNull();
-    expect(v81Cell({ ...base, bountyEvent: true })).toBeNull();
-    expect(v81Cell({ ...base, heroHasStreetChips: true })).toBeNull();
-    expect(v81Cell({ ...base, hiLo: true })).toBeNull();
-    expect(v81Cell({ ...base, multiBoard: true })).toBeNull();
-    expect(v81Cell({ ...base, bombPot: true })).toBeNull();
-    expect(v81Cell({ ...base, variant: 'plo6', hole: cards('6s5hKdKc2h3d') })).toBeNull();
-    expect(v81Cell({ ...base, hole: cards(NUT_STRAIGHT) })).toBeNull();
-    // Turn: a non-nut straight is NOT admitted (straddled on the turn).
-    expect(v81Cell({ ...base, street: 'turn', board: cards('9h8c7d2s') })).toBeNull();
-    // Turn: a dominated flush IS admitted.
+    const at = (hole: string, board: string, o: Partial<V81Input> = {}) =>
+      v81Cell({ ...base, hole: cards(hole), board: cards(board), ...o });
+    // River cells, every one.
+    expect(at(NONNUT_STRAIGHT, DRY)).toBe('straight_nonnut');
+    expect(at('6s5hKdKc', '9h8h7d2h3c')).toBe('straight_flushboard'); // three hearts
+    expect(at('6s5hKdKc', '9h8c7d2s2c')).toBe('straight_paired');
+    expect(at(DOM_FLUSH, FLUSHY)).toBe('flush_dominated');
+    expect(at('Ah5h6s6d', 'Kh9h4h7c7d')).toBe('flush_nut_paired');
+    expect(at('Qh8hTsTd', 'Kh9h4h7c7d')).toBe('flush_second_paired');
+    expect(at('Js8sKs7d', 'Ks9h4h7c2d')).toBe('two_pair');
+    expect(at('Js8sKs7d', 'Ks9h4h7c2d', { tournament: true })).toBe('two_pair'); // all formats
+    // Unpaired second-nut flush: PLO5 only.
+    expect(at('Qh8hTsTd', FLUSHY)).toBeNull();
+    expect(at('Qh8hTsTd2c', FLUSHY, { variant: 'plo5' })).toBe('flush_second');
+    // Never admitted: nut straight, unpaired nut flush.
+    expect(at(NUT_STRAIGHT, DRY)).toBeNull();
+    expect(at('Ah5h6s6d', FLUSHY)).toBeNull();
+    // Turn cells.
+    const turn = { street: 'turn' };
+    expect(at(DOM_FLUSH, 'Kh9h4h7c', turn)).toBe('flush_dominated');
+    expect(at(DOM_FLUSH, 'Kh9h4h7c', { ...turn, tournament: true })).toBeNull(); // cash only
+    expect(at('6s5hKdKc', '9h8c7d7s', turn)).toBe('straight_paired');
+    expect(at('6s5hKdKc', '9h8h7h7s', turn)).toBe('straight_flushboard_paired');
+    expect(at(NONNUT_STRAIGHT, '9h8c7d2s', turn)).toBeNull(); // straddled on the turn
+    expect(at('6s5hKdKc', '9h8h7d2h', turn)).toBeNull(); // turn flush-board straight: straddled
+    expect(at('Js8sKs7d', 'Ks9h4h7c', turn)).toBeNull(); // turn two pair: straddled
+    // Every exclusion.
+    expect(at(NONNUT_STRAIGHT, DRY, { variant: 'plo5' })).toBeNull(); // PLO5 needs five cards
+    expect(at('6s5hKdKc2h', DRY, { variant: 'plo5' })).toBe('straight_nonnut');
+    expect(at(NONNUT_STRAIGHT, DRY, { potFrac: 0.89 })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { effectiveBB: 20 })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { headsUpTable: true })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { bountyEvent: true })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { heroHasStreetChips: true })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { bettorOverBluffs: true })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { hiLo: true })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { multiBoard: true })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { bombPot: true })).toBeNull();
+    expect(at('6s5hKdKc2h3d', DRY, { variant: 'plo6' })).toBeNull();
+  });
+
+  it('measures the wager exactly as the evidence did: last bettor, chips added, pot before it', () => {
+    const bets = (o: Record<number, number>) => new Map(Object.entries(o).map(([k, v]) => [+k, v]));
+    const h = (...a: Array<[number, string, number]>) =>
+      a.map(([seat, action, amount]) => ({ stage: 'river', seat, action, amount }));
+    // Heads-up: a pot-sized bet into 100.
+    expect(v81StreetWager(h([2, 'bet', 100]), 'river', bets({ 2: 100 }), 200)).toEqual({
+      bettorSeat: 2,
+      wager: 100,
+      potBefore: 100,
+    });
+    // A caller before the horse does not shrink the bet: still 100 into 100.
     expect(
-      v81Cell({ ...base, street: 'turn', hole: cards(DOM_FLUSH), board: cards('Kh9h4h7c') })
-    ).toBe('flush_dominated');
-    // Two pair: cash only.
-    const tp = { ...base, hole: cards('Js8sKs7d'), board: cards('Ks9h4h7c2d') };
-    expect(v81Cell(tp)).toBe('two_pair');
-    expect(v81Cell({ ...tp, tournament: true })).toBeNull();
+      v81StreetWager(h([2, 'bet', 100], [3, 'call', 100]), 'river', bets({ 2: 100, 3: 100 }), 300)
+    ).toEqual({ bettorSeat: 2, wager: 100, potBefore: 100 });
+    // Bet 50, raise to 100, re-raise to 200 by the first bettor (pot 100 before
+    // the street): the re-raise added 150 into 250 = 0.6, not 1.0.
+    const rr = v81StreetWager(
+      h([2, 'bet', 50], [3, 'raise', 100], [2, 'raise', 200]),
+      'river',
+      bets({ 2: 200, 3: 100 }),
+      400
+    )!;
+    expect(rr.bettorSeat).toBe(2);
+    expect(rr.wager / rr.potBefore).toBeCloseTo(0.6, 6);
+    // An all-in CALL is not the bettor.
+    expect(
+      v81StreetWager(h([2, 'bet', 100], [3, 'all_in', 100]), 'river', bets({ 2: 100, 3: 100 }), 300)
+        ?.bettorSeat
+    ).toBe(2);
+    // Earlier streets are ignored.
+    expect(
+      v81StreetWager(
+        [{ stage: 'turn', seat: 2, action: 'bet', amount: 40 }, ...h([2, 'bet', 100])],
+        'river',
+        bets({ 2: 100 }),
+        280
+      )
+    ).toEqual({ bettorSeat: 2, wager: 100, potBefore: 180 });
+    // Any doubt is no fold: no bet, history that does not match the table,
+    // a pot that cannot hold the bet, no history at all.
+    expect(v81StreetWager(h([2, 'check', 0]), 'river', bets({}), 100)).toBeNull();
+    expect(v81StreetWager(h([2, 'bet', 100]), 'river', bets({ 2: 60 }), 200)).toBeNull();
+    expect(v81StreetWager(h([2, 'bet', 100]), 'river', bets({ 2: 100 }), 100)).toBeNull();
+    expect(v81StreetWager(h([2, 'bet', 100]), 'river', bets({ 2: 100 }), 0)).toBeNull();
+    expect(v81StreetWager(undefined, 'river', bets({ 2: 100 }), 200)).toBeNull();
   });
 
   it('facing a pot-sized river bet, a non-nut straight and a dominated flush never call; off is today', () => {
@@ -230,26 +299,44 @@ describe('V81 Omaha big-bet call discipline', () => {
       seedFastRandom(seed);
       HorseMind.reset();
       const d = HorseLogic.decide(s.hero, s.gs as never, 'balanced', {}, { mind: false } as never);
+      expect(d.action).not.toBe('call');
       expect(
         horseDecisionReceiptIsValid(d, 'plo4', { player: s.hero, gameState: s.gs as never })
       ).toBe(true);
     }
   });
 
-  it('outside the cells the answer is exactly today', () => {
+  it('outside the cells the answer is exactly today, and today calls there', () => {
     const cases: Array<[string, ReturnType<typeof river>]> = [
       ['nut straight', river('plo4', NUT_STRAIGHT, DRY, 36)],
       ['0.6-pot wager', river('plo4', NONNUT_STRAIGHT, DRY, 22)],
       ['heads-up table', river('plo4', NONNUT_STRAIGHT, DRY, 36, { seats: 2 })],
-      ['tournament two pair', river('plo4', 'Js8sKs7d', 'Ks9h4h7c2d', 36, { mode: 'tournament' })],
       ['PLO6', river('plo6', '6s5hKdKc2h3d', DRY, 36)],
       ['20bb effective', river('plo4', NONNUT_STRAIGHT, DRY, 36, { heroStack: 40 })],
+      ['unpaired nut flush', river('plo4', 'Ah5h6s6d', FLUSHY, 36)],
     ];
+    let todayCalls = 0;
     for (const [label, s] of cases) {
       const on = decideMany(s, {}, 15);
-      expect(on.acts, label).toEqual(decideMany(s, OFF, 15).acts);
+      const off = decideMany(s, OFF, 15);
+      expect(on.acts, label).toEqual(off.acts);
       expect(on.fires, label).toBe(0);
+      todayCalls += calls(off.acts);
     }
+    // Not vacuous: today's brain does call in these spots, and V81 leaves it.
+    expect(todayCalls).toBeGreaterThan(0);
+  });
+
+  it('a call that is an all-in for the whole stack folds the same way', () => {
+    // 36 to call with exactly 36 behind (36bb at a 1-chip big blind): the
+    // only "call" is all in.
+    const s = river('plo4', NONNUT_STRAIGHT, DRY, 36, { heroStack: 36, bigBlind: 1 });
+    const off = decideMany(s, OFF);
+    const on = decideMany(s);
+    const putIn = (acts: string[]) =>
+      acts.filter((a) => a.startsWith('call') || a.startsWith('all_in')).length;
+    expect(putIn(off.acts)).toBeGreaterThan(0); // today calls it off
+    expect(putIn(on.acts)).toBe(0);
   });
 
   it('one policy: label flips never change the answer', () => {

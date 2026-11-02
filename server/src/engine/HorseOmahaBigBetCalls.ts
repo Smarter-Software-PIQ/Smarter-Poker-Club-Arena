@@ -11,38 +11,46 @@
  * final board. Excluded from measurement and from the rule: heads-up tables,
  * bounty / PKO / mystery-bounty events, 20bb effective or less. Two
  * independent days, 47,806 calls in all (day A 2026-10-31 16:00 to 11-01 16:00
- * UTC, day B 11-01 16:00 to 11-02 16:00 UTC). Facing a wager of >= 0.9 pot:
+ * UTC, day B 11-01 16:00 to 11-02 16:00 UTC). The wager is measured exactly as
+ * the engine computes it (v81StreetWager): the chips the last bettor added,
+ * over the pot just before that bet. Facing >= 0.9 pot, mean EV [95% CI], n:
  *
- *   RIVER                           day A                    day B
- *   straight, flush possible     -43.4 [-53.8, -33.0] n 42  -43.5 [-50.8, -36.1] n 60
- *   straight, not the nut        -48.9 [-61.5, -36.3] n 138 -36.8 [-43.8, -29.9] n 113
- *   straight, paired board       -33.0 [-42.9, -23.1] n 41  -21.0 [-29.1, -13.0] n 25
- *   flush, 3rd nut or worse      -53.6 [-82.2, -25.0] n 44  -77.9 [-113.2, -42.5] n 50
- *   nut flush, paired board      -44.6 [-60.4, -28.9] n 31  -38.0 [-56.3, -19.7] n 18
- *   two pair (cash; all formats) -44.2 [-50.6, -37.9] n 106 -40.6 [-47.6, -33.6] n 78
+ *   RIVER                                day A                      day B
+ *   straight, flush possible          -43.0 [-53.2, -32.8] n 43   -43.6 [-50.7, -36.5] n 62
+ *   straight, not the nut             -48.9 [-61.5, -36.3] n 138  -36.8 [-43.8, -29.9] n 113
+ *   straight, paired board            -33.0 [-42.9, -23.1] n 41   -21.0 [-29.1, -13.0] n 25
+ *   flush, 3rd nut or worse           -54.1 [-79.8, -28.4] n 49   -77.5 [-111.5, -43.5] n 52
+ *   nut / 2nd-nut flush, paired board -37.6 [-48.6, -26.6] n 54   -24.7 [-39.1, -10.2] n 41
+ *   2nd-nut flush (PLO5 only)         -39.0 [-69.5, -8.4] n 58    -58.5 [-89.0, -28.0] n 40
+ *   two pair                          -44.2 [-50.6, -37.8] n 106  -40.6 [-47.6, -33.6] n 78
  *   TURN
- *   flush, 3rd nut or worse      -23.5 [-38.5, -8.5] n 136  -13.8 [-27.3, -0.2] n 128
- *   straight, paired board       -32.0 [-57.0, -6.9] n 14   -16.5 [-30.6, -2.4] n 15
+ *   flush, 3rd nut or worse (cash)    -21.5 [-34.8, -8.2] n 152   -17.7 [-31.1, -4.3] n 124
+ *   straight, paired board            -32.0 [-57.0, -6.9] n 14    -16.7 [-30.0, -3.5] n 16
  *
- * Each class is below zero in PLO4 and PLO5 separately on at least one day
- * and never above zero. Two pair is admitted in cash only: tournament two
- * pair straddled zero on both days. NOT admitted (a CI straddles zero on a
- * day, or the class wins): turn calls with a straight on a flush board, a
- * non-nut straight or two pair; the 0.5-0.9 pot band; second-nut flushes;
- * sets and trips; full houses (the evaluator cannot tell a nut boat from an
- * underboat here); nut straights and unpaired nut flushes (both win); one
- * pair (wins). Complements the live paired-board fold
- * (HorsePloPairedBoardFold: no committing call without a full house on a
- * paired board): V81's paired-board cells are the NON-committing pot-sized
- * calls that rule leaves open.
+ * Admission rule: the cell is below zero on both days AND no variant (PLO4,
+ * PLO5) or format (cash, tournament) slice of it with n >= 10 has a positive
+ * mean on either day. That rule is why the unpaired second-nut flush is PLO5
+ * only (PLO4 day B +6.2, n 26) and the turn dominated flush is cash only
+ * (tournament day B +14.9, n 16). NOT admitted: turn straights on a flush
+ * board (day A straddles), turn non-nut straights and two pair, turn paired-
+ * board flushes, the 0.5-0.9 pot band, sets and trips, full houses (the
+ * evaluator cannot tell a nut boat from an underboat here), nut straights and
+ * unpaired nut flushes (both win), one pair (wins). Per-slice outputs:
+ * docs/horse-measure/2026-11-02/v81-omaha-call-cells.txt.
  *
- * A bettor MEASURED as a postflop over-bluffer (isPostflopManiac; never the
- * PLO preflop presumption) keeps today's call-down (HorseManiacPressure).
+ * Complements the live paired-board fold (HorsePloPairedBoardFold: no
+ * committing call without a full house on a paired board): V81's paired-board
+ * cells add the NON-committing pot-sized calls that rule leaves open. A bettor
+ * MEASURED as a postflop over-bluffer (isPostflopManiac; never the PLO
+ * preflop presumption) keeps today's call-down (HorseManiacPressure).
  *
  * Limits: only the horses' own calls are observed (no counterfactual fold
- * policy), ICM is not modelled, the price ignores players still to act, and a
- * call with chips of its own already in this street (hero.bet > 0) is out of
- * scope because its wager is not measured the same way.
+ * policy), ICM is not modelled, the price ignores players still to act, and
+ * the engine is narrower than the measurement: a horse with chips already in
+ * this street (the sample kept calls after an earlier call) is out of scope.
+ * The sample's bettor lookup took the last bet / raise / all-in whose amount
+ * equalled the current bet, so an all-in CALL that exactly matched the bet
+ * could stand in for the bettor; the engine only counts a raising action.
  */
 import type { Card } from '../types.js';
 import { omahaNutStatus } from './HorseEval.js';
@@ -110,8 +118,67 @@ const RIVER_CELLS = new Set([
   'flush_dominated',
   'flush_dominated_paired',
   'flush_nut_paired',
+  'flush_second_paired',
+  'two_pair',
 ]);
-const TURN_CELLS = new Set(['flush_dominated', 'flush_dominated_paired', 'straight_paired']);
+const TURN_CELLS = new Set(['straight_paired', 'straight_flushboard_paired']);
+const TURN_CASH_CELLS = new Set(['flush_dominated', 'flush_dominated_paired']);
+
+/** One public action as the engine records it (call amounts are incremental;
+ *  bet / raise / all-in amounts are the street total raised to). */
+export interface V81Action {
+  stage: string;
+  seat: number;
+  action: string;
+  amount: number;
+}
+
+/**
+ * The wager the horse faces on `street`, measured exactly as the evidence was:
+ * the last bet, raise or raising all-in on the street, the chips that bettor
+ * ADDED with it, and the pot just before it. Returns null when the street's
+ * history does not reconcile with the chips on the table (any doubt: no fold).
+ */
+export function v81StreetWager(
+  history: readonly V81Action[] | undefined,
+  street: string,
+  streetBets: ReadonlyMap<number, number>,
+  pot: number
+): { bettorSeat: number; wager: number; potBefore: number } | null {
+  if (!Array.isArray(history) || !(pot > 0)) return null;
+  const total = new Map<number, number>();
+  const adds: number[] = [];
+  let maxTotal = 0;
+  let last: { seat: number; wager: number; index: number } | null = null;
+  for (const a of history) {
+    if (String(a.stage) !== street) continue;
+    const prev = total.get(a.seat) ?? 0;
+    const amt = Number.isFinite(a.amount) ? Math.max(0, a.amount) : 0;
+    let add = 0;
+    if (a.action === 'call') add = amt;
+    else if (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
+      add = Math.max(0, amt - prev);
+    else continue;
+    const now = prev + add;
+    if (
+      (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') &&
+      now > maxTotal + 0.005
+    ) {
+      last = { seat: a.seat, wager: add, index: adds.length };
+      maxTotal = now;
+    }
+    total.set(a.seat, now);
+    adds.push(add);
+  }
+  if (!last || !(last.wager > 0)) return null;
+  // The replayed street totals must match the bets on the table.
+  for (const [seat, t] of total) if (Math.abs((streetBets.get(seat) ?? 0) - t) > 0.011) return null;
+  const streetChips = adds.reduce((x, y) => x + y, 0);
+  const potStart = pot - streetChips;
+  const potBefore = potStart + adds.slice(0, last.index).reduce((x, y) => x + y, 0);
+  if (!(potStart >= 0) || !(potBefore > 0)) return null;
+  return { bettorSeat: last.seat, wager: last.wager, potBefore };
+}
 
 export interface V81Input {
   variant: string;
@@ -129,25 +196,29 @@ export interface V81Input {
   bombPot: boolean;
   /** The horse already has chips in on this street. */
   heroHasStreetChips: boolean;
+  /** The bettor is MEASURED as a postflop over-bluffer (isPostflopManiac). */
+  bettorOverBluffs: boolean;
 }
 
 /** The measured cell this call falls in, or null when V81 does not apply. */
 export function v81Cell(i: V81Input): string | null {
-  if (!V81_VARIANTS.has(String(i.variant).toLowerCase())) return null;
+  const variant = String(i.variant).toLowerCase();
+  if (!V81_VARIANTS.has(variant)) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.headsUpTable || i.bountyEvent) return null;
-  if (i.heroHasStreetChips) return null;
+  if (i.heroHasStreetChips || i.bettorOverBluffs) return null;
   if (!(i.potFrac >= V81_MIN_POT_FRAC) || !(i.effectiveBB > V81_MIN_EFFECTIVE_BB)) return null;
-  const vh = String(i.variant).toLowerCase() === 'plo4' ? 4 : 5;
-  if (!Array.isArray(i.hole) || i.hole.length !== vh) return null;
+  if (!Array.isArray(i.hole) || i.hole.length !== (variant === 'plo4' ? 4 : 5)) return null;
   if (i.street === 'river' && i.board.length === 5) {
     const cls = omahaCallClass(i.hole, i.board);
     if (RIVER_CELLS.has(cls)) return cls;
-    if (cls === 'two_pair' && !i.tournament) return cls;
+    if (cls === 'flush_second' && variant === 'plo5') return cls;
     return null;
   }
   if (i.street === 'turn' && i.board.length === 4) {
     const cls = omahaCallClass(i.hole, i.board);
-    return TURN_CELLS.has(cls) ? cls : null;
+    if (TURN_CELLS.has(cls)) return cls;
+    if (TURN_CASH_CELLS.has(cls) && !i.tournament) return cls;
+    return null;
   }
   return null;
 }

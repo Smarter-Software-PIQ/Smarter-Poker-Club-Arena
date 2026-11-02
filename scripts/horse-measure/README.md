@@ -103,15 +103,15 @@ with its window; none is a profitability claim.
   `cd server && npx tsx ../scripts/horse-measure/omaha-call-cells.ts FILES`),
   hand classified at the decision with the engine's evaluator; decision EV
   of the call against folding, CIs clustered by hand; day A 2026-10-31 16:00
-  to 11-01 16:00 UTC, day B 11-01 16:00 to 11-02 16:00 UTC, wager >= 0.9 pot:
-  river non-nut straight -48.9 / -36.8bb, river straight on a flush board
-  -43.4 / -43.5, river paired-board straight -33.0 / -21.0, river 3rd-nut-or-
-  worse flush -53.6 / -77.9, river paired-board nut flush -44.6 / -38.0,
-  river cash two pair -44.2 / -40.6, turn dominated flush -23.5 / -13.8, turn
-  paired-board straight -32.0 / -16.5 (every CI below zero on both days).
-  Winners left alone: nut straights (+26.9 / +3.0 river+turn), unpaired nut
-  flushes, one pair. After V81 these cells' call counts should fall to near
-  zero and `v81_omaha_big_bet_call_fold` should fire.
+  to 11-01 16:00 UTC, day B 11-01 16:00 to 11-02 16:00 UTC, wager >= 0.9 pot
+  (day A / day B, bb): river non-nut straight -48.9 / -36.8, flush-board
+  straight -43.0 / -43.6, paired-board straight -33.0 / -21.0, 3rd-nut-or-worse
+  flush -54.1 / -77.5, paired-board nut or 2nd-nut flush -37.6 / -24.7, PLO5
+  2nd-nut flush -39.0 / -58.5, two pair -44.2 / -40.6; turn paired-board
+  straight -32.0 / -16.7, cash dominated flush -21.5 / -17.7 (every CI below
+  zero on both days). Full outputs: docs/horse-measure/2026-11-02/
+  v81-omaha-call-cells.txt. After V81 these cells' call counts should fall to
+  near zero and `v81_omaha_big_bet_call_fold` should fire.
 
 ### After a release
 
