@@ -269,3 +269,6 @@ scripts/ci/fixtures/launch-reset/transport-boundary/typed-escrow-witness.sql
 
 # Exact original maintenance guards and typed-row authorities for the thaw repair.
 scripts/ci/fixtures/launch-reset/maintenance-thaw-repair/*.sql
+
+# Byte-sealed historical provider receipt; its exact SHA is bound by the retention manifest.
+operations/release/native/original-web-artifact-api.json

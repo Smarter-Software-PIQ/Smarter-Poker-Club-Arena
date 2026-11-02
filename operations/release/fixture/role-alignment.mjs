@@ -13,9 +13,9 @@ import {
 // These immutable image files are source authority, never a runtime manifest.
 const pins = Object.freeze({
   'role-alignment-installer.sql':
-    '75de4863de9a9276e701526389a6fbe0a033589d60844b71dd42eb44fbdf31db',
-  'role-alignment-native.json': '3427e7aa498973eb09f4a3d3ae04a78bb6795f372b84234f09594ae60ec7ba30',
-  'role-alignment-aligned.json': 'd0d858e8dbb70afca05d3e84be6ce109b818ea1ba278813d9d4b6afd062e2083',
+    'bf0e2fa88fc4f19dbfc84fdd7e8485cafb40e5dcd77557a88bdda4bda70fb862',
+  'role-alignment-native.json': '427598fe0547c48aa62d33d506e64089a8b3ead42aef731d00f7b1cfddfa1edf',
+  'role-alignment-aligned.json': '3355db850eda81d0fcb54d8bbc1e3ad0c1a39f3ad2f2e5f873b464195c6396c8',
   'role-alignment-graph.sql': '3582de41dcf8af409d2c485b18465e7b3ec22e4c6c42db9b029dbf60b6cbb29d',
   'role-alignment-membership.sql':
     '54e090026febbb5eaa32c1a5ce5aff171249144fa727058a5bc9ed4fa704136f',

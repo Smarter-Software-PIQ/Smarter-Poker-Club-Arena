@@ -568,12 +568,12 @@
     "tests/fixtures/sep8-spin-custody/README.md": "be6f3eb4eb716056e9ecc8863d326c78de3d176662b77e95c2951aa42453ff73",
     "tests/fixtures/sep8-spin-custody/late-fault.sql": "43653b983d870248707525058134de21821aa8f4f1c55df3d42f0a1e02d8b7b7",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",
-    "tests/unit/fixtureNativeCi.test.ts": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c",
+    "tests/unit/fixtureNativeCi.test.ts": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "1dc895f43516d82f0da0948f53a0a42cdd649d8bd2e1351fe6c233a827660c6d",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "8e6452de9e3ad29e4d715f0b2c71ca9aa06ffd04a91bbee020ce4bcbb397f360",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -613,7 +613,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "78e5252704b1b6243cfe659dae46a2fc7980e959245550af963ed767dfd3be3f",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "590f6023736ac71d756090a252e5ec5ae366f62b5e629cb9b33cd3b96d631f1d",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -1862,6 +1862,14 @@
     {
       "on": "2026-11-01",
       "file": "tests/fixtures/sep8-spin-custody/source-binding.json",
+      "from": "fe4ab87770b3ab52a0ae020eb5a04e62196ea0dda455f251417d86b6da6245b8",
+      "to": "8e6452de9e3ad29e4d715f0b2c71ca9aa06ffd04a91bbee020ce4bcbb397f360",
+      "why": "Resolve the concurrent source-binding merge by preserving both the original-web retention audit and protected-main Horse paying-wallet classifier audit. The combined containing binding pins those exact metadata bytes. Financial SQL, assertions, fixture populations, historical execution states and production receipts are unchanged; source identity is not financial execution or certification.",
+      "protected_main_from": "1dc895f43516d82f0da0948f53a0a42cdd649d8bd2e1351fe6c233a827660c6d"
+    },
+    {
+      "on": "2026-11-01",
+      "file": "tests/fixtures/sep8-spin-custody/source-binding.json",
       "from": "1a61514183e6c0f2ef2201256037bc16433a1424f340a51b0b0513dbb85bb1fa",
       "to": "1dc895f43516d82f0da0948f53a0a42cdd649d8bd2e1351fe6c233a827660c6d",
       "why": "Reviewed this binding diff: only the classifier hash and its explanatory audit entry changed for the two Horse native qualification inputs. Carry that exact metadata update into the containing binding. Financial SQL, fixture populations, assertions, historical execution fields and production receipts remain unchanged; matching hashes do not establish new financial execution."
@@ -3077,6 +3085,27 @@
           "to": "1f6bc078af417542917561e2667dde60fff236eaaffee07f7591170f7bfc42b4"
         }
       ]
+    },
+    {
+      "file": "tests/unit/fixtureNativeCi.test.ts",
+      "from": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c",
+      "to": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29",
+      "on": "2026-11-01",
+      "why": "Add exact existing native workflow enforcement of the five Realtime control-database regressions: one invocation, no continue-on-error, original ordinary qualification condition. All prior assertions are unchanged. No financial source, fixture, status or certificate changes."
+    },
+    {
+      "file": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+      "from": "78e5252704b1b6243cfe659dae46a2fc7980e959245550af963ed767dfd3be3f",
+      "to": "590f6023736ac71d756090a252e5ec5ae366f62b5e629cb9b33cd3b96d631f1d",
+      "on": "2026-11-01",
+      "why": "Nested source-binding cascade of only the reviewed additive native regression enforcement and exact captured-receipt formatting exclusion, with append-only audits. Every historical financial source, assertion, qualification status and certificate is unchanged."
+    },
+    {
+      "file": "tests/fixtures/sep8-spin-custody/source-binding.json",
+      "from": "1a61514183e6c0f2ef2201256037bc16433a1424f340a51b0b0513dbb85bb1fa",
+      "to": "fe4ab87770b3ab52a0ae020eb5a04e62196ea0dda455f251417d86b6da6245b8",
+      "on": "2026-11-01",
+      "why": "Nested source-binding cascade of only the reviewed additive native regression enforcement and exact captured-receipt formatting exclusion, with append-only audits. Every historical financial source, assertion, qualification status and certificate is unchanged."
     }
   ],
   "tournament_rake_club_successor_20260921": {

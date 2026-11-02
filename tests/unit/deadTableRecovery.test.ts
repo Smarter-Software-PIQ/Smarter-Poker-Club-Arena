@@ -200,3 +200,41 @@ describe('resolveTournamentLiveTable_rpc_empty', () => {
     expect(empties).toHaveLength(2);
   });
 });
+
+describe('a tournament observer never follows the primary-table election', () => {
+  it('keeps its view when an unrelated table is elected after a 404', async () => {
+    const d = deps({ elected: LIVE });
+    const r = createDeadTableRecovery(
+      () => ({ tableId: DEAD, tournamentId: TOURNEY, observer: true }),
+      d
+    );
+    expect(await run(r, DEAD_TABLE_MAX_FAILURES + 2)).toEqual(
+      Array.from({ length: DEAD_TABLE_MAX_FAILURES + 2 }, () => ({ kind: 'wait' }))
+    );
+    expect(d.resolveTournamentLiveTable).not.toHaveBeenCalled();
+    expect(d.readTableRow).not.toHaveBeenCalled();
+  });
+  it('discards a pending seated recovery when player watching takes over', async () => {
+    let observer = false;
+    let resolve!: (value: string | null) => void;
+    const d = deps();
+    d.resolveTournamentLiveTable.mockImplementation(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        })
+    );
+    const r = createDeadTableRecovery(
+      () => ({ tableId: DEAD, tournamentId: TOURNEY, observer }),
+      d
+    );
+    const pending = r.onNotRunning();
+    observer = true;
+    resolve(LIVE);
+    expect(await pending).toEqual({ kind: 'wait' });
+    expect(await r.onNotRunning()).toEqual({ kind: 'wait' });
+    observer = false;
+    d.resolveTournamentLiveTable.mockResolvedValue(LIVE);
+    expect(await r.onNotRunning()).toEqual({ kind: 'successor', tableId: LIVE });
+  });
+});

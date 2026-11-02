@@ -96,6 +96,8 @@ function fixture(mode = 'success') {
               index === 0 ? { ...r, inherit: !r.inherit } : r
             ),
           };
+        if (mode === 'control-schema-drift')
+          state.catalog = { ...aligned, schemas: [{ acl: null, name: '_realtime', owner: 'supabase_admin' }, ...aligned.schemas] };
         if (mode === 'invalid-catalog-identity') state.catalog = { ...aligned, database: 'wrong' };
         return [{ command: 'BEGIN' }, { command: 'COMMIT' }];
       }
@@ -237,4 +239,20 @@ test('unbounded application-client handshake and enlarged total deadline are ref
   f.applicationClient.connectionParameters.query_timeout = 5;
   await assert.rejects(alignFixtureRoles({ ...f, password, deadlineMs: 60001 }));
   assert.equal(f.clients.length, 0);
+});
+
+// Realtime's private control catalogue is a different database; the application
+// observer must still reject its presence rather than filtering actual schemas.
+test('unexpected control schema in the application postimage is refused', async () => {
+  const f = await refused('control-schema-drift');
+  assert.equal(f.error.proof.status, 'failed');
+  assert.ok(f.clients.every((client) => client.closed));
+});
+
+test('independent application witnesses retain every intended application schema', () => {
+  assert.deepEqual(native.schemas.map(({ name }) => name), ['auth', 'cron', 'public', 'realtime']);
+  assert.deepEqual(aligned.schemas.map(({ name }) => name), [
+    'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'pgbouncer',
+    'public', 'realtime', 'smarter_private', 'storage',
+  ]);
 });

@@ -635,6 +635,12 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(budget({ connected_ui_observations: false })).toBe(55);
     expect(budget({})).toBe(55);
     expect(budget({ connected_ui_observations: true })).toBe(120);
+    expect(job.steps[1]).toStrictEqual({
+      name: 'Admit the fixed unpublished original-input carrier read-only',
+      if: 'inputs.connected_ui_observations',
+      env: { GH_TOKEN: '${{ github.token }}' },
+      run: 'python3 -B operations/release/native/original-web-retention.py --admit',
+    });
     const defaultSteps = job.steps.filter(
       (step: { if?: string }) =>
         !step.if ||
@@ -659,7 +665,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // private-capture branch; every default stage and55m budget is asserted above.
     normalized.jobs['native-smoke']['runs-on'] = expression('ubuntu-24.04');
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
-      'ea69d731aed295651f61ffd41eab0b826db7bdcbf89436dd49d2e20d45c21273'
+      '2afca84ef23b1d706aee8fcad336aa6b5f3ddaf4286b4e4dd7179d7d0ad0226c'
     );
   });
 });

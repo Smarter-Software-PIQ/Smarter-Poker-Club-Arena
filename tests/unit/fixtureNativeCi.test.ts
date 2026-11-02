@@ -1221,6 +1221,15 @@ describe('required CI owns native fixture verification', () => {
   });
 
   it('uses one exact-head native invocation on both ready and draft PRs with read-only permissions', () => {
+    const controlChecks = native.jobs['native-smoke'].steps.filter((step: { run?: string }) =>
+      step.run?.includes('tests/operations/fixture-realtime-control-plane.test.mjs')
+    );
+    expect(controlChecks).toHaveLength(1);
+    expect(
+      controlChecks[0].run.split('tests/operations/fixture-realtime-control-plane.test.mjs')
+    ).toHaveLength(2);
+    expect(controlChecks[0]['continue-on-error']).toBeUndefined();
+    expect(controlChecks[0].if).toBe('${{ !inputs.connected_ui_observations }}');
     expect(ci.jobs.fixture_native.uses).toBe(
       './.github/workflows/component-fixture-native-smoke.yml'
     );

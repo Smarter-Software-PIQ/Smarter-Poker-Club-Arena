@@ -42,6 +42,8 @@ export const DEAD_TABLE_VOUCHED_CEILING = 120;
 
 export interface DeadTableIdentity {
   tableId: string;
+  /** Observer navigation belongs to an explicit player assignment, never a game election. */
+  observer?: boolean;
   tournamentId?: string | null;
   /** cash_games.id (tables.cluster_id) for a cash table. */
   cashGameId?: string | null;
@@ -127,13 +129,17 @@ export function createDeadTableRecovery(
   let vouchedAt = 0;
   return {
     async onNotRunning() {
+      const current = identity();
+      if (current.observer) return { kind: 'wait' };
       failures += 1;
       if (finished || inFlight) return { kind: 'wait' };
       // Vouched for at the last ask: an engine restart. Re-ask once a minute.
       if (vouchedAt > 0 && failures - vouchedAt < DEAD_TABLE_REASK_EVERY) return { kind: 'wait' };
       inFlight = true;
       try {
-        const { successor, vouched } = await findSuccessorTable(identity(), deps);
+        const { successor, vouched } = await findSuccessorTable(current, deps);
+        // Watching may have taken over while the election read was in flight.
+        if (identity().observer) return { kind: 'wait' };
         if (successor) {
           finished = true;
           return { kind: 'successor', tableId: successor };

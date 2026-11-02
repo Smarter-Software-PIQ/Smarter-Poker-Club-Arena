@@ -21,6 +21,9 @@ import zipfile
 SPEC = importlib.util.spec_from_file_location('component_native', Path(__file__).with_name('qualify-components.py'))
 native = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(native)
+RETENTION_SPEC = importlib.util.spec_from_file_location('original_web_retention', Path(__file__).with_name('original-web-retention.py'))
+retention = importlib.util.module_from_spec(RETENTION_SPEC)
+RETENTION_SPEC.loader.exec_module(retention)
 require = native.require
 REPO = native.REPO
 CALLER = REPO + '/.github/workflows/schema-manifest-refresh.yml@refs/heads/main'
@@ -427,6 +430,9 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
         'operations/release/native/schema-preflight.mjs',
         'operations/release/native/component-semantic-observations.mjs',
         'operations/release/native/qualify-components.py',
+        'operations/release/native/original-web-retention.py',
+        'operations/release/native/original-web-retention.json',
+        'operations/release/native/original-web-artifact-api.json',
         'operations/release/native/tournament-player-ui-suite.mjs',
         'operations/release/native/rit-player-ui-suite.mjs']
     native.command(['git', '-C', str(repo), 'ls-files', '--error-unmatch', *controls_closure])
@@ -485,14 +491,12 @@ def observe(repo, output, expected, runtime_image, smoke_receipt, *, work_deadli
             web_run = os.environ['FIXTURE_WEB_ARTIFACT_RUN_ID']
             web_id = os.environ['FIXTURE_WEB_ARTIFACT_ID']
             require(re.fullmatch('[1-9][0-9]*', web_run) and re.fullmatch('[1-9][0-9]*', web_id))
-            info = native.provider(f'/repos/{REPO}/actions/artifacts/{web_id}')
-            run = native.provider(f'/repos/{REPO}/actions/runs/{web_run}')
+            archive = temp / 'original-web.zip'
+            info, run, report['web_input_retention'] = retention.download(archive, web_run, web_id)
             engine_sha = os.environ['FIXTURE_ENGINE_SOURCE_SHA']
             web_sha = published_web_source(run, info, engine_sha)
             web = {'source_sha': web_sha, 'artifact_id': web_id, 'build_run_id': web_run,
                    'archive_digest': info['digest']}
-            archive = temp / 'original-web.zip'
-            native.download_artifact(web, archive)
             with zipfile.ZipFile(archive) as files:
                 web['manifest_digest'] = native.digest(files.read('.release-manifest.sha256'))
                 web['identity'] = 'sha256:' + web['manifest_digest']
