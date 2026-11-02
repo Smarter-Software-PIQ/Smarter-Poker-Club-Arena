@@ -1,3 +1,7 @@
+import {
+  withReducedTournamentGuarantee,
+  guaranteeTargetNameFilter,
+} from './TournamentGuaranteePolicy.js';
 import { satelliteEntryValue } from './satelliteEntryValue.js';
 import {
   isUnlimitedMtt,
@@ -1333,7 +1337,11 @@ export class ScheduledTournamentService {
     // opened at the money and splits its entry 50/50 (mysteryBountyTerms.ts).
     // The row is in chips here; the Diamond door scales it to whole Diamonds.
     const row = built
-      ? withMysteryBountyTerms(withBountyRebuyUntilRegistrationCloses(withLockedLevelClock(built)))
+      ? withReducedTournamentGuarantee(
+          withMysteryBountyTerms(
+            withBountyRebuyUntilRegistrationCloses(withLockedLevelClock(built))
+          )
+        )
       : built;
     if (!row) {
       // A satellite whose target event does not exist yet is not a missed
@@ -2384,9 +2392,7 @@ export class ScheduledTournamentService {
       )
       .order('start_time', { ascending: true })
       .limit(1);
-    query = targetId
-      ? query.eq('id', targetId)
-      : query.ilike('name', `${namePrefix.replace(/[%_]/g, '')}%`);
+    query = targetId ? query.eq('id', targetId) : query.or(guaranteeTargetNameFilter(namePrefix));
     query = schedule.union_id
       ? query.eq('union_id', schedule.union_id)
       : query.eq('club_id', schedule.club_id);
@@ -2431,7 +2437,7 @@ export class ScheduledTournamentService {
       .select('id, name, start_time')
       .in('status', ['CANCELLED', 'CANCELED'])
       .gt('start_time', new Date(Math.max(Date.now(), feederStartTime.getTime())).toISOString())
-      .ilike('name', `${namePrefix.replace(/[%_]/g, '')}%`)
+      .or(guaranteeTargetNameFilter(namePrefix))
       .order('start_time', { ascending: true })
       .limit(1);
     query = schedule.union_id

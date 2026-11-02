@@ -1,0 +1,9 @@
+# Halve future tournament guarantees
+
+Owner request: from November 2 midnight America/Chicago (06:00 UTC), halve all guarantees except the 200 entry / 25,000 guarantee event. Horse tournament participation is unchanged.
+
+ScheduledTournamentService previously built fixed-board and weekly events at the original guarantee. Its fresh-row boundary now halves the guarantee once before native Diamond conversion, preserving entry fees, bounties, starting stacks, timing and other terms. The original 200/25k event remains 25k; a different 200/40k event is reduced. Guarantee labels are updated and satellite target lookup accepts both original committed and reduced names within its existing host scope.
+
+The migration applies absolute half amounts only to 130 captured existing future IDs whose original amounts still match, with no entrants, no entry lock, no finalized pool and pre-start status. Four already-entered FreeBuys retain their commitments under the existing registered-settlement-contract trigger; the exempt 200/25k event is excluded. No financial trigger is disabled, no wallet or payout is changed. Migration retry cannot halve twice. Newly created instances already reduced by the engine are outside that exact baseline. Delivery must recensus any old-engine instances created between capture and adoption before claiming all future events covered.
+
+Validation: six focused policy tests, server TypeScript and isolated PostgreSQL 17 passed. The existing Accounting 2 qualification executes the exact migration twice with the real registered-contract trigger and tests entered, running, locked, finalized, pre-cutoff and changed-baseline preservation. Source bindings passed. Protected checks, installation and serving-engine proof remain required.

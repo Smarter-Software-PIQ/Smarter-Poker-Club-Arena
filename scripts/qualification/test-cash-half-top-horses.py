@@ -225,6 +225,9 @@ FOR cap IN 1..32 LOOP FOREACH second IN ARRAY ARRAY[false,true] LOOP
 END LOOP; END LOOP;
 END $proof$;
 """
+guarantee_sql = (ROOT / "supabase/migrations/20261102022808_halve_unentered_future_tournament_guarantees_except_sunday_2.sql").read_text()
+guarantee_setup = (ROOT / "scripts/qualification/fixtures/horse-cash-november/guarantees.sql").read_text()
+guarantee_proof = (ROOT / "scripts/qualification/fixtures/horse-cash-november/guarantee-proof.sql").read_text()
 work = Path(os.environ.get("RUNNER_TEMP", str(ROOT / "work")))
 work.mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
@@ -234,7 +237,7 @@ with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
     subprocess.run([str(bindir/"initdb"), "-D", str(d/"data"), "-A", "trust", "--no-locale"], check=True, stdout=subprocess.DEVNULL)
     subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "-l", str(d/"postgres.log"), "-o", f"-k {d} -p 55439 -c listen_addresses='' -c fsync=off", "start"], check=True, stdout=subprocess.DEVNULL)
     try:
-        subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions+november_setup+cluster_before+november_sql+november_assertions+future_helper+november_guard_proof+november_capacity_proof, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
-        print("PASS: November midnight policy, every prohibited variant, PLO ceiling, tournament/human/owned-move/settlement preservation, both dated capacity branches; native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit")
+        subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions+november_setup+cluster_before+november_sql+november_assertions+future_helper+november_guard_proof+november_capacity_proof+guarantee_setup+guarantee_sql+guarantee_proof+guarantee_sql+guarantee_proof, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
+        print("PASS: guarantee reduction and repeat application, entered/running/locked/finalized preservation, accurate labels; November midnight policy, every prohibited variant, PLO ceiling, tournament/human/owned-move/settlement preservation, both dated capacity branches; native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit")
     finally:
         subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "stop", "-m", "fast"], check=True, stdout=subprocess.DEVNULL)
