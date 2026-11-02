@@ -118,15 +118,17 @@ describe('visible avatar crowns', () => {
     expect(restingAvatarBox(image, 0.75).height).toBeCloseTo(permanent.height, 6);
     seat.remove();
   });
-  it('binds permanent focus measurement to both existing CSS owners', () => {
+  it('keeps permanent artwork fixed through attention and winner states', () => {
     const avatarCss = readFileSync(
       resolve(process.cwd(), 'src/components/table/SeatSlot.css'),
       'utf8'
     );
     const tableCss = readFileSync(resolve(process.cwd(), 'src/pages/TablePage.css'), 'utf8');
-    expect(avatarCss).toMatch(/\.seat--active \.seat__avatar\s*\{[^}]*transform:\s*scale\(1\.04\)/);
+    expect(avatarCss).toMatch(
+      /\.table-page \.seat \.seat__avatar\s*\{[^}]*transform:\s*none !important/
+    );
     expect(tableCss).toMatch(
-      /\.seat-wrapper--spot \.seat:not\(\.seat--empty\)\s*\{[^}]*transform:\s*scale\(1\.04\)/
+      /\.seat-wrapper--spot \.seat:not\(\.seat--empty\)\s*\{[^}]*transform:\s*none/
     );
     const wrapper = document.createElement('div');
     wrapper.innerHTML = '<div class="seat"><div class="seat__avatar"><img /></div></div>';
@@ -134,16 +136,35 @@ describe('visible avatar crowns', () => {
     const image = wrapper.querySelector('img')!;
     expect(permanentAvatarFocusScale(image)).toBe(1);
     seat.classList.add('seat--active');
-    expect(permanentAvatarFocusScale(image)).toBe(1.04);
+    expect(permanentAvatarFocusScale(image)).toBe(1);
     wrapper.classList.add('seat-wrapper--spot');
-    expect(permanentAvatarFocusScale(image)).toBeCloseTo(1.0816, 8);
+    expect(permanentAvatarFocusScale(image)).toBe(1);
     seat.classList.remove('seat--active');
-    expect(permanentAvatarFocusScale(image)).toBe(1.04);
+    expect(permanentAvatarFocusScale(image)).toBe(1);
     wrapper.classList.remove('seat-wrapper--spot');
     seat.classList.add('seat--winner');
     expect(permanentAvatarFocusScale(image)).toBe(1);
   });
-  it('preserves the existing acting-avatar and spotlight scales in permanent paint geometry', () => {
+  it('pins table character motion without suppressing cards, chips or status cues', () => {
+    const choreography = readFileSync(
+      resolve(process.cwd(), 'src/components/table/avatarChoreography.css'),
+      'utf8'
+    );
+    const fixed = choreography.slice(choreography.lastIndexOf('.table-page .seat__avatar-wrap {'));
+    expect(fixed).toContain('--sp-avatar-rest-transform: none');
+    expect(fixed).toContain('animation: none !important');
+    expect(fixed).toContain('transform: none !important');
+    expect(fixed).toContain('scale: 1 !important');
+    const seatCss = readFileSync(
+      resolve(process.cwd(), 'src/components/table/SeatSlot.css'),
+      'utf8'
+    );
+    expect(seatCss).toMatch(
+      /\.table-page \.seat:not\(\.seat--empty\)\s*\{[^}]*translate:\s*var\(--sp-opponent-x, 0px\) var\(--sp-opponent-y, 0px\) !important;[^}]*rotate:\s*0deg !important/
+    );
+    expect(fixed).not.toMatch(/seat__cards|seat__bet-chips|seat__info/);
+  });
+  it('preserves static bust framing without attention or temporary gesture gains', () => {
     vi.stubGlobal(
       'DOMMatrix',
       class {
@@ -197,15 +218,14 @@ describe('visible avatar crowns', () => {
           })
         : style;
     });
-    // Independent live receipt: 199.543579px with the observed1.000185
-    // breathing scale, or199.506623px in the permanent pose.
+    // Independent composition of the unchanged 52px slot, bust image and
+    // opponent paint scale. Turn focus no longer adds another scale.
     const permanent = restingAvatarBox(image, 1);
-    expect(permanent.height).toBeCloseTo(199.506623, 5);
-    expect(permanent.width).toBeCloseTo(199.506623, 5);
-    // These permanent coordinates remove only the independently observed
-    // breathing matrix from the live image receipt, retaining both focus gains.
-    expect(permanent.left).toBeCloseTo(20.856061, 5);
-    expect(permanent.top).toBeCloseTo(759.592664, 5);
+    const fixedSize = 52 * 1.6849 * 2.105296;
+    expect(permanent.height).toBeCloseTo(fixedSize, 6);
+    expect(permanent.width).toBeCloseTo(fixedSize, 6);
+    expect(permanent.left).toBeCloseTo(62.369373 + 30 + 26 - fixedSize / 2, 6);
+    expect(permanent.top).toBeCloseTo(905.019287 + 52 - fixedSize, 6);
     // A temporary gesture and winner glow must not become permanent sizing.
     wrap.style.transform = 'matrix(1.6, 0, 0, 1.6, 0, -99)';
     avatar.style.transform = 'matrix(1.08, 0, 0, 1.08, 0, 0)';

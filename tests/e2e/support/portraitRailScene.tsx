@@ -102,7 +102,7 @@ export function Review() {
       p,
       { ...size, portraitTaper: spectator ? 0 : undefined },
       width,
-      seatPodPx(width, p.y === 100 && !spectator, size.w, { seats: n, canvasHeightPx: size.h }),
+      seatPodPx(width, p.y === 100, size.w, { seats: n, canvasHeightPx: size.h }),
       ref.current?.getBoundingClientRect().left,
       n
     )
@@ -221,7 +221,7 @@ export function Review() {
                   <PotDisplay mainPot={82.01} bigBlind={2} />
                 </div>
                 {seats.map((p, i) => {
-                  const pod = seatPodPx(width, i === 0 && !spectator, size.w, {
+                  const pod = seatPodPx(width, i === 0, size.w, {
                     seats: n,
                     canvasHeightPx: size.h,
                   });
@@ -230,7 +230,7 @@ export function Review() {
                   return (
                     <div
                       key={i}
-                      className={`seat-wrapper${i === activeSeat ? ' seat-wrapper--spot' : ''}${i === 0 && !spectator ? ' seat-wrapper--hero' : ''}${p.y < 20 && !tournament ? ' seat-wrapper--top' : ''}${p.y < 20 ? ' seat-wrapper--cap' : ''}`}
+                      className={`seat-wrapper${i === activeSeat ? ' seat-wrapper--spot' : ''}${i === 0 ? ' seat-wrapper--hero' : ''}${p.y < 20 && !tournament ? ' seat-wrapper--top' : ''}${p.y < 20 ? ' seat-wrapper--cap' : ''}`}
                       style={
                         {
                           left: `${p.x}%`,
@@ -244,50 +244,63 @@ export function Review() {
                     >
                       <SeatSlot
                         seatNumber={i + 1}
-                        player={{
-                          id: `p${i}`,
-                          name: [
-                            'KingFish',
-                            'draw888',
-                            'YoungDan',
-                            'LOUAce',
-                            'CHIMania',
-                            'Big Blind',
-                            'slc_elena',
-                            'TonySr',
-                            'Burls',
-                          ][i],
-                          avatar: `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatar || 'vip_wolf@2x.webp'}`,
-                          stack:
-                            document.documentElement.dataset.allIn === 'true' && i % 3 === 0
-                              ? 0
-                              : 93.23,
-                          status:
-                            document.documentElement.dataset.allIn === 'true' && i % 3 === 0
-                              ? 'all_in'
-                              : 'active',
-                          holeCards:
-                            i === 0
-                              ? [...cards, { rank: '10', suit: 'diamonds' }].slice(0, heroCards)
-                              : villainHand,
-                          showCards:
-                            (i === 0 && !spectator) ||
-                            (revealed &&
-                              // A PLO6 showdown tables three opponents' hands, as an
-                              // all-in hand does, spread round the ring.
-                              (document.documentElement.dataset.showAll === 'true' ||
-                                villainCards <= 2 ||
-                                [1, Math.floor(n / 2), n - 1].includes(i))),
-                          isHero: i === 0 && !spectator,
-                        }}
+                        player={
+                          document.documentElement.dataset.emptyBottom === 'true' && i === 0
+                            ? null
+                            : {
+                                id: `p${i}`,
+                                name: [
+                                  'KingFish',
+                                  'draw888',
+                                  'YoungDan',
+                                  'LOUAce',
+                                  'CHIMania',
+                                  'Big Blind',
+                                  'slc_elena',
+                                  'TonySr',
+                                  'Burls',
+                                ][i],
+                                avatar: `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarMix === 'true' ? (i % 2 ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp') : document.documentElement.dataset.avatar || 'vip_wolf@2x.webp'}`,
+                                stack:
+                                  document.documentElement.dataset.allIn === 'true' && i % 3 === 0
+                                    ? 0
+                                    : 93.23,
+                                status:
+                                  document.documentElement.dataset.allIn === 'true' && i % 3 === 0
+                                    ? 'all_in'
+                                    : 'active',
+                                holeCards:
+                                  i === 0
+                                    ? [...cards, { rank: '10', suit: 'diamonds' }].slice(
+                                        0,
+                                        heroCards
+                                      )
+                                    : villainHand,
+                                showCards:
+                                  (i === 0 && !spectator) ||
+                                  (revealed &&
+                                    // A PLO6 showdown tables three opponents' hands, as an
+                                    // all-in hand does, spread round the ring.
+                                    (document.documentElement.dataset.showAll === 'true' ||
+                                      villainCards <= 2 ||
+                                      [1, Math.floor(n / 2), n - 1].includes(i))),
+                                isHero: i === 0 && !spectator,
+                              }
+                        }
                         position={i === 1 ? 'SB' : null}
                         isActive={i === activeSeat}
-                        lastAction={revealed && i % 3 === 0 ? 'all_in' : 'call'}
+                        lastAction={
+                          document.documentElement.dataset.actionPills === 'true'
+                            ? 'raise'
+                            : revealed && i % 3 === 0
+                              ? 'all_in'
+                              : 'call'
+                        }
                         lastBetAmount={
                           /* data-bets="0,3,5" bets only those chairs; absent, every chair bets. */
                           document.documentElement.dataset.bets === undefined ||
                           document.documentElement.dataset.bets.split(',').map(Number).includes(i)
-                            ? 120
+                            ? Number(document.documentElement.dataset.betAmount || 120)
                             : 0
                         }
                         bigBlind={2}

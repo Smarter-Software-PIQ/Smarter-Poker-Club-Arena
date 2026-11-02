@@ -31,16 +31,7 @@ CREATE FUNCTION public.fixture_stats_v2(p_hand uuid,p_stack numeric) RETURNS jso
 SELECT jsonb_build_object('version',2,'facts',jsonb_build_array(jsonb_build_object(
  'hand_id',p_hand,'user_id','20000000-0000-0000-0000-000000000001',
  'club_id','10000000-0000-0000-0000-000000000001','table_id','40000000-0000-0000-0000-000000000009',
- -- A RELATIVE date, not a calendar one. This was '2026-10-03T12:00:00Z', and
- -- at 2026-11-02T00:00:00Z the 30-day calendar window (ca_stats_calendar_bounds:
- -- today minus 29 days, day-truncated) rolled past it, so the projected hand
- -- silently left every aggregate and this suite went red on EVERY branch at
- -- midnight UTC with no code change anywhere. Two days back, day-truncated so
- -- every statement in the run renders the identical payload (and hash), keeps
- -- it inside the window forever and older than the now() rows inserted below.
- 'tournament_id',NULL,
- 'played_at',to_char(date_trunc('day', now() - interval '2 days') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
- 'game_variant','nlh','big_blind',2,
+ 'tournament_id',NULL,'played_at',(((now() AT TIME ZONE 'UTC')::date - 1)::timestamp AT TIME ZONE 'UTC' + interval '12 hours'),'game_variant','nlh','big_blind',2,
  'seat',1,'position','BTN','players_dealt',2,'opponent_ids',jsonb_build_array('20000000-0000-0000-0000-000000000002'),
  'hole_cards',NULL,'hand_class','AKs','invested',10,'returned',15,'net',5,'net_bb',2.5,
  'rake_paid',0,'vpip',true,'pfr',true,'three_bet',true,'four_bet',false,

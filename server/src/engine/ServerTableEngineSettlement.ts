@@ -3158,6 +3158,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
          absent count as "read to find out". */
       let resolvedAddOnCount: number | undefined;
       const finishObligationsTiming = stageTiming.start('post_commit_obligations', 'barrier');
+      const phaseBeforeObligations = this.loopPhase;
       this.setLoopPhase('settlement_post_commit_obligations');
       /* THE DRAIN DOES NOT NEED THE LEASE; THE REFLECTION BELOW STILL DOES
        * (2026-09-12).
@@ -3268,6 +3269,15 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         }
       }
       finishObligationsTiming(obligationsApplied ? 'returned' : 'handoff');
+      if (this.loopPhase === 'settlement_post_commit_obligations') {
+        this.setLoopPhase(
+          this.handForHandResolve !== null
+            ? 'parked_for_pause'
+            : phaseBeforeObligations === 'settlement_post_commit_obligations'
+              ? 'post_hand_hold'
+              : phaseBeforeObligations
+        );
+      }
       postCommitStateCanReflect = this.lifecycleCanMutate();
 
       if (!obligationsApplied) {
