@@ -851,6 +851,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V78'
   ),
   flag(
+    'v77SeatAwareJams',
+    "2026-11-02 (Burls via Dan: \"JAMMING ALL IN TOO MUCH, THEY AREN'T CONSIDERING THE UTG OR EARLY POSITION OPENERS\") the no-limit hold'em push/fold jam over exactly one open is tightened by the OPENER'S V70 per-seat open width (dealt-census indexed, ante-aware, HorseGtoVs3BetRanges.openWidth): the bar rises by 0.3 per unit of width the opener's seat does not open against the 40% late reference, capped at +0.10 (an under-the-gun ~12% width lands the 12-15bb bar at ~0.80, the same early bar the Phase 6 reshove node uses at 20bb); measured before (24 h to 2026-11-02 00:21 UTC, 439,087 facing-one-open spots): tournament jam rate 6.82% over an early open vs 8.11% over a late one at <=15bb, 3.53% vs 7.14% at 15-25bb; tighten-only (a 40%+ button or blind width keeps today's bar exactly); first-in jams (V71/V27), the facing-3-bet bar, the HorseTournamentShoveDiscipline caps and Omaha untouched; explicit off arm keeps the seat-blind bar",
+    'V77'
+  ),
+  flag(
     'v76RetireFourBetBluffBand',
     '2026-11-01 (Dan 2026-10-31 rule 4: "HORSES KEEP MAKING THESE WEIRD 4 BETS ANYTIME I 3 BET, THEN FOLD 100% OF THE TIME TO A FIVE BET ... STOP 4 BETTING POTS IF THEY ARE FOLDING") the V7 4-bet-bluff band is retired at the source: the hold\'em brain never generates a sized 4-bet meant to fold; the band\'s hands (blocker-heavy, just under the value bar) take the call-or-fold read directly - the V73/V75 priced width where it applies - instead of being 4-bet and converted to a call by the final layer (rule 4a, receipt holdem_no_four_bet_bluff), which stays in force as the fail-safe for every other path; value 4-bets, sizes, the 5-bet branch and Omaha unchanged; explicit off arm restores the band for the historical corpora only',
     'V76'
@@ -2189,6 +2194,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V78)',
     "Hold'em semi-bluff / check-raise bluff withheld: legalized it committed 40%+ of the stack without being all-in",
     'V78',
+    'decide_nlh'
+  ),
+  receipt(
+    'v77_seat_jam',
+    'HorseLogic (V77)',
+    "Hold'em facing exactly one open: the opener's V70 seat width was read for the push/fold jam tighten",
+    'V77',
     'decide_nlh'
   ),
   receipt(
