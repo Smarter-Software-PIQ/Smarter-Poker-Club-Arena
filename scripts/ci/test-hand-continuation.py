@@ -127,6 +127,7 @@ def main():
     inputs += [Path('supabase/migrations/20261102150315_the_fifteen_frozen_diamond_events_close_and_their_diamonds_g.sql'),Path('supabase/migrations/20261102161821_owner_retirement_main_bank_funds_exact_player_refunds.sql'),Path('scripts/ci/test-owner-bank-refund.py'),Path('scripts/ci/fixtures/tournament-abort/owner-bank-refund-catalog.json')]
     inputs += [Path('supabase/migrations/20261102152756_owner_tournament_deletion_replaces_equal_share_intent.sql'),Path('scripts/ci/test-owner-deletion-intent.py'),Path('scripts/ci/fixtures/tournament-abort/original-refund-before-owner-deletion.sql'),Path('supabase/migrations/20261102155242_owner_retirement_refuses_superseded_original_refund.sql'),Path('scripts/ci/fixtures/tournament-abort/owner-retirement-nov2-manifest.json'),Path('scripts/ci/fixtures/tournament-abort/restart-before-owner-deletion.sql'),Path('scripts/ci/fixtures/tournament-abort/equal-share-before-owner-deletion.sql')]
     inputs += [Path('scripts/ci/test-diamond-history-removal.py'),Path('scripts/operations/remove-diamond-settled-history.sql')]
+    inputs += [Path('supabase/migrations/20261102180105_owner_retirement_transfers_custody_and_closes_exact_events.sql'),Path('scripts/ci/test-owner-terminal-retirement.py'),Path('scripts/ci/owner_terminal_native_cases.py'),Path('scripts/ci/fixtures/tournament-abort/owner-terminal-current-catalog.json')]
     source=dict(manifest['source_sha256']);source.update({str(p):sha(ROOT/p) for p in inputs})
     e.report.update(source_sha256=source,installation_refusals=[],races=[],scope='private original continuation on exact production-captured atomic/stack/retention functions and maintained real financial/F06 closure; not live activation')
     for sig in native.CANCELLATION_SIGNALS:signal.signal(sig,native.interrupted)
@@ -197,6 +198,18 @@ def main():
         bank_refund=json.loads((out/'owner-bank-refund/result.json').read_text())
         if bank_refund['status']!='passed':raise RuntimeError('Owner bank refund qualification failed')
         e.report['owner_bank_refund']={'status':'passed','evidence':'owner-bank-refund/result.json'}
+        e.run('owner-terminal-retirement',[sys.executable,ROOT/'scripts/ci/test-owner-terminal-retirement.py',
+            '--pg-bin',args.pg_bin.resolve(),'--evidence',out/'owner-terminal-retirement',
+            '--work-root',work,'--socket-root',args.socket_root],seconds=300)
+        retirement=json.loads((out/'owner-terminal-retirement/result.json').read_text())
+        if retirement['status']!='passed':raise RuntimeError('Owner terminal retirement qualification failed')
+        e.report['owner_terminal_retirement']={'status':'passed','evidence':'owner-terminal-retirement/result.json'}
+        e.run('owner-terminal-human-refund',[sys.executable,ROOT/'scripts/ci/test-owner-terminal-retirement.py','--human-refund',
+            '--pg-bin',args.pg_bin.resolve(),'--evidence',out/'owner-terminal-human-refund',
+            '--work-root',work,'--socket-root',args.socket_root],seconds=300)
+        human_retirement=json.loads((out/'owner-terminal-human-refund/result.json').read_text())
+        if human_retirement['status']!='passed':raise RuntimeError('Owner refunded human terminal qualification failed')
+        e.report['owner_terminal_human_refund']={'status':'passed','evidence':'owner-terminal-human-refund/result.json'}
         if any(sha(ROOT/p)!=digest for p,digest in source.items()):raise RuntimeError('qualification source changed')
         e.report['status']='passed';e.discard(db)
     except BaseException as error:e.report['failure']=repr(error)
