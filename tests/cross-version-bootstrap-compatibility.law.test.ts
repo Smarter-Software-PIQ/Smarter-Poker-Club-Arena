@@ -143,6 +143,21 @@ describe('cross-version bootstrap compatibility contract (Phase 2)', () => {
     expect(preimageRes.status, preimageRes.stderr || preimageRes.stdout).toBe(0);
     expect(preimageRes.stderr).toContain('Ran 5 tests');
     expect(preimageRes.stderr).toContain('OK');
+
+    // 5. Phase 3 First-event (`Proby` 2781bcd7-cc8a-4713-ab3e-0d0a81fdf110) settlement verifier suite
+    const probyRes = spawnSync(
+      'python3',
+      ['-B', resolve(ROOT, 'tests/operations/verify-proby-settlement.test.py')],
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 15_000,
+      }
+    );
+    expect(probyRes.error).toBeUndefined();
+    expect(probyRes.status, probyRes.stderr || probyRes.stdout).toBe(0);
+    expect(probyRes.stderr).toContain('Ran 5 tests');
+    expect(probyRes.stderr).toContain('OK');
   });
 
   it('verifies the promise migration SHA-256 matches the immutable historical record', () => {
