@@ -278,9 +278,10 @@ def terminal_failure_resolution(value, cycle, result, result_fd, answer):
         type(value['observedAt']) is int and cycle['startsAt'] < value['observedAt'] < 4102444800)
     proof = value['proof']
     routine_require(isinstance(proof, dict) and set(proof) == {
-        'failureDigest', 'checkpointIntentDigest', 'originalProcess', 'runtime', 'database'} and
+        'failureDigest', 'checkpointIntentDigest', 'checkpointRefusalDigest', 'originalProcess', 'runtime',
+        'database'} and proof['database'].get('ownedV3Thaw') is True and
         proof['failureDigest'] == routine_digest(cycle['failure']) and
-        proof['originalProcess'] in {'no-checkpoint-entered', 'kernel-enoent', 'pid-reused-after-intent'} and
+        proof['originalProcess'] in {'kernel-enoent', 'pid-reused-after-intent'} and
         isinstance(proof['database'], dict) and proof['database'].get('databaseIdle') is True and
         proof['database'].get('freshLeader') is True)
     name = cycle['runId'] + '.' + value['verifiedByRunId'] + '.' + value['invocationId'] + '.terminal-resolution.json'
@@ -464,7 +465,11 @@ def validate_routine_reply(value, request):
                             row['failurePresent'] == (result['cycleFailureMatches'] is not None))
         else:
             routine_require(all(result[k] is None for k in ('sha256', 'outcome', 'identityMatches', 'cycleFailureMatches', 'completedAt')))
-        if resolution['present']:
+        if resolution['present'] and row['runId'] != FAILED_CUSTODY_REQUEST['runKey']:
+            routine_require(result['present'] is True and result['sha256'] == row['failureSha256'] and
+                            result['outcome'] == 'failed' and result['identityMatches'] is True and
+                            result['cycleFailureMatches'] is True)
+        elif resolution['present']:
             routine_require(result['present'] is True and result['sha256'] == FAILED_CUSTODY_FAILURE and
                             result['outcome'] == 'failed' and result['identityMatches'] is True and
                             result['cycleFailureMatches'] is True and result['completedAt'] == 1793569102)

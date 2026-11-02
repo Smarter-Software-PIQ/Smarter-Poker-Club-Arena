@@ -697,7 +697,33 @@ def routine_owner_unresolved(state: dict[str, Any], cycle: dict[str, Any]) -> bo
 TERMINAL_OWNER_SETTLE_MS = 60_000
 TERMINAL_RESOLUTION_KEYS = {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'invocationId',
                             'observedAt', 'proof'}
-TERMINAL_PROOF_KEYS = {'failureDigest', 'checkpointIntentDigest', 'originalProcess', 'runtime', 'database'}
+TERMINAL_PROOF_KEYS = {'failureDigest', 'checkpointIntentDigest', 'checkpointRefusalDigest', 'originalProcess',
+                       'runtime', 'database'}
+
+
+def terminal_checkpoint_refusal(run_id: str, failure: dict[str, Any], window: dict[str, Any], deadline: float) -> str:
+    """The failed invocation's own journal holds exactly one legacy checkpoint
+    refusal made before the guard call: not ok, no retry, checkpoint never
+    invoked, no checkpoint/progress result, and an inspector request that was
+    never invoked. A run that reached the guard (or left no such row) is not
+    a terminal owner this proof may release."""
+    unit = f'club-arena-engine-release-v1@{run_id}.service'
+    raw = failed_routine_command(['journalctl', '--unit=' + unit, '_SYSTEMD_INVOCATION_ID=' + failure['invocationId'],
+        '--no-pager', '--output=json',
+        '--output-fields=MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP',
+        '--lines=4', '--grep="checkpointInvoked":false'], deadline, 65536)
+    rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    failed_routine_require(len(rows) == 1)
+    row = rows[0]
+    outcome = json.loads(row.get('MESSAGE', ''))
+    stamp = str(row.get('__REALTIME_TIMESTAMP', ''))
+    failed_routine_require(row.get('_SYSTEMD_UNIT') == unit and
+        row.get('_SYSTEMD_INVOCATION_ID') == failure['invocationId'] and stamp.isdigit() and
+        window['startsAt'] * 1000 <= int(stamp) <= (failure['completedAt'] + 1) * 1000000 and
+        isinstance(outcome, dict) and outcome.get('ok') is False and outcome.get('retryAllowed') is False and
+        outcome.get('checkpointInvoked') is False and 'checkpoint' not in outcome and 'progress' not in outcome and
+        isinstance(outcome.get('transportDetail'), str) and outcome['transportDetail'].endswith(',invoked=no'))
+    return failed_routine_digest(row)
 
 
 def terminal_inspect_container(deadline: float) -> dict[str, Any]:
@@ -825,6 +851,7 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
         if birth is not None and birth <= intent['at'] + 1:
             return None
         original = 'kernel-enoent' if birth is None else 'pid-reused-after-intent'
+        refusal = terminal_checkpoint_refusal(run_id, durable, window, deadline)
         instances = []
         for url in ('http://127.0.0.1:8080/health',
                     os.environ.get('ENGINE_URL', 'https://engine.smarter.poker').rstrip('/') + '/health'):
@@ -851,6 +878,7 @@ def terminal_owner_proof(state: dict[str, Any], cycle: dict[str, Any], deadline:
             return None
         return {'failureDigest': failed_routine_digest(durable),
                 'checkpointIntentDigest': failed_routine_digest(intent),
+                'checkpointRefusalDigest': refusal,
                 'originalProcess': original,
                 'runtime': {'containerId': container['Id'], 'startedAt': live['StartedAt'], 'hostPid': live['Pid'],
                             'instanceId': instances[0]},
@@ -882,11 +910,18 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
             isinstance(proof, dict) and set(proof) == TERMINAL_PROOF_KEYS and
             proof['failureDigest'] == failed_routine_digest(cycle['failure']) and
             proof['originalProcess'] in {'kernel-enoent', 'pid-reused-after-intent'} and
-            isinstance(proof['checkpointIntentDigest'], str) and
-            re.fullmatch('[0-9a-f]{64}', proof['checkpointIntentDigest']) is not None and
+            all(isinstance(proof[k], str) and re.fullmatch('[0-9a-f]{64}', proof[k]) is not None
+                for k in ('checkpointIntentDigest', 'checkpointRefusalDigest')) and
             isinstance(proof['runtime'], dict) and isinstance(proof['database'], dict) and
             proof['database'].get('databaseIdle') is True and proof['database'].get('freshLeader') is True and
             proof['database'].get('ownedV3Thaw') is True):
+        die('routine failure resolution history is invalid')
+    try:
+        receipt = failed_routine_json(terminal_receipt_path(owner, str(resolution['verifiedByRunId']),
+                                                            str(resolution['invocationId'])))
+    except (SystemExit, Exception):
+        receipt = None
+    if receipt != resolution:
         die('routine failure resolution history is invalid')
 
 

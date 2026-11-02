@@ -112,6 +112,13 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                          'announcedAt': self.window['announcedAt'], 'startsAt': self.window['startsAt'],
                          'endsAt': self.window['endsAt']}
         self.old_birth = None
+        refusal = {'ok': False, 'reason': 'inspector cleanup not verified', 'retryAllowed': False,
+                   'checkpointInvoked': False, 'inspectorClosed': False, 'cleanupConnections': 0,
+                   'transportDetail': 'op=queryObjects,cause=request_timeout,method=Runtime.evaluate,'
+                                      'allowanceMs=59000,waitedMs=59052,invoked=no'}
+        self.journal = [{'MESSAGE': json.dumps(refusal), '_SYSTEMD_UNIT': f'club-arena-engine-release-v1@{DEAD_RUN}.service',
+                         '_SYSTEMD_INVOCATION_ID': self.failure['invocationId'],
+                         '__REALTIME_TIMESTAMP': str((self.start + 80) * 1000000)}]
         seal.TERMINAL_OWNER_SETTLE_MS = 60_000
 
     def native_unit(self, unit, _deadline=None):
@@ -139,6 +146,8 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         if command[0] == 'curl':
             local = '127.0.0.1' in command[-1]
             return json.dumps(self.health if local or self.public_health is None else self.public_health)
+        if command[0] == 'journalctl':
+            return '\n'.join(json.dumps(r) for r in self.journal)
         if command[0].endswith('engine-release-database-proof.py'):
             if isinstance(self.database, Exception):
                 raise self.database
@@ -269,6 +278,17 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'database maintenance owner': lambda: setattr(self, 'database', RuntimeError('owner present')),
             'database other leader': lambda: self.database.update(instanceId='1-deadbeef'),
             'original thaw unproved': lambda: self.database.update(ownedV3Thaw=False),
+            'no checkpoint refusal in journal': lambda: self.journal.clear(),
+            'two checkpoint refusals': lambda: self.journal.append(dict(self.journal[0])),
+            'checkpoint was invoked': lambda: self.journal[0].update(MESSAGE=json.dumps(
+                {**json.loads(self.journal[0]['MESSAGE']), 'checkpointInvoked': True})),
+            'checkpoint result present': lambda: self.journal[0].update(MESSAGE=json.dumps(
+                {**json.loads(self.journal[0]['MESSAGE']), 'checkpoint': {}})),
+            'inspector request invoked': lambda: self.journal[0].update(MESSAGE=json.dumps(
+                {**json.loads(self.journal[0]['MESSAGE']), 'transportDetail': 'op=queryObjects,invoked=yes'})),
+            'refusal from another invocation': lambda: self.journal[0].update(_SYSTEMD_INVOCATION_ID='0' * 32),
+            'refusal outside the break': lambda: self.journal[0].update(
+                __REALTIME_TIMESTAMP=str((self.start - 600) * 1000000)),
             'thaw for another window': lambda: self.database.update(startsAt=self.window['startsAt'] + 1),
         }
         for name, arrange in cases.items():
@@ -303,6 +323,17 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         with self.assertRaises((ValueError, FileNotFoundError)):
             observer.terminal_failure_resolution(resolution, self.cycle, self.failure, fd, blank())
 
+    def test_a_recorded_resolution_needs_its_identical_receipt(self):
+        self.assertEqual(self.resolve(), DEAD_RUN)
+        self.assertEqual(self.owner(), 'none')
+        receipt = seal.terminal_receipt_path(DEAD_RUN, LIVE_RUN, INVOCATION)
+        original = receipt.read_text()
+        receipt.write_text(original.replace('"verifiedByRunId"', '"verifiedByRunId" ', 1).replace(
+            str(json.loads(original)['observedAt']), str(json.loads(original)['observedAt'] + 1)))
+        self.refused(self.owner)
+        receipt.unlink()
+        self.refused(self.owner)
+
     def test_a_resolved_failed_source_can_never_reserve_or_prepare_again(self):
         self.assertEqual(self.resolve(), DEAD_RUN)
         state = seal.load_state()
@@ -324,6 +355,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
             'database not idle': lambda r: r['proof']['database'].update(databaseIdle=False),
             'unknown process state': lambda r: r['proof'].update(originalProcess='no-checkpoint-entered'),
             'thaw not recorded': lambda r: r['proof']['database'].update(ownedV3Thaw=False),
+            'refusal digest missing': lambda r: r['proof'].update(checkpointRefusalDigest=None),
             'failure digest differs': lambda r: r['proof'].update(failureDigest='0' * 64),
         }.items():
             with self.subTest(name):
