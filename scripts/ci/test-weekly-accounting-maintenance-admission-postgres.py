@@ -15,14 +15,15 @@ if len(str(W/'.s.PGSQL.5432').encode()) >= 104:
     shutil.rmtree(W); raise RuntimeError('private socket path must be shorter than104 bytes')
 E = dict(os.environ, LC_ALL='C', LANG='C', PGTZ='UTC')
 f = json.loads((R/'scripts/ci/fixtures/weekly-accounting-maintenance-admission.json').read_text())
-M = next((R/'supabase/migrations').glob('20261102040938_*')).read_text()
+M = next((R/'supabase/migrations').glob('20261102055042_*')).read_text()
 def run(args, text=None, error=None):
     q = subprocess.run(list(map(str,args)), input=text, text=True, capture_output=True, env=E, timeout=30)
     if error: assert q.returncode and error in q.stderr, (error,q.stdout,q.stderr)
     else: assert q.returncode == 0, q.stdout+q.stderr
     return q.stdout.strip()
-def sql(text, error=None):
-    return run([PG/'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-h',W,'-U','postgres','-d','postgres'], text,error)
+def sql(text, error=None, role='fixture_admin'):
+    return run([PG/'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-h',W,'-U',role,'-d','postgres'], text,error)
+def migrate(error=None): return sql(M, error, role='postgres')
 def quote(s): return "'"+s.replace("'","''")+"'"
 def command(): return sql('SELECT command FROM cron.job WHERE jobid=272;')
 def reset(): sql('TRUNCATE engine_maintenance_break,engine_maintenance_thaws,fixture_calls;')
@@ -33,10 +34,11 @@ def admission(label, setup, expected):
     print('PASS '+label, flush=True)
 try:
     assert ' 17.' in run([PG/'postgres','--version'])
-    run([PG/'initdb','-D',D,'-U','postgres','--auth-local=trust','--auth-host=reject','--no-locale','-E','UTF8'])
+    run([PG/'initdb','-D',D,'-U','fixture_admin','--auth-local=trust','--auth-host=reject','--no-locale','-E','UTF8'])
     with (D/'postgresql.conf').open('a') as out: out.write("\nlisten_addresses=''\nunix_socket_directories='"+str(W)+"'\n")
     run([PG/'pg_ctl','-D',D,'-l',W/'server.log','-w','start']); started=True
-    sql("""CREATE SCHEMA auth;CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$SELECT NULL::text$$;
+    sql("""CREATE ROLE postgres LOGIN NOSUPERUSER;
+    CREATE SCHEMA auth;CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$SELECT NULL::text$$;
     CREATE TABLE engine_maintenance_break(enforce_freeze boolean,announced_at timestamptz,phase text,break_started_at timestamptz,break_ends_at timestamptz);
     CREATE TABLE engine_maintenance_thaws(contract_version integer,release_target_at timestamptz,shifted jsonb);
     CREATE TABLE fixture_calls(name text);
@@ -51,7 +53,10 @@ try:
     CREATE SCHEMA cron;
     CREATE TABLE cron.job(jobid bigint PRIMARY KEY,schedule text,command text,nodename text,nodeport integer,database text,username text,active boolean,jobname text);
     -- Controlled catalog adapter only: the proof below executes real CASE/helpers.
-    CREATE FUNCTION cron.alter_job(job_id bigint,command text) RETURNS void LANGUAGE sql AS $$UPDATE cron.job SET command=$2 WHERE jobid=$1$$;
+    CREATE FUNCTION cron.alter_job(job_id bigint,command text) RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$UPDATE cron.job SET command=$2 WHERE jobid=$1 AND username=session_user$$;
+    REVOKE ALL ON FUNCTION cron.alter_job(bigint,text) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION cron.alter_job(bigint,text) TO postgres;
+    GRANT USAGE ON SCHEMA cron TO postgres; GRANT SELECT ON cron.job TO postgres;
     """)
     for h in f['helpers']:
         assert hashlib.md5(h['definition'].encode()).hexdigest() == h['md5']
@@ -60,16 +65,41 @@ try:
     assert hashlib.md5(f['command'].encode()).hexdigest()==f['commandMD5']
     sql("INSERT INTO cron.job VALUES(272,'*/5 * * * *',"+quote(f['command'])+",'localhost',5432,'postgres','postgres',true,'union-weekly-rakeback-close');")
     original_meta = sql("SELECT (to_jsonb(j)-'command')::text FROM cron.job j;")
+    assert sql("SELECT NOT rolsuper FROM pg_roles WHERE rolname=current_user;", role='postgres') == 't'
+    assert sql("SELECT has_table_privilege(current_user,'cron.job','SELECT') AND NOT has_table_privilege(current_user,'cron.job','UPDATE');", role='postgres') == 't'
+    sql('BEGIN; SELECT * FROM cron.job WHERE jobid=272 FOR UPDATE; COMMIT;', 'permission denied for table job', role='postgres')
+    print('PASS SELECT-only non-superuser cannot directly lock cron catalog', flush=True)
+    # Establish the real transaction snapshot before a second writer commits.
+    # The supported API adapter uses ordinary PostgreSQL UPDATE in the same
+    # transaction, matching the reviewed pg_cron C SPI update contract.
+    proc = subprocess.Popen([str(PG/'psql'), '-X', '-qAt', '-v', 'ON_ERROR_STOP=1',
+        '-v', 'VERBOSITY=verbose', '-h', str(W), '-U', 'postgres', '-d', 'postgres'],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=E)
+    try:
+        proc.stdin.write("BEGIN; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; SELECT command FROM cron.job WHERE jobid=272;\n")
+        proc.stdin.flush()
+        assert proc.stdout.readline().strip() == f['command']
+        sql("UPDATE cron.job SET command='concurrent-original-owner' WHERE jobid=272;")
+        proc.stdin.write("SELECT cron.alter_job(job_id:=272,command:='must-not-overwrite'); COMMIT;\n")
+        proc.stdin.flush()
+        _, stderr = proc.communicate(timeout=10)
+        assert proc.returncode != 0 and '40001' in stderr, stderr
+        assert command() == 'concurrent-original-owner'
+    finally:
+        if proc.poll() is None: proc.kill(); proc.wait()
+    sql('UPDATE cron.job SET command='+quote(f['command'])+' WHERE jobid=272;')
+    print('PASS SERIALIZABLE API update refuses concurrent row change with40001 and preserves foreign commit', flush=True)
+
     notice="INSERT INTO engine_maintenance_break VALUES(true,clock_timestamp()-interval '30 seconds','last_hand',NULL,NULL);"
     reset(); sql(notice); sql(f['command']); assert int(sql('SELECT count(*) FROM fixture_calls;')) > 0
     print('PASS BEFORE original tick enters original gate/cascade during real last_hand predicate',flush=True)
     sql("CREATE OR REPLACE FUNCTION public.fn_entry_purchases_frozen() RETURNS boolean LANGUAGE sql SET search_path=public,pg_temp AS $$SELECT NULL::boolean$$;")
     before=sql('SELECT to_jsonb(j)::text FROM cron.job j;')
-    sql(M,'weekly_accounting_maintenance_admission_helpers_changed')
+    migrate('weekly_accounting_maintenance_admission_helpers_changed')
     assert sql('SELECT to_jsonb(j)::text FROM cron.job j;')==before
     sql(next(h['definition'] for h in f['helpers'] if h['signature']=='fn_entry_purchases_frozen()'))
     print('PASS changed helper refuses before cron update, preserving catalog row',flush=True)
-    sql(M)
+    migrate()
     new = command(); prefix,inner=f['command'].split(' SELECT ',1)
     assert new == prefix+' SELECT CASE WHEN public.fn_entry_purchases_frozen() IS FALSE AND public.fn_platform_frozen() IS FALSE THEN ('+inner[:-1]+') END;'
     assert sql("SELECT (to_jsonb(j)-'command')::text FROM cron.job j;")==original_meta
@@ -87,12 +117,12 @@ try:
         sql('CREATE OR REPLACE FUNCTION public.'+name+"() RETURNS boolean LANGUAGE sql SET search_path=public,pg_temp AS $$SELECT NULL::boolean$$;")
         admission(name+' NULL fails closed','',False)
         h=next(x for x in f['helpers'] if x['signature']==name+'()');sql(h['definition'])
-    sql(M,'weekly_accounting_maintenance_admission_preimage_changed')
+    migrate('weekly_accounting_maintenance_admission_preimage_changed')
     assert command()==new
     sql('UPDATE cron.job SET command='+quote(f['command'])+";UPDATE cron.job SET schedule='1 * * * *';")
-    before=sql('SELECT to_jsonb(j)::text FROM cron.job j;');sql(M,'weekly_accounting_maintenance_admission_preimage_changed');assert sql('SELECT to_jsonb(j)::text FROM cron.job j;')==before
-    sql("UPDATE cron.job SET schedule='*/5 * * * *';CREATE OR REPLACE FUNCTION cron.alter_job(job_id bigint,command text) RETURNS void LANGUAGE sql AS $$UPDATE cron.job SET command=$2,schedule='broken' WHERE jobid=$1$$;")
-    before=sql('SELECT to_jsonb(j)::text FROM cron.job j;');sql(M,'weekly_accounting_maintenance_admission_metadata_changed');assert sql('SELECT to_jsonb(j)::text FROM cron.job j;')==before
+    before=sql('SELECT to_jsonb(j)::text FROM cron.job j;');migrate('weekly_accounting_maintenance_admission_preimage_changed');assert sql('SELECT to_jsonb(j)::text FROM cron.job j;')==before
+    sql("UPDATE cron.job SET schedule='*/5 * * * *';CREATE OR REPLACE FUNCTION cron.alter_job(job_id bigint,command text) RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$UPDATE cron.job SET command=$2,schedule='broken' WHERE jobid=$1$$;")
+    before=sql('SELECT to_jsonb(j)::text FROM cron.job j;');migrate('weekly_accounting_maintenance_admission_metadata_changed');assert sql('SELECT to_jsonb(j)::text FROM cron.job j;')==before
     print('PASS replay/foreign preimage/metadata mutation refuse atomically',flush=True)
     print(json.dumps({'status':'passed','qualification':'real PG17 CASE/captured helper predicates; controlled cron catalog adapter only','productionMoneyExecuted':False}),flush=True)
 finally:

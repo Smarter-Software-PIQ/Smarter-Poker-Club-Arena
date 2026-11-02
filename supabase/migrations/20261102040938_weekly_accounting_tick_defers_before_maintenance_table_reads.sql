@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261102055042
 -- Weekly accounting admission precedes every original table-reading gate.
 -- At 2026-11-02 04:00:00Z job272 started inside an already durable03:58:04.929
 -- maintenance notice. Its long transaction blocked the04247 migration after
