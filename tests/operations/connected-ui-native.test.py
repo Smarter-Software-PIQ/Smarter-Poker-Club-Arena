@@ -350,16 +350,55 @@ class CompositionFailureDiagnostics(unittest.TestCase):
             value['mismatch']['rows'][0]['first_difference'] = 101
             self.assertEqual(decode(value)['site'], 'UNKNOWN')
 
+    def test_missing_witness_decoder_refuses_counterparts_and_cross_site_payloads(self):
+        import copy
+        row = {'native_ordinal': 7, 'key_sha256': 'a'*64, 'object_type': 'FUNCTION', 'schema': 'auth'}
+        witness = {'version': 1, 'total': 1, 'truncated': False, 'rows': [row]}
+        valid = {'version': 1, 'scope': 'exact-service-composition-failure', 'phase': 'compose',
+                 'site': 'NATIVE_OBJECT_MISSING', 'missing': witness}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'diagnostic.json'
+            def decode(value):
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+                return MODULE.composition_failure(path)
+            self.assertEqual(decode(valid), valid)
+            for field, bad in [('native_ordinal', True), ('native_ordinal', -1), ('native_ordinal', 4194305),
+                    ('key_sha256', 'private'), ('object_type', 'PRIVATE TYPE'), ('schema', 'private'),
+                    ('owner_match', True), ('captured_sha256', 'b'*64), ('native_sha256', 'c'*64),
+                    ('name', 'private'), ('sql', 'private')]:
+                value = copy.deepcopy(valid); value['missing']['rows'][0][field] = bad
+                self.assertEqual(decode(value)['site'], 'UNKNOWN', field)
+            for field, bad in [('total', True), ('total', 0), ('total', 4194305), ('version', 2),
+                    ('truncated', True), ('rows', [row]*17), ('private', 'secret')]:
+                value = copy.deepcopy(valid); value['missing'][field] = bad
+                self.assertEqual(decode(value)['site'], 'UNKNOWN', field)
+            for site in ['UNKNOWN', 'NATIVE_BLOCK_DIFFERENT', 'NATIVE_OWNER_DIFFERENT']:
+                self.assertEqual(decode({**valid, 'site': site})['site'], 'UNKNOWN')
+            self.assertEqual(decode({**valid, 'phase': 'input-read'})['site'], 'UNKNOWN')
+            self.assertEqual(decode({**valid, 'mismatch': witness})['site'], 'UNKNOWN')
+            value = copy.deepcopy(valid)
+            value['missing'].update(total=17, truncated=True, rows=[
+                {**row, 'native_ordinal': i, 'key_sha256': f'{i:064x}'} for i in range(16)])
+            self.assertEqual(decode(value), value)
+            value['missing']['rows'][1]['native_ordinal'] = 0
+            self.assertEqual(decode(value)['site'], 'UNKNOWN')
+            value['missing']['rows'][1]['native_ordinal'] = 1
+            value['missing']['rows'][1]['key_sha256'] = value['missing']['rows'][0]['key_sha256']
+            self.assertEqual(decode(value)['site'], 'UNKNOWN')
+
     def test_actual_node_command_distinguishes_read_failure_and_exact_comparison_without_stderr(self):
         def object_sql(name,schema,body):
             return f'-- Name: {name}; Type: FUNCTION; Schema: {schema}; Owner: postgres\n--\n\n{body}\n\n'
         managed=''.join(object_sql(name,'auth','SELECT NULL::text;') for name in ['email()','jwt()','role()','uid()'])
         managed+=''.join(object_sql(name,'cron','SELECT NULL::text;') for name in ['schedule(text)','unschedule(bigint)','alter_job(bigint)'])
-        for phase in ['input-read','compose','success']:
+        for phase in ['input-read','compose','missing','success']:
             with self.subTest(phase=phase),tempfile.TemporaryDirectory() as folder:
                 root=Path(folder);candidate=root/'candidate';candidate.mkdir();temp=root/'temp';temp.mkdir()
                 if phase!='input-read': (candidate/'schema.sql').write_text(managed)
                 (temp/'service-schema.sql').write_text(managed.replace('SELECT NULL::text;','SELECT \'private_schema_literal\'::text;',1) if phase=='compose' else managed)
+                if phase == 'missing':
+                    with (temp/'service-schema.sql').open('a') as stream:
+                        stream.write(object_sql('private_missing()', 'auth', "SELECT 'private_schema_literal';"))
                 report={'stage':'exact-service-composition'}
                 if phase=='success':
                     with self.assertRaises(RuntimeError):MODULE.compose_private_schema(ROOT,candidate,temp,{'stage':'other'})
@@ -369,12 +408,17 @@ class CompositionFailureDiagnostics(unittest.TestCase):
                     self.assertTrue((temp/'composed.sql').is_file())
                 else:
                     with self.assertRaises(RuntimeError):MODULE.compose_private_schema(ROOT,candidate,temp,report)
-                    expected='NATIVE_BLOCK_DIFFERENT' if phase=='compose' else 'UNKNOWN'
-                    self.assertEqual(report['composition_failure']['phase'],phase)
+                    expected='NATIVE_BLOCK_DIFFERENT' if phase=='compose' else 'NATIVE_OBJECT_MISSING' if phase=='missing' else 'UNKNOWN'
+                    self.assertEqual(report['composition_failure']['phase'],'compose' if phase=='missing' else phase)
                     self.assertEqual(report['composition_failure']['site'],expected)
                     if phase == 'compose':
                         self.assertEqual(report['composition_failure']['mismatch']['total'], 1)
                         self.assertEqual(report['composition_failure']['mismatch']['rows'][0]['schema'], 'auth')
+                    if phase == 'missing':
+                        self.assertEqual(report['composition_failure']['missing']['total'], 1)
+                        self.assertEqual(report['composition_failure']['missing']['rows'][0]['native_ordinal'], 7)
+                        self.assertNotIn('mismatch', report['composition_failure'])
+                    self.assertNotIn('private_missing',json.dumps(report))
                     self.assertNotIn('private_schema_literal',json.dumps(report))
                     self.assertEqual((temp/'composition-failure.json').stat().st_mode & 0o777,0o600)
                     self.assertFalse((temp/'composed.sql').exists())

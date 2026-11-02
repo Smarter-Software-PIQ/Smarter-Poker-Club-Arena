@@ -807,8 +807,8 @@ database. The stock seed retains its original release entrypoint and native SQL.
 Its child first asserts the already loaded Realtime.Repo control database, then
 sets only that child's DB_NAME to the application database while the unchanged
 seed derives its tenant target. Repository configuration stays fixed; the child
-restores its environment before exiting. The exact82 application migration ledger,
-message-column contract and genuine control tenant82 witness are checked through
+restores its environment before exiting. The exact83 application migration ledger,
+message-column contract and genuine control tenant83 witness are checked through
 separate bounded owned connections. Actual causal Realtime, RLS and peer refusals
 remain required. All control proof clients close before unchanged cluster-wide
 preimage quiescence; schema export still selects every application schema.

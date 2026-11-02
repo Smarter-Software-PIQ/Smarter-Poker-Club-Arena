@@ -35,6 +35,11 @@ export function schemaCompositionMismatchWitness(error) {
   const witness = failureSites.get(error).witness;
   return witness ? structuredClone(witness) : null;
 }
+export function schemaCompositionMissingWitness(error) {
+  if (schemaCompositionFailureSite(error) !== 'NATIVE_OBJECT_MISSING') return null;
+  const witness = failureSites.get(error).witness;
+  return witness ? structuredClone(witness) : null;
+}
 const refused = (site, witness = null) => {
   throw markFailure(new Error('SCHEMA_COMPOSITION_PREIMAGE_REQUIRED'), site, witness);
 };
@@ -80,6 +85,23 @@ function mismatchWitness(service, source) {
       captured_bytes: a.length,
       native_bytes: b.length,
       first_difference: offset,
+    });
+  }
+  return { version: 1, total, truncated: total > rows.length, rows };
+}
+// No captured counterpart exists for these keys: never invent its hash, size or owner.
+function missingWitness(service, source) {
+  const rows = [];
+  let total = 0;
+  for (const [ordinal, item] of service.objects.entries()) {
+    if (source.has(item.key)) continue;
+    total++;
+    if (rows.length === 16) continue;
+    rows.push({
+      native_ordinal: ordinal,
+      key_sha256: schemaHash(item.key),
+      object_type: witnessTypes.has(item.type) ? item.type : 'OTHER',
+      schema: witnessSchemas.has(item.schema) ? item.schema : 'OTHER',
     });
   }
   return { version: 1, total, truncated: total > rows.length, rows };
@@ -194,7 +216,7 @@ export function composeSchema(capture, serviceDump) {
     const expected = source.get(item.key);
     if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256)
       refused(!expected ? 'NATIVE_OBJECT_MISSING' : expected.owner !== item.owner ? 'NATIVE_OWNER_DIFFERENT' : 'NATIVE_BLOCK_DIFFERENT',
-        expected && expected.owner === item.owner ? mismatchWitness(service, source) : null);
+        !expected ? missingWitness(service, source) : expected.owner === item.owner ? mismatchWitness(service, source) : null);
   }
   const removed = [], retained = [], applicationHooks = [];
   let sql = original.prefix;
