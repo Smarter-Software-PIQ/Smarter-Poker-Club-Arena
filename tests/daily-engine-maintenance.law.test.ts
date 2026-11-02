@@ -1733,11 +1733,26 @@ it('binds the owner-ordered fresh-engine crash-boundary window without renewing 
     expect(entry.ownerOrder).toContain(boundary);
 });
 
+/**
+ * The owner-window file as the database-window tests below pinned it: engine
+ * windows appended to `windows` AFTER those database entries are each bound
+ * by their own test, so they are removed here and every protected byte the
+ * database tests hash is still compared exactly.
+ */
+const LATER_ENGINE_WINDOWS = ['2026-11-02-fresh-engine-window-after-seal-unbrick'];
+function windowsBeforeLaterEngineWindows(): string {
+  let raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  for (const id of LATER_ENGINE_WINDOWS) {
+    const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
+    if (start < 0) continue;
+    const end = raw.indexOf('\n  ],\n  "databaseWindows":', start);
+    raw = raw.slice(0, start) + raw.slice(end);
+  }
+  return raw;
+}
+
 it('appends only the Attention14 database carrier and preserves every protected authorization byte', () => {
-  const currentRaw = readFileSync(
-    join(root, 'server/release/owner-maintenance-windows.json'),
-    'utf8'
-  );
+  const currentRaw = windowsBeforeLaterEngineWindows();
   // The separate pair test below proves this exact later tail alone is new.
   const pairStart = currentRaw.indexOf(
     ',\n    {\n      "id": "2026-11-01-attention14-two-sql-database-operation"'
@@ -1764,10 +1779,7 @@ it('appends only the Attention14 database carrier and preserves every protected 
 });
 
 it('adds only the exact bounded Attention14 database pair after the protected false-only carrier', () => {
-  const currentRaw = readFileSync(
-    join(root, 'server/release/owner-maintenance-windows.json'),
-    'utf8'
-  );
+  const currentRaw = windowsBeforeLaterEngineWindows();
   // The new continuation's own proof below verifies this later tail alone.
   const continuationStart = currentRaw.indexOf(
     ',\n    {\n      "id": "2026-11-02-attention14-two-migration-continuation"'
@@ -1798,7 +1810,7 @@ it('adds only the exact bounded Attention14 database pair after the protected fa
 });
 
 it('appends only the November2 join-only continuation without changing protected authorization bytes', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = windowsBeforeLaterEngineWindows();
   const id = '2026-11-02-attention14-two-migration-continuation';
   const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
   expect(start).toBeGreaterThan(0);
@@ -1814,4 +1826,79 @@ it('appends only the November2 join-only continuation without changing protected
   expect(after.databaseWindows.at(-1).ownerOrder).toContain(
     'Resolve the engine census blocker, install all three migrations, and finish settlement. Use the swarm and keep the consolidation chat read-only. Do not stop at another status report or claim success until all 14 are verified complete.'
   );
+});
+
+it('binds the owner-ordered fresh-engine window re-armed after the seal unbrick without renewing any historical window', () => {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const doc = JSON.parse(raw);
+  const id = '2026-11-02-fresh-engine-window-after-seal-unbrick';
+  const entry = doc.windows.find((w: { id: string }) => w.id === id);
+  expect(doc.windows.filter((w: { id: string }) => w.id === id)).toHaveLength(1);
+  expect(doc.windows[73]).toEqual(entry);
+  // Requires the routine-cycle seal unbrick (#9244) in the release.
+  expect(entry.contains).toBe('cbdd648cafdd719c9f420b02aeda14ae5e732abd');
+  expect(entry.withinSecondsOfEngineStart).toBe(240);
+  expect(entry.announceAtChicagoMinutes).toBeUndefined();
+  expect(entry.migrations).toEqual([]);
+  expect(entry.notBefore).toBe('2026-11-02T04:15:00Z');
+  expect(entry.notAfter).toBe('2026-11-02T09:25:00Z');
+  const span = Date.parse(entry.notAfter) - Date.parse(entry.notBefore);
+  expect(span).toBeLessThanOrEqual(21_600_000);
+  // Starts after the previous fresh-engine window expired and never reaches the 2026-11-02 daily window.
+  expect(Date.parse(entry.notBefore)).toBeGreaterThan(Date.parse('2026-11-02T00:40:00Z'));
+  expect(Date.parse(entry.notAfter)).toBeLessThan(Date.parse('2026-11-02T09:30:00Z'));
+  const expectedFloor = Buffer.from(
+    JSON.stringify(
+      {
+        schema: 'engine-release-activation-floor/v2-owner-window',
+        preparationAt: entry.notBefore,
+        activationAt: entry.notBefore,
+        expiresAt: entry.notAfter,
+        timeZone: 'America/Chicago',
+        ownerWindowId: id,
+        clientPublicationAt: entry.notBefore,
+      },
+      null,
+      2
+    ) + '\n'
+  );
+  expect(entry.releaseWitness).toEqual({
+    path: 'server/release/activation-floor.json',
+    sha256: createHash('sha256').update(expectedFloor).digest('hex'),
+  });
+  const selected = readFileSync(join(root, 'server/release/activation-floor.json'));
+  if (JSON.parse(selected.toString()).ownerWindowId === id) expect(selected).toEqual(expectedFloor);
+  const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
+  const end = raw.indexOf('\n  ],\n  "databaseWindows":', start);
+  expect(start).toBeGreaterThan(0);
+  // Every byte outside this entry is exactly the file #9180 (and the later database windows) left.
+  const historical = raw.slice(0, start) + raw.slice(end);
+  const prior = raw.indexOf(',\n    {\n      "id": "2026-11-01-fresh-engine-crash-boundary"');
+  expect(prior).toBeGreaterThan(0);
+  expect(
+    createHash('sha256')
+      .update(
+        historical.slice(0, prior) +
+          historical.slice(historical.indexOf('\n  ],\n  "databaseWindows":', prior))
+      )
+      .digest('hex')
+  ).toBe('27c210a3ef33243adbe2051e13da4ced25bb3f7b134c59e705a7642895fc7c32');
+  for (const boundary of [
+    'FIX ANY AND ALL BLOCKERS NOW AND FINISH THIS UP, PUSH AND PUBLISH EVERYTHING',
+    'no, do it now, not at 5:30',
+    'complete the task in full',
+    'NEW owner-ordered window',
+    'first 240 seconds after eed06fe5 starts',
+    'agent-selected',
+    'cbdd648caf',
+    'Diamond remains closed',
+    'ONE actual activation',
+    '120s',
+    '300s',
+    '285s',
+    '245s',
+    '135s',
+    '40s',
+  ])
+    expect(entry.ownerOrder).toContain(boundary);
 });
