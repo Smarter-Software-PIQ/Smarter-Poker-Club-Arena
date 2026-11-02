@@ -270,7 +270,7 @@ export function composeSchema(capture, serviceDump) {
       refused(!expected ? 'NATIVE_OBJECT_MISSING' : expected.owner !== item.owner ? 'NATIVE_OWNER_DIFFERENT' : 'NATIVE_BLOCK_DIFFERENT',
         !expected ? missingWitness(service, source) : expected.owner === item.owner ? mismatchWitness(service, source) : null);
   }
-  const removed = [], retained = [], applicationHooks = [], applicationPolicies = [];
+  const removed = [], retained = [], applicationHooks = [], applicationPolicies = [], sequenceDefaults = [];
   let sql = original.prefix;
   for (const item of original.objects) {
     let applicationHook, applicationPolicy;
@@ -284,14 +284,24 @@ export function composeSchema(capture, serviceDump) {
     }
     if (applicationHook && native.has(item.key)) refused('APPLICATION_HOOK_IN_NATIVE');
     if (applicationPolicy && native.has(item.key)) refused('APPLICATION_POLICY_IN_NATIVE');
-    const managed = !applicationHook && !applicationPolicy && (managedObject(item) || native.has(item.key));
+    const sequenceDefault = item.type === 'DEFAULT ACL' && item.name === 'DEFAULT PRIVILEGES FOR SEQUENCES';
+    const managed = !applicationHook && !applicationPolicy && (sequenceDefault || managedObject(item) || native.has(item.key));
     if (managed) {
       const expected = native.get(item.key);
       if (!expected || expected.owner !== item.owner || expected.sha256 !== item.sha256)
         refused(!expected ? 'MANAGED_OBJECT_MISSING' : expected.owner !== item.owner ? 'MANAGED_OWNER_DIFFERENT' : 'MANAGED_BLOCK_DIFFERENT',
           !expected ? managedMissingWitness(original, native) : null);
-      sql += item.parts.filter((part) => part.stream).map((part) => part.text).join('');
-      removed.push({ key: item.key, sha256: item.sha256 });
+      if (sequenceDefault) {
+        // Reapply this exact original block at its original late dump position.
+        // Identity sequences use their table owner's defaults even under a
+        // defaultless restore creator, so these defaults must be deferred.
+        sql += item.parts.map((part) => part.text).join('');
+        const binding = {key: item.key, sha256: item.sha256};
+        retained.push(binding); sequenceDefaults.push(binding);
+      } else {
+        sql += item.parts.filter((part) => part.stream).map((part) => part.text).join('');
+        removed.push({ key: item.key, sha256: item.sha256 });
+      }
     } else {
       sql += item.parts.map((part) => part.text).join('');
       retained.push({ key: item.key, sha256: item.sha256 });
@@ -308,7 +318,7 @@ export function composeSchema(capture, serviceDump) {
     sql: sql + original.footer,
     manifest: { version: 1, scope: 'exact-native-service-schema-composition',
       original_sha256: schemaHash(capture), native_preimage_sha256: schemaHash(serviceDump),
-      composed_sha256: schemaHash(sql + original.footer), removed, retained, application_hooks: applicationHooks, application_policies: applicationPolicies,
+      composed_sha256: schemaHash(sql + original.footer), removed, retained, deferred_sequence_default_acls: sequenceDefaults, application_hooks: applicationHooks, application_policies: applicationPolicies,
       current_database_contract_ready: false, reason: 'native-restore-and-catalogue-parity-not-yet-observed' },
   };
 }
