@@ -26,6 +26,8 @@ patches = list(MIGRATIONS.glob('*_stall_progress_requires_a_recorded_hand.sql'))
 assert len(patches) == 1, patches
 sustained = list(MIGRATIONS.glob('*_stall_recovery_needs_sustained_dealing.sql'))
 assert len(sustained) == 1, sustained
+complete = list(MIGRATIONS.glob('*_stall_recovery_requires_complete_telemetry.sql'))
+assert len(complete) == 1, complete
 
 with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPDIR')) as scratch:
     scratch = Path(scratch)
@@ -125,6 +127,66 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
         # A single completed hand is progress, but cannot certify continued dealing.
         # Exercise the same maintained ingest entry point, not a mirrored predicate.
         sql(sustained[0].read_text())
+        seed()
+        sql(f"INSERT INTO hand_history VALUES('{hand}','{table}','2026-11-01T13:10:20Z'),('44444444-4444-4444-8444-444444444444','{table}','2026-11-01T13:10:50Z');")
+        sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+metrics.replace('poker_maintenance_break_active 0','poker_maintenance_break_active 1')+"$metrics$, '"+now+"',60000);")
+        assert state()['status'] == 'resolved', 'maintenance counterfactual no longer reproduces'
+        results.append('before telemetry fix: maintenance disappearance falsely resolves sustained episode')
+        seed()
+        sql(f"INSERT INTO hand_history VALUES('{hand}','{table}','2026-11-01T13:10:20Z'),('44444444-4444-4444-8444-444444444444','{table}','2026-11-01T13:10:50Z');")
+        sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+metrics.replace('poker_uptime_seconds 1000\n','')+"$metrics$, '"+now+"',60000);")
+        assert state()['status'] == 'resolved', 'incomplete-telemetry counterfactual no longer reproduces'
+        results.append('before telemetry fix: missing uptime falsely resolves sustained episode')
+        metadata_query = "SELECT jsonb_build_object('owner',proowner,'acl',proacl,'definer',prosecdef,'config',proconfig) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;"
+        original_metadata = sql(metadata_query)
+        sql(complete[0].read_text())
+        assert sql(metadata_query) == original_metadata, 'source correction changed authorization or search path'
+        results.append('final source: owner, ACL, definer and search path remain unchanged')
+        for case, hand_table, times, detection, observation in [
+            ('absent table',table,[],detected,now),
+            ('foreign hands',foreign,['2026-11-01T13:10:20Z','2026-11-01T13:10:50Z'],detected,now),
+            ('old hands',table,['2026-11-01T13:09:20Z','2026-11-01T13:09:50Z'],detected,now),
+            ('future hands',table,['2026-11-01T13:11:01Z','2026-11-01T13:11:02Z'],detected,now),
+            ('missing detection',table,['2026-11-01T13:10:20Z','2026-11-01T13:10:50Z'],'',now),
+            ('malformed detection',table,['2026-11-01T13:10:20Z','2026-11-01T13:10:50Z'],'not-a-date',now),
+            ('exact stale boundary',table,['2026-11-01T13:10:20Z','2026-11-01T13:10:50Z'],detected,'2026-11-01T13:11:50Z'),
+        ]:
+            seed(detection)
+            for index, at in enumerate(times):
+                sql(f"INSERT INTO hand_history VALUES('33333333-3333-4333-8333-{index+1:012d}','{hand_table}','{at}');")
+            sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+metrics+"$metrics$, '"+observation+"',60000);")
+            assert state()['status'] == 'firing' and state()['watch_count'] == 1, (case,state())
+            assert 'progress_hand_id' not in state()['payload'], (case,state())
+            results.append('final evidence: '+case+' preserves original episode')
+        # Audit the final installed transition, not only its single-hand predecessor.
+        for case, changed_metrics in [
+            ('missing uptime', metrics.replace('poker_uptime_seconds 1000\n', '')),
+            ('missing instance', metrics.replace('poker_engine_info{instance_id="fixture"} 1\n', '')),
+            ('missing active count', metrics.replace('poker_active_tables 1\n', '')),
+            ('missing maintenance state', metrics.replace('poker_maintenance_break_active 0\n', '')),
+            ('malformed stalled count', metrics.replace('poker_fleet_tables_stalled 0', 'poker_fleet_tables_stalled unknown')),
+            ('malformed uptime', metrics.replace('poker_uptime_seconds 1000', 'poker_uptime_seconds 1.2.3')),
+            ('duplicate uptime', metrics+'poker_uptime_seconds 900\n'),
+            ('duplicate maintenance state', metrics+'poker_maintenance_break_active 1\n'),
+            ('overflowed active count', metrics.replace('poker_active_tables 1','poker_active_tables 2147483648')),
+        ]:
+            seed()
+            sql(f"INSERT INTO hand_history VALUES('{hand}','{table}','2026-11-01T13:10:20Z'),('44444444-4444-4444-8444-444444444444','{table}','2026-11-01T13:10:50Z');")
+            sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+changed_metrics+"$metrics$, '"+now+"',60000);")
+            assert state()['status'] == 'firing' and state()['watch_count'] == 1, (case,state())
+            assert 'recovery' in sql('SELECT last_error FROM smarter_private.ca_table_stall_watch_state;'), case
+            results.append('final telemetry: '+case+' cannot certify recovery')
+        for case, changed_metrics in [
+            ('standby', metrics.replace('poker_active_tables 1','poker_active_tables 0')),
+            ('boot', metrics.replace('poker_uptime_seconds 1000','poker_uptime_seconds 10')),
+            ('truncated sample', metrics.replace('poker_fleet_tables_stalled 0','poker_fleet_tables_stalled 2')),
+            ('maintenance', metrics.replace('poker_maintenance_break_active 0','poker_maintenance_break_active 1')),
+        ]:
+            seed()
+            sql(f"INSERT INTO hand_history VALUES('{hand}','{table}','2026-11-01T13:10:20Z'),('44444444-4444-4444-8444-444444444444','{table}','2026-11-01T13:10:50Z');")
+            sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+changed_metrics+"$metrics$, '"+now+"',60000);")
+            assert state()['status'] == 'firing' and state()['watch_count'] == 1, (case,state())
+            results.append('final observation: '+case+' cannot certify recovery')
         for case, times in [
             ('one hand only', ['2026-11-01T13:10:30Z']),
             ('two stale hands', ['2026-11-01T13:10:01Z', '2026-11-01T13:10:02Z']),
@@ -161,16 +223,21 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
         sql('''CREATE FUNCTION public.fn_ca_table_stall_facts(uuid,uuid[],timestamptz)
           RETURNS jsonb LANGUAGE sql AS $$ SELECT '{"people_waiting":true}'::jsonb $$;
         CREATE FUNCTION public.fn_ca_table_stall_decide(jsonb,bigint,timestamptz,boolean,boolean)
-          RETURNS text LANGUAGE sql AS $$ SELECT 'tournament_break'::text $$;''')
-        seed()
+          RETURNS text LANGUAGE sql AS $$ SELECT current_setting('fixture.wait_reason',true) $$;''')
         waiting_metrics = metrics + f'poker_table_ms_since_progress{{table_id="{table}",paused="1"}} 600000\n'
-        sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+waiting_metrics+"$metrics$, '"+now+"',60000);")
-        actual = state()
-        assert actual['status'] == 'firing' and actual['watch_count'] == 1, actual
-        assert actual['payload']['intended_wait_reason'] == 'tournament_break', actual
-        assert actual['payload']['root_cause_verified'] is False, actual
-        assert sql('SELECT alert_id FROM smarter_private.ca_table_stall_watch;') == '1'
-        results.append('sustained: intended wait preserves firing status, identity and watch')
+        for reason in ['tournament_break','engine_paused','diamond_arena_closed','stop_requested','waiting_on_other_tables','maintenance_break']:
+            seed()
+            observe = "SELECT set_config('fixture.wait_reason','"+reason+"',false); SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+waiting_metrics+"$metrics$, '"+now+"',60000);"
+            sql(observe)
+            actual = state()
+            assert actual['status'] == 'firing' and actual['watch_count'] == 1, actual
+            assert actual['payload']['intended_wait_reason'] == reason, actual
+            assert actual['payload']['root_cause_verified'] is False, actual
+            assert sql('SELECT alert_id FROM smarter_private.ca_table_stall_watch;') == '1'
+            sql("UPDATE smarter_private.ca_table_stall_watch_state SET last_uptime_s=NULL;")
+            sql(observe.replace(now,'2026-11-01T13:11:10Z'))
+            assert state() == actual, 'duplicate wait rewrote the original episode'
+            results.append('final wait: '+reason+' retains identity and duplicate receipt')
         before = sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;")
         try:
             sql(sustained[0].read_text())
@@ -179,7 +246,16 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
             assert 'missing original' in error.stderr, error.stderr
         assert sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;") == before
         results.append('sustained: replay refuses atomically without changing installed source')
-        print(json.dumps({'status':'passed','checks':results,'postgres':run([pg_bin/'postgres','--version']).strip()}))
+        try:
+            sql(complete[0].read_text())
+            raise AssertionError('unexpected telemetry migration replay')
+        except subprocess.CalledProcessError as error:
+            assert 'expected exactly one qualified' in error.stderr, error.stderr
+        assert sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;") == before
+        results.append('final telemetry: migration replay refuses atomically')
+        print(json.dumps({'status':'passed','checks':results,'check_count':len(results),
+                          'ingest_source_md5':sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;"),
+                          'postgres':run([pg_bin/'postgres','--version']).strip()}))
     finally:
         if started:
             run([pg_bin/'pg_ctl','-D',data,'-m','immediate','-w','stop'])
