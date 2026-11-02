@@ -1053,6 +1053,78 @@ def INVOCATION_PATTERN(value):
     return isinstance(value, str) and re.fullmatch(r'[0-9a-f]{32}', value) is not None
 
 
+
+def current26_kernel_identity(pid, container, receipt_ms):
+    """Positive live PID1 incarnation; never infer death from a health timestamp."""
+    require(type(pid) is int and pid > 1 and re.fullmatch('[0-9a-f]{64}', container))
+    root = PROC / str(pid)
+    raw = (root / 'stat').read_bytes()
+    prefix, separator, tail = raw.rpartition(b')')
+    fields = tail.split()
+    require(separator and prefix.startswith(str(pid).encode() + b' (') and len(fields) >= 20
+            and fields[0] in {b'R', b'S', b'D', b'I'} and fields[19].isdigit())
+    starts = int(fields[19])
+    births = [line.split()[1] for line in (PROC / 'stat').read_text().splitlines() if line.startswith('btime ')]
+    ticks = os.sysconf('SC_CLK_TCK')
+    require(len(births) == 1 and births[0].isdigit() and type(ticks) is int and ticks > 0)
+    birth = int(births[0]) + starts / ticks
+    require(receipt_ms < birth * 1000 <= time.time() * 1000)
+    rows = [line.split()[1:] for line in (root / 'status').read_text().splitlines() if line.startswith('NSpid:')]
+    require(len(rows) == 1 and len(rows[0]) >= 2 and all(value.isdigit() for value in rows[0])
+            and int(rows[0][0]) == pid and int(rows[0][-1]) == 1)
+    namespace = os.readlink(root / 'ns/pid')
+    require(re.fullmatch(r'pid:\[[1-9][0-9]*\]', namespace))
+    groups = (root / 'cgroup').read_text().splitlines()
+    require(len(groups) == 1 and groups[0].startswith('0::/'))
+    group = groups[0][3:]
+    require('..' not in group.split('/') and
+            ('docker-' + container + '.scope' in group.split('/') or group == '/docker/' + container))
+    return {'pid': pid, 'startTicks': starts, 'bootTime': int(births[0]),
+            'namespace': namespace, 'namespacePids': rows[0], 'cgroup': group}
+
+
+def current26_cancelled_runtime(request, receipt):
+    """Revalidate this cancelled original after a natural same-container restart.
+
+    Historical receipt/intent bytes are untouched. A new live PID1 in the same
+    Docker container's newer incarnation proves the old runtime ended. This is
+    read-only custody evidence, never cancellation replay or restart authority.
+    """
+    require(request['runKey'] == CURRENT26_RUN)
+    live = container_identity(request)
+    if live == receipt['container']:
+        health_pair(request)
+        return {'request': request, 'container': live, 'process': None}
+    old = receipt['container']
+    observed = time_ms(receipt['observedAt'])
+    require(live['id'] == old['id'] and live['image'] == old['image'] ==
+            'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+            and time_ms(old['startedAt']) < observed < time_ms(live['startedAt']) <= time.time() * 1000)
+    template = ('{"id":{{json .Id}},"startedAt":{{json .State.StartedAt}},'
+                '"running":{{json .State.Running}},"image":{{json .Image}},'
+                '"pid":{{json .State.Pid}},"status":{{json .State.Status}}}')
+    def native():
+        value = json.loads(command(['docker', 'container', 'inspect', '--format', template, 'club-arena-engine']))
+        require(set(value) == {'id','startedAt','running','image','pid','status'}
+                and value['running'] is True and value['status'] == 'running'
+                and {key: value[key] for key in ('id','startedAt','image')} == live
+                and type(value['pid']) is int and value['pid'] > 1)
+        return value
+    initial = native()
+    process = current26_kernel_identity(initial['pid'], live['id'], observed)
+    url = 'http://127.0.0.1:8080/health'
+    with urllib.request.urlopen(url + '?withdraw=' + str(time.time_ns()), timeout=5) as response:
+        require(response.geturl().split('?', 1)[0] == url)
+        raw = response.read(65537); require(len(raw) <= 65536)
+        value = json.loads(raw)
+    instance = value.get('instanceId')
+    require(isinstance(instance, str) and INSTANCE.fullmatch(instance) and instance != request['instanceId'])
+    current = request | {'instanceId': instance}
+    healthy(value, current); health_pair(current)
+    require(native() == initial and current26_kernel_identity(initial['pid'], live['id'], observed) == process
+            and container_identity(current) == live)
+    return {'request': current, 'container': live, 'process': process}
+
 def phase1_cancellation_proof():
     """Read-only final evidence consumed by the owning sealed transaction.
 
@@ -1098,18 +1170,27 @@ def phase1_cancellation_proof():
     for unit in units:
         require(not os.path.lexists(own_wants_edge(unit)))
     quiet_units(units, receipt['originalControlGroup'], True, receipt['unitCgroups'])
-    require(container_identity(request) == receipt['container']); health_pair(request)
+    runtime = None
+    if PHASE1_RUN == CURRENT26_RUN:
+        runtime = current26_cancelled_runtime(request, receipt)
+    else:
+        require(container_identity(request) == receipt['container']); health_pair(request)
     thaw = own_thaw(PHASE1_STAMP, PHASE1_CONTROL)
     require(thaw == evidence['thaw'])
-    phase1_runtime_birth(request, receipt['container'], thaw)
+    phase1_runtime_birth(runtime['request'] if runtime else request,
+                         runtime['container'] if runtime else receipt['container'], thaw)
     cycle = phase1_seal_evidence(generation)
     quiet_units(units, receipt['originalControlGroup'], True, receipt['unitCgroups'])
-    require(container_identity(request) == receipt['container'])
+    if runtime:
+        require(current26_cancelled_runtime(request, receipt) == runtime)
+    else:
+        require(container_identity(request) == receipt['container'])
     for name, raw in records.items(): require(regular(directory / (PHASE1_RUN + '.' + name + '.json'), 0o600) == raw)
     return {'schema': 'cancelled-routine-announcement-proof/v1', 'originalCycle': cycle,
             'recordHashes': {name: digest(raw.encode()) for name, raw in records.items()},
             'retainedHashes': {name: evidence[name] for name in retained}, 'sourceHashes': PHASE1_HASHES,
-            'thaw': thaw, 'container': receipt['container'], 'instanceId': request['instanceId']}
+            'thaw': thaw, 'container': runtime['container'] if runtime else receipt['container'],
+            'instanceId': runtime['request']['instanceId'] if runtime else request['instanceId']}
 
 
 
