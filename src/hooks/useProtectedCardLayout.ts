@@ -663,24 +663,98 @@ export function useProtectedCardLayout(
       // image metadata resolves from the shared cache on the next microtask.
       // Keep existing slots until that explicit read completes; substituting
       // raw transparent image squares here would falsely evict those slots.
-      // Observers and terminal metadata failures retain the baseline placer.
-      if (page.getAttribute('data-hero') === 'true' && artwork.awaitingMetadata()) return;
+      // Observers normalize the same artwork too. Do not run their marker
+      // search against temporary raw-image bounds before metadata rebases them.
+      // A terminal metadata failure still releases the baseline placer.
+      if (artwork.awaitingMetadata() || artwork.awaitingInitialLayout()) return;
+      // This synchronous transaction changes only chair/caption translation.
+      // Project each already normalized portrait from one permanent snapshot
+      // instead of walking its CSS transform chain for every trial candidate.
+      const permanentBoxes = new WeakMap<
+        HTMLElement,
+        {
+          seat: HTMLElement;
+          at: DOMRect;
+          box: DOMRect;
+          width: number;
+          height: number;
+          scale: number;
+        }
+      >();
+      const measurePermanentBox = (image: HTMLElement, ratio: number): DOMRect => {
+        const seat = image.closest<HTMLElement>('.seat');
+        if (!seat) return restingAvatarBox(image, ratio);
+        const at = seat.getBoundingClientRect();
+        const prior = permanentBoxes.get(image);
+        if (
+          prior &&
+          prior.seat === seat &&
+          prior.scale === ratio &&
+          prior.at.width === at.width &&
+          prior.at.height === at.height &&
+          prior.width === image.offsetWidth &&
+          prior.height === image.offsetHeight
+        ) {
+          const dx = at.left - prior.at.left,
+            dy = at.top - prior.at.top;
+          return !dx && !dy
+            ? prior.box
+            : new DOMRect(
+                prior.box.left + dx,
+                prior.box.top + dy,
+                prior.box.width,
+                prior.box.height
+              );
+        }
+        const box = restingAvatarBox(image, ratio);
+        permanentBoxes.set(image, {
+          seat,
+          at,
+          box,
+          width: image.offsetWidth,
+          height: image.offsetHeight,
+          scale: ratio,
+        });
+        return box;
+      };
       const boxSources = new WeakMap<CardBox, Element>();
       const paintedSources = new WeakMap<CardBox, HTMLImageElement>();
       const paintedTests = new WeakMap<CardBox, (target: CardBox, gap?: number) => boolean>();
       const visibleBox = (element: Element): CardBox | null => {
+        const rest =
+          element instanceof HTMLElement &&
+          element.matches('.seat__avatar-img,.seat__position-badge')
+            ? measurePermanentBox(element, scale)
+            : undefined;
         const box =
           element instanceof HTMLImageElement && element.matches('.seat__avatar-img')
-            ? (artwork.paintedBox(element, true) ?? restingAvatarBox(element, scale))
+            ? (artwork.paintedBox(element, true, rest) ?? rest!)
             : element instanceof HTMLElement && element.matches('.seat__position-badge')
-              ? restingAvatarBox(element, scale)
+              ? measurePermanentBox(element, scale)
               : element.getBoundingClientRect();
         boxSources.set(box, element);
         if (element instanceof HTMLImageElement && element.matches('.seat__avatar-img')) {
           paintedSources.set(box, element);
-          paintedTests.set(box, artwork.preparePaintedTouch(element, true));
+          paintedTests.set(box, artwork.preparePaintedTouch(element, true, rest));
         }
         return box.width > 0 && box.height > 0 ? box : null;
+      };
+      // DOMRect fields are native accessors. Keep source-box identity and
+      // candidate construction intact, but read immutable obstacle numbers
+      // once per transaction for the inner collision loop.
+      const collisionBoxes = new WeakMap<CardBox, CardBox>();
+      const collisionBox = (obstacle: CardBox): CardBox => {
+        let numeric = collisionBoxes.get(obstacle);
+        if (!numeric) {
+          numeric = {
+            left: obstacle.left,
+            top: obstacle.top,
+            width: obstacle.width,
+            height: obstacle.height,
+          };
+          collisionBoxes.set(obstacle, numeric);
+        }
+        return numeric;
       };
       const markerTouches = (candidate: CardBox, obstacle: CardBox) => {
         const image = paintedSources.get(obstacle);
@@ -688,7 +762,7 @@ export function useProtectedCardLayout(
           ? // The prepared paint already contains the complete idle sweep.
             // Keep half a layout pixel of air without adding that breath twice.
             paintedTests.get(obstacle)!(candidate, 0.5)
-          : wagerBoxesOverlap(candidate, obstacle);
+          : wagerBoxesOverlap(candidate, collisionBox(obstacle));
       };
       // 2026-10-24: every portrait viewport up to 768px, not only phones up to
       // 480. Above 480 the desktop order placed the shown hands AFTER the
@@ -865,7 +939,7 @@ export function useProtectedCardLayout(
           .map((element) => {
             const r =
               element instanceof HTMLImageElement
-                ? restingAvatarBox(element, scale)
+                ? measurePermanentBox(element, scale)
                 : element.getBoundingClientRect();
             return {
               x: r.left + r.width / 2,
@@ -981,7 +1055,9 @@ export function useProtectedCardLayout(
             ? initialPlayerCentres
             : Array.from(page.querySelectorAll('.seat-wrapper')).map((wrapper) => {
                 const image = wrapper.querySelector<HTMLImageElement>('.seat__avatar-img');
-                const r = image ? restingAvatarBox(image, scale) : wrapper.getBoundingClientRect();
+                const r = image
+                  ? measurePermanentBox(image, scale)
+                  : wrapper.getBoundingClientRect();
                 return {
                   x: r.left + r.width / 2,
                   y: r.top + r.height / 2,
@@ -994,7 +1070,7 @@ export function useProtectedCardLayout(
               const ownerImage = bet
                 .closest('.seat-wrapper')
                 ?.querySelector<HTMLImageElement>('.seat__avatar-img');
-              const owner = ownerImage ? restingAvatarBox(ownerImage, scale) : null;
+              const owner = ownerImage ? measurePermanentBox(ownerImage, scale) : null;
               if (!box || !owner) return [];
               const stored = settled.current.wagers.get(bet);
               const ownerMotion =
@@ -1228,12 +1304,12 @@ export function useProtectedCardLayout(
               const nearest = [...clearOfTable].sort(byCost);
               const owned = nearest.filter(ownedBy);
               const overPrinting = eligible
+                .filter(ownedBy)
                 .filter(
                   (candidate) =>
                     !hardObstacles.some((obstacle) => markerTouches(candidate, obstacle))
                 )
-                .sort(byCost)
-                .filter(ownedBy);
+                .sort(byCost);
               return [
                 {
                   bet,
@@ -1425,12 +1501,12 @@ export function useProtectedCardLayout(
                 )
               )
                 return false;
-              const mine = restingAvatarBox(image, scale);
+              const mine = measurePermanentBox(image, scale);
               const centre = { x: mine.left + mine.width / 2, y: mine.top + mine.height / 2 };
               const motion = 1.5 * scale + 0.008 * Math.max(mine.width, mine.height) + 0.5 * scale;
               const others = Array.from(page.querySelectorAll('.seat-wrapper')).map((wrapper) => {
                 const art = wrapper.querySelector<HTMLImageElement>('.seat__avatar-img');
-                const r = art ? restingAvatarBox(art, scale) : wrapper.getBoundingClientRect();
+                const r = art ? measurePermanentBox(art, scale) : wrapper.getBoundingClientRect();
                 return {
                   same: art === image,
                   seat: art?.closest<HTMLElement>('.seat') ?? null,
@@ -1467,6 +1543,11 @@ export function useProtectedCardLayout(
                 for (const left of xs)
                   for (const top of ys) laneCandidates.push({ ...entry.box, left, top, depth: 20 });
               }
+              const laneKeepouts = [
+                ...keepouts,
+                ...(factProbe && compactFullShowdown ? [] : fixedWagers),
+                ...(reservedDealer ? [reservedDealer] : []),
+              ];
               const clearLane = laneCandidates.some((candidate) => {
                 const point = {
                   x: candidate.left + candidate.width / 2,
@@ -1474,21 +1555,20 @@ export function useProtectedCardLayout(
                 };
                 const ownDistance = Math.hypot(point.x - centre.x, point.y - centre.y);
                 if (factProbe) {
-                  if (
-                    !wagerOnFeltWithMargin(candidate, 1) ||
-                    [
-                      ...keepouts,
-                      ...(compactFullShowdown ? [] : fixedWagers),
-                      ...(reservedDealer ? [reservedDealer] : []),
-                    ].some((other) => markerTouches(candidate, other))
-                  )
-                    return false;
                   const blocked = others.filter(
                     (other) =>
                       !other.same &&
                       ownDistance + 1.5 + motion + other.motion >=
                         Math.hypot(point.x - other.x, point.y - other.y)
                   );
+                  // More than one rival can never produce a proposal below.
+                  // Reject that same losing candidate before the costly paint test.
+                  if (
+                    blocked.length > 1 ||
+                    !wagerOnFeltWithMargin(candidate, 1) ||
+                    laneKeepouts.some((other) => markerTouches(candidate, other))
+                  )
+                    return false;
                   if (!blocked.length) return true;
                   // A felt pocket can need its one nearest neighbour to vacate
                   // in the same finite caption/body transaction.
@@ -1522,7 +1602,7 @@ export function useProtectedCardLayout(
                       ownDistance + 1.5 + motion + other.motion <
                         Math.hypot(point.x - other.x, point.y - other.y)
                   ) &&
-                  [...keepouts, ...fixedWagers, ...(reservedDealer ? [reservedDealer] : [])].every(
+                  laneKeepouts.every(
                     (other) =>
                       !(factProbe
                         ? markerTouches(candidate, other)
@@ -1642,7 +1722,7 @@ export function useProtectedCardLayout(
             };
             let opened = trySpacing();
             if (!opened && compactFacts && (entry.hasAllInMarker || compactFullShowdown)) {
-              const mine = restingAvatarBox(image, scale);
+              const mine = measurePermanentBox(image, scale);
               const cx = mine.left + mine.width / 2,
                 cy = mine.top + mine.height / 2;
               const motion = 1.5 * scale + 0.008 * Math.max(mine.width, mine.height) + 0.5 * scale;
@@ -1670,7 +1750,7 @@ export function useProtectedCardLayout(
                 return [...origins].some(([rival, origin]) => {
                   const art = rival.querySelector<HTMLImageElement>('.seat__avatar-img');
                   if (!art) return false;
-                  const rect = restingAvatarBox(art, scale);
+                  const rect = measurePermanentBox(art, scale);
                   const rx = rect.left + rect.width / 2,
                     ry = rect.top + rect.height / 2;
                   if (Math.hypot(rx - other.x, ry - other.y) >= 1) return false;
@@ -1846,7 +1926,7 @@ export function useProtectedCardLayout(
             const avatars = Array.from(
               page.querySelectorAll<HTMLImageElement>('.seat__avatar-img')
             ).map((image) => {
-              const rect = restingAvatarBox(image, scale);
+              const rect = measurePermanentBox(image, scale);
               return {
                 image,
                 rect,
@@ -1873,7 +1953,7 @@ export function useProtectedCardLayout(
                 )
               )
                 return false;
-              const own = restingAvatarBox(image, scale),
+              const own = measurePermanentBox(image, scale),
                 x = box.left + box.width / 2,
                 y = box.top + box.height / 2;
               const distance = Math.hypot(
@@ -1953,7 +2033,7 @@ export function useProtectedCardLayout(
             const origin = owner && origins.get(owner);
             if (!owner || !image || !origin) continue;
             const initial = entry;
-            const own = restingAvatarBox(image, scale),
+            const own = measurePermanentBox(image, scale),
               ownX = own.left + own.width / 2,
               ownY = own.top + own.height / 2;
             const motion = 1.5 * scale + 0.008 * Math.max(own.width, own.height) + 0.5 * scale;
@@ -1961,7 +2041,7 @@ export function useProtectedCardLayout(
               Array.from(page.querySelectorAll<HTMLImageElement>('.seat__avatar-img'))
                 .filter((art) => art !== image)
                 .map((art) => {
-                  const r = restingAvatarBox(art, scale);
+                  const r = measurePermanentBox(art, scale);
                   return {
                     seat: art.closest<HTMLElement>('.seat'),
                     x: r.left + r.width / 2,
@@ -2016,7 +2096,7 @@ export function useProtectedCardLayout(
             const evaluate = (ownerShift: number) => {
               if (!withinBudget()) return false;
               const fresh = entry;
-              const mine = restingAvatarBox(image, scale),
+              const mine = measurePermanentBox(image, scale),
                 cx = mine.left + mine.width / 2,
                 cy = mine.top + mine.height / 2;
               const current = centres();
@@ -2121,7 +2201,7 @@ export function useProtectedCardLayout(
               ).sort((a, b) => Math.abs(a.shift) - Math.abs(b.shift)))
                 artwork.tryShiftOwnerForWager(proposal.seat, proposal.shift, () => {
                   if (!withinBudget()) return false;
-                  const actual = restingAvatarBox(image, scale),
+                  const actual = measurePermanentBox(image, scale),
                     px = proposal.candidate.left + proposal.candidate.width / 2,
                     py = proposal.candidate.top + proposal.candidate.height / 2;
                   const distance = Math.hypot(
@@ -2357,6 +2437,7 @@ export function useProtectedCardLayout(
     scaler.addEventListener('animationend', onMotionEnd);
     scaler.addEventListener('transitionend', onMotionEnd);
     scaler.addEventListener('load', schedule, true);
+    scaler.addEventListener('error', schedule, true);
     return () => {
       active = false;
       placeRef.current = null;
@@ -2369,6 +2450,7 @@ export function useProtectedCardLayout(
       scaler.removeEventListener('transitionend', onMotionEnd);
       scaler.querySelector<HTMLElement>('.dealer-button')?.style.removeProperty('translate');
       scaler.removeEventListener('load', schedule, true);
+      scaler.removeEventListener('error', schedule, true);
       if (frame !== null) cancelAnimationFrame(frame);
       scaler
         .querySelectorAll<HTMLElement>('.seat-wrapper--cap .seat, .seat-wrapper--top .seat')

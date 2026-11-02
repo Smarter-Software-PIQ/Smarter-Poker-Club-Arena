@@ -1580,3 +1580,26 @@ it.each([
     page.remove();
   }
 });
+
+it('waits for image loading but releases a terminal failed portrait to the baseline placer', () => {
+  const page = document.createElement('div');
+  page.innerHTML = '<div class="table-scaler"><img class="seat__avatar-img" /></div>';
+  const scaler = page.firstElementChild as HTMLElement;
+  const image = scaler.querySelector('img')!;
+  Object.defineProperty(image, 'complete', { configurable: true, value: false });
+  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 0 });
+  const layout = createOpponentAvatarLayout(
+    scaler,
+    page,
+    { key: '', shifts: new WeakMap() },
+    vi.fn()
+  );
+  try {
+    expect(layout.awaitingMetadata()).toBe(true);
+    Object.defineProperty(image, 'complete', { configurable: true, value: true });
+    expect(layout.awaitingMetadata()).toBe(false);
+    expect(layout.awaitingInitialLayout()).toBe(false);
+  } finally {
+    layout.stop();
+  }
+});

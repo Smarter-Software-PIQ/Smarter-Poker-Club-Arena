@@ -1014,9 +1014,9 @@ export function createOpponentAvatarLayout(
   };
   // Snapshot DOM geometry once for each finite wager-placement trial. The
   // returned narrow-phase query only reads decoded runs and numeric boxes.
-  const preparePaintedTouch = (image: HTMLImageElement, permanent = true) => {
+  const preparePaintedTouch = (image: HTMLImageElement, permanent = true, restBox?: Box) => {
     const ratio = tableRenderScale(scaler);
-    const fallback = permanent ? restingAvatarBox(image, ratio) : box(image);
+    const fallback = permanent ? (restBox ?? restingAvatarBox(image, ratio)) : box(image);
     const origin = permanent ? idleOrigin(image) : null;
     const conservative = origin ? opponentIdleEnvelope([fallback], origin, ratio)[0] : fallback;
     const refuse = (target: Box, gap = 0) => overlap(conservative, target, gap);
@@ -1764,8 +1764,12 @@ export function createOpponentAvatarLayout(
     canMove: () => spacingReady && Boolean(state.key) && !state.locked,
     awaitingMetadata: () =>
       images().some(
-        (image) => image.complete && image.naturalWidth > 0 && !resolved.has(source(image))
+        (image) => !image.complete || (image.naturalWidth > 0 && !resolved.has(source(image)))
       ),
+    // The original metadata rebase reserves one caption-measurement frame.
+    // Marker candidates must use the completed chair geometry, not that
+    // temporary normalized-but-unpositioned frame.
+    awaitingInitialLayout: () => Boolean(state.key) && !spacingReady,
     // A zero-candidate wager may need its own opponent to leave a little
     // room on the felt. This belongs to the original allocation transaction:
     // no timer, retry event, or independent layout pass is scheduled here.
@@ -1777,11 +1781,16 @@ export function createOpponentAvatarLayout(
       preparePaintedTouch(image, permanent)(target, gap),
     paintedParts,
     anchorCards: () => anchorFacts().filter((fact) => fact.matches('.seat__card')),
-    paintedBox: (image: HTMLImageElement, permanent = false) => {
+    paintedBox: (image: HTMLImageElement, permanent = false, restBox?: Box) => {
       const own = resolved.get(source(image));
       const ratio = tableRenderScale(scaler);
       return own
-        ? subject(image, own, true, permanent ? restingAvatarBox(image, ratio) : undefined)
+        ? subject(
+            image,
+            own,
+            true,
+            permanent ? (restBox ?? restingAvatarBox(image, ratio)) : undefined
+          )
         : null;
     },
     paintedObstacles: () =>

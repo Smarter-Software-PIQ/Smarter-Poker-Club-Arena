@@ -2601,7 +2601,7 @@ for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9])
   // Dense observer rings have nine independent cold mounts. Keep the original
   // deadline per bounded batch; every viewport and dock assertion still runs.
   for (const spectatorBatch of spectatorSeats === 9
-    ? ['compact cash', 'tall cash', 'tournament']
+    ? Array.from({ length: 9 }, (_, index) => `viewport ${index + 1}`)
     : ['all'])
     test(`mobile spectators fill the desktop-reference canvas through hand and dock states at ${spectatorSeats} seats (${spectatorBatch})`, async ({
       page,
@@ -2698,11 +2698,7 @@ for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9])
       if (spectatorSeats === 6 || spectatorSeats >= 8)
         cases.push([spectatorSeats, 393, 852, 47, 34, 1], [spectatorSeats, 430, 932, 59, 34, 1]);
       const batchCases = cases.filter(
-        (scene, index) =>
-          spectatorBatch === 'all' ||
-          (spectatorBatch === 'compact cash' && index < 3) ||
-          (spectatorBatch === 'tall cash' && index >= 3 && !scene[5]) ||
-          (spectatorBatch === 'tournament' && scene[5] === 1)
+        (_, index) => spectatorBatch === 'all' || index === Number(spectatorBatch.split(' ')[1]) - 1
       );
       expect(batchCases.length).toBeGreaterThan(0);
       for (const [
