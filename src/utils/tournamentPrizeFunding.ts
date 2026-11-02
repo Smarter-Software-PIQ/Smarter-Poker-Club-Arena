@@ -1,3 +1,5 @@
+import { formatPrizeAtUnit, moneyWordAtUnit } from './format';
+import { CHIP_UNIT_CENTS } from '../../server/src/tournament/tournamentUnit';
 /** Guarantees cover places and bounties together; fees never fund prizes. */
 export interface TournamentPrizeTerms {
   buy_in_amount?: number | null;
@@ -20,13 +22,16 @@ export function placeGuarantee(guarantee: unknown, bounties: unknown): number {
 }
 
 /** Fixed-bounty copy comes from charged terms, never an old schedule blurb. */
-export function tournamentEntryDescription(t: TournamentPrizeTerms): string | null {
+export function tournamentEntryDescription(
+  t: TournamentPrizeTerms,
+  unitCents = CHIP_UNIT_CENTS
+): string | null {
   if (!t.is_bounty || t.is_pko || t.is_mystery_bounty) return t.short_description ?? null;
   const bounty = amount(t.bounty_amount);
   const fee = amount(t.buy_in_fee);
   const places = amount(t.buy_in_amount) - bounty;
   if (places < 0) return null;
-  const chips = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const chips = (n: number) => formatPrizeAtUnit(n, unitCents);
   const entry = `Entry: ${chips(places)} Prize Pool + ${chips(bounty)} Bounty + ${chips(fee)} Rake.`;
   // Numeric entry descriptions may contain decimal points. Remove the entire
   // known financial sentence, preserving unrelated authored event rules.
@@ -36,5 +41,5 @@ export function tournamentEntryDescription(t: TournamentPrizeTerms): string | nu
       ''
     )
     .trim();
-  return `${authored || `Fixed Knockout Bounty: ${chips(bounty)} Chips.`} ${entry}`;
+  return `${authored || `Fixed Knockout Bounty: ${chips(bounty)} ${moneyWordAtUnit(unitCents)}.`} ${entry}`;
 }

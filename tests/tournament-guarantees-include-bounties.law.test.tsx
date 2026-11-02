@@ -84,6 +84,12 @@ describe('The guarantee includes bounties, never rake', () => {
           'Fixed Knockout Bounty: 10 Chips. Entry: 21.5 Prize Pool + 10 Bounty + 3.5 Fee.',
       })
     ).toBe('Fixed Knockout Bounty: 10 Chips. Entry: 26 Prize Pool + 10 Bounty + 4 Rake.');
+    expect(
+      tournamentEntryDescription(
+        { is_bounty: true, buy_in_amount: 36, buy_in_fee: 4, bounty_amount: 10 },
+        100
+      )
+    ).toBe('Fixed Knockout Bounty: 10 Diamonds. Entry: 26 Prize Pool + 10 Bounty + 4 Rake.');
     expect(95 * 26 + 95 * 10 + 95 * 4).toBe(95 * 40);
     expect(placeGuarantee(5000, 950)).toBe(4050);
     expect(effectivePrizePool(2470, 5000, 950)).toBe(4050);
