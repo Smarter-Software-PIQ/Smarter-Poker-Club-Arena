@@ -349,9 +349,14 @@ describe('B - a wakeable row earns a prompt reconnect, not an obituary', () => {
     // And the verb comes from the hook, under its own name.
     expect(page).toMatch(/reconnectNow: reconnectEngineNow,\s*\} = useEngineTableState\(/);
 
-    // A failed read falls through to the toast: today's behaviour.
+    // An unreadable lifecycle cannot establish closure.
     const failed = effect.slice(effect.indexOf('if (tableRowError)'), verdict);
-    expect(failed).not.toContain('return');
+    expect(failed).toContain('return');
+    const durableClosure = effect.slice(effect.indexOf('!tableRowSaysClosed(tableRow)'), toast);
+    expect(durableClosure).toContain('notFoundCountRef.current = 0;');
+    expect(durableClosure).toContain('tableClosedToastShownRef.current = false;');
+    expect(durableClosure).toContain('return;');
+    expect(durableClosure).not.toContain('reconnectEngineNow()');
   });
 });
 

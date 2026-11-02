@@ -4577,8 +4577,8 @@ function LiveTablePage({
              mirrors server/src/services/onDemandTableWake.ts). A row the
              engine WILL wake gets another attempt now instead of a toast, and
              the counter starts again so a table that really does close later
-             is still announced. A read that fails, or a row that is gone,
-             closed, deleted or a tournament's, is today's behaviour exactly. */
+             is still announced. Other tables require a positive durable closure
+             before that verdict; a failed read or recovering tournament waits. */
           const askedFor = notFoundTableIdRef.current;
           if (askedFor && !lightningRoomRef.current) {
             const { data: tableRow, error: tableRowError } = await supabase
@@ -4594,10 +4594,19 @@ function LiveTablePage({
             }
             if (tableRowError) {
               reportError(tableRowError, 'TablePage.not_found_row_check');
+              tableClosedToastShownRef.current = false;
+              return;
             } else if (isStillWakeableTableRow(tableRow)) {
               notFoundCountRef.current = 0;
               tableClosedToastShownRef.current = false;
               reconnectEngineNow();
+              return;
+            } else if (!tableRowSaysClosed(tableRow)) {
+              // A missing engine is not a closed tournament. Its manager owns
+              // recovery; retain the normal socket reconnect ladder while the
+              // durable row is live or its lifecycle is not yet known.
+              notFoundCountRef.current = 0;
+              tableClosedToastShownRef.current = false;
               return;
             }
           }
