@@ -46,9 +46,14 @@ describe('a horse belongs to one assigned club', () => {
       'fn_stamp_seat_club',
       'fn_guard_membership_lifecycle_write',
     ]) {
-      const body = sql.slice(sql.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}()`));
-      expect(body.slice(0, 4000)).toContain('HORSES BELONG TO ONE ASSIGNED CLUB');
-      expect(body.slice(0, 4000)).toContain('fn_ca_horse_club_refusal');
+      // Bounded by the function's own dollar-quote, never by a byte count.
+      const start = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}()`);
+      const end = sql.indexOf('$function$;', start);
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      const body = sql.slice(start, end);
+      expect(body).toContain('HORSES BELONG TO ONE ASSIGNED CLUB');
+      expect(body).toContain('fn_ca_horse_club_refusal');
     }
     // Kings never admits a horse, and an unassigned horse is admitted nowhere.
     expect(sql).toContain(`p_host = '${KINGS}'::uuid`);

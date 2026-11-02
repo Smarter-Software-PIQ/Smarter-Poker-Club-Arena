@@ -150,7 +150,12 @@ ALTER TABLE public.ca_horse_club_split_operations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_horse_club_split_receipts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.ca_horse_club_manifests, public.ca_horse_club_assignments,
   public.ca_horse_club_split_state, public.ca_horse_club_split_operations,
-  public.ca_horse_club_split_receipts FROM PUBLIC, anon, authenticated;
+  public.ca_horse_club_split_receipts FROM PUBLIC, anon, authenticated, service_role;
+-- The engine and server jobs only read these (the operation runs as a trusted
+-- caller through its own SECURITY DEFINER functions).
+GRANT SELECT ON public.ca_horse_club_manifests, public.ca_horse_club_assignments,
+  public.ca_horse_club_split_state, public.ca_horse_club_split_operations,
+  public.ca_horse_club_split_receipts TO service_role;
 
 INSERT INTO public.ca_horse_club_manifests(version, manifest_sha256, deep_stack_count, felt_count, rule)
 VALUES ('horse-club-split-20261102',
@@ -1770,7 +1775,8 @@ CREATE TABLE public.club_display_labeled_additions (
   set_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.club_display_labeled_additions ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.club_display_labeled_additions FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.club_display_labeled_additions FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.club_display_labeled_additions TO service_role;
 INSERT INTO public.club_display_labeled_additions(club_id, member_addition, active_addition, label, reason)
 VALUES ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', 1500, 233, 'Bonus',
         'Dan 2026-11-02: Kings Club shows +1,500 members and +233 active as a separately labelled addition; the real counts stay real.');
