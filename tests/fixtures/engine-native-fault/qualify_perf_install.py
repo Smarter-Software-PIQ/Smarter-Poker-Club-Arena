@@ -80,6 +80,37 @@ def load(path, name):
     return value
 
 
+def qualify_status_shapes(adapter, planner, folder):
+    """Real dpkg-query against fixture-only administration data; never host dpkg."""
+    names = sorted(set(planner.TARGETS) | planner.DEPENDENCIES)[:3]
+    administrative = folder / 'fixture-dpkg-status'
+    administrative.mkdir(mode=0o700)
+    (administrative / 'status').write_text('\n\n'.join(
+        'Package: ' + name + '\nStatus: ' + ('install ok installed' if index < 2 else 'unknown ok not-installed')
+        + '\nArchitecture: amd64\n' + ('Version: 1.0\n' if index < 2 else '')
+        + 'Maintainer: Isolated Fixture <fixture@example.invalid>\nDescription: Disposable read-only status fixture'
+        for index, name in enumerate(names)) + '\n')
+    before = {path.name: path.read_bytes() for path in administrative.iterdir()}
+    child = subprocess.run(['/usr/bin/dpkg-query', '--admindir=' + str(administrative), '--show',
+        '--showformat=${binary:Package}\t${Status}\t${Version}\n', *names],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, env={**os.environ, 'LC_ALL': 'C'})
+    if child.returncode not in (0, 1) or len(child.stdout) > 65536 or len(child.stderr) > 65536:
+        raise RuntimeError('fixture_status_shape_unproven')
+    rows, _ = adapter.status_result(child.stdout, names, planner.DEBIAN_VERSION)
+    if not all(row['verified'] and row['reason'] == 'verified' and row['installedVersion'] == '1.0' for row in rows[:2]) or rows[2]['verified'] or rows[2]['reason'] not in ('not_observed', 'version_missing'):
+        raise RuntimeError('fixture_status_shape_unproven')
+    # Append one controlled malformed row for a distinct fixed name. Preserve
+    # real positively queried rows, and never infer absence from empty version.
+    mixed, malformed = adapter.status_result(child.stdout + (names[2] + '\tunknown ok not-installed\t\n').encode(), names, planner.DEBIAN_VERSION)
+    if not malformed or not all(row['verified'] for row in mixed[:2]) or mixed[2]['verified']:
+        raise RuntimeError('fixture_status_shape_unproven')
+    if {path.name: path.read_bytes() for path in administrative.iterdir()} != before:
+        raise RuntimeError('fixture_status_query_wrote_state')
+    return {'realDpkgStatusRowsVerified': True, 'malformedRowIsolationVerified': True,
+        'notInstalledVersionAccepted': False, 'notInstalledUnknownReason': rows[2]['reason'],
+        'administrativeDataUnchanged': True}
+
+
 def wait(callback, seconds):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -330,9 +361,11 @@ def main():
                 raise RuntimeError('fixture_terminal_diagnostics_unproven')
             if set(work.iterdir()) != before_entries or any((work / name).read_bytes() != raw for name, raw in before_records.items()):
                 raise RuntimeError('fixture_terminal_diagnostics_wrote_state')
+            status_shapes = qualify_status_shapes(adapter, planner, folder)
             result['cases'].append({'case': 'terminal_read_preserves_original_records', 'passed': True,
                 'originalRecordsUnchanged': True, 'aptAttemptRecorded': True,
-                'packageReadbackVerified': True, 'productionInstallationQualified': False})
+                'packageReadbackVerified': True, 'productionInstallationQualified': False,
+                'statusShapeQualification': status_shapes})
 
             phase = 'expiry_prepare'
             op, work = prepare(2)
