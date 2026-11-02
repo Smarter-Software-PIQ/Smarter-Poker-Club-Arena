@@ -42,3 +42,7 @@ The normal push exposed a Git-environment leak in the existing withdrawal qualif
 ## Migration ledger naming
 
 The required hosted migration guard rejected the original-refund refusal filename because its slug exceeded the ledger limit by three characters. The still-uninstalled migration retains its reserved version and byte-identical SQL with a shorter name; both native fixture references follow that name. No installed migration is renamed.
+
+## Enabled money registry guard
+
+The connected terminal fixture exposed a missing installation prerequisite in the refund migration: the production DDL guard refuses new balance-writing functions without a registry entry. The migration now registers only its exact scoped authority before creating it and refuses a prior retired decision. The bank qualification now installs the captured production guard, proves the former migration is refused atomically, preserves a retired decision, and then exercises the corrected migration with the guard enabled.

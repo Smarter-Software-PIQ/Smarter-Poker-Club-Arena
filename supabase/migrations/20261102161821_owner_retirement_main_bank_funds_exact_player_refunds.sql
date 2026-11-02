@@ -22,6 +22,14 @@ CREATE TRIGGER owner_refund_receipt_immutable BEFORE UPDATE OR DELETE OR TRUNCAT
 INSERT INTO public.ca_settle_sources(source,note)
  VALUES('owner_retirement_bank_refund','November 2 owner-directed original-charge refund funded by Midway Main Bank; other entitlements preserved')
  ON CONFLICT(source) DO NOTHING;
+-- Register this exact monetary authority before the enabled DDL guard sees it.
+INSERT INTO public.ca_money_rpc_registry(proname,status,notes)
+ VALUES('fn_ca_owner_retirement_bank_refund','approved','Exact four owner-authorized original charges: Main Bank funding and original player refunds are atomic, journaled, scoped and immutable')
+ ON CONFLICT(proname) DO NOTHING;
+DO $$BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.ca_money_rpc_registry WHERE proname='fn_ca_owner_retirement_bank_refund' AND status='approved')
+ THEN RAISE EXCEPTION 'owner_bank_refund_money_authority_not_approved' USING ERRCODE='42501';END IF;
+END$$;
 CREATE FUNCTION public.fn_ca_owner_retirement_bank_refund(p_entitlement_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
  SET search_path=pg_catalog,public,smarter_private AS $function$

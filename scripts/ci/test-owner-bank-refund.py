@@ -44,7 +44,20 @@ try:
  UPDATE public.chip_ledger SET id='322489e1-e6a3-4f6e-a8b9-50f66d7866a5' WHERE id=(SELECT source_ledger_id FROM public.tournament_refund_entitlements WHERE tournament_id='2781bcd7-cc8a-4713-ab3e-0d0a81fdf110');
  UPDATE public.tournament_refund_entitlements SET id='26b465dd-600d-42eb-9f37-68f6052febac',source_ledger_id='322489e1-e6a3-4f6e-a8b9-50f66d7866a5' WHERE tournament_id='2781bcd7-cc8a-4713-ab3e-0d0a81fdf110';
  COMMIT;""")
- sql_file(e,db,'exact-bank-refund-candidate',(ROOT/'supabase/migrations/20261102161821_owner_retirement_main_bank_funds_exact_player_refunds.sql').read_text())
+ from tournament_abort_registry_native import install_and_reproduce_registry_guard
+ install_and_reproduce_registry_guard(e,db,ROOT,None,reproduce=False)
+ candidate=(ROOT/'supabase/migrations/20261102161821_owner_retirement_main_bank_funds_exact_player_refunds.sql').read_text()
+ start=candidate.index('-- Register this exact monetary authority')
+ stop=candidate.index('CREATE FUNCTION public.fn_ca_owner_retirement_bank_refund',start)
+ rc,_,err=e.sql(db,candidate[:start]+candidate[stop:],label='unregistered-bank-authority-refused',check=False)
+ if rc==0 or 'REFUSED: fn_ca_owner_retirement_bank_refund writes balance columns' not in err:raise RuntimeError('actual money registry guard failed to refuse missing registration')
+ sql_file(e,db,'refused-install-left-no-authority',"DO $$BEGIN IF to_regprocedure('public.fn_ca_owner_retirement_bank_refund(uuid)') IS NOT NULL OR to_regclass('smarter_private.owner_retirement_bank_refunds') IS NOT NULL THEN RAISE EXCEPTION 'failed installation retained authority';END IF;END$$;")
+ sql_file(e,db,'prior-retired-decision',"INSERT INTO public.ca_money_rpc_registry(proname,status,notes) VALUES('fn_ca_owner_retirement_bank_refund','retired','Native prior decision');")
+ rc,_,err=e.sql(db,candidate,label='retired-bank-authority-refused',check=False)
+ if rc==0 or 'owner_bank_refund_money_authority_not_approved' not in err:raise RuntimeError('prior retired decision was overwritten')
+ sql_file(e,db,'remove-native-prior-decision',"DELETE FROM public.ca_money_rpc_registry WHERE proname='fn_ca_owner_retirement_bank_refund' AND status='retired' AND notes='Native prior decision';")
+ sql_file(e,db,'exact-bank-refund-candidate',candidate)
+
  call="public.fn_ca_owner_retirement_bank_refund('26b465dd-600d-42eb-9f37-68f6052febac')"
  def snapshot(label):
   names=['union_wallets','union_wallet_transactions','club_members','chip_ledger','wallet_transactions','wallet_credit_idempotency','tournament_escrow','tournament_players','tournament_refund_tranches','tournament_obligations','tournament_refund_entitlements']
@@ -98,8 +111,8 @@ permutation "a_begin" "b_begin" "a_refund" "b_refund" "a_commit" "b_commit" "b_r
   rc,_,err=e.sql(db,verb,label='receipt-immutable',check=False)
   assert rc!=0 and 'owner_retirement_bank_refund_receipt_is_immutable' in err
  assert snapshot('immutability-unchanged')==committed
- e.report['cases']=['real-entry','rollback','browser-denied','scope','bank-reserve','insufficient-bank','credit-fault-atomic','receipt-fault-atomic','commit-conservation','same-receipt-replay','receipt-immutable','concurrent-same-entitlement']
- e.report['source_sha256']={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__),old,ROOT/'supabase/migrations/20261102161821_owner_retirement_main_bank_funds_exact_player_refunds.sql',ROOT/'scripts/ci/fixtures/tournament-abort/owner-bank-refund-catalog.json']}
+ e.report['cases']=['unregistered-authority-refused','retired-authority-preserved','real-entry','rollback','browser-denied','scope','bank-reserve','insufficient-bank','credit-fault-atomic','receipt-fault-atomic','commit-conservation','same-receipt-replay','receipt-immutable','concurrent-same-entitlement']
+ e.report['source_sha256']={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__),ROOT/'scripts/ci/tournament_abort_registry_native.py',old,ROOT/'supabase/migrations/20261102161821_owner_retirement_main_bank_funds_exact_player_refunds.sql',ROOT/'scripts/ci/fixtures/tournament-abort/owner-bank-refund-catalog.json']}
  e.report['status']='passed'
 
 except BaseException as err:e.report['failure']=repr(err);print(repr(err),flush=True)
