@@ -134,6 +134,48 @@ def native_failures(output):
         if (not isinstance(row, dict) or row.get('status') != 'failed'
                 or not isinstance(row.get('stage'), str) or row['stage'] not in NATIVE_STAGES):
             continue
+        if 'parity' in row:
+            witness = row['parity']
+            gates = {'template-ready','template-exclusions','expected-encoding','observed-encoding',
+                     'catalogue-digest','catalogue-text','role-scope','role-safety','role-catalogue'}
+            if (set(row) != {'status','stage','error','parity'}
+                    or row['stage'] != 'fixture-preflight-schema-preflight-catalogue-parity'
+                    or row.get('error') != 'AssertionError' or not isinstance(witness, dict)
+                    or set(witness) != {'version','gate','sections','samples','truncated'}
+                    or type(witness['version']) is not int or witness['version'] != 1
+                    or not isinstance(witness['gate'], str) or witness['gate'] not in gates
+                    or type(witness['truncated']) is not bool
+                    or not isinstance(witness['sections'], list) or len(witness['sections']) > 14
+                    or not isinstance(witness['samples'], list) or len(witness['samples']) > 8):
+                continue
+            sections, samples = witness['sections'], witness['samples']
+            if (any(not isinstance(item,list) or len(item) != 4
+                    or any(type(value) is not int for value in item)
+                    or not 0 <= item[0] <= 13 or not 0 <= item[1] <= 100000
+                    or not 0 <= item[2] <= 100000 or not 1 <= item[3] <= item[1]+item[2]
+                    for item in sections)
+                    or [item[0] for item in sections] != sorted(set(item[0] for item in sections))):
+                continue
+            section_ids = {item[0] for item in sections}
+            if any(not isinstance(item,list) or len(item) != 4
+                   or type(item[0]) is not int or item[0] not in section_ids
+                   or not isinstance(item[1],str) or not re.fullmatch('[a-f0-9]{64}',item[1])
+                   or type(item[2]) is not int or item[2] not in (0,1,2,3)
+                   or not isinstance(item[3],list) or len(item[3]) > 32
+                   or any(type(field) is not int or not 0 <= field <= 31 for field in item[3])
+                   or item[3] != sorted(set(item[3]))
+                   or (item[2] != 0 and item[3]) for item in samples):
+                continue
+            if (len({(item[0],item[1]) for item in samples}) != len(samples)
+                    or (witness['gate'] == 'role-catalogue' and any(i < 10 for i in section_ids))
+                    or (witness['gate'] != 'role-catalogue' and any(i >= 10 for i in section_ids))
+                    or (witness['gate'] not in {'catalogue-digest','catalogue-text','role-catalogue'} and sections)
+                    or (not witness['truncated'] and sum(item[3] for item in sections) != len(samples))):
+                continue
+            record = {'stage':row['stage'],'category':'AssertionError','parity':witness}
+            if record not in records:
+                records.append(record)
+            continue
         restore_fields = {'restore_sqlstate', 'restore_line', 'restore_exit_code'}
         if restore_fields.intersection(row) or row.get('error') == 'SchemaRestoreError':
             if (set(row) != {'status', 'stage', 'error'} | restore_fields

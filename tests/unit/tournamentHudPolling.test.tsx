@@ -1137,4 +1137,69 @@ describe('tournament HUD hot-path optimizations', () => {
     expect(fieldSorts).toHaveLength(0);
     sortSpy.mockRestore();
   });
+
+  it('skips re-rendering TournamentHUD when parent TablePage re-renders with unchanged tournament props and fresh inline callbacks', async () => {
+    const levelStateSpy = vi.spyOn(tournamentService, 'getCurrentLevelState');
+    const { rerender } = await mount({
+      playersRemaining: 20,
+      averageStack: 5000,
+      collapsed: false,
+      closed: false,
+      onToggleCollapsed: () => {},
+      onClose: () => {},
+    });
+    const initialCalls = levelStateSpy.mock.calls.length;
+    expect(initialCalls).toBeGreaterThan(0);
+
+    // Simulate parent TablePage re-rendering on action_taken / table_state frames
+    // with fresh inline arrow functions for onClose / onToggleCollapsed.
+    rerender(
+      <TournamentHUD
+        tournamentId="t1"
+        playersRemaining={20}
+        averageStack={5000}
+        collapsed={false}
+        closed={false}
+        onToggleCollapsed={() => {}}
+        onClose={() => {}}
+      />
+    );
+    expect(levelStateSpy.mock.calls.length).toBe(initialCalls);
+
+    // When a meaningful prop changes (e.g., playersRemaining drops to 19), it re-renders immediately.
+    rerender(
+      <TournamentHUD
+        tournamentId="t1"
+        playersRemaining={19}
+        averageStack={5000}
+        collapsed={false}
+        closed={false}
+        onToggleCollapsed={() => {}}
+        onClose={() => {}}
+      />
+    );
+    expect(levelStateSpy.mock.calls.length).toBeGreaterThan(initialCalls);
+    expect(screen.getByText('19')).toBeTruthy();
+    levelStateSpy.mockRestore();
+  });
+
+  it('cancels a pending trailing elimination field timer when an immediate standings_changed read runs first', async () => {
+    await mount();
+    expect(fx.playerReads).toHaveLength(1);
+
+    // Elimination schedules a 10s trailing field read.
+    await broadcast('player_eliminated', { userId: 'u-1', position: 40 });
+    expect(fx.playerReads).toHaveLength(1);
+
+    // 100ms later, the settled hand's standings_changed broadcast triggers an immediate readField().
+    await act(async () => {
+      for (const notify of [...fx.presentation]) notify({ type: 'standings_changed', payload: {} });
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(fx.playerReads).toHaveLength(2);
+
+    // Advancing past the original 10s FIELD_READ_DELAY_MS must NOT fire a redundant duplicate read.
+    await advance(FIELD_READ_DELAY_MS + 1_000);
+    expect(fx.playerReads).toHaveLength(2);
+  });
 });
