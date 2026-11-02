@@ -6912,6 +6912,7 @@ export abstract class ServerTableEngineBase {
         await work();
       } finally {
         this.readContinuationTasks.delete(physical);
+        this.notifyParkedPauseReadyIfDrained();
         settle();
       }
     })();
@@ -7161,7 +7162,7 @@ export abstract class ServerTableEngineBase {
     if (!p) {
       settlements.clear();
       this.settlementStartedAtMs = null;
-      this.notifyBoundaryPauseWaiters();
+      this.notifyParkedPauseReadyIfDrained();
       return;
     }
     // Extending a hand's barrier must retain its original age. Retry
@@ -7174,7 +7175,7 @@ export abstract class ServerTableEngineBase {
       if (failed) this.terminalBoundaryPersistenceFailed = true;
       if (settlements.size === 0) this.settlementStartedAtMs = null;
       if (this.postHandTasksPromise === tracked) this.postHandTasksPromise = null;
-      this.notifyBoundaryPauseWaiters();
+      this.notifyParkedPauseReadyIfDrained();
     };
     /* .then(clear).catch(clear) rather than .then(clear, clear): the two-arg
        form handles rejection just as well, but noUnhandledRejections.law reads
@@ -7494,6 +7495,7 @@ export abstract class ServerTableEngineBase {
     maxWaitMs?: number,
     opts?: { beforeNextHand?: boolean; untilResumed?: boolean }
   ): void {
+    const raisedExplicitResume = Boolean(opts?.untilResumed) && !this.pauseRequiresExplicitResume;
     this.handForHandPaused = true;
     this.pauseMaxWaitMs = maxWaitMs && maxWaitMs > 0 ? maxWaitMs : null;
     // See holdBeforeNextHand. Sticky within one pause: a break already holding
@@ -7501,6 +7503,9 @@ export abstract class ServerTableEngineBase {
     if (opts?.beforeNextHand) this.holdBeforeNextHand = true;
     if (opts?.untilResumed) this.pauseRequiresExplicitResume = true;
     if (this.pausedSinceMs === 0) this.pausedSinceMs = Date.now();
+    if (raisedExplicitResume && this.handForHandResolve !== null) {
+      this.notifyParkedPauseReadyIfDrained();
+    }
   }
 
   /**
@@ -8011,7 +8016,7 @@ export abstract class ServerTableEngineBase {
       if (this.tournamentMoveOperationByOwner.get(ownerId) === barrier) {
         this.tournamentMoveOperationByOwner.delete(ownerId);
       }
-      this.notifyBoundaryPauseWaiters();
+      this.notifyParkedPauseReadyIfDrained();
     }
   }
 
@@ -8825,12 +8830,24 @@ export abstract class ServerTableEngineBase {
     );
   }
 
+  protected notifyParkedPauseReadyIfDrained(): void {
+    this.notifyBoundaryPauseWaiters();
+    if (
+      this.running &&
+      this.handForHandResolve !== null &&
+      !this.hasWeeklyPayoutMutationInFlight()
+    ) {
+      this.offerExistingPauseReadyEdge();
+    }
+  }
+
   protected trackWeeklyPayoutOriginalWork(work: Promise<unknown>): void {
     const release = this.weeklyHandPause.enterMutation();
     this.weeklyPayoutOriginalWork.add(work);
     const finish = () => {
       this.weeklyPayoutOriginalWork.delete(work);
       release?.();
+      this.notifyParkedPauseReadyIfDrained();
       if (this.weeklyHandPause.held()) this.observeWeeklyPayoutDrain();
     };
     void work.then(finish).catch(finish);
@@ -9929,7 +9946,10 @@ export abstract class ServerTableEngineBase {
           } else this.unresolvedTimeBankDebits.delete(debitId);
         })
         .catch((err: unknown) => unanswered(String((err as Error)?.message ?? err)))
-        .finally(() => this.timeBankAccountingPending.delete(pending));
+        .finally(() => {
+          this.timeBankAccountingPending.delete(pending);
+          this.notifyParkedPauseReadyIfDrained();
+        });
       this.timeBankAccountingPending.add(pending);
     } catch (err) {
       unanswered('could not start: ' + String((err as Error)?.message ?? err));
@@ -9978,7 +9998,10 @@ export abstract class ServerTableEngineBase {
           /* still unknown: the id stays, and the next ask uses it again */
         }
       }
-      if (this.unresolvedTimeBankDebits.size === 0) this.timeBankAccountingUnconfirmed = false;
+      if (this.unresolvedTimeBankDebits.size === 0) {
+        this.timeBankAccountingUnconfirmed = false;
+        this.notifyParkedPauseReadyIfDrained();
+      }
     })().finally(() => {
       this.timeBankDebitResolution = null;
     });
@@ -11250,7 +11273,10 @@ export abstract class ServerTableEngineBase {
         if (rejectOnFailure) throw error;
         return;
       } finally {
-        if (this.snapshotFlushPromise === write) this.snapshotFlushPromise = null;
+        if (this.snapshotFlushPromise === write) {
+          this.snapshotFlushPromise = null;
+          this.notifyParkedPauseReadyIfDrained();
+        }
       }
 
       // An action may have dirtied the snapshot while the prior write was in
@@ -11994,6 +12020,7 @@ export abstract class ServerTableEngineBase {
       .then(() => {
         if (this.entryHoldWriteChains.get(userId) === thisWrite) {
           this.entryHoldWriteChains.delete(userId);
+          this.notifyParkedPauseReadyIfDrained();
         }
       });
     this.entryHoldWriteChains.set(userId, thisWrite);

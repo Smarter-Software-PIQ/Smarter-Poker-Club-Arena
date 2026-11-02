@@ -106,6 +106,57 @@ describe('an unproved hand is handed to a successor generation', () => {
     expect(manager.scheduleManagedTableEngineRecovery).not.toHaveBeenCalled();
   });
 
+  it('completes an already-requested successor drain when the last blocking table is stopped by recovery', async () => {
+    const { manager, handTournamentToSuccessorGeneration } = world();
+    const firstDead = deadOriginal('attempted');
+    let secondRunning = true;
+    const secondTable = {
+      stop: vi.fn(async () => {
+        secondRunning = false;
+      }),
+      hasReleasedProcessOwnership: () => true,
+      isRunning: () => secondRunning,
+      isBetweenHands: () => false,
+      pauseAfterHand: vi.fn(),
+      getF06RetainedPermit: () => null,
+    } as unknown as ServerTableEngine;
+    manager.tableEngines.set('dead1', firstDead);
+    manager.tableEngines.set('table2', secondTable);
+
+    await manager.performManagedTableEngineRecovery('dead1', firstDead, {}, 'unreachable', false);
+    expect(manager.successorDrainRequested).toBe(true);
+    expect(handTournamentToSuccessorGeneration).not.toHaveBeenCalled();
+
+    await manager.performManagedTableEngineRecovery(
+      'table2',
+      secondTable,
+      {},
+      'tournament_table_zombie',
+      false
+    );
+    expect(handTournamentToSuccessorGeneration).toHaveBeenCalledTimes(1);
+    expect(manager.scheduleManagedTableEngineRecovery).not.toHaveBeenCalled();
+  });
+
+  it('does not reschedule 15s recovery loops when a second table hits an unproved attempted permit while successor drain is already requested', async () => {
+    const { manager, handTournamentToSuccessorGeneration } = world();
+    const firstDead = deadOriginal('attempted');
+    const secondDead = deadOriginal('attempted');
+    const between = { value: false };
+    const live = liveTable(between);
+    manager.tableEngines.set('dead1', firstDead);
+    manager.tableEngines.set('dead2', secondDead);
+    manager.tableEngines.set('live', live);
+
+    await manager.performManagedTableEngineRecovery('dead1', firstDead, {}, 'unreachable', false);
+    expect(manager.successorDrainRequested).toBe(true);
+    expect(manager.scheduleManagedTableEngineRecovery).not.toHaveBeenCalled();
+
+    await manager.performManagedTableEngineRecovery('dead2', secondDead, {}, 'unreachable', false);
+    expect(manager.scheduleManagedTableEngineRecovery).not.toHaveBeenCalled();
+    expect(handTournamentToSuccessorGeneration).not.toHaveBeenCalled();
+  });
+
   it('keeps the ordinary causal retry for every permit this generation can still resolve', async () => {
     for (const phase of ['unknown', 'reserved', 'terminated']) {
       const { manager, handTournamentToSuccessorGeneration } = world();
