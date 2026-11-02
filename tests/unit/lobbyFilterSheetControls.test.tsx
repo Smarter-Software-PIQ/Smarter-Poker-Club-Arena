@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { supabase } from '../../src/lib/supabase';
+import { holdShellReload, isShellReloadBlocked } from '../../src/lib/shellReloadBlocker';
 import AdvancedFilters, {
   loadFilters,
   saveFilters,
@@ -37,6 +38,55 @@ function section(name: string) {
 }
 
 describe('mounted lobby filter controls', () => {
+  it.each(['close', 'escape', 'backdrop', 'apply', 'sort-done', 'unmount'])(
+    'defers shell adoption throughout real filter interaction and releases on %s',
+    (exit) => {
+      function Board() {
+        const [open, setOpen] = useState(true);
+        return open ? (
+          <AdvancedFilters
+            clubId={club}
+            initialType="MTT"
+            sortOnly={exit === 'sort-done'}
+            sortOptions={options}
+            onClose={() => setOpen(false)}
+            onApply={vi.fn()}
+          />
+        ) : null;
+      }
+      expect(isShellReloadBlocked()).toBe(false);
+      const view = render(<Board />);
+      try {
+        expect(isShellReloadBlocked()).toBe(true);
+        const independentLease = holdShellReload();
+        try {
+          if (exit === 'unmount') view.unmount();
+          else if (exit === 'escape') fireEvent.keyDown(document, { key: 'Escape' });
+          else if (exit === 'backdrop') fireEvent.click(document.querySelector('.afx-overlay')!);
+          else
+            fireEvent.click(
+              screen.getByRole('button', {
+                name:
+                  exit === 'sort-done'
+                    ? 'Done'
+                    : exit === 'apply'
+                      ? /^Apply .*Filters$/
+                      : 'Close Game Filters',
+                exact: true,
+              })
+            );
+          expect(screen.queryByRole('dialog')).toBeNull();
+          expect(isShellReloadBlocked()).toBe(true);
+        } finally {
+          independentLease();
+        }
+        expect(isShellReloadBlocked()).toBe(false);
+      } finally {
+        view.unmount();
+      }
+    }
+  );
+
   it('changes the board type before sorting, restores each tab sort, and follows parent type changes', () => {
     const sorts = vi.fn();
     function Board() {

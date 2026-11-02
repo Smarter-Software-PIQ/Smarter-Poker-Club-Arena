@@ -2696,6 +2696,26 @@ function CashierTradeWorkspace() {
         })();
 
   // ── Money actions ──────────────────────────────────────────────────────────
+  // A confirmed transaction is finished. Leave history in the ledger and
+  // return the working cashier to its unselected starting state. Uncertain
+  // outcomes never call this: their original inputs and retry keys survive.
+  const resetCompletedTransfer = () => {
+    setAmountModal(null);
+    setAmount('');
+    setSelected(new Set());
+    setSearch('');
+    setRecipientAmounts({});
+    setRecipientWallets({});
+    setSendSource('agent_wallet');
+    setTicketTournamentId('');
+    setTransferFailures([]);
+    setBatchReceipt(null);
+    submissionIdRef.current = null;
+    opIdsRef.current = new Map();
+    transferRecoveryScopeRef.current = null;
+    restoringTransferRecoveryRef.current = null;
+  };
+
   const runTransfers = async (kind: 'send' | 'ticket') => {
     if (!user?.id || !clubUuid) return;
     if (!requireOnline()) return;
@@ -3173,21 +3193,18 @@ function CashierTradeWorkspace() {
         setBatchProgress(null);
       }
       if (isMounted.current && transferView.current === owningView) {
-        setBatchReceipt((previous) => ({
-          batchId: submissionId,
-          rows:
-            previous?.batchId === submissionId
-              ? mergeCashierBatchReceiptRows(previous.rows, receiptRows)
-              : receiptRows,
-        }));
-        setTransferFailures(failed);
-        if (recovery) setTransferRecovery(recovery);
-        // Only close on a clean batch. Closing on failure wiped the amount and
-        // the selection, which is the worst possible moment to lose them.
-        if (failed.length === 0) {
-          setAmountModal(null);
-          setAmount('');
-          setRecipientAmounts({});
+        if (failed.length === 0 && ok === targets.length) {
+          resetCompletedTransfer();
+        } else {
+          setBatchReceipt((previous) => ({
+            batchId: submissionId,
+            rows:
+              previous?.batchId === submissionId
+                ? mergeCashierBatchReceiptRows(previous.rows, receiptRows)
+                : receiptRows,
+          }));
+          setTransferFailures(failed);
+          if (recovery) setTransferRecovery(recovery);
         }
       }
     }
@@ -3203,7 +3220,7 @@ function CashierTradeWorkspace() {
       toast?.success?.(
         kind === 'send'
           ? `Sent ${exactChipFigure(sumChips(receiptRows.filter((row) => row.outcome === 'Confirmed').map((row) => row.amount)))} Total To ${who} From ${SEND_SOURCE_LABELS[sendSource]}`
-          : `Issued ${ok} Ticket${ok === 1 ? '' : 's'} To ${who}. Review The Exact Values In Your Batch Receipt`,
+          : `Issued ${ok} Ticket${ok === 1 ? '' : 's'} To ${who}`,
         undefined,
         undefined,
         `${submissionId}:${receiptRows
@@ -3583,9 +3600,7 @@ function CashierTradeWorkspace() {
         undefined,
         operation.operationId
       );
-      setAmountModal(null);
-      setAmount('');
-      setRecipientAmounts({});
+      resetCompletedTransfer();
       void loadClub(true);
       void loadBankBalance();
       masterBus.emit('BALANCE_UPDATED', { source: 'cashier_trade_self', userId: user.id });

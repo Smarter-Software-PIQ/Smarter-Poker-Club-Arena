@@ -53,10 +53,12 @@ export function useTournamentAddOnBreak(tournamentId: string | null | undefined)
         const cost = Number(row?.addon_cost || row?.buy_in_amount);
         /* AN ADD-ON PAYS THE STARTING STACK, EXACTLY (Dan 2026-11-01): "THE
            ADD ON SHOULD BE THE SAME AMOUNT OF CHIPS THAT YOU START WITH IN THE
-           TOURNAMENT, NEVER LESS" and it "CAN NEVER EXCEED" it. The starting
-           stack is the authority; addon_chips is only a fallback for a legacy
-           row with no starting stack. */
-        const chips = Number(row?.starting_chips || row?.addon_chips);
+           TOURNAMENT, NEVER LESS" and it "CAN NEVER EXCEED" it. Every creator
+           writes addon_chips = starting_chips and the database pins it; the
+           card shows addon_chips because that is what the money core pays,
+           including on an event registered before the ruling, whose players
+           keep the contract they entered under. */
+        const chips = Number(row?.addon_chips || row?.starting_chips);
         const entryClosed = tournamentAddOnEntryBoundaryPassed(row, serverNow());
         const awaitingLastHand =
           entryClosed &&

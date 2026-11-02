@@ -22,6 +22,11 @@ import {
  *    BE HIGHLIGHTED)."
  */
 
+vi.mock('../../src/hooks/useMttLobbyEntryCounts', () => ({
+  useMttLobbyEntryCounts: (rows: LobbyEntry[]) =>
+    rows.map((row) => ({ ...row, entryCount: row.players })),
+}));
+
 vi.mock('../../src/services/tableWarmup', () => ({
   warmTable: vi.fn(),
   observeLobbyTableWarmups: () => () => undefined,
@@ -119,7 +124,7 @@ describe('a tournament row says what makes it worth playing', () => {
 });
 
 describe('a heading the player taps reorders the whole board', () => {
-  it('Players reorders ordinary events while keeping top events pinned', () => {
+  it('Entries reorders ordinary events while keeping top events pinned', () => {
     // The fixture starts in 45 minutes and must remain on the viewer's day.
     // A real clock after 23:15 correctly makes that event ineligible for a pin.
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -164,7 +169,7 @@ describe('a heading the player taps reorders the whole board', () => {
         .map((r) => r.getAttribute('data-id'));
     // Default order: the featured game is pinned first.
     expect(order()).toEqual(['small', 'big']);
-    const players = within(list).getByRole('button', { name: /^Players/ });
+    const players = within(list).getByRole('button', { name: /^Entries/ });
     fireEvent.click(players); // ascending
     fireEvent.click(players); // descending
     expect(order()).toEqual(['small', 'big']);

@@ -181,7 +181,9 @@ describe('C2-1: the Agent Wallet spends funded chips only', () => {
       credit_limit: 100,
       credit_used: 0,
     };
-    openCashier({ role: 'agent', walletType: 'agent_wallet' });
+    await act(async () => {
+      openCashier({ role: 'agent', walletType: 'agent_wallet' });
+    });
     await pick(/Kingfish/);
     typeAmount('50');
     expect(await screen.findByText(/The Wallet Only Holds 0.00 Chips/)).toBeTruthy();

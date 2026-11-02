@@ -165,6 +165,28 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    const entriesStep = {
+      name: 'MTT lobby entries count committed registrations and rebuys',
+      if: 'matrix.shard == 4',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+      run: 'python3 -B scripts/ci/test-mtt-lobby-entry-counts.py',
+    };
+    const entrySteps = normalized.jobs.accounting_postgres.steps;
+    const entryIndex = entrySteps.findIndex(
+      (step: { name: string }) => step.name === entriesStep.name
+    );
+    expect(
+      entrySteps.filter((step: { name: string }) => step.name === entriesStep.name)
+    ).toHaveLength(1);
+    expect(entrySteps[entryIndex - 1]?.name).toBe(
+      'Install PostgreSQL 17 tools without a default database service'
+    );
+    expect(entrySteps[entryIndex]).toStrictEqual(entriesStep);
+    expect(entrySteps[entryIndex + 1]?.name).toBe(
+      'Cash top-up retries read their original receipt'
+    );
+    // Require the exact new native gate before preserving every historical job hash.
+    entrySteps.splice(entryIndex, 1);
     normalizeStallProgressAddition(normalized.jobs.accounting_postgres);
     // Enforce the exact new reporting regression before retaining all prior job hashes.
     const chicagoStep = {

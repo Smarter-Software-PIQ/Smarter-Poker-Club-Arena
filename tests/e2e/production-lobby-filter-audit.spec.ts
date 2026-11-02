@@ -146,14 +146,32 @@ async function clickControl(locator: Locator, options?: Parameters<Locator['clic
   persistProgress(page);
   await test.step(control, async () => {
     try {
-      action.before = await locator.evaluateAll((elements) =>
+      const geometry = await locator.evaluateAll((elements) =>
         elements.map((element) => {
           const rect = element.getBoundingClientRect();
           const details = element.closest('details');
           const ancestors = [];
+          let fullyVisible =
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.top >= 0 &&
+            rect.left >= 0 &&
+            rect.bottom <= innerHeight &&
+            rect.right <= innerWidth;
           for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            const css = getComputedStyle(parent);
+            const box = parent.getBoundingClientRect();
+            if (
+              /(auto|scroll|hidden|clip)/.test(css.overflowY) &&
+              (rect.top < box.top || rect.bottom > box.bottom)
+            )
+              fullyVisible = false;
+            if (
+              /(auto|scroll|hidden|clip)/.test(css.overflowX) &&
+              (rect.left < box.left || rect.right > box.right)
+            )
+              fullyVisible = false;
             if (parent.scrollHeight > parent.clientHeight) {
-              const box = parent.getBoundingClientRect();
               ancestors.push({
                 className: parent.className,
                 scrollTop: parent.scrollTop,
@@ -164,48 +182,26 @@ async function clickControl(locator: Locator, options?: Parameters<Locator['clic
               });
             }
           }
+          const css = getComputedStyle(element);
           return {
             text: element.textContent?.trim().slice(0, 100),
             rect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
             detailsOpen: details?.open,
-            display: getComputedStyle(element).display,
-            visibility: getComputedStyle(element).visibility,
+            display: css.display,
+            visibility: css.visibility,
             ancestors,
+            fullyVisible,
           };
         })
       );
+      action.before = geometry;
       action.beforeElapsedMs = Date.now() - started;
       action.phase = 'native-scroll';
       persistProgress(page);
-      // Scroll the real overflow owner before Playwright's actionability check.
-      // Retain the ordinary visible, stable, enabled and hit-target checks.
-      const fullyVisible = await locator.evaluate((element) => {
-        const box = element.getBoundingClientRect();
-        if (
-          box.width <= 0 ||
-          box.height <= 0 ||
-          box.top < 0 ||
-          box.left < 0 ||
-          box.bottom > innerHeight ||
-          box.right > innerWidth
-        )
-          return false;
-        for (let owner = element.parentElement; owner; owner = owner.parentElement) {
-          const css = getComputedStyle(owner);
-          const clip = owner.getBoundingClientRect();
-          if (
-            /(auto|scroll|hidden|clip)/.test(css.overflowY) &&
-            (box.top < clip.top || box.bottom > clip.bottom)
-          )
-            return false;
-          if (
-            /(auto|scroll|hidden|clip)/.test(css.overflowX) &&
-            (box.left < clip.left || box.right > clip.right)
-          )
-            return false;
-        }
-        return true;
-      });
+      // This same native reading records all clipping ancestors and decides
+      // whether a preliminary scroll is needed. The ordinary click still
+      // enforces uniqueness, visibility, stability, enabled state and hit target.
+      const fullyVisible = geometry.length === 1 && geometry[0].fullyVisible;
       action.scrollRequired = !fullyVisible;
       if (!fullyVisible) await locator.scrollIntoViewIfNeeded({ timeout: 10_000 });
       action.scrollElapsedMs = Date.now() - started;
@@ -1086,6 +1082,8 @@ async function assertSort(page: Page, type: Tab | 'ALL', sort: string, raw: Map<
           if (type === 'ALL' && item.kind !== 'cash') return ['Unexpected Non-Cash ALL Row'];
           const row = raw.get(item.id);
           if (!row) return ['Missing Raw Row'];
+          if (item.kind === 'mtt' && row.proof_entry_count == null)
+            return ['Missing Committed Entry Count'];
           let clusterPlayers = row.cluster_id
             ? [...raw.values()]
                 .filter(
@@ -1100,6 +1098,8 @@ async function assertSort(page: Page, type: Tab | 'ALL', sort: string, raw: Map<
                 )
                 .reduce((sum, candidate) => sum + number(candidate.current_players), 0)
             : number(row.current_players);
+          if (item.kind === 'mtt' && ['players', 'players_asc'].includes(effective))
+            clusterPlayers = number(row.proof_entry_count);
           if (
             ['lightning', 'pending_off', 'draining'].includes(text(row.cluster_mode)) &&
             row.proof_pool_players != null &&
@@ -1385,6 +1385,24 @@ async function setup(page: Page) {
     try {
       const url = new URL(response.url());
       if (!response.ok()) return;
+      if (url.pathname.endsWith('/fn_mtt_lobby_entry_counts')) {
+        observe(
+          url.pathname,
+          (async () => {
+            const body = await readBody(response);
+            if (!Array.isArray(body)) throw new Error('Entry aggregate response is not an array');
+            for (const value of body) {
+              const answer = object(value);
+              const id = text(answer.tournament_id);
+              const entries = Number(answer.entries);
+              if (!id || !Number.isSafeInteger(entries) || entries < 0)
+                throw new Error('Entry aggregate response is invalid');
+              rawRows.set(id, { ...rawRows.get(id), id, proof_entry_count: entries });
+            }
+          })()
+        );
+        return;
+      }
       if (/\/(?:fn_cash_game_lobby|fn_lightning_pool_status)$/.test(url.pathname)) {
         const request = object(response.request().postDataJSON());
         const clusterId = text(request.p_game_id || request.p_cluster_id);
@@ -1438,8 +1456,11 @@ async function setup(page: Page) {
               'The complete tournament board membership scope changed during this case'
             );
           observedScope = tournamentScope;
+          persistProgress(page);
         }
-        persistProgress(page);
+        // Every ancillary witness remains in memory and is included in the
+        // next action/membership/finally snapshot. Rewriting the entire census
+        // for each satellite target-name response stalls the actual controls.
       }
       observe(
         url.pathname,
@@ -2043,7 +2064,10 @@ test.describe('functional filter matrix', () => {
         await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
         for (const [pattern, key] of [
           [cash ? /^Stakes/ : /^Buy-In/, 'price'],
-          [/^Players/, 'players'],
+          [
+            type === 'MTT' ? /^Entries/ : type === 'SATELLITE' ? /^Registered/ : /^Players/,
+            'players',
+          ],
           [/^Status/, 'status'],
         ] as const) {
           const button = headings.getByRole('button', { name: pattern });
@@ -2311,7 +2335,9 @@ async function readScheduleHeader(page: Page, cash = false) {
   expect(geometry.row.bottom).toBeLessThanOrEqual(geometry.viewport.height + 1);
   for (const [index, cell] of geometry.cells.entries()) {
     expect(cell.text).toMatch(
-      [/^Game/i, cash ? /^Stakes/i : /^Buy-In/i, /^Players/i, /^Status/i][index]
+      [/^Game/i, cash ? /^Stakes/i : /^Buy-In/i, cash ? /^Players/i : /^Entries/i, /^Status/i][
+        index
+      ]
     );
     expect(cell.left).toBeCloseTo(index ? geometry.cells[index - 1].right : geometry.row.left, 0);
     expect(cell.top).toBeCloseTo(geometry.cells[0].top, 0);
@@ -2625,9 +2651,64 @@ test('sticky lobby controls and cross-tab sorting remain accessible and durable'
   );
   for (const clock of clocks) expect(clock.text).toMatch(/^\d+d \d+h$/);
   // Direct heading sorts never reopen the old clipped menu; Game is inert.
+  const readEntryCards = () =>
+    h.rows.evaluateAll((elements) =>
+      elements
+        .filter((row) => row.getAttribute('data-kind') === 'mtt')
+        .map((row) => {
+          const buy = row.querySelector('td[data-label="Buy-In"]')!;
+          const entries = row.querySelector('td[data-label="Entries"]')!;
+          const measure = (cell: Element | null) => {
+            if (!cell) return null;
+            const value = cell.querySelector('.lt-seats__num,.premium-cash-stakes-value');
+            if (!value) return null;
+            const labelStyle = getComputedStyle(cell, '::before');
+            const valueStyle = getComputedStyle(value);
+            const box = value.getBoundingClientRect();
+            return {
+              labelFont: labelStyle.fontSize,
+              labelMargin: labelStyle.marginBottom,
+              valueFont: valueStyle.fontSize,
+              valueTop: box.top,
+              valueHeight: box.height,
+            };
+          };
+          return {
+            id: row.getAttribute('data-id')!,
+            buy: measure(buy),
+            entries: measure(entries),
+            count: entries?.querySelector('.lt-seats__num')?.textContent,
+            freshness: entries?.querySelector('.lt-seats__num')?.getAttribute('title'),
+          };
+        })
+    );
+  await expect
+    .poll(async () => {
+      const cards = await readEntryCards();
+      if (!cards.length) return ['Missing MTT cards'];
+      return cards.flatMap((card) => {
+        if (!card.buy || !card.entries) return [card.id + ': missing columns'];
+        return card.freshness !== 'Entries Including Rebuys' ||
+          h.rawRows.get(card.id)?.proof_entry_count == null ||
+          Number(card.count?.replaceAll(',', '')) !==
+            Number(h.rawRows.get(card.id)?.proof_entry_count) ||
+          card.buy.labelFont !== card.entries.labelFont ||
+          card.buy.labelMargin !== card.entries.labelMargin ||
+          card.buy.valueFont !== card.entries.valueFont ||
+          Math.abs(card.buy.valueTop - card.entries.valueTop) > 0.6 ||
+          Math.abs(card.buy.valueHeight - card.entries.valueHeight) > 0.6
+          ? [card.id + ': entry count or typography differs']
+          : [];
+      });
+    })
+    .toEqual([]);
+  await testInfo.attach('mtt-live-entries-and-typography.json', {
+    body: Buffer.from(JSON.stringify(await readEntryCards())),
+    contentType: 'application/json',
+  });
   const headings = page.locator('.compact-lobby:visible thead');
   await expect(headings.getByRole('button', { name: /^Game$/ })).toHaveCount(0);
-  for (const label of [/^Buy-In/, /^Players/, /^Status/]) {
+  for (const label of [/^Buy-In/, /^Entries/, /^Status/]) {
     const button = headings.getByRole('button', { name: label });
     await clickControl(button);
     const first = await button.locator('..').getAttribute('aria-sort');

@@ -156,6 +156,12 @@ export interface PreflopCtx {
    *  stands as the fail-safe for every other path. Explicit false restores
    *  the band (historical corpora only). */
   retireFourBetBluffBand?: boolean;
+  /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
+   *  seat that made the ONLY raise hero faces, dealt-census indexed and
+   *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
+   *  one raise; its presence turns on the seat-aware jam tighten at the
+   *  push/fold node (see V77 below). */
+  openerOpenWidthPct?: number;
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -520,6 +526,15 @@ function preflopCallOdds(ctx: PreflopCtx, pot: number, call: number): number {
       ? Math.max(0, Math.min(1, ctx.callDeductionFraction!))
       : 0;
   return call / Math.max(1e-9, (pot + call) * (1 - deduction));
+}
+
+/**
+ * V77: how much the push/fold jam bar rises for an opener whose V70 open
+ * width is `widthPct` (percent of 1,326). Zero at the 40% late reference,
+ * 0.3 per unit of missing width, capped at 0.10 (~ a 10-12% early seat).
+ */
+export function v77JamSeatTighten(widthPct: number): number {
+  return Math.min(0.1, Math.max(0, (0.4 - widthPct / 100) * 0.3));
 }
 
 export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
@@ -1110,6 +1125,26 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (mzOn && effM >= 5) jamCallThresh += ctx.riskAdd;
     if (ctx.isOmaha) jamCallThresh += 0.03;
     jamCallThresh += phase6Shift('call');
+    // ═══ V77 SEAT-AWARE SHORT-STACK JAMS (2026-11-02, Burls via Dan:
+    // "JAMMING ALL IN TOO MUCH, THEY AREN'T CONSIDERING THE UTG OR EARLY
+    // POSITION OPENERS") ═══ This node jammed over an under-the-gun open on
+    // exactly the bar it jammed over a button open (24 h of production:
+    // 6.8% of facing-one-open spots jammed over an early open vs 8.1% over
+    // a late one at <=15bb — nearly flat). The bar was calibrated against
+    // the WIDEST (late) opening range; a seat that opens fewer hands holds
+    // proportionally more of the hands that dominate hero's marginal jams,
+    // so the bar rises with the share of the late reference width the
+    // opener's seat does NOT open — the V70 per-seat width itself
+    // (HorseGtoVs3BetRanges.openWidth), dealt-census indexed and
+    // ante-aware, never a frequency target. At a ~12% under-the-gun width
+    // the tighten is ~0.084, landing the <=12-15bb bar at ~0.80 — the same
+    // early bar the Phase 6 reshove node already uses at 20bb. Tighten
+    // only: a 40%+ (button/blind) width keeps today's bar exactly. Facing
+    // a 3-bet or more (raises >= 2), the first-in jam (V71/V27), the shove
+    // caps (HorseTournamentShoveDiscipline) and Omaha are untouched.
+    if (!ctx.isOmaha && raises === 1 && ctx.openerOpenWidthPct !== undefined) {
+      jamCallThresh += v77JamSeatTighten(ctx.openerOpenWidthPct);
+    }
     if (strength >= t(jamCallThresh)) return { a: 'jam' };
     if (toCall === 0) return { a: 'check' };
     if (!isTourney && toCall <= bb && strength >= 0.3) return { a: 'call' };

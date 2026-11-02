@@ -25,17 +25,23 @@
 -- (CLAUDE.md 10.9). A short lock_timeout refuses cleanly instead of queueing
 -- behind a live row; apply once, never in a retry loop.
 --
--- @live-proof: NOT EXISTS (SELECT 1 FROM public.tournaments t WHERE t.add_on_available IS TRUE AND t.ended_at IS NULL AND COALESCE(t.starting_chips,0)>0 AND t.addon_chips IS DISTINCT FROM t.starting_chips)
+-- @live-proof: NOT EXISTS (SELECT 1 FROM public.tournaments t WHERE t.add_on_available IS TRUE AND t.ended_at IS NULL AND COALESCE(t.starting_chips,0)>0 AND t.addon_chips IS DISTINCT FROM t.starting_chips AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp WHERE tp.tournament_id = t.id))
 
 BEGIN;
 
 SET LOCAL lock_timeout = '2s';
 
-UPDATE public.tournaments
-   SET addon_chips = starting_chips
- WHERE add_on_available IS TRUE
-   AND ended_at IS NULL
-   AND COALESCE(starting_chips, 0) > 0
-   AND addon_chips IS DISTINCT FROM starting_chips;
+-- Only events nobody has registered for. fn_guard_managed_game_lifecycle
+-- refuses any change to an event after a player registers (first attempt,
+-- run 41383172175, refused with nothing applied): players keep the contract
+-- they entered under, and those events finish on their advertised add-on.
+UPDATE public.tournaments t
+   SET addon_chips = t.starting_chips
+ WHERE t.add_on_available IS TRUE
+   AND t.ended_at IS NULL
+   AND COALESCE(t.starting_chips, 0) > 0
+   AND t.addon_chips IS DISTINCT FROM t.starting_chips
+   AND NOT EXISTS (
+     SELECT 1 FROM public.tournament_players tp WHERE tp.tournament_id = t.id);
 
 COMMIT;

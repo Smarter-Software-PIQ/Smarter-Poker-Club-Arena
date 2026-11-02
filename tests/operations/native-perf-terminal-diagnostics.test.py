@@ -81,8 +81,9 @@ class TerminalDiagnostics(unittest.TestCase):
         for raw in [b'libc6:\n  Candidate: /secret\n', b'libc6:\n  Candidate: 1\n  Candidate: 2\n']:
             with self.assertRaises(ValueError):
                 adapter.policy_rows(raw, names, planner.DEBIAN_VERSION)
-        with self.assertRaises(ValueError):
-            adapter.status_rows(b'secret\tinstall ok installed\t1\n', names, planner.DEBIAN_VERSION)
+        rows, malformed = adapter.status_result(b'secret\tinstall ok installed\t1\n', names, planner.DEBIAN_VERSION)
+        self.assertTrue(malformed)
+        self.assertTrue(all(not row['verified'] for row in rows))
 
     def test_reader_keeps_original_record_and_apt_intent_unchanged(self):
         receipt, _ = fixture()
@@ -174,6 +175,63 @@ class TerminalDiagnostics(unittest.TestCase):
                 if mode == 'bound': self.assertTrue(result['queries']['policy']['commandFailure']['boundExceeded'])
                 if mode == 'status_parse': self.assertEqual(result['queries']['status']['reason'], 'status_malformed')
                 if mode == 'policy_parse': self.assertEqual(result['queries']['policy']['reason'], 'policy_incomplete')
+
+    def test_malformed_status_row_preserves_independent_positive_facts(self):
+        names = sorted(set(planner.TARGETS) | planner.DEPENDENCIES)
+        native = SimpleNamespace(prerequisite_tool=lambda path: {'available': True, 'reason': 'available'})
+        status = (names[0] + '\tinstall ok installed\t1.0\n' + names[1] + '\tunknown ok not-installed\t\n').encode()
+        def command(args):
+            return subprocess.CompletedProcess(args, 1 if args[0].endswith('dpkg-query') else 0,
+                status if args[0].endswith('dpkg-query') else b'', b'')
+        with patch.object(adapter, 'run_read', side_effect=command):
+            value = adapter.packages(helper, native, planner)
+        query = value['queries']['status']
+        self.assertTrue(query['rows'][0]['verified'])
+        self.assertEqual(query['rows'][0]['reason'], 'verified')
+        self.assertFalse(query['rows'][1]['verified'])
+        self.assertEqual(query['rows'][1]['reason'], 'version_missing')
+        self.assertEqual(query['rows'][2]['reason'], 'not_observed')
+        self.assertFalse(query['verified'])
+        self.assertEqual(query['reason'], 'status_malformed')
+        self.assertEqual(query['commandFailure']['exitCode'], 1)
+        self.assertTrue(adapter.valid_package_report(value, planner, helper))
+        self.assertFalse(value['verified'])
+
+    def test_status_rows_close_duplicate_architecture_and_malformed_boundaries(self):
+        names = ['libc6', 'libdw1', 'libelf1']
+        good = b'libc6:amd64\tinstall ok installed\t1.0\n'
+        for suffix, reason in [
+                (b'libdw1\tinstall ok installed\t/private/secret\n', 'version_malformed'),
+                (b'libdw1\tunknown ok not-installed\t\n', 'version_missing'),
+                (b'libdw1\tinvalid private state\t1\n', 'status_malformed'),
+                (b'libdw1\tinstall ok installed\n', 'malformed_fields'),
+                (b'libdw1:arm64\tinstall ok installed\t1\n', 'unsupported_architecture'),
+                (b'libdw1:amd64:private\tinstall ok installed\t1\n', 'unsupported_architecture'),
+                (b'libdw1\tinstall ok installed\t\xff\n', 'non_ascii'),
+                (b'libdw1\tinstall ok installed\t1\nlibdw1:amd64\tinstall ok installed\t2\n', 'duplicate')]:
+            with self.subTest(reason=reason):
+                rows, malformed = adapter.status_result(good + suffix, names, planner.DEBIAN_VERSION)
+                self.assertTrue(malformed)
+                self.assertTrue(rows[0]['verified'])
+                self.assertFalse(rows[1]['verified'])
+                self.assertEqual(rows[1]['reason'], reason)
+                self.assertIsNone(rows[1]['installedVersion'])
+                self.assertEqual(rows[2]['reason'], 'not_observed')
+                self.assertNotIn('private', json.dumps(rows))
+        rows, malformed = adapter.status_result(good + b'foreign-private\tinstall ok installed\t1\n', names, planner.DEBIAN_VERSION)
+        self.assertTrue(malformed)
+        self.assertTrue(rows[0]['verified'])
+        self.assertEqual(rows[1]['reason'], 'not_observed')
+        self.assertNotIn('foreign-private', json.dumps(rows))
+        rows, malformed = adapter.status_result(good, names, planner.DEBIAN_VERSION)
+        self.assertFalse(malformed)  # Normal trailing newline is not another row.
+
+    def test_status_row_reason_packet_cannot_forge_verified_facts(self):
+        value = unknown_packages()
+        for reason in ('/private/secret', None, ['verified'], 'verified'):
+            forged = copy.deepcopy(value)
+            forged['queries']['status']['rows'][0]['reason'] = reason
+            self.assertFalse(adapter.valid_package_report(forged, planner, helper))
 
     def test_empty_status_and_policy_never_become_verified_absence(self):
         import subprocess
