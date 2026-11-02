@@ -44,6 +44,8 @@ export interface SlotTab {
   kind?: 'table' | 'lobby' | 'hub';
   /** True only for a seat the server has confirmed. */
   seated?: boolean;
+  /** A player-watch remains an observer even when our own seat leaves this table. */
+  followPlayer?: unknown;
 }
 
 /** Lobby tabs carry a prefixed synthetic id as well as the flag; either proves it. */
@@ -154,5 +156,14 @@ export function pruneStaleSeatedTabs<T extends SlotTab>(
   tabs: readonly T[],
   liveSeatIds: ReadonlySet<string>
 ): T[] {
-  return tabs.filter((t) => !(!isLobbyLike(t) && t.seated === true && !liveSeatIds.has(t.id)));
+  return tabs.flatMap((t) => {
+    if (isLobbyLike(t) || t.seated !== true || liveSeatIds.has(t.id)) return [t];
+    // Our seat may move while we are watching someone else at the same table.
+    // Keep that explicit watch and let its own assignment feed follow the target.
+    if (t.followPlayer)
+      return [
+        { ...t, seated: false, arrivedByMoveAt: undefined, holeCards: undefined, isMyTurn: false },
+      ];
+    return [];
+  });
 }
