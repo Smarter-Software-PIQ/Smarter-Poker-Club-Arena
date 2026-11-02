@@ -63,9 +63,12 @@ describe('Game is fixed information, never a popup or sort control (owner2026-10
     expect(ids()).toEqual(before);
     expect(document.querySelector('.lt-variant-menu')).toBeNull();
     const desktop = document.querySelector('.lobby-table-wrap thead') as HTMLElement;
-    const variant = within(desktop).getByText('Variant').closest('th')!;
-    expect(variant).not.toHaveAttribute('tabindex');
-    expect(variant).not.toHaveAttribute('aria-haspopup');
+    const desktopGame = within(desktop).getByRole('columnheader', { name: /^game$/i });
+    expect(desktopGame).not.toHaveAttribute('tabindex');
+    expect(desktopGame).not.toHaveAttribute('aria-haspopup');
+    fireEvent.click(desktopGame);
+    fireEvent.keyDown(desktopGame, { key: 'Enter' });
+    expect(ids()).toEqual(before);
   });
   it.each(['name', 'variant'])(
     'drops a retired saved %s sort while keeping direct stakes sorting',

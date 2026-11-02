@@ -10,6 +10,9 @@ import {
   realtimeMigrated,
 } from '../../operations/release/fixture/fixture-server.mjs';
 
+// Existing application-failure cases also supply the separately owned control identity.
+const controlOwner = () => ({ query: async () => ({ rows: [{ owned_control: true }] }) });
+
 test('private Realtime catalog checks refuse an application connection before reading rows', async () => {
   let calls = 0;
   await assert.rejects(
@@ -34,7 +37,7 @@ for (const code of ['42501', 'ECONNRESET']) {
           if (++calls === 1) return { rows: [{ owned_service_bootstrap: true }] };
           throw original;
         },
-      }),
+      }, controlOwner()),
       (error) => error === original
     );
   });
@@ -48,7 +51,7 @@ test('Realtime may wait for its own not-yet-created catalog', async () => {
         if (++calls === 1) return { rows: [{ owned_service_bootstrap: true }] };
         throw Object.assign(new Error('catalog not created yet'), { code: '42P01' });
       },
-    }),
+    }, controlOwner()),
     false
   );
 });

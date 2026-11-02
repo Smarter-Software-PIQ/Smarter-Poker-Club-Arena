@@ -1,6 +1,6 @@
 {
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
+    "scripts/ci/classify-ci-changes.mjs": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
@@ -110,6 +110,13 @@
     "qualification": "Native run20 passed128 assertions and13 actual receipts on identical product SQL, qualifier, raw data and decoder. Integration retains upstream F06 CI selection; classifier suite rerun. Generated capture bootstrap differs only by removing one trailing blank line."
   },
   "restamp_audit": [
+    {
+      "on": "2026-11-01",
+      "file": "scripts/ci/classify-ci-changes.mjs",
+      "from": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace",
+      "to": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
+      "why": "Reviewed the exact one-line classifier diff: add the Horse paying-wallet native runner and captured overlay preimage to the existing accounting and routing-test selection. No existing selector is removed or narrowed. Both sole-input regressions fail before correction; all 69 routing tests pass afterward, including neighboring-file exclusions. No financial source, captured rows, monetary assertion, threshold or historical execution status changes. Matching pins are not financial execution or production evidence."
+    },
     {
       "on": "2026-10-07",
       "file": "scripts/ci/classify-ci-changes.mjs",

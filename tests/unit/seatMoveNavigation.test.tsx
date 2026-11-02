@@ -181,3 +181,42 @@ it('reports a rejected seat read without following an unverified move', async ()
   await act(async () => {});
   expect(h.follow).not.toHaveBeenCalled();
 });
+
+describe('an explicit spectator follow owns navigation', () => {
+  it('ignores our own move while watching and never replays it after Stop Following', () => {
+    const follow = vi.fn();
+    const initialProps = {
+      tableId: 'source',
+      userId: 'alice',
+      event: move(),
+      enabled: false,
+      follow,
+    };
+    const h = renderHook(useSeatMoveNavigation, { initialProps });
+    expect(follow).not.toHaveBeenCalled();
+    h.rerender({ ...initialProps, enabled: true });
+    expect(follow).not.toHaveBeenCalled();
+    h.rerender({ ...initialProps, enabled: true, event: move('alice', 'source', 'new-chair') });
+    expect(follow).toHaveBeenCalledExactlyOnceWith('new-chair');
+  });
+  it('cancels an in-flight retained own-seat read when a watch starts', async () => {
+    let resolve!: (value: unknown) => void;
+    seatRead.mockReturnValue(
+      new Promise((yes) => {
+        resolve = yes;
+      })
+    );
+    const follow = vi.fn();
+    const initialProps = {
+      tableId: 'source',
+      userId: 'alice',
+      event: { ...move(), replayed: true },
+      enabled: true,
+      follow,
+    };
+    const h = renderHook(useSeatMoveNavigation, { initialProps });
+    h.rerender({ ...initialProps, enabled: false });
+    await act(async () => resolve({ data: { table_id: 'destination' }, error: null }));
+    expect(follow).not.toHaveBeenCalled();
+  });
+});

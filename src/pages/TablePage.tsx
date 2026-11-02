@@ -2491,6 +2491,7 @@ function LiveTablePage({
     tableId,
     userId,
     event: engineLastEvent,
+    enabled: !followingPlayer,
     follow: (destination) => {
       if (tableId) sessionStatsService.moveSession(tableId, destination, userId);
       if (embeddedTableId) {
@@ -3086,6 +3087,33 @@ function LiveTablePage({
       );
       heroActedFenceRef.current = fenceVerdict.fence;
       const nextCurrentSeat = fenceVerdict.currentPlayerSeat;
+      // Preserve optimistic hero action fields (label, wager, stack, folded/all_in
+      // status) when an in-flight pre-action snapshot is withheld by the hero-acted
+      // fence (mapped.currentPlayerSeat === prev.heroSeat && nextCurrentSeat === 0).
+      // Once the engine's post-action snapshot arrives (carrying a new actor or a
+      // new decision), its authoritative fields take over seamlessly.
+      const heroWithheldByFence =
+        prev.heroSeat > 0 && mapped.currentPlayerSeat === prev.heroSeat && nextCurrentSeat === 0;
+      const nextLastActions = [...(mapped.lastActions as LastAction[])];
+      if (heroWithheldByFence) {
+        const hIdx = prev.heroSeat - 1;
+        if (prev.lastActions[hIdx]) nextLastActions[hIdx] = prev.lastActions[hIdx];
+        if ((prev.lastBetAmounts[hIdx] ?? 0) > (nextBets[hIdx] ?? 0)) {
+          nextBets[hIdx] = prev.lastBetAmounts[hIdx];
+        }
+        const prevHero = prev.players[hIdx];
+        const mappedHero = nextPlayers[hIdx];
+        if (prevHero && mappedHero && prevHero.id === mappedHero.id) {
+          nextPlayers[hIdx] = {
+            ...mappedHero,
+            status:
+              prevHero.status === 'folded' || prevHero.status === 'all_in'
+                ? prevHero.status
+                : mappedHero.status,
+            stack: Math.min(mappedHero.stack ?? 0, prevHero.stack ?? 0),
+          };
+        }
+      }
       /* LIGHTNING TRANSITION, PHASE 3: THE HERO'S CHAIR MOVES WITH THE ROSTER.
          The chair layout follows heroSeat, and the seat invariant below only
          adopted a new chair after the new roster had painted, so for one
@@ -3174,9 +3202,11 @@ function LiveTablePage({
             : undefined),
         players: nextPlayers,
         positions: mapped.positions as PositionBadge[],
-        lastActions: mapped.lastActions as LastAction[],
+        lastActions: nextLastActions,
         lastBetAmounts: nextBets,
-        currentBet: mapped.currentBet,
+        currentBet: heroWithheldByFence
+          ? Math.max(mapped.currentBet || 0, prev.currentBet || 0)
+          : mapped.currentBet,
         minRaise: mapped.minRaise,
         lastRaise: mapped.lastRaise,
         // 2026-08-23: the engine's betting structure, carried straight through
@@ -4096,9 +4126,13 @@ function LiveTablePage({
        this table) shows the closed-table state and returns to the club. Not
        during a seat-first pre-start, a maintenance break, a paused tournament
        table or a Lightning room - each of those 404s is expected. */
+    const observerOwnsView = () =>
+      followingPlayerRef.current ||
+      (tableStateRef.current.isTournament && tableStateRef.current.heroSeat <= 0);
     const deadTable = createDeadTableRecovery(
       () => ({
         tableId,
+        observer: observerOwnsView(),
         tournamentId: tableStateRef.current.tournamentId,
         cashGameId: tableStateRef.current.clusterId,
       }),
@@ -4119,6 +4153,7 @@ function LiveTablePage({
     );
     deadTableRecoveryRef.current = deadTable;
     const actOnDeadTable = (verdict: DeadTableVerdict) => {
+      if (observerOwnsView()) return;
       if (verdict.kind === 'successor') {
         heartbeatToastRef.current?.info?.('This Table Moved, Opening The Live One');
         deadTableFollowRef.current(verdict.tableId);
@@ -4138,6 +4173,7 @@ function LiveTablePage({
     };
     const driveDeadTable = () => {
       if (
+        observerOwnsView() ||
         seatFirstOpenRef.current ||
         maintenanceBreakRef.current.active ||
         tablePausedToastShownRef.current ||
@@ -10707,6 +10743,19 @@ function LiveTablePage({
   useEffect(() => {
     if (showRebuyModal) retryAccountBalance();
   }, [showRebuyModal, retryAccountBalance]);
+  useEffect(() => {
+    if (showBuyInModal || showCashier || addOnPeriod.active) {
+      retryAccountBalance();
+    }
+  }, [showBuyInModal, showCashier, addOnPeriod.active, retryAccountBalance]);
+  useEffect(() => {
+    if (!addOnPeriod.active || accountBalance === null || !Number.isFinite(accountBalance)) return;
+    setAddOnPeriod((prev) =>
+      prev.active && prev.walletBalance !== accountBalance
+        ? { ...prev, walletBalance: accountBalance }
+        : prev
+    );
+  }, [addOnPeriod.active, accountBalance]);
 
   /* The seat-taking for which a positive stack has been seen, and a tick that
      re-runs the bust watch when a fresh seat's settling window closes. */
@@ -18511,7 +18560,7 @@ function LiveTablePage({
           }
         }
 
-        // Step 1: Action label (immediate, persists until next action / new street)
+        // Step 1: Action label + immediate seat state (persists until next action / new street)
         if (seatIdx >= 0) {
           // ANIMATION AUDIT 2026-08-19: record the wager where the snapshot
           // cannot erase it, so the chips-to-pot sweep always has a mask.
@@ -18520,14 +18569,33 @@ function LiveTablePage({
             const newActions = [...prev.lastActions];
             newActions[seatIdx] = action as any;
             const newBets = [...prev.lastBetAmounts];
+            const priorBet = prev.lastBetAmounts[seatIdx] || 0;
             if (actionAmount > 0) newBets[seatIdx] = actionAmount;
-            // Pot from snapshot is more accurate than locally summing — pot
-            // updates arrive in the next snapshot. If client already has it,
-            // keep prev.pot; otherwise leave untouched.
+            const players = [...prev.players];
+            const actor = players[seatIdx];
+            if (actor) {
+              const chipDelta = actionAmount > 0 ? Math.max(0, actionAmount - priorBet) : 0;
+              const nextStack =
+                chipDelta > 0 ? Math.max(0, (actor.stack || 0) - chipDelta) : actor.stack;
+              const nextStatus =
+                action === 'fold'
+                  ? ('folded' as any)
+                  : action === 'all_in' || action === 'allin' || (chipDelta > 0 && nextStack === 0)
+                    ? ('all_in' as any)
+                    : actor.status;
+              players[seatIdx] = {
+                ...actor,
+                stack: nextStack,
+                status: nextStatus,
+              };
+            }
             return {
               ...prev,
+              players,
               lastActions: newActions,
               lastBetAmounts: newBets,
+              currentBet:
+                actionAmount > 0 ? Math.max(prev.currentBet || 0, actionAmount) : prev.currentBet,
               ...(prev.currentPlayerSeat === actionSeat ? { currentPlayerSeat: 0 } : {}),
             };
           });
@@ -18869,7 +18937,11 @@ function LiveTablePage({
           });
         }
         // Reset visual state instantly so the new hand starts crisp.
-        heroEngineCardOrderRef.current = null;
+        const heroCardsAlreadyDealtForThisHand =
+          startedHandNumber > 0 && heroDealSoundHandRef.current === startedHandNumber;
+        if (!heroCardsAlreadyDealtForThisHand) {
+          heroEngineCardOrderRef.current = null;
+        }
         setTableState((prev) => {
           // ANIMATION AUDIT 2026-08-19: 'folded' is per-hand state. It was
           // never reset here, so DealAnimation (which mounts off this event,
@@ -18879,12 +18951,19 @@ function LiveTablePage({
           const players = prev.players.map((p) => {
             if (!p) return p;
             const unfolded = p.status === 'folded' ? { ...p, status: 'active' as const } : p;
-            return unfolded.id === userId
-              ? { ...unfolded, holeCards: [], showCards: false }
-              : unfolded;
+            if (unfolded.id === userId) {
+              return heroCardsAlreadyDealtForThisHand &&
+                unfolded.holeCards &&
+                unfolded.holeCards.length > 0
+                ? unfolded
+                : { ...unfolded, holeCards: [], showCards: false };
+            }
+            return unfolded;
           });
           return {
             ...prev,
+            handNumber: startedHandNumber > 0 ? startedHandNumber : prev.handNumber,
+            isHandInProgress: true,
             players,
             lastActions: prev.lastActions.map(() => null),
             lastBetAmounts: prev.lastBetAmounts.map(() => 0),
@@ -18895,6 +18974,17 @@ function LiveTablePage({
             engineStage: 'preflop',
           };
         });
+        // Flush any private hole_cards USER_EVENT frame that arrived ahead of
+        // HAND_STARTED immediately so the hero's cards appear in the same tick.
+        if (
+          earlyHeroCardsRef.current &&
+          startedHandNumber > 0 &&
+          earlyHeroCardsRef.current.hand === startedHandNumber
+        ) {
+          const early = earlyHeroCardsRef.current;
+          earlyHeroCardsRef.current = null;
+          handleHoleCardPayload({ new: early.row });
+        }
         // Re-fetch the hero's cards for the new hand (recovers a dropped insert).
         heroCardFetchRef.current?.();
         setTimeout(() => heroCardFetchRef.current?.(), 1500);
@@ -23081,7 +23171,7 @@ function LiveTablePage({
    */
   useEffect(() => {
     const tournId = tableState.tournamentId;
-    if (!seatFirstBuyIn || !tournId || !tableId) return;
+    if (followingPlayer || !seatFirstBuyIn || !tournId || !tableId) return;
     if (tableState.heroSeat > 0 || heroSeatRef.current > 0) return;
     if (seatFirstConfirm !== null || seatFirstPending) return;
 
@@ -23093,7 +23183,7 @@ function LiveTablePage({
          A null answer means "could not resolve OR nothing live" — either
          way, not proof this table was recycled, so stay put. */
       const liveId = await tableService.resolveTournamentLiveTable(tournId);
-      if (cancelled || !liveId || liveId === tableId) return;
+      if (cancelled || followingPlayerRef.current || !liveId || liveId === tableId) return;
       console.debug('[Seat] Table recycled - following tournament to', liveId);
       navigate(`/table/${liveId}`, { replace: true });
     };
@@ -23104,6 +23194,7 @@ function LiveTablePage({
       window.clearInterval(id);
     };
   }, [
+    followingPlayer,
     seatFirstBuyIn,
     tableId,
     tableState.tournamentId,
@@ -24180,6 +24271,9 @@ function LiveTablePage({
       let prevLastAction: any = null;
       let prevLastBet: number | null = null;
       let prevStatus: any = null;
+      let prevStack: number | null = null;
+      let prevCurrentBet: number | null = null;
+      let prevStreetBet: number = 0;
       // 2026-08-26: these three used to be assigned unconditionally inside the
       // updater below. A React updater must be PURE, and under concurrent
       // rendering it can be re-invoked against a rebased base state - at which
@@ -24208,18 +24302,41 @@ function LiveTablePage({
           prevLastAction = prev.lastActions[idx] ?? null;
           prevLastBet = prev.lastBetAmounts[idx] ?? 0;
           prevStatus = hero?.status ?? null;
+          prevStack = hero?.stack ?? null;
+          prevCurrentBet = prev.currentBet ?? 0;
+          prevStreetBet = streetBetsRef.current[idx] ?? 0;
         }
 
         const newActions = [...prev.lastActions];
         newActions[idx] = label as any;
 
         const newBets = [...prev.lastBetAmounts];
+        let nextCurrentBet = prev.currentBet || 0;
         if (action === 'call' || action === 'raise' || action === 'allin') {
-          if (typeof amount === 'number' && amount > 0) newBets[idx] = amount;
+          if (typeof amount === 'number' && amount > 0) {
+            newBets[idx] = amount;
+            streetBetsRef.current[idx] = amount;
+            nextCurrentBet = Math.max(nextCurrentBet, amount);
+          }
         }
 
         if (action === 'fold' && hero) {
           players[idx] = { ...hero, status: 'folded' as any };
+        } else if (
+          (action === 'call' || action === 'raise' || action === 'allin') &&
+          hero &&
+          typeof amount === 'number' &&
+          amount > 0
+        ) {
+          const baseBet = prevLastBet ?? 0;
+          const baseStack = prevStack ?? hero.stack ?? 0;
+          const chipDelta = Math.max(0, amount - baseBet);
+          const nextStack = Math.max(0, baseStack - chipDelta);
+          players[idx] = {
+            ...hero,
+            stack: nextStack,
+            status: action === 'allin' || nextStack === 0 ? ('all_in' as any) : hero.status,
+          };
         }
 
         if (prev.currentPlayerSeat === heroSeat && !fenceArmed) {
@@ -24241,6 +24358,7 @@ function LiveTablePage({
           ...prev,
           lastActions: newActions,
           lastBetAmounts: newBets,
+          currentBet: nextCurrentBet,
           players,
           ...(prev.currentPlayerSeat === heroSeat ? { currentPlayerSeat: 0 } : {}),
         };
@@ -24290,6 +24408,7 @@ function LiveTablePage({
         )
           return;
         heroActedFenceRef.current = null;
+        streetBetsRef.current[idx] = prevStreetBet;
         setTableState((prev) => {
           if (prev.actionContext !== priorDecision || prev.handNumber !== priorHand) return prev;
           const newActions = [...prev.lastActions];
@@ -24297,13 +24416,18 @@ function LiveTablePage({
           const newBets = [...prev.lastBetAmounts];
           newBets[idx] = prevLastBet ?? 0;
           const players = [...prev.players];
-          if (players[idx] && prevStatus != null) {
-            players[idx] = { ...players[idx]!, status: prevStatus };
+          if (players[idx]) {
+            players[idx] = {
+              ...players[idx]!,
+              ...(prevStatus != null ? { status: prevStatus } : {}),
+              ...(prevStack != null ? { stack: prevStack } : {}),
+            };
           }
           return {
             ...prev,
             lastActions: newActions,
             lastBetAmounts: newBets,
+            ...(prevCurrentBet != null ? { currentBet: prevCurrentBet } : {}),
             players,
             // Only if nobody else has since been given the turn.
             ...(prev.currentPlayerSeat === 0 ? { currentPlayerSeat: heroSeat } : {}),
@@ -25172,7 +25296,7 @@ function LiveTablePage({
              their next turn. The engine's own PLAYER_ACTION echo turns the
              mode on for a real all-in, and says nothing for a call. */
           {
-            const revert = applyOptimisticHeroAction('allin', heroStack);
+            const revert = applyOptimisticHeroAction('allin', heroAllInTo);
             if (tableId) {
               const ok = await submitActionWithToast(
                 tableId,
@@ -27345,7 +27469,7 @@ function LiveTablePage({
                   isActive={isActive}
                   /* Dan 2026-10-04: a seat the tournament has just moved here
                      is not "reconnecting" - say what happened. */
-                  movedHereAtMs={arrivedByMoveAtMs}
+                  movedHereAtMs={followingPlayer ? undefined : arrivedByMoveAtMs}
                   tableName={
                     tableState.tableName && tableState.tableName !== 'Loading...'
                       ? formatGameTitle(tableState.tableName)

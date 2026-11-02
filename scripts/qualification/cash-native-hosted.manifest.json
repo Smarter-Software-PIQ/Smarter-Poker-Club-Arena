@@ -1,4 +1,17 @@
 {
+  "horsePayingWalletNativeInputRouting20261101": {
+    "review": "Reviewed the exact additive classifier diff for the Horse paying-wallet native runner and overlay preimage. Both isolated inputs now admit existing accounting and routing tests; no existing lane is narrowed. All 69 routing tests pass, including neighboring-file exclusions. Current source identity only; preserve every financial input, assertion, timeout, original audit and historical qualification state. Hash agreement is not financial execution or production proof.",
+    "previousClassifierPin": {
+      "bytes": 47374,
+      "sha256": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+    },
+    "currentClassifierPin": {
+      "bytes": 47430,
+      "sha256": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62"
+    },
+    "financial_recertification": false,
+    "execution_performed": false
+  },
   "clientExecutionBudgetSourceAudit20261029": {
     "scope": "Source identity only: ten general and ten disjoint occupied-portrait CSS shards preserve the complete case inventory, plus requested four client workers bounded by actual CPU capacity; all financial matrices, assertions, independent browser gates, deadlines and production safeguards preserved.",
     "previousCiPin": {
@@ -408,8 +421,8 @@
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47374,
-      "sha256": "153b9e094176b5633cbb8a5dfc126b511a012ae85a9ec3805aa4ec21916baace"
+      "bytes": 47430,
+      "sha256": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -504,8 +517,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 119330,
-      "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
+      "bytes": 119837,
+      "sha256": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29"
     }
   },
   "nativePgCron": {
@@ -6459,6 +6472,20 @@
     "current": {
       "bytes": 273568,
       "sha256": "50c652f40f358616b2305301a654f4c5659688235963efb5f7a04226c2da297e"
+    },
+    "historicalEvidenceRestamped": false,
+    "execution_performed": false
+  },
+  "realtimeControlNativeRegression20261101": {
+    "reason": "Add only exact native workflow enforcement of the Realtime control-database regressions: one invocation, original ordinary qualification condition, no continue-on-error. Existing cash inputs, assertions, authorities and all historical qualification verdicts are unchanged. Active source identity only, not financial or production certification.",
+    "path": "tests/unit/fixtureNativeCi.test.ts",
+    "previous": {
+      "bytes": 119330,
+      "sha256": "f2defc4296aa255780f1f389089f51fbc76b881a6b41fdb140209a891f6dc52c"
+    },
+    "current": {
+      "bytes": 119837,
+      "sha256": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29"
     },
     "historicalEvidenceRestamped": false,
     "execution_performed": false

@@ -409,24 +409,11 @@ export function chicagoWallClockToUtcMs(dayKey: string, hour: number, minute = 0
   return naive - chicagoOffsetMs(first);
 }
 
-/**
- * How far ahead of its start a slot is published.
- *
- * STRICTLY LESS THAN THE FOUR-HOUR CADENCE, and that is the whole reason for
- * the number rather than a taste in lead times: at three hours exactly one
- * Free Buy per host is ever open at once, so two of them can never compete for
- * the same free horses, and the lobby never shows a player two identical free
- * events and asks them to choose.
- *
- * It also clears both windows underneath it. fn_freeroll_fill_targets only
- * looks 90 minutes ahead, and the pre-start ramp's curve is squared over its
- * 72-hour ceiling, so an event published three hours out sits at one entrant
- * until the last hour and then fills - which is the shape the ramp was tuned
- * for. Publishing a whole day ahead would put ten free events on the board at
- * once for no gain; publishing at MTT_PUBLISH_LEAD_MS (30 minutes) would make
- * a scheduled marquee event invisible to anyone not already staring at it.
+/** Owner November 1: publish every Free Buy a full day ahead so its
+ * large preregistration field can build before players plan their day.
+ * Identity remains host + slot start, so multiple future slots are distinct.
  */
-export const FREE_BUY_PUBLISH_LEAD_MS = 3 * 60 * 60 * 1000;
+export const FREE_BUY_PUBLISH_LEAD_MS = 24 * 60 * 60 * 1000;
 
 export interface DueFreeBuy {
   slot: FreeBuySlot;
@@ -451,7 +438,9 @@ export function freeBuySlotsDue(
   // Today AND tomorrow in Chicago: the 00:30 slot belongs to the NEXT calendar
   // day and comes inside the lead at 21:30 the evening before, so a scheduler
   // reading only "today" would never see the midnight event at all.
-  const days = new Set([chicagoDayKey(nowMs), chicagoDayKey(nowMs + 24 * 60 * 60 * 1000)]);
+  // A spring-forward day is only 23 hours: a rolling 24-hour window can
+  // cross three calendar dates. Include the intermediate date as well.
+  const days = new Set([0, 12, 24].map((hours) => chicagoDayKey(nowMs + hours * 60 * 60 * 1000)));
   for (const dayKey of days) {
     for (const slot of FREE_BUY_SLOTS) {
       const startMs = chicagoWallClockToUtcMs(dayKey, slot.chicagoHour, FREE_BUY_SLOT_MINUTE);
