@@ -26,3 +26,14 @@ rewritten, and this change creates no admission hold or repair job.
 
 Validation and delivery status are recorded in the owning task checkpoint;
 source or passing local tests alone do not establish production installation.
+
+## Installation guard correction
+
+The first eligible production install rolled back because the new private promo
+writer had not been declared in `ca_money_rpc_registry`. The uninstalled
+migration now registers both private money owners before creating them, without
+adding execution privileges. The native financial rehearsal installs the actual
+production DDL guard, proves the omitted declarations fail, then proves the
+complete conversion and cancellation with the declarations present. Both psql
+and the pinned Node PostgreSQL client pass. No production funds moved during
+the refused attempt.

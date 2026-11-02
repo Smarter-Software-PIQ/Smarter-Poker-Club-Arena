@@ -3,7 +3,7 @@
 Only opening registrations/identities are synthetic. No production URL accepted.
 """
 from pathlib import Path
-import hashlib, json, os, tempfile, time
+import hashlib, json, os, re, tempfile, time
 from satellite_qualifier_fixture import module
 from tournament_abort_fixture import install_financial_foundation
 R=Path(__file__).resolve().parents[2]
@@ -38,6 +38,24 @@ try:
  E.sql(d,'CREATE TABLE public.tournament_schedules(id uuid,club_id uuid,config jsonb);',label='schedule-column-shapes')
  E.sql(d,"INSERT INTO ca_chip_store_coverage(store,treatment,counted_by,notes) VALUES('union_wallet','counted','union_wallets','the union rake, bbj, promo, insurance and spin reserve wallets') ON CONFLICT DO NOTHING;",label='captured-promo-store-seed')
  E.sql(d,file=F/'full-opening.sql',label='synthetic-opening')
+ # Install the actual production money-writer event guard before candidate DDL.
+ # The retained financial catalog previously omitted event triggers entirely.
+ guard=(R/'supabase/migrations/20260911160817_a_money_writing_function_is_registered_before_it_exists.sql').read_text()
+ parts=[]
+ for name in ['fn_ca_money_rpc_balance_columns','fn_ca_money_rpc_writes_balances','fn_ca_money_rpc_registry_guard']:
+  match=re.search(r'CREATE OR REPLACE FUNCTION public\.'+name+r'\(.*?AS (\$[a-z_]*\$).*?\1;',guard,re.S)
+  assert match, name
+  parts.append(match.group(0))
+ E.sql(d,'\n'.join(parts)+'''
+DROP EVENT TRIGGER IF EXISTS ab_ca_money_rpc_registered;
+CREATE EVENT TRIGGER ab_ca_money_rpc_registered ON ddl_command_end WHEN TAG IN ('CREATE FUNCTION')
+EXECUTE FUNCTION public.fn_ca_money_rpc_registry_guard();''',label='production-money-writer-ddl-guard')
+ # The old candidate must fail at the actual guard, with the whole install rolled back.
+ old=M.read_text()
+ old=re.sub(r'INSERT INTO public.ca_money_rpc_registry\(proname,status,notes\) VALUES.*?ON CONFLICT\(proname\) DO NOTHING;','',old,count=1,flags=re.S)
+ failed=E.sql(d,old,label='unregistered-writer-refused',seconds=60,check=False)
+ assert failed[0]!=0
+ assert 'fn_ca_midway_free_buy_promo_head writes balance columns' in (failed[1]+failed[2])
  began=time.monotonic();E.sql(d,file=M,label='exact-candidate-install',seconds=60)
  E.report['install_seconds']=time.monotonic()-began
  assert E.report['install_seconds']<8
