@@ -2,13 +2,16 @@
  * Evaluate one sealed V31 dataset without activating it.
  *
  *   npm run horse:gto-v31-evaluate -- --dataset=<uuid>
- *   npm run horse:gto-v31-evaluate -- --dataset=<uuid> --promote
  *
- * The first form runs every missing paired-replay and league family, writes
- * immutable evidence, and asks PostgreSQL to mark the dataset as a candidate.
- * `--promote` additionally requests the guarded active cutover. Both database
- * functions independently recompute every gate. This script never moves real
- * chips and never runs inside the live dealer process.
+ * Runs every missing paired-replay and league family of the dataset's OPEN
+ * evaluation epoch, writes immutable evidence, and asks PostgreSQL to mark the
+ * dataset as a candidate. The epoch (opened by the qualification workflow with
+ * an audited reason) pins exactly one protected engine commit; this checkout
+ * must be that commit. Receipts of earlier epochs stay readable provenance and
+ * never count. Promotion is not done here: it runs only through the
+ * engine-locked atomic qualification operation (promote + eight-worker load +
+ * readiness), which binds the evaluated and serving engine commits. This
+ * script never moves real chips and never runs inside the live dealer process.
  */
 
 import { createHash } from 'node:crypto';
@@ -20,7 +23,7 @@ import {
   type GtoV31EvaluationKind,
 } from '../benchmark/GtoV31CandidateEvaluation.js';
 import { gtoPostflopV31Dataset } from '../engine/GtoPostflopV31.js';
-import { evaluationConfig } from '../benchmark/GtoV31EvaluationConfig.js';
+import { evaluationConfig, evaluationMatchup } from '../benchmark/GtoV31EvaluationConfig.js';
 import {
   loadGtoPostflopV31,
   loadGtoPostflopV31Evaluation,
@@ -31,18 +34,48 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const FAMILIES: GtoV31EvaluationFamily[] = ['cash', 'spin', 'tourney_ev', 'tourney_icm'];
 const KINDS: GtoV31EvaluationKind[] = ['paired_replay', 'league'];
 const HEX40 = /^[0-9a-f]{40}$/;
+/** Qualification refuses to pin an epoch to a commit whose evaluator lacks this protocol. */
+const GTO_V31_EVALUATION_EPOCH_PROTOCOL = 'smarter-poker.gto-v31-evaluation-epochs.v1';
 
 interface StatusEvaluation {
   kind: GtoV31EvaluationKind | 'heldout';
   game_family: GtoV31EvaluationFamily | 'all';
   verdict: 'win' | 'tie' | 'loss' | 'pass' | 'fail';
+  evaluation_epoch_id?: string | null;
+}
+
+interface EvaluationEpoch {
+  epoch_id: string;
+  epoch_no: number;
+  engine_commit: string;
+  promoted_at: string | null;
 }
 
 interface DatasetStatus {
   dataset_id: string;
   dataset_checksum: string;
   state: string;
+  current_epoch?: EvaluationEpoch | null;
   evaluations: StatusEvaluation[];
+}
+
+/** The dataset's open epoch must pin exactly this checked-out engine commit. */
+function openEpochFor(status: DatasetStatus, engineCommit: string): EvaluationEpoch {
+  const epoch = status.current_epoch;
+  if (
+    !epoch ||
+    typeof epoch.epoch_id !== 'string' ||
+    !Number.isSafeInteger(epoch.epoch_no) ||
+    epoch.epoch_no < 1 ||
+    epoch.promoted_at !== null ||
+    epoch.engine_commit !== engineCommit
+  ) {
+    throw new Error(
+      `the open evaluation epoch does not pin this engine commit (${engineCommit}); ` +
+        'the qualification workflow opens the audited epoch before evaluation'
+    );
+  }
+  return epoch;
 }
 
 function arg(name: string): string | null {
@@ -189,11 +222,12 @@ async function persistEvaluation(args: {
   datasetChecksum: string;
   incumbentChecksum: string;
   engineCommit: string;
+  epochNo: number;
   kind: GtoV31EvaluationKind;
   family: GtoV31EvaluationFamily;
 }): Promise<void> {
   const runDate = new Date().toISOString().slice(0, 10);
-  const matchup = `gto_v31_${args.kind}_${args.family}_${args.datasetChecksum}`;
+  const matchup = evaluationMatchup(args.kind, args.family, args.datasetChecksum, args.epochNo);
   const scenarios = buildGtoV31EvaluationScenarios(
     args.family,
     args.kind,
@@ -278,6 +312,9 @@ async function main(): Promise<void> {
   if (!datasetId || !UUID.test(datasetId)) {
     throw new Error('--dataset=<uuid> is required');
   }
+  if (process.argv.includes('--promote')) {
+    throw new Error('promotion runs only through the engine-locked atomic qualification operation');
+  }
   const engineCommit = evaluationEngineCommit();
   await loadGtoPostflopV31();
   const incumbentChecksum = gtoPostflopV31Dataset()?.checksum ?? 'legacy_v30';
@@ -289,11 +326,18 @@ async function main(): Promise<void> {
   if (!['evaluating', 'candidate'].includes(status.state)) {
     throw new Error(`dataset state ${status.state} cannot be evaluated`);
   }
+  const epoch = openEpochFor(status, engineCommit);
+  console.log(
+    `[gto-v31-evaluate] ${GTO_V31_EVALUATION_EPOCH_PROTOCOL}: epoch ${epoch.epoch_no} pins ${engineCommit}`
+  );
 
   for (const kind of KINDS) {
     for (const family of FAMILIES) {
       const prior = status.evaluations.find(
-        (evaluation) => evaluation.kind === kind && evaluation.game_family === family
+        (evaluation) =>
+          evaluation.kind === kind &&
+          evaluation.game_family === family &&
+          evaluation.evaluation_epoch_id === epoch.epoch_id
       );
       if (prior) {
         if (prior.verdict === 'loss') {
@@ -313,10 +357,12 @@ async function main(): Promise<void> {
         datasetChecksum: loaded.checksum,
         incumbentChecksum,
         engineCommit,
+        epochNo: epoch.epoch_no,
         kind,
         family,
       });
       status = await certificationStatus(datasetId);
+      openEpochFor(status, engineCommit);
     }
   }
 
@@ -330,17 +376,10 @@ async function main(): Promise<void> {
   if (status.state !== 'candidate') {
     throw new Error(`all evaluation calls returned but dataset state is ${status.state}`);
   }
-  console.log(`[gto-v31-evaluate] candidate gates passed for ${loaded.checksum}`);
-
-  if (process.argv.includes('--promote')) {
-    const { error } = await supabase.rpc('fn_gto_v31_promote_dataset', {
-      p_dataset_id: datasetId,
-    });
-    if (error) throw new Error(error.message);
-    console.log(`[gto-v31-evaluate] promoted ${loaded.checksum}`);
-  } else {
-    console.log('[gto-v31-evaluate] not activated; rerun with --promote after reviewing receipts');
-  }
+  console.log(
+    `[gto-v31-evaluate] candidate gates passed for ${loaded.checksum} ` +
+      `(epoch ${epoch.epoch_no}, engine ${engineCommit}); not activated`
+  );
 }
 
 main().catch((error) => {

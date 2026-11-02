@@ -72,9 +72,9 @@ describe('Midway standard structures through the actual scheduled creator', () =
         expect(row.late_reg_mins).toBe(60);
         expect(row.late_reg_levels).toBe(12);
         expect(row.rebuy_cost).toBe(1);
-        expect(row.addon_cost).toBe(1);
+        expect(row.addon_cost).toBeNull();
         // Dan 2026-11-01: an add-on pays the starting stack, exactly.
-        expect(row.addon_chips).toBe(row.starting_chips);
+        expect(row.addon_chips).toBeNull();
       } else {
         expect(row.starting_chips % 5000).toBe(0);
         if (row.late_reg_levels > 0)
@@ -92,9 +92,10 @@ describe('Midway standard structures through the actual scheduled creator', () =
           } else expect(Number(row.buy_in_amount) + Number(row.buy_in_fee)).toBe(config.buyIn);
         }
       }
-      if (config.guaranteedPrize != null) expect(row.guaranteed_prize).toBe(config.guaranteedPrize);
+      if (config.guaranteedPrize != null)
+        expect(row.guaranteed_prize).toBe(row.free_buy ? 0 : config.guaranteedPrize);
       expect(row.is_rebuy).toBe(true);
-      expect(row.add_on_available).toBe(!/^Sunday[ -]?200(?:\b|$)/i.test(name));
+      expect(row.add_on_available).toBe(!row.free_buy && !/^Sunday[ -]?200(?:\b|$)/i.test(name));
       if (row.is_rebuy) {
         expect(row.rebuy_levels).toBe(row.late_reg_levels);
         expect(row.rebuy_chips).toBe(row.starting_chips);
@@ -141,7 +142,7 @@ describe('Midway standard structures through the actual scheduled creator', () =
       start
     );
     expect((row!.blind_structure as any[])[0].smallBlind).toBe(25);
-    expect(row!.guaranteed_prize).toBe(250);
+    expect(row!.guaranteed_prize).toBe(0);
     expect(auditFreeBuyRow({ ...row!, start_time: '2026-10-25T13:30:00Z' })).toEqual([]);
   });
 

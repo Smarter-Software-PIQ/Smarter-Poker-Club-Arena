@@ -77,6 +77,7 @@ const AGREEMENT_SCORER = read('server/src/benchmark/HorseSolverAgreementV31.ts')
 const LEAGUE = read('server/src/benchmark/HorseLeague.ts');
 const LOADER = read('server/src/services/GtoPostflopV31Loader.ts');
 const EVALUATOR = read('server/src/scripts/gtoV31Evaluate.ts');
+const EVALUATION_CONFIG = read('server/src/benchmark/GtoV31EvaluationConfig.ts');
 const AUDIT = read('server/src/engine/HorseDataLedger.ts');
 
 describe('the certified V31 release boundary', () => {
@@ -352,7 +353,14 @@ describe('the certified V31 release boundary', () => {
     );
     expect(EVALUATOR).toContain("['status', '--porcelain', '--untracked-files=all']");
     expect(EVALUATOR).toContain("['merge-base', '--is-ancestor', head, 'origin/main']");
-    expect(EVALUATOR).toContain('`gto_v31_${args.kind}_${args.family}_${args.datasetChecksum}`');
+    // Epoch 1 keeps this matchup; later audited epochs append _epoch<n>
+    // (20261102151428_v31_evaluation_epochs_bind_the_engine_commit).
+    expect(EVALUATOR).toContain(
+      'evaluationMatchup(args.kind, args.family, args.datasetChecksum, args.epochNo)'
+    );
+    expect(EVALUATION_CONFIG).toContain(
+      "`gto_v31_${kind}_${family}_${datasetChecksum}${epochNo > 1 ? `_epoch${epochNo}` : ''}`"
+    );
   });
 
   it('rechecks execution provenance at both candidate and promotion boundaries', () => {

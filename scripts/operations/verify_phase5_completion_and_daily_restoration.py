@@ -352,12 +352,16 @@ def verify_schedule_transition(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     required_prereq_flags = (
         "sealed_non_eed_engine",
         "full_v3_thaw",
-        "all_assigned_events_settled",
+        "all_140_owner_retirements_completed",
         "attention14_metadata_closed",
     )
     for flag in required_prereq_flags:
         if prereqs.get(flag) is not True:
             errors.append(f"Prerequisite {flag!r} is not satisfied (got {prereqs.get(flag)!r})")
+    if prereqs.get("v4_equal_share_receipt_count", 0) != 0:
+        errors.append(
+            f"Prerequisite 'v4_equal_share_receipt_count' must be 0 (equal-share plan is revoked), got {prereqs.get('v4_equal_share_receipt_count')!r}"
+        )
 
     engine_sha = str(prereqs.get("sealed_engine_sha", ""))
     if not SHA40_RE.fullmatch(engine_sha) or engine_sha == DAILY_BOOTSTRAP_SHA:
@@ -443,6 +447,10 @@ def verify_attention14_closure(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         errors.append(f"fn_ca_incident_action MD5 mismatch: expected {EXPECTED_INCIDENT_ACTION_MD5}")
     if int(snapshot.get("overdue_unsettled_abort_targets", -1)) != 0:
         errors.append("global overdue_unsettled_abort_targets must be 0")
+    if int(snapshot.get("v4_equal_share_receipt_count", 0)) != 0:
+        errors.append("v4_equal_share_receipt_count must be 0 (equal-share plan is revoked)")
+    if int(snapshot.get("owner_retirement_140_retired_count", 140)) != 140:
+        errors.append("owner_retirement_140_retired_count must be 140")
 
     # 1. Verify all 89 original89 runtime retirements and terminal receipts/absent leases
     retirements = evidence.get("runtime_retirements")

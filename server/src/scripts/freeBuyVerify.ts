@@ -33,7 +33,7 @@ async function main(): Promise<void> {
     .from('tournaments')
     .select(
       'id, name, club_id, union_id, status, start_time, guaranteed_prize, buy_in_amount, ' +
-        'buy_in_fee, starting_chips, free_buy, addon_from_start, add_on_available, addon_cost, ' +
+        'is_pko, bounty_amount, buy_in_fee, starting_chips, free_buy, addon_from_start, add_on_available, addon_cost, ' +
         'addon_chips, addon_levels, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, ' +
         'max_rebuys, late_reg_mins, late_reg_levels, current_players, prize_pool'
     )

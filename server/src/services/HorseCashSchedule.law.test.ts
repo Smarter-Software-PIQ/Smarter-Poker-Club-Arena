@@ -49,7 +49,7 @@ describe('November 2 owner cash schedule', () => {
       expect(horseCashGameAllowed({ ...table, tournament_id: 'event' }, start)).toBe(true);
     }
   );
-  it.each(['plo4', 'plo5', 'plo6'])(
+  it.each(['plo4', 'plo5', 'plo6', 'nlh', 'flh', 'flo8', 'stud', 'unknown'])(
     'caps %s at .50/1.00 including future higher stakes',
     (variant) => {
       for (const [sb, bb, allowed] of [
@@ -67,9 +67,27 @@ describe('November 2 owner cash schedule', () => {
       expect(horseCashGameAllowed({ game_variant: variant, big_blind: null }, start)).toBe(false);
     }
   );
-  it('leaves other cash variants eligible', () => {
-    for (const game_variant of ['nlh', 'flh', 'flo8'])
-      expect(horseCashGameAllowed({ game_variant, big_blind: 2 }, start)).toBe(true);
+  it('requires known valid blinds for every cash variant, preserving tournaments', () => {
+    for (const game_variant of ['nlh', 'plo4', 'flo8']) {
+      for (const [small_blind, big_blind] of [
+        [null, 1],
+        [0.5, null],
+        [undefined, 1],
+        [0.5, undefined],
+        [NaN, 1],
+        [0.5, Infinity],
+        [-0.5, 1],
+        [0.5, 0],
+      ]) {
+        const table = { game_variant, small_blind, big_blind };
+        expect(horseCashGameAllowed(table, start)).toBe(false);
+        expect(horseCashGameAllowed(table, start - 1)).toBe(true);
+        expect(horseCashGameAllowed({ ...table, tournament_id: 'event' }, start)).toBe(true);
+      }
+      expect(
+        horseCashGameAllowed({ game_variant, small_blind: '0.50', big_blind: '1.00' }, start)
+      ).toBe(true);
+    }
   });
   it('wires eligibility before seeding and into the existing safe leave door', () => {
     const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');

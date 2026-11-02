@@ -29,6 +29,11 @@
  * resolves, for both clubs, so an unknown template cannot ship.
  */
 
+import {
+  MIDWAY_FREE_BUY_UNION_ID,
+  MIDWAY_FREE_BUY_SCHEDULE_POLICY,
+} from '../tournament/midwayFreeBuyPolicy.js';
+
 export const FIXED_BOARD_TIME_ZONE = 'America/Chicago';
 
 /**
@@ -385,7 +390,7 @@ export interface FixedBoardRow {
   start_times_utc: string[];
   interval_minutes: null;
   time_zone: string;
-  config: {
+  config: Record<string, unknown> & {
     type: 'fixed_board';
     fixedBoard: string;
     horsesToRegister: number;
@@ -410,6 +415,9 @@ export function fixedBoardRowFor(club: FixedBoardClub, event: FixedBoardEvent): 
       type: 'fixed_board',
       fixedBoard: event.name,
       horsesToRegister: event.horses,
+      ...(club.clubId === MIDWAY_FREE_BUY_UNION_ID && event.name.includes(' Free Buy (')
+        ? MIDWAY_FREE_BUY_SCHEDULE_POLICY
+        : {}),
       ...(event.previousTimes
         ? {
             previousStartTimes: [...event.previousTimes],
@@ -478,6 +486,10 @@ export function planFixedBoardSync(
         sameList(anchor.days_of_week, want.days_of_week) &&
         sameList(anchor.start_times_utc, want.start_times_utc) &&
         anchor.config?.type === want.config.type &&
+        (!want.config.midwayFreeBuyFormat ||
+          Object.entries(MIDWAY_FREE_BUY_SCHEDULE_POLICY).every(
+            ([key, value]) => anchor.config?.[key] === value
+          )) &&
         anchor.config?.horsesToRegister === want.config.horsesToRegister &&
         sameOptionalList(anchor.config?.previousStartTimes, want.config.previousStartTimes) &&
         sameOptionalList(anchor.config?.retiredStartTimes, want.config.retiredStartTimes) &&

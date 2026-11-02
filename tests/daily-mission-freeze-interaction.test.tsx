@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DailyChallengesPage from '../src/pages/DailyChallengesPage';
 import type { DailyChallengeDashboard } from '../src/services/DailyChallengeService';
@@ -158,6 +158,138 @@ describe('Daily Missions freeze purchase interaction ownership', () => {
     expect(document.getElementById('daily-missions')).not.toBeNull();
     expect(shell.hasAttribute('inert')).toBe(false);
     expect(mocks.buyFreeze).toHaveBeenCalledTimes(1);
+  });
+
+  it('cycles Daily -> Weekly -> Monthly subpages, opens and cancels inline reroll confirmation, and verifies #SmarterCasinoRealism attributes', async () => {
+    const reroll = vi.fn().mockResolvedValue({
+      success: true,
+      alreadyRerolled: false,
+      diamondsSpent: 100,
+      challengeId: 'hp_25',
+      diamondBalance: 9900,
+    });
+    const { dailyChallengeService } = await import('../src/services/DailyChallengeService');
+    (dailyChallengeService as unknown as { rerollChallenge: typeof reroll }).rerollChallenge =
+      reroll;
+    mocks.dashboard.mockResolvedValue({
+      ...dashboard(1),
+      missions: [
+        {
+          id: 'daily-1',
+          challenge_id: 'hp_10',
+          assigned_date: new Date().toISOString().slice(0, 10),
+          progress: 2,
+          completed: false,
+          claimed: false,
+          completed_at: null,
+          tier: 'daily',
+          challenge: {
+            id: 'hp_10',
+            name: 'Daily Grinder',
+            description: 'Play 10 Hands Today',
+            type: 'hands_played',
+            requirement: 10,
+            diamondReward: 15,
+            chipReward: 0,
+            tier: 'daily',
+          },
+        },
+        {
+          id: 'weekly-1',
+          challenge_id: 'wk_50',
+          assigned_date: 'week',
+          progress: 50,
+          completed: true,
+          claimed: false,
+          completed_at: new Date().toISOString(),
+          tier: 'weekly',
+          challenge: {
+            id: 'wk_50',
+            name: 'Weekly Marathon',
+            description: 'Play 50 Hands This Week',
+            type: 'hands_played',
+            requirement: 50,
+            diamondReward: 120,
+            chipReward: 0,
+            tier: 'weekly',
+          },
+        },
+        {
+          id: 'monthly-1',
+          challenge_id: 'mo_200',
+          assigned_date: 'month',
+          progress: 200,
+          completed: true,
+          claimed: true,
+          completed_at: new Date().toISOString(),
+          tier: 'monthly',
+          challenge: {
+            id: 'mo_200',
+            name: 'Monthly Legend',
+            description: 'Play 200 Hands This Month',
+            type: 'hands_played',
+            requirement: 200,
+            diamondReward: 500,
+            chipReward: 0,
+            tier: 'monthly',
+          },
+        },
+      ],
+    });
+
+    const shell = document.createElement('div');
+    shell.id = 'root';
+    document.body.appendChild(shell);
+    render(
+      <MemoryRouter initialEntries={['/challenges/daily']}>
+        <Routes>
+          <Route path="/challenges/:cycle?" element={<DailyChallengesPage />} />
+        </Routes>
+      </MemoryRouter>,
+      { container: shell }
+    );
+
+    const rootSurface = await waitFor(() => {
+      const node = document.getElementById('daily-missions');
+      expect(node).not.toBeNull();
+      expect(node!.getAttribute('aria-busy')).toBe('false');
+      return node!;
+    });
+    expect(rootSurface.getAttribute('data-casino-realism')).toBe('smarter-casino-realism');
+    expect(rootSurface.getAttribute('data-mission-cycle')).toBe('daily');
+
+    // Verify Daily mission card and inline reroll confirmation pop-up
+    const dailyCard = document.getElementById('mission-card-daily-1');
+    expect(dailyCard).not.toBeNull();
+    expect(dailyCard!.getAttribute('data-casino-realism')).toBe('smarter-casino-realism');
+    const rerollBtn = within(dailyCard!).getByRole('button', {
+      name: /Reroll.*Diamond.*For Daily Grinder/i,
+    });
+    fireEvent.click(rerollBtn);
+    const confirmGroup = await screen.findByRole('group', {
+      name: /Confirm Reroll For Daily Grinder/i,
+    });
+    expect(confirmGroup).not.toBeNull();
+    fireEvent.click(within(confirmGroup).getByRole('button', { name: 'Keep It' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: /Confirm Reroll For Daily Grinder/i })).toBeNull()
+    );
+
+    // Switch to Weekly subpage and verify cycle state + claimable card
+    fireEvent.click(screen.getByRole('tab', { name: /^Weekly/i }));
+    await waitFor(() => expect(rootSurface.getAttribute('data-mission-cycle')).toBe('weekly'));
+    const weeklyCard = document.getElementById('mission-card-weekly-1');
+    expect(weeklyCard).not.toBeNull();
+    expect(weeklyCard!.getAttribute('data-casino-realism')).toBe('smarter-casino-realism');
+    expect(weeklyCard!.getAttribute('data-mission-state')).toBe('complete');
+
+    // Switch to Monthly subpage and verify cycle state + claimed card
+    fireEvent.click(screen.getByRole('tab', { name: /^Monthly/i }));
+    await waitFor(() => expect(rootSurface.getAttribute('data-mission-cycle')).toBe('monthly'));
+    const monthlyCard = document.getElementById('mission-card-monthly-1');
+    expect(monthlyCard).not.toBeNull();
+    expect(monthlyCard!.getAttribute('data-casino-realism')).toBe('smarter-casino-realism');
+    expect(monthlyCard!.getAttribute('data-mission-state')).toBe('claimed');
   });
 
   it.each(['rejection', 'network error'])(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluationConfig } from './GtoV31EvaluationConfig.js';
+import { evaluationConfig, evaluationMatchup } from './GtoV31EvaluationConfig.js';
 
 const args = {
   datasetChecksum: 'a'.repeat(64),
@@ -38,6 +38,23 @@ describe('V31 evaluation policy identity', () => {
   it.each([null, undefined, false, 'unknown'])('rejects explicit invalid metadata %s', (value) => {
     expect(() => evaluationConfig({ ...args, policy_export_schema: value } as never)).toThrow(
       'v31_policy_contract_unknown'
+    );
+  });
+});
+
+describe('V31 evaluation epoch matchup', () => {
+  it('keeps the historical matchup for epoch 1 and suffixes later epochs', () => {
+    const checksum = 'c'.repeat(64);
+    expect(evaluationMatchup('league', 'spin', checksum, 1)).toBe(
+      `gto_v31_league_spin_${checksum}`
+    );
+    expect(evaluationMatchup('league', 'spin', checksum, 2)).toBe(
+      `gto_v31_league_spin_${checksum}_epoch2`
+    );
+  });
+  it.each([0, -1, 1.5, Number.NaN])('rejects epoch %s', (epoch) => {
+    expect(() => evaluationMatchup('paired_replay', 'cash', 'c'.repeat(64), epoch)).toThrow(
+      'v31_evaluation_epoch_invalid'
     );
   });
 });

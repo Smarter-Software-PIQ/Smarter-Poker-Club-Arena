@@ -118,3 +118,14 @@ actual timed floor helper. The wrapper always supplies the source `GIT_DIR`
 to retain this regression outside push hooks. Exact object/ancestry checks and
 all deadlines remain unchanged. Both original profiles pass under that inherited
 environment; full wrapper and normal push checks remain required.
+
+## Protected-main integration
+
+Preserved all 59 withdrawal cases, including the distinct current26 target and
+controller. Promisor source hydration occurs in the validated batched object
+read before the private helper starts; exact copied objects and the real commit
+graph remain local. This replaces the earlier macOS-only 15-second historical
+fixture allowance with the original five-second helper deadline. The integrated
+wrapper passes all three checks in 36.20 seconds. Object bytes use a distinct
+variable so the newer timestamp-mutation case retains its original request text.
+Root and server compilation pass; all 117 bound financial inputs are unchanged.

@@ -826,15 +826,15 @@ export function deriveContext(
       settledPlayersLeft <= seatsPerTable ||
       settledPlayersLeft <= Math.max(spotsPaid + 1, Math.ceil(spotsPaid * 1.15)));
   if (pendingRecoveryPlayers > 0 && !recoveryMovesTheMoney) playersLeft = settledPlayersLeft;
-  const allLiveAscending = [...allLive].sort((a, b) => a - b);
+  // allLive is already sorted descending above; the middle index (or pair of
+  // middle indices) of a descending array has the exact same median as an
+  // ascending copy without cloning and re-sorting up to 1,000+ stacks.
   const medianStackChips =
-    allLiveAscending.length === 0
+    allLive.length === 0
       ? 0
-      : allLiveAscending.length % 2 === 1
-        ? allLiveAscending[Math.floor(allLiveAscending.length / 2)]
-        : (allLiveAscending[allLiveAscending.length / 2 - 1] +
-            allLiveAscending[allLiveAscending.length / 2]) /
-          2;
+      : allLive.length % 2 === 1
+        ? allLive[Math.floor(allLive.length / 2)]
+        : (allLive[allLive.length / 2 - 1] + allLive[allLive.length / 2]) / 2;
   const status = (row.status || '').toUpperCase();
   const currentLevelValid =
     row.current_level != null && Number.isSafeInteger(row.current_level) && row.current_level >= 0;

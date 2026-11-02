@@ -13,6 +13,8 @@ Usage:
   horse-release-verify.py sql seat-jams START END               # <= ~4h per call
   horse-release-verify.py sql v78 START END                     # <= ~1 day per call
   horse-release-verify.py sql v79 START END                     # <= ~1 day per call
+  horse-release-verify.py sql four-bet-fold START END           # <= ~12h per call
+  horse-release-verify.py sql reshove START END                 # <= ~1 day per call
   horse-release-verify.py slices START END HOURS                # print window slices
   horse-release-verify.py combine-v79 FILE [FILE ...]           # v79 slice outputs -> table
   horse-release-verify.py check                                 # read-only self-check
@@ -38,6 +40,8 @@ SQL = {
     'seat-jams': HERE / 'sql' / 'seat-jams.sql',
     'v78': HERE / 'sql' / 'v78-committing-raises.sql',
     'v79': HERE / 'sql' / 'v79-cells.sql',
+    'four-bet-fold': HERE / 'sql' / 'four-bet-fold.sql',
+    'reshove': HERE / 'sql' / 'reshove-ev.sql',
 }
 WRITE_WORDS = re.compile(
     r'\b(insert|update|delete|drop|alter|create|grant|revoke|truncate|copy|vacuum|'
