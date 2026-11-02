@@ -70,6 +70,11 @@ EXCEPTION WHEN OTHERS THEN
   NULL; -- first install: nothing to unschedule
 END $$;
 
+-- periodic-work: the prune IS the product: rabbit_hunt_offers promises 1-day
+-- retention in its own COMMENT, the engine writes a row for every early-ended
+-- hand platform-wide, and nothing upstream failed or was missed - without a
+-- nightly-grade sweep the promise is simply never kept and the table grows
+-- without bound.
 SELECT cron.schedule(
   'ca-rabbit-hunt-offers-prune',
   '41 * * * *',
