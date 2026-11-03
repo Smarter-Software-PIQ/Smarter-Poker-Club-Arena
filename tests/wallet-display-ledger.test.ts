@@ -117,6 +117,14 @@ describe('PlayerWalletModal transaction_type labels', () => {
     expect(labelForTransactionType('union_pnl_payout')).toBe('Union PnL Payout');
   });
 
+  it('names the agent-wallet movements written to chip_ledger alone', () => {
+    expect(labelForTransactionType('agent_commission')).toBe('Agent Commission');
+    expect(labelForTransactionType('agent_wallet_rakeback')).toBe(
+      'Rakeback Paid From Agent Wallet'
+    );
+    expect(labelForTransactionType('agent_treasury_transfer')).toBe('Club Bank Transfer');
+  });
+
   it('names the agent, claim-back, mint, rake and rakeback movements', () => {
     expect(labelForTransactionType('agent_funding')).toBe('Agent Funding');
     expect(labelForTransactionType('club_bank_send')).toBe('Club Bank Send');

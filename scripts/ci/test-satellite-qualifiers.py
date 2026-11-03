@@ -235,6 +235,8 @@ def main():
         manifest['source_sha256'].update(qualify_ordinary_transport(e,root,output))
         from terminal_original_request_native import qualify as qualify_original_terminal
         manifest['source_sha256'].update(qualify_original_terminal(e,root,output))
+        from satellite_terminal_transport import qualify as qualify_terminal_transport
+        manifest['source_sha256'].update(qualify_terminal_transport(e,root,db,output,probe))
         qualify_concurrency(e,root,native,db,output,qualifier_probe)
         qualify_readers(e,root,native,db,output,qualifier_probe)
         from fixed_sng_satellite_financial import qualify as qualify_fixed_sng
