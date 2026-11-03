@@ -11874,13 +11874,6 @@ function LiveTablePage({
        would refuse this anyway (and the database behind it); saying so here
        saves the round trip. The label is the whole message - and the player
        still goes to the lobby, seat and chips staying on the table, tab open. */
-      if (heroLeaveLocked) {
-        setLeaveAttentionSuppressed(false);
-        goToLobbyKeepingSeat(
-          `${leaveAvailableLabel(heroLeaveMs)}. ${seatCopy(tableState.arenaAsset).seatStaysTapToReturn}`
-        );
-        return;
-      }
 
       /**
        * ═══════════════════════════════════════════════════════════════════════
@@ -11956,13 +11949,14 @@ function LiveTablePage({
               occupancyId: lightningLeave.occupancyId,
             })
           : await tableService.leaveTable(tableId, tableState.heroSeat, userId);
-        if (result.success && result.tournament) {
+        if (result.success && (result.tournament || result.held)) {
           // Leaving an active tournament is a sit-out, not a cashout or a tab close.
           sittingOutIdsRef.current.add(String(userId));
           setHeroSitsOutPerRow(true);
           setSitOutNextHand(true);
           onTableInfoUpdate?.({ isMyTurn: false, sittingOut: true });
-          showLobbyNow();
+          if (result.held) goToLobbyKeepingSeat(result.error || 'Your Seat Is Sitting Out.');
+          else showLobbyNow();
           return;
         }
         if (result.success) {

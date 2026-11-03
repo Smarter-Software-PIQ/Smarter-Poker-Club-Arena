@@ -18,6 +18,7 @@ export type SeatLeaveResult = {
   chipsReturned: number;
   deferred?: boolean;
   tournament?: boolean;
+  held?: boolean;
   occupancyId?: string;
   error?: string;
 };
@@ -193,7 +194,17 @@ async function requestSeatWithIntent(
         throw new Error('The Server Did Not Confirm The Original Seat.');
       }
       let outcome: SeatLeaveResult;
-      if (result.immediate === false && result.cashout === null) {
+      if (result.held === true) {
+        if (
+          result.sittingOut !== true ||
+          result.code !== 'LEAVE_LOCKED' ||
+          result.immediate !== false ||
+          result.cashout !== null ||
+          typeof result.error !== 'string'
+        )
+          throw new Error('The Server Did Not Confirm Your Held Seat.');
+        outcome = { success: true, chipsReturned: 0, held: true, error: result.error };
+      } else if (result.immediate === false && result.cashout === null) {
         outcome = { success: true, chipsReturned: 0, deferred: true };
       } else if (result.tournament === true && result.cashout === null) {
         outcome = { success: true, chipsReturned: 0, tournament: true };

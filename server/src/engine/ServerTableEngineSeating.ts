@@ -1670,6 +1670,22 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
    * still stands (applied or deferred to the hand end). The horse rotator
    * asks this before any automatic sit-back-in (2026-10-22).
    */
+  /** A stay clock holds the chips, never the player's current-hand input. */
+  protected holdLockedLeave(userId: string, remainingMs: number) {
+    this.disconnectEngine.markClientSitOut(this.tableId, userId);
+    this.sitOutLeaver(userId, this.foldLeaverNow(userId));
+    this.broadcastCurrentState();
+    return {
+      success: true,
+      immediate: false,
+      held: true,
+      sittingOut: true,
+      code: 'LEAVE_LOCKED' as const,
+      stay_remaining_ms: remainingMs,
+      error: leaveLabel(remainingMs),
+    };
+  }
+
   public isClientSitOut(userId: string): boolean {
     return this.disconnectEngine.isClientSitOut(this.tableId, userId);
   }
@@ -1697,6 +1713,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     error?: string;
     immediate: boolean;
     tournament?: boolean;
+    held?: boolean;
+    sittingOut?: boolean;
     /**
      * CHIP CONTINUITY (2026-09-04): 'LEAVE_LOCKED' when the player is ahead
      * of their buy-in with stay clock remaining. `stay_remaining_ms` says how
@@ -2060,7 +2078,6 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         if (!opts.forced) {
           const lock = this.chipContinuity.leaveLock(userId, player.stack);
           if (lock.locked) {
-            const label = leaveLabel(lock.remainingMs);
             console.log(
               `[ServerTableEngine:${this.tableId}] leave refused for ${userId} - stay clock ${lock.remainingMs}ms remaining`
             );
@@ -2071,13 +2088,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               stay_remaining_ms: lock.remainingMs,
               timestamp: Date.now(),
             });
-            return {
-              success: false,
-              error: label,
-              immediate: false,
-              code: 'LEAVE_LOCKED',
-              stay_remaining_ms: lock.remainingMs,
-            };
+            return this.holdLockedLeave(userId, lock.remainingMs);
           }
         }
 
@@ -2336,7 +2347,6 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               `[ServerTableEngine:${this.tableId}] leave refused at the door for ${userId} - stay clock ${res.stayRemainingMs}ms remaining`
             );
             this.chipContinuity.noteRefusal(userId, res.stayRemainingMs);
-            const label = leaveLabel(res.stayRemainingMs);
             this.hub?.emitEvent(this.tableId, {
               type: 'leave_blocked',
               table_id: this.tableId,
@@ -2345,13 +2355,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               timestamp: Date.now(),
             });
             this.broadcastCurrentState();
-            return {
-              success: false,
-              error: label,
-              immediate: false,
-              code: 'LEAVE_LOCKED',
-              stay_remaining_ms: res.stayRemainingMs,
-            };
+            return this.holdLockedLeave(userId, res.stayRemainingMs);
           }
           // Transport or database failure: the seat is untouched (one transaction)
           // and the player can try again. Nothing to tear down, because nothing left.

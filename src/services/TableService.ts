@@ -308,6 +308,7 @@ class TableService {
     chipsReturned: number;
     deferred?: boolean;
     tournament?: boolean;
+    held?: boolean;
     occupancyId?: string;
     error?: string;
   }> {
@@ -319,7 +320,7 @@ class TableService {
       ? await leaveSeatWithIntent(tableId, userId, target)
       : await leaveSeatWithIntent(tableId, userId);
     if (!result.success) return result;
-    if (result.tournament) return result;
+    if (result.tournament || result.held) return result;
     if (!result.deferred) {
       masterBus.emit('BALANCE_UPDATED', { source: 'table_leave_cashout', userId });
     } else if (result.occupancyId) {

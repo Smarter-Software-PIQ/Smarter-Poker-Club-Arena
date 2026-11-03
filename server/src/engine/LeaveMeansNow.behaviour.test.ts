@@ -182,3 +182,30 @@ for (const [who, id, seat] of [
     });
   });
 }
+
+describe('locked leave protects input without moving chips', () => {
+  it.each([1, 3])(
+    'folds or queues only the original controller when current seat is %s',
+    (actor) => {
+      const live: LivePlayer[] = [
+        { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+        { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+      ];
+      const e = makeEngine(live, actor);
+      const reply = e.holdLockedLeave(HUMAN, 61000);
+      expect(reply).toMatchObject({
+        success: true,
+        immediate: false,
+        held: true,
+        sittingOut: true,
+        code: 'LEAVE_LOCKED',
+        stay_remaining_ms: 61000,
+      });
+      expect(e.isClientSitOut(HUMAN)).toBe(true);
+      expect(actor === 1 ? live[0].is_folded : queuedAutoFold(e, HUMAN)).toBe(true);
+      expect(e.seatedPlayers.some((p: any) => p.user_id === HUMAN)).toBe(true);
+      expect(departure).not.toHaveBeenCalled();
+      expect(cashout).not.toHaveBeenCalled();
+    }
+  );
+});
