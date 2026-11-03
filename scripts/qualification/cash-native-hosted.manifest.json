@@ -428,16 +428,16 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 275817,
-      "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+      "bytes": 276540,
+      "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47562,
-      "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+      "bytes": 47686,
+      "sha256": "a907216ea253e523b7675674584cf300678e6498b0ddb899ce92544261245cf2"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -6581,5 +6581,34 @@
         }
       }
     }
+  },
+  "finishUnionNativeEnforcement20261103": {
+    "reason": "Reviewed additive required union-finish/cash-hand native contention step and isolated-input classifier routing. No financial owner, existing assertion or historical verdict changed.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 275817,
+          "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+        },
+        "current": {
+          "bytes": 276540,
+          "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+        }
+      },
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": {
+          "bytes": 47562,
+          "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        },
+        "current": {
+          "bytes": 47686,
+          "sha256": "a907216ea253e523b7675674584cf300678e6498b0ddb899ce92544261245cf2"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "financial_recertification": false
   }
 }
