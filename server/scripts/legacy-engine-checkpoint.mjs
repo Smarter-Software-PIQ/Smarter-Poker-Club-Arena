@@ -707,6 +707,7 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
     if (workDeadlineMs <= Date.now() || workDeadlineMs > Date.now() + (profile ? 80000 : 40000))
       throw new Error('native census deadline exhausted');
     const modules = getOwnPropertyDescriptor(holder, 'modules')?.value;
+    const eventEmitterRoot = process.getBuiltinModule('node:events')?.EventEmitter?.prototype ?? null;
     const roots = [
       modules.gameServer.GameServer.prototype,
       modules.engine.ServerTableEngine.prototype,
@@ -724,9 +725,9 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
           if (other !== index && cursor === roots[other])
             throw new Error('native census root refused');
         const parent = getPrototypeOf(cursor);
-        if (parent === root) {
+        if (parent === root || (eventEmitterRoot !== null && parent === eventEmitterRoot)) {
           if (!isExtensible(cursor)) throw new Error('native census root not extensible');
-          if (!tops.includes(cursor)) tops.push(cursor);
+          if (!tops.some((entry) => entry.top === cursor)) tops.push({ top: cursor, parent });
           break;
         }
         cursor = parent;
@@ -761,9 +762,9 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
     let census, nativeObjects;
     const native = getOwnPropertyDescriptor(holder, 'nativeCensus')?.value;
     try {
-      for (const top of tops) {
-        setPrototypeOf(top, marker);
-        changed.push(top);
+      for (const entry of tops) {
+        setPrototypeOf(entry.top, marker);
+        changed.push(entry);
       }
       // The outer Runtime.evaluate has disableBreaks:true. The same native
       // dispatch owns insertion, this synchronous query and exact restoration;
@@ -782,12 +783,12 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
       let failed = false;
       for (let index = changed.length - 1; index >= 0; index--) {
         try {
-          setPrototypeOf(changed[index], root);
+          setPrototypeOf(changed[index].top, changed[index].parent);
         } catch {
           failed = true;
         }
       }
-      for (const top of tops) if (getPrototypeOf(top) !== root) failed = true;
+      for (const entry of tops) if (getPrototypeOf(entry.top) !== entry.parent) failed = true;
       if (failed) throw new Error('native census prototype restoration refused');
     }
     if (Date.now() >= workDeadlineMs) throw new Error('native census deadline exhausted');
