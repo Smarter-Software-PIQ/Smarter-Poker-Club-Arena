@@ -812,9 +812,8 @@ describe('TablePage hands the rule its refs and keeps no copy of it', () => {
     expect(PAGE).toMatch(/syncPreActionToEngine\(\{\s*tableId,\s*preAction,\s*refs: \{/);
     expect(PAGE).toMatch(/preActionHeldByEngineRef,\s*preActionSendSeqRef,\s*lightningRoomRef,/);
     expect(PAGE).toMatch(/handNumber: \(\) => tableStateRef\.current\.handNumber \?\? 0,/);
-    // The only reference to the API call left on the page is the one handed
-    // to the sync: no second sender.
-    expect(PAGE.match(/serverSetPreAction/g)).toHaveLength(2);
+    // The page hands the API to the sync and the explicit exact-hand leave fold.
+    expect(PAGE.match(/serverSetPreAction/g)).toHaveLength(3);
     expect(PAGE).toMatch(/setPreAction as serverSetPreAction,/);
     expect(PAGE).not.toMatch(/serverSetPreAction\(/);
   });

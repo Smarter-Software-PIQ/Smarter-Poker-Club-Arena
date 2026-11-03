@@ -822,7 +822,7 @@
   background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/lightning.png');
 }
 .has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='turbo'] {
-  background-image: url('/game-card-icons/turbo.png');
+  background-image: url('/game-card-icons/turbo-complete-v2.png');
 }
 .has-premium-chassis tr[data-kind='mtt'] [data-tournament-icon='hyper'] {
   background-image: url('/game-card-icons/hyper-turbo.png');
@@ -833,17 +833,17 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  top: 1.7cqw;
-  left: 6.15%;
-  width: 10.5%;
-  height: 12cqw;
+  top: 2.4cqw;
+  left: 6.65%;
+  width: 9.5%;
+  height: 10.5cqw;
   background-image: none;
   filter: none;
 }
 .lt-rebuy-addon-art {
   display: block;
   width: 100%;
-  height: 8cqw;
+  height: 7cqw;
   object-fit: contain;
 }
 .lt-rebuy-addon-caption {
@@ -860,4 +860,27 @@
 
 .lt-rebuy-addon-caption > span {
   display: block;
+}
+
+/* Complete chips sit on the blank emblem master, so symbol and ring share one centre. */
+.has-premium-chassis tbody tr[data-kind='cash']::before,
+.has-premium-chassis tbody tr[data-kind='cash']::after {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/card.png');
+}
+.has-premium-chassis tbody tr[data-kind='cash'].is-featured::before {
+  background-image: url('/assets/club-buttons/lobby/chrome-arena-emblems-v2/card-featured.png');
+}
+.has-premium-chassis tr[data-game-heading][data-kind='cash'] .lt-tournament-icon {
+  top: 0cqw;
+  left: 3.9%;
+  width: 15%;
+  height: 15cqw;
+  background-image: url('/game-card-icons/classic-spade-chip-v1.png');
+  filter: grayscale(1);
+}
+.has-premium-chassis
+  tr[data-game-heading][data-kind='cash'][data-lightning-format='true']
+  .lt-tournament-icon {
+  background-image: url('/game-card-icons/lightning-chip-v1.png');
+  filter: none;
 }

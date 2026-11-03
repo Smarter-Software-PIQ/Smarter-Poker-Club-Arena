@@ -204,7 +204,8 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
       await expect(cash).toHaveAttribute('aria-expanded', 'false');
       if (width === 393) await page.screenshot({ path: testInfo.outputPath('tournaments.png') });
       await tournaments.click();
-      await expect(page.getByRole('tablist')).toHaveCount(0);
+      await expect(page.getByRole('tablist')).toHaveCount(1);
+      await expect(tournaments).toHaveAttribute('aria-expanded', 'true');
     });
   }
 }

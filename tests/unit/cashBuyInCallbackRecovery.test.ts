@@ -48,6 +48,7 @@ function fixture() {
   }));
   const dependencies: Record<string, any> = {
     uuid,
+    setLeaveAttentionSuppressed: vi.fn(),
     buyInProcessingRef: ref(false),
     buyInIdempotencyKeyRef: ref(null),
     cashBuyInRecovery: null,

@@ -2929,3 +2929,32 @@
     grid-template-columns: none;
   }
 }
+
+/* Selected controls keep their approved shell and carry a persistent bright ink cue. */
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .game-bar__type.is-active,
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .quickprefs__chip.is-on,
+.club-home
+  .club-lobby-command-top
+  .lobby-controls
+  #lobby-game-section-controls
+  .game-bar__filter-btn.is-set {
+  color: #f4f7fb;
+  filter: brightness(1.35) drop-shadow(0 0 4px #45adff);
+}
+.club-home .lobby-controls .is-active .lobby-filter-label__text,
+.club-home .lobby-controls .is-on .lobby-filter-label__text,
+.club-home .lobby-controls .is-set .lobby-filter-label__text,
+.club-home .lobby-sticky-filters [aria-pressed='true'] .lobby-filter-label__text {
+  text-decoration: underline;
+  text-decoration-color: #45adff;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}

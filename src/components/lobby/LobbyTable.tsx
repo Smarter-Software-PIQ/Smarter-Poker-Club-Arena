@@ -1,3 +1,4 @@
+import { isFixedLimitVariant } from '../../lib/bettingStructure';
 import { AtlasSprite } from '../../throwables/AtlasSprite';
 import { useMttLobbyEntryCounts } from '../../hooks/useMttLobbyEntryCounts';
 import { isRecordedSatelliteTournament } from '../../utils/tournamentFilters';
@@ -27,7 +28,7 @@ import {
   useLayoutEffect,
   useCallback,
 } from 'react';
-import type { LobbyEntry, LobbyStatusKey, LobbyTournamentRow } from './lobbyEntries';
+import type { LobbyEntry, LobbyStatusKey, LobbyTournamentRow, LobbyTableRow } from './lobbyEntries';
 import { tournamentBlinds, tournamentLevel } from './tournamentFigures';
 import { compactChips } from '../../utils/format';
 import {
@@ -2141,8 +2142,14 @@ export default function LobbyTable({
       // these stable tiers after the existing order so each tier retains its
       // chosen sort and seat-first availability order. Cash favorites do not
       // change the cash game's ordering.
+      // Fixed-limit rows remain last after availability/pin and heading sorts.
+      const fixedLimitLast = [...ordered].sort(
+        (a, b) =>
+          Number(a.kind === 'cash' && isFixedLimitVariant((a.raw as LobbyTableRow).game_variant)) -
+          Number(b.kind === 'cash' && isFixedLimitVariant((b.raw as LobbyTableRow).game_variant))
+      );
       return prioritizeTournamentFavorites(
-        ordered,
+        fixedLimitLast,
         ctx.favoriteIds,
         new Set(ordered.filter((entry) => entry.kind !== 'cash' && entry.featured))
       );

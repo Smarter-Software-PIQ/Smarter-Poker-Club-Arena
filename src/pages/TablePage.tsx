@@ -294,7 +294,7 @@ import {
   type HeroActedFence,
 } from '../lib/heroActedFence';
 import { awaitEngineState } from '../lib/awaitEngineState';
-import { syncPreActionToEngine } from '../lib/preActionSync';
+import { syncPreActionToEngine, foldLightningHandForLeave } from '../lib/preActionSync';
 
 import { gameCode } from '../utils/gameCode';
 import { masterBus } from '../core/MasterBus';
@@ -2743,6 +2743,7 @@ function LiveTablePage({
   // Seat-exit state precedes every snapshot and removal consumer.
   const leftSeatPendingRef = useRef(false);
   const leaveRequestActiveRef = useRef(false);
+  const [leaveAttentionSuppressed, setLeaveAttentionSuppressed] = useState(false);
   const reportedSeatExitsRef = useRef(new Set<string>());
   const presentRemoteSeatExitRef = useRef<() => void>(() => {});
   const [appliedExitSnapshot, setAppliedExitSnapshot] = useState<{
@@ -4035,6 +4036,11 @@ function LiveTablePage({
      retried, what an answer means, and what is only ever SHOWN. This effect
      hands it the page's refs and nothing else. */
   useEffect(() => {
+    if (leaveAttentionSuppressed) {
+      ++preActionSendSeqRef.current;
+      hadPreActionRef.current = false;
+      return;
+    }
     syncPreActionToEngine({
       tableId,
       preAction,
@@ -4066,7 +4072,7 @@ function LiveTablePage({
           action: serverAction,
         }),
     });
-  }, [preAction, tableId, userId, toast]);
+  }, [preAction, tableId, userId, toast, leaveAttentionSuppressed]);
 
   // Bible V8 §6.3: Heartbeat every 5 seconds while at the table
   // Server uses this to detect disconnected players and trigger auto-fold/sit-out
@@ -5630,6 +5636,7 @@ function LiveTablePage({
    * of thing that reads as the app ignoring you.
    */
   const clearLocalSitOutState = useCallback(() => {
+    setLeaveAttentionSuppressed(false);
     if (userId) sittingOutIdsRef.current.delete(String(userId));
     setHeroSitsOutPerRow(false);
     setShowSitOut(false);
@@ -7485,6 +7492,8 @@ function LiveTablePage({
   //   action buttons flash on then off and could not click. Adding the
   //   explicit `> 0` guards eliminates the false-trigger.
   const isHeroTurnContext =
+    !leaveAttentionSuppressed &&
+    !heroTabSittingOut &&
     tableState.heroSeat > 0 &&
     tableState.currentPlayerSeat > 0 &&
     tableState.currentPlayerSeat === tableState.heroSeat &&
@@ -11803,167 +11812,205 @@ function LiveTablePage({
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
   const handleLeaveTable = async () => {
     if (leaveRequestActiveRef.current) return;
-    leaveNextHand.cancelQueuedLeave();
-    setLeaveNotice(null);
-    leaveNavigatedRef.current = false;
-    if (!(await stopLightningForLeave())) {
-      toast.warning('Could Not Confirm Your Stop Request. Please Try Again.');
-      return;
-    }
+    leaveRequestActiveRef.current = true;
+    try {
+      setLeaveAttentionSuppressed(true);
+      ++preActionSendSeqRef.current;
+      leaveNextHand.cancelQueuedLeave();
+      setLeaveNotice(null);
+      leaveNavigatedRef.current = false;
+      if (!(await stopLightningForLeave())) {
+        setLeaveAttentionSuppressed(false);
+        toast.warning('Could Not Confirm Your Stop Request. Please Try Again.');
+        return;
+      }
 
-    /* LIGHTNING PHASE 6: a pool-session room holds no seat of its own. The
+      // Stop matchmaking first, then fold the exact room hand through its existing
+      // server pre-action door. The anchor cashout alone cannot fold a pool hand.
+      if (lightningRoomRef.current && tableId) {
+        const snapshot = engineSnapshotRef.current as LightningSnapshotFields | null;
+        const handId = lightningHandId(snapshot);
+        const hero = tableState.players.find((player) => player?.id === userId);
+        if (handId && hero && hero.status !== 'folded' && hero.status !== 'all_in') {
+          const folded = await foldLightningHandForLeave({
+            tableId,
+            handId,
+            currentHandId: () =>
+              lightningHandId(engineSnapshotRef.current as LightningSnapshotFields),
+            send: serverSetPreAction,
+          });
+          if (!folded) {
+            setLeaveAttentionSuppressed(false);
+            toast.warning('Could Not Confirm Your Fold. Please Try Leaving Again.');
+            return;
+          }
+        }
+      }
+
+      /* LIGHTNING PHASE 6: a pool-session room holds no seat of its own. The
        chips sit on the player's anchor seat, so the leave and the cash out
        are addressed to that seat (the room id answered 503). Between hands
        the felt shows no seat at all, so the anchor is what says whether
        there is anything to cash out. */
-    const lightningSummaryRoom = lightningRoomRef.current;
-    const lightningLeave = await resolveLightningLeave();
-    if (lightningLeave === 'unreadable') {
-      goToLobbyKeepingSeat(seatCopy(tableState.arenaAsset).couldNotCashOutYet);
-      return;
-    }
+      const lightningSummaryRoom = lightningRoomRef.current;
+      const lightningLeave = await resolveLightningLeave();
+      if (lightningLeave === 'unreadable') {
+        setLeaveAttentionSuppressed(false);
+        goToLobbyKeepingSeat(seatCopy(tableState.arenaAsset).couldNotCashOutYet);
+        return;
+      }
 
-    // Nothing to cash out: a spectator, a guest, or a session that has not
-    // hydrated yet. The door opens (Dan 2026-09-04, above).
-    const liveSeat = lightningLeave
-      ? lightningLeave.seatNumber
-      : Math.max(tableState.heroSeat, heroSeatRef.current);
-    if (!tableId || !userId || liveSeat <= 0 || lightningLeave === null) {
-      leaveWithoutCashout(liveSeat);
-      return;
-    }
+      // Nothing to cash out: a spectator, a guest, or a session that has not
+      // hydrated yet. The door opens (Dan 2026-09-04, above).
+      const liveSeat = lightningLeave
+        ? lightningLeave.seatNumber
+        : Math.max(tableState.heroSeat, heroSeatRef.current);
+      if (!tableId || !userId || liveSeat <= 0 || lightningLeave === null) {
+        leaveWithoutCashout(liveSeat);
+        return;
+      }
 
-    /* CHIP CONTINUITY: ahead of the buy-in with stay time left. The engine
+      /* CHIP CONTINUITY: ahead of the buy-in with stay time left. The engine
        would refuse this anyway (and the database behind it); saying so here
        saves the round trip. The label is the whole message - and the player
        still goes to the lobby, seat and chips staying on the table, tab open. */
-    if (heroLeaveLocked) {
-      goToLobbyKeepingSeat(
-        `${leaveAvailableLabel(heroLeaveMs)}. ${seatCopy(tableState.arenaAsset).seatStaysTapToReturn}`
-      );
-      return;
-    }
-
-    /**
-     * ═══════════════════════════════════════════════════════════════════════
-     *  A PRE-START SEAT-FIRST SEAT LEAVES THROUGH ITS REFUND (2026-08-28)
-     * ═══════════════════════════════════════════════════════════════════════
-     *
-     * Two "leave" controls reach one seat, and until now only the hidden one
-     * worked. The menu's Leave Table and the felt's leave button both land
-     * here, and `tableService.leaveTable` begins by asking the ENGINE to
-     * release the seat — but a Spin or Heads-Up before its game starts HAS NO
-     * ENGINE GAME, by design (see the 4404 note beside `seatFirstOpenRef`).
-     * So the call could only fail, and the player was told "your chips were
-     * not moved, please try again" — forever, on the one exit they are
-     * actually likely to find. Worse, had it succeeded, the tournament branch
-     * of leaveTable only writes `sitting_out`: no refund, no `left_at`, so
-     * the seat would still count toward the fill while the page booked a
-     * full-buy-in loss.
-     *
-     * `fn_leave_seat_and_refund` is the seat-first exit — Dan 2026-08-21,
-     * "IF THEY LEAVE THE SEAT THEY ARE FULLY REFUNDED" — and it is what the
-     * footer's Leave Seat button has always called. Route both doors to it so
-     * there is ONE way out of a reserved seat rather than two that disagree.
-     */
-    if (seatFirstBuyIn && tableState.heroSeat > 0) {
-      // The lobby first (rule above); the refund resolves behind it and its
-      // toast lands over the lobby.
-      showLobbyNow();
-      try {
-        const result = await tournamentService.leaveTournamentSeatAndRefund(tableId, userId);
-        heroSeatRef.current = 0;
-        setPendingSeat(null);
-        setSeatFirstConfirm(null);
-        setTableState((prev) => ({ ...prev, heroSeat: 0 }));
-        toast?.success?.(`Seat Released. ${tournamentUnregisterSuccessText(result)}`);
-        masterBus.emit('SESSION_ENDED', { tableId, userId });
-        playerStatusService.clearPlayingAt(userId);
-        showLobbyNow();
-      } catch (err) {
-        const alreadyStarted = tournamentUnregisterWasAlreadyStarted(err);
-        if (!alreadyStarted) {
-          reportError(err as Error, 'TablePage.leave_table_seat_first', {
-            tableId,
-            tournamentId: tableState.tournamentId,
-          });
-        }
+      if (heroLeaveLocked) {
+        setLeaveAttentionSuppressed(false);
         goToLobbyKeepingSeat(
-          alreadyStarted
-            ? 'The Game Has Started, Your Seat Is In Play. Tap The Table Tab To Return.'
-            : 'Could Not Confirm That Seat Release. Refresh The Table Before Trying Again.'
+          `${leaveAvailableLabel(heroLeaveMs)}. ${seatCopy(tableState.arenaAsset).seatStaysTapToReturn}`
         );
+        return;
       }
-      return;
-    }
 
-    // Capture hero stack BEFORE leave (seat data may be cleared by leaveTable)
-    const heroPlayer = tableState.players[tableState.heroSeat - 1];
-    const stackAtLeave = heroPlayer?.stack || 0;
-    // Dan 2026-08-18: TABLE_LEFT now fires here rather than from the summary's
-    // close handler, and by then heroSeat has already been zeroed just below.
-    // Capture it while it is still valid.
-    const seatAtLeave = tableState.heroSeat;
-    const handStatsAsOf = Date.now();
-
-    // The lobby first (rule above). Everything below completes behind it.
-    showLobbyNow();
-
-    try {
-      leaveRequestActiveRef.current = true;
-      const leaveTableId = lightningLeave ? lightningLeave.anchorTableId : tableId;
-      const result = lightningLeave
-        ? await tableService.leaveTable(leaveTableId, lightningLeave.seatNumber, userId, {
-            seatNumber: lightningLeave.seatNumber,
-            occupancyId: lightningLeave.occupancyId,
-          })
-        : await tableService.leaveTable(tableId, tableState.heroSeat, userId);
-      if (result.success) {
-        applySeatRemoved(undefined, { announce: false });
-        /* A leave during a live Lightning hand is queued: the hand finishes,
-           then the anchor seat cashes out. Say so, once, over the lobby. */
-        if (lightningLeave && result.deferred) {
-          heartbeatToastRef.current?.info?.(LIGHTNING_LEAVE_QUEUED_TEXT);
+      /**
+       * ═══════════════════════════════════════════════════════════════════════
+       *  A PRE-START SEAT-FIRST SEAT LEAVES THROUGH ITS REFUND (2026-08-28)
+       * ═══════════════════════════════════════════════════════════════════════
+       *
+       * Two "leave" controls reach one seat, and until now only the hidden one
+       * worked. The menu's Leave Table and the felt's leave button both land
+       * here, and `tableService.leaveTable` begins by asking the ENGINE to
+       * release the seat — but a Spin or Heads-Up before its game starts HAS NO
+       * ENGINE GAME, by design (see the 4404 note beside `seatFirstOpenRef`).
+       * So the call could only fail, and the player was told "your chips were
+       * not moved, please try again" — forever, on the one exit they are
+       * actually likely to find. Worse, had it succeeded, the tournament branch
+       * of leaveTable only writes `sitting_out`: no refund, no `left_at`, so
+       * the seat would still count toward the fill while the page booked a
+       * full-buy-in loss.
+       *
+       * `fn_leave_seat_and_refund` is the seat-first exit — Dan 2026-08-21,
+       * "IF THEY LEAVE THE SEAT THEY ARE FULLY REFUNDED" — and it is what the
+       * footer's Leave Seat button has always called. Route both doors to it so
+       * there is ONE way out of a reserved seat rather than two that disagree.
+       */
+      if (seatFirstBuyIn && tableState.heroSeat > 0) {
+        // The lobby first (rule above); the refund resolves behind it and its
+        // toast lands over the lobby.
+        showLobbyNow();
+        try {
+          const result = await tournamentService.leaveTournamentSeatAndRefund(tableId, userId);
+          heroSeatRef.current = 0;
+          setPendingSeat(null);
+          setSeatFirstConfirm(null);
+          setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+          toast?.success?.(`Seat Released. ${tournamentUnregisterSuccessText(result)}`);
+          masterBus.emit('SESSION_ENDED', { tableId, userId });
+          playerStatusService.clearPlayingAt(userId);
+          showLobbyNow();
+        } catch (err) {
+          const alreadyStarted = tournamentUnregisterWasAlreadyStarted(err);
+          if (!alreadyStarted) {
+            reportError(err as Error, 'TablePage.leave_table_seat_first', {
+              tableId,
+              tournamentId: tableState.tournamentId,
+            });
+          }
+          setLeaveAttentionSuppressed(false);
+          goToLobbyKeepingSeat(
+            alreadyStarted
+              ? 'The Game Has Started, Your Seat Is In Play. Tap The Table Tab To Return.'
+              : 'Could Not Confirm That Seat Release. Refresh The Table Before Trying Again.'
+          );
         }
-        // FIX 132: Clear heroSeatRef so player can re-seat at another table
-        heroSeatRef.current = 0;
-        // Dan 2026-08-19: the REF was cleared but tableState.heroSeat was not,
-        // so after leaving, the chair still rendered "YOUR SEAT" (and counted
-        // as occupied by hero) until a snapshot happened to correct it. Clear
-        // the state too: the seat is immediately open to other players.
-        setTableState((prev) => ({ ...prev, heroSeat: 0 }));
-        pendingSeatStackRef.current = 0;
-        console.debug(`[Leave] Success - ${result.chipsReturned} chips returned to wallet`);
+        return;
+      }
 
-        // Notify system (TABLE_LEFT is deliberately delayed until Session Summary closes)
-        masterBus.emit('SESSION_ENDED', { tableId, userId });
+      // Capture hero stack BEFORE leave (seat data may be cleared by leaveTable)
+      const heroPlayer = tableState.players[tableState.heroSeat - 1];
+      const stackAtLeave = heroPlayer?.stack || 0;
+      // Dan 2026-08-18: TABLE_LEFT now fires here rather than from the summary's
+      // close handler, and by then heroSeat has already been zeroed just below.
+      // Capture it while it is still valid.
+      const seatAtLeave = tableState.heroSeat;
+      const handStatsAsOf = Date.now();
 
-        // Q3: Clear "Playing At" status when leaving table
-        playerStatusService.clearPlayingAt(userId);
+      // The lobby first (rule above). Everything below completes behind it.
+      showLobbyNow();
 
-        // P/L = chips returned to wallet minus total chips invested at table.
-        //
-        // Dan 2026-08-22 (Session Complete "not pulling the real stats"): a
-        // mid-hand leave defers the cashout to settlement and reports
-        // chipsReturned 0, which used to render the ENTIRE buy-in as a loss
-        // (screenshot: stack 1,157 at leave, card said LOSS -1,000). When the
-        // service says the cashout is deferred, estimate with the live stack
-        // captured above — that is what settlement will return, give or take
-        // the hand in flight.
-        sessionPLRef.current =
-          (result.deferred ? stackAtLeave : result.chipsReturned || 0) - totalBuyInRef.current;
+      try {
+        const leaveTableId = lightningLeave ? lightningLeave.anchorTableId : tableId;
+        const result = lightningLeave
+          ? await tableService.leaveTable(leaveTableId, lightningLeave.seatNumber, userId, {
+              seatNumber: lightningLeave.seatNumber,
+              occupancyId: lightningLeave.occupancyId,
+            })
+          : await tableService.leaveTable(tableId, tableState.heroSeat, userId);
+        if (result.success && result.tournament) {
+          // Leaving an active tournament is a sit-out, not a cashout or a tab close.
+          sittingOutIdsRef.current.add(String(userId));
+          setHeroSitsOutPerRow(true);
+          setSitOutNextHand(true);
+          onTableInfoUpdate?.({ isMyTurn: false, sittingOut: true });
+          showLobbyNow();
+          return;
+        }
+        if (result.success) {
+          applySeatRemoved(undefined, { announce: false });
+          /* A leave during a live Lightning hand is queued: the hand finishes,
+           then the anchor seat cashes out. Say so, once, over the lobby. */
+          if (lightningLeave && result.deferred) {
+            heartbeatToastRef.current?.info?.(LIGHTNING_LEAVE_QUEUED_TEXT);
+          }
+          // FIX 132: Clear heroSeatRef so player can re-seat at another table
+          heroSeatRef.current = 0;
+          // Dan 2026-08-19: the REF was cleared but tableState.heroSeat was not,
+          // so after leaving, the chair still rendered "YOUR SEAT" (and counted
+          // as occupied by hero) until a snapshot happened to correct it. Clear
+          // the state too: the seat is immediately open to other players.
+          setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+          pendingSeatStackRef.current = 0;
+          console.debug(`[Leave] Success - ${result.chipsReturned} chips returned to wallet`);
 
-        // ── Dan 2026-08-18: leaving always lands you in the lobby ──
-        //
-        // This used to open the summary ON the table and defer everything -
-        // TABLE_LEFT, closing the tab, and the navigate - until the player
-        // dismissed it, so you sat looking at a table you had already left.
-        //
-        // Every number in that modal lived in refs owned by THIS component, so
-        // it could not outlive the navigation. Hand the payload to the app-root
-        // host first: it renders over whichever lobby the player lands on
-        // (HomePage, ClubHomePage or ClubLobby) and survives this unmounting.
-        /* Dan 2026-08-20: "tournaments are never displayed by chips, only what
+          // Notify system (TABLE_LEFT is deliberately delayed until Session Summary closes)
+          masterBus.emit('SESSION_ENDED', { tableId, userId });
+
+          // Q3: Clear "Playing At" status when leaving table
+          playerStatusService.clearPlayingAt(userId);
+
+          // P/L = chips returned to wallet minus total chips invested at table.
+          //
+          // Dan 2026-08-22 (Session Complete "not pulling the real stats"): a
+          // mid-hand leave defers the cashout to settlement and reports
+          // chipsReturned 0, which used to render the ENTIRE buy-in as a loss
+          // (screenshot: stack 1,157 at leave, card said LOSS -1,000). When the
+          // service says the cashout is deferred, estimate with the live stack
+          // captured above — that is what settlement will return, give or take
+          // the hand in flight.
+          sessionPLRef.current =
+            (result.deferred ? stackAtLeave : result.chipsReturned || 0) - totalBuyInRef.current;
+
+          // ── Dan 2026-08-18: leaving always lands you in the lobby ──
+          //
+          // This used to open the summary ON the table and defer everything -
+          // TABLE_LEFT, closing the tab, and the navigate - until the player
+          // dismissed it, so you sat looking at a table you had already left.
+          //
+          // Every number in that modal lived in refs owned by THIS component, so
+          // it could not outlive the navigation. Hand the payload to the app-root
+          // host first: it renders over whichever lobby the player lands on
+          // (HomePage, ClubHomePage or ClubLobby) and survives this unmounting.
+          /* Dan 2026-08-20: "tournaments are never displayed by chips, only what
            place you finished and how much you made."
 
            A tournament seat used to publish the cash payload, so the summary
@@ -11973,139 +12020,146 @@ function LiveTablePage({
            actual result instead; the modal switches on the presence of this
            block. The fetch is awaited before publishing because the host reads
            the payload once, on arrival. */
-        const tournamentResult = tableState.tournamentId
-          ? await fetchTournamentResult(tableState.tournamentId, userId)
-          : undefined;
+          const tournamentResult = tableState.tournamentId
+            ? await fetchTournamentResult(tableState.tournamentId, userId)
+            : undefined;
 
-        /* LIGHTNING PHASE 8: leaving Lightning shows the Lightning session
+          /* LIGHTNING PHASE 8: leaving Lightning shows the Lightning session
            summary (the database's numbers for the whole pool session), not
            the table card, whose counters only saw this room's hands. */
-        if (lightningLeave && lightningSummaryRoom && tableId) {
-          openLightningSessionSummary({
-            closeTableId: tableId,
-            closeSeat: seatAtLeave,
-            poolSessionId: tableId,
-            clusterId: lightningSummaryRoom.clusterId,
-            name: lightningSummaryRoom.meta?.name ?? null,
-            cashout: result.deferred
-              ? { tableId: leaveTableId, occupancyId: lightningLeave.occupancyId }
-              : undefined,
-          });
-        } else
-          publishSessionSummary({
-            handStatsTarget: tableId ? { tableId, userId, asOf: handStatsAsOf } : undefined,
-            closeTableId: tableId,
-            closeSeat: seatAtLeave,
-            closeOccupancyId: result.occupancyId,
-            arenaAsset: tableState.arenaAsset,
-            diamondRecap:
-              tableState.arenaAsset === 'diamonds' &&
-              !tableState.isTournament &&
-              !tableState.tournamentId
+          if (lightningLeave && lightningSummaryRoom && tableId) {
+            openLightningSessionSummary({
+              closeTableId: tableId,
+              closeSeat: seatAtLeave,
+              poolSessionId: tableId,
+              clusterId: lightningSummaryRoom.clusterId,
+              name: lightningSummaryRoom.meta?.name ?? null,
+              cashout: result.deferred
+                ? { tableId: leaveTableId, occupancyId: lightningLeave.occupancyId }
+                : undefined,
+            });
+          } else
+            publishSessionSummary({
+              handStatsTarget: tableId ? { tableId, userId, asOf: handStatsAsOf } : undefined,
+              closeTableId: tableId,
+              closeSeat: seatAtLeave,
+              closeOccupancyId: result.occupancyId,
+              arenaAsset: tableState.arenaAsset,
+              diamondRecap:
+                tableState.arenaAsset === 'diamonds' &&
+                !tableState.isTournament &&
+                !tableState.tournamentId
+                  ? {
+                      tableId: leaveTableId!,
+                      occupancyId: result.occupancyId || '',
+                      userId,
+                      notify: true,
+                    }
+                  : undefined,
+              duration: Math.floor((Date.now() - sessionStartRef.current) / 1000),
+              handsPlayed: handsPlayedRef.current,
+              handsWon: handsWonRef.current,
+              totalRebuys: totalRebuysRef.current,
+              profitLoss: sessionPLRef.current,
+              biggestPot: biggestPotRef.current,
+              peakStack: peakStackRef.current,
+              tableName: tableState.tableName,
+              tournament: tournamentResult,
+              // Dan 2026-08-22: the card shows VPIP (not hands/hour), the total
+              // buy-in, and the session's date + time.
+              vpipPercent:
+                handsPlayedRef.current > 0
+                  ? Math.round((vpipCountRef.current / handsPlayedRef.current) * 100)
+                  : 0,
+              totalBuyIn: totalBuyInRef.current,
+              sessionStart: sessionStartRef.current,
+              sessionEnd: Date.now(),
+              // Phase 3 (2026-08-22): when the cashout is deferred the P/L above
+              // is an estimate (live stack at leave); the card annotates it
+              // "Pending Settlement" so the estimate is never read as settled.
+              plPending: !!result.deferred,
+              // Phase 4 (2026-08-22): and the app-root host reconciles it — it
+              // polls for the settlement's wallet_transactions cashout row and
+              // swaps the estimate for the settled figure. This component is
+              // about to navigate away and unmount, so the host must be able to
+              // find the row on its own.
+              pendingCashout: result.deferred
                 ? {
-                    tableId: leaveTableId!,
-                    occupancyId: result.occupancyId || '',
+                    tableId: leaveTableId,
                     userId,
-                    notify: true,
+                    requireOccupancy: true,
+                    sinceMs: Date.now(),
+                    occupancyId: result.occupancyId,
                   }
                 : undefined,
-            duration: Math.floor((Date.now() - sessionStartRef.current) / 1000),
-            handsPlayed: handsPlayedRef.current,
-            handsWon: handsWonRef.current,
-            totalRebuys: totalRebuysRef.current,
-            profitLoss: sessionPLRef.current,
-            biggestPot: biggestPotRef.current,
-            peakStack: peakStackRef.current,
-            tableName: tableState.tableName,
-            tournament: tournamentResult,
-            // Dan 2026-08-22: the card shows VPIP (not hands/hour), the total
-            // buy-in, and the session's date + time.
-            vpipPercent:
-              handsPlayedRef.current > 0
-                ? Math.round((vpipCountRef.current / handsPlayedRef.current) * 100)
-                : 0,
-            totalBuyIn: totalBuyInRef.current,
-            sessionStart: sessionStartRef.current,
-            sessionEnd: Date.now(),
-            // Phase 3 (2026-08-22): when the cashout is deferred the P/L above
-            // is an estimate (live stack at leave); the card annotates it
-            // "Pending Settlement" so the estimate is never read as settled.
-            plPending: !!result.deferred,
-            // Phase 4 (2026-08-22): and the app-root host reconciles it — it
-            // polls for the settlement's wallet_transactions cashout row and
-            // swaps the estimate for the settled figure. This component is
-            // about to navigate away and unmount, so the host must be able to
-            // find the row on its own.
-            pendingCashout: result.deferred
-              ? {
-                  tableId: leaveTableId,
-                  userId,
-                  requireOccupancy: true,
-                  sinceMs: Date.now(),
-                  occupancyId: result.occupancyId,
-                }
-              : undefined,
-          });
+            });
 
-        // Now actually leave. These three used to fire together from the
-        // modal's close handler, where they raced each other for the
-        // destination (club lobby vs an in-page lobby tab vs '/') and the last
-        // one silently won. Emitting them here, before navigating, keeps the
-        // order deterministic.
-        // The app-root result card owns closing this table after acknowledgement.
-        showLobbyNow();
-
-        // The client-side "Session Complete" notification that sat here is gone
-        // (2026-10-22). public.notifications admits INSERT from service_role only,
-        // so every leave from a chip table answered 42501 and filed
-        // NotificationService.Failed_to_create; no player ever received it.
-      } else {
-        // Non-success leave is expected when: player is mid-hand (leave_pending is set),
-        // seat already cleared, or double-tap. Not a error reporting-worthy production bug.
-        // With the user_id-based seat resolution in leaveTable, success:false now
-        // means the player genuinely holds no active seat (already left / double-tap),
-        // NOT "mid-hand" (that path returns success:true with leave_pending set). So
-        // the message no longer misleadingly blames an active hand.
-        console.warn('[Leave] leaveTable returned false - no active seat found for user', {
-          tableId,
-          userId,
-          heroSeat: tableState.heroSeat,
-        });
-        if (result.error) {
-          // Engine explicitly refused (unreachable / cashout blocked / auth
-          // not ready). The seat is still live with chips in it - on the
-          // SERVER, where they are safe - so the tab stays open and the
-          // player goes to the lobby (Dan 2026-09-04: the door is never
-          // locked). The engine's reason leads, so "Authentication Required"
-          // or "Leave Available In 2:30" is still said, followed by what it
-          // means for the chips.
-          goToLobbyKeepingSeat(
-            `${result.error}. ${seatCopy(tableState.arenaAsset).seatStaysTapToReturnAndCashOut}`
-          );
-        } else {
-          // Dan 2026-08-20 (leave-stuck fix): no error means the player
-          // genuinely holds no active seat row (already left / never fully
-          // seated / reservation cleaned up server-side). The old code showed
-          // a notice but KEPT the client-side seat claim, so the felt read
-          // "YOUR SEAT" and the footer "Seat Reserved, You'll Be Dealt In
-          // Next Hand" forever — the exact "I left but never actually left"
-          // state. There is nothing to cash out, so release the claim and
-          // exit to the lobby like a normal leave.
-          heroSeatRef.current = 0;
-          pendingSeatStackRef.current = 0;
-          setTableState((prev) => ({ ...prev, heroSeat: 0 }));
-          playerStatusService.clearPlayingAt(userId);
-          masterBus.emit('SESSION_ENDED', { tableId, userId });
-          masterBus.emit('TABLE_LEFT', { tableId: tableId ?? '', seat: seatAtLeave });
-          masterBus.emit('TABLE_MENU_ACTION', {
-            tableId: tableId ?? '',
-            action: 'CLOSE_TABLE_TAB',
-          });
+          // Now actually leave. These three used to fire together from the
+          // modal's close handler, where they raced each other for the
+          // destination (club lobby vs an in-page lobby tab vs '/') and the last
+          // one silently won. Emitting them here, before navigating, keeps the
+          // order deterministic.
+          // The app-root result card owns closing this table after acknowledgement.
           showLobbyNow();
+
+          // The client-side "Session Complete" notification that sat here is gone
+          // (2026-10-22). public.notifications admits INSERT from service_role only,
+          // so every leave from a chip table answered 42501 and filed
+          // NotificationService.Failed_to_create; no player ever received it.
+        } else {
+          // Non-success leave is expected when: player is mid-hand (leave_pending is set),
+          // seat already cleared, or double-tap. Not a error reporting-worthy production bug.
+          // With the user_id-based seat resolution in leaveTable, success:false now
+          // means the player genuinely holds no active seat (already left / double-tap),
+          // NOT "mid-hand" (that path returns success:true with leave_pending set). So
+          // the message no longer misleadingly blames an active hand.
+          setLeaveAttentionSuppressed(false);
+          console.warn('[Leave] leaveTable returned false - no active seat found for user', {
+            tableId,
+            userId,
+            heroSeat: tableState.heroSeat,
+          });
+          if (result.error) {
+            // Engine explicitly refused (unreachable / cashout blocked / auth
+            // not ready). The seat is still live with chips in it - on the
+            // SERVER, where they are safe - so the tab stays open and the
+            // player goes to the lobby (Dan 2026-09-04: the door is never
+            // locked). The engine's reason leads, so "Authentication Required"
+            // or "Leave Available In 2:30" is still said, followed by what it
+            // means for the chips.
+            goToLobbyKeepingSeat(
+              `${result.error}. ${seatCopy(tableState.arenaAsset).seatStaysTapToReturnAndCashOut}`
+            );
+          } else {
+            // Dan 2026-08-20 (leave-stuck fix): no error means the player
+            // genuinely holds no active seat row (already left / never fully
+            // seated / reservation cleaned up server-side). The old code showed
+            // a notice but KEPT the client-side seat claim, so the felt read
+            // "YOUR SEAT" and the footer "Seat Reserved, You'll Be Dealt In
+            // Next Hand" forever — the exact "I left but never actually left"
+            // state. There is nothing to cash out, so release the claim and
+            // exit to the lobby like a normal leave.
+            heroSeatRef.current = 0;
+            pendingSeatStackRef.current = 0;
+            setTableState((prev) => ({ ...prev, heroSeat: 0 }));
+            playerStatusService.clearPlayingAt(userId);
+            masterBus.emit('SESSION_ENDED', { tableId, userId });
+            masterBus.emit('TABLE_LEFT', { tableId: tableId ?? '', seat: seatAtLeave });
+            masterBus.emit('TABLE_MENU_ACTION', {
+              tableId: tableId ?? '',
+              action: 'CLOSE_TABLE_TAB',
+            });
+            showLobbyNow();
+          }
         }
+      } catch (error) {
+        setLeaveAttentionSuppressed(false);
+        reportError(error, 'TablePage.Exception');
+        goToLobbyKeepingSeat(seatCopy(tableState.arenaAsset).couldNotCashOutYet);
       }
     } catch (error) {
-      reportError(error, 'TablePage.Exception');
+      setLeaveAttentionSuppressed(false);
+      reportError(error, 'TablePage.leave_intent_failed');
       goToLobbyKeepingSeat(seatCopy(tableState.arenaAsset).couldNotCashOutYet);
     } finally {
       leaveRequestActiveRef.current = false;
@@ -31232,6 +31286,7 @@ function LiveTablePage({
                   };
                   return { ...prev, players, heroSeat: paid.p_seat_number };
                 });
+                setLeaveAttentionSuppressed(false);
                 heroSeatRef.current = paid.p_seat_number;
               }
               totalBuyInRef.current += paid.p_amount;
@@ -31535,6 +31590,7 @@ function LiveTablePage({
             if (purchase.tableId !== tableId) {
               navigate(`/table/${purchase.tableId}`);
             } else {
+              setLeaveAttentionSuppressed(false);
               heroSeatRef.current = purchase.seatNumber;
               setTableState((prev) => ({ ...prev, heroSeat: purchase.seatNumber }));
               requestEngineSnapshot();
