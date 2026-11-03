@@ -845,6 +845,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "e095c73ccd8464deb747a701d1f411b89519388f0d26fec8220d2f971cefc1cc"
       }
+    },
+    {
+      "id": "2026-11-03-tournament-bounded-census-delivery-continuation",
+      "ownerOrder": "Dan directly in recovery chat 01a1a01a-7f70-7d62-8da1-8d086594c658 ordered continuing the same recovery through verified completion without waiting for the next :55. This new fixed 18:30 through21:30 UTC continuation follows the actual partition refusal in operation41683487987-1 and the permanent bounded census correction, plus demonstrated historical-source qualification transport failures. At18:31 UTC the observed39-minute protected CI route and27-minute receiver/build route, before remaining normal submission, could not finish within the prior19:35 expiry. This is a separately reviewed finite continuation for the same unfinished owner-ordered recovery, not automatic renewal or replay of either failed operation. Preserve every previous entry and receipt. Only the existing stage/receiver and original transaction may admit the exact qualified protected candidate after prior outcome and inspector cleanup ownership readback. Keep earliest-certified selection, full120second notice,300second window,285second admission/proof/rollback reserve, all original controller/deck/bank custody, durable freeze, exclusive ownership, rolling seal, immutable source/image and completed own-window v3 thaw. No age-only custody substitution, forced restart, second publisher, watcher, timer, recurring release repair, relaxed deadline or automatic renewal. Expiry ends fresh admission. Tournament hold release remains subject to the existing owner-required relaunch acceptance; this entry does not release it.",
+      "contains": "0de3e5b9f6ae9b6def3a2603ef69fab5d934977d",
+      "notBefore": "2026-11-03T18:30:00Z",
+      "notAfter": "2026-11-03T21:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "0ef4c19a106a2c6778ed1cc26dfc3ce0dd114f6a09b95c7ca8cb3975363411ab"
+      }
     }
   ],
   "databaseWindows": [

@@ -454,7 +454,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         latest = next(w for w in doc['windows'] if w['id'] == source['ownerWindowId'])
         self.assertEqual(latest['contains'], '0de3e5b9f6ae9b6def3a2603ef69fab5d934977d')
         self.assertEqual(latest['releaseWitness']['sha256'], hashlib.sha256((ROOT/MANIFEST).read_bytes()).hexdigest())
-        self.assertEqual((latest['notBefore'], latest['notAfter']), ('2026-11-03T16:35:00Z', '2026-11-03T19:35:00Z'))
+        self.assertEqual((latest['notBefore'], latest['notAfter']), ('2026-11-03T18:30:00Z', '2026-11-03T21:30:00Z'))
         self.assertEqual(latest['announcementPolicy'], 'earliest-certified')
         self.assertNotIn('announceAtChicagoMinutes', latest)
         (self.repo/MANIFEST).write_bytes(raw)
@@ -462,13 +462,30 @@ echo CHECKPOINT_MUST_NOT_RUN
         old_sha = self.commit()
         original = floor.policy(str(self.repo), old_sha, old_sha)
         current = self.owner_record()
-        after_old = original['expiresEpoch'] + 1
+        after_old = max(original['expiresEpoch'] + 1, current['activationEpoch'])
         with self.assertRaises(ValueError): floor.check_window(original, after_old, current['expiresEpoch'], 'admit')
         floor.check_window(current, after_old, current['expiresEpoch'], 'admit')
         self.assertEqual(floor.policy(str(self.repo), old_sha, old_sha), original)
         with self.assertRaises(ValueError): floor.policy(str(self.repo), self.sha, old_sha)
         with self.assertRaises(ValueError): floor.policy(str(self.repo), old_sha, self.sha)
         with self.assertRaises(ValueError): floor.check_window(current, current['expiresEpoch']-419, current['expiresEpoch'], 'admit')
+
+    def test_bounded_census_delivery_preserves_prior_floor_and_fixed_expiry(self):
+        import hashlib
+        old = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': '2026-11-03T16:35:00Z',
+               'activationAt': '2026-11-03T16:35:00Z', 'expiresAt': '2026-11-03T19:35:00Z',
+               'timeZone': 'America/Chicago', 'ownerWindowId': '2026-11-03-tournament-census-recovery-continuation',
+               'clientPublicationAt': '2026-11-03T16:35:00Z'}
+        doc = json.loads((ROOT/'server/release/owner-maintenance-windows.json').read_text())
+        prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256((json.dumps(old, indent=2)+'\n').encode()).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), (old['activationAt'], old['expiresAt']))
+        source = json.loads((ROOT/MANIFEST).read_text())
+        self.assertEqual(source['ownerWindowId'], '2026-11-03-tournament-bounded-census-delivery-continuation')
+        current = self.owner_record()
+        floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
+        for now in [current['activationEpoch']-1, current['expiresEpoch']-419, current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
 
     def test_owner_reservation_binds_run_target_cause_and_full_window(self):
         r = self.owner_record(); root = self.repo / 'state'; root.mkdir()
