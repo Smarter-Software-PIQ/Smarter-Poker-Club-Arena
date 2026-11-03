@@ -19,13 +19,13 @@ BEGIN
   AND coalesce(current_setting('role',true),'none') IN ('none','postgres')
   AND auth.role() IS NULL)
  THEN RAISE EXCEPTION 'operator_abort_service_required' USING ERRCODE='42501';END IF;$guard$);
- definition:=replace(definition,' UPDATE public.tournaments SET status=''CANCELLED'',ended_at=settled',
+ definition:=replace(definition,' UPDATE public.tournaments SET status=''CANCELLED'',ended_at=settled,updated_at=now(),prize_pool=0,bounty_pool=0,total_rake=0,current_players=0,on_break=false,break_started_at=NULL,break_ends_at=NULL WHERE id=p_tournament_id;',
  $admission$ -- The existing deferred admission constraint requires this transaction's
  -- complete canonical receipt; this is not standalone terminal-edit authority.
  UPDATE smarter_private.tournament_abort_targets
  SET receipt=jsonb_build_object('mode','started_operator_abort_admission','transaction_id',txid_current())
  WHERE operation_id=p_operation_id AND tournament_id=p_tournament_id AND state='quiesced';
- UPDATE public.tournaments SET status='CANCELLED',ended_at=settled$admission$);
+ UPDATE public.tournaments SET status='CANCELLED',ended_at=settled,updated_at=now(),prize_pool=0,bounty_pool=0,total_rake=0,current_players=0,on_break=false,break_started_at=NULL,break_ends_at=NULL WHERE id=p_tournament_id;$admission$);
  EXECUTE definition;
  definition:=pg_get_functiondef('public.fn_guard_managed_game_lifecycle()'::regprocedure);
  IF md5(definition) IS DISTINCT FROM 'ed66b41ac0103ded266e0a866d5eaad1' THEN RAISE EXCEPTION 'original_abort_lifecycle_preimage_changed';END IF;
