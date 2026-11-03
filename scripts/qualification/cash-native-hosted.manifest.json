@@ -428,8 +428,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 276540,
-      "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+      "bytes": 276833,
+      "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6785,6 +6785,35 @@
         "current": {
           "bytes": 122859,
           "sha256": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "fixedLimitQualificationWiring20261103": {
+    "reason": "Add native fixed-limit regression to existing accounting shard3. Existing cash commands, scheduler assertions, native permutations, financial state and certificates unchanged. Current workflow identity only.",
+    "previous": {
+      "bytes": 275817,
+      "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+    },
+    "current": {
+      "bytes": 276110,
+      "sha256": "d7e5d2f9ec932ee89ec040211a7dbf259f794f860caef61db8e3aded3bada90a"
+    }
+  },
+  "tournamentRecoveryProtectedCashComposition20261103": {
+    "source": "Protected main 2e978404745d8e89f632205c954497c5e1c2dc69 adds fixed-limit native CI beside retained tournament recovery and union contention qualification.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "prior": {
+          "bytes": 276540,
+          "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+        },
+        "current": {
+          "bytes": 276833,
+          "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
         }
       }
     ],

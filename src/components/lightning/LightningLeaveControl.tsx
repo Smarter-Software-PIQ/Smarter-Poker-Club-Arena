@@ -10,10 +10,12 @@ export function LightningLeaveControl({
   clusterId,
   onLeave,
   ensureStopped,
+  onLeaveIntentChange,
 }: {
   clusterId: string;
   onLeave: () => Promise<void>;
   ensureStopped?: () => Promise<boolean>;
+  onLeaveIntentChange?: (leaving: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -33,12 +35,14 @@ export function LightningLeaveControl({
     inFlight.current = true;
     setBusy(true);
     try {
+      onLeaveIntentChange?.(true);
       if (!stopped) {
         const confirmed = ensureStopped
           ? await ensureStopped()
           : (await stopLightningPlaying(clusterId))?.ok === true;
         if (!mounted.current) return;
         if (!confirmed) {
+          onLeaveIntentChange?.(false);
           toast.warning('Could Not Confirm Your Stop Request. Please Try Again.');
           return;
         }
@@ -48,6 +52,7 @@ export function LightningLeaveControl({
       // its committed chips still finish through the original leave owner.
       if (mounted.current) await onLeave();
     } catch (error) {
+      if (mounted.current) onLeaveIntentChange?.(false);
       reportError(error, 'LightningLeaveControl.leave');
       if (mounted.current) toast.warning('Could Not Confirm Your Leave. Please Try Again.');
     } finally {

@@ -574,10 +574,12 @@ describe('one explicit database-only certified maintenance operation', () => {
     const r = spawnSync(
       'python3',
       ['-B', 'tests/operations/database-maintenance-reservation.test.py'],
-      { encoding: 'utf8', timeout: 60000 }
+      // The complete 38-case Git/seal suite measured 67.3s on the owner Mac.
+      // Keep every refusal/replay assertion and bounded process/test headroom.
+      { encoding: 'utf8', timeout: 120000 }
     );
     expect(r.status, r.stdout + r.stderr).toBe(0);
-  }, 65000);
+  }, 130000);
   it('retains the original lock, loopback request and thaw instead of replacing the engine', () => {
     const code = read('scripts/ci/database-maintenance-window.py');
     expect(code).toContain('/var/lock/club-arena-engine-up.lock');

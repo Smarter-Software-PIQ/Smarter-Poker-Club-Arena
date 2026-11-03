@@ -27633,6 +27633,10 @@ function LiveTablePage({
               clusterId={lightningRoom.clusterId}
               onLeave={handleLeaveTable}
               ensureStopped={stopLightningForLeave}
+              onLeaveIntentChange={(leaving) => {
+                setLeaveAttentionSuppressed(leaving);
+                if (leaving) ++preActionSendSeqRef.current;
+              }}
             />
           ) : null
         }

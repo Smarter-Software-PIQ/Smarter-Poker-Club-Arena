@@ -1815,8 +1815,15 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // Lightning switch has not been read yet is treated as Lightning.
     if (this.clusterLightningEnabled === true) return;
     if (this.tableInfo?.cluster_id && this.clusterLightningEnabled !== false) return;
-    const maxBuyIn = this.getMaxBuyIn();
-    if (!(maxBuyIn > 0)) return;
+    // Unlimited fixed-limit tables still need a finite voluntary horse refill
+    // target, matching the existing entry/rebuy sizing. This is not a table cap.
+    const maxBuyIn =
+      this.getMaxBuyIn() ??
+      Math.max(
+        Number(this.tableInfo?.min_buy_in) || 0,
+        (Number(this.tableInfo?.big_blind) || 0) * 200
+      );
+    if (!Number.isFinite(maxBuyIn) || !(maxBuyIn > 0)) return;
     const batch = await readHorseTopUpBatch(
       this.tableId,
       () => this.lifecycleCanMutate() && !isMaintenanceFrozen(),

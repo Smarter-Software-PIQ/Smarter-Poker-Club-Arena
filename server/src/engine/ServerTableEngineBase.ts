@@ -10235,6 +10235,7 @@ export abstract class ServerTableEngineBase {
    * because no pot can change the player's stack before next hand).
    */
   /** Table max buy-in (DB value or 200×BB fallback), TO THE CENT.
+   *  Fixed-limit returns NULL: no maximum, including pending add-on settlement.
    *
    *  This number is the ceiling every add-on is sized against and is passed
    *  to `resolve_pending_addon` as `p_max_buy_in`, whose receipt must satisfy
@@ -10242,7 +10243,8 @@ export abstract class ServerTableEngineBase {
    *  refuses and the table stops dealing. `bb * 200` is a float product
    *  (0.07 * 200 = 14.000000000000002), and a `tables.max_buy_in` carrying a
    *  half-cent would be worse. */
-  protected getMaxBuyIn(): number {
+  protected getMaxBuyIn(): number | null {
+    if (isFixedLimitVariant(this.tableInfo?.game_variant)) return null;
     const raw = this.tableInfo?.max_buy_in
       ? Number(this.tableInfo.max_buy_in)
       : (this.tableInfo?.big_blind || 2) * 200;
