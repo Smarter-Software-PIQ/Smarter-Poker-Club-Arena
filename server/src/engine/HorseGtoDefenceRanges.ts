@@ -276,6 +276,8 @@ function clampIndex(k: number): number {
 }
 
 export interface DefenceSpot {
+  /** Original dealt census, not the number of players who have not folded. */
+  dealt?: number;
   defender: DefenderGroup;
   /** Dealt-in players behind the opener (V70 index; SB 1 .. 9-max UTG 8). */
   openerBehind: number;
@@ -313,8 +315,13 @@ export function defenceTargets(spot: DefenceSpot): { cont: number; value: number
   const threeBet = w.threeBet * tbF;
   const vw = earlyWeight(k);
   const vf = VALUE_FRACTION[spot.defender];
+  // Six/full-ring action profile: move strong calls into the late-open
+  // 3-bet range. Early-open discipline and the existing bluff trim stay.
+  // A calling-heavy field punishes extra bluff volume; widening the linear
+  // component supplies action with stronger hands instead.
+  const actionProfile = spot.dealt === 6 || spot.dealt === 9;
   const valueFrac = vf.late + (vf.early - vf.late) * vw;
-  const value = threeBet * valueFrac;
+  const value = threeBet * (valueFrac + (actionProfile ? 0.15 * (1 - vw) : 0));
   const solverBluff = threeBet * (1 - valueFrac);
   const bluff = solverBluff * V72_BLUFF_TRIM;
   // The blinds' and in-position seats' trimmed bluffs fold rather than flat

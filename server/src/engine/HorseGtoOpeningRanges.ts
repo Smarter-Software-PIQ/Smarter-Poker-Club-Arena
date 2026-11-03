@@ -216,6 +216,22 @@ export const OPEN_TARGET: Readonly<Record<'cash' | 'ante', Readonly<Record<numbe
   ante: { 1: 48, 2: 51, 3: 34, 4: 26, 5: 23, 6: 21, 7: 19, 8: 17.5 },
 };
 
+/** Six/full-ring cash action profile (owner direction, 2026-11-03).
+ * Extend the existing ordered ranges modestly, chiefly in late position.
+ * These are conditional RFI shares, never a forced aggregate VPIP quota.
+ * Ante, short-handed and tournament survival adjustments retain their owners.
+ */
+export const CASH_ACTION_OPEN_TARGET: Readonly<Record<number, number>> = {
+  1: 42,
+  2: 45,
+  3: 28,
+  4: 21,
+  5: 16.5,
+  6: 14.5,
+  7: 13,
+  8: 11.5,
+};
+
 /**
  * Short-handed targets. Three-handed the button and small blind play wider
  * than the same seats at a full table (two players to get through and, in a
@@ -344,15 +360,25 @@ export function gtoOpenStrength(c1: Card, c2: Card, playersBehind: number): numb
 }
 
 /**
- * The base open bar (pre-tightness, pre-premium) for this seat and table.
+ * The base opening share in percent (pre-tightness, pre-premium).
  * `dealt` is the number of players dealt in (2 = heads-up).
  */
-export function gtoOpenBar(playersBehind: number, ante: boolean, dealt = 6): number {
+export function openTargetShare(
+  playersBehind: number,
+  ante: boolean,
+  dealt = 6,
+  cash = false
+): number {
   const key = ante ? 'ante' : 'cash';
   const k = chartSeat(playersBehind);
-  if (dealt <= 2) return scoreAtShare(OPEN_TARGET_HU[key] / 100);
-  if (dealt === 3 && k <= 2) return scoreAtShare(OPEN_TARGET_THREE[key][k] / 100);
-  return scoreAtShare(OPEN_TARGET[key][k] / 100);
+  if (dealt <= 2) return OPEN_TARGET_HU[key];
+  if (dealt === 3 && k <= 2) return OPEN_TARGET_THREE[key][k];
+  if (cash && !ante && (dealt === 6 || dealt === 9)) return CASH_ACTION_OPEN_TARGET[k];
+  return OPEN_TARGET[key][k];
+}
+
+export function gtoOpenBar(playersBehind: number, ante: boolean, dealt = 6, cash = false): number {
+  return scoreAtShare(openTargetShare(playersBehind, ante, dealt, cash) / 100);
 }
 
 /** The SB limp floor on the same scale (folded to the small blind). */
