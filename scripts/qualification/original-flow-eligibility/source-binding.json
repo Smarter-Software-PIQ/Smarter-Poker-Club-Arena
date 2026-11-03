@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 275817,
-      "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+      "bytes": 276540,
+      "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
     },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
@@ -2433,5 +2433,16 @@
         "currentSHA256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
       }
     ]
+  },
+  "finishUnionNativeEnforcement20261103": {
+    "reason": "Reviewed additive required accounting shard3 union-finish/cash-hand contention step and isolated-input routing. Runtime financial authorities, existing assertions and historical qualification outcomes unchanged. This is source identity, not financial recertification or live proof.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previousSHA256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e",
+        "currentSHA256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

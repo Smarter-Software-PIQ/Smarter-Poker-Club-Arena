@@ -1,6 +1,6 @@
 {
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+    "scripts/ci/classify-ci-changes.mjs": "a907216ea253e523b7675674584cf300678e6498b0ddb899ce92544261245cf2",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
@@ -1349,5 +1349,16 @@
         "currentSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
       }
     ]
+  },
+  "finishUnionNativeEnforcement20261103": {
+    "reason": "Reviewed additive required accounting shard3 union-finish/cash-hand contention step and isolated-input routing. Runtime financial authorities, existing assertions and historical qualification outcomes unchanged. This is source identity, not financial recertification or live proof.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+        "currentSHA256": "a907216ea253e523b7675674584cf300678e6498b0ddb899ce92544261245cf2"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }
