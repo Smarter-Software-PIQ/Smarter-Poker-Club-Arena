@@ -292,6 +292,12 @@ describe('committed operational alert wakes native intake', () => {
     expect(readFileSync('.github/workflows/informational-alert-state.yml', 'utf8')).toContain(
       'run: python3 scripts/ci/test-alert-ledger-roots.py'
     );
+    expect(readFileSync('.github/workflows/component-fixture-native-smoke.yml', 'utf8')).toContain(
+      'tools/production-alerts-native-wakeup/lifecycle.test.mjs'
+    );
+    expect(readFileSync('.github/workflows/component-fixture-native-smoke.yml', 'utf8')).toContain(
+      'npm ci --prefix tools/production-alerts-native-wakeup --ignore-scripts'
+    );
     const entry = readFileSync('tools/production-alerts-native-wakeup/index.mjs', 'utf8');
     expect(/private:\s*true/.test(entry)).toBe(true);
     expect(/shell:\s*false/.test(entry)).toBe(true);
