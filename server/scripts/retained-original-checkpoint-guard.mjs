@@ -245,9 +245,30 @@ export async function retainedOriginalCheckpointGuard(
       'retained_lightning_census_unproven'
     );
     // A resolved whenFinished() may mean settlement_unknown. No terminal
-    // label substitutes for absence of the concrete host and its async work.
+    // label substitutes for absence of an active/unsettled concrete host and its async work;
+    // finished hosts retained only as observer frames must be proved complete/abandoned,
+    // released, timer-free, and absent from pending/room registries.
     need(
-      Array.isArray(discoveredLightningHosts) && discoveredLightningHosts.length === 0,
+      Array.isArray(discoveredLightningHosts) &&
+        discoveredLightningHosts.length <= 4000 &&
+        new Set(discoveredLightningHosts).size === discoveredLightningHosts.length &&
+        discoveredLightningHosts.every(
+          (host) =>
+            host &&
+            typeof host === 'object' &&
+            Object.getPrototypeOf(host) === modules.lightningHost.LightningHandHost.prototype &&
+            (host.state === 'complete' || host.state === 'abandoned') &&
+            host.handEndReleased === true &&
+            host.keepaliveTimer === null &&
+            host.horseTimer === null &&
+            host.horseAbort === null &&
+            host.decisionOpenFor === null &&
+            host.actionLock === false &&
+            host.watching instanceof Map &&
+            host.watching.size === 0 &&
+            !lightningPending.has(host) &&
+            !lightningHosts.has(host.instanceId)
+        ),
       'retained_lightning_host_census_unproven'
     );
     const proveLightningAbsent = () => {

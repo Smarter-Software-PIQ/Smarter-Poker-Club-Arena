@@ -1,3 +1,4 @@
+import { horseRequestAllowance } from './requestRetentionBudget.js';
 import type { V31ControlRequest, V31ControlAck } from './v31ReloadControl.js';
 import { mainHorseHistoryRetentionBudget } from './ownPublicHistoryBudget.js';
 import { readHorseOwnPublicHistory } from '../../services/HorseOwnPublicHistory.js';
@@ -244,6 +245,10 @@ export interface LiveHorseDecisionWorkerShardStatus {
   isolateMemoryAgeMs?: number | null;
   mainHistoryCache?: LiveHorseDecisionWorkerStatus['mainHistoryCache'];
   phase: LiveHorseDecisionWorkerPhase;
+  retainedRequestBytes?: number | null;
+  retainedRequestLimitBytes?: number | null;
+  pendingPlanReservations?: number | null;
+  requestCapacityRefusals?: number | null;
   queueDepth: number;
   inFlightJobs: number;
   completedJobs: number;
@@ -452,6 +457,20 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
             sum.retainedSerializedUtf8Bytes + s.retainedSerializedUtf8Bytes,
         }))
       : null;
+    const retentionSum = (
+      key:
+        | 'retainedRequestBytes'
+        | 'retainedRequestLimitBytes'
+        | 'pendingPlanReservations'
+        | 'requestCapacityRefusals'
+    ): number | null => {
+      const values = all.map((s) => s[key]);
+      return values.every(
+        (value): value is number => typeof value === 'number' && Number.isFinite(value)
+      )
+        ? sumOf(values)
+        : null;
+    };
     const first = all[0]!;
     const phase = all.reduce<LiveHorseDecisionWorkerPhase>(
       (worst, s) => (PHASE_RANK[s.phase] > PHASE_RANK[worst] ? s.phase : worst),
@@ -487,6 +506,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       startedAt: minOf(all.map((s) => s.startedAt)),
       readyAt: all.every((s) => s.readyAt !== null) ? maxOf(all.map((s) => s.readyAt)) : null,
       maxInFlight: sumOf(all.map((s) => s.maxInFlight)),
+      retainedRequestBytes: retentionSum('retainedRequestBytes'),
+      retainedRequestLimitBytes: retentionSum('retainedRequestLimitBytes'),
+      pendingPlanReservations: retentionSum('pendingPlanReservations'),
+      requestCapacityRefusals: retentionSum('requestCapacityRefusals'),
       queueDepth: sumOf(all.map((s) => s.queueDepth)),
       inFlightJobs: sumOf(all.map((s) => s.inFlightJobs)),
       activeRequestId: first.activeRequestId,
@@ -523,6 +546,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
         isolateMemoryAgeMs: s.isolateMemoryAgeMs ?? null,
         mainHistoryCache: s.mainHistoryCache ?? null,
         phase: s.phase,
+        retainedRequestBytes: s.retainedRequestBytes ?? null,
+        retainedRequestLimitBytes: s.retainedRequestLimitBytes ?? null,
+        pendingPlanReservations: s.pendingPlanReservations ?? null,
+        requestCapacityRefusals: s.requestCapacityRefusals ?? null,
         queueDepth: s.queueDepth,
         inFlightJobs: s.inFlightJobs,
         completedJobs: s.completedJobs,
@@ -540,6 +567,11 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     signal?: AbortSignal,
     options?: HorseDecisionJobOptions
   ): Promise<FastHorseDecisionResult> {
+    try {
+      horseRequestAllowance(snapshot);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const original = structuredClone(snapshot);
     return this.shard(original.fence)
       .decideFast(original, signal, options)

@@ -725,8 +725,12 @@ try {
       assert.match(result.transportDetail, /^op=queryObjects,cause=request_timeout/);
       expectedCalls = 0;
     }
-    if (scenario === 'exception')
+    if (scenario === 'exception') {
       assert.equal(result.reason, 'target checkpoint evaluation refused');
+      // A REFUSED EVALUATION SAYS WHAT THREW (2026-11-03, run 41572473076).
+      assert.match(result.transportDetail, /^op=\w+,exception=Error,line=(\d+|na),column=(\d+|na)$/);
+      assert.equal(JSON.stringify(result).includes('synthetic-secret'), false);
+    }
     if (scenario === 'protocol_error') {
       // A PROTOCOL REFUSAL SAYS WHICH ONE (2026-10-30, run 41071578166): the
       // reason does not move, and the detail names the operation, the CDP
@@ -825,6 +829,7 @@ try {
     if (['zero', 'two'].includes(scenario)) {
       assert.equal(result.reason, 'target checkpoint evaluation refused');
       assert.equal(result.checkpointInvoked, false);
+      assert.match(result.transportDetail, /^op=\w+,exception=\w+,line=(\d+|na),column=(\d+|na)$/);
       expectedCalls = 0;
     }
   }

@@ -1,0 +1,6 @@
+# Void A VIP Purchase Paid With Admin-Minted Test Funding (2026-11-02)
+
+- `fn_ca_void_test_funded_vip_purchase(reference, operator, reason, op)`, service role only, voids exactly one VIP purchase when the ledger proves every diamond the account received up to that purchase was an admin-class mint covering the price. It ends the entitlement that purchase created and records the void in the append-only `ca_test_funded_spend_voids`: the purchase, its debit, the funding mints, the amount, where it was recognized (`revenue:vip_membership`) and its reclassification (unauthorized test funding, not consumption).
+- No balance moves, no refund, no ledger row is written or changed. A real purchase (any bought, won or gifted diamond) or an entitlement extended since is refused. One void per purchase; replays return the recorded void.
+- Native PG17 contract `scripts/ci/test-test-funded-vip-void.sh`.
+- Daily rabbit hunt certification: the price shown before the tap must equal the engine's charge source, the kept run-out must equal the cards sold and be readable only by its buyer, Hand History must show the price line, and a run that cannot certify now raises a warning on the run instead of a silent green.

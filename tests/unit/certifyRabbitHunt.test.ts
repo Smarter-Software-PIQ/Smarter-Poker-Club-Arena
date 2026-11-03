@@ -5,6 +5,8 @@ import {
   verdict,
   fixtureBrowserId,
   RABBIT_HUNT_REQUIRED_COMMITS,
+  PREVIEW_TO_CHARGE,
+  sameCards,
 } from '../../scripts/ci/certify-rabbit-hunt.mjs';
 
 const SHA = 'a'.repeat(40);
@@ -102,5 +104,36 @@ describe('device continuity', () => {
     expect(a).toBe(fixtureBrowserId('11111111-1111-4111-8111-111111111111'));
     expect(a).not.toBe(fixtureBrowserId('22222222-2222-4222-8222-222222222222'));
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+});
+
+describe('certification compares what it sold and what it charged', () => {
+  it('maps each preview answer to the engine charge source', () => {
+    expect(PREVIEW_TO_CHARGE).toEqual({
+      lifetime_vip: 'lifetime_vip',
+      credit: 'purchased',
+      vip_allowance: 'vip_monthly',
+      diamonds: 'diamonds',
+    });
+  });
+
+  it('compares kept and sold cards by rank, suit and order only', () => {
+    const sold = [
+      { rank: 'A', suit: 'spades' },
+      { rank: 'K', suit: 'hearts' },
+    ];
+    expect(
+      sameCards(
+        [
+          { rank: 'A', suit: 'spades', extra: 1 },
+          { rank: 'K', suit: 'hearts' },
+        ],
+        sold
+      )
+    ).toBe(true);
+    expect(sameCards([sold[1], sold[0]], sold)).toBe(false);
+    expect(sameCards([sold[0]], sold)).toBe(false);
+    expect(sameCards([], [])).toBe(false);
+    expect(sameCards(null, sold)).toBe(false);
   });
 });

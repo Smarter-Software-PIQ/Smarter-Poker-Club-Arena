@@ -753,9 +753,17 @@ describe('COULD NOT TELL (exit 3) is never clean', () => {
       expect(r.code, r.lines.join('\n')).toBe(UNKNOWN);
       expect(r.lines.join('\n')).toMatch(/could not be read as plpgsql/);
     });
-    withTree({ '1_a.sql': sender('f', ADDRESSED) }, (dir) =>
-      expect(run(['--dir', dir, '--added-since', 'HEAD~1']).code).toBe(UNKNOWN)
-    );
+    // Scratch may live inside the owning checkout on the external SSD. Use
+    // an actual one-commit repository so HEAD~1 is unavailable independently
+    // of the scratch directory's ancestors.
+    const isolated = repo();
+    try {
+      writeFileSync(join(isolated.dir, '1_a.sql'), sender('f', ADDRESSED));
+      isolated.commit('only fixture commit');
+      expect(run(['--dir', isolated.dir, '--added-since', 'HEAD~1']).code).toBe(UNKNOWN);
+    } finally {
+      isolated.done();
+    }
   });
 
   it('the command line prints UNADDRESSED and exits 1 on the pre-fix #5428 body', () => {

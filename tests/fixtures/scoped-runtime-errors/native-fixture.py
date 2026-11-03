@@ -32,6 +32,7 @@ class NativeLogReader(unittest.TestCase):
                      'StartedAt': '2026-11-02T14:00:00Z', 'FinishedAt': '2026-11-02T14:43:00Z'}
             docker.write_text('#!/bin/sh\n[ "$1" = inspect ] && [ "$2" = --format ] && [ "$4" = club-arena-engine ] || exit 1\nprintf "%s\\n" '+shlex.quote(json.dumps({'Id': 'a'*64, 'State': state}))+'\n')
             docker.chmod(0o700)
+            subprocess.run([str(docker)], env={'PATH': '/usr/bin:/bin'}, capture_output=True, timeout=4)
             result = subprocess.run([sys.executable, '-c', reader.CORE_CAPTURE_COMMAND],
                                     env={**os.environ, 'PATH': str(directory)+':/usr/bin:/bin'},
                                     capture_output=True, text=True, timeout=4)

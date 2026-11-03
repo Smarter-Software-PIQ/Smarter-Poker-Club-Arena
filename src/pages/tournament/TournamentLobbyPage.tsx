@@ -41,7 +41,9 @@ import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 // Whole-number tournament money (Dan 2026-08-20).
 import { totalBuyIn, formatBuyInShort } from '../../utils/buyIn';
-import { useTournamentRegistration } from '../../hooks/useTournamentRegistration';
+import { useTournamentRegistration, isLateStatus } from '../../hooks/useTournamentRegistration';
+import { useTournamentStartHold } from '../../hooks/useTournamentStartHold';
+import MidwayMttServerUpdateModal from '../../components/tournament/MidwayMttServerUpdateModal';
 import CasinoSurfaceHeader from '../../components/rewards/RewardsSurfaceHeader';
 import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
 import { useTournamentStageViews } from '../../hooks/useTournamentStageView';
@@ -118,6 +120,15 @@ function TournamentLobbyBoard() {
      board shows many and one shared flag would grey out every Take A Seat on
      the page while one of them worked. */
   const { register: registerMtt } = useTournamentRegistration();
+  const mttStartHold = useTournamentStartHold();
+  const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
+  const autoShownMttHoldRef = useRef(false);
+  useEffect(() => {
+    if (mttStartHold.blocked && !autoShownMttHoldRef.current) {
+      autoShownMttHoldRef.current = true;
+      setShowMttUpdateModal(true);
+    }
+  }, [mttStartHold.blocked]);
 
   const { clubId: routeClubId } = useParams<{ clubId?: string }>();
   const { user } = useAuthUser();
@@ -652,6 +663,10 @@ function TournamentLobbyBoard() {
       toast.error('Tournament entry is unavailable');
       return;
     }
+    if (mttStartHold.blocked && !isLateStatus(t.status)) {
+      setShowMttUpdateModal(true);
+      return;
+    }
     await registerMtt(
       {
         id: t.id,
@@ -1072,6 +1087,11 @@ function TournamentLobbyBoard() {
           ))
         )}
       </div>
+      <MidwayMttServerUpdateModal
+        isOpen={showMttUpdateModal && mttStartHold.blocked}
+        message={mttStartHold.popupMessage}
+        onClose={() => setShowMttUpdateModal(false)}
+      />
     </div>
   );
 }

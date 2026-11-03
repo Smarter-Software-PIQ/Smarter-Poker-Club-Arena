@@ -1,0 +1,11 @@
+{
+  "_owner": "v31-r7-receiver-claude-01a17e88 fix/v31-locked-activation-safety: 20261102180625_v31_serving_bindings_admit_only_verified_engines (installs only from protected main)",
+  "tables": ["gto_v31_serving_bindings"],
+  "functions": [
+    "fn_gto_v31_serving_admission",
+    "fn_gto_v31_bind_serving",
+    "fn_gto_v31_revoke_serving",
+    "fn_gto_v31_serving_binding_guard"
+  ],
+  "columns": {}
+}
