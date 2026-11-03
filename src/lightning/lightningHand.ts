@@ -306,7 +306,12 @@ function figure(n: number): string {
 
 /** The felt's game description from the Cluster row, before any snapshot. */
 export function lightningTableSeed(meta: LightningClusterMeta): LightningTableSeed {
-  const range = cashBuyInRange({ big_blind: meta.bigBlind, min_buy_in: null, max_buy_in: null });
+  const range = cashBuyInRange({
+    game_variant: meta.variant,
+    big_blind: meta.bigBlind,
+    min_buy_in: null,
+    max_buy_in: null,
+  });
   return {
     tableName: formatGameTitle(meta.name) || 'Lightning',
     gameType: meta.variant,

@@ -32,18 +32,22 @@
  */
 
 /** The standard band the table's BuyInModal offers, in big blinds. */
+import { isFixedLimitVariant } from './bettingStructure';
 import { isPlatformFrozenError, PLATFORM_FROZEN_MESSAGE } from '../utils/platformFrozen';
 
 export const CASH_MIN_BB = 40;
 export const CASH_MAX_BB = 200;
 
 export interface CashBuyInSource {
+  game_variant?: string | null;
   big_blind?: number | null;
   min_buy_in?: number | null;
   max_buy_in?: number | null;
 }
 
 export interface CashBuyInRange {
+  /** No table cap; max is zero and never used as a purchase amount. */
+  unlimited?: boolean;
   min: number;
   max: number;
   /** The row carries no blinds and no buy-in columns: nothing can be said. */
@@ -62,6 +66,9 @@ export function cashBuyInRange(row: CashBuyInSource): CashBuyInRange {
 
   const rowMin = positive(row.min_buy_in);
   const rowMax = positive(row.max_buy_in);
+  if (isFixedLimitVariant(row.game_variant)) {
+    return { min: rowMin || bandMin, max: 0, unlimited: true };
+  }
 
   if (bb <= 0) {
     if (!rowMin && !rowMax) return { min: 0, max: 0, unknown: true };
@@ -76,7 +83,8 @@ export function cashBuyInRange(row: CashBuyInSource): CashBuyInRange {
 
 /** "1,000 - 2,500", or a single figure when the range has collapsed. */
 export function cashBuyInLabel(row: CashBuyInSource): string {
-  const { min, max, unknown } = cashBuyInRange(row);
+  const { min, max, unknown, unlimited } = cashBuyInRange(row);
+  if (unlimited) return `${min.toLocaleString()} Min / No Maximum`;
   /* A dash, not a zero. "0" is a statement that the table is free. */
   if (unknown) return '-';
   if (max <= min) return min.toLocaleString();
