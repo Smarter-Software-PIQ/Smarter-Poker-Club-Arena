@@ -212,19 +212,29 @@ describe('post-deploy E2E concurrency', () => {
       expect(result.status, result.stderr).toBe(0);
       expect(result.output).toBe(''); // A non-verdict, never should_run=true.
       expect(verdict(payload, 'success').status).toBe(1);
-      for (const replacement of [
-        completed('unknown-preparation'),
-        completed('client-publication / production', 'success'),
+      for (const { index, replacement } of [
+        { index: jobs.length - 1, replacement: completed('unknown-preparation') },
         {
-          ...completed('client-publication / production', 'cancelled'),
-          steps: [{ name: 'Started transaction' }],
+          index: jobs.length - 1,
+          replacement: completed('client-publication / production', 'success'),
         },
-        completed(
-          'client-publication / Validate The Selected Client Publication Source',
-          'failure'
-        ),
+        {
+          index: jobs.length - 1,
+          replacement: {
+            ...completed('client-publication / production', 'cancelled'),
+            steps: [{ name: 'Started transaction' }],
+          },
+        },
+        {
+          index: 2,
+          replacement: completed(
+            'client-publication / Validate The Selected Client Publication Source',
+            'failure'
+          ),
+        },
       ]) {
-        const changed = [...jobs.slice(0, -1), replacement];
+        const changed = jobs.map((job, i) => (i === index ? replacement : job));
+        expect(new Set(changed.map((job) => job.name)).size).toBe(changed.length);
         const refused = verdict({ total_count: changed.length, jobs: changed }, 'cancelled');
         expect(refused.status, JSON.stringify(replacement)).toBe(1);
         expect(refused.output).toBe('');
