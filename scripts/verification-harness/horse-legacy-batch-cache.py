@@ -5,19 +5,19 @@ from pathlib import Path
 
 def qualify(e,base,q):
  checks=[]
- d,old,fact,batch=q.fixture(e,base)
+ d,old,fact,batch,append_batch,_=q.fixture(e,base)
  ids=[f'2e{i:06x}-0000-4000-8000-{i:012x}' for i in range(250)]
  # Three production-shaped shared payloads. Human and late reported candidates
  # share every batch; a newer sibling in a fourth batch protects a whole hand.
  for k in range(3):
   rows=[fact(h,k*2+n) for h in ids for n in range(2)]+[fact(old.HAND_ID,k)]
   key,payload=batch('cache-shared-'+str(k),rows)
-  e.sql(d,'SELECT fn_append_horse_adaptive_observations('+q.lit(payload)+');',label='cache-shared-append-'+str(k))
+  append_batch(d,payload,label='cache-shared-append-'+str(k))
  key,payload=batch('cache-newer-sibling',[fact(ids[-2],30,1791158400000)])
- e.sql(d,'SELECT fn_append_horse_adaptive_observations('+q.lit(payload)+');',label='cache-newer-sibling')
+ append_batch(d,payload,label='cache-newer-sibling')
  e.sql(d,"INSERT INTO smarter_private.hand_submissions(submission_id,table_id,hand_number,instance_id,lease_generation,request,request_hash) VALUES("+q.lit(ids[-1])+','+q.lit(old.TABLE)+",1000399,'cache-late-protected',"+q.lit(old.DEAD_GEN)+",'{\"p_hand_row\":{\"reported\":true}}',repeat('c',64));",label='cache-late-reported')
  key,payload=batch('cache-same-batch-newer',[fact(ids[-3],31,1791158399998),fact(ids[-3],32,1791158400000)])
- e.sql(d,'SELECT fn_append_horse_adaptive_observations('+q.lit(payload)+');',label='cache-good-and-newer-same-batch')
+ append_batch(d,payload,label='cache-good-and-newer-same-batch')
  e.sql(d,'DELETE FROM horse_adaptive_observation_journal WHERE hand_id='+q.lit(ids[-4])+';',label='cache-batch-only-original')
  e.sql(d,'DELETE FROM horse_adaptive_observation_journal WHERE observation_id=ANY(ARRAY['+q.lit(ids[-2]+':30')+','+q.lit(ids[-3]+':32')+']);',label='cache-newer-siblings-only-in-batches')
  e.sql(d,file=q.ROOT/q.MIGRATION,label='cache-original-exception')

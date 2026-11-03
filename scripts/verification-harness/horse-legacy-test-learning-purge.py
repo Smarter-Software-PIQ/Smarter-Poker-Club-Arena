@@ -90,7 +90,14 @@ def fixture(e, template):
   assert through-start <= 21600000
   source=digest(name);key=digest('|'.join(['adaptive-journal-v1',actor,source,str(start),str(through)]))
   return key,json.dumps([1,key,actor,start,through,source,[],rows],separators=(',',':'))
- return d,old,fact,batch
+ def append_batch(db, payload, label):
+  # Historical October 4 cohort fixtures use fixed epochs (1791068400000..1791158400000).
+  # Anchor the isolated test transaction's now_ms check within their 30-day admission window
+  # while restoring the exact md5 preimage before 20261015212515 runs.
+  e.sql(db, "DO $anchor$ DECLARE src text := pg_get_functiondef('public.fn_append_horse_adaptive_observations(text)'::regprocedure); BEGIN EXECUTE replace(src, 'statement_timestamp()', 'TIMESTAMPTZ ''2026-10-15T12:00:00Z'''); PERFORM public.fn_append_horse_adaptive_observations(" + lit(payload) + "); EXECUTE src; EXCEPTION WHEN OTHERS THEN EXECUTE src; RAISE; END $anchor$;", label=label)
+ def queue_batch(db, payload, label):
+  e.sql(db, "DO $anchor$ DECLARE src text := pg_get_functiondef('public.fn_queue_horse_adaptive_batch(text)'::regprocedure); BEGIN EXECUTE replace(src, 'clock_timestamp()', 'TIMESTAMPTZ ''2026-10-15T12:00:00Z'''); PERFORM public.fn_queue_horse_adaptive_batch(" + lit(payload) + "); EXECUTE src; EXCEPTION WHEN OTHERS THEN EXECUTE src; RAISE; END $anchor$;", label=label)
+ return d,old,fact,batch,append_batch,queue_batch
 
 MIGRATION = Path('supabase/migrations/20261015212515_one_time_legacy_test_learning_purge.sql')
 LEDGER = 'smarter_private.horse_adaptive_legacy_learning_purges'
@@ -107,7 +114,7 @@ def qualify(e, base):
   checks.append(label)
  def invoke(d,ids,label, prefix='',suffix=''):
   return json.loads(read(d,prefix+'SELECT '+PURGE+'(ARRAY['+','.join(lit(x) for x in ids)+']::uuid[]);'+suffix,label))
- d,old,fact,batch=fixture(e,base)
+ d,old,fact,batch,append_batch,queue_batch=fixture(e,base)
  legacy='1e000001-0000-4000-8000-000000000001'
  veto='1e000002-0000-4000-8000-000000000002'
  young='1e000003-0000-4000-8000-000000000003'
@@ -131,7 +138,7 @@ def qualify(e, base):
  young_key,young_payload=batch('legacy-only-newer',[fact(young,3,1791158400000)])
  work_key,work_payload=batch('legacy-unfinished',[fact(unfinished,3)])
  for name,p in [('main',payload),('veto',veto_payload),('young',young_payload),('unfinished',work_payload)]:
-  e.sql(d,'SELECT fn_append_horse_adaptive_observations('+lit(p)+');',label='legacy-real-append-'+name)
+  append_batch(d,p,label='legacy-real-append-'+name)
  e.sql(d,"INSERT INTO public.hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result) SELECT table_id,hand_number+1,"+lit(atomic)+",payload_hash,stack_result FROM public.hand_atomic_commits;",label='legacy-atomic-without-history-protection')
  normal_seed=old.SEED.replace(str(old.HAND_NUMBER),str(old.HAND_NUMBER+2))
  for i,value in enumerate([old.HAND_ID,old.TABLE,old.HORSE,old.DEAD_GEN,old.LIVE_GEN,old.SEATED]):
@@ -140,8 +147,9 @@ def qualify(e, base):
  normal_seed=normal_seed.replace("'{\"p_stacks\": []}'::jsonb","jsonb_build_object('p_stacks','[]'::jsonb,'p_hand_row',jsonb_build_object('has_human',false,'players',jsonb_build_array(jsonb_build_object('userId',"+lit(normal_horse)+"))))")
  e.sql(d,normal_seed+"UPDATE hand_history SET has_human=false WHERE id="+lit(normal)+";"+old.AUTHORITY+"SELECT smarter_private.hand_submission_retention_disposal(ARRAY["+lit(normal)+"]::uuid[],'Native normal certificate remains outside legacy exception');",label='legacy-genuine-normal-certificate-protection')
  protect_key,protect_payload=batch('legacy-atomic-and-normal',[fact(atomic,3),fact(normal,3),fact(cash_human,3),fact(reported_submission,3),fact(reported_cash,3),fact(string_submission,3),fact(string_cash,3),fact(string_disposal,3)])
- e.sql(d,'SELECT fn_append_horse_adaptive_observations('+lit(protect_payload)+');',label='legacy-atomic-normal-raw')
- e.sql(d,"INSERT INTO public.hand_history(id,has_human,created_at) VALUES("+lit(active)+",false,'2026-09-01'); SELECT fn_queue_horse_adaptive_batch("+lit(work_payload)+");",label='legacy-protected-active-and-unfinished')
+ append_batch(d,protect_payload,label='legacy-atomic-normal-raw')
+ e.sql(d,"INSERT INTO public.hand_history(id,has_human,created_at) VALUES("+lit(active)+",false,'2026-09-01');",label='legacy-protected-active-and-unfinished')
+ queue_batch(d,work_payload,label='legacy-protected-unfinished-queue')
  e.sql(d,"INSERT INTO cash_hand_provenance_receipts(table_id,hand_number,hand_id,payload_hash,accepted_request,atomic_receipt,stack_claim,stack_settlement,status,participants,all_players_included,funding_provenance_complete,issues) VALUES("+lit(old.TABLE)+",1000310,"+lit(cash_human)+",repeat('a',64),'{\"hand_row\":{\"has_human\":true}}','{}','{}','{}','captured','[]',true,true,'[]');",label='legacy-original-human-cash-receipt')
  e.sql(d,"INSERT INTO smarter_private.hand_submissions(submission_id,table_id,hand_number,instance_id,lease_generation,request,request_hash) VALUES("+lit(reported_submission)+','+lit(old.TABLE)+",1000311,'original-reported-test',"+lit(old.DEAD_GEN)+",'{\"p_hand_row\":{\"has_human\":false,\"reported\":true}}',repeat('b',64));",label='legacy-original-reported-submission')
  e.sql(d,"INSERT INTO cash_hand_provenance_receipts(table_id,hand_number,hand_id,payload_hash,accepted_request,atomic_receipt,stack_claim,stack_settlement,status,participants,all_players_included,funding_provenance_complete,issues) VALUES("+lit(old.TABLE)+",1000312,"+lit(reported_cash)+",repeat('c',64),'{\"hand_row\":{\"has_human\":false,\"reported\":true}}','{}','{}','{}','captured','[]',true,true,'[]');",label='legacy-original-reported-cash-receipt')
@@ -197,7 +205,7 @@ def qualify(e, base):
  yes(d,'SELECT NOT EXISTS(SELECT 1 FROM horse_adaptive_observation_journal WHERE hand_id='+lit(legacy)+');','identical-old-batch-replay-stays-idempotent-without-raw')
  # A fresh batch key and cached old direct writer must both fail closed.
  new_key,new_payload=batch('legacy-replay-new-key',facts+[adjacent_fact])
- code,_,err=e.sql(d,'SELECT fn_append_horse_adaptive_observations('+lit(new_payload)+');',label='legacy-new-batch-replay-refused',check=False)
+ code,_,err=e.sql(d,"DO $anchor$ DECLARE src text := pg_get_functiondef('public.fn_append_horse_adaptive_observations(text)'::regprocedure); BEGIN EXECUTE replace(src, 'statement_timestamp()', 'TIMESTAMPTZ ''2026-10-15T12:00:00Z'''); PERFORM public.fn_append_horse_adaptive_observations(" + lit(new_payload) + "); EXECUTE src; EXCEPTION WHEN OTHERS THEN EXECUTE src; RAISE; END $anchor$;",label='legacy-new-batch-replay-refused',check=False)
  assert code!=0 and 'ADAPTIVE_JOURNAL_OBSERVATION_CONFLICT' in err,err
  checks.append('new-batch-replay-cannot-resurrect-legacy-raw')
  queued=json.loads(read(d,'SELECT fn_queue_horse_adaptive_batch('+lit(new_payload)+');','legacy-replay-queue-refused'))
