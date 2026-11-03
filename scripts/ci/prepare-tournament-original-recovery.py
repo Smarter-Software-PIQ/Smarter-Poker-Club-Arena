@@ -13,7 +13,7 @@ def main():
  p=argparse.ArgumentParser(description=__doc__)
  for key in ['tournament-id','nonce','instance-id','lease-generation','release-sha','freeze-started','ownership-token','custody-md5']:p.add_argument('--'+key,required=True)
  a=p.parse_args()
- allowed=json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/cohort-membership.json').read_text())['natural_finish_twenty'] + json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json').read_text())['preserved_started_human_events']
+ allowed=json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/cohort-membership.json').read_text())['natural_finish_twenty'] + json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json').read_text())['original_abort_recovery_events']
  for name in ['tournament_id','nonce','lease_generation','ownership_token']:
   try:setattr(a,name,str(uuid.UUID(getattr(a,name))))
   except ValueError:p.error(name+' must be a UUID')

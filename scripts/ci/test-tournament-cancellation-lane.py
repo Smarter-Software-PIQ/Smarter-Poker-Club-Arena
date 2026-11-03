@@ -350,7 +350,7 @@ END $started_refusal$;
         assert recovery_report.get('passed') is True and recovery_report.get('status') == 'passed'
         assert len(recovery_report.get('cases', [])) == 27 and len(recovery_report.get('tool_cases', [])) == 3 and recovery_report.get('manual_control_cases') == 13
         e.report['original_recovery20'] = {'passed': True, 'cases': 27, 'tool_cases': 3, 'report': 'original-recovery20/recovery20-report.json'}
-        human_events=json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json').read_text())['preserved_started_human_events']
+        human_events=json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json').read_text())['original_abort_recovery_events']
         assert len(human_events)==3 and len(set(human_events))==3
         for index,event in enumerate(human_events):
             label='preserved-human-'+str(index)

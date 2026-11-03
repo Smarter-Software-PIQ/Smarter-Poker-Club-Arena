@@ -4,6 +4,12 @@
   "preserved_started_human_events": [
     "2781bcd7-cc8a-4713-ab3e-0d0a81fdf110",
     "6379b29e-1307-4e8b-91e7-e9a0975cd64d",
+    "7986217a-0a67-4585-bd43-254356a9cb54",
+    "d5decc98-cd0f-417f-aa28-6df009a74c76"
+  ],
+  "original_abort_recovery_events": [
+    "2781bcd7-cc8a-4713-ab3e-0d0a81fdf110",
+    "6379b29e-1307-4e8b-91e7-e9a0975cd64d",
     "7986217a-0a67-4585-bd43-254356a9cb54"
   ]
 }

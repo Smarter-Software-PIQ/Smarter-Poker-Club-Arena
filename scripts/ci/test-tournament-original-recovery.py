@@ -72,8 +72,12 @@ def main():
   sql_file(e,db,'genuine-refund-cannot-be-resurrected',"BEGIN;"+AUTH+"SELECT public.fn_ca_settle_tournament_abort('"+OP+"','"+EVENT+"','"+money_hash+"');"+extension_sql+"DO $$DECLARE refused boolean:=false;BEGIN IF NOT EXISTS(SELECT 1 FROM public.tournament_refund_tranches WHERE tournament_id='"+EVENT+"') THEN RAISE EXCEPTION 'actual old refund not exercised';END IF;BEGIN PERFORM "+refunded_call+";EXCEPTION WHEN SQLSTATE '55000' THEN refused:=true;END;IF NOT refused THEN RAISE EXCEPTION 'actual refunded event resurrected';END IF;END$$;ROLLBACK;")
   e.sql(db,file=extension,label='human-preservation-extension',seconds=30)
   e.report['source_sha256'][str(extension.relative_to(ROOT))]=hashlib.sha256(extension.read_bytes()).hexdigest()
+  sql_file(e,db,'unrequested-human-event-cannot-be-stopped',"BEGIN;"+SERVICE+"DO $$DECLARE refused boolean:=false;BEGIN BEGIN PERFORM public.fn_ca_request_tournament_abort('ac000000-0000-4000-8000-000000000004',ARRAY['d5decc98-cd0f-417f-aa28-6df009a74c76']::uuid[],'superseded stop request');EXCEPTION WHEN SQLSTATE '55000' THEN IF SQLERRM<>'operator_abort_superseded_preserve_started_humans' THEN RAISE;END IF;refused:=true;END;IF NOT refused THEN RAISE EXCEPTION 'human event stop request admitted';END IF;IF EXISTS(SELECT 1 FROM smarter_private.tournament_abort_targets WHERE tournament_id='d5decc98-cd0f-417f-aa28-6df009a74c76') THEN RAISE EXCEPTION 'refused request persisted target';END IF;END$$;ROLLBACK;")
   if a.human_event:
    sql_file(e,db,'later-owner-refuses-stale-abort-before-withdrawal',"BEGIN;DO $$DECLARE refused boolean:=false;BEGIN BEGIN PERFORM smarter_private.assert_tournament_abort_not_recovered('"+OP+"','"+EVENT+"');EXCEPTION WHEN SQLSTATE '55000' THEN IF SQLERRM<>'operator_abort_superseded_preserve_started_humans' THEN RAISE;END IF;refused:=true;END;IF NOT refused THEN RAISE EXCEPTION 'superseded abort remained actionable';END IF;END$$;ROLLBACK;")
+  _,installed_proof,_=e.sql(db,'SELECT '+extension.read_text().splitlines()[0].removeprefix('-- @live-proof: ')+';',label='human-policy-exact-installed-proof')
+  assert installed_proof.strip()=='t'
+  e.report['human_preservation_cases']=['unrequested-human-stop-refused','exact-installed-proof']+(['superseded-abort-refused'] if a.human_event else [])
   # Synthetic physical scene; real request/lease/refund/cancellation doors and
   # their deployed definitions are used. No claims about live native capture.
   scene="BEGIN;"+SERVICE+"SET LOCAL session_replication_role=replica;"

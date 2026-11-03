@@ -1,4 +1,4 @@
--- @live-proof: md5(pg_get_functiondef('public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text)'::regprocedure))='946d84d5c7aed5682857461aeed97fa4' AND md5(pg_get_functiondef('smarter_private.assert_tournament_abort_not_recovered(uuid,uuid)'::regprocedure))='04405d2e188c24d4fcd618af3ee3b514' AND NOT has_function_privilege('authenticated','public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text)','EXECUTE') AND has_function_privilege('service_role','public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text)','EXECUTE')
+-- @live-proof: md5(pg_get_functiondef('public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text)'::regprocedure))='946d84d5c7aed5682857461aeed97fa4' AND md5(pg_get_functiondef('smarter_private.assert_tournament_abort_not_recovered(uuid,uuid)'::regprocedure))='1baa1d929351bbab05294dae85f208fa' AND NOT has_function_privilege('authenticated','public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text)','EXECUTE') AND has_function_privilege('service_role','public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text)','EXECUTE') AND md5(pg_get_functiondef('public.fn_ca_request_tournament_abort(uuid,uuid[],text)'::regprocedure))='3025d9faf65e9b2336dcf9b794f6c17f'
 -- Later owner direction preserves these three already-started human events.
 -- Old stop membership is immutable; no hand, money, roster or receipt is rewritten.
 -- Only the existing custody-proven withdrawal can enable successor hands.
@@ -8,6 +8,7 @@ SET LOCAL statement_timeout='5s';
 DO $preimage$ BEGIN
  IF md5(pg_get_functiondef('public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text)'::regprocedure)) IS DISTINCT FROM '8cea7abe692c880017a4263db3a39f23' THEN RAISE EXCEPTION 'human_preservation_owner_changed:withdraw'; END IF;
  IF md5(pg_get_functiondef('smarter_private.assert_tournament_abort_not_recovered(uuid,uuid)'::regprocedure)) IS DISTINCT FROM 'b3661e1f8385ebdcc8e73f938fc9f1c8' THEN RAISE EXCEPTION 'human_preservation_owner_changed:guard'; END IF;
+ IF md5(pg_get_functiondef('public.fn_ca_request_tournament_abort(uuid,uuid[],text)'::regprocedure)) IS DISTINCT FROM 'b901916e3c9c0ca23540ab66a146880d' THEN RAISE EXCEPTION 'human_preservation_owner_changed:request'; END IF;
 END $preimage$;
 CREATE OR REPLACE FUNCTION public.fn_ca_withdraw_tournament_abort_for_original_recovery(p_operation_id uuid, p_tournament_id uuid, p_recovery_id uuid, p_instance_id text, p_lease_generation uuid, p_release_sha text, p_freeze_started timestamp with time zone, p_ownership_token uuid, p_custody_md5 text)
  RETURNS jsonb
@@ -109,7 +110,7 @@ AS $function$
 BEGIN
  -- An older repeatable-read snapshot cannot safely observe a new append-only disposition.
  IF current_setting('transaction_isolation') IS DISTINCT FROM 'read committed' THEN RAISE EXCEPTION 'operator_abort_read_committed_required' USING ERRCODE='55000';END IF;
- IF p_operation_id='d44c4440-2911-430c-8ee7-376611ef3f38'::uuid AND p_tournament_id=ANY(ARRAY['2781bcd7-cc8a-4713-ab3e-0d0a81fdf110','6379b29e-1307-4e8b-91e7-e9a0975cd64d','7986217a-0a67-4585-bd43-254356a9cb54']::uuid[]) THEN
+ IF p_tournament_id=ANY(ARRAY['2781bcd7-cc8a-4713-ab3e-0d0a81fdf110','6379b29e-1307-4e8b-91e7-e9a0975cd64d','7986217a-0a67-4585-bd43-254356a9cb54','d5decc98-cd0f-417f-aa28-6df009a74c76']::uuid[]) THEN
   RAISE EXCEPTION 'operator_abort_superseded_preserve_started_humans' USING ERRCODE='55000';
  END IF;
  IF EXISTS(SELECT 1 FROM smarter_private.tournament_abort_recoveries WHERE tournament_id=p_tournament_id AND operation_id=p_operation_id) THEN
@@ -120,4 +121,54 @@ END $function$
 REVOKE ALL ON FUNCTION public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_withdraw_tournament_abort_for_original_recovery(uuid,uuid,uuid,text,uuid,text,timestamptz,uuid,text) TO service_role;
 REVOKE ALL ON FUNCTION smarter_private.assert_tournament_abort_not_recovered(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.fn_ca_request_tournament_abort(p_operation_id uuid, p_tournament_ids uuid[], p_reason text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'smarter_private'
+AS $function$
+DECLARE ids uuid[]; t public.tournaments; generation uuid; prior smarter_private.tournament_abort_operations;
+BEGIN
+ IF auth.role() IS DISTINCT FROM 'service_role' THEN RAISE EXCEPTION 'operator_abort_service_required' USING ERRCODE='42501';END IF;
+ IF p_operation_id IS NULL OR p_tournament_ids IS NULL OR cardinality(p_tournament_ids) NOT BETWEEN 1 AND 1000
+ OR array_position(p_tournament_ids,NULL) IS NOT NULL OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 10 AND 500 THEN
+  RAISE EXCEPTION 'operator_abort_identity_invalid' USING ERRCODE='22023';END IF;
+ SELECT array_agg(id ORDER BY id) INTO ids FROM (SELECT DISTINCT unnest(p_tournament_ids) id)x;
+ IF cardinality(ids)<>cardinality(p_tournament_ids) THEN RAISE EXCEPTION 'operator_abort_duplicate_target' USING ERRCODE='22023';END IF;
+ PERFORM smarter_private.assert_tournament_abort_not_recovered(p_operation_id,id) FROM unnest(ids) AS requested(id);
+ IF NOT pg_try_advisory_xact_lock(hashtextextended('ca:tournament-abort:'||p_operation_id::text,0)) THEN
+  RAISE EXCEPTION 'OPERATOR_ABORT_BUSY' USING ERRCODE='55P03';END IF;
+ SELECT * INTO prior FROM smarter_private.tournament_abort_operations WHERE operation_id=p_operation_id;
+ IF FOUND THEN
+  IF prior.tournament_ids IS DISTINCT FROM ids OR prior.reason IS DISTINCT FROM btrim(p_reason) THEN
+   RAISE EXCEPTION 'operator_abort_operation_reused' USING ERRCODE='22023';END IF;
+  RETURN jsonb_build_object('ok',true,'operation_id',p_operation_id,'tournament_ids',ids,'stop_requested',true,'replayed',true);
+ END IF;
+ -- This existing try-admission takes G and the settlement barrier before any
+ -- parent/child row. It never queues an exclusive global request behind play.
+ PERFORM smarter_private.cancellation_lane(ids[1]);
+ PERFORM 1 FROM public.tournaments WHERE id=ANY(ids) ORDER BY id FOR UPDATE;
+ IF (SELECT count(*) FROM public.tournaments WHERE id=ANY(ids))<>cardinality(ids) THEN
+  RAISE EXCEPTION 'operator_abort_target_missing' USING ERRCODE='P0002';END IF;
+ IF EXISTS(SELECT 1 FROM smarter_private.tournament_abort_targets WHERE tournament_id=ANY(ids)) THEN
+  RAISE EXCEPTION 'operator_abort_target_owned' USING ERRCODE='55000';END IF;
+ IF EXISTS(SELECT 1 FROM public.tournaments WHERE id=ANY(ids) AND (started_at IS NULL OR upper(status) NOT IN('RUNNING','BREAK','LATE_REG'))) THEN
+  RAISE EXCEPTION 'operator_abort_requires_started_unsettled_event' USING ERRCODE='55000';END IF;
+ INSERT INTO smarter_private.tournament_abort_operations(operation_id,tournament_ids,reason,cohort_hash)
+ VALUES(p_operation_id,ids,btrim(p_reason),md5(ids::text));
+ FOR t IN SELECT * FROM public.tournaments WHERE id=ANY(ids) ORDER BY id LOOP
+  SELECT lease_generation INTO generation FROM public.engine_tournament_leases WHERE tournament_id=t.id AND protocol_version=2 FOR KEY SHARE;
+  IF generation IS NULL THEN RAISE EXCEPTION 'operator_abort_manager_identity_missing:%',t.id USING ERRCODE='55000';END IF;
+  INSERT INTO smarter_private.tournament_abort_targets(operation_id,tournament_id,state,asset,requested_generation)
+  VALUES(p_operation_id,t.id,'stop_requested',CASE WHEN public.fn_poker_diamond_tournament(t.id) THEN 'diamonds' ELSE 'chips' END,generation);
+  INSERT INTO smarter_private.tournament_abort_boundaries(operation_id,tournament_id,table_id,lifecycle,required,request_generation,existing_permits)
+  SELECT p_operation_id,t.id,tb.id,tb.f06_lifecycle,lower(tb.status)<>'closed' AND NOT coalesce(tb.is_deleted,false),generation,
+   coalesce((SELECT jsonb_agg(to_jsonb(h) ORDER BY h.permit_id) FROM smarter_private.f06_hand_permits h WHERE h.table_id=tb.id AND h.state='reserved'),'[]'::jsonb)
+  FROM public.tables tb WHERE tb.tournament_id=t.id ORDER BY tb.id;
+ END LOOP;
+ RETURN jsonb_build_object('ok',true,'operation_id',p_operation_id,'tournament_ids',ids,'stop_requested',true,'replayed',false);
+END $function$
+;
+REVOKE ALL ON FUNCTION public.fn_ca_request_tournament_abort(uuid,uuid[],text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_request_tournament_abort(uuid,uuid[],text) TO service_role;
 COMMIT;

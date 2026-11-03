@@ -231,7 +231,7 @@ export function originalControlIntent(input) {
     ? (equalCohort?.members ?? []).map((row) => row.tournamentId)
     : abort
       ? [...COHORT.original89, NIGHTLY.tournamentId]
-      : [...COHORT.natural_finish_twenty, ...HUMAN_PRESERVATION.preserved_started_human_events];
+      : [...COHORT.natural_finish_twenty, ...HUMAN_PRESERVATION.original_abort_recovery_events];
   if (
     ((equal || abort) &&
       HUMAN_PRESERVATION.preserved_started_human_events.includes(input.tournamentId)) ||
