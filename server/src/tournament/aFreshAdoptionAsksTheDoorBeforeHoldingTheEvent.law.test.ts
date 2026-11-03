@@ -24,7 +24,13 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../services/supabase/client.js', () => ({
   supabase: { rpc: mocks.rpc, from: mocks.from },
-  maintenanceSupabase: {},
+  maintenanceSupabase: {
+    rpc: vi.fn(async (name: string, args: { p_tournament_id: string }) => {
+      if (name !== 'fn_read_tournament_terminal_request')
+        throw new Error('Unexpected maintenance RPC: ' + name);
+      return { data: { ok: true, found: false, tournament_id: args.p_tournament_id }, error: null };
+    }),
+  },
 }));
 vi.mock('../services/supabase/handHistory.js', async (original) => ({
   ...(await original<any>()),

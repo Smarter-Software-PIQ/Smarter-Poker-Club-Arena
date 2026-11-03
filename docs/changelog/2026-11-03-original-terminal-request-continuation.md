@@ -23,7 +23,13 @@ Focused tests cover all five request kinds, unknown reads, immutable identity,
 pre-send lost acknowledgements and cleanup dispatch. Native PG17 qualification
 uses a funded SNG and the actual financial functions to prove exact replay,
 COMPLETING custody, true concurrent close/queued-send serialization, successor
-adoption and stale-generation refusal. It is wired into required accounting
-shard 4. The synthetic final roster/isolated clock advance do not prove live
+adoption and stale-generation refusal. Connected HTTP cases also run the actual manager-authorized prepare, execute
+and resolver clients for MTT, SNG, Spin, single-winner satellite and qualifier
+satellite. Each loses a committed TCP reply, verifies exact recipients and
+economics, then replays the same durable execution and compares every financial
+relation. Satellite fixtures include the captured current lease dependencies;
+no fake claim or generation grant substitutes for them. Legacy/proposal deal
+dispatch remains covered by focused runtime tests, not native deal settlement.
+The combined qualification is wired into required accounting shard 4. The synthetic final roster/isolated clock advance do not prove live
 hand continuity or universal outage recovery. Production installation and engine
 adoption remain the owning delivery's separate requirements.

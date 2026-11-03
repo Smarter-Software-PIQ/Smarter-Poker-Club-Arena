@@ -89,7 +89,7 @@
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/restore-synthetic-terms.sql": "9d14a15482330a285c5346e9607a3beec85b2b21b46dcec3a15372a1524e5596",
     "tests/fixtures/sep8-spin-custody/setup.sql": "eded939b6797c5e561e12071cb08938a25359b791cdb810fc49b5e0424565f29",
-    "tests/unit/fixtureNativeCi.test.ts": "1e40a39e898a3c70dfcdb5aa619bf548be7df95fd492aee4b3d6edfe29e813df",
+    "tests/unit/fixtureNativeCi.test.ts": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -1881,14 +1881,9 @@
     "reason": "Reviewed additive original-terminal native fixture routing and three source-input classification cases. Existing accounting routes and assertions are preserved. Current source pins only; historical financial evidence and qualification state are unchanged.",
     "changes": [
       {
-        "path": "scripts/ci/classify-ci-changes.mjs",
-        "previousSHA256": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66",
-        "currentSHA256": "e24cbc30b09196198f35d2a7959819d0b390d73de0d8ab9f53a8634cf5945491"
-      },
-      {
         "path": "tests/unit/fixtureNativeCi.test.ts",
-        "previousSHA256": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780",
-        "currentSHA256": "1e40a39e898a3c70dfcdb5aa619bf548be7df95fd492aee4b3d6edfe29e813df"
+        "previousSHA256": "1e40a39e898a3c70dfcdb5aa619bf548be7df95fd492aee4b3d6edfe29e813df",
+        "currentSHA256": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f"
       }
     ],
     "historicalEvidenceRestamped": false,

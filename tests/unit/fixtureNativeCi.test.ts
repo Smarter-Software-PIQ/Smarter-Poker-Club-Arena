@@ -790,6 +790,7 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/terminal_original_request_native.py',
     'scripts/ci/fixtures/terminal-original-request/custody-preimage.sql',
     'server/scripts/qualify-terminal-intent.ts',
+    'server/scripts/qualify-terminal-intent-transport.ts',
     'scripts/ci/fixtures/ordinary-terminal-transport/current-catalog.json',
     'scripts/ci/fixtures/ordinary-terminal-transport/spin-opening.sql',
     'server/scripts/qualify-ordinary-terminal-transport.ts',
