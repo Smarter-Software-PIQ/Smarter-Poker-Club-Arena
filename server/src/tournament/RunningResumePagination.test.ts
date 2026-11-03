@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GameServer } from '../GameServer.js';
 import { supabase } from '../services/supabase.js';
 import { reportError } from '../services/errorReporter.js';
-import { RunningResumeCooldowns } from '../tournamentResumeBudget.js';
+import { RunningResumeCooldowns, ORPHAN_CLAIM_MAX_ATTEMPTS } from '../tournamentResumeBudget.js';
+import * as leadership from '../services/leadership.js';
+import * as financialAlerts from '../services/financialAlerts.js';
 
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
 beforeEach(() => vi.mocked(reportError).mockClear());
@@ -83,6 +85,35 @@ function harness(rows: ReturnType<typeof row>[]) {
 }
 
 describe('actual RUNNING discovery reads the complete recovery board', () => {
+  it.each([true, false])(
+    'keeps an exhausted priority orphan in ordinary admission, cooling=%s',
+    async (cooling) => {
+      vi.spyOn(leadership, 'isLeader').mockReturnValue(true);
+      const alert = vi
+        .spyOn(financialAlerts, 'raiseFinancialAlert')
+        .mockResolvedValue({ persisted: true, alertId: 'test-alert' });
+      const { server, admitted } = harness([row('exhausted')]);
+      server.readTournamentLeaseRowIds = vi.fn(async () => new Set());
+      server.orphanClaimExhaustedAlerted = new Set();
+      const failedAt = Date.now() - (cooling ? 0 : 60 * 60_000);
+      for (let i = 0; i < ORPHAN_CLAIM_MAX_ATTEMPTS; i++) {
+        server.tournamentResumeCooldowns.recordFailure('exhausted', failedAt);
+      }
+      await server.discoverRunningResumes();
+      expect(admitted()).toEqual(cooling ? [] : ['exhausted']);
+      expect(server.tournamentResumeCooldowns.failures('exhausted')).toBe(
+        ORPHAN_CLAIM_MAX_ATTEMPTS
+      );
+      expect(alert).toHaveBeenCalledTimes(1);
+      expect(alert.mock.calls[0][2]).toContain(
+        'ordinary budgeted admission remains eligible after its cooldown'
+      );
+      expect(alert.mock.calls[0][2]).not.toContain('Its players are seated with no dealer');
+      server.alertExhaustedOrphanClaims([{ id: 'exhausted' }]);
+      expect(alert).toHaveBeenCalledTimes(1);
+    }
+  );
+
   it.each([false, true])(
     'retains recovery history when a null page has no error, later=%s',
     async (later) => {
