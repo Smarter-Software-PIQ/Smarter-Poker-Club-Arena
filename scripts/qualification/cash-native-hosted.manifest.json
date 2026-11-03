@@ -41,7 +41,7 @@
   },
   "schemaVersion": 1,
   "diamondLaunchMainInputMerge20261013": {
-    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1\u21923. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
+    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1→3. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
     "changes": {
       ".github/workflows/ci.yml": {
         "previous": {
@@ -4244,7 +4244,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -6660,5 +6660,49 @@
     },
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "oldEventCloseoutRoutingAudit20261103": {
+    "reason": "Reviewed additive routing of original-recovery and entry-hold qualification inputs into the existing required cancellation shard. Cash behavior, assertions and historical qualification remain unchanged.",
+    "changes": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47562,
+          "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        },
+        "current": {
+          "bytes": 47823,
+          "sha256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
+        }
+      }
+    },
+    "historicalEvidenceRestamped": false
+  },
+  "oldCloseoutProtectedMainComposition20261103": {
+    "reason": "Reviewed composition of additive ordinary terminal qualification and old-event closure routing. Both original audit records retained unchanged. Runtime, migration bytes and historical financial results unchanged; current source identities only.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": {
+          "bytes": 47823,
+          "sha256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
+        },
+        "current": {
+          "bytes": 47883,
+          "sha256": "ef60d9c402d05eafe2eae7f4f5e01cf6512c07283a660189e2f6219d9b964d39"
+        }
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": {
+          "bytes": 121735,
+          "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
+        },
+        "current": {
+          "bytes": 121993,
+          "sha256": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

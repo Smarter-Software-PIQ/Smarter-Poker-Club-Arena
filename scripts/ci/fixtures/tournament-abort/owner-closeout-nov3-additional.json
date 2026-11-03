@@ -1,0 +1,37 @@
+{
+  "owner_instruction": "01a1a01a-7f70-7d62-8da1-8d086594c658: KILL EVERY SINGLE TOURNAMENT RUNNING; no starts or registration until relaunch ready",
+  "observed_at": "2026-11-03T12:19:00Z",
+  "cutoff_utc": "2026-11-02T20:31:18.761336Z",
+  "targets": [
+    {
+      "tournament_id": "6b918210-12c8-42ce-b25d-d0a7978a2048",
+      "original_started_at": "2026-11-02 17:45:00+00",
+      "original_operation_id": "56c6b37d-e2f5-5c41-a3c3-a9c96c393431",
+      "asset": "chips"
+    },
+    {
+      "tournament_id": "9a6d63da-3877-4eaa-a4ca-e9eaa6d0ecb7",
+      "original_started_at": "2026-11-02 13:46:39.196211+00",
+      "original_operation_id": "6faab155-8f75-5c04-9c92-20d17f1219aa",
+      "asset": "chips"
+    },
+    {
+      "tournament_id": "bf4db83a-0cbf-4922-870e-1dd172bdea5d",
+      "original_started_at": "2026-11-02 08:44:48.48914+00",
+      "original_operation_id": "a87c6269-532f-5f1e-849c-da25fdc639c1",
+      "asset": "chips"
+    },
+    {
+      "tournament_id": "cb0ae6ee-d114-4a4a-aaa1-311bde3a4bf3",
+      "original_started_at": "2026-11-02 19:15:00+00",
+      "original_operation_id": "6dec6cc5-6bc1-5a8a-a5b8-73cabeb3536f",
+      "asset": "chips"
+    },
+    {
+      "tournament_id": "d0e730b1-c140-4e70-83f1-c0def1a3c108",
+      "original_started_at": "2026-11-02 17:15:00+00",
+      "original_operation_id": "a6386e87-fdf3-59ce-8cae-3ecc7d60cbd4",
+      "asset": "chips"
+    }
+  ]
+}

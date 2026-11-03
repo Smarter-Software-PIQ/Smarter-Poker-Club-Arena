@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { controlOriginalRecovery } from '../../.github/scripts/tournament-original-recovery-control.mjs';
@@ -1256,17 +1257,10 @@ const preservedHumans = [
   '7986217a-0a67-4585-bd43-254356a9cb54',
   'd5decc98-cd0f-417f-aa28-6df009a74c76',
 ];
-test('owner control retains the140-event manifest and excludes later preserved human events, waiting events and money actions', () => {
+test('latest old-event closeout admits all140 original owners but excludes waiting events and unqualified money actions', () => {
   for (const m of retirementManifest.targets) {
     if (preservedHumans.includes(m.tournament_id)) {
-      for (const action of [
-        'owner_request',
-        'owner_read',
-        'owner_ack',
-        'abort_ack',
-        'abort_settle',
-        'equal_settle',
-      ])
+      for (const action of ['abort_ack', 'abort_settle', 'equal_settle'])
         assert.throws(() =>
           originalControlIntent({ ...input, action, tournamentId: m.tournament_id })
         );
@@ -1280,7 +1274,6 @@ test('owner control retains the140-event manifest and excludes later preserved h
             originalControlIntent({ ...input, action, tournamentId: m.tournament_id }).tournamentId,
             m.tournament_id
           );
-      continue;
     }
     const r = originalControlIntent({
       ...input,
@@ -1288,6 +1281,7 @@ test('owner control retains the140-event manifest and excludes later preserved h
       tournamentId: m.tournament_id,
     });
     assert.equal(r.operationId, m.original_operation_id);
+    assert.equal(r.cutoff, retirementManifest.cutoff_utc);
     assert.equal(r.disposition, 'no_financial_action');
     assert.match(r.manifestHash, /^[a-f0-9]{64}$/);
   }
@@ -1302,6 +1296,31 @@ test('owner control retains the140-event manifest and excludes later preserved h
       tournamentId: retirementMember.tournament_id,
     })
   );
+});
+test('latest closeout includes exactly the five additional old started events with separate original operation identities', () => {
+  const extra = JSON.parse(
+    fs.readFileSync(
+      new URL(
+        '../../scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',
+        import.meta.url
+      )
+    )
+  );
+  assert.equal(extra.targets.length, 5);
+  const operations = new Set();
+  for (const row of extra.targets) {
+    const intent = originalControlIntent({
+      ...input,
+      action: 'owner_request',
+      tournamentId: row.tournament_id,
+    });
+    assert.equal(intent.operationId, row.original_operation_id);
+    assert.equal(intent.originalStartedAt, row.original_started_at);
+    assert.equal(intent.cutoff, extra.cutoff_utc);
+    assert.equal(intent.disposition, 'no_financial_action');
+    operations.add(intent.operationId);
+  }
+  assert.equal(operations.size, 5);
 });
 test('owner request writes once under original operation then reads durable state', async () => {
   const f = retirementFixture();

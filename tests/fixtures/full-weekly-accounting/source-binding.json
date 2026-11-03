@@ -7810,5 +7810,56 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "oldEventCloseoutRoutingAudit20261103": {
+    "reason": "Reviewed additive original-recovery and entry-hold native input routing to the existing required cancellation shard. Preserves all existing financial fixtures, assertions, budgets and historical outcomes. Focused routing regressions pass.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+        "currentSHA256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "24870e7b3e0795f6cb690d0d5fa2395c337109a6c522f052140d202813da9056",
+        "currentSHA256": "f36f1da26ac928d9766968630c2534d281f9400deabdc7a34854294cfcd4cee0"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "0364dfc2370483377eb24b0e5d8baa82a2d6981d3f1d0ef39433eb790840c29e",
+        "currentSHA256": "f9ed07229576f2f9750e71cb89f5b09dfe24b5fe047bf069a5dbd0fabe823b8a"
+      }
+    ]
+  },
+  "oldCloseoutProtectedMainComposition20261103": {
+    "reason": "Reviewed composition of additive ordinary terminal qualification and old-event closure routing. Both original audit records retained unchanged. Runtime, migration bytes and historical financial results unchanged; current source identities only.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+        "current": "ef60d9c402d05eafe2eae7f4f5e01cf6512c07283a660189e2f6219d9b964d39"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previous": "f36f1da26ac928d9766968630c2534d281f9400deabdc7a34854294cfcd4cee0",
+        "current": "3911dac55b91fd33bb418dda080fb10a19d3f252fef4a4b4448e6010f809bfef"
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb",
+        "current": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "f9ed07229576f2f9750e71cb89f5b09dfe24b5fe047bf069a5dbd0fabe823b8a",
+        "current": "0e6d4b1c32163eadaf65b5c76fb6fef0310ab1db2ff3d249b3c43f4d522fe23c"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce",
+        "current": "7e034735790dfd82bd53eff66b51eb7792f2521ad5b9767c20154fd001535c52"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

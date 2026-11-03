@@ -1384,5 +1384,26 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "oldEventCloseoutRoutingAudit20261103": {
+    "reason": "Reviewed additive original-recovery and entry-hold native input routing to the existing required cancellation shard. Preserves all existing financial fixtures, assertions, budgets and historical outcomes. Focused routing regressions pass.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+        "currentSHA256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
+      }
+    ]
+  },
+  "oldCloseoutProtectedMainComposition20261103": {
+    "reason": "Reviewed composition of additive ordinary terminal qualification and old-event closure routing. Both original audit records retained unchanged. Runtime, migration bytes and historical financial results unchanged; current source identities only.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+        "current": "ef60d9c402d05eafe2eae7f4f5e01cf6512c07283a660189e2f6219d9b964d39"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

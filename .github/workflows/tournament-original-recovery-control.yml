@@ -23,7 +23,7 @@ on:
           ]
         required: true
       tournament_id:
-        description: Owner actions use immutable November2 140-event manifest and never settle funds; legacy actions retain their original scope
+        description: Owner actions cover original140 plus five additional old events and never settle funds; legacy actions retain their original scope
         type: string
         required: true
       nonce:
