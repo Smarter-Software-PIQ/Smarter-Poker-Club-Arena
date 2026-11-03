@@ -119,6 +119,46 @@ describe('a hand is every hand dealt (2026-09-28)', () => {
 });
 
 describe('accumulateHorseNets + drainHorseNets', () => {
+  it('preserves forced contributions and captured raise rights through settlement', () => {
+    drainHorseNets(10_000);
+    drainHorsePlay(10_000);
+    accumulateHorseNets(
+      input({
+        gameVariant: 'nlh',
+        actions: [
+          { seat: 1, action: 'all_in', amount: 2, stage: 'preflop', origin: 'forced' },
+          { seat: 3, userId: 'human-1', action: 'raise', amount: 20, stage: 'preflop' },
+          {
+            seat: 2,
+            userId: 'horse-b',
+            action: 'all_in',
+            amount: 10,
+            stage: 'preflop',
+            publicNode: {
+              status: 'captured',
+              actorSeat: 2,
+              currentBet: 20,
+              legalActions: ['fold', 'all_in'],
+              seats: [[2, 10, 0]],
+            },
+          },
+        ],
+      })
+    );
+    const rows = drainHorsePlay();
+    expect(rows.find((r) => r.horse_user_id === 'horse-a')).toMatchObject({
+      vpip: 0,
+      pfr: 0,
+      three_bet_opps: 0,
+    });
+    expect(rows.find((r) => r.horse_user_id === 'horse-b')).toMatchObject({
+      vpip: 1,
+      pfr: 0,
+      three_bet_opps: 0,
+    });
+    drainHorseNets(10_000);
+  });
+
   it('aggregates exact nets in bb per horse/day/variant/format', () => {
     drainHorseNets(10_000); // clear anything from other tests
     accumulateHorseNets(input());
