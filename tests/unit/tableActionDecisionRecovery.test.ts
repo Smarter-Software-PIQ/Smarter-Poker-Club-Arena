@@ -184,9 +184,18 @@ describe('authoritative decision readiness', () => {
     // The actual actor/hand gate remains independent; a valid token alone never grants a turn.
     const gate = page.match(/const isHeroTurnContext =([\s\S]*?);/)?.[1];
     expect(gate).toBeTruthy();
-    const isTurn = new Function('tableState', 'return (' + gate + ')');
+    const isTurn = new Function(
+      'tableState',
+      'leaveAttentionSuppressed = false',
+      'heroTabSittingOut = false',
+      'return (' + gate + ')'
+    );
     expect(isTurn({ heroSeat: 4, currentPlayerSeat: 2, isHandInProgress: true })).toBe(false);
     expect(isTurn({ heroSeat: 4, currentPlayerSeat: 4, isHandInProgress: false })).toBe(false);
+    expect(isTurn({ heroSeat: 4, currentPlayerSeat: 4, isHandInProgress: true }, true)).toBe(false);
+    expect(isTurn({ heroSeat: 4, currentPlayerSeat: 4, isHandInProgress: true }, false, true)).toBe(
+      false
+    );
   });
 
   it('preserves already-retained actionContext across mid-turn TIME_BANK_ACTIVATED snapshots and requests bounded RESYNC when a turn arrives with withheld action_context', () => {

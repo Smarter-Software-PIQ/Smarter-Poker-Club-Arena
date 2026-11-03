@@ -236,3 +236,19 @@
     opacity: 0;
   }
 }
+
+/* The completed session owns an opaque console, independent of the felt below. */
+.lightning-ended__console {
+  width: min(100%, 540px);
+  flex: 0 0 auto;
+  margin: auto;
+}
+.lightning-ended__console .lightning-ended__go {
+  border: 0;
+  width: min(100%, 160px);
+  margin-inline: auto;
+  aspect-ratio: 307 / 174;
+  padding: 0;
+  background: url('/assets/club-buttons/game-cards/nlh/spade-nlh-premium-v1/buttons/view-plate-10e21c24e5d6.png')
+    center / contain no-repeat;
+}
