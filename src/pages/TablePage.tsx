@@ -278,7 +278,7 @@ import {
 } from '../lib/chipContinuity';
 import { useSeatedProfileSync, type SeatedProfileChange } from '../hooks/useSeatedProfileSync';
 import { createSeatIdentityOverrides } from '../lib/seatIdentityOverrides';
-import { bettingStructureFor } from '../lib/bettingStructure';
+import { bettingStructureFor, isFixedLimitVariant } from '../lib/bettingStructure';
 import {
   heroAwaitsADecision,
   isPreActionHonorable,
@@ -26606,7 +26606,7 @@ function LiveTablePage({
         !autoTopUpInFlightRef.current
       ) {
         const maxBuyIn =
-          tableState.autoTopUpTargetTableId === tableId
+          isFixedLimitVariant(tableState.gameType) && tableState.autoTopUpTargetTableId === tableId
             ? (tableState.autoTopUpTarget ?? tableState.maxBuyIn)
             : tableState.maxBuyIn;
         const currentStack = Number(heroSeatData.stack);
