@@ -13,6 +13,7 @@
  * module graph acyclic.
  */
 
+import { resolveMaintenanceClientTimeoutMs } from '../maintenanceClientTimeout.js';
 import { resolveClientTimeoutMs } from '../cashAccountingBatchBudget.js';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { reportError } from '../errorReporter.js';
@@ -67,7 +68,7 @@ const DB_TIMEOUT_MS = resolveClientTimeoutMs();
  * transaction for up to 30 seconds. They use a dedicated client whose HTTP
  * deadline is longer than the database function's 45-second hard ceiling;
  * widening the ordinary game-data client would let a hung hand stall longer. */
-const MAINTENANCE_DB_TIMEOUT_MS = Number(process.env.MAINTENANCE_SUPABASE_TIMEOUT_MS ?? 50_000);
+const MAINTENANCE_DB_TIMEOUT_MS = resolveMaintenanceClientTimeoutMs();
 /* The horse fleet's SEEDING calls get their own, much shorter deadline.
  *
  * The 15-second default above is right for a hand in progress, where giving up

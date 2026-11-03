@@ -510,8 +510,11 @@ describe('selectOrphanClaims', () => {
     ).toEqual(['a', 'c', 'd']);
   });
 
-  it('stops claiming an orphan after ORPHAN_CLAIM_MAX_ATTEMPTS failures and hands it to the alert', () => {
-    const failures = new Map([['a', ORPHAN_CLAIM_MAX_ATTEMPTS], ['c', ORPHAN_CLAIM_MAX_ATTEMPTS - 1]]);
+  it('stops priority claims after ORPHAN_CLAIM_MAX_ATTEMPTS failures and raises the alert', () => {
+    const failures = new Map([
+      ['a', ORPHAN_CLAIM_MAX_ATTEMPTS],
+      ['c', ORPHAN_CLAIM_MAX_ATTEMPTS - 1],
+    ]);
     const p = pass({ failedAttempts: (id) => failures.get(id) ?? 0 });
     expect(selectOrphanClaims(board, p).map((t) => t.id)).toEqual(['b', 'c', 'd']);
     expect(exhaustedOrphans(board, p).map((t) => t.id)).toEqual(['a']);
@@ -521,7 +524,7 @@ describe('selectOrphanClaims', () => {
     ).toEqual([]);
   });
 
-  it('with the real cooldown memory, a failing orphan is claimed a bounded number of times, ever', () => {
+  it('with the real cooldown memory, priority claims are bounded per failure streak', () => {
     const cooldowns = new RunningResumeCooldowns();
     const p = (now: number) =>
       pass({
@@ -547,10 +550,16 @@ describe('selectOrphanClaims', () => {
 
 describe('the orphan lane is wired to the cooldown, the cap and the alert', () => {
   it('passes the per-tournament cooldown and failure count into the orphan selection', () => {
-    expect(LANE_CODE).toMatch(/coolingDown:\s*\(id: string\)\s*=>\s*this\.tournamentResumeCooldowns\.coolingDown\(/);
-    expect(LANE_CODE).toMatch(/failedAttempts:\s*\(id: string\)\s*=>\s*this\.tournamentResumeCooldowns\.failures\(/);
+    expect(LANE_CODE).toMatch(
+      /coolingDown:\s*\(id: string\)\s*=>\s*this\.tournamentResumeCooldowns\.coolingDown\(/
+    );
+    expect(LANE_CODE).toMatch(
+      /failedAttempts:\s*\(id: string\)\s*=>\s*this\.tournamentResumeCooldowns\.failures\(/
+    );
     expect(LANE).toMatch(/selectOrphanClaims\(running, orphanPass\)/);
-    expect(LANE).toMatch(/this\.alertExhaustedOrphanClaims\(exhaustedOrphans\(running, orphanPass\)\)/);
+    expect(LANE).toMatch(
+      /this\.alertExhaustedOrphanClaims\(exhaustedOrphans\(running, orphanPass\)\)/
+    );
   });
 
   it('alerts on the existing financial-alert channel, once per streak, and never claims', () => {
