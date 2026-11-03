@@ -337,6 +337,13 @@ END $started_refusal$;
         case_counts = [len(abort_report.get(key, [])) for key in ('cases', 'chip_union_overlay_cases', 'diamond_abort_cases')]
         assert case_counts == [15, 8, 19] and sum(case_counts) == 42
         e.report['started_abort'] = {'passed': True, 'cases': 42, 'report': 'started-abort/abort-report.json'}
+        hold_driver = ROOT/'scripts/ci/fixtures/tournament-cancellation-lane/hold-reader/qualify.py'
+        subprocess.run([sys.executable, '-B', str(hold_driver), '--evidence', str(out/'hold-reader'),
+            '--work-root', str(args.work_root.resolve()/'hold-reader'), '--socket-root', str(args.socket_root.resolve()),
+            '--pg-bin', str(args.pg_bin.resolve())], check=True, timeout=150)
+        hold_report=json.loads((out/'hold-reader/hold-reader-report.json').read_text())
+        assert hold_report.get('passed') is True and len(hold_report.get('cases', [])) == 9
+        e.report['hold_reader']={'passed':True,'cases':9,'report':'hold-reader/hold-reader-report.json'}
         recovery_driver = ROOT/'scripts/ci/test-tournament-original-recovery.py'
         e.report['source_sha256'][str(recovery_driver.relative_to(ROOT))] = hashlib.sha256(recovery_driver.read_bytes()).hexdigest()
         subprocess.run([
