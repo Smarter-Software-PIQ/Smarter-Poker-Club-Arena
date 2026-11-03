@@ -1096,6 +1096,33 @@ def selection(value):
     return result
 
 
+def deal_failure(block):
+    """Classify the selected attempt's Node console rendering; never export text.
+
+    These are observed labels, not proof of transaction outcome or root cause.
+    Unknown classes/codes stay unknown. Only a standalone top-level inspected
+    code field is read, never message substrings, nested causes or SQL payloads.
+    """
+    message = block[0].split('] ', 1)[1] if '] ' in block[0] else ''
+    classes = ('Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError',
+               'TimeoutError', 'AbortError', 'AggregateError')
+    error_class = next((name for name in classes if message.startswith(name+': ')), 'unknown')
+    codes = frozenset({
+        '08000', '08003', '08006', '08P01', '23502', '23503', '23505', '23514',
+        '40001', '40P01', '42501', '42703', '42883', '42P01', '53000', '53100',
+        '53200', '53300', '53400', '55000', '55P03', '57014', '57P01', '57P02',
+        '57P03', 'P0001', 'PGRST001', 'PGRST002', 'PGRST003', 'PGRST116',
+        'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN',
+        'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET',
+    })
+    observed = set()
+    for line in block[1:]:
+        match = re.fullmatch(r"  code: '([A-Z0-9_]+)',?", line)
+        if match and match.group(1) in codes:
+            observed.add(match.group(1))
+    return {'errorClass': error_class, 'codes': sorted(observed)}
+
+
 def continuation_failure(block):
     """Fixed categories and call sites only; never exception text or stack frames.
 
@@ -1200,6 +1227,8 @@ def extract(raw, scopes):
                 decision = rebuy_decision(block, {s['tournamentId'] for s in scopes if 'tournamentId' in s})
                 if decision is not None:
                     record['rebuyDecision'] = decision
+            if context.startswith('ServerTableEngine.deal_error_attempt_'):
+                record['dealFailure'] = deal_failure(block)
             if context == 'ServerTableEngine.hand_continuation_unproven':
                 record['continuationFailure'] = continuation_failure(block)
             if context == 'GameServer.stalled_elimination_successor_drain_requested':
