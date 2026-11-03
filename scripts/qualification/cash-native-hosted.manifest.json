@@ -428,8 +428,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 277752,
-      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6845,5 +6845,19 @@
       "bytes": 277752,
       "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
     }
+  },
+  "retainedOwnerQualificationScheduling20261103": {
+    "reason": "Reviewed exact-once historical owner qualification before competing full-suite workloads. All 44 cases and 120/150/180 second bounds retained. Accounting commands, financial inputs, assertions and historical verdicts unchanged. Current workflow identity only.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 277752,
+      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+    },
+    "current": {
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }
