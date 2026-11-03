@@ -93,6 +93,17 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     frozen = frozen;
     gate = lightningFormationGate;
   }
+  class LightningHandHost {
+    instanceId = 'observer-finished-host';
+    state = 'complete';
+    handEndReleased = true;
+    keepaliveTimer = null;
+    horseTimer = null;
+    horseAbort = null;
+    decisionOpenFor = null;
+    actionLock = false;
+    watching = new Map();
+  }
   class HandController {
     serializeRecoveryState() {
       return 'actual-private-controller';
@@ -444,6 +455,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     lightningRegistry: { LightningRegistry, LightningHosting },
     lightningSupervisor: { LightningSupervisor },
     lightningWorker: { LightningClusterWorker },
+    lightningHost: { LightningHandHost },
     lightningFormation: { LightningFormationGate, lightningFormationGate },
     base: { ServerTableEngineBase },
     engine: { ServerTableEngine },
@@ -565,6 +577,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     addDetachedManager,
     lightningFormationGate,
     lightningWorker,
+    lightningHost: new LightningHandHost(),
     discoveredLightningWorkers,
     discoveredLightningHosts,
     discoveredManagers,
@@ -843,5 +856,15 @@ describe('Lightning ownership is part of the serialized checkpoint fleet', () =>
       restartAuthorized: false,
     });
     expect(f.events).not.toContain('stop');
+  });
+
+  it('admits a terminal, released LightningHandHost retained only as an observer frame', async () => {
+    const f = fixture();
+    f.discoveredLightningHosts.push(f.lightningHost);
+    expect(await f.run()).toMatchObject({
+      ok: true,
+      stage: 'complete',
+      verifiedTables: 1,
+    });
   });
 });

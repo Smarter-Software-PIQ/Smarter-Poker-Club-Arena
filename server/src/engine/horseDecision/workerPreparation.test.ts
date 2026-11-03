@@ -29,6 +29,7 @@ vi.mock('../../services/GtoPostflopLoader.js', () => ({
 }));
 vi.mock('../../services/GtoPostflopV31Loader.js', () => ({
   loadGtoPostflopV31: vi.fn(async () => {}),
+  requireGtoV31ServingBinding: vi.fn(),
   startGtoPostflopV31Loader: vi.fn(),
   stopGtoPostflopV31Loader: vi.fn(),
 }));

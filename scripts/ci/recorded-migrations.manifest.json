@@ -2125,6 +2125,18 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9292",
       "refusedBy": [],
       "liveVerdict": "Active incorrect tournament payouts: exact-event receipt-bound guard admission installed through documented emergency exception. Existing trigger enabled states and other guard behavior preserved; no financial operation executed by migration."
+    },
+    {
+      "version": "20261102201733",
+      "name": "spin_launch_trigger_predicate_runtime_permissions",
+      "file": "supabase/migrations/20261102201733_spin_launch_trigger_predicate_runtime_permissions.sql",
+      "md5": "e7f385192355699caab792c71e75c74a",
+      "appliedToProductionAt": "2026-11-02T20:17:33Z",
+      "recoveredOn": "2026-11-02",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9408",
+      "refusedBy": [],
+      "liveVerdict": "Active paid Spin outage: 64 games / 192 paid seats could not launch because an invoker trigger called a postgres-only conversion predicate (42501). Owner PUBLISHING.md active-outage exception used for the exact native-qualified source. Installed source keeps fn_guard_managed_game_lifecycle SECURITY INVOKER and nests the conversion predicate behind current_user=postgres. No new grants, money, redraws or game-state edits. Readback confirms service_role and authenticated still cannot execute the predicate; exact SQL md5 e7f385192355699caab792c71e75c74a. Original source submission cb69852 required live-proof metadata correction, now qualified by 26 law cases and native runtime/funding/412-entry financial tests. Protected recording and required CI continue in PR9408; installation is not completion."
     }
   ]
 }

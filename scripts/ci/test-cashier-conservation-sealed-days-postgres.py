@@ -306,7 +306,8 @@ INSERT INTO chip_ledger(club_id,from_type,from_entity_id,to_type,to_entity_id,am
 SELECT '{C}','player_wallet',md5((i%590+1)::text)::uuid,'player_wallet',md5(((i+7)%590+1)::text)::uuid,1,
  timestamptz '2026-01-10 00:00+00' + (i * interval '37 seconds'),'posted' FROM generate_series(1,400000)i;
 INSERT INTO chip_ledger(club_id,from_type,from_entity_id,to_type,to_entity_id,amount,created_at,status)
-SELECT '{C}','player_wallet',md5((i%590+1)::text)::uuid,'player_wallet','{U}',1,now()-(i*interval '1 second'),'posted'
+SELECT '{C}','player_wallet',md5((i%590+1)::text)::uuid,'player_wallet','{U}',1,
+  ((now() AT TIME ZONE 'UTC')::date::timestamp AT TIME ZONE 'UTC') + (i*interval '1 millisecond'),'posted'
 FROM generate_series(1,500)i;
 """ + ATTEST)
     run('pressure-seal', SEAL)

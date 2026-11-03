@@ -58,6 +58,9 @@ EXECUTE FUNCTION public.fn_ca_money_rpc_registry_guard();''',label='production-m
  assert 'fn_ca_midway_free_buy_promo_head writes balance columns' in (failed[1]+failed[2])
  began=time.monotonic();E.sql(d,file=M,label='exact-candidate-install',seconds=60)
  E.report['install_seconds']=time.monotonic()-began
+ fixes=list((R/'supabase/migrations').glob('*_spin_launch_trigger_predicate_runtime_permissions.sql'))
+ assert len(fixes)==1,fixes
+ E.sql(d,file=fixes[0],label='exact-runtime-boundary-install',seconds=60)
  assert E.report['install_seconds']<8
  E.sql(d,"""DO $$BEGIN
  IF has_function_privilege('anon','fn_ca_tournament_escrow_chips(uuid)','EXECUTE')

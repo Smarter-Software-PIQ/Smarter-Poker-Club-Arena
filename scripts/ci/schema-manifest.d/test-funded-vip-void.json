@@ -1,0 +1,26 @@
+{
+  "_owner": "fix/void-test-funded-vip-purchase",
+  "_comment": "20261102192818: void one VIP purchase proven paid with admin-minted test funding; append-only record.",
+  "tables": ["ca_test_funded_spend_voids"],
+  "functions": ["fn_ca_test_funded_spend_voids_append_only", "fn_ca_void_test_funded_vip_purchase"],
+  "columns": {
+    "ca_test_funded_spend_voids": [
+      "amount",
+      "created_at",
+      "entitlement_after",
+      "entitlement_before",
+      "funding_mint_ids",
+      "funding_mint_refs",
+      "funding_mint_total",
+      "id",
+      "op_id",
+      "operator",
+      "reason",
+      "reclassified_as",
+      "recognized_to",
+      "reference_id",
+      "spend_transaction_id",
+      "user_id"
+    ]
+  }
+}

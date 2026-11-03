@@ -90,12 +90,17 @@ describe('a horse belongs to one assigned club', () => {
     expect(sql).toContain('horse_club_split_must_install_inactive');
   });
 
-  it('keeps Kings Club real and labels the addition separately', () => {
+  it('keeps Kings Club real in the data and prints one total on the card', () => {
     expect(sql).toMatch(/UPDATE public\.club_display_member_boost\s+SET boost = 0/);
     expect(sql).toContain(`('${KINGS}', 1500, 233, 'Bonus'`);
     const card = readFileSync(join(__dirname, '..', 'src', 'components', 'club', 'ClubCardPanel.tsx'), 'utf8');
     expect(card).toContain('displayAddition');
-    expect(card).toContain('Not Counted As Real Members');
+    // Dan 2026-11-02 19:23 CT: the card prints one total (real + addition),
+    // never a separate "+N BONUS" line under MEMBERS or ACTIVE.
+    expect(card).toContain('KINGS CLUB SHOWS ONE TOTAL');
+    expect(card).toContain('totalMembers + addMembers');
+    expect(card).toContain('activePlayers + addActive');
+    expect(card).not.toContain('Not Counted As Real');
   });
 
   it('is not redefined later without the enforcement', () => {

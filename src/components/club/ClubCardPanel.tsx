@@ -63,9 +63,12 @@ interface ClubCardPanelProps {
   logoUrl?: string | null;
   entityType?: 'club' | 'union';
   /**
-   * A display addition the owner set for this club (Dan 2026-11-02, Kings
-   * Club +1,500 members / +233 active). It is printed as its own labelled
-   * line and is NEVER added into the real MEMBERS or ACTIVE figures above it.
+   * A display addition the owner set for this club (Kings Club +1,500
+   * members / +233 active). Dan 2026-11-02 19:23 CT: "CARD SHOULD SHOW TRUE
+   * MEMBER COUNT +1500 AS A TOTAL NUMBER OF 1592 AND TRUE ACTIVE COUNT OF 2 +
+   * 233". The card prints ONE TOTAL per figure (real + addition) and no
+   * separate "+N BONUS" line under it. The real counts stay real in every
+   * other reader; only this card's printed figure carries the addition.
    */
   displayAddition?: { members: number; active: number; label: string } | null;
 }
@@ -132,27 +135,34 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
      about a club; showing yesterday's briefly costs nobody anything. The
      same trick on money would be the bug clubPageHardening.test.ts exists
      to prevent, and no money passes through here. */
+  /* KINGS CLUB SHOWS ONE TOTAL (Dan 2026-11-02 19:23 CT): real count plus the
+     owner's display addition, printed as a single number. */
+  const addMembers = Math.max(0, displayAddition?.members ?? 0);
+  const addActive = Math.max(0, displayAddition?.active ?? 0);
+  const shownMembers = totalMembers == null ? null : totalMembers + addMembers;
+  const shownActive = activePlayers == null ? null : activePlayers + addActive;
+
   const scope = clubId != null && clubId !== '' ? `club:${clubId}` : '';
   const cached = useMemo(() => readFigures(scope), [scope]);
 
   useEffect(() => {
     if (!scope) return;
     rememberFigures(scope, {
-      members: totalMembers,
+      members: shownMembers,
       level: clubLevel == null ? null : Math.max(1, clubLevel),
-      active: activePlayers,
+      active: shownActive,
       cash: activeCash,
       events: activeEvents,
     });
-  }, [scope, totalMembers, clubLevel, activePlayers, activeCash, activeEvents]);
+  }, [scope, shownMembers, clubLevel, shownActive, activeCash, activeEvents]);
 
   const membersText = figureOr(
-    totalMembers == null ? null : totalMembers.toLocaleString(),
+    shownMembers == null ? null : shownMembers.toLocaleString(),
     cached.members
   );
   const levelText = figureOr(clubLevel == null ? null : Math.max(1, clubLevel), cached.level);
   const activeText = figureOr(
-    activePlayers == null ? null : activePlayers.toLocaleString(),
+    shownActive == null ? null : shownActive.toLocaleString(),
     cached.active
   );
   /* Dan 2026-09-09: ACTIVE was one figure that mixed cash seats with
@@ -223,16 +233,6 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
         <div className="club-card-stat">
           <span className="club-card-stat-label sc-label sc-ink--blue">MEMBERS</span>
           <span className="club-card-stat-value sc-ink--silver">{membersText}</span>
-          {displayAddition && displayAddition.members > 0 && (
-            <span
-              className="club-card-stat-split sc-label sc-ink--muted"
-              aria-label={`${displayAddition.label} Members, Not Counted As Real Members`}
-            >
-              <span className="club-card-stat-split-part">
-                +{displayAddition.members.toLocaleString()} {displayAddition.label.toUpperCase()}
-              </span>
-            </span>
-          )}
         </div>
         {/* Dan 2026-08-20: level is now the 1-55 member ladder, so the bare
             number is worth explaining on hover — which tier it is, and how
@@ -251,11 +251,11 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           <span className="club-card-stat-value sc-ink--silver">{levelText}</span>
         </div>
         <div
-          className={`club-card-stat ${(activePlayers ?? 0) > 0 ? 'club-card-stat--active' : ''}`}
+          className={`club-card-stat ${(shownActive ?? 0) > 0 ? 'club-card-stat--active' : ''}`}
         >
           <span className="club-card-stat-label sc-label sc-ink--blue">ACTIVE</span>
           <span
-            className={`club-card-stat-value ${(activePlayers ?? 0) > 0 ? 'sc-ink--green' : 'sc-ink--silver'}`}
+            className={`club-card-stat-value ${(shownActive ?? 0) > 0 ? 'sc-ink--green' : 'sc-ink--silver'}`}
           >
             {activeText}
           </span>
@@ -270,16 +270,6 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
             <span className="club-card-stat-split-dot" aria-hidden="true" />
             <span className="club-card-stat-split-part">{eventsText} EVENTS</span>
           </span>
-          {displayAddition && displayAddition.active > 0 && (
-            <span
-              className="club-card-stat-split sc-label sc-ink--muted"
-              aria-label={`${displayAddition.label} Active, Not Counted As Real Active Players`}
-            >
-              <span className="club-card-stat-split-part">
-                +{displayAddition.active.toLocaleString()} {displayAddition.label.toUpperCase()}
-              </span>
-            </span>
-          )}
         </div>
       </div>
 
