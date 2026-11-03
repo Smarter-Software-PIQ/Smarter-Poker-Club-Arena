@@ -109,6 +109,10 @@ const SCHEDULE_ERRORS: Record<string, string> = {
   time_zone_unknown: 'Your time zone is not recognized. Set your device to a named time zone.',
   start_times_or_interval_required: 'Add at least one start time, or a repeat interval.',
   interval_minutes_out_of_range: 'The repeat interval must be 5 to 1440 minutes.',
+  // The daily window (owner, 2026-11-03): tournaments start only from 6:00 AM
+  // to 11:00 PM Chicago; 4:00 to 6:00 AM every game is closed for maintenance.
+  tournament_start_outside_daily_hours:
+    'Tournaments Can Start From 6:00 AM To 11:00 PM Chicago Time. Pick A Start Time In Those Hours.',
   // 20260924102056: an enforced commerce admission refuses a NEW recurring
   // schedule. The server's own `message` is shown (scheduleErrorText); this
   // is the same sentence for an answer that carries none.
@@ -121,7 +125,7 @@ const SCHEDULE_ERRORS: Record<string, string> = {
  * sentences, as a hand-created tournament (fn_tournament_config_refusal,
  * 20260924033701), so an unmapped schedule code falls through to that map.
  */
-function scheduleErrorText(code: string | undefined, serverMessage?: string | null): string {
+export function scheduleErrorText(code: string | undefined, serverMessage?: string | null): string {
   if (code === 'operating_access_required') {
     return tournamentCreateErrorMessage(code, serverMessage);
   }

@@ -1,0 +1,7 @@
+{
+  "_owner": "Daily window Phase 2 (#9469): migration 20261103200923 creates the engine's 3 AM Spin and Sit & Go lobby close and its 4 AM database watchdog.",
+  "functions": [
+    "fn_daily_window_close_seat_first_lobbies",
+    "smarter_private.daily_window_lobby_watchdog"
+  ]
+}
