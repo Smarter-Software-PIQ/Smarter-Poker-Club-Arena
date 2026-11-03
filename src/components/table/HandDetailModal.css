@@ -1030,3 +1030,34 @@
     padding-top: calc(12px + max(env(safe-area-inset-top, 0px), 24px));
   }
 }
+
+.hdm-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1cqw;
+  padding: 2cqw 0;
+}
+[role='dialog'] .hdm-actions > button {
+  min-width: 0;
+  min-height: 44px;
+  aspect-ratio: 307 / 174;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: url('/assets/club-buttons/game-cards/nlh/spade-nlh-premium-v1/buttons/view-plate-10e21c24e5d6.png') !important;
+  background-position: center !important;
+  background-size: contain !important;
+  background-repeat: no-repeat !important;
+  box-shadow: none !important;
+  color: #e4e7ec !important;
+  font:
+    800 clamp(12px, 3cqw, 20px) 'Roboto Condensed',
+    sans-serif;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.hdm-actions > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

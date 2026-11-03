@@ -634,3 +634,37 @@ describe('both surfaces show every board a hand ran', () => {
     expect(names).toEqual(['Pair', 'Pair', 'Two Pair']);
   });
 });
+
+describe('previous hand footer actions', () => {
+  it('places four equally allocated actions below the detail and preserves their subjects', () => {
+    const hand = record();
+    const close = vi.fn(),
+      share = vi.fn(),
+      replay = vi.fn();
+    const view = render(
+      <HandDetailModal
+        isOpen
+        onClose={close}
+        hands={[hand]}
+        heroId={HERO}
+        onShare={share}
+        onReplay={replay}
+      />
+    );
+    const footer = view.container.querySelector('.hdm-actions')!;
+    expect(Array.from(footer.querySelectorAll('button')).map((b) => b.textContent)).toEqual([
+      'Close',
+      'Link',
+      'Share',
+      'Replay',
+    ]);
+    expect(view.container.querySelector('.hdm-sn')).toBeNull();
+    fireEvent.click(within(footer as HTMLElement).getByRole('button', { name: 'Share Hand' }));
+    expect(share).toHaveBeenCalledWith(hand);
+    fireEvent.click(within(footer as HTMLElement).getByRole('button', { name: 'Video Replay' }));
+    expect(replay).toHaveBeenCalledWith(hand);
+    fireEvent.click(within(footer as HTMLElement).getByRole('button', { name: 'Close' }));
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(HDM_CSS).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))');
+  });
+});

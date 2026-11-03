@@ -324,7 +324,7 @@ describe('the tournament row reviews every lobby-admitted status', () => {
 });
 
 describe('Find Your Game starts with two separate sections', () => {
-  it('requires a choice, separates controls and results, switches and closes', async () => {
+  it('requires a choice, separates controls and results, switches and preserves the selected section', async () => {
     h.setupReads = [DONE];
     h.tables = [
       {
@@ -341,6 +341,7 @@ describe('Find Your Game starts with two separate sections', () => {
         max_buy_in: 200,
       },
     ];
+    h.tables.push({ ...h.tables[0], id: 'limit-a', game_variant: 'flh', big_blind: 10 });
     h.tournaments = [
       {
         id: '00000000-0000-4000-8000-000000000201',
@@ -379,8 +380,29 @@ describe('Find Your Game starts with two separate sections', () => {
       within(screen.getByLabelText('Game Status'))
         .getAllByRole('button')
         .map((t) => t.textContent)
-    ).toEqual(['All', 'Running', 'Show Empty Tables', 'Sort']);
+    ).toEqual(['All', 'Running', 'Include Limit', 'Show Empty Tables', 'Sort']);
     expect(document.querySelector('.lt-row[data-id="cash-a"]')).not.toBeNull();
+    const limitToggle = screen.getByRole('button', { name: 'Include Limit' });
+    expect(limitToggle.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('.lt-row[data-id="limit-a"]')).toBeNull();
+    fireEvent.click(limitToggle);
+    await flush();
+    expect(limitToggle.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('.lt-row[data-id="limit-a"]')).not.toBeNull();
+    expect(
+      Array.from(document.querySelectorAll('.lt-row[data-id]')).map((row) =>
+        row.getAttribute('data-id')
+      )
+    ).toEqual(['cash-a', 'limit-a']);
+    fireEvent.click(limitToggle);
+    await flush();
+    expect(document.querySelector('.lt-row[data-id="limit-a"]')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'LIMIT', exact: true }));
+    await flush();
+    expect(document.querySelector('.lt-row[data-id="limit-a"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'ALL', exact: true }));
+    await flush();
+
     expect(
       document.querySelector('.lt-row[data-id="00000000-0000-4000-8000-000000000201"]')
     ).toBeNull();
@@ -411,8 +433,8 @@ describe('Find Your Game starts with two separate sections', () => {
     expect(tournaments.getAttribute('aria-expanded')).toBe('true');
     fireEvent.click(tournaments);
     await flush();
-    expect(screen.queryByRole('tablist', { name: 'Game Type' })).toBeNull();
-    expect(document.querySelector('.club-home__games')?.hasAttribute('hidden')).toBe(true);
+    expect(screen.getByRole('tablist', { name: 'Game Type' })).toBeTruthy();
+    expect(document.querySelector('.club-home__games')?.hasAttribute('hidden')).toBe(false);
     expect(h.register).not.toHaveBeenCalled();
   });
 });

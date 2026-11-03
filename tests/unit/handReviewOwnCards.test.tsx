@@ -135,9 +135,7 @@ describe('review keeps the viewer in the hand even outside showdown', () => {
     await waitFor(() => expect(mocks.getHand).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: 'Older Hand' }));
     finish(stored('one', true));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Copy Hand Number 2' })).toBeTruthy()
-    );
+    await waitFor(() => expect(screen.getByText('#2', { exact: true })).toBeTruthy());
     expect(mocks.getHand).toHaveBeenCalledTimes(1);
   });
 
@@ -183,12 +181,12 @@ describe('opening a recorded hand preserves the requested subject', () => {
         onReplay={replay}
       />
     );
-    expect(screen.getByRole('button', { name: 'Copy Hand Number 2' })).toBeTruthy();
+    expect(screen.getByText('#2', { exact: true })).toBeTruthy();
     expect(
       within(screen.getByRole('region', { name: 'Your Cards' })).getAllByRole('img')
     ).toHaveLength(2);
     fireEvent.click(screen.getByRole('tab', { name: 'Hand Detail' }));
-    expect(screen.getByRole('button', { name: 'Copy Hand Number 2' })).toBeTruthy();
+    expect(screen.getByText('#2', { exact: true })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Video Replay' }));
     expect(replay.mock.calls[0][0].id).toBe('two');
   });
@@ -198,10 +196,10 @@ describe('opening a recorded hand preserves the requested subject', () => {
     const props = { onClose: () => {}, hands, heroId: 'hero', initialHandId: 'two' };
     const view = render(<HandDetailModal {...props} isOpen />);
     fireEvent.click(screen.getByRole('button', { name: 'Newer Hand' }));
-    expect(screen.getByRole('button', { name: 'Copy Hand Number 1' })).toBeTruthy();
+    expect(screen.getByText('#1', { exact: true })).toBeTruthy();
     view.rerender(<HandDetailModal {...props} isOpen={false} />);
     view.rerender(<HandDetailModal {...props} isOpen />);
-    expect(screen.getByRole('button', { name: 'Copy Hand Number 2' })).toBeTruthy();
+    expect(screen.getByText('#2', { exact: true })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Hand Summary' }).getAttribute('aria-selected')).toBe(
       'true'
     );
@@ -212,7 +210,7 @@ describe('opening a recorded hand preserves the requested subject', () => {
     const props = { onClose: () => {}, heroId: 'hero', initialHandId: 'two', isOpen: true };
     const view = render(<HandDetailModal {...props} hands={hands} />);
     view.rerender(<HandDetailModal {...props} hands={[panel('three', true), ...hands]} />);
-    expect(screen.getByRole('button', { name: 'Copy Hand Number 2' })).toBeTruthy();
+    expect(screen.getByText('#2', { exact: true })).toBeTruthy();
     const replay = vi.fn();
     view.rerender(
       <HandDetailModal {...props} hands={[panel('three', true), ...hands]} onReplay={replay} />

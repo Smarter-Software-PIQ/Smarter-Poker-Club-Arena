@@ -447,3 +447,44 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* One continuous black exterior around the alpha-cut game card. */
+.glp.glp--cash {
+  background: #000;
+}
+.glp--cash .glp__h {
+  text-align: center;
+  margin-bottom: 16px;
+}
+.glp--cash .glp__grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+}
+.glp--cash .glp__grid > div {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 4px;
+}
+.glp--cash .glp__grid dt,
+.glp--cash .glp__grid dd {
+  text-align: center;
+}
+.glp--cash .glp__grid dt {
+  color: #45adff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.glp--cash .glp__grid dd {
+  font-size: 20px;
+}
+.glp--cash .glp__rules {
+  text-align: center;
+}
+.glp--cash .glp__rules li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
