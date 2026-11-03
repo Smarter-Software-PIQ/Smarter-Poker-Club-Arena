@@ -128,7 +128,7 @@ const cancellationAdmission =
   /^(scripts\/ci\/(?:test-(?:tournament-cancellation-lane|undrawn-spin-cancellation)\.py$|fixtures\/(?:tournament-cancellation-lane|undrawn-spin-cancellation)\/)|tests\/unit\/(?:tournamentCancellationLane|undrawnSpinCancellation)\.test\.ts$)/;
 
 const satelliteQualifiers =
-  /^(scripts\/ci\/(?:test-satellite-qualifiers\.py$|(?:satellite_qualifier_(?:fixture|concurrency)|satellite_entry_club_native|ordinary_terminal_transport)\.py$|fixtures\/(?:satellite-qualifiers|ordinary-terminal-transport)\/|probes\/(?:satellite-entry-club-native\.sql|satellite-qualifier(?:s-native\.sql|-(?:finish|reader)\.spec))$)|tests\/operations\/satellite-qualifier-results\.test\.py$)/;
+  /^(scripts\/ci\/(?:test-satellite-qualifiers\.py$|(?:satellite_qualifier_(?:fixture|concurrency)|satellite_entry_club_native|ordinary_terminal_transport|terminal_original_request_native)\.py$|fixtures\/(?:satellite-qualifiers|ordinary-terminal-transport|terminal-original-request)\/|probes\/(?:satellite-entry-club-native\.sql|satellite-qualifier(?:s-native\.sql|-(?:finish|reader)\.spec))$)|tests\/operations\/satellite-qualifier-results\.test\.py$)/;
 const mttPreparation =
   /^(scripts\/ci\/(test-mtt-unlimited\.py$|mtt_(unlimited_fixture|isolation_results|format_qualification|historical_freebuy_proof|break_authoring_native)\.py$|fixtures\/mtt-(unlimited|format-preparation|historical-freebuy|break-authoring)\/|probes\/mtt-(isolation\/|.*(?:native\.sql|lock\.spec)$))|tests\/operations\/(mtt-(unlimited-runner|isolation-results)\.test\.py$|fixtures\/mtt-preparation-lock\/))/;
 // Actual activation reuses the same owned PG runner and its exact financial

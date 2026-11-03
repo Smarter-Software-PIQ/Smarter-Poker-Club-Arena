@@ -3,6 +3,7 @@
 -- The existing financial functions remain the only payers. This contract owns
 -- request identity, current generation and serialized closure of late sends.
 -- No hot-table foreign key, periodic scanner, or new financial implementation.
+-- @live-proof: md5(pg_get_functiondef('fn_adopt_tournament_terminal_request(uuid,uuid,uuid)'::regprocedure))='7938d1aad99e3f222079ff372d93e978' AND md5(pg_get_functiondef('fn_close_uncommitted_tournament_terminal_request(uuid,uuid)'::regprocedure))='d8e2e46aecb9ee99026c8b45a89068d9' AND md5(pg_get_functiondef('fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure))='7580ca286c239ffd8c051d70379b6603' AND md5(pg_get_functiondef('fn_f06_assert_drained_manager_custody(uuid,uuid,uuid,jsonb,jsonb)'::regprocedure))='8b2c8626e8d9001b7152defe235c261d' AND md5(pg_get_functiondef('fn_prepare_tournament_terminal_request(uuid,jsonb,uuid)'::regprocedure))='74d90a5f4a6c92ee06ed5d38b63498dd' AND md5(pg_get_functiondef('fn_read_tournament_terminal_request(uuid,uuid)'::regprocedure))='99fa4618cea552f99749d860c028b602' AND md5(pg_get_functiondef('fn_resolve_tournament_terminal_request(uuid)'::regprocedure))='f299c2191ab72f7e9e39b3ca24be83eb' AND md5(pg_get_functiondef('smarter_private.assert_terminal_request_generation(uuid,uuid)'::regprocedure))='cda0970a91262d8eb5b8fa75423acc19' AND md5(pg_get_functiondef('smarter_private.lock_terminal_request_lane(jsonb)'::regprocedure))='879072020cd7593676ea48361e309bd2' AND md5(pg_get_functiondef('smarter_private.resolve_terminal_request(jsonb)'::regprocedure))='1b4e041f76384dec9ae0f9541d722894' AND md5(pg_get_functiondef('smarter_private.terminal_receipt_requires_original_request()'::regprocedure))='0eace6ae5c3d28c2bb11ef5102ec64f5' AND md5(pg_get_functiondef('smarter_private.terminal_request_identity_is_immutable()'::regprocedure))='4b47e6ef0b827c49ebb95516da97d493' AND md5(pg_get_functiondef('smarter_private.terminal_request_identity_valid(jsonb)'::regprocedure))='633f8d90720165532d6c06f1e686a379' AND has_function_privilege('service_role','fn_adopt_tournament_terminal_request(uuid,uuid,uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','fn_adopt_tournament_terminal_request(uuid,uuid,uuid)','EXECUTE') AND has_function_privilege('service_role','fn_close_uncommitted_tournament_terminal_request(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','fn_close_uncommitted_tournament_terminal_request(uuid,uuid)','EXECUTE') AND has_function_privilege('service_role','fn_execute_tournament_terminal_request(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','fn_execute_tournament_terminal_request(uuid,uuid)','EXECUTE') AND has_function_privilege('service_role','fn_f06_assert_drained_manager_custody(uuid,uuid,uuid,jsonb,jsonb)','EXECUTE') AND NOT has_function_privilege('authenticated','fn_f06_assert_drained_manager_custody(uuid,uuid,uuid,jsonb,jsonb)','EXECUTE') AND has_function_privilege('service_role','fn_prepare_tournament_terminal_request(uuid,jsonb,uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','fn_prepare_tournament_terminal_request(uuid,jsonb,uuid)','EXECUTE') AND has_function_privilege('service_role','fn_read_tournament_terminal_request(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','fn_read_tournament_terminal_request(uuid,uuid)','EXECUTE') AND has_function_privilege('service_role','fn_resolve_tournament_terminal_request(uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','fn_resolve_tournament_terminal_request(uuid)','EXECUTE') AND NOT has_table_privilege('service_role','smarter_private.tournament_terminal_requests','INSERT,UPDATE,DELETE') AND (SELECT count(*)=3 FROM pg_trigger WHERE NOT tgisinternal AND tgenabled='O' AND (tgrelid,tgname) IN (('smarter_private.tournament_terminal_requests'::regclass,'terminal_request_original_is_immutable'),('public.tournament_terminal_settlements'::regclass,'terminal_receipt_requires_original_request'),('public.tournament_satellite_settlements'::regclass,'satellite_receipt_requires_original_request')))
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '30s';
@@ -261,8 +262,11 @@ BEGIN
   SELECT * INTO STRICT v_row FROM smarter_private.tournament_terminal_requests WHERE request_id=p_request_id FOR UPDATE;
   IF v_row.current_generation<>p_generation THEN RAISE EXCEPTION 'terminal request generation changed' USING ERRCODE='40001'; END IF;
   v_outcome:=smarter_private.resolve_terminal_request(v_row.original_request);
+  -- A COMPLETING original has no gameplay admission to release. Retain it
+  -- for the same leased continuation rather than stranding it behind legacy
+  -- reconstruction or fabricating a RUNNING status/winner.
   IF v_row.phase='prepared' AND v_outcome->'definitively_not_committed'='true'::jsonb
-     AND v_outcome->'receipt'='null'::jsonb AND v_outcome->>'status' IN ('RUNNING','COMPLETING') THEN
+     AND v_outcome->'receipt'='null'::jsonb AND v_outcome->>'status'='RUNNING' THEN
     UPDATE smarter_private.tournament_terminal_requests SET phase='closed' WHERE request_id=p_request_id RETURNING * INTO v_row;
   END IF;
   RETURN jsonb_build_object('ok',true,'request',to_jsonb(v_row),'outcome',v_outcome);
@@ -310,5 +314,21 @@ CREATE TRIGGER terminal_receipt_requires_original_request BEFORE INSERT ON publi
  FOR EACH ROW EXECUTE FUNCTION smarter_private.terminal_receipt_requires_original_request();
 CREATE TRIGGER satellite_receipt_requires_original_request BEFORE INSERT ON public.tournament_satellite_settlements
  FOR EACH ROW EXECUTE FUNCTION smarter_private.terminal_receipt_requires_original_request();
+
+-- A COMPLETING event still enters through the existing custody proof. Only an
+-- acknowledged original terminal request permits that status; every original
+-- hand, park, lease and expected-evidence check remains in the same function.
+DO $custody$
+DECLARE d text; old text:=$old$WHERE id=p_tournament_id AND upper(status)='RUNNING' FOR UPDATE;$old$;
+BEGIN
+ SELECT pg_get_functiondef('public.fn_f06_assert_drained_manager_custody(uuid,uuid,uuid,jsonb,jsonb)'::regprocedure) INTO d;
+ IF md5(d)<>'8900f47fa86ffdc861aeec9c75d03c95' OR length(d)-length(replace(d,old,''))<>length(old) THEN
+  RAISE EXCEPTION 'terminal continuation custody preimage changed';
+ END IF;
+ EXECUTE replace(d,old,$new$WHERE id=p_tournament_id AND (upper(status)='RUNNING' OR
+  (upper(status)='COMPLETING' AND p_lease_generation IS NOT NULL AND EXISTS(
+   SELECT 1 FROM smarter_private.tournament_terminal_requests r WHERE r.tournament_id=p_tournament_id AND r.phase='prepared')))
+ FOR UPDATE;$new$);
+END $custody$;
 
 COMMIT;

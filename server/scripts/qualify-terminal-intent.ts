@@ -72,6 +72,21 @@ try {
     'native',
     generation,
   ]);
+  await observer.query(
+    "BEGIN; SET LOCAL session_replication_role=replica; UPDATE public.tournaments SET status='COMPLETING' WHERE id='92010000-0000-0000-0000-000000000001'; COMMIT"
+  );
+  await actor(a);
+  const absent = await a
+    .query("SELECT public.fn_f06_assert_drained_manager_custody($1,$2,NULL,'[]'::jsonb,NULL)", [
+      event,
+      generation,
+    ])
+    .then(
+      () => null,
+      (error) => error
+    );
+  assert.equal(absent?.code, '55000');
+  await a.query('ROLLBACK');
   await actor(a);
   const prepared = (
     await a.query('SELECT public.fn_prepare_tournament_terminal_request($1,$2,$3) AS value', [
@@ -83,6 +98,36 @@ try {
   assert.equal(prepared.request.phase, 'prepared');
   assert.deepEqual(prepared.request.original_request, identity);
   await a.query('COMMIT');
+  await actor(a);
+  const custody = (
+    await a.query(
+      "SELECT public.fn_f06_assert_drained_manager_custody($1,$2,NULL,'[]'::jsonb,NULL) AS value",
+      [event, generation]
+    )
+  ).rows[0].value;
+  assert.equal(custody.ok, true);
+  assert.equal(custody.recovery_required, false);
+  await a.query('COMMIT');
+  if (scenario === 'close-queued-send') {
+    // RUNNING misses may reopen gameplay only after their old send is closed.
+    await observer.query(
+      "BEGIN; SET LOCAL session_replication_role=replica; UPDATE public.tournaments SET status='RUNNING' WHERE id='92010000-0000-0000-0000-000000000001'; COMMIT"
+    );
+  } else {
+    await actor(a);
+    const retained = (
+      await a.query(
+        'SELECT public.fn_close_uncommitted_tournament_terminal_request($1,$2) AS value',
+        [id, generation]
+      )
+    ).rows[0].value;
+    assert.equal(
+      retained.request.phase,
+      'prepared',
+      'COMPLETING cannot discard its original continuation'
+    );
+    await a.query('COMMIT');
+  }
   const original = await snapshot();
   if (scenario === 'commit-replay') {
     await actor(a);
