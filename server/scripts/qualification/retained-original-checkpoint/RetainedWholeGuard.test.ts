@@ -11,6 +11,7 @@ const wire = vi.hoisted(() => ({
   calls: [] as any[],
   clock: {} as any,
   onAttest: null as null | (() => void),
+  readActor: () => null as any,
 }));
 vi.mock('../services/supabase/client.js', () => {
   const from = (table: string) => {
@@ -38,7 +39,7 @@ vi.mock('../services/supabase/client.js', () => {
       }),
       upsert: async (row: any) => {
         if (table !== 'engine_presence_parked') throw Error('Unexpected table write');
-        wire.calls.push({ name: 'park', row: structuredClone(row) });
+        wire.calls.push({ name: 'park', row: structuredClone(row), authority: wire.readActor() });
         wire.parked.set(row.table_id, structuredClone(row));
         return { error: null };
       },
@@ -46,7 +47,7 @@ vi.mock('../services/supabase/client.js', () => {
     return q;
   };
   const rpc = async (name: string, p: any) => {
-    wire.calls.push({ name, p: structuredClone(p) });
+    wire.calls.push({ name, p: structuredClone(p), authority: wire.readActor() });
     if (name === 'save_hand_state_snapshot') return { data: null, error: null };
     if (name === 'fn_f06_attest_frozen_hand_continuation') {
       await wire.onAttest?.();
@@ -174,6 +175,7 @@ function banks(e: any, seats: any[]) {
 }
 const wholeCases = [
   'positive',
+  'manager-context',
   'lightning-pending-host',
   'lightning-registered-host',
   'lightning-unknown-formation',
@@ -211,6 +213,7 @@ const wholeCases = [
   'skew-await-host',
 ];
 it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) => {
+  wire.readActor = actor.currentTournamentDataAuthority;
   const sha = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
   expect(releaseIdentity.ENGINE_RELEASE_IDENTITY.releaseSha).toBe(sha);
   const server: any = Object.assign(Object.create(gameServer.GameServer.prototype), {
@@ -816,20 +819,32 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     expect(Object.hasOwn(globalThis, key)).toBe(false);
   }
   const guardStarted = performance.now();
-  const result = await retainedOriginalCheckpointGuard.call(
-    server,
-    {
-      expectedReleaseSha: sha,
-      expectedPid: process.pid,
-      expectedInstanceId: tableLease.INSTANCE_ID,
-    },
-    census[0],
-    modules,
-    census[1],
-    scenario === 'missing-manager-census' ? [] : census[2],
-    scenario === 'lightning-missing-worker-census' ? [] : census[3],
-    census[4]
-  );
+  const invoke = () =>
+    retainedOriginalCheckpointGuard.call(
+      server,
+      {
+        expectedReleaseSha: sha,
+        expectedPid: process.pid,
+        expectedInstanceId: tableLease.INSTANCE_ID,
+      },
+      census[0],
+      modules,
+      census[1],
+      scenario === 'missing-manager-census' ? [] : census[2],
+      scenario === 'lightning-missing-worker-census' ? [] : census[3],
+      census[4]
+    );
+  const foreignAuthority = { tournamentId: id(990), leaseGeneration: id(991) };
+  const result =
+    scenario === 'manager-context'
+      ? await actor.runWithTournamentDataAuthority(foreignAuthority, async () => {
+          expect(actor.currentTournamentDataAuthority()).toEqual(foreignAuthority);
+          const observed = await invoke();
+          expect(actor.currentTournamentDataAuthority()).toEqual(foreignAuthority);
+          return observed;
+        })
+      : await invoke();
+  expect(actor.currentTournamentDataAuthority()).toBeNull();
   if (scenario.startsWith('skew-')) expect(performance.now() - guardStarted).toBeLessThan(20000);
   if (releaseFrontLease) {
     releaseFrontLease(false);
@@ -876,6 +891,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
   if (
     ![
       'positive',
+      'manager-context',
       'detached-drained',
       'shadow-covered-permit',
       'skew-engine',
@@ -915,6 +931,22 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     verifiedTables: 3,
     restartAuthorized: false,
   });
+  if (scenario === 'manager-context') {
+    const attestations = wire.calls.filter(
+      (c) => c.name === 'fn_f06_attest_frozen_hand_continuation'
+    );
+    expect(attestations.length).toBeGreaterThan(0);
+    for (const call of attestations)
+      expect(call.authority).toEqual({
+        tournamentId: call.p.p_tournament_id,
+        leaseGeneration: call.p.p_lease_generation,
+      });
+    const cashParks = wire.calls.filter(
+      (c) => c.name === 'park' && c.row.table_id === cash.tableId
+    );
+    expect(cashParks.length).toBeGreaterThan(0);
+    expect(cashParks.every((c) => c.authority === null)).toBe(true);
+  }
   for (const f of originals) {
     expect(privateContinuation.encodePrivateHandContinuation(f.original)).toEqual(f.packet);
     expect(f.hc.serializeRecoveryState()).toBe(f.original.batch.controller);

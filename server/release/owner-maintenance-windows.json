@@ -873,6 +873,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "ae842957f063cf23020dbf23a203794fd43a02dffea883aa2ec2c7dc24d7b175"
       }
+    },
+    {
+      "id": "2026-11-03-tournament-process-actor-continuation",
+      "ownerOrder": "Dan directly in tournament recovery chat01a1a01a-7f70-7d62-8da1-8d086594c658 ordered continued completion through the earliest certified safe window without waiting for :55. This NEW fixed23:00UTC November3 through02:00UTC November4 continuation follows failed operation41730448462-1: the complete native census succeeded, then the original guard refused inherited tournament process authority before any checkpoint attempt. At23:07UTC the necessary source regression and normal submission plus observed40minute CI and27minute receiver exceed the prior23:30 expiry. Preserve every prior entry and receipt verbatim. Before one new qualified operation read prior terminal outcomes, exact protected source and current ownership; never retry a failed or unknown operation. Use only the existing stage/receiver and earliest-certified owning transaction with120second notice,300second window, full285second proof/rollback reserve, original hand custody, immutable source/seal checks, durable freeze and verified own-window v3thaw. Fixed expiry is mandatory; no automatic renewal, timer, second publisher, extended production freeze or guard bypass is authorized.",
+      "contains": "0de3e5b9f6ae9b6def3a2603ef69fab5d934977d",
+      "notBefore": "2026-11-03T23:00:00Z",
+      "notAfter": "2026-11-04T02:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "40b03cd4628f17095d2177e7f364e1c2d6ab2dfcea531aff0ae0f4c68413e0f2"
+      }
     }
   ],
   "databaseWindows": [
