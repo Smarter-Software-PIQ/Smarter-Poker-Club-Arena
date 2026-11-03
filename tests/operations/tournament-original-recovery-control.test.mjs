@@ -1244,8 +1244,32 @@ const retirementWrites = (f) =>
   f.calls.filter(
     (c) => c.url.endsWith('/fn_ca_request_tournament_abort') || c.url.includes('/admin/')
   );
-test('owner control binds all140 exact operations and excludes all73 waiting events and money actions', () => {
+const preservedHumans = [
+  '2781bcd7-cc8a-4713-ab3e-0d0a81fdf110',
+  '6379b29e-1307-4e8b-91e7-e9a0975cd64d',
+  '7986217a-0a67-4585-bd43-254356a9cb54',
+];
+test('owner control retains the140-event manifest and excludes later preserved human events, waiting events and money actions', () => {
   for (const m of retirementManifest.targets) {
+    if (preservedHumans.includes(m.tournament_id)) {
+      for (const action of [
+        'owner_request',
+        'owner_read',
+        'owner_ack',
+        'abort_ack',
+        'abort_settle',
+        'equal_settle',
+      ])
+        assert.throws(() =>
+          originalControlIntent({ ...input, action, tournamentId: m.tournament_id })
+        );
+      for (const action of ['prepare', 'read'])
+        assert.equal(
+          originalControlIntent({ ...input, action, tournamentId: m.tournament_id }).tournamentId,
+          m.tournament_id
+        );
+      continue;
+    }
     const r = originalControlIntent({
       ...input,
       action: 'owner_read',

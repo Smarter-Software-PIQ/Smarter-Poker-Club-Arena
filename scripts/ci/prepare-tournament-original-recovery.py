@@ -13,11 +13,11 @@ def main():
  p=argparse.ArgumentParser(description=__doc__)
  for key in ['tournament-id','nonce','instance-id','lease-generation','release-sha','freeze-started','ownership-token','custody-md5']:p.add_argument('--'+key,required=True)
  a=p.parse_args()
- allowed=json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/cohort-membership.json').read_text())['natural_finish_twenty']
+ allowed=json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/cohort-membership.json').read_text())['natural_finish_twenty'] + json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json').read_text())['preserved_started_human_events']
  for name in ['tournament_id','nonce','lease_generation','ownership_token']:
   try:setattr(a,name,str(uuid.UUID(getattr(a,name))))
   except ValueError:p.error(name+' must be a UUID')
- if a.tournament_id not in allowed:p.error('only the explicitly directed original20 are eligible')
+ if a.tournament_id not in allowed:p.error('only the explicitly directed recovery cohort is eligible')
  if not re.fullmatch(r'[1-9][0-9]*-[a-f0-9]{8}',a.instance_id):p.error('actual instance identity required')
  if not re.fullmatch(r'[a-f0-9]{40}',a.release_sha) or a.release_sha=='eed06fe51dea622069c661a6213d5b031ff3a9e3':p.error('containing full release SHA required; old predecessor cannot qualify')
  if not re.fullmatch(r'[a-f0-9]{32}',a.custody_md5):p.error('canonical database custody digest required')

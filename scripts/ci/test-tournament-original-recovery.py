@@ -14,9 +14,14 @@ EVENT='095d7449-3282-46c5-8a39-768fe14dce5a';OP='d44c4440-2911-430c-8ee7-376611e
 TABLE='ad000000-0000-4000-8000-000000000001'
 AUTH=SERVICE+"SELECT set_config('app.smarter_data_actor','tournament-manager',true),set_config('app.smarter_tournament_id','"+EVENT+"',true),set_config('app.smarter_tournament_lease_generation','"+GEN+"',true);"
 def main():
+ global EVENT,AUTH
  p=argparse.ArgumentParser(description=__doc__)
  for x in ['evidence','work-root','socket-root','pg-bin']:p.add_argument('--'+x,type=Path,required=True)
- a=p.parse_args();a.evidence.mkdir(parents=True,exist_ok=False);a.work_root.mkdir(parents=True,exist_ok=True);a.socket_root.mkdir(parents=True,exist_ok=True)
+ p.add_argument('--human-event',choices=['2781bcd7-cc8a-4713-ab3e-0d0a81fdf110', '6379b29e-1307-4e8b-91e7-e9a0975cd64d', '7986217a-0a67-4585-bd43-254356a9cb54'])
+ a=p.parse_args();
+ if a.human_event:
+  AUTH=AUTH.replace(EVENT,a.human_event);EVENT=a.human_event
+ a.evidence.mkdir(parents=True,exist_ok=False);a.work_root.mkdir(parents=True,exist_ok=True);a.socket_root.mkdir(parents=True,exist_ok=True)
  native=module(ROOT/'scripts/ci/test-mtt-unlimited.py','recovery20_execution');e=native.Execution(ROOT,a.evidence,a.pg_bin,a.work_root,600,socket_parent=a.socket_root)
  try:
   tool=ROOT/'scripts/ci/prepare-tournament-original-recovery.py'
@@ -61,8 +66,14 @@ def main():
   _,rolled,_=e.sql(db,"SELECT to_regclass('smarter_private.tournament_abort_recoveries') IS NULL;",label='failed-install-no-partial-schema')
   assert rolled.strip()=='t'
   e.sql(db,file=MIGRATION,label='exact-recovery20-migration',seconds=30)
+  extension=ROOT/'supabase/migrations/20261103110751_preserve_started_human_events_under_original_custody.sql'
+  extension_sql=extension.read_text().replace('\nBEGIN;\n','\n',1).removesuffix('COMMIT;\n')
   refunded_call="public.fn_ca_withdraw_tournament_abort_for_original_recovery('"+OP+"','"+EVENT+"','13000000-0000-4000-8000-000000000001','1-1234abcd','"+GEN+"','1234567890123456789012345678901234567890','2026-10-31T15:00Z','12000000-0000-4000-8000-000000000001','00000000000000000000000000000000')"
-  sql_file(e,db,'genuine-refund-cannot-be-resurrected',"BEGIN;"+AUTH+"SELECT public.fn_ca_settle_tournament_abort('"+OP+"','"+EVENT+"','"+money_hash+"');DO $$DECLARE refused boolean:=false;BEGIN IF NOT EXISTS(SELECT 1 FROM public.tournament_refund_tranches WHERE tournament_id='"+EVENT+"') THEN RAISE EXCEPTION 'actual old refund not exercised';END IF;BEGIN PERFORM "+refunded_call+";EXCEPTION WHEN SQLSTATE '55000' THEN refused:=true;END;IF NOT refused THEN RAISE EXCEPTION 'actual refunded event resurrected';END IF;END$$;ROLLBACK;")
+  sql_file(e,db,'genuine-refund-cannot-be-resurrected',"BEGIN;"+AUTH+"SELECT public.fn_ca_settle_tournament_abort('"+OP+"','"+EVENT+"','"+money_hash+"');"+extension_sql+"DO $$DECLARE refused boolean:=false;BEGIN IF NOT EXISTS(SELECT 1 FROM public.tournament_refund_tranches WHERE tournament_id='"+EVENT+"') THEN RAISE EXCEPTION 'actual old refund not exercised';END IF;BEGIN PERFORM "+refunded_call+";EXCEPTION WHEN SQLSTATE '55000' THEN refused:=true;END;IF NOT refused THEN RAISE EXCEPTION 'actual refunded event resurrected';END IF;END$$;ROLLBACK;")
+  e.sql(db,file=extension,label='human-preservation-extension',seconds=30)
+  e.report['source_sha256'][str(extension.relative_to(ROOT))]=hashlib.sha256(extension.read_bytes()).hexdigest()
+  if a.human_event:
+   sql_file(e,db,'later-owner-refuses-stale-abort-before-withdrawal',"BEGIN;DO $$DECLARE refused boolean:=false;BEGIN BEGIN PERFORM smarter_private.assert_tournament_abort_not_recovered('"+OP+"','"+EVENT+"');EXCEPTION WHEN SQLSTATE '55000' THEN IF SQLERRM<>'operator_abort_superseded_preserve_started_humans' THEN RAISE;END IF;refused:=true;END;IF NOT refused THEN RAISE EXCEPTION 'superseded abort remained actionable';END IF;END$$;ROLLBACK;")
   # Synthetic physical scene; real request/lease/refund/cancellation doors and
   # their deployed definitions are used. No claims about live native capture.
   scene="BEGIN;"+SERVICE+"SET LOCAL session_replication_role=replica;"
