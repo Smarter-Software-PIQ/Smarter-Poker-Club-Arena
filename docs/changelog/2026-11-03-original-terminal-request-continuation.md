@@ -28,8 +28,17 @@ and resolver clients for MTT, SNG, Spin, single-winner satellite and qualifier
 satellite. Each loses a committed TCP reply, verifies exact recipients and
 economics, then replays the same durable execution and compares every financial
 relation. Satellite fixtures include the captured current lease dependencies;
-no fake claim or generation grant substitutes for them. Legacy/proposal deal
-dispatch remains covered by focused runtime tests, not native deal settlement.
+no fake claim or generation grant substitutes for them. Two additional funded
+deal cases exercise inactive legacy consent and actual proposal review/votes
+through the same HTTP loss and exact replay. They retain the original payer and
+check both recipients, positions, wallets, empty escrow and proposal execution.
+The isolated proposal case installs the maintained staged consent expansion and
+activation; it does not claim those staged contracts are deployed.
+
+Stable original identity, generation and receipt refusals use SQLSTATE 55000.
+They must not use 40001, which PostgREST can repeatedly retry. The existing
+late-ticket retry law and native conflicting-original requests enforce that
+boundary without changing genuine database serialization failures.
 The combined qualification is wired into required accounting shard 4. The synthetic final roster/isolated clock advance do not prove live
 hand continuity or universal outage recovery. Production installation and engine
 adoption remain the owning delivery's separate requirements.

@@ -1,0 +1,13 @@
+{
+  "_owner": "fix/terminal-original-request-01a1a01a",
+  "_comment": "Source declarations from migration20261103115836. Exact native PG17 installation and all request-kind execution are qualified by terminal_original_request_native.py in required accounting shard4. Production installation and engine activation remain separate requirements.",
+  "tables": ["smarter_private.tournament_terminal_requests"],
+  "functions": [
+    "fn_prepare_tournament_terminal_request",
+    "fn_execute_tournament_terminal_request",
+    "fn_resolve_tournament_terminal_request",
+    "fn_close_uncommitted_tournament_terminal_request",
+    "fn_read_tournament_terminal_request",
+    "fn_adopt_tournament_terminal_request"
+  ]
+}

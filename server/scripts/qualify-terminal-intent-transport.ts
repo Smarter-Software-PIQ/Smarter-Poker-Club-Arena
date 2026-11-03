@@ -36,6 +36,7 @@ const server = createServer(async (req, res) => {
     assert.equal(req.method, 'POST');
     assert(
       [
+        'fn_get_tournament_deal_consensus',
         'fn_prepare_tournament_terminal_request',
         'fn_execute_tournament_terminal_request',
         'fn_resolve_tournament_terminal_request',
@@ -51,12 +52,17 @@ const server = createServer(async (req, res) => {
     await db.query('BEGIN');
     await db.query("SET LOCAL statement_timeout='12s'; SET LOCAL lock_timeout='8s'");
     await db.query(
-      "SELECT set_config('request.jwt.claims','{\"role\":\"service_role\"}',true),set_config('request.jwt.claim.role','service_role',true),set_config('request.headers',$1,true),set_config('app.smarter_data_actor','tournament-manager',true),set_config('app.smarter_tournament_id',$2,true),set_config('app.smarter_tournament_lease_generation',$3,true)",
+      "SELECT set_config('request.jwt.claims','{\"role\":\"service_role\"}',true),set_config('request.jwt.claim.role','service_role',true),set_config('request.headers',$1,true),set_config('app.smarter_data_actor','tournament-manager',true),set_config('app.smarter_manager_request_fenced','protocol-2',true),set_config('app.smarter_tournament_id',$2,true),set_config('app.smarter_tournament_lease_generation',$3,true)",
       [JSON.stringify(req.headers), event, generation]
     );
     await db.query('SET LOCAL ROLE service_role');
     let result: any;
-    if (name === 'fn_prepare_tournament_terminal_request') {
+    if (name === 'fn_get_tournament_deal_consensus') {
+      assert.deepEqual(args, { p_tournament_id: event });
+      result = (
+        await db.query('SELECT public.fn_get_tournament_deal_consensus($1) AS value', [event])
+      ).rows[0].value;
+    } else if (name === 'fn_prepare_tournament_terminal_request') {
       assert.deepEqual(Object.keys(args).sort(), ['p_generation', 'p_request', 'p_request_id']);
       assert.equal(args.p_generation, generation);
       result = (
@@ -127,6 +133,15 @@ try {
       ])
     ).rows[0].granted
   );
+  const proposal =
+    format === 'PROPOSAL_DEAL'
+      ? (
+          await db.query(
+            'SELECT id,revision FROM public.tournament_deal_proposals WHERE tournament_id=$1',
+            [event]
+          )
+        ).rows[0]
+      : null;
   const before = await snapshot();
   const roster = (
     await db.query(
@@ -174,11 +189,22 @@ try {
       ? requestSatelliteSettlementReceipt(event, winner, { attempts: 1 })
       : format === 'QUALIFIERS'
         ? requestSatelliteQualifierReceipt(event, qualifiers, { resolverAttempts: 1 })
-        : requestTournamentTerminalReceipt(event, 'places', winner, { attempts: 1 })
+        : format === 'LEGACY_DEAL'
+          ? requestTournamentTerminalReceipt(event, 'final_table_deal', null, {
+              attempts: 1,
+              legacyDealAuthority: 'proposal_authority_not_active',
+            })
+          : format === 'PROPOSAL_DEAL'
+            ? requestTournamentTerminalReceipt(event, 'final_table_deal', null, {
+                attempts: 1,
+                dealProposal: { proposalId: proposal.id, revision: proposal.revision },
+              })
+            : requestTournamentTerminalReceipt(event, 'places', winner, { attempts: 1 })
   );
   if (failure) throw failure;
   assert.deepEqual(calls, [
     'fn_prepare_tournament_terminal_request',
+    ...(format === 'LEGACY_DEAL' ? ['fn_get_tournament_deal_consensus'] : []),
     'fn_execute_tournament_terminal_request',
     'fn_resolve_tournament_terminal_request',
   ]);
@@ -189,7 +215,57 @@ try {
       [event]
     )
   ).rows;
-  if (format === 'SATELLITE') {
+  if (format === 'LEGACY_DEAL' || format === 'PROPOSAL_DEAL') {
+    assert.equal(result.winnerAmount, 1);
+    assert.deepEqual(
+      payouts,
+      roster
+        .map((r) => ({ user_id: r.user_id, amount: 1, source: 'final_table_deal' }))
+        .sort((a, b) => a.user_id.localeCompare(b.user_id))
+    );
+    assert.deepEqual(
+      (
+        await db.query(
+          'SELECT user_id,position,prize::float8 AS prize FROM public.tournament_players WHERE tournament_id=$1 ORDER BY position',
+          [event]
+        )
+      ).rows,
+      [...roster]
+        .sort((a, b) => a.user_id.localeCompare(b.user_id))
+        .map((r, i) => ({ user_id: r.user_id, position: i + 1, prize: 1 }))
+    );
+    assert.equal(
+      (
+        await db.query(
+          'SELECT prize_balance::float8 AS prize FROM public.tournament_escrow WHERE tournament_id=$1',
+          [event]
+        )
+      ).rows[0].prize,
+      0
+    );
+    assert.deepEqual(
+      (
+        await db.query(
+          'SELECT chip_balance::float8 AS balance FROM public.club_members WHERE club_id=$1 AND user_id=ANY($2::uuid[]) ORDER BY user_id',
+          ['92000000-0000-0000-0000-000000000001', roster.map((r) => r.user_id)]
+        )
+      ).rows,
+      [{ balance: 100 }, { balance: 100 }]
+    );
+    if (proposal) {
+      assert.equal(execution.receipt.proposal_id, proposal.id);
+      assert.equal(execution.receipt.revision, proposal.revision);
+      assert.deepEqual(
+        (
+          await db.query(
+            'SELECT proposal_id,revision FROM public.tournament_deal_proposal_executions WHERE tournament_id=$1',
+            [event]
+          )
+        ).rows,
+        [{ proposal_id: proposal.id, revision: proposal.revision }]
+      );
+    }
+  } else if (format === 'SATELLITE') {
     assert.equal(result.winnerAmount, 100);
     assert.deepEqual(payouts, [{ user_id: winner, amount: 100, source: 'satellite_seat' }]);
     assert.equal(

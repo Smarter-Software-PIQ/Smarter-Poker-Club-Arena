@@ -436,8 +436,8 @@
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47681,
-      "sha256": "e24cbc30b09196198f35d2a7959819d0b390d73de0d8ab9f53a8634cf5945491"
+      "bytes": 47771,
+      "sha256": "d90ea66116fcc41d3bd3b9cb1b4f89987822d2bb58e0a05ef270d3bec7255539"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -532,8 +532,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 122229,
-      "sha256": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f"
+      "bytes": 122501,
+      "sha256": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f"
     }
   },
   "nativePgCron": {
@@ -6628,6 +6628,33 @@
         "current": {
           "bytes": 122229,
           "sha256": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f"
+        }
+      }
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "durableDealCoverage20261103": {
+    "review": "Reviewed additive durable legacy/proposal deal source routing and four classification cases. Current source identity only. Existing accounting routes, financial inputs, assertions and historical qualification remain unchanged.",
+    "changes": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47681,
+          "sha256": "e24cbc30b09196198f35d2a7959819d0b390d73de0d8ab9f53a8634cf5945491"
+        },
+        "current": {
+          "bytes": 47771,
+          "sha256": "d90ea66116fcc41d3bd3b9cb1b4f89987822d2bb58e0a05ef270d3bec7255539"
+        }
+      },
+      "tests/unit/fixtureNativeCi.test.ts": {
+        "previous": {
+          "bytes": 122229,
+          "sha256": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f"
+        },
+        "current": {
+          "bytes": 122501,
+          "sha256": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f"
         }
       }
     },

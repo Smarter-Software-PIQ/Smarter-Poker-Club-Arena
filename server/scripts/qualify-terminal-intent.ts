@@ -98,6 +98,29 @@ try {
   assert.equal(prepared.request.phase, 'prepared');
   assert.deepEqual(prepared.request.original_request, identity);
   await a.query('COMMIT');
+  if (scenario === 'commit-replay') {
+    const unchanged = await snapshot();
+    for (const conflictingId of [id, '92090000-0000-4000-8000-000000000006']) {
+      await actor(a);
+      const refusal = await a
+        .query('SELECT public.fn_prepare_tournament_terminal_request($1,$2,$3)', [
+          conflictingId,
+          { ...identity, observedWinnerId: '92090000-0000-4000-8000-000000000007' },
+          generation,
+        ])
+        .then(
+          () => null,
+          (error) => error
+        );
+      assert.equal(
+        refusal?.code,
+        '55000',
+        'stable original-identity refusal must not trigger PostgREST serialization retries'
+      );
+      await a.query('ROLLBACK');
+      assert.deepEqual(await snapshot(), unchanged);
+    }
+  }
   await actor(a);
   const custody = (
     await a.query(
