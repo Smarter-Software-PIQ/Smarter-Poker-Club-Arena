@@ -13,6 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_MAINTENANCE_CLIENT_TIMEOUT_MS } from '../services/maintenanceClientTimeout.js';
 
 const mocks = vi.hoisted(() => ({
   gameRpc: vi.fn(),
@@ -92,9 +93,10 @@ describe('the terminal authority answers on a client that outlasts it', () => {
 
   it('the long-deadline client outlasts the 45-second ceiling of both terminal functions', () => {
     const client = readFileSync(join(__dirname, '..', 'services', 'supabase', 'client.ts'), 'utf8');
-    const match = /MAINTENANCE_SUPABASE_TIMEOUT_MS \?\? ([0-9_]+)\)/.exec(client);
-    expect(match, 'the maintenance client deadline must stay a named literal').not.toBeNull();
-    const deadlineMs = Number(match![1].replace(/_/g, ''));
-    expect(deadlineMs).toBeGreaterThan(45_000);
+    expect(client).toContain(
+      "import { resolveMaintenanceClientTimeoutMs } from '../maintenanceClientTimeout.js'"
+    );
+    expect(client).toContain('const MAINTENANCE_DB_TIMEOUT_MS = resolveMaintenanceClientTimeoutMs()');
+    expect(DEFAULT_MAINTENANCE_CLIENT_TIMEOUT_MS).toBeGreaterThan(45_000);
   });
 });
