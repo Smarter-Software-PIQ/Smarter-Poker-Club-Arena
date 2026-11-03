@@ -173,6 +173,25 @@ async function requestSeatWithIntent(
         result.protocol === 'seat-occupancy-v1' &&
         result.occupancyId === intent.occupancyId &&
         result.seatNumber === intent.seatNumber;
+      if (result.held === true) {
+        if (
+          !matches ||
+          result.success !== false ||
+          result.sittingOut !== true ||
+          result.code !== 'LEAVE_LOCKED' ||
+          result.immediate !== false ||
+          typeof result.error !== 'string'
+        )
+          throw new Error('The Server Did Not Confirm Your Held Seat.');
+        storage.setItem(key, JSON.stringify({ ...intent, state: 'resolved' }));
+        return {
+          success: true,
+          chipsReturned: 0,
+          held: true,
+          error: result.error,
+          occupancyId: intent.occupancyId,
+        };
+      }
       if (result.success !== true) {
         if (matches && (result.code === 'STALE_OCCUPANCY' || result.code === 'LEAVE_LOCKED')) {
           storage.setItem(key, JSON.stringify({ ...intent, state: 'resolved' }));
@@ -194,17 +213,7 @@ async function requestSeatWithIntent(
         throw new Error('The Server Did Not Confirm The Original Seat.');
       }
       let outcome: SeatLeaveResult;
-      if (result.held === true) {
-        if (
-          result.sittingOut !== true ||
-          result.code !== 'LEAVE_LOCKED' ||
-          result.immediate !== false ||
-          result.cashout !== null ||
-          typeof result.error !== 'string'
-        )
-          throw new Error('The Server Did Not Confirm Your Held Seat.');
-        outcome = { success: true, chipsReturned: 0, held: true, error: result.error };
-      } else if (result.immediate === false && result.cashout === null) {
+      if (result.immediate === false && result.cashout === null) {
         outcome = { success: true, chipsReturned: 0, deferred: true };
       } else if (result.tournament === true && result.cashout === null) {
         outcome = { success: true, chipsReturned: 0, tournament: true };

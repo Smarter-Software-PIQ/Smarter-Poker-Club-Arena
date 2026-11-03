@@ -197,6 +197,7 @@ it('preserves tournament sit-out acknowledgement without inventing a cashout', a
 it('preserves an authoritative held sit-out without a cashout or deferred-credit claim', async () => {
   mocks.leave.mockResolvedValue({
     ...response(),
+    success: false,
     immediate: false,
     cashout: null,
     held: true,
@@ -215,6 +216,7 @@ it('preserves an authoritative held sit-out without a cashout or deferred-credit
 it('refuses a held acknowledgement that does not confirm sitting out', async () => {
   mocks.leave.mockResolvedValue({
     ...response(),
+    success: false,
     immediate: false,
     cashout: null,
     held: true,

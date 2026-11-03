@@ -1676,7 +1676,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     this.sitOutLeaver(userId, this.foldLeaverNow(userId));
     this.broadcastCurrentState();
     return {
-      success: true,
+      success: false,
       immediate: false,
       held: true,
       sittingOut: true,

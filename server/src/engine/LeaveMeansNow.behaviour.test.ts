@@ -194,13 +194,16 @@ describe('locked leave protects input without moving chips', () => {
       const e = makeEngine(live, actor);
       const reply = e.holdLockedLeave(HUMAN, 61000);
       expect(reply).toMatchObject({
-        success: true,
+        success: false,
         immediate: false,
         held: true,
         sittingOut: true,
         code: 'LEAVE_LOCKED',
         stay_remaining_ms: 61000,
       });
+      // Older clients still see a refused cashout, never a successful departure.
+      expect(reply.success).toBe(false);
+      expect(reply.immediate).toBe(false);
       expect(e.isClientSitOut(HUMAN)).toBe(true);
       expect(actor === 1 ? live[0].is_folded : queuedAutoFold(e, HUMAN)).toBe(true);
       expect(e.seatedPlayers.some((p: any) => p.user_id === HUMAN)).toBe(true);

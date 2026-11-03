@@ -142,7 +142,7 @@ describe('a locked player is refused synchronously, human and horse alike', () =
       const unregister = vi.spyOn(e.disconnectEngine, 'unregisterPlayer');
       const res = await e.leaveTable(id);
       expect(res).toMatchObject({
-        success: true,
+        success: false,
         held: true,
         sittingOut: true,
         code: 'LEAVE_LOCKED',
@@ -852,7 +852,7 @@ describe('2/5 PLO5 Horse profit floor', () => {
       refusedCashout: true,
     });
     expect(result).toMatchObject({
-      success: true,
+      success: false,
       held: true,
       sittingOut: true,
       code: 'LEAVE_LOCKED',
