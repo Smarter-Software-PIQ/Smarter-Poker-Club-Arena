@@ -17,6 +17,9 @@ function manager() {
   return {
     tournamentId: event,
     tournamentFinished: false,
+    running: true,
+    startEliminationChecker: vi.fn(),
+    requestUrgentEliminationSweepAfter: vi.fn(),
     cleanupCommittedTournament: vi.fn().mockResolvedValue(true),
     cleanupCommittedSatellite: vi.fn().mockResolvedValue(true),
     cleanupCommittedSatelliteQualifiers: vi.fn().mockResolvedValue(true),
@@ -97,6 +100,8 @@ describe('original terminal startup continuation', () => {
     expect(write).not.toHaveBeenCalled();
     expect(m.cleanupCommittedTournament).not.toHaveBeenCalled();
     expect(m.fenceUnknownTerminalOutcome).toHaveBeenCalled();
+    expect(m.startEliminationChecker).not.toHaveBeenCalled();
+    expect(m.requestUrgentEliminationSweepAfter).not.toHaveBeenCalled();
   });
   it('replays only the immutable original after a serialized miss', async () => {
     const identity: any = {

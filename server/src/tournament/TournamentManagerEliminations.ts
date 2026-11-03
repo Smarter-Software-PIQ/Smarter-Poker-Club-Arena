@@ -5286,6 +5286,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     const identity = request.identity;
     this.tournamentFinished = true;
     try {
+      let cleaned: boolean;
       if (identity.kind === 'satellite_qualifiers') {
         const outcome = await resolveOriginalSatelliteQualifierOutcome(identity, request);
         if (outcome.kind === 'unreadable') throw new Error(outcome.failure);
@@ -5293,7 +5294,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           outcome.kind === 'committed'
             ? outcome.receipt
             : await requestSatelliteQualifierReceipt(this.tournamentId, [...identity.qualifierIds]);
-        await this.cleanupCommittedSatelliteQualifiers(receipt);
+        cleaned = await this.cleanupCommittedSatelliteQualifiers(receipt);
       } else if (identity.kind === 'satellite') {
         const outcome = await resolveOriginalSatelliteOutcome(identity, request);
         if (outcome.state === 'unknown') throw new Error(outcome.reason);
@@ -5304,7 +5305,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 this.tournamentId,
                 identity.observedWinnerId!
               );
-        await this.cleanupCommittedSatellite(receipt);
+        cleaned = await this.cleanupCommittedSatellite(receipt);
       } else {
         const outcome = await resolveOriginalTerminalOutcome(identity, request);
         if (outcome.state === 'unknown') throw new Error(outcome.reason);
@@ -5326,8 +5327,17 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                     ? { legacyDealAuthority: 'proposal_authority_not_active' }
                     : {}
               );
-        if (receipt.settlementMode === 'final_table_deal') await this.settleFinalTableDeal(receipt);
-        else await this.cleanupCommittedTournament(receipt);
+        cleaned =
+          receipt.settlementMode === 'final_table_deal'
+            ? await this.settleFinalTableDeal(receipt)
+            : await this.cleanupCommittedTournament(receipt);
+      }
+      if (!cleaned && this.running) {
+        // Startup has not registered the ordinary sweep yet. Only after a
+        // verified committed receipt may its retained non-money tail enter
+        // the existing scheduler; unknown settlement never admits gameplay.
+        this.startEliminationChecker();
+        this.requestUrgentEliminationSweepAfter(0);
       }
     } catch (error) {
       // A definite refusal has closed the original request under its lock.
