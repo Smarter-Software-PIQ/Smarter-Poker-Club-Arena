@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parse } from 'yaml';
@@ -25,6 +25,82 @@ const workflow = (name: string) =>
 const stage = workflow('stage-engine-release.yml');
 const publisher = workflow('publish-club-arena.yml');
 const transaction = workflow('publish-club-arena-transaction.yml');
+
+describe('bounded read-only recovery checkouts', () => {
+  it('hydrates only stage admission files while retaining exact-source full history', () => {
+    const job = stage.jobs.detect;
+    const checkout = job.steps.find((step: any) => step.uses === 'actions/checkout@v4');
+    expect(job['timeout-minutes']).toBe(3);
+    expect(checkout.with.ref).toBe('${{ github.sha }}');
+    expect(checkout.with['fetch-depth']).toBe(0);
+    expect(checkout.with.filter).toBe('blob:none');
+    expect(checkout.with['sparse-checkout-cone-mode']).toBe(false);
+    expect(checkout.with['sparse-checkout'].trim().split('\n')).toEqual([
+      '/server/scripts/engine-release-seal.py',
+      '/server/release/owner-maintenance-windows.json',
+      '/server/release/activation-floor.json',
+    ]);
+  });
+
+  it('keeps historical source witnesses readable without hydrating unrelated blobs', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ca-sparse-admission-'));
+    const env = {
+      ...gitEnvironmentForCwd(),
+      GIT_AUTHOR_NAME: 'Fixture',
+      GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+      GIT_COMMITTER_NAME: 'Fixture',
+      GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    };
+    const git = (...args: string[]) =>
+      execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
+    const put = (path: string, content: string) => {
+      mkdirSync(dirname(join(cwd, path)), { recursive: true });
+      writeFileSync(join(cwd, path), content);
+    };
+    try {
+      git('init', '-q');
+      const paths = stage.jobs.detect.steps
+        .find((step: any) => step.uses === 'actions/checkout@v4')
+        .with['sparse-checkout'].trim()
+        .split('\n');
+      for (const path of paths) put(path.slice(1), 'admission');
+      const witness = 'supabase/migrations/20261103000000_fixture.sql';
+      put(witness, 'original witness');
+      put('public/unrelated-client-asset.bin', 'not needed');
+      git('add', '.');
+      git('commit', '-qm', 'original');
+      const original = git('rev-parse', 'HEAD');
+      put(witness, 'new witness');
+      git('add', '.');
+      git('commit', '-qm', 'later');
+      git('sparse-checkout', 'set', '--no-cone', ...paths);
+      for (const path of paths) expect(existsSync(join(cwd, path.slice(1)))).toBe(true);
+      expect(existsSync(join(cwd, witness))).toBe(false);
+      expect(existsSync(join(cwd, 'public/unrelated-client-asset.bin'))).toBe(false);
+      expect(git('show', `${original}:${witness}`)).toBe('original witness');
+      expect(git('show', `HEAD:${witness}`)).toBe('new witness');
+      expect(git('rev-parse', '--is-shallow-repository')).toBe('false');
+      expect(git('rev-list', '--count', 'HEAD')).toBe('2');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('hydrates the self-contained scoped observer without changing its authority', () => {
+    const job = workflow('production-integrity-audit.yml').jobs.scoped_runtime_errors;
+    const checkout = job.steps.find((step: any) => step.uses === 'actions/checkout@v4');
+    expect(job['timeout-minutes']).toBe(2);
+    expect(checkout.with.ref).toBe('main');
+    expect(checkout.with['persist-credentials']).toBe(false);
+    expect(checkout.with['sparse-checkout-cone-mode']).toBe(false);
+    expect(checkout.with['sparse-checkout'].trim()).toBe(
+      '/scripts/ci/read-scoped-runtime-errors.py'
+    );
+    expect(job.steps.find((step: any) => step.run)?.run).toBe(
+      'python3 scripts/ci/read-scoped-runtime-errors.py'
+    );
+  });
+});
 
 describe('client delivery never inherits the engine activation window', () => {
   it.each([
