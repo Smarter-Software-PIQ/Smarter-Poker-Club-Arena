@@ -789,6 +789,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "f2244f3af18663009d74b1047f147abd8f70cfede679a067e13b59333e0694a1"
       }
+    },
+    {
+      "id": "2026-11-03-phase1-horse-and-checkpoint-55",
+      "ownerOrder": "Dan, directly in chat 09f13038-72cd-46db-9324-9224d60f9e3a and session_01TLQer9MnhBkQFbSEevq8zY (America/Chicago), ordered verbatim: \"GET THESE DONE NOW, AND YOU DO NOT HAVE TO WAIT UNTIL 4AM. AS SOON AS YOU ARE READY YOU CAN DO AN ENGINE RESET AT ANY OF THE :55 BREAKS AS NEEDED TO GET THIS FULLY PUBLISHED UPDATED AND VERIFIED. BUT ONLY AT THE :55 BREAK, BUT YOU CAN DO IT EVERY HOUR IF YOU NEED TOO\" and \"SO CAN YOU PLEASE FINISH UP ANY AND ALL PHASE 1 WORK NOW?\". This task-selected six-hour window continues that direct :55-break-only instruction after 2026-11-02-engine-reliability-phase2-55 expired at 00:00:00Z while receiver 41535679597-1 refused at legacyNativeCensusMemoryAdmission, repaired in #9420 (a650248fdb2c1ce922aed9b62d27f718d73daa45). Announcement is only at Chicago minute 53 and activation only at the :55 break. It supersedes fresh Phase1 on-the-hour selection for this bound window, never an already-owned operation or its unknown outcome. Preserve full custody, 120-second notice, 285-second cutover/proof/rollback reserve, drain, durable freeze, original ownership, sealed certificate and v3 thaw. No migration, force restart, second publisher, watcher or recurring repair is authorized. The exact new floor witness grants one activation and expires without renewal; a fresh expired request cannot fall back to another reset time. All previous owner entries remain unchanged.",
+      "contains": "a650248fdb2c1ce922aed9b62d27f718d73daa45",
+      "notBefore": "2026-11-03T00:45:00Z",
+      "notAfter": "2026-11-03T06:45:00Z",
+      "announceAtChicagoMinutes": [53],
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "af803fe4f3c9da76902f27e27e311a5d581cfe59296d3ac4135d8eed1569bebf"
+      }
     }
   ],
   "databaseWindows": [
