@@ -35,6 +35,7 @@ const groups = [
       'test_census_continuation_keeps_failed_operation_window_immutable',
       'test_bounded_census_delivery_preserves_prior_floor_and_fixed_expiry',
       'test_qualified_capacity_preserves_previous_floor_and_expiry',
+      'test_phase1_plo_55_window_preserves_qualified_capacity_floor',
       'test_process_actor_continuation_preserves_prior_floor_and_expiry',
       'test_owner_reservation_binds_run_target_cause_and_full_window',
       'test_actual_owner_certificate_binds_existing_window_and_refuses_shortcut',
@@ -85,7 +86,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(31);
+  expect(selected).toHaveLength(32);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);

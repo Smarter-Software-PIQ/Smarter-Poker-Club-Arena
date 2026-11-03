@@ -1,0 +1,4 @@
+{
+  "_owner": "Daily window Phase 2 audit: migration 20261103222817 adds the shared seat-first predicate and replaces the entry refusal installed by 20261103193545 (live, not yet in the base snapshot).",
+  "functions": ["fn_daily_window_seat_first_kind", "fn_daily_window_entry_refusal"]
+}
