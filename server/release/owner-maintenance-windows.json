@@ -873,6 +873,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "ae842957f063cf23020dbf23a203794fd43a02dffea883aa2ec2c7dc24d7b175"
       }
+    },
+    {
+      "id": "2026-11-03-phase1-plo-horse-55-2330z",
+      "ownerOrder": "Dan, directly in MAIN Horse Brain PLO session_01TLQer9MnhBkQFbSEevq8zY (America/Chicago), ordered verbatim on 2026-11-01 14:43: \"GET THESE DONE NOW, AND YOU DO NOT HAVE TO WAIT UNTIL 4AM. AS SOON AS YOU ARE READY YOU CAN DO AN ENGINE RESET AT ANY OF THE :55 BREAKS AS NEEDED TO GET THIS FULLY PUBLISHED UPDATED AND VERIFIED. BUT ONLY AT THE :55 BREAK, BUT YOU CAN DO IT EVERY HOUR IF YOU NEED TOO\"; on 2026-11-03 08:45: \"YOU NEED TO CHECK AND INSURE THAT EVERYTHING YOU'VE BUILT, ADDED, ENHANCED OR OPTIMIZED FOR THE PLO HORSE BRAIN HAS BEEN FULLY PUSHED AND PUBLISHED AND ACTIVATED.\"; and on 2026-11-03 16:42: \"TRY NOW\". Release 41730448462-1 (59b0d5dc) reached its 22:55Z break and its checkpoint preflight refused retained_process_actor_unproven before touching any table; the window 2026-11-03-tournament-qualified-capacity-continuation ends 23:30Z. This NEW fixed window admits one certified :55 activation of a target containing protected main 59b0d5dcc312235ab2f3e7fa9c97adbffabe271f plus the guard-runs-as-process-root correction, from 23:30Z November 3 to 05:30Z November 4 only, Chicago minute 53 notice and minute 55 activation, every existing guard unchanged: hand-boundary drain, durable freeze and certificate, full proof/rollback reserve, one-shot checkpoint intent with strict UNKNOWN/no-retry, SEALED and own healthy v3 thaw. Every earlier entry keeps its order, witness and expiry; nothing is extended, reused or retargeted. No migration, direct restart, second publisher, watcher or timer. Expiry is not an emergency or automatic extension.",
+      "contains": "59b0d5dcc312235ab2f3e7fa9c97adbffabe271f",
+      "notBefore": "2026-11-03T23:30:00Z",
+      "notAfter": "2026-11-04T05:30:00Z",
+      "announceAtChicagoMinutes": [53],
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "a2584d28f42b5a27960ac78a785a63658dca51ae9b897ae9b56167c2b392c7a8"
+      }
     }
   ],
   "databaseWindows": [

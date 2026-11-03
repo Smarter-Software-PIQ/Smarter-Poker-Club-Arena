@@ -1329,8 +1329,21 @@ export async function runLegacyEngineCheckpoint({
           // guard rejection as unhandled between these two CDP requests. Keep
           // and return the ORIGINAL Promise: awaitPromise must still receive
           // its rejection, and no result or guard invocation is substituted.
+          // THE GUARD RUNS AS THE PROCESS (2026-11-03). On Node 22 a tournament
+          // manager's AsyncLocalStorage store can sit on whatever resource is
+          // current when Inspector evaluates, so the guard inherited a foreign
+          // tournament authority and refused retained_process_actor_unproven
+          // before touching a table (release 41730448462-1). The predecessor's
+          // own bindToProcessRoot clears that store exactly as its root-bound
+          // timers do; every check, and every bound manager method's own
+          // authority, is unchanged. A predecessor without it runs as before.
           functionDeclaration: `function (...args) {
-            const pendingCheckpoint = (${guard.toString()}).apply(this, args);
+            const context = args[2] && args[2].dataActorContext;
+            const invoke = () => (${guard.toString()}).apply(this, args);
+            const pendingCheckpoint =
+              context && typeof context.bindToProcessRoot === 'function'
+                ? context.bindToProcessRoot(invoke)()
+                : invoke();
             pendingCheckpoint.catch(() => {});
             return pendingCheckpoint;
           }`,
