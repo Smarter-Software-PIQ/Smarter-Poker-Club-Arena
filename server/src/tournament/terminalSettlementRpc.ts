@@ -1,3 +1,11 @@
+import {
+  prepareDurableTerminalRequest,
+  executeDurableTerminalRequest,
+  resolveDurableTerminalRequest,
+  closeDurableTerminalRequest,
+  type DurableTerminalRequest,
+} from './terminalDurableRequest.js';
+import { freezeTerminalRequest, type TerminalRequestIdentity } from './terminalRequestIdentity.js';
 import { maintenanceSupabase, supabase } from '../services/supabase.js';
 import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
 import {
@@ -57,9 +65,12 @@ export class TerminalSettlementNotSentError extends TerminalSettlementRefusedErr
 }
 
 export class TerminalSettlementOutcomeUnknownError extends Error {
-  constructor(message: string) {
+  readonly originalRequest: TerminalRequestIdentity | null;
+
+  constructor(message: string, originalRequest: TerminalRequestIdentity | null = null) {
     super(message);
     this.name = 'TerminalSettlementOutcomeUnknownError';
+    this.originalRequest = originalRequest ? freezeTerminalRequest(originalRequest) : null;
   }
 }
 
@@ -508,6 +519,85 @@ async function adoptStoredTerminalReceipt(
   );
 }
 
+export type OriginalTerminalOutcome =
+  | { state: 'committed'; receipt: VerifiedTournamentCompletionReceipt }
+  | { state: 'not_committed' }
+  | { state: 'unknown'; reason: string; error?: unknown };
+
+/** Resolve this exact original once. This path never invokes a money writer. */
+export async function resolveOriginalTerminalOutcome(
+  identity: TerminalRequestIdentity,
+  durable: DurableTerminalRequest | null = null
+): Promise<OriginalTerminalOutcome> {
+  const request = freezeTerminalRequest(identity);
+  if (request.kind === 'satellite' || request.kind === 'satellite_qualifiers')
+    return { state: 'unknown', reason: 'Wrong terminal resolver' };
+  const mode = request.kind === 'places' ? 'places' : 'final_table_deal';
+  const args = {
+    p_tournament_id: request.tournamentId,
+    p_observed_winner_id: request.observedWinnerId,
+    p_settlement_mode: mode,
+    ...(request.kind === 'proposal_deal'
+      ? { p_proposal_id: request.proposalId, p_revision: request.revision }
+      : {}),
+  };
+  return resolveOriginalTerminalOutcomeWithArgs(request, args, durable);
+}
+
+async function resolveOriginalTerminalOutcomeWithArgs(
+  request: TerminalRequestIdentity,
+  args: Readonly<Record<string, unknown>>,
+  durable: DurableTerminalRequest | null = null
+): Promise<OriginalTerminalOutcome> {
+  const mode = request.kind === 'places' ? 'places' : 'final_table_deal';
+  const exactProposal = (raw: unknown): boolean =>
+    request.kind !== 'proposal_deal' ||
+    (record(raw).proposal_id === request.proposalId && record(raw).revision === request.revision);
+  try {
+    const { data, error } = durable
+      ? await resolveDurableTerminalRequest(durable)
+      : await terminalAuthority.rpc(
+          request.kind === 'proposal_deal'
+            ? 'fn_resolve_tournament_terminal_proposal_outcome'
+            : 'fn_resolve_tournament_terminal_outcome',
+          args
+        );
+    if (error) return { state: 'unknown', reason: errorMessage(error), error };
+    const outcome = record(data);
+    const exact =
+      outcome.ok === true &&
+      outcome.tournament_id === request.tournamentId &&
+      outcome.mode === mode &&
+      exactProposal(outcome);
+    if (
+      exact &&
+      outcome.terminal_committed === true &&
+      outcome.definitively_not_committed === false &&
+      outcome.status === 'COMPLETED'
+    ) {
+      const receipt = await verifyTerminalReceipt(
+        outcome.receipt,
+        request.tournamentId,
+        mode,
+        request.observedWinnerId
+      );
+      if (receipt && exactProposal(outcome.receipt)) return { state: 'committed', receipt };
+      return { state: 'unknown', reason: 'serialized committed receipt was invalid' };
+    }
+    if (
+      exact &&
+      outcome.terminal_committed === false &&
+      outcome.definitively_not_committed === true &&
+      (outcome.status === 'RUNNING' || outcome.status === 'COMPLETING') &&
+      outcome.receipt === null
+    )
+      return { state: 'not_committed' };
+    return { state: 'unknown', reason: 'serialized outcome shape was invalid' };
+  } catch (error) {
+    return { state: 'unknown', reason: errorMessage(error), error };
+  }
+}
+
 /**
  * Invoke the idempotent terminal authority and resolve a lost-response race by
  * replaying the exact same request. A transport error is never proof of a
@@ -576,6 +666,18 @@ export async function requestTournamentTerminalReceipt(
         p_revision: dealProposal.revision,
       }
     : null;
+  const originalRequest = freezeTerminalRequest({
+    tournamentId,
+    observedWinnerId,
+    ...(dealProposal
+      ? {
+          kind: 'proposal_deal' as const,
+          proposalId: dealProposal.proposalId,
+          revision: dealProposal.revision,
+        }
+      : { kind: legacyDeal ? ('legacy_deal' as const) : ('places' as const) }),
+  });
+  const durable = await prepareDurableTerminalRequest(originalRequest);
   const clubId =
     options.clubId === undefined ? (terminalFinishClubs.get(tournamentId) ?? null) : options.clubId;
   let lastFailure = 'terminal settlement returned no receipt';
@@ -627,9 +729,14 @@ export async function requestTournamentTerminalReceipt(
       // a closed lane never reached the database and cannot have committed.
       const { data, error } = await withTerminalFinishLane(clubId, async () => {
         attemptedWrites++;
-        return proposalRequest
-          ? await terminalAuthority.rpc('fn_complete_tournament_terminal_proposal', proposalRequest)
-          : await terminalAuthority.rpc('fn_complete_tournament_terminal', request);
+        return durable
+          ? await executeDurableTerminalRequest(durable)
+          : proposalRequest
+            ? await terminalAuthority.rpc(
+                'fn_complete_tournament_terminal_proposal',
+                proposalRequest
+              )
+            : await terminalAuthority.rpc('fn_complete_tournament_terminal', request);
       });
       if (!error) {
         const receipt = await verifyTerminalReceipt(
@@ -690,70 +797,31 @@ export async function requestTournamentTerminalReceipt(
   // transaction that is still running after its HTTP response was lost. The
   // resolver acquires the exact global terminal lock first, so it waits for
   // that transaction and only then reports committed receipt or proven miss.
-  try {
-    const { data, error } = proposalRequest
-      ? await terminalAuthority.rpc(
-          'fn_resolve_tournament_terminal_proposal_outcome',
-          proposalRequest
-        )
-      : await terminalAuthority.rpc('fn_resolve_tournament_terminal_outcome', request);
-    if (error) {
-      if (isTerminalReplayDisagreement(error)) {
-        // The receipt committed under different parameters while this request
-        // was losing its responses. Adopt it rather than reporting an unknown
-        // outcome that a successor would only re-ask with the same parameters.
-        return adoptStoredTerminalReceipt(
-          tournamentId,
-          observed,
-          receiptReadAttempts,
-          wait,
-          errorMessage(error)
-        );
-      }
-      resolverRolledBack = databaseStatedRollback(error);
-      lastFailure = `${lastFailure}; serialized outcome check failed: ${errorMessage(error)}`;
-    } else {
-      const outcome = record(data);
-      const identityIsExact =
-        outcome.ok === true &&
-        outcome.tournament_id === tournamentId &&
-        outcome.mode === settlementMode &&
-        proposalIdentityIsExact(outcome);
-      if (
-        identityIsExact &&
-        outcome.terminal_committed === true &&
-        outcome.definitively_not_committed === false &&
-        outcome.status === 'COMPLETED'
-      ) {
-        const receipt = await verifyTerminalReceipt(
-          outcome.receipt,
-          tournamentId,
-          settlementMode,
-          observedWinnerId
-        );
-        if (receipt && proposalIdentityIsExact(outcome.receipt)) return receipt;
-        lastFailure = `${lastFailure}; serialized committed receipt was invalid`;
-      } else if (
-        identityIsExact &&
-        outcome.terminal_committed === false &&
-        outcome.definitively_not_committed === true &&
-        (outcome.status === 'RUNNING' || outcome.status === 'COMPLETING') &&
-        outcome.receipt === null
-      ) {
-        throw new TerminalSettlementRefusedError(lastFailure);
-      } else {
-        lastFailure = `${lastFailure}; serialized outcome shape was invalid`;
-      }
-    }
-  } catch (error) {
-    if (
-      error instanceof TerminalSettlementRefusedError ||
-      error instanceof TerminalSettlementDisagreementError
-    ) {
-      throw error;
-    }
-    lastFailure = `${lastFailure}; status check failed: ${errorMessage(error)}`;
+  const resolved = await resolveOriginalTerminalOutcomeWithArgs(
+    originalRequest,
+    proposalRequest ?? request,
+    durable
+  );
+  if (resolved.state === 'committed') return resolved.receipt;
+  if (resolved.state === 'not_committed') {
+    if (durable && !(await closeDurableTerminalRequest(durable)))
+      throw new TerminalSettlementOutcomeUnknownError(
+        'Original terminal request close is unproven',
+        originalRequest
+      );
+    throw new TerminalSettlementRefusedError(lastFailure);
   }
+  if (resolved.error && isTerminalReplayDisagreement(resolved.error)) {
+    return adoptStoredTerminalReceipt(
+      tournamentId,
+      observed,
+      receiptReadAttempts,
+      wait,
+      errorMessage(resolved.error)
+    );
+  }
+  resolverRolledBack = resolved.error ? databaseStatedRollback(resolved.error) : false;
+  lastFailure = `${lastFailure}; serialized outcome check failed: ${resolved.reason}`;
 
   // The resolver was itself refused by the database (the finish lane was held
   // past lock_timeout), and every write attempt before it was answered by the
@@ -762,13 +830,19 @@ export async function requestTournamentTerminalReceipt(
   // authority is idempotent, and a retry that meets a receipt committed by
   // anyone else adopts it. A lost response anywhere, or a resolver that
   // answered with something this request cannot accept, stays unknown.
-  if (attemptedWrites > 0 && unprovenAttempts === 0 && resolverRolledBack) {
+  if (
+    attemptedWrites > 0 &&
+    unprovenAttempts === 0 &&
+    resolverRolledBack &&
+    (!durable || (await closeDurableTerminalRequest(durable)))
+  ) {
     throw new TerminalSettlementRefusedError(
       `${lastFailure}; all ${attemptedWrites} attempt(s) were rolled back by the database, so none committed`
     );
   }
 
   throw new TerminalSettlementOutcomeUnknownError(
-    `Terminal settlement outcome is unknown after ${attemptedWrites} identical attempt(s): ${lastFailure}`
+    `Terminal settlement outcome is unknown after ${attemptedWrites} identical attempt(s): ${lastFailure}`,
+    originalRequest
   );
 }
