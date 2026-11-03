@@ -35,7 +35,9 @@ export function ownerRetirementIntent(input) {
     !UUID.test(input.nonce ?? '') ||
     !UUID.test(input.generation ?? '') ||
     !/^[a-f0-9]{40}$/.test(input.sha ?? '') ||
-    input.sha === 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
+    // Persisting/reading canonical stop intent does not actuate the engine.
+    // Physical acknowledgement still requires the containing new runtime.
+    (input.action === 'owner_ack' && input.sha === 'eed06fe51dea622069c661a6213d5b031ff3a9e3') ||
     !/^[1-9][0-9]*-[0-9a-f]{8}$/.test(input.instance ?? '')
   )
     throw Error('Exact Owner Retirement Manifest And Current Runtime Required');

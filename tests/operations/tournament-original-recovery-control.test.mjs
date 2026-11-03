@@ -1158,6 +1158,7 @@ function retirementFixture({
   changedEvent = false,
   wrongOperation = false,
   changedRuntime = false,
+  servingSha = input.sha,
 } = {}) {
   const calls = [];
   let state = initial;
@@ -1166,7 +1167,12 @@ function retirementFixture({
     if (url.includes('/health'))
       return {
         ok: true,
-        json: async () => ({ ...health, ...(changedRuntime ? { instanceId: '1-deadbeef' } : {}) }),
+        json: async () => ({
+          ...health,
+          releaseSha: servingSha,
+          version: servingSha.slice(0, 8),
+          ...(changedRuntime ? { instanceId: '1-deadbeef' } : {}),
+        }),
       };
     if (url.includes('/tournaments?'))
       return {
@@ -1242,7 +1248,7 @@ function retirementFixture({
     calls,
     run: (action) =>
       controlOriginalRecovery(
-        { ...input, action, tournamentId: retirementMember.tournament_id },
+        { ...input, sha: servingSha, action, tournamentId: retirementMember.tournament_id },
         { fetchImpl, serviceIdentity: privateCanary, supabaseUrl: db }
       ),
   };
@@ -1502,4 +1508,44 @@ test('additional refund cannot enter original140, arbitrary event, legacy mutati
     );
     assert.equal(f.calls.length, 0);
   }
+});
+
+const oldServingSha = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
+test('old exact runtime can persist/read original stop intent but cannot acknowledge custody', async () => {
+  for (const action of ['owner_request', 'owner_read']) {
+    const f = retirementFixture({ servingSha: oldServingSha });
+    assert.equal(
+      (await f.run(action)).outcome,
+      action === 'owner_request' ? 'owner_stop_requested' : 'owner_stop_readback'
+    );
+    assert.equal(
+      f.calls.some((c) => c.url.includes('/admin/')),
+      false
+    );
+  }
+  const f = retirementFixture({ servingSha: oldServingSha, initial: 'stop_requested' });
+  await assert.rejects(f.run('owner_ack'), /Current Runtime Required/);
+  assert.equal(f.calls.length, 0);
+});
+for (const scene of [
+  { stale: true },
+  { changedRuntime: true },
+  { changedEvent: true },
+  { wrongOperation: true, initial: 'stop_requested' },
+])
+  test('old stop request preserves identity refusal ' + JSON.stringify(scene), async () => {
+    const f = retirementFixture({ ...scene, servingSha: oldServingSha });
+    assert.equal((await f.run('owner_request')).outcome, 'unknown');
+    assert.equal(retirementWrites(f).length, 0);
+  });
+test('old runtime remains refused for financial and other runtime controls', () => {
+  for (const action of [
+    'prepare',
+    'abort_ack',
+    'abort_settle',
+    'equal_preview',
+    'equal_settle',
+    'additional_refund_settle',
+  ])
+    assert.throws(() => originalControlIntent({ ...input, action, sha: oldServingSha }));
 });

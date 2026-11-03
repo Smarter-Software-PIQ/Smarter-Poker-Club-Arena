@@ -1,4 +1,5 @@
 name: Explicit Original Recovery And Tournament Closure Control
+run-name: '${{ inputs.action }} / ${{ inputs.tournament_id }} / ${{ inputs.nonce }}'
 on:
   workflow_dispatch:
     inputs:
@@ -33,7 +34,7 @@ on:
         type: string
         required: true
       expected_engine_sha:
-        description: Actually sealed containing full engine SHA, independently verified by operator
+        description: Exact verified serving SHA for owner request/read; sealed containing SHA for runtime or financial actions
         type: string
         required: true
       expected_instance:
