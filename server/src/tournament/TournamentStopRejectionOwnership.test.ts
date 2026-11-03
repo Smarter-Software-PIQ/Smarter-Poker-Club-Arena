@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GameServer } from '../GameServer.js';
 import type { ServerTableEngine } from '../engine/ServerTableEngine.js';
 import { reportError } from '../services/errorReporter.js';
+import { raiseFinancialAlert } from '../services/financialAlerts.js';
+import * as terminalSettlement from './terminalSettlementRpc.js';
 import { TournamentManagerBase } from './TournamentManagerBase.js';
 import { TournamentManagerEliminations } from './TournamentManagerEliminations.js';
 
@@ -44,6 +46,61 @@ class StopHarness extends TournamentManagerBase {
 afterEach(() => vi.restoreAllMocks());
 
 describe('manager owns table stop failures before awaiting another drain', () => {
+  it.each(['MTT', 'SATELLITE', 'DISAGREEMENT'])(
+    'fences %s dealers before awaiting an unavailable alert writer',
+    async (format) => {
+      const manager = new StopHarness(
+        'aaaaaaaa-0000-4000-8000-000000000001',
+        { unregisterTournamentTableEngine: vi.fn() } as unknown as GameServer,
+        'bbbbbbbb-0000-4000-8000-000000000001',
+        performance.now() + 20_000
+      ) as any;
+      manager.running = true;
+      manager.tournamentCache = { tournament_type: format };
+      manager.reportTerminalReceiptDisagreement = (
+        TournamentManagerEliminations.prototype as any
+      ).reportTerminalReceiptDisagreement;
+      manager.processSatelliteAwards = vi.fn().mockRejectedValue(new Error('response lost'));
+      vi.spyOn(terminalSettlement, 'requestTournamentTerminalReceipt').mockRejectedValue(
+        format === 'DISAGREEMENT'
+          ? new terminalSettlement.TerminalSettlementDisagreementError(
+              'stored receipt disagrees',
+              manager.tournamentId,
+              { settlementMode: 'places', winnerId: 'observed' },
+              { settlementMode: 'places', winnerId: 'stored' }
+            )
+          : new terminalSettlement.TerminalSettlementOutcomeUnknownError('response lost')
+      );
+      manager.requestUrgentEliminationSweepAfter = vi.fn();
+      const engine = {
+        stop: vi.fn().mockResolvedValue(undefined),
+        hasReleasedProcessOwnership: () => true,
+      };
+      manager.addEngine(engine);
+      const alert = deferred();
+      vi.mocked(raiseFinancialAlert).mockReturnValueOnce(alert.promise as never);
+      const operation = (TournamentManagerEliminations.prototype as any).finishTournament.call(
+        manager,
+        'aaaaaaaa-0000-4000-8000-000000000002'
+      );
+      const tracked = operation.finally(() => manager.eliminationSchedulerJobs.delete(tracked));
+      manager.eliminationSchedulerJobs.add(tracked);
+      try {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(raiseFinancialAlert).toHaveBeenCalled();
+        expect(manager.running).toBe(false);
+        expect(engine.stop).toHaveBeenCalled();
+        expect(manager.requestUrgentEliminationSweepAfter).not.toHaveBeenCalled();
+      } finally {
+        // The assertion runs while the alert has no response. Release only to
+        // drain the test's actual scheduler-owned stop without leaking work.
+        alert.resolve();
+        await tracked;
+        await manager.stop();
+      }
+    }
+  );
+
   it('unwinds an unknown satellite finish before draining its own scheduler job', async () => {
     const unregister = vi.fn();
     const manager = new StopHarness(
