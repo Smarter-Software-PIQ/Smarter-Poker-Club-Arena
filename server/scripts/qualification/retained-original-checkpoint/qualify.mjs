@@ -1,6 +1,7 @@
 /** Exact historical-runtime fixture qualification; no installation or host transport. */
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { runOwnedCommand } from './owned-command.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -18,17 +19,23 @@ const ROOT = resolve(HERE, '../../../..');
 const EED = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
 const nativeImage = process.argv.find((x) => x.startsWith('--native-census-image='))?.split('=')[1];
 const nativeAddon = process.argv.find((x) => x.startsWith('--native-census-addon='))?.split('=')[1];
-if (process.argv.slice(2).some((x) => !/^--native-census-(?:image|addon)=/.test(x)) ||
-    (nativeImage && nativeAddon) || (nativeImage && !/^sha256:[0-9a-f]{64}$/.test(nativeImage)) ||
-    (nativeAddon && !isAbsolute(nativeAddon))) throw Error('Invalid native composition input');
+if (
+  process.argv.slice(2).some((x) => !/^--native-census-(?:image|addon)=/.test(x)) ||
+  (nativeImage && nativeAddon) ||
+  (nativeImage && !/^sha256:[0-9a-f]{64}$/.test(nativeImage)) ||
+  (nativeAddon && !isAbsolute(nativeAddon))
+)
+  throw Error('Invalid native composition input');
 const nativeMode = Boolean(nativeImage || nativeAddon);
-const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 120000);
-const CASES = nativeMode ? ['RetainedWholeGuard.test.ts'] : [
-  'RetainedOriginalCheckpointProbe.test.ts',
-  'RetainedOriginalResumeCapture.test.ts',
-  'CashMaintenanceParkCapture.test.ts',
-  'RetainedWholeGuard.test.ts',
-];
+const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 240000);
+const CASES = nativeMode
+  ? ['RetainedWholeGuard.test.ts']
+  : [
+      'RetainedOriginalCheckpointProbe.test.ts',
+      'RetainedOriginalResumeCapture.test.ts',
+      'CashMaintenanceParkCapture.test.ts',
+      'RetainedWholeGuard.test.ts',
+    ];
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 function need(value, reason) {
   if (!value) throw new Error(reason);
@@ -40,10 +47,23 @@ function isolatedEnvironment(extra = {}) {
   for (const name of Object.keys(env)) if (name.startsWith('GIT_')) delete env[name];
   return { ...env, GIT_NO_LAZY_FETCH: '1', ...extra };
 }
-function run(program, args, cwd, timeout = 120000, extraEnv = {}) {
+function run(program, args, cwd, timeout = 240000, extraEnv = {}) {
   const remaining = Math.floor(qualificationDeadline - performance.now());
   need(remaining > 0, 'historical qualification total budget exhausted');
-  const result = spawnSync(program, args, {
+  const phase = args.includes('--reporter=json')
+    ? 'fixture-execution'
+    : args.some((x) => x.endsWith('typescript/bin/tsc'))
+      ? 'historical-compile'
+      : program;
+  const started = performance.now();
+  console.error(
+    JSON.stringify({
+      historicalQualificationPhase: phase,
+      state: 'started',
+      remainingMs: remaining,
+    })
+  );
+  const result = runOwnedCommand(program, args, {
     cwd,
     encoding: 'utf8',
     timeout: Math.min(timeout, remaining),
@@ -55,11 +75,27 @@ function run(program, args, cwd, timeout = 120000, extraEnv = {}) {
       ...extraEnv,
     },
   });
+  console.error(
+    JSON.stringify({
+      historicalQualificationPhase: phase,
+      state: 'returned',
+      elapsedMs: Math.round(performance.now() - started),
+      status: result.status,
+      signal: result.signal,
+      errorCode: result.error?.code ?? null,
+    })
+  );
+  if (args.includes('--reporter=verbose')) console.error((result.stdout ?? '').slice(-24000));
   if (result.status !== 0 && args.includes('--reporter=json')) {
     const codes = [...new Set((result.stdout ?? '').match(/retained_[a-z_]+/g) ?? [])];
     let cases = [];
     try {
-      const report = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      const jsonFile = args
+        .find((arg) => arg.startsWith('--outputFile.json='))
+        ?.slice('--outputFile.json='.length);
+      const reportText =
+        jsonFile && existsSync(jsonFile) ? readFileSync(jsonFile, 'utf8') : result.stdout;
+      const report = JSON.parse(reportText.slice(reportText.indexOf('{')));
       cases = (report.testResults ?? [])
         .filter((row) => row.status !== 'passed')
         .map((row) => ({
@@ -165,14 +201,34 @@ try {
   for (const name of CASES) copyFileSync(join(HERE, name), join(server, 'src/engine', name));
   const fixtureEnv = {
     GIT_COMMIT_SHA: EED,
-    RETAINED_CHECKPOINT_GUARD_URL: new URL('../../retained-original-checkpoint-guard.mjs', import.meta.url).href,
+    RETAINED_CHECKPOINT_GUARD_URL: new URL(
+      '../../retained-original-checkpoint-guard.mjs',
+      import.meta.url
+    ).href,
     RETAINED_CHECKPOINT_DIST_ROOT: join(server, 'dist'),
-    RETAINED_NATIVE_CENSUS_ADDON: nativeMode ? (nativeImage ? '/app/native/legacy-census/legacy-census.node' : nativeAddon) : '',
-    RETAINED_NATIVE_CENSUS_TRANSPORT_URL: nativeMode ? new URL('../../legacy-engine-checkpoint.mjs', import.meta.url).href : '',
+    RETAINED_NATIVE_CENSUS_ADDON: nativeMode
+      ? nativeImage
+        ? '/app/native/legacy-census/legacy-census.node'
+        : nativeAddon
+      : '',
+    RETAINED_NATIVE_CENSUS_TRANSPORT_URL: nativeMode
+      ? new URL('../../legacy-engine-checkpoint.mjs', import.meta.url).href
+      : '',
   };
-  const fixtureArgs = [join(serverDependencies, 'vitest/vitest.mjs'), 'run',
-    ...CASES.map((name) => 'src/engine/' + name), '--cache=false', '--reporter=json',
-    ...(nativeMode ? ['--testNamePattern=whole guard uses actual EED owners: detached-(drained|job-during-await)$'] : [])];
+  const reportPath = join(folder, 'fixture-results.json');
+  const fixtureArgs = [
+    join(serverDependencies, 'vitest/vitest.mjs'),
+    'run',
+    ...CASES.map((name) => 'src/engine/' + name),
+    '--cache=false',
+    '--reporter=json',
+    ...(!nativeMode ? ['--reporter=verbose', '--silent', '--outputFile.json=' + reportPath] : []),
+    ...(nativeMode
+      ? [
+          '--testNamePattern=whole guard uses actual EED owners: detached-(drained|job-during-await)$',
+        ]
+      : []),
+  ];
   let output;
   if (nativeImage) {
     const container = `eed-native-guard-${process.pid}`;
@@ -186,36 +242,77 @@ try {
     symlinkSync(join(server, 'src'), join(nativeScratch, 'src'), 'dir');
 
     try {
-      output = run('docker', ['run', '--rm', '--name', container, '--network', 'none',
-        '--memory', '2g', '--memory-swap', '2g', '--read-only',
-        '--mount', `type=bind,src=${ROOT},dst=${ROOT},readonly`,
-        '--mount', `type=bind,src=${serverDependencies},dst=${serverDependencies},readonly`,
-        '--mount', `type=bind,src=${folder},dst=${folder},readonly`,
-        '--mount', `type=bind,src=${nativeScratch},dst=${nativeScratch}`,
-        '--workdir', server, '--env', `TMPDIR=${nativeScratch}`,
-        '--env', 'SUPABASE_URL=https://supabase.invalid',
-        '--env', 'SUPABASE_SERVICE_ROLE_KEY=unit-test-placeholder-key',
-        ...Object.entries(fixtureEnv).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
-        '--entrypoint', 'node', nativeImage, '--max-old-space-size=512', ...fixtureArgs,
-        '--config', nativeConfig], server, 60000);
+      output = run(
+        'docker',
+        [
+          'run',
+          '--rm',
+          '--name',
+          container,
+          '--network',
+          'none',
+          '--memory',
+          '2g',
+          '--memory-swap',
+          '2g',
+          '--read-only',
+          '--mount',
+          `type=bind,src=${ROOT},dst=${ROOT},readonly`,
+          '--mount',
+          `type=bind,src=${serverDependencies},dst=${serverDependencies},readonly`,
+          '--mount',
+          `type=bind,src=${folder},dst=${folder},readonly`,
+          '--mount',
+          `type=bind,src=${nativeScratch},dst=${nativeScratch}`,
+          '--workdir',
+          server,
+          '--env',
+          `TMPDIR=${nativeScratch}`,
+          '--env',
+          'SUPABASE_URL=https://supabase.invalid',
+          '--env',
+          'SUPABASE_SERVICE_ROLE_KEY=unit-test-placeholder-key',
+          ...Object.entries(fixtureEnv).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
+          '--entrypoint',
+          'node',
+          nativeImage,
+          '--max-old-space-size=512',
+          ...fixtureArgs,
+          '--config',
+          nativeConfig,
+        ],
+        server,
+        60000
+      );
     } finally {
       // An expired Docker client is not evidence that its child stopped.
-      spawnSync('docker', ['rm', '--force', container], { timeout:5000, encoding:'utf8' });
-      const state = spawnSync('docker', ['inspect', container], { timeout:5000, encoding:'utf8' });
-      need(!state.error && state.status === 1 && /No such (?:container|object)/i.test(state.stderr ?? ''),
-        'native guard fixture cleanup unconfirmed');
+      spawnSync('docker', ['rm', '--force', container], { timeout: 5000, encoding: 'utf8' });
+      const state = spawnSync('docker', ['inspect', container], {
+        timeout: 5000,
+        encoding: 'utf8',
+      });
+      need(
+        !state.error &&
+          state.status === 1 &&
+          /No such (?:container|object)/i.test(state.stderr ?? ''),
+        'native guard fixture cleanup unconfirmed'
+      );
     }
-  } else output = run(process.execPath, fixtureArgs, server, nativeMode ? 60000 : 120000, fixtureEnv);
+  } else
+    output = run(process.execPath, fixtureArgs, server, nativeMode ? 60000 : 240000, fixtureEnv);
+  if (!nativeMode) output = readFileSync(reportPath, 'utf8');
   const start = output.indexOf('{');
   need(start >= 0, 'native fixture result unavailable');
   const result = JSON.parse(output.slice(start));
   need(
     result.success === true &&
-      result.numTotalTests === (nativeMode ? 25 : 33) &&
-      result.numPassedTests === (nativeMode ? 2 : 33) &&
-      (!nativeMode || result.numPendingTests === 23) &&
+      result.numTotalTests === (nativeMode ? 36 : 44) &&
+      result.numPassedTests === (nativeMode ? 2 : 44) &&
+      (!nativeMode || result.numPendingTests === 34) &&
       result.numFailedTests === 0,
-    nativeMode ? 'both actual native census/EED guard cases must pass' : 'all thirty-three exact EED fixture cases must actually pass'
+    nativeMode
+      ? 'both actual native census/EED guard cases must pass'
+      : 'all forty-four exact EED fixture cases must actually pass'
   );
   need(
     hash(readFileSync(guardPath)) === hash(guardBytes),
@@ -228,7 +325,9 @@ try {
   console.log(
     JSON.stringify(
       {
-        schema: nativeMode ? 'exact-eed-native-census-guard-qualification/v1' : 'exact-eed-checkpoint-qualification/v1',
+        schema: nativeMode
+          ? 'exact-eed-native-census-guard-qualification/v1'
+          : 'exact-eed-checkpoint-qualification/v1',
         nativeImage: nativeImage ?? null,
         nativeAddon: nativeAddon ?? null,
         readOnlyProduction: true,
@@ -239,11 +338,18 @@ try {
         actualTests: result.numTotalTests,
         passedTests: result.numPassedTests,
         skippedTests: result.numPendingTests,
-        ...(nativeMode ? {cases: result.testResults.flatMap(row => row.assertionResults)
-          .filter(row => row.status !== 'skipped').map(row => ({name:row.fullName,status:row.status}))} : {}),
+        ...(nativeMode
+          ? {
+              cases: result.testResults
+                .flatMap((row) => row.assertionResults)
+                .filter((row) => row.status !== 'skipped')
+                .map((row) => ({ name: row.fullName, status: row.status })),
+            }
+          : {}),
         status: 'passed',
-        limitation: nativeMode ? 'isolated native census and historical guard; no production invocation' :
-          'isolated historical native behavior; no production or checkpoint invocation',
+        limitation: nativeMode
+          ? 'isolated native census and historical guard; no production invocation'
+          : 'isolated historical native behavior; no production or checkpoint invocation',
       },
       null,
       2

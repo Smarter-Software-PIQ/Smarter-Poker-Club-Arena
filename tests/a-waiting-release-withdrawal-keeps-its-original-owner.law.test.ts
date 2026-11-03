@@ -2,8 +2,27 @@ import { spawnSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { expect, it } from 'vitest';
+import { beforeAll, expect, it } from 'vitest';
 import { parse } from 'yaml';
+
+// Fixture transport is explicit preparation, separate from the unchanged
+// network-free behavior deadline. The helper kills its owned transport group
+// within90seconds; the outer process/hook retain cleanup/reporting headroom.
+beforeAll(() => {
+  const prepared = spawnSync(
+    'python3',
+    ['-B', 'tests/operations/waiting-engine-release-withdrawal.test.py', '--prepare-history'],
+    {
+      cwd: resolve(import.meta.dirname, '..'),
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+      encoding: 'utf8',
+      timeout: 95000,
+    }
+  );
+  expect(prepared.error, prepared.stdout + prepared.stderr).toBeUndefined();
+  expect(prepared.signal, prepared.stdout + prepared.stderr).toBeNull();
+  expect(prepared.status, prepared.stdout + prepared.stderr).toBe(0);
+}, 100000);
 
 it(
   'qualifies exact waiting attempt admission and its original terminal signal boundary',
@@ -37,7 +56,7 @@ it(
         }
       );
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(result.stderr).toContain('Ran 64 tests');
+      expect(result.stderr).toContain('Ran 65 tests');
       expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
       const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
         env: cleanEnv,
@@ -75,6 +94,11 @@ it('keeps the revoked off-cycle owner order closed', () => {
 });
 
 it('withdrawal qualification reads its pinned original generation from full protected history', () => {
+  const hydration = readFileSync(
+    resolve(import.meta.dirname, 'operations/pinned-history-sources.py'),
+    'utf8'
+  );
+  expect(hydration).toContain("GIT_NO_LAZY_FETCH='1'");
   const workflow = parse(
     readFileSync(
       resolve(import.meta.dirname, '../.github/workflows/auto-deploy-hetzner.yml'),
@@ -100,7 +124,12 @@ it('withdrawal qualification reads its pinned original generation from full prot
       '-e',
       'bd11ad35ca27843fd2f4910e5a8fc6a76d8c9d4e:server/release/activation-floor.json',
     ],
-    { cwd: resolve(import.meta.dirname, '..'), encoding: 'utf8' }
+    {
+      cwd: resolve(import.meta.dirname, '..'),
+      env: { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' },
+      encoding: 'utf8',
+      timeout: 10000,
+    }
   );
   expect(original.status, original.stderr).toBe(0);
 });

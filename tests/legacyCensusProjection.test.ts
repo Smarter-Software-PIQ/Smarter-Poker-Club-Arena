@@ -9,12 +9,46 @@ import {
   readLegacyCensusMemory,
   legacyCensusMemoryAdmission,
   projectLegacyCensus,
+  readLegacyCensusOverflow,
   bindLegacyCensusModules,
   collectMarkedLegacyCensus,
   retireLegacyCensusBinding,
 } from '../server/scripts/legacy-engine-checkpoint.mjs';
 
 describe('legacy native heap census projection', () => {
+  it('accepts only closed bounded overflow counts, never arbitrary target data', () => {
+    const value = (counts: unknown, extra = {}) => ({
+      type: 'string',
+      value: JSON.stringify({ schema: 'legacy-native-census-overflow/v1', counts, ...extra }),
+    });
+    expect(readLegacyCensusOverflow(value([1, 2, 17996, 2, 2]))).toEqual({
+      schema: 'legacy-native-census-counts/v1',
+      gameServers: 1,
+      tableEngines: 2,
+      tournamentManagers: 17996,
+      lightningWorkers: 2,
+      lightningHosts: 2,
+    });
+    for (const counts of [
+      [1, 2, 17993, 2, 2],
+      [1, 2, 22097, 2, 2],
+      [1, 2, 22096, 2, 2],
+      [1, 2, -1, 2, 2],
+      [1, 2, 2003.5, 2, 2],
+      [1, 2, '2003', 2, 2],
+      [1, 2, 2003, 2],
+      null,
+    ])
+      expect(readLegacyCensusOverflow(value(counts))).toBeNull();
+    expect(
+      readLegacyCensusOverflow(value([1, 2, 17996, 2, 2], { privatePayload: 'secret' }))
+    ).toBeNull();
+    expect(readLegacyCensusOverflow({ type: 'string', value: 'invalid' })).toBeNull();
+    expect(
+      readLegacyCensusOverflow({ type: 'object', value: value([1, 2, 17996, 2, 2]).value })
+    ).toBeNull();
+  });
+
   it('matches five native concrete identity sets using one bounded marked census without invoking traps', () => {
     const result = spawnSync(
       process.execPath,
@@ -205,9 +239,22 @@ describe('legacy native heap census projection', () => {
     );
     expect(clockReads).toBe(2);
     const excess = Array.from({ length: 4001 }, () => new roots[1]());
-    expect(() => projectLegacyCensus.call(excess, modules, Date.now() + 5000)).toThrow(
-      'native census count refused'
-    );
+    const projected = projectLegacyCensus.call(excess, modules, Date.now() + 5000);
+    expect(projected[1]).toEqual(excess);
+    const mixed = [
+      ...Array.from({ length: 9000 }, () => new roots[1]()),
+      ...Array.from({ length: 9000 }, () => new roots[2]()),
+      new roots[0](),
+    ];
+    const overflow = projectLegacyCensus.call(mixed, modules, Date.now() + 5000);
+    expect(typeof overflow).toBe('string');
+    expect(JSON.parse(overflow)).toEqual({
+      schema: 'legacy-native-census-overflow/v1',
+      counts: [1, 9000, 9000, 0, 0],
+    });
+    expect(() =>
+      projectLegacyCensus.call(Array(22097).fill(excess[0]), modules, Date.now() + 5000)
+    ).toThrow('native census count refused');
   });
 
   it('stops walking at EventEmitter.prototype so unrelated EventEmitters are not marked while EventEmitter subclasses still match', () => {

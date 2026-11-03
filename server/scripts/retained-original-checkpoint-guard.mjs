@@ -162,7 +162,6 @@ export async function retainedOriginalCheckpointGuard(
               : x
     );
   const equal = (a, b) => encode(a) === encode(b);
-  const sameMembers = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
   const all = async (items, work) => {
     // Bound simultaneous native reads without truncating the census. Each item
     // executes once. Every initiated operation is joined, including refusals.
@@ -199,6 +198,17 @@ export async function retainedOriginalCheckpointGuard(
         discoveredServers[0] === this &&
         Object.getPrototypeOf(this) === modules.gameServer.GameServer.prototype,
       'retained_server_census_unproven'
+    );
+    const censusGroups = [
+      discoveredEngines,
+      discoveredManagers,
+      discoveredLightningWorkers,
+      discoveredLightningHosts,
+    ];
+    need(
+      censusGroups.every(Array.isArray) &&
+        censusGroups.reduce((sum, group) => sum + group.length, discoveredServers.length) <= 18000,
+      'retained_aggregate_census_unproven'
     );
     for (const [path, hash] of pins) {
       const bytes = modules.fs.readFileSync(path);
@@ -239,7 +249,6 @@ export async function retainedOriginalCheckpointGuard(
       lightningFormations = lightningGate.entries;
     need(
       Array.isArray(discoveredLightningWorkers) &&
-        discoveredLightningWorkers.length <= 4000 &&
         new Set(discoveredLightningWorkers).size === discoveredLightningWorkers.length &&
         lightningWorkerEntries.every(([, worker]) => discoveredLightningWorkers.includes(worker)),
       'retained_lightning_census_unproven'
@@ -250,8 +259,11 @@ export async function retainedOriginalCheckpointGuard(
     // released, timer-free, and absent from pending/room registries.
     need(
       Array.isArray(discoveredLightningHosts) &&
-        discoveredLightningHosts.length <= 4000 &&
-        new Set(discoveredLightningHosts).size === discoveredLightningHosts.length &&
+        new Set(discoveredLightningHosts).size === discoveredLightningHosts.length,
+      'retained_lightning_host_census_unproven'
+    );
+    const proveLightningHosts = () =>
+      need(
         discoveredLightningHosts.every(
           (host) =>
             host &&
@@ -269,9 +281,10 @@ export async function retainedOriginalCheckpointGuard(
             !lightningPending.has(host) &&
             !lightningHosts.has(host.instanceId)
         ),
-      'retained_lightning_host_census_unproven'
-    );
-    const proveLightningAbsent = () => {
+        'retained_lightning_host_census_unproven'
+      );
+    proveLightningHosts();
+    const proveLightningAbsent = (completeOwners = false) => {
       // Room hosts and forming calls are separate from classic table engines.
       // Inspect their native owners without aborting a hand or expiring an
       // unknown formation request through the gate's mutating check().
@@ -305,17 +318,18 @@ export async function retainedOriginalCheckpointGuard(
       // A removed worker can outlive its bounded stop while still awaiting
       // a pre-formation read. Its gate may still be empty. The concrete V8
       // census, rather than the supervisor registry, owns this absence proof.
-      for (const worker of discoveredLightningWorkers)
-        need(
-          Object.getPrototypeOf(worker) ===
-            modules.lightningWorker.LightningClusterWorker.prototype &&
-            worker.frozen === modules.freezeState.isMaintenanceFrozen &&
-            worker.gate === lightningGate &&
-            worker.inFlight === null &&
-            worker.aaInFlight === null &&
-            worker.pendingRequestId === null,
-          'retained_lightning_formation_unproven'
-        );
+      if (completeOwners)
+        for (const worker of discoveredLightningWorkers)
+          need(
+            Object.getPrototypeOf(worker) ===
+              modules.lightningWorker.LightningClusterWorker.prototype &&
+              worker.frozen === modules.freezeState.isMaintenanceFrozen &&
+              worker.gate === lightningGate &&
+              worker.inFlight === null &&
+              worker.aaInFlight === null &&
+              worker.pendingRequestId === null,
+            'retained_lightning_formation_unproven'
+          );
     };
     need(
       Object.getPrototypeOf(maintenance) === modules.maintenance.MaintenanceBreak.prototype,
@@ -323,13 +337,11 @@ export async function retainedOriginalCheckpointGuard(
     );
     need(
       Array.isArray(discoveredEngines) &&
-        discoveredEngines.length <= 4000 &&
         new Set(discoveredEngines).size === discoveredEngines.length,
       'retained_object_census_unproven'
     );
     need(
       Array.isArray(discoveredManagers) &&
-        discoveredManagers.length <= 2000 &&
         new Set(discoveredManagers).size === discoveredManagers.length,
       'retained_manager_census_unproven'
     );
@@ -485,6 +497,8 @@ export async function retainedOriginalCheckpointGuard(
     const directEntries = [...direct],
       managerEntries = [...managers],
       liveEntries = [...liveMap];
+    const directSnapshot = new Map(directEntries),
+      managerSnapshot = new Set(managerEntries.map(([, manager]) => manager));
     const objects = new Set(discoveredEngines);
     const methods = new Map();
     const bindMethods = (target, names, tournamentId, leaseGeneration) => {
@@ -526,8 +540,9 @@ export async function retainedOriginalCheckpointGuard(
         names.map((n) => [n, target[n]])
       );
     };
-    const checkMaintenance = () => {
-      proveLightningAbsent();
+    const checkMaintenance = (completeOwners = false) => {
+      proveLightningAbsent(completeOwners);
+      if (completeOwners) proveLightningHosts();
       need(
         modules.dataActorContext.currentTournamentDataAuthority() === null,
         'retained_process_actor_unproven'
@@ -569,14 +584,10 @@ export async function retainedOriginalCheckpointGuard(
         'retained_reserve_exhausted'
       );
       need(
-        [...direct].every(([id, e]) =>
-          directEntries.some(([oldId, old]) => id === oldId && e === old)
-        ) &&
+        [...direct].every(([id, e]) => directSnapshot.has(id) && directSnapshot.get(id) === e) &&
           (stage !== 'preflight' || direct.size === directEntries.length) &&
-          sameMembers(
-            [...managers].map(([k, v]) => v),
-            managerEntries.map(([k, v]) => v)
-          ),
+          managers.size === managerEntries.length &&
+          [...managers.values()].every((manager) => managerSnapshot.has(manager)),
         'retained_registry_changed'
       );
       need(
@@ -587,21 +598,25 @@ export async function retainedOriginalCheckpointGuard(
         need(
           m.tableEngines === c.map &&
             m.tournamentLeaseGeneration === c.generation &&
-            [...c.map].every(([id, e]) =>
-              c.entries.some(([oldId, old]) => id === oldId && e === old)
-            ) &&
+            [...c.map].every(([id, e]) => c.snapshot.has(id) && c.snapshot.get(id) === e) &&
             (stage !== 'preflight' || c.map.size === c.entries.length),
           'retained_manager_children_changed'
         );
       }
-      for (const [m] of managerWitnesses) proveRetiredManager(m);
-      for (const [target, rows] of methods)
-        need(
-          rows.every(([n, f]) => target[n] === f),
-          'retained_method_changed'
-        );
     };
-    checkMaintenance();
+    const checkMethods = (target) => {
+      const rows = methods.get(target);
+      need(rows && rows.every(([n, f]) => target[n] === f), 'retained_method_changed');
+    };
+    const checkAllOwners = () => {
+      // Detached witnesses cannot authorize a write. Revalidate the complete
+      // census synchronously at phase boundaries, before the first checkpoint
+      // mutation and at final readback, rather than once per unrelated owner.
+      checkMaintenance(true);
+      for (const target of methods.keys()) checkMethods(target);
+      for (const [m] of managerWitnesses) proveRetiredManager(m);
+    };
+    checkAllOwners();
     for (const m of discoveredManagers) {
       need(
         m instanceof modules.managerBase.TournamentManagerBase &&
@@ -625,6 +640,7 @@ export async function retainedOriginalCheckpointGuard(
     await all(discoveredManagers, async (m) => {
       await moveWitnesses.get(m).tail;
       checkMaintenance();
+      checkMethods(m);
       proveManagerAuthorities(m);
       if (!managerEntries.some(([, current]) => current === m)) proveRetiredManager(m);
     });
@@ -658,6 +674,7 @@ export async function retainedOriginalCheckpointGuard(
       managerChildren.set(m, {
         map: m.tableEngines,
         entries: [...m.tableEngines],
+        snapshot: new Map(m.tableEngines),
         generation: m.tournamentLeaseGeneration,
       });
       for (const [tableId, e] of m.tableEngines) {
@@ -789,9 +806,11 @@ export async function retainedOriginalCheckpointGuard(
           e,
           original: e.pendingOriginalContinuation,
           packet: e.pendingOriginalContinuation
-            ? modules.privateContinuation.encodePrivateHandContinuation(
-                e.pendingOriginalContinuation
-              )
+            ? {
+                sha256: modules.privateContinuation.encodePrivateHandContinuation(
+                  e.pendingOriginalContinuation
+                ).sha256,
+              }
             : null,
           lane: e.handContinuation,
           tail: e.handContinuation?.tail,
@@ -871,7 +890,7 @@ export async function retainedOriginalCheckpointGuard(
           'retained_bank_unknown'
         );
       const packet = original
-        ? modules.privateContinuation.encodePrivateHandContinuation(original)
+        ? { sha256: modules.privateContinuation.encodePrivateHandContinuation(original).sha256 }
         : null;
       captures.push({
         e,
@@ -894,6 +913,7 @@ export async function retainedOriginalCheckpointGuard(
         .eq('table_id', c.e.tableId)
         .maybeSingle();
       checkMaintenance();
+      checkMethods(c.e);
       need(!q?.error, 'retained_native_park_unreadable');
       return q.data;
     };
@@ -971,6 +991,7 @@ export async function retainedOriginalCheckpointGuard(
           })
       )();
       checkMaintenance();
+      checkMethods(c.e);
       const r = response?.data;
       need(
         !response?.error &&
@@ -995,6 +1016,8 @@ export async function retainedOriginalCheckpointGuard(
     };
     await all(captures, async (c) => {
       await attest(c);
+      checkMaintenance();
+      checkMethods(c.e);
       // Cash stop disposes banks instead of creating stopped custody. Only its
       // already-completed canonical maintenance park can authorize that stop.
       // The same proof is mandatory for zero-bank nonempty presence, whose
@@ -1016,6 +1039,7 @@ export async function retainedOriginalCheckpointGuard(
     await all(shadows, async (s) => {
       if (s.tail) await s.tail;
       checkMaintenance();
+      checkMethods(s.e);
       noWork(s.e);
       need(
         s.e.pendingOriginalContinuation === s.original &&
@@ -1068,6 +1092,7 @@ export async function retainedOriginalCheckpointGuard(
         .eq('hand_number', s.handNumber)
         .maybeSingle();
       checkMaintenance();
+      checkMethods(s.e);
       need(
         !commit?.error &&
           commit?.data?.hand_id &&
@@ -1083,6 +1108,7 @@ export async function retainedOriginalCheckpointGuard(
         .eq('id', commit.data.hand_id)
         .maybeSingle();
       checkMaintenance();
+      checkMethods(s.e);
       need(
         !history?.error && history?.data?.id === commit.data.hand_id,
         'retained_shadow_history_unproven'
@@ -1090,7 +1116,7 @@ export async function retainedOriginalCheckpointGuard(
     });
     // Recheck every original and every physical owner synchronously BEFORE the
     // first fence. No async gap may allow an accepted mutation to disappear.
-    checkMaintenance();
+    checkAllOwners();
     for (const c of captures) {
       noWork(c.e);
       const freshAuthority = c.e.getEngineLeaseAuthority(),
@@ -1158,7 +1184,7 @@ export async function retainedOriginalCheckpointGuard(
       );
     }
     for (const m of discoveredManagers) proveManagerAuthorities(m);
-    checkMaintenance();
+    checkAllOwners();
     stage = 'checkpoint';
     attemptedTables = captures.length;
     // Calling the real manager stop fences its scheduler and every exact child
@@ -1178,16 +1204,23 @@ export async function retainedOriginalCheckpointGuard(
         revision = m.tournamentSeatMoveAuthorityRevision;
       await tail;
       checkMaintenance();
+      checkMethods(m);
       moveWitnesses.set(m, { tail, revision });
       proveRetiredManager(m);
     }
     await all(captures, async (c) => {
+      checkMaintenance();
+      checkMethods(c.e);
       noWork(c.e);
       need(
         c.e.terminalTeardownComplete === true && c.e.hasReleasedProcessOwnership() === true,
         'retained_stop_custody_unproven'
       );
-      if (!owned.get(c.e)) await c.e.persistStoppedTimeBankCustody();
+      if (!owned.get(c.e)) {
+        await c.e.persistStoppedTimeBankCustody();
+        checkMaintenance();
+        checkMethods(c.e);
+      }
       need(c.e.hasUnretiredStoppedTimeBankCustody() === false, 'retained_stop_custody_unproven');
       if (c.packet) {
         need(
@@ -1217,7 +1250,7 @@ export async function retainedOriginalCheckpointGuard(
       }
       verifiedTables++;
     });
-    checkMaintenance();
+    checkAllOwners();
     for (const s of shadows) noWork(s.e);
     need(
       base.liveEngines.size === 0 &&
