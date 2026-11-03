@@ -130,9 +130,9 @@ describe('TablePage wiring', () => {
 describe('a background table never puts a picker on your screen', () => {
   const src = read('src/pages/TablePage.tsx');
 
-  it('gates the picker on isActive', () => {
+  it('gates the picker on isActive and an active leave intent', () => {
     expect(sliceStatement(src, '<PineappleDiscard')).toContain(
-      'isOpen={isActive && !!heroPineappleCards}'
+      'isOpen={isActive && !leaveAttentionSuppressed && !!heroPineappleCards}'
     );
   });
 
