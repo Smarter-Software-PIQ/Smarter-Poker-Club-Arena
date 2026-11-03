@@ -27,15 +27,19 @@ export function horseCashGameAllowed(
     return false;
   const sb = Number(table.small_blind);
   const bb = Number(table.big_blind);
-  // Owner November 2: every horse cash variant has the same actual-blind ceiling.
+  // Owner November 3: NLH/PLO through 1/2; fixed limit through 5/10 blinds.
+  const fixedLimit = variant === 'flh' || variant === 'flo8';
+  const standard = ['nlh', 'plo', 'plo4', 'plo5', 'plo6'].includes(variant);
+  const maxSb = fixedLimit ? 5 : standard ? 1 : 0.5;
+  const maxBb = fixedLimit ? 10 : standard ? 2 : 1;
   // Callers apply this only to horse admission/departure, never human access.
   return (
     Number.isFinite(bb) &&
     bb > 0 &&
-    bb <= 1 &&
+    bb <= maxBb &&
     table.small_blind != null &&
     Number.isFinite(sb) &&
     sb >= 0 &&
-    sb <= 0.5
+    sb <= maxSb
   );
 }

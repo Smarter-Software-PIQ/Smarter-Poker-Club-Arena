@@ -1576,6 +1576,12 @@ jobs:
           python3 -B scripts/ci/test-horse-turn-census-packet.py
           node --test tests/operations/horse-turn-census-transport.test.mjs
           python3 -B scripts/ci/test-horse-turn-census-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
+      - name: Fixed-limit blinds and uncapped buy-ins use the original cash owners
+        if: matrix.shard == 3
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-fixed-limit-policy-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
+
       - name: Runtime privilege changes preserve the schema DDL boundary
         if: matrix.shard == 4
         env:
