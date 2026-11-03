@@ -38,6 +38,17 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+          # Admission imports only this source closure. Full Git history remains
+          # available for immutable producer controls, shard plans and ancestry.
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/publisher-client-singleflight.mjs
+            /scripts/ci/production-e2e-provenance.mjs
+            /scripts/ci/publisher-verdict-receipt.mjs
+            /scripts/ci/publisher-job-identity.mjs
+            /scripts/ci/publisher-client-shards.mjs
+            /scripts/ci/classify-ci-changes.mjs
+            /scripts/ci/repository-identity.mjs
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
