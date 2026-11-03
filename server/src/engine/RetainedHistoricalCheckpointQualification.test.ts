@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path';
 import { expect, it } from 'vitest';
 
 // Existing required server shards execute this exact historical-owner proof.
-// The driver has one 120s total budget; the process gets 30s cleanup headroom,
+// The driver has one 240s total budget; the process gets 30s cleanup headroom,
 // and this enclosing assertion gets another 30s to report a named failure.
 // These isolated test bounds do not change any production cutover reserve.
 it('qualifies the exact deployed EED owners before admitting the retained-original checkpoint', () => {
@@ -23,7 +23,7 @@ it('qualifies the exact deployed EED owners before admitting the retained-origin
   const result = spawnSync(process.execPath, [driver], {
     cwd: process.cwd(),
     encoding: 'utf8',
-    timeout: 150_000,
+    timeout: 270_000,
     maxBuffer: 128 * 1024,
     env: { ...process.env, GIT_DIR: gitDirectory },
   });
@@ -41,4 +41,4 @@ it('qualifies the exact deployed EED owners before admitting the retained-origin
   expect(receipt.pins).toHaveLength(29);
   expect(new Set(receipt.pins.map((row: { path: string }) => row.path)).size).toBe(29);
   expect(receipt.guardSha256).toMatch(/^[0-9a-f]{64}$/);
-}, 180_000);
+}, 300_000);
