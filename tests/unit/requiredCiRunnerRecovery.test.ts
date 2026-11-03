@@ -155,6 +155,38 @@ const normalizeStallProgressAddition = (job: { steps: Array<Record<string, unkno
   job.steps.splice(index, 1);
 };
 
+const undrawnSpinSteps = [
+  {
+    name: 'Undrawn Spin cancellation returns exact gross entries atomically',
+    if: 'matrix.shard == 4',
+    run: 'python3 -B scripts/ci/test-undrawn-spin-cancellation.py \\\n  --evidence artifacts/undrawn-spin-cancellation \\\n  --work-root "$RUNNER_TEMP/undrawn-spin-work" \\\n  --socket-root "$RUNNER_TEMP/undrawn-spin-socket" \\\n  --pg-bin /usr/lib/postgresql/17/bin\n',
+  },
+  {
+    name: 'Retain undrawn Spin cancellation evidence',
+    if: 'always() && matrix.shard == 4',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'undrawn-spin-cancellation-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: 'artifacts/undrawn-spin-cancellation/',
+      'retention-days': 7,
+      'if-no-files-found': 'error',
+    },
+  },
+];
+const normalizeUndrawnSpinAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === undrawnSpinSteps[0].name);
+  for (const step of undrawnSpinSteps)
+    expect(job.steps.filter((actual) => actual.name === step.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe(
+    'Cancellation admission cannot queue ahead of unrelated hands'
+  );
+  expect(job.steps.slice(start, start + 2)).toStrictEqual(undrawnSpinSteps);
+  expect(job.steps[start + 2]?.name).toBe(
+    'Retain cancellation admission and funded rollback evidence'
+  );
+  job.steps.splice(start, 2);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -402,6 +434,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       delete selected[0].if;
     }
     delete normalized.jobs['css-beats-build'];
+    normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);
     normalizeMysteryAwardOrderAddition(normalized.jobs.accounting_postgres);
     normalizeFrameCoverAddition(normalized.jobs.accounting_postgres);

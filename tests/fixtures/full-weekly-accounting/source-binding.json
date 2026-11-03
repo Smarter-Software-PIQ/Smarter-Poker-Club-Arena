@@ -557,10 +557,10 @@
     "tests/fixtures/legacy-fee-finality/custody-core.sql": "288e953c3b4c75c8eea9e0608a0f2d4b953c4437c9cfe6d50a450a801053d0eb",
     "tests/fixtures/legacy-fee-finality/fn_satellite_transfer_ledger_is_immutable.sql": "51af53e6eb44440aa9901452b42adb4bf3c7ab31ea21cdc1e4e9404c44bea407",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
-    "scripts/ci/classify-ci-changes.mjs": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
+    "scripts/ci/classify-ci-changes.mjs": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "444e15a8e5b4836e3afbdad7546a5e08d914ce86ba570f0a8e966fabdf1119f5",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "24870e7b3e0795f6cb690d0d5fa2395c337109a6c522f052140d202813da9056",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -579,7 +579,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "32e38338f55ffca5579aefc807e9542e855496b981db520ede8cc7d86c93f067",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "0364dfc2370483377eb24b0e5d8baa82a2d6981d3f1d0ef39433eb790840c29e",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -7705,5 +7705,25 @@
     "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
     "previousSHA256": "0db0a730d01832b96cae63be7f92a117896e6b3f908101d038910ffd74959859",
     "currentSHA256": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce"
+  },
+  "undrawnSpinCancellationAudit20261103": {
+    "reason": "Reviewed additive accounting shard4 native Spin cancellation qualification and exact input classifier extension. No existing job, fixture assertion, timeout or financial certificate is relaxed or restamped. Native PostgreSQL regression and source contracts qualify the addition; production installation remains separate.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
+        "currentSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "444e15a8e5b4836e3afbdad7546a5e08d914ce86ba570f0a8e966fabdf1119f5",
+        "currentSHA256": "24870e7b3e0795f6cb690d0d5fa2395c337109a6c522f052140d202813da9056"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "32e38338f55ffca5579aefc807e9542e855496b981db520ede8cc7d86c93f067",
+        "currentSHA256": "0364dfc2370483377eb24b0e5d8baa82a2d6981d3f1d0ef39433eb790840c29e"
+      }
+    ]
   }
 }

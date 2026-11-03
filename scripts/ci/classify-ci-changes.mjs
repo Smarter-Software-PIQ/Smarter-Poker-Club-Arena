@@ -125,7 +125,7 @@ const breakfastWitness =
   /^scripts\/ci\/(?:test-breakfast-original-witness\.py$|breakfast_(?:fixture|original_witness|qualification|concurrency)\.py$|fixtures\/breakfast-original-witness\/|probes\/breakfast-original-witness\/)/;
 
 const cancellationAdmission =
-  /^(scripts\/ci\/(?:test-tournament-cancellation-lane\.py$|fixtures\/tournament-cancellation-lane\/)|tests\/unit\/tournamentCancellationLane\.test\.ts$)/;
+  /^(scripts\/ci\/(?:test-(?:tournament-cancellation-lane|undrawn-spin-cancellation)\.py$|fixtures\/(?:tournament-cancellation-lane|undrawn-spin-cancellation)\/)|tests\/unit\/(?:tournamentCancellationLane|undrawnSpinCancellation)\.test\.ts$)/;
 
 const satelliteQualifiers =
   /^(scripts\/ci\/(?:test-satellite-qualifiers\.py$|(?:satellite_qualifier_(?:fixture|concurrency)|satellite_entry_club_native)\.py$|fixtures\/satellite-qualifiers\/|probes\/(?:satellite-entry-club-native\.sql|satellite-qualifier(?:s-native\.sql|-(?:finish|reader)\.spec))$)|tests\/operations\/satellite-qualifier-results\.test\.py$)/;
