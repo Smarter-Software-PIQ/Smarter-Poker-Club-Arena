@@ -18,96 +18,99 @@ const start = new Date('2026-10-25T18:00:00Z');
 afterEach(() => vi.restoreAllMocks());
 
 describe('Midway standard structures through the actual scheduled creator', () => {
-  it.each(schedules.filter((s) => s.name !== 'Coffee Break Freeroll (PLO4)'))(
-    '$name has a playable, conventional full structure',
-    async ({ name, config }) => {
-      const schedule = {
-        id: 'schedule',
-        name,
-        club_id: MIDWAY_UNION_ID,
-        union_id: MIDWAY_UNION_ID,
-      };
-      const service = new ScheduledTournamentService();
-      vi.spyOn(service as any, 'resolveSatelliteTarget').mockResolvedValue({
-        id: '00000000-0000-4000-8000-000000000001',
-        entryValue: 100,
-        nativeEntryValue: 100,
+  // owner 2026-11-03 daily window: the 12:30 AM Midnight Free Buy slot was removed,
+  // so that snapshot row now builds no event (correctly); it is not a structure case.
+  it.each(
+    schedules.filter(
+      (s) => s.name !== 'Coffee Break Freeroll (PLO4)' && s.name !== 'Midnight Free Buy (NLH)'
+    )
+  )('$name has a playable, conventional full structure', async ({ name, config }) => {
+    const schedule = {
+      id: 'schedule',
+      name,
+      club_id: MIDWAY_UNION_ID,
+      union_id: MIDWAY_UNION_ID,
+    };
+    const service = new ScheduledTournamentService();
+    vi.spyOn(service as any, 'resolveSatelliteTarget').mockResolvedValue({
+      id: '00000000-0000-4000-8000-000000000001',
+      entryValue: 100,
+      nativeEntryValue: 100,
+    });
+    const row = await (service as any).buildInsertRow(schedule, config, start);
+    expect(row, name).not.toBeNull();
+    const smallBounty = ['Sunrise Bounty (NLH)', 'Midnight Bounty (NLH)'].includes(name);
+    if (smallBounty) {
+      expect(row).toMatchObject({
+        buy_in_amount: 5,
+        buy_in_fee: 0.5,
+        bounty_amount: 2,
+        rebuy_cost: 5.5,
+        addon_cost: 5.5,
       });
-      const row = await (service as any).buildInsertRow(schedule, config, start);
-      expect(row, name).not.toBeNull();
-      const smallBounty = ['Sunrise Bounty (NLH)', 'Midnight Bounty (NLH)'].includes(name);
-      if (smallBounty) {
-        expect(row).toMatchObject({
-          buy_in_amount: 5,
-          buy_in_fee: 0.5,
-          bounty_amount: 2,
-          rebuy_cost: 5.5,
-          addon_cost: 5.5,
-        });
-        expect(row.buy_in_amount - row.bounty_amount).toBe(3);
-      } else if (row.is_bounty && !row.is_pko && !row.is_mystery_bounty) {
-        expect(row.bounty_amount % 5).toBe(0);
-        expect(row.bounty_amount).toBeLessThanOrEqual(row.buy_in_amount);
-      }
-      const levels = row.blind_structure;
-      expect(row.table_size).toBeLessThanOrEqual(maxSeatsFor(row.game_type));
-      if (name === 'Mid-Morning Turbo (6-Max NLH)') expect(row.table_size).toBe(6);
-      expect(levels).toHaveLength(40);
-      expect(levels[0]).toMatchObject({ smallBlind: 25, bigBlind: 25, ante: 0 });
-      expect(levels[1]).toMatchObject({ smallBlind: 25, bigBlind: 50, ante: 0 });
-      expect(levels[2]).toMatchObject({ smallBlind: 50, bigBlind: 100, ante: 0 });
-      for (const [i, level] of levels.entries()) {
-        expect(level.smallBlind % 25).toBe(0);
-        expect(level.bigBlind % 25).toBe(0);
-        expect(level.durationMinutes).toBe(levels[0].durationMinutes);
-        if (i > 0) expect(level.bigBlind).toBeGreaterThan(levels[i - 1].bigBlind);
-        if (row.game_type === 'NLH' && i >= 4) {
-          expect(row.big_blind_ante).toBe(true);
-          expect(bigBlindAnteTotal(level.ante, 9, level.bigBlind)).toBe(level.bigBlind);
-        } else expect(level.ante).toBe(0);
-      }
-      validateMttBlindStructure(levels, row.starting_chips);
-      if (row.free_buy) {
-        expect(row.starting_chips).toBe(3000);
-        expect(row.late_reg_mins).toBe(60);
-        expect(row.late_reg_levels).toBe(12);
-        expect(row.rebuy_cost).toBe(1);
-        expect(row.addon_cost).toBeNull();
-        // Dan 2026-11-01: an add-on pays the starting stack, exactly.
-        expect(row.addon_chips).toBeNull();
-      } else {
-        expect(row.starting_chips % 5000).toBe(0);
-        if (row.late_reg_levels > 0)
-          expect(
-            row.starting_chips / levels[row.late_reg_levels - 1].bigBlind
-          ).toBeGreaterThanOrEqual(20);
-        // Dan 2026-11-01: "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF CHIPS
-        // THAT THE TOURANMENT STARTED WITH ... NEVER LESS!" This replaces the
-        // former 2x-stack floor.
-        if (row.add_on_available) expect(row.addon_chips).toBe(row.starting_chips);
-        if (config.buyIn != null && !smallBounty) {
-          if (row.satellite_target_id) {
-            expect(100 / row.buy_in_amount).toBeGreaterThanOrEqual(5);
-            expect(100 / row.buy_in_amount).toBeLessThanOrEqual(10);
-          } else expect(Number(row.buy_in_amount) + Number(row.buy_in_fee)).toBe(config.buyIn);
-        }
-      }
-      if (config.guaranteedPrize != null)
-        expect(row.guaranteed_prize).toBe(row.free_buy ? 0 : config.guaranteedPrize);
-      expect(row.is_rebuy).toBe(true);
-      expect(row.add_on_available).toBe(!row.free_buy && !/^Sunday[ -]?200(?:\b|$)/i.test(name));
-      if (row.is_rebuy) {
-        expect(row.rebuy_levels).toBe(row.late_reg_levels);
-        expect(row.rebuy_chips).toBe(row.starting_chips);
-      }
-      if (row.add_on_available) {
-        expect(row.addon_levels).toBe(1);
-        expect(row.addon_from_start).toBe(row.free_buy === true);
-        expect(row.addon_break_minutes).toBe(1);
-      }
-      expect(withMidwayStructure(row)).toEqual(row);
+      expect(row.buy_in_amount - row.bounty_amount).toBe(3);
+    } else if (row.is_bounty && !row.is_pko && !row.is_mystery_bounty) {
+      expect(row.bounty_amount % 5).toBe(0);
+      expect(row.bounty_amount).toBeLessThanOrEqual(row.buy_in_amount);
     }
-  );
+    const levels = row.blind_structure;
+    expect(row.table_size).toBeLessThanOrEqual(maxSeatsFor(row.game_type));
+    if (name === 'Mid-Morning Turbo (6-Max NLH)') expect(row.table_size).toBe(6);
+    expect(levels).toHaveLength(40);
+    expect(levels[0]).toMatchObject({ smallBlind: 25, bigBlind: 25, ante: 0 });
+    expect(levels[1]).toMatchObject({ smallBlind: 25, bigBlind: 50, ante: 0 });
+    expect(levels[2]).toMatchObject({ smallBlind: 50, bigBlind: 100, ante: 0 });
+    for (const [i, level] of levels.entries()) {
+      expect(level.smallBlind % 25).toBe(0);
+      expect(level.bigBlind % 25).toBe(0);
+      expect(level.durationMinutes).toBe(levels[0].durationMinutes);
+      if (i > 0) expect(level.bigBlind).toBeGreaterThan(levels[i - 1].bigBlind);
+      if (row.game_type === 'NLH' && i >= 4) {
+        expect(row.big_blind_ante).toBe(true);
+        expect(bigBlindAnteTotal(level.ante, 9, level.bigBlind)).toBe(level.bigBlind);
+      } else expect(level.ante).toBe(0);
+    }
+    validateMttBlindStructure(levels, row.starting_chips);
+    if (row.free_buy) {
+      expect(row.starting_chips).toBe(3000);
+      expect(row.late_reg_mins).toBe(60);
+      expect(row.late_reg_levels).toBe(12);
+      expect(row.rebuy_cost).toBe(1);
+      expect(row.addon_cost).toBeNull();
+      // Dan 2026-11-01: an add-on pays the starting stack, exactly.
+      expect(row.addon_chips).toBeNull();
+    } else {
+      expect(row.starting_chips % 5000).toBe(0);
+      if (row.late_reg_levels > 0)
+        expect(
+          row.starting_chips / levels[row.late_reg_levels - 1].bigBlind
+        ).toBeGreaterThanOrEqual(20);
+      // Dan 2026-11-01: "AN ADD ON CAN NEVER EXCEED THE AMOUNT OF CHIPS
+      // THAT THE TOURANMENT STARTED WITH ... NEVER LESS!" This replaces the
+      // former 2x-stack floor.
+      if (row.add_on_available) expect(row.addon_chips).toBe(row.starting_chips);
+      if (config.buyIn != null && !smallBounty) {
+        if (row.satellite_target_id) {
+          expect(100 / row.buy_in_amount).toBeGreaterThanOrEqual(5);
+          expect(100 / row.buy_in_amount).toBeLessThanOrEqual(10);
+        } else expect(Number(row.buy_in_amount) + Number(row.buy_in_fee)).toBe(config.buyIn);
+      }
+    }
+    if (config.guaranteedPrize != null)
+      expect(row.guaranteed_prize).toBe(row.free_buy ? 0 : config.guaranteedPrize);
+    expect(row.is_rebuy).toBe(true);
+    expect(row.add_on_available).toBe(!row.free_buy && !/^Sunday[ -]?200(?:\b|$)/i.test(name));
+    if (row.is_rebuy) {
+      expect(row.rebuy_levels).toBe(row.late_reg_levels);
+      expect(row.rebuy_chips).toBe(row.starting_chips);
+    }
+    if (row.add_on_available) {
+      expect(row.addon_levels).toBe(1);
+      expect(row.addon_from_start).toBe(row.free_buy === true);
+      expect(row.addon_break_minutes).toBe(1);
+    }
+    expect(withMidwayStructure(row)).toEqual(row);
+  });
 
   it('refuses the owner-removed Midway 11 AM freeroll', () => {
     expect(
