@@ -1074,6 +1074,10 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
             and resolution.get('result') == 'unentered-cycle-proved':
         validate_generic_unentered_resolution(resolution, cycle)
         return
+    if owner not in pinned_routine_owners() and isinstance(resolution, dict) \
+            and resolution.get('result') == 'preguard-checkpoint-refusal-proved':
+        validate_generic_preguard_checkpoint_resolution(resolution, cycle)
+        return
     if owner != NINEF_RUN:
         die('routine failure resolution history is invalid')
     ninef_cycle(cycle)
@@ -1570,6 +1574,199 @@ def generic_unentered_proof(state: dict[str, Any], cycle: dict[str, Any], deadli
         return None
 
 
+# A GENERIC PRE-GUARD CHECKPOINT REFUSAL OWNER (2026-11-02). A run that bound a
+# routine window, wrote its one-shot legacy checkpoint intent, and refused
+# before guardCall with checkpointInvoked:false, inspectorClosed:true and
+# cleanupConnections:0 (41535679597-1) never invoked the checkpoint or mutated
+# the serving runtime. Once its window has expired, the owned v3 thaw is
+# recorded in engine_maintenance_thaws, the serving runtime is idle/unfrozen
+# with Inspector closed, and all active release/intake units and request/intent/
+# pin/lease/hold artifacts are absent, it resolves by positive proof.
+GENERIC_PREGUARD_CYCLE_KEYS = GENERIC_UNENTERED_CYCLE_KEYS | {'window'}
+GENERIC_PREGUARD_PROOF_KEYS = {'failureDigest', 'checkpointIntentDigest', 'checkpointRefusalDigest',
+                               'nativeDigest', 'runtime', 'database'}
+
+
+def generic_preguard_checkpoint_shape(cycle: Any) -> bool:
+    f = cycle.get('failure') if isinstance(cycle, dict) else None
+    w = cycle.get('window') if isinstance(cycle, dict) else None
+    try:
+        return bool(isinstance(cycle, dict) and set(cycle) == GENERIC_PREGUARD_CYCLE_KEYS
+            and RUN_ID_RE.fullmatch(str(cycle['runId'])) is not None and cycle['runId'] not in pinned_routine_owners()
+            and SHA_RE.fullmatch(str(cycle['sha'])) is not None and SHA_RE.fullmatch(str(cycle['controlSha'])) is not None
+            and cycle['kind'] == 'hourly-reset' and cycle['policyId'] == SCHEDULE_POLICY_ID
+            and cycle['policyDigest'] == NINEF_POLICY_DIGEST and cycle['status'] == 'reserved'
+            and type(cycle['startsAt']) is int and type(cycle['endsAt']) is int
+            and cycle['startsAt'] > 0 and cycle['startsAt'] % 3600 == 0 and cycle['endsAt'] == cycle['startsAt'] + 300
+            and isinstance(w, dict) and set(w) == {'announcedAt', 'startsAt', 'endsAt', 'verified'}
+            and w['verified'] is True and all(type(w[k]) is int for k in ('announcedAt', 'startsAt', 'endsAt'))
+            and w['announcedAt'] > 0 and w['startsAt'] == w['announcedAt'] + 120000
+            and w['endsAt'] == w['announcedAt'] + 420000
+            and cycle['startsAt'] == w['startsAt'] // 3600000 * 3600
+            and isinstance(f, dict) and set(f) == GENERIC_UNENTERED_FAILURE_KEYS
+            and f['schema'] == 1 and f['result'] == 'failed' and f['runId'] == cycle['runId']
+            and f['sha'] == cycle['sha'] and f['controlSha'] == cycle['controlSha']
+            and type(f['completedAt']) is int and f['completedAt'] > 0
+            and type(f['transactionExitStatus']) is int and f['transactionExitStatus'] != 0
+            and INVOCATION_ID_RE.fullmatch(str(f['invocationId'])) is not None
+            and SHA_RE.fullmatch(str(f['recoveredDesiredSha'])) is not None
+            and re.fullmatch('sha256:[0-9a-f]{64}', str(f['recoveredDesiredImageId'])) is not None)
+    except (KeyError, TypeError):
+        return False
+
+
+def generic_preguard_checkpoint_candidate(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    """Only an expired, never-committed routine owner with a bound window and legacy checkpoint intent."""
+    if not generic_preguard_checkpoint_shape(cycle):
+        return False
+    w = cycle['window']
+    request_root = Path(os.environ.get('ENGINE_RELEASE_REQUEST_ROOT', str(STATE_DIR / 'engine-release-requests')))
+    return (cycle['runId'] not in state['committedRuns']
+            and time.time() * 1000 > w['endsAt'] + TERMINAL_OWNER_SETTLE_MS
+            and os.path.lexists(request_root / (cycle['runId'] + '.legacy-checkpoint-intent')))
+
+
+def generic_preguard_checkpoint_native_proof(deadline: float, owner: str) -> dict[str, Any]:
+    units = {}
+    for prefix, extension in (('release', 'service'), ('intake', 'service'), ('intake', 'path')):
+        unit = f'club-arena-engine-{prefix}-v1@{owner}.{extension}'
+        value = failed_routine_unit_snapshot(unit, deadline)
+        if extension == 'service':
+            failed_routine_service_empty(unit, value, deadline)
+        require_absent(Path('/etc/systemd/system/multi-user.target.wants') / unit)
+        require_absent(Path('/etc/systemd/system/paths.target.wants') / unit)
+        units[unit] = value
+    request_root = Path(os.environ.get('ENGINE_RELEASE_REQUEST_ROOT', str(STATE_DIR / 'engine-release-requests')))
+    intake_root = Path(os.environ.get('ENGINE_RELEASE_INTAKE_ROOT', str(STATE_DIR / 'engine-intake-requests')))
+    pin_root = Path(os.environ.get('ENGINE_RELEASE_PIN_ROOT', str(STATE_DIR / 'engine-release-generation-pins')))
+    lease_root = Path(os.environ.get('ENGINE_RELEASE_IMAGE_LEASE_ROOT', str(STATE_DIR / 'engine-image-leases')))
+    roots = (
+        (request_root, ('request', 'intent', 'activation-entry', 'drill',
+         'main-inspector-retirement-intent', 'main-inspector-retirement-receipt',
+         'lightning-hold.json', 'break-deadline', 'awaiting-certificate')),
+        (intake_root, ('request', 'intent')),
+        (pin_root, ('generation',)),
+        (lease_root, ('lease',)))
+    for root, suffixes in roots:
+        for suffix in suffixes:
+            require_absent(root / (owner + '.' + suffix))
+    return units
+
+
+def generic_preguard_checkpoint_refusal(run_id: str, failure: dict[str, Any], window: dict[str, Any],
+                                        deadline: float) -> str:
+    """The failed invocation's journal holds exactly one pre-guard legacy
+    checkpoint refusal with checkpointInvoked:false, inspectorClosed:true and
+    cleanupConnections:0."""
+    unit = f'club-arena-engine-release-v1@{run_id}.service'
+    raw = failed_routine_command(['journalctl', '--unit=' + unit, '_SYSTEMD_INVOCATION_ID=' + failure['invocationId'],
+        '--no-pager', '--output=json',
+        '--output-fields=MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP',
+        '--lines=4', '--grep="checkpointInvoked":'], deadline, 65536)
+    rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    failed_routine_require(len(rows) == 1)
+    row = rows[0]
+    outcome = json.loads(row.get('MESSAGE', ''))
+    stamp = str(row.get('__REALTIME_TIMESTAMP', ''))
+    failed_routine_require(row.get('_SYSTEMD_UNIT') == unit
+        and row.get('_SYSTEMD_INVOCATION_ID') == failure['invocationId'] and stamp.isdigit()
+        and window['startsAt'] * 1000 <= int(stamp) <= (failure['completedAt'] + 1) * 1000000
+        and isinstance(outcome, dict) and outcome.get('ok') is False and outcome.get('retryAllowed') is False
+        and outcome.get('checkpointInvoked') is False and outcome.get('inspectorClosed') is True
+        and outcome.get('cleanupConnections') == 0 and 'checkpoint' not in outcome and 'progress' not in outcome
+        and isinstance(outcome.get('reason'), str) and bool(outcome['reason']))
+    return failed_routine_digest(row)
+
+
+def validate_generic_preguard_checkpoint_resolution(value: Any, cycle: dict[str, Any],
+                                                    verify_receipt: bool = True) -> None:
+    failed_routine_require(generic_preguard_checkpoint_shape(cycle))
+    owner = cycle['runId']
+    w = cycle['window']
+    failed_routine_require(isinstance(value, dict) and set(value) == TERMINAL_RESOLUTION_KEYS
+        and value['schema'] == 1 and value['result'] == 'preguard-checkpoint-refusal-proved'
+        and value['originalCycle'] == cycle
+        and RUN_ID_RE.fullmatch(str(value['verifiedByRunId'])) is not None and value['verifiedByRunId'] != owner
+        and all(SHA_RE.fullmatch(str(value[k])) is not None for k in ('verifiedByControlSha', 'verifiedByTargetSha'))
+        and not {cycle['sha'], cycle['controlSha']} & {value['verifiedByControlSha'], value['verifiedByTargetSha']}
+        and INVOCATION_ID_RE.fullmatch(str(value['invocationId'])) is not None
+        and type(value['observedAt']) is int
+        and value['observedAt'] * 1000 > w['endsAt'] + TERMINAL_OWNER_SETTLE_MS)
+    proof = value['proof']
+    failed_routine_require(isinstance(proof, dict) and set(proof) == GENERIC_PREGUARD_PROOF_KEYS
+        and proof['failureDigest'] == failed_routine_digest(cycle['failure'])
+        and all(re.fullmatch('[0-9a-f]{64}', str(proof[k])) is not None
+                for k in ('checkpointIntentDigest', 'checkpointRefusalDigest', 'nativeDigest')))
+    runtime = proof['runtime']
+    failed_routine_require(isinstance(runtime, dict) and set(runtime) == {'containerId', 'startedAt', 'instanceId'}
+        and CONTAINER_ID_RE.fullmatch(str(runtime['containerId'])) is not None
+        and INSTANCE_ID_RE.fullmatch(str(runtime['instanceId'])) is not None and isinstance(runtime['startedAt'], str))
+    try:
+        birth = datetime.fromisoformat(runtime['startedAt'].replace('Z', '+00:00'))
+    except ValueError:
+        die('exact failed routine custody is unproved')
+    failed_routine_require(birth.tzinfo is not None and 0 < birth.timestamp() < value['observedAt'])
+    window_ms = {'announcedAt': w['announcedAt'], 'startsAt': w['startsAt'], 'endsAt': w['endsAt']}
+    expected = {'schema': 'terminal-owned-thaw/v1', 'sha': cycle['failure']['recoveredDesiredSha'],
+                'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True,
+                'ownedV3Thaw': True, **window_ms}
+    failed_routine_require(proof['database'] == expected
+        and all(type(proof['database'][k]) is bool for k in ('databaseIdle', 'freshLeader', 'ownedV3Thaw'))
+        and all(type(proof['database'][k]) is int for k in window_ms))
+    if verify_receipt:
+        failed_routine_require(failed_routine_json(terminal_receipt_path(owner, value['verifiedByRunId'],
+                                                                         value['invocationId'])) == value)
+
+
+def generic_preguard_checkpoint_proof(state: dict[str, Any], cycle: dict[str, Any],
+                                      deadline: float) -> dict[str, Any] | None:
+    try:
+        failed_routine_require(generic_preguard_checkpoint_candidate(state, cycle))
+        owner = cycle['runId']
+        failure = cycle['failure']
+        window = cycle['window']
+        desired = state['desired']
+        failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+            and load_failure(owner) == failure
+            and desired['sha'] == failure['recoveredDesiredSha'] == FAILED_ROUTINE_DESIRED
+            and desired['imageId'] == failure['recoveredDesiredImageId'] == FAILED_ROUTINE_IMAGE)
+        request_root = Path(os.environ.get('ENGINE_RELEASE_REQUEST_ROOT', str(STATE_DIR / 'engine-release-requests')))
+        intent = failed_routine_json(request_root / f'{owner}.legacy-checkpoint-intent')
+        failed_routine_require(isinstance(intent, dict) and intent.get('runId') == owner
+            and intent.get('controlSha') == cycle['controlSha'] and intent.get('source') == desired['sha']
+            and intent.get('retryAllowed') is False
+            and CONTAINER_ID_RE.fullmatch(str(intent.get('container', ''))) is not None
+            and INSTANCE_ID_RE.fullmatch(str(intent.get('instance', ''))) is not None
+            and type(intent.get('hostPid')) is int and intent['hostPid'] > 0
+            and type(intent.get('at')) in (int, float) and isinstance(intent.get('startedAt'), str)
+            and window['startsAt'] / 1000 <= intent['at'] < failure['completedAt']
+            and isinstance(intent.get('nativeCensus'), dict)
+            and intent['nativeCensus'].get('candidateSHA') == cycle['sha'])
+        refusal = generic_preguard_checkpoint_refusal(owner, failure, window, deadline)
+        native = generic_preguard_checkpoint_native_proof(deadline, owner)
+        runtime = failed_routine_runtime(deadline)  # Includes closed Inspector.
+        control = Path(__file__).resolve().parent
+        window_ms = {'announcedAt': window['announcedAt'], 'startsAt': window['startsAt'], 'endsAt': window['endsAt']}
+        raw = failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
+            os.environ.get('ENV_FILE', os.environ.get('REPO_DIR', '/opt/club-arena') + '/server/.env'),
+            '--sha', desired['sha'], '--instance-id', runtime['instanceId'], '--terminal-owned-thaw',
+            '--window-announced-ms', str(window_ms['announcedAt']), '--window-starts-ms', str(window_ms['startsAt']),
+            '--window-ends-ms', str(window_ms['endsAt']),
+            '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'], deadline)
+        database = json.loads(raw)
+        failed_routine_require(database == {'schema': 'terminal-owned-thaw/v1', 'sha': desired['sha'],
+            'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True,
+            'ownedV3Thaw': True, **window_ms})
+        return {'failureDigest': failed_routine_digest(failure),
+                'checkpointIntentDigest': failed_routine_digest(intent),
+                'checkpointRefusalDigest': refusal,
+                'nativeDigest': failed_routine_digest(native),
+                'runtime': runtime,
+                'database': database}
+    except (SystemExit, Exception):
+        return None
+
+
 # This profile resolves only the original 08e refusal before WebSocket creation.
 # It never retries that operation or claims that its native close succeeded.
 PREATTACH_RUN = '41452708967-1'
@@ -1853,8 +2050,10 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             generic = owner not in pinned_routine_owners() and generic_cancelled_candidate(state, cycle)
             unentered = (owner not in pinned_routine_owners() and not generic
                          and generic_unentered_candidate(state, cycle))
+            preguard = (owner not in pinned_routine_owners() and not generic and not unentered
+                        and generic_preguard_checkpoint_candidate(state, cycle))
             if (owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN}
-                    and not generic and not unentered) or owner == run_id or not routine_owner_unresolved(state, cycle):
+                    and not generic and not unentered and not preguard) or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
             if owner == PREATTACH_RUN:
                 establish_preattach_disposition(args, state, cycle, deadline)
@@ -1875,6 +2074,9 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if unentered:
                 def prove() -> dict[str, Any] | None:
                     return generic_unentered_proof(state, cycle, deadline)
+            if preguard:
+                def prove() -> dict[str, Any] | None:
+                    return generic_preguard_checkpoint_proof(state, cycle, deadline)
             proof = prove()
             if proof is None:
                 continue
@@ -1885,7 +2087,7 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'unentered-cycle-proved' if unentered else 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} or generic else 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'preguard-checkpoint-refusal-proved' if preguard else 'unentered-cycle-proved' if unentered else 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} or generic else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
             if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
@@ -1898,6 +2100,11 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if unentered:
                 try:
                     validate_generic_unentered_resolution(resolution, cycle, verify_receipt=False)
+                except SystemExit:
+                    continue  # unproved: the owner stays authoritative
+            if preguard:
+                try:
+                    validate_generic_preguard_checkpoint_resolution(resolution, cycle, verify_receipt=False)
                 except SystemExit:
                     continue  # unproved: the owner stays authoritative
             if owner == DAILY_REFUSAL_RUN:
