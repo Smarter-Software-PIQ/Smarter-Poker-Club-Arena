@@ -17,6 +17,25 @@ const jobs = [
   ['native-smoke', native.jobs['native-smoke'], 'ubuntu-24.04'],
 ] as const;
 
+const retainedWrapper = 'src/engine/RetainedHistoricalCheckpointQualification.test.ts';
+const retainedStep = {
+  name: 'Exact retained historical owners qualify before competing workloads',
+  if: 'matrix.shard == 1',
+  run: `npm test -- ${retainedWrapper}`,
+};
+const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === retainedStep.name);
+  expect(job.steps.filter((step) => step.name === retainedStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(retainedStep);
+  const full = job.steps[index + 1];
+  expect(full?.name).toBe('Full server test suite');
+  expect(full.run).toBe(
+    `[[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]\nnpm test -- --exclude ${retainedWrapper} --shard="$SERVER_TEST_SHARD/4"\n`
+  );
+  full.run = '[[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]\nnpm test -- --shard="$SERVER_TEST_SHARD/4"\n';
+  job.steps.splice(index, 1);
+};
+
 const frameCoverSteps = [
   {
     name: 'Weekly cash boundaries keep original rows and use the frame cover',
@@ -227,6 +246,25 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    const priorQualificationBudgets = {
+      changes: 5,
+      source_windows: 6,
+      typecheck: 2,
+      typecheck_compile: 20,
+      unit_shards: 15,
+      accounting_postgres: 50,
+      server_shards: 40,
+      verdict: 2,
+      build: 15,
+      'live-e2e': 25,
+      'css-beats-build': 15,
+      'css-beats-e2e': 30,
+      'diamond-playfield-e2e': 25,
+    };
+    for (const [job, prior] of Object.entries(priorQualificationBudgets)) {
+      expect(normalized.jobs[job]['timeout-minutes']).toBe(prior * 2);
+      normalized.jobs[job]['timeout-minutes'] = prior;
+    }
     const keySetup = normalized.jobs.accounting_postgres.steps.find(
       (step: { name?: string }) =>
         step.name === 'Install PostgreSQL 17 tools without a default database service'
@@ -530,6 +568,9 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     );
     // Enforce the exact new regression, then retain every historical job pin.
     accountingSteps.splice(fixedLimitIndex, 1);
+    expect(normalized.jobs.server_shards['timeout-minutes']).toBe(40);
+    normalized.jobs.server_shards['timeout-minutes'] = 25;
+    normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
     normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);
@@ -933,4 +974,27 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       '13a3a555958b2a8bd92ba5a7a45083c0af0993c9f02b10e885c1d858aefa8afc'
     );
   });
+});
+
+it('refuses missing, duplicated, moved or broadened retained-owner scheduling', () => {
+  for (const mutation of [
+    (job: any, index: number) => job.steps.splice(index, 1),
+    (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
+    (job: any, index: number) => {
+      job.steps[index].if = 'matrix.shard == 2';
+    },
+    (job: any, index: number) => {
+      job.steps[index + 1].run += '--exclude src/other.test.ts';
+    },
+    (job: any, index: number) => {
+      [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
+    },
+  ]) {
+    const job = structuredClone(ci.jobs.server_shards);
+    mutation(
+      job,
+      job.steps.findIndex((step: any) => step.name === retainedStep.name)
+    );
+    expect(() => normalizeRetainedOwnerScheduling(job)).toThrow();
+  }
 });

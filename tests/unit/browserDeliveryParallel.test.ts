@@ -100,8 +100,8 @@ describe('browser qualification parallel delivery', () => {
     );
     for (const shard of ci.jobs.accounting_postgres.strategy.matrix.shard)
       expect(route({ shard })).toBe(shard === 2 ? 'ubuntu-24.04' : 'ubuntu-latest');
-    expect(ci.jobs.accounting_postgres['timeout-minutes']).toBe(50);
-    expect(ci.jobs.server_shards['timeout-minutes']).toBe(25);
+    expect(ci.jobs.accounting_postgres['timeout-minutes']).toBe(100);
+    expect(ci.jobs.server_shards['timeout-minutes']).toBe(80);
     expect(ci.jobs.server.needs).toContain('accounting_postgres');
     expect(ci.jobs.server.needs).toContain('server_shards');
   });
@@ -128,7 +128,7 @@ describe('browser qualification parallel delivery', () => {
       'fail-fast': false,
       matrix: { shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], partition: ['general', 'portrait'] },
     });
-    expect(browser['timeout-minutes']).toBe(30);
+    expect(browser['timeout-minutes']).toBe(60);
     expect(browser['continue-on-error']).toBeUndefined();
     const beats = browser.steps.find((value: { id?: string }) => value.id === 'css-beats');
     expect(beats.if).toBeUndefined();
@@ -167,7 +167,7 @@ describe('browser qualification parallel delivery', () => {
     const cases = readFileSync('tests/e2e/css/diamond-games-playfield.spec.ts', 'utf8');
     expect(cases).toContain("test.describe.configure({ mode: 'parallel', timeout: 180_000 });");
     expect(diamond.strategy).toEqual({ 'fail-fast': false, matrix: { shard: [1, 2, 3] } });
-    expect(diamond['timeout-minutes']).toBe(25);
+    expect(diamond['timeout-minutes']).toBe(50);
     expect(diamond['continue-on-error']).toBeUndefined();
     const run = diamond.steps.find((value: { id?: string }) => value.id === 'diamond-playfield');
     expect(run.if).toBeUndefined();
@@ -326,7 +326,7 @@ describe('eight client shards retain the required verdict and unchanged safeguar
     });
     expect(new Set(shards.strategy.matrix.shard).size).toBe(8);
     expect(shards.env.VITEST_MAX_THREADS).toBe(8);
-    expect(shards['timeout-minutes']).toBe(15);
+    expect(shards['timeout-minutes']).toBe(30);
     expect(
       shards.steps.find((value: { name: string }) => value.name === 'Run Test Suite').run
     ).toBe('node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8');

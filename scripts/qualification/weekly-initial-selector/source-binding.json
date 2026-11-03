@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 277752,
-      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+      "bytes": 278025,
+      "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2452,5 +2452,51 @@
       "bytes": 277752,
       "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
     }
+  },
+  "retainedOwnerQualificationScheduling20261103": {
+    "reason": "Exact retained-owner wrapper runs once before competing workloads on required server shard1 and is excluded only from subsequent full-suite calls. All44 assertions,120second total, other test files, financial native steps and required joins unchanged. Strict inverse workflow normalization and actual four-shard command selection qualify coverage. Current source identity only; no historical verdict restamped.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 277752,
+      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+    },
+    "current": {
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "historicalQualificationJobCapacity20261103": {
+    "reason": "Measured checkout8m03 plus setup1m22 plus isolated44case3m09 plus prior fullsuite15m55 exceeds25minute job. Only CI engine job capacity40minutes; all commands, individual deadlines, accounting inputs and historical verdicts unchanged.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "current": {
+      "bytes": 278022,
+      "sha256": "a5eae1a5e8f9ffe45860dca4a68167fd4e2f1a98d511797f0b041936c6fdf3e3"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "ownerDirectedQualificationCapacity20261103": {
+    "reason": "Direct owner instruction doubles enumerated CI qualification/build job capacities only. Individual test deadlines, financial inputs/assertions, production operation budgets and historical verdicts remain unchanged. Reviewed current source identity only.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278022,
+          "sha256": "a5eae1a5e8f9ffe45860dca4a68167fd4e2f1a98d511797f0b041936c6fdf3e3"
+        },
+        "current": {
+          "bytes": 278025,
+          "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

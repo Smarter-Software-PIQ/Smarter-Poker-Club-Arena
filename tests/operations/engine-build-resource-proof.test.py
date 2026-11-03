@@ -25,6 +25,31 @@ class OriginalBuildResourceEvidenceTests(unittest.TestCase):
         self.assertIn('          path: work/engine-build-resource-proof/', workflow)
         self.assertIn('          NODE_OPTIONS: --max-old-space-size=6144', workflow)
 
+    def test_controlled_native_clock_is_only_a_disposable_fixture(self):
+        import tempfile
+        import hashlib
+        root = Path(__file__).resolve().parents[2]
+        source = root / 'tests/operations/legacy-census-clock.cc'
+        with tempfile.TemporaryDirectory(prefix='census-clock-') as directory:
+            library, receipt = proof.prepare_census_clock(Path(directory))
+            self.assertEqual(receipt['source_sha256'], hashlib.sha256(source.read_bytes()).hexdigest())
+            self.assertEqual(receipt['library_sha256'], hashlib.sha256(library.read_bytes()).hexdigest())
+            self.assertIn('not-latency', receipt['scope'])
+            self.assertEqual(proof.census_clock_args('scan-deadline', library), [
+                '--mount', f'type=bind,src={library},dst=/qualification-clock.so,readonly',
+                '--env', 'LD_PRELOAD=/qualification-clock.so',
+                '--env', 'CENSUS_QUALIFICATION_CLOCK_IMAGE=/app/native/legacy-census/legacy-census.node'])
+            for scenario in ['bounded', 'near-limit', 'at-cap', 'overflow', 'eed-profile',
+                             'profile-refusal', 'process-refusal', 'deadline-refusal',
+                             'headroom-refusal', 'cache-saturation', 'cache-depth-boundaries']:
+                self.assertEqual(proof.census_clock_args(scenario, library), [])
+        workflow = (root / '.github/workflows/engine-build-resource-proof.yml').read_text()
+        self.assertIn('      - tests/operations/legacy-census-clock.cc', workflow)
+        fixture = (root / 'tests/operations/legacy-census-native.mjs').read_text()
+        for assertion in ['diag.validPredicateVisits,98', 'diag.deadlineRefused,true',
+                          'diag.arrayAllocated,false', 'Object.hasOwn(globalThis,key),false']:
+            self.assertIn(assertion, fixture)
+
     def test_no_resolve_emitter_selects_actual_imported_runtime_json(self):
         root = Path(__file__).resolve().parents[2] / 'server'
         config = json.loads((root / 'tsconfig.emit.json').read_text())
