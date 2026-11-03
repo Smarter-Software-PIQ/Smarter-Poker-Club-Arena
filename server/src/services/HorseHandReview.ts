@@ -75,6 +75,9 @@ export interface HorseReviewInput {
     /** HandController's discriminator on an all_in: true = full raise,
      *  false = short raise, UNDEFINED = a call-off that never moved the bet. */
     isFullRaise?: boolean;
+    origin?: string;
+    dead?: boolean;
+    publicNode?: import('./pokerStatAction.js').StatActionRights['publicNode'];
   }>;
   roster: Array<{ userId: string; isHorse: boolean }>;
   /** Rake taken from this hand's pot, in chips. Shared to each horse by the
@@ -1235,6 +1238,9 @@ function accumulateHorsePlay(
         stage: a.stage,
         seat: a.seat,
         isFullRaise: a.isFullRaise,
+        origin: a.origin,
+        dead: a.dead,
+        publicNode: a.publicNode,
       })),
       players,
       winners: input.winners,

@@ -34,6 +34,11 @@
 import { supabase } from './client.js';
 import { reportError } from '../errorReporter.js';
 import { allocateWeightedShareCents } from '../rakeAllocation.js';
+import {
+  canRaiseForPokerStats,
+  isPokerStatDecision,
+  type StatActionRights,
+} from '../pokerStatAction.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. ALL-IN EQUITY CAPTURE
@@ -458,7 +463,7 @@ export function derivePosition(seat: number, buttonSeat: number, dealtSeats: num
   return 'MP';
 }
 
-export interface HandAction {
+export interface HandAction extends StatActionRights {
   seat: number;
   userId?: string;
   action: string;
@@ -618,13 +623,18 @@ export function deriveFlowFlags(
       continue;
     }
 
-    if (isMine && voluntary && contextAvailable) {
-      if (raiseCount === 1) threeBetOpportunity = true;
-      if (raiseCount === 2) fourBetOpportunity = true;
+    // A return of an uncalled bet is attributed to its owner but supplies no
+    // decision. Counting it here inflated 3-/4-bet and steal opportunities.
+    if (!isPokerStatDecision(a)) continue;
+
+    if (isMine && contextAvailable) {
+      const canRaise = canRaiseForPokerStats(a);
+      if (raiseCount === 1 && canRaise) threeBetOpportunity = true;
+      if (raiseCount === 2 && canRaise) fourBetOpportunity = true;
       if (raiseCount === 0 && ['CO', 'BTN', 'SB'].includes(opts.position ?? '')) {
         stealOpportunity = true;
       }
-      if (raiseCount === 1 && callsAfterRaise > 0) squeezeOpportunity = true;
+      if (raiseCount === 1 && callsAfterRaise > 0 && canRaise) squeezeOpportunity = true;
       if (
         raiseCount === 1 &&
         ['SB', 'BB'].includes(opts.position ?? '') &&
