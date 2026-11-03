@@ -258,3 +258,30 @@ it('a late clear/call cannot stop the real turn handler folding the leaver', asy
   expect(e.handController.performAction).toHaveBeenCalledWith(1, 'fold', undefined, 'pre_action');
   expect(live[0].is_folded).toBe(true);
 });
+
+it('validated leave input cannot be overwritten while departure acknowledgement is pending', async () => {
+  const live: LivePlayer[] = [
+    { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+    { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+  ];
+  const e = makeEngine(live, 3);
+  let acknowledge!: () => void;
+  departure.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        acknowledge = resolve;
+      })
+  );
+  const leaving = e.leaveTable(HUMAN, { occupancyId: OCC[HUMAN], seatNumber: 1 });
+  for (let i = 0; i < 10 && !acknowledge; i++) await Promise.resolve();
+  expect(acknowledge).toBeTypeOf('function');
+  expect(e.setPreAction(HUMAN, 'clear')).toMatchObject({ success: false, code: 'NOT_IN_HAND' });
+  expect(e.setPreAction(HUMAN, 'auto_call')).toMatchObject({ success: false, code: 'NOT_IN_HAND' });
+  expect(e.handlePlayerAction(HUMAN, 'call', 10)).toMatchObject({
+    success: false,
+    code: 'NOT_IN_HAND',
+  });
+  acknowledge();
+  expect(await leaving).toMatchObject({ success: true, immediate: false });
+  expect(queuedAutoFold(e, HUMAN)).toBe(true);
+});

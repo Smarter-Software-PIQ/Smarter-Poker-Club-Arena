@@ -65,6 +65,21 @@ type AddChipsResult = {
 export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
   /** A committed leave belongs to this controller, never to a later hand. */
   protected readonly leaveFoldControllers = new WeakMap<object, Set<string>>();
+  protected fenceLeaveInput(userId: string): () => void {
+    const controller = this.handController;
+    const player = controller?.getState().players.find((p) => p.user_id === userId);
+    if (!controller || !player || player.is_folded || player.is_all_in) return () => {};
+    let users = this.leaveFoldControllers.get(controller);
+    if (!users) {
+      users = new Set<string>();
+      this.leaveFoldControllers.set(controller, users);
+    }
+    const existed = users.has(userId);
+    users.add(userId);
+    return () => {
+      if (!existed) users.delete(userId);
+    };
+  }
   protected hasCommittedLeaveFold(userId: string): boolean {
     return (
       !!this.handController &&
@@ -1971,6 +1986,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               immediate: false,
               error: 'Your Seat Identity Could Not Be Verified.',
             };
+          const releaseInputFence = this.fenceLeaveInput(userId);
           try {
             if (!opts.admin)
               await requestSeatDeparture(
@@ -1981,6 +1997,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
                 opts.forced ? 'forced' : 'voluntary'
               );
           } catch {
+            releaseInputFence();
             return {
               success: false,
               immediate: false,
@@ -2158,6 +2175,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               immediate: false,
               error: 'Your Seat Identity Could Not Be Verified.',
             };
+          const releaseInputFence = this.fenceLeaveInput(userId);
           try {
             if (!opts.admin)
               await requestSeatDeparture(
@@ -2168,6 +2186,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
                 opts.forced ? 'forced' : 'voluntary'
               );
           } catch {
+            releaseInputFence();
             return {
               success: false,
               immediate: false,
