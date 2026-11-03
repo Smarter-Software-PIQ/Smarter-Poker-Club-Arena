@@ -62,6 +62,7 @@ export interface CashierModalProps {
   onRetryBalance?: () => void;
   maxBuyIn: number;
   maxStack: number; // Max stack allowed at table
+  unlimitedStack?: boolean;
   currency?: string;
   isProcessing?: boolean;
   /** Diamonds are whole units: every amount this modal offers or accepts is an
@@ -132,6 +133,7 @@ export function CashierModal({
   onRetryBalance,
   maxBuyIn,
   maxStack,
+  unlimitedStack = false,
   currency = '',
   isProcessing = false,
   wholeUnits = false,
@@ -173,11 +175,20 @@ export function CashierModal({
   const canAddAmount = useMemo(() => {
     const spaceInStack = maxStack - currentStack;
     // An unknown balance affords nothing - and says "Unavailable", not 0.
-    if (accountBalance === null || currentStackPending) return 0;
+    if (
+      accountBalance === null ||
+      currentStackPending ||
+      !Number.isFinite(currentStack) ||
+      currentStack < 0 ||
+      !Number.isFinite(accountBalance)
+    )
+      return 0;
     // NEVER NEGATIVE (audit C2-17). A stack already above the table maximum -
     // a pot won past it - has no room at all; it printed "Available To Add: -40".
-    return Math.max(0, Math.min(spaceInStack, accountBalance, maxBuyIn));
-  }, [currentStack, currentStackPending, maxStack, accountBalance, maxBuyIn]);
+    return unlimitedStack
+      ? Math.max(0, accountBalance)
+      : Math.max(0, Math.min(spaceInStack, accountBalance, maxBuyIn));
+  }, [currentStack, currentStackPending, maxStack, accountBalance, maxBuyIn, unlimitedStack]);
 
   const activeMax = canAddAmount;
 
@@ -358,7 +369,7 @@ export function CashierModal({
       : formatWalletChips(accountBalance)
     : 'Unavailable';
   /** The stack already fills the table maximum, so there is no room to add into (audit C2-17). */
-  const atTableMax = balanceKnown && currentStack >= maxStack;
+  const atTableMax = !unlimitedStack && balanceKnown && currentStack >= maxStack;
   /** An unread balance affords nothing: the money plate offers the re-read instead. */
   const offerRetry = (!balanceKnown || currentStackPending) && onRetryBalance !== undefined;
   /* Everything the sheet has to say is printed INSIDE the painted frame
