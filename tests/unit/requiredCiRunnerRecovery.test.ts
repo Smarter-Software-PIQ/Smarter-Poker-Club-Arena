@@ -549,6 +549,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     );
     // Enforce the exact new regression, then retain every historical job pin.
     accountingSteps.splice(fixedLimitIndex, 1);
+    expect(normalized.jobs.server_shards['timeout-minutes']).toBe(40);
+    normalized.jobs.server_shards['timeout-minutes'] = 25;
     normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
     normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);

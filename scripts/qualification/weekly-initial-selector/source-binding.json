@@ -199,7 +199,7 @@
   "files": {
     ".github/workflows/ci.yml": {
       "bytes": 278022,
-      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+      "sha256": "a5eae1a5e8f9ffe45860dca4a68167fd4e2f1a98d511797f0b041936c6fdf3e3"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2463,6 +2463,20 @@
     "current": {
       "bytes": 278022,
       "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "historicalQualificationJobCapacity20261103": {
+    "reason": "Measured checkout8m03 plus setup1m22 plus isolated44case3m09 plus prior fullsuite15m55 exceeds25minute job. Only CI engine job capacity40minutes; all commands, individual deadlines, accounting inputs and historical verdicts unchanged.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "current": {
+      "bytes": 278022,
+      "sha256": "a5eae1a5e8f9ffe45860dca4a68167fd4e2f1a98d511797f0b041936c6fdf3e3"
     },
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false

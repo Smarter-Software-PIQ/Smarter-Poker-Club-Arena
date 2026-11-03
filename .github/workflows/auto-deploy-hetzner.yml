@@ -157,7 +157,7 @@ jobs:
     if: github.event.action == 'deploy-club-arena-engine'
     name: Test The Exact Engine Release Request (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     # Each shard builds the same immutable server tree. Downstream jobs depend
     # on the entire matrix, so one failed/cancelled shard cannot admit a release.
     # Finish all shards on failure to retain the complete diagnostic result.

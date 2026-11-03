@@ -10,6 +10,8 @@ const ci = parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
 const receiver = parse(readFileSync('.github/workflows/auto-deploy-hetzner.yml', 'utf8'));
 
 it('executes the declared CI and receiver commands with exact-once historical coverage', () => {
+  expect(ci.jobs.server_shards['timeout-minutes']).toBe(40);
+  expect(receiver.jobs.preflight['timeout-minutes']).toBe(40);
   const folder = mkdtempSync(join(tmpdir(), 'retained-owner-routing-'));
   const log = join(folder, 'commands.log');
   const npm = join(folder, 'npm');

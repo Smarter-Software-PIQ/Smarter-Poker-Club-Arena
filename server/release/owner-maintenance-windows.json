@@ -859,6 +859,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "0ef4c19a106a2c6778ed1cc26dfc3ce0dd114f6a09b95c7ca8cb3975363411ab"
       }
+    },
+    {
+      "id": "2026-11-03-tournament-qualified-capacity-continuation",
+      "ownerOrder": "Dan directly in tournament recovery chat01a1a01a-7f70-7d62-8da1-8d086594c658 renewed the instruction to finish the assigned recovery, use the swarm and proceed through the earliest certified safe window without waiting for :55. This NEW fixed20:30 through23:30UTC November3 carrier continues that same work. At20:33UTC observed normal submission4minutes plus39\u201342minute CI plus27minute receiver projected21:43\u201321:46, beyond the preceding21:30 expiry. Job126173517215 passed all44 historical cases but exceeded its25minute outer test-job ceiling after8minute checkout; reviewed40minute test-job capacity changes no production limit. Preserve every prior entry and receipt verbatim. Before one new qualified operation read prior terminal outcomes, exact protected source and current ownership; never retry a failed or unknown operation. Use only the existing stage/receiver and earliest-certified owning transaction with120second notice,300second window, full285second proof/rollback reserve, original hand custody, immutable source/seal checks, durable freeze and verified own-window v3thaw. This is not automatic renewal, a timer, a second publisher, an extended production freeze, or authority to bypass any guard.",
+      "contains": "0de3e5b9f6ae9b6def3a2603ef69fab5d934977d",
+      "notBefore": "2026-11-03T20:30:00Z",
+      "notAfter": "2026-11-03T23:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "ae842957f063cf23020dbf23a203794fd43a02dffea883aa2ec2c7dc24d7b175"
+      }
     }
   ],
   "databaseWindows": [
