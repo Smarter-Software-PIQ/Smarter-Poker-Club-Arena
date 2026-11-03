@@ -803,6 +803,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "af803fe4f3c9da76902f27e27e311a5d581cfe59296d3ac4135d8eed1569bebf"
       }
+    },
+    {
+      "id": "2026-11-03-phase1-plo-horse-55-1500z",
+      "ownerOrder": "Dan, directly in MAIN Horse Brain PLO session_01TLQer9MnhBkQFbSEevq8zY (America/Chicago), ordered verbatim on 2026-11-01 14:43: \"GET THESE DONE NOW, AND YOU DO NOT HAVE TO WAIT UNTIL 4AM. AS SOON AS YOU ARE READY YOU CAN DO AN ENGINE RESET AT ANY OF THE :55 BREAKS AS NEEDED TO GET THIS FULLY PUBLISHED UPDATED AND VERIFIED. BUT ONLY AT THE :55 BREAK, BUT YOU CAN DO IT EVERY HOUR IF YOU NEED TOO\", and on 2026-11-03 08:45: \"YOU NEED TO CHECK AND INSURE THAT EVERYTHING YOU'VE BUILT, ADDED, ENHANCED OR OPTIMIZED FOR THE PLO HORSE BRAIN HAS BEEN FULLY PUSHED AND PUBLISHED AND ACTIVATED.\" The prior window 2026-11-03-phase1-horse-and-checkpoint-55 expired at 06:45Z and every receiver since refuses with 'explicit later owner window expired'. This NEW fixed window admits one certified :55 activation of a target containing protected main f2cec583 (all Phase 1 PLO fixes, the never-announced-owner resolver #9415 and checkpoint diagnostics #9427) from 15:00Z to 21:00Z November 3 only, Chicago minute 53 notice and minute 55 activation, with every existing guard unchanged: hand-boundary drain, durable freeze and certificate, full proof/rollback reserve, one-shot checkpoint intent with strict UNKNOWN/no-retry, SEALED and own healthy v3 thaw. Every earlier entry keeps its order, witness and expiry; nothing is extended, reused or retargeted. No migration, direct restart, second publisher, watcher or timer. Expiry is not an emergency or automatic extension.",
+      "contains": "f2cec583124138fd8d54d48c02b2e91214b281e1",
+      "notBefore": "2026-11-03T15:00:00Z",
+      "notAfter": "2026-11-03T21:00:00Z",
+      "announceAtChicagoMinutes": [53],
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "0eca2adbe3e809aa9411b83399aca6bbc3c5bd82f8dbf2a7c699ef5affb4b501"
+      }
     }
   ],
   "databaseWindows": [
