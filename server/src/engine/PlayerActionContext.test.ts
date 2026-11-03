@@ -45,6 +45,7 @@ function harness() {
   const h = hand();
   const engine = Object.create(ServerTableEngine.prototype) as any;
   // Match the fresh engine constructor: no retained original or replay lane.
+  engine.leaveFoldControllers = new WeakMap();
   engine.pendingOriginalContinuation = null;
   engine.handContinuation = null;
   engine.handController = h;
