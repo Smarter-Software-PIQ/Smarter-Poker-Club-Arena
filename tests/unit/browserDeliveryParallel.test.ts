@@ -101,7 +101,7 @@ describe('browser qualification parallel delivery', () => {
     for (const shard of ci.jobs.accounting_postgres.strategy.matrix.shard)
       expect(route({ shard })).toBe(shard === 2 ? 'ubuntu-24.04' : 'ubuntu-latest');
     expect(ci.jobs.accounting_postgres['timeout-minutes']).toBe(50);
-    expect(ci.jobs.server_shards['timeout-minutes']).toBe(25);
+    expect(ci.jobs.server_shards['timeout-minutes']).toBe(40);
     expect(ci.jobs.server.needs).toContain('accounting_postgres');
     expect(ci.jobs.server.needs).toContain('server_shards');
   });
