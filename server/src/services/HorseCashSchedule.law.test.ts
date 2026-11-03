@@ -50,15 +50,17 @@ describe('November 2 owner cash schedule', () => {
     }
   );
   it.each(['plo4', 'plo5', 'plo6', 'nlh', 'flh', 'flo8', 'stud', 'unknown'])(
-    'caps %s at .50/1.00 including future higher stakes',
+    'enforces the owner-selected actual-blind ceiling for %s',
     (variant) => {
       for (const [sb, bb, allowed] of [
         [0.25, 0.5, true],
         [0.5, 1, true],
-        [1, 2, false],
-        [2, 5, false],
-        [5, 10, false],
-        [1, 1, false],
+        [1, 2, !['stud', 'unknown'].includes(variant)],
+        [2, 5, ['flh', 'flo8'].includes(variant)],
+        [5, 10, ['flh', 'flo8'].includes(variant)],
+        [1, 1, !['stud', 'unknown'].includes(variant)],
+        [5.01, 10, false],
+        [5, 10.01, false],
       ] as const) {
         expect(
           horseCashGameAllowed({ game_variant: variant, small_blind: sb, big_blind: bb }, start)

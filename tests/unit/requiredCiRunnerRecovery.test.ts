@@ -464,6 +464,24 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       delete selected[0].if;
     }
     delete normalized.jobs['css-beats-build'];
+    const fixedLimitStep = {
+      name: 'Fixed-limit blinds and uncapped buy-ins use the original cash owners',
+      if: 'matrix.shard == 3',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+      run: 'python3 -B scripts/ci/test-fixed-limit-policy-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"',
+    };
+    const accountingSteps = normalized.jobs.accounting_postgres.steps;
+    const fixedLimitIndex = accountingSteps.findIndex((step) => step.name === fixedLimitStep.name);
+    expect(accountingSteps.filter((step) => step.name === fixedLimitStep.name)).toHaveLength(1);
+    expect(accountingSteps[fixedLimitIndex]).toStrictEqual(fixedLimitStep);
+    expect(accountingSteps[fixedLimitIndex - 1].name).toBe(
+      'Original committed horse turns have an independent complete census'
+    );
+    expect(accountingSteps[fixedLimitIndex + 1].name).toBe(
+      'Runtime privilege changes preserve the schema DDL boundary'
+    );
+    // Enforce the exact new regression, then retain every historical job pin.
+    accountingSteps.splice(fixedLimitIndex, 1);
     normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);

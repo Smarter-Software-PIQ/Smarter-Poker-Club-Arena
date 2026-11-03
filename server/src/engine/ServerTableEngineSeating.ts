@@ -403,7 +403,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     // remaining room from the start.
     const pending = this.pendingAddOns.get(userId) || 0;
     const effectiveStack = player.stack + pending;
-    const headroom = Math.max(0, maxBuyIn - effectiveStack);
+    const headroom = maxBuyIn === null ? amount : Math.max(0, maxBuyIn - effectiveStack);
     /* TO THE CENT (2026-09-08 sweep). `maxBuyIn - stack` is a float
        subtraction (50 - 33.33 = 16.670000000000002), and this number was
        sent to atomic_table_addon verbatim, which stores it verbatim in
@@ -580,7 +580,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
   protected async addDiamonds(
     userId: string,
     amount: number,
-    maxBuyIn: number,
+    maxBuyIn: number | null,
     midHand: boolean,
     player: SeatedPlayer,
     opId?: string
@@ -642,7 +642,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       const intended = [...this.diamondTopUpIntents.values()]
         .filter((intent) => intent.userId === userId)
         .reduce((sum, intent) => sum + intent.amount, 0);
-      const headroom = Math.max(0, Math.floor(maxBuyIn) - stack - intended);
+      const headroom =
+        maxBuyIn === null ? amount : Math.max(0, Math.floor(maxBuyIn) - stack - intended);
       const applied = Math.min(requested, headroom);
       if (applied < 1) {
         return { success: false, error: 'Already at the maximum buy-in for this table' };
@@ -658,7 +659,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     if (!Number.isSafeInteger(stack) || stack < 0) {
       return { success: false, error: 'Diamond Top Ups Require A Whole Stack' };
     }
-    const headroom = Math.max(0, Math.floor(maxBuyIn) - stack);
+    const headroom = maxBuyIn === null ? amount : Math.max(0, Math.floor(maxBuyIn) - stack);
     const applied = Math.min(Math.floor(amount), headroom);
     if (applied < 1) {
       return { success: false, error: 'Already at the maximum buy-in for this table' };
@@ -790,7 +791,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     }
     try {
       if (this.handController || this.hasSettlementInFlight()) return;
-      const maxBuyIn = Math.floor(this.getMaxBuyIn());
+      const limit = this.getMaxBuyIn();
+      const maxBuyIn = limit === null ? null : Math.floor(limit);
       const complete = (requestId: string, userId: string, amount: number, status: string) => {
         this.diamondTopUpIntents.delete(requestId);
         this.hub?.sendToUser(this.tableId, userId, {
@@ -829,7 +831,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           );
           return;
         }
-        const applied = Math.min(intent.amount, Math.max(0, maxBuyIn - stack));
+        const applied =
+          maxBuyIn === null
+            ? intent.amount
+            : Math.min(intent.amount, Math.max(0, maxBuyIn - stack));
         if (applied < 1) {
           complete(requestId, intent.userId, 0, 'capped');
           continue;
