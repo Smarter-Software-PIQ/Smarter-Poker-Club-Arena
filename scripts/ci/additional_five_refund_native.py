@@ -7,7 +7,7 @@ import json, hashlib, uuid
 from tournament_abort_native import sql_file, prepare_quiesced, SERVICE
 
 def ident(name): return str(uuid.uuid5(uuid.NAMESPACE_URL, 'native-additional-five:'+name))
-def qualify(e, db, root):
+def qualify(e, db, root, management=False):
     club, union = ident('club'), ident('union')
     owner=ident('owner')
     shapes=[(19,12,4.5,.5,5,0,155,9.5),(9,0,9,1,0,0,90,9),(9,0,10.8,1.2,0,0,108,10.8),(14,2,27,3,30,0,480,42),(16,0,22.5,2.5,0,307.5,400,40)]
@@ -46,9 +46,37 @@ def qualify(e, db, root):
             _,out,_=e.sql(db,query,label=f'additional-{i}-{label}');return json.loads(out.strip())
         before=witness('before');escrow=before['escrow']
         assert float(escrow['gross_in'])==gross and float(escrow['fee_entries_in'])==totalfee and float(escrow['overlay_in'])==overlay
-        prefix='BEGIN;'+SERVICE
+        prefix='BEGIN;' if management else 'BEGIN;'+SERVICE
         call=f"SELECT public.fn_ca_settle_tournament_abort('{op}','{event}','{money_hash}');"
-        sql_file(e,db,f'additional-{i}-rollback',prefix+call+'ROLLBACK;')
+        if management:
+            if i==0:
+                rc,_,err=e.sql(db,call,label='management-before-refuses',check=False)
+                assert rc!=0 and 'operator_abort_service_required' in err
+                migration=root/'supabase/migrations/20261103133529_original_abort_allows_genuine_management_rollback_proof.sql'
+                e.sql(db,file=migration,label='exact-management-migration')
+                e.report['source_sha256'][str(migration.relative_to(root))]=hashlib.sha256(migration.read_bytes()).hexdigest()
+            sql_file(e,db,f'additional-{i}-genuine-session',"DO $$BEGIN IF session_user<>'postgres' OR current_user<>'postgres' OR auth.role() IS NOT NULL OR coalesce(current_setting('role',true),'none') NOT IN ('none','postgres') THEN RAISE EXCEPTION 'not_genuine_management';END IF;END$$;")
+            for role in ('anon','authenticated'):
+                for claim in ('', 'authenticated', 'service_role'):
+                    denied=f"BEGIN;SET LOCAL ROLE {role};SELECT set_config('request.jwt.claim.role','{claim}',true),set_config('request.jwt.claims','{{\"role\":\"{claim}\"}}',true);"+call
+                    rc,_,err=e.sql(db,denied,label=f'additional-{i}-denied-{role}-{claim or "empty"}',check=False)
+                    assert rc!=0 and ('permission denied' in err or 'operator_abort_service_required' in err),err
+            for label,denial_query,reason in [
+                ('direct-terminal-edit',f"UPDATE public.tournaments SET status='CANCELLED' WHERE id='{event}';",'This tournament cannot be cancelled'),
+                ('orphan-admission',f"BEGIN;UPDATE smarter_private.tournament_abort_targets SET receipt=jsonb_build_object('mode','started_operator_abort_admission','transaction_id',txid_current()) WHERE tournament_id='{event}';SET CONSTRAINTS ALL IMMEDIATE;COMMIT;",'operator_abort_terminal_receipt_evidence_changed'),
+                ('management-authenticated-claims',"BEGIN;SELECT set_config('request.jwt.claim.role','authenticated',true);"+call,'operator_abort_service_required'),
+                ('wrong-money-hash',call.replace(money_hash,'incorrect'),'operator_abort_review_hash_mismatch')]:
+                rc,_,err=e.sql(db,denial_query,label=f'additional-{i}-{label}',check=False)
+                assert rc!=0 and reason in err,err
+            assert witness('denials-unchanged')==before
+            sql_file(e,db,f'additional-{i}-service-still-supported','BEGIN;'+SERVICE+call+'SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;')
+            assert witness('service-rollback-unchanged')==before
+            # This is the actual one-statement management transport rollback shape.
+            probe=f"DO $probe$ DECLARE r jsonb;BEGIN r:=public.fn_ca_settle_tournament_abort('{op}','{event}','{money_hash}');IF (r->>'total_refunded')::numeric<>{gross} OR (r->>'fees_reversed')::numeric<>{totalfee} OR (r->'financial'->>'unused_overlay_returned')::numeric<>{overlay} THEN RAISE EXCEPTION 'probe_receipt_mismatch';END IF;SET CONSTRAINTS ALL IMMEDIATE;RAISE EXCEPTION 'expected_management_rollback:%',r USING ERRCODE='P0001';END $probe$;"
+            rc,_,err=e.sql(db,probe,label=f'additional-{i}-self-aborting-rollback',check=False)
+            assert rc!=0 and 'expected_management_rollback:' in err,err
+        else:
+            sql_file(e,db,f'additional-{i}-rollback',prefix+call+'ROLLBACK;')
         assert witness('rolled-back')==before
         _,out,_=sql_file(e,db,f'additional-{i}-commit',prefix+call+'COMMIT;')
         receipt=[json.loads(x) for x in out.splitlines() if x.startswith('{') and 'total_refunded' in x][-1]
@@ -61,5 +89,5 @@ def qualify(e, db, root):
         assert after['escrow']['closed_at'] is not None
         sql_file(e,db,f'additional-{i}-replay',prefix+call+'COMMIT;')
         assert witness('replayed')==after
-        e.report.setdefault('additional_five_refunds',[]).append({'topology':i,'entries':entries,'addons':addons,'refund':gross,'fees':totalfee,'overlay_returned':overlay,'rollback':True,'replay_unchanged':True})
+        e.report.setdefault('additional_five_refunds',[]).append({'topology':i,'entries':entries,'addons':addons,'refund':gross,'fees':totalfee,'overlay_returned':overlay,'rollback':True,'replay_unchanged':True,'genuine_management':management})
     e.report['source_sha256'][str(__import__('pathlib').Path(__file__).relative_to(root))]=hashlib.sha256(__import__('pathlib').Path(__file__).read_bytes()).hexdigest()

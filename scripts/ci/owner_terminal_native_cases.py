@@ -8,6 +8,7 @@ def snapshot(e,db,label):
  result.update(json.loads(out.strip()));return result
 
 def exercise(e,db,event,op,money_hash,amount,fee,label):
+ authority='' if e.report.get('genuine_management_retirement') else SERVICE
  call="public.fn_ca_owner_retire_tournament('"+op+"','"+event+"','"+money_hash+"')"
  before=snapshot(e,db,label+'-before')
  def refuse(name,body,reason):
@@ -26,15 +27,15 @@ def exercise(e,db,event,op,money_hash,amount,fee,label):
   right.query('BEGIN;'+SERVICE+"DO $$DECLARE failed boolean:=false;BEGIN BEGIN PERFORM "+call+";EXCEPTION WHEN lock_not_available THEN failed:=true;END;IF NOT failed THEN RAISE EXCEPTION 'concurrent lane admitted';END IF;END$$;")
  finally:left.close();right.close()
  assert snapshot(e,db,label+'-concurrent-unchanged')==before
- sql_file(e,db,label+'-preview','BEGIN;'+SERVICE+'SELECT '+call+';SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;')
+ sql_file(e,db,label+'-preview','BEGIN;'+authority+'SELECT '+call+';SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;')
  assert snapshot(e,db,label+'-preview-unchanged')==before
  sql_file(e,db,label+'-late-fault',"BEGIN;"+SERVICE+"CREATE FUNCTION pg_temp.owner_receipt_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'native_owner_receipt_fault';END$$;CREATE TRIGGER native_owner_receipt_fault BEFORE INSERT ON public.tournament_cancellation_receipts FOR EACH ROW EXECUTE FUNCTION pg_temp.owner_receipt_fault();DO $$DECLARE failed boolean:=false;BEGIN BEGIN PERFORM "+call+";EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'native_owner_receipt_fault' THEN RAISE;END IF;failed:=true;END;IF NOT failed THEN RAISE EXCEPTION 'fault absent';END IF;END$$;ROLLBACK;")
  assert snapshot(e,db,label+'-late-fault-unchanged')==before
- _,out,_=sql_file(e,db,label+'-commit','BEGIN;'+SERVICE+'SELECT '+call+';SET CONSTRAINTS ALL IMMEDIATE;COMMIT;')
+ _,out,_=sql_file(e,db,label+'-commit','BEGIN;'+authority+'SELECT '+call+';SET CONSTRAINTS ALL IMMEDIATE;COMMIT;')
  receipt=next(json.loads(x) for x in out.splitlines() if x.startswith('{') and 'receipt_version' in x)
  assert receipt['receipt_version']==6 and receipt['financial']['amount']==amount and receipt['fee_receipt']['amount']==fee
  after=snapshot(e,db,label+'-after')
- _,out,_=sql_file(e,db,label+'-replay','BEGIN;'+SERVICE+'SELECT '+call+';COMMIT;')
+ _,out,_=sql_file(e,db,label+'-replay','BEGIN;'+authority+'SELECT '+call+';COMMIT;')
  assert next(json.loads(x) for x in out.splitlines() if x.startswith('{') and 'receipt_version' in x)==receipt
  assert snapshot(e,db,label+'-replay-unchanged')==after
  for verb in ('UPDATE smarter_private.owner_retirement_pool_transfers SET receipt=receipt','DELETE FROM smarter_private.owner_retirement_pool_transfers','TRUNCATE smarter_private.owner_retirement_pool_transfers'):
