@@ -31,7 +31,8 @@ function harness({
         (async () => ({ data: { version: 1, active_acknowledged: false, pending: [] } })),
       channel() {
         const channel = {
-          on() {
+          on(_type, filter, callback) {
+            this[filter.event] = callback;
             return this;
           },
           subscribe(cb) {
@@ -267,6 +268,66 @@ test('a joined channel with a failed pending read does not replenish close recov
     await turn();
     assert.equal(h.channels.length, 2);
     assert.equal(h.status().lifecycle, 'degraded');
+    assert.equal(h.snapshot().effects, 0);
+  } finally {
+    await h.service.stop();
+  }
+});
+
+test('failed subscribe invalidates callbacks before transport cleanup closes the channel', async () => {
+  let created = 0,
+    callback;
+  const h = harness({
+    clientFactory: () => ({
+      channel() {
+        created++;
+        return {
+          on() {
+            return this;
+          },
+          subscribe(cb) {
+            callback = cb;
+            throw new Error('subscription setup failed');
+          },
+        };
+      },
+      async removeAllChannels() {
+        callback('CLOSED');
+      },
+    }),
+  });
+  await assert.rejects(h.service.start(), /subscription setup failed/);
+  await turn();
+  assert.equal(created, 1);
+  assert.equal(h.status().lifecycle, 'start_failed');
+  callback('SUBSCRIBED');
+  assert.equal(h.status().serviceActive, false);
+  assert.equal(h.snapshot().closed, 1);
+  assert.equal(h.service.client, null);
+  assert.equal(h.service.channel, null);
+});
+test('a later successful broadcast read completes the same recovered episode', async () => {
+  let failed = true;
+  const h = harness({
+    pending: async () =>
+      failed ? { error: {} } : { data: { version: 1, active_acknowledged: false, pending: [] } },
+  });
+  try {
+    await h.service.start();
+    h.channels[0].callback('CLOSED');
+    await turn();
+    h.channels[1].callback('SUBSCRIBED');
+    await turn();
+    assert.match(h.status().lastError, /pending read unavailable/);
+    failed = false;
+    h.channels[1].inbox_committed();
+    await turn();
+    assert.equal(h.status().lastError, null);
+    assert.equal(h.status().closeRecoveryAttempts, 0);
+    h.channels[1].callback('CLOSED');
+    await turn();
+    assert.equal(h.channels.length, 3);
+    assert.deepEqual(h.snapshot().state, queued);
     assert.equal(h.snapshot().effects, 0);
   } finally {
     await h.service.stop();

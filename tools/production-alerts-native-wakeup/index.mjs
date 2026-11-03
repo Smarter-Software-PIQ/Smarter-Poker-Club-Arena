@@ -163,8 +163,8 @@ export function createPlugin({
                 const channel = client.channel(channelName, { config: { private: true } });
                 this.channel = channel;
                 channel
-                  .on('broadcast', { event: 'inbox_committed' }, () => onEvent())
-                  .on('broadcast', { event: 'intake_acknowledged' }, () => onEvent())
+                  .on('broadcast', { event: 'inbox_committed' }, () => onEvent(channel))
+                  .on('broadcast', { event: 'intake_acknowledged' }, () => onEvent(channel))
                   .subscribe((status) => {
                     if (!current() || this.channel !== channel) return;
                     channelStatus = status;
@@ -198,13 +198,17 @@ export function createPlugin({
               };
               subscribe();
             } catch (error) {
+              if (generation === currentGeneration) generation += 1;
               lifecycle = 'start_failed';
+              channelStatus = 'start_failed';
               try {
                 await this.client?.removeAllChannels();
               } finally {
                 await intake?.settled();
                 this.store?.close();
                 this.store = null;
+                this.channel = null;
+                this.client = null;
               }
               throw error;
             } finally {

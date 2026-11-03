@@ -117,3 +117,9 @@ service lifetime creates one fresh private subscription and reads the original
 pending batch. A repeated terminal close before successful subscription and original pending read is explicitly degraded, requiring finite inspection. A proven recovery restores the attempt for the next independent disconnection. Ordinary transport errors retain the SDK's protocol reconnect. No
 timer or new queue retry is introduced. Stop drains any accepted intake before
 releasing the journal, including when transport removal fails.
+
+`serviceActive` reports the current subscription lifecycle, not complete delivery
+health. Inspect `lastError` and the original receipt/read/ACK evidence separately.
+A later successful inbox/ACK read on the same subscribed channel can complete a
+previously failed pending-read episode; a failed start invalidates callbacks
+before transport cleanup and cannot resubscribe over a released journal.
