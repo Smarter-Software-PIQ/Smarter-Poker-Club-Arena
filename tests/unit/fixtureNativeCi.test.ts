@@ -2487,3 +2487,12 @@ describe('scoped launch reset keeps its real recovery regression enforced', () =
     expect(evidence.if).toContain('always()');
   });
 });
+
+describe('Additional five original refund qualification', () => {
+  it.each([
+    '.github/scripts/additional-five-refund-control.mjs',
+    'scripts/ci/additional_five_refund_native.py',
+  ])('selects required accounting and source checks for %s', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
+  });
+});

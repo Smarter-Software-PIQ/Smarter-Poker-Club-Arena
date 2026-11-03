@@ -1,6 +1,6 @@
 {
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+    "scripts/ci/classify-ci-changes.mjs": "a7d49ee25418a8540a2447e5c933aea100857f5f7ad93afc8540faa4d92439f0",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
@@ -1359,5 +1359,16 @@
         "currentSHA256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
       }
     ]
+  },
+  "additionalFiveRefundControlAudit20261103": {
+    "reason": "Reviewed additive exact-five original refund adapter/native helper routing and two routing regressions. Existing financial assertions, fixture data and historical verdicts unchanged. Source identity only; isolated new five-topology evidence is separate.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+        "current": "a7d49ee25418a8540a2447e5c933aea100857f5f7ad93afc8540faa4d92439f0"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }
