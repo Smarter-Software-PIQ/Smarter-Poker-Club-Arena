@@ -7,6 +7,14 @@ const bytes = fs.readFileSync(
   )
 );
 const manifest = JSON.parse(bytes);
+const humanPreservation = JSON.parse(
+  fs.readFileSync(
+    new URL(
+      '../../scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json',
+      import.meta.url
+    )
+  )
+);
 const manifestHash = createHash('sha256').update(bytes).digest('hex');
 const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 export const OWNER_ACTIONS = ['owner_request', 'owner_read', 'owner_ack'];
@@ -15,6 +23,7 @@ export function ownerRetirementIntent(input) {
   if (
     !OWNER_ACTIONS.includes(input.action) ||
     !member ||
+    humanPreservation.preserved_started_human_events.includes(input.tournamentId) ||
     manifest.targets.length !== 140 ||
     new Set(manifest.targets.map((r) => r.tournament_id)).size !== 140 ||
     manifest.preserved_outside_diamond_event_ids.includes(input.tournamentId) ||

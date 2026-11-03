@@ -350,6 +350,16 @@ END $started_refusal$;
         assert recovery_report.get('passed') is True and recovery_report.get('status') == 'passed'
         assert len(recovery_report.get('cases', [])) == 27 and len(recovery_report.get('tool_cases', [])) == 3 and recovery_report.get('manual_control_cases') == 13
         e.report['original_recovery20'] = {'passed': True, 'cases': 27, 'tool_cases': 3, 'report': 'original-recovery20/recovery20-report.json'}
+        human_events=json.loads((ROOT/'scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json').read_text())['original_abort_recovery_events']
+        assert len(human_events)==3 and len(set(human_events))==3
+        for index,event in enumerate(human_events):
+            label='preserved-human-'+str(index)
+            subprocess.run([sys.executable,'-B',str(recovery_driver),'--human-event',event,
+                '--evidence',str(out/label),'--work-root',str(args.work_root.resolve()/label),
+                '--socket-root',str(args.socket_root.resolve()/label),'--pg-bin',str(args.pg_bin.resolve())],check=True,timeout=660)
+            report=json.loads((out/label/'recovery20-report.json').read_text())
+            assert report.get('passed') is True and len(report.get('cases',[]))==27
+            e.report[label]={'passed':True,'cases':27,'event':event}
         # The same required financial shard owns durable Spin management
         # commands. Its independent cluster uses real wallet/ledger owners.
         spin_driver = ROOT/'scripts/ci/test-spin-owner-command.py'

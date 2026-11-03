@@ -102,3 +102,13 @@ it('explicit readback never calls prepare', async () => {
   expect(prepare).not.toHaveBeenCalled();
   expect(read).toHaveBeenCalledTimes(1);
 });
+
+it.each([
+  '2781bcd7-cc8a-4713-ab3e-0d0a81fdf110',
+  '6379b29e-1307-4e8b-91e7-e9a0975cd64d',
+  '7986217a-0a67-4585-bd43-254356a9cb54',
+])('prepares preserved human event %s through the original authority', async (tournamentId) => {
+  const r = await request('isolated-service-key', { ...body, tournamentId });
+  expect(r.status).toBe(200);
+  expect(r.invoke).toHaveBeenCalledWith(body.operationId, tournamentId, body.nonce);
+});
