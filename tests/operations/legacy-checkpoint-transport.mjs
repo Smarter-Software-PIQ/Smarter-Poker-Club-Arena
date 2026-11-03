@@ -197,7 +197,7 @@ try {
       'let nativeGcCalls=0,resolvedAfterGc=false;',
       'const instances=Array.from({length:' + count + '},()=>new GameServer());',
       "const engineInstances=[new ServerTableEngine('registered'),new ServerTableEngine('detached')];",
-      "const managerInstances=[new TournamentManager('registered'),new TournamentManager('detached')];",
+      "const managerInstances=['census_overflow','census_counts_skew'].includes(process.argv[3])?Array.from({length:process.argv[3]==='census_overflow'?17996:17993},()=>new TournamentManager('synthetic-secret')):[new TournamentManager('registered'),new TournamentManager('detached')];",
       "const lightningWorkerInstances=process.argv[3]==='census_counts_zero'?[]:[new LightningClusterWorker('registered'),new LightningClusterWorker('detached')];",
       "const lightningHostInstances=process.argv[3]==='census_counts_zero'?[]:[new LightningHandHost('registered'),new LightningHandHost('detached')];",
       "const inspector=process.getBuiltinModule('node:inspector');",
@@ -352,6 +352,8 @@ try {
       'census_counts',
       'census_counts_unknown',
       'census_counts_zero',
+      'census_counts_skew',
+      'census_overflow',
     ].includes(scenario),
     workBudgetMs: 3000,
     cleanupBudgetMs: 2000,
@@ -403,6 +405,8 @@ try {
         'census_counts',
         'census_counts_unknown',
         'census_counts_zero',
+      'census_counts_skew',
+      'census_overflow',
       ].includes(scenario)
     ) {
       let firstCensusId = null;
@@ -454,7 +458,7 @@ try {
                     const descriptor = message.result.result;
                     if (index === 0) descriptor.type = 'number';
                     if (index === 1) descriptor.description = 'Array(0002)';
-                    if (index === 2) descriptor.description = 'Array(2001)';
+                    if (index === 2) descriptor.description = 'Array(18001)';
                     if (index === 3) descriptor.className = 'synthetic-secret-census-class';
                     if (index === 4) {
                       descriptor.subtype = 'object';
@@ -645,6 +649,8 @@ try {
         'census_counts',
         'census_counts_unknown',
         'census_counts_zero',
+      'census_counts_skew',
+      'census_overflow',
         'cleanup_close_timeout',
         'refusal_cleanup_timeout',
       ].includes(scenario)
@@ -677,6 +683,19 @@ try {
       assert.equal(clientCloseCalls, 0, 'no competing close after the native request');
       assert.deepEqual(nativeProtocolErrors, []);
     }
+    if (scenario === 'census_overflow') {
+      expectedCalls = 0;
+      assert.equal(result.ok, false);
+      assert.equal(result.reason, 'native census count refused');
+      assert.equal(result.retryAllowed, false);
+      assert.equal(result.checkpointInvoked, false);
+      assert.equal(result.inspectorClosed, true);
+      assert.equal(result.cleanupConnections, 0);
+      assert.deepEqual(result.nativeCensusCounts, {schema:'legacy-native-census-counts/v1',gameServers:1,tableEngines:2,tournamentManagers:17996,lightningWorkers:2,lightningHosts:2});
+      assert.equal(nativeCensusRequests, 1);
+      assert.equal(nativeOrder.includes('guard'), false);
+      assert.equal(JSON.stringify(result).includes('synthetic-secret'), false);
+    }
     if (scenario.startsWith('census_counts')) {
       assert.equal(result.ok, false);
       assert.equal(result.reason, 'retained_lightning_host_census_unproven');
@@ -689,7 +708,7 @@ try {
         schema: 'legacy-native-census-counts/v1',
         gameServers: scenario === 'census_counts_unknown' ? null : 1,
         tableEngines: scenario === 'census_counts_unknown' ? null : 2,
-        tournamentManagers: scenario === 'census_counts_unknown' ? null : 2,
+        tournamentManagers: scenario === 'census_counts_unknown' ? null : scenario === 'census_counts_skew' ? 17993 : 2,
         lightningWorkers:
           scenario === 'census_counts_unknown' ? null : scenario === 'census_counts_zero' ? 0 : 2,
         lightningHosts:

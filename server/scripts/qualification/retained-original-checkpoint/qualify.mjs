@@ -211,11 +211,11 @@ try {
   const result = JSON.parse(output.slice(start));
   need(
     result.success === true &&
-      result.numTotalTests === (nativeMode ? 25 : 33) &&
-      result.numPassedTests === (nativeMode ? 2 : 33) &&
-      (!nativeMode || result.numPendingTests === 23) &&
+      result.numTotalTests === (nativeMode ? 36 : 44) &&
+      result.numPassedTests === (nativeMode ? 2 : 44) &&
+      (!nativeMode || result.numPendingTests === 34) &&
       result.numFailedTests === 0,
-    nativeMode ? 'both actual native census/EED guard cases must pass' : 'all thirty-three exact EED fixture cases must actually pass'
+    nativeMode ? 'both actual native census/EED guard cases must pass' : 'all forty-four exact EED fixture cases must actually pass'
   );
   need(
     hash(readFileSync(guardPath)) === hash(guardBytes),

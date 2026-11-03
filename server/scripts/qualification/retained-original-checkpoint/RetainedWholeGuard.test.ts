@@ -198,6 +198,17 @@ const wholeCases = [
   'shadow-retention-waiter',
   'shadow-newer-retained-sequence',
   'shadow-swapped-release-method',
+  'skew-engine',
+  'skew-manager',
+  'skew-host',
+  'skew-mixed-worker',
+  'skew-mixed-manager',
+  'skew-excess',
+  'skew-duplicate',
+  'skew-unsafe',
+  'skew-await-method',
+  'skew-await-worker',
+  'skew-await-host',
 ];
 it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) => {
   const sha = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
@@ -509,6 +520,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     lightningSupervisor,
     lightningWorker,
     lightningFormation,
+    lightningHost,
     base,
     engine,
     controller,
@@ -641,7 +653,87 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     expect(server.lightningHosting.pending.size).toBe(0);
     expect(server.lightningRooms.hosts.size).toBe(0);
   }
-  let census = [[server], objects, managers, [worker], detachedHosts];
+  const extraWorkers: any[] = [];
+  if (scenario.startsWith('skew-')) {
+    const kind =
+      scenario === 'skew-manager'
+        ? 'manager'
+        : ['skew-host', 'skew-await-host'].includes(scenario)
+          ? 'host'
+          : 'engine';
+    const target = scenario === 'skew-excess' ? 18001 : 18000;
+    if (scenario.includes('mixed-worker') || scenario === 'skew-await-worker') {
+      for (let i = 0; i < 8999; i++)
+        extraWorkers.push(
+          new lightningWorker.LightningClusterWorker(id(70), parseLightningConfig(null), {
+            rpc: {} as any,
+            presence: new LightningPresence(() => []),
+            frozen: freezeState.isMaintenanceFrozen,
+            formationGate: lightningFormation.lightningFormationGate,
+          })
+        );
+    }
+    if (scenario === 'skew-mixed-manager') {
+      for (let i = 0; i < 8990; i++) {
+        const x: any = actor.bindTournamentDataAuthorityMethods(
+          { tournamentId: id(60), leaseGeneration: id(61) },
+          new TournamentManager(id(60), server, id(61), performance.now() + 600000)
+        );
+        await x.stop();
+        managers.push(x);
+      }
+    }
+    while (
+      1 + objects.length + managers.length + 1 + extraWorkers.length + detachedHosts.length <
+      target
+    ) {
+      if (kind === 'manager') {
+        const detached: any = actor.bindTournamentDataAuthorityMethods(
+          { tournamentId: id(60), leaseGeneration: id(61) },
+          new TournamentManager(id(60), server, id(61), performance.now() + 600000)
+        );
+        await detached.stop();
+        managers.push(detached);
+      } else if (kind === 'host') {
+        const host: any = new lightningHost.LightningHandHost(
+          {
+            clusterId: id(70),
+            instanceId: id(71),
+            handId: id(72),
+            bb: id(73),
+            sb: id(74),
+            btn: id(73),
+            players: [id(73), id(74)],
+            formedAtMs: now,
+          },
+          { backend: {} as any, hub: {} as any, leaseFor: () => null }
+        );
+        host.state = 'complete';
+        host.handEndReleased = true;
+        detachedHosts.push(host);
+      } else {
+        const shadow: any = m.createManagedTableEngine(originals[0].e.tableId);
+        held.push(shadow);
+        await shadow.stop();
+        objects.push(shadow);
+      }
+    }
+    if (scenario === 'skew-duplicate') objects[objects.length - 1] = objects[objects.length - 2];
+    if (scenario === 'skew-unsafe') objects[objects.length - 1].actionLock = true;
+    if (scenario === 'skew-await-method')
+      wire.onAttest = () => {
+        objects[objects.length - 1].hasReleasedProcessOwnership = () => true;
+      };
+    if (scenario === 'skew-await-worker')
+      wire.onAttest = () => {
+        extraWorkers[extraWorkers.length - 1].inFlight = Promise.resolve();
+      };
+    if (scenario === 'skew-await-host')
+      wire.onAttest = () => {
+        detachedHosts[detachedHosts.length - 1].keepaliveTimer = {};
+      };
+  }
+  let census = [[server], objects, managers, [worker, ...extraWorkers], detachedHosts];
   if (process.env.RETAINED_NATIVE_CENSUS_ADDON) {
     expect(process.version).toBe('v22.23.2');
     expect(process.versions.v8).toBe('12.4.254.21-node.56');
@@ -723,6 +815,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     }
     expect(Object.hasOwn(globalThis, key)).toBe(false);
   }
+  const guardStarted = performance.now();
   const result = await retainedOriginalCheckpointGuard.call(
     server,
     {
@@ -737,6 +830,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     scenario === 'lightning-missing-worker-census' ? [] : census[3],
     census[4]
   );
+  if (scenario.startsWith('skew-')) expect(performance.now() - guardStarted).toBeLessThan(20000);
   if (releaseFrontLease) {
     releaseFrontLease(false);
     await worker.stop();
@@ -751,7 +845,46 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       completedCalls: 0,
       verifiedTables: 0,
     });
-  if (!['positive', 'detached-drained', 'shadow-covered-permit'].includes(scenario)) {
+  if (
+    [
+      'skew-excess',
+      'skew-duplicate',
+      'skew-unsafe',
+      'skew-await-method',
+      'skew-await-worker',
+      'skew-await-host',
+    ].includes(scenario)
+  ) {
+    expect(result).toMatchObject({ ok: false, attemptedTables: 0, restartAuthorized: false });
+    for (const f of originals) expect(f.e.terminal).toBe(false);
+    expect(cash.terminal).toBe(false);
+    expect(result.reason).toBe(
+      scenario === 'skew-excess'
+        ? 'retained_aggregate_census_unproven'
+        : scenario === 'skew-duplicate'
+          ? 'retained_object_census_unproven'
+          : scenario === 'skew-await-method'
+            ? 'retained_method_changed'
+            : scenario === 'skew-await-worker'
+              ? 'retained_lightning_formation_unproven'
+              : scenario === 'skew-await-host'
+                ? 'retained_lightning_host_census_unproven'
+                : 'retained_unconfirmed_work'
+    );
+    return;
+  }
+  if (
+    ![
+      'positive',
+      'detached-drained',
+      'shadow-covered-permit',
+      'skew-engine',
+      'skew-manager',
+      'skew-host',
+      'skew-mixed-worker',
+      'skew-mixed-manager',
+    ].includes(scenario)
+  ) {
     expect(result, scenario).toMatchObject({
       ok: false,
       attemptedTables: 0,
