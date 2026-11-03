@@ -80,7 +80,7 @@ def fixture(e, template):
  e.sql(d, old.SEED + "UPDATE public.hand_history SET has_human=true; UPDATE public.profiles SET is_horse=false;", label='legacy-protected-human-history-and-financial-world')
  actor = digest('legacy-test-actor')
  scope = json.dumps(['adaptive-public-node-v1']+[None]*28,separators=(',',':'))
- def fact(hand, number, observed=1791068400000, origin='horse_policy'):
+ def fact(hand, number, observed=1791158390000, origin='horse_policy'):
   return json.dumps([1,hand+':'+str(number),hand,actor,'00000001'+'c'*56,observed,'training',digest(scope),scope,'call',True,origin],separators=(',',':'))
  def batch(name, rows):
   times=[json.loads(row)[5] for row in rows]
