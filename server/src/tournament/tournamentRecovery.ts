@@ -1,3 +1,4 @@
+import { readDurableTerminalRequest } from './terminalDurableRequest.js';
 import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
 
 /**
@@ -223,6 +224,9 @@ export async function recoverStuckCompletingTournaments(
       if (isMaintenanceFrozen()) continue;
       try {
         const tournament = candidate;
+        // The original manager admission owns durable terminal continuation.
+        // Legacy recovery may never reconstruct a replacement request for it.
+        if (await readDurableTerminalRequest(tournament.id)) continue;
         if (tournament.status !== 'COMPLETING')
           throw new Error('Terminal recovery did not read COMPLETING authority');
         const isSatellite = satellite(tournament);

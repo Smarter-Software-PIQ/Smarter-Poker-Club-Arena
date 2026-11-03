@@ -2762,6 +2762,20 @@ jobs:
         env:
           PGBIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/probe-departure-postgres.sh
+      - name: Tournament finish leaves the union cash-hand wallet available
+        id: finish_union_wallet
+        if: matrix.shard == 3
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-a-finish-does-not-hold-the-union-wallet.py
+      - name: Retain finish and cash-hand lock evidence
+        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.finish_union_wallet.outcome)
+        uses: actions/upload-artifact@v4
+        with:
+          name: finish-union-wallet-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/finish-union-wallet-lock/
+          if-no-files-found: error
+          retention-days: 7
       - name: Accepted eliminations preserve parked source custody
         id: f06_accepted_elimination
         if: matrix.shard == 3

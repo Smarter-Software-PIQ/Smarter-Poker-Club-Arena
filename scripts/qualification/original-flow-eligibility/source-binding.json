@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 276110,
-      "sha256": "d7e5d2f9ec932ee89ec040211a7dbf259f794f860caef61db8e3aded3bada90a"
+      "bytes": 276833,
+      "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
     },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
@@ -728,7 +728,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -2434,6 +2434,17 @@
       }
     ]
   },
+  "finishUnionNativeEnforcement20261103": {
+    "reason": "Reviewed additive required accounting shard3 union-finish/cash-hand contention step and isolated-input routing. Runtime financial authorities, existing assertions and historical qualification outcomes unchanged. This is source identity, not financial recertification or live proof.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previousSHA256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e",
+        "currentSHA256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
   "fixedLimitQualificationWiring20261103": {
     "reason": "Add one native PostgreSQL fixed-limit policy regression to existing accounting shard3. All existing financial commands, assertions, matrices and gates remain unchanged. Current workflow source identity only; no financial or live certificate restamp.",
     "changes": {
@@ -2448,5 +2459,23 @@
         }
       }
     }
+  },
+  "tournamentRecoveryProtectedCashComposition20261103": {
+    "source": "Protected main 2e978404745d8e89f632205c954497c5e1c2dc69 adds fixed-limit native CI beside retained tournament recovery and union contention qualification.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "prior": {
+          "bytes": 276540,
+          "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+        },
+        "current": {
+          "bytes": 276833,
+          "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

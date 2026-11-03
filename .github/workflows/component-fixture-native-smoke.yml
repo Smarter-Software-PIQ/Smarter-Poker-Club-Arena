@@ -78,11 +78,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.23.2'
+      - name: Install locked native alert transport dependencies
+        if: ${{ !inputs.connected_ui_observations }}
+        run: npm ci --prefix tools/production-alerts-native-wakeup --ignore-scripts --no-audit --no-fund
       - name: Native alert intake survives actual process death without duplicate queue submission
         if: ${{ !inputs.connected_ui_observations }}
         env:
           TMPDIR: ${{ runner.temp }}
-        run: node --test tools/production-alerts-native-wakeup/state.test.mjs
+        run: node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs
       - name: Install locked fixture test dependencies on the disposable CI runner
         run: npm ci --prefix operations/release/fixture --ignore-scripts --no-audit --no-fund
       - name: Compile the actual engine for isolated EV actors

@@ -32,6 +32,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -52,7 +53,10 @@ def find_pg_bin():
 pg = find_pg_bin()
 env = {k: v for k, v in os.environ.items() if not k.startswith('PG')}
 env['LC_ALL'] = 'C'
-cluster = Path(tempfile.mkdtemp(prefix='finish-union-wallet-', dir='/tmp'))
+scratch = Path(os.environ.get('RUNNER_TEMP') or os.environ.get('TMPDIR') or tempfile.gettempdir()).resolve()
+if sys.platform == 'darwin' and not scratch.is_relative_to('/Volumes/SmarterWork/agent-work'):
+    raise RuntimeError('Set TMPDIR to an owned external SSD scratch directory before native qualification')
+cluster = Path(tempfile.mkdtemp(prefix='fuw-', dir=scratch))
 socket = cluster / 'socket'
 socket.mkdir(mode=0o700)
 PORT = '55704'

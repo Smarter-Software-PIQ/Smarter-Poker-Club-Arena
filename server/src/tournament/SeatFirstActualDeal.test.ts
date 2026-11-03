@@ -16,7 +16,13 @@ const { from, rpc, reportError } = vi.hoisted(() => ({
 }));
 vi.mock('../services/supabase/client.js', () => ({
   supabase: { from, rpc },
-  maintenanceSupabase: {},
+  maintenanceSupabase: {
+    rpc: vi.fn(async (name: string, args: { p_tournament_id: string }) => {
+      if (name !== 'fn_read_tournament_terminal_request')
+        throw new Error('Unexpected maintenance RPC: ' + name);
+      return { data: { ok: true, found: false, tournament_id: args.p_tournament_id }, error: null };
+    }),
+  },
 }));
 vi.mock('../services/errorReporter.js', () => ({ reportError }));
 

@@ -106,3 +106,20 @@ authoritative evidence. Existing operation owners, original hands/chips,
 idempotent financial paths, required checks and protected provider delivery
 remain mandatory. Neither the receive plugin nor a timer performs repairs or
 releases. Unread/deferred evidence cannot authorize a repair.
+
+## Lifecycle evidence
+
+Status distinguishes starting, active, degraded, stopping, stopped and start_failed
+from the retained queue snapshot. A stopped service never reports a stale live
+subscription. Generation fencing ignores callbacks from its previous service.
+A terminal protocol CLOSED removes the channel from the SDK; one such event per
+service lifetime creates one fresh private subscription and reads the original
+pending batch. A repeated terminal close before successful subscription and original pending read is explicitly degraded, requiring finite inspection. A proven recovery restores the attempt for the next independent disconnection. Ordinary transport errors retain the SDK's protocol reconnect. No
+timer or new queue retry is introduced. Stop drains any accepted intake before
+releasing the journal, including when transport removal fails.
+
+`serviceActive` reports the current subscription lifecycle, not complete delivery
+health. Inspect `lastError` and the original receipt/read/ACK evidence separately.
+A later successful inbox/ACK read on the same subscribed channel can complete a
+previously failed pending-read episode; a failed start invalidates callbacks
+before transport cleanup and cannot resubscribe over a released journal.
