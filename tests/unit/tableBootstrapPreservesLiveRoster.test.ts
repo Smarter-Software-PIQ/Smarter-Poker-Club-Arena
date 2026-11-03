@@ -1,3 +1,4 @@
+import { cashAutoTopUpTarget } from '../../src/lib/cashBuyIn';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
@@ -45,6 +46,7 @@ function bootstrapHarness() {
     reportError: vi.fn(),
     parseTableArenaIdentity: () => ({ asset: 'chips', id: 'club-a' }),
     cashBuyInRange: () => ({ min: 10, max: 100 }),
+    cashAutoTopUpTarget,
     formatGameTitle: (name: string) => name,
     formatBlindPair: (small: number, big: number) => `${small}/${big}`,
     createEmptySeats: (width: number) => Array(width).fill(null),
