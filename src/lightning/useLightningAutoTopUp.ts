@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { cashBuyInRange } from '../lib/cashBuyIn';
+import { cashAutoTopUpTarget } from '../lib/cashBuyIn';
 import { parseTableArenaIdentity } from '../../server/src/domain/ArenaContext';
 import { reportError } from '../utils/errorReporter';
 import { parseLightningMySession, type LightningPoolEntry } from './lightningSession';
@@ -56,7 +56,7 @@ export async function readLightningTopUp(
   const table = await supabase
     .from('tables')
     .select(
-      'id,cluster_id,tournament_id,big_blind,min_buy_in,max_buy_in,club_id,union_id,arena:clubs!fk_tables_club_id(id,asset,is_platform,union_id)'
+      'id,cluster_id,tournament_id,game_variant,big_blind,min_buy_in,max_buy_in,club_id,union_id,arena:clubs!fk_tables_club_id(id,asset,is_platform,union_id)'
     )
     .eq('id', session.anchorTableId)
     .maybeSingle();
@@ -70,7 +70,7 @@ export async function readLightningTopUp(
     parseTableArenaIdentity(t).asset !== 'chips'
   )
     return null;
-  const maximum = cashBuyInRange(t).max;
+  const maximum = cashAutoTopUpTarget(t);
   if (!Number.isFinite(maximum) || maximum <= 0) return null;
   return { stack: session.stack, maximum };
 }

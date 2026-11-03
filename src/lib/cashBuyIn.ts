@@ -253,3 +253,13 @@ export function cashBuyInRefusalText(raw: unknown): string | null {
   if (/No club wallet resolves/i.test(m)) return 'No Club Wallet Was Found For You At This Table';
   return null;
 }
+
+/** A voluntary refill target, independent of an unlimited table's admission cap.
+ * Enabling Auto Top Up retains the existing 200 actual-BB target for limit.
+ */
+export function cashAutoTopUpTarget(row: CashBuyInSource): number {
+  const range = cashBuyInRange(row);
+  if (!range.unlimited) return range.max;
+  const bb = positive(row.big_blind);
+  return bb > 0 ? Math.max(range.min, Math.round(bb * CASH_MAX_BB * 100) / 100) : 0;
+}

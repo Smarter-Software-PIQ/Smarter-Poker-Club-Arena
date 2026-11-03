@@ -221,7 +221,12 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
 import { useButtonImage } from '../hooks/useButtonImage';
 
-import { cashBuyInRange, cashBuyInRefusalText, cashBuyInSeatConflictText } from '../lib/cashBuyIn';
+import {
+  cashAutoTopUpTarget,
+  cashBuyInRange,
+  cashBuyInRefusalText,
+  cashBuyInSeatConflictText,
+} from '../lib/cashBuyIn';
 import {
   cashBuyInJournal,
   executeCashBuyIn,
@@ -764,6 +769,8 @@ interface TableState {
   blinds: string;
   minBuyIn: number;
   maxBuyIn: number;
+  autoTopUpTarget?: number;
+  autoTopUpTargetTableId?: string;
   /**
    * SEATS AT THIS TABLE. A PLAIN NUMBER, because that is what it is
    * (Dan 2026-08-31, phase 1 of the seat-truth contract).
@@ -14703,6 +14710,13 @@ function LiveTablePage({
               min_buy_in: table.min_buy_in,
               max_buy_in: table.max_buy_in,
             }).min,
+            autoTopUpTargetTableId: table.id,
+            autoTopUpTarget: cashAutoTopUpTarget({
+              game_variant: table.game_variant,
+              big_blind: table.big_blind,
+              min_buy_in: table.min_buy_in,
+              max_buy_in: table.max_buy_in,
+            }),
             maxBuyIn: cashBuyInRange({
               game_variant: table.game_variant,
               big_blind: table.big_blind,
@@ -26591,7 +26605,10 @@ function LiveTablePage({
         !tableState.isTournament &&
         !autoTopUpInFlightRef.current
       ) {
-        const maxBuyIn = tableState.maxBuyIn;
+        const maxBuyIn =
+          tableState.autoTopUpTargetTableId === tableId
+            ? (tableState.autoTopUpTarget ?? tableState.maxBuyIn)
+            : tableState.maxBuyIn;
         const currentStack = Number(heroSeatData.stack);
 
         /* An unknown balance never auto-tops-up: spending on a number we
@@ -26705,6 +26722,8 @@ function LiveTablePage({
     tableState.arenaAsset,
     tableState.handNumber,
     tableState.maxBuyIn,
+    tableState.autoTopUpTarget,
+    tableState.autoTopUpTargetTableId,
     tableGameLightningState?.clusterMode,
     accountBalance,
     tableId,

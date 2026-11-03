@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cashBuyInRange, cashBuyInLabel } from '../../src/lib/cashBuyIn';
+import { cashAutoTopUpTarget, cashBuyInRange, cashBuyInLabel } from '../../src/lib/cashBuyIn';
 describe('fixed-limit has a minimum and no table maximum', () => {
   it.each(['flh', 'flo8'])('does not restore a 200BB cap for %s', (game_variant) => {
     expect(
@@ -18,4 +18,11 @@ describe('fixed-limit has a minimum and no table maximum', () => {
         cashBuyInRange({ game_variant, big_blind: 2, min_buy_in: 80, max_buy_in: 400 })
       ).toEqual({ min: 80, max: 400 });
   });
+});
+
+it('keeps the voluntary auto-top-up target in actual blinds while admission stays uncapped', () => {
+  const table = { game_variant: 'flh', big_blind: 2, min_buy_in: 80, max_buy_in: null };
+  expect(cashAutoTopUpTarget(table)).toBe(400);
+  expect(cashBuyInRange(table).max).toBe(0);
+  expect(cashAutoTopUpTarget({ ...table, big_blind: null })).toBe(0);
 });
