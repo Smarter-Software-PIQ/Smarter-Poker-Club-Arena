@@ -176,6 +176,12 @@ DECLARE
   v_anchor constant text := 'OR p_club_id = ANY (ARRAY[';
   v_n integer;
 BEGIN
+  -- Nothing to retire (an estate without the pilot or its horse rows): no swap.
+  IF NOT EXISTS (SELECT 1 FROM public.club_members cm JOIN public.profiles p ON p.id = cm.user_id AND p.is_horse
+                  WHERE cm.club_id = c_pilot AND cm.membership_lifecycle_status = 'active') THEN
+    RAISE NOTICE 'pilot retirement: no active horse membership in the pilot';
+    RETURN;
+  END IF;
   IF (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.fn_ca_house_board_allows_automation(uuid)'::regprocedure)
      <> 'e9f2cebe69872f747dd84a933746f02e' THEN
     RAISE EXCEPTION 'pilot retirement: house board function changed';
