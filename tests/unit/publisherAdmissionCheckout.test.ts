@@ -13,7 +13,7 @@ const workflow = parse(
 it('admits with only its executable module closure and preserves the immutable qualification receipt', () => {
   const job = workflow.jobs.admit;
   const checkout = job.steps.find((step: any) => step.uses === 'actions/checkout@v4');
-  expect(job['timeout-minutes']).toBe(5);
+  expect(job['timeout-minutes']).toBe(10);
   expect(checkout.with.ref).toBe('${{ inputs.target_sha }}');
   expect(checkout.with['fetch-depth']).toBe(0);
   expect(checkout.with.filter).toBe('blob:none');

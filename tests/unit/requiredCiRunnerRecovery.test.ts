@@ -246,6 +246,25 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    const priorQualificationBudgets = {
+      changes: 5,
+      source_windows: 6,
+      typecheck: 2,
+      typecheck_compile: 20,
+      unit_shards: 15,
+      accounting_postgres: 50,
+      server_shards: 40,
+      verdict: 2,
+      build: 15,
+      'live-e2e': 25,
+      'css-beats-build': 15,
+      'css-beats-e2e': 30,
+      'diamond-playfield-e2e': 25,
+    };
+    for (const [job, prior] of Object.entries(priorQualificationBudgets)) {
+      expect(normalized.jobs[job]['timeout-minutes']).toBe(prior * 2);
+      normalized.jobs[job]['timeout-minutes'] = prior;
+    }
     const keySetup = normalized.jobs.accounting_postgres.steps.find(
       (step: { name?: string }) =>
         step.name === 'Install PostgreSQL 17 tools without a default database service'

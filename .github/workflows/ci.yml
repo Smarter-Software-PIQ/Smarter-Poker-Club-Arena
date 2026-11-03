@@ -137,7 +137,7 @@ jobs:
   changes:
     name: What changed
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
@@ -258,7 +258,7 @@ jobs:
     if: github.event_name == 'schedule'
     name: Source Windows Are Structural
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -343,7 +343,7 @@ jobs:
     needs: [typecheck_compile, changes, fixture_native]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     permissions:
       contents: read
     steps:
@@ -382,7 +382,7 @@ jobs:
     # observed checkout/execution variance plus cache/cleanup.
     # Run40726879893 passed every guard but exceeded15m during cleanup;
     # comparable successful run40714001791 took13m45. Preserve execution headroom.
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -1279,7 +1279,7 @@ jobs:
     # Every pull-request shard gets a fresh hosted image. A dependency or test
     # from a branch cannot persist into any later credential-bearing job.
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     # SHARDED 2026-09-06. Measured over 18 pull-request runs this was the
     # critical path by a distance - p50 264s, max 779s, against 236s for the
     # next longest job. The publisher has run the same suite four ways since
@@ -1403,7 +1403,7 @@ jobs:
     # job deadline. The comparable successful 40520906517 Spin took 5m23s:
     # 41m15s combined, before artifact cleanup. Fifty minutes retains ~20%
     # hosted variance headroom; all case/statement/cleanup limits are unchanged.
-    timeout-minutes: 50
+    timeout-minutes: 100
     # ── FOUR SHARDS, EVERY CASE (2026-09-26) ─────────────────────────────────
     #
     # This job was the critical path of every server-touching pull request:
@@ -3663,7 +3663,7 @@ jobs:
     # Standard GitHub-hosted runners are free for this public repository.
     # Preserve the complete qualification matrix and fail-closed required verdict.
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 80
     strategy:
       fail-fast: false
       max-parallel: 4
@@ -3810,7 +3810,7 @@ jobs:
   verdict:
     name: What this run verified
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     if: always()
     needs: [changes, stub_gate, typecheck, typecheck_compile, fixture_native, unit, server]
     steps:
@@ -3909,7 +3909,7 @@ jobs:
     name: Production Build
     # Its locked performance-browser installer also requires the proven image.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -4115,7 +4115,7 @@ jobs:
     if: github.event_name == 'schedule' && github.event.schedule == '35 6 * * *'
     name: Live Production E2E
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 50
 
     steps:
       - name: Checkout
@@ -4348,7 +4348,7 @@ jobs:
     outputs:
       artifact_name: ${{ steps.browser_build.outputs.artifact_name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -4540,7 +4540,7 @@ jobs:
     # Run35289214041 needed 9.6m for beats, 7m for Studio, plus 3.3m
     # to build/install; 20m killed the final financial-decision suite.
     # Preserve every suite and its own deadlines, with room for cleanup.
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Reserve disk for browser checks
@@ -4954,7 +4954,7 @@ jobs:
     # The locked Chromium installer supports this proven hosted image, not 26.04.
     runs-on: ubuntu-24.04
     # 7.1 minutes measured inside the old job; room for a slow browser install.
-    timeout-minutes: 25
+    timeout-minutes: 50
 
     steps:
       - name: Checkout

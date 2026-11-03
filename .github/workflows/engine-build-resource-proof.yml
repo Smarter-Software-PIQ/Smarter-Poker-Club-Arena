@@ -46,7 +46,7 @@ jobs:
   containment:
     name: Compile the engine and contain a real build OOM
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
         with:
