@@ -57,6 +57,7 @@ CREATE TABLE public.ca_horse_club_split_late_returns (
   bank_after numeric NOT NULL,
   returned_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+ALTER TABLE public.ca_horse_club_split_late_returns ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.ca_horse_club_split_late_returns FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.ca_horse_club_split_late_returns TO service_role;
 REVOKE ALL ON SEQUENCE public.ca_horse_club_split_late_returns_id_seq FROM PUBLIC, anon, authenticated, service_role;
